@@ -14,6 +14,16 @@
  * Her iki taraf istediği zaman mesaj gönderebilir.
  * Chat uygulamaları için ideal — yeni mesaj geldiğinde
  * polling (sürekli sorma) yerine server anında bildirir.
+ *
+ * React StrictMode Sorunu ve Çözümü:
+ * React 18 StrictMode development'ta component'leri mount → unmount → remount yapar.
+ * Bu, WS bağlantısının açılıp hemen kapatılıp tekrar açılmasına neden olur.
+ * Eski socket'in onclose callback'i hâlâ tetiklenebildiğinden, bağlantı sayısı
+ * kontrolsüz artabilir.
+ *
+ * Çözüm: Her effect invocation'a benzersiz bir "connectionId" atıyoruz.
+ * Socket callback'leri sadece kendi connectionId'si aktifse işlem yapıyor.
+ * Unmount'ta ID sıfırlanmaz, artırılır — böylece ID çakışması imkansız olur.
  */
 
 import { useEffect, useRef, useCallback } from "react";
@@ -57,93 +67,31 @@ export function useWebSocket() {
   /** Reconnect timeout ID'si */
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** Component mount durumu — unmount sonrası reconnect engellenir */
-  const isMountedRef = useRef<boolean>(true);
+  /**
+   * Monoton artan bağlantı ID'si — React StrictMode koruması.
+   *
+   * Her useEffect invocation'ı kendi benzersiz ID'sini alır.
+   * Socket callback'leri (onclose, onmessage) sadece kendi ID'si
+   * hâlâ aktifse işlem yapar.
+   *
+   * NEDEN sıfırlama değil artırma?
+   * Sıfırlama yapılırsa (0'a set) remount'ta ++0=1 olur — bu ilk mount'taki
+   * ID (1) ile aynı! Eski socket'in geç gelen onclose'u eşleşir ve reconnect
+   * tetikler. Artırma ile ID'ler her zaman benzersiz kalır.
+   */
+  const activeConnectionIdRef = useRef<number>(0);
 
   /** Son typing gönderme zamanı: channelId → timestamp */
   const lastTypingRef = useRef<Map<string, number>>(new Map());
-
-  // Store handler'larını al — referanslar her render'da güncel kalır
-  const channelStore = useChannelStore;
-  const messageStore = useMessageStore;
-
-  /**
-   * connect — WebSocket bağlantısı kurar.
-   *
-   * useCallback ile sarılır çünkü useEffect'in dependency'si olarak kullanılır.
-   * Her render'da yeni fonksiyon oluşmasını önler.
-   */
-  const connect = useCallback(() => {
-    const token = getAccessToken();
-    if (!token || !isMountedRef.current) return;
-
-    // Mevcut bağlantı varsa kapat
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-
-    const socket = new WebSocket(`${WS_URL}?token=${token}`);
-    wsRef.current = socket;
-
-    // ─── onopen ───
-    socket.onopen = () => {
-      missedHeartbeatsRef.current = 0;
-
-      // Heartbeat interval başlat
-      heartbeatIntervalRef.current = setInterval(() => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ op: "heartbeat" }));
-          missedHeartbeatsRef.current++;
-
-          if (missedHeartbeatsRef.current >= WS_HEARTBEAT_MAX_MISS) {
-            // 3 heartbeat miss → bağlantı kopmuş, yeniden bağlan
-            socket.close();
-          }
-        }
-      }, WS_HEARTBEAT_INTERVAL);
-    };
-
-    // ─── onmessage ───
-    socket.onmessage = (event: MessageEvent) => {
-      let msg: WSMessage;
-      try {
-        msg = JSON.parse(event.data as string);
-      } catch {
-        return; // Parse edilemezse yoksay
-      }
-
-      // Seq tracking
-      if (msg.seq) {
-        lastSeqRef.current = msg.seq;
-      }
-
-      // Event routing — gelen event'i ilgili store handler'ına yönlendir
-      routeEvent(msg);
-    };
-
-    // ─── onclose ───
-    socket.onclose = () => {
-      cleanup();
-
-      // Otomatik reconnect — component hâlâ mount ise
-      if (isMountedRef.current) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
-        }, RECONNECT_DELAY);
-      }
-    };
-
-    // ─── onerror ───
-    socket.onerror = () => {
-      // onclose zaten tetiklenecek, burada ek işlem gerekmez
-    };
-  }, []);
 
   /**
    * routeEvent — Gelen WS event'ini op koduna göre ilgili store handler'ına yönlendirir.
    *
    * Bu fonksiyon WebSocket mesajlarının "switch/case" dağıtıcısıdır.
    * Her yeni event türü eklendiğinde buraya bir case eklenir.
+   *
+   * Store'lara doğrudan getState() ile erişiyoruz (Zustand).
+   * Bu, React render cycle'ından bağımsız çalışmamızı sağlar.
    */
   function routeEvent(msg: WSMessage) {
     switch (msg.op) {
@@ -154,35 +102,35 @@ export function useWebSocket() {
 
       // ─── Channel Events ───
       case "channel_create":
-        channelStore.getState().handleChannelCreate(msg.d as Channel);
+        useChannelStore.getState().handleChannelCreate(msg.d as Channel);
         break;
       case "channel_update":
-        channelStore.getState().handleChannelUpdate(msg.d as Channel);
+        useChannelStore.getState().handleChannelUpdate(msg.d as Channel);
         break;
       case "channel_delete":
-        channelStore.getState().handleChannelDelete((msg.d as { id: string }).id);
+        useChannelStore.getState().handleChannelDelete((msg.d as { id: string }).id);
         break;
 
       // ─── Category Events ───
       case "category_create":
-        channelStore.getState().handleCategoryCreate(msg.d as Category);
+        useChannelStore.getState().handleCategoryCreate(msg.d as Category);
         break;
       case "category_update":
-        channelStore.getState().handleCategoryUpdate(msg.d as Category);
+        useChannelStore.getState().handleCategoryUpdate(msg.d as Category);
         break;
       case "category_delete":
-        channelStore.getState().handleCategoryDelete((msg.d as { id: string }).id);
+        useChannelStore.getState().handleCategoryDelete((msg.d as { id: string }).id);
         break;
 
       // ─── Message Events ───
       case "message_create":
-        messageStore.getState().handleMessageCreate(msg.d as Message);
+        useMessageStore.getState().handleMessageCreate(msg.d as Message);
         break;
       case "message_update":
-        messageStore.getState().handleMessageUpdate(msg.d as Message);
+        useMessageStore.getState().handleMessageUpdate(msg.d as Message);
         break;
       case "message_delete":
-        messageStore.getState().handleMessageDelete(
+        useMessageStore.getState().handleMessageDelete(
           msg.d as { id: string; channel_id: string }
         );
         break;
@@ -190,17 +138,21 @@ export function useWebSocket() {
       // ─── Typing ───
       case "typing_start": {
         const data = msg.d as { channel_id: string; username: string };
-        messageStore.getState().handleTypingStart(data.channel_id, data.username);
+        useMessageStore.getState().handleTypingStart(data.channel_id, data.username);
         break;
       }
     }
   }
 
-  /** cleanup — Interval ve timeout'ları temizler */
-  function cleanup() {
+  /** cleanupTimers — Interval ve timeout'ları temizler */
+  function cleanupTimers() {
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
   }
 
@@ -229,17 +181,133 @@ export function useWebSocket() {
 
   // ─── Effect: Mount/unmount lifecycle ───
   useEffect(() => {
-    isMountedRef.current = true;
-    connect();
+    /**
+     * Bu effect her mount'ta çalışır.
+     * myId, bu effect invocation'ına özel benzersiz bir tanımlayıcı.
+     * Tüm socket callback'leri myId'yi closure ile yakalar.
+     *
+     * StrictMode akışı:
+     * 1. mount  → myId=1, socket A açılır
+     * 2. unmount → activeConnectionIdRef++=2, socket A kapatılır
+     * 3. remount → myId=3, socket B açılır
+     * 4. Socket A'nın geç gelen onclose'u: activeRef(3) !== myId(1) → SKIP
+     *
+     * ID'ler: 1, 2(invalidate), 3 — çakışma imkansız.
+     */
+    const myId = ++activeConnectionIdRef.current;
+
+    /**
+     * doConnect — Bu effect scope'u içinde WS bağlantısı kurar.
+     *
+     * Neden useCallback yerine burada tanımlanıyor?
+     * - myId'yi closure ile yakalar — her effect invocation'ı kendi ID'sini bilir
+     * - Reconnect'te aynı myId'yi kullanır — effect scope boyunca tutarlı
+     * - useCallback'in stale closure riski yok
+     */
+    function doConnect() {
+      const token = getAccessToken();
+      if (!token || activeConnectionIdRef.current !== myId) return;
+
+      // Önceki bağlantıyı ve timer'ları temizle
+      cleanupTimers();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+
+      const socket = new WebSocket(`${WS_URL}?token=${token}`);
+      wsRef.current = socket;
+
+      // ─── onopen ───
+      socket.onopen = () => {
+        // Stale socket kontrolü
+        if (activeConnectionIdRef.current !== myId) return;
+
+        missedHeartbeatsRef.current = 0;
+
+        // Heartbeat interval başlat
+        heartbeatIntervalRef.current = setInterval(() => {
+          if (activeConnectionIdRef.current !== myId) {
+            // Bu interval artık stale — temizle
+            clearInterval(heartbeatIntervalRef.current!);
+            return;
+          }
+
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ op: "heartbeat" }));
+            missedHeartbeatsRef.current++;
+
+            if (missedHeartbeatsRef.current >= WS_HEARTBEAT_MAX_MISS) {
+              // 3 heartbeat miss → bağlantı kopmuş, yeniden bağlan
+              socket.close();
+            }
+          }
+        }, WS_HEARTBEAT_INTERVAL);
+      };
+
+      // ─── onmessage ───
+      socket.onmessage = (event: MessageEvent) => {
+        // Stale socket kontrolü
+        if (activeConnectionIdRef.current !== myId) return;
+
+        let msg: WSMessage;
+        try {
+          msg = JSON.parse(event.data as string);
+        } catch {
+          return; // Parse edilemezse yoksay
+        }
+
+        // Seq tracking
+        if (msg.seq) {
+          lastSeqRef.current = msg.seq;
+        }
+
+        // Event routing — gelen event'i ilgili store handler'ına yönlendir
+        routeEvent(msg);
+      };
+
+      // ─── onclose ───
+      socket.onclose = () => {
+        /**
+         * Stale socket kontrolü — KRITIK NOKTA.
+         *
+         * Bu socket'in myId'si artık aktif değilse (başka bir connect çalışıyorsa
+         * veya component unmount olduysa), reconnect tetikleme.
+         */
+        if (activeConnectionIdRef.current !== myId) return;
+
+        cleanupTimers();
+
+        // Otomatik reconnect — aynı myId ile doConnect'i çağır
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (activeConnectionIdRef.current === myId) {
+            doConnect();
+          }
+        }, RECONNECT_DELAY);
+      };
+
+      // ─── onerror ───
+      socket.onerror = () => {
+        // onclose zaten tetiklenecek, burada ek işlem gerekmez
+      };
+    }
+
+    doConnect();
 
     return () => {
-      isMountedRef.current = false;
+      /**
+       * Unmount cleanup:
+       * activeConnectionIdRef'i ARTIRIYORUZ (sıfırlamıyoruz!).
+       * Bu sayede eski socket'in geç gelen onclose callback'i myId ile eşleşemez.
+       *
+       * Örnek: myId=3 iken unmount → activeRef=4
+       * Eski onclose: activeRef(4) !== myId(3) → reconnect YAPILMAZ
+       * Yeni mount: myId=5 → çakışma yok
+       */
+      activeConnectionIdRef.current++;
 
       // Tüm timer'ları temizle
-      cleanup();
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
+      cleanupTimers();
 
       // WebSocket bağlantısını kapat
       if (wsRef.current) {
@@ -247,7 +315,7 @@ export function useWebSocket() {
         wsRef.current = null;
       }
     };
-  }, [connect]);
+  }, []);
 
   return { sendTyping };
 }
