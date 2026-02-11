@@ -34,7 +34,7 @@ type AuthService interface {
 	Login(ctx context.Context, req *models.LoginRequest) (*AuthTokens, error)
 	RefreshToken(ctx context.Context, refreshToken string) (*AuthTokens, error)
 	Logout(ctx context.Context, refreshToken string) error
-	ValidateAccessToken(tokenString string) (*TokenClaims, error)
+	ValidateAccessToken(tokenString string) (*models.TokenClaims, error)
 }
 
 // AuthTokens, login/register sonrası dönen token çifti.
@@ -42,21 +42,6 @@ type AuthTokens struct {
 	AccessToken  string      `json:"access_token"`
 	RefreshToken string      `json:"refresh_token"`
 	User         models.User `json:"user"`
-}
-
-// TokenClaims, JWT token'ın içindeki veriler (payload).
-//
-// JWT (JSON Web Token) nedir?
-// Kullanıcı kimliğini doğrulamak için kullanılan, imzalanmış bir token.
-// 3 parçadan oluşur: header.payload.signature
-//
-// Payload'da kullanıcı ID'si ve token'ın expire süresi bulunur.
-// Server her request'te bu token'ı doğrular — DB'ye gitmeden
-// kullanıcının kim olduğunu bilir.
-type TokenClaims struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	jwt.RegisteredClaims
 }
 
 // authService, AuthService interface'inin implementasyonu.
@@ -260,10 +245,10 @@ func (s *authService) Logout(ctx context.Context, refreshToken string) error {
 
 // ValidateAccessToken, JWT access token'ı doğrular ve claims'i döner.
 // Middleware tarafından her request'te çağrılır.
-func (s *authService) ValidateAccessToken(tokenString string) (*TokenClaims, error) {
+func (s *authService) ValidateAccessToken(tokenString string) (*models.TokenClaims, error) {
 	// jwt.ParseWithClaims: Token string'ini parse edip signature'ı doğrular.
 	// keyFunc: imzayı doğrulamak için kullanılacak secret'ı döner.
-	token, err := jwt.ParseWithClaims(tokenString, &TokenClaims{}, func(token *jwt.Token) (any, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &models.TokenClaims{}, func(token *jwt.Token) (any, error) {
 		// Signing method kontrolü — sadece HMAC kabul ediyoruz
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -275,7 +260,7 @@ func (s *authService) ValidateAccessToken(tokenString string) (*TokenClaims, err
 		return nil, fmt.Errorf("%w: invalid token", pkg.ErrUnauthorized)
 	}
 
-	claims, ok := token.Claims.(*TokenClaims)
+	claims, ok := token.Claims.(*models.TokenClaims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("%w: invalid token claims", pkg.ErrUnauthorized)
 	}
@@ -289,7 +274,7 @@ func (s *authService) ValidateAccessToken(tokenString string) (*TokenClaims, err
 func (s *authService) generateTokens(ctx context.Context, user *models.User) (*AuthTokens, error) {
 	// Access token oluştur
 	now := time.Now()
-	accessClaims := &TokenClaims{
+	accessClaims := &models.TokenClaims{
 		UserID:   user.ID,
 		Username: user.Username,
 		RegisteredClaims: jwt.RegisteredClaims{

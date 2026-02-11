@@ -12,24 +12,25 @@
  * │ User bar (alt)  │                         │                    │
  * └─────────────────────────────────────────────────────────────┘
  *
- * Tailwind flex layout kullanıyoruz:
- * - Sidebar: sabit genişlik (w-[240px])
- * - ChatArea: kalan alanı doldurur (flex-1)
- * - MemberList: sabit genişlik (w-[240px]), toggle ile gizlenebilir
+ * useWebSocket hook'u burada çağrılır — tüm WS event'leri
+ * bu noktadan store'lara yönlendirilir.
  */
 
 import Sidebar from "./Sidebar";
 import ChatArea from "./ChatArea";
 import MemberList from "./MemberList";
+import { useWebSocket } from "../../hooks/useWebSocket";
 
 function AppLayout() {
+  const { sendTyping } = useWebSocket();
+
   return (
     <div className="flex h-full">
       {/* Sol sidebar — kanal listesi */}
       <Sidebar />
 
       {/* Orta alan — mesajlar */}
-      <ChatArea />
+      <ChatArea sendTyping={sendTyping} />
 
       {/* Sağ panel — üye listesi */}
       <MemberList />

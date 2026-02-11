@@ -50,6 +50,15 @@ export type Category = {
   position: number;
 };
 
+/**
+ * CategoryWithChannels — Sidebar'da kullanılan gruplu yapı.
+ * Backend GET /api/channels endpoint'i bu formatta döner.
+ */
+export type CategoryWithChannels = {
+  category: Category;
+  channels: Channel[];
+};
+
 // ──────────────────────────────────
 // Message
 // ──────────────────────────────────
@@ -71,6 +80,15 @@ export type Attachment = {
   file_url: string;
   file_size: number | null;
   mime_type: string | null;
+};
+
+/**
+ * MessagePage — Cursor-based pagination response.
+ * Backend GET /api/channels/{id}/messages endpoint'i bu formatta döner.
+ */
+export type MessagePage = {
+  messages: Message[];
+  has_more: boolean;
 };
 
 // ──────────────────────────────────

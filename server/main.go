@@ -6,13 +6,14 @@
 //   3.  i18n çevirilerini yükle
 //   4.  Upload dizinini oluştur
 //   5.  Repository'leri oluştur (DB bağlantısı ile)
-//   6.  Service'leri oluştur (repository'ler ile)
-//   7.  Handler'ları oluştur (service'ler ile)
-//   8.  Middleware'ları oluştur (service + repo'lar ile)
-//   9.  HTTP router'ı kur, route'ları bağla
-//  10.  CORS yapılandır
-//  11.  HTTP Server'ı başlat
-//  12.  Graceful shutdown
+//   6.  WebSocket Hub'ı başlat
+//   7.  Service'leri oluştur (repository'ler + hub ile)
+//   8.  Handler'ları oluştur (service'ler ile)
+//   9.  Middleware'ları oluştur (service + repo'lar ile)
+//  10.  HTTP router'ı kur, route'ları bağla
+//  11.  CORS yapılandır
+//  12.  HTTP Server'ı başlat
+//  13.  Graceful shutdown
 //
 // Global değişken YOK — her şey bu fonksiyonda oluşturulup birbirine bağlanıyor.
 package main
@@ -26,6 +27,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,9 +35,11 @@ import (
 	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/handlers"
 	"github.com/akinalp/mqvi/middleware"
+	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
+	"github.com/akinalp/mqvi/ws"
 	"github.com/rs/cors"
 )
 
@@ -62,9 +66,6 @@ func main() {
 	defer db.Close()
 
 	// ─── 3. i18n (Çoklu Dil Desteği) ───
-	// Backend tarafında API error mesajları kullanıcının diline göre döner.
-	// Çeviri dosyaları server/pkg/i18n/locales/ altında: en.json, tr.json
-	// i18n.Load sadece bir kere çalışır (sync.Once ile korunur).
 	localesDir := filepath.Join(baseDir, "pkg", "i18n", "locales")
 	if err := i18n.Load(localesDir); err != nil {
 		log.Fatalf("[main] failed to load i18n translations: %v", err)
@@ -76,15 +77,25 @@ func main() {
 	}
 
 	// ─── 5. Repository Layer ───
-	// Her repository, *sql.DB alır ve interface döner.
-	// Concrete struct değil interface döndüğüne dikkat — Dependency Inversion.
 	userRepo := repository.NewSQLiteUserRepo(db.Conn)
 	sessionRepo := repository.NewSQLiteSessionRepo(db.Conn)
 	roleRepo := repository.NewSQLiteRoleRepo(db.Conn)
+	channelRepo := repository.NewSQLiteChannelRepo(db.Conn)
+	categoryRepo := repository.NewSQLiteCategoryRepo(db.Conn)
+	messageRepo := repository.NewSQLiteMessageRepo(db.Conn)
+	attachmentRepo := repository.NewSQLiteAttachmentRepo(db.Conn)
 
-	// ─── 6. Service Layer ───
-	// Service'ler repository interface'lerini alır.
-	// Böylece test'te mock repository verebiliriz.
+	// ─── 6. WebSocket Hub ───
+	//
+	// Hub, tüm WebSocket bağlantılarını yöneten merkezi yapıdır.
+	// `go hub.Run()` ayrı bir goroutine'de event loop başlatır:
+	// register/unregister channel'larını dinler ve client map'ini günceller.
+	// Hub aynı zamanda EventPublisher interface'ini implement eder —
+	// service'ler hub'a doğrudan bağımlı olmak yerine interface üzerinden erişir.
+	hub := ws.NewHub()
+	go hub.Run()
+
+	// ─── 7. Service Layer ───
 	authService := services.NewAuthService(
 		userRepo,
 		sessionRepo,
@@ -94,13 +105,23 @@ func main() {
 		cfg.JWT.RefreshTokenExpiry,
 	)
 
-	// ─── 7. Handler Layer ───
+	channelService := services.NewChannelService(channelRepo, categoryRepo, hub)
+	categoryService := services.NewCategoryService(categoryRepo, hub)
+	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, hub)
+	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
+
+	// ─── 8. Handler Layer ───
 	authHandler := handlers.NewAuthHandler(authService)
+	channelHandler := handlers.NewChannelHandler(channelService)
+	categoryHandler := handlers.NewCategoryHandler(categoryService)
+	messageHandler := handlers.NewMessageHandler(messageService, uploadService, cfg.Upload.MaxSize)
+	wsHandler := ws.NewHandler(hub, authService)
 
-	// ─── 8. Middleware ───
+	// ─── 9. Middleware ───
 	authMiddleware := middleware.NewAuthMiddleware(authService, userRepo)
+	permMiddleware := middleware.NewPermissionMiddleware(roleRepo)
 
-	// ─── 9. HTTP Router ───
+	// ─── 10. HTTP Router ───
 	mux := http.NewServeMux()
 
 	// Health check
@@ -118,7 +139,69 @@ func main() {
 	// Protected endpoint'ler — authMiddleware.Require() sarar
 	mux.Handle("GET /api/users/me", authMiddleware.Require(http.HandlerFunc(authHandler.Me)))
 
-	// ─── 10. CORS ───
+	// Channels — List herkese açık, CUD için MANAGE_CHANNELS yetkisi gerekir
+	mux.Handle("GET /api/channels", authMiddleware.Require(
+		http.HandlerFunc(channelHandler.List)))
+	mux.Handle("POST /api/channels", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Create))))
+	mux.Handle("PATCH /api/channels/{id}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Update))))
+	mux.Handle("DELETE /api/channels/{id}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Delete))))
+
+	// Categories — List herkese açık, CUD için MANAGE_CHANNELS yetkisi gerekir
+	mux.Handle("GET /api/categories", authMiddleware.Require(
+		http.HandlerFunc(categoryHandler.List)))
+	mux.Handle("POST /api/categories", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(categoryHandler.Create))))
+	mux.Handle("PATCH /api/categories/{id}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(categoryHandler.Update))))
+	mux.Handle("DELETE /api/categories/{id}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(categoryHandler.Delete))))
+
+	// Messages — tüm authenticated kullanıcılar mesaj okuyup yazabilir
+	mux.Handle("GET /api/channels/{id}/messages", authMiddleware.Require(
+		http.HandlerFunc(messageHandler.List)))
+	mux.Handle("POST /api/channels/{id}/messages", authMiddleware.Require(
+		http.HandlerFunc(messageHandler.Create)))
+	mux.Handle("PATCH /api/messages/{id}", authMiddleware.Require(
+		http.HandlerFunc(messageHandler.Update)))
+	mux.Handle("DELETE /api/messages/{id}", authMiddleware.Require(
+		http.HandlerFunc(messageHandler.Delete)))
+
+	// Upload — bağımsız dosya yükleme endpoint'i
+	mux.Handle("POST /api/upload", authMiddleware.Require(
+		http.HandlerFunc(messageHandler.Upload)))
+
+	// Static file serving — yüklenen dosyalara erişim
+	//
+	// http.StripPrefix: URL'den "/api/uploads/" kısmını çıkarır.
+	// http.FileServer: Kalan path'i upload dizininde dosya olarak arar.
+	// Örnek: GET /api/uploads/abc123_photo.jpg → ./data/uploads/abc123_photo.jpg
+	//
+	// Path traversal koruması:
+	// http.FileServer zaten ".." path'lerini reddeder.
+	// Ek güvenlik için sadece dosya isimlerini kabul edip subdirectory'leri reddediyoruz.
+	uploadsHandler := http.StripPrefix("/api/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Güvenlik: sadece düz dosya isimlerini kabul et, subdirectory traversal'ı engelle
+		if strings.Contains(r.URL.Path, "/") || strings.Contains(r.URL.Path, "\\") {
+			http.NotFound(w, r)
+			return
+		}
+		http.FileServer(http.Dir(cfg.Upload.Dir)).ServeHTTP(w, r)
+	}))
+	mux.Handle("GET /api/uploads/", uploadsHandler)
+
+	// WebSocket — token query parameter ile authenticate edilir
+	//
+	// Neden auth middleware kullanmıyoruz?
+	// WebSocket upgrade sırasında tarayıcılar custom HTTP header gönderemez.
+	// Bu yüzden JWT token URL query parameter olarak gönderilir:
+	//   ws://server/ws?token=JWT_TOKEN
+	// WS handler kendi içinde token doğrulaması yapar.
+	mux.HandleFunc("GET /ws", wsHandler.HandleConnection)
+
+	// ─── 11. CORS ───
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins: []string{
 			"http://localhost:3000",  // Vite dev server
@@ -128,12 +211,12 @@ func main() {
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
-		Debug:            false, // true yaparsan CORS debug logları görürsün
+		Debug:            false,
 	})
 
 	handler := corsHandler.Handler(mux)
 
-	// ─── 11. HTTP Server ───
+	// ─── 12. HTTP Server ───
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
 		Handler:      handler,
@@ -142,7 +225,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// ─── 12. Graceful Shutdown ───
+	// ─── 13. Graceful Shutdown ───
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
@@ -155,6 +238,11 @@ func main() {
 
 	<-done
 	log.Println("[main] shutting down...")
+
+	// Önce WebSocket bağlantılarını kapat — client'lar "server shutting down" bilir.
+	// Sonra HTTP server'ı kapat — yeni request kabul etmeyi durdurur,
+	// mevcut request'lerin bitmesini bekler (5sn timeout).
+	hub.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

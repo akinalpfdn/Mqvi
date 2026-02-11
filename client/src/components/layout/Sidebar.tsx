@@ -10,9 +10,9 @@
 
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
+import ChannelList from "../channels/ChannelList";
 
 function Sidebar() {
-  const { t } = useTranslation("channels");
   const { t: tCommon } = useTranslation("common");
   const { t: tAuth } = useTranslation("auth");
   const user = useAuthStore((s) => s.user);
@@ -27,76 +27,8 @@ function Sidebar() {
         </h2>
       </div>
 
-      {/* ─── Channel List ─── */}
-      <nav className="flex-1 overflow-y-auto pb-4 pt-3">
-        {/* ── Text Channels Category ── */}
-        <div className="px-4 pb-1 pt-4">
-          <button className="flex w-full items-center gap-1 text-[11px] font-bold uppercase tracking-[0.02em] text-text-muted transition-colors hover:text-text-secondary">
-            <svg
-              className="h-3 w-3 shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
-            {t("textChannels")}
-          </button>
-        </div>
-
-        {/* Channel item */}
-        <div className="mx-2 mt-0.5">
-          <button className="flex h-[34px] w-full items-center gap-2 rounded-md px-2 text-channel-default transition-colors hover:bg-surface-hover hover:text-channel-hover">
-            <span className="shrink-0 text-xl leading-none opacity-70">#</span>
-            <span className="truncate text-[15px] font-medium">general</span>
-          </button>
-        </div>
-
-        {/* ── Voice Channels Category ── */}
-        <div className="px-4 pb-1 pt-5">
-          <button className="flex w-full items-center gap-1 text-[11px] font-bold uppercase tracking-[0.02em] text-text-muted transition-colors hover:text-text-secondary">
-            <svg
-              className="h-3 w-3 shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
-            {t("voiceChannels")}
-          </button>
-        </div>
-
-        {/* Voice channel item */}
-        <div className="mx-2 mt-0.5">
-          <button className="flex h-[34px] w-full items-center gap-2 rounded-md px-2 text-channel-default transition-colors hover:bg-surface-hover hover:text-channel-hover">
-            <svg
-              className="h-5 w-5 shrink-0 opacity-70"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15.536 8.464a5 5 0 010 7.072M12 6a7 7 0 010 14M8.464 8.464a5 5 0 000 7.072M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"
-              />
-            </svg>
-            <span className="truncate text-[15px] font-medium">General Voice</span>
-          </button>
-        </div>
-      </nav>
+      {/* ─── Channel List (dinamik) ─── */}
+      <ChannelList />
 
       {/* ─── User Bar ─── */}
       <div className="flex min-h-user-bar items-center gap-3 bg-background-floating/60 px-3 py-1.5">
