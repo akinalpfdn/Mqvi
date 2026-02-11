@@ -14,6 +14,7 @@ import (
 type MessageService interface {
 	GetByChannelID(ctx context.Context, channelID string, beforeID string, limit int) (*models.MessagePage, error)
 	Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error)
+	BroadcastCreate(message *models.Message)
 	Update(ctx context.Context, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error)
 	Delete(ctx context.Context, id string, userID string, userPermissions models.Permission) error
 }
@@ -128,13 +129,25 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	message.Author = author
 	message.Attachments = []models.Attachment{} // Boş dizi
 
-	// WebSocket broadcast — tüm bağlı kullanıcılar yeni mesajı görür
+	// NOT: WS broadcast burada yapılmıyor.
+	// Multipart mesajlarda dosyalar handler'da yüklenir.
+	// Broadcast, handler'da dosya yükleme tamamlandıktan sonra yapılır —
+	// böylece WS event'i attachment bilgileriyle birlikte gider.
+
+	return message, nil
+}
+
+// BroadcastCreate, mesaj oluşturulduktan sonra WS broadcast yapar.
+//
+// Neden ayrı metod?
+// Multipart mesajlarda dosyalar handler'da yüklenir (service dosya I/O bilmez).
+// Handler önce Create ile mesajı oluşturur, sonra dosyaları yükler,
+// son olarak BroadcastCreate ile attachment'lı mesajı broadcast eder.
+func (s *messageService) BroadcastCreate(message *models.Message) {
 	s.hub.BroadcastToAll(ws.Event{
 		Op:   ws.OpMessageCreate,
 		Data: message,
 	})
-
-	return message, nil
 }
 
 // Update, bir mesajı düzenler.

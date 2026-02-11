@@ -12,11 +12,13 @@ import { useTranslation } from "react-i18next";
 import { useMessageStore } from "../../stores/messageStore";
 import { useChannelStore } from "../../stores/channelStore";
 
+const EMPTY_TYPING: string[] = [];
+
 function TypingIndicator() {
   const { t } = useTranslation("chat");
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const typingUsers = useMessageStore((s) =>
-    selectedChannelId ? s.typingUsers[selectedChannelId] ?? [] : []
+    selectedChannelId ? s.typingUsers[selectedChannelId] ?? EMPTY_TYPING : EMPTY_TYPING
   );
 
   if (typingUsers.length === 0) return null;

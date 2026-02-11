@@ -125,6 +125,10 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// WS broadcast — dosya yükleme tamamlandıktan sonra yapılır.
+	// Böylece tüm kullanıcılar mesajı attachment'larıyla birlikte görür.
+	h.messageService.BroadcastCreate(message)
+
 	pkg.JSON(w, http.StatusCreated, message)
 }
 

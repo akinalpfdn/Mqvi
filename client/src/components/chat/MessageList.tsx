@@ -17,16 +17,27 @@ import { useTranslation } from "react-i18next";
 import { useMessageStore } from "../../stores/messageStore";
 import { useChannelStore } from "../../stores/channelStore";
 import Message from "./Message";
+import type { Message as MessageType } from "../../types";
 
 /** Aynı yazarın ardışık mesajı compact olacak süre (ms) */
 const COMPACT_THRESHOLD = 5 * 60 * 1000; // 5 dakika
+
+/**
+ * Stabil boş array referansı — Zustand selector'ında `?? []` kullanırsak
+ * her render'da yeni array oluşur, React bunu "değişti" sanır ve sonsuz
+ * re-render döngüsüne girer. Modül seviyesinde tanımlanan sabit referans
+ * bu sorunu çözer.
+ */
+const EMPTY_MESSAGES: MessageType[] = [];
 
 function MessageList() {
   const { t } = useTranslation("chat");
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const categories = useChannelStore((s) => s.categories);
   const messages = useMessageStore((s) =>
-    selectedChannelId ? s.messagesByChannel[selectedChannelId] ?? [] : []
+    selectedChannelId
+      ? s.messagesByChannel[selectedChannelId] ?? EMPTY_MESSAGES
+      : EMPTY_MESSAGES
   );
   const hasMore = useMessageStore((s) =>
     selectedChannelId ? s.hasMoreByChannel[selectedChannelId] ?? false : false
