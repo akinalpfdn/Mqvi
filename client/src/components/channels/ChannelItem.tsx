@@ -3,20 +3,26 @@
  *
  * Kanalın tipine göre farklı icon gösterir:
  * - text: # (hash) sembolü
- * - voice: hoparlör SVG icon'u
+ * - voice: hoparlör SVG icon'u + altında katılımcı listesi
  *
  * Active (seçili) ve hover state'leri var.
+ *
+ * Voice kanalları için voiceParticipants prop'u ile o kanalda bulunan
+ * kullanıcıların küçük avatar + isim listesi gösterilir (Discord tarzı).
  */
 
-import type { Channel } from "../../types";
+import type { Channel, VoiceState } from "../../types";
+import VoiceChannelUser from "../voice/VoiceChannelUser";
 
 type ChannelItemProps = {
   channel: Channel;
   isActive: boolean;
+  /** Voice kanallardaki katılımcılar (text kanallar için boş array) */
+  voiceParticipants: VoiceState[];
   onClick: () => void;
 };
 
-function ChannelItem({ channel, isActive, onClick }: ChannelItemProps) {
+function ChannelItem({ channel, isActive, voiceParticipants, onClick }: ChannelItemProps) {
   return (
     <div className="mx-2 mt-0.5">
       <button
@@ -46,6 +52,15 @@ function ChannelItem({ channel, isActive, onClick }: ChannelItemProps) {
         )}
         <span className="truncate text-[15px] font-medium">{channel.name}</span>
       </button>
+
+      {/* Voice kanal katılımcıları — kanal altında küçük kullanıcı listesi */}
+      {channel.type === "voice" && voiceParticipants.length > 0 && (
+        <div className="pb-1">
+          {voiceParticipants.map((vs) => (
+            <VoiceChannelUser key={vs.user_id} voiceState={vs} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

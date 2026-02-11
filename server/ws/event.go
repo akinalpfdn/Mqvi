@@ -58,6 +58,17 @@ const (
 	OpRoleCreate    = "role_create"    // Yeni rol oluşturuldu
 	OpRoleUpdate    = "role_update"    // Rol güncellendi
 	OpRoleDelete    = "role_delete"    // Rol silindi
+
+	// Voice (ses kanalı) operasyonları
+	OpVoiceStateUpdate = "voice_state_update"  // Bir kullanıcının ses durumu değişti (join/leave/mute/deafen/stream)
+	OpVoiceStatesSync  = "voice_states_sync"   // Tüm ses durumlarının bulk sync'i (bağlantı kurulduğunda)
+)
+
+// Client → Server voice operasyonları
+const (
+	OpVoiceJoin           = "voice_join"                  // Kullanıcı ses kanalına katılmak istiyor
+	OpVoiceLeave          = "voice_leave"                 // Kullanıcı ses kanalından ayrılmak istiyor
+	OpVoiceStateUpdateReq = "voice_state_update_request"  // Kullanıcı mute/deafen/stream toggle'lıyor
 )
 
 // ReadyData, bağlantı kurulduğunda client'a gönderilen ilk event'in payload'ı.
@@ -85,4 +96,51 @@ type TypingStartData struct {
 	UserID    string `json:"user_id"`
 	Username  string `json:"username"`
 	ChannelID string `json:"channel_id"`
+}
+
+// ─── Voice Event Data Struct'ları ───
+
+// VoiceJoinData, voice_join event'inin payload'ı (Client → Server).
+type VoiceJoinData struct {
+	ChannelID string `json:"channel_id"`
+}
+
+// VoiceStateUpdateRequestData, voice_state_update_request payload'ı (Client → Server).
+// Pointer kullanılır — nil ise o alan değiştirilmez (partial update).
+type VoiceStateUpdateRequestData struct {
+	IsMuted    *bool `json:"is_muted,omitempty"`
+	IsDeafened *bool `json:"is_deafened,omitempty"`
+	IsStreaming *bool `json:"is_streaming,omitempty"`
+}
+
+// VoiceStateUpdateBroadcast, voice_state_update event'inin payload'ı (Server → Client).
+// Bir kullanıcının ses durumu değiştiğinde tüm client'lara broadcast edilir.
+type VoiceStateUpdateBroadcast struct {
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	Username    string `json:"username"`
+	AvatarURL   string `json:"avatar_url"`
+	IsMuted     bool   `json:"is_muted"`
+	IsDeafened  bool   `json:"is_deafened"`
+	IsStreaming bool   `json:"is_streaming"`
+	Action      string `json:"action"` // "join", "leave", "update"
+}
+
+// VoiceStatesSyncData, voice_states_sync event'inin payload'ı (Server → Client).
+// Bağlantı kurulduğunda tüm aktif ses durumlarını client'a gönderir.
+type VoiceStatesSyncData struct {
+	States []VoiceStateItem `json:"states"`
+}
+
+// VoiceStateItem, sync payload'ındaki tek bir voice state.
+// models.VoiceState ile aynı alanları taşır — ws paketinin models'a
+// bağımlılığını kırmak için ayrı tanımlanır.
+type VoiceStateItem struct {
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	Username    string `json:"username"`
+	AvatarURL   string `json:"avatar_url"`
+	IsMuted     bool   `json:"is_muted"`
+	IsDeafened  bool   `json:"is_deafened"`
+	IsStreaming bool   `json:"is_streaming"`
 }

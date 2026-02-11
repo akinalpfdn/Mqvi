@@ -11,8 +11,17 @@
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import ChannelList from "../channels/ChannelList";
+import VoiceControls from "../voice/VoiceControls";
 
-function Sidebar() {
+type SidebarProps = {
+  onJoinVoice: (channelId: string) => Promise<void>;
+  onLeaveVoice: () => void;
+  onToggleMute: () => void;
+  onToggleDeafen: () => void;
+  onToggleScreenShare: () => void;
+};
+
+function Sidebar({ onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleScreenShare }: SidebarProps) {
   const { t: tCommon } = useTranslation("common");
   const { t: tAuth } = useTranslation("auth");
   const user = useAuthStore((s) => s.user);
@@ -28,7 +37,15 @@ function Sidebar() {
       </div>
 
       {/* ─── Channel List (dinamik) ─── */}
-      <ChannelList />
+      <ChannelList onJoinVoice={onJoinVoice} />
+
+      {/* ─── Voice Controls (ses kanalına bağlıyken görünür) ─── */}
+      <VoiceControls
+        onToggleMute={onToggleMute}
+        onToggleDeafen={onToggleDeafen}
+        onToggleScreenShare={onToggleScreenShare}
+        onDisconnect={onLeaveVoice}
+      />
 
       {/* ─── User Bar ─── */}
       <div className="flex min-h-user-bar items-center gap-3 bg-background-floating/60 px-3 py-1.5">

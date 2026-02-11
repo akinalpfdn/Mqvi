@@ -32,6 +32,7 @@ import { useChannelStore } from "../stores/channelStore";
 import { useMessageStore } from "../stores/messageStore";
 import { useMemberStore } from "../stores/memberStore";
 import { useRoleStore } from "../stores/roleStore";
+import { useVoiceStore } from "../stores/voiceStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
@@ -45,6 +46,8 @@ import type {
   MemberWithRoles,
   Role,
   UserStatus,
+  VoiceState,
+  VoiceStateUpdateData,
 } from "../types";
 
 /** Reconnect denemesi arasındaki bekleme süresi (ms) */
@@ -197,6 +200,16 @@ export function useWebSocket() {
         useRoleStore.getState().handleRoleDelete(roleId);
         break;
       }
+
+      // ─── Voice Events ───
+      case "voice_state_update":
+        useVoiceStore.getState().handleVoiceStateUpdate(msg.d as VoiceStateUpdateData);
+        break;
+      case "voice_states_sync": {
+        const syncData = msg.d as { states: VoiceState[] };
+        useVoiceStore.getState().handleVoiceStatesSync(syncData.states);
+        break;
+      }
     }
   }
 
@@ -234,6 +247,55 @@ export function useWebSocket() {
       lastTypingRef.current.set(channelId, now);
     }
   }, []);
+
+  /**
+   * sendVoiceJoin — Ses kanalına katılma WS event'i gönderir.
+   * VoiceService'in JoinChannel metodunu tetikler (Hub callback üzerinden).
+   */
+  const sendVoiceJoin = useCallback((channelId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          op: "voice_join",
+          d: { channel_id: channelId },
+        })
+      );
+    }
+  }, []);
+
+  /**
+   * sendVoiceLeave — Ses kanalından ayrılma WS event'i gönderir.
+   * VoiceService'in LeaveChannel metodunu tetikler.
+   */
+  const sendVoiceLeave = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          op: "voice_leave",
+        })
+      );
+    }
+  }, []);
+
+  /**
+   * sendVoiceStateUpdate — Mute/deafen/stream durumunu güncelleme WS event'i gönderir.
+   * VoiceService'in UpdateState metodunu tetikler.
+   *
+   * Partial update: sadece değişen alanlar gönderilir (undefined olanlar gönderilmez).
+   */
+  const sendVoiceStateUpdate = useCallback(
+    (state: { is_muted?: boolean; is_deafened?: boolean; is_streaming?: boolean }) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            op: "voice_state_update_request",
+            d: state,
+          })
+        );
+      }
+    },
+    []
+  );
 
   // ─── Effect: Mount/unmount lifecycle ───
   useEffect(() => {
@@ -373,5 +435,5 @@ export function useWebSocket() {
     };
   }, []);
 
-  return { sendTyping };
+  return { sendTyping, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate };
 }

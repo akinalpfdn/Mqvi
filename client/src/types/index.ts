@@ -149,6 +149,52 @@ export type Invite = {
 };
 
 // ──────────────────────────────────
+// Voice
+// ──────────────────────────────────
+
+/**
+ * VoiceState — Bir kullanıcının ses kanalındaki anlık durumu.
+ * Backend'deki models.VoiceState struct'ının TypeScript karşılığı.
+ * Ephemeral (geçici) veridir — DB'ye yazılmaz.
+ */
+export type VoiceState = {
+  user_id: string;
+  channel_id: string;
+  username: string;
+  avatar_url: string;
+  is_muted: boolean;
+  is_deafened: boolean;
+  is_streaming: boolean;
+};
+
+/**
+ * VoiceTokenResponse — LiveKit token generation yanıtı.
+ * POST /api/voice/token endpoint'inden döner.
+ * Client bu bilgilerle doğrudan LiveKit sunucusuna bağlanır.
+ */
+export type VoiceTokenResponse = {
+  token: string;
+  url: string;
+  channel_id: string;
+};
+
+/**
+ * VoiceStateUpdateData — voice_state_update WS event payload'ı.
+ * Bir kullanıcının ses durumu değiştiğinde tüm client'lara broadcast edilir.
+ * action alanı değişikliğin türünü belirtir.
+ */
+export type VoiceStateUpdateData = {
+  user_id: string;
+  channel_id: string;
+  username: string;
+  avatar_url: string;
+  is_muted: boolean;
+  is_deafened: boolean;
+  is_streaming: boolean;
+  action: "join" | "leave" | "update";
+};
+
+// ──────────────────────────────────
 // WebSocket
 // ──────────────────────────────────
 export type WSMessage = {

@@ -11,15 +11,22 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useChannelStore } from "../../stores/channelStore";
+import { useVoiceStore } from "../../stores/voiceStore";
 import ChannelItem from "./ChannelItem";
 
-function ChannelList() {
+type ChannelListProps = {
+  onJoinVoice: (channelId: string) => Promise<void>;
+};
+
+function ChannelList({ onJoinVoice }: ChannelListProps) {
   const { t } = useTranslation("channels");
   const categories = useChannelStore((s) => s.categories);
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const isLoading = useChannelStore((s) => s.isLoading);
   const fetchChannels = useChannelStore((s) => s.fetchChannels);
   const selectChannel = useChannelStore((s) => s.selectChannel);
+  const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
+  const voiceStates = useVoiceStore((s) => s.voiceStates);
 
   /** Kapatılmış (collapsed) kategorilerin ID setini tutar */
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
@@ -97,8 +104,26 @@ function ChannelList() {
                 <ChannelItem
                   key={channel.id}
                   channel={channel}
-                  isActive={channel.id === selectedChannelId}
-                  onClick={() => selectChannel(channel.id)}
+                  isActive={
+                    channel.type === "voice"
+                      ? channel.id === currentVoiceChannelId
+                      : channel.id === selectedChannelId
+                  }
+                  voiceParticipants={
+                    channel.type === "voice"
+                      ? voiceStates[channel.id] ?? []
+                      : []
+                  }
+                  onClick={() => {
+                    if (channel.type === "voice") {
+                      // Voice kanal: katıl + seç (görüntüleme)
+                      onJoinVoice(channel.id);
+                      selectChannel(channel.id);
+                    } else {
+                      // Text kanal: sadece seç
+                      selectChannel(channel.id);
+                    }
+                  }}
                 />
               ))}
           </div>

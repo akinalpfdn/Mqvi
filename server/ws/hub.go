@@ -30,6 +30,22 @@ type EventPublisher interface {
 // Böylece Hub doğrudan service'e bağımlı olmaz (Dependency Inversion).
 type UserConnectionCallback func(userID string)
 
+// ─── Voice Callback Tipleri ───
+//
+// Voice event'leri de aynı callback pattern'ini kullanır.
+// Client ses kanalına katılmak/ayrılmak/state güncellemek istediğinde
+// Hub bu callback'leri tetikler. main.go'da voiceService'e wire-up yapılır.
+
+// VoiceJoinCallback, kullanıcı ses kanalına katılmak istediğinde çağrılır.
+type VoiceJoinCallback func(userID, username, avatarURL, channelID string)
+
+// VoiceLeaveCallback, kullanıcı ses kanalından ayrılmak istediğinde çağrılır.
+type VoiceLeaveCallback func(userID string)
+
+// VoiceStateUpdateCallback, kullanıcı mute/deafen/stream toggle'ladığında çağrılır.
+// Pointer parametreler: nil = o alan değişmiyor (partial update).
+type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreaming *bool)
+
 // Hub, tüm WebSocket bağlantılarını yöneten merkezi yapıdır (Observer pattern).
 //
 // Observer pattern nedir?
@@ -80,6 +96,12 @@ type Hub struct {
 	// sonra callback'in çalışmasını sağlar.
 	onUserFirstConnect      UserConnectionCallback
 	onUserFullyDisconnected UserConnectionCallback
+
+	// Voice callback'leri — main.go'da set edilir.
+	// Client voice event gönderdiğinde handleEvent → Hub callback → main.go → VoiceService
+	onVoiceJoin        VoiceJoinCallback
+	onVoiceLeave       VoiceLeaveCallback
+	onVoiceStateUpdate VoiceStateUpdateCallback
 }
 
 // NewHub, yeni bir Hub oluşturur.
@@ -288,6 +310,21 @@ func (h *Hub) OnUserFirstConnect(cb UserConnectionCallback) {
 // 3 tab açıkken 2'sini kapatmak bu callback'i tetikleMEZ.
 func (h *Hub) OnUserFullyDisconnected(cb UserConnectionCallback) {
 	h.onUserFullyDisconnected = cb
+}
+
+// OnVoiceJoin, kullanıcı ses kanalına katılmak istediğinde çağrılacak callback'i ayarlar.
+func (h *Hub) OnVoiceJoin(cb VoiceJoinCallback) {
+	h.onVoiceJoin = cb
+}
+
+// OnVoiceLeave, kullanıcı ses kanalından ayrılmak istediğinde çağrılacak callback'i ayarlar.
+func (h *Hub) OnVoiceLeave(cb VoiceLeaveCallback) {
+	h.onVoiceLeave = cb
+}
+
+// OnVoiceStateUpdate, kullanıcı mute/deafen/stream toggle'ladığında çağrılacak callback'i ayarlar.
+func (h *Hub) OnVoiceStateUpdate(cb VoiceStateUpdateCallback) {
+	h.onVoiceStateUpdate = cb
 }
 
 // DisconnectUser, bir kullanıcının tüm WebSocket bağlantılarını kapatır.

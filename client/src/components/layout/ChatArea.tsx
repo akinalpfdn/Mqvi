@@ -1,26 +1,36 @@
 /**
- * ChatArea — Orta panel: kanal başlığı, mesajlar ve mesaj input.
+ * ChatArea — Orta panel: kanal başlığı + mesajlar VEYA voice room.
+ *
+ * Seçili kanalın tipine göre farklı içerik gösterir:
+ * - text kanal: MessageList + TypingIndicator + MessageInput
+ * - voice kanal + bağlı: VoiceRoom (LiveKit)
+ * - voice kanal + bağlı değil: "Join Voice" mesajı
  *
  * Discord referans spacing'leri:
- * - Header: h-header(48px), hash + isim + divider + topic
+ * - Header: h-header(48px), hash/speaker + isim + divider + topic
  * - Messages: geniş padding, alt hizalı
  * - Input: rounded-lg, 44px yükseklik, generous padding
  */
 
 import { useTranslation } from "react-i18next";
 import { useChannelStore } from "../../stores/channelStore";
+import { useVoiceStore } from "../../stores/voiceStore";
 import MessageList from "../chat/MessageList";
 import MessageInput from "../chat/MessageInput";
 import TypingIndicator from "../chat/TypingIndicator";
+import VoiceRoom from "../voice/VoiceRoom";
 
 type ChatAreaProps = {
   sendTyping: (channelId: string) => void;
+  onJoinVoice: (channelId: string) => Promise<void>;
 };
 
-function ChatArea({ sendTyping }: ChatAreaProps) {
+function ChatArea({ sendTyping, onJoinVoice }: ChatAreaProps) {
   const { t } = useTranslation("chat");
+  const { t: tVoice } = useTranslation("voice");
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const categories = useChannelStore((s) => s.categories);
+  const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
 
   /** Seçili kanalın bilgilerini bul */
   const selectedChannel = categories
@@ -28,6 +38,16 @@ function ChatArea({ sendTyping }: ChatAreaProps) {
     .find((ch) => ch.id === selectedChannelId);
 
   const channelName = selectedChannel?.name ?? "";
+
+  /** Voice kanala bakıyor ve bağlı mı? */
+  const isViewingConnectedVoice =
+    selectedChannel?.type === "voice" &&
+    currentVoiceChannelId === selectedChannelId;
+
+  /** Voice kanala bakıyor ama bağlı değil mi? */
+  const isViewingDisconnectedVoice =
+    selectedChannel?.type === "voice" &&
+    currentVoiceChannelId !== selectedChannelId;
 
   return (
     <div className="flex flex-1 flex-col bg-background">
@@ -60,14 +80,51 @@ function ChatArea({ sendTyping }: ChatAreaProps) {
         )}
       </div>
 
-      {/* ─── Messages Area ─── */}
-      <MessageList />
+      {/* ─── İçerik: Text / Voice Connected / Voice Disconnected ─── */}
+      {isViewingConnectedVoice ? (
+        // Voice kanala bakıyor VE bağlı → VoiceRoom (LiveKit)
+        <VoiceRoom />
+      ) : isViewingDisconnectedVoice ? (
+        // Voice kanala bakıyor AMA bağlı değil → "Join Voice" mesajı
+        <div className="flex flex-1 flex-col items-center justify-center gap-4">
+          <svg
+            className="h-16 w-16 text-text-muted"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15.536 8.464a5 5 0 010 7.072M12 6a7 7 0 010 14M8.464 8.464a5 5 0 000 7.072M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"
+            />
+          </svg>
+          <p className="text-sm text-text-muted">{tVoice("joinVoicePrompt")}</p>
+          <button
+            onClick={() => {
+              if (selectedChannelId) {
+                onJoinVoice(selectedChannelId);
+              }
+            }}
+            className="rounded-md bg-brand px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
+          >
+            {tVoice("joinVoice")}
+          </button>
+        </div>
+      ) : (
+        // Normal text kanal (veya hiçbir kanal seçili değil)
+        <>
+          {/* ─── Messages Area ─── */}
+          <MessageList />
 
-      {/* ─── Typing Indicator ─── */}
-      <TypingIndicator />
+          {/* ─── Typing Indicator ─── */}
+          <TypingIndicator />
 
-      {/* ─── Message Input ─── */}
-      <MessageInput sendTyping={sendTyping} />
+          {/* ─── Message Input ─── */}
+          <MessageInput sendTyping={sendTyping} />
+        </>
+      )}
     </div>
   );
 }

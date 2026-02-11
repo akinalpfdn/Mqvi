@@ -115,6 +115,18 @@ func (c *Client) handleEvent(event Event) {
 		// Kullanıcı durumunu değiştirdi (idle, dnd vb.)
 		c.handlePresenceUpdate(event)
 
+	case OpVoiceJoin:
+		// Kullanıcı ses kanalına katılmak istiyor
+		c.handleVoiceJoin(event)
+
+	case OpVoiceLeave:
+		// Kullanıcı ses kanalından ayrılmak istiyor
+		c.handleVoiceLeave()
+
+	case OpVoiceStateUpdateReq:
+		// Kullanıcı mute/deafen/stream durumunu değiştirmek istiyor
+		c.handleVoiceStateUpdate(event)
+
 	default:
 		log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
 	}
@@ -186,6 +198,62 @@ func (c *Client) handleTyping(event Event) {
 			ChannelID: typing.ChannelID,
 		},
 	})
+}
+
+// ─── Voice Event Handlers ───
+
+// handleVoiceJoin, voice_join event'ini işler.
+// Client { op: "voice_join", d: { channel_id: "abc" } } gönderdiğinde
+// Hub'ın voice join callback'ini tetikler.
+func (c *Client) handleVoiceJoin(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data VoiceJoinData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.ChannelID == "" {
+		log.Printf("[ws] voice_join without channel_id from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onVoiceJoin != nil {
+		username := c.hub.getUserUsername(c.userID)
+		// Avatar URL henüz Hub cache'inde tutulmuyor — boş string ile devam.
+		// Frontend zaten letter avatar (ilk harf) kullanıyor.
+		go c.hub.onVoiceJoin(c.userID, username, "", data.ChannelID)
+	}
+}
+
+// handleVoiceLeave, voice_leave event'ini işler.
+// Client { op: "voice_leave" } gönderdiğinde Hub'ın voice leave callback'ini tetikler.
+func (c *Client) handleVoiceLeave() {
+	if c.hub.onVoiceLeave != nil {
+		go c.hub.onVoiceLeave(c.userID)
+	}
+}
+
+// handleVoiceStateUpdate, voice_state_update_request event'ini işler.
+// Client { op: "voice_state_update_request", d: { is_muted: true } } gönderdiğinde
+// Hub'ın voice state update callback'ini tetikler.
+func (c *Client) handleVoiceStateUpdate(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data VoiceStateUpdateRequestData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if c.hub.onVoiceStateUpdate != nil {
+		go c.hub.onVoiceStateUpdate(c.userID, data.IsMuted, data.IsDeafened, data.IsStreaming)
+	}
 }
 
 // sendEvent, client'a tek bir event gönderir.

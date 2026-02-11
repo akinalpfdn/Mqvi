@@ -1,0 +1,16 @@
+{
+  "joinVoice": "Sese Katıl",
+  "leaveVoice": "Bağlantıyı Kes",
+  "mute": "Sessiz",
+  "unmute": "Sesi Aç",
+  "deafen": "Sağırlaştır",
+  "undeafen": "Sağırlaştırmayı Kapat",
+  "screenShare": "Ekran Paylaş",
+  "stopScreenShare": "Paylaşımı Durdur",
+  "voiceConnected": "Ses Bağlı",
+  "noOneInVoice": "Bu ses kanalında kimse yok",
+  "screenShareLimit": "Maksimum 2 ekran paylaşımına ulaşıldı",
+  "voiceChannelFull": "Bu ses kanalı dolu",
+  "connectingToVoice": "Bağlanıyor...",
+  "joinVoicePrompt": "Bu ses kanalına katılmak için tıklayın"
+}

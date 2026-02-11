@@ -34,6 +34,15 @@ type BanChecker interface {
 	IsBanned(ctx context.Context, userID string) (bool, error)
 }
 
+// VoiceStatesProvider, aktif ses durumlarını sorgulayan interface (ISP).
+//
+// VoiceService'in GetAllVoiceStates metodunu karşılar.
+// Bağlantı kurulduğunda (ready event) tüm aktif voice state'leri
+// client'a göndermek için kullanılır.
+type VoiceStatesProvider interface {
+	GetAllVoiceStates() []models.VoiceState
+}
+
 // upgrader, HTTP bağlantısını WebSocket bağlantısına yükseltir.
 //
 // WebSocket Upgrade nedir?
@@ -53,9 +62,10 @@ var upgrader = websocket.Upgrader{
 
 // Handler, WebSocket bağlantı isteklerini işleyen HTTP handler'ı.
 type Handler struct {
-	hub            *Hub
-	tokenValidator TokenValidator
-	banChecker     BanChecker
+	hub                 *Hub
+	tokenValidator      TokenValidator
+	banChecker          BanChecker
+	voiceStatesProvider VoiceStatesProvider
 }
 
 // NewHandler, yeni bir WebSocket handler oluşturur.
@@ -66,11 +76,15 @@ type Handler struct {
 //
 // banChecker parametresi BanChecker interface'ini karşılar (pratikte memberService).
 // Banlı kullanıcıların WS bağlantısı kurmasını engeller.
-func NewHandler(hub *Hub, tokenValidator TokenValidator, banChecker BanChecker) *Handler {
+//
+// voiceStatesProvider parametresi VoiceStatesProvider interface'ini karşılar
+// (pratikte voiceService). Bağlantı kurulduğunda aktif voice state'leri gönderir.
+func NewHandler(hub *Hub, tokenValidator TokenValidator, banChecker BanChecker, voiceStatesProvider VoiceStatesProvider) *Handler {
 	return &Handler{
-		hub:            hub,
-		tokenValidator: tokenValidator,
-		banChecker:     banChecker,
+		hub:                 hub,
+		tokenValidator:      tokenValidator,
+		banChecker:          banChecker,
+		voiceStatesProvider: voiceStatesProvider,
 	}
 }
 
@@ -148,6 +162,30 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			OnlineUserIDs: h.hub.GetOnlineUserIDs(),
 		},
 	})
+
+	// 7.5. "voice_states_sync" event gönder — bağlantı kurulduğunda hangi
+	// kullanıcıların hangi ses kanallarında olduğunu client'a bildir.
+	// Frontend voiceStore bu veri ile başlatılır.
+	if h.voiceStatesProvider != nil {
+		allStates := h.voiceStatesProvider.GetAllVoiceStates()
+		// models.VoiceState → ws.VoiceStateItem dönüşümü
+		items := make([]VoiceStateItem, len(allStates))
+		for i, s := range allStates {
+			items[i] = VoiceStateItem{
+				UserID:      s.UserID,
+				ChannelID:   s.ChannelID,
+				Username:    s.Username,
+				AvatarURL:   s.AvatarURL,
+				IsMuted:     s.IsMuted,
+				IsDeafened:  s.IsDeafened,
+				IsStreaming: s.IsStreaming,
+			}
+		}
+		client.sendEvent(Event{
+			Op:   OpVoiceStatesSync,
+			Data: VoiceStatesSyncData{States: items},
+		})
+	}
 
 	// 8. Goroutine'leri başlat
 	//

@@ -95,6 +95,11 @@ func main() {
 	// service'ler hub'a doğrudan bağımlı olmak yerine interface üzerinden erişir.
 	hub := ws.NewHub()
 
+	// VoiceService — Hub callback'lerinden önce oluşturulmalı çünkü
+	// OnUserFullyDisconnected callback'i voice cleanup için voiceService'e ihtiyaç duyar.
+	// Dependency'leri (channelRepo, roleRepo, hub, cfg.LiveKit) zaten hazır.
+	voiceService := services.NewVoiceService(channelRepo, roleRepo, hub, cfg.LiveKit)
+
 	// Hub presence callback'leri — kullanıcı ilk bağlandığında veya
 	// tamamen koptuğunda DB güncelle ve tüm client'lara broadcast et.
 	//
@@ -122,6 +127,7 @@ func main() {
 	})
 
 	hub.OnUserFullyDisconnected(func(userID string) {
+		// Presence: kullanıcıyı offline yap
 		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatusOffline); err != nil {
 			log.Printf("[presence] failed to set offline for user %s: %v", userID, err)
 			return
@@ -134,6 +140,29 @@ func main() {
 			},
 		})
 		log.Printf("[presence] user %s is now offline", userID)
+
+		// Voice: kullanıcı ses kanalındaysa state'ini temizle ve broadcast et.
+		// DisconnectUser içinde LeaveChannel çağrılır — broadcast dahil.
+		voiceService.DisconnectUser(userID)
+	})
+
+	// Voice callback'leri — client ses kanalı event'leri gönderdiğinde
+	// Hub bu callback'leri tetikler, callback'ler voiceService'i çağırır.
+	// Presence callback'leri ile aynı pattern (Dependency Inversion).
+	hub.OnVoiceJoin(func(userID, username, avatarURL, channelID string) {
+		if err := voiceService.JoinChannel(userID, username, avatarURL, channelID); err != nil {
+			log.Printf("[voice] join error user=%s channel=%s: %v", userID, channelID, err)
+		}
+	})
+	hub.OnVoiceLeave(func(userID string) {
+		if err := voiceService.LeaveChannel(userID); err != nil {
+			log.Printf("[voice] leave error user=%s: %v", userID, err)
+		}
+	})
+	hub.OnVoiceStateUpdate(func(userID string, isMuted, isDeafened, isStreaming *bool) {
+		if err := voiceService.UpdateState(userID, isMuted, isDeafened, isStreaming); err != nil {
+			log.Printf("[voice] state update error user=%s: %v", userID, err)
+		}
 	})
 
 	go hub.Run()
@@ -155,6 +184,7 @@ func main() {
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, hub)
 	roleService := services.NewRoleService(roleRepo, userRepo, hub)
+	// voiceService yukarıda (Hub callback'lerinden önce) oluşturuldu
 
 	// ─── 8. Handler Layer ───
 	authHandler := handlers.NewAuthHandler(authService)
@@ -163,7 +193,8 @@ func main() {
 	messageHandler := handlers.NewMessageHandler(messageService, uploadService, cfg.Upload.MaxSize)
 	memberHandler := handlers.NewMemberHandler(memberService)
 	roleHandler := handlers.NewRoleHandler(roleService)
-	wsHandler := ws.NewHandler(hub, authService, memberService)
+	voiceHandler := handlers.NewVoiceHandler(voiceService)
+	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService)
 
 	// ─── 9. Middleware ───
 	authMiddleware := middleware.NewAuthMiddleware(authService, userRepo)
@@ -252,6 +283,17 @@ func main() {
 		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Update))))
 	mux.Handle("DELETE /api/roles/{id}", authMiddleware.Require(
 		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Delete))))
+
+	// Voice — LiveKit token alma ve aktif ses durumlarını sorgulama
+	//
+	// Token endpoint, kullanıcının voice kanala bağlanmak için ihtiyaç duyduğu
+	// LiveKit JWT'sini döner. Permission kontrolü service katmanında yapılır
+	// (PermConnectVoice, PermSpeak, PermStream ayrı ayrı kontrol edilip
+	// LiveKit token grant'larına yansıtılır).
+	mux.Handle("POST /api/voice/token", authMiddleware.Require(
+		http.HandlerFunc(voiceHandler.Token)))
+	mux.Handle("GET /api/voice/states", authMiddleware.Require(
+		http.HandlerFunc(voiceHandler.VoiceStates)))
 
 	// Static file serving — yüklenen dosyalara erişim
 	//

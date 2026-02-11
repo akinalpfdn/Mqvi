@@ -1,0 +1,16 @@
+{
+  "joinVoice": "Join Voice",
+  "leaveVoice": "Disconnect",
+  "mute": "Mute",
+  "unmute": "Unmute",
+  "deafen": "Deafen",
+  "undeafen": "Undeafen",
+  "screenShare": "Share Screen",
+  "stopScreenShare": "Stop Sharing",
+  "voiceConnected": "Voice Connected",
+  "noOneInVoice": "No one is in this voice channel",
+  "screenShareLimit": "Maximum of 2 screen shares reached",
+  "voiceChannelFull": "This voice channel is full",
+  "connectingToVoice": "Connecting...",
+  "joinVoicePrompt": "Click to join this voice channel"
+}
