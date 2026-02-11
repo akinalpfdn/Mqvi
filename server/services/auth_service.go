@@ -50,6 +50,7 @@ type authService struct {
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
 	roleRepo    repository.RoleRepository
+	banRepo     repository.BanRepository
 	jwtSecret   []byte
 	accessExp   time.Duration
 	refreshExp  time.Duration
@@ -59,10 +60,12 @@ type authService struct {
 // jwtSecret: token imzalama anahtarı
 // accessExpMinutes: access token ömrü (dakika)
 // refreshExpDays: refresh token ömrü (gün)
+// banRepo: Login sırasında ban kontrolü için
 func NewAuthService(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
 	roleRepo repository.RoleRepository,
+	banRepo repository.BanRepository,
 	jwtSecret string,
 	accessExpMinutes int,
 	refreshExpDays int,
@@ -71,6 +74,7 @@ func NewAuthService(
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
 		roleRepo:    roleRepo,
+		banRepo:     banRepo,
 		jwtSecret:   []byte(jwtSecret),
 		accessExp:   time.Duration(accessExpMinutes) * time.Minute,
 		refreshExp:  time.Duration(refreshExpDays) * 24 * time.Hour,
@@ -175,6 +179,17 @@ func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*Aut
 	// Eşleşmezse hata döner. Timing-safe karşılaştırma yapar (side-channel attack koruması).
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, fmt.Errorf("%w: invalid username or password", pkg.ErrUnauthorized)
+	}
+
+	// Ban kontrolü — banlı kullanıcı giriş yapamaz.
+	// Şifre doğrulamasından SONRA kontrol ediyoruz:
+	// Böylece saldırgan ban durumunu kullanarak username enumerate edemez.
+	banned, err := s.banRepo.Exists(ctx, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check ban status: %w", err)
+	}
+	if banned {
+		return nil, fmt.Errorf("%w: this account has been banned", pkg.ErrForbidden)
 	}
 
 	// Status'u online yap

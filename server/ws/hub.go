@@ -19,7 +19,16 @@ type EventPublisher interface {
 	BroadcastToAllExcept(excludeUserID string, event Event)
 	BroadcastToUser(userID string, event Event)
 	GetOnlineUserIDs() []string
+	DisconnectUser(userID string)
 }
+
+// UserConnectionCallback, bir kullanıcının bağlantı durumu değiştiğinde çağrılır.
+//
+// Bu callback pattern nedir?
+// Hub, bağlantı olaylarında (ilk bağlantı, tam kopuş) dış katmanlara
+// haber vermek için fonksiyon referansı tutar. main.go'da set edilir.
+// Böylece Hub doğrudan service'e bağımlı olmaz (Dependency Inversion).
+type UserConnectionCallback func(userID string)
 
 // Hub, tüm WebSocket bağlantılarını yöneten merkezi yapıdır (Observer pattern).
 //
@@ -60,6 +69,17 @@ type Hub struct {
 	// usernames: userID → username cache (typing broadcast için).
 	usernames map[string]string
 	userMu    sync.RWMutex
+
+	// Presence callback'leri — main.go'da set edilir.
+	// Hub bağlantı olaylarında bu fonksiyonları çağırır.
+	// Callback'ler ayrı goroutine'de çalıştırılır (deadlock önleme).
+	//
+	// Neden goroutine? addClient/removeClient h.mu.Lock() tutar.
+	// Callback içinde BroadcastToAll çağrılırsa h.mu.RLock() ister → deadlock!
+	// go func() ile ayrı goroutine'de çalıştırmak Lock'u serbest bıraktıktan
+	// sonra callback'in çalışmasını sağlar.
+	onUserFirstConnect      UserConnectionCallback
+	onUserFullyDisconnected UserConnectionCallback
 }
 
 // NewHub, yeni bir Hub oluşturur.
@@ -96,10 +116,11 @@ func (h *Hub) Run() {
 }
 
 // addClient, yeni bir client'ı Hub'a ekler.
+// Kullanıcının ilk bağlantısıysa onUserFirstConnect callback'ini tetikler.
 func (h *Hub) addClient(client *Client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
+	isFirstConnection := len(h.clients[client.userID]) == 0
 	if _, ok := h.clients[client.userID]; !ok {
 		h.clients[client.userID] = make(map[*Client]bool)
 	}
@@ -107,27 +128,46 @@ func (h *Hub) addClient(client *Client) {
 
 	log.Printf("[ws] client connected: user=%s (total connections for user: %d)",
 		client.userID, len(h.clients[client.userID]))
+
+	h.mu.Unlock()
+
+	// Callback'i Lock dışında, ayrı goroutine'de çağır (deadlock önleme).
+	if isFirstConnection && h.onUserFirstConnect != nil {
+		userID := client.userID
+		go h.onUserFirstConnect(userID)
+	}
 }
 
 // removeClient, bir client'ı Hub'dan çıkarır ve send channel'ını kapatır.
+// Kullanıcının son bağlantısı kapandıysa onUserFullyDisconnected callback'ini tetikler.
 func (h *Hub) removeClient(client *Client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+
+	var fullyDisconnected bool
+	var userID string
 
 	if clients, ok := h.clients[client.userID]; ok {
 		if _, exists := clients[client]; exists {
 			delete(clients, client)
 			close(client.send)
 
-			// Kullanıcının başka bağlantısı kalmadıysa map'ten sil
 			if len(clients) == 0 {
 				delete(h.clients, client.userID)
+				fullyDisconnected = true
+				userID = client.userID
 				log.Printf("[ws] user fully disconnected: %s", client.userID)
 			} else {
 				log.Printf("[ws] client disconnected: user=%s (remaining: %d)",
 					client.userID, len(clients))
 			}
 		}
+	}
+
+	h.mu.Unlock()
+
+	// Callback'i Lock dışında, ayrı goroutine'de çağır (deadlock önleme).
+	if fullyDisconnected && h.onUserFullyDisconnected != nil {
+		go h.onUserFullyDisconnected(userID)
 	}
 }
 
@@ -232,6 +272,41 @@ func (h *Hub) getUserUsername(userID string) string {
 	h.userMu.RLock()
 	defer h.userMu.RUnlock()
 	return h.usernames[userID]
+}
+
+// OnUserFirstConnect, kullanıcının ilk bağlantısında çağrılacak callback'i ayarlar.
+//
+// "İlk bağlantı" = kullanıcının daha önce hiç aktif bağlantısı yoktu, şimdi var.
+// Aynı kullanıcının 2. tab'ı açarsa bu callback tekrar çağrılMAZ.
+func (h *Hub) OnUserFirstConnect(cb UserConnectionCallback) {
+	h.onUserFirstConnect = cb
+}
+
+// OnUserFullyDisconnected, kullanıcının tüm bağlantıları kapandığında çağrılacak callback'i ayarlar.
+//
+// "Tam kopuş" = kullanıcının son tab'ı da kapandı, artık hiç bağlantısı yok.
+// 3 tab açıkken 2'sini kapatmak bu callback'i tetikleMEZ.
+func (h *Hub) OnUserFullyDisconnected(cb UserConnectionCallback) {
+	h.onUserFullyDisconnected = cb
+}
+
+// DisconnectUser, bir kullanıcının tüm WebSocket bağlantılarını kapatır.
+//
+// Kullanım: Ban işlemi sonrasında kullanıcıyı zorla çıkarmak için.
+// RLock ile client listesini okur, sonra her client'ı unregister kuyruğuna gönderir.
+func (h *Hub) DisconnectUser(userID string) {
+	h.mu.RLock()
+	clients := make([]*Client, 0)
+	if userClients, ok := h.clients[userID]; ok {
+		for client := range userClients {
+			clients = append(clients, client)
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, client := range clients {
+		h.unregister <- client
+	}
 }
 
 // Shutdown, tüm client bağlantılarını kapatır (graceful shutdown).

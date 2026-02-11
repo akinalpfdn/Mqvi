@@ -111,9 +111,49 @@ func (c *Client) handleEvent(event Event) {
 		// Typing event'ini parse et ve diğer kullanıcılara broadcast et.
 		c.handleTyping(event)
 
+	case OpPresenceUpdate:
+		// Kullanıcı durumunu değiştirdi (idle, dnd vb.)
+		c.handlePresenceUpdate(event)
+
 	default:
 		log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
 	}
+}
+
+// handlePresenceUpdate, client'dan gelen presence değişikliğini işler.
+//
+// Client { op: "presence_update", d: { status: "idle" } } gönderdiğinde
+// bu fonksiyon çağrılır ve tüm kullanıcılara broadcast edilir.
+// Gerçek DB güncellemesi Hub callback'inde (main.go'da wire-up) yapılır.
+func (c *Client) handlePresenceUpdate(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data PresenceData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	// Geçerli status kontrolü
+	switch data.Status {
+	case "online", "idle", "dnd":
+		// geçerli
+	default:
+		log.Printf("[ws] invalid presence status from user %s: %s", c.userID, data.Status)
+		return
+	}
+
+	// Broadcast: presence_update event'ini tüm kullanıcılara gönder.
+	// UserID'yi biz set ediyoruz — client'ın göndermesine güvenmeyiz (güvenlik).
+	c.hub.BroadcastToAll(Event{
+		Op: OpPresence,
+		Data: PresenceData{
+			UserID: c.userID,
+			Status: data.Status,
+		},
+	})
 }
 
 // handleTyping, typing event'ini işler ve diğer kullanıcılara broadcast eder.

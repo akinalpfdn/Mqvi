@@ -22,5 +22,15 @@
   "noResults": "Sonuç bulunamadı",
   "copySuccess": "Panoya kopyalandı",
   "language": "Dil",
-  "members": "Üyeler"
+  "members": "Üyeler",
+  "kick": "At",
+  "ban": "Yasakla",
+  "unban": "Yasağı Kaldır",
+  "manageRoles": "Rolleri Yönet",
+  "joinedAt": "Katıldı: {{date}}",
+  "roles": "Roller",
+  "confirmKick": "{{username}} adlı kullanıcıyı atmak istediğinizden emin misiniz?",
+  "confirmBan": "{{username}} adlı kullanıcıyı yasaklamak istediğinizden emin misiniz?",
+  "banReason": "Yasaklama sebebi",
+  "noRoles": "Rol yok"
 }

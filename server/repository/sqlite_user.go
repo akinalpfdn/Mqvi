@@ -185,6 +185,25 @@ func (r *sqliteUserRepo) Count(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+func (r *sqliteUserRepo) Delete(ctx context.Context, id string) error {
+	query := `DELETE FROM users WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+
+	return nil
+}
+
 // isUniqueViolation, SQLite UNIQUE constraint hatasını kontrol eder.
 func isUniqueViolation(err error) bool {
 	return err != nil && (errors.Is(err, sql.ErrNoRows) == false) &&

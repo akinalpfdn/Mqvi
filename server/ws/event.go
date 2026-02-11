@@ -54,7 +54,26 @@ const (
 	OpPresence      = "presence_update"
 	OpMemberJoin    = "member_join"    // Yeni üye katıldı
 	OpMemberLeave   = "member_leave"   // Üye ayrıldı
+	OpMemberUpdate  = "member_update"  // Üye bilgileri güncellendi (rol değişikliği, profil güncelleme)
+	OpRoleCreate    = "role_create"    // Yeni rol oluşturuldu
+	OpRoleUpdate    = "role_update"    // Rol güncellendi
+	OpRoleDelete    = "role_delete"    // Rol silindi
 )
+
+// ReadyData, bağlantı kurulduğunda client'a gönderilen ilk event'in payload'ı.
+//
+// Frontend bu event ile:
+// 1. Online kullanıcıları Set'e atar (presence indicator için)
+// 2. Gerekli verileri fetch eder (members, channels vb.)
+type ReadyData struct {
+	OnlineUserIDs []string `json:"online_user_ids"`
+}
+
+// PresenceData, bir kullanıcının online durumu değiştiğinde broadcast edilen payload.
+type PresenceData struct {
+	UserID string `json:"user_id"`
+	Status string `json:"status"`
+}
 
 // TypingData, typing event'inin payload'ı.
 type TypingData struct {

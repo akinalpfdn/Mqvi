@@ -84,6 +84,7 @@ func main() {
 	categoryRepo := repository.NewSQLiteCategoryRepo(db.Conn)
 	messageRepo := repository.NewSQLiteMessageRepo(db.Conn)
 	attachmentRepo := repository.NewSQLiteAttachmentRepo(db.Conn)
+	banRepo := repository.NewSQLiteBanRepo(db.Conn)
 
 	// ─── 6. WebSocket Hub ───
 	//
@@ -93,6 +94,48 @@ func main() {
 	// Hub aynı zamanda EventPublisher interface'ini implement eder —
 	// service'ler hub'a doğrudan bağımlı olmak yerine interface üzerinden erişir.
 	hub := ws.NewHub()
+
+	// Hub presence callback'leri — kullanıcı ilk bağlandığında veya
+	// tamamen koptuğunda DB güncelle ve tüm client'lara broadcast et.
+	//
+	// Bu callback'ler neden burada (main.go'da)?
+	// Hub ws paketinde yaşıyor, ama DB güncellemesi service/repo katmanında.
+	// Hub'ın service'lere bağımlı olmasını istemiyoruz (Dependency Inversion).
+	// main.go wire-up noktasıdır — tüm katmanları birbirine bağlar.
+	//
+	// Callback'ler Hub.Run() goroutine'inden ayrı goroutine'de çalışır
+	// (addClient/removeClient içinde `go callback()` ile çağrılır),
+	// böylece Hub'ın mutex Lock'u ile BroadcastToAll'ın RLock'u çakışmaz.
+	hub.OnUserFirstConnect(func(userID string) {
+		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatusOnline); err != nil {
+			log.Printf("[presence] failed to set online for user %s: %v", userID, err)
+			return
+		}
+		hub.BroadcastToAll(ws.Event{
+			Op: ws.OpPresence,
+			Data: ws.PresenceData{
+				UserID: userID,
+				Status: string(models.UserStatusOnline),
+			},
+		})
+		log.Printf("[presence] user %s is now online", userID)
+	})
+
+	hub.OnUserFullyDisconnected(func(userID string) {
+		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatusOffline); err != nil {
+			log.Printf("[presence] failed to set offline for user %s: %v", userID, err)
+			return
+		}
+		hub.BroadcastToAll(ws.Event{
+			Op: ws.OpPresence,
+			Data: ws.PresenceData{
+				UserID: userID,
+				Status: string(models.UserStatusOffline),
+			},
+		})
+		log.Printf("[presence] user %s is now offline", userID)
+	})
+
 	go hub.Run()
 
 	// ─── 7. Service Layer ───
@@ -100,6 +143,7 @@ func main() {
 		userRepo,
 		sessionRepo,
 		roleRepo,
+		banRepo,
 		cfg.JWT.Secret,
 		cfg.JWT.AccessTokenExpiry,
 		cfg.JWT.RefreshTokenExpiry,
@@ -109,13 +153,17 @@ func main() {
 	categoryService := services.NewCategoryService(categoryRepo, hub)
 	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, hub)
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
+	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, hub)
+	roleService := services.NewRoleService(roleRepo, userRepo, hub)
 
 	// ─── 8. Handler Layer ───
 	authHandler := handlers.NewAuthHandler(authService)
 	channelHandler := handlers.NewChannelHandler(channelService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	messageHandler := handlers.NewMessageHandler(messageService, uploadService, cfg.Upload.MaxSize)
-	wsHandler := ws.NewHandler(hub, authService)
+	memberHandler := handlers.NewMemberHandler(memberService)
+	roleHandler := handlers.NewRoleHandler(roleService)
+	wsHandler := ws.NewHandler(hub, authService, memberService)
 
 	// ─── 9. Middleware ───
 	authMiddleware := middleware.NewAuthMiddleware(authService, userRepo)
@@ -172,6 +220,38 @@ func main() {
 	// Upload — bağımsız dosya yükleme endpoint'i
 	mux.Handle("POST /api/upload", authMiddleware.Require(
 		http.HandlerFunc(messageHandler.Upload)))
+
+	// Members — üye listesi herkese açık, moderation işlemleri yetki gerektirir
+	mux.Handle("GET /api/members", authMiddleware.Require(
+		http.HandlerFunc(memberHandler.List)))
+	mux.Handle("GET /api/members/{id}", authMiddleware.Require(
+		http.HandlerFunc(memberHandler.Get)))
+	mux.Handle("PATCH /api/members/{id}/roles", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(memberHandler.ModifyRoles))))
+	mux.Handle("DELETE /api/members/{id}", authMiddleware.Require(
+		permMiddleware.Require(models.PermKickMembers, http.HandlerFunc(memberHandler.Kick))))
+	mux.Handle("POST /api/members/{id}/ban", authMiddleware.Require(
+		permMiddleware.Require(models.PermBanMembers, http.HandlerFunc(memberHandler.Ban))))
+
+	// Bans — yasaklı üye yönetimi, BAN_MEMBERS yetkisi gerektirir
+	mux.Handle("GET /api/bans", authMiddleware.Require(
+		permMiddleware.Require(models.PermBanMembers, http.HandlerFunc(memberHandler.GetBans))))
+	mux.Handle("DELETE /api/bans/{id}", authMiddleware.Require(
+		permMiddleware.Require(models.PermBanMembers, http.HandlerFunc(memberHandler.Unban))))
+
+	// Profile — kullanıcının kendi profil güncelleme endpoint'i
+	mux.Handle("PATCH /api/users/me/profile", authMiddleware.Require(
+		http.HandlerFunc(memberHandler.UpdateProfile)))
+
+	// Roles — rol listesi herkese açık, CUD için MANAGE_ROLES yetkisi gerekir
+	mux.Handle("GET /api/roles", authMiddleware.Require(
+		http.HandlerFunc(roleHandler.List)))
+	mux.Handle("POST /api/roles", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Create))))
+	mux.Handle("PATCH /api/roles/{id}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Update))))
+	mux.Handle("DELETE /api/roles/{id}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Delete))))
 
 	// Static file serving — yüklenen dosyalara erişim
 	//

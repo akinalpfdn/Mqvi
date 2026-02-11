@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"log"
 	"net/http"
 
@@ -24,6 +25,15 @@ type TokenValidator interface {
 	ValidateAccessToken(tokenString string) (*models.TokenClaims, error)
 }
 
+// BanChecker, kullanıcının banlı olup olmadığını kontrol eden interface (ISP).
+//
+// MemberService'in IsBanned metodunu karşılar.
+// WS paketi service paketine bağımlı olamaz (circular dependency),
+// bu yüzden küçük bir interface tanımlıyoruz.
+type BanChecker interface {
+	IsBanned(ctx context.Context, userID string) (bool, error)
+}
+
 // upgrader, HTTP bağlantısını WebSocket bağlantısına yükseltir.
 //
 // WebSocket Upgrade nedir?
@@ -45,6 +55,7 @@ var upgrader = websocket.Upgrader{
 type Handler struct {
 	hub            *Hub
 	tokenValidator TokenValidator
+	banChecker     BanChecker
 }
 
 // NewHandler, yeni bir WebSocket handler oluşturur.
@@ -52,10 +63,14 @@ type Handler struct {
 // tokenValidator parametresi TokenValidator interface'ini karşılayan herhangi bir
 // struct olabilir. Pratikte bu authService'dir — Go'da interface'ler implicit'tir,
 // yani authService.ValidateAccessToken metodu varsa otomatik olarak karşılar.
-func NewHandler(hub *Hub, tokenValidator TokenValidator) *Handler {
+//
+// banChecker parametresi BanChecker interface'ini karşılar (pratikte memberService).
+// Banlı kullanıcıların WS bağlantısı kurmasını engeller.
+func NewHandler(hub *Hub, tokenValidator TokenValidator, banChecker BanChecker) *Handler {
 	return &Handler{
 		hub:            hub,
 		tokenValidator: tokenValidator,
+		banChecker:     banChecker,
 	}
 }
 
@@ -70,9 +85,11 @@ func NewHandler(hub *Hub, tokenValidator TokenValidator) *Handler {
 // Flow:
 // 1. Query'den token al
 // 2. Token'ı doğrula (JWT imza kontrolü)
-// 3. HTTP → WebSocket upgrade
-// 4. Client oluştur, Hub'a kaydet
-// 5. ReadPump ve WritePump goroutine'lerini başlat
+// 3. Ban kontrolü
+// 4. HTTP → WebSocket upgrade
+// 5. Client oluştur, Hub'a kaydet
+// 6. "ready" event gönder (online kullanıcı listesi)
+// 7. ReadPump ve WritePump goroutine'lerini başlat
 func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// 1. Token'ı query parameter'dan al
 	token := r.URL.Query().Get("token")
@@ -88,14 +105,28 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. HTTP → WebSocket upgrade
+	// 3. Ban kontrolü — banlı kullanıcı WS bağlantısı kuramaz
+	if h.banChecker != nil {
+		banned, err := h.banChecker.IsBanned(r.Context(), claims.UserID)
+		if err != nil {
+			log.Printf("[ws] ban check failed for user %s: %v", claims.UserID, err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if banned {
+			http.Error(w, "banned", http.StatusForbidden)
+			return
+		}
+	}
+
+	// 4. HTTP → WebSocket upgrade
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[ws] upgrade failed for user %s: %v", claims.UserID, err)
 		return
 	}
 
-	// 4. Client oluştur
+	// 5. Client oluştur
 	client := &Client{
 		hub:    h.hub,
 		conn:   conn,
@@ -106,10 +137,19 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// Username cache'ini güncelle (typing broadcast için)
 	h.hub.SetUserUsername(claims.UserID, claims.Username)
 
-	// 5. Hub'a kaydet
+	// 6. Hub'a kaydet
 	h.hub.register <- client
 
-	// 6. Goroutine'leri başlat
+	// 7. "ready" event gönder — client bağlantı kurduğunda hangi kullanıcıların
+	// online olduğunu bilmeli. Bu event ile frontend memberStore'u başlatır.
+	client.sendEvent(Event{
+		Op: OpReady,
+		Data: ReadyData{
+			OnlineUserIDs: h.hub.GetOnlineUserIDs(),
+		},
+	})
+
+	// 8. Goroutine'leri başlat
 	//
 	// `go client.WritePump()` → yeni goroutine başlatır.
 	// WritePump ayrı goroutine'de, ReadPump mevcut goroutine'de çalışır.

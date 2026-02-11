@@ -30,12 +30,22 @@ import { useEffect, useRef, useCallback } from "react";
 import { getAccessToken } from "../api/client";
 import { useChannelStore } from "../stores/channelStore";
 import { useMessageStore } from "../stores/messageStore";
+import { useMemberStore } from "../stores/memberStore";
+import { useRoleStore } from "../stores/roleStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
   WS_HEARTBEAT_MAX_MISS,
 } from "../utils/constants";
-import type { WSMessage, Channel, Category, Message } from "../types";
+import type {
+  WSMessage,
+  Channel,
+  Category,
+  Message,
+  MemberWithRoles,
+  Role,
+  UserStatus,
+} from "../types";
 
 /** Reconnect denemesi arasındaki bekleme süresi (ms) */
 const RECONNECT_DELAY = 3_000;
@@ -139,6 +149,52 @@ export function useWebSocket() {
       case "typing_start": {
         const data = msg.d as { channel_id: string; username: string };
         useMessageStore.getState().handleTypingStart(data.channel_id, data.username);
+        break;
+      }
+
+      // ─── Presence & Member Events ───
+      case "ready": {
+        const data = msg.d as { online_user_ids: string[] };
+        useMemberStore.getState().handleReady(data.online_user_ids);
+        break;
+      }
+      case "presence_update": {
+        const data = msg.d as { user_id: string; status: UserStatus };
+        useMemberStore.getState().handlePresenceUpdate(data.user_id, data.status);
+        break;
+      }
+      case "member_join":
+        useMemberStore.getState().handleMemberJoin(msg.d as MemberWithRoles);
+        break;
+      case "member_leave":
+        useMemberStore.getState().handleMemberLeave(
+          (msg.d as { user_id: string }).user_id
+        );
+        break;
+      case "member_update":
+        useMemberStore.getState().handleMemberUpdate(msg.d as MemberWithRoles);
+        break;
+
+      // ─── Role Events ───
+      // Her iki store'a da yönlendir:
+      // memberStore: üye listesindeki rol bilgilerini günceller
+      // roleStore: settings panelindeki rol listesini günceller
+      case "role_create": {
+        const role = msg.d as Role;
+        useMemberStore.getState().handleRoleCreate(role);
+        useRoleStore.getState().handleRoleCreate(role);
+        break;
+      }
+      case "role_update": {
+        const role = msg.d as Role;
+        useMemberStore.getState().handleRoleUpdate(role);
+        useRoleStore.getState().handleRoleUpdate(role);
+        break;
+      }
+      case "role_delete": {
+        const roleId = (msg.d as { id: string }).id;
+        useMemberStore.getState().handleRoleDelete(roleId);
+        useRoleStore.getState().handleRoleDelete(roleId);
         break;
       }
     }

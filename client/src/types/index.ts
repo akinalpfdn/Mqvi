@@ -104,6 +104,39 @@ export type Role = {
 };
 
 // ──────────────────────────────────
+// Member (User + Roles)
+// ──────────────────────────────────
+
+/**
+ * MemberWithRoles — Üye bilgileri + rolleri + hesaplanmış yetkileri.
+ *
+ * Backend'deki models.MemberWithRoles struct'ının TypeScript karşılığı.
+ * Rol hiyerarşisi ve permission kontrolü için effective_permissions kullanılır.
+ */
+export type MemberWithRoles = {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  status: UserStatus;
+  custom_status: string | null;
+  created_at: string;
+  roles: Role[];
+  effective_permissions: number;
+};
+
+/**
+ * Ban — Yasaklanmış kullanıcı bilgisi.
+ */
+export type Ban = {
+  user_id: string;
+  username: string;
+  reason: string;
+  banned_by: string;
+  created_at: string;
+};
+
+// ──────────────────────────────────
 // Invite
 // ──────────────────────────────────
 export type Invite = {

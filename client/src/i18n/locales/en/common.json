@@ -22,5 +22,15 @@
   "noResults": "No results found",
   "copySuccess": "Copied to clipboard",
   "language": "Language",
-  "members": "Members"
+  "members": "Members",
+  "kick": "Kick",
+  "ban": "Ban",
+  "unban": "Unban",
+  "manageRoles": "Manage Roles",
+  "joinedAt": "Joined {{date}}",
+  "roles": "Roles",
+  "confirmKick": "Are you sure you want to kick {{username}}?",
+  "confirmBan": "Are you sure you want to ban {{username}}?",
+  "banReason": "Reason for ban",
+  "noRoles": "No roles"
 }

@@ -34,4 +34,7 @@ type UserRepository interface {
 	Update(ctx context.Context, user *models.User) error
 	UpdateStatus(ctx context.Context, userID string, status models.UserStatus) error
 	Count(ctx context.Context) (int, error)
+	// Delete, kullanıcıyı siler (kick işlemi için).
+	// FK cascade ile user_roles, sessions vb. ilişkili kayıtlar da silinir.
+	Delete(ctx context.Context, id string) error
 }
