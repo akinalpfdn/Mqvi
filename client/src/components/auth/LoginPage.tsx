@@ -51,28 +51,31 @@ function LoginPage() {
 
   // ─── Render ───
   return (
-    <div className="flex h-full items-center justify-center bg-background">
-      <div className="w-full max-w-md rounded-lg bg-surface p-8">
-        <div className="mb-6 text-center">
-          <h1 className="mb-2 text-2xl font-bold text-text-primary">
+    <div className="flex h-full items-center justify-center bg-background p-4">
+      <div className="w-full max-w-[480px] rounded-md bg-surface px-8 py-10 shadow-lg">
+        {/* ─── Header ─── */}
+        <div className="mb-8 text-center">
+          <h1 className="mb-2 text-[26px] font-bold leading-tight text-text-primary">
             {t("welcomeBack")}
           </h1>
-          <p className="text-text-secondary">
+          <p className="text-base text-text-secondary">
             {t("excitedToSeeYou")}
           </p>
         </div>
 
+        {/* ─── Error Banner ─── */}
         {error && (
-          <div className="mb-4 rounded bg-danger/10 p-3 text-sm text-danger">
+          <div className="mb-6 rounded-md bg-danger/10 px-4 py-3 text-sm leading-relaxed text-danger">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* ─── Form ─── */}
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label
               htmlFor="username"
-              className="mb-2 block text-xs font-bold uppercase text-text-secondary"
+              className="mb-2.5 block text-xs font-bold uppercase tracking-wide text-text-secondary"
             >
               {t("username")}
             </label>
@@ -86,14 +89,14 @@ function LoginPage() {
               }}
               required
               autoFocus
-              className="w-full rounded bg-input p-2.5 text-text-primary outline-none transition-colors focus:bg-input-focus"
+              className="h-11 w-full rounded-md bg-input px-3.5 text-base text-text-primary outline-none transition-colors focus:bg-input-focus"
             />
           </div>
 
           <div>
             <label
               htmlFor="password"
-              className="mb-2 block text-xs font-bold uppercase text-text-secondary"
+              className="mb-2.5 block text-xs font-bold uppercase tracking-wide text-text-secondary"
             >
               {t("password")}
             </label>
@@ -106,20 +109,21 @@ function LoginPage() {
                 handleInputChange();
               }}
               required
-              className="w-full rounded bg-input p-2.5 text-text-primary outline-none transition-colors focus:bg-input-focus"
+              className="h-11 w-full rounded-md bg-input px-3.5 text-base text-text-primary outline-none transition-colors focus:bg-input-focus"
             />
           </div>
 
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded bg-brand p-2.5 font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
+            className="mt-1 h-11 w-full rounded-md bg-brand text-base font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
           >
             {isLoading ? t("loggingIn") : t("login")}
           </button>
         </form>
 
-        <p className="mt-4 text-sm text-text-muted">
+        {/* ─── Footer Link ─── */}
+        <p className="mt-6 text-sm text-text-muted">
           {t("needAccount")}{" "}
           <Link to="/register" className="text-text-link hover:underline">
             {t("registerLink")}

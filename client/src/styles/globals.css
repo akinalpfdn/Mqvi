@@ -10,13 +10,24 @@
  * Örnek: bg-background → var(--color-background) → #313338
  */
 @theme {
-  /* Background Colors */
+  /* ───────────────────────────────────────────────
+   * FONT FAMILIES
+   * Tailwind v4: --font-* → font-* utility olur.
+   * Örnek: font-sans → var(--font-sans)
+   * ─────────────────────────────────────────────── */
+  --font-sans: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "Consolas", "Monaco", "Andale Mono", monospace;
+  --font-display: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  /* ───────────────────────────────────────────────
+   * COLORS — Background
+   * ─────────────────────────────────────────────── */
   --color-background: #313338;
   --color-background-secondary: #2B2D31;
   --color-background-tertiary: #1E1F22;
   --color-background-floating: #111214;
 
-  /* Surface Colors (cards, modals, popups) */
+  /* Surface (cards, modals, popups) */
   --color-surface: #2B2D31;
   --color-surface-hover: #35373C;
   --color-surface-active: #3F4147;
@@ -25,39 +36,63 @@
   --color-input: #383A40;
   --color-input-focus: #1E1F22;
 
-  /* Text Colors */
+  /* ───────────────────────────────────────────────
+   * COLORS — Text
+   * ─────────────────────────────────────────────── */
   --color-text-primary: #F2F3F5;
   --color-text-secondary: #B5BAC1;
   --color-text-muted: #949BA4;
   --color-text-link: #00A8FC;
 
-  /* Brand / Accent */
+  /* ───────────────────────────────────────────────
+   * COLORS — Brand / Accent
+   * ─────────────────────────────────────────────── */
   --color-brand: #5865F2;
   --color-brand-hover: #4752C4;
 
-  /* Status Colors */
+  /* ───────────────────────────────────────────────
+   * COLORS — Status
+   * ─────────────────────────────────────────────── */
   --color-status-online: #23A559;
   --color-status-idle: #F0B232;
   --color-status-dnd: #F23F43;
   --color-status-offline: #80848E;
 
-  /* Semantic Colors */
+  /* ───────────────────────────────────────────────
+   * COLORS — Semantic
+   * ─────────────────────────────────────────────── */
   --color-success: #23A559;
   --color-warning: #F0B232;
   --color-danger: #F23F43;
   --color-info: #00A8FC;
 
-  /* Channel Colors */
+  /* ───────────────────────────────────────────────
+   * COLORS — Channel
+   * ─────────────────────────────────────────────── */
   --color-channel-default: #80848E;
   --color-channel-hover: #DBDEE1;
 
-  /* Scrollbar */
+  /* ───────────────────────────────────────────────
+   * COLORS — Scrollbar
+   * ─────────────────────────────────────────────── */
   --color-scrollbar-track: #2B2D31;
   --color-scrollbar-thumb: #1A1B1E;
+  --color-scrollbar-thumb-hover: #232428;
 
-  /* Sidebar dimensions */
+  /* ───────────────────────────────────────────────
+   * SPACING — Layout Dimensions
+   * Tailwind v4: --spacing-* → w-*, h-*, p-*, m-* utility olur.
+   * Örnek: w-sidebar → var(--spacing-sidebar) → 240px
+   *
+   * Neden burada tanımlıyoruz?
+   * Sabit genişlikler component'lerde w-[240px] gibi
+   * arbitrary value yerine w-sidebar gibi semantic isimle kullanılır.
+   * Böylece değiştirmek istediğinde tek bir yerde değiştirirsin.
+   * ─────────────────────────────────────────────── */
   --spacing-sidebar: 240px;
   --spacing-member-list: 240px;
+  --spacing-header: 48px;
+  --spacing-user-bar: 52px;
 }
 
 /* Global resets */
@@ -74,7 +109,7 @@ html, body, #root {
 }
 
 body {
-  font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -96,5 +131,5 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #232428;
+  background: var(--color-scrollbar-thumb-hover);
 }

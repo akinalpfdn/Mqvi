@@ -1,57 +1,60 @@
 /**
  * ChatArea — Orta panel: kanal başlığı, mesajlar ve mesaj input.
  *
- * Faz 2'de gerçek mesajlar gelecek, şimdilik placeholder.
- * flex-1 ile sidebar ve member list arasındaki kalan alanı doldurur.
- *
- * i18n: "chat" namespace'ini kullanır.
- * t("welcomeChannel", { channel: "general" }) → "Welcome to #general!"
- * Bu, i18next'in interpolation özelliği — {{channel}} yerine "general" gelir.
+ * Discord referans spacing'leri:
+ * - Header: h-header(48px), hash + isim + divider + topic
+ * - Messages: geniş padding, alt hizalı
+ * - Welcome: büyük icon, başlık, açıklama
+ * - Input: rounded-lg, 44px yükseklik, generous padding
  */
 
 import { useTranslation } from "react-i18next";
 
 function ChatArea() {
   const { t } = useTranslation("chat");
-
-  // Faz 2'de bu değer dinamik olacak (seçili kanaldan gelecek)
   const channelName = "general";
 
   return (
     <div className="flex flex-1 flex-col bg-background">
       {/* ─── Channel Header ─── */}
-      <div className="flex h-12 items-center border-b border-background-tertiary px-4 shadow-sm">
-        <span className="mr-2 text-xl text-text-muted">#</span>
-        <h3 className="font-semibold text-text-primary">{channelName}</h3>
-        <span className="mx-3 h-6 w-px bg-background-tertiary" />
-        <span className="text-sm text-text-muted">
+      <div className="flex h-header shrink-0 items-center border-b border-background-tertiary px-4 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <span className="text-2xl leading-none text-text-muted">#</span>
+          <h3 className="text-[15px] font-semibold text-text-primary">{channelName}</h3>
+        </div>
+
+        {/* Divider */}
+        <div className="mx-4 h-6 w-px bg-background-tertiary" />
+
+        {/* Channel topic / description */}
+        <p className="truncate text-sm text-text-muted">
           {t("channelStart", { channel: channelName })}
-        </span>
+        </p>
       </div>
 
       {/* ─── Messages Area ─── */}
-      <div className="flex flex-1 flex-col justify-end overflow-y-auto p-4">
-        {/* Placeholder — Faz 2'de MessageList component'i gelecek */}
-        <div className="flex flex-col items-center justify-center py-8 text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface">
-            <span className="text-3xl text-text-muted">#</span>
+      <div className="flex flex-1 flex-col justify-end overflow-y-auto">
+        {/* Welcome placeholder — Faz 2'de MessageList component'i gelecek */}
+        <div className="flex flex-col items-center justify-center px-8 py-16 text-center">
+          <div className="mb-4 flex h-[76px] w-[76px] items-center justify-center rounded-full bg-surface">
+            <span className="text-[42px] leading-none text-text-muted">#</span>
           </div>
-          <h2 className="mb-1 text-2xl font-bold text-text-primary">
+          <h2 className="mb-2 text-[32px] font-bold leading-tight text-text-primary">
             {t("welcomeChannel", { channel: channelName })}
           </h2>
-          <p className="text-text-muted">
+          <p className="max-w-lg text-base leading-relaxed text-text-muted">
             {t("channelStart", { channel: channelName })}
           </p>
         </div>
       </div>
 
       {/* ─── Message Input ─── */}
-      <div className="px-4 pb-6">
-        <div className="flex items-center rounded-lg bg-input px-4">
-          {/* File upload button placeholder */}
-          <button className="mr-2 text-text-muted hover:text-text-secondary">
+      <div className="px-4 pb-6 pt-1">
+        <div className="flex items-center rounded-lg bg-input px-4 py-1">
+          {/* File upload button */}
+          <button className="mr-4 flex h-11 shrink-0 items-center text-text-muted transition-colors hover:text-text-secondary">
             <svg
-              className="h-5 w-5"
+              className="h-6 w-6"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -68,7 +71,7 @@ function ChatArea() {
           <input
             type="text"
             placeholder={t("messagePlaceholder", { channel: channelName })}
-            className="flex-1 bg-transparent py-2.5 text-text-primary outline-none placeholder:text-text-muted"
+            className="h-11 flex-1 bg-transparent text-base text-text-primary outline-none placeholder:text-text-muted"
             disabled
           />
         </div>

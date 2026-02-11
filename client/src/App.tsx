@@ -34,8 +34,8 @@ function App() {
     return (
       <div className="flex h-full items-center justify-center bg-background">
         <div className="text-center">
-          <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-surface border-t-brand mx-auto" />
-          <p className="text-text-muted">{t("loading")}</p>
+          <div className="mx-auto mb-6 h-14 w-14 animate-spin rounded-full border-4 border-surface border-t-brand" />
+          <p className="text-base text-text-muted">{t("loading")}</p>
         </div>
       </div>
     );

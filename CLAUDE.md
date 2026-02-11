@@ -164,10 +164,39 @@ var (
 - Component-local state: `useState` sadece UI state için.
 - Server state: store + WebSocket sync, fazladan cache katmanı ekleme.
 
-### Styling
-- **Tailwind CSS** utility-first, custom CSS yazma.
-- Discord renk paleti theme.ts'de tanımlı, hardcode renk YASAK.
-- Responsive düşünme (şimdilik desktop-only ama yapı bozulmasın).
+### Styling — Merkezi Tema Sistemi (ZORUNLU)
+
+Tüm renkler, fontlar ve layout boyutları `client/src/styles/globals.css` içindeki `@theme` bloğunda tanımlıdır.
+**Hiçbir component dosyasında inline renk, font veya arbitrary pixel değeri OLMAMALI.**
+
+**Tema Dosyası:** `client/src/styles/globals.css` → `@theme { ... }`
+
+**Token Kategorileri:**
+| Token Prefix | Kullanım | Örnek |
+|---|---|---|
+| `--color-*` | Tüm renkler | `bg-background`, `text-text-primary` |
+| `--font-*` | Font aileleri | `font-sans`, `font-mono` |
+| `--spacing-*` | Layout boyutları | `w-sidebar`, `h-header`, `min-h-user-bar` |
+
+**Doğru kullanım:**
+```tsx
+// DOĞRU — tema token'ları kullan
+<div className="w-sidebar bg-background-secondary font-sans">
+<div className="h-header text-text-primary">
+
+// YANLIŞ — arbitrary value / hardcoded
+<div className="w-[240px] bg-[#2B2D31]">
+<div style={{ height: '48px', color: '#F2F3F5' }}>
+<div className="font-['Helvetica']">
+```
+
+**Kurallar:**
+1. Renk: Sadece `@theme`'deki `--color-*` token'ları kullanılır (Tailwind utility üzerinden)
+2. Font: Sadece `--font-sans`, `--font-mono`, `--font-display` kullanılır
+3. Layout boyutları: Tekrar eden sabit değerler `--spacing-*` token'ı olarak tanımlanır
+4. Yeni renk/boyut gerekirse → önce `globals.css @theme`'e token ekle, sonra component'te kullan
+5. `text-white` gibi Tailwind standart utility'leri sadece avatar/badge gibi dekoratif elemanlarda kabul edilir
+6. Responsive düşünme (şimdilik desktop-only ama yapı bozulmasın)
 
 ---
 
@@ -339,10 +368,12 @@ mqvi/
 6. Frontend'de `any` type assertion
 7. Inline style (Tailwind kullan)
 8. `console.log` production'da (debug flagli logger kullan)
-9. Hardcoded renk/boyut değerleri (theme'den al)
-10. Circular dependency (katmanlar arası tek yönlü bağımlılık)
-11. Hardcoded kullanıcıya görünen string (i18n kullan — hem EN hem TR)
-12. Çeviri key'ini tek dile ekleme (her zaman EN + TR birlikte)
+9. Hardcoded renk değerleri — `bg-[#xxx]`, `text-[#xxx]`, `style={{ color }}` YASAK (tema token kullan)
+10. Hardcoded font — `font-['xxx']`, inline font-family YASAK (`--font-*` token kullan)
+11. Arbitrary pixel değerleri — tekrar eden `w-[240px]` gibi sabitler `--spacing-*` token'ı olmalı
+12. Circular dependency (katmanlar arası tek yönlü bağımlılık)
+13. Hardcoded kullanıcıya görünen string (i18n kullan — hem EN hem TR)
+14. Çeviri key'ini tek dile ekleme (her zaman EN + TR birlikte)
 
 ---
 
