@@ -1,0 +1,62 @@
+# ========================
+# Go Backend
+# ========================
+server/mqvi
+server/mqvi.exe
+server/tmp/
+server/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ========================
+# Node / Frontend
+# ========================
+client/node_modules/
+client/dist/
+client/.vite/
+client/.tsbuildinfo
+
+# ========================
+# Tauri
+# ========================
+src-tauri/target/
+
+# ========================
+# Environment & Secrets
+# ========================
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# ========================
+# IDE
+# ========================
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================
+# OS
+# ========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ========================
+# Docker
+# ========================
+data/
+uploads/
+
+# ========================
+# Misc
+# ========================
+*.log
+*.tmp
+coverage/

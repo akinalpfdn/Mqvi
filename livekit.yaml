@@ -1,0 +1,30 @@
+# LiveKit server konfigürasyonu
+# https://docs.livekit.io/realtime/self-hosting/deployment/
+
+port: 7880
+rtc:
+  # WebRTC UDP port aralığı
+  port_range_start: 50000
+  port_range_end: 50060
+  # TCP fallback (UDP bloke olduğunda)
+  tcp_port: 7881
+
+keys:
+  devkey: devsecret
+
+logging:
+  level: info
+
+room:
+  # Oda kapandıktan sonra temizleme süresi
+  empty_timeout: 300  # 5 dakika
+  max_participants: 50
+
+# Codec ayarları
+codec:
+  # VP9 screen share için daha iyi sıkıştırma sağlar
+  # H.264 uyumluluk fallback'i olarak kullanılır
+  preferred_codecs:
+    - mime: audio/opus
+    - mime: video/VP9
+    - mime: video/H264

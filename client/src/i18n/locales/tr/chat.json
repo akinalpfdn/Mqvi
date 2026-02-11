@@ -1,0 +1,15 @@
+{
+  "messagePlaceholder": "#{{channel}} kanalına mesaj yaz",
+  "editMessage": "Mesajı Düzenle",
+  "deleteMessage": "Mesajı Sil",
+  "deleteMessageConfirm": "Bu mesajı silmek istediğinize emin misiniz?",
+  "typing": "{{user}} yazıyor...",
+  "typingMultiple": "{{count}} kişi yazıyor...",
+  "welcomeChannel": "#{{channel}} kanalına hoş geldiniz!",
+  "channelStart": "Bu, #{{channel}} kanalının başlangıcıdır.",
+  "today": "Bugün",
+  "yesterday": "Dün",
+  "edited": "(düzenlendi)",
+  "uploadFile": "Dosya Yükle",
+  "fileTooLarge": "Dosya çok büyük (maks. {{max}}MB)"
+}

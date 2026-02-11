@@ -1,0 +1,15 @@
+{
+  "messagePlaceholder": "Message #{{channel}}",
+  "editMessage": "Edit Message",
+  "deleteMessage": "Delete Message",
+  "deleteMessageConfirm": "Are you sure you want to delete this message?",
+  "typing": "{{user}} is typing...",
+  "typingMultiple": "{{count}} people are typing...",
+  "welcomeChannel": "Welcome to #{{channel}}!",
+  "channelStart": "This is the start of the #{{channel}} channel.",
+  "today": "Today",
+  "yesterday": "Yesterday",
+  "edited": "(edited)",
+  "uploadFile": "Upload File",
+  "fileTooLarge": "File is too large (max {{max}}MB)"
+}

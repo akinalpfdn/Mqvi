@@ -1,0 +1,14 @@
+{
+  "textChannels": "Metin Kanalları",
+  "voiceChannels": "Sesli Kanallar",
+  "createChannel": "Kanal Oluştur",
+  "editChannel": "Kanalı Düzenle",
+  "deleteChannel": "Kanalı Sil",
+  "channelName": "Kanal Adı",
+  "channelTopic": "Kanal Konusu",
+  "channelType": "Kanal Türü",
+  "text": "Metin",
+  "voice": "Sesli",
+  "deleteConfirm": "#{{name}} kanalını silmek istediğinize emin misiniz?",
+  "noChannels": "Henüz kanal yok"
+}

@@ -1,0 +1,14 @@
+{
+  "textChannels": "Text Channels",
+  "voiceChannels": "Voice Channels",
+  "createChannel": "Create Channel",
+  "editChannel": "Edit Channel",
+  "deleteChannel": "Delete Channel",
+  "channelName": "Channel Name",
+  "channelTopic": "Channel Topic",
+  "channelType": "Channel Type",
+  "text": "Text",
+  "voice": "Voice",
+  "deleteConfirm": "Are you sure you want to delete #{{name}}?",
+  "noChannels": "No channels yet"
+}

@@ -1,0 +1,66 @@
+# mqvi Docker Compose — Tek komutla tüm servisleri ayağa kaldırır.
+#
+# Kullanım:
+#   docker-compose up        → Tüm servisleri başlat
+#   docker-compose up -d     → Arka planda başlat
+#   docker-compose down      → Durdur
+#   docker-compose logs -f   → Logları izle
+
+services:
+  # ─── Go Backend API ───
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - DATABASE_PATH=/data/mqvi.db
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - JWT_ACCESS_EXPIRY_MINUTES=15
+      - JWT_REFRESH_EXPIRY_DAYS=7
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
+      - UPLOAD_DIR=/data/uploads
+      - UPLOAD_MAX_SIZE=26214400
+    volumes:
+      - mqvi-data:/data
+    depends_on:
+      - livekit
+    restart: unless-stopped
+
+  # ─── LiveKit SFU (Voice/Video/Screen Share) ───
+  livekit:
+    image: livekit/livekit-server:latest
+    ports:
+      - "7880:7880"     # WebSocket signaling
+      - "7881:7881"     # WebRTC over TCP
+      - "50000-50060:50000-50060/udp"  # WebRTC UDP media
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    restart: unless-stopped
+
+  # ─── React Frontend (development) ───
+  # Production'da bu servis yerine build output nginx ile serve edilir.
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      target: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./client/src:/app/src
+      - ./client/public:/app/public
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    depends_on:
+      - server
+
+volumes:
+  mqvi-data:
+    driver: local

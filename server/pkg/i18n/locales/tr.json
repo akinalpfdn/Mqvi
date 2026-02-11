@@ -1,0 +1,34 @@
+{
+  "auth": {
+    "invalidCredentials": "Geçersiz kullanıcı adı veya şifre",
+    "usernameRequired": "Kullanıcı adı gerekli",
+    "passwordRequired": "Şifre gerekli",
+    "usernameTooShort": "Kullanıcı adı 3 ile 32 karakter arasında olmalı",
+    "usernameInvalidChars": "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir",
+    "passwordTooShort": "Şifre en az 8 karakter olmalı",
+    "displayNameTooLong": "Görünen ad en fazla 32 karakter olabilir",
+    "usernameTaken": "Bu kullanıcı adı zaten alınmış",
+    "refreshTokenRequired": "Refresh token gerekli",
+    "invalidRefreshToken": "Geçersiz refresh token",
+    "refreshTokenExpired": "Refresh token süresi dolmuş",
+    "invalidToken": "Geçersiz token",
+    "authRequired": "Yetkilendirme gerekli",
+    "invalidAuthFormat": "Geçersiz yetkilendirme formatı, kullanım: Bearer <token>"
+  },
+  "user": {
+    "notFound": "Kullanıcı bulunamadı"
+  },
+  "channel": {
+    "notFound": "Kanal bulunamadı",
+    "nameRequired": "Kanal adı gerekli"
+  },
+  "role": {
+    "notFound": "Rol bulunamadı"
+  },
+  "common": {
+    "notFound": "Bulunamadı",
+    "forbidden": "Bu işlem için yetkiniz yok",
+    "badRequest": "Geçersiz istek",
+    "internalError": "Sunucu hatası"
+  }
+}

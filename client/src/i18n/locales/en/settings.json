@@ -1,0 +1,15 @@
+{
+  "title": "Settings",
+  "userSettings": "User Settings",
+  "serverSettings": "Server Settings",
+  "voiceSettings": "Voice & Video",
+  "appearance": "Appearance",
+  "language": "Language",
+  "selectLanguage": "Select Language",
+  "profile": "Profile",
+  "changeAvatar": "Change Avatar",
+  "roles": "Roles",
+  "members": "Members",
+  "invites": "Invites",
+  "dangerZone": "Danger Zone"
+}

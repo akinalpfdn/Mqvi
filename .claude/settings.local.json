@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go version:*)",
+      "Bash(\"C:/Program Files/Go/bin/go.exe\" mod init github.com/akinalp/mqvi)",
+      "Bash(\"C:/Program Files/Go/bin/go.exe\" get:*)",
+      "Bash(\"C:/Program Files/Go/bin/go.exe\" build -o mqvi.exe ./...)",
+      "Bash(\"C:/Program Files/Go/bin/go.exe\" build -o mqvi.exe .)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(\"C:/Program Files/Go/bin/go.exe\" mod tidy)",
+      "Bash(go build:*)",
+      "Bash(powershell.exe -NoProfile -Command \"Set-Location 'c:\\\\Users\\\\akina\\\\source\\\\repos\\\\VoidChat\\\\server'; & 'C:\\\\Program Files\\\\Go\\\\bin\\\\go.exe' build -o mqvi.exe . 2>&1\":*)"
+    ]
+  }
+}

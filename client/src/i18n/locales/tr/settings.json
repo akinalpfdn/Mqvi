@@ -1,0 +1,15 @@
+{
+  "title": "Ayarlar",
+  "userSettings": "Kullanıcı Ayarları",
+  "serverSettings": "Sunucu Ayarları",
+  "voiceSettings": "Ses ve Görüntü",
+  "appearance": "Görünüm",
+  "language": "Dil",
+  "selectLanguage": "Dil Seçin",
+  "profile": "Profil",
+  "changeAvatar": "Avatarı Değiştir",
+  "roles": "Roller",
+  "members": "Üyeler",
+  "invites": "Davetler",
+  "dangerZone": "Tehlikeli Bölge"
+}

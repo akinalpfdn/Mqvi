@@ -6,6 +6,24 @@ Kod her zaman production-grade, scalable ve SOLID uyumlu olmalıdır.
 
 ---
 
+## Geliştirme Ortamı (Windows)
+
+Bu makineye özel araç yolları — `PATH`'te olmayabilir, doğrudan kullan:
+
+| Araç | Yol |
+|------|-----|
+| Go | `C:\Program Files\Go\bin\go.exe` |
+| Node.js | `C:\Program Files\nodejs\node.exe` |
+| npx | `C:\Program Files\nodejs\npx.cmd` |
+
+Build komutları bu yolları kullanmalı. Örnek:
+```powershell
+& 'C:\Program Files\Go\bin\go.exe' build -o mqvi.exe .
+& 'C:\Program Files\nodejs\npx.cmd' tsc --noEmit
+```
+
+---
+
 ## Kullanıcı Profili
 
 - Kullanıcı Go ve Tauri'ye yeni, React/TypeScript tecrübesi az.
@@ -24,7 +42,8 @@ Kod her zaman production-grade, scalable ve SOLID uyumlu olmalıdır.
 | Desktop | Tauri v2 |
 | State | Zustand |
 | Voice/Video | LiveKit (self-hosted SFU) |
-| Database | SQLite (go-sqlite3) |
+| Database | SQLite (modernc.org/sqlite — pure Go) |
+| i18n | react-i18next (frontend) + custom i18n pkg (backend) |
 | Auth | JWT (access + refresh token) |
 | Deploy | Docker Compose |
 
@@ -200,6 +219,73 @@ var (
 
 ---
 
+## i18n (Çoklu Dil Desteği)
+
+Proje başından itibaren tüm kullanıcıya görünen metinler çeviri sistemi üzerinden geçer.
+Hardcoded string YASAK — hem frontend hem backend tarafında.
+
+### Desteklenen Diller
+- **EN** (English) — varsayılan dil (fallback)
+- **TR** (Türkçe)
+
+### Dil Seçim Sırası
+1. Kullanıcının DB'deki `language` tercihi (giriş yapılmışsa)
+2. `Accept-Language` HTTP header'ı / tarayıcı dili (giriş öncesi)
+3. Varsayılan: `en`
+
+### Frontend i18n Kuralları
+- **Kütüphane:** `react-i18next` + `i18next-browser-languagedetector`
+- **Konfigürasyon:** `client/src/i18n/index.ts`
+- **Çeviri dosyaları:** `client/src/i18n/locales/{lang}/{namespace}.json`
+- **Namespace'ler:** `common`, `auth`, `channels`, `chat`, `settings`
+- **Varsayılan namespace:** `common` (`t("loading")` → common.json'dan çeker)
+
+**Yeni string eklerken:**
+1. İlgili namespace JSON'una **hem EN hem TR** çevirisini ekle
+2. Component'te: `const { t } = useTranslation("namespace");`
+3. JSX'te: `{t("key")}` veya `{t("key", { param: value })}` (interpolation)
+4. Birden fazla namespace gerekiyorsa: `const { t: tAuth } = useTranslation("auth");`
+
+```typescript
+// DOĞRU
+const { t } = useTranslation("auth");
+<h1>{t("welcomeBack")}</h1>
+<p>{t("welcomeChannel", { channel: "general" })}</p>
+
+// YANLIŞ
+<h1>Welcome back!</h1>
+<p>Welcome to #general!</p>
+```
+
+### Backend i18n Kuralları
+- **Package:** `server/pkg/i18n/`
+- **Çeviri dosyaları:** `server/pkg/i18n/locales/{lang}.json`
+- **Flat key format:** `"auth.invalidCredentials"` (nested JSON otomatik flatten edilir)
+- **Başlatma:** `main.go`'da `i18n.Load(localesDir)` ile yüklenir (sync.Once korumalı)
+
+**Kullanım:**
+```go
+// Handler'da dil algıla ve Localizer oluştur
+lang := i18n.DetectLanguage(r.Header.Get("Accept-Language"))
+localizer := i18n.NewLocalizer(lang)
+
+// Çeviri
+msg := localizer.T("auth.invalidCredentials")
+// → "Invalid username or password" (EN)
+// → "Geçersiz kullanıcı adı veya şifre" (TR)
+
+// Parametreli çeviri
+msg := localizer.TWithParams("chat.typing", map[string]string{"user": "Ali"})
+```
+
+### i18n Yasakları
+1. Hardcoded kullanıcıya görünen string YASAK (label, error, placeholder, title, tooltip)
+2. Çeviri key'i sadece bir dile ekleme YASAK — her zaman EN + TR birlikte
+3. Namespace dışı çeviri YASAK — her key bir namespace'e ait olmalı
+4. `t()` fonksiyonu dışında çeviri erişimi YASAK (frontend)
+
+---
+
 ## Dosya Yapısı
 
 ```
@@ -215,8 +301,12 @@ mqvi/
 │   ├── ws/
 │   ├── migrations/
 │   └── pkg/              # Shared utilities
+│       └── i18n/         # Backend çeviri sistemi
+│           └── locales/  # en.json, tr.json
 ├── client/               # React frontend
 │   └── src/
+│       ├── i18n/          # Frontend çeviri sistemi
+│       │   └── locales/  # en/*.json, tr/*.json
 │       ├── api/
 │       ├── stores/
 │       ├── hooks/
@@ -251,6 +341,8 @@ mqvi/
 8. `console.log` production'da (debug flagli logger kullan)
 9. Hardcoded renk/boyut değerleri (theme'den al)
 10. Circular dependency (katmanlar arası tek yönlü bağımlılık)
+11. Hardcoded kullanıcıya görünen string (i18n kullan — hem EN hem TR)
+12. Çeviri key'ini tek dile ekleme (her zaman EN + TR birlikte)
 
 ---
 
@@ -266,6 +358,7 @@ mqvi/
 7. [ ] main.go'da wire-up yap
 8. [ ] Migration gerekiyorsa SQL dosyası ekle
 9. [ ] WebSocket event gerekiyorsa ws/events.go'ya ekle
+10. [ ] i18n: Yeni error/mesaj varsa `pkg/i18n/locales/en.json` + `tr.json`'a ekle
 
 ### Frontend
 1. [ ] Type tanımla (types/)
@@ -274,3 +367,4 @@ mqvi/
 4. [ ] Component oluştur (tek dosya = tek component)
 5. [ ] Hook gerekiyorsa oluştur (hooks/)
 6. [ ] WebSocket event handler'ı ekle
+7. [ ] i18n: Tüm UI string'leri ilgili namespace JSON'larına ekle (EN + TR)
