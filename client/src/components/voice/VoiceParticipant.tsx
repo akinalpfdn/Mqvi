@@ -1,6 +1,10 @@
 /**
  * VoiceParticipant — Ses odasında tek bir katılımcı tile'ı.
  *
+ * İki boyut modu:
+ * - Tam mod (compact=false): 64px avatar + isim altında — screen share yokken
+ * - Kompakt mod (compact=true): 40px avatar + isim yanında — screen share strip'i
+ *
  * LiveKit'in useIsSpeaking hook'u ile konuşma algılama yapılır.
  * Katılımcının durumuna göre:
  * - Konuşuyorsa: yeşil ring animasyonu
@@ -18,9 +22,11 @@ import { useVoiceStore } from "../../stores/voiceStore";
 
 type VoiceParticipantProps = {
   participant: Participant;
+  /** Kompakt mod — screen share aktifken küçük gösterim */
+  compact?: boolean;
 };
 
-function VoiceParticipant({ participant }: VoiceParticipantProps) {
+function VoiceParticipant({ participant, compact = false }: VoiceParticipantProps) {
   const isSpeaking = useIsSpeaking(participant);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
@@ -38,6 +44,46 @@ function VoiceParticipant({ participant }: VoiceParticipantProps) {
   const isMuted = voiceState?.is_muted ?? false;
   const isDeafened = voiceState?.is_deafened ?? false;
 
+  // ─── Kompakt mod: Screen share strip'inde küçük avatar + isim ───
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="relative">
+          <div
+            className={`flex h-8 w-8 items-center justify-center rounded-full bg-brand text-xs font-bold text-white transition-shadow ${
+              isSpeaking
+                ? "ring-2 ring-status-online ring-offset-1 ring-offset-background"
+                : ""
+            }`}
+          >
+            {firstLetter}
+          </div>
+
+          {/* Mute/Deafen küçük overlay */}
+          {(isMuted || isDeafened) && (
+            <div className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-background-floating">
+              {isDeafened ? (
+                <svg className="h-2.5 w-2.5 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636" />
+                </svg>
+              ) : (
+                <svg className="h-2.5 w-2.5 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                </svg>
+              )}
+            </div>
+          )}
+        </div>
+
+        <span className="max-w-24 truncate text-xs text-text-secondary">
+          {displayName}
+        </span>
+      </div>
+    );
+  }
+
+  // ─── Tam mod: Büyük avatar + isim altında ───
   return (
     <div className="flex flex-col items-center gap-2 p-3">
       {/* Avatar — konuşurken yeşil ring */}

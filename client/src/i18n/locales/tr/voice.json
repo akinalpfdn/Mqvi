@@ -14,5 +14,8 @@
   "connectingToVoice": "Bağlanıyor...",
   "reconnectingToVoice": "Yeniden bağlanıyor...",
   "voiceDisconnected": "Ses bağlantısı koptu",
-  "joinVoicePrompt": "Bu ses kanalına katılmak için tıklayın"
+  "joinVoicePrompt": "Bu ses kanalına katılmak için tıklayın",
+  "fullscreen": "Tam Ekran",
+  "exitFullscreen": "Tam Ekrandan Çık",
+  "toggleLayout": "Düzen Değiştir"
 }

@@ -14,5 +14,8 @@
   "connectingToVoice": "Connecting...",
   "reconnectingToVoice": "Reconnecting...",
   "voiceDisconnected": "Voice disconnected",
-  "joinVoicePrompt": "Click to join this voice channel"
+  "joinVoicePrompt": "Click to join this voice channel",
+  "fullscreen": "Fullscreen",
+  "exitFullscreen": "Exit Fullscreen",
+  "toggleLayout": "Toggle Layout"
 }

@@ -1,23 +1,23 @@
 /**
  * VoiceRoom — LiveKit ses odası wrapper component'i.
  *
- * LiveKitRoom, LiveKit React SDK'nın ana container component'idir:
- * - serverUrl + token ile LiveKit sunucusuna bağlanır
- * - audio=true: mikrofon erişimi ister
- * - video=false: webcam kullanılmaz (CLAUDE.md: webcam Faz 4'te yok)
+ * Layout stratejisi (Discord referans):
+ * - Screen share yokken: Katılımcılar flex-1 grid olarak merkeze yayılır
+ * - Screen share aktifken: Ekran paylaşımı flex-1 ile alanı kaplar,
+ *   katılımcılar altta kompakt strip olarak gösterilir (shrink-0)
  *
- * RoomAudioRenderer nedir?
- * Remote participant'ların ses track'lerini otomatik olarak HTML audio
- * element'lerine bağlar. Bu olmadan diğer katılımcıların sesini duyamazsın.
- * Görsel çıktısı yok, sadece ses pipeline'ını kurar.
+ * LiveKitRoom bir <div> render eder — style prop ile flex container yapıyoruz.
+ * İçerideki layout wrapper (min-h-0 trick) overflow sorunlarını önler.
  *
  * Component hiyerarşisi:
  * VoiceRoom
- * ├── RoomAudioRenderer (ses çıkışı — görünmez)
- * ├── VoiceStateManager (store ↔ LiveKit sync — görünmez)
- * ├── VoiceConnectionStatus (bağlantı durumu göstergesi)
- * ├── ScreenShareView (aktif ekran paylaşımları — varsa)
- * └── VoiceParticipantGrid (katılımcı grid'i)
+ * └── LiveKitRoom (flex-1 flex-col — tüm alanı doldurur)
+ *     ├── RoomAudioRenderer (ses çıkışı — görünmez)
+ *     ├── VoiceStateManager (store ↔ LiveKit sync — görünmez)
+ *     └── Layout wrapper (flex-1 flex-col min-h-0)
+ *         ├── VoiceConnectionStatus (null veya small bar)
+ *         ├── ScreenShareView (flex-1 — aktifse alanı kaplar)
+ *         └── VoiceParticipantGrid (flex-1 veya shrink-0)
  */
 
 import { useCallback } from "react";
@@ -52,7 +52,6 @@ function VoiceRoom() {
   const handleDisconnected = useCallback(
     (reason?: DisconnectReason) => {
       console.log("[VoiceRoom] Disconnected from LiveKit. Reason:", reason);
-      // Store'u temizle — kopuş nedenine bakılmaksızın
       leaveVoiceChannel();
     },
     [leaveVoiceChannel]
@@ -78,6 +77,11 @@ function VoiceRoom() {
       onError={(err) => {
         console.error("[VoiceRoom] LiveKit error:", err);
       }}
+      // LiveKitRoom bir <div> render eder — flex container yaparak
+      // parent ChatArea'nın kalan alanını doldurmasını sağlıyoruz.
+      // className yerine style kullanıyoruz çünkü LiveKit'in kendi
+      // CSS class'ları ile çakışma olmaz.
+      style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}
     >
       {/* Ses çıkışı — remote katılımcıların sesini çalar */}
       <RoomAudioRenderer />
@@ -85,14 +89,16 @@ function VoiceRoom() {
       {/* Store ↔ LiveKit senkronizasyonu — mute/deafen/screen share */}
       <VoiceStateManager />
 
-      {/* Bağlantı durumu göstergesi — connecting/reconnecting durumlarını gösterir */}
-      <VoiceConnectionStatus />
-
-      {/* Ekran paylaşımı — aktif screen share varsa göster */}
-      <ScreenShareView />
-
-      {/* Katılımcı grid'i */}
-      <VoiceParticipantGrid />
+      {/* Layout container — tüm görsel content burada.
+          min-h-0: flex child'larda overflow engellemek için gerekli.
+          Flex child varsayılan min-height: auto'dur — içerik büyüdüğünde
+          parent'ı taşırır. min-h-0 bunu sıfırlar ve overflow: hidden/scroll
+          doğru çalışır. */}
+      <div className="flex flex-1 flex-col min-h-0">
+        <VoiceConnectionStatus />
+        <ScreenShareView />
+        <VoiceParticipantGrid />
+      </div>
     </LiveKitRoom>
   );
 }
