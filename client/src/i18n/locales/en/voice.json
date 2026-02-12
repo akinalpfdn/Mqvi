@@ -12,5 +12,7 @@
   "screenShareLimit": "Maximum of 2 screen shares reached",
   "voiceChannelFull": "This voice channel is full",
   "connectingToVoice": "Connecting...",
+  "reconnectingToVoice": "Reconnecting...",
+  "voiceDisconnected": "Voice disconnected",
   "joinVoicePrompt": "Click to join this voice channel"
 }

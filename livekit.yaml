@@ -8,6 +8,14 @@ rtc:
   port_range_end: 50060
   # TCP fallback (UDP bloke olduğunda)
   tcp_port: 7881
+  # Docker içinde çalışırken LiveKit, container'ın internal IP'sini
+  # (172.x.x.x) ICE candidate olarak gönderir. Browser bu IP'ye ulaşamaz.
+  # use_external_ip: true → LiveKit host makinenin IP'sini kullanır.
+  use_external_ip: true
+  # Docker Desktop (Windows/Mac) için node_ip açıkça belirtilmeli.
+  # Çünkü use_external_ip Docker Desktop'ta WSL2 VM IP'sini bulabilir
+  # ki bu da browser'dan erişilemez. 127.0.0.1 port forwarding ile çalışır.
+  node_ip: 127.0.0.1
 
 keys:
   devkey: devsecret
@@ -20,11 +28,7 @@ room:
   empty_timeout: 300  # 5 dakika
   max_participants: 50
 
-# Codec ayarları
-codec:
-  # VP9 screen share için daha iyi sıkıştırma sağlar
-  # H.264 uyumluluk fallback'i olarak kullanılır
-  preferred_codecs:
-    - mime: audio/opus
-    - mime: video/VP9
-    - mime: video/H264
+# Codec ayarları — LiveKit server config'inde codec alanı YOK.
+# Codec tercihleri (VP9, Opus, H264) client SDK tarafında ayarlanır:
+# - Screen share: client'ta publishOptions.videoCodec = "vp9" ile
+# - Audio: LiveKit varsayılan olarak Opus kullanır (değiştirme gerekmez)

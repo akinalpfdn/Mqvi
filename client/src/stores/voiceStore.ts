@@ -104,23 +104,31 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   // ─── Actions ───
 
   joinVoiceChannel: async (channelId: string) => {
-    const response = await voiceApi.getVoiceToken(channelId);
+    try {
+      const response = await voiceApi.getVoiceToken(channelId);
 
-    if (!response.success || !response.data) {
+      if (!response.success || !response.data) {
+        console.error("[voiceStore] Failed to get voice token:", response.error);
+        return null;
+      }
+
+      console.log("[voiceStore] Voice token obtained, connecting to:", response.data.url);
+
+      set({
+        currentVoiceChannelId: channelId,
+        livekitUrl: response.data.url,
+        livekitToken: response.data.token,
+        // Katılırken mute/deafen sıfırlanır (Discord davranışı)
+        isMuted: false,
+        isDeafened: false,
+        isStreaming: false,
+      });
+
+      return response.data;
+    } catch (err) {
+      console.error("[voiceStore] Voice join error:", err);
       return null;
     }
-
-    set({
-      currentVoiceChannelId: channelId,
-      livekitUrl: response.data.url,
-      livekitToken: response.data.token,
-      // Katılırken mute/deafen sıfırlanır (Discord davranışı)
-      isMuted: false,
-      isDeafened: false,
-      isStreaming: false,
-    });
-
-    return response.data;
   },
 
   leaveVoiceChannel: () => {

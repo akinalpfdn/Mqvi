@@ -116,8 +116,10 @@ function ChannelList({ onJoinVoice }: ChannelListProps) {
                   }
                   onClick={() => {
                     if (channel.type === "voice") {
-                      // Voice kanal: katıl + seç (görüntüleme)
-                      onJoinVoice(channel.id);
+                      // Voice kanal: zaten bağlıysa sadece görüntüle, değilse katıl
+                      if (currentVoiceChannelId !== channel.id) {
+                        onJoinVoice(channel.id);
+                      }
                       selectChannel(channel.id);
                     } else {
                       // Text kanal: sadece seç

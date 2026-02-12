@@ -12,5 +12,7 @@
   "screenShareLimit": "Maksimum 2 ekran paylaşımına ulaşıldı",
   "voiceChannelFull": "Bu ses kanalı dolu",
   "connectingToVoice": "Bağlanıyor...",
+  "reconnectingToVoice": "Yeniden bağlanıyor...",
+  "voiceDisconnected": "Ses bağlantısı koptu",
   "joinVoicePrompt": "Bu ses kanalına katılmak için tıklayın"
 }
