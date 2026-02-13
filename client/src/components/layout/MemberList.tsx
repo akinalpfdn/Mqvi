@@ -1,30 +1,19 @@
 /**
  * MemberList — Sağ panel: online/offline kullanıcılar, rol bazlı gruplama.
  *
- * Discord referans yapısı:
- * ┌─ Header ("Members")
- * ├─ Online section
- * │  ├─ Role group "Owner" (position DESC sıralı)
- * │  │  └─ MemberItem
- * │  ├─ Role group "Admin"
- * │  │  └─ MemberItem
- * │  └─ "Online — N" sayacı
- * └─ Offline section
- *    └─ "Offline — N" sayacı
- *       └─ MemberItem (dimmed)
+ * CSS class'ları: .members-panel, .members-panel.open, .members-inner,
+ * .members-header, .members-list, .member-label
  *
- * Gruplama mantığı:
- * Her üye en yüksek position'daki rolüne göre gruplanır.
- * Aynı rol grubundaki üyeler username'e göre alfabetik sıralanır.
+ * Panel genişliği CSS transition ile yönetilir:
+ * .members-panel { width:0; overflow:hidden; transition:width .25s }
+ * .members-panel.open { width:200px; }
  *
- * Spacing referansları (Discord):
- * - Header: h-header(48px), diğer panellerle hizalı
- * - Group başlıkları: uppercase, 24px üst padding, 8px alt
- * - Kullanıcı item'ları: 42px yükseklik, 8px padding
+ * membersOpen state'i .open class'ını toggle eder.
  */
 
 import { useTranslation } from "react-i18next";
 import { useMemberStore } from "../../stores/memberStore";
+import { useUIStore } from "../../stores/uiStore";
 import MemberItem from "../members/MemberItem";
 import type { MemberWithRoles, Role } from "../../types";
 
@@ -86,6 +75,8 @@ function MemberList() {
   const { t } = useTranslation("common");
   const members = useMemberStore((s) => s.members);
   const onlineUserIds = useMemberStore((s) => s.onlineUserIds);
+  const toggleMembers = useUIStore((s) => s.toggleMembers);
+  const membersOpen = useUIStore((s) => s.membersOpen);
 
   // Üyeleri online ve offline olarak ayır
   const onlineMembers = members.filter((m) => onlineUserIds.has(m.id));
@@ -107,72 +98,64 @@ function MemberList() {
   });
 
   return (
-    <div className="flex h-full w-member-list flex-col bg-background-secondary">
-      {/* ─── Header ─── */}
-      <div className="flex h-header shrink-0 items-center border-b border-background-tertiary px-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-text-secondary">
-          {t("members")}
-        </h3>
-      </div>
+    <div className={`members-panel${membersOpen ? " open" : ""}`}>
+      <div className="members-inner">
+        {/* ─── Header ─── */}
+        <div className="members-header">
+          <h3>{t("members")}</h3>
+          <button onClick={toggleMembers}>✕</button>
+        </div>
 
-      {/* ─── Member List ─── */}
-      <div className="flex-1 overflow-y-auto px-3 pt-4">
-        {/* Online section — role bazlı gruplar */}
-        {onlineGroups.map((group) => (
-          <div key={group.role.id} className="mb-1">
-            {/* Role group header */}
-            <div className="px-2 pb-1.5 pt-4">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.02em] text-text-muted">
+        {/* ─── Member List ─── */}
+        <div className="members-list">
+          {/* Online section — role bazlı gruplar */}
+          {onlineGroups.map((group) => (
+            <div key={group.role.id}>
+              <div className="member-label">
                 {group.role.name} — {group.members.length}
-              </h3>
+              </div>
+              {group.members.map((member) => (
+                <MemberItem
+                  key={member.id}
+                  member={member}
+                  isOnline={true}
+                />
+              ))}
             </div>
+          ))}
 
-            {/* Members in this role group */}
-            {group.members.map((member) => (
-              <MemberItem
-                key={member.id}
-                member={member}
-                isOnline={true}
-              />
-            ))}
-          </div>
-        ))}
-
-        {/* Rol grubu olmayan online üyeler (rolsüz) */}
-        {ungroupedOnline.length > 0 && (
-          <div className="mb-1">
-            <div className="px-2 pb-1.5 pt-4">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.02em] text-text-muted">
+          {/* Rolsüz online üyeler */}
+          {ungroupedOnline.length > 0 && (
+            <div>
+              <div className="member-label">
                 {t("online")} — {ungroupedOnline.length}
-              </h3>
+              </div>
+              {ungroupedOnline.map((member) => (
+                <MemberItem
+                  key={member.id}
+                  member={member}
+                  isOnline={true}
+                />
+              ))}
             </div>
-            {ungroupedOnline.map((member) => (
-              <MemberItem
-                key={member.id}
-                member={member}
-                isOnline={true}
-              />
-            ))}
-          </div>
-        )}
+          )}
 
-        {/* Offline section */}
-        {sortedOffline.length > 0 && (
-          <div className="mb-1">
-            <div className="px-2 pb-1.5 pt-4">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.02em] text-text-muted">
+          {/* Offline section */}
+          {sortedOffline.length > 0 && (
+            <div>
+              <div className="member-label">
                 {t("offline")} — {sortedOffline.length}
-              </h3>
+              </div>
+              {sortedOffline.map((member) => (
+                <MemberItem
+                  key={member.id}
+                  member={member}
+                  isOnline={false}
+                />
+              ))}
             </div>
-            {sortedOffline.map((member) => (
-              <MemberItem
-                key={member.id}
-                member={member}
-                isOnline={false}
-              />
-            ))}
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

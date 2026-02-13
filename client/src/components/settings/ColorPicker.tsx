@@ -1,11 +1,10 @@
 /**
  * ColorPicker — Rol renk seçici.
  *
- * Discord tarzı: Önceden tanımlı renkler + hex input.
- * Seçilen renk onClick ile parent'a iletilir.
+ * CSS class'ları: .color-picker, .color-swatch, .color-swatch.selected,
+ * .color-hex-input
  */
 
-/** Discord'un rol renk paleti */
 const PRESET_COLORS = [
   "#1ABC9C", "#2ECC71", "#3498DB", "#9B59B6", "#E91E63",
   "#F1C40F", "#E67E22", "#E74C3C", "#95A5A6", "#607D8B",
@@ -22,26 +21,28 @@ function ColorPicker({ value, onChange }: ColorPickerProps) {
   return (
     <div>
       {/* Preset renkler grid'i */}
-      <div className="grid grid-cols-10 gap-1.5">
+      <div className="color-picker">
         {PRESET_COLORS.map((color) => (
           <button
             key={color}
             onClick={() => onChange(color)}
-            className={`h-7 w-7 rounded-md transition-transform hover:scale-110 ${
-              value.toUpperCase() === color
-                ? "ring-2 ring-white ring-offset-2 ring-offset-background-floating"
-                : ""
-            }`}
+            className={`color-swatch${value.toUpperCase() === color ? " selected" : ""}`}
             style={{ backgroundColor: color }}
           />
         ))}
       </div>
 
       {/* Hex input */}
-      <div className="mt-3 flex items-center gap-2">
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
         <div
-          className="h-8 w-8 shrink-0 rounded-md border border-background-tertiary"
-          style={{ backgroundColor: value || "#99AAB5" }}
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 6,
+            border: "1px solid var(--b1)",
+            backgroundColor: value || "#99AAB5",
+            flexShrink: 0,
+          }}
         />
         <input
           type="text"
@@ -49,7 +50,7 @@ function ColorPicker({ value, onChange }: ColorPickerProps) {
           onChange={(e) => onChange(e.target.value)}
           placeholder="#99AAB5"
           maxLength={7}
-          className="h-8 flex-1 rounded-md bg-input px-2.5 text-sm text-text-primary outline-none transition-colors focus:bg-input-focus"
+          className="color-hex-input"
         />
       </div>
     </div>

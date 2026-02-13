@@ -1,6 +1,9 @@
 /**
  * ScreenShareResizeHandle — İki screen share paneli arasındaki sürüklenebilir divider.
  *
+ * CSS class'ları: .screen-share-resize, .screen-share-resize.vertical,
+ * .screen-share-resize.horizontal, .screen-share-resize-line
+ *
  * Pointer Events API ile çalışır — harici kütüphane gerektirmez.
  *
  * Pointer Capture nedir?
@@ -71,30 +74,19 @@ function ScreenShareResizeHandle({ direction, onResize }: ScreenShareResizeHandl
     []
   );
 
-  // Yön'e göre farklı CSS:
-  // vertical (alt alta): yatay çizgi → h-2 w-full cursor-row-resize
-  // horizontal (yan yana): dikey çizgi → w-2 h-full cursor-col-resize
-  const isVertical = direction === "vertical";
+  const handleClass = `screen-share-resize ${direction}`;
 
   return (
     <div
-      className={`group relative flex shrink-0 items-center justify-center ${
-        isVertical
-          ? "h-2 w-full cursor-row-resize"
-          : "w-2 h-full cursor-col-resize"
-      }`}
+      className={handleClass}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       // touch-action: none — tarayıcının touch event'leri scroll için kullanmasını engeller
       style={{ touchAction: "none" }}
     >
-      {/* Görsel çizgi — hover'da brand rengine geçer */}
-      <div
-        className={`rounded-full bg-background-tertiary transition-colors group-hover:bg-brand ${
-          isVertical ? "h-0.5 w-12" : "w-0.5 h-12"
-        }`}
-      />
+      {/* Görsel çizgi — hover'da amber rengine geçer (CSS ile) */}
+      <div className="screen-share-resize-line" />
     </div>
   );
 }

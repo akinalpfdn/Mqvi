@@ -1,8 +1,10 @@
 /**
  * RegisterPage — Kullanıcı kayıt sayfası.
  *
+ * CSS class'ları: .auth-page, .auth-card, .auth-title,
+ * .auth-error, .auth-field, .auth-label, .auth-input, .auth-btn, .auth-link
+ *
  * i18n: "auth" namespace'ini kullanır.
- * Client-side validation mesajları da t() ile çevrilir.
  */
 
 import { useState } from "react";
@@ -59,30 +61,19 @@ function RegisterPage() {
 
   // ─── Render ───
   return (
-    <div className="flex h-full items-center justify-center bg-background p-4">
-      <div className="w-full max-w-[480px] rounded-md bg-surface px-8 py-10 shadow-lg">
-        {/* ─── Header ─── */}
-        <div className="mb-8 text-center">
-          <h1 className="text-[26px] font-bold leading-tight text-text-primary">
-            {t("createAccount")}
-          </h1>
-        </div>
+    <div className="auth-page">
+      <div className="auth-card">
+        {/* Header */}
+        <h1 className="auth-title">{t("createAccount")}</h1>
 
-        {/* ─── Error Banner ─── */}
-        {displayError && (
-          <div className="mb-6 rounded-md bg-danger/10 px-4 py-3 text-sm leading-relaxed text-danger">
-            {displayError}
-          </div>
-        )}
+        {/* Error Banner */}
+        {displayError && <div className="auth-error">{displayError}</div>}
 
-        {/* ─── Form ─── */}
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label
-              htmlFor="username"
-              className="mb-2.5 block text-xs font-bold uppercase tracking-wide text-text-secondary"
-            >
-              {t("username")} <span className="text-danger">*</span>
+        {/* Form */}
+        <form onSubmit={handleSubmit}>
+          <div className="auth-field">
+            <label htmlFor="username" className="auth-label">
+              {t("username")} <span style={{ color: "var(--red)" }}>*</span>
             </label>
             <input
               id="username"
@@ -98,15 +89,12 @@ function RegisterPage() {
               maxLength={32}
               pattern="[a-zA-Z0-9_]+"
               title="Letters, numbers, and underscores only"
-              className="h-11 w-full rounded-md bg-input px-3.5 text-base text-text-primary outline-none transition-colors focus:bg-input-focus"
+              className="auth-input"
             />
           </div>
 
-          <div>
-            <label
-              htmlFor="displayName"
-              className="mb-2.5 block text-xs font-bold uppercase tracking-wide text-text-secondary"
-            >
+          <div className="auth-field">
+            <label htmlFor="displayName" className="auth-label">
               {t("displayName")}
             </label>
             <input
@@ -118,16 +106,13 @@ function RegisterPage() {
                 handleInputChange();
               }}
               maxLength={32}
-              className="h-11 w-full rounded-md bg-input px-3.5 text-base text-text-primary outline-none transition-colors focus:bg-input-focus"
+              className="auth-input"
             />
           </div>
 
-          <div>
-            <label
-              htmlFor="password"
-              className="mb-2.5 block text-xs font-bold uppercase tracking-wide text-text-secondary"
-            >
-              {t("password")} <span className="text-danger">*</span>
+          <div className="auth-field">
+            <label htmlFor="password" className="auth-label">
+              {t("password")} <span style={{ color: "var(--red)" }}>*</span>
             </label>
             <input
               id="password"
@@ -139,16 +124,13 @@ function RegisterPage() {
               }}
               required
               minLength={8}
-              className="h-11 w-full rounded-md bg-input px-3.5 text-base text-text-primary outline-none transition-colors focus:bg-input-focus"
+              className="auth-input"
             />
           </div>
 
-          <div>
-            <label
-              htmlFor="confirmPassword"
-              className="mb-2.5 block text-xs font-bold uppercase tracking-wide text-text-secondary"
-            >
-              {t("confirmPassword")} <span className="text-danger">*</span>
+          <div className="auth-field">
+            <label htmlFor="confirmPassword" className="auth-label">
+              {t("confirmPassword")} <span style={{ color: "var(--red)" }}>*</span>
             </label>
             <input
               id="confirmPassword"
@@ -159,25 +141,19 @@ function RegisterPage() {
                 handleInputChange();
               }}
               required
-              className="h-11 w-full rounded-md bg-input px-3.5 text-base text-text-primary outline-none transition-colors focus:bg-input-focus"
+              className="auth-input"
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="mt-1 h-11 w-full rounded-md bg-brand text-base font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
-          >
+          <button type="submit" disabled={isLoading} className="auth-btn">
             {isLoading ? t("registering") : t("register")}
           </button>
         </form>
 
-        {/* ─── Footer Link ─── */}
-        <p className="mt-6 text-sm text-text-muted">
+        {/* Footer Link */}
+        <p className="auth-link">
           {t("alreadyHaveAccount")}{" "}
-          <Link to="/login" className="text-text-link hover:underline">
-            {t("loginLink")}
-          </Link>
+          <Link to="/login">{t("loginLink")}</Link>
         </p>
       </div>
     </div>

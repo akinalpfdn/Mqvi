@@ -17,5 +17,7 @@
   "joinVoicePrompt": "Click to join this voice channel",
   "fullscreen": "Fullscreen",
   "exitFullscreen": "Exit Fullscreen",
-  "toggleLayout": "Toggle Layout"
+  "toggleLayout": "Toggle Layout",
+  "endCall": "End Call",
+  "minimize": "Minimize"
 }

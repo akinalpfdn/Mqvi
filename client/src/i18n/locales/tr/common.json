@@ -37,5 +37,10 @@
   "info": "Bilgi",
   "settings": "Ayarlar",
   "upload": "Yükle",
-  "uploading": "Yükleniyor..."
+  "uploading": "Yükleniyor...",
+  "closeTab": "Sekmeyi Kapat",
+  "server": "Sunucu",
+  "addServer": "Sunucu Ekle",
+  "messages": "Mesajlar",
+  "files": "Dosyalar"
 }

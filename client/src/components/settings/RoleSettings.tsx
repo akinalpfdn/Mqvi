@@ -1,14 +1,9 @@
 /**
  * RoleSettings — Rol yönetimi Settings paneli.
  *
- * İki bölüm:
- * - Sol: Rol listesi (position DESC), "Create Role" butonu
- * - Sağ: Seçili rolün düzenleyicisi (isim, renk, permission toggle'ları)
- *
- * Discord referans: Server Settings → Roles
- *
- * Settings modal'ında "Roles" tab'ı olarak gösterilir.
- * CRUD operasyonlarında toast feedback verir (başarı/hata bildirimi).
+ * CSS class'ları: .role-list, .role-list-item, .role-list-item.active,
+ * .role-list-dot, .role-list-name, .settings-label, .settings-input,
+ * .settings-btn, .settings-btn-danger, .permission-toggle-*
  */
 
 import { useEffect, useState } from "react";
@@ -19,7 +14,6 @@ import { Permissions } from "../../utils/permissions";
 import PermissionToggle from "./PermissionToggle";
 import ColorPicker from "./ColorPicker";
 
-/** Permission tanımları — her toggle için bit, label key, desc key ve opsiyonel warning */
 const PERMISSION_DEFS = [
   {
     bit: Permissions.Admin,
@@ -52,19 +46,16 @@ function RoleSettings() {
   } = useRoleStore();
   const addToast = useToastStore((s) => s.addToast);
 
-  // Düzenleme formu state'i — seçili rol değiştiğinde sıfırlanır
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
   const [editPerms, setEditPerms] = useState(0);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Component mount'ta rolleri fetch et
   useEffect(() => {
     fetchRoles();
   }, [fetchRoles]);
 
-  // Seçili rol değiştiğinde form state'ini güncelle
   useEffect(() => {
     if (selectedRole) {
       setEditName(selectedRole.name);
@@ -122,60 +113,51 @@ function RoleSettings() {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-text-muted">
+      <div className="no-channel">
         {t("loading", { ns: "common" })}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full">
-      {/* ─── Sol Panel: Rol Listesi ─── */}
-      <div className="flex w-56 shrink-0 flex-col border-r border-background-tertiary bg-background-secondary">
+    <div style={{ display: "flex", height: "100%" }}>
+      {/* Sol Panel: Rol Listesi */}
+      <div className="role-list">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3">
-          <h3 className="text-sm font-semibold text-text-primary">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 8px" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)" }}>
             {t("roles")}
-          </h3>
-          <button
-            onClick={handleCreate}
-            className="rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-brand-hover"
-          >
+          </span>
+          <button onClick={handleCreate} className="settings-btn" style={{ height: 28, padding: "0 10px", fontSize: 11 }}>
             {t("createRole")}
           </button>
         </div>
 
         {/* Rol listesi */}
-        <div className="flex-1 overflow-y-auto px-2">
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 4px" }}>
           {roles.map((role) => (
             <button
               key={role.id}
               onClick={() => selectRole(role.id)}
-              className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors ${
-                role.id === selectedRoleId
-                  ? "bg-surface-active text-text-primary"
-                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-              }`}
+              className={`role-list-item${role.id === selectedRoleId ? " active" : ""}`}
             >
               <span
-                className="h-3 w-3 shrink-0 rounded-full"
+                className="role-list-dot"
                 style={{ backgroundColor: role.color || "#99AAB5" }}
               />
-              <span className="truncate text-sm">{role.name}</span>
+              <span className="role-list-name">{role.name}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* ─── Sağ Panel: Rol Editörü ─── */}
-      <div className="flex-1 overflow-y-auto bg-background p-6">
+      {/* Sağ Panel: Rol Editörü */}
+      <div className="settings-content" style={{ padding: 24 }}>
         {selectedRole ? (
-          <div className="mx-auto max-w-xl">
+          <div style={{ maxWidth: 560 }}>
             {/* Rol adı */}
-            <div className="mb-6">
-              <label className="mb-2 block text-xs font-bold uppercase text-text-muted">
-                {t("roleName")}
-              </label>
+            <div className="settings-field">
+              <label className="settings-label">{t("roleName")}</label>
               <input
                 type="text"
                 value={editName}
@@ -183,15 +165,13 @@ function RoleSettings() {
                   setEditName(e.target.value);
                   setHasChanges(true);
                 }}
-                className="h-10 w-full rounded-md bg-input px-3 text-sm text-text-primary outline-none transition-colors focus:bg-input-focus"
+                className="settings-input"
               />
             </div>
 
             {/* Rol rengi */}
-            <div className="mb-6">
-              <label className="mb-2 block text-xs font-bold uppercase text-text-muted">
-                {t("roleColor")}
-              </label>
+            <div className="settings-field">
+              <label className="settings-label">{t("roleColor")}</label>
               <ColorPicker
                 value={editColor}
                 onChange={(color) => {
@@ -203,17 +183,15 @@ function RoleSettings() {
 
             {/* Default rol uyarısı */}
             {selectedRole.is_default && (
-              <div className="mb-4 rounded-md bg-background-tertiary p-3 text-xs text-text-muted">
+              <div style={{ background: "var(--bg-4)", borderRadius: 8, padding: 12, fontSize: 12, color: "var(--t2)", marginBottom: 16 }}>
                 {t("defaultRoleWarning")}
               </div>
             )}
 
             {/* Yetkiler */}
-            <div className="mb-6">
-              <label className="mb-2 block text-xs font-bold uppercase text-text-muted">
-                {t("permissions")}
-              </label>
-              <div className="divide-y divide-background-tertiary rounded-md bg-background-secondary">
+            <div className="settings-field">
+              <label className="settings-label">{t("permissions")}</label>
+              <div style={{ background: "var(--bg-1)", borderRadius: 8, overflow: "hidden" }}>
                 {PERMISSION_DEFS.map((perm) => (
                   <PermissionToggle
                     key={perm.bit}
@@ -229,35 +207,25 @@ function RoleSettings() {
             </div>
 
             {/* Aksiyon butonları */}
-            <div className="flex items-center gap-3">
-              {/* Save butonu */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               {hasChanges && (
-                <button
-                  onClick={handleSave}
-                  className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
-                >
+                <button onClick={handleSave} className="settings-btn">
                   {t("saveChanges")}
                 </button>
               )}
-
-              {/* Delete butonu (default rol silinemez) */}
               {!selectedRole.is_default && (
-                <button
-                  onClick={handleDelete}
-                  className="rounded-md bg-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-80"
-                >
+                <button onClick={handleDelete} className="settings-btn settings-btn-danger">
                   {t("deleteRole")}
                 </button>
               )}
             </div>
 
-            {/* Unsaved changes bilgisi */}
             {hasChanges && (
-              <p className="mt-2 text-xs text-warning">{t("unsavedChanges")}</p>
+              <p style={{ marginTop: 8, fontSize: 12, color: "var(--amber)" }}>{t("unsavedChanges")}</p>
             )}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-text-muted">
+          <div className="no-channel">
             {t("noRoleSelected")}
           </div>
         )}

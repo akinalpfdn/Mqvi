@@ -1,11 +1,10 @@
 /**
  * RoleBadge — Küçük renkli rol badge'i.
  *
- * Kullanım:
- * - MemberCard'da üyenin rollerini göstermek için
- * - Rol yönetimi panelinde rol ismini görüntülemek için
+ * CSS class'ları: .role-badge, .role-badge-dot
  *
- * Discord tarzı: Küçük pill şeklinde, sol tarafta renk noktası.
+ * Discord tarzı pill: sol tarafta renk noktası + rol ismi.
+ * Renk noktası DB'den gelen role.color ile inline style alır.
  */
 
 import type { Role } from "../../types";
@@ -16,9 +15,9 @@ type RoleBadgeProps = {
 
 function RoleBadge({ role }: RoleBadgeProps) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-md bg-background-tertiary px-2 py-0.5 text-xs font-medium text-text-secondary">
+    <span className="role-badge">
       <span
-        className="h-3 w-3 shrink-0 rounded-full"
+        className="role-badge-dot"
         style={{ backgroundColor: role.color || "#99AAB5" }}
       />
       {role.name}

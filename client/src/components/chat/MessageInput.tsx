@@ -1,29 +1,30 @@
 /**
  * MessageInput — Mesaj yazma alanı.
  *
+ * CSS class'ları: .input-area, .input-box, .send-btn
+ * .input-box button, .input-box textarea CSS'te tanımlıdır.
+ *
  * Özellikler:
  * - Enter = gönder, Shift+Enter = yeni satır
  * - Dosya ekleme (file input ile)
- * - Typing indicator trigger (3sn throttle — useWebSocket'ten gelen sendTyping)
- * - Client-side dosya validasyonu (boyut + MIME type)
- * - Auto-resize textarea (içerik büyüdükçe yükseklik artar)
+ * - Typing indicator trigger (3sn throttle)
+ * - Auto-resize textarea
  */
 
 import { useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useMessageStore } from "../../stores/messageStore";
-import { useChannelStore } from "../../stores/channelStore";
 import FilePreview from "./FilePreview";
 import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES } from "../../utils/constants";
 
 type MessageInputProps = {
   sendTyping: (channelId: string) => void;
+  channelId: string;
+  channelName: string;
 };
 
-function MessageInput({ sendTyping }: MessageInputProps) {
+function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps) {
   const { t } = useTranslation("chat");
-  const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
-  const categories = useChannelStore((s) => s.categories);
   const sendMessage = useMessageStore((s) => s.sendMessage);
 
   const [content, setContent] = useState("");
@@ -33,29 +34,23 @@ function MessageInput({ sendTyping }: MessageInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  /** Seçili kanalın adı (placeholder için) */
-  const channelName = categories
-    .flatMap((cg) => cg.channels)
-    .find((ch) => ch.id === selectedChannelId)?.name ?? "";
-
   /** Mesaj gönder */
   const handleSend = useCallback(async () => {
-    if (!selectedChannelId) return;
+    if (!channelId) return;
     if (!content.trim() && files.length === 0) return;
     if (isSending) return;
 
     setIsSending(true);
-    const success = await sendMessage(selectedChannelId, content.trim(), files);
+    const success = await sendMessage(channelId, content.trim(), files);
     if (success) {
       setContent("");
       setFiles([]);
-      // Textarea yüksekliğini sıfırla
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
     }
     setIsSending(false);
-  }, [selectedChannelId, content, files, isSending, sendMessage]);
+  }, [channelId, content, files, isSending, sendMessage]);
 
   /** Klavye event handler */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -69,12 +64,10 @@ function MessageInput({ sendTyping }: MessageInputProps) {
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setContent(e.target.value);
 
-    // Typing indicator trigger
-    if (selectedChannelId && e.target.value.length > 0) {
-      sendTyping(selectedChannelId);
+    if (channelId && e.target.value.length > 0) {
+      sendTyping(channelId);
     }
 
-    // Auto-resize
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
@@ -89,20 +82,12 @@ function MessageInput({ sendTyping }: MessageInputProps) {
     const validFiles: File[] = [];
 
     for (const file of newFiles) {
-      // Boyut kontrolü
-      if (file.size > MAX_FILE_SIZE) {
-        // TODO: Toast notification ile göster
-        continue;
-      }
-      // MIME type kontrolü
-      if (!ALLOWED_MIME_TYPES.includes(file.type as typeof ALLOWED_MIME_TYPES[number])) {
-        continue;
-      }
+      if (file.size > MAX_FILE_SIZE) continue;
+      if (!ALLOWED_MIME_TYPES.includes(file.type as typeof ALLOWED_MIME_TYPES[number])) continue;
       validFiles.push(file);
     }
 
     setFiles((prev) => [...prev, ...validFiles]);
-    // Input'u sıfırla (aynı dosya tekrar seçilebilsin)
     e.target.value = "";
   }
 
@@ -111,32 +96,17 @@ function MessageInput({ sendTyping }: MessageInputProps) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
-  if (!selectedChannelId) return null;
+  if (!channelId) return null;
 
   return (
-    <div className="px-4 pb-6 pt-1">
+    <div className="input-area">
       {/* Dosya önizleme */}
       <FilePreview files={files} onRemove={handleFileRemove} />
 
-      <div className="flex items-end rounded-lg bg-input px-4 py-1">
+      <div className="input-box">
         {/* File upload button */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="mr-4 flex h-11 shrink-0 items-center text-text-muted transition-colors hover:text-text-secondary"
-        >
-          <svg
-            className="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
+        <button onClick={() => fileInputRef.current?.click()}>
+          ＋
         </button>
 
         {/* Hidden file input */}
@@ -144,7 +114,7 @@ function MessageInput({ sendTyping }: MessageInputProps) {
           ref={fileInputRef}
           type="file"
           multiple
-          className="hidden"
+          style={{ display: "none" }}
           onChange={handleFileSelect}
         />
 
@@ -155,10 +125,19 @@ function MessageInput({ sendTyping }: MessageInputProps) {
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={t("messagePlaceholder", { channel: channelName })}
-          className="h-11 max-h-[200px] flex-1 resize-none bg-transparent py-2.5 text-base leading-[1.375rem] text-text-primary outline-none placeholder:text-text-muted"
           rows={1}
           disabled={isSending}
         />
+
+        {/* Emoji button */}
+        <button>{"\uD83D\uDE0A"}</button>
+
+        {/* Send button */}
+        <button className="send-btn" onClick={handleSend}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+          </svg>
+        </button>
       </div>
     </div>
   );

@@ -11,5 +11,8 @@
   "yesterday": "Yesterday",
   "edited": "(edited)",
   "uploadFile": "Upload File",
-  "fileTooLarge": "File is too large (max {{max}}MB)"
+  "fileTooLarge": "File is too large (max {{max}}MB)",
+  "noChannel": "Select a channel",
+  "editCancel": "cancel",
+  "editSave": "save"
 }

@@ -37,5 +37,10 @@
   "info": "Info",
   "settings": "Settings",
   "upload": "Upload",
-  "uploading": "Uploading..."
+  "uploading": "Uploading...",
+  "closeTab": "Close Tab",
+  "server": "Server",
+  "addServer": "Add Server",
+  "messages": "Messages",
+  "files": "Files"
 }

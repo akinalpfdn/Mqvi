@@ -1,20 +1,8 @@
 /**
  * ServerGeneralSettings — Sunucu genel ayarları sekmesi.
  *
- * Settings modal'ında "General" (Server Settings) tab'ında gösterilir.
- * Admin yetkisi gerektiren bu sekme, SettingsNav tarafından
- * sadece ilgili yetkiye sahip kullanıcılara gösterilir.
- *
- * İçerik:
- * 1. Sunucu ikonu yükleme (AvatarUpload bileşeni, köşeli mod)
- * 2. Sunucu adı — text input (max 100 karakter)
- * 3. Save Changes butonu — sadece değişiklik varsa aktif
- *
- * Veri akışı:
- * - Mount'ta sunucu bilgisi API'den çekilir
- * - İkon yükleme ayrı endpoint'e gider (anında kayıt)
- * - Ad değişikliği form submit ile kaydedilir
- * - WS server_update event'i Sidebar header'ı anında günceller
+ * CSS class'ları: .settings-section, .settings-section-title,
+ * .settings-field, .settings-label, .settings-input, .settings-btn
  */
 
 import { useState, useEffect } from "react";
@@ -28,13 +16,11 @@ function ServerGeneralSettings() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
 
-  // ─── Server State ───
   const [server, setServer] = useState<Server | null>(null);
   const [editName, setEditName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Mount'ta sunucu bilgisini çek
   useEffect(() => {
     async function fetchServer() {
       const res = await serverApi.getServer();
@@ -47,17 +33,14 @@ function ServerGeneralSettings() {
     fetchServer();
   }, []);
 
-  // Kaydedilmemiş değişiklik var mı?
   const hasChanges = server !== null && editName !== server.name;
 
-  // ─── Sunucu Adı Kaydet ───
   async function handleSave() {
     if (!hasChanges || isSaving) return;
 
     setIsSaving(true);
     try {
       const res = await serverApi.updateServer({ name: editName });
-
       if (res.success && res.data) {
         setServer(res.data);
         addToast("success", t("serverSaved"));
@@ -71,11 +54,9 @@ function ServerGeneralSettings() {
     }
   }
 
-  // ─── İkon Upload ───
   async function handleIconUpload(file: File) {
     try {
       const res = await serverApi.uploadServerIcon(file);
-
       if (res.success && res.data) {
         setServer(res.data);
         addToast("success", t("serverSaved"));
@@ -89,7 +70,7 @@ function ServerGeneralSettings() {
 
   if (!isLoaded) {
     return (
-      <div className="flex items-center justify-center py-20 text-text-muted">
+      <div className="no-channel">
         {t("loading", { ns: "common" })}
       </div>
     );
@@ -97,16 +78,15 @@ function ServerGeneralSettings() {
 
   if (!server) {
     return (
-      <div className="flex items-center justify-center py-20 text-text-muted">
+      <div className="no-channel">
         {t("serverSaveError")}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      {/* Başlık */}
-      <h2 className="text-xl font-semibold text-text-primary">{t("general")}</h2>
+    <div className="settings-section">
+      <h2 className="settings-section-title">{t("general")}</h2>
 
       {/* Sunucu İkonu */}
       <AvatarUpload
@@ -117,11 +97,8 @@ function ServerGeneralSettings() {
       />
 
       {/* Sunucu Adı */}
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="serverName"
-          className="text-sm font-medium text-text-primary"
-        >
+      <div className="settings-field">
+        <label htmlFor="serverName" className="settings-label">
           {t("serverName")}
         </label>
         <input
@@ -130,25 +107,24 @@ function ServerGeneralSettings() {
           value={editName}
           onChange={(e) => setEditName(e.target.value)}
           maxLength={100}
-          className="w-full max-w-md rounded-md bg-input px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none transition-colors focus:bg-input-focus"
+          className="settings-input"
         />
       </div>
 
-      {/* Ayırıcı çizgi */}
-      <div className="border-t border-background-tertiary" />
+      {/* Separator */}
+      <div style={{ height: 1, background: "var(--b1)", margin: "24px 0" }} />
 
-      {/* Save Changes butonu */}
-      <div className="flex items-center gap-4">
+      {/* Save */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <button
           onClick={handleSave}
           disabled={!hasChanges || isSaving}
-          className="rounded-md bg-brand px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+          className="settings-btn"
         >
           {isSaving ? t("saveChanges") + "..." : t("saveChanges")}
         </button>
-
         {hasChanges && (
-          <p className="text-sm text-warning">{t("unsavedChanges")}</p>
+          <span style={{ fontSize: 13, color: "var(--amber)" }}>{t("unsavedChanges")}</span>
         )}
       </div>
     </div>

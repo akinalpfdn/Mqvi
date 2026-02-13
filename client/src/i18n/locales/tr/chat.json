@@ -11,5 +11,8 @@
   "yesterday": "Dün",
   "edited": "(düzenlendi)",
   "uploadFile": "Dosya Yükle",
-  "fileTooLarge": "Dosya çok büyük (maks. {{max}}MB)"
+  "fileTooLarge": "Dosya çok büyük (maks. {{max}}MB)",
+  "noChannel": "Bir kanal seçin",
+  "editCancel": "iptal",
+  "editSave": "kaydet"
 }

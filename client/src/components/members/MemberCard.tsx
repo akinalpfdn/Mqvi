@@ -1,14 +1,13 @@
 /**
  * MemberCard — Üye profil popover'ı.
  *
- * Bir üyeye tıklandığında açılan kart:
- * - Büyük avatar + status indicator
- * - Username + display name
- * - Roller (badge olarak)
- * - Katılım tarihi
- * - Aksiyonlar (Manage Roles, Kick, Ban) — yetkiye göre gösterilir
+ * CSS class'ları: .member-card-backdrop, .member-card, .member-card-banner,
+ * .member-card-avatar, .member-card-body, .member-card-name,
+ * .member-card-username, .member-card-divider, .member-card-section-title,
+ * .member-card-roles, .member-card-joined, .member-card-actions,
+ * .member-card-btn, .member-card-btn-kick, .member-card-btn-ban
  *
- * Pozisyon: MemberItem'ın solunda overlay olarak gösterilir.
+ * Pozisyon: MemberItem'ın solunda portal ile gösterilir.
  */
 
 import { useEffect, useRef } from "react";
@@ -22,7 +21,6 @@ import * as memberApi from "../../api/members";
 
 type MemberCardProps = {
   member: MemberWithRoles;
-  /** Portal ile body'ye render edildiğinde card'ın ekran pozisyonu */
   position: { top: number; left: number };
   onClose: () => void;
 };
@@ -32,7 +30,6 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const currentUser = useAuthStore((s) => s.user);
 
-  // Mevcut kullanıcının effective permission'larını hesapla
   const currentMember = useMemberStore((s) =>
     s.members.find((m) => m.id === currentUser?.id)
   );
@@ -44,10 +41,6 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   const canManageRoles =
     !isMe && hasPermission(myPerms, Permissions.ManageRoles);
 
-  // Dışarıya tıklandığında kapatma.
-  // requestAnimationFrame ile bir frame bekleriz — aksi halde
-  // MemberItem'daki click eventi henüz bitmeden mousedown listener
-  // hemen tetiklenir ve card açılır açılmaz kapanır.
   useEffect(() => {
     let frameId: number;
 
@@ -67,7 +60,6 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
     };
   }, [onClose]);
 
-  // Rolleri position DESC sıralı göster
   const sortedRoles = [...member.roles].sort(
     (a, b) => b.position - a.position
   );
@@ -88,91 +80,95 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   }
 
   return (
-    <div
-      ref={cardRef}
-      className="fixed z-50 w-72 rounded-lg bg-background-floating shadow-xl"
-      style={{ top: position.top, left: position.left }}
-    >
-      {/* Banner (renk şeridi) */}
-      <div
-        className="h-16 rounded-t-lg"
-        style={{
-          backgroundColor:
-            sortedRoles[0]?.color || "var(--color-brand)",
-        }}
-      />
+    <>
+      {/* Backdrop — dışarıya tıklamayı yakalamak için */}
+      <div className="member-card-backdrop" onClick={onClose} />
 
-      {/* Avatar + Bilgiler */}
-      <div className="relative px-4 pb-4">
-        {/* Büyük avatar */}
-        <div className="-mt-8 mb-3">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-background-floating bg-brand text-xl font-bold text-white">
+      <div
+        ref={cardRef}
+        className="member-card"
+        style={{ top: position.top, left: position.left }}
+      >
+        {/* Banner */}
+        <div
+          className="member-card-banner"
+          style={
+            sortedRoles[0]?.color
+              ? { background: `linear-gradient(135deg, ${sortedRoles[0].color}, #a06840)` }
+              : undefined
+          }
+        />
+
+        {/* Avatar */}
+        <div className="member-card-avatar">
+          <div
+            className="avatar av-default avatar-round"
+            style={{ width: 64, height: 64, fontSize: 24 }}
+          >
             {member.username.charAt(0).toUpperCase()}
           </div>
         </div>
 
-        {/* Username */}
-        <h3 className="text-lg font-bold text-text-primary">
-          {member.display_name ?? member.username}
-        </h3>
-        {member.display_name && (
-          <p className="text-sm text-text-muted">{member.username}</p>
-        )}
+        {/* Body */}
+        <div className="member-card-body">
+          <div className="member-card-name">
+            {member.display_name ?? member.username}
+          </div>
+          {member.display_name && (
+            <div className="member-card-username">{member.username}</div>
+          )}
 
-        {/* Custom status */}
-        {member.custom_status && (
-          <p className="mt-1 text-sm text-text-secondary">
-            {member.custom_status}
-          </p>
-        )}
+          {member.custom_status && (
+            <div className="member-card-username" style={{ marginTop: 4 }}>
+              {member.custom_status}
+            </div>
+          )}
 
-        {/* Divider */}
-        <div className="my-3 border-t border-background-tertiary" />
+          <div className="member-card-divider" />
 
-        {/* Roller */}
-        <div className="mb-3">
-          <h4 className="mb-2 text-xs font-bold uppercase text-text-muted">
-            {t("roles")}
-          </h4>
-          <div className="flex flex-wrap gap-1.5">
+          {/* Roles */}
+          <div className="member-card-section-title">{t("roles")}</div>
+          <div className="member-card-roles">
             {sortedRoles.length > 0 ? (
               sortedRoles.map((role) => (
                 <RoleBadge key={role.id} role={role} />
               ))
             ) : (
-              <span className="text-xs text-text-muted">{t("noRoles")}</span>
+              <span className="member-card-joined">{t("noRoles")}</span>
             )}
           </div>
+
+          <div className="member-card-divider" />
+
+          {/* Join date */}
+          <div className="member-card-joined">
+            {t("joinedAt", { date: joinDate })}
+          </div>
+
+          {/* Actions */}
+          {(canManageRoles || canKick || canBan) && (
+            <div className="member-card-actions">
+              {canKick && (
+                <button
+                  className="member-card-btn member-card-btn-kick"
+                  onClick={handleKick}
+                >
+                  {t("kick")}
+                </button>
+              )}
+              {canBan && (
+                <button
+                  className="member-card-btn member-card-btn-ban"
+                  onClick={handleBan}
+                >
+                  {t("ban")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
-
-        {/* Katılım tarihi */}
-        <p className="text-xs text-text-muted">
-          {t("joinedAt", { date: joinDate })}
-        </p>
-
-        {/* Aksiyonlar */}
-        {(canManageRoles || canKick || canBan) && (
-          <div className="mt-3 flex gap-2">
-            {canKick && (
-              <button
-                onClick={handleKick}
-                className="rounded-md bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
-              >
-                {t("kick")}
-              </button>
-            )}
-            {canBan && (
-              <button
-                onClick={handleBan}
-                className="rounded-md bg-danger px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-80"
-              >
-                {t("ban")}
-              </button>
-            )}
-          </div>
-        )}
       </div>
-    </div>
+    </>
   );
 }
 

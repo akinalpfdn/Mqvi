@@ -1,6 +1,9 @@
 /**
  * ScreenShareView — Aktif ekran paylaşımı track'lerini yönetir ve render eder.
  *
+ * CSS class'ları: .screen-share-view, .screen-share-split, .screen-share-split.vertical,
+ * .screen-share-split.horizontal, .screen-share-pane, .screen-share-toggle
+ *
  * Layout stratejisi:
  * - 0 track: null döner (gizlenir)
  * - 1 track: Tek ScreenSharePanel, flex-1 ile tüm alanı kaplar
@@ -105,7 +108,7 @@ function ScreenShareView() {
   // 1 track → tek panel, tüm alan
   if (screenShareTracks.length === 1) {
     return (
-      <div className="flex flex-1 min-h-0 p-2">
+      <div className="screen-share-view">
         <ScreenSharePanel trackRef={screenShareTracks[0]} />
       </div>
     );
@@ -113,22 +116,22 @@ function ScreenShareView() {
 
   // 2 track → split view
   const isVertical = layoutMode === "vertical";
+  const splitClass = `screen-share-split ${isVertical ? "vertical" : "horizontal"}`;
 
   return (
-    <div className="relative flex flex-1 min-h-0 p-2">
+    <div className="screen-share-view">
       {/* Layout toggle butonu — sağ üst köşe.
           z-10: Panel'lerin üstünde kalması için.
           Buton şu anki modun karşıtını gösterir (ne'ye geçileceğini). */}
       <button
         onClick={handleToggleLayout}
-        className="absolute top-3 right-3 z-10 flex h-8 w-8 items-center justify-center rounded bg-background-floating/80 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+        className="screen-share-toggle"
         title={t("toggleLayout")}
       >
         {isVertical ? (
           // Şu an dikey (alt alta) → tıklayınca yatay (yan yana) olacak.
           // İkon: Dikey çizgiyle bölünmüş dikdörtgen (columns).
           <svg
-            className="h-4 w-4"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -144,7 +147,6 @@ function ScreenShareView() {
           // Şu an yatay (yan yana) → tıklayınca dikey (alt alta) olacak.
           // İkon: Yatay çizgiyle bölünmüş dikdörtgen (rows).
           <svg
-            className="h-4 w-4"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -161,18 +163,10 @@ function ScreenShareView() {
 
       {/* Split container — direction'a göre flex-col (dikey) veya flex-row (yatay).
           min-h-0 min-w-0: Flex child overflow trick — her iki yönde de. */}
-      <div
-        ref={containerRef}
-        className={`flex flex-1 min-h-0 min-w-0 gap-0 ${
-          isVertical ? "flex-col" : "flex-row"
-        }`}
-      >
+      <div ref={containerRef} className={splitClass}>
         {/* Panel 1 — flex: splitRatio ile oransal alan kaplar.
             min-h-0 min-w-0: İç video element'inin container'ı taşırmasını engeller. */}
-        <div
-          style={{ flex: splitRatio }}
-          className="min-h-0 min-w-0 overflow-hidden"
-        >
+        <div style={{ flex: splitRatio }} className="screen-share-pane">
           <ScreenSharePanel trackRef={screenShareTracks[0]} />
         </div>
 
@@ -183,10 +177,7 @@ function ScreenShareView() {
         />
 
         {/* Panel 2 — flex: (100 - splitRatio) ile kalan alanı kaplar */}
-        <div
-          style={{ flex: 100 - splitRatio }}
-          className="min-h-0 min-w-0 overflow-hidden"
-        >
+        <div style={{ flex: 100 - splitRatio }} className="screen-share-pane">
           <ScreenSharePanel trackRef={screenShareTracks[1]} />
         </div>
       </div>

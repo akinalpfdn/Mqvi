@@ -1,6 +1,8 @@
 /**
  * VoiceRoom — LiveKit ses odası wrapper component'i.
  *
+ * CSS class'ları: .voice-room, .voice-room-loading
+ *
  * Layout stratejisi (Discord referans):
  * - Screen share yokken: Katılımcılar flex-1 grid olarak merkeze yayılır
  * - Screen share aktifken: Ekran paylaşımı flex-1 ile alanı kaplar,
@@ -14,7 +16,7 @@
  * └── LiveKitRoom (flex-1 flex-col — tüm alanı doldurur)
  *     ├── RoomAudioRenderer (ses çıkışı — görünmez)
  *     ├── VoiceStateManager (store ↔ LiveKit sync — görünmez)
- *     └── Layout wrapper (flex-1 flex-col min-h-0)
+ *     └── Layout wrapper (voice-room)
  *         ├── VoiceConnectionStatus (null veya small bar)
  *         ├── ScreenShareView (flex-1 — aktifse alanı kaplar)
  *         └── VoiceParticipantGrid (flex-1 veya shrink-0)
@@ -60,8 +62,8 @@ function VoiceRoom() {
   // Token veya URL yoksa bağlanılamaz
   if (!livekitUrl || !livekitToken) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-text-muted">{t("connectingToVoice")}</p>
+      <div className="voice-room-loading">
+        <p>{t("connectingToVoice")}</p>
       </div>
     );
   }
@@ -90,11 +92,12 @@ function VoiceRoom() {
       <VoiceStateManager />
 
       {/* Layout container — tüm görsel content burada.
+          voice-room class'ı: flex:1, flex-col, min-height:0.
           min-h-0: flex child'larda overflow engellemek için gerekli.
           Flex child varsayılan min-height: auto'dur — içerik büyüdüğünde
           parent'ı taşırır. min-h-0 bunu sıfırlar ve overflow: hidden/scroll
           doğru çalışır. */}
-      <div className="flex flex-1 flex-col min-h-0">
+      <div className="voice-room">
         <VoiceConnectionStatus />
         <ScreenShareView />
         <VoiceParticipantGrid />

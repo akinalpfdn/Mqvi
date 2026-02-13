@@ -1,6 +1,11 @@
 /**
  * VoiceConnectionStatus — LiveKit bağlantı durumu göstergesi.
  *
+ * CSS class'ları: .voice-connection-status, .voice-connection-dot,
+ * .voice-connection-dot.connecting, .voice-connection-dot.error,
+ * .voice-connection-text, .voice-connection-text.warning,
+ * .voice-connection-text.error, .voice-connection-text.muted
+ *
  * LiveKitRoom içinde render edilir. useConnectionState() hook'u ile
  * bağlantı durumunu okur ve kullanıcıya gösterir.
  *
@@ -32,40 +37,35 @@ function VoiceConnectionStatus() {
     return null;
   }
 
-  // Duruma göre mesaj ve renk belirle
-  const statusConfig: Record<string, { message: string; color: string }> = {
+  // Duruma göre mesaj, dot class ve text class belirle
+  const statusConfig: Record<string, { message: string; dotClass: string; textClass: string }> = {
     [ConnectionState.Connecting]: {
       message: t("connectingToVoice"),
-      color: "text-yellow-400",
+      dotClass: "voice-connection-dot connecting",
+      textClass: "voice-connection-text warning",
     },
     [ConnectionState.Reconnecting]: {
       message: t("reconnectingToVoice"),
-      color: "text-yellow-400",
+      dotClass: "voice-connection-dot connecting",
+      textClass: "voice-connection-text warning",
     },
     [ConnectionState.Disconnected]: {
       message: t("voiceDisconnected"),
-      color: "text-danger",
+      dotClass: "voice-connection-dot error",
+      textClass: "voice-connection-text error",
     },
   };
 
   const config = statusConfig[connectionState] ?? {
     message: connectionState,
-    color: "text-text-muted",
+    dotClass: "voice-connection-dot",
+    textClass: "voice-connection-text muted",
   };
 
   return (
-    <div className="flex items-center justify-center gap-2 bg-background-secondary/80 px-4 py-2">
-      {/* Animasyonlu dot — connecting/reconnecting durumunda pulse */}
-      <span
-        className={`h-2 w-2 rounded-full ${
-          connectionState === ConnectionState.Disconnected
-            ? "bg-danger"
-            : "animate-pulse bg-yellow-400"
-        }`}
-      />
-      <span className={`text-xs font-medium ${config.color}`}>
-        {config.message}
-      </span>
+    <div className="voice-connection-status">
+      <span className={config.dotClass} />
+      <span className={config.textClass}>{config.message}</span>
     </div>
   );
 }

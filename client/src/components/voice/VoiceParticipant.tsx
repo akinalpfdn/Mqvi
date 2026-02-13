@@ -1,9 +1,14 @@
 /**
  * VoiceParticipant — Ses odasında tek bir katılımcı tile'ı.
  *
+ * CSS class'ları:
+ * - Tam mod: .voice-participant, .voice-participant-avatar, .voice-participant-avatar.speaking,
+ *   .voice-participant-name, .voice-participant-overlay
+ * - Kompakt mod: .voice-participant-compact (wrapper), aynı alt class'lar küçük boyutta
+ *
  * İki boyut modu:
  * - Tam mod (compact=false): 64px avatar + isim altında — screen share yokken
- * - Kompakt mod (compact=true): 40px avatar + isim yanında — screen share strip'i
+ * - Kompakt mod (compact=true): 32px avatar + isim yanında — screen share strip'i
  *
  * LiveKit'in useIsSpeaking hook'u ile konuşma algılama yapılır.
  * Katılımcının durumuna göre:
@@ -44,81 +49,45 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
   const isMuted = voiceState?.is_muted ?? false;
   const isDeafened = voiceState?.is_deafened ?? false;
 
+  const avatarClass = `voice-participant-avatar${isSpeaking ? " speaking" : ""}`;
+
+  // Mute/Deafen overlay — her iki modda da gösterilir
+  const overlay = (isMuted || isDeafened) ? (
+    <div className="voice-participant-overlay">
+      {isDeafened ? (
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636" />
+        </svg>
+      ) : (
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+        </svg>
+      )}
+    </div>
+  ) : null;
+
   // ─── Kompakt mod: Screen share strip'inde küçük avatar + isim ───
   if (compact) {
     return (
-      <div className="flex items-center gap-2">
-        <div className="relative">
-          <div
-            className={`flex h-8 w-8 items-center justify-center rounded-full bg-brand text-xs font-bold text-white transition-shadow ${
-              isSpeaking
-                ? "ring-2 ring-status-online ring-offset-1 ring-offset-background"
-                : ""
-            }`}
-          >
-            {firstLetter}
-          </div>
-
-          {/* Mute/Deafen küçük overlay */}
-          {(isMuted || isDeafened) && (
-            <div className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-background-floating">
-              {isDeafened ? (
-                <svg className="h-2.5 w-2.5 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636" />
-                </svg>
-              ) : (
-                <svg className="h-2.5 w-2.5 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                </svg>
-              )}
-            </div>
-          )}
+      <div className="voice-participant-compact">
+        <div className={avatarClass}>
+          {firstLetter}
+          {overlay}
         </div>
-
-        <span className="max-w-24 truncate text-xs text-text-secondary">
-          {displayName}
-        </span>
+        <span className="voice-participant-name">{displayName}</span>
       </div>
     );
   }
 
   // ─── Tam mod: Büyük avatar + isim altında ───
   return (
-    <div className="flex flex-col items-center gap-2 p-3">
-      {/* Avatar — konuşurken yeşil ring */}
-      <div className="relative">
-        <div
-          className={`flex h-16 w-16 items-center justify-center rounded-full bg-brand text-xl font-bold text-white transition-shadow ${
-            isSpeaking
-              ? "ring-2 ring-status-online ring-offset-2 ring-offset-background"
-              : ""
-          }`}
-        >
-          {firstLetter}
-        </div>
-
-        {/* Mute / Deafen overlay icon */}
-        {(isMuted || isDeafened) && (
-          <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-background-floating">
-            {isDeafened ? (
-              <svg className="h-3.5 w-3.5 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636" />
-              </svg>
-            ) : (
-              <svg className="h-3.5 w-3.5 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-              </svg>
-            )}
-          </div>
-        )}
+    <div className="voice-participant">
+      <div className={avatarClass}>
+        {firstLetter}
+        {overlay}
       </div>
-
-      {/* Username */}
-      <span className="max-w-full truncate text-sm text-text-primary">
-        {displayName}
-      </span>
+      <span className="voice-participant-name">{displayName}</span>
     </div>
   );
 }

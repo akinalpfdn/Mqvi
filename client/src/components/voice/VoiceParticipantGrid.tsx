@@ -1,6 +1,8 @@
 /**
  * VoiceParticipantGrid — Ses odasındaki tüm katılımcıların gösterimi.
  *
+ * CSS class'ları: .voice-room-grid, .voice-grid-strip, .voice-room-loading
+ *
  * İki mod:
  * 1. Tam mod (screen share yok): flex-1 ile tüm alanı kaplar,
  *    katılımcılar merkeze grid olarak yayılır.
@@ -36,8 +38,8 @@ function VoiceParticipantGrid() {
     if (hasScreenShare) return null;
 
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-text-muted">{t("noOneInVoice")}</p>
+      <div className="voice-room-loading">
+        <p>{t("noOneInVoice")}</p>
       </div>
     );
   }
@@ -45,7 +47,7 @@ function VoiceParticipantGrid() {
   // Kompakt mod: screen share aktifken altta dar strip
   if (hasScreenShare) {
     return (
-      <div className="flex shrink-0 items-center justify-center gap-4 border-t border-background-tertiary px-4 py-3">
+      <div className="voice-grid-strip">
         {participants.map((participant) => (
           <VoiceParticipant
             key={participant.identity}
@@ -59,7 +61,7 @@ function VoiceParticipantGrid() {
 
   // Tam mod: screen share yokken tüm alanı kapla, merkeze yay
   return (
-    <div className="flex flex-1 flex-wrap content-center items-center justify-center gap-4 p-6">
+    <div className="voice-room-grid">
       {participants.map((participant) => (
         <VoiceParticipant
           key={participant.identity}
