@@ -18,6 +18,8 @@ import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useMessageStore } from "../../stores/messageStore";
 import { useMemberStore } from "../../stores/memberStore";
+import { usePinStore } from "../../stores/pinStore";
+import { hasPermission, Permissions } from "../../utils/permissions";
 import Avatar from "../shared/Avatar";
 import type { Message as MessageType, MemberWithRoles } from "../../types";
 
@@ -66,12 +68,23 @@ function Message({ message, isCompact }: MessageProps) {
   const deleteMessage = useMessageStore((s) => s.deleteMessage);
   const members = useMemberStore((s) => s.members);
 
+  const pinAction = usePinStore((s) => s.pin);
+  const unpinAction = usePinStore((s) => s.unpin);
+  const isMessagePinned = usePinStore((s) => s.isMessagePinned);
+
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content ?? "");
 
   const isOwner = currentUser?.id === message.user_id;
   const member = members.find((m) => m.id === message.user_id);
   const roleType = getRoleType(member);
+
+  // Mevcut kullanıcının yetkilerini hesapla (pin butonu gösterimi için)
+  const currentMember = members.find((m) => m.id === currentUser?.id);
+  const canManageMessages = currentMember
+    ? hasPermission(currentMember.effective_permissions, Permissions.ManageMessages)
+    : false;
+  const isPinned = isMessagePinned(message.channel_id, message.id);
 
   /** Timestamp formatı: HH:MM */
   const formatTime = useCallback((dateStr: string) => {
@@ -110,8 +123,41 @@ function Message({ message, isCompact }: MessageProps) {
     await deleteMessage(message.id);
   }
 
+  /** Pin/Unpin toggle */
+  async function handlePinToggle() {
+    if (isPinned) {
+      await unpinAction(message.channel_id, message.id);
+    } else {
+      await pinAction(message.channel_id, message.id);
+    }
+  }
+
   const displayName =
     message.author?.display_name ?? message.author?.username ?? "Unknown";
+
+  /**
+   * renderContent — Mesaj içeriğindeki @username kalıplarını highlight ile render eder.
+   *
+   * Regex ile @username'leri bulur ve <span className="msg-mention"> ile sarar.
+   * Mention olmayan kısımlar düz metin olarak kalır.
+   * React.Fragment (key ile) kullanılır — her parça benzersiz key alır.
+   */
+  function renderContent(text: string | null): React.ReactNode {
+    if (!text) return null;
+
+    // @kelime_karakterleri pattern'ini parçala
+    const parts = text.split(/(@\w+)/g);
+    return parts.map((part, i) => {
+      if (/^@\w+$/.test(part)) {
+        return (
+          <span key={i} className="msg-mention">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  }
 
   const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}`;
 
@@ -169,7 +215,7 @@ function Message({ message, isCompact }: MessageProps) {
             </div>
           ) : (
             <div className="msg-text">
-              {message.content}
+              {renderContent(message.content)}
               {message.edited_at && (
                 <span className="msg-edited">
                   {t("edited")}
@@ -241,28 +287,45 @@ function Message({ message, isCompact }: MessageProps) {
         </div>
       </div>
 
-      {/* Hover actions (edit/delete) — CSS ile hover'da görünür */}
-      {isOwner && !isEditing && (
+      {/* Hover actions (edit/delete/pin) — CSS ile hover'da görünür */}
+      {(isOwner || canManageMessages) && !isEditing && (
         <div className="msg-hover-actions">
-          <button
-            onClick={() => {
-              setEditContent(message.content ?? "");
-              setIsEditing(true);
-            }}
-            title={t("editMessage")}
-          >
-            <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </button>
-          <button
-            onClick={handleDelete}
-            title={t("deleteMessage")}
-          >
-            <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
+          {/* Pin/Unpin — ManageMessages yetkisi gerekir */}
+          {canManageMessages && (
+            <button
+              onClick={handlePinToggle}
+              title={isPinned ? t("unpinMessage") : t("pinMessage")}
+            >
+              <svg style={{ width: 14, height: 14 }} fill={isPinned ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
+              </svg>
+            </button>
+          )}
+          {/* Edit — sadece mesaj sahibi */}
+          {isOwner && (
+            <button
+              onClick={() => {
+                setEditContent(message.content ?? "");
+                setIsEditing(true);
+              }}
+              title={t("editMessage")}
+            >
+              <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+          )}
+          {/* Delete — mesaj sahibi VEYA ManageMessages */}
+          {(isOwner || canManageMessages) && (
+            <button
+              onClick={handleDelete}
+              title={t("deleteMessage")}
+            >
+              <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
         </div>
       )}
     </div>

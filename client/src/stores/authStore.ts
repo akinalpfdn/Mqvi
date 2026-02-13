@@ -31,7 +31,7 @@ type AuthState = {
   isInitialized: boolean;
 
   // ─── Actions ───
-  register: (username: string, password: string, displayName?: string) => Promise<boolean>;
+  register: (username: string, password: string, displayName?: string, inviteCode?: string) => Promise<boolean>;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   initialize: () => Promise<void>;
@@ -63,13 +63,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   error: null,
   isInitialized: false,
 
-  register: async (username, password, displayName) => {
+  register: async (username, password, displayName, inviteCode) => {
     set({ isLoading: true, error: null });
 
     const res = await authApi.register({
       username,
       password,
       display_name: displayName,
+      invite_code: inviteCode,
     });
 
     if (res.success && res.data) {

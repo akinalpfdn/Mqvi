@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
@@ -47,13 +48,14 @@ type AuthTokens struct {
 // authService, AuthService interface'inin implementasyonu.
 // Tüm dependency'ler constructor injection ile alınır.
 type authService struct {
-	userRepo    repository.UserRepository
-	sessionRepo repository.SessionRepository
-	roleRepo    repository.RoleRepository
-	banRepo     repository.BanRepository
-	jwtSecret   []byte
-	accessExp   time.Duration
-	refreshExp  time.Duration
+	userRepo      repository.UserRepository
+	sessionRepo   repository.SessionRepository
+	roleRepo      repository.RoleRepository
+	banRepo       repository.BanRepository
+	inviteService InviteService // Circular dep yok: InviteService, AuthService'e bağımlı değil
+	jwtSecret     []byte
+	accessExp     time.Duration
+	refreshExp    time.Duration
 }
 
 // NewAuthService, constructor.
@@ -61,23 +63,26 @@ type authService struct {
 // accessExpMinutes: access token ömrü (dakika)
 // refreshExpDays: refresh token ömrü (gün)
 // banRepo: Login sırasında ban kontrolü için
+// inviteService: Register sırasında davet kodu doğrulaması için
 func NewAuthService(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
 	roleRepo repository.RoleRepository,
 	banRepo repository.BanRepository,
+	inviteService InviteService,
 	jwtSecret string,
 	accessExpMinutes int,
 	refreshExpDays int,
 ) AuthService {
 	return &authService{
-		userRepo:    userRepo,
-		sessionRepo: sessionRepo,
-		roleRepo:    roleRepo,
-		banRepo:     banRepo,
-		jwtSecret:   []byte(jwtSecret),
-		accessExp:   time.Duration(accessExpMinutes) * time.Minute,
-		refreshExp:  time.Duration(refreshExpDays) * 24 * time.Hour,
+		userRepo:      userRepo,
+		sessionRepo:   sessionRepo,
+		roleRepo:      roleRepo,
+		banRepo:       banRepo,
+		inviteService: inviteService,
+		jwtSecret:     []byte(jwtSecret),
+		accessExp:     time.Duration(accessExpMinutes) * time.Minute,
+		refreshExp:    time.Duration(refreshExpDays) * 24 * time.Hour,
 	}
 }
 
@@ -85,17 +90,47 @@ func NewAuthService(
 //
 // İş kuralları:
 // 1. Request validation
-// 2. Şifreyi bcrypt ile hash'le (cost=12)
-// 3. Kullanıcıyı DB'ye kaydet
-// 4. İlk kullanıcı ise → Owner rolü ata, değilse → Member rolü
-// 5. JWT token çifti oluştur
+// 2. Kullanıcı sayısını kontrol et (ilk kullanıcı invite'a tabi değil)
+// 3. İlk kullanıcı değilse → invite_required ayarını kontrol et
+// 4. Şifreyi bcrypt ile hash'le (cost=12)
+// 5. Kullanıcıyı DB'ye kaydet
+// 6. İlk kullanıcı ise → Owner rolü ata, değilse → Member rolü
+// 7. JWT token çifti oluştur
 func (s *authService) Register(ctx context.Context, req *models.CreateUserRequest) (*AuthTokens, error) {
 	// 1. Validation
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// 2. Bcrypt hash
+	// 2. Kullanıcı sayısını kontrol et — ilk kullanıcı davet koduna tabi değildir.
+	// İlk kullanıcı sunucunun sahibi olacak, davet kodu gerekliliği sonra ayarlanabilir.
+	existingCount, err := s.userRepo.Count(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count users: %w", err)
+	}
+
+	// 3. İlk kullanıcı değilse → davet kodu kontrolü
+	if existingCount > 0 {
+		inviteCode := strings.TrimSpace(req.InviteCode)
+
+		if inviteCode != "" {
+			// Davet kodu verilmiş → doğrula ve kullanım sayısını artır
+			if err := s.inviteService.ValidateAndUse(ctx, inviteCode); err != nil {
+				return nil, err
+			}
+		} else {
+			// Davet kodu verilmemiş → sunucu invite_required mı kontrol et
+			required, err := s.inviteService.IsInviteRequired(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to check invite requirement: %w", err)
+			}
+			if required {
+				return nil, fmt.Errorf("%w: invite code is required to register", pkg.ErrBadRequest)
+			}
+		}
+	}
+
+	// 4. Bcrypt hash
 	// bcrypt: Şifre hash'leme algoritması. cost=12 demek 2^12 iterasyon yapılır.
 	// Bu, brute-force saldırılarını yavaşlatır. Her hash benzersizdir (salt içerir),
 	// aynı şifreyi iki kez hash'lesen farklı sonuç çıkar.
@@ -104,7 +139,7 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// 3. User oluştur
+	// 5. User oluştur
 	var displayName *string
 	if req.DisplayName != "" {
 		displayName = &req.DisplayName
@@ -121,13 +156,10 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		return nil, err // ErrAlreadyExists olabilir
 	}
 
-	// 4. Rol ata — ilk kullanıcı mı?
-	count, err := s.userRepo.Count(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count users: %w", err)
-	}
-
-	if count == 1 {
+	// 6. Rol ata — ilk kullanıcı mı?
+	// existingCount kullanıcı oluşturulmadan ÖNCEKİ sayı —
+	// 0 ise bu ilk kullanıcı (Owner rolü), değilse Member rolü.
+	if existingCount == 0 {
 		// İlk kullanıcı → Owner rolü
 		if err := s.roleRepo.AssignToUser(ctx, user.ID, "owner"); err != nil {
 			return nil, fmt.Errorf("failed to assign owner role: %w", err)
@@ -143,7 +175,7 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		}
 	}
 
-	// 5. Token çifti oluştur
+	// 7. Token çifti oluştur
 	tokens, err := s.generateTokens(ctx, user)
 	if err != nil {
 		return nil, err

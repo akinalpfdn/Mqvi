@@ -60,6 +60,16 @@ const (
 	OpRoleDelete    = "role_delete"    // Rol silindi
 	OpServerUpdate  = "server_update" // Sunucu bilgileri güncellendi (isim, ikon)
 
+	// Pin (mesaj sabitleme) operasyonları
+	OpMessagePin   = "message_pin"   // Mesaj sabitlendi
+	OpMessageUnpin = "message_unpin" // Mesaj pin'den çıkarıldı
+
+	// DM (Direct Messages) operasyonları
+	OpDMChannelCreate = "dm_channel_create"  // Yeni DM kanalı oluşturuldu
+	OpDMMessageCreate = "dm_message_create"  // Yeni DM mesajı gönderildi
+	OpDMMessageUpdate = "dm_message_update"  // DM mesajı düzenlendi
+	OpDMMessageDelete = "dm_message_delete"  // DM mesajı silindi
+
 	// Voice (ses kanalı) operasyonları
 	OpVoiceStateUpdate = "voice_state_update"  // Bir kullanıcının ses durumu değişti (join/leave/mute/deafen/stream)
 	OpVoiceStatesSync  = "voice_states_sync"   // Tüm ses durumlarının bulk sync'i (bağlantı kurulduğunda)

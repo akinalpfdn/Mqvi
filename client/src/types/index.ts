@@ -71,6 +71,7 @@ export type Message = {
   created_at: string;
   author: User;
   attachments: Attachment[];
+  mentions: string[];  // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
 };
 
 export type Attachment = {
@@ -146,6 +147,27 @@ export type Invite = {
   uses: number;
   expires_at: string | null;
   created_at: string;
+  creator_username: string;
+  creator_display_name: string | null;
+};
+
+// ──────────────────────────────────
+// Pin
+// ──────────────────────────────────
+
+/**
+ * PinnedMessage — Sabitlenmiş mesaj bilgisi.
+ * Backend'deki models.PinnedMessageWithDetails struct'ının TypeScript karşılığı.
+ * Pin bilgisi + mesajın kendisi + pinleyen kullanıcı bir arada döner.
+ */
+export type PinnedMessage = {
+  id: string;
+  message_id: string;
+  channel_id: string;
+  pinned_by: string;
+  created_at: string;
+  message: Message;
+  pinned_by_user: User | null;
 };
 
 // ──────────────────────────────────
@@ -195,6 +217,42 @@ export type VoiceStateUpdateData = {
 };
 
 // ──────────────────────────────────
+// DM (Direct Messages)
+// ──────────────────────────────────
+
+/**
+ * DMChannelWithUser — DM kanal bilgisi + karşı taraf kullanıcı bilgisi.
+ * Backend'den dönen format — hangi kullanıcıyla konuştuğunu gösterir.
+ */
+export type DMChannelWithUser = {
+  id: string;
+  other_user: User;
+  created_at: string;
+};
+
+/**
+ * DMMessage — Bir DM mesajını temsil eder.
+ * Server mesajlarıyla benzer yapıda.
+ */
+export type DMMessage = {
+  id: string;
+  dm_channel_id: string;
+  user_id: string;
+  content: string | null;
+  edited_at: string | null;
+  created_at: string;
+  author: User;
+};
+
+/**
+ * DMMessagePage — DM mesajları için cursor-based pagination response.
+ */
+export type DMMessagePage = {
+  messages: DMMessage[];
+  has_more: boolean;
+};
+
+// ──────────────────────────────────
 // WebSocket
 // ──────────────────────────────────
 export type WSMessage = {
@@ -224,6 +282,7 @@ export type RegisterRequest = {
   username: string;
   password: string;
   display_name?: string;
+  invite_code?: string;
 };
 
 export type AuthTokens = {
@@ -239,5 +298,6 @@ export type Server = {
   id: string;
   name: string;
   icon_url: string | null;
+  invite_required: boolean;
   member_count: number;
 };

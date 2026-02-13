@@ -25,6 +25,7 @@ function RegisterPage() {
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
   // ─── Handlers ───
@@ -45,7 +46,8 @@ function RegisterPage() {
     const success = await register(
       username,
       password,
-      displayName || undefined
+      displayName || undefined,
+      inviteCode || undefined
     );
     if (success) {
       navigate("/channels");
@@ -105,6 +107,24 @@ function RegisterPage() {
                 setDisplayName(e.target.value);
                 handleInputChange();
               }}
+              maxLength={32}
+              className="auth-input"
+            />
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="inviteCode" className="auth-label">
+              {t("inviteCode")}
+            </label>
+            <input
+              id="inviteCode"
+              type="text"
+              value={inviteCode}
+              onChange={(e) => {
+                setInviteCode(e.target.value);
+                handleInputChange();
+              }}
+              placeholder={t("inviteCodePlaceholder")}
               maxLength={32}
               className="auth-input"
             />

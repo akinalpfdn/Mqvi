@@ -15,6 +15,7 @@ import SettingsNav from "./SettingsNav";
 import RoleSettings from "./RoleSettings";
 import ProfileSettings from "./ProfileSettings";
 import ServerGeneralSettings from "./ServerGeneralSettings";
+import InviteSettings from "./InviteSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -88,11 +89,13 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
     case "server-general":
       return <ServerGeneralSettings />;
 
+    case "invites":
+      return <InviteSettings />;
+
     // Placeholder tab'lar
     case "appearance":
     case "voice":
     case "members":
-    case "invites":
       return (
         <div className="no-channel settings-placeholder">
           <span className="settings-section-title">

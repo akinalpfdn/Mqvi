@@ -30,6 +30,7 @@ const PERMISSION_DEFS = [
   { bit: Permissions.ReadMessages, label: "permReadMessages", desc: "permReadMessagesDesc" },
   { bit: Permissions.Connect, label: "permConnect", desc: "permConnectDesc" },
   { bit: Permissions.Speak, label: "permSpeak", desc: "permSpeakDesc" },
+  { bit: Permissions.ManageInvites, label: "permManageInvites", desc: "permManageInvitesDesc" },
 ] as const;
 
 function RoleSettings() {

@@ -86,6 +86,12 @@ func main() {
 	attachmentRepo := repository.NewSQLiteAttachmentRepo(db.Conn)
 	banRepo := repository.NewSQLiteBanRepo(db.Conn)
 	serverRepo := repository.NewSQLiteServerRepo(db.Conn)
+	inviteRepo := repository.NewSQLiteInviteRepo(db.Conn)
+	pinRepo := repository.NewSQLitePinRepo(db.Conn)
+	searchRepo := repository.NewSQLiteSearchRepo(db.Conn)
+	readStateRepo := repository.NewSQLiteReadStateRepo(db.Conn)
+	mentionRepo := repository.NewSQLiteMentionRepo(db.Conn)
+	dmRepo := repository.NewSQLiteDMRepo(db.Conn)
 
 	// ─── 6. WebSocket Hub ───
 	//
@@ -169,11 +175,17 @@ func main() {
 	go hub.Run()
 
 	// ─── 7. Service Layer ───
+	//
+	// InviteService, AuthService'den ÖNCE oluşturulmalı — AuthService buna bağımlı.
+	// (Register sırasında davet kodu doğrulaması için InviteService kullanılır)
+	inviteService := services.NewInviteService(inviteRepo, serverRepo)
+
 	authService := services.NewAuthService(
 		userRepo,
 		sessionRepo,
 		roleRepo,
 		banRepo,
+		inviteService,
 		cfg.JWT.Secret,
 		cfg.JWT.AccessTokenExpiry,
 		cfg.JWT.RefreshTokenExpiry,
@@ -181,11 +193,15 @@ func main() {
 
 	channelService := services.NewChannelService(channelRepo, categoryRepo, hub)
 	categoryService := services.NewCategoryService(categoryRepo, hub)
-	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, hub)
+	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, mentionRepo, hub)
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, hub)
 	roleService := services.NewRoleService(roleRepo, userRepo, hub)
 	serverService := services.NewServerService(serverRepo, hub)
+	pinService := services.NewPinService(pinRepo, messageRepo, hub)
+	searchService := services.NewSearchService(searchRepo)
+	readStateService := services.NewReadStateService(readStateRepo)
+	dmService := services.NewDMService(dmRepo, userRepo, hub)
 	// voiceService yukarıda (Hub callback'lerinden önce) oluşturuldu
 
 	// ─── 8. Handler Layer ───
@@ -197,6 +213,11 @@ func main() {
 	roleHandler := handlers.NewRoleHandler(roleService)
 	voiceHandler := handlers.NewVoiceHandler(voiceService)
 	serverHandler := handlers.NewServerHandler(serverService)
+	inviteHandler := handlers.NewInviteHandler(inviteService)
+	pinHandler := handlers.NewPinHandler(pinService)
+	searchHandler := handlers.NewSearchHandler(searchService)
+	readStateHandler := handlers.NewReadStateHandler(readStateService)
+	dmHandler := handlers.NewDMHandler(dmService)
 	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
 	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService)
 
@@ -293,6 +314,34 @@ func main() {
 	mux.Handle("POST /api/server/icon", authMiddleware.Require(
 		permMiddleware.Require(models.PermAdmin, http.HandlerFunc(avatarHandler.UploadServerIcon))))
 
+	// Invites — davet kodu yönetimi, ManageInvites yetkisi gerektirir
+	mux.Handle("GET /api/invites", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageInvites, http.HandlerFunc(inviteHandler.List))))
+	mux.Handle("POST /api/invites", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageInvites, http.HandlerFunc(inviteHandler.Create))))
+	mux.Handle("DELETE /api/invites/{code}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageInvites, http.HandlerFunc(inviteHandler.Delete))))
+
+	// Search — FTS5 tam metin arama, authenticated kullanıcılar kullanabilir
+	mux.Handle("GET /api/search", authMiddleware.Require(
+		http.HandlerFunc(searchHandler.Search)))
+
+	// Pins — mesaj sabitleme, ManageMessages yetkisi gerekir (list herkese açık)
+	mux.Handle("GET /api/channels/{id}/pins", authMiddleware.Require(
+		http.HandlerFunc(pinHandler.ListPins)))
+	mux.Handle("POST /api/channels/{channelId}/messages/{messageId}/pin", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageMessages, http.HandlerFunc(pinHandler.Pin))))
+	mux.Handle("DELETE /api/channels/{channelId}/messages/{messageId}/pin", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageMessages, http.HandlerFunc(pinHandler.Unpin))))
+
+	// Read State — okunmamış mesaj takibi, authenticated kullanıcılar kullanabilir
+	// MarkRead: kanal değiştirdiğinde frontend otomatik çağırır (auto-mark-read)
+	// GetUnreads: uygulama başlangıcında ve WS reconnect'te çağrılır
+	mux.Handle("POST /api/channels/{id}/read", authMiddleware.Require(
+		http.HandlerFunc(readStateHandler.MarkRead)))
+	mux.Handle("GET /api/channels/unread", authMiddleware.Require(
+		http.HandlerFunc(readStateHandler.GetUnreads)))
+
 	// Roles — rol listesi herkese açık, CUD için MANAGE_ROLES yetkisi gerekir
 	mux.Handle("GET /api/roles", authMiddleware.Require(
 		http.HandlerFunc(roleHandler.List)))
@@ -302,6 +351,20 @@ func main() {
 		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Update))))
 	mux.Handle("DELETE /api/roles/{id}", authMiddleware.Require(
 		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Delete))))
+
+	// DMs — Direct Messages, authenticated kullanıcılar arası özel mesajlaşma
+	mux.Handle("GET /api/dms", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.ListChannels)))
+	mux.Handle("POST /api/dms", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.CreateOrGetChannel)))
+	mux.Handle("GET /api/dms/{channelId}/messages", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.GetMessages)))
+	mux.Handle("POST /api/dms/{channelId}/messages", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.SendMessage)))
+	mux.Handle("PATCH /api/dms/messages/{id}", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.EditMessage)))
+	mux.Handle("DELETE /api/dms/messages/{id}", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.DeleteMessage)))
 
 	// Voice — LiveKit token alma ve aktif ses durumlarını sorgulama
 	//

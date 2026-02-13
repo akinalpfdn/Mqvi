@@ -25,11 +25,11 @@ func NewSQLiteServerRepo(db *sql.DB) ServerRepository {
 // Get, sunucu bilgisini döner.
 // LIMIT 1 ile ilk (ve tek) satırı alır.
 func (r *sqliteServerRepo) Get(ctx context.Context) (*models.Server, error) {
-	query := `SELECT id, name, icon_url, created_at FROM server LIMIT 1`
+	query := `SELECT id, name, icon_url, invite_required, created_at FROM server LIMIT 1`
 
 	server := &models.Server{}
 	err := r.db.QueryRowContext(ctx, query).Scan(
-		&server.ID, &server.Name, &server.IconURL, &server.CreatedAt,
+		&server.ID, &server.Name, &server.IconURL, &server.InviteRequired, &server.CreatedAt,
 	)
 
 	if err != nil {
@@ -41,9 +41,9 @@ func (r *sqliteServerRepo) Get(ctx context.Context) (*models.Server, error) {
 
 // Update, sunucu bilgisini günceller.
 func (r *sqliteServerRepo) Update(ctx context.Context, server *models.Server) error {
-	query := `UPDATE server SET name = ?, icon_url = ? WHERE id = ?`
+	query := `UPDATE server SET name = ?, icon_url = ?, invite_required = ? WHERE id = ?`
 
-	result, err := r.db.ExecContext(ctx, query, server.Name, server.IconURL, server.ID)
+	result, err := r.db.ExecContext(ctx, query, server.Name, server.IconURL, server.InviteRequired, server.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update server: %w", err)
 	}

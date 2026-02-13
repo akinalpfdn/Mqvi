@@ -14,18 +14,21 @@ import (
 // Server, sunucu verisini temsil eder.
 // DB'deki "server" tablosunun Go karşılığıdır.
 type Server struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	IconURL   *string   `json:"icon_url"`
-	CreatedAt time.Time `json:"created_at"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	IconURL        *string   `json:"icon_url"`
+	InviteRequired bool      `json:"invite_required"` // true ise kayıt için davet kodu zorunlu
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // UpdateServerRequest, sunucu güncelleme isteği.
 //
 // Partial update pattern: nil field'lar değiştirilmez.
-// Şimdilik sadece Name güncellenebilir — icon_url avatar handler tarafından güncellenir.
+// Name ve InviteRequired admin tarafından güncellenebilir.
+// icon_url avatar handler tarafından güncellenir.
 type UpdateServerRequest struct {
-	Name *string `json:"name"`
+	Name           *string `json:"name"`
+	InviteRequired *bool   `json:"invite_required"`
 }
 
 // Validate, UpdateServerRequest kontrolü.

@@ -18,6 +18,7 @@ function ServerGeneralSettings() {
 
   const [server, setServer] = useState<Server | null>(null);
   const [editName, setEditName] = useState("");
+  const [editInviteRequired, setEditInviteRequired] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -27,22 +28,30 @@ function ServerGeneralSettings() {
       if (res.success && res.data) {
         setServer(res.data);
         setEditName(res.data.name);
+        setEditInviteRequired(res.data.invite_required);
       }
       setIsLoaded(true);
     }
     fetchServer();
   }, []);
 
-  const hasChanges = server !== null && editName !== server.name;
+  const hasChanges =
+    server !== null &&
+    (editName !== server.name ||
+      editInviteRequired !== server.invite_required);
 
   async function handleSave() {
     if (!hasChanges || isSaving) return;
 
     setIsSaving(true);
     try {
-      const res = await serverApi.updateServer({ name: editName });
+      const res = await serverApi.updateServer({
+        name: editName,
+        invite_required: editInviteRequired,
+      });
       if (res.success && res.data) {
         setServer(res.data);
+        setEditInviteRequired(res.data.invite_required);
         addToast("success", t("serverSaved"));
       } else {
         addToast("error", res.error ?? t("serverSaveError"));
@@ -109,6 +118,28 @@ function ServerGeneralSettings() {
           maxLength={100}
           className="settings-input"
         />
+      </div>
+
+      {/* Invite Required Toggle */}
+      <div className="settings-field" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <input
+          id="inviteRequired"
+          type="checkbox"
+          checked={editInviteRequired}
+          onChange={(e) => setEditInviteRequired(e.target.checked)}
+          style={{ width: 16, height: 16, accentColor: "var(--amber)", cursor: "pointer" }}
+        />
+        <div>
+          <label
+            htmlFor="inviteRequired"
+            style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)", cursor: "pointer" }}
+          >
+            {t("inviteRequired")}
+          </label>
+          <p style={{ fontSize: 11, color: "var(--t2)", marginTop: 2 }}>
+            {t("inviteRequiredDesc")}
+          </p>
+        </div>
       </div>
 
       {/* Separator */}

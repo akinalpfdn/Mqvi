@@ -46,10 +46,12 @@ type User struct {
 
 // CreateUserRequest, kayıt olurken frontend'den gelen veri.
 // PasswordHash yerine Password alırız — hash'leme service katmanında yapılır.
+// InviteCode opsiyonel — invite_required=true ise zorunlu hale gelir.
 type CreateUserRequest struct {
 	Username    string `json:"username"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	InviteCode  string `json:"invite_code"`
 }
 
 // Validate, CreateUserRequest'in geçerli olup olmadığını kontrol eder.

@@ -14,8 +14,8 @@ export async function getServer() {
   return apiClient<Server>("/server");
 }
 
-/** Sunucu bilgisini güncelle (isim) */
-export async function updateServer(data: { name?: string }) {
+/** Sunucu bilgisini güncelle (isim, invite_required) */
+export async function updateServer(data: { name?: string; invite_required?: boolean }) {
   return apiClient<Server>("/server", {
     method: "PATCH",
     body: data,

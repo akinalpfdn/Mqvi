@@ -34,6 +34,9 @@ import { useMemberStore } from "../stores/memberStore";
 import { useRoleStore } from "../stores/roleStore";
 import { useVoiceStore } from "../stores/voiceStore";
 import { useServerStore } from "../stores/serverStore";
+import { usePinStore } from "../stores/pinStore";
+import { useReadStateStore } from "../stores/readStateStore";
+import { useDMStore } from "../stores/dmStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
@@ -50,6 +53,9 @@ import type {
   UserStatus,
   VoiceState,
   VoiceStateUpdateData,
+  PinnedMessage,
+  DMChannelWithUser,
+  DMMessage,
 } from "../types";
 
 /** Reconnect denemesi arasındaki bekleme süresi (ms) */
@@ -138,9 +144,22 @@ export function useWebSocket() {
         break;
 
       // ─── Message Events ───
-      case "message_create":
-        useMessageStore.getState().handleMessageCreate(msg.d as Message);
+      case "message_create": {
+        const message = msg.d as Message;
+        useMessageStore.getState().handleMessageCreate(message);
+
+        // Okunmamış sayacı: mesaj aktif kanala değilse artır.
+        // Aktif kanal kontrolü channelStore.selectedChannelId ile yapılır.
+        // Aktif kanaldaki mesajlar otomatik okunmuş işaretlenir (watermark güncellenir).
+        const activeChannelId = useChannelStore.getState().selectedChannelId;
+        if (message.channel_id !== activeChannelId) {
+          useReadStateStore.getState().incrementUnread(message.channel_id);
+        } else {
+          // Aktif kanala gelen mesaj — watermark'ı güncelle (fire-and-forget)
+          useReadStateStore.getState().markAsRead(message.channel_id, message.id);
+        }
         break;
+      }
       case "message_update":
         useMessageStore.getState().handleMessageUpdate(msg.d as Message);
         break;
@@ -161,6 +180,10 @@ export function useWebSocket() {
       case "ready": {
         const data = msg.d as { online_user_ids: string[] };
         useMemberStore.getState().handleReady(data.online_user_ids);
+        // WS bağlantısı kurulduğunda (ilk bağlantı veya reconnect) okunmamış sayıları çek
+        useReadStateStore.getState().fetchUnreadCounts();
+        // DM kanallarını çek — DM listesinin hemen hazır olması için
+        useDMStore.getState().fetchChannels();
         break;
       }
       case "presence_update": {
@@ -212,6 +235,32 @@ export function useWebSocket() {
         useVoiceStore.getState().handleVoiceStatesSync(syncData.states);
         break;
       }
+
+      // ─── Pin Events ───
+      case "message_pin":
+        usePinStore.getState().handleMessagePin(msg.d as PinnedMessage);
+        break;
+      case "message_unpin":
+        usePinStore.getState().handleMessageUnpin(
+          msg.d as { message_id: string; channel_id: string }
+        );
+        break;
+
+      // ─── DM Events ───
+      case "dm_channel_create":
+        useDMStore.getState().handleDMChannelCreate(msg.d as DMChannelWithUser);
+        break;
+      case "dm_message_create":
+        useDMStore.getState().handleDMMessageCreate(msg.d as DMMessage);
+        break;
+      case "dm_message_update":
+        useDMStore.getState().handleDMMessageUpdate(msg.d as DMMessage);
+        break;
+      case "dm_message_delete":
+        useDMStore.getState().handleDMMessageDelete(
+          msg.d as { id: string; dm_channel_id: string }
+        );
+        break;
 
       // ─── Server Events ───
       case "server_update":

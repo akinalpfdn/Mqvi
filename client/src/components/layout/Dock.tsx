@@ -18,6 +18,8 @@ import { useChannelStore } from "../../stores/channelStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useReadStateStore } from "../../stores/readStateStore";
+import DMList from "../dm/DMList";
 import type { Channel } from "../../types";
 
 type DockProps = {
@@ -121,6 +123,7 @@ function Dock({ onJoinVoice }: DockProps) {
   const openTab = useUIStore((s) => s.openTab);
   const user = useAuthStore((s) => s.user);
   const openSettings = useSettingsStore((s) => s.openSettings);
+  const unreadCounts = useReadStateStore((s) => s.unreadCounts);
 
   // Tüm kanalları flat olarak al
   const allChannels = categories.flatMap((cg) => cg.channels);
@@ -128,6 +131,9 @@ function Dock({ onJoinVoice }: DockProps) {
   // Text ve voice kanallarını ayır
   const textChannels = allChannels.filter((ch) => ch.type === "text");
   const voiceChannels = allChannels.filter((ch) => ch.type === "voice");
+
+  // DM list popup state
+  const [isDMListOpen, setIsDMListOpen] = useState(false);
 
   // SVG refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -181,16 +187,24 @@ function Dock({ onJoinVoice }: DockProps) {
 
         {/* ─── Channel Row (üst) ─── */}
         <div className="dock-ch-row" ref={chRowRef}>
-          {textChannels.map((ch) => (
-            <button
-              key={ch.id}
-              className={`dock-ch-item${selectedChannelId === ch.id ? " active" : ""}`}
-              onClick={() => handleChannelClick(ch)}
-            >
-              <span className="dock-ch-icon">#</span>
-              <span className="dock-ch-name">{ch.name}</span>
-            </button>
-          ))}
+          {textChannels.map((ch) => {
+            const unread = unreadCounts[ch.id] ?? 0;
+            return (
+              <button
+                key={ch.id}
+                className={`dock-ch-item${selectedChannelId === ch.id ? " active" : ""}${unread > 0 ? " has-unread" : ""}`}
+                onClick={() => handleChannelClick(ch)}
+              >
+                <span className="dock-ch-icon">#</span>
+                <span className="dock-ch-name">{ch.name}</span>
+                {unread > 0 && (
+                  <span className="dock-unread-badge">
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
 
           {/* Separator */}
           {textChannels.length > 0 && voiceChannels.length > 0 && (
@@ -227,7 +241,7 @@ function Dock({ onJoinVoice }: DockProps) {
           <div className="dock-separator" />
 
           {/* Utility icons */}
-          <button className="dock-item">
+          <button className="dock-item" onClick={() => setIsDMListOpen((p) => !p)}>
             <span className="dock-tooltip">{t("messages")}</span>
             <span className="dock-util-icon">{"\uD83D\uDCAC"}</span>
           </button>
@@ -257,6 +271,9 @@ function Dock({ onJoinVoice }: DockProps) {
           </button>
         </div>
       </div>
+
+      {/* DM List popup — Messages butonuna tıklandığında gösterilir */}
+      {isDMListOpen && <DMList onClose={() => setIsDMListOpen(false)} />}
     </div>
   );
 }

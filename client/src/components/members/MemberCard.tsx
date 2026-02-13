@@ -16,6 +16,8 @@ import type { MemberWithRoles } from "../../types";
 import RoleBadge from "./RoleBadge";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
+import { useDMStore } from "../../stores/dmStore";
+import { useUIStore } from "../../stores/uiStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
 
@@ -76,6 +78,20 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
     const reason = prompt(t("banReason")) ?? "";
     if (!confirm(t("confirmBan", { username: member.username }))) return;
     await memberApi.banMember(member.id, reason);
+    onClose();
+  }
+
+  /**
+   * handleSendMessage — DM kanalı oluşturur/alır ve tab olarak açar.
+   * createOrGetChannel: Kanal yoksa oluşturur, varsa mevcut olanı döner.
+   * openTab: DM tab'ını panelde açar (type: "dm").
+   */
+  async function handleSendMessage() {
+    const channelId = await useDMStore.getState().createOrGetChannel(member.id);
+    if (channelId) {
+      const displayName = member.display_name ?? member.username;
+      useUIStore.getState().openTab(channelId, "dm", displayName);
+    }
     onClose();
   }
 
@@ -146,26 +162,32 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
           </div>
 
           {/* Actions */}
-          {(canManageRoles || canKick || canBan) && (
-            <div className="member-card-actions">
-              {canKick && (
-                <button
-                  className="member-card-btn member-card-btn-kick"
-                  onClick={handleKick}
-                >
-                  {t("kick")}
-                </button>
-              )}
-              {canBan && (
-                <button
-                  className="member-card-btn member-card-btn-ban"
-                  onClick={handleBan}
-                >
-                  {t("ban")}
-                </button>
-              )}
-            </div>
-          )}
+          <div className="member-card-actions">
+            {!isMe && (
+              <button
+                className="member-card-btn member-card-btn-dm"
+                onClick={handleSendMessage}
+              >
+                {t("sendMessage")}
+              </button>
+            )}
+            {canKick && (
+              <button
+                className="member-card-btn member-card-btn-kick"
+                onClick={handleKick}
+              >
+                {t("kick")}
+              </button>
+            )}
+            {canBan && (
+              <button
+                className="member-card-btn member-card-btn-ban"
+                onClick={handleBan}
+              >
+                {t("ban")}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </>

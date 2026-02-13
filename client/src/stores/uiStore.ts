@@ -19,7 +19,7 @@ import { create } from "zustand";
 // Types
 // ──────────────────────────────────
 
-export type TabType = "text" | "voice" | "screen";
+export type TabType = "text" | "voice" | "screen" | "dm";
 
 export type Tab = {
   id: string;

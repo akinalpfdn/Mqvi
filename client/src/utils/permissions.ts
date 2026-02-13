@@ -25,6 +25,7 @@ export const Permissions = {
   Connect: 128,
   Speak: 256,
   Admin: 512,
+  ManageInvites: 1024,
 } as const;
 
 /** Permission türü (type-safe) */

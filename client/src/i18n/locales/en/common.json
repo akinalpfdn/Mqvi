@@ -42,5 +42,6 @@
   "server": "Server",
   "addServer": "Add Server",
   "messages": "Messages",
-  "files": "Files"
+  "files": "Files",
+  "sendMessage": "Send Message"
 }

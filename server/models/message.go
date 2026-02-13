@@ -22,6 +22,7 @@ type Message struct {
 	CreatedAt   time.Time    `json:"created_at"`
 	Author      *User        `json:"author,omitempty"`       // JOIN ile gelen yazar bilgisi
 	Attachments []Attachment `json:"attachments,omitempty"`  // İlişkili dosya ekleri
+	Mentions    []string     `json:"mentions"`               // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
 }
 
 // Attachment, bir mesaja eklenmiş dosyayı temsil eder.

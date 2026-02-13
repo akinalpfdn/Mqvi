@@ -42,5 +42,6 @@
   "server": "Sunucu",
   "addServer": "Sunucu Ekle",
   "messages": "Mesajlar",
-  "files": "Dosyalar"
+  "files": "Dosyalar",
+  "sendMessage": "Mesaj Gönder"
 }

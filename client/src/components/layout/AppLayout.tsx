@@ -34,6 +34,8 @@ import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useMessageStore } from "../../stores/messageStore";
+import { useReadStateStore } from "../../stores/readStateStore";
 
 function AppLayout() {
   const { sendTyping, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate } =
@@ -81,6 +83,25 @@ function AppLayout() {
       autoOpenedRef.current = true;
     }
   }, [selectedChannelId, categories, openTab]);
+
+  /**
+   * Auto-mark-read — Kanal değiştiğinde okunmamış sayacını sıfırla.
+   *
+   * Aktif kanala geçildiğinde, o kanalın son mesajı varsa backend'e
+   * "bu mesaja kadar okudum" bilgisi gönderilir ve local badge sıfırlanır.
+   */
+  useEffect(() => {
+    if (!selectedChannelId) return;
+
+    const messages = useMessageStore.getState().messagesByChannel[selectedChannelId];
+    if (messages && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      useReadStateStore.getState().markAsRead(selectedChannelId, lastMessage.id);
+    } else {
+      // Mesajlar henüz yüklenmemiş olabilir — local badge'i yine sıfırla
+      useReadStateStore.getState().clearUnread(selectedChannelId);
+    }
+  }, [selectedChannelId]);
 
   const { joinVoice, leaveVoice, toggleMute, toggleDeafen, toggleScreenShare } = useVoice({
     sendVoiceJoin,

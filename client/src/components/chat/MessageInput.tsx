@@ -15,6 +15,7 @@ import { useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useMessageStore } from "../../stores/messageStore";
 import FilePreview from "./FilePreview";
+import MentionAutocomplete from "./MentionAutocomplete";
 import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES } from "../../utils/constants";
 
 type MessageInputProps = {
@@ -30,6 +31,11 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
+
+  /** Mention autocomplete state */
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  /** Mention başladığı karakter index'i (@ karakterinin konumu) */
+  const mentionStartRef = useRef<number>(-1);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,24 +60,90 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
 
   /** Klavye event handler */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Mention popup açıkken Enter/Tab/ArrowUp/Down → popup'a bırak (global listener yakalar)
+    if (mentionQuery !== null) {
+      if (["Enter", "Tab", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) {
+        return; // MentionAutocomplete'in global keydown listener'ı bunu yakalar
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   }
 
-  /** Textarea değişikliği — typing trigger + auto-resize */
+  /** Textarea değişikliği — typing trigger + auto-resize + mention detection */
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setContent(e.target.value);
+    const value = e.target.value;
+    setContent(value);
 
-    if (channelId && e.target.value.length > 0) {
+    if (channelId && value.length > 0) {
       sendTyping(channelId);
+    }
+
+    // Mention detection — cursor konumundan geriye bakarak @ ara
+    const cursorPos = e.target.selectionStart ?? value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf("@");
+
+    if (atIndex >= 0) {
+      // @ öncesi boşluk veya satır başı olmalı (email adreslerini ayırt etmek için)
+      const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : " ";
+      if (charBeforeAt === " " || charBeforeAt === "\n" || atIndex === 0) {
+        const query = textBeforeCursor.slice(atIndex + 1);
+        // Query'de boşluk varsa mention bitti
+        if (!query.includes(" ") && !query.includes("\n")) {
+          mentionStartRef.current = atIndex;
+          setMentionQuery(query);
+        } else {
+          setMentionQuery(null);
+        }
+      } else {
+        setMentionQuery(null);
+      }
+    } else {
+      setMentionQuery(null);
     }
 
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
+  }
+
+  /**
+   * handleMentionSelect — Autocomplete'ten kullanıcı seçildiğinde çağrılır.
+   * @username metnini textarea'ya yerleştirir.
+   */
+  function handleMentionSelect(username: string) {
+    const start = mentionStartRef.current;
+    if (start < 0) return;
+
+    const cursorPos = textareaRef.current?.selectionStart ?? content.length;
+    const before = content.slice(0, start);
+    const after = content.slice(cursorPos);
+    const newContent = `${before}@${username} ${after}`;
+
+    setContent(newContent);
+    setMentionQuery(null);
+    mentionStartRef.current = -1;
+
+    // Cursor'u mention'dan sonraya konumlandır
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        const pos = start + username.length + 2; // @username + space
+        textareaRef.current.selectionStart = pos;
+        textareaRef.current.selectionEnd = pos;
+        textareaRef.current.focus();
+      }
+    });
+  }
+
+  /** Mention popup kapatma */
+  function handleMentionClose() {
+    setMentionQuery(null);
+    mentionStartRef.current = -1;
   }
 
   /** Dosya ekleme */
@@ -100,6 +172,15 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
 
   return (
     <div className="input-area">
+      {/* Mention autocomplete popup — textarea'nın üstünde gösterilir */}
+      {mentionQuery !== null && (
+        <MentionAutocomplete
+          query={mentionQuery}
+          onSelect={handleMentionSelect}
+          onClose={handleMentionClose}
+        />
+      )}
+
       {/* Dosya önizleme */}
       <FilePreview files={files} onRemove={handleFileRemove} />
 

@@ -3,12 +3,27 @@ package services
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
 )
+
+// mentionRegex, mesaj içeriğindeki @username kalıplarını bulur.
+//
+// Regex açıklaması:
+// @        — literal @ karakteri (mention başlangıcı)
+// (\w+)   — bir veya daha fazla kelime karakteri (harf, rakam, _)
+//
+// Örnekler:
+//   "merhaba @ali nasılsın"  → ["ali"]
+//   "@ali ve @veli"           → ["ali", "veli"]
+//   "email@test.com"          → ["test"] — false positive, ama service katmanında
+//                               username lookup ile doğrulanır (DB'de "test" yoksa skip)
+var mentionRegex = regexp.MustCompile(`@(\w+)`)
 
 // MessageService, mesaj iş mantığı interface'i.
 type MessageService interface {
@@ -24,6 +39,7 @@ type messageService struct {
 	attachmentRepo repository.AttachmentRepository
 	channelRepo    repository.ChannelRepository
 	userRepo       repository.UserRepository
+	mentionRepo    repository.MentionRepository
 	hub            ws.EventPublisher
 }
 
@@ -33,6 +49,7 @@ func NewMessageService(
 	attachmentRepo repository.AttachmentRepository,
 	channelRepo repository.ChannelRepository,
 	userRepo repository.UserRepository,
+	mentionRepo repository.MentionRepository,
 	hub ws.EventPublisher,
 ) MessageService {
 	return &messageService{
@@ -40,6 +57,7 @@ func NewMessageService(
 		attachmentRepo: attachmentRepo,
 		channelRepo:    channelRepo,
 		userRepo:       userRepo,
+		mentionRepo:    mentionRepo,
 		hub:            hub,
 	}
 }
@@ -85,10 +103,20 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, b
 			attachmentMap[a.MessageID] = append(attachmentMap[a.MessageID], a)
 		}
 
+		// Mention'ları batch yükle (N+1 önleme)
+		mentionMap, err := s.mentionRepo.GetByMessageIDs(ctx, messageIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get mentions: %w", err)
+		}
+
 		for i := range messages {
 			messages[i].Attachments = attachmentMap[messages[i].ID]
 			if messages[i].Attachments == nil {
 				messages[i].Attachments = []models.Attachment{} // null yerine boş dizi
+			}
+			messages[i].Mentions = mentionMap[messages[i].ID]
+			if messages[i].Mentions == nil {
+				messages[i].Mentions = []string{} // null yerine boş dizi
 			}
 		}
 	}
@@ -128,6 +156,16 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	author.PasswordHash = "" // Güvenlik
 	message.Author = author
 	message.Attachments = []models.Attachment{} // Boş dizi
+
+	// Mention'ları parse et ve kaydet
+	mentionedIDs := s.extractMentions(ctx, req.Content)
+	if len(mentionedIDs) > 0 {
+		if err := s.mentionRepo.SaveMentions(ctx, message.ID, mentionedIDs); err != nil {
+			// Mention kaydetme hatası mesaj oluşturmayı engellemez — log yeterli
+			fmt.Printf("[mention] failed to save mentions for message %s: %v\n", message.ID, err)
+		}
+	}
+	message.Mentions = mentionedIDs
 
 	// NOT: WS broadcast burada yapılmıyor.
 	// Multipart mesajlarda dosyalar handler'da yüklenir.
@@ -182,6 +220,19 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		message.Attachments = []models.Attachment{}
 	}
 
+	// Mention'ları yeniden parse et (mesaj düzenlendiğinde mention'lar değişmiş olabilir)
+	// Önce mevcut mention'ları sil, sonra yenilerini kaydet
+	if err := s.mentionRepo.DeleteByMessageID(ctx, id); err != nil {
+		fmt.Printf("[mention] failed to delete old mentions for message %s: %v\n", id, err)
+	}
+	mentionedIDs := s.extractMentions(ctx, req.Content)
+	if len(mentionedIDs) > 0 {
+		if err := s.mentionRepo.SaveMentions(ctx, id, mentionedIDs); err != nil {
+			fmt.Printf("[mention] failed to save mentions for message %s: %v\n", id, err)
+		}
+	}
+	message.Mentions = mentionedIDs
+
 	s.hub.BroadcastToAll(ws.Event{
 		Op:   ws.OpMessageUpdate,
 		Data: message,
@@ -216,4 +267,44 @@ func (s *messageService) Delete(ctx context.Context, id string, userID string, u
 	})
 
 	return nil
+}
+
+// extractMentions, mesaj içeriğindeki @username kalıplarını parse eder ve
+// geçerli kullanıcı ID'lerini döner.
+//
+// Nasıl çalışır:
+// 1. Regex ile tüm @username kalıplarını bul
+// 2. Her username için DB'de kullanıcı ara (UserRepository.GetByUsername)
+// 3. Bulunan kullanıcıların ID'lerini döndür
+// 4. Bulunamayanları sessizce atla (yanlış pozitif veya silinmiş kullanıcı)
+//
+// Duplicate önleme: Aynı kullanıcı birden fazla kez bahsedilirse
+// ID listesinde tek sefer görünür (seen map ile kontrol).
+func (s *messageService) extractMentions(ctx context.Context, content string) []string {
+	matches := mentionRegex.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return []string{}
+	}
+
+	seen := make(map[string]bool)
+	var userIDs []string
+
+	for _, match := range matches {
+		username := strings.ToLower(match[1])
+		if seen[username] {
+			continue
+		}
+		seen[username] = true
+
+		user, err := s.userRepo.GetByUsername(ctx, username)
+		if err != nil {
+			continue // Kullanıcı bulunamadı — false positive, skip
+		}
+		userIDs = append(userIDs, user.ID)
+	}
+
+	if userIDs == nil {
+		userIDs = []string{}
+	}
+	return userIDs
 }

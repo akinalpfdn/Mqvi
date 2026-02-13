@@ -29,10 +29,12 @@ const (
 	PermSpeak                                  // 128
 	PermStream                                 // 256
 	PermAdmin                                  // 512
+	PermManageInvites                          // 1024 — davet kodu yönetimi
 )
 
-// PermAll, tüm yetkilerin toplamıdır (1023).
-const PermAll Permission = (1 << 10) - 1
+// PermAll, tüm yetkilerin toplamıdır (2047).
+// Yeni permission eklendikçe bu değer güncellenir: (1 << N) - 1
+const PermAll Permission = (1 << 11) - 1
 
 // Has, belirli bir yetkinin var olup olmadığını kontrol eder.
 func (p Permission) Has(perm Permission) bool {

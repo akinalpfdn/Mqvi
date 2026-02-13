@@ -62,6 +62,9 @@ func (s *serverService) Update(ctx context.Context, req *models.UpdateServerRequ
 	if req.Name != nil {
 		server.Name = *req.Name
 	}
+	if req.InviteRequired != nil {
+		server.InviteRequired = *req.InviteRequired
+	}
 
 	if err := s.serverRepo.Update(ctx, server); err != nil {
 		return nil, fmt.Errorf("failed to update server: %w", err)

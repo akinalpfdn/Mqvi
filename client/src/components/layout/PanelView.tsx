@@ -25,6 +25,7 @@ import { useChannelStore } from "../../stores/channelStore";
 import PanelTabBar from "./PanelTabBar";
 import ChatArea from "./ChatArea";
 import VoiceRoom from "../voice/VoiceRoom";
+import DMChat from "../dm/DMChat";
 import DropZoneOverlay, { calculateZone } from "./DropZoneOverlay";
 import type { DropZone } from "./DropZoneOverlay";
 
@@ -175,6 +176,8 @@ function PanelView({ panelId }: PanelViewProps) {
         <div className="no-channel">{t("noChannel")}</div>
       ) : activeTab.type === "text" ? (
         <ChatArea channelId={activeTab.channelId} channel={channel ?? null} />
+      ) : activeTab.type === "dm" ? (
+        <DMChat channelId={activeTab.channelId} />
       ) : (
         <div className="voice-room">
           {channel && (
