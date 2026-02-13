@@ -9,9 +9,8 @@
  * z-index:2 ile overlay'in üstünde kalır.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useWebSocket } from "../../hooks/useWebSocket";
 import { useUIStore } from "../../stores/uiStore";
 import { usePinStore } from "../../stores/pinStore";
 import MessageList from "../chat/MessageList";
@@ -24,17 +23,25 @@ import type { Channel } from "../../types";
 type ChatAreaProps = {
   channelId: string;
   channel: Channel | null;
+  sendTyping: (channelId: string) => void;
 };
 
-function ChatArea({ channelId, channel }: ChatAreaProps) {
+function ChatArea({ channelId, channel, sendTyping }: ChatAreaProps) {
   const { t } = useTranslation("chat");
-  const { sendTyping } = useWebSocket();
   const toggleMembers = useUIStore((s) => s.toggleMembers);
   const membersOpen = useUIStore((s) => s.membersOpen);
   const getPinsForChannel = usePinStore((s) => s.getPinsForChannel);
+  const fetchPins = usePinStore((s) => s.fetchPins);
 
   const [showPins, setShowPins] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+
+  // Kanal değiştiğinde pin verilerini çek — mesajlarda pin ikonu göstermek için
+  useEffect(() => {
+    if (channelId) {
+      fetchPins(channelId);
+    }
+  }, [channelId, fetchPins]);
 
   const pinCount = getPinsForChannel(channelId).length;
 

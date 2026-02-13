@@ -31,9 +31,10 @@ import type { DropZone } from "./DropZoneOverlay";
 
 type PanelViewProps = {
   panelId: string;
+  sendTyping: (channelId: string) => void;
 };
 
-function PanelView({ panelId }: PanelViewProps) {
+function PanelView({ panelId, sendTyping }: PanelViewProps) {
   const { t } = useTranslation("chat");
   const panel = useUIStore((s) => s.panels[panelId]);
   const setActivePanel = useUIStore((s) => s.setActivePanel);
@@ -175,7 +176,7 @@ function PanelView({ panelId }: PanelViewProps) {
       {!activeTab ? (
         <div className="no-channel">{t("noChannel")}</div>
       ) : activeTab.type === "text" ? (
-        <ChatArea channelId={activeTab.channelId} channel={channel ?? null} />
+        <ChatArea channelId={activeTab.channelId} channel={channel ?? null} sendTyping={sendTyping} />
       ) : activeTab.type === "dm" ? (
         <DMChat channelId={activeTab.channelId} />
       ) : (

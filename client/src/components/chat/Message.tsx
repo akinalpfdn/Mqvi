@@ -192,6 +192,16 @@ function Message({ message, isCompact }: MessageProps) {
             </span>
           </div>
 
+          {/* Pin indicator — mesaj pinliyse küçük pin ikonu göster */}
+          {isPinned && (
+            <div className="msg-pin-indicator">
+              <svg style={{ width: 12, height: 12 }} fill="currentColor" viewBox="0 0 24 24" stroke="none">
+                <path d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
+              </svg>
+              <span>{t("pinnedMessages")}</span>
+            </div>
+          )}
+
           {/* Content */}
           {isEditing ? (
             <div className="msg-edit-area">

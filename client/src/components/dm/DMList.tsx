@@ -23,6 +23,7 @@ function DMList({ onClose }: DMListProps) {
   const { t } = useTranslation("chat");
   const channels = useDMStore((s) => s.channels);
   const isLoading = useDMStore((s) => s.isLoading);
+  const dmUnreadCounts = useDMStore((s) => s.dmUnreadCounts);
   const openTab = useUIStore((s) => s.openTab);
 
   /** DM kanalına tıklandığında tab aç ve popup'ı kapat */
@@ -72,11 +73,12 @@ function DMList({ onClose }: DMListProps) {
         {channels.map((ch) => {
           const other = ch.other_user;
           const displayName = other?.display_name ?? other?.username ?? "?";
+          const unread = dmUnreadCounts[ch.id] ?? 0;
 
           return (
             <button
               key={ch.id}
-              className="dm-list-item"
+              className={`dm-list-item${unread > 0 ? " has-unread" : ""}`}
               onClick={() => handleChannelClick(ch.id, displayName)}
             >
               <div className="dm-list-avatar">
@@ -89,6 +91,11 @@ function DMList({ onClose }: DMListProps) {
               <div className="dm-list-info">
                 <span className="dm-list-name">{displayName}</span>
               </div>
+              {unread > 0 && (
+                <span className="dm-unread-badge">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
             </button>
           );
         })}

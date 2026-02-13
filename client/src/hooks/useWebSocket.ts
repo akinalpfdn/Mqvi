@@ -36,6 +36,8 @@ import { useVoiceStore } from "../stores/voiceStore";
 import { useServerStore } from "../stores/serverStore";
 import { usePinStore } from "../stores/pinStore";
 import { useReadStateStore } from "../stores/readStateStore";
+import { useAuthStore } from "../stores/authStore";
+import { useUIStore } from "../stores/uiStore";
 import { useDMStore } from "../stores/dmStore";
 import {
   WS_URL,
@@ -106,6 +108,26 @@ export function useWebSocket() {
   const lastTypingRef = useRef<Map<string, number>>(new Map());
 
   /**
+   * routeEventRef — routeEvent fonksiyonunun en güncel versiyonunu tutan ref.
+   *
+   * Neden ref kullanıyoruz?
+   * routeEvent fonksiyonu her render'da yeniden oluşturulur. Ancak WebSocket'in
+   * onmessage callback'i useEffect'teki ilk render'ın closure'ını yakalar.
+   * Vite HMR modülü güncellediğinde component re-render olur ama useEffect
+   * (boş deps) yeniden çalışmaz — yani onmessage ESKİ routeEvent'i kullanır.
+   *
+   * Ref pattern çözümü:
+   * 1. Her render'da routeEvent yeniden tanımlanır (en güncel logic ile)
+   * 2. routeEventRef.current = routeEvent; ile ref güncellenir
+   * 3. onmessage'daki kod routeEventRef.current(msg) çağırır
+   * 4. Böylece her zaman en güncel event handler çalışır
+   *
+   * Bu pattern özellikle persistent WebSocket bağlantılarında yaygındır —
+   * "latest ref" pattern olarak bilinir.
+   */
+  const routeEventRef = useRef<(msg: WSMessage) => void>(() => {});
+
+  /**
    * routeEvent — Gelen WS event'ini op koduna göre ilgili store handler'ına yönlendirir.
    *
    * Bu fonksiyon WebSocket mesajlarının "switch/case" dağıtıcısıdır.
@@ -148,15 +170,30 @@ export function useWebSocket() {
         const message = msg.d as Message;
         useMessageStore.getState().handleMessageCreate(message);
 
-        // Okunmamış sayacı: mesaj aktif kanala değilse artır.
-        // Aktif kanal kontrolü channelStore.selectedChannelId ile yapılır.
-        // Aktif kanaldaki mesajlar otomatik okunmuş işaretlenir (watermark güncellenir).
-        const activeChannelId = useChannelStore.getState().selectedChannelId;
-        if (message.channel_id !== activeChannelId) {
-          useReadStateStore.getState().incrementUnread(message.channel_id);
-        } else {
-          // Aktif kanala gelen mesaj — watermark'ı güncelle (fire-and-forget)
+        // Kendi gönderdiğimiz mesajlar için unread artırma.
+        // Server message_create'i tüm bağlı kullanıcılara broadcast eder —
+        // gönderen de dahil. Kendi mesajımızı "okunmamış" saymamalıyız.
+        const currentUserId = useAuthStore.getState().user?.id;
+        if (message.author?.id === currentUserId || message.user_id === currentUserId) {
+          break;
+        }
+
+        // Okunmamış sayacı: kullanıcı o kanalı aktif olarak GÖRÜYOR MU?
+        // uiStore'daki aktif tab'ın tipini ve channelId'sini doğrudan kontrol ediyoruz.
+        // Bu yaklaşım selectedDMId'ye bağımlı değildir — tab type "text" ve channelId
+        // eşleşiyorsa kullanıcı o kanalı görüyor demektir. Diğer tüm durumlar
+        // (DM tab, voice tab, farklı kanal) → unread artır.
+        const uiState = useUIStore.getState();
+        const panel = uiState.panels[uiState.activePanelId];
+        const activeTab = panel?.tabs.find((t) => t.id === panel.activeTabId);
+        const isViewingThisChannel =
+          activeTab?.type === "text" && activeTab?.channelId === message.channel_id;
+
+        if (isViewingThisChannel) {
+          // Aktif text kanalına gelen mesaj — watermark'ı güncelle (fire-and-forget)
           useReadStateStore.getState().markAsRead(message.channel_id, message.id);
+        } else {
+          useReadStateStore.getState().incrementUnread(message.channel_id);
         }
         break;
       }
@@ -250,9 +287,23 @@ export function useWebSocket() {
       case "dm_channel_create":
         useDMStore.getState().handleDMChannelCreate(msg.d as DMChannelWithUser);
         break;
-      case "dm_message_create":
-        useDMStore.getState().handleDMMessageCreate(msg.d as DMMessage);
+      case "dm_message_create": {
+        const dmMsg = msg.d as DMMessage;
+        useDMStore.getState().handleDMMessageCreate(dmMsg);
+
+        // Kendi gönderdiğimiz mesajlar için unread artırma (server echo).
+        // Server dm_message_create'i hem gönderene hem alıcıya broadcast eder.
+        const currentUserId = useAuthStore.getState().user?.id;
+        if (dmMsg.user_id === currentUserId) break;
+
+        // DM okunmamış sayacı: mesaj aktif DM tab'ına ait değilse artır.
+        const dmState = useDMStore.getState();
+        const activeDMId = dmState.selectedDMId;
+        if (dmMsg.dm_channel_id !== activeDMId) {
+          dmState.incrementDMUnread(dmMsg.dm_channel_id);
+        }
         break;
+      }
       case "dm_message_update":
         useDMStore.getState().handleDMMessageUpdate(msg.d as DMMessage);
         break;
@@ -268,6 +319,11 @@ export function useWebSocket() {
         break;
     }
   }
+
+  // routeEventRef'i her render'da güncel tut.
+  // Böylece WebSocket'in onmessage callback'i her zaman en güncel
+  // routeEvent fonksiyonunu çağırır (HMR + closure freshness).
+  routeEventRef.current = routeEvent;
 
   /** cleanupTimers — Interval ve timeout'ları temizler */
   function cleanupTimers() {
@@ -436,8 +492,10 @@ export function useWebSocket() {
           lastSeqRef.current = msg.seq;
         }
 
-        // Event routing — gelen event'i ilgili store handler'ına yönlendir
-        routeEvent(msg);
+        // Event routing — ref üzerinden en güncel handler'ı çağır.
+        // routeEvent doğrudan çağrılsa closure'daki ilk render versiyonu kullanılırdı.
+        // routeEventRef.current her render'da güncellenir → her zaman en güncel logic.
+        routeEventRef.current(msg);
       };
 
       // ─── onclose ───

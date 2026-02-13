@@ -117,7 +117,7 @@ function AppLayout() {
       {/* Ana içerik alanı — split paneller + member list */}
       <div className="main-area">
         {/* Split pane container — recursive layout ağacını render eder */}
-        <SplitPaneContainer node={layout} />
+        <SplitPaneContainer node={layout} sendTyping={sendTyping} />
 
         {/* Sağ panel — CSS transition ile açılıp kapanır (.members-panel.open) */}
         <MemberList />

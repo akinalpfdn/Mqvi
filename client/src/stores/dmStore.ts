@@ -27,6 +27,8 @@ type DMState = {
   messagesByChannel: Record<string, DMMessage[]>;
   /** Kanal bazlı "daha eski mesaj var mı?" */
   hasMoreByChannel: Record<string, boolean>;
+  /** DM okunmamış mesaj sayıları: channelId → count */
+  dmUnreadCounts: Record<string, number>;
   /** Yüklenme durumları */
   isLoading: boolean;
   isLoadingMessages: boolean;
@@ -40,6 +42,14 @@ type DMState = {
   sendMessage: (channelId: string, content: string) => Promise<boolean>;
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   deleteMessage: (messageId: string) => Promise<boolean>;
+
+  // ─── Unread ───
+  /** DM okunmamış sayacını artır (mesaj başka birinden geldiğinde) */
+  incrementDMUnread: (channelId: string) => void;
+  /** DM okunmamış sayacını sıfırla (kanal açıldığında) */
+  clearDMUnread: (channelId: string) => void;
+  /** Toplam DM okunmamış sayısı */
+  getTotalDMUnread: () => number;
 
   // ─── WS Event Handlers ───
   handleDMChannelCreate: (channel: DMChannelWithUser) => void;
@@ -56,6 +66,7 @@ export const useDMStore = create<DMState>((set, get) => ({
   selectedDMId: null,
   messagesByChannel: {},
   hasMoreByChannel: {},
+  dmUnreadCounts: {},
   isLoading: false,
   isLoadingMessages: false,
 
@@ -143,6 +154,31 @@ export const useDMStore = create<DMState>((set, get) => ({
   deleteMessage: async (messageId) => {
     const res = await dmApi.deleteDMMessage(messageId);
     return res.success;
+  },
+
+  // ─── Unread ───
+
+  incrementDMUnread: (channelId) => {
+    set((state) => ({
+      dmUnreadCounts: {
+        ...state.dmUnreadCounts,
+        [channelId]: (state.dmUnreadCounts[channelId] ?? 0) + 1,
+      },
+    }));
+  },
+
+  clearDMUnread: (channelId) => {
+    set((state) => {
+      if (!state.dmUnreadCounts[channelId]) return state;
+      const next = { ...state.dmUnreadCounts };
+      delete next[channelId];
+      return { dmUnreadCounts: next };
+    });
+  },
+
+  getTotalDMUnread: () => {
+    const counts = get().dmUnreadCounts;
+    return Object.values(counts).reduce((sum, c) => sum + c, 0);
   },
 
   // ─── WS Event Handlers ───

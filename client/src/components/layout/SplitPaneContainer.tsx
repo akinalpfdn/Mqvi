@@ -16,11 +16,12 @@ import PanelView from "./PanelView";
 type SplitPaneContainerProps = {
   node: LayoutNode;
   path?: number[];
+  sendTyping: (channelId: string) => void;
 };
 
-function SplitPaneContainer({ node, path = [] }: SplitPaneContainerProps) {
+function SplitPaneContainer({ node, path = [], sendTyping }: SplitPaneContainerProps) {
   if (node.type === "leaf") {
-    return <PanelView panelId={node.panelId} />;
+    return <PanelView panelId={node.panelId} sendTyping={sendTyping} />;
   }
 
   const isVertical = node.direction === "vertical";
@@ -29,7 +30,7 @@ function SplitPaneContainer({ node, path = [] }: SplitPaneContainerProps) {
     <div className={`split-container${isVertical ? " vertical" : ""}`}>
       {/* Sol / Üst panel */}
       <div className="split-pane" style={{ flex: node.ratio }}>
-        <SplitPaneContainer node={node.children[0]} path={[...path, 0]} />
+        <SplitPaneContainer node={node.children[0]} path={[...path, 0]} sendTyping={sendTyping} />
       </div>
 
       {/* Resize handle */}
@@ -41,7 +42,7 @@ function SplitPaneContainer({ node, path = [] }: SplitPaneContainerProps) {
 
       {/* Sağ / Alt panel */}
       <div className="split-pane" style={{ flex: 1 - node.ratio }}>
-        <SplitPaneContainer node={node.children[1]} path={[...path, 1]} />
+        <SplitPaneContainer node={node.children[1]} path={[...path, 1]} sendTyping={sendTyping} />
       </div>
     </div>
   );

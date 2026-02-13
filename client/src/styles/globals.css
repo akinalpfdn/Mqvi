@@ -143,6 +143,8 @@ button { font-family:inherit; }
 .mention:hover { background:var(--amber-m); }
 .msg-mention { background:var(--amber-s);color:var(--amber);padding:0 3px;border-radius:3px;font-weight:500; }
 .msg-mention:hover { background:var(--amber-m); }
+.msg-pin-indicator { display:flex;align-items:center;gap:4px;font-size:10px;color:var(--t3);margin-bottom:2px; }
+.msg-pin-indicator svg { color:var(--amber); }
 .msg-hover-actions { position:absolute;top:-11px;right:14px;display:flex;background:var(--bg-4);border:1px solid var(--b2);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.4);opacity:0;pointer-events:none;transition:opacity .1s; }
 .msg:hover .msg-hover-actions { opacity:1;pointer-events:auto; }
 .msg-hover-actions button { width:26px;height:24px;border:none;background:transparent;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px; }
@@ -642,6 +644,29 @@ button { font-family:inherit; }
 .dm-list-info { min-width:0;flex:1;text-align:left; }
 .dm-list-name { font-size:13px;font-weight:500;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block; }
 .dm-list-item:hover .dm-list-name { color:var(--t0); }
+
+/* DM unread badge — per-channel (DMList item'larında) */
+.dm-list-item.has-unread .dm-list-name { color:var(--t0);font-weight:600; }
+.dm-unread-badge {
+  flex-shrink:0;
+  min-width:16px;height:16px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;
+  color:#fff;background:var(--red);
+  border-radius:8px;padding:0 4px;
+  font-family:var(--f-ui);
+}
+
+/* Dock DM badge — Messages butonundaki toplam unread */
+.dock-unread-badge.dm-badge {
+  position:absolute;top:-4px;right:-4px;
+  min-width:14px;height:14px;
+  font-size:9px;font-weight:700;
+  color:#fff;background:var(--red);
+  border-radius:7px;padding:0 3px;
+  display:flex;align-items:center;justify-content:center;
+  line-height:1;
+}
 
 /* MemberCard DM button */
 .member-card-btn-dm { background:var(--amber-s);color:var(--amber); }

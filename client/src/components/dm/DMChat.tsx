@@ -28,6 +28,8 @@ function DMChat({ channelId }: DMChatProps) {
   const editMessage = useDMStore((s) => s.editMessage);
   const deleteMessage = useDMStore((s) => s.deleteMessage);
   const channels = useDMStore((s) => s.channels);
+  const selectDM = useDMStore((s) => s.selectDM);
+  const clearDMUnread = useDMStore((s) => s.clearDMUnread);
 
   const [content, setContent] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -42,6 +44,15 @@ function DMChat({ channelId }: DMChatProps) {
   useEffect(() => {
     fetchMessages(channelId);
   }, [channelId, fetchMessages]);
+
+  // DM tab açıldığında: selectedDMId güncelle + unread sıfırla
+  useEffect(() => {
+    selectDM(channelId);
+    clearDMUnread(channelId);
+    return () => {
+      selectDM(null);
+    };
+  }, [channelId, selectDM, clearDMUnread]);
 
   // Yeni mesaj geldiğinde en alta scroll
   useEffect(() => {
@@ -118,8 +129,8 @@ function DMChat({ channelId }: DMChatProps) {
         </span>
       </div>
 
-      {/* Message list */}
-      <div className="message-list">
+      {/* Message list — messages-scroll: flex:1 + overflow-y:auto, input alta sabit kalir */}
+      <div className="messages-scroll">
         {messages.map((msg, i) => {
           const isCompact = isSameGroup(messages[i - 1], msg);
           const isOwner = currentUser?.id === msg.user_id;

@@ -36,11 +36,24 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
   fetchUnreadCounts: async () => {
     const res = await readStateApi.getUnreadCounts();
     if (res.success && res.data) {
-      const counts: Record<string, number> = {};
-      for (const info of res.data) {
-        counts[info.channel_id] = info.unread_count;
-      }
-      set({ unreadCounts: counts });
+      // Backend sayılarını local state ile birleştir (merge).
+      // Neden replace yerine merge?
+      // fetchUnreadCounts async'tir — API çağrısı sürerken yeni message_create
+      // event'i gelip incrementUnread çalışmış olabilir. Düz replace yapılırsa
+      // bu local artışlar kaybolur. Merge ile her kanal için MAX(backend, local)
+      // alınır — böylece hiçbir okunmamış sayı kaybolmaz.
+      set((state) => {
+        const merged: Record<string, number> = { ...state.unreadCounts };
+        for (const info of res.data!) {
+          // Backend'in sayısı local'den büyükse backend'i al,
+          // aksi halde local artışı koru
+          merged[info.channel_id] = Math.max(
+            info.unread_count,
+            merged[info.channel_id] ?? 0,
+          );
+        }
+        return { unreadCounts: merged };
+      });
     }
   },
 

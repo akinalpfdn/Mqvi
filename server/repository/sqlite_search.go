@@ -155,8 +155,10 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, channelID *
 // sanitizeFTSQuery, kullanıcı girdisini FTS5-safe formata dönüştürür.
 //
 // FTS5 özel operatörleri (AND, OR, NOT, NEAR, *, ^) kötüye kullanılabilir.
-// Bu fonksiyon her kelimeyi çift tırnak içine alarak literal arama yapar.
-// Boş kelimeler ve 1 karakterden kısa kelimeler filtrelenir.
+// Bu fonksiyon her kelimeyi çift tırnak içine alıp sonuna * ekleyerek prefix arama yapar.
+// Böylece "tes" sorgusu "test", "testing" gibi kelimeleri de bulur.
+//
+// FTS5 prefix syntax: "kelime"* → kelime ile başlayan tüm terimleri eşleştirir.
 func sanitizeFTSQuery(query string) string {
 	words := strings.Fields(query)
 	if len(words) == 0 {
@@ -167,10 +169,13 @@ func sanitizeFTSQuery(query string) string {
 	for _, w := range words {
 		// Çift tırnak içindeki tırnakları kaldır (injection önleme)
 		cleaned := strings.ReplaceAll(w, "\"", "")
+		// Yıldız karakterini de kaldır (injection önleme)
+		cleaned = strings.ReplaceAll(cleaned, "*", "")
 		if len(cleaned) < 1 {
 			continue
 		}
-		safe = append(safe, "\""+cleaned+"\"")
+		// Prefix match: "kelime"* — alt-dize araması sağlar
+		safe = append(safe, "\""+cleaned+"\"*")
 	}
 
 	if len(safe) == 0 {

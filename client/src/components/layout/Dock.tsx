@@ -19,6 +19,7 @@ import { useUIStore } from "../../stores/uiStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useReadStateStore } from "../../stores/readStateStore";
+import { useDMStore } from "../../stores/dmStore";
 import DMList from "../dm/DMList";
 import type { Channel } from "../../types";
 
@@ -124,6 +125,10 @@ function Dock({ onJoinVoice }: DockProps) {
   const user = useAuthStore((s) => s.user);
   const openSettings = useSettingsStore((s) => s.openSettings);
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
+  const dmUnreadCounts = useDMStore((s) => s.dmUnreadCounts);
+
+  // Toplam DM okunmamış sayısı — badge'de gösterilir
+  const totalDMUnread = Object.values(dmUnreadCounts).reduce((sum, c) => sum + c, 0);
 
   // Tüm kanalları flat olarak al
   const allChannels = categories.flatMap((cg) => cg.channels);
@@ -244,6 +249,11 @@ function Dock({ onJoinVoice }: DockProps) {
           <button className="dock-item" onClick={() => setIsDMListOpen((p) => !p)}>
             <span className="dock-tooltip">{t("messages")}</span>
             <span className="dock-util-icon">{"\uD83D\uDCAC"}</span>
+            {totalDMUnread > 0 && (
+              <span className="dock-unread-badge dm-badge">
+                {totalDMUnread > 99 ? "99+" : totalDMUnread}
+              </span>
+            )}
           </button>
           <button className="dock-item">
             <span className="dock-tooltip">{t("files")}</span>
