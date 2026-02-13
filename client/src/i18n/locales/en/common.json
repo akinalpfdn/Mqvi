@@ -32,5 +32,10 @@
   "confirmKick": "Are you sure you want to kick {{username}}?",
   "confirmBan": "Are you sure you want to ban {{username}}?",
   "banReason": "Reason for ban",
-  "noRoles": "No roles"
+  "noRoles": "No roles",
+  "warning": "Warning",
+  "info": "Info",
+  "settings": "Settings",
+  "upload": "Upload",
+  "uploading": "Uploading..."
 }

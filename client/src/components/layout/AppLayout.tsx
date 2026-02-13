@@ -19,15 +19,25 @@
  * orkestrasyon fonksiyonları child component'lere prop olarak geçilir.
  */
 
+import { useEffect } from "react";
 import Sidebar from "./Sidebar";
 import ChatArea from "./ChatArea";
 import MemberList from "./MemberList";
+import ToastContainer from "../shared/ToastContainer";
+import SettingsModal from "../settings/SettingsModal";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
+import { useServerStore } from "../../stores/serverStore";
 
 function AppLayout() {
   const { sendTyping, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate } =
     useWebSocket();
+  const fetchServer = useServerStore((s) => s.fetchServer);
+
+  // Sunucu bilgisini uygulama başlatıldığında çek
+  useEffect(() => {
+    fetchServer();
+  }, [fetchServer]);
 
   const { joinVoice, leaveVoice, toggleMute, toggleDeafen, toggleScreenShare } = useVoice({
     sendVoiceJoin,
@@ -51,6 +61,12 @@ function AppLayout() {
 
       {/* Sağ panel — üye listesi */}
       <MemberList />
+
+      {/* Settings modal — tam ekran overlay (z-50) */}
+      <SettingsModal />
+
+      {/* Toast notifications — sağ alt köşe, tüm UI'ın üstünde (z-[100]) */}
+      <ToastContainer />
     </div>
   );
 }

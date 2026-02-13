@@ -26,16 +26,19 @@ type RoleState = {
   // ─── Actions ───
   fetchRoles: () => Promise<void>;
   selectRole: (roleId: string) => void;
+  /** Rol oluştur — başarılıysa true döner (toast feedback için) */
   createRole: (data: {
     name: string;
     color: string;
     permissions: number;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
+  /** Rol güncelle — başarılıysa true döner (toast feedback için) */
   updateRole: (
     id: string,
     data: { name?: string; color?: string; permissions?: number }
-  ) => Promise<void>;
-  deleteRole: (id: string) => Promise<void>;
+  ) => Promise<boolean>;
+  /** Rol sil — başarılıysa true döner (toast feedback için) */
+  deleteRole: (id: string) => Promise<boolean>;
 
   // ─── WS Event Handlers ───
   handleRoleCreate: (role: Role) => void;
@@ -72,14 +75,24 @@ export const useRoleStore = create<RoleState>((set, get) => ({
   createRole: async (data) => {
     const res = await roleApi.createRole(data);
     if (res.data) {
-      // WS event de gelecek ama hemen UI'da göstermek için ekliyoruz
-      set((state) => ({
-        roles: [res.data!, ...state.roles].sort(
-          (a, b) => b.position - a.position
-        ),
-        selectedRoleId: res.data!.id,
-      }));
+      const newRole = res.data;
+      // Duplicate guard: WS role_create event, API response'dan önce gelmiş olabilir.
+      // Bu durumda rol zaten state'tedir — tekrar eklememeliyiz.
+      set((state) => {
+        if (state.roles.some((r) => r.id === newRole.id)) {
+          // WS event zaten eklemiş — sadece seçili rolü güncelle
+          return { selectedRoleId: newRole.id };
+        }
+        return {
+          roles: [newRole, ...state.roles].sort(
+            (a, b) => b.position - a.position
+          ),
+          selectedRoleId: newRole.id,
+        };
+      });
+      return true;
     }
+    return false;
   },
 
   updateRole: async (id, data) => {
@@ -88,7 +101,9 @@ export const useRoleStore = create<RoleState>((set, get) => ({
       set((state) => ({
         roles: state.roles.map((r) => (r.id === id ? res.data! : r)),
       }));
+      return true;
     }
+    return false;
   },
 
   deleteRole: async (id) => {
@@ -104,7 +119,9 @@ export const useRoleStore = create<RoleState>((set, get) => ({
               : state.selectedRoleId,
         };
       });
+      return true;
     }
+    return false;
   },
 
   // ─── WS Event Handlers ───

@@ -100,11 +100,19 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
           !isOnline ? "opacity-40" : ""
         }`}
       >
-        {/* Avatar */}
+        {/* Avatar — avatar_url varsa resim, yoksa ilk harf */}
         <div className="relative shrink-0">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">
-            {member.username.charAt(0).toUpperCase()}
-          </div>
+          {member.avatar_url ? (
+            <img
+              src={member.avatar_url}
+              alt={displayName}
+              className="h-8 w-8 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">
+              {member.username.charAt(0).toUpperCase()}
+            </div>
+          )}
           <span
             className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background-secondary ${getStatusColor(
               member.status

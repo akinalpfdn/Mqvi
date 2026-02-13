@@ -36,6 +36,15 @@ type AuthState = {
   logout: () => Promise<void>;
   initialize: () => Promise<void>;
   clearError: () => void;
+
+  /**
+   * updateUser — User state'ini kısmen günceller.
+   *
+   * Profil düzenlemesi (display_name, avatar_url, language vb.)
+   * sonrasında tüm kullanıcı bilgisini sunucudan tekrar çekmek yerine
+   * sadece değişen field'ları günceller. Performans + anında UI yansıması.
+   */
+  updateUser: (partial: Partial<User>) => void;
 };
 
 /**
@@ -121,4 +130,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  updateUser: (partial) =>
+    set((state) => ({
+      user: state.user ? { ...state.user, ...partial } : null,
+    })),
 }));

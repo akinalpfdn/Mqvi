@@ -32,5 +32,10 @@
   "confirmKick": "{{username}} adlı kullanıcıyı atmak istediğinizden emin misiniz?",
   "confirmBan": "{{username}} adlı kullanıcıyı yasaklamak istediğinizden emin misiniz?",
   "banReason": "Yasaklama sebebi",
-  "noRoles": "Rol yok"
+  "noRoles": "Rol yok",
+  "warning": "Uyarı",
+  "info": "Bilgi",
+  "settings": "Ayarlar",
+  "upload": "Yükle",
+  "uploading": "Yükleniyor..."
 }

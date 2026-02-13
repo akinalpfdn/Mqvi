@@ -131,6 +131,9 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 	if req.CustomStatus != nil {
 		user.CustomStatus = req.CustomStatus
 	}
+	if req.Language != nil {
+		user.Language = *req.Language
+	}
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to update user profile: %w", err)

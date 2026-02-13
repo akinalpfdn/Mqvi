@@ -93,6 +93,8 @@
   --spacing-member-list: 240px;
   --spacing-header: 48px;
   --spacing-user-bar: 52px;
+  --spacing-toast-width: 360px;
+  --spacing-settings-nav: 218px;
 }
 
 /* Global resets */

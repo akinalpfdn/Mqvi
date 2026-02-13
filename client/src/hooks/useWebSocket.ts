@@ -33,6 +33,7 @@ import { useMessageStore } from "../stores/messageStore";
 import { useMemberStore } from "../stores/memberStore";
 import { useRoleStore } from "../stores/roleStore";
 import { useVoiceStore } from "../stores/voiceStore";
+import { useServerStore } from "../stores/serverStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
@@ -45,6 +46,7 @@ import type {
   Message,
   MemberWithRoles,
   Role,
+  Server,
   UserStatus,
   VoiceState,
   VoiceStateUpdateData,
@@ -210,6 +212,11 @@ export function useWebSocket() {
         useVoiceStore.getState().handleVoiceStatesSync(syncData.states);
         break;
       }
+
+      // ─── Server Events ───
+      case "server_update":
+        useServerStore.getState().handleServerUpdate(msg.d as Server);
+        break;
     }
   }
 

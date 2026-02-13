@@ -58,6 +58,7 @@ const (
 	OpRoleCreate    = "role_create"    // Yeni rol oluşturuldu
 	OpRoleUpdate    = "role_update"    // Rol güncellendi
 	OpRoleDelete    = "role_delete"    // Rol silindi
+	OpServerUpdate  = "server_update" // Sunucu bilgileri güncellendi (isim, ikon)
 
 	// Voice (ses kanalı) operasyonları
 	OpVoiceStateUpdate = "voice_state_update"  // Bir kullanıcının ses durumu değişti (join/leave/mute/deafen/stream)

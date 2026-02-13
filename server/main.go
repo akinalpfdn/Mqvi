@@ -85,6 +85,7 @@ func main() {
 	messageRepo := repository.NewSQLiteMessageRepo(db.Conn)
 	attachmentRepo := repository.NewSQLiteAttachmentRepo(db.Conn)
 	banRepo := repository.NewSQLiteBanRepo(db.Conn)
+	serverRepo := repository.NewSQLiteServerRepo(db.Conn)
 
 	// ─── 6. WebSocket Hub ───
 	//
@@ -184,6 +185,7 @@ func main() {
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, hub)
 	roleService := services.NewRoleService(roleRepo, userRepo, hub)
+	serverService := services.NewServerService(serverRepo, hub)
 	// voiceService yukarıda (Hub callback'lerinden önce) oluşturuldu
 
 	// ─── 8. Handler Layer ───
@@ -194,6 +196,8 @@ func main() {
 	memberHandler := handlers.NewMemberHandler(memberService)
 	roleHandler := handlers.NewRoleHandler(roleService)
 	voiceHandler := handlers.NewVoiceHandler(voiceService)
+	serverHandler := handlers.NewServerHandler(serverService)
+	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
 	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService)
 
 	// ─── 9. Middleware ───
@@ -273,6 +277,21 @@ func main() {
 	// Profile — kullanıcının kendi profil güncelleme endpoint'i
 	mux.Handle("PATCH /api/users/me/profile", authMiddleware.Require(
 		http.HandlerFunc(memberHandler.UpdateProfile)))
+
+	// Avatar — kullanıcı avatar yükleme endpoint'i
+	// Ayrı bir handler çünkü multipart form parse ve resim validasyonu
+	// mevcut UploadService'den farklıdır (message attachment'a bağlı değil).
+	mux.Handle("POST /api/users/me/avatar", authMiddleware.Require(
+		http.HandlerFunc(avatarHandler.UploadUserAvatar)))
+
+	// Server — sunucu bilgileri, ikon yükleme
+	// Get herkese açık (authenticated), Update/Icon Admin yetkisi gerektirir
+	mux.Handle("GET /api/server", authMiddleware.Require(
+		http.HandlerFunc(serverHandler.Get)))
+	mux.Handle("PATCH /api/server", authMiddleware.Require(
+		permMiddleware.Require(models.PermAdmin, http.HandlerFunc(serverHandler.Update))))
+	mux.Handle("POST /api/server/icon", authMiddleware.Require(
+		permMiddleware.Require(models.PermAdmin, http.HandlerFunc(avatarHandler.UploadServerIcon))))
 
 	// Roles — rol listesi herkese açık, CUD için MANAGE_ROLES yetkisi gerekir
 	mux.Handle("GET /api/roles", authMiddleware.Require(

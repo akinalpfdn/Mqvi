@@ -67,6 +67,14 @@ type UpdateProfileRequest struct {
 	DisplayName  *string `json:"display_name"`
 	AvatarURL    *string `json:"avatar_url"`
 	CustomStatus *string `json:"custom_status"`
+	Language     *string `json:"language"`
+}
+
+// allowedLanguages, desteklenen dil kodlarını tanımlar.
+// Geçersiz bir dil kodu gönderilirse validation hata döner.
+var allowedLanguages = map[string]bool{
+	"en": true,
+	"tr": true,
 }
 
 // Validate, UpdateProfileRequest kontrolü.
@@ -76,6 +84,9 @@ func (r *UpdateProfileRequest) Validate() error {
 	}
 	if r.CustomStatus != nil && utf8.RuneCountInString(*r.CustomStatus) > 128 {
 		return fmt.Errorf("custom status must be at most 128 characters")
+	}
+	if r.Language != nil && !allowedLanguages[*r.Language] {
+		return fmt.Errorf("unsupported language: %s", *r.Language)
 	}
 	return nil
 }

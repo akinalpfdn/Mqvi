@@ -7,14 +7,14 @@
  *
  * Discord referans: Server Settings → Roles
  *
- * Bu component henüz Settings modal'ına bağlanmamıştır.
- * Faz 5'te Settings UI oluşturulduğunda entegre edilecek.
- * Şimdilik bağımsız olarak test edilebilir.
+ * Settings modal'ında "Roles" tab'ı olarak gösterilir.
+ * CRUD operasyonlarında toast feedback verir (başarı/hata bildirimi).
  */
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useRoleStore } from "../../stores/roleStore";
+import { useToastStore } from "../../stores/toastStore";
 import { Permissions } from "../../utils/permissions";
 import PermissionToggle from "./PermissionToggle";
 import ColorPicker from "./ColorPicker";
@@ -50,6 +50,7 @@ function RoleSettings() {
     updateRole,
     deleteRole,
   } = useRoleStore();
+  const addToast = useToastStore((s) => s.addToast);
 
   // Düzenleme formu state'i — seçili rol değiştiğinde sıfırlanır
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
@@ -86,22 +87,37 @@ function RoleSettings() {
     if (editColor !== selectedRole?.color) updates.color = editColor;
     if (editPerms !== selectedRole?.permissions) updates.permissions = editPerms;
 
-    await updateRole(selectedRoleId, updates);
-    setHasChanges(false);
+    const success = await updateRole(selectedRoleId, updates);
+    if (success) {
+      setHasChanges(false);
+      addToast("success", t("roleSaved"));
+    } else {
+      addToast("error", t("roleSaveError"));
+    }
   }
 
   async function handleCreate() {
-    await createRole({
+    const success = await createRole({
       name: "New Role",
       color: "#99AAB5",
       permissions: Permissions.SendMessages | Permissions.ReadMessages,
     });
+    if (success) {
+      addToast("success", t("roleCreated"));
+    } else {
+      addToast("error", t("roleSaveError"));
+    }
   }
 
   async function handleDelete() {
     if (!selectedRole) return;
     if (!confirm(t("confirmDeleteRole", { name: selectedRole.name }))) return;
-    await deleteRole(selectedRole.id);
+    const success = await deleteRole(selectedRole.id);
+    if (success) {
+      addToast("success", t("roleDeleted"));
+    } else {
+      addToast("error", t("roleSaveError"));
+    }
   }
 
   if (isLoading) {
