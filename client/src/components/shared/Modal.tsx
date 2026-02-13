@@ -45,8 +45,8 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
       {/* Modal content — tıklama yayılmasını engelle */}
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <h2 className="modal-title" style={{ marginBottom: 0 }}>{title}</h2>
+        <div className="modal-header">
+          <h2 className="modal-title">{title}</h2>
           <button onClick={onClose} className="toast-close">
             ✕
           </button>

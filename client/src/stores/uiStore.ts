@@ -63,7 +63,7 @@ type UIState = {
   setActiveTab: (panelId: string, tabId: string) => void;
 
   // Split actions
-  splitPanel: (panelId: string, direction: SplitDirection, tabId: string) => void;
+  splitPanel: (panelId: string, direction: SplitDirection, tabId: string, position?: "before" | "after") => void;
   moveTab: (fromPanelId: string, toPanelId: string, tabId: string) => void;
   setSplitRatio: (path: number[], ratio: number) => void;
 
@@ -286,7 +286,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     });
   },
 
-  splitPanel(panelId, direction, tabId) {
+  splitPanel(panelId, direction, tabId, position = "after") {
     const state = get();
     const sourcePanel = state.panels[panelId];
     if (!sourcePanel) return;
@@ -310,15 +310,19 @@ export const useUIStore = create<UIState>((set, get) => ({
     };
 
     // Layout'u güncelle — kaynak leaf'i split node ile değiştir
+    // position: "before" → yeni panel sola/üste, "after" → sağa/alta
     function insertSplit(node: LayoutNode): LayoutNode {
       if (node.type === "leaf" && node.panelId === panelId) {
+        const first: LayoutNode = position === "before"
+          ? { type: "leaf", panelId: newPanelId }
+          : { type: "leaf", panelId };
+        const second: LayoutNode = position === "before"
+          ? { type: "leaf", panelId }
+          : { type: "leaf", panelId: newPanelId };
         return {
           type: "split",
           direction,
-          children: [
-            { type: "leaf", panelId },
-            { type: "leaf", panelId: newPanelId },
-          ],
+          children: [first, second],
           ratio: 0.5,
         };
       }

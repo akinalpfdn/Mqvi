@@ -33,16 +33,10 @@ function ColorPicker({ value, onChange }: ColorPickerProps) {
       </div>
 
       {/* Hex input */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+      <div className="color-hex-row">
         <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 6,
-            border: "1px solid var(--b1)",
-            backgroundColor: value || "#99AAB5",
-            flexShrink: 0,
-          }}
+          className="color-hex-preview"
+          style={{ backgroundColor: value || "var(--t1)" }}
         />
         <input
           type="text"

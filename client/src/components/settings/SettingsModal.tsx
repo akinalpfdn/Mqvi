@@ -94,11 +94,11 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
     case "members":
     case "invites":
       return (
-        <div className="no-channel" style={{ flexDirection: "column", gap: 8 }}>
+        <div className="no-channel settings-placeholder">
           <span className="settings-section-title">
             {t(activeTab === "server-general" ? "general" : activeTab)}
           </span>
-          <span style={{ fontSize: 13, color: "var(--t2)" }}>{t("comingSoon")}</span>
+          <span className="settings-placeholder-text">{t("comingSoon")}</span>
         </div>
       );
 

@@ -359,8 +359,20 @@ button { font-family:inherit; }
 .panel-tab:hover .panel-tab-close { opacity:1; }
 .panel-tab-close:hover { color:var(--t0);background:var(--bg-h); }
 
-/* No tab placeholder */
+/* Drop Zone Overlay (tab sürükleme sırasında panel üzerinde gösterilir) */
+.drop-zone-overlay { position:absolute;inset:0;z-index:20;pointer-events:none; }
+.drop-zone { position:absolute;border-radius:4px;border:2px solid transparent;transition:background .15s,border-color .15s; }
+.drop-zone.highlight { background:var(--amber-m);border-color:var(--amber); }
+.drop-zone-left { top:10%;left:0;width:25%;bottom:10%; }
+.drop-zone-right { top:10%;right:0;width:25%;bottom:10%; }
+.drop-zone-top { top:0;left:10%;right:10%;height:25%; }
+.drop-zone-bottom { bottom:0;left:10%;right:10%;height:25%; }
+.drop-zone-center { top:25%;left:25%;right:25%;bottom:25%; }
+
+/* No tab / placeholder */
 .no-channel { display:flex;align-items:center;justify-content:center;flex:1;color:var(--t3);font-size:13px; }
+.settings-placeholder { flex-direction:column;gap:8px; }
+.settings-placeholder-text { font-size:13px;color:var(--t2); }
 
 /* ═══════════════════════════════════════
    AUTH PAGES (Login / Register)
@@ -423,7 +435,9 @@ button { font-family:inherit; }
 .color-picker { display:grid;grid-template-columns:repeat(10,1fr);gap:4px;max-width:280px; }
 .color-swatch { width:24px;height:24px;border-radius:999px;cursor:pointer;border:2px solid transparent;transition:border-color .1s; }
 .color-swatch.selected { border-color:var(--t0);box-shadow:0 0 0 2px var(--bg-0); }
-.color-hex-input { width:100px;height:32px;background:var(--bg-3);border:1px solid var(--b1);border-radius:6px;padding:0 8px;color:var(--t0);font-size:12px;font-family:var(--f-m);outline:none;margin-top:8px; }
+.color-hex-row { display:flex;align-items:center;gap:8px;margin-top:8px; }
+.color-hex-preview { width:32px;height:32px;border-radius:6px;border:1px solid var(--b1);flex-shrink:0; }
+.color-hex-input { width:100px;height:32px;background:var(--bg-3);border:1px solid var(--b1);border-radius:6px;padding:0 8px;color:var(--t0);font-size:12px;font-family:var(--f-m);outline:none; }
 .color-hex-input:focus { border-color:var(--amber); }
 
 /* Permission toggle */
@@ -469,7 +483,8 @@ button { font-family:inherit; }
    ═══════════════════════════════════════ */
 .modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:50;display:flex;align-items:center;justify-content:center; }
 .modal-card { background:var(--bg-3);border:1px solid var(--b2);border-radius:12px;max-width:480px;width:100%;padding:24px;box-shadow:0 12px 48px rgba(0,0,0,0.5); }
-.modal-title { font-family:var(--f-d);font-size:18px;font-weight:700;color:var(--t0);margin-bottom:8px; }
+.modal-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:16px; }
+.modal-title { font-family:var(--f-d);font-size:18px;font-weight:700;color:var(--t0); }
 .modal-text { font-size:14px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
 .modal-actions { display:flex;gap:8px;justify-content:flex-end; }
 
