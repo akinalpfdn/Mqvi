@@ -34,5 +34,12 @@
   "dmPlaceholder": "@{{user}} kullanıcısına mesaj yaz",
   "dmWelcome": "{{user}} ile konuşmanızın başlangıcı.",
   "copyMessage": "Mesajı Kopyala",
-  "copyId": "ID Kopyala"
+  "copyId": "ID Kopyala",
+  "addReaction": "Tepki Ekle",
+  "emojiFrequent": "Sık Kullanılanlar",
+  "emojiPeople": "Yüzler ve İnsanlar",
+  "emojiGestures": "El İşaretleri",
+  "emojiNature": "Hayvanlar ve Doğa",
+  "emojiFood": "Yiyecek ve İçecek",
+  "emojiObjects": "Nesneler ve Semboller"
 }

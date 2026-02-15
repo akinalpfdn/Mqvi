@@ -34,5 +34,12 @@
   "dmPlaceholder": "Message @{{user}}",
   "dmWelcome": "This is the beginning of your conversation with {{user}}.",
   "copyMessage": "Copy Message",
-  "copyId": "Copy ID"
+  "copyId": "Copy ID",
+  "addReaction": "Add Reaction",
+  "emojiFrequent": "Frequently Used",
+  "emojiPeople": "Smileys & People",
+  "emojiGestures": "Gestures",
+  "emojiNature": "Animals & Nature",
+  "emojiFood": "Food & Drink",
+  "emojiObjects": "Objects & Symbols"
 }

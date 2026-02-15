@@ -59,6 +59,7 @@ import type {
   PinnedMessage,
   DMChannelWithUser,
   DMMessage,
+  ReactionGroup,
 } from "../types";
 
 /** Reconnect denemesi arasındaki bekleme süresi (ms) */
@@ -296,6 +297,17 @@ export function useWebSocket() {
           msg.d as { message_id: string; channel_id: string }
         );
         break;
+
+      // ─── Reaction Events ───
+      case "reaction_update": {
+        const reactionData = msg.d as {
+          message_id: string;
+          channel_id: string;
+          reactions: ReactionGroup[];
+        };
+        useMessageStore.getState().handleReactionUpdate(reactionData);
+        break;
+      }
 
       // ─── DM Events ───
       case "dm_channel_create":

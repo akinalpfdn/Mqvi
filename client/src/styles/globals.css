@@ -147,7 +147,9 @@ button { font-family:inherit; }
 .msg-pin-indicator { display:flex;align-items:center;gap:4px;font-size:10px;color:var(--t3);margin-bottom:2px; }
 .msg-pin-indicator svg { color:var(--amber); }
 .msg-hover-actions { position:absolute;top:-11px;right:14px;display:flex;background:var(--bg-4);border:1px solid var(--b2);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.4);opacity:0;pointer-events:none;transition:opacity .1s; }
+.msg-hover-actions::after { content:'';position:absolute;left:0;right:0;top:100%;height:14px; }
 .msg:hover .msg-hover-actions { opacity:1;pointer-events:auto; }
+.msg.picker-open .msg-hover-actions { opacity:1;pointer-events:auto; }
 .msg-hover-actions button { width:26px;height:24px;border:none;background:transparent;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px; }
 .msg-hover-actions button:hover { color:var(--t0);background:var(--bg-h); }
 .msg-hover-actions button:first-child { border-radius:5px 0 0 5px; }
@@ -162,6 +164,32 @@ button { font-family:inherit; }
 .msg-attachment-file-name { font-size:12px;font-weight:500;color:var(--amber);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .msg-attachment-file-name:hover { text-decoration:underline; }
 .msg-attachment-file-size { font-size:10px;color:var(--t3); }
+
+/* Reactions */
+.msg-reactions { display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center; }
+.msg-reaction-btn { display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;border:1px solid var(--b1);background:var(--bg-3);cursor:pointer;transition:all .1s;font-size:13px; }
+.msg-reaction-btn:hover { background:var(--bg-4);border-color:var(--b2); }
+.msg-reaction-btn.active { border-color:var(--amber);background:var(--amber-s); }
+.msg-reaction-emoji { font-size:14px;line-height:1; }
+.msg-reaction-count { font-size:11px;color:var(--t1);font-family:var(--f-m);min-width:8px;text-align:center; }
+.msg-reaction-btn.active .msg-reaction-count { color:var(--amber); }
+.msg-reaction-add-wrap { position:relative; }
+.msg-reaction-add { width:24px;height:24px;border-radius:999px;border:1px solid var(--b1);background:var(--bg-3);color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .1s;opacity:0; }
+.msg:hover .msg-reaction-add { opacity:1; }
+.msg.picker-open .msg-reaction-add { opacity:1; }
+.msg-reaction-add:hover { background:var(--bg-4);border-color:var(--b2);color:var(--t0); }
+
+/* Emoji Picker */
+.emoji-picker { position:absolute;bottom:100%;left:0;width:320px;background:var(--bg-3);border:1px solid var(--b2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:100;overflow:hidden;margin-bottom:6px; }
+.msg-hover-actions .emoji-picker { left:auto;right:0; }
+.emoji-picker-tabs { display:flex;border-bottom:1px solid var(--b1);padding:0 4px; }
+.emoji-picker-tab { flex:1;padding:8px 0;border:none;background:transparent;cursor:pointer;font-size:16px;opacity:0.5;transition:opacity .1s;position:relative; }
+.emoji-picker-tab:hover { opacity:0.8; }
+.emoji-picker-tab.active { opacity:1; }
+.emoji-picker-tab.active::after { content:'';position:absolute;bottom:0;left:20%;right:20%;height:2px;background:var(--amber);border-radius:1px; }
+.emoji-picker-grid { display:grid;grid-template-columns:repeat(8,1fr);gap:2px;padding:8px;max-height:200px;overflow-y:auto; }
+.emoji-picker-btn { width:100%;aspect-ratio:1;border:none;background:transparent;cursor:pointer;font-size:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:background .08s; }
+.emoji-picker-btn:hover { background:var(--bg-h); }
 
 /* Edit mode */
 .msg-edit-area { margin-top:4px; }

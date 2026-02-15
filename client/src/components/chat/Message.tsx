@@ -6,7 +6,9 @@
  * .name-admin, .name-mod, .name-default, .msg-time, .msg-text,
  * .msg-edited, .msg-gtime, .msg-hover-actions,
  * .msg-edit-area, .msg-edit-textarea, .msg-edit-hint,
- * .msg-attachments, .msg-attachment-img, .msg-attachment-file
+ * .msg-attachments, .msg-attachment-img, .msg-attachment-file,
+ * .msg-reactions, .msg-reaction-btn, .msg-reaction-btn.active,
+ * .msg-reaction-add
  *
  * Hover efektleri tamamen CSS ile yönetilir:
  * - .msg:hover .msg-hover-actions { opacity:1 }
@@ -24,6 +26,7 @@ import { useContextMenu } from "../../hooks/useContextMenu";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
+import EmojiPicker from "../shared/EmojiPicker";
 import type { Message as MessageType, MemberWithRoles } from "../../types";
 
 type MessageProps = {
@@ -69,6 +72,7 @@ function Message({ message, isCompact }: MessageProps) {
   const currentUser = useAuthStore((s) => s.user);
   const editMessage = useMessageStore((s) => s.editMessage);
   const deleteMessage = useMessageStore((s) => s.deleteMessage);
+  const toggleReaction = useMessageStore((s) => s.toggleReaction);
   const members = useMemberStore((s) => s.members);
 
   const pinAction = usePinStore((s) => s.pin);
@@ -78,6 +82,7 @@ function Message({ message, isCompact }: MessageProps) {
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content ?? "");
+  const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
 
   const isOwner = currentUser?.id === message.user_id;
   const member = members.find((m) => m.id === message.user_id);
@@ -136,9 +141,20 @@ function Message({ message, isCompact }: MessageProps) {
     }
   }
 
+  /** Emoji reaction toggle — mevcut reaction'a tıklayınca veya picker'dan seçince */
+  function handleReaction(emoji: string) {
+    toggleReaction(message.id, message.channel_id, emoji);
+  }
+
   /** Sağ tık context menu — mesaj aksiyonları */
   function handleContextMenu(e: React.MouseEvent) {
     const items: ContextMenuItem[] = [];
+
+    // Add Reaction — herkes
+    items.push({
+      label: t("addReaction"),
+      onClick: () => setPickerSource("bar"),
+    });
 
     // Copy Message — herkes
     items.push({
@@ -215,7 +231,7 @@ function Message({ message, isCompact }: MessageProps) {
     });
   }
 
-  const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}`;
+  const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}${pickerSource ? " picker-open" : ""}`;
 
   return (
     <div className={msgClass} onContextMenu={handleContextMenu}>
@@ -350,6 +366,47 @@ function Message({ message, isCompact }: MessageProps) {
               })}
             </div>
           )}
+
+          {/* Reactions — mesajın altında emoji tepki butonları */}
+          {/* Picker "bar" modunda açıkken de göster (reaction yokken bile picker yerleşmeli) */}
+          {((message.reactions && message.reactions.length > 0) || pickerSource === "bar") && (
+            <div className="msg-reactions">
+              {message.reactions?.map((reaction) => {
+                const isActive = currentUser
+                  ? reaction.users.includes(currentUser.id)
+                  : false;
+
+                return (
+                  <button
+                    key={reaction.emoji}
+                    className={`msg-reaction-btn${isActive ? " active" : ""}`}
+                    onClick={() => handleReaction(reaction.emoji)}
+                    title={reaction.users.length.toString()}
+                  >
+                    <span className="msg-reaction-emoji">{reaction.emoji}</span>
+                    <span className="msg-reaction-count">{reaction.count}</span>
+                  </button>
+                );
+              })}
+
+              {/* Add Reaction (+) butonu — picker "bar" kaynağından açılır */}
+              <div className="msg-reaction-add-wrap">
+                <button
+                  className="msg-reaction-add"
+                  onClick={() => setPickerSource("bar")}
+                  title={t("addReaction")}
+                >
+                  +
+                </button>
+                {pickerSource === "bar" && (
+                  <EmojiPicker
+                    onSelect={handleReaction}
+                    onClose={() => setPickerSource(null)}
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -357,8 +414,25 @@ function Message({ message, isCompact }: MessageProps) {
       {/* Context Menu — sağ tık ile açılır */}
       <ContextMenu state={menuState} onClose={closeMenu} />
 
-      {(isOwner || canManageMessages) && !isEditing && (
+      {!isEditing && (
         <div className="msg-hover-actions">
+          {/* Add Reaction — herkes, picker "hover" kaynağından sağ-hizalı açılır */}
+          <div className="msg-reaction-add-wrap">
+            <button
+              onClick={() => setPickerSource("hover")}
+              title={t("addReaction")}
+            >
+              <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+            {pickerSource === "hover" && (
+              <EmojiPicker
+                onSelect={handleReaction}
+                onClose={() => setPickerSource(null)}
+              />
+            )}
+          </div>
           {/* Pin/Unpin — ManageMessages yetkisi gerekir */}
           {canManageMessages && (
             <button

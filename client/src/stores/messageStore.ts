@@ -12,7 +12,8 @@
 
 import { create } from "zustand";
 import * as messageApi from "../api/messages";
-import type { Message } from "../types";
+import * as reactionApi from "../api/reactions";
+import type { Message, ReactionGroup } from "../types";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
 
 type MessageState = {
@@ -34,11 +35,15 @@ type MessageState = {
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   deleteMessage: (messageId: string) => Promise<boolean>;
 
+  // ─── Reactions ───
+  toggleReaction: (messageId: string, channelId: string, emoji: string) => Promise<void>;
+
   // ─── WS Event Handlers ───
   handleMessageCreate: (message: Message) => void;
   handleMessageUpdate: (message: Message) => void;
   handleMessageDelete: (data: { id: string; channel_id: string }) => void;
   handleTypingStart: (channelId: string, username: string) => void;
+  handleReactionUpdate: (data: { message_id: string; channel_id: string; reactions: ReactionGroup[] }) => void;
 };
 
 /** Typing indicator otomatik temizleme süresi (ms) */
@@ -128,6 +133,19 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   deleteMessage: async (messageId) => {
     const res = await messageApi.deleteMessage(messageId);
     return res.success;
+  },
+
+  // ─── Reactions ───
+
+  /**
+   * toggleReaction — Bir mesaja emoji reaction ekler veya kaldırır.
+   *
+   * API çağrısı yapar, sonuç WS broadcast ile gelecek (handleReactionUpdate).
+   * Optimistic update yapmıyoruz — WS event ile güncellenecek.
+   * Bu daha basit ve race condition riski yok.
+   */
+  toggleReaction: async (messageId, _channelId, emoji) => {
+    await reactionApi.toggleReaction(messageId, emoji);
   },
 
   // ─── WebSocket Event Handlers ───
@@ -232,5 +250,30 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         typingTimers.delete(key);
       }, TYPING_TIMEOUT)
     );
+  },
+
+  /**
+   * handleReactionUpdate — WS reaction_update event'i geldiğinde çağrılır.
+   *
+   * İlgili mesajın reactions alanını güncel listeyle değiştirir.
+   * Backend her toggle sonrası tam reaction listesini gönderir —
+   * bu sayede client-side merge'e gerek kalmaz, doğrudan replace.
+   */
+  handleReactionUpdate: (data) => {
+    set((state) => {
+      const channelMessages = state.messagesByChannel[data.channel_id];
+      if (!channelMessages) return state;
+
+      return {
+        messagesByChannel: {
+          ...state.messagesByChannel,
+          [data.channel_id]: channelMessages.map((m) =>
+            m.id === data.message_id
+              ? { ...m, reactions: data.reactions }
+              : m
+          ),
+        },
+      };
+    });
   },
 }));

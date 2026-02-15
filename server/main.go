@@ -92,6 +92,7 @@ func main() {
 	readStateRepo := repository.NewSQLiteReadStateRepo(db.Conn)
 	mentionRepo := repository.NewSQLiteMentionRepo(db.Conn)
 	dmRepo := repository.NewSQLiteDMRepo(db.Conn)
+	reactionRepo := repository.NewSQLiteReactionRepo(db.Conn)
 
 	// ─── 6. WebSocket Hub ───
 	//
@@ -214,7 +215,7 @@ func main() {
 
 	channelService := services.NewChannelService(channelRepo, categoryRepo, hub)
 	categoryService := services.NewCategoryService(categoryRepo, hub)
-	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, mentionRepo, hub)
+	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, mentionRepo, reactionRepo, hub)
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, hub)
 	roleService := services.NewRoleService(roleRepo, userRepo, hub)
@@ -223,6 +224,7 @@ func main() {
 	searchService := services.NewSearchService(searchRepo)
 	readStateService := services.NewReadStateService(readStateRepo)
 	dmService := services.NewDMService(dmRepo, userRepo, hub)
+	reactionService := services.NewReactionService(reactionRepo, messageRepo, hub)
 	// voiceService yukarıda (Hub callback'lerinden önce) oluşturuldu
 
 	// ─── 8. Handler Layer ───
@@ -239,6 +241,7 @@ func main() {
 	searchHandler := handlers.NewSearchHandler(searchService)
 	readStateHandler := handlers.NewReadStateHandler(readStateService)
 	dmHandler := handlers.NewDMHandler(dmService)
+	reactionHandler := handlers.NewReactionHandler(reactionService)
 	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
 	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService)
 
@@ -354,6 +357,12 @@ func main() {
 		permMiddleware.Require(models.PermManageMessages, http.HandlerFunc(pinHandler.Pin))))
 	mux.Handle("DELETE /api/channels/{channelId}/messages/{messageId}/pin", authMiddleware.Require(
 		permMiddleware.Require(models.PermManageMessages, http.HandlerFunc(pinHandler.Unpin))))
+
+	// Reactions — emoji tepkileri, tüm authenticated kullanıcılar kullanabilir
+	// Toggle: Aynı emoji ile tekrar çağrılırsa reaction kaldırılır (toggle pattern)
+	// Emoji body'de gönderilir (URL path'te encoding sorunları yaratabilir)
+	mux.Handle("POST /api/messages/{messageId}/reactions", authMiddleware.Require(
+		http.HandlerFunc(reactionHandler.Toggle)))
 
 	// Read State — okunmamış mesaj takibi, authenticated kullanıcılar kullanabilir
 	// MarkRead: kanal değiştirdiğinde frontend otomatik çağırır (auto-mark-read)

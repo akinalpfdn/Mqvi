@@ -64,6 +64,9 @@ const (
 	OpMessagePin   = "message_pin"   // Mesaj sabitlendi
 	OpMessageUnpin = "message_unpin" // Mesaj pin'den çıkarıldı
 
+	// Reaction (emoji tepki) operasyonları
+	OpReactionUpdate = "reaction_update" // Mesajın reaction listesi güncellendi
+
 	// DM (Direct Messages) operasyonları
 	OpDMChannelCreate = "dm_channel_create"  // Yeni DM kanalı oluşturuldu
 	OpDMMessageCreate = "dm_message_create"  // Yeni DM mesajı gönderildi

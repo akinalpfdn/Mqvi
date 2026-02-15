@@ -40,16 +40,19 @@ type messageService struct {
 	channelRepo    repository.ChannelRepository
 	userRepo       repository.UserRepository
 	mentionRepo    repository.MentionRepository
+	reactionRepo   repository.ReactionRepository
 	hub            ws.EventPublisher
 }
 
 // NewMessageService, constructor.
+// reactionRepo: Mesajlar listelenirken reaction'ları batch yüklemek için gerekir.
 func NewMessageService(
 	messageRepo repository.MessageRepository,
 	attachmentRepo repository.AttachmentRepository,
 	channelRepo repository.ChannelRepository,
 	userRepo repository.UserRepository,
 	mentionRepo repository.MentionRepository,
+	reactionRepo repository.ReactionRepository,
 	hub ws.EventPublisher,
 ) MessageService {
 	return &messageService{
@@ -58,6 +61,7 @@ func NewMessageService(
 		channelRepo:    channelRepo,
 		userRepo:       userRepo,
 		mentionRepo:    mentionRepo,
+		reactionRepo:   reactionRepo,
 		hub:            hub,
 	}
 }
@@ -109,6 +113,12 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, b
 			return nil, fmt.Errorf("failed to get mentions: %w", err)
 		}
 
+		// Reaction'ları batch yükle (N+1 önleme)
+		reactionMap, err := s.reactionRepo.GetByMessageIDs(ctx, messageIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get reactions: %w", err)
+		}
+
 		for i := range messages {
 			messages[i].Attachments = attachmentMap[messages[i].ID]
 			if messages[i].Attachments == nil {
@@ -117,6 +127,10 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, b
 			messages[i].Mentions = mentionMap[messages[i].ID]
 			if messages[i].Mentions == nil {
 				messages[i].Mentions = []string{} // null yerine boş dizi
+			}
+			messages[i].Reactions = reactionMap[messages[i].ID]
+			if messages[i].Reactions == nil {
+				messages[i].Reactions = []models.ReactionGroup{} // null yerine boş dizi
 			}
 		}
 	}
@@ -156,6 +170,7 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	author.PasswordHash = "" // Güvenlik
 	message.Author = author
 	message.Attachments = []models.Attachment{} // Boş dizi
+	message.Reactions = []models.ReactionGroup{} // Yeni mesajda reaction yok
 
 	// Mention'ları parse et ve kaydet
 	mentionedIDs := s.extractMentions(ctx, req.Content)

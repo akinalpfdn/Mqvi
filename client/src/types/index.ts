@@ -60,6 +60,21 @@ export type CategoryWithChannels = {
 };
 
 // ──────────────────────────────────
+// Reaction
+// ──────────────────────────────────
+
+/**
+ * ReactionGroup — Gruplanmış emoji tepki bilgisi.
+ * Backend'deki models.ReactionGroup struct'ının TypeScript karşılığı.
+ * Aynı emojiye tepki veren kullanıcıları ve toplam sayıyı içerir.
+ */
+export type ReactionGroup = {
+  emoji: string;
+  count: number;
+  users: string[]; // user ID'leri
+};
+
+// ──────────────────────────────────
 // Message
 // ──────────────────────────────────
 export type Message = {
@@ -72,6 +87,7 @@ export type Message = {
   author: User;
   attachments: Attachment[];
   mentions: string[];  // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
+  reactions: ReactionGroup[];  // Emoji tepkileri (gruplanmış)
 };
 
 export type Attachment = {

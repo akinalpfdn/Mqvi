@@ -21,8 +21,9 @@ type Message struct {
 	EditedAt    *time.Time   `json:"edited_at"`              // Düzenlendiyse zaman damgası
 	CreatedAt   time.Time    `json:"created_at"`
 	Author      *User        `json:"author,omitempty"`       // JOIN ile gelen yazar bilgisi
-	Attachments []Attachment `json:"attachments,omitempty"`  // İlişkili dosya ekleri
-	Mentions    []string     `json:"mentions"`               // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
+	Attachments []Attachment    `json:"attachments,omitempty"`  // İlişkili dosya ekleri
+	Mentions    []string        `json:"mentions"`               // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
+	Reactions   []ReactionGroup `json:"reactions"`              // Emoji tepkileri (batch load ile doldurulur)
 }
 
 // Attachment, bir mesaja eklenmiş dosyayı temsil eder.
