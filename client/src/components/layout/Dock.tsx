@@ -19,7 +19,13 @@ import { useUIStore } from "../../stores/uiStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useReadStateStore } from "../../stores/readStateStore";
+import { useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
+import { hasPermission, Permissions } from "../../utils/permissions";
+import { useContextMenu } from "../../hooks/useContextMenu";
+import type { ContextMenuItem } from "../../hooks/useContextMenu";
+import ContextMenu from "../shared/ContextMenu";
+import { ChannelSkeleton } from "../shared/Skeleton";
 import DMList from "../dm/DMList";
 import type { Channel } from "../../types";
 
@@ -118,6 +124,8 @@ function buildDockPath(
 
 function Dock({ onJoinVoice }: DockProps) {
   const { t } = useTranslation("common");
+  const { t: tCh } = useTranslation("channels");
+  const { menuState, openMenu, closeMenu } = useContextMenu();
   const categories = useChannelStore((s) => s.categories);
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const selectChannel = useChannelStore((s) => s.selectChannel);
@@ -126,6 +134,8 @@ function Dock({ onJoinVoice }: DockProps) {
   const openSettings = useSettingsStore((s) => s.openSettings);
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
   const dmUnreadCounts = useDMStore((s) => s.dmUnreadCounts);
+  const members = useMemberStore((s) => s.members);
+  const isChannelsLoading = useChannelStore((s) => s.isLoading);
 
   // Toplam DM okunmamış sayısı — badge'de gösterilir
   const totalDMUnread = Object.values(dmUnreadCounts).reduce((sum, c) => sum + c, 0);
@@ -162,6 +172,51 @@ function Dock({ onJoinVoice }: DockProps) {
     return () => cancelAnimationFrame(raf);
   }, [allChannels.length]);
 
+  /** Kanal sağ tık context menu */
+  const handleChannelContextMenu = useCallback(
+    (e: React.MouseEvent, channel: Channel) => {
+      const currentMember = members.find((m) => m.id === user?.id);
+      const myPerms = currentMember?.effective_permissions ?? 0;
+      const canManage = hasPermission(myPerms, Permissions.ManageChannels);
+
+      const items: ContextMenuItem[] = [];
+
+      // Copy Channel Name
+      items.push({
+        label: "Copy #" + channel.name,
+        onClick: () => navigator.clipboard.writeText(channel.name),
+      });
+
+      // Edit Channel — ManageChannels yetkisi
+      if (canManage) {
+        items.push({
+          label: tCh("editChannel"),
+          onClick: () => {
+            openSettings("channels");
+          },
+          separator: true,
+        });
+      }
+
+      // Delete Channel — ManageChannels yetkisi
+      if (canManage) {
+        items.push({
+          label: tCh("deleteChannel"),
+          onClick: async () => {
+            if (window.confirm(tCh("deleteConfirm", { name: channel.name }))) {
+              const { deleteChannel } = await import("../../api/channels");
+              await deleteChannel(channel.id);
+            }
+          },
+          danger: true,
+        });
+      }
+
+      openMenu(e, items);
+    },
+    [members, user, openSettings, openMenu, tCh]
+  );
+
   /** Kanal tıklandığında: tab aç + select */
   const handleChannelClick = useCallback(
     (channel: Channel) => {
@@ -192,6 +247,11 @@ function Dock({ onJoinVoice }: DockProps) {
 
         {/* ─── Channel Row (üst) ─── */}
         <div className="dock-ch-row" ref={chRowRef}>
+          {/* Skeleton UI — kanallar yüklenirken gösterilir */}
+          {isChannelsLoading && allChannels.length === 0 && (
+            <ChannelSkeleton count={4} />
+          )}
+
           {textChannels.map((ch) => {
             const unread = unreadCounts[ch.id] ?? 0;
             return (
@@ -199,6 +259,7 @@ function Dock({ onJoinVoice }: DockProps) {
                 key={ch.id}
                 className={`dock-ch-item${selectedChannelId === ch.id ? " active" : ""}${unread > 0 ? " has-unread" : ""}`}
                 onClick={() => handleChannelClick(ch)}
+                onContextMenu={(e) => handleChannelContextMenu(e, ch)}
               >
                 <span className="dock-ch-icon">#</span>
                 <span className="dock-ch-name">{ch.name}</span>
@@ -221,6 +282,7 @@ function Dock({ onJoinVoice }: DockProps) {
               key={ch.id}
               className={`dock-ch-item voice${selectedChannelId === ch.id ? " active" : ""}`}
               onClick={() => handleChannelClick(ch)}
+              onContextMenu={(e) => handleChannelContextMenu(e, ch)}
             >
               <span className="dock-ch-icon">{"\uD83D\uDD0A"}</span>
               <span className="dock-ch-name">{ch.name}</span>
@@ -281,6 +343,9 @@ function Dock({ onJoinVoice }: DockProps) {
           </button>
         </div>
       </div>
+
+      {/* Context Menu — kanal sağ tık ile açılır */}
+      <ContextMenu state={menuState} onClose={closeMenu} />
 
       {/* DM List popup — Messages butonuna tıklandığında gösterilir */}
       {isDMListOpen && <DMList onClose={() => setIsDMListOpen(false)} />}

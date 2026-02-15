@@ -153,6 +153,27 @@ func main() {
 		voiceService.DisconnectUser(userID)
 	})
 
+	// Presence manual update callback'i — client idle/dnd gibi durum değişikliği
+	// gönderdiğinde DB'ye persist et ve tüm client'lara broadcast et.
+	//
+	// Bu callback handlePresenceUpdate'ten (client.go) çağrılır.
+	// OnUserFirstConnect/OnUserFullyDisconnected ile aynı pattern:
+	// DB güncelleme + BroadcastToAll.
+	hub.OnPresenceManualUpdate(func(userID string, status string) {
+		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatus(status)); err != nil {
+			log.Printf("[presence] failed to set %s for user %s: %v", status, userID, err)
+			return
+		}
+		hub.BroadcastToAll(ws.Event{
+			Op: ws.OpPresence,
+			Data: ws.PresenceData{
+				UserID: userID,
+				Status: status,
+			},
+		})
+		log.Printf("[presence] user %s is now %s (manual)", userID, status)
+	})
+
 	// Voice callback'leri — client ses kanalı event'leri gönderdiğinde
 	// Hub bu callback'leri tetikler, callback'ler voiceService'i çağırır.
 	// Presence callback'leri ile aynı pattern (Dependency Inversion).
@@ -408,7 +429,7 @@ func main() {
 	// ─── 11. CORS ───
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins: []string{
-			"http://localhost:3000",  // Vite dev server
+			"http://localhost:3030",  // Vite dev server
 			"http://localhost:1420",  // Tauri dev
 			"tauri://localhost",      // Tauri production
 		},

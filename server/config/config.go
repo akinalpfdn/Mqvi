@@ -66,7 +66,7 @@ func Load() (*Config, error) {
 	// Production'da bu dosya olmaz, gerçek env variable'lar kullanılır.
 	_ = godotenv.Load()
 
-	port, err := strconv.Atoi(getEnv("SERVER_PORT", "8080"))
+	port, err := strconv.Atoi(getEnv("SERVER_PORT", "9090"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid SERVER_PORT: %w", err)
 	}

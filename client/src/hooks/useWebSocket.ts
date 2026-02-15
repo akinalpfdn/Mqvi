@@ -390,6 +390,27 @@ export function useWebSocket() {
   }, []);
 
   /**
+   * sendPresenceUpdate — Kullanıcının presence durumunu güncelleme WS event'i gönderir.
+   *
+   * Idle detection hook'u tarafından çağrılır:
+   * - 5dk inaktiflik → sendPresenceUpdate("idle")
+   * - Aktivite geri geldiğinde → sendPresenceUpdate("online")
+   * - Manuel DND toggle → sendPresenceUpdate("dnd")
+   *
+   * Backend'de: handlePresenceUpdate → DB persist + broadcast tüm client'lara.
+   */
+  const sendPresenceUpdate = useCallback((status: UserStatus) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          op: "presence_update",
+          d: { status },
+        })
+      );
+    }
+  }, []);
+
+  /**
    * sendVoiceStateUpdate — Mute/deafen/stream durumunu güncelleme WS event'i gönderir.
    * VoiceService'in UpdateState metodunu tetikler.
    *
@@ -549,5 +570,5 @@ export function useWebSocket() {
     };
   }, []);
 
-  return { sendTyping, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate };
+  return { sendTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate };
 }

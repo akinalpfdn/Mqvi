@@ -43,5 +43,9 @@
   "addServer": "Sunucu Ekle",
   "messages": "Mesajlar",
   "files": "Dosyalar",
-  "sendMessage": "Mesaj Gönder"
+  "sendMessage": "Mesaj Gönder",
+  "quickSwitcher": "Hızlı Geçiş",
+  "quickSwitcherPlaceholder": "Kanal ve DM ara...",
+  "channels": "Kanallar",
+  "directMessages": "Direkt Mesajlar"
 }

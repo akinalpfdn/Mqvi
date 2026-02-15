@@ -32,5 +32,7 @@
   "directMessages": "Direct Messages",
   "noDMs": "No conversations yet",
   "dmPlaceholder": "Message @{{user}}",
-  "dmWelcome": "This is the beginning of your conversation with {{user}}."
+  "dmWelcome": "This is the beginning of your conversation with {{user}}.",
+  "copyMessage": "Copy Message",
+  "copyId": "Copy ID"
 }

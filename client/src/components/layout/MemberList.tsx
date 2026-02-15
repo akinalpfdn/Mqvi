@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { useMemberStore } from "../../stores/memberStore";
 import { useUIStore } from "../../stores/uiStore";
 import MemberItem from "../members/MemberItem";
+import { MemberSkeleton } from "../shared/Skeleton";
 import type { MemberWithRoles, Role } from "../../types";
 
 /**
@@ -74,6 +75,7 @@ function groupByHighestRole(members: MemberWithRoles[]): RoleGroup[] {
 function MemberList() {
   const { t } = useTranslation("common");
   const members = useMemberStore((s) => s.members);
+  const isLoading = useMemberStore((s) => s.isLoading);
   const onlineUserIds = useMemberStore((s) => s.onlineUserIds);
   const toggleMembers = useUIStore((s) => s.toggleMembers);
   const membersOpen = useUIStore((s) => s.membersOpen);
@@ -108,6 +110,11 @@ function MemberList() {
 
         {/* ─── Member List ─── */}
         <div className="members-list">
+          {/* Skeleton UI — yüklenirken gösterilir */}
+          {isLoading && members.length === 0 && (
+            <MemberSkeleton count={8} />
+          )}
+
           {/* Online section — role bazlı gruplar */}
           {onlineGroups.map((group) => (
             <div key={group.role.id}>

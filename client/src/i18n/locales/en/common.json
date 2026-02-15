@@ -43,5 +43,9 @@
   "addServer": "Add Server",
   "messages": "Messages",
   "files": "Files",
-  "sendMessage": "Send Message"
+  "sendMessage": "Send Message",
+  "quickSwitcher": "Quick Switcher",
+  "quickSwitcherPlaceholder": "Search channels and DMs...",
+  "channels": "Channels",
+  "directMessages": "Direct Messages"
 }

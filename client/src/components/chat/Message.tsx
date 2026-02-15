@@ -20,7 +20,10 @@ import { useMessageStore } from "../../stores/messageStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { usePinStore } from "../../stores/pinStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
+import { useContextMenu } from "../../hooks/useContextMenu";
+import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
+import ContextMenu from "../shared/ContextMenu";
 import type { Message as MessageType, MemberWithRoles } from "../../types";
 
 type MessageProps = {
@@ -72,6 +75,7 @@ function Message({ message, isCompact }: MessageProps) {
   const unpinAction = usePinStore((s) => s.unpin);
   const isMessagePinned = usePinStore((s) => s.isMessagePinned);
 
+  const { menuState, openMenu, closeMenu } = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content ?? "");
 
@@ -132,6 +136,58 @@ function Message({ message, isCompact }: MessageProps) {
     }
   }
 
+  /** Sağ tık context menu — mesaj aksiyonları */
+  function handleContextMenu(e: React.MouseEvent) {
+    const items: ContextMenuItem[] = [];
+
+    // Copy Message — herkes
+    items.push({
+      label: t("copyMessage"),
+      onClick: () => {
+        if (message.content) navigator.clipboard.writeText(message.content);
+      },
+    });
+
+    // Pin/Unpin — ManageMessages yetkisi
+    if (canManageMessages) {
+      items.push({
+        label: isPinned ? t("unpinMessage") : t("pinMessage"),
+        onClick: handlePinToggle,
+        separator: true,
+      });
+    }
+
+    // Edit — sadece mesaj sahibi
+    if (isOwner) {
+      items.push({
+        label: t("editMessage"),
+        onClick: () => {
+          setEditContent(message.content ?? "");
+          setIsEditing(true);
+        },
+        separator: !canManageMessages,
+      });
+    }
+
+    // Delete — mesaj sahibi VEYA ManageMessages
+    if (isOwner || canManageMessages) {
+      items.push({
+        label: t("deleteMessage"),
+        onClick: handleDelete,
+        danger: true,
+      });
+    }
+
+    // Copy ID — herkes (debug/gelişmiş kullanım)
+    items.push({
+      label: t("copyId"),
+      onClick: () => navigator.clipboard.writeText(message.id),
+      separator: true,
+    });
+
+    openMenu(e, items);
+  }
+
   const displayName =
     message.author?.display_name ?? message.author?.username ?? "Unknown";
 
@@ -162,7 +218,7 @@ function Message({ message, isCompact }: MessageProps) {
   const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}`;
 
   return (
-    <div className={msgClass}>
+    <div className={msgClass} onContextMenu={handleContextMenu}>
       {/* Compact timestamp — grouped mesajlarda hover ile görünür (CSS) */}
       <span className="msg-gtime">{formatTime(message.created_at)}</span>
 
@@ -298,6 +354,9 @@ function Message({ message, isCompact }: MessageProps) {
       </div>
 
       {/* Hover actions (edit/delete/pin) — CSS ile hover'da görünür */}
+      {/* Context Menu — sağ tık ile açılır */}
+      <ContextMenu state={menuState} onClose={closeMenu} />
+
       {(isOwner || canManageMessages) && !isEditing && (
         <div className="msg-hover-actions">
           {/* Pin/Unpin — ManageMessages yetkisi gerekir */}

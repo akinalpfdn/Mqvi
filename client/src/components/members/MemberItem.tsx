@@ -9,8 +9,18 @@
  */
 
 import { useState, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import Avatar from "../shared/Avatar";
+import ContextMenu from "../shared/ContextMenu";
+import { useContextMenu } from "../../hooks/useContextMenu";
+import type { ContextMenuItem } from "../../hooks/useContextMenu";
+import { useAuthStore } from "../../stores/authStore";
+import { useMemberStore } from "../../stores/memberStore";
+import { useDMStore } from "../../stores/dmStore";
+import { useUIStore } from "../../stores/uiStore";
+import { hasPermission, Permissions } from "../../utils/permissions";
+import * as memberApi from "../../api/members";
 import type { MemberWithRoles } from "../../types";
 import MemberCard from "./MemberCard";
 
@@ -50,6 +60,10 @@ function getStatusClass(status: string): string {
 }
 
 function MemberItem({ member, isOnline }: MemberItemProps) {
+  const { t } = useTranslation("common");
+  const { menuState, openMenu, closeMenu } = useContextMenu();
+  const currentUser = useAuthStore((s) => s.user);
+  const members = useMemberStore((s) => s.members);
   const [showCard, setShowCard] = useState(false);
   const [cardPos, setCardPos] = useState({ top: 0, left: 0 });
   const itemRef = useRef<HTMLDivElement>(null);
@@ -58,6 +72,70 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
 
   const nameColor = highestRole?.color || undefined;
   const displayName = member.display_name ?? member.username;
+
+  /** Sağ tık context menu — üye aksiyonları */
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      const isSelf = currentUser?.id === member.id;
+      const currentMember = members.find((m) => m.id === currentUser?.id);
+      const myPerms = currentMember?.effective_permissions ?? 0;
+      const canKick = hasPermission(myPerms, Permissions.KickMembers);
+      const canBan = hasPermission(myPerms, Permissions.BanMembers);
+
+      const items: ContextMenuItem[] = [];
+
+      // Send Message (DM) — kendine mesaj atma yok
+      if (!isSelf) {
+        items.push({
+          label: t("sendMessage"),
+          onClick: async () => {
+            const channelId = await useDMStore.getState().createOrGetChannel(member.id);
+            if (channelId) {
+              useDMStore.getState().selectDM(channelId);
+              useUIStore.getState().openTab(channelId, "dm", member.display_name ?? member.username);
+            }
+          },
+        });
+      }
+
+      // Copy ID
+      items.push({
+        label: "Copy ID",
+        onClick: () => navigator.clipboard.writeText(member.id),
+        separator: !isSelf,
+      });
+
+      // Kick — kendini kick edemezsin
+      if (canKick && !isSelf) {
+        items.push({
+          label: t("kick"),
+          onClick: async () => {
+            if (window.confirm(t("confirmKick", { username: member.username }))) {
+              await memberApi.kickMember(member.id);
+            }
+          },
+          danger: true,
+          separator: true,
+        });
+      }
+
+      // Ban — kendini ban edemezsin
+      if (canBan && !isSelf) {
+        items.push({
+          label: t("ban"),
+          onClick: async () => {
+            if (window.confirm(t("confirmBan", { username: member.username }))) {
+              await memberApi.banMember(member.id, "");
+            }
+          },
+          danger: true,
+        });
+      }
+
+      openMenu(e, items);
+    },
+    [currentUser, member, members, openMenu, t]
+  );
 
   const handleClick = useCallback(() => {
     if (showCard) {
@@ -91,6 +169,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
       <div
         ref={itemRef}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         className={`member${!isOnline ? " offline" : ""}`}
       >
         {/* Avatar + status dot */}
@@ -120,6 +199,9 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
           )}
         </div>
       </div>
+
+      {/* Context Menu — sağ tık ile açılır */}
+      <ContextMenu state={menuState} onClose={closeMenu} />
 
       {/* MemberCard — Portal ile body'ye render edilir */}
       {showCard &&

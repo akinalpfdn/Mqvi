@@ -30,6 +30,9 @@ import ToastContainer from "../shared/ToastContainer";
 import SettingsModal from "../settings/SettingsModal";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
+import { useIdleDetection } from "../../hooks/useIdleDetection";
+import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import QuickSwitcher from "../shared/QuickSwitcher";
 import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
@@ -38,8 +41,11 @@ import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 
 function AppLayout() {
-  const { sendTyping, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate } =
+  const { sendTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate } =
     useWebSocket();
+
+  // Idle detection — 5dk inaktiflik → "idle", aktivite geri gelince → "online"
+  useIdleDetection({ sendPresenceUpdate });
   const fetchServer = useServerStore((s) => s.fetchServer);
   const fetchChannels = useChannelStore((s) => s.fetchChannels);
   const fetchMembers = useMemberStore((s) => s.fetchMembers);
@@ -109,6 +115,9 @@ function AppLayout() {
     sendVoiceStateUpdate,
   });
 
+  // Global keyboard shortcuts — Ctrl+K, Ctrl+Shift+M, Ctrl+Shift+D
+  useKeyboardShortcuts({ toggleMute, toggleDeafen });
+
   return (
     <div className="mqvi-app">
       {/* Üst bar — server pill + tab strip */}
@@ -139,6 +148,9 @@ function AppLayout() {
 
       {/* Toast notifications — sağ alt köşe (z-100) */}
       <ToastContainer />
+
+      {/* Quick Switcher — Ctrl+K ile açılır (z-60) */}
+      <QuickSwitcher />
     </div>
   );
 }

@@ -46,6 +46,11 @@ type VoiceLeaveCallback func(userID string)
 // Pointer parametreler: nil = o alan değişmiyor (partial update).
 type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreaming *bool)
 
+// PresenceManualUpdateCallback, kullanıcı presence durumunu manuel değiştirdiğinde çağrılır.
+// Idle detection veya DND toggle gibi client-initiated durum değişikliklerinde tetiklenir.
+// main.go'da wire-up yapılır — DB persist + broadcast bu callback'te gerçekleşir.
+type PresenceManualUpdateCallback func(userID string, status string)
+
 // Hub, tüm WebSocket bağlantılarını yöneten merkezi yapıdır (Observer pattern).
 //
 // Observer pattern nedir?
@@ -102,6 +107,10 @@ type Hub struct {
 	onVoiceJoin        VoiceJoinCallback
 	onVoiceLeave       VoiceLeaveCallback
 	onVoiceStateUpdate VoiceStateUpdateCallback
+
+	// Presence manuel güncelleme callback'i — main.go'da set edilir.
+	// Client idle/dnd gibi durum değişikliği gönderdiğinde DB persist için çağrılır.
+	onPresenceManualUpdate PresenceManualUpdateCallback
 }
 
 // NewHub, yeni bir Hub oluşturur.
@@ -310,6 +319,16 @@ func (h *Hub) OnUserFirstConnect(cb UserConnectionCallback) {
 // 3 tab açıkken 2'sini kapatmak bu callback'i tetikleMEZ.
 func (h *Hub) OnUserFullyDisconnected(cb UserConnectionCallback) {
 	h.onUserFullyDisconnected = cb
+}
+
+// OnPresenceManualUpdate, kullanıcı presence durumunu manuel değiştirdiğinde
+// çağrılacak callback'i ayarlar (idle detection, DND toggle vb.).
+//
+// Bu callback DB persist + broadcast işlemlerini yapar.
+// handlePresenceUpdate'teki eski broadcast kodu kaldırıldı —
+// tüm sorumluluk bu callback'e devredildi.
+func (h *Hub) OnPresenceManualUpdate(cb PresenceManualUpdateCallback) {
+	h.onPresenceManualUpdate = cb
 }
 
 // OnVoiceJoin, kullanıcı ses kanalına katılmak istediğinde çağrılacak callback'i ayarlar.

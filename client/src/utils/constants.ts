@@ -35,6 +35,12 @@ export const ALLOWED_MIME_TYPES = [
   "text/plain",
 ] as const;
 
+/** Idle detection — inaktiflik süresi (ms). 5 dakika aktivite yoksa "idle" durumuna geçer. */
+export const IDLE_TIMEOUT = 5 * 60 * 1000;
+
+/** Idle detection — dinlenen DOM event'leri. Bu event'lerden herhangi biri tetiklendiğinde kullanıcı "aktif" sayılır. */
+export const ACTIVITY_EVENTS = ["mousemove", "keydown", "mousedown", "scroll", "touchstart"] as const;
+
 /**
  * Permission bit flags — backend ile aynı değerler.
  * Bitwise OR (|) ile birleştirilebilir, AND (&) ile kontrol edilir.

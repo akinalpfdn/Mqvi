@@ -33,6 +33,6 @@ COPY --from=builder /build/database/migrations ./database/migrations
 # Data dizini
 RUN mkdir -p /data/uploads
 
-EXPOSE 8080
+EXPOSE 9090
 
 CMD ["./mqvi"]

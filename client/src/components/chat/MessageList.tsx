@@ -13,10 +13,11 @@
  * Compact mode: Aynı yazarın 5dk içindeki ardışık mesajları compact gösterilir.
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useMessageStore } from "../../stores/messageStore";
 import { useChannelStore } from "../../stores/channelStore";
+import { MessageSkeleton } from "../shared/Skeleton";
 import Message from "./Message";
 import type { Message as MessageType } from "../../types";
 
@@ -24,6 +25,20 @@ import type { Message as MessageType } from "../../types";
 const COMPACT_THRESHOLD = 5 * 60 * 1000;
 
 const EMPTY_MESSAGES: MessageType[] = [];
+
+/**
+ * scrollPositions — Kanal bazlı scroll pozisyonu cache'i.
+ *
+ * Module-level Map kullanılır (component dışında tanımlanır):
+ * - Component unmount/remount olsa bile pozisyon korunur
+ * - channelId → scrollTop eşlemesi tutar
+ * - Bellek kullanımı ihmal edilebilir düzeydedir (birkaç string-number çifti)
+ *
+ * Alternatif: Zustand store'da tutulabilirdi ama bu tamamen local bir
+ * concern olduğundan (hiçbir başka component erişmez) module-level
+ * Map daha uygun.
+ */
+const scrollPositions = new Map<string, number>();
 
 type MessageListProps = {
   channelId: string;
@@ -53,14 +68,19 @@ function MessageList({ channelId }: MessageListProps) {
     .flatMap((cg) => cg.channels)
     .find((ch) => ch.id === channelId)?.name ?? "";
 
-  // Kanal değiştiğinde mesajları fetch et
+  // Kanal değiştiğinde mesajları fetch et + auto-scroll'u engelle
   useEffect(() => {
+    // Kanal geçişi sırasında auto-scroll'u engelle.
+    // isAtBottomRef false yapılmazsa, auto-scroll effect kanal değişiminde de
+    // tetiklenir ve restore edilen scroll pozisyonunu override eder.
+    isAtBottomRef.current = false;
+
     if (channelId) {
       fetchMessages(channelId);
     }
   }, [channelId, fetchMessages]);
 
-  // Yeni mesaj geldiğinde auto-scroll
+  // Yeni mesaj geldiğinde auto-scroll (sadece aktif kanalda, kanal geçişinde değil)
   useEffect(() => {
     if (messages.length > prevMessageCountRef.current && isAtBottomRef.current) {
       scrollToBottom();
@@ -68,12 +88,33 @@ function MessageList({ channelId }: MessageListProps) {
     prevMessageCountRef.current = messages.length;
   }, [messages.length]);
 
-  // İlk yükleme sonrası scroll to bottom
-  useEffect(() => {
-    if (!isLoading && messages.length > 0) {
-      scrollToBottom();
+  /**
+   * Scroll pozisyonu restore — useLayoutEffect ile paint'ten ÖNCE çalışır.
+   *
+   * Neden useLayoutEffect?
+   * React DOM'u commit ettikten sonra, tarayıcı paint etmeden önce çalışır.
+   * useEffect kullanılsaydı, tarayıcı önce scrollTop=0 ile boyar, sonra
+   * pozisyonu geri yüklerdi — bu da bir "flash" efekti yaratırdı.
+   *
+   * Scroll pozisyonu kaydetme handleScroll'da sürekli yapılır (aşağıda),
+   * channel-change effect'te değil. Çünkü useEffect çalıştığında DOM zaten
+   * yeni kanalın içeriğiyle güncellenmiş ve scrollTop sıfırlanmış olur.
+   */
+  useLayoutEffect(() => {
+    if (!isLoading && messages.length > 0 && scrollRef.current) {
+      const savedPos = scrollPositions.get(channelId);
+      if (savedPos !== undefined) {
+        scrollRef.current.scrollTop = savedPos;
+      } else {
+        scrollToBottom();
+      }
+      // Pozisyon ayarlandıktan sonra tracking ref'leri güncelle —
+      // sonraki yeni mesajlarda doğru karşılaştırma yapılabilsin.
+      prevMessageCountRef.current = messages.length;
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 20;
     }
-  }, [isLoading]);
+  }, [isLoading, channelId]);
 
   function scrollToBottom() {
     if (scrollRef.current) {
@@ -81,13 +122,20 @@ function MessageList({ channelId }: MessageListProps) {
     }
   }
 
-  /** Scroll event handler — en altta mı kontrol et + infinite scroll */
+  /** Scroll event handler — pozisyon kaydet + en altta mı kontrol et + infinite scroll */
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
 
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
 
     isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 20;
+
+    // Scroll pozisyonunu sürekli kaydet — kanal geçişlerinde restore etmek için.
+    // Bu kaydetme handleScroll'da yapılır (useEffect'te değil), çünkü
+    // useEffect çalıştığında DOM zaten değişmiş ve scrollTop sıfırlanmış olur.
+    if (channelId) {
+      scrollPositions.set(channelId, scrollTop);
+    }
 
     if (scrollTop < 100 && hasMore && !isLoadingMore && channelId) {
       const prevScrollHeight = scrollRef.current.scrollHeight;
@@ -124,8 +172,8 @@ function MessageList({ channelId }: MessageListProps) {
 
   if (isLoading) {
     return (
-      <div className="no-channel">
-        <div className="spinner" />
+      <div className="messages-scroll">
+        <MessageSkeleton count={6} />
       </div>
     );
   }

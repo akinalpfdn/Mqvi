@@ -56,6 +56,13 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
       }
     }
     setIsSending(false);
+
+    // Gönderim sonrası focus'u textarea'ya geri ver.
+    // disabled={isSending} geçici olarak textarea'yı devre dışı bırakır,
+    // tarayıcı bu sırada focus'u kaldırır — burada geri yüklüyoruz.
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
   }, [channelId, content, files, isSending, sendMessage]);
 
   /** Klavye event handler */

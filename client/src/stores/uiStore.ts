@@ -56,6 +56,7 @@ type UIState = {
   layout: LayoutNode;
   activePanelId: string;
   membersOpen: boolean;
+  quickSwitcherOpen: boolean;
 
   // Tab actions
   openTab: (channelId: string, type: TabType, label: string, serverShort?: string) => void;
@@ -72,6 +73,10 @@ type UIState = {
 
   // Members
   toggleMembers: () => void;
+
+  // Quick Switcher (Ctrl+K)
+  toggleQuickSwitcher: () => void;
+  closeQuickSwitcher: () => void;
 };
 
 // ──────────────────────────────────
@@ -171,6 +176,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   layout: { type: "leaf", panelId: defaultPanelId },
   activePanelId: defaultPanelId,
   membersOpen: true,
+  quickSwitcherOpen: false,
 
   openTab(channelId, type, label, serverShort) {
     const state = get();
@@ -420,5 +426,13 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   toggleMembers() {
     set((state) => ({ membersOpen: !state.membersOpen }));
+  },
+
+  toggleQuickSwitcher() {
+    set((state) => ({ quickSwitcherOpen: !state.quickSwitcherOpen }));
+  },
+
+  closeQuickSwitcher() {
+    set({ quickSwitcherOpen: false });
   },
 }));

@@ -13,10 +13,10 @@ services:
       context: ./server
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "9090:9090"
     environment:
       - SERVER_HOST=0.0.0.0
-      - SERVER_PORT=8080
+      - SERVER_PORT=9090
       - DATABASE_PATH=/data/mqvi.db
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - JWT_ACCESS_EXPIRY_MINUTES=15
@@ -52,12 +52,12 @@ services:
       dockerfile: Dockerfile
       target: development
     ports:
-      - "3000:3000"
+      - "3030:3030"
     volumes:
       - ./client/src:/app/src
       - ./client/public:/app/public
     environment:
-      - VITE_API_URL=http://localhost:8080
+      - VITE_API_URL=http://localhost:9090
     depends_on:
       - server
 

@@ -135,8 +135,11 @@ func (c *Client) handleEvent(event Event) {
 // handlePresenceUpdate, client'dan gelen presence değişikliğini işler.
 //
 // Client { op: "presence_update", d: { status: "idle" } } gönderdiğinde
-// bu fonksiyon çağrılır ve tüm kullanıcılara broadcast edilir.
-// Gerçek DB güncellemesi Hub callback'inde (main.go'da wire-up) yapılır.
+// bu fonksiyon çağrılır. DB güncelleme ve broadcast işlemi main.go'daki
+// OnPresenceManualUpdate callback'inde yapılır (Dependency Inversion).
+//
+// Bu pattern voice callback'lerle aynıdır:
+// Client WS event gönderir → handleEvent → callback → main.go → Service/Repo
 func (c *Client) handlePresenceUpdate(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -157,15 +160,11 @@ func (c *Client) handlePresenceUpdate(event Event) {
 		return
 	}
 
-	// Broadcast: presence_update event'ini tüm kullanıcılara gönder.
-	// UserID'yi biz set ediyoruz — client'ın göndermesine güvenmeyiz (güvenlik).
-	c.hub.BroadcastToAll(Event{
-		Op: OpPresence,
-		Data: PresenceData{
-			UserID: c.userID,
-			Status: data.Status,
-		},
-	})
+	// Callback pattern: DB persist + broadcast sorumluluğu main.go'daki callback'e ait.
+	// go func() ile çağrılır — Hub mutex'i ile deadlock önlenir.
+	if c.hub.onPresenceManualUpdate != nil {
+		go c.hub.onPresenceManualUpdate(c.userID, data.Status)
+	}
 }
 
 // handleTyping, typing event'ini işler ve diğer kullanıcılara broadcast eder.

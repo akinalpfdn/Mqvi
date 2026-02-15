@@ -32,5 +32,7 @@
   "directMessages": "Direkt Mesajlar",
   "noDMs": "Henüz konuşma yok",
   "dmPlaceholder": "@{{user}} kullanıcısına mesaj yaz",
-  "dmWelcome": "{{user}} ile konuşmanızın başlangıcı."
+  "dmWelcome": "{{user}} ile konuşmanızın başlangıcı.",
+  "copyMessage": "Mesajı Kopyala",
+  "copyId": "ID Kopyala"
 }
