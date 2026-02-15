@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -63,12 +64,10 @@ func (r *CreateChannelRequest) Validate() error {
 		return fmt.Errorf("channel name must be between 1 and 100 characters")
 	}
 
-	// Kanal adı küçük harf, tire ve alt çizgi içerebilir (Discord kuralı)
-	r.Name = strings.ToLower(r.Name)
-	r.Name = strings.ReplaceAll(r.Name, " ", "-")
+	// Kanal adı Unicode harf, rakam, boşluk, tire ve alt çizgi içerebilir.
 	for _, ch := range r.Name {
 		if !isValidChannelNameChar(ch) {
-			return fmt.Errorf("channel name can only contain lowercase letters, numbers, hyphens, and underscores")
+			return fmt.Errorf("channel name contains invalid characters")
 		}
 	}
 
@@ -95,15 +94,13 @@ type UpdateChannelRequest struct {
 func (r *UpdateChannelRequest) Validate() error {
 	if r.Name != nil {
 		*r.Name = strings.TrimSpace(*r.Name)
-		*r.Name = strings.ToLower(*r.Name)
-		*r.Name = strings.ReplaceAll(*r.Name, " ", "-")
 		nameLen := utf8.RuneCountInString(*r.Name)
 		if nameLen < 1 || nameLen > 100 {
 			return fmt.Errorf("channel name must be between 1 and 100 characters")
 		}
 		for _, ch := range *r.Name {
 			if !isValidChannelNameChar(ch) {
-				return fmt.Errorf("channel name can only contain lowercase letters, numbers, hyphens, and underscores")
+				return fmt.Errorf("channel name contains invalid characters")
 			}
 		}
 	}
@@ -150,10 +147,48 @@ func (r *UpdateCategoryRequest) Validate() error {
 	return nil
 }
 
+// PositionUpdate, kanal sıralama güncellemesi için kullanılan tek bir item.
+// Batch reorder API'de kullanılır — her item bir kanalın yeni position değerini taşır.
+type PositionUpdate struct {
+	ID       string `json:"id"`
+	Position int    `json:"position"`
+}
+
+// ReorderChannelsRequest, kanal sıralama güncelleme isteği.
+// Items listesi, yeni sırada her kanalın id ve position'ını taşır.
+type ReorderChannelsRequest struct {
+	Items []PositionUpdate `json:"items"`
+}
+
+// Validate, ReorderChannelsRequest'in geçerli olup olmadığını kontrol eder.
+func (r *ReorderChannelsRequest) Validate() error {
+	if len(r.Items) == 0 {
+		return fmt.Errorf("items cannot be empty")
+	}
+
+	seen := make(map[string]bool, len(r.Items))
+	for _, item := range r.Items {
+		if item.ID == "" {
+			return fmt.Errorf("item id cannot be empty")
+		}
+		if item.Position < 0 {
+			return fmt.Errorf("position cannot be negative")
+		}
+		if seen[item.ID] {
+			return fmt.Errorf("duplicate channel id: %s", item.ID)
+		}
+		seen[item.ID] = true
+	}
+
+	return nil
+}
+
 // isValidChannelNameChar, kanal adında izin verilen karakterleri kontrol eder.
-// Discord kuralı: küçük harf, rakam, tire ve alt çizgi.
+// Unicode harf/rakam, boşluk, tire, alt çizgi kabul edilir.
+// unicode.IsLetter: tüm dillerdeki harfleri kapsar (Türkçe ş/ç/ğ/ı/ö/ü dahil).
+// unicode.IsDigit: tüm Unicode rakamlarını kapsar.
 func isValidChannelNameChar(ch rune) bool {
-	return (ch >= 'a' && ch <= 'z') ||
-		(ch >= '0' && ch <= '9') ||
-		ch == '-' || ch == '_'
+	return unicode.IsLetter(ch) ||
+		unicode.IsDigit(ch) ||
+		ch == '-' || ch == '_' || ch == ' '
 }

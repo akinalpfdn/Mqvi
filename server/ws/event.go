@@ -67,6 +67,9 @@ const (
 	// Reaction (emoji tepki) operasyonları
 	OpReactionUpdate = "reaction_update" // Mesajın reaction listesi güncellendi
 
+	// Channel reorder (kanal sıralama)
+	OpChannelReorder = "channel_reorder" // Kanal sıralaması güncellendi — tam CategoryWithChannels[] listesi
+
 	// DM (Direct Messages) operasyonları
 	OpDMChannelCreate = "dm_channel_create"  // Yeni DM kanalı oluşturuldu
 	OpDMMessageCreate = "dm_message_create"  // Yeni DM mesajı gönderildi

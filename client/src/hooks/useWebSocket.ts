@@ -49,6 +49,7 @@ import type {
   WSMessage,
   Channel,
   Category,
+  CategoryWithChannels,
   Message,
   MemberWithRoles,
   Role,
@@ -154,6 +155,9 @@ export function useWebSocket() {
         break;
       case "channel_delete":
         useChannelStore.getState().handleChannelDelete((msg.d as { id: string }).id);
+        break;
+      case "channel_reorder":
+        useChannelStore.getState().handleChannelReorder(msg.d as CategoryWithChannels[]);
         break;
 
       // ─── Category Events ───

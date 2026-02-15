@@ -16,6 +16,10 @@ type ChannelService interface {
 	Create(ctx context.Context, req *models.CreateChannelRequest) (*models.Channel, error)
 	Update(ctx context.Context, id string, req *models.UpdateChannelRequest) (*models.Channel, error)
 	Delete(ctx context.Context, id string) error
+	// ReorderChannels, kanalların sırasını toplu olarak günceller.
+	// Transaction ile atomik — ya hepsi güncellenir ya hiçbiri.
+	// Başarılıysa güncel CategoryWithChannels listesini WS ile broadcast eder.
+	ReorderChannels(ctx context.Context, req *models.ReorderChannelsRequest) ([]models.CategoryWithChannels, error)
 }
 
 // channelService, ChannelService'in implementasyonu.
@@ -171,4 +175,35 @@ func (s *channelService) Delete(ctx context.Context, id string) error {
 	})
 
 	return nil
+}
+
+// ReorderChannels, kanalların sırasını toplu olarak günceller.
+//
+// Akış:
+// 1. Validation — items boş olmamalı, ID'ler benzersiz ve position >= 0
+// 2. Repository'ye ilet — transaction ile atomic güncelleme
+// 3. Güncel CategoryWithChannels listesini DB'den yeniden yükle
+// 4. WS broadcast — tüm client'lar güncel sırayı alır
+func (s *channelService) ReorderChannels(ctx context.Context, req *models.ReorderChannelsRequest) ([]models.CategoryWithChannels, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
+	}
+
+	if err := s.channelRepo.UpdatePositions(ctx, req.Items); err != nil {
+		return nil, fmt.Errorf("failed to update channel positions: %w", err)
+	}
+
+	// Güncel listeyi DB'den yeniden yükle (position değerleri değişti)
+	grouped, err := s.GetAllGrouped(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reload channels after reorder: %w", err)
+	}
+
+	// WS broadcast — tüm client'lar güncel CategoryWithChannels listesini alır
+	s.hub.BroadcastToAll(ws.Event{
+		Op:   ws.OpChannelReorder,
+		Data: grouped,
+	})
+
+	return grouped, nil
 }

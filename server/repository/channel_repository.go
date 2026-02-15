@@ -16,4 +16,7 @@ type ChannelRepository interface {
 	Update(ctx context.Context, channel *models.Channel) error
 	Delete(ctx context.Context, id string) error
 	GetMaxPosition(ctx context.Context, categoryID string) (int, error)
+	// UpdatePositions, birden fazla kanalın position değerini atomik olarak günceller.
+	// Transaction kullanılır — ya hepsi güncellenir ya hiçbiri.
+	UpdatePositions(ctx context.Context, items []models.PositionUpdate) error
 }

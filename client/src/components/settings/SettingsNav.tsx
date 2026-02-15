@@ -30,6 +30,7 @@ const USER_ITEMS: NavItem[] = [
 /** Server Settings kategorisi — permission-gated */
 const SERVER_ITEMS: NavItem[] = [
   { id: "server-general", labelKey: "general" },
+  { id: "channels", labelKey: "channels" },
   { id: "roles", labelKey: "roles" },
   { id: "members", labelKey: "members" },
   { id: "invites", labelKey: "invites" },

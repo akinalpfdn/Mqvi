@@ -38,6 +38,12 @@ type ChannelState = {
   handleCategoryCreate: (category: Category) => void;
   handleCategoryUpdate: (category: Category) => void;
   handleCategoryDelete: (categoryId: string) => void;
+
+  // ─── Reorder ───
+  /** Optimistic kanal sıralama — anında UI günceller, sonra API çağırır */
+  reorderChannels: (items: { id: string; position: number }[]) => Promise<boolean>;
+  /** WS channel_reorder event handler — store'u tam listeyle replace eder */
+  handleChannelReorder: (categories: CategoryWithChannels[]) => void;
 };
 
 export const useChannelStore = create<ChannelState>((set, get) => ({
@@ -165,5 +171,55 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
         (cg) => cg.category.id !== categoryId
       ),
     }));
+  },
+
+  // ─── Reorder ───
+
+  /**
+   * reorderChannels — Kanal sıralamasını optimistic olarak günceller.
+   *
+   * Akış:
+   * 1. Mevcut categories'ı kaydet (revert için)
+   * 2. items'daki position değerlerini store'a anında yansıt (optimistic update)
+   * 3. API çağrısı yap
+   * 4. Hata olursa eski state'e geri dön (revert)
+   *
+   * WS broadcast sonucu zaten handleChannelReorder ile gelecek —
+   * optimistic update sayesinde kullanıcı gecikme hissetmez.
+   */
+  reorderChannels: async (items) => {
+    const prevCategories = get().categories;
+
+    // Optimistic update — position değerlerini anında uygula
+    const positionMap = new Map(items.map((item) => [item.id, item.position]));
+    set((state) => ({
+      categories: state.categories.map((cg) => ({
+        ...cg,
+        channels: cg.channels
+          .map((ch) => {
+            const newPos = positionMap.get(ch.id);
+            return newPos !== undefined ? { ...ch, position: newPos } : ch;
+          })
+          .sort((a, b) => a.position - b.position),
+      })),
+    }));
+
+    const res = await channelApi.reorderChannels(items);
+    if (!res.success) {
+      // API hatası — eski state'e geri dön
+      set({ categories: prevCategories });
+      return false;
+    }
+
+    return true;
+  },
+
+  /**
+   * handleChannelReorder — WS channel_reorder event handler.
+   * Backend'den gelen tam CategoryWithChannels[] listesiyle store'u replace eder.
+   * Bu sayede tüm client'lar aynı sıraya gelir.
+   */
+  handleChannelReorder: (categories) => {
+    set({ categories });
   },
 }));

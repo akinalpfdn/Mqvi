@@ -10,5 +10,13 @@
   "text": "Metin",
   "voice": "Sesli",
   "deleteConfirm": "#{{name}} kanalını silmek istediğinize emin misiniz?",
-  "noChannels": "Henüz kanal yok"
+  "noChannels": "Henüz kanal yok",
+  "reorderSuccess": "Kanal sırası güncellendi",
+  "reorderError": "Kanal sırası güncellenemedi",
+  "channelsTitle": "Kanallar",
+  "channelCreated": "Kanal oluşturuldu",
+  "channelCreateError": "Kanal oluşturulamadı",
+  "channelDeleted": "Kanal silindi",
+  "channelDeleteError": "Kanal silinemedi",
+  "cancel": "İptal"
 }

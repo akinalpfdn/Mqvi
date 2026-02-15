@@ -23,6 +23,7 @@ type SettingsTab =
   | "appearance"
   | "voice"
   | "server-general"
+  | "channels"
   | "roles"
   | "members"
   | "invites";

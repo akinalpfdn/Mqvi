@@ -17,6 +17,7 @@ import ProfileSettings from "./ProfileSettings";
 import ServerGeneralSettings from "./ServerGeneralSettings";
 import InviteSettings from "./InviteSettings";
 import VoiceSettings from "./VoiceSettings";
+import ChannelSettings from "./ChannelSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -95,6 +96,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "voice":
       return <VoiceSettings />;
+
+    case "channels":
+      return <ChannelSettings />;
 
     // Placeholder tab'lar
     case "appearance":

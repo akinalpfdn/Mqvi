@@ -162,6 +162,43 @@ func (r *sqliteChannelRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdatePositions, birden fazla kanalın position değerini atomik olarak günceller.
+// Transaction kullanılır — bir hata olursa tüm değişiklikler geri alınır.
+// Bu sayede kısmi güncelleme (partial update) riski ortadan kalkar.
+func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE channels SET position = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, item := range items {
+		result, err := stmt.ExecContext(ctx, item.Position, item.ID)
+		if err != nil {
+			return fmt.Errorf("failed to update position for channel %s: %w", item.ID, err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to check rows affected for channel %s: %w", item.ID, err)
+		}
+		if affected == 0 {
+			return fmt.Errorf("%w: channel %s", pkg.ErrNotFound, item.ID)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
 // GetMaxPosition, belirli bir kategorideki en yüksek position değerini döner.
 // Yeni kanal eklenirken position = max + 1 olarak atanır.
 func (r *sqliteChannelRepo) GetMaxPosition(ctx context.Context, categoryID string) (int, error) {

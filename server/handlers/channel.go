@@ -90,3 +90,26 @@ func (h *ChannelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "channel deleted"})
 }
+
+// Reorder godoc
+// PATCH /api/channels/reorder
+// Kanal sıralamasını toplu olarak günceller. MANAGE_CHANNELS yetkisi gerektirir.
+//
+// Body: { "items": [{ "id": "abc", "position": 0 }, { "id": "def", "position": 1 }] }
+// Transaction ile atomik — ya hepsi güncellenir ya hiçbiri.
+// Başarılıysa güncel CategoryWithChannels listesini döner ve WS broadcast eder.
+func (h *ChannelHandler) Reorder(w http.ResponseWriter, r *http.Request) {
+	var req models.ReorderChannelsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	grouped, err := h.channelService.ReorderChannels(r.Context(), &req)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, grouped)
+}

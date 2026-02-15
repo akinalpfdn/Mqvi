@@ -57,6 +57,14 @@ export async function deleteChannel(id: string) {
   });
 }
 
+/** Kanal sıralamasını toplu günceller */
+export async function reorderChannels(items: { id: string; position: number }[]) {
+  return apiClient<CategoryWithChannels[]>("/channels/reorder", {
+    method: "PATCH",
+    body: { items },
+  });
+}
+
 // ─── Category API ───
 
 /** Tüm kategorileri getirir */

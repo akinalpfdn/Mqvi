@@ -10,6 +10,13 @@
  * .dock-item:hover { transform:translateY(-7px) scale(1.14) }
  * .dock-item:hover + .dock-item { transform:translateY(-2px) scale(1.04) }
  * .dock-item:hover .dock-tooltip { opacity:1 }
+ *
+ * ─── Drag & Drop ───
+ * Kanal sıralama native Pointer Events API ile yapılır.
+ * setPointerCapture ile pointer yakalanır — tüm move/up event'leri
+ * yakalayan elemana yönlendirilir. React re-render'dan bağımsız çalışır.
+ * Direct DOM manipulation ile her frame'de transform güncellenir (performans).
+ * Sadece drag bitişinde React state güncellenir (API çağrısı).
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -27,6 +34,8 @@ import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import ContextMenu from "../shared/ContextMenu";
 import { ChannelSkeleton } from "../shared/Skeleton";
 import DMList from "../dm/DMList";
+import { useToastStore } from "../../stores/toastStore";
+import * as channelApi from "../../api/channels";
 import type { Channel } from "../../types";
 
 type DockProps = {
@@ -119,6 +128,39 @@ function buildDockPath(
 }
 
 // ──────────────────────────────────
+// Drag & Drop Types
+// ──────────────────────────────────
+
+/**
+ * DragInfo — drag sırasında izlenen bilgiler.
+ * Ref'te tutulur (useState değil) çünkü:
+ * - pointermove her frame'de tetiklenir, setState ile her frame re-render çok pahalı
+ * - Direct DOM manipulation ile transform güncellenir (requestAnimationFrame)
+ * - Sadece drag başlangıç/bitiş React state günceller
+ */
+type ItemRect = {
+  id: string;
+  left: number;
+  width: number;
+  centerX: number;
+};
+
+type DragInfo = {
+  channelId: string;
+  groupType: "text" | "voice";
+  startX: number;
+  pointerId: number;
+  /** Drag başladığındaki item rect'leri — orijinal konumlar */
+  itemRects: ItemRect[];
+  /** Drag başladığındaki sıra */
+  originalOrder: string[];
+  /** Şu anki preview sırası (drag sırasında güncellenir) */
+  currentOrder: string[];
+  /** Drag aktif mi? (distance threshold geçildi mi?) */
+  activated: boolean;
+};
+
+// ──────────────────────────────────
 // Dock Component
 // ──────────────────────────────────
 
@@ -135,7 +177,13 @@ function Dock({ onJoinVoice }: DockProps) {
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
   const dmUnreadCounts = useDMStore((s) => s.dmUnreadCounts);
   const members = useMemberStore((s) => s.members);
+  const reorderChannels = useChannelStore((s) => s.reorderChannels);
   const isChannelsLoading = useChannelStore((s) => s.isLoading);
+
+  // ─── Permission: ManageChannels yetkisi varsa drag aktif ───
+  const currentMember = members.find((m) => m.id === user?.id);
+  const myPerms = currentMember?.effective_permissions ?? 0;
+  const canManage = hasPermission(myPerms, Permissions.ManageChannels);
 
   // Toplam DM okunmamış sayısı — badge'de gösterilir
   const totalDMUnread = Object.values(dmUnreadCounts).reduce((sum, c) => sum + c, 0);
@@ -147,8 +195,222 @@ function Dock({ onJoinVoice }: DockProps) {
   const textChannels = allChannels.filter((ch) => ch.type === "text");
   const voiceChannels = allChannels.filter((ch) => ch.type === "voice");
 
+  // ─── Drag & Drop State ───
+
+  /**
+   * dragInfoRef — Drag sırasında tüm bilgileri tutan ref.
+   * useState kullanmıyoruz çünkü pointermove her pixel'de tetiklenir.
+   * Ref kullanmak re-render'ı önler ve performansı korur.
+   */
+  const dragInfoRef = useRef<DragInfo | null>(null);
+
+  /**
+   * activeDragId — Hangi kanal sürükleniyor?
+   * Bu TEK state, drag başladığında set edilir, bittiğinde null olur.
+   * Amacı: CSS class'ları (opacity, cursor) için re-render tetiklemek.
+   */
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  /**
+   * suppressClickRef — Drag sonrası click event'ini engeller.
+   * Drag bittiğinde true olur, click handler'da kontrol edilip false yapılır.
+   * Böylece sürükleme sonrası kanal seçimi engellenir.
+   */
+  const suppressClickRef = useRef(false);
+
+  /**
+   * itemElsRef — Her kanal butonunun DOM referansı.
+   * Drag başladığında getBoundingClientRect() ile pozisyon ölçülür.
+   * Drag sırasında style.transform ile direct DOM manipulation yapılır.
+   */
+  const itemElsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  /**
+   * handleChannelPointerDown — Drag potansiyeli başlatır.
+   *
+   * setPointerCapture: Tüm sonraki pointermove/pointerup event'lerini
+   * bu elemana yönlendirir — fare başka elemanların üzerine gitse bile.
+   * Bu sayede drag sırasında sibling'lerin event handler'ları tetiklenmez.
+   */
+  const handleChannelPointerDown = useCallback(
+    (e: React.PointerEvent, channel: Channel) => {
+      if (!canManage || e.button !== 0) return;
+
+      const group = channel.type === "text" ? textChannels : voiceChannels;
+
+      // Gruptaki tüm item'ların pozisyonlarını ölç
+      const rects: ItemRect[] = group.map((ch) => {
+        const el = itemElsRef.current.get(ch.id);
+        if (!el) return { id: ch.id, left: 0, width: 0, centerX: 0 };
+        const r = el.getBoundingClientRect();
+        return { id: ch.id, left: r.left, width: r.width, centerX: r.left + r.width / 2 };
+      });
+
+      dragInfoRef.current = {
+        channelId: channel.id,
+        groupType: channel.type as "text" | "voice",
+        startX: e.clientX,
+        pointerId: e.pointerId,
+        itemRects: rects,
+        originalOrder: group.map((ch) => ch.id),
+        currentOrder: group.map((ch) => ch.id),
+        activated: false,
+      };
+
+      // Pointer capture: tüm move/up event'leri bu elemana gelir
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [canManage, textChannels, voiceChannels]
+  );
+
+  /**
+   * handleChannelPointerMove — Drag sırasında her frame çağrılır.
+   *
+   * İki aşamalı:
+   * 1. Distance threshold (8px) geçilmeden: hiçbir şey yapma (tıklama olabilir)
+   * 2. Threshold geçildikten sonra: dragged item pointer'ı takip eder,
+   *    diğer item'lar yeni sıraya göre kayar (direct DOM manipulation)
+   */
+  const handleChannelPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const drag = dragInfoRef.current;
+      if (!drag) return;
+
+      const dx = e.clientX - drag.startX;
+
+      // 8px distance threshold — tıklamayı sürüklemeden ayırt eder
+      if (!drag.activated && Math.abs(dx) < 8) return;
+
+      // İlk kez threshold geçildi → drag'ı aktive et
+      if (!drag.activated) {
+        drag.activated = true;
+        setActiveDragId(drag.channelId);
+      }
+
+      // ─── Yeni sıra hesapla ───
+      // Sürüklenen item'ın merkez noktasını pointer offset'e göre hesapla.
+      // Bu merkez noktası diğer item'ların merkezleriyle karşılaştırılarak
+      // hangi slota düşeceği belirlenir.
+      const draggedRect = drag.itemRects.find((r) => r.id === drag.channelId)!;
+      const draggedCenter = draggedRect.centerX + dx;
+
+      // Diğer item'ları orijinal sırada tut, dragged item'ı çıkar
+      const others = drag.itemRects.filter((r) => r.id !== drag.channelId);
+
+      // Dragged item'ın yeni pozisyonunu bul (center karşılaştırma)
+      let insertIdx = others.length; // varsayılan: sona ekle
+      for (let i = 0; i < others.length; i++) {
+        if (draggedCenter < others[i].centerX) {
+          insertIdx = i;
+          break;
+        }
+      }
+
+      // Yeni sıra oluştur
+      const newOrder = others.map((r) => r.id);
+      newOrder.splice(insertIdx, 0, drag.channelId);
+      drag.currentOrder = newOrder;
+
+      // ─── Direct DOM manipulation — transforms uygula ───
+      applyDragTransforms(drag, dx);
+    },
+    []
+  );
+
+  /**
+   * handleChannelPointerUp — Drag bitişi veya normal tıklama.
+   *
+   * Drag aktifse: sıra değiştiyse API'ye gönder, inline style'ları temizle.
+   * Drag aktif değilse: normal tıklama — suppress etme.
+   */
+  const handleChannelPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const drag = dragInfoRef.current;
+      if (!drag) return;
+
+      // Pointer capture'ı serbest bırak
+      (e.currentTarget as HTMLElement).releasePointerCapture(drag.pointerId);
+
+      if (drag.activated) {
+        // Tüm inline style'ları temizle
+        clearDragStyles(drag);
+
+        // Sıra değiştiyse API'ye gönder
+        const orderChanged = !drag.originalOrder.every(
+          (id, i) => id === drag.currentOrder[i]
+        );
+        if (orderChanged) {
+          const items = drag.currentOrder.map((id, index) => ({
+            id,
+            position: index,
+          }));
+          reorderChannels(items);
+        }
+
+        // Drag sonrası click'i engelle
+        suppressClickRef.current = true;
+      }
+
+      dragInfoRef.current = null;
+      setActiveDragId(null);
+    },
+    [reorderChannels]
+  );
+
+  /**
+   * handleDragCancel — Pointer cancel veya Escape tuşu ile drag iptal.
+   * Tüm inline style'lar temizlenir, sıra değişmez.
+   */
+  const handleDragCancel = useCallback((e: React.PointerEvent) => {
+    const drag = dragInfoRef.current;
+    if (!drag) return;
+
+    (e.currentTarget as HTMLElement).releasePointerCapture(drag.pointerId);
+
+    if (drag.activated) {
+      clearDragStyles(drag);
+    }
+
+    dragInfoRef.current = null;
+    setActiveDragId(null);
+  }, []);
+
   // DM list popup state
   const [isDMListOpen, setIsDMListOpen] = useState(false);
+
+  // ─── Channel Create State ───
+  const addToast = useToastStore((s) => s.addToast);
+  /** Hangi tür kanal oluşturuluyor? null → popup kapalı */
+  const [creatingType, setCreatingType] = useState<"text" | "voice" | null>(null);
+  const [createName, setCreateName] = useState("");
+  const [isCreatePending, setIsCreatePending] = useState(false);
+
+  async function handleCreateChannel() {
+    const trimmed = createName.trim();
+    if (!trimmed || isCreatePending || !creatingType) return;
+
+    // Aynı tipteki mevcut bir kanalın category_id'sini bul.
+    // Böylece yeni kanal doğru kategoriye (Text Channels / Voice Channels) eklenir.
+    // category_id olmadan oluşturulan kanallar GetAllGrouped'da görünmez.
+    const existingOfType = allChannels.find((ch) => ch.type === creatingType);
+    const categoryId = existingOfType?.category_id ?? undefined;
+
+    setIsCreatePending(true);
+    const res = await channelApi.createChannel({
+      name: trimmed,
+      type: creatingType,
+      category_id: categoryId,
+    });
+
+    if (res.success) {
+      addToast({ type: "success", message: tCh("channelCreated") });
+      setCreateName("");
+      setCreatingType(null);
+    } else {
+      addToast({ type: "error", message: tCh("channelCreateError") });
+    }
+    setIsCreatePending(false);
+  }
 
   // SVG refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,9 +437,11 @@ function Dock({ onJoinVoice }: DockProps) {
   /** Kanal sağ tık context menu */
   const handleChannelContextMenu = useCallback(
     (e: React.MouseEvent, channel: Channel) => {
-      const currentMember = members.find((m) => m.id === user?.id);
-      const myPerms = currentMember?.effective_permissions ?? 0;
-      const canManage = hasPermission(myPerms, Permissions.ManageChannels);
+      // Drag sırasında context menu açma
+      if (dragInfoRef.current?.activated) {
+        e.preventDefault();
+        return;
+      }
 
       const items: ContextMenuItem[] = [];
 
@@ -214,12 +478,18 @@ function Dock({ onJoinVoice }: DockProps) {
 
       openMenu(e, items);
     },
-    [members, user, openSettings, openMenu, tCh]
+    [canManage, openSettings, openMenu, tCh]
   );
 
   /** Kanal tıklandığında: tab aç + select */
   const handleChannelClick = useCallback(
     (channel: Channel) => {
+      // Drag sonrası click'i engelle
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false;
+        return;
+      }
+
       if (channel.type === "voice") {
         onJoinVoice(channel.id);
         selectChannel(channel.id);
@@ -231,6 +501,50 @@ function Dock({ onJoinVoice }: DockProps) {
     },
     [onJoinVoice, selectChannel, openTab]
   );
+
+  /**
+   * renderChannelButton — Bir kanal butonu render eder.
+   *
+   * Her buton pointer event handler'larına sahiptir:
+   * - onPointerDown: drag potansiyeli başlatır + setPointerCapture
+   * - onPointerMove: drag sırasında transform günceller (captured)
+   * - onPointerUp: drag bitirir veya normal tıklama
+   * - onPointerCancel: drag iptal (sistem interrupt)
+   */
+  function renderChannelButton(ch: Channel, isVoice: boolean) {
+    const isActive = selectedChannelId === ch.id;
+    const unreadCount = isVoice ? 0 : (unreadCounts[ch.id] ?? 0);
+    const isDragging = activeDragId === ch.id;
+
+    return (
+      <button
+        key={ch.id}
+        data-channel-drag-id={ch.id}
+        ref={(el) => {
+          if (el) itemElsRef.current.set(ch.id, el);
+          else itemElsRef.current.delete(ch.id);
+        }}
+        className={
+          `dock-ch-item${isVoice ? " voice" : ""}${isActive ? " active" : ""}` +
+          `${unreadCount > 0 ? " has-unread" : ""}${isDragging ? " dragging" : ""}`
+        }
+        onClick={() => handleChannelClick(ch)}
+        onContextMenu={(e) => handleChannelContextMenu(e, ch)}
+        onPointerDown={(e) => handleChannelPointerDown(e, ch)}
+        onPointerMove={handleChannelPointerMove}
+        onPointerUp={handleChannelPointerUp}
+        onPointerCancel={handleDragCancel}
+      >
+        <span className="dock-ch-icon">{isVoice ? "\uD83D\uDD0A" : "#"}</span>
+        <span className="dock-ch-name">{ch.name}</span>
+        {!isVoice && unreadCount > 0 && (
+          <span className="dock-unread-badge">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </button>
+    );
+  }
 
   return (
     <div className="dock-area">
@@ -252,42 +566,44 @@ function Dock({ onJoinVoice }: DockProps) {
             <ChannelSkeleton count={4} />
           )}
 
-          {textChannels.map((ch) => {
-            const unread = unreadCounts[ch.id] ?? 0;
-            return (
-              <button
-                key={ch.id}
-                className={`dock-ch-item${selectedChannelId === ch.id ? " active" : ""}${unread > 0 ? " has-unread" : ""}`}
-                onClick={() => handleChannelClick(ch)}
-                onContextMenu={(e) => handleChannelContextMenu(e, ch)}
-              >
-                <span className="dock-ch-icon">#</span>
-                <span className="dock-ch-name">{ch.name}</span>
-                {unread > 0 && (
-                  <span className="dock-unread-badge">
-                    {unread > 99 ? "99+" : unread}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {/* Text kanallar */}
+          {textChannels.map((ch) => renderChannelButton(ch, false))}
+
+          {/* Text kanal oluştur butonu — ManageChannels yetkisi */}
+          {canManage && (
+            <button
+              className="dock-ch-add"
+              onClick={() => {
+                setCreatingType("text");
+                setCreateName("");
+              }}
+              title={tCh("createChannel") + " (Text)"}
+            >
+              +
+            </button>
+          )}
 
           {/* Separator */}
-          {textChannels.length > 0 && voiceChannels.length > 0 && (
+          {(textChannels.length > 0 || canManage) && voiceChannels.length > 0 && (
             <div className="dock-ch-sep" />
           )}
 
-          {voiceChannels.map((ch) => (
+          {/* Voice kanallar */}
+          {voiceChannels.map((ch) => renderChannelButton(ch, true))}
+
+          {/* Voice kanal oluştur butonu — ManageChannels yetkisi */}
+          {canManage && (
             <button
-              key={ch.id}
-              className={`dock-ch-item voice${selectedChannelId === ch.id ? " active" : ""}`}
-              onClick={() => handleChannelClick(ch)}
-              onContextMenu={(e) => handleChannelContextMenu(e, ch)}
+              className="dock-ch-add voice"
+              onClick={() => {
+                setCreatingType("voice");
+                setCreateName("");
+              }}
+              title={tCh("createChannel") + " (Voice)"}
             >
-              <span className="dock-ch-icon">{"\uD83D\uDD0A"}</span>
-              <span className="dock-ch-name">{ch.name}</span>
+              +
             </button>
-          ))}
+          )}
         </div>
 
         {/* ─── Server Row (alt) ─── */}
@@ -344,6 +660,43 @@ function Dock({ onJoinVoice }: DockProps) {
         </div>
       </div>
 
+      {/* Channel Create Popover */}
+      {creatingType && (
+        <div className="dock-create-popover">
+          <span className="dock-create-label">
+            {creatingType === "text" ? "# " : "\uD83D\uDD0A "}
+            {tCh("createChannel")}
+          </span>
+          <input
+            className="dock-create-input"
+            placeholder={tCh("channelName")}
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleCreateChannel();
+              if (e.key === "Escape") setCreatingType(null);
+            }}
+            autoFocus
+            disabled={isCreatePending}
+          />
+          <div className="dock-create-actions">
+            <button
+              className="dock-create-btn"
+              onClick={handleCreateChannel}
+              disabled={!createName.trim() || isCreatePending}
+            >
+              {isCreatePending ? "..." : tCh("createChannel")}
+            </button>
+            <button
+              className="dock-create-btn secondary"
+              onClick={() => setCreatingType(null)}
+            >
+              {tCh("cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Context Menu — kanal sağ tık ile açılır */}
       <ContextMenu state={menuState} onClose={closeMenu} />
 
@@ -351,6 +704,79 @@ function Dock({ onJoinVoice }: DockProps) {
       {isDMListOpen && <DMList onClose={() => setIsDMListOpen(false)} />}
     </div>
   );
+}
+
+// ──────────────────────────────────
+// Drag Helper Functions
+// ──────────────────────────────────
+
+/**
+ * applyDragTransforms — Drag sırasında tüm item'lara CSS transform uygular.
+ *
+ * Direct DOM manipulation kullanılır (el.style.transform) çünkü:
+ * - pointermove her frame tetiklenir → setState ile her frame re-render çok pahalı
+ * - Direct DOM manipulation O(n) zaman karmaşıklığı ile çalışır (n = item sayısı)
+ * - Sadece CSS transform değişir, layout recalculation tetiklenmez (compositing only)
+ *
+ * Hesaplama:
+ * 1. currentOrder'daki sıraya göre her item'ın hedef left pozisyonunu hesapla
+ * 2. Hedef pozisyon ile orijinal pozisyon arasındaki farkı translateX olarak uygula
+ * 3. Dragged item özel: pointer offset'i ile hareket eder (transition yok)
+ * 4. Diğer item'lar: smooth transition ile kayar (200ms ease)
+ */
+function applyDragTransforms(drag: DragInfo, offsetX: number) {
+  // Flex gap: CSS'teki .dock-ch-row gap değeri
+  const GAP = 2;
+
+  // currentOrder'a göre hedef pozisyonları hesapla
+  let x = drag.itemRects[0]?.left ?? 0;
+  const targetLeft = new Map<string, number>();
+
+  for (const id of drag.currentOrder) {
+    targetLeft.set(id, x);
+    const rect = drag.itemRects.find((r) => r.id === id)!;
+    x += rect.width + GAP;
+  }
+
+  for (const rect of drag.itemRects) {
+    const el = document.querySelector<HTMLElement>(
+      `[data-channel-drag-id="${rect.id}"]`
+    );
+    if (!el) continue;
+
+    if (rect.id === drag.channelId) {
+      // Sürüklenen item: pointer'ı takip eder (transition yok, anında)
+      el.style.transform = `translateX(${offsetX}px)`;
+      el.style.transition = "none";
+      el.style.zIndex = "10";
+      el.style.opacity = "0.7";
+    } else {
+      // Diğer item'lar: hedef pozisyona smooth kayar
+      const target = targetLeft.get(rect.id)!;
+      const shift = target - rect.left;
+      el.style.transform = shift !== 0 ? `translateX(${shift}px)` : "";
+      el.style.transition = "transform 200ms ease";
+      el.style.zIndex = "";
+      el.style.opacity = "";
+    }
+  }
+}
+
+/**
+ * clearDragStyles — Drag bittiğinde tüm inline style'ları temizler.
+ * Bu sayede CSS class'ları tekrar geçerli olur.
+ */
+function clearDragStyles(drag: DragInfo) {
+  for (const rect of drag.itemRects) {
+    const el = document.querySelector<HTMLElement>(
+      `[data-channel-drag-id="${rect.id}"]`
+    );
+    if (!el) continue;
+    el.style.transform = "";
+    el.style.transition = "";
+    el.style.zIndex = "";
+    el.style.opacity = "";
+  }
 }
 
 export default Dock;

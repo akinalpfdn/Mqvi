@@ -272,6 +272,10 @@ func main() {
 		http.HandlerFunc(channelHandler.List)))
 	mux.Handle("POST /api/channels", authMiddleware.Require(
 		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Create))))
+	// Reorder route'u {id} parametreli route'lardan ÖNCE tanımlanmalı —
+	// yoksa Go router "reorder" kelimesini bir {id} olarak yorumlar.
+	mux.Handle("PATCH /api/channels/reorder", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Reorder))))
 	mux.Handle("PATCH /api/channels/{id}", authMiddleware.Require(
 		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Update))))
 	mux.Handle("DELETE /api/channels/{id}", authMiddleware.Require(

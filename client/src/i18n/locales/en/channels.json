@@ -10,5 +10,13 @@
   "text": "Text",
   "voice": "Voice",
   "deleteConfirm": "Are you sure you want to delete #{{name}}?",
-  "noChannels": "No channels yet"
+  "noChannels": "No channels yet",
+  "reorderSuccess": "Channel order updated",
+  "reorderError": "Failed to update channel order",
+  "channelsTitle": "Channels",
+  "channelCreated": "Channel created",
+  "channelCreateError": "Failed to create channel",
+  "channelDeleted": "Channel deleted",
+  "channelDeleteError": "Failed to delete channel",
+  "cancel": "Cancel"
 }
