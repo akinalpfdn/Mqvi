@@ -5,7 +5,7 @@ port: 7880
 rtc:
   # WebRTC UDP port aralığı
   port_range_start: 50000
-  port_range_end: 50060
+  port_range_end: 50030
   # TCP fallback (UDP bloke olduğunda)
   tcp_port: 7881
   # Docker içinde çalışırken LiveKit, container'ın internal IP'sini

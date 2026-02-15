@@ -13,18 +13,19 @@
  *
  * Component hiyerarşisi:
  * VoiceRoom
- * └── LiveKitRoom (flex-1 flex-col — tüm alanı doldurur)
- *     ├── RoomAudioRenderer (ses çıkışı — görünmez)
- *     ├── VoiceStateManager (store ↔ LiveKit sync — görünmez)
+ * └── LiveKitRoom (flex-1 flex-col — tüm alanı doldurur, webAudioMix: true)
+ *     ├── RoomAudioRenderer (LiveKit resmi — remote audio attach, görünmez)
+ *     ├── VoiceStateManager (store ↔ LiveKit sync + volume — görünmez)
  *     └── Layout wrapper (voice-room)
  *         ├── VoiceConnectionStatus (null veya small bar)
  *         ├── ScreenShareView (flex-1 — aktifse alanı kaplar)
  *         └── VoiceParticipantGrid (flex-1 veya shrink-0)
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
 import { DisconnectReason } from "livekit-client";
+import type { AudioCaptureOptions } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useTranslation } from "react-i18next";
 import VoiceParticipantGrid from "./VoiceParticipantGrid";
@@ -37,6 +38,7 @@ function VoiceRoom() {
   const livekitUrl = useVoiceStore((s) => s.livekitUrl);
   const livekitToken = useVoiceStore((s) => s.livekitToken);
   const leaveVoiceChannel = useVoiceStore((s) => s.leaveVoiceChannel);
+  const inputDevice = useVoiceStore((s) => s.inputDevice);
 
   /**
    * onDisconnected — LiveKit bağlantısı koptuğunda çağrılır.
@@ -59,6 +61,29 @@ function VoiceRoom() {
     [leaveVoiceChannel]
   );
 
+  /**
+   * audioCaptureDefaults — LiveKit'e mikrofon yakalama ayarlarını iletir.
+   *
+   * WebRTC MediaTrackConstraints üzerine inşa edilmiştir:
+   * - noiseSuppression: Arka plan gürültüsünü azaltır (fan, klima vb.)
+   * - autoGainControl: Ses seviyesini otomatik normalize eder (fısıltı↔bağırma)
+   * - echoCancellation: Hoparlörden gelen sesin mikrofona geri dönmesini önler
+   * - deviceId: Seçili mikrofon cihazı (boşsa sistem varsayılanı)
+   *
+   * useMemo ile sarılır — VoiceRoom re-render olduğunda gereksiz yeni obje
+   * oluşmasını önler. LiveKitRoom prop comparison'ı referans bazlıdır,
+   * yeni obje → yeniden bağlantı tetikleyebilir.
+   */
+  const audioCaptureDefaults: AudioCaptureOptions = useMemo(
+    () => ({
+      noiseSuppression: true,
+      autoGainControl: true,
+      echoCancellation: true,
+      ...(inputDevice ? { deviceId: inputDevice } : {}),
+    }),
+    [inputDevice]
+  );
+
   // Token veya URL yoksa bağlanılamaz
   if (!livekitUrl || !livekitToken) {
     return (
@@ -75,6 +100,14 @@ function VoiceRoom() {
       connect={true}
       audio={true}
       video={false}
+      options={{
+        audioCaptureDefaults,
+        // webAudioMix: true → LiveKit kendi AudioContext + GainNode pipeline'ını
+        // oluşturur. Bu sayede RemoteParticipant.setVolume(n) ile n > 1 değerleri
+        // amplification yapar (GainNode.gain sınırsız). Onsuz setVolume
+        // HTMLMediaElement.volume kullanır ki 0-1 aralığıyla sınırlıdır.
+        webAudioMix: true,
+      }}
       onDisconnected={handleDisconnected}
       onError={(err) => {
         console.error("[VoiceRoom] LiveKit error:", err);
@@ -85,7 +118,9 @@ function VoiceRoom() {
       // CSS class'ları ile çakışma olmaz.
       style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}
     >
-      {/* Ses çıkışı — remote katılımcıların sesini çalar */}
+      {/* LiveKit'in resmi audio renderer'ı — remote audio track'leri otomatik attach eder.
+          webAudioMix: true ile ses AudioContext GainNode üzerinden geçer,
+          RemoteParticipant.setVolume() ile 0-200% amplification mümkün olur. */}
       <RoomAudioRenderer />
 
       {/* Store ↔ LiveKit senkronizasyonu — mute/deafen/screen share */}

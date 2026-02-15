@@ -14,6 +14,7 @@
  */
 
 import { create } from "zustand";
+import { useVoiceStore } from "./voiceStore";
 
 // ──────────────────────────────────
 // Types
@@ -62,6 +63,9 @@ type UIState = {
   openTab: (channelId: string, type: TabType, label: string, serverShort?: string) => void;
   closeTab: (panelId: string, tabId: string) => void;
   setActiveTab: (panelId: string, tabId: string) => void;
+
+  // Voice-tab sync
+  closeVoiceTabs: (channelId: string) => void;
 
   // Split actions
   splitPanel: (panelId: string, direction: SplitDirection, tabId: string, position?: "before" | "after") => void;
@@ -155,6 +159,29 @@ function updateRatioAtPath(
   return node;
 }
 
+/**
+ * triggerVoiceLeaveIfNeeded — Voice/screen tab kapatıldığında voice leave tetikler.
+ *
+ * closeTab içinde, state güncellendikten SONRA çağrılır.
+ * Sıralama önemli: Önce tab panelden çıkarılır, sonra voice leave tetiklenir.
+ * Bu sayede "voice leave → closeVoiceTabs → closeTab → voice leave" sonsuz
+ * döngüsü oluşmaz — çünkü voice leave tetiklendiğinde tab zaten yok.
+ *
+ * Recursion koruması:
+ * - closeTab voice tab'ı siler → triggerVoiceLeaveIfNeeded → _onLeaveCallback()
+ *   → leaveVoice() → leaveVoiceChannel() clears currentVoiceChannelId
+ *   → AppLayout useEffect → closeVoiceTabs(channelId) → tab zaten yok → no-op ✓
+ */
+function triggerVoiceLeaveIfNeeded(closingTab: Tab | undefined): void {
+  if (!closingTab) return;
+  if (closingTab.type !== "voice" && closingTab.type !== "screen") return;
+
+  const vs = useVoiceStore.getState();
+  if (vs.currentVoiceChannelId === closingTab.channelId && vs._onLeaveCallback) {
+    vs._onLeaveCallback();
+  }
+}
+
 // ──────────────────────────────────
 // Default state
 // ──────────────────────────────────
@@ -226,6 +253,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     const panel = state.panels[panelId];
     if (!panel) return;
 
+    // Kapatılan tab'ın bilgilerini sakla — voice/screen tab sync için lazım
+    const closingTab = panel.tabs.find((t) => t.id === tabId);
+
     const newTabs = panel.tabs.filter((t) => t.id !== tabId);
 
     // Son tab kapandı → paneli kaldır
@@ -238,6 +268,8 @@ export const useUIStore = create<UIState>((set, get) => ({
             [panelId]: { ...panel, tabs: [], activeTabId: null },
           },
         });
+        // State güncellendikten SONRA voice leave tetikle
+        triggerVoiceLeaveIfNeeded(closingTab);
         return;
       }
 
@@ -257,6 +289,8 @@ export const useUIStore = create<UIState>((set, get) => ({
         layout: newLayout ?? { type: "leaf", panelId: newActivePanelId },
         activePanelId: newActivePanelId,
       });
+      // State güncellendikten SONRA voice leave tetikle
+      triggerVoiceLeaveIfNeeded(closingTab);
       return;
     }
 
@@ -276,6 +310,40 @@ export const useUIStore = create<UIState>((set, get) => ({
         },
       },
     });
+    // State güncellendikten SONRA voice leave tetikle
+    triggerVoiceLeaveIfNeeded(closingTab);
+  },
+
+  closeVoiceTabs(channelId) {
+    /**
+     * Voice leave sonrası ilgili voice/screen tab'larını kapatır.
+     *
+     * AppLayout'taki useEffect tarafından çağrılır —
+     * currentVoiceChannelId null olduğunda (voice ayrılma sonrası).
+     *
+     * Recursion riski yok çünkü bu fonksiyon sadece voice leave SONRASI çağrılır.
+     * currentVoiceChannelId zaten null olduğu için closeTab içindeki
+     * triggerVoiceLeaveIfNeeded koşulu sağlanmaz → tekrar leave tetiklenmez.
+     */
+    const state = get();
+
+    // Tüm panellerdeki voice/screen tab'larını bul
+    const tabsToClose: { panelId: string; tabId: string }[] = [];
+    for (const [pId, panel] of Object.entries(state.panels)) {
+      for (const tab of panel.tabs) {
+        if (
+          (tab.type === "voice" || tab.type === "screen") &&
+          tab.channelId === channelId
+        ) {
+          tabsToClose.push({ panelId: pId, tabId: tab.id });
+        }
+      }
+    }
+
+    // Her birini closeTab ile kapat (state her çağrıda güncellenir)
+    for (const { panelId: pId, tabId: tId } of tabsToClose) {
+      get().closeTab(pId, tId);
+    }
   },
 
   setActiveTab(panelId, tabId) {

@@ -106,5 +106,21 @@
   "uses50": "50 kullanım",
   "uses100": "100 kullanım",
   "inviteRequired": "Davet Zorunlu",
-  "inviteRequiredDesc": "Aktifken yeni üyelerin kayıt olmak için davet kodu girmesi gerekir"
+  "inviteRequiredDesc": "Aktifken yeni üyelerin kayıt olmak için davet kodu girmesi gerekir",
+
+  "voiceInputMode": "Giriş Modu",
+  "voiceActivity": "Ses Etkinliği",
+  "voiceActivityDesc": "Konuştuğunuzda otomatik iletim",
+  "pushToTalk": "Bas-Konuş",
+  "pushToTalkDesc": "Bir tuşu basılı tutarak iletim",
+  "pttKey": "Bas-Konuş Tuşu",
+  "pttKeyHint": "Tıklayıp bir tuşa basın",
+  "pttListening": "Bir tuşa basın...",
+  "micSensitivity": "Mikrofon Hassasiyeti",
+  "inputDevice": "Giriş Cihazı",
+  "outputDevice": "Çıkış Cihazı",
+  "defaultDevice": "Varsayılan",
+  "masterVolume": "Çıkış Sesi",
+  "joinLeaveSounds": "Giriş/Çıkış Sesleri",
+  "joinLeaveSoundsDesc": "Biri ses kanalına girip çıktığında ses çal"
 }

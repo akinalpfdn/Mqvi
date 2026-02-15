@@ -37,6 +37,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useVoiceStore } from "../../stores/voiceStore";
 import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 
@@ -117,6 +118,45 @@ function AppLayout() {
 
   // Global keyboard shortcuts — Ctrl+K, Ctrl+Shift+M, Ctrl+Shift+D
   useKeyboardShortcuts({ toggleMute, toggleDeafen });
+
+  // ─── Voice ↔ Tab sync ───
+
+  /**
+   * leaveVoice callback'ini voiceStore'a kaydet.
+   * uiStore.closeTab bir voice tab kapatıldığında bu callback'i çağırır —
+   * böylece hem WS voice_leave event'i gönderilir hem de store temizlenir.
+   *
+   * Cleanup'ta null'a set ederiz — component unmount olursa stale callback kalmasın.
+   */
+  useEffect(() => {
+    useVoiceStore.getState().registerOnLeave(leaveVoice);
+    return () => {
+      useVoiceStore.getState().registerOnLeave(null);
+    };
+  }, [leaveVoice]);
+
+  /**
+   * Voice leave → tab close sync.
+   *
+   * currentVoiceChannelId değişikliğini takip eder:
+   * - Bir değerden null'a geçiş = voice kanalından ayrılma
+   * - Bu durumda o kanala ait voice/screen tab'larını kapatır
+   *
+   * prevRef ile önceki değeri tutarız — React'in useEffect cleanup'ı
+   * yeterli değil çünkü önceki değeri bilmemiz lazım.
+   */
+  const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
+  const prevVoiceChannelRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const prev = prevVoiceChannelRef.current;
+    prevVoiceChannelRef.current = currentVoiceChannelId;
+
+    // Voice kanalından ayrıldıysa → ilgili tab'ları kapat
+    if (prev && !currentVoiceChannelId) {
+      useUIStore.getState().closeVoiceTabs(prev);
+    }
+  }, [currentVoiceChannelId]);
 
   return (
     <div className="mqvi-app">

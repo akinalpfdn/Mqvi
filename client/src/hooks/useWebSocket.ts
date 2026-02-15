@@ -44,6 +44,7 @@ import {
   WS_HEARTBEAT_INTERVAL,
   WS_HEARTBEAT_MAX_MISS,
 } from "../utils/constants";
+import { playJoinSound, playLeaveSound } from "../utils/sounds";
 import type {
   WSMessage,
   Channel,
@@ -264,9 +265,22 @@ export function useWebSocket() {
       }
 
       // ─── Voice Events ───
-      case "voice_state_update":
-        useVoiceStore.getState().handleVoiceStateUpdate(msg.d as VoiceStateUpdateData);
+      case "voice_state_update": {
+        const voiceData = msg.d as VoiceStateUpdateData;
+        useVoiceStore.getState().handleVoiceStateUpdate(voiceData);
+
+        // Join/Leave sesleri — sadece başka kullanıcıların giriş/çıkışlarında çal.
+        // Kendi join/leave event'imiz için ses çalmayız (zaten biliyoruz).
+        const myUserId = useAuthStore.getState().user?.id;
+        if (voiceData.user_id !== myUserId) {
+          if (voiceData.action === "join") {
+            playJoinSound();
+          } else if (voiceData.action === "leave") {
+            playLeaveSound();
+          }
+        }
         break;
+      }
       case "voice_states_sync": {
         const syncData = msg.d as { states: VoiceState[] };
         useVoiceStore.getState().handleVoiceStatesSync(syncData.states);

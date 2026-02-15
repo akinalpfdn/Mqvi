@@ -38,7 +38,7 @@ services:
     ports:
       - "7880:7880"     # WebSocket signaling
       - "7881:7881"     # WebRTC over TCP
-      - "50000-50060:50000-50060/udp"  # WebRTC UDP media
+      - "50000-50030:50000-50030/udp"  # WebRTC UDP media
     command: --config /etc/livekit.yaml
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro

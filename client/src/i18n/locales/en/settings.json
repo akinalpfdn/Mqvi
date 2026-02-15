@@ -106,5 +106,21 @@
   "uses50": "50 uses",
   "uses100": "100 uses",
   "inviteRequired": "Require Invite",
-  "inviteRequiredDesc": "When enabled, new members must provide an invite code to register"
+  "inviteRequiredDesc": "When enabled, new members must provide an invite code to register",
+
+  "voiceInputMode": "Input Mode",
+  "voiceActivity": "Voice Activity",
+  "voiceActivityDesc": "Automatically transmit when you speak",
+  "pushToTalk": "Push to Talk",
+  "pushToTalkDesc": "Hold a key to transmit",
+  "pttKey": "PTT Key",
+  "pttKeyHint": "Click and press a key to bind",
+  "pttListening": "Press a key...",
+  "micSensitivity": "Mic Sensitivity",
+  "inputDevice": "Input Device",
+  "outputDevice": "Output Device",
+  "defaultDevice": "Default",
+  "masterVolume": "Output Volume",
+  "joinLeaveSounds": "Join/Leave Sounds",
+  "joinLeaveSoundsDesc": "Play a sound when someone joins or leaves voice"
 }

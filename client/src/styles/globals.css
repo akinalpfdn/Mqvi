@@ -389,6 +389,52 @@ button { font-family:inherit; }
 .settings-placeholder { flex-direction:column;gap:8px; }
 .settings-placeholder-text { font-size:13px;color:var(--t2); }
 
+/* Voice Settings */
+.voice-settings { max-width:660px;padding:16px 0; }
+.vs-section { margin-bottom:24px; }
+.vs-label { font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px; }
+.vs-desc { font-size:12px;color:var(--t3);margin-top:4px; }
+
+/* Radio toggle — input mode */
+.vs-radio-group { display:flex;gap:10px; }
+.vs-radio { flex:1;display:flex;align-items:flex-start;gap:10px;padding:14px 16px;background:var(--bg-3);border:2px solid var(--b1);border-radius:8px;cursor:pointer;text-align:left;transition:border-color .15s,background .15s; }
+.vs-radio:hover { border-color:var(--t3);background:var(--bg-4); }
+.vs-radio.active { border-color:var(--amber);background:var(--amber-s); }
+.vs-radio-dot { width:18px;height:18px;border-radius:999px;border:2px solid var(--t3);flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:border-color .15s; }
+.vs-radio.active .vs-radio-dot { border-color:var(--amber); }
+.vs-radio.active .vs-radio-dot::after { content:'';width:10px;height:10px;border-radius:999px;background:var(--amber); }
+.vs-radio-title { font-size:13px;font-weight:600;color:var(--t0);margin-bottom:2px; }
+
+/* Slider — range input with visible thumb + filled track */
+.vs-slider-row { display:flex;align-items:center;gap:12px; }
+.vs-range { flex:1;height:6px;-webkit-appearance:none;appearance:none;background:var(--bg-5);border-radius:3px;outline:none;cursor:pointer; }
+.vs-range::-webkit-slider-runnable-track { height:6px;border-radius:3px; }
+.vs-range::-webkit-slider-thumb { -webkit-appearance:none;width:18px;height:18px;border-radius:999px;background:var(--amber);cursor:pointer;margin-top:-6px;box-shadow:0 1px 4px rgba(0,0,0,0.4); }
+.vs-range::-moz-range-track { height:6px;border-radius:3px;background:var(--bg-5); }
+.vs-range::-moz-range-progress { height:6px;border-radius:3px;background:var(--amber); }
+.vs-range::-moz-range-thumb { width:18px;height:18px;border-radius:999px;background:var(--amber);border:none;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4); }
+.vs-range:hover::-webkit-slider-thumb { transform:scale(1.15); }
+.vs-range:hover::-moz-range-thumb { transform:scale(1.15); }
+.vs-slider-value { font-size:13px;font-weight:500;color:var(--amber);min-width:36px;text-align:right;font-variant-numeric:tabular-nums; }
+
+/* Select dropdown */
+.vs-select { width:100%;height:40px;background:var(--bg-3);border:1px solid var(--b1);border-radius:8px;padding:0 12px;color:var(--t0);font-size:13px;font-family:var(--f-ui);outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23949BA4' stroke-width='2'%3E%3Cpath d='M3 5l3 3 3-3'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center; }
+.vs-select:focus { border-color:var(--amber); }
+
+/* Keybind button — PTT key */
+.vs-keybind { display:inline-flex;align-items:center;justify-content:center;min-width:120px;height:38px;padding:0 20px;background:var(--bg-3);border:2px solid var(--b1);border-radius:6px;color:var(--t0);font-size:14px;font-weight:500;font-family:var(--f-m);cursor:pointer;transition:border-color .15s,color .15s; }
+.vs-keybind:hover { border-color:var(--amber);color:var(--amber); }
+.vs-keybind.listening { border-color:var(--amber);color:var(--amber);animation:pulse 1.5s ease-in-out infinite; }
+
+/* Toggle switch — on/off with clear state */
+.vs-toggle-row { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+.vs-switch { position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0; }
+.vs-switch input { opacity:0;width:0;height:0;position:absolute; }
+.vs-switch-slider { position:absolute;inset:0;background:var(--bg-5);border:2px solid var(--t3);border-radius:999px;cursor:pointer;transition:background .2s,border-color .2s; }
+.vs-switch-slider::before { content:'';position:absolute;left:2px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:999px;background:var(--t3);transition:transform .2s,background .2s; }
+.vs-switch input:checked + .vs-switch-slider { background:var(--amber);border-color:var(--amber); }
+.vs-switch input:checked + .vs-switch-slider::before { transform:translateX(20px) translateY(-50%);background:#fff; }
+
 /* ═══════════════════════════════════════
    AUTH PAGES (Login / Register)
    ═══════════════════════════════════════ */
@@ -526,6 +572,20 @@ button { font-family:inherit; }
 .voice-participant-compact .voice-participant-name { font-size:11px;color:var(--t1);max-width:96px;margin-top:0; }
 .voice-participant-compact .voice-participant-overlay { width:16px;height:16px;bottom:-1px;right:-1px; }
 .voice-participant-compact .voice-participant-overlay svg { width:10px;height:10px; }
+
+/* Volume popup — sağ tık ile açılan per-user volume slider */
+/* Volume popup — per-user volume slider */
+.vp-vol-popup { background:var(--bg-4);border:1px solid var(--b1);border-radius:8px;padding:12px 16px;min-width:200px;box-shadow:0 4px 16px rgba(0,0,0,0.5); }
+.vp-vol-header { font-size:12px;font-weight:600;color:var(--t0);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.vp-vol-slider { display:flex;align-items:center;gap:10px; }
+.vp-vol-slider svg { color:var(--amber); }
+.vp-vol-range { flex:1;height:6px;-webkit-appearance:none;appearance:none;background:var(--bg-5);border-radius:3px;outline:none;cursor:pointer; }
+.vp-vol-range::-webkit-slider-runnable-track { height:6px;border-radius:3px; }
+.vp-vol-range::-webkit-slider-thumb { -webkit-appearance:none;width:16px;height:16px;border-radius:999px;background:var(--amber);cursor:pointer;margin-top:-5px;box-shadow:0 1px 4px rgba(0,0,0,0.4); }
+.vp-vol-range::-moz-range-track { height:6px;border-radius:3px;background:var(--bg-5); }
+.vp-vol-range::-moz-range-progress { height:6px;border-radius:3px;background:var(--amber); }
+.vp-vol-range::-moz-range-thumb { width:16px;height:16px;border-radius:999px;background:var(--amber);border:none;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4); }
+.vp-vol-value { font-size:12px;font-weight:500;color:var(--amber);min-width:36px;text-align:right;font-variant-numeric:tabular-nums; }
 
 /* Connection status bar */
 .voice-connection-status { display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 16px;background:rgba(18,18,20,0.8); }

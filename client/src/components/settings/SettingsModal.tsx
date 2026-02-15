@@ -16,6 +16,7 @@ import RoleSettings from "./RoleSettings";
 import ProfileSettings from "./ProfileSettings";
 import ServerGeneralSettings from "./ServerGeneralSettings";
 import InviteSettings from "./InviteSettings";
+import VoiceSettings from "./VoiceSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -92,9 +93,11 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
     case "invites":
       return <InviteSettings />;
 
+    case "voice":
+      return <VoiceSettings />;
+
     // Placeholder tab'lar
     case "appearance":
-    case "voice":
     case "members":
       return (
         <div className="no-channel settings-placeholder">
