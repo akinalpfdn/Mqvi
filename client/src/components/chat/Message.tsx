@@ -73,6 +73,8 @@ function Message({ message, isCompact }: MessageProps) {
   const editMessage = useMessageStore((s) => s.editMessage);
   const deleteMessage = useMessageStore((s) => s.deleteMessage);
   const toggleReaction = useMessageStore((s) => s.toggleReaction);
+  const setReplyingTo = useMessageStore((s) => s.setReplyingTo);
+  const setScrollToMessageId = useMessageStore((s) => s.setScrollToMessageId);
   const members = useMemberStore((s) => s.members);
 
   const pinAction = usePinStore((s) => s.pin);
@@ -141,6 +143,18 @@ function Message({ message, isCompact }: MessageProps) {
     }
   }
 
+  /** Yanıt verme — ReplyBar'ı açar */
+  function handleReply() {
+    setReplyingTo(message);
+  }
+
+  /** Referans mesaja scroll — reply preview tıklayınca orijinal mesaja gider */
+  function handleScrollToReply() {
+    if (message.reply_to_id) {
+      setScrollToMessageId(message.reply_to_id);
+    }
+  }
+
   /** Emoji reaction toggle — mevcut reaction'a tıklayınca veya picker'dan seçince */
   function handleReaction(emoji: string) {
     toggleReaction(message.id, message.channel_id, emoji);
@@ -149,6 +163,12 @@ function Message({ message, isCompact }: MessageProps) {
   /** Sağ tık context menu — mesaj aksiyonları */
   function handleContextMenu(e: React.MouseEvent) {
     const items: ContextMenuItem[] = [];
+
+    // Reply — herkes
+    items.push({
+      label: t("replyMessage"),
+      onClick: handleReply,
+    });
 
     // Add Reaction — herkes
     items.push({
@@ -263,6 +283,26 @@ function Message({ message, isCompact }: MessageProps) {
               {formatTime(message.created_at)}
             </span>
           </div>
+
+          {/* Reply preview — yanıt yapılan mesajın ön izlemesi */}
+          {message.reply_to_id && (
+            <div className="msg-reply-preview" onClick={handleScrollToReply}>
+              <div className="msg-reply-bar" />
+              {message.referenced_message?.author ? (
+                <>
+                  <span className="msg-reply-author">
+                    {message.referenced_message.author.display_name ??
+                      message.referenced_message.author.username}
+                  </span>
+                  <span className="msg-reply-content">
+                    {message.referenced_message.content ?? t("noContent")}
+                  </span>
+                </>
+              ) : (
+                <span className="msg-reply-deleted">{t("replyDeleted")}</span>
+              )}
+            </div>
+          )}
 
           {/* Pin indicator — mesaj pinliyse küçük pin ikonu göster */}
           {isPinned && (
@@ -416,6 +456,12 @@ function Message({ message, isCompact }: MessageProps) {
 
       {!isEditing && (
         <div className="msg-hover-actions">
+          {/* Reply — herkes */}
+          <button onClick={handleReply} title={t("replyMessage")}>
+            <svg style={{ width: 14, height: 14 }} fill="currentColor" viewBox="0 0 24 24" stroke="none">
+              <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+            </svg>
+          </button>
           {/* Add Reaction — herkes, picker "hover" kaynağından sağ-hizalı açılır */}
           <div className="msg-reaction-add-wrap">
             <button

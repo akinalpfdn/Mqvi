@@ -41,5 +41,10 @@
   "emojiGestures": "Gestures",
   "emojiNature": "Animals & Nature",
   "emojiFood": "Food & Drink",
-  "emojiObjects": "Objects & Symbols"
+  "emojiObjects": "Objects & Symbols",
+  "replyMessage": "Reply",
+  "replyingTo": "Replying to {{user}}",
+  "replyDeleted": "Original message was deleted",
+  "unknownUser": "Unknown User",
+  "noContent": "Click to see attachment"
 }

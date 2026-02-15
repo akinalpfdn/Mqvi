@@ -11,11 +11,12 @@
  * - Auto-resize textarea
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useMessageStore } from "../../stores/messageStore";
 import FilePreview from "./FilePreview";
 import MentionAutocomplete from "./MentionAutocomplete";
+import ReplyBar from "./ReplyBar";
 import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES } from "../../utils/constants";
 
 type MessageInputProps = {
@@ -27,6 +28,8 @@ type MessageInputProps = {
 function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps) {
   const { t } = useTranslation("chat");
   const sendMessage = useMessageStore((s) => s.sendMessage);
+  const replyingTo = useMessageStore((s) => s.replyingTo);
+  const setReplyingTo = useMessageStore((s) => s.setReplyingTo);
 
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -40,17 +43,26 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  /** Mesaj gönder */
+  /** Reply seçildiğinde textarea'ya otomatik focus ver */
+  useEffect(() => {
+    if (replyingTo) {
+      textareaRef.current?.focus();
+    }
+  }, [replyingTo]);
+
+  /** Mesaj gönder — reply varsa replyToId olarak iletir */
   const handleSend = useCallback(async () => {
     if (!channelId) return;
     if (!content.trim() && files.length === 0) return;
     if (isSending) return;
 
     setIsSending(true);
-    const success = await sendMessage(channelId, content.trim(), files);
+    const replyToId = replyingTo?.id;
+    const success = await sendMessage(channelId, content.trim(), files, replyToId);
     if (success) {
       setContent("");
       setFiles([]);
+      setReplyingTo(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
@@ -63,7 +75,7 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-  }, [channelId, content, files, isSending, sendMessage]);
+  }, [channelId, content, files, isSending, sendMessage, replyingTo, setReplyingTo]);
 
   /** Klavye event handler */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -72,6 +84,13 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
       if (["Enter", "Tab", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) {
         return; // MentionAutocomplete'in global keydown listener'ı bunu yakalar
       }
+    }
+
+    // Escape — reply iptal et (mention popup kapalıysa)
+    if (e.key === "Escape" && replyingTo) {
+      e.preventDefault();
+      setReplyingTo(null);
+      return;
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
@@ -185,6 +204,14 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
           query={mentionQuery}
           onSelect={handleMentionSelect}
           onClose={handleMentionClose}
+        />
+      )}
+
+      {/* Reply bar — yanıt verilen mesajın önizlemesi */}
+      {replyingTo && (
+        <ReplyBar
+          message={replyingTo}
+          onCancel={() => setReplyingTo(null)}
         />
       )}
 

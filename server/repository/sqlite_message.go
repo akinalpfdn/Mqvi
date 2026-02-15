@@ -23,14 +23,15 @@ func NewSQLiteMessageRepo(db *sql.DB) MessageRepository {
 
 func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message) error {
 	query := `
-		INSERT INTO messages (id, channel_id, user_id, content)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?)
+		INSERT INTO messages (id, channel_id, user_id, content, reply_to_id)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
 		message.ChannelID,
 		message.UserID,
 		message.Content,
+		message.ReplyToID,
 	).Scan(&message.ID, &message.CreatedAt)
 
 	if err != nil {
@@ -43,20 +44,33 @@ func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message)
 func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Message, error) {
 	// Mesajı yazar bilgisiyle birlikte getir (JOIN).
 	// LEFT JOIN kullanıyoruz — kullanıcı silinmiş olsa bile mesaj görünür.
+	// Referans mesaj (reply) bilgisi de LEFT JOIN ile yüklenir:
+	//   - rm: yanıt yapılan mesaj
+	//   - ru: yanıt yapılan mesajın yazarı
 	query := `
-		SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at,
-		       u.id, u.username, u.display_name, u.avatar_url, u.status
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
+		       u.id, u.username, u.display_name, u.avatar_url, u.status,
+		       rm.id, rm.content,
+		       ru.id, ru.username, ru.display_name, ru.avatar_url
 		FROM messages m
 		LEFT JOIN users u ON m.user_id = u.id
+		LEFT JOIN messages rm ON m.reply_to_id = rm.id
+		LEFT JOIN users ru ON rm.user_id = ru.id
 		WHERE m.id = ?`
 
 	msg := &models.Message{}
 	var author models.User
 	var authorID sql.NullString
 
+	// Referans mesaj nullable alanları
+	var refMsgID, refMsgContent sql.NullString
+	var refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL sql.NullString
+
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.EditedAt, &msg.CreatedAt,
+		&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.EditedAt, &msg.CreatedAt, &msg.ReplyToID,
 		&authorID, &author.Username, &author.DisplayName, &author.AvatarURL, &author.Status,
+		&refMsgID, &refMsgContent,
+		&refAuthorID, &refAuthorUsername, &refAuthorDisplayName, &refAuthorAvatarURL,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -72,6 +86,8 @@ func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Mes
 		msg.Author = &author
 	}
 
+	msg.ReferencedMessage = buildMessageReference(msg.ReplyToID, refMsgID, refMsgContent, refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL)
+
 	return msg, nil
 }
 
@@ -84,6 +100,9 @@ func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Mes
 // 4. LIMIT ile sayı kısıtla
 //
 // Frontend'de mesajlar ters çevrilir (en eski üstte, en yeni altta).
+//
+// Referans mesaj (reply) bilgisi LEFT JOIN ile her mesajla birlikte yüklenir.
+// Her mesajın en fazla 1 referansı olduğundan batch load yerine JOIN tercih edildi.
 func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string, beforeID string, limit int) ([]models.Message, error) {
 	var query string
 	var args []any
@@ -91,10 +110,14 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 	if beforeID == "" {
 		// İlk yükleme — en yeni mesajlardan başla
 		query = `
-			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at,
-			       u.id, u.username, u.display_name, u.avatar_url, u.status
+			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
+			       u.id, u.username, u.display_name, u.avatar_url, u.status,
+			       rm.id, rm.content,
+			       ru.id, ru.username, ru.display_name, ru.avatar_url
 			FROM messages m
 			LEFT JOIN users u ON m.user_id = u.id
+			LEFT JOIN messages rm ON m.reply_to_id = rm.id
+			LEFT JOIN users ru ON rm.user_id = ru.id
 			WHERE m.channel_id = ?
 			ORDER BY m.created_at DESC
 			LIMIT ?`
@@ -107,10 +130,14 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 		// Ana sorgu bu tarihten önceki mesajları getirir.
 		// Bu pattern, cursor-based pagination'ın temelidir.
 		query = `
-			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at,
-			       u.id, u.username, u.display_name, u.avatar_url, u.status
+			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
+			       u.id, u.username, u.display_name, u.avatar_url, u.status,
+			       rm.id, rm.content,
+			       ru.id, ru.username, ru.display_name, ru.avatar_url
 			FROM messages m
 			LEFT JOIN users u ON m.user_id = u.id
+			LEFT JOIN messages rm ON m.reply_to_id = rm.id
+			LEFT JOIN users ru ON rm.user_id = ru.id
 			WHERE m.channel_id = ?
 			  AND m.created_at < (SELECT created_at FROM messages WHERE id = ?)
 			ORDER BY m.created_at DESC
@@ -130,9 +157,15 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 		var author models.User
 		var authorID sql.NullString
 
+		// Referans mesaj nullable alanları
+		var refMsgID, refMsgContent sql.NullString
+		var refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL sql.NullString
+
 		if err := rows.Scan(
-			&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.EditedAt, &msg.CreatedAt,
+			&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.EditedAt, &msg.CreatedAt, &msg.ReplyToID,
 			&authorID, &author.Username, &author.DisplayName, &author.AvatarURL, &author.Status,
+			&refMsgID, &refMsgContent,
+			&refAuthorID, &refAuthorUsername, &refAuthorDisplayName, &refAuthorAvatarURL,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan message row: %w", err)
 		}
@@ -142,6 +175,8 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 			author.PasswordHash = ""
 			msg.Author = &author
 		}
+
+		msg.ReferencedMessage = buildMessageReference(msg.ReplyToID, refMsgID, refMsgContent, refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL)
 
 		messages = append(messages, msg)
 	}
@@ -177,6 +212,8 @@ func (r *sqliteMessageRepo) Update(ctx context.Context, message *models.Message)
 
 func (r *sqliteMessageRepo) Delete(ctx context.Context, id string) error {
 	// ON DELETE CASCADE: mesaj silindiğinde attachment'lar da silinir (DB tarafında).
+	// Reply referansları korunur (FK yok): yanıt yapılan mesaj silinince
+	// reply_to_id aynı kalır, LEFT JOIN NULL döner → "silindi" gösterilir.
 	result, err := r.db.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete message: %w", err)
@@ -191,4 +228,49 @@ func (r *sqliteMessageRepo) Delete(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+// buildMessageReference, LEFT JOIN sonuçlarından MessageReference oluşturur.
+//
+// Üç durum:
+// 1. replyToID nil → yanıt değil → nil döner
+// 2. replyToID NOT NULL, refMsgID NULL → referans mesaj silinmiş → sadece ID'li boş referans
+// 3. replyToID NOT NULL, refMsgID NOT NULL → tam referans (yazar + içerik)
+func buildMessageReference(
+	replyToID *string,
+	refMsgID, refMsgContent sql.NullString,
+	refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL sql.NullString,
+) *models.MessageReference {
+	if replyToID == nil {
+		return nil
+	}
+
+	ref := &models.MessageReference{
+		ID: *replyToID,
+	}
+
+	// Referans mesaj hâlâ mevcut — yazar + içerik doldur
+	if refMsgID.Valid {
+		if refMsgContent.Valid {
+			ref.Content = &refMsgContent.String
+		}
+
+		if refAuthorID.Valid {
+			refAuthor := &models.User{
+				ID:       refAuthorID.String,
+				Username: refAuthorUsername.String,
+			}
+			if refAuthorDisplayName.Valid {
+				refAuthor.DisplayName = &refAuthorDisplayName.String
+			}
+			if refAuthorAvatarURL.Valid {
+				refAuthor.AvatarURL = &refAuthorAvatarURL.String
+			}
+			ref.Author = refAuthor
+		}
+	}
+	// refMsgID.Valid == false → referans mesaj silinmiş
+	// Author ve Content nil kalır → frontend "Orijinal mesaj silindi" gösterir
+
+	return ref
 }

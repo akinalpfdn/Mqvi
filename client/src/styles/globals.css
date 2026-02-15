@@ -191,6 +191,17 @@ button { font-family:inherit; }
 .emoji-picker-btn { width:100%;aspect-ratio:1;border:none;background:transparent;cursor:pointer;font-size:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:background .08s; }
 .emoji-picker-btn:hover { background:var(--bg-h); }
 
+/* Reply preview (mesaj içinde — referans mesajın ön izlemesi) */
+.msg-reply-preview { display:flex;align-items:center;gap:6px;padding:2px 0 4px;cursor:pointer;font-size:11.5px;max-width:400px; }
+.msg-reply-preview:hover { opacity:0.8; }
+.msg-reply-bar { width:2px;height:14px;border-radius:1px;background:var(--amber);flex-shrink:0; }
+.msg-reply-author { font-weight:600;color:var(--t1);white-space:nowrap; }
+.msg-reply-content { color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.msg-reply-deleted { color:var(--t3);font-style:italic; }
+
+/* Scroll-to highlight animasyonu */
+.msg-highlight { background:var(--amber-s);transition:background 2s ease-out; }
+
 /* Edit mode */
 .msg-edit-area { margin-top:4px; }
 .msg-edit-textarea { width:100%;resize:none;border-radius:8px;background:var(--bg-3);padding:8px;font-size:13px;color:var(--t0);border:none;outline:none;font-family:var(--f-ui); }
@@ -219,6 +230,16 @@ button { font-family:inherit; }
    INPUT AREA
    ═══════════════════════════════════════ */
 .input-area { padding:0 10px 10px;flex-shrink:0;position:relative;z-index:2; }
+
+/* Reply bar (input üstünde — yanıt verilen mesajın önizlemesi) */
+.reply-bar { display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-3);border-radius:8px 8px 0 0;border:1px solid var(--b1);border-bottom:none;margin-bottom:-1px; }
+.reply-bar-icon { color:var(--t2);flex-shrink:0; }
+.reply-bar-user { font-size:12px;font-weight:600;color:var(--t0);white-space:nowrap; }
+.reply-bar-text { font-size:12px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0; }
+.reply-bar-close { width:20px;height:20px;border:none;background:transparent;color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:4px; }
+.reply-bar-close:hover { color:var(--t1);background:var(--bg-h); }
+.reply-bar + .input-box { border-radius:0 0 10px 10px; }
+
 .input-box { background:var(--bg-3);border:1px solid var(--b1);border-radius:10px;display:flex;align-items:flex-end;padding:3px;transition:border-color .15s; }
 .input-box:focus-within { border-color:var(--amber); }
 .input-box button { width:30px;height:30px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px; }

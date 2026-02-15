@@ -158,6 +158,18 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		Content:   &req.Content,
 	}
 
+	// Reply validation — yanıt yapılan mesajın aynı kanalda var olduğunu doğrula
+	if req.ReplyToID != nil && *req.ReplyToID != "" {
+		refMsg, err := s.messageRepo.GetByID(ctx, *req.ReplyToID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: referenced message not found", pkg.ErrBadRequest)
+		}
+		if refMsg.ChannelID != channelID {
+			return nil, fmt.Errorf("%w: cannot reply to a message in a different channel", pkg.ErrBadRequest)
+		}
+		message.ReplyToID = req.ReplyToID
+	}
+
 	if err := s.messageRepo.Create(ctx, message); err != nil {
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
@@ -171,6 +183,19 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	message.Author = author
 	message.Attachments = []models.Attachment{} // Boş dizi
 	message.Reactions = []models.ReactionGroup{} // Yeni mesajda reaction yok
+
+	// Yanıt bilgisini yükle (API response ve WS broadcast için)
+	if message.ReplyToID != nil {
+		refMsg, err := s.messageRepo.GetByID(ctx, *message.ReplyToID)
+		if err == nil && refMsg != nil {
+			message.ReferencedMessage = &models.MessageReference{
+				ID:      refMsg.ID,
+				Author:  refMsg.Author,
+				Content: refMsg.Content,
+			}
+		}
+		// err durumunda (mesaj silinmiş olabilir) ReferencedMessage nil kalır
+	}
 
 	// Mention'ları parse et ve kaydet
 	mentionedIDs := s.extractMentions(ctx, req.Content)

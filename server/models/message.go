@@ -7,6 +7,21 @@ import (
 	"unicode/utf8"
 )
 
+// MessageReference, yanıt yapılan mesajın ön izleme bilgisi.
+//
+// Tam Message objesi yerine sadece preview için gereken alanlar taşınır:
+// - ID: Scroll-to-message için gerekli
+// - Author: Yazar adı + avatar göstermek için
+// - Content: Truncated içerik (kırpma frontend'de yapılır)
+//
+// Eğer yanıt yapılan mesaj silinmişse Author ve Content nil olur —
+// frontend bu durumda "Orijinal mesaj silindi" gösterir.
+type MessageReference struct {
+	ID      string  `json:"id"`
+	Author  *User   `json:"author,omitempty"`
+	Content *string `json:"content"`
+}
+
 // Message, bir chat mesajını temsil eder.
 // DB'deki "messages" tablosunun Go karşılığı.
 //
@@ -20,10 +35,12 @@ type Message struct {
 	Content     *string      `json:"content"`               // Nullable — sadece dosya içeren mesajlarda nil olabilir
 	EditedAt    *time.Time   `json:"edited_at"`              // Düzenlendiyse zaman damgası
 	CreatedAt   time.Time    `json:"created_at"`
+	ReplyToID   *string      `json:"reply_to_id"`            // Nullable — yanıt yapılan mesajın ID'si
 	Author      *User        `json:"author,omitempty"`       // JOIN ile gelen yazar bilgisi
 	Attachments []Attachment    `json:"attachments,omitempty"`  // İlişkili dosya ekleri
 	Mentions    []string        `json:"mentions"`               // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
 	Reactions   []ReactionGroup `json:"reactions"`              // Emoji tepkileri (batch load ile doldurulur)
+	ReferencedMessage *MessageReference `json:"referenced_message,omitempty"` // LEFT JOIN ile gelen yanıt ön izlemesi
 }
 
 // Attachment, bir mesaja eklenmiş dosyayı temsil eder.
@@ -51,7 +68,8 @@ type MessagePage struct {
 
 // CreateMessageRequest, yeni mesaj gönderme isteği.
 type CreateMessageRequest struct {
-	Content string `json:"content"`
+	Content   string  `json:"content"`
+	ReplyToID *string `json:"reply_to_id,omitempty"` // Opsiyonel — yanıt yapılacak mesajın ID'si
 }
 
 // Validate, CreateMessageRequest'in geçerli olup olmadığını kontrol eder.

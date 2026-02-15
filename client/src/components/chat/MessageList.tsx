@@ -59,6 +59,8 @@ function MessageList({ channelId }: MessageListProps) {
   const isLoadingMore = useMessageStore((s) => s.isLoadingMore);
   const fetchMessages = useMessageStore((s) => s.fetchMessages);
   const fetchOlderMessages = useMessageStore((s) => s.fetchOlderMessages);
+  const scrollToMessageId = useMessageStore((s) => s.scrollToMessageId);
+  const setScrollToMessageId = useMessageStore((s) => s.setScrollToMessageId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -116,6 +118,30 @@ function MessageList({ channelId }: MessageListProps) {
     }
   }, [isLoading, channelId]);
 
+  /**
+   * Scroll-to-message effect — reply preview tıklandığında tetiklenir.
+   * Hedef mesaja scroll eder ve kısa süreliğine highlight animasyonu uygular.
+   * scrollToMessageId set edildikten sonra tek seferlik çalışır ve null'a sıfırlanır.
+   */
+  useEffect(() => {
+    if (!scrollToMessageId) return;
+
+    const el = document.getElementById(`msg-${scrollToMessageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("msg-highlight");
+      // Highlight'ı kaldır — CSS transition ile fade out
+      const timer = setTimeout(() => {
+        el.classList.remove("msg-highlight");
+      }, 2000);
+      setScrollToMessageId(null);
+      return () => clearTimeout(timer);
+    }
+
+    // Mesaj DOM'da bulunamadı (henüz yüklenmemiş olabilir) — state'i temizle
+    setScrollToMessageId(null);
+  }, [scrollToMessageId, setScrollToMessageId]);
+
   function scrollToBottom() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -150,11 +176,16 @@ function MessageList({ channelId }: MessageListProps) {
 
   /**
    * isCompact — Aynı yazarın 5dk içindeki ardışık mesajı compact gösterilir.
+   * Reply mesajları her zaman full header gösterir (compact değil) —
+   * referans preview'ın yazar + zaman bilgisi ile birlikte görünmesi gerekir.
    */
   function isCompact(index: number): boolean {
     if (index === 0) return false;
 
     const current = messages[index];
+    // Reply mesajlar her zaman full header gösterir
+    if (current.reply_to_id) return false;
+
     const previous = messages[index - 1];
 
     if (current.user_id !== previous.user_id) return false;
@@ -203,11 +234,12 @@ function MessageList({ channelId }: MessageListProps) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: "8px 0" }}>
           {messages.map((msg, index) => (
-            <Message
-              key={msg.id}
-              message={msg}
-              isCompact={isCompact(index)}
-            />
+            <div key={msg.id} id={`msg-${msg.id}`}>
+              <Message
+                message={msg}
+                isCompact={isCompact(index)}
+              />
+            </div>
           ))}
         </div>
       )}

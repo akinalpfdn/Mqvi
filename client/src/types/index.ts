@@ -77,6 +77,20 @@ export type ReactionGroup = {
 // ──────────────────────────────────
 // Message
 // ──────────────────────────────────
+
+/**
+ * MessageReference — Yanıt yapılan mesajın ön izleme bilgisi.
+ * Backend'deki models.MessageReference struct'ının TypeScript karşılığı.
+ *
+ * Referans mesaj silinmişse author ve content null olur —
+ * bu durumda frontend "Orijinal mesaj silindi" gösterir.
+ */
+export type MessageReference = {
+  id: string;
+  author: User | null;
+  content: string | null;
+};
+
 export type Message = {
   id: string;
   channel_id: string;
@@ -84,6 +98,8 @@ export type Message = {
   content: string | null;
   edited_at: string | null;
   created_at: string;
+  reply_to_id: string | null;
+  referenced_message: MessageReference | null;
   author: User;
   attachments: Attachment[];
   mentions: string[];  // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)

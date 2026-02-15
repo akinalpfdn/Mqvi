@@ -41,5 +41,10 @@
   "emojiGestures": "El İşaretleri",
   "emojiNature": "Hayvanlar ve Doğa",
   "emojiFood": "Yiyecek ve İçecek",
-  "emojiObjects": "Nesneler ve Semboller"
+  "emojiObjects": "Nesneler ve Semboller",
+  "replyMessage": "Yanıtla",
+  "replyingTo": "{{user}} kullanıcısına yanıt",
+  "replyDeleted": "Orijinal mesaj silindi",
+  "unknownUser": "Bilinmeyen Kullanıcı",
+  "noContent": "Eki görmek için tıklayın"
 }

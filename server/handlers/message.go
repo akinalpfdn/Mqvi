@@ -91,6 +91,10 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 
 		req.Content = r.FormValue("content")
+		// Reply desteği — multipart formda reply_to_id alanı
+		if replyTo := r.FormValue("reply_to_id"); replyTo != "" {
+			req.ReplyToID = &replyTo
+		}
 	} else {
 		// JSON: sadece metin mesaj
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

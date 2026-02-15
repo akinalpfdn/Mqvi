@@ -44,12 +44,16 @@ export async function getMessages(
 export async function sendMessage(
   channelId: string,
   content: string,
-  files?: File[]
+  files?: File[],
+  replyToId?: string
 ) {
   if (files && files.length > 0) {
     // Multipart: dosya + metin
     const formData = new FormData();
     formData.append("content", content);
+    if (replyToId) {
+      formData.append("reply_to_id", replyToId);
+    }
     for (const file of files) {
       formData.append("files", file);
     }
@@ -60,10 +64,10 @@ export async function sendMessage(
     });
   }
 
-  // JSON: sadece metin
+  // JSON: sadece metin (+ opsiyonel reply)
   return apiClient<Message>(`/channels/${channelId}/messages`, {
     method: "POST",
-    body: { content },
+    body: { content, reply_to_id: replyToId },
   });
 }
 

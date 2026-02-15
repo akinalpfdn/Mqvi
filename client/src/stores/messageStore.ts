@@ -28,12 +28,22 @@ type MessageState = {
   /** Kanal bazlı typing kullanıcıları: channelId → username[] */
   typingUsers: Record<string, string[]>;
 
+  // ─── Reply State ───
+  /** Yanıt verilmekte olan mesaj (input üstünde ReplyBar gösterilir) */
+  replyingTo: Message | null;
+  /** Scroll-to-message: Bu ID'ye sahip mesaja scroll et ve highlight yap */
+  scrollToMessageId: string | null;
+
   // ─── Actions ───
   fetchMessages: (channelId: string) => Promise<void>;
   fetchOlderMessages: (channelId: string) => Promise<void>;
-  sendMessage: (channelId: string, content: string, files?: File[]) => Promise<boolean>;
+  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string) => Promise<boolean>;
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   deleteMessage: (messageId: string) => Promise<boolean>;
+
+  // ─── Reply Actions ───
+  setReplyingTo: (message: Message | null) => void;
+  setScrollToMessageId: (id: string | null) => void;
 
   // ─── Reactions ───
   toggleReaction: (messageId: string, channelId: string, emoji: string) => Promise<void>;
@@ -58,6 +68,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   isLoading: false,
   isLoadingMore: false,
   typingUsers: {},
+  replyingTo: null,
+  scrollToMessageId: null,
 
   /**
    * fetchMessages — Bir kanalın mesajlarını ilk kez yükler.
@@ -119,8 +131,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
-  sendMessage: async (channelId, content, files) => {
-    const res = await messageApi.sendMessage(channelId, content, files);
+  sendMessage: async (channelId, content, files, replyToId) => {
+    const res = await messageApi.sendMessage(channelId, content, files, replyToId);
     // Mesaj WS üzerinden gelecek (handleMessageCreate), HTTP response'u beklemeye gerek yok
     return res.success;
   },
@@ -134,6 +146,17 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const res = await messageApi.deleteMessage(messageId);
     return res.success;
   },
+
+  // ─── Reply Actions ───
+
+  setReplyingTo: (message) => set({ replyingTo: message }),
+
+  /**
+   * setScrollToMessageId — Belirtilen mesaja scroll et.
+   * Değer set edildikten sonra UI tarafında scrollIntoView + highlight yapılır,
+   * ardından null'a sıfırlanır (tek seferlik tetikleme).
+   */
+  setScrollToMessageId: (id) => set({ scrollToMessageId: id }),
 
   // ─── Reactions ───
 
@@ -203,10 +226,20 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const channelMessages = state.messagesByChannel[data.channel_id];
       if (!channelMessages) return state;
 
+      // Silinen mesajı listeden çıkar + ona reply yapan mesajların
+      // referenced_message'ını null'a çevir → "Orijinal mesaj silindi" gösterilir.
+      const updated = channelMessages
+        .filter((m) => m.id !== data.id)
+        .map((m) =>
+          m.reply_to_id === data.id
+            ? { ...m, referenced_message: { id: data.id, author: null, content: null } }
+            : m
+        );
+
       return {
         messagesByChannel: {
           ...state.messagesByChannel,
-          [data.channel_id]: channelMessages.filter((m) => m.id !== data.id),
+          [data.channel_id]: updated,
         },
       };
     });
