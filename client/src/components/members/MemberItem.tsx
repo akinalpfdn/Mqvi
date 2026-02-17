@@ -19,6 +19,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
 import type { MemberWithRoles } from "../../types";
@@ -62,6 +63,7 @@ function getStatusClass(status: string): string {
 function MemberItem({ member, isOnline }: MemberItemProps) {
   const { t } = useTranslation("common");
   const { menuState, openMenu, closeMenu } = useContextMenu();
+  const confirm = useConfirm();
   const currentUser = useAuthStore((s) => s.user);
   const members = useMemberStore((s) => s.members);
   const [showCard, setShowCard] = useState(false);
@@ -110,9 +112,12 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         items.push({
           label: t("kick"),
           onClick: async () => {
-            if (window.confirm(t("confirmKick", { username: member.username }))) {
-              await memberApi.kickMember(member.id);
-            }
+            const ok = await confirm({
+              message: t("confirmKick", { username: member.username }),
+              confirmLabel: t("kick"),
+              danger: true,
+            });
+            if (ok) await memberApi.kickMember(member.id);
           },
           danger: true,
           separator: true,
@@ -124,9 +129,12 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         items.push({
           label: t("ban"),
           onClick: async () => {
-            if (window.confirm(t("confirmBan", { username: member.username }))) {
-              await memberApi.banMember(member.id, "");
-            }
+            const ok = await confirm({
+              message: t("confirmBan", { username: member.username }),
+              confirmLabel: t("ban"),
+              danger: true,
+            });
+            if (ok) await memberApi.banMember(member.id, "");
           },
           danger: true,
         });
@@ -134,7 +142,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
 
       openMenu(e, items);
     },
-    [currentUser, member, members, openMenu, t]
+    [currentUser, member, members, openMenu, confirm, t]
   );
 
   const handleClick = useCallback(() => {

@@ -27,7 +27,7 @@ var mentionRegex = regexp.MustCompile(`@(\w+)`)
 
 // MessageService, mesaj iş mantığı interface'i.
 type MessageService interface {
-	GetByChannelID(ctx context.Context, channelID string, beforeID string, limit int) (*models.MessagePage, error)
+	GetByChannelID(ctx context.Context, channelID string, userID string, beforeID string, limit int) (*models.MessagePage, error)
 	Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error)
 	BroadcastCreate(message *models.Message)
 	Update(ctx context.Context, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error)
@@ -42,10 +42,12 @@ type messageService struct {
 	mentionRepo    repository.MentionRepository
 	reactionRepo   repository.ReactionRepository
 	hub            ws.EventPublisher
+	permResolver   ChannelPermResolver
 }
 
 // NewMessageService, constructor.
 // reactionRepo: Mesajlar listelenirken reaction'ları batch yüklemek için gerekir.
+// permResolver: Kanal bazlı permission override kontrolü (SendMessages, ReadMessages).
 func NewMessageService(
 	messageRepo repository.MessageRepository,
 	attachmentRepo repository.AttachmentRepository,
@@ -54,6 +56,7 @@ func NewMessageService(
 	mentionRepo repository.MentionRepository,
 	reactionRepo repository.ReactionRepository,
 	hub ws.EventPublisher,
+	permResolver ChannelPermResolver,
 ) MessageService {
 	return &messageService{
 		messageRepo:    messageRepo,
@@ -63,11 +66,24 @@ func NewMessageService(
 		mentionRepo:    mentionRepo,
 		reactionRepo:   reactionRepo,
 		hub:            hub,
+		permResolver:   permResolver,
 	}
 }
 
 // GetByChannelID, belirli bir kanalın mesajlarını cursor-based pagination ile döner.
-func (s *messageService) GetByChannelID(ctx context.Context, channelID string, beforeID string, limit int) (*models.MessagePage, error) {
+//
+// Kanal bazlı ReadMessages permission kontrolü yapılır.
+// Override ile deny edilmişse kullanıcı bu kanalın mesajlarını göremez.
+func (s *messageService) GetByChannelID(ctx context.Context, channelID string, userID string, beforeID string, limit int) (*models.MessagePage, error) {
+	// Kanal bazlı ReadMessages kontrolü
+	channelPerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
+	}
+	if !channelPerms.Has(models.PermReadMessages) {
+		return nil, fmt.Errorf("%w: missing read messages permission for this channel", pkg.ErrForbidden)
+	}
+
 	// Limit kontrolü
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -142,6 +158,9 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, b
 }
 
 // Create, yeni bir mesaj oluşturur ve tüm bağlı kullanıcılara bildirir.
+//
+// Kanal bazlı SendMessages permission kontrolü yapılır.
+// Override ile deny edilmişse kullanıcı bu kanala mesaj gönderemez.
 func (s *messageService) Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
@@ -150,6 +169,15 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	// Kanal var mı kontrol et
 	if _, err := s.channelRepo.GetByID(ctx, channelID); err != nil {
 		return nil, err
+	}
+
+	// Kanal bazlı SendMessages kontrolü
+	channelPerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
+	}
+	if !channelPerms.Has(models.PermSendMessages) {
+		return nil, fmt.Errorf("%w: missing send messages permission for this channel", pkg.ErrForbidden)
 	}
 
 	message := &models.Message{

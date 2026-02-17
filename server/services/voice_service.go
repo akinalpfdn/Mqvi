@@ -49,13 +49,6 @@ type ChannelGetter interface {
 	GetByID(ctx context.Context, id string) (*models.Channel, error)
 }
 
-// PermissionProvider, bir kullanıcının rollerini getirmek için minimal interface.
-// Roller üzerinden effective permissions hesaplanır.
-// repository.RoleRepository bu interface'i otomatik karşılar.
-type PermissionProvider interface {
-	GetByUserID(ctx context.Context, userID string) ([]models.Role, error)
-}
-
 // ─── VoiceService Interface ───
 
 // VoiceService, ses kanalı operasyonları için iş mantığı interface'i.
@@ -106,7 +99,7 @@ type voiceService struct {
 
 	// Dependency'ler — interface üzerinden enjekte edilir (DI)
 	channelGetter ChannelGetter
-	permProvider  PermissionProvider
+	permResolver  ChannelPermResolver // Kanal bazlı permission override çözümleme (rol + channel override)
 	hub           ws.EventPublisher
 	livekitCfg    config.LiveKitConfig
 }
@@ -117,16 +110,18 @@ const maxScreenShares = 2
 
 // NewVoiceService, yeni bir VoiceService oluşturur.
 // Constructor injection pattern: tüm dependency'ler parametre olarak alınır.
+// permResolver: Kanal bazlı permission override çözümleme — ConnectVoice, Speak, Stream
+// kontrolünde rol + kanal override birlikte hesaplanır.
 func NewVoiceService(
 	channelGetter ChannelGetter,
-	permProvider PermissionProvider,
+	permResolver ChannelPermResolver,
 	hub ws.EventPublisher,
 	livekitCfg config.LiveKitConfig,
 ) VoiceService {
 	return &voiceService{
 		states:        make(map[string]*models.VoiceState),
 		channelGetter: channelGetter,
-		permProvider:  permProvider,
+		permResolver:  permResolver,
 		hub:           hub,
 		livekitCfg:    livekitCfg,
 	}
@@ -144,15 +139,14 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, chan
 		return nil, fmt.Errorf("%w: not a voice channel", pkg.ErrBadRequest)
 	}
 
-	// 2. Kullanıcının rollerini al ve effective permissions hesapla
-	roles, err := s.permProvider.GetByUserID(ctx, userID)
+	// 2. Kanal bazlı effective permissions hesapla (override'lar dahil)
+	//
+	// ResolveChannelPermissions, Discord algoritmasını uygular:
+	// base (tüm rollerin OR'u) + channel override'lar (allow/deny).
+	// Admin yetkisi tüm override'ları bypass eder.
+	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user roles: %w", err)
-	}
-
-	var effectivePerms models.Permission
-	for _, role := range roles {
-		effectivePerms |= role.Permissions
+		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
 	}
 
 	// 3. PermConnectVoice kontrolü

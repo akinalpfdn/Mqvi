@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useRoleStore } from "../../stores/roleStore";
 import { useToastStore } from "../../stores/toastStore";
+import { useConfirm } from "../../hooks/useConfirm";
 import { Permissions } from "../../utils/permissions";
 import PermissionToggle from "./PermissionToggle";
 import ColorPicker from "./ColorPicker";
@@ -28,8 +29,9 @@ const PERMISSION_DEFS = [
   { bit: Permissions.ManageMessages, label: "permManageMessages", desc: "permManageMessagesDesc" },
   { bit: Permissions.SendMessages, label: "permSendMessages", desc: "permSendMessagesDesc" },
   { bit: Permissions.ReadMessages, label: "permReadMessages", desc: "permReadMessagesDesc" },
-  { bit: Permissions.Connect, label: "permConnect", desc: "permConnectDesc" },
+  { bit: Permissions.ConnectVoice, label: "permConnect", desc: "permConnectDesc" },
   { bit: Permissions.Speak, label: "permSpeak", desc: "permSpeakDesc" },
+  { bit: Permissions.Stream, label: "permStream", desc: "permStreamDesc" },
   { bit: Permissions.ManageInvites, label: "permManageInvites", desc: "permManageInvitesDesc" },
 ] as const;
 
@@ -46,6 +48,7 @@ function RoleSettings() {
     deleteRole,
   } = useRoleStore();
   const addToast = useToastStore((s) => s.addToast);
+  const confirm = useConfirm();
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
   const [editName, setEditName] = useState("");
@@ -92,7 +95,7 @@ function RoleSettings() {
     const success = await createRole({
       name: "New Role",
       color: "#99AAB5",
-      permissions: Permissions.SendMessages | Permissions.ReadMessages,
+      permissions: Permissions.SendMessages | Permissions.ReadMessages | Permissions.ConnectVoice | Permissions.Speak,
     });
     if (success) {
       addToast("success", t("roleCreated"));
@@ -103,7 +106,12 @@ function RoleSettings() {
 
   async function handleDelete() {
     if (!selectedRole) return;
-    if (!confirm(t("confirmDeleteRole", { name: selectedRole.name }))) return;
+    const ok = await confirm({
+      message: t("confirmDeleteRole", { name: selectedRole.name }),
+      confirmLabel: t("deleteRole"),
+      danger: true,
+    });
+    if (!ok) return;
     const success = await deleteRole(selectedRole.id);
     if (success) {
       addToast("success", t("roleDeleted"));
@@ -121,23 +129,23 @@ function RoleSettings() {
   }
 
   return (
-    <div style={{ display: "flex", height: "100%" }}>
+    <div className="channel-settings-wrapper">
       {/* Sol Panel: Rol Listesi */}
       <div className="role-list">
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 8px" }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)" }}>
+        <div className="channel-settings-header">
+          <span className="channel-settings-header-label">
             {t("roles")}
           </span>
-          <button onClick={handleCreate} className="settings-btn" style={{ height: 28, padding: "0 10px", fontSize: 11 }}>
+          <button onClick={handleCreate} className="settings-btn channel-settings-header-btn">
             {t("createRole")}
           </button>
         </div>
 
         {/* Rol listesi */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "0 4px" }}>
+        <div className="channel-settings-ch-list">
           {roles.map((role) => (
-            <button
+            <div
               key={role.id}
               onClick={() => selectRole(role.id)}
               className={`role-list-item${role.id === selectedRoleId ? " active" : ""}`}
@@ -147,15 +155,15 @@ function RoleSettings() {
                 style={{ backgroundColor: role.color || "#99AAB5" }}
               />
               <span className="role-list-name">{role.name}</span>
-            </button>
+            </div>
           ))}
         </div>
       </div>
 
       {/* Sağ Panel: Rol Editörü */}
-      <div className="settings-content" style={{ padding: 24 }}>
+      <div className="settings-content channel-settings-right">
         {selectedRole ? (
-          <div style={{ maxWidth: 560 }}>
+          <div className="channel-perm-section">
             {/* Rol adı */}
             <div className="settings-field">
               <label className="settings-label">{t("roleName")}</label>

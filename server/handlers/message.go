@@ -40,6 +40,12 @@ func NewMessageHandler(
 func (h *MessageHandler) List(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
 	beforeID := r.URL.Query().Get("before")
 
 	limit := 50
@@ -49,7 +55,7 @@ func (h *MessageHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	page, err := h.messageService.GetByChannelID(r.Context(), channelID, beforeID, limit)
+	page, err := h.messageService.GetByChannelID(r.Context(), channelID, user.ID, beforeID, limit)
 	if err != nil {
 		pkg.Error(w, err)
 		return

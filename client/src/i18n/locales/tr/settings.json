@@ -38,6 +38,8 @@
   "permConnectDesc": "Ses kanallarına katılma",
   "permSpeak": "Konuş",
   "permSpeakDesc": "Ses kanallarında konuşma",
+  "permStream": "Ekran Paylaşımı",
+  "permStreamDesc": "Ses kanallarında ekran paylaşımı",
   "permAdmin": "Yönetici",
   "permAdminDesc": "Bu yetkiye sahip üyeler tüm yetkilere sahiptir ve kanal bazlı kısıtlamaları atlayabilir",
   "permAdminWarning": "Bu yetkiyi vermek tehlikeli olabilir!",
@@ -123,5 +125,16 @@
   "defaultDevice": "Varsayılan",
   "masterVolume": "Çıkış Sesi",
   "joinLeaveSounds": "Giriş/Çıkış Sesleri",
-  "joinLeaveSoundsDesc": "Biri ses kanalına girip çıktığında ses çal"
+  "joinLeaveSoundsDesc": "Biri ses kanalına girip çıktığında ses çal",
+
+  "selectChannelToEdit": "İzinlerini düzenlemek için bir kanal seçin",
+  "selectRoleToEdit": "Override düzenlemek için bir rol seçin",
+  "textPermissions": "Metin İzinleri",
+  "voicePermissions": "Ses İzinleri",
+  "channelPermDesc": "Bu kanal için rol izinlerini geçersiz kılın. Devral, rolün varsayılan ayarını kullanır.",
+  "channelPermSaved": "Kanal izni kaydedildi",
+  "channelPermSaveError": "Kanal izni kaydedilemedi",
+  "permOverrideInherit": "Devral",
+  "permOverrideAllow": "İzin Ver",
+  "permOverrideDeny": "Reddet"
 }

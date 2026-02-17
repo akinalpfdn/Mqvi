@@ -27,6 +27,7 @@ import MemberList from "./MemberList";
 import Dock from "./Dock";
 import VoicePopup from "../voice/VoicePopup";
 import ToastContainer from "../shared/ToastContainer";
+import ConfirmDialog from "../shared/ConfirmDialog";
 import SettingsModal from "../settings/SettingsModal";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
@@ -185,6 +186,9 @@ function AppLayout() {
 
       {/* Settings modal — tam ekran overlay (z-50) */}
       <SettingsModal />
+
+      {/* Onay dialogu — window.confirm() yerine (z-50) */}
+      <ConfirmDialog />
 
       {/* Toast notifications — sağ alt köşe (z-100) */}
       <ToastContainer />

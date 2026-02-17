@@ -38,6 +38,8 @@
   "permConnectDesc": "Join voice channels",
   "permSpeak": "Speak",
   "permSpeakDesc": "Speak in voice channels",
+  "permStream": "Screen Share",
+  "permStreamDesc": "Share screen in voice channels",
   "permAdmin": "Administrator",
   "permAdminDesc": "Members with this permission have every permission and can bypass channel-specific overrides",
   "permAdminWarning": "This is a dangerous permission to grant!",
@@ -123,5 +125,16 @@
   "defaultDevice": "Default",
   "masterVolume": "Output Volume",
   "joinLeaveSounds": "Join/Leave Sounds",
-  "joinLeaveSoundsDesc": "Play a sound when someone joins or leaves voice"
+  "joinLeaveSoundsDesc": "Play a sound when someone joins or leaves voice",
+
+  "selectChannelToEdit": "Select a channel to edit its permissions",
+  "selectRoleToEdit": "Select a role to edit overrides",
+  "textPermissions": "Text Permissions",
+  "voicePermissions": "Voice Permissions",
+  "channelPermDesc": "Override role permissions for this channel. Inherit uses the role's default setting.",
+  "channelPermSaved": "Channel permission saved",
+  "channelPermSaveError": "Failed to save channel permission",
+  "permOverrideInherit": "Inherit",
+  "permOverrideAllow": "Allow",
+  "permOverrideDeny": "Deny"
 }

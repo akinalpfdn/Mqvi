@@ -23,9 +23,11 @@ type MessageInputProps = {
   sendTyping: (channelId: string) => void;
   channelId: string;
   channelName: string;
+  /** Kullanıcının bu kanalda mesaj gönderme yetkisi var mı? */
+  canSend: boolean;
 };
 
-function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps) {
+function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageInputProps) {
   const { t } = useTranslation("chat");
   const sendMessage = useMessageStore((s) => s.sendMessage);
   const replyingTo = useMessageStore((s) => s.replyingTo);
@@ -195,6 +197,17 @@ function MessageInput({ sendTyping, channelId, channelName }: MessageInputProps)
   }
 
   if (!channelId) return null;
+
+  // Mesaj gönderme yetkisi yoksa disabled durum göster
+  if (!canSend) {
+    return (
+      <div className="input-area">
+        <div className="input-box input-box-disabled">
+          <span className="input-no-perm">{t("noSendPermission")}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="input-area">

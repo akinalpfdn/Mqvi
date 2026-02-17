@@ -39,6 +39,7 @@ import { useReadStateStore } from "../stores/readStateStore";
 import { useAuthStore } from "../stores/authStore";
 import { useUIStore } from "../stores/uiStore";
 import { useDMStore } from "../stores/dmStore";
+import { useChannelPermissionStore } from "../stores/channelPermissionStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
@@ -61,6 +62,7 @@ import type {
   DMChannelWithUser,
   DMMessage,
   ReactionGroup,
+  ChannelPermissionOverride,
 } from "../types";
 
 /** Reconnect denemesi arasındaki bekleme süresi (ms) */
@@ -342,6 +344,20 @@ export function useWebSocket() {
           msg.d as { id: string; dm_channel_id: string }
         );
         break;
+
+      // ─── Channel Permission Events ───
+      case "channel_permission_update":
+        useChannelPermissionStore
+          .getState()
+          .handleOverrideUpdate(msg.d as ChannelPermissionOverride);
+        break;
+      case "channel_permission_delete": {
+        const cpDel = msg.d as { channel_id: string; role_id: string };
+        useChannelPermissionStore
+          .getState()
+          .handleOverrideDelete(cpDel.channel_id, cpDel.role_id);
+        break;
+      }
 
       // ─── Server Events ───
       case "server_update":

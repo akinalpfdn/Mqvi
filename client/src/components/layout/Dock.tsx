@@ -35,6 +35,7 @@ import ContextMenu from "../shared/ContextMenu";
 import { ChannelSkeleton } from "../shared/Skeleton";
 import DMList from "../dm/DMList";
 import { useToastStore } from "../../stores/toastStore";
+import { useConfirm } from "../../hooks/useConfirm";
 import * as channelApi from "../../api/channels";
 import type { Channel } from "../../types";
 
@@ -380,6 +381,7 @@ function Dock({ onJoinVoice }: DockProps) {
 
   // ─── Channel Create State ───
   const addToast = useToastStore((s) => s.addToast);
+  const confirmDialog = useConfirm();
   /** Hangi tür kanal oluşturuluyor? null → popup kapalı */
   const [creatingType, setCreatingType] = useState<"text" | "voice" | null>(null);
   const [createName, setCreateName] = useState("");
@@ -467,7 +469,12 @@ function Dock({ onJoinVoice }: DockProps) {
         items.push({
           label: tCh("deleteChannel"),
           onClick: async () => {
-            if (window.confirm(tCh("deleteConfirm", { name: channel.name }))) {
+            const ok = await confirmDialog({
+              message: tCh("deleteConfirm", { name: channel.name }),
+              confirmLabel: tCh("deleteChannel"),
+              danger: true,
+            });
+            if (ok) {
               const { deleteChannel } = await import("../../api/channels");
               await deleteChannel(channel.id);
             }

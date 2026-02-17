@@ -13,6 +13,9 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useUIStore } from "../../stores/uiStore";
 import { usePinStore } from "../../stores/pinStore";
+import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
+import { useChannelPermissions } from "../../hooks/useChannelPermissions";
+import { Permissions } from "../../utils/permissions";
 import MessageList from "../chat/MessageList";
 import MessageInput from "../chat/MessageInput";
 import TypingIndicator from "../chat/TypingIndicator";
@@ -32,18 +35,22 @@ function ChatArea({ channelId, channel, sendTyping }: ChatAreaProps) {
   const membersOpen = useUIStore((s) => s.membersOpen);
   const getPinsForChannel = usePinStore((s) => s.getPinsForChannel);
   const fetchPins = usePinStore((s) => s.fetchPins);
+  const fetchOverrides = useChannelPermissionStore((s) => s.fetchOverrides);
+  const { hasChannelPerm } = useChannelPermissions(channelId);
 
   const [showPins, setShowPins] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
 
-  // Kanal değiştiğinde pin verilerini çek — mesajlarda pin ikonu göstermek için
+  // Kanal değiştiğinde pin ve channel permission override verilerini çek
   useEffect(() => {
     if (channelId) {
       fetchPins(channelId);
+      fetchOverrides(channelId);
     }
-  }, [channelId, fetchPins]);
+  }, [channelId, fetchPins, fetchOverrides]);
 
   const pinCount = getPinsForChannel(channelId).length;
+  const canSend = hasChannelPerm(Permissions.SendMessages);
 
   return (
     <div className="chat-area">
@@ -125,6 +132,7 @@ function ChatArea({ channelId, channel, sendTyping }: ChatAreaProps) {
         sendTyping={sendTyping}
         channelId={channelId}
         channelName={channel?.name ?? ""}
+        canSend={canSend}
       />
     </div>
   );

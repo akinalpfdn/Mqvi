@@ -18,6 +18,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
 
@@ -29,6 +30,7 @@ type MemberCardProps = {
 
 function MemberCard({ member, position, onClose }: MemberCardProps) {
   const { t } = useTranslation("common");
+  const confirm = useConfirm();
   const cardRef = useRef<HTMLDivElement>(null);
   const currentUser = useAuthStore((s) => s.user);
 
@@ -69,15 +71,24 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   const joinDate = new Date(member.created_at).toLocaleDateString();
 
   async function handleKick() {
-    if (!confirm(t("confirmKick", { username: member.username }))) return;
+    const ok = await confirm({
+      message: t("confirmKick", { username: member.username }),
+      confirmLabel: t("kick"),
+      danger: true,
+    });
+    if (!ok) return;
     await memberApi.kickMember(member.id);
     onClose();
   }
 
   async function handleBan() {
-    const reason = prompt(t("banReason")) ?? "";
-    if (!confirm(t("confirmBan", { username: member.username }))) return;
-    await memberApi.banMember(member.id, reason);
+    const ok = await confirm({
+      message: t("confirmBan", { username: member.username }),
+      confirmLabel: t("ban"),
+      danger: true,
+    });
+    if (!ok) return;
+    await memberApi.banMember(member.id, "");
     onClose();
   }
 

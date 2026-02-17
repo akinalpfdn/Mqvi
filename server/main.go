@@ -93,6 +93,7 @@ func main() {
 	mentionRepo := repository.NewSQLiteMentionRepo(db.Conn)
 	dmRepo := repository.NewSQLiteDMRepo(db.Conn)
 	reactionRepo := repository.NewSQLiteReactionRepo(db.Conn)
+	channelPermRepo := repository.NewSQLiteChannelPermRepo(db.Conn)
 
 	// ─── 6. WebSocket Hub ───
 	//
@@ -103,10 +104,14 @@ func main() {
 	// service'ler hub'a doğrudan bağımlı olmak yerine interface üzerinden erişir.
 	hub := ws.NewHub()
 
+	// ChannelPermissionService — VoiceService ve MessageService'den ÖNCE oluşturulmalı,
+	// çünkü ikisi de kanal bazlı permission resolution için buna bağımlı.
+	channelPermService := services.NewChannelPermissionService(channelPermRepo, roleRepo, hub)
+
 	// VoiceService — Hub callback'lerinden önce oluşturulmalı çünkü
 	// OnUserFullyDisconnected callback'i voice cleanup için voiceService'e ihtiyaç duyar.
-	// Dependency'leri (channelRepo, roleRepo, hub, cfg.LiveKit) zaten hazır.
-	voiceService := services.NewVoiceService(channelRepo, roleRepo, hub, cfg.LiveKit)
+	// channelPermService kanal bazlı permission resolution sağlar (rol + override).
+	voiceService := services.NewVoiceService(channelRepo, channelPermService, hub, cfg.LiveKit)
 
 	// Hub presence callback'leri — kullanıcı ilk bağlandığında veya
 	// tamamen koptuğunda DB güncelle ve tüm client'lara broadcast et.
@@ -215,7 +220,7 @@ func main() {
 
 	channelService := services.NewChannelService(channelRepo, categoryRepo, hub)
 	categoryService := services.NewCategoryService(categoryRepo, hub)
-	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, mentionRepo, reactionRepo, hub)
+	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, mentionRepo, reactionRepo, hub, channelPermService)
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, hub)
 	roleService := services.NewRoleService(roleRepo, userRepo, hub)
@@ -225,7 +230,7 @@ func main() {
 	readStateService := services.NewReadStateService(readStateRepo)
 	dmService := services.NewDMService(dmRepo, userRepo, hub)
 	reactionService := services.NewReactionService(reactionRepo, messageRepo, hub)
-	// voiceService yukarıda (Hub callback'lerinden önce) oluşturuldu
+	// voiceService ve channelPermService yukarıda (Hub callback'lerinden önce) oluşturuldu
 
 	// ─── 8. Handler Layer ───
 	authHandler := handlers.NewAuthHandler(authService)
@@ -242,6 +247,7 @@ func main() {
 	readStateHandler := handlers.NewReadStateHandler(readStateService)
 	dmHandler := handlers.NewDMHandler(dmService)
 	reactionHandler := handlers.NewReactionHandler(reactionService)
+	channelPermHandler := handlers.NewChannelPermissionHandler(channelPermService)
 	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
 	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService)
 
@@ -385,6 +391,15 @@ func main() {
 		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Update))))
 	mux.Handle("DELETE /api/roles/{id}", authMiddleware.Require(
 		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Delete))))
+
+	// Channel Permissions — kanal bazlı permission override yönetimi
+	// List herkese açık (authenticated), CUD için ManageChannels yetkisi gerekir
+	mux.Handle("GET /api/channels/{id}/permissions", authMiddleware.Require(
+		http.HandlerFunc(channelPermHandler.ListOverrides)))
+	mux.Handle("PUT /api/channels/{channelId}/permissions/{roleId}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelPermHandler.SetOverride))))
+	mux.Handle("DELETE /api/channels/{channelId}/permissions/{roleId}", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelPermHandler.DeleteOverride))))
 
 	// DMs — Direct Messages, authenticated kullanıcılar arası özel mesajlaşma
 	mux.Handle("GET /api/dms", authMiddleware.Require(

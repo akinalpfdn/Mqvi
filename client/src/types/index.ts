@@ -75,6 +75,26 @@ export type ReactionGroup = {
 };
 
 // ──────────────────────────────────
+// Channel Permission Override
+// ──────────────────────────────────
+
+/**
+ * ChannelPermissionOverride — Kanal bazlı permission override.
+ * Backend'deki models.ChannelPermissionOverride struct'ının TypeScript karşılığı.
+ *
+ * Discord'un override sistemi:
+ * - allow: Bu bit'ler role'un varsayılan permission'ına eklenir (izin ver)
+ * - deny: Bu bit'ler role'un varsayılan permission'ından çıkarılır (engelle)
+ * - İkisi de 0 ise: inherit (role'un varsayılan permission'ı geçerli)
+ */
+export type ChannelPermissionOverride = {
+  channel_id: string;
+  role_id: string;
+  allow: number;
+  deny: number;
+};
+
+// ──────────────────────────────────
 // Message
 // ──────────────────────────────────
 

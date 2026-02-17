@@ -67,6 +67,10 @@ const (
 	// Reaction (emoji tepki) operasyonları
 	OpReactionUpdate = "reaction_update" // Mesajın reaction listesi güncellendi
 
+	// Channel permission override operasyonları
+	OpChannelPermissionUpdate = "channel_permission_update" // Kanal permission override oluşturuldu/güncellendi
+	OpChannelPermissionDelete = "channel_permission_delete" // Kanal permission override silindi
+
 	// Channel reorder (kanal sıralama)
 	OpChannelReorder = "channel_reorder" // Kanal sıralaması güncellendi — tam CategoryWithChannels[] listesi
 
