@@ -68,7 +68,7 @@ button { font-family:inherit; }
 .top-bar { height:40px;background:var(--bg-1);border-bottom:1px solid var(--b1);display:flex;align-items:center;padding:0 10px;flex-shrink:0; }
 .server-pill { display:flex;align-items:center;gap:7px;padding:4px 12px 4px 6px;background:var(--bg-3);border:1px solid var(--b1);border-radius:999px;cursor:pointer; }
 .server-pill:hover { background:var(--bg-4);border-color:var(--b2); }
-.sp-avatar { width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--amber),#a06840);display:flex;align-items:center;justify-content:center;font-family:var(--f-d);font-size:11px;font-weight:700;color:#fff; }
+.sp-avatar { width:26px;height:26px;border-radius:7px;object-fit:cover;flex-shrink:0; }
 .sp-name { font-size:15px;font-weight:700;color:var(--t0);font-family:var(--f-d);letter-spacing:0.01em; }
 .sp-chevron { font-size:10px;color:var(--t3); }
 
@@ -375,7 +375,8 @@ button { font-family:inherit; }
 .dock-item { width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .18s cubic-bezier(.22,1,.36,1);position:relative;background:var(--bg-3);border:1px solid transparent;color:var(--t1);font-family:var(--f-d);font-size:15px;font-weight:700; }
 .dock-item:hover { transform:translateY(-8px) scale(1.12);background:var(--bg-4);border-color:var(--b2);box-shadow:0 6px 20px rgba(0,0,0,0.4); }
 .dock-item:hover + .dock-item { transform:translateY(-2px) scale(1.04); }
-.dock-srv.active { background:linear-gradient(135deg,var(--amber),#a06840);color:#fff;border-color:transparent; }
+.dock-srv.active { background:transparent;border-color:transparent;overflow:hidden;padding:0; }
+.dock-srv-icon { width:100%;height:100%;border-radius:inherit;object-fit:cover; }
 .dock-add { border:1px dashed var(--b2);background:transparent;color:var(--t3);font-size:20px; }
 .dock-util-icon { font-size:19px;color:var(--t1);transition:color .1s; }
 .dock-item:hover .dock-util-icon { color:var(--t0); }
@@ -385,7 +386,6 @@ button { font-family:inherit; }
 .dock-dot { position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);width:5px;height:5px;background:var(--amber);border-radius:999px; }
 .dock-separator { width:1px;height:30px;background:rgba(255,255,255,0.08);margin:0 4px;align-self:center; }
 .dock-profile { border-radius:999px;width:44px;height:44px; }
-.dock-profile-av { width:32px;height:32px;border-radius:999px;background:linear-gradient(135deg,var(--amber),#a06840);display:flex;align-items:center;justify-content:center;font-family:var(--f-d);font-size:13px;font-weight:600;color:#fff; }
 
 /* ═══════════════════════════════════════
    VOICE POPUP

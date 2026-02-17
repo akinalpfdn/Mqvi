@@ -34,6 +34,7 @@ import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import ContextMenu from "../shared/ContextMenu";
 import { ChannelSkeleton } from "../shared/Skeleton";
 import DMList from "../dm/DMList";
+import Avatar from "../shared/Avatar";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import * as channelApi from "../../api/channels";
@@ -618,7 +619,7 @@ function Dock({ onJoinVoice }: DockProps) {
           {/* Server icon — aktif server (şimdilik tek server) */}
           <button className="dock-item dock-srv active">
             <span className="dock-tooltip">{t("server")}</span>
-            m
+            <img src="/mqvi-icon.svg" alt="mqvi" className="dock-srv-icon" />
             <span className="dock-dot" />
           </button>
 
@@ -660,9 +661,12 @@ function Dock({ onJoinVoice }: DockProps) {
             className="dock-item dock-profile"
             title={user?.display_name ?? user?.username ?? "Profile"}
           >
-            <div className="dock-profile-av">
-              {user?.username?.charAt(0).toUpperCase() ?? "?"}
-            </div>
+            <Avatar
+              name={user?.username ?? "?"}
+              avatarUrl={user?.avatar_url ?? undefined}
+              size={32}
+              isCircle
+            />
           </button>
         </div>
       </div>

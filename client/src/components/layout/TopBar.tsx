@@ -53,9 +53,7 @@ function TopBar() {
     <div className="top-bar">
       {/* ─── Server Pill ─── */}
       <div className="server-pill">
-        <div className="sp-avatar">
-          {server?.name?.charAt(0).toLowerCase() ?? "m"}
-        </div>
+        <img src="/mqvi-icon.svg" alt="mqvi" className="sp-avatar" />
         <span className="sp-name">
           {server?.name ?? "mqvi Server"}
         </span>
