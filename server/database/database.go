@@ -9,6 +9,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -28,11 +29,11 @@ type DB struct {
 // New, yeni bir SQLite bağlantısı oluşturur ve migration'ları çalıştırır.
 //
 // dbPath: SQLite dosya yolu (ör: "./data/mqvi.db")
-// migrationsDir: SQL migration dosyalarının bulunduğu dizin
+// migrationsFS: Migration SQL dosyalarını içeren fs.FS (embed.FS veya os.DirFS olabilir)
 //
 // Fonksiyon imzasındaki (*DB, error) Go'nun "multiple return value" özelliğidir.
 // Başarılı olursa (*DB, nil), başarısızsa (nil, error) döner.
-func New(dbPath string, migrationsDir string) (*DB, error) {
+func New(dbPath string, migrationsFS fs.FS) (*DB, error) {
 	// Veritabanı dosyasının bulunduğu dizini oluştur (yoksa)
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -57,7 +58,7 @@ func New(dbPath string, migrationsDir string) (*DB, error) {
 	db := &DB{Conn: conn}
 
 	// Migration'ları çalıştır
-	if err := db.runMigrations(migrationsDir); err != nil {
+	if err := db.runMigrations(migrationsFS); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -84,7 +85,7 @@ func (db *DB) Close() error {
 // İlk çalıştırmada schema_migrations tablosu oluşturulur ve mevcut tüm
 // migration'lar çalıştırılıp kaydedilir. Sonraki başlatmalarda sadece
 // henüz uygulanmamış yeni migration'lar çalışır.
-func (db *DB) runMigrations(dir string) error {
+func (db *DB) runMigrations(migrationsFS fs.FS) error {
 	// schema_migrations tablosunu oluştur — hangi migration'ların çalıştığını takip eder.
 	// Bu tablo ilk kez oluşturuluyorsa ve DB'de zaten tablolar varsa (mevcut kurulum),
 	// tüm migration dosyaları "applied" olarak işaretlenir (bootstrap).
@@ -98,7 +99,8 @@ func (db *DB) runMigrations(dir string) error {
 	}
 
 	// Migration dosyalarını oku (bootstrap için önce dosyalara ihtiyacımız var)
-	entries, err := os.ReadDir(dir)
+	// fs.ReadDir: io/fs paketinden — hem embed.FS hem os.DirFS ile çalışır.
+	entries, err := fs.ReadDir(migrationsFS, ".")
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
 	}
@@ -164,9 +166,8 @@ func (db *DB) runMigrations(dir string) error {
 			continue
 		}
 
-		path := filepath.Join(dir, file)
-
-		content, err := os.ReadFile(path)
+		// fs.ReadFile: embed.FS'ten veya disk FS'ten okur — path separator gerekmez.
+		content, err := fs.ReadFile(migrationsFS, file)
 		if err != nil {
 			return fmt.Errorf("failed to read migration %s: %w", file, err)
 		}

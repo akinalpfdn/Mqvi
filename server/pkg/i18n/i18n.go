@@ -16,9 +16,8 @@ package i18n
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -37,33 +36,33 @@ var (
 	loadOnce     sync.Once
 )
 
-// Load, çeviri dosyalarını diskten yükler.
-// localesDir: JSON dosyalarının bulunduğu dizin (ör: ./pkg/i18n/locales)
+// Load, çeviri dosyalarını fs.FS'ten yükler.
+// localesFS: JSON dosyalarını içeren dosya sistemi (embed.FS veya os.DirFS)
 // Her dil için bir JSON dosyası beklenir: en.json, tr.json
 //
 // sync.Once nedir?
 // Bir fonksiyonun programın ömrü boyunca sadece BİR KERE çalışmasını garanti eder.
 // Birden fazla goroutine aynı anda çağırsa bile sadece biri çalışır, diğerleri bekler.
 // Config/translation yükleme gibi "bir kere yap" işlemleri için idealdir.
-func Load(localesDir string) error {
+func Load(localesFS fs.FS) error {
 	var loadErr error
 
 	loadOnce.Do(func() {
 		translations = make(map[string]map[string]string)
 
 		for _, lang := range SupportedLanguages {
-			filePath := filepath.Join(localesDir, lang+".json")
+			fileName := lang + ".json"
 
-			data, err := os.ReadFile(filePath)
+			data, err := fs.ReadFile(localesFS, fileName)
 			if err != nil {
-				loadErr = fmt.Errorf("failed to read translation file %s: %w", filePath, err)
+				loadErr = fmt.Errorf("failed to read translation file %s: %w", fileName, err)
 				return
 			}
 
 			// Nested JSON'u flat key'lere dönüştür: {"auth": {"login": "..."}} → "auth.login"
 			var nested map[string]any
 			if err := json.Unmarshal(data, &nested); err != nil {
-				loadErr = fmt.Errorf("failed to parse translation file %s: %w", filePath, err)
+				loadErr = fmt.Errorf("failed to parse translation file %s: %w", fileName, err)
 				return
 			}
 

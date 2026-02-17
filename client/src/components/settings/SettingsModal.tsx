@@ -106,7 +106,7 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
       return (
         <div className="no-channel settings-placeholder">
           <span className="settings-section-title">
-            {t(activeTab === "server-general" ? "general" : activeTab)}
+            {t(activeTab)}
           </span>
           <span className="settings-placeholder-text">{t("comingSoon")}</span>
         </div>

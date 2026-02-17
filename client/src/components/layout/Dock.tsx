@@ -406,11 +406,11 @@ function Dock({ onJoinVoice }: DockProps) {
     });
 
     if (res.success) {
-      addToast({ type: "success", message: tCh("channelCreated") });
+      addToast("success", tCh("channelCreated"));
       setCreateName("");
       setCreatingType(null);
     } else {
-      addToast({ type: "error", message: tCh("channelCreateError") });
+      addToast("error", tCh("channelCreateError"));
     }
     setIsCreatePending(false);
   }

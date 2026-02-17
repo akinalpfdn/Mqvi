@@ -42,8 +42,6 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   const isMe = currentUser?.id === member.id;
   const canKick = !isMe && hasPermission(myPerms, Permissions.KickMembers);
   const canBan = !isMe && hasPermission(myPerms, Permissions.BanMembers);
-  const canManageRoles =
-    !isMe && hasPermission(myPerms, Permissions.ManageRoles);
 
   useEffect(() => {
     let frameId: number;

@@ -264,7 +264,9 @@ function VoiceAudioRenderer() {
     }
 
     function handleTrackUnsubscribed(track: RemoteTrack): void {
-      detachTrack(track.sid);
+      if (track.sid) {
+        detachTrack(track.sid);
+      }
     }
 
     // Mevcut subscribe olmuş track'leri bağla

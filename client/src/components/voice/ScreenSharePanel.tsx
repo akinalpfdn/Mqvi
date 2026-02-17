@@ -20,7 +20,7 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import { VideoTrack } from "@livekit/components-react";
-import type { TrackReferenceOrPlaceholder } from "@livekit/components-react";
+import type { TrackReferenceOrPlaceholder, TrackReference } from "@livekit/components-react";
 import { useTranslation } from "react-i18next";
 
 type ScreenSharePanelProps = {
@@ -68,7 +68,10 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
   return (
     <div ref={containerRef} className="screen-share-panel">
       {/* Screen share video — aspect ratio korunarak container'ı doldurur */}
-      <VideoTrack trackRef={trackRef} />
+      {/* TrackReferenceOrPlaceholder → TrackReference narrowing: publication varsa gerçek track */}
+      {trackRef.publication && (
+        <VideoTrack trackRef={trackRef as TrackReference} />
+      )}
 
       {/* Hover overlay — opacity 0 → hover'da opacity 1 (CSS transition ile) */}
       <div className="screen-share-panel-overlay">

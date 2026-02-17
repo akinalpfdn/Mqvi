@@ -21,12 +21,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -39,6 +38,7 @@ import (
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
+	"github.com/akinalp/mqvi/static"
 	"github.com/akinalp/mqvi/ws"
 	"github.com/rs/cors"
 )
@@ -55,19 +55,27 @@ func main() {
 	log.Printf("[main] config loaded (port=%d)", cfg.Server.Port)
 
 	// ─── 2. Database ───
-	_, filename, _, _ := runtime.Caller(0)
-	baseDir := filepath.Dir(filename)
-	migrationsDir := filepath.Join(baseDir, "database", "migrations")
+	// Migration dosyaları binary'ye gömülü (embed.FS).
+	// fs.Sub ile "migrations/" alt dizinine erişiyoruz — dosya isimleri
+	// doğrudan "001_init.sql" olarak okunabilir.
+	migrationsFS, err := fs.Sub(database.EmbeddedMigrations, "migrations")
+	if err != nil {
+		log.Fatalf("[main] failed to access embedded migrations: %v", err)
+	}
 
-	db, err := database.New(cfg.Database.Path, migrationsDir)
+	db, err := database.New(cfg.Database.Path, migrationsFS)
 	if err != nil {
 		log.Fatalf("[main] failed to initialize database: %v", err)
 	}
 	defer db.Close()
 
 	// ─── 3. i18n (Çoklu Dil Desteği) ───
-	localesDir := filepath.Join(baseDir, "pkg", "i18n", "locales")
-	if err := i18n.Load(localesDir); err != nil {
+	// Çeviri JSON dosyaları binary'ye gömülü (embed.FS).
+	localesFS, err := fs.Sub(i18n.EmbeddedLocales, "locales")
+	if err != nil {
+		log.Fatalf("[main] failed to access embedded locales: %v", err)
+	}
+	if err := i18n.Load(localesFS); err != nil {
 		log.Fatalf("[main] failed to load i18n translations: %v", err)
 	}
 
@@ -454,31 +462,105 @@ func main() {
 	// WS handler kendi içinde token doğrulaması yapar.
 	mux.HandleFunc("GET /ws", wsHandler.HandleConnection)
 
-	// ─── 11. CORS ───
+	// ─── 11. SPA Frontend Serving ───
+	//
+	// React frontend build çıktısı binary'ye gömülü (embed.FS).
+	// /api/* ve /ws dışındaki tüm request'ler frontend'e yönlendirilir.
+	// SPA (Single Page Application) routing: bilinmeyen path'ler → index.html
+	//
+	// Bu handler sadece production build'de çalışır. Development'ta
+	// dist/ içi boştur (.gitkeep) ve Vite dev server frontend'i servis eder.
+	frontendFS, err := fs.Sub(static.FrontendFS, "dist")
+	if err != nil {
+		log.Fatalf("[main] failed to access embedded frontend: %v", err)
+	}
+	// index.html var mı kontrol et — yoksa development modundayız (frontend embed edilmemiş).
+	hasFrontend := false
+	if f, checkErr := frontendFS.(fs.ReadFileFS).ReadFile("index.html"); checkErr == nil && len(f) > 0 {
+		hasFrontend = true
+		log.Println("[main] embedded frontend detected, SPA serving enabled")
+	} else {
+		log.Println("[main] no embedded frontend, API-only mode (use Vite dev server for frontend)")
+	}
+
+	// ─── 12. CORS ───
+	//
+	// CORS_ORIGINS env variable ile ek origin'ler eklenebilir (virgülle ayrılmış).
+	// Production'da frontend aynı origin'den servis edilir — CORS gerekmez.
+	// Ama Tauri desktop client ve development için CORS hâlâ gerekli.
+	corsOrigins := []string{
+		"http://localhost:3030",  // Vite dev server
+		"http://localhost:1420",  // Tauri dev
+		"tauri://localhost",      // Tauri production
+	}
+	if extra := os.Getenv("CORS_ORIGINS"); extra != "" {
+		for _, origin := range strings.Split(extra, ",") {
+			origin = strings.TrimSpace(origin)
+			if origin != "" {
+				corsOrigins = append(corsOrigins, origin)
+			}
+		}
+	}
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins: []string{
-			"http://localhost:3030",  // Vite dev server
-			"http://localhost:1420",  // Tauri dev
-			"tauri://localhost",      // Tauri production
-		},
+		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
 		Debug:            false,
 	})
 
-	handler := corsHandler.Handler(mux)
+	// ─── 13. Final Handler ───
+	//
+	// Request akışı: CORS → API/WS mux VEYA SPA frontend
+	// /api/* ve /ws → normal mux (API handler'lar)
+	// Diğer path'ler → embedded frontend (SPA fallback)
+	apiHandler := corsHandler.Handler(mux)
 
-	// ─── 12. HTTP Server ───
+	finalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// API ve WebSocket route'ları → normal mux
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/ws" {
+			apiHandler.ServeHTTP(w, r)
+			return
+		}
+
+		// Frontend embed edilmemişse (development) → 404
+		if !hasFrontend {
+			apiHandler.ServeHTTP(w, r)
+			return
+		}
+
+		// Static dosya var mı? (JS, CSS, resimler vb.)
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+		if f, openErr := frontendFS.Open(path); openErr == nil {
+			f.Close()
+			http.FileServer(http.FS(frontendFS)).ServeHTTP(w, r)
+			return
+		}
+
+		// SPA fallback: bilinmeyen path → index.html
+		// React Router client-side routing'i devralır.
+		indexData, readErr := fs.ReadFile(frontendFS, "index.html")
+		if readErr != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexData)
+	})
+
+	// ─── 14. HTTP Server ───
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
-		Handler:      handler,
+		Handler:      finalHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// ─── 13. Graceful Shutdown ───
+	// ─── 15. Graceful Shutdown ───
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 

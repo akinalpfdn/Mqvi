@@ -26,7 +26,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useIsSpeaking } from "@livekit/components-react";
 import type { Participant } from "livekit-client";
-import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useAuthStore } from "../../stores/authStore";
 
@@ -37,7 +36,6 @@ type VoiceParticipantProps = {
 };
 
 function VoiceParticipant({ participant, compact = false }: VoiceParticipantProps) {
-  const { t } = useTranslation("voice");
   const isSpeaking = useIsSpeaking(participant);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
