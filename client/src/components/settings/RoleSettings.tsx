@@ -230,7 +230,7 @@ function RoleSettings() {
             </div>
 
             {hasChanges && (
-              <p style={{ marginTop: 8, fontSize: 12, color: "var(--amber)" }}>{t("unsavedChanges")}</p>
+              <p style={{ marginTop: 8, fontSize: 12, color: "var(--primary)" }}>{t("unsavedChanges")}</p>
             )}
           </div>
         ) : (

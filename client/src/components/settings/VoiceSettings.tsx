@@ -84,7 +84,7 @@ function formatKeyCode(code: string): string {
 function sliderTrackStyle(value: number, max: number): React.CSSProperties {
   const pct = (value / max) * 100;
   return {
-    background: `linear-gradient(to right, var(--amber) ${pct}%, var(--bg-5) ${pct}%)`,
+    background: `linear-gradient(to right, var(--primary) ${pct}%, var(--bg-5) ${pct}%)`,
   };
 }
 

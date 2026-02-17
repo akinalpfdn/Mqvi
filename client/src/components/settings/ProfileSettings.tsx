@@ -192,7 +192,7 @@ function ProfileSettings() {
           {isSaving ? t("saveChanges") + "..." : t("saveChanges")}
         </button>
         {hasChanges && (
-          <span style={{ fontSize: 13, color: "var(--amber)" }}>{t("unsavedChanges")}</span>
+          <span style={{ fontSize: 13, color: "var(--primary)" }}>{t("unsavedChanges")}</span>
         )}
       </div>
     </div>

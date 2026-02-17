@@ -127,7 +127,7 @@ function ServerGeneralSettings() {
           type="checkbox"
           checked={editInviteRequired}
           onChange={(e) => setEditInviteRequired(e.target.checked)}
-          style={{ width: 16, height: 16, accentColor: "var(--amber)", cursor: "pointer" }}
+          style={{ width: 16, height: 16, accentColor: "var(--primary)", cursor: "pointer" }}
         />
         <div>
           <label
@@ -155,7 +155,7 @@ function ServerGeneralSettings() {
           {isSaving ? t("saveChanges") + "..." : t("saveChanges")}
         </button>
         {hasChanges && (
-          <span style={{ fontSize: 13, color: "var(--amber)" }}>{t("unsavedChanges")}</span>
+          <span style={{ fontSize: 13, color: "var(--primary)" }}>{t("unsavedChanges")}</span>
         )}
       </div>
     </div>

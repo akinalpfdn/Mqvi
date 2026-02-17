@@ -173,7 +173,7 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
           onChange={handleVolumeChange}
           className="vp-vol-range"
           style={{
-            background: `linear-gradient(to right, var(--amber) ${(currentVolume / 200) * 100}%, var(--bg-5) ${(currentVolume / 200) * 100}%)`,
+            background: `linear-gradient(to right, var(--primary) ${(currentVolume / 200) * 100}%, var(--bg-5) ${(currentVolume / 200) * 100}%)`,
           }}
         />
         <span className="vp-vol-value">{currentVolume}%</span>
