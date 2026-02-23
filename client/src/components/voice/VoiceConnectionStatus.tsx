@@ -50,7 +50,7 @@ function VoiceConnectionStatus() {
       textClass: "voice-connection-text warning",
     },
     [ConnectionState.Disconnected]: {
-      message: t("voiceDisconnected"),
+      message: t("voiceDisconnectedHint"),
       dotClass: "voice-connection-dot error",
       textClass: "voice-connection-text error",
     },

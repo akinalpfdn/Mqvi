@@ -19,5 +19,7 @@
   "exitFullscreen": "Exit Fullscreen",
   "toggleLayout": "Toggle Layout",
   "endCall": "End Call",
-  "minimize": "Minimize"
+  "minimize": "Minimize",
+  "livekitConnectionError": "Could not connect to the voice server. Please check that the server is running and try again.",
+  "voiceDisconnectedHint": "Voice disconnected — the voice server may be unavailable"
 }

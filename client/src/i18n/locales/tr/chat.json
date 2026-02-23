@@ -47,5 +47,7 @@
   "replyDeleted": "Orijinal mesaj silindi",
   "unknownUser": "Bilinmeyen Kullanıcı",
   "noContent": "Eki görmek için tıklayın",
-  "noSendPermission": "Bu kanalda mesaj gönderme yetkiniz yok"
+  "noSendPermission": "Bu kanalda mesaj gönderme yetkiniz yok",
+  "attachFile": "Dosya ekle",
+  "emoji": "Emoji"
 }

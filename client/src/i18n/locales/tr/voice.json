@@ -19,5 +19,7 @@
   "exitFullscreen": "Tam Ekrandan Çık",
   "toggleLayout": "Düzen Değiştir",
   "endCall": "Aramayı Bitir",
-  "minimize": "Küçült"
+  "minimize": "Küçült",
+  "livekitConnectionError": "Ses sunucusuna bağlanılamadı. Lütfen sunucunun çalıştığından emin olun ve tekrar deneyin.",
+  "voiceDisconnectedHint": "Ses bağlantısı koptu — ses sunucusu erişilemez olabilir"
 }

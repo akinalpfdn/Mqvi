@@ -14,9 +14,15 @@
 import { useTranslation } from "react-i18next";
 import { useMemberStore } from "../../stores/memberStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useResizeHandle } from "../../hooks/useResizeHandle";
 import MemberItem from "../members/MemberItem";
 import { MemberSkeleton } from "../shared/Skeleton";
 import type { MemberWithRoles, Role } from "../../types";
+
+/** Member panel genişlik sınırları (px) */
+const MEMBERS_MIN = 160;
+const MEMBERS_MAX = 360;
+const MEMBERS_DEFAULT = 240;
 
 /**
  * getHighestRole — Üyenin en yüksek position'daki rolünü döner.
@@ -80,6 +86,14 @@ function MemberList() {
   const toggleMembers = useUIStore((s) => s.toggleMembers);
   const membersOpen = useUIStore((s) => s.membersOpen);
 
+  const { width, handleMouseDown, isDragging } = useResizeHandle({
+    initialWidth: MEMBERS_DEFAULT,
+    minWidth: MEMBERS_MIN,
+    maxWidth: MEMBERS_MAX,
+    direction: "left",
+    storageKey: "mqvi_members_width",
+  });
+
   // Üyeleri online ve offline olarak ayır
   const onlineMembers = members.filter((m) => onlineUserIds.has(m.id));
   const offlineMembers = members.filter((m) => !onlineUserIds.has(m.id));
@@ -99,9 +113,22 @@ function MemberList() {
     return nameA.localeCompare(nameB);
   });
 
+  /** Panel açıkken dinamik genişlik, kapalıyken 0 */
+  const panelWidth = membersOpen ? width : 0;
+
   return (
-    <div className={`members-panel${membersOpen ? " open" : ""}`}>
-      <div className="members-inner">
+    <div
+      className={`members-panel${membersOpen ? " open" : ""}`}
+      style={membersOpen ? { width: panelWidth } : undefined}
+    >
+      {/* Resize handle — sol kenarda, sadece açıkken */}
+      {membersOpen && (
+        <div
+          className={`resize-handle resize-handle-v${isDragging ? " active" : ""}`}
+          onMouseDown={handleMouseDown}
+        />
+      )}
+      <div className="members-inner" style={{ width }}>
         {/* ─── Header ─── */}
         <div className="members-header">
           <h3>{t("members")}</h3>

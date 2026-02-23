@@ -73,92 +73,116 @@ button { font-family:inherit; }
 /* ═══════════════════════════════════════
    APP SHELL
    ═══════════════════════════════════════ */
-.mqvi-app { display:flex;flex-direction:row;height:100vh;background:var(--gradient);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden; }
+.mqvi-app { display:flex;flex-direction:row;height:100vh;background:var(--bg-0);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden; }
 .app-body { display:flex;flex-direction:column;flex:1;min-width:0;min-height:0; }
 
 /* ═══════════════════════════════════════
    SIDEBAR
    ═══════════════════════════════════════ */
 
-/* Expanded sidebar — 240px */
-.sidebar { width:240px;background:var(--bg-1);border-right:1px solid var(--b1);display:flex;flex-shrink:0;overflow:hidden;transition:width .2s cubic-bezier(.22,1,.36,1); }
-.sidebar-inner { width:240px;height:100%;display:flex;flex-direction:column;overflow:hidden; }
+/* Expanded sidebar — genişlik inline style ile set edilir (useResizeHandle) */
+.sidebar { background:var(--bg-1);border-right:1px solid var(--b1);display:flex;flex-shrink:0;overflow:hidden;position:relative; }
+.sidebar-inner { height:100%;display:flex;flex-direction:column;overflow:hidden; }
 
 /* Sidebar Header */
-.sb-header { height:40px;padding:0 8px 0 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--b1);flex-shrink:0; }
+.sb-header { height:44px;padding:0 8px 0 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--b1);flex-shrink:0; }
 .sb-header-brand { display:flex;align-items:center;gap:8px; }
-.sb-logo { width:22px;height:22px;border-radius:5px; }
-.sb-brand-name { font-family:var(--f-d);font-size:15px;font-weight:700;color:var(--t0);letter-spacing:0.02em; }
+.sb-logo { width:24px;height:24px;border-radius:5px; }
+.sb-brand-name { font-family:var(--f-d);font-size:16px;font-weight:700;color:var(--t0);letter-spacing:0.02em; }
 .sb-header-actions { display:flex;gap:2px; }
-.sb-header-btn { width:26px;height:26px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;transition:background .1s,color .1s; }
+.sb-header-btn { width:30px;height:30px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:14px;transition:background .1s,color .1s; }
 .sb-header-btn:hover { background:var(--bg-h);color:var(--t0); }
 
 /* Channel Tree */
-.ch-tree { flex:1;overflow-y:auto;padding:4px 0;scrollbar-width:thin;scrollbar-color:var(--bg-5) transparent; }
+.ch-tree { flex:1;overflow-y:auto;padding:6px 0;scrollbar-width:thin;scrollbar-color:var(--bg-5) transparent; }
 
 /* Section (Friends / DMs / Server) */
-.ch-tree-section { margin-bottom:2px; }
-.ch-tree-section-header { display:flex;align-items:center;gap:4px;width:100%;padding:6px 10px;border:none;background:transparent;color:var(--t2);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;font-family:var(--f-d);cursor:pointer;transition:color .1s; }
+.ch-tree-section { margin-bottom:4px; }
+.ch-tree-section-header { display:flex;align-items:center;gap:5px;width:100%;padding:7px 10px;border:none;background:transparent;color:var(--t2);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;font-family:var(--f-d);cursor:pointer;transition:color .1s; }
 .ch-tree-section-header:hover { color:var(--t0); }
 .ch-tree-section-body { padding:0 4px; }
 
+/* Server section header — sunucu ikonu + ismi ile özel stil */
+.ch-tree-server-header { display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:none;background:transparent;color:var(--t0);font-size:14px;font-weight:700;font-family:var(--f-d);cursor:pointer;transition:color .1s;letter-spacing:0; }
+.ch-tree-server-header:hover { color:var(--t0); }
+.ch-tree-server-icon { width:22px;height:22px;border-radius:6px;flex-shrink:0;object-fit:cover; }
+.ch-tree-server-icon-fallback { width:22px;height:22px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0; }
+.ch-tree-server-name { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+
 /* Chevron */
-.ch-tree-chevron { font-size:8px;color:var(--t3);transition:transform .15s;display:inline-block; }
+.ch-tree-chevron { font-size:10px;color:var(--t3);transition:transform .15s;display:inline-block; }
 .ch-tree-chevron.expanded { transform:rotate(90deg); }
 
 /* Category header (inside Server section) */
 .ch-tree-category { margin-bottom:2px; }
-.ch-tree-cat-header { display:flex;align-items:center;gap:4px;width:100%;padding:4px 8px 4px 14px;border:none;background:transparent;color:var(--t3);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-family:var(--f-d);cursor:pointer;transition:color .1s; }
+.ch-tree-cat-header { display:flex;align-items:center;gap:5px;width:100%;padding:5px 8px 5px 14px;border:none;background:transparent;color:var(--t3);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-family:var(--f-d);cursor:pointer;transition:color .1s; }
 .ch-tree-cat-header:hover { color:var(--t1); }
 
-/* Channel item (text, voice, DM) */
-.ch-tree-item { display:flex;align-items:center;gap:6px;width:100%;padding:4px 8px 4px 22px;border:none;background:transparent;color:var(--t1);font-size:13px;font-weight:500;font-family:var(--f-ui);cursor:pointer;border-radius:4px;transition:background .08s;text-align:left; }
+/* Channel item (text, voice, DM) — font %30 büyüdü (13→17px) */
+.ch-tree-item { display:flex;align-items:center;gap:7px;width:100%;padding:5px 8px 5px 24px;border:none;background:transparent;color:var(--t1);font-size:14px;font-weight:500;font-family:var(--f-ui);cursor:pointer;border-radius:5px;transition:background .08s;text-align:left; }
 .ch-tree-item:hover { background:var(--bg-h);color:var(--t0); }
 .ch-tree-item.active { background:var(--primary-s);color:var(--t0); }
 .ch-tree-item.voice { color:var(--t2); }
 .ch-tree-item.voice.active { background:var(--green-s);color:var(--green); }
 .ch-tree-item.has-unread { color:var(--t0);font-weight:600; }
-.ch-tree-dm { padding-left:14px; }
+.ch-tree-dm { padding-left:16px; }
 
 /* Channel icon */
-.ch-tree-icon { font-size:12px;color:var(--t3);min-width:14px;text-align:center;flex-shrink:0; }
+.ch-tree-icon { font-size:15px;color:var(--t3);min-width:16px;text-align:center;flex-shrink:0; }
 .ch-tree-item.active .ch-tree-icon { color:var(--primary); }
 .ch-tree-item.voice .ch-tree-icon { color:var(--green); }
 
 /* Channel label */
 .ch-tree-label { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 
-/* Unread badge */
-.ch-tree-badge { min-width:16px;height:16px;padding:0 5px;background:var(--primary);color:#fff;font-size:9px;font-weight:700;border-radius:999px;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1; }
+/* Unread badge (sayı) */
+.ch-tree-badge { min-width:18px;height:18px;padding:0 5px;background:var(--primary);color:#fff;font-size:10px;font-weight:700;border-radius:999px;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1; }
+/* Unread dot (sayısız, sağda küçük nokta) */
+.ch-tree-unread-dot { width:8px;height:8px;border-radius:999px;background:var(--primary);flex-shrink:0;margin-left:auto; }
 
 /* Voice users inside voice channel */
-.ch-tree-voice-users { padding:2px 0 2px 34px; }
-.ch-tree-voice-user { display:flex;align-items:center;gap:5px;padding:2px 6px;border-radius:4px;font-size:11px;color:var(--t2); }
+.ch-tree-voice-users { padding:2px 0 2px 38px; }
+.ch-tree-voice-user { display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;font-size:12px;color:var(--t2); }
 .ch-tree-voice-user:hover { background:var(--bg-h); }
 .ch-tree-vu-name { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.ch-tree-vu-dot { width:5px;height:5px;border-radius:999px;background:var(--green);animation:pulse 1.5s ease-in-out infinite;margin-left:auto;flex-shrink:0; }
+.ch-tree-vu-dot { width:6px;height:6px;border-radius:999px;background:var(--green);animation:pulse 1.5s ease-in-out infinite;margin-left:auto;flex-shrink:0; }
 
 /* Placeholder */
-.ch-tree-placeholder { padding:4px 14px; }
-.ch-tree-placeholder-text { font-size:11px;color:var(--t3);font-style:italic; }
+.ch-tree-placeholder { padding:6px 16px; }
+.ch-tree-placeholder-text { font-size:12px;color:var(--t3);font-style:italic; }
 
 /* User Bar (bottom) */
 .user-bar { flex-shrink:0;background:var(--bg-ub);border-top:1px solid var(--b1); }
-.ub-voice-strip { display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--b1); }
-.ub-voice-pulse { width:7px;height:7px;background:var(--green);border-radius:999px;animation:pulse 2s ease-in-out infinite;flex-shrink:0; }
-.ub-voice-label { font-size:10px;font-weight:600;color:var(--green);font-family:var(--f-d); }
-.ub-main { display:flex;align-items:center;gap:6px;padding:6px 8px; }
-.ub-user { display:flex;align-items:center;gap:7px;flex:1;min-width:0; }
+
+/* Voice kontrol satırı — user adının ÜSTÜNDE ayrı row */
+.ub-voice-row { display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--b1); }
+.ub-voice-info { display:flex;align-items:center;gap:6px; }
+.ub-voice-pulse { width:8px;height:8px;background:var(--green);border-radius:999px;animation:pulse 2s ease-in-out infinite;flex-shrink:0; }
+.ub-voice-label { font-size:13px;font-weight:600;color:var(--green);font-family:var(--f-d); }
+.ub-voice-btns { display:flex;gap:3px; }
+
+.ub-main { display:flex;align-items:center;gap:8px;padding:8px 10px; }
+.ub-user { display:flex;align-items:center;gap:8px;flex:1;min-width:0; }
 .ub-info { display:flex;flex-direction:column;min-width:0; }
-.ub-name { font-size:12px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.ub-status { font-size:10px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.ub-controls { display:flex;gap:2px;flex-shrink:0; }
-.ub-ctrl { width:26px;height:26px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:13px;transition:background .1s,color .1s; }
+.ub-name { font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.ub-status { font-size:12px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.ub-ctrl { width:34px;height:34px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;transition:background .1s,color .1s; }
 .ub-ctrl:hover { background:var(--bg-h);color:var(--t0); }
 .ub-ctrl.active { color:var(--primary);background:var(--primary-s); }
 .ub-end { color:var(--red) !important; }
 .ub-end:hover { background:var(--red-s) !important; }
-.ub-settings { font-size:14px; }
+.ub-settings { font-size:16px; }
+
+/* Resize handle — sidebar & members panel kenarlarında sürüklenebilir şerit */
+.resize-handle { position:absolute;top:0;width:4px;height:100%;cursor:col-resize;z-index:10;transition:background .15s; }
+.resize-handle:hover { background:var(--primary-m); }
+.resize-handle.active { background:var(--primary); }
+/* Dikey (vertical) resize handle — sidebar sağ kenarı veya members sol kenarı */
+.resize-handle-v { /* dikey yönlü, konum parent'a göre belirlenir */ }
+/* Sidebar: sağ kenarda */
+.sidebar > .resize-handle { right:0; }
+/* Members panel: sol kenarda */
+.members-panel > .resize-handle { left:0; }
 
 /* Collapsed sidebar — 52px */
 .sb-collapsed { width:52px;background:var(--bg-1);border-right:1px solid var(--b1);display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:6px;flex-shrink:0;transition:width .2s cubic-bezier(.22,1,.36,1); }
@@ -206,7 +230,7 @@ button { font-family:inherit; }
    ═══════════════════════════════════════ */
 .main-area { flex:1;display:flex;min-height:0;position:relative; }
 .chat-area { flex:1;display:flex;flex-direction:column;background:var(--bg-2);min-width:0;min-height:0;position:relative; }
-.chat-area::after { content:'';position:absolute;top:32px;left:0;right:0;height:30%;background:linear-gradient(to bottom,rgba(0,0,0,0.45),rgba(0,0,0,0.18) 40%,transparent);pointer-events:none;z-index:1; }
+/* gradient overlay kaldırıldı — düz arkaplan daha temiz */
 
 /* ═══════════════════════════════════════
    CHANNEL BAR
@@ -349,12 +373,14 @@ button { font-family:inherit; }
 .reply-bar-close:hover { color:var(--t1);background:var(--bg-h); }
 .reply-bar + .input-box { border-radius:0 0 10px 10px; }
 
-.input-box { background:var(--bg-3);border:1px solid var(--b1);border-radius:10px;display:flex;align-items:flex-end;padding:3px;transition:border-color .15s; }
+.input-box { background:var(--bg-3);border:1px solid var(--b1);border-radius:10px;display:flex;align-items:flex-end;padding:4px;transition:border-color .15s; }
 .input-box:focus-within { border-color:var(--primary); }
-.input-box button { width:30px;height:30px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px; }
+.input-action-btn { width:36px;height:36px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .1s,background .1s; }
+.input-action-btn:hover { color:var(--t0);background:var(--bg-h); }
+.input-box button { width:36px;height:36px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px; }
 .input-box button:hover { color:var(--t1);background:var(--bg-h); }
 .send-btn { color:var(--primary) !important; }
-.input-box textarea { flex:1;background:transparent;border:none;outline:none;color:var(--t0);font-family:var(--f-ui);font-size:13px;padding:6px 5px;resize:none;max-height:100px;line-height:1.4; }
+.input-box textarea { flex:1;background:transparent;border:none;outline:none;color:var(--t0);font-family:var(--f-ui);font-size:14px;padding:8px 6px;resize:none;max-height:100px;line-height:1.4; }
 .input-box textarea::placeholder { color:var(--t3); }
 .input-box-disabled { justify-content:center;padding:10px;cursor:not-allowed;opacity:0.6; }
 .input-no-perm { font-size:12px;color:var(--t3);font-style:italic;user-select:none; }
@@ -378,9 +404,9 @@ button { font-family:inherit; }
 /* ═══════════════════════════════════════
    MEMBERS PANEL
    ═══════════════════════════════════════ */
-.members-panel { width:0;background:var(--bg-1);border-left:1px solid var(--b1);overflow:hidden;transition:width .25s cubic-bezier(.22,1,.36,1);flex-shrink:0; }
-.members-panel.open { width:240px; }
-.members-inner { width:240px;height:100%;display:flex;flex-direction:column; }
+.members-panel { width:0;background:var(--bg-1);border-left:1px solid var(--b1);overflow:hidden;flex-shrink:0;position:relative; }
+.members-panel.open { /* genişlik inline style ile set edilir (useResizeHandle) */ }
+.members-inner { height:100%;display:flex;flex-direction:column; }
 .members-header { height:38px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--b1); }
 .members-header h3 { font-family:var(--f-d);font-size:12px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.04em; }
 .members-header button { width:22px;height:22px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px; }

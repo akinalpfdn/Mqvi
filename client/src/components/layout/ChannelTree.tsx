@@ -27,6 +27,7 @@
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useChannelStore } from "../../stores/channelStore";
+import { useServerStore } from "../../stores/serverStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useReadStateStore } from "../../stores/readStateStore";
@@ -43,11 +44,28 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const { t: tVoice } = useTranslation("voice");
 
   const toggleSection = useSidebarStore((s) => s.toggleSection);
-  const isSectionExpanded = useSidebarStore((s) => s.isSectionExpanded);
+  /**
+   * expandedSections MAP'ine subscribe ol — reactive re-render sağlar.
+   *
+   * ÖNCEKİ HATA: `isSectionExpanded` fonksiyonuna subscribe edilmişti.
+   * Zustand selector'ı fonksiyon referansını döndürüyordu, bu referans
+   * hiç değişmediği için toggleSection() çağrıldığında component
+   * re-render OLMUYORDU → collapse/expand çalışmıyordu.
+   *
+   * Çözüm: expandedSections verisine doğrudan subscribe olup,
+   * component-local helper ile kontrol etmek.
+   */
+  const expandedSections = useSidebarStore((s) => s.expandedSections);
+
+  /** Section açık mı? Map'te yoksa varsayılan true (ilk açılışta hep açık) */
+  function isSectionExpanded(key: string): boolean {
+    return expandedSections[key] ?? true;
+  }
 
   const categories = useChannelStore((s) => s.categories);
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const selectChannel = useChannelStore((s) => s.selectChannel);
+  const server = useServerStore((s) => s.server);
 
   const openTab = useUIStore((s) => s.openTab);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
@@ -208,14 +226,25 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         )}
       </div>
 
-      {/* ═══ Server Section ═══ */}
+      {/* ═══ Server Section — sunucu ikonu + ismi ═══ */}
       <div className="ch-tree-section">
         <button
-          className="ch-tree-section-header"
+          className="ch-tree-server-header"
           onClick={() => toggleSection("server")}
         >
           <Chevron expanded={isSectionExpanded("server")} />
-          <span>{t("server")}</span>
+          {server?.icon_url ? (
+            <img
+              src={server.icon_url}
+              alt={server.name}
+              className="ch-tree-server-icon"
+            />
+          ) : (
+            <span className="ch-tree-server-icon-fallback">
+              {(server?.name ?? "S").charAt(0).toUpperCase()}
+            </span>
+          )}
+          <span className="ch-tree-server-name">{server?.name ?? t("server")}</span>
         </button>
 
         {isSectionExpanded("server") && (
@@ -264,7 +293,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                           </span>
                           <span className="ch-tree-label">{ch.name}</span>
                           {unread > 0 && (
-                            <span className="ch-tree-badge">{unread}</span>
+                            <span className="ch-tree-unread-dot" title={`${unread}`} />
                           )}
                         </button>
 

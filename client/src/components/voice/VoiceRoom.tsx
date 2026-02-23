@@ -27,6 +27,7 @@ import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
 import { DisconnectReason } from "livekit-client";
 import type { AudioCaptureOptions } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
 import VoiceParticipantGrid from "./VoiceParticipantGrid";
 import VoiceStateManager from "./VoiceStateManager";
@@ -111,6 +112,18 @@ function VoiceRoom() {
       onDisconnected={handleDisconnected}
       onError={(err) => {
         console.error("[VoiceRoom] LiveKit error:", err);
+        /**
+         * Kullanıcıya toast ile hata bildir.
+         * LiveKit bağlantı hataları genellikle:
+         * - Sunucu erişilemiyor (ECONNREFUSED, timeout)
+         * - Token geçersiz / süresi dolmuş
+         * - Room bulunamadı
+         */
+        useToastStore.getState().addToast(
+          "error",
+          t("livekitConnectionError"),
+          8000
+        );
       }}
       // LiveKitRoom bir <div> render eder — flex container yaparak
       // parent ChatArea'nın kalan alanını doldurmasını sağlıyoruz.

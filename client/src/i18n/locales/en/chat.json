@@ -47,5 +47,7 @@
   "replyDeleted": "Original message was deleted",
   "unknownUser": "Unknown User",
   "noContent": "Click to see attachment",
-  "noSendPermission": "You do not have permission to send messages in this channel"
+  "noSendPermission": "You do not have permission to send messages in this channel",
+  "attachFile": "Attach file",
+  "emoji": "Emoji"
 }

@@ -232,9 +232,17 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
       <FilePreview files={files} onRemove={handleFileRemove} />
 
       <div className="input-box">
-        {/* File upload button */}
-        <button onClick={() => fileInputRef.current?.click()}>
-          ＋
+        {/* File upload button — paperclip/plus-circle SVG */}
+        <button
+          className="input-action-btn"
+          onClick={() => fileInputRef.current?.click()}
+          title={t("attachFile")}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="16" />
+            <line x1="8" y1="12" x2="16" y2="12" />
+          </svg>
         </button>
 
         {/* Hidden file input */}
@@ -257,13 +265,13 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
           disabled={isSending}
         />
 
-        {/* Emoji button */}
-        <button>{"\uD83D\uDE0A"}</button>
-
-        {/* Send button */}
-        <button className="send-btn" onClick={handleSend}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+        {/* Emoji button — smiley face SVG */}
+        <button className="input-action-btn" title={t("emoji")}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+            <line x1="9" y1="9" x2="9.01" y2="9" />
+            <line x1="15" y1="9" x2="15.01" y2="9" />
           </svg>
         </button>
       </div>
