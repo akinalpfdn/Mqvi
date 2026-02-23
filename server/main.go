@@ -102,6 +102,7 @@ func main() {
 	dmRepo := repository.NewSQLiteDMRepo(db.Conn)
 	reactionRepo := repository.NewSQLiteReactionRepo(db.Conn)
 	channelPermRepo := repository.NewSQLiteChannelPermRepo(db.Conn)
+	friendshipRepo := repository.NewSQLiteFriendshipRepo(db.Conn)
 
 	// ─── 6. WebSocket Hub ───
 	//
@@ -238,6 +239,7 @@ func main() {
 	readStateService := services.NewReadStateService(readStateRepo)
 	dmService := services.NewDMService(dmRepo, userRepo, hub)
 	reactionService := services.NewReactionService(reactionRepo, messageRepo, hub)
+	friendshipService := services.NewFriendshipService(friendshipRepo, userRepo, hub)
 	// voiceService ve channelPermService yukarıda (Hub callback'lerinden önce) oluşturuldu
 
 	// ─── 8. Handler Layer ───
@@ -256,6 +258,7 @@ func main() {
 	dmHandler := handlers.NewDMHandler(dmService)
 	reactionHandler := handlers.NewReactionHandler(reactionService)
 	channelPermHandler := handlers.NewChannelPermissionHandler(channelPermService)
+	friendshipHandler := handlers.NewFriendshipHandler(friendshipService)
 	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
 	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService)
 
@@ -422,6 +425,22 @@ func main() {
 		http.HandlerFunc(dmHandler.EditMessage)))
 	mux.Handle("DELETE /api/dms/messages/{id}", authMiddleware.Require(
 		http.HandlerFunc(dmHandler.DeleteMessage)))
+
+	// Friends — arkadaşlık yönetimi, tüm authenticated kullanıcılar kullanabilir
+	// "requests" literal path'i {userId} parametresinden ÖNCE tanımlanmalı —
+	// yoksa Go router "requests" kelimesini bir {userId} olarak yorumlar.
+	mux.Handle("GET /api/friends/requests", authMiddleware.Require(
+		http.HandlerFunc(friendshipHandler.ListRequests)))
+	mux.Handle("POST /api/friends/requests", authMiddleware.Require(
+		http.HandlerFunc(friendshipHandler.SendRequest)))
+	mux.Handle("POST /api/friends/requests/{id}/accept", authMiddleware.Require(
+		http.HandlerFunc(friendshipHandler.AcceptRequest)))
+	mux.Handle("DELETE /api/friends/requests/{id}", authMiddleware.Require(
+		http.HandlerFunc(friendshipHandler.DeclineRequest)))
+	mux.Handle("GET /api/friends", authMiddleware.Require(
+		http.HandlerFunc(friendshipHandler.ListFriends)))
+	mux.Handle("DELETE /api/friends/{userId}", authMiddleware.Require(
+		http.HandlerFunc(friendshipHandler.RemoveFriend)))
 
 	// Voice — LiveKit token alma ve aktif ses durumlarını sorgulama
 	//

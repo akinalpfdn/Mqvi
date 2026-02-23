@@ -305,6 +305,39 @@ export type DMMessagePage = {
 };
 
 // ──────────────────────────────────
+// Friendship
+// ──────────────────────────────────
+
+/**
+ * FriendshipWithUser — Arkadaşlık kaydı + karşı taraf kullanıcı bilgisi.
+ * Backend'deki models.FriendshipWithUser struct'ının TypeScript karşılığı.
+ *
+ * status:
+ * - "pending": İstek gönderildi, henüz kabul edilmedi
+ * - "accepted": Arkadaşlık aktif
+ */
+export type FriendshipWithUser = {
+  id: string;
+  status: "pending" | "accepted";
+  created_at: string;
+  user_id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  user_status: UserStatus;
+  user_custom_status: string | null;
+};
+
+/**
+ * FriendRequestsResponse — Gelen ve giden arkadaşlık istekleri.
+ * GET /api/friends/requests endpoint'inden dönen format.
+ */
+export type FriendRequestsResponse = {
+  incoming: FriendshipWithUser[];
+  outgoing: FriendshipWithUser[];
+};
+
+// ──────────────────────────────────
 // WebSocket
 // ──────────────────────────────────
 export type WSMessage = {

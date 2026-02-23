@@ -14,6 +14,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import SettingsNav from "./SettingsNav";
 import RoleSettings from "./RoleSettings";
 import ProfileSettings from "./ProfileSettings";
+import AppearanceSettings from "./AppearanceSettings";
 import ServerGeneralSettings from "./ServerGeneralSettings";
 import InviteSettings from "./InviteSettings";
 import VoiceSettings from "./VoiceSettings";
@@ -100,8 +101,10 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
     case "channels":
       return <ChannelSettings />;
 
-    // Placeholder tab'lar
     case "appearance":
+      return <AppearanceSettings />;
+
+    // Placeholder tab'lar
     case "members":
       return (
         <div className="no-channel settings-placeholder">

@@ -136,5 +136,18 @@
   "channelPermSaveError": "Failed to save channel permission",
   "permOverrideInherit": "Inherit",
   "permOverrideAllow": "Allow",
-  "permOverrideDeny": "Deny"
+  "permOverrideDeny": "Deny",
+
+  "themeTitle": "Theme",
+  "themeDescription": "Choose a color palette for the interface",
+  "themeOcean": "Ocean",
+  "themeOceanDesc": "Cyan-teal palette with cool tones",
+  "themeAurora": "Aurora Borealis",
+  "themeAuroraDesc": "Deep space blue with northern lights green",
+  "themeMidnight": "Midnight Ink",
+  "themeMidnightDesc": "Neutral dark gray with blue accent",
+  "themeEmber": "Warm Ember",
+  "themeEmberDesc": "Warm brown-black with orange accent",
+  "themeDeepTeal": "Deep Teal",
+  "themeDeepTealDesc": "Rich teal with high contrast"
 }

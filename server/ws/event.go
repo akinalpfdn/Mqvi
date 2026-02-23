@@ -83,6 +83,12 @@ const (
 	// Voice (ses kanalı) operasyonları
 	OpVoiceStateUpdate = "voice_state_update"  // Bir kullanıcının ses durumu değişti (join/leave/mute/deafen/stream)
 	OpVoiceStatesSync  = "voice_states_sync"   // Tüm ses durumlarının bulk sync'i (bağlantı kurulduğunda)
+
+	// Friend (arkadaşlık) operasyonları
+	OpFriendRequestCreate  = "friend_request_create"  // Yeni arkadaşlık isteği geldi
+	OpFriendRequestAccept  = "friend_request_accept"  // Arkadaşlık isteği kabul edildi
+	OpFriendRequestDecline = "friend_request_decline" // Arkadaşlık isteği reddedildi/iptal edildi
+	OpFriendRemove         = "friend_remove"          // Arkadaşlıktan çıkarıldı
 )
 
 // Client → Server voice operasyonları

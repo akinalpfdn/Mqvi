@@ -136,5 +136,18 @@
   "channelPermSaveError": "Kanal izni kaydedilemedi",
   "permOverrideInherit": "Devral",
   "permOverrideAllow": "İzin Ver",
-  "permOverrideDeny": "Reddet"
+  "permOverrideDeny": "Reddet",
+
+  "themeTitle": "Tema",
+  "themeDescription": "Arayüz için bir renk paleti seçin",
+  "themeOcean": "Okyanus",
+  "themeOceanDesc": "Soğuk tonlarda camgöbeği-teal paleti",
+  "themeAurora": "Aurora Borealis",
+  "themeAuroraDesc": "Kuzey ışıkları yeşili ile derin uzay mavisi",
+  "themeMidnight": "Gece Mürekkebi",
+  "themeMidnightDesc": "Mavi vurgulu nötr koyu gri",
+  "themeEmber": "Sıcak Kor",
+  "themeEmberDesc": "Turuncu vurgulu sıcak kahverengi-siyah",
+  "themeDeepTeal": "Derin Teal",
+  "themeDeepTealDesc": "Yüksek kontrastlı zengin teal paleti"
 }

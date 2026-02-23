@@ -26,6 +26,7 @@ import PanelTabBar from "./PanelTabBar";
 import ChatArea from "./ChatArea";
 import VoiceRoom from "../voice/VoiceRoom";
 import DMChat from "../dm/DMChat";
+import FriendsView from "../friends/FriendsView";
 import DropZoneOverlay, { calculateZone } from "./DropZoneOverlay";
 import type { DropZone } from "./DropZoneOverlay";
 
@@ -179,6 +180,8 @@ function PanelView({ panelId, sendTyping }: PanelViewProps) {
         <ChatArea channelId={activeTab.channelId} channel={channel ?? null} sendTyping={sendTyping} />
       ) : activeTab.type === "dm" ? (
         <DMChat channelId={activeTab.channelId} />
+      ) : activeTab.type === "friends" ? (
+        <FriendsView />
       ) : (
         <div className="voice-room">
           {channel && (

@@ -40,6 +40,7 @@ import { useAuthStore } from "../stores/authStore";
 import { useUIStore } from "../stores/uiStore";
 import { useDMStore } from "../stores/dmStore";
 import { useChannelPermissionStore } from "../stores/channelPermissionStore";
+import { useFriendStore } from "../stores/friendStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
@@ -63,6 +64,7 @@ import type {
   DMMessage,
   ReactionGroup,
   ChannelPermissionOverride,
+  FriendshipWithUser,
 } from "../types";
 
 /** Reconnect denemesi arasındaki bekleme süresi (ms) */
@@ -229,6 +231,9 @@ export function useWebSocket() {
         useReadStateStore.getState().fetchUnreadCounts();
         // DM kanallarını çek — DM listesinin hemen hazır olması için
         useDMStore.getState().fetchChannels();
+        // Arkadaş listesi ve istekleri çek
+        useFriendStore.getState().fetchFriends();
+        useFriendStore.getState().fetchRequests();
         break;
       }
       case "presence_update": {
@@ -358,6 +363,24 @@ export function useWebSocket() {
           .handleOverrideDelete(cpDel.channel_id, cpDel.role_id);
         break;
       }
+
+      // ─── Friend Events ───
+      case "friend_request_create":
+        useFriendStore.getState().handleFriendRequestCreate(msg.d as FriendshipWithUser);
+        break;
+      case "friend_request_accept":
+        useFriendStore.getState().handleFriendRequestAccept(msg.d as FriendshipWithUser);
+        break;
+      case "friend_request_decline":
+        useFriendStore.getState().handleFriendRequestDecline(
+          msg.d as { id: string; user_id: string }
+        );
+        break;
+      case "friend_remove":
+        useFriendStore.getState().handleFriendRemove(
+          msg.d as { user_id: string }
+        );
+        break;
 
       // ─── Server Events ───
       case "server_update":

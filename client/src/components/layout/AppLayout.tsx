@@ -1,31 +1,27 @@
 /**
- * AppLayout — Dock-based ana layout.
+ * AppLayout — Sidebar-based ana layout.
  *
- * ┌──────────────────────────────────────┐
- * │ TopBar (40px) — Server pill + Tabs    │
- * ├────────────────────────────┬─────────┤
- * │ SplitPaneContainer         │ Members │
- * │ (flex-1, recursive)        │ (200px) │
- * ├────────────────────────────┴─────────┤
- * │ Dock (bottom, centered)               │
- * └──────────────────────────────────────┘
- * VoicePopup (floating, draggable)
+ * ┌─────────┬────────────────────────────────┐
+ * │         │ TopBar (40px) — Server + Tabs   │
+ * │ Sidebar ├──────────────────────┬─────────┤
+ * │ (240px) │ SplitPaneContainer   │ Members │
+ * │         │ (flex-1, recursive)  │ (240px) │
+ * └─────────┴──────────────────────┴─────────┘
  *
  * useWebSocket hook'u burada çağrılır — tüm WS event'leri
  * bu noktadan store'lara yönlendirilir.
  *
  * useVoice hook'u burada çağrılır — voice join/leave/mute/deafen
- * orkestrasyon fonksiyonları child component'lere prop olarak geçilir.
+ * orkestrasyon fonksiyonları Sidebar/UserBar'a prop olarak geçilir.
  *
- * CSS: .mqvi-app, .main-area
+ * CSS: .mqvi-app, .app-body, .main-area
  */
 
 import { useEffect, useRef } from "react";
 import TopBar from "./TopBar";
 import SplitPaneContainer from "./SplitPaneContainer";
 import MemberList from "./MemberList";
-import Dock from "./Dock";
-import VoicePopup from "../voice/VoicePopup";
+import Sidebar from "./Sidebar";
 import ToastContainer from "../shared/ToastContainer";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import SettingsModal from "../settings/SettingsModal";
@@ -161,28 +157,29 @@ function AppLayout() {
 
   return (
     <div className="mqvi-app">
-      {/* Üst bar — server pill + tab strip */}
-      <TopBar />
-
-      {/* Ana içerik alanı — split paneller + member list */}
-      <div className="main-area">
-        {/* Split pane container — recursive layout ağacını render eder */}
-        <SplitPaneContainer node={layout} sendTyping={sendTyping} />
-
-        {/* Sağ panel — CSS transition ile açılıp kapanır (.members-panel.open) */}
-        <MemberList />
-      </div>
-
-      {/* Alt dock — kanal + sunucu ikonları */}
-      <Dock onJoinVoice={joinVoice} />
-
-      {/* Floating voice popup (ses bağlantısı varken görünür) */}
-      <VoicePopup
+      {/* Sol sidebar — kanal ağacı + voice kontrolleri */}
+      <Sidebar
+        onJoinVoice={joinVoice}
         onToggleMute={toggleMute}
         onToggleDeafen={toggleDeafen}
         onToggleScreenShare={toggleScreenShare}
         onDisconnect={leaveVoice}
       />
+
+      {/* Sağ taraf — TopBar + content area */}
+      <div className="app-body">
+        {/* Üst bar — server pill + tab strip */}
+        <TopBar />
+
+        {/* Ana içerik alanı — split paneller + member list */}
+        <div className="main-area">
+          {/* Split pane container — recursive layout ağacını render eder */}
+          <SplitPaneContainer node={layout} sendTyping={sendTyping} />
+
+          {/* Sağ panel — CSS transition ile açılıp kapanır (.members-panel.open) */}
+          <MemberList />
+        </div>
+      </div>
 
       {/* Settings modal — tam ekran overlay (z-50) */}
       <SettingsModal />

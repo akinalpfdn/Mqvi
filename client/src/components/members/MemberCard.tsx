@@ -119,7 +119,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
           className="member-card-banner"
           style={
             sortedRoles[0]?.color
-              ? { background: `linear-gradient(135deg, ${sortedRoles[0].color}, #0088a3)` }
+              ? { background: `linear-gradient(135deg, ${sortedRoles[0].color}, var(--secondary))` }
               : undefined
           }
         />

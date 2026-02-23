@@ -66,7 +66,7 @@ function AvatarUpload({
           width: 80,
           height: 80,
           borderRadius: isCircle ? "999px" : 12,
-          background: "linear-gradient(135deg, var(--primary), #0088a3)",
+          background: "linear-gradient(135deg, var(--primary), var(--secondary))",
           border: "none",
           cursor: "pointer",
           display: "flex",

@@ -14,7 +14,8 @@
       "Bash(powershell.exe -NoProfile -Command \"Set-Location 'c:\\\\Users\\\\akina\\\\source\\\\repos\\\\VoidChat\\\\server'; & 'C:\\\\Program Files\\\\Go\\\\bin\\\\go.exe' build -o mqvi.exe . 2>&1\":*)",
       "Bash(dir /s /B \"c:\\\\Users\\\\akina\\\\source\\\\repos\\\\VoidChat\\\\server\"\" | findstr /E \".go$ \")",
       "Bash(powershell.exe -NoProfile -Command \"Set-Location ''c:\\\\Users\\\\akina\\\\source\\\\repos\\\\VoidChat\\\\server''; & ''C:\\\\Program Files\\\\Go\\\\bin\\\\go.exe'' get github.com/gorilla/websocket 2>&1\")",
-      "Bash(powershell.exe:*)"
+      "Bash(powershell.exe:*)",
+      "Bash(ls -la \"c:\\\\Users\\\\akina\\\\source\\\\repos\\\\VoidChat\\\\server\\\\database\\\\migrations\"\" 2>/dev/null || ls -la \"c:UsersakinasourcereposVoidChatservermigrations\"\")"
     ]
   }
 }
