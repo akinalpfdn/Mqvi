@@ -55,9 +55,22 @@ data/
 uploads/
 
 # ========================
-# Documents
+# Documents (private)
 # ========================
 documents/
+
+# ========================
+# Deploy build output (contains compiled binary + real configs)
+# ========================
+deploy/package/
+deploy/COMMANDS.md
+deploy/REDEPLOY.md
+
+# ========================
+# Embedded frontend build
+# ========================
+server/static/dist/
+!server/static/dist/.gitkeep
 
 # ========================
 # Misc
@@ -65,7 +78,4 @@ documents/
 *.log
 *.tmp
 coverage/
-# ========================
-# Markdown
-# ========================
-*.md
+deploy.md
