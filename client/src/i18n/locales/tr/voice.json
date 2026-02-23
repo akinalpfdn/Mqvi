@@ -21,5 +21,6 @@
   "endCall": "Aramayı Bitir",
   "minimize": "Küçült",
   "livekitConnectionError": "Ses sunucusuna bağlanılamadı. Lütfen sunucunun çalıştığından emin olun ve tekrar deneyin.",
-  "voiceDisconnectedHint": "Ses bağlantısı koptu — ses sunucusu erişilemez olabilir"
+  "voiceDisconnectedHint": "Ses bağlantısı koptu — ses sunucusu erişilemez olabilir",
+  "ping": "Gecikme"
 }

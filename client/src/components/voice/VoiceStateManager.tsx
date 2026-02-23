@@ -144,6 +144,35 @@ function VoiceStateManager() {
     };
   }, [room, localParticipant]);
 
+  // ─── RTT (ping) polling ───
+  // LiveKit SignalClient, WebSocket ping/pong ile RTT ölçer.
+  // room.engine.client.rtt → millisecond cinsinden round-trip time.
+  // Her 3 saniyede store'a yazılır → UserBar'da gösterilir.
+  //
+  // engine ve client @internal olarak işaretli ama public property —
+  // LiveKit GitHub #1293'te önerilen yaklaşım budur.
+  useEffect(() => {
+    if (room.state !== ConnectionState.Connected) return;
+
+    function pollRtt() {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rtt = (room as any).engine?.client?.rtt as number | undefined;
+        if (typeof rtt === "number" && rtt > 0) {
+          useVoiceStore.getState().setRtt(Math.round(rtt));
+        }
+      } catch {
+        // engine/client henüz hazır değilse sessizce geç
+      }
+    }
+
+    // Hemen bir kez oku
+    pollRtt();
+
+    const interval = setInterval(pollRtt, 3000);
+    return () => clearInterval(interval);
+  }, [room, room.state]);
+
   // ─── inputMode değiştiğinde mic state güncelle ───
   // Kullanıcı voice settings'ten mod değiştirdiğinde:
   // - PTT'ye geçiş: mic kapat (tuş basılmadıkça kapalı)
@@ -197,10 +226,26 @@ function VoiceStateManager() {
     });
   }, [userVolumes, masterVolume, isDeafened, room]);
 
+  // ─── Helper: Tek bir participant'a stored volume uygula ───
+  // Birden fazla event handler'da kullanıldığı için ayrı fonksiyon.
+  const applyVolumeToParticipant = useCallback(
+    (participant: RemoteParticipant) => {
+      const { userVolumes: vols, masterVolume: master, isDeafened: deaf } =
+        volumeRef.current;
+      const userVol = vols[participant.identity] ?? 100;
+      const effectiveVolume = deaf ? 0 : (userVol / 100) * (master / 100);
+      participant.setVolume(effectiveVolume);
+    },
+    []
+  );
+
   // Yeni participant track subscribe olduğunda volume uygula.
   // Mevcut katılımcılar yukarıdaki effect ile ele alınır, ama yeni
   // katılımcılar room.remoteParticipants'a eklenince effect tetiklenmez
   // (room referansı değişmez). Bu listener yeni track'lere volume atar.
+  //
+  // Ayrıca kısa delay ile retry yapılır — LiveKit webAudioMix pipeline'ı
+  // TrackSubscribed anında henüz hazır olmayabilir, setVolume() etkisiz kalır.
   useEffect(() => {
     function handleTrackSubscribed(
       _track: RemoteTrack,
@@ -210,11 +255,11 @@ function VoiceStateManager() {
       // Sadece audio track'ler için volume uygula
       if (_track.kind !== Track.Kind.Audio) return;
 
-      const { userVolumes: vols, masterVolume: master, isDeafened: deaf } =
-        volumeRef.current;
-      const userVol = vols[participant.identity] ?? 100;
-      const effectiveVolume = deaf ? 0 : (userVol / 100) * (master / 100);
-      participant.setVolume(effectiveVolume);
+      // Hemen uygula
+      applyVolumeToParticipant(participant);
+
+      // WebAudio pipeline hazır olduktan sonra tekrar uygula (race condition fix)
+      setTimeout(() => applyVolumeToParticipant(participant), 300);
     }
 
     room.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
@@ -222,7 +267,25 @@ function VoiceStateManager() {
     return () => {
       room.off(RoomEvent.TrackSubscribed, handleTrackSubscribed);
     };
-  }, [room]);
+  }, [room, applyVolumeToParticipant]);
+
+  // ─── Participant reconnect'te volume uygula ───
+  // Kullanıcı bağlantıyı koparıp yeniden bağlandığında yeni RemoteParticipant
+  // nesnesi oluşur. room referansı değişmez → volume effect tetiklenmez.
+  // ParticipantConnected event'i yeni katılımcıyı yakalar ve stored volume'u atar.
+  useEffect(() => {
+    function handleParticipantConnected(participant: RemoteParticipant) {
+      // Audio track henüz subscribe olmamış olabilir, ama participant nesnesi
+      // hazır. Kısa delay ile WebAudio pipeline'ın kurulmasını bekle.
+      setTimeout(() => applyVolumeToParticipant(participant), 500);
+    }
+
+    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+
+    return () => {
+      room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
+    };
+  }, [room, applyVolumeToParticipant]);
 
   // Görsel çıktısı yok — sadece side-effect'ler
   return null;

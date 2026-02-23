@@ -20,20 +20,6 @@ export type ThemePalette = {
   swatches: [string, string, string];
 };
 
-/** Tüm CSS variable key'leri */
-const themeVars = [
-  "--bg-0", "--bg-1", "--bg-2", "--bg-3", "--bg-4", "--bg-5", "--bg-h", "--bg-ub",
-  "--b1", "--b2",
-  "--t0", "--t1", "--t2", "--t3",
-  "--primary", "--primary-s", "--primary-m", "--primary-h",
-  "--green", "--green-s",
-  "--red", "--red-s",
-  "--yellow",
-  "--teal",
-  "--secondary", "--secondary-s",
-  "--gradient",
-] as const;
-
 // ────────────────────────────────────────
 // Ocean — Mevcut palet (cyan/teal)
 // ────────────────────────────────────────

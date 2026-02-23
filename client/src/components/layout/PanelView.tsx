@@ -168,8 +168,8 @@ function PanelView({ panelId, sendTyping }: PanelViewProps) {
       {/* VS Code tarzı drop zone overlay — sadece görsel, pointer-events: none */}
       <DropZoneOverlay activeZone={activeZone} />
 
-      {/* Panel-level tab bar — sadece split view aktifken (2+ panel) ve panelde 2+ tab varsa */}
-      {panelCount > 1 && panel.tabs.length > 1 && (
+      {/* Panel-level tab bar — split view aktifken her panelde göster (merge-back için) */}
+      {panelCount > 1 && (
         <PanelTabBar panelId={panelId} />
       )}
 

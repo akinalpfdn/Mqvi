@@ -81,8 +81,6 @@ function SettingsModal() {
  * SettingsContent — activeTab'a göre doğru component'i render eder.
  */
 function SettingsContent({ activeTab }: { activeTab: string }) {
-  const { t } = useTranslation("settings");
-
   switch (activeTab) {
     case "profile":
       return <ProfileSettings />;

@@ -141,22 +141,36 @@ export const useMemberStore = create<MemberState>((set) => ({
 
   handleRoleUpdate: (role) => {
     // Bir rol güncellendiğinde, o role sahip tüm üyelerin görünümü değişir
-    // (renk, isim). Members dizisindeki role referanslarını güncelle.
+    // (renk, isim, permission). Members dizisindeki role referanslarını güncelle
+    // ve effective_permissions'ı yeniden hesapla.
+    //
+    // effective_permissions = tüm rollerin permissions'ının bitwise OR'u.
+    // Backend'deki ToMemberWithRoles ile aynı algoritma — frontend'de de
+    // hesaplanması gerekir ki role_update geldiğinde permission-gated UI
+    // (MessageInput, VoiceService, MemberItem) anında güncellensin.
     set((state) => ({
-      members: state.members.map((m) => ({
-        ...m,
-        roles: m.roles.map((r) => (r.id === role.id ? role : r)),
-      })),
+      members: state.members.map((m) => {
+        const updatedRoles = m.roles.map((r) => (r.id === role.id ? role : r));
+        const effectivePerms = updatedRoles.reduce(
+          (acc, r) => acc | r.permissions,
+          0
+        );
+        return { ...m, roles: updatedRoles, effective_permissions: effectivePerms };
+      }),
     }));
   },
 
   handleRoleDelete: (roleId) => {
-    // Silinen rolü tüm üyelerden çıkar
+    // Silinen rolü tüm üyelerden çıkar ve effective_permissions'ı yeniden hesapla.
     set((state) => ({
-      members: state.members.map((m) => ({
-        ...m,
-        roles: m.roles.filter((r) => r.id !== roleId),
-      })),
+      members: state.members.map((m) => {
+        const filteredRoles = m.roles.filter((r) => r.id !== roleId);
+        const effectivePerms = filteredRoles.reduce(
+          (acc, r) => acc | r.permissions,
+          0
+        );
+        return { ...m, roles: filteredRoles, effective_permissions: effectivePerms };
+      }),
     }));
   },
 }));

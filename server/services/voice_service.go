@@ -104,9 +104,9 @@ type voiceService struct {
 	livekitCfg    config.LiveKitConfig
 }
 
-// maxScreenShares, bir ses kanalında aynı anda izin verilen
-// maksimum ekran paylaşımı sayısı (CLAUDE.md kuralı).
-const maxScreenShares = 2
+// maxScreenShares — bir ses kanalında aynı anda izin verilen
+// maksimum ekran paylaşımı sayısı. 0 = sınırsız.
+const maxScreenShares = 0
 
 // NewVoiceService, yeni bir VoiceService oluşturur.
 // Constructor injection pattern: tüm dependency'ler parametre olarak alınır.
@@ -296,8 +296,8 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 		return nil // Kanalda değil — sessizce geç
 	}
 
-	// Screen share limit kontrolü
-	if isStreaming != nil && *isStreaming {
+	// Screen share limit kontrolü — maxScreenShares > 0 ise aktif
+	if maxScreenShares > 0 && isStreaming != nil && *isStreaming {
 		count := 0
 		for _, st := range s.states {
 			if st.ChannelID == state.ChannelID && st.IsStreaming && st.UserID != userID {

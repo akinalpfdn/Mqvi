@@ -24,6 +24,7 @@
  * .ch-tree-voice-user, .ch-tree-vu-dot
  */
 
+import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useChannelStore } from "../../stores/channelStore";
@@ -33,6 +34,11 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useFriendStore } from "../../stores/friendStore";
+import { useMemberStore } from "../../stores/memberStore";
+import { useAuthStore } from "../../stores/authStore";
+import { useToastStore } from "../../stores/toastStore";
+import { hasPermission, Permissions } from "../../utils/permissions";
+import * as channelApi from "../../api/channels";
 import Avatar from "../shared/Avatar";
 
 type ChannelTreeProps = {
@@ -81,6 +87,59 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
   const friends = useFriendStore((s) => s.friends);
   const incoming = useFriendStore((s) => s.incoming);
+
+  const currentUser = useAuthStore((s) => s.user);
+  const members = useMemberStore((s) => s.members);
+  const addToast = useToastStore((s) => s.addToast);
+  const { t: tCh } = useTranslation("channels");
+
+  // Permission: MANAGE_CHANNELS yetkisi olan kullanıcılar kanal ekleyebilir
+  const currentMember = members.find((m) => m.id === currentUser?.id);
+  const canManageChannels = currentMember
+    ? hasPermission(currentMember.effective_permissions, Permissions.ManageChannels)
+    : false;
+
+  // ─── Inline Create Channel State ───
+  // createTarget: hangi kategoriye kanal ekleniyor (category_id)
+  const [createTarget, setCreateTarget] = useState<string | null>(null);
+  const [createName, setCreateName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+
+  /**
+   * Kategorideki kanalların türüne bakarak yeni kanal türünü otomatik belirle.
+   * Tüm kanallar voice ise → "voice", aksi halde → "text".
+   * Bu sayede kullanıcı text category'de + basınca text, voice category'de voice oluşturur.
+   */
+  function inferChannelType(categoryId: string): "text" | "voice" {
+    const cat = categories.find((c) => c.category.id === categoryId);
+    if (!cat || cat.channels.length === 0) return "text";
+    const allVoice = cat.channels.every((ch) => ch.type === "voice");
+    return allVoice ? "voice" : "text";
+  }
+
+  const handleCreateChannel = useCallback(async () => {
+    const trimmed = createName.trim();
+    if (!trimmed || isCreating || !createTarget) return;
+
+    const type = inferChannelType(createTarget);
+
+    setIsCreating(true);
+    const res = await channelApi.createChannel({
+      name: trimmed,
+      type,
+      category_id: createTarget,
+    });
+
+    if (res.success) {
+      addToast("success", tCh("channelCreated"));
+      setCreateName("");
+      setCreateTarget(null);
+    } else {
+      addToast("error", tCh("channelCreateError"));
+    }
+    setIsCreating(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createName, createTarget, isCreating, addToast, tCh, categories]);
 
   // ─── Handlers ───
 
@@ -245,6 +304,13 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
             </span>
           )}
           <span className="ch-tree-server-name">{server?.name ?? t("server")}</span>
+          {/* Server-level unread badge — tüm kanalların toplam okunmamış sayısı */}
+          {(() => {
+            const total = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
+            return total > 0 ? (
+              <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
+            ) : null;
+          })()}
         </button>
 
         {isSectionExpanded("server") && (
@@ -255,14 +321,64 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
               return (
                 <div key={cg.category.id} className="ch-tree-category">
-                  {/* Kategori başlığı */}
-                  <button
-                    className="ch-tree-cat-header"
-                    onClick={() => toggleSection(catKey)}
-                  >
-                    <Chevron expanded={catExpanded} />
-                    <span>{cg.category.name}</span>
-                  </button>
+                  {/* Kategori başlığı + kanal ekleme butonu */}
+                  <div className="ch-tree-cat-row">
+                    <button
+                      className="ch-tree-cat-header"
+                      onClick={() => toggleSection(catKey)}
+                    >
+                      <Chevron expanded={catExpanded} />
+                      <span>{cg.category.name}</span>
+                    </button>
+                    {canManageChannels && (
+                      <button
+                        className="ch-tree-cat-add"
+                        title={tCh("createChannel")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCreateTarget(
+                            createTarget === cg.category.id ? null : cg.category.id
+                          );
+                          setCreateName("");
+                        }}
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Inline kanal oluşturma formu */}
+                  {createTarget === cg.category.id && (
+                    <div className="ch-tree-create-form">
+                      <input
+                        className="ch-tree-create-input"
+                        type="text"
+                        placeholder={tCh("channelName")}
+                        value={createName}
+                        onChange={(e) => setCreateName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleCreateChannel();
+                          if (e.key === "Escape") setCreateTarget(null);
+                        }}
+                        autoFocus
+                      />
+                      <div className="ch-tree-create-actions">
+                        <button
+                          className="ch-tree-create-btn"
+                          onClick={handleCreateChannel}
+                          disabled={!createName.trim() || isCreating}
+                        >
+                          {isCreating ? "..." : tCh("createChannel")}
+                        </button>
+                        <button
+                          className="ch-tree-create-cancel"
+                          onClick={() => setCreateTarget(null)}
+                        >
+                          {tCh("cancel")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {catExpanded && cg.channels.map((ch) => {
                     const isText = ch.type === "text";
@@ -309,9 +425,26 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                   isCircle
                                 />
                                 <span className="ch-tree-vu-name">{p.username}</span>
-                                {!p.is_muted && (
-                                  <span className="ch-tree-vu-dot" />
-                                )}
+                                {/* Durum ikonları: yayın, mute, deafen */}
+                                <span className="ch-tree-vu-icons">
+                                  {p.is_streaming && (
+                                    <svg className="ch-tree-vu-icon ch-tree-vu-stream" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} title={tVoice("screenShare")}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                    </svg>
+                                  )}
+                                  {p.is_deafened ? (
+                                    <svg className="ch-tree-vu-icon ch-tree-vu-deafen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636" />
+                                    </svg>
+                                  ) : p.is_muted ? (
+                                    <svg className="ch-tree-vu-icon ch-tree-vu-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                                    </svg>
+                                  ) : (
+                                    <span className="ch-tree-vu-dot" />
+                                  )}
+                                </span>
                               </div>
                             ))}
                           </div>

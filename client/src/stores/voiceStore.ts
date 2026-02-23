@@ -173,6 +173,13 @@ type VoiceStore = {
   /** soundsEnabled — Kanal giriş/çıkış sesleri açık mı? */
   soundsEnabled: boolean;
 
+  /**
+   * rtt — LiveKit signal server'a round-trip time (ms).
+   * VoiceStateManager tarafından periyodik olarak güncellenir.
+   * 0 = henüz ölçülmedi veya bağlı değil.
+   */
+  rtt: number;
+
   // ─── Actions ───
 
   /**
@@ -215,6 +222,7 @@ type VoiceStore = {
   setOutputDevice: (deviceId: string) => void;
   setMasterVolume: (value: number) => void;
   setSoundsEnabled: (enabled: boolean) => void;
+  setRtt: (rtt: number) => void;
 
   // ─── Cross-store Callback ───
 
@@ -267,6 +275,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   outputDevice: initialSettings.outputDevice,
   masterVolume: initialSettings.masterVolume,
   soundsEnabled: initialSettings.soundsEnabled,
+  rtt: 0,
 
   // ─── Cross-store Callback ───
   _onLeaveCallback: null,
@@ -313,6 +322,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       isMuted: false,
       isDeafened: false,
       isStreaming: false,
+      rtt: 0,
     });
   },
 
@@ -467,6 +477,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: enabled,
     });
   },
+
+  setRtt: (rtt) => set({ rtt }),
 
   // ─── WS Event Handlers ───
 

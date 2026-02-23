@@ -15,7 +15,7 @@
 type AvatarProps = {
   name: string;
   role?: "admin" | "mod" | null;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
   size?: number;
   isCircle?: boolean;
 };

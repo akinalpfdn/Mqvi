@@ -37,7 +37,11 @@ function UserBar({
   const isStreaming = useVoiceStore((s) => s.isStreaming);
   const openSettings = useSettingsStore((s) => s.openSettings);
 
+  const rtt = useVoiceStore((s) => s.rtt);
   const isInVoice = !!currentVoiceChannelId;
+
+  // Ping renk sınıfı — Discord tarzı: yeşil < 100ms, sarı 100-200ms, kırmızı > 200ms
+  const pingColor = rtt <= 0 ? "" : rtt < 100 ? "ub-ping-good" : rtt < 200 ? "ub-ping-mid" : "ub-ping-bad";
 
   if (!user) return null;
 
@@ -50,6 +54,13 @@ function UserBar({
           <div className="ub-voice-info">
             <span className="ub-voice-pulse" />
             <span className="ub-voice-label">{t("voiceConnected")}</span>
+            {/* Ping tooltip — hover'da gösterilir */}
+            {rtt > 0 && (
+              <div className="ub-ping-tooltip">
+                <div className={`ub-ping-dot ${pingColor}`} />
+                <span className="ub-ping-value">{rtt} ms</span>
+              </div>
+            )}
           </div>
           <div className="ub-voice-btns">
             <button
