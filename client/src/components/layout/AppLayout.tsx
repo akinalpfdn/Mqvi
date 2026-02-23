@@ -25,6 +25,7 @@ import Sidebar from "./Sidebar";
 import ToastContainer from "../shared/ToastContainer";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import SettingsModal from "../settings/SettingsModal";
+import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
 import { useIdleDetection } from "../../hooks/useIdleDetection";
@@ -167,19 +168,24 @@ function AppLayout() {
       />
 
       {/* Sağ taraf — TopBar + content area */}
-      <div className="app-body">
-        {/* Üst bar — server pill + tab strip */}
-        <TopBar />
+      {/* VoiceProvider: LiveKit bağlantısını her zaman mount tutar.
+          Tab değişince VoiceRoom visual component'i unmount olsa bile
+          ses bağlantısı korunur. display:contents ile layout etkilenmez. */}
+      <VoiceProvider>
+        <div className="app-body">
+          {/* Üst bar — server pill + tab strip */}
+          <TopBar />
 
-        {/* Ana içerik alanı — split paneller + member list */}
-        <div className="main-area">
-          {/* Split pane container — recursive layout ağacını render eder */}
-          <SplitPaneContainer node={layout} sendTyping={sendTyping} />
+          {/* Ana içerik alanı — split paneller + member list */}
+          <div className="main-area">
+            {/* Split pane container — recursive layout ağacını render eder */}
+            <SplitPaneContainer node={layout} sendTyping={sendTyping} />
 
-          {/* Sağ panel — CSS transition ile açılıp kapanır (.members-panel.open) */}
-          <MemberList />
+            {/* Sağ panel — CSS transition ile açılıp kapanır (.members-panel.open) */}
+            <MemberList />
+          </div>
         </div>
-      </div>
+      </VoiceProvider>
 
       {/* Settings modal — tam ekran overlay (z-50) */}
       <SettingsModal />
