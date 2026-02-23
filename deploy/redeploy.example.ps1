@@ -25,10 +25,20 @@ Write-Host ""
 # --- SSH Agent: ask passphrase once ---
 Write-Host "[1/5] Setting up SSH agent..." -ForegroundColor Yellow
 $agentService = Get-Service ssh-agent -ErrorAction SilentlyContinue
-if ($agentService -and $agentService.Status -ne 'Running') {
-    Start-Service ssh-agent
+if ($agentService) {
+    if ($agentService.StartType -eq 'Disabled' -or $agentService.Status -ne 'Running') {
+        Write-Host "  SSH agent needs admin to start (one-time)..." -ForegroundColor DarkYellow
+        $proc = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList `
+            '-NoProfile -Command "Set-Service ssh-agent -StartupType Manual; Start-Service ssh-agent"'
+        if ($proc.ExitCode -ne 0) {
+            Write-Host "  ERROR: Could not start ssh-agent. Run as admin once or enable the service manually." -ForegroundColor Red
+            exit 1
+        }
+    }
 }
+$ErrorActionPreference = "Continue"
 ssh-add $SshKey 2>$null
+$ErrorActionPreference = "Stop"
 Write-Host "  OK - SSH key loaded" -ForegroundColor Green
 
 # --- Build ---

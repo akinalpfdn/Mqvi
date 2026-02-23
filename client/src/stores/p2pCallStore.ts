@@ -293,7 +293,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   toggleScreenShare: () => {
-    const { isScreenSharing, peerConnection, localStream, activeCall, _sendWS } = get();
+    const { isScreenSharing, peerConnection, localStream, activeCall } = get();
     if (!peerConnection || !activeCall) return;
 
     if (isScreenSharing) {
