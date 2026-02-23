@@ -299,6 +299,7 @@ func main() {
 	channelPermHandler := handlers.NewChannelPermissionHandler(channelPermService)
 	friendshipHandler := handlers.NewFriendshipHandler(friendshipService)
 	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
+	statsHandler := handlers.NewStatsHandler(userRepo)
 	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService)
 
 	// ─── 9. Middleware ───
@@ -313,6 +314,9 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok","service":"mqvi"}`)
 	})
+
+	// Stats — public endpoint (auth gerekmez, landing page kullanır)
+	mux.HandleFunc("GET /api/stats", statsHandler.GetPublicStats)
 
 	// Auth — public endpoint'ler (token gerekmez)
 	mux.HandleFunc("POST /api/auth/register", authHandler.Register)
