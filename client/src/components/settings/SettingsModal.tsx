@@ -19,6 +19,7 @@ import ServerGeneralSettings from "./ServerGeneralSettings";
 import InviteSettings from "./InviteSettings";
 import VoiceSettings from "./VoiceSettings";
 import ChannelSettings from "./ChannelSettings";
+import MembersSettings from "./MembersSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -104,16 +105,8 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
     case "appearance":
       return <AppearanceSettings />;
 
-    // Placeholder tab'lar
     case "members":
-      return (
-        <div className="no-channel settings-placeholder">
-          <span className="settings-section-title">
-            {t(activeTab)}
-          </span>
-          <span className="settings-placeholder-text">{t("comingSoon")}</span>
-        </div>
-      );
+      return <MembersSettings />;
 
     default:
       return null;

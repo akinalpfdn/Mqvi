@@ -149,5 +149,20 @@
   "themeEmber": "Sıcak Kor",
   "themeEmberDesc": "Turuncu vurgulu sıcak kahverengi-siyah",
   "themeDeepTeal": "Derin Teal",
-  "themeDeepTealDesc": "Yüksek kontrastlı zengin teal paleti"
+  "themeDeepTealDesc": "Yüksek kontrastlı zengin teal paleti",
+
+  "noMemberSelected": "Rollerini yönetmek için bir üye seçin",
+  "memberCurrentRoles": "Mevcut Roller",
+  "memberNoRoles": "Atanmış rol yok",
+  "memberAssignRoles": "Rol Ata",
+  "memberRolesSaved": "Üye rolleri güncellendi",
+  "memberRolesSaveError": "Üye rolleri güncellenirken hata oluştu",
+  "kickMember": "At",
+  "banMember": "Yasakla",
+  "confirmKick": "\"{{name}}\" adlı üyeyi atmak istediğinizden emin misiniz? Davet bağlantısıyla tekrar katılabilir.",
+  "confirmBan": "\"{{name}}\" adlı üyeyi yasaklamak istediğinizden emin misiniz? Tekrar katılamayacak.",
+  "memberKicked": "Üye sunucudan atıldı",
+  "memberKickError": "Üye atılırken hata oluştu",
+  "memberBanned": "Üye yasaklandı",
+  "memberBanError": "Üye yasaklanırken hata oluştu"
 }

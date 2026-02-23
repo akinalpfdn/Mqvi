@@ -222,6 +222,7 @@ func main() {
 		roleRepo,
 		banRepo,
 		inviteService,
+		hub,
 		cfg.JWT.Secret,
 		cfg.JWT.AccessTokenExpiry,
 		cfg.JWT.RefreshTokenExpiry,
@@ -316,7 +317,7 @@ func main() {
 	mux.Handle("PATCH /api/messages/{id}", authMiddleware.Require(
 		http.HandlerFunc(messageHandler.Update)))
 	mux.Handle("DELETE /api/messages/{id}", authMiddleware.Require(
-		http.HandlerFunc(messageHandler.Delete)))
+		permMiddleware.Load(http.HandlerFunc(messageHandler.Delete))))
 
 	// Upload — bağımsız dosya yükleme endpoint'i
 	mux.Handle("POST /api/upload", authMiddleware.Require(

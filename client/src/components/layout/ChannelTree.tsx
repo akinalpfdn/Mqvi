@@ -158,7 +158,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                   <Avatar
                     name={friend.display_name ?? friend.username}
                     avatarUrl={friend.avatar_url ?? undefined}
-                    size={20}
+                    size={24}
                   />
                   <span className="ch-tree-label">
                     {friend.display_name ?? friend.username}
@@ -211,7 +211,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     <Avatar
                       name={name}
                       avatarUrl={dm.other_user.avatar_url}
-                      size={18}
+                      size={24}
                       isCircle
                     />
                     <span className="ch-tree-label">{name}</span>
@@ -305,7 +305,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                 <Avatar
                                   name={p.username}
                                   avatarUrl={p.avatar_url}
-                                  size={16}
+                                  size={22}
                                   isCircle
                                 />
                                 <span className="ch-tree-vu-name">{p.username}</span>

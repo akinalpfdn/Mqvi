@@ -22,6 +22,7 @@ import { useMessageStore } from "../../stores/messageStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { usePinStore } from "../../stores/pinStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
@@ -81,6 +82,7 @@ function Message({ message, isCompact }: MessageProps) {
   const unpinAction = usePinStore((s) => s.unpin);
   const isMessagePinned = usePinStore((s) => s.isMessagePinned);
 
+  const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content ?? "");
@@ -129,8 +131,14 @@ function Message({ message, isCompact }: MessageProps) {
     setIsEditing(false);
   }
 
-  /** Mesaj silme */
+  /** Mesaj silme — onay dialogu ile */
   async function handleDelete() {
+    const ok = await confirm({
+      message: t("deleteMessageConfirm"),
+      confirmLabel: t("deleteMessage"),
+      danger: true,
+    });
+    if (!ok) return;
     await deleteMessage(message.id);
   }
 

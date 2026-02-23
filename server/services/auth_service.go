@@ -21,9 +21,12 @@ import (
 	"strings"
 	"time"
 
+	"log"
+
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/repository"
+	"github.com/akinalp/mqvi/ws"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -52,7 +55,8 @@ type authService struct {
 	sessionRepo   repository.SessionRepository
 	roleRepo      repository.RoleRepository
 	banRepo       repository.BanRepository
-	inviteService InviteService // Circular dep yok: InviteService, AuthService'e bağımlı değil
+	inviteService InviteService       // Circular dep yok: InviteService, AuthService'e bağımlı değil
+	hub           ws.EventPublisher   // Register sonrası member_join broadcast için
 	jwtSecret     []byte
 	accessExp     time.Duration
 	refreshExp    time.Duration
@@ -64,12 +68,14 @@ type authService struct {
 // refreshExpDays: refresh token ömrü (gün)
 // banRepo: Login sırasında ban kontrolü için
 // inviteService: Register sırasında davet kodu doğrulaması için
+// hub: Register sonrası member_join WS event'i broadcast etmek için
 func NewAuthService(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
 	roleRepo repository.RoleRepository,
 	banRepo repository.BanRepository,
 	inviteService InviteService,
+	hub ws.EventPublisher,
 	jwtSecret string,
 	accessExpMinutes int,
 	refreshExpDays int,
@@ -80,6 +86,7 @@ func NewAuthService(
 		roleRepo:      roleRepo,
 		banRepo:       banRepo,
 		inviteService: inviteService,
+		hub:           hub,
 		jwtSecret:     []byte(jwtSecret),
 		accessExp:     time.Duration(accessExpMinutes) * time.Minute,
 		refreshExp:    time.Duration(refreshExpDays) * 24 * time.Hour,
@@ -175,7 +182,21 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		}
 	}
 
-	// 7. Token çifti oluştur
+	// 7. member_join WS broadcast — tüm bağlı client'ları yeni üyeden haberdar et.
+	// Broadcast token oluşturmadan ÖNCE yapılır — böylece mevcut kullanıcılar
+	// yeni üyeyi hemen üye listesinde görür.
+	roles, err := s.roleRepo.GetByUserID(ctx, user.ID)
+	if err != nil {
+		log.Printf("[auth] failed to get roles for member_join broadcast: %v", err)
+	} else {
+		member := models.ToMemberWithRoles(user, roles)
+		s.hub.BroadcastToAll(ws.Event{
+			Op:   ws.OpMemberJoin,
+			Data: member,
+		})
+	}
+
+	// 8. Token çifti oluştur
 	tokens, err := s.generateTokens(ctx, user)
 	if err != nil {
 		return nil, err

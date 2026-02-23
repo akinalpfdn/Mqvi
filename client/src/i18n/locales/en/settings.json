@@ -149,5 +149,20 @@
   "themeEmber": "Warm Ember",
   "themeEmberDesc": "Warm brown-black with orange accent",
   "themeDeepTeal": "Deep Teal",
-  "themeDeepTealDesc": "Rich teal with high contrast"
+  "themeDeepTealDesc": "Rich teal with high contrast",
+
+  "noMemberSelected": "Select a member to manage their roles",
+  "memberCurrentRoles": "Current Roles",
+  "memberNoRoles": "No roles assigned",
+  "memberAssignRoles": "Assign Roles",
+  "memberRolesSaved": "Member roles updated",
+  "memberRolesSaveError": "Failed to update member roles",
+  "kickMember": "Kick",
+  "banMember": "Ban",
+  "confirmKick": "Are you sure you want to kick \"{{name}}\"? They can rejoin with an invite link.",
+  "confirmBan": "Are you sure you want to ban \"{{name}}\"? They will not be able to rejoin.",
+  "memberKicked": "Member has been kicked",
+  "memberKickError": "Failed to kick member",
+  "memberBanned": "Member has been banned",
+  "memberBanError": "Failed to ban member"
 }

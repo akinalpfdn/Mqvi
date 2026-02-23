@@ -186,7 +186,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
             name={member.username}
             role={roleType}
             avatarUrl={member.avatar_url ?? undefined}
-            size={28}
+            size={32}
           />
           <span className={`member-status ${getStatusClass(member.status)}`} />
         </div>

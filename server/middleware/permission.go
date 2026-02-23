@@ -28,6 +28,38 @@ func NewPermissionMiddleware(roleRepo repository.RoleRepository) *PermissionMidd
 	return &PermissionMiddleware{roleRepo: roleRepo}
 }
 
+// Load, kullanıcının permission'larını context'e yükler ama herhangi bir
+// permission gerektirmez. Handler kendi içinde yetki kontrolü yapar.
+//
+// Kullanım: mesaj silme gibi "sahibi VEYA yetkili kullanıcı" senaryolarında
+// handler'ın hem user ID hem de permission bilgisine ihtiyacı vardır.
+// Require kullanırsak sadece yetkili kullanıcılar erişir — normal kullanıcılar
+// kendi mesajlarını silemez. Load ile permissions context'e yüklenir,
+// handler kararı kendisi verir.
+func (m *PermissionMiddleware) Load(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := r.Context().Value(handlers.UserContextKey).(*models.User)
+		if !ok {
+			pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+			return
+		}
+
+		roles, err := m.roleRepo.GetByUserID(r.Context(), user.ID)
+		if err != nil {
+			pkg.ErrorWithMessage(w, http.StatusInternalServerError, "failed to get user roles")
+			return
+		}
+
+		var effectivePerms models.Permission
+		for _, role := range roles {
+			effectivePerms |= role.Permissions
+		}
+
+		ctx := context.WithValue(r.Context(), handlers.PermissionsContextKey, effectivePerms)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // Require, belirli bir yetkiyi gerektiren middleware döner.
 //
 // Kullanım:
