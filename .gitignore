@@ -67,6 +67,12 @@ deploy/COMMANDS.md
 deploy/REDEPLOY.md
 
 # ========================
+# Deploy scripts with real server IP (use .example versions)
+# ========================
+deploy/redeploy.sh
+deploy/redeploy.ps1
+
+# ========================
 # Embedded frontend build
 # ========================
 server/static/dist/

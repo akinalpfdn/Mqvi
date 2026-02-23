@@ -298,8 +298,8 @@ mqvi/
 │       └── types/        # TypeScript types
 ├── deploy/               # Build & deploy scripts
 │   ├── build.ps1         # Windows build script
-│   ├── redeploy.ps1      # Windows one-click redeploy
-│   ├── redeploy.sh       # Linux/macOS one-click redeploy
+│   ├── redeploy.example.ps1  # Windows one-click redeploy (template)
+│   ├── redeploy.example.sh   # Linux/macOS one-click redeploy (template)
 │   ├── start.sh          # Server startup script
 │   ├── livekit.yaml      # LiveKit SFU config template
 │   └── .env.example      # Environment config template

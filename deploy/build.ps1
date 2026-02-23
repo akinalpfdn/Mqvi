@@ -1,13 +1,13 @@
 # mqvi Deploy Build Script
 #
-# Windows'tan Linux deploy paketi oluşturur.
-# Kullanım: powershell -ExecutionPolicy Bypass -File deploy\build.ps1
+# Builds a Linux deploy package from Windows.
+# Usage: powershell -ExecutionPolicy Bypass -File deploy\build.ps1
 #
-# Adımlar:
+# Steps:
 #   1. Frontend build (React + TypeScript + Vite)
-#   2. Frontend'i server/static/dist/ dizinine kopyala (embed için)
+#   2. Copy frontend to server/static/dist/ (for embedding)
 #   3. Go cross-compile (GOOS=linux GOARCH=amd64)
-#   4. Deploy paketi oluştur
+#   4. Create deploy package
 
 $ErrorActionPreference = "Stop"
 
@@ -21,10 +21,10 @@ Write-Host "=== mqvi Deploy Build ===" -ForegroundColor Cyan
 Write-Host ""
 
 # ─── 1. Frontend Build ───
-Write-Host "[1/4] Frontend derleniyor..." -ForegroundColor Yellow
+Write-Host "[1/4] Building frontend..." -ForegroundColor Yellow
 Push-Location $ClientDir
 
-# npm install (node_modules yoksa veya güncel değilse)
+# npm install (if node_modules missing)
 if (-not (Test-Path "node_modules")) {
     Write-Host "  npm install..."
     & 'C:\Program Files\nodejs\npm.cmd' install
@@ -38,10 +38,10 @@ Pop-Location
 
 Write-Host "  Frontend build OK" -ForegroundColor Green
 
-# ─── 2. Frontend'i Static Dizinine Kopyala ───
-Write-Host "[2/4] Frontend server/static/dist/ dizinine kopyalanıyor..." -ForegroundColor Yellow
+# ─── 2. Copy Frontend to Static Directory ───
+Write-Host "[2/4] Copying frontend to server/static/dist/..." -ForegroundColor Yellow
 
-# Önceki build'i temizle (.gitkeep hariç)
+# Clean previous build (keep .gitkeep)
 if (Test-Path $StaticDist) {
     Get-ChildItem -Path $StaticDist -Exclude ".gitkeep" | Remove-Item -Recurse -Force
 }
@@ -51,10 +51,10 @@ New-Item -ItemType Directory -Force -Path $StaticDist | Out-Null
 $ClientDist = Join-Path (Join-Path $ClientDir "dist") "*"
 Copy-Item -Path $ClientDist -Destination $StaticDist -Recurse -Force
 
-Write-Host "  Kopyalama OK" -ForegroundColor Green
+Write-Host "  Copy OK" -ForegroundColor Green
 
 # ─── 3. Go Cross-Compile ───
-Write-Host "[3/4] Go Linux binary derleniyor..." -ForegroundColor Yellow
+Write-Host "[3/4] Compiling Go binary (linux/amd64)..." -ForegroundColor Yellow
 Push-Location $ServerDir
 
 $env:GOOS   = "linux"
@@ -65,7 +65,7 @@ $OutputBinary = Join-Path $PSScriptRoot "mqvi-server"
 & 'C:\Program Files\Go\bin\go.exe' build -o $OutputBinary .
 if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
 
-# Env temizle
+# Clean env vars
 Remove-Item Env:\GOOS
 Remove-Item Env:\GOARCH
 Remove-Item Env:\CGO_ENABLED
@@ -74,35 +74,35 @@ Pop-Location
 $Size = [math]::Round((Get-Item $OutputBinary).Length / 1MB, 1)
 Write-Host "  Binary OK ($Size MB)" -ForegroundColor Green
 
-# ─── 4. Deploy Paketi Oluştur ───
-Write-Host "[4/4] Deploy paketi hazırlanıyor..." -ForegroundColor Yellow
+# ─── 4. Create Deploy Package ───
+Write-Host "[4/4] Creating deploy package..." -ForegroundColor Yellow
 
 if (Test-Path $DeployDir) {
     Remove-Item -Path $DeployDir -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $DeployDir | Out-Null
 
-# Dosyaları kopyala
+# Copy files
 Copy-Item $OutputBinary                           (Join-Path $DeployDir "mqvi-server")
 Copy-Item (Join-Path $PSScriptRoot "start.sh")    (Join-Path $DeployDir "start.sh")
 Copy-Item (Join-Path $PSScriptRoot ".env.example") (Join-Path $DeployDir ".env")
 Copy-Item (Join-Path $PSScriptRoot "livekit.yaml") (Join-Path $DeployDir "livekit.yaml")
 
-# Ana dizindeki geçici binary'yi sil
+# Remove temp binary from root
 Remove-Item $OutputBinary -Force
 
-Write-Host "  Paket OK" -ForegroundColor Green
+Write-Host "  Package OK" -ForegroundColor Green
 
 Write-Host ""
-Write-Host "=== Build Tamamlandi ===" -ForegroundColor Cyan
+Write-Host "=== Build Complete ===" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Deploy paketi: $DeployDir" -ForegroundColor White
+Write-Host "Deploy package: $DeployDir" -ForegroundColor White
 Write-Host ""
-Write-Host "Sunucuya yukleme:" -ForegroundColor White
-Write-Host "  scp -r $DeployDir/* user@sunucu:~/mqvi/" -ForegroundColor Gray
+Write-Host "Upload to server:" -ForegroundColor White
+Write-Host "  scp -r $DeployDir/* root@YOUR_SERVER_IP:~/mqvi/" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Sunucuda calistirma:" -ForegroundColor White
+Write-Host "Run on server:" -ForegroundColor White
 Write-Host "  cd ~/mqvi" -ForegroundColor Gray
-Write-Host "  nano .env              # JWT_SECRET'i degistir!" -ForegroundColor Gray
+Write-Host "  nano .env              # Set JWT_SECRET!" -ForegroundColor Gray
 Write-Host "  chmod +x mqvi-server start.sh" -ForegroundColor Gray
 Write-Host "  ./start.sh" -ForegroundColor Gray
