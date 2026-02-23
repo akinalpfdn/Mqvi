@@ -30,6 +30,8 @@ import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
 import { useIdleDetection } from "../../hooks/useIdleDetection";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useP2PCall } from "../../hooks/useP2PCall";
+import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
 import QuickSwitcher from "../shared/QuickSwitcher";
 import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
@@ -117,6 +119,9 @@ function AppLayout() {
   // Global keyboard shortcuts — Ctrl+K, Ctrl+Shift+M, Ctrl+Shift+D
   useKeyboardShortcuts({ toggleMute, toggleDeafen });
 
+  // P2P call lifecycle — incoming call timeout, WebRTC negotiation, tab sync
+  useP2PCall();
+
   // ─── Voice ↔ Tab sync ───
 
   /**
@@ -198,6 +203,9 @@ function AppLayout() {
 
       {/* Quick Switcher — Ctrl+K ile açılır (z-60) */}
       <QuickSwitcher />
+
+      {/* P2P gelen arama overlay — z-200, en üst katman */}
+      <IncomingCallOverlay />
     </div>
   );
 }

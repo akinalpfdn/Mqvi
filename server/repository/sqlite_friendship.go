@@ -88,7 +88,7 @@ func (r *sqliteFriendshipRepo) GetByPair(ctx context.Context, userID, friendID s
 // (UNIQUE constraint bunu zaten engelliyor ama defense-in-depth).
 func (r *sqliteFriendshipRepo) ListFriends(ctx context.Context, userID string) ([]models.FriendshipWithUser, error) {
 	query := `
-		SELECT f.id, f.status, f.created_at,
+		SELECT f.id, f.status, f.created_at AS created_at,
 		       u.id, u.username, COALESCE(u.display_name, ''), u.avatar_url, u.status, u.custom_status
 		FROM friendships f
 		JOIN users u ON u.id = f.friend_id
@@ -96,7 +96,7 @@ func (r *sqliteFriendshipRepo) ListFriends(ctx context.Context, userID string) (
 
 		UNION
 
-		SELECT f.id, f.status, f.created_at,
+		SELECT f.id, f.status, f.created_at AS created_at,
 		       u.id, u.username, COALESCE(u.display_name, ''), u.avatar_url, u.status, u.custom_status
 		FROM friendships f
 		JOIN users u ON u.id = f.user_id

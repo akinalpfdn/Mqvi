@@ -98,6 +98,22 @@ const (
 	OpVoiceStateUpdateReq = "voice_state_update_request"  // Kullanıcı mute/deafen/stream toggle'lıyor
 )
 
+// P2P Call operasyonları — hem Client → Server hem Server → Client
+//
+// P2P (peer-to-peer) arama signaling akışı:
+// 1. Caller: p2p_call_initiate → Server validate → Receiver: p2p_call_initiate
+// 2. Receiver: p2p_call_accept → Server update → Caller: p2p_call_accept
+// 3. WebRTC negotiation: p2p_signal (SDP offer/answer/ICE candidates) relay
+// 4. Either: p2p_call_end → Server cleanup → Other: p2p_call_end
+const (
+	OpP2PCallInitiate = "p2p_call_initiate" // Arama başlat / gelen arama bildirimi
+	OpP2PCallAccept   = "p2p_call_accept"   // Arama kabul edildi
+	OpP2PCallDecline  = "p2p_call_decline"  // Arama reddedildi / iptal edildi
+	OpP2PCallEnd      = "p2p_call_end"      // Arama sonlandırıldı
+	OpP2PSignal       = "p2p_signal"        // WebRTC SDP/ICE signaling relay
+	OpP2PCallBusy     = "p2p_call_busy"     // Karşı taraf başka bir aramada (meşgul)
+)
+
 // ReadyData, bağlantı kurulduğunda client'a gönderilen ilk event'in payload'ı.
 //
 // Frontend bu event ile:
@@ -170,4 +186,33 @@ type VoiceStateItem struct {
 	IsMuted     bool   `json:"is_muted"`
 	IsDeafened  bool   `json:"is_deafened"`
 	IsStreaming bool   `json:"is_streaming"`
+}
+
+// ─── P2P Call Event Data Struct'ları ───
+
+// P2PCallInitiateData, p2p_call_initiate event'inin Client → Server payload'ı.
+// Caller bu event'i gönderir, server validate edip receiver'a iletir.
+type P2PCallInitiateData struct {
+	ReceiverID string `json:"receiver_id"`
+	CallType   string `json:"call_type"` // "voice" veya "video"
+}
+
+// P2PCallAcceptData, p2p_call_accept event'inin Client → Server payload'ı.
+type P2PCallAcceptData struct {
+	CallID string `json:"call_id"`
+}
+
+// P2PCallDeclineData, p2p_call_decline event'inin Client → Server payload'ı.
+type P2PCallDeclineData struct {
+	CallID string `json:"call_id"`
+}
+
+// P2PSignalData, p2p_signal event'inin Client → Server payload'ı.
+// WebRTC SDP offer/answer veya ICE candidate taşır.
+// Server bunu doğrudan karşı tarafa relay eder — içeriğine bakmaz.
+type P2PSignalData struct {
+	CallID    string `json:"call_id"`
+	Type      string `json:"type"`                // "offer", "answer", "ice-candidate"
+	SDP       string `json:"sdp,omitempty"`        // SDP metni (offer/answer için)
+	Candidate any    `json:"candidate,omitempty"`   // RTCIceCandidateInit (ICE için)
 }

@@ -51,6 +51,28 @@ type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreami
 // main.go'da wire-up yapılır — DB persist + broadcast bu callback'te gerçekleşir.
 type PresenceManualUpdateCallback func(userID string, status string)
 
+// ─── P2P Call Callback Tipleri ───
+//
+// P2P arama event'leri de aynı callback pattern'ini kullanır.
+// Client arama başlatmak/kabul etmek/reddetmek/sonlandırmak istediğinde
+// Hub bu callback'leri tetikler. main.go'da p2pCallService'e wire-up yapılır.
+
+// P2PCallInitiateCallback, kullanıcı P2P arama başlatmak istediğinde çağrılır.
+type P2PCallInitiateCallback func(callerID string, data P2PCallInitiateData)
+
+// P2PCallAcceptCallback, kullanıcı gelen aramayı kabul ettiğinde çağrılır.
+type P2PCallAcceptCallback func(userID string, data P2PCallAcceptData)
+
+// P2PCallDeclineCallback, kullanıcı gelen aramayı reddettiğinde çağrılır.
+type P2PCallDeclineCallback func(userID string, data P2PCallDeclineData)
+
+// P2PCallEndCallback, kullanıcı aktif aramayı sonlandırdığında çağrılır.
+type P2PCallEndCallback func(userID string)
+
+// P2PSignalCallback, WebRTC signaling verisi geldiğinde çağrılır.
+// Server bu veriyi doğrudan karşı tarafa relay eder.
+type P2PSignalCallback func(senderID string, data P2PSignalData)
+
 // Hub, tüm WebSocket bağlantılarını yöneten merkezi yapıdır (Observer pattern).
 //
 // Observer pattern nedir?
@@ -111,6 +133,14 @@ type Hub struct {
 	// Presence manuel güncelleme callback'i — main.go'da set edilir.
 	// Client idle/dnd gibi durum değişikliği gönderdiğinde DB persist için çağrılır.
 	onPresenceManualUpdate PresenceManualUpdateCallback
+
+	// P2P Call callback'leri — main.go'da set edilir.
+	// Client P2P arama event'leri gönderdiğinde Hub bu callback'leri tetikler.
+	onP2PCallInitiate P2PCallInitiateCallback
+	onP2PCallAccept   P2PCallAcceptCallback
+	onP2PCallDecline  P2PCallDeclineCallback
+	onP2PCallEnd      P2PCallEndCallback
+	onP2PSignal       P2PSignalCallback
 }
 
 // NewHub, yeni bir Hub oluşturur.
@@ -344,6 +374,31 @@ func (h *Hub) OnVoiceLeave(cb VoiceLeaveCallback) {
 // OnVoiceStateUpdate, kullanıcı mute/deafen/stream toggle'ladığında çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceStateUpdate(cb VoiceStateUpdateCallback) {
 	h.onVoiceStateUpdate = cb
+}
+
+// OnP2PCallInitiate, kullanıcı P2P arama başlattığında çağrılacak callback'i ayarlar.
+func (h *Hub) OnP2PCallInitiate(cb P2PCallInitiateCallback) {
+	h.onP2PCallInitiate = cb
+}
+
+// OnP2PCallAccept, kullanıcı gelen aramayı kabul ettiğinde çağrılacak callback'i ayarlar.
+func (h *Hub) OnP2PCallAccept(cb P2PCallAcceptCallback) {
+	h.onP2PCallAccept = cb
+}
+
+// OnP2PCallDecline, kullanıcı gelen aramayı reddettiğinde çağrılacak callback'i ayarlar.
+func (h *Hub) OnP2PCallDecline(cb P2PCallDeclineCallback) {
+	h.onP2PCallDecline = cb
+}
+
+// OnP2PCallEnd, kullanıcı aktif aramayı sonlandırdığında çağrılacak callback'i ayarlar.
+func (h *Hub) OnP2PCallEnd(cb P2PCallEndCallback) {
+	h.onP2PCallEnd = cb
+}
+
+// OnP2PSignal, WebRTC signaling verisi geldiğinde çağrılacak callback'i ayarlar.
+func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {
+	h.onP2PSignal = cb
 }
 
 // DisconnectUser, bir kullanıcının tüm WebSocket bağlantılarını kapatır.

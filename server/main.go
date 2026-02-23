@@ -122,6 +122,11 @@ func main() {
 	// channelPermService kanal bazlı permission resolution sağlar (rol + override).
 	voiceService := services.NewVoiceService(channelRepo, channelPermService, hub, cfg.LiveKit)
 
+	// P2PCallService — Hub callback'lerinden önce oluşturulmalı.
+	// Arkadaşlık kontrolü için friendshipRepo, kullanıcı bilgisi için userRepo kullanır.
+	// In-memory state: aktif aramalar ve kullanıcı-arama eşleştirmesi.
+	p2pCallService := services.NewP2PCallService(friendshipRepo, userRepo, hub)
+
 	// Hub presence callback'leri — kullanıcı ilk bağlandığında veya
 	// tamamen koptuğunda DB güncelle ve tüm client'lara broadcast et.
 	//
@@ -166,6 +171,10 @@ func main() {
 		// Voice: kullanıcı ses kanalındaysa state'ini temizle ve broadcast et.
 		// DisconnectUser içinde LeaveChannel çağrılır — broadcast dahil.
 		voiceService.DisconnectUser(userID)
+
+		// P2P Call: kullanıcı aktif bir P2P aramadaysa sonlandır.
+		// Karşı tarafa p2p_call_end event'i gönderilir.
+		p2pCallService.HandleDisconnect(userID)
 	})
 
 	// Presence manual update callback'i — client idle/dnd gibi durum değişikliği
@@ -205,6 +214,35 @@ func main() {
 	hub.OnVoiceStateUpdate(func(userID string, isMuted, isDeafened, isStreaming *bool) {
 		if err := voiceService.UpdateState(userID, isMuted, isDeafened, isStreaming); err != nil {
 			log.Printf("[voice] state update error user=%s: %v", userID, err)
+		}
+	})
+
+	// P2P Call callback'leri — client P2P arama event'leri gönderdiğinde
+	// Hub bu callback'leri tetikler, callback'ler p2pCallService'i çağırır.
+	hub.OnP2PCallInitiate(func(callerID string, data ws.P2PCallInitiateData) {
+		callType := models.P2PCallType(data.CallType)
+		if err := p2pCallService.InitiateCall(callerID, data.ReceiverID, callType); err != nil {
+			log.Printf("[p2p] initiate error caller=%s receiver=%s: %v", callerID, data.ReceiverID, err)
+		}
+	})
+	hub.OnP2PCallAccept(func(userID string, data ws.P2PCallAcceptData) {
+		if err := p2pCallService.AcceptCall(userID, data.CallID); err != nil {
+			log.Printf("[p2p] accept error user=%s call=%s: %v", userID, data.CallID, err)
+		}
+	})
+	hub.OnP2PCallDecline(func(userID string, data ws.P2PCallDeclineData) {
+		if err := p2pCallService.DeclineCall(userID, data.CallID); err != nil {
+			log.Printf("[p2p] decline error user=%s call=%s: %v", userID, data.CallID, err)
+		}
+	})
+	hub.OnP2PCallEnd(func(userID string) {
+		if err := p2pCallService.EndCall(userID); err != nil {
+			log.Printf("[p2p] end error user=%s: %v", userID, err)
+		}
+	})
+	hub.OnP2PSignal(func(senderID string, data ws.P2PSignalData) {
+		if err := p2pCallService.RelaySignal(senderID, data.CallID, data); err != nil {
+			log.Printf("[p2p] signal relay error sender=%s call=%s: %v", senderID, data.CallID, err)
 		}
 	})
 

@@ -27,6 +27,7 @@ import ChatArea from "./ChatArea";
 import VoiceRoom from "../voice/VoiceRoom";
 import DMChat from "../dm/DMChat";
 import FriendsView from "../friends/FriendsView";
+import P2PCallScreen from "../p2p/P2PCallScreen";
 import DropZoneOverlay, { calculateZone } from "./DropZoneOverlay";
 import type { DropZone } from "./DropZoneOverlay";
 
@@ -182,6 +183,8 @@ function PanelView({ panelId, sendTyping }: PanelViewProps) {
         <DMChat channelId={activeTab.channelId} />
       ) : activeTab.type === "friends" ? (
         <FriendsView />
+      ) : activeTab.type === "p2p" ? (
+        <P2PCallScreen />
       ) : (
         <div className="voice-room">
           {channel && (

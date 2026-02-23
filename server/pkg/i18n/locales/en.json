@@ -30,5 +30,13 @@
     "forbidden": "You don't have permission to do this",
     "badRequest": "Invalid request",
     "internalError": "Internal server error"
+  },
+  "p2p": {
+    "notFriends": "You can only call your friends",
+    "userOffline": "User is offline",
+    "userBusy": "User is already in a call",
+    "callNotFound": "Call not found",
+    "notInCall": "You are not in a call",
+    "cannotCallSelf": "You cannot call yourself"
   }
 }

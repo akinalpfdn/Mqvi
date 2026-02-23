@@ -24,7 +24,7 @@
  * .ch-tree-voice-user, .ch-tree-vu-dot
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useChannelStore } from "../../stores/channelStore";
@@ -140,6 +140,99 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     setIsCreating(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createName, createTarget, isCreating, addToast, tCh, categories]);
+
+  // ─── Drag & Drop State ───
+  // Aynı kategori içinde kanal sıralamasını sürükleyerek değiştirme.
+  // HTML5 Drag and Drop API kullanılıyor — harici kütüphane gerektirmez.
+
+  const reorderChannels = useChannelStore((s) => s.reorderChannels);
+
+  /** Sürüklenen kanalın id'si */
+  const dragChannelIdRef = useRef<string | null>(null);
+  /** Sürüklenen kanalın ait olduğu kategori id'si */
+  const dragCategoryIdRef = useRef<string | null>(null);
+  /** Drop hedefinin üstünde/altında çizgi göstermek için */
+  const [dropIndicator, setDropIndicator] = useState<{
+    channelId: string;
+    position: "above" | "below";
+  } | null>(null);
+
+  function handleDragStart(channelId: string, categoryId: string) {
+    dragChannelIdRef.current = channelId;
+    dragCategoryIdRef.current = categoryId;
+  }
+
+  function handleDragOver(e: React.DragEvent, channelId: string, categoryId: string) {
+    // Farklı kategori ise drop'a izin verme
+    if (dragCategoryIdRef.current !== categoryId) return;
+    // Kendi üzerine sürükleme ihmal
+    if (dragChannelIdRef.current === channelId) {
+      e.preventDefault();
+      setDropIndicator(null);
+      return;
+    }
+
+    e.preventDefault();
+
+    // Mouse'un hedef elemanın üst yarısında mı alt yarısında mı olduğunu hesapla
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos: "above" | "below" = e.clientY < midY ? "above" : "below";
+
+    setDropIndicator({ channelId, position: pos });
+  }
+
+  function handleDragLeave() {
+    setDropIndicator(null);
+  }
+
+  function handleDrop(e: React.DragEvent, targetChannelId: string, categoryId: string) {
+    e.preventDefault();
+    setDropIndicator(null);
+
+    const dragId = dragChannelIdRef.current;
+    const dragCatId = dragCategoryIdRef.current;
+    dragChannelIdRef.current = null;
+    dragCategoryIdRef.current = null;
+
+    if (!dragId || dragCatId !== categoryId || dragId === targetChannelId) return;
+
+    // Kategorideki kanalları bul
+    const cat = categories.find((c) => c.category.id === categoryId);
+    if (!cat) return;
+
+    // Mevcut sıralı listeyi kopyala
+    const ordered = [...cat.channels];
+    const dragIdx = ordered.findIndex((ch) => ch.id === dragId);
+    const targetIdx = ordered.findIndex((ch) => ch.id === targetChannelId);
+    if (dragIdx === -1 || targetIdx === -1) return;
+
+    // Sürüklenen kanalı listeden çıkar
+    const [dragged] = ordered.splice(dragIdx, 1);
+
+    // Hedefin yeni index'ini hesapla (splice sonrası index kayması)
+    let insertIdx = ordered.findIndex((ch) => ch.id === targetChannelId);
+    if (insertIdx === -1) insertIdx = ordered.length;
+
+    // Mouse pozisyonuna göre üstte veya altta ekle
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    if (e.clientY >= midY) insertIdx += 1;
+
+    ordered.splice(insertIdx, 0, dragged);
+
+    // Position değerlerini 0'dan başlayarak ata ve API'ye gönder
+    const items = ordered.map((ch, idx) => ({ id: ch.id, position: idx }));
+    reorderChannels(items).then((ok) => {
+      if (!ok) addToast("error", tCh("reorderError"));
+    });
+  }
+
+  function handleDragEnd() {
+    dragChannelIdRef.current = null;
+    dragCategoryIdRef.current = null;
+    setDropIndicator(null);
+  }
 
   // ─── Handlers ───
 
@@ -387,9 +480,20 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                       : ch.id === currentVoiceChannelId;
                     const unread = unreadCounts[ch.id] ?? 0;
                     const participants = voiceStates[ch.id] ?? [];
+                    const isDragging = dragChannelIdRef.current === ch.id;
+                    const dropPos = dropIndicator?.channelId === ch.id ? dropIndicator.position : null;
 
                     return (
-                      <div key={ch.id}>
+                      <div
+                        key={ch.id}
+                        className={`ch-tree-drag-wrap${isDragging ? " dragging" : ""}${dropPos === "above" ? " drop-above" : ""}${dropPos === "below" ? " drop-below" : ""}`}
+                        draggable={canManageChannels}
+                        onDragStart={() => handleDragStart(ch.id, cg.category.id)}
+                        onDragOver={(e) => handleDragOver(e, ch.id, cg.category.id)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, ch.id, cg.category.id)}
+                        onDragEnd={handleDragEnd}
+                      >
                         {/* Kanal satırı */}
                         <button
                           className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${unread > 0 ? " has-unread" : ""}`}

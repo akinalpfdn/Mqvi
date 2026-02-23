@@ -338,6 +338,63 @@ export type FriendRequestsResponse = {
 };
 
 // ──────────────────────────────────
+// P2P Call (WebRTC)
+// ──────────────────────────────────
+
+/**
+ * P2PCallType — P2P arama türü.
+ * - "voice": Sadece sesli arama (mikrofon)
+ * - "video": Görüntülü arama (mikrofon + kamera)
+ */
+export type P2PCallType = "voice" | "video";
+
+/**
+ * P2PCallStatus — P2P arama durumu.
+ * - "ringing": Arama başlatıldı, karşı taraf henüz yanıtlamadı
+ * - "active": Arama kabul edildi, WebRTC bağlantısı aktif
+ * - "ended": Arama sonlandırıldı
+ */
+export type P2PCallStatus = "ringing" | "active" | "ended";
+
+/**
+ * P2PCall — Bir P2P aramayı temsil eder.
+ * Backend'deki models.P2PCallBroadcast struct'ının TypeScript karşılığı.
+ * Hem caller hem receiver bilgilerini taşır — frontend her iki tarafta da
+ * karşı tarafın bilgisini gösterir.
+ */
+export type P2PCall = {
+  id: string;
+  caller_id: string;
+  caller_username: string;
+  caller_display_name: string | null;
+  caller_avatar: string | null;
+  receiver_id: string;
+  receiver_username: string;
+  receiver_display_name: string | null;
+  receiver_avatar: string | null;
+  call_type: P2PCallType;
+  status: P2PCallStatus;
+  created_at: string;
+};
+
+/**
+ * P2PSignalPayload — WebRTC signaling verisi.
+ * SDP offer/answer veya ICE candidate taşır.
+ * Server bu veriyi doğrudan karşı tarafa relay eder — içeriğine bakmaz.
+ *
+ * WebRTC nedir?
+ * Tarayıcılar arası doğrudan (peer-to-peer) ses/video iletişimi sağlayan API.
+ * Sunucu sadece "signaling" (SDP ve ICE bilgisi alışverişi) için kullanılır.
+ * Medya (ses/video) doğrudan kullanıcılar arasında akar.
+ */
+export type P2PSignalPayload = {
+  call_id: string;
+  type: "offer" | "answer" | "ice-candidate";
+  sdp?: string;
+  candidate?: RTCIceCandidateInit;
+};
+
+// ──────────────────────────────────
 // WebSocket
 // ──────────────────────────────────
 export type WSMessage = {

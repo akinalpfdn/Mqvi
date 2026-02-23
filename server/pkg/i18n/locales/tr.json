@@ -30,5 +30,13 @@
     "forbidden": "Bu işlem için yetkiniz yok",
     "badRequest": "Geçersiz istek",
     "internalError": "Sunucu hatası"
+  },
+  "p2p": {
+    "notFriends": "Sadece arkadaşlarınızı arayabilirsiniz",
+    "userOffline": "Kullanıcı çevrimdışı",
+    "userBusy": "Kullanıcı başka bir aramada",
+    "callNotFound": "Arama bulunamadı",
+    "notInCall": "Bir aramada değilsiniz",
+    "cannotCallSelf": "Kendinizi arayamazsınız"
   }
 }

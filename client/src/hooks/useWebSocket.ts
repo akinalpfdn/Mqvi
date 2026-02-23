@@ -41,6 +41,7 @@ import { useUIStore } from "../stores/uiStore";
 import { useDMStore } from "../stores/dmStore";
 import { useChannelPermissionStore } from "../stores/channelPermissionStore";
 import { useFriendStore } from "../stores/friendStore";
+import { useP2PCallStore } from "../stores/p2pCallStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
@@ -65,6 +66,8 @@ import type {
   ReactionGroup,
   ChannelPermissionOverride,
   FriendshipWithUser,
+  P2PCall,
+  P2PSignalPayload,
 } from "../types";
 
 /** Reconnect denemesi arasındaki bekleme süresi (ms) */
@@ -382,6 +385,30 @@ export function useWebSocket() {
         );
         break;
 
+      // ─── P2P Call Events ───
+      // P2P (peer-to-peer) arama signaling event'leri.
+      // Server sadece relay görevi yapar — medya doğrudan kullanıcılar arasında akar.
+      case "p2p_call_initiate":
+        useP2PCallStore.getState().handleCallInitiate(msg.d as P2PCall);
+        break;
+      case "p2p_call_accept":
+        useP2PCallStore.getState().handleCallAccept(msg.d as { call_id: string });
+        break;
+      case "p2p_call_decline":
+        useP2PCallStore.getState().handleCallDecline(msg.d as { call_id: string });
+        break;
+      case "p2p_call_end":
+        useP2PCallStore.getState().handleCallEnd(
+          msg.d as { call_id: string; reason?: string }
+        );
+        break;
+      case "p2p_call_busy":
+        useP2PCallStore.getState().handleCallBusy(msg.d as { receiver_id: string });
+        break;
+      case "p2p_signal":
+        useP2PCallStore.getState().handleSignal(msg.d as P2PSignalPayload);
+        break;
+
       // ─── Server Events ───
       case "server_update":
         useServerStore.getState().handleServerUpdate(msg.d as Server);
@@ -498,6 +525,27 @@ export function useWebSocket() {
     },
     []
   );
+
+  /**
+   * sendWS — Genel amaçlı WS event göndericisi.
+   * P2P call store bu fonksiyonu kullanarak WS mesajları gönderir.
+   *
+   * Neden genel amaçlı?
+   * Her P2P event için ayrı sendP2P* fonksiyonu tanımlamak yerine,
+   * store'a tek bir sendWS fonksiyonu inject ediyoruz. Store action'ları
+   * kendi op kodlarını bildiklerinden bu yeterlidir.
+   */
+  const sendWS = useCallback((op: string, data?: unknown) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({ op, d: data })
+      );
+    }
+  }, []);
+
+  // P2P call store'a WS send fonksiyonunu register et.
+  // Bu sayede store action'ları (initiateCall, acceptCall vb.) doğrudan WS mesajı gönderebilir.
+  useP2PCallStore.getState().registerSendWS(sendWS);
 
   // ─── Effect: Mount/unmount lifecycle ───
   useEffect(() => {
@@ -639,5 +687,5 @@ export function useWebSocket() {
     };
   }, []);
 
-  return { sendTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate };
+  return { sendTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS };
 }

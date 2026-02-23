@@ -127,6 +127,18 @@ func (c *Client) handleEvent(event Event) {
 		// Kullanıcı mute/deafen/stream durumunu değiştirmek istiyor
 		c.handleVoiceStateUpdate(event)
 
+	// ─── P2P Call Event'leri ───
+	case OpP2PCallInitiate:
+		c.handleP2PCallInitiate(event)
+	case OpP2PCallAccept:
+		c.handleP2PCallAccept(event)
+	case OpP2PCallDecline:
+		c.handleP2PCallDecline(event)
+	case OpP2PCallEnd:
+		c.handleP2PCallEnd()
+	case OpP2PSignal:
+		c.handleP2PSignal(event)
+
 	default:
 		log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
 	}
@@ -252,6 +264,107 @@ func (c *Client) handleVoiceStateUpdate(event Event) {
 
 	if c.hub.onVoiceStateUpdate != nil {
 		go c.hub.onVoiceStateUpdate(c.userID, data.IsMuted, data.IsDeafened, data.IsStreaming)
+	}
+}
+
+// ─── P2P Call Event Handlers ───
+
+// handleP2PCallInitiate, p2p_call_initiate event'ini işler.
+// Client { op: "p2p_call_initiate", d: { receiver_id: "abc", call_type: "voice" } }
+// gönderdiğinde Hub'ın P2P call initiate callback'ini tetikler.
+func (c *Client) handleP2PCallInitiate(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data P2PCallInitiateData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.ReceiverID == "" || data.CallType == "" {
+		log.Printf("[ws] p2p_call_initiate missing fields from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onP2PCallInitiate != nil {
+		go c.hub.onP2PCallInitiate(c.userID, data)
+	}
+}
+
+// handleP2PCallAccept, p2p_call_accept event'ini işler.
+func (c *Client) handleP2PCallAccept(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data P2PCallAcceptData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.CallID == "" {
+		log.Printf("[ws] p2p_call_accept missing call_id from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onP2PCallAccept != nil {
+		go c.hub.onP2PCallAccept(c.userID, data)
+	}
+}
+
+// handleP2PCallDecline, p2p_call_decline event'ini işler.
+func (c *Client) handleP2PCallDecline(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data P2PCallDeclineData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.CallID == "" {
+		log.Printf("[ws] p2p_call_decline missing call_id from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onP2PCallDecline != nil {
+		go c.hub.onP2PCallDecline(c.userID, data)
+	}
+}
+
+// handleP2PCallEnd, p2p_call_end event'ini işler.
+// Payload gerekmez — userID yeterli (kullanıcının aktif araması sonlandırılır).
+func (c *Client) handleP2PCallEnd() {
+	if c.hub.onP2PCallEnd != nil {
+		go c.hub.onP2PCallEnd(c.userID)
+	}
+}
+
+// handleP2PSignal, p2p_signal event'ini işler.
+// WebRTC SDP offer/answer veya ICE candidate'ı karşı tarafa relay eder.
+func (c *Client) handleP2PSignal(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data P2PSignalData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.CallID == "" || data.Type == "" {
+		log.Printf("[ws] p2p_signal missing fields from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onP2PSignal != nil {
+		go c.hub.onP2PSignal(c.userID, data)
 	}
 }
 

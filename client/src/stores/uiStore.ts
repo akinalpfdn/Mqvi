@@ -20,7 +20,7 @@ import { useVoiceStore } from "./voiceStore";
 // Types
 // ──────────────────────────────────
 
-export type TabType = "text" | "voice" | "screen" | "dm" | "friends";
+export type TabType = "text" | "voice" | "screen" | "dm" | "friends" | "p2p";
 
 export type Tab = {
   id: string;
