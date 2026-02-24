@@ -36,12 +36,15 @@ import { useEffect, useRef, useCallback } from "react";
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
 import { RoomEvent, ConnectionState, Track } from "livekit-client";
 import type {
+  LocalAudioTrack,
+  LocalTrackPublication,
   RemoteTrack,
   RemoteTrackPublication,
   RemoteParticipant,
 } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
+import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
 
 function VoiceStateManager() {
   const room = useRoomContext();
@@ -52,6 +55,7 @@ function VoiceStateManager() {
   const userVolumes = useVoiceStore((s) => s.userVolumes);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
   const isDeafened = useVoiceStore((s) => s.isDeafened);
+  const noiseReduction = useVoiceStore((s) => s.noiseReduction);
 
   // İlk mount tracking — ilk render'da gereksiz toggle'ları önlemek için.
   // useRef ile tutulur çünkü state değişikliği re-render tetikler ama
@@ -302,6 +306,84 @@ function VoiceStateManager() {
       room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
     };
   }, [room, applyVolumeToParticipant]);
+
+  // ─── Noise Reduction (RNNoise) senkronizasyonu ───
+  // noiseReduction store state'i değiştiğinde processor'ı uygula/kaldır.
+  //
+  // RNNoiseProcessor LiveKit'in TrackProcessor interface'ini implement eder.
+  // setProcessor() çağrılınca LiveKit, mic track'ini processor'ın
+  // processedTrack'i ile değiştirir (orijinal yerine denoised track publish edilir).
+  //
+  // processorRef: Aktif processor instance'ını tutar — tekrar oluşturma ve
+  // cleanup için gerekli. noiseReductionRef: Event handler'lardan güncel
+  // noiseReduction state'ine erişim (stale closure önlemi).
+  const processorRef = useRef<RNNoiseProcessor | null>(null);
+  const noiseReductionRef = useRef(noiseReduction);
+  noiseReductionRef.current = noiseReduction;
+
+  // noiseReduction toggle edildiğinde processor uygula/kaldır
+  useEffect(() => {
+    if (!initialSyncDone.current) return;
+
+    const pub = localParticipant.getTrackPublication(Track.Source.Microphone);
+    const audioTrack = pub?.track as LocalAudioTrack | undefined;
+    if (!audioTrack) return;
+
+    let cancelled = false;
+
+    async function toggle() {
+      if (cancelled) return;
+
+      if (noiseReduction) {
+        // Processor yoksa oluştur ve uygula
+        if (!processorRef.current) {
+          const processor = new RNNoiseProcessor();
+          processorRef.current = processor;
+          await audioTrack!.setProcessor(processor);
+          console.log("[VoiceStateManager] RNNoise processor applied");
+        }
+      } else {
+        // Processor varsa kaldır
+        if (processorRef.current) {
+          await audioTrack!.stopProcessor();
+          processorRef.current = null;
+          console.log("[VoiceStateManager] RNNoise processor removed");
+        }
+      }
+    }
+
+    toggle().catch((err) => {
+      if (!cancelled) {
+        console.error("[VoiceStateManager] Failed to toggle noise processor:", err);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [noiseReduction, localParticipant]);
+
+  // Mic track publish olduğunda: noiseReduction zaten ON ise processor uygula.
+  // Voice'a katılırken noiseReduction açıksa, mic track ilk publish edildiğinde
+  // processor otomatik uygulanır. Yukarıdaki toggle effect bu durumu yakalayamaz
+  // çünkü noiseReduction değeri değişmemiştir (zaten true'ydu).
+  useEffect(() => {
+    function handleLocalTrackPublished(pub: LocalTrackPublication) {
+      if (pub.source !== Track.Source.Microphone) return;
+      if (!noiseReductionRef.current) return;
+      if (processorRef.current) return; // Zaten uygulanmış
+
+      const processor = new RNNoiseProcessor();
+      processorRef.current = processor;
+      const audioTrack = pub.track as LocalAudioTrack | undefined;
+      audioTrack?.setProcessor(processor)
+        .then(() => console.log("[VoiceStateManager] RNNoise processor applied on track publish"))
+        .catch((err) => console.error("[VoiceStateManager] Failed to apply noise processor on publish:", err));
+    }
+
+    room.on(RoomEvent.LocalTrackPublished, handleLocalTrackPublished);
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, handleLocalTrackPublished);
+    };
+  }, [room]);
 
   // Görsel çıktısı yok — sadece side-effect'ler
   return null;

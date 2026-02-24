@@ -37,6 +37,8 @@ function UserBar({
   const isStreaming = useVoiceStore((s) => s.isStreaming);
   const openSettings = useSettingsStore((s) => s.openSettings);
 
+  const noiseReduction = useVoiceStore((s) => s.noiseReduction);
+  const setNoiseReduction = useVoiceStore((s) => s.setNoiseReduction);
   const rtt = useVoiceStore((s) => s.rtt);
   const isInVoice = !!currentVoiceChannelId;
 
@@ -61,6 +63,25 @@ function UserBar({
                 <span className="ub-ping-value">{rtt} ms</span>
               </div>
             )}
+          </div>
+          {/* Noise Reduction toggle — ses kontrol butonlarının üstünde */}
+          <div className="ub-nr-row">
+            <div className="ub-nr-label">
+              {/* Ses dalgası ikonu — noise suppression'ı temsil eder */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.1-1.3 2-3 2s-3-.9-3-2 1.3-2 3-2 3 .9 3 2zM21 16c0 1.1-1.3 2-3 2s-3-.9-3-2 1.3-2 3-2 3 .9 3 2z" />
+              </svg>
+              <span>{t("noiseReduction")}</span>
+            </div>
+            <button
+              className={`ub-switch${noiseReduction ? " active" : ""}`}
+              onClick={() => setNoiseReduction(!noiseReduction)}
+              title={noiseReduction ? t("noiseReductionOff") : t("noiseReductionOn")}
+              role="switch"
+              aria-checked={noiseReduction}
+            >
+              <span className="ub-switch-thumb" />
+            </button>
           </div>
           <div className="ub-voice-btns">
             <button

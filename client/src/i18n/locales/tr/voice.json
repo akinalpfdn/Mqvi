@@ -32,5 +32,10 @@
   "serverUndeafen": "Sunucu Sağırlaştırmayı Kapat",
   "localMuted": "Yerel Olarak Susturulmuş",
   "serverMuted": "Sunucu Tarafından Susturulmuş",
-  "serverDeafened": "Sunucu Tarafından Sağırlaştırılmış"
+  "serverDeafened": "Sunucu Tarafından Sağırlaştırılmış",
+  "noiseReduction": "Gürültü Azaltma",
+  "noiseReductionOn": "Gürültü azaltmayı kapat",
+  "noiseReductionOff": "Gürültü azaltmayı aç",
+  "on": "AÇIK",
+  "off": "KAPALI"
 }

@@ -32,5 +32,10 @@
   "serverUndeafen": "Server Undeafen",
   "localMuted": "Locally Muted",
   "serverMuted": "Server Muted",
-  "serverDeafened": "Server Deafened"
+  "serverDeafened": "Server Deafened",
+  "noiseReduction": "Noise Reduction",
+  "noiseReductionOn": "Turn off noise reduction",
+  "noiseReductionOff": "Turn on noise reduction",
+  "on": "ON",
+  "off": "OFF"
 }

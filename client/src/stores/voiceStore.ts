@@ -51,6 +51,12 @@ type VoiceSettings = {
    * Diğer kullanıcıları etkilemez — tamamen lokal.
    */
   localMutedUsers: Record<string, boolean>;
+  /**
+   * noiseReduction — RNNoise ML tabanlı gürültü bastırma.
+   * true ise mikrofon sesi RNNoise WASM AudioWorklet'ten geçirilir.
+   * Nefes, klavye, fan gibi gürültüleri agresif biçimde bastırır.
+   */
+  noiseReduction: boolean;
 };
 
 /**
@@ -70,6 +76,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   masterVolume: 100,
   soundsEnabled: true,
   localMutedUsers: {},
+  noiseReduction: false,
 };
 
 /**
@@ -188,6 +195,14 @@ type VoiceStore = {
   localMutedUsers: Record<string, boolean>;
 
   /**
+   * noiseReduction — RNNoise ML tabanlı gürültü bastırma.
+   * true ise mikrofon sesi RNNoise WASM AudioWorklet'ten geçirilir.
+   * Nefes, klavye, fan gibi gürültüleri agresif biçimde bastırır.
+   * localStorage'da persist edilir.
+   */
+  noiseReduction: boolean;
+
+  /**
    * preMuteVolumes — Local mute öncesi volume değerleri.
    * Mute açılırken volume 0'a çekilir, eski değer burada saklanır.
    * Mute kapatılırken eski volume geri yüklenir.
@@ -243,6 +258,7 @@ type VoiceStore = {
   setOutputDevice: (deviceId: string) => void;
   setMasterVolume: (value: number) => void;
   setSoundsEnabled: (enabled: boolean) => void;
+  setNoiseReduction: (enabled: boolean) => void;
   setRtt: (rtt: number) => void;
 
   /**
@@ -319,6 +335,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   masterVolume: initialSettings.masterVolume,
   soundsEnabled: initialSettings.soundsEnabled,
   localMutedUsers: initialSettings.localMutedUsers,
+  noiseReduction: initialSettings.noiseReduction,
   preMuteVolumes: {},
   rtt: 0,
 
@@ -417,6 +434,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
     });
   },
 
@@ -433,6 +451,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
     });
   },
 
@@ -449,6 +468,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
     });
   },
 
@@ -466,6 +486,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
     });
   },
 
@@ -482,6 +503,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
     });
   },
 
@@ -498,6 +520,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
     });
   },
 
@@ -514,6 +537,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       masterVolume: value,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
     });
   },
 
@@ -530,6 +554,24 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       masterVolume: s.masterVolume,
       soundsEnabled: enabled,
       localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
+    });
+  },
+
+  setNoiseReduction: (enabled) => {
+    set({ noiseReduction: enabled });
+    const s = get();
+    saveSettings({
+      inputMode: s.inputMode,
+      pttKey: s.pttKey,
+      micSensitivity: s.micSensitivity,
+      userVolumes: s.userVolumes,
+      inputDevice: s.inputDevice,
+      outputDevice: s.outputDevice,
+      masterVolume: s.masterVolume,
+      soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
+      noiseReduction: enabled,
     });
   },
 
@@ -566,6 +608,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         masterVolume: s.masterVolume,
         soundsEnabled: s.soundsEnabled,
         localMutedUsers: newLocalMuted,
+        noiseReduction: s.noiseReduction,
       });
     } else {
       // Mute: Mevcut volume'u sakla, volume'u 0'a çek
@@ -592,6 +635,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         masterVolume: s.masterVolume,
         soundsEnabled: s.soundsEnabled,
         localMutedUsers: newLocalMuted,
+        noiseReduction: s.noiseReduction,
       });
     }
   },

@@ -15,6 +15,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@livekit/components-react": "^2.9.19",
+    "@sapphi-red/web-noise-suppressor": "^0.3.5",
     "i18next": "^25.8.5",
     "i18next-browser-languagedetector": "^8.2.0",
     "livekit-client": "^2.17.1",
