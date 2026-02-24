@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="client/public/mqvi-logo-256.png" alt="mqvi" width="80" />
+  <img src="icons/mqvi-icon-512x512.png" alt="mqvi" width="80" />
 </p>
 
 <h1 align="center">mqvi</h1>
