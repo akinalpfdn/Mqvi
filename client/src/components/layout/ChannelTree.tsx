@@ -44,11 +44,9 @@ import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
 
 type ChannelTreeProps = {
   onJoinVoice: (channelId: string) => void;
-  /** Generic WS event sender — admin voice state update için */
-  sendWS: (op: string, data?: unknown) => void;
 };
 
-function ChannelTree({ onJoinVoice, sendWS }: ChannelTreeProps) {
+function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const { t } = useTranslation("common");
   const { t: tVoice } = useTranslation("voice");
 
@@ -625,13 +623,6 @@ function ChannelTree({ onJoinVoice, sendWS }: ChannelTreeProps) {
           avatarUrl={voiceCtxMenu.avatarUrl}
           position={{ x: voiceCtxMenu.x, y: voiceCtxMenu.y }}
           onClose={() => setVoiceCtxMenu(null)}
-          onAdminStateUpdate={(targetUserId, isServerMuted, isServerDeafened) => {
-            sendWS("voice_admin_state_update", {
-              target_user_id: targetUserId,
-              is_server_muted: isServerMuted,
-              is_server_deafened: isServerDeafened,
-            });
-          }}
         />
       )}
     </div>

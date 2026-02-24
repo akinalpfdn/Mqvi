@@ -31,8 +31,6 @@ type VoiceUserContextMenuProps = {
   avatarUrl: string;
   position: { x: number; y: number };
   onClose: () => void;
-  /** WS event gönderme fonksiyonu — admin state update için */
-  onAdminStateUpdate?: (targetUserId: string, isServerMuted?: boolean, isServerDeafened?: boolean) => void;
 };
 
 function VoiceUserContextMenu({
@@ -42,7 +40,6 @@ function VoiceUserContextMenu({
   avatarUrl,
   position,
   onClose,
-  onAdminStateUpdate,
 }: VoiceUserContextMenuProps) {
   const { t } = useTranslation("voice");
   const menuRef = useRef<HTMLDivElement>(null);
@@ -53,6 +50,7 @@ function VoiceUserContextMenu({
   const localMutedUsers = useVoiceStore((s) => s.localMutedUsers);
   const toggleLocalMute = useVoiceStore((s) => s.toggleLocalMute);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
+  const wsSend = useVoiceStore((s) => s._wsSend);
 
   // Admin permission kontrolü
   const currentUser = useAuthStore((s) => s.user);
@@ -139,16 +137,18 @@ function VoiceUserContextMenu({
   }, [userId, toggleLocalMute]);
 
   const handleServerMuteToggle = useCallback(() => {
-    if (onAdminStateUpdate) {
-      onAdminStateUpdate(userId, !isServerMuted, undefined);
-    }
-  }, [userId, isServerMuted, onAdminStateUpdate]);
+    wsSend?.("voice_admin_state_update", {
+      target_user_id: userId,
+      is_server_muted: !isServerMuted,
+    });
+  }, [userId, isServerMuted, wsSend]);
 
   const handleServerDeafenToggle = useCallback(() => {
-    if (onAdminStateUpdate) {
-      onAdminStateUpdate(userId, undefined, !isServerDeafened);
-    }
-  }, [userId, isServerDeafened, onAdminStateUpdate]);
+    wsSend?.("voice_admin_state_update", {
+      target_user_id: userId,
+      is_server_deafened: !isServerDeafened,
+    });
+  }, [userId, isServerDeafened, wsSend]);
 
   return createPortal(
     <div

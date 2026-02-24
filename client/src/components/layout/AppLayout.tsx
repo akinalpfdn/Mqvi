@@ -138,6 +138,15 @@ function AppLayout() {
     };
   }, [leaveVoice]);
 
+  // sendWS callback'ini voiceStore'a kaydet — VoiceUserContextMenu gibi
+  // deep component'ler prop drilling olmadan WS event gönderebilsin.
+  useEffect(() => {
+    useVoiceStore.getState().registerWsSend(sendWS);
+    return () => {
+      useVoiceStore.getState().registerWsSend(null);
+    };
+  }, [sendWS]);
+
   /**
    * Voice leave → tab close sync.
    *
@@ -170,7 +179,6 @@ function AppLayout() {
         onToggleDeafen={toggleDeafen}
         onToggleScreenShare={toggleScreenShare}
         onDisconnect={leaveVoice}
-        sendWS={sendWS}
       />
 
       {/* Sağ taraf — TopBar + content area */}

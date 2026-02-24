@@ -273,6 +273,18 @@ type VoiceStore = {
   _onLeaveCallback: (() => void) | null;
   registerOnLeave: (fn: (() => void) | null) => void;
 
+  /**
+   * _wsSend — Generic WS event gönderme callback'i.
+   *
+   * useWebSocket hook'undaki sendWS fonksiyonunu tutar.
+   * VoiceUserContextMenu gibi deep component'lerin prop drilling olmadan
+   * WS event göndermesini sağlar (admin voice state update vb.).
+   *
+   * registerWsSend: AppLayout'ta useWebSocket hook oluşturulduktan sonra çağrılır.
+   */
+  _wsSend: ((op: string, data?: unknown) => void) | null;
+  registerWsSend: (fn: ((op: string, data?: unknown) => void) | null) => void;
+
   // ─── WS Event Handlers ───
 
   /**
@@ -313,6 +325,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   // ─── Cross-store Callback ───
   _onLeaveCallback: null,
   registerOnLeave: (fn) => set({ _onLeaveCallback: fn }),
+  _wsSend: null,
+  registerWsSend: (fn) => set({ _wsSend: fn }),
 
   // ─── Actions ───
 

@@ -33,8 +33,6 @@ type SidebarProps = {
   onToggleDeafen: () => void;
   onToggleScreenShare: () => void;
   onDisconnect: () => void;
-  /** Generic WS event sender — admin voice actions için ChannelTree'ye iletilir */
-  sendWS: (op: string, data?: unknown) => void;
 };
 
 function Sidebar({
@@ -43,7 +41,6 @@ function Sidebar({
   onToggleDeafen,
   onToggleScreenShare,
   onDisconnect,
-  sendWS,
 }: SidebarProps) {
   const isExpanded = useSidebarStore((s) => s.isExpanded);
 
@@ -63,7 +60,7 @@ function Sidebar({
     <div className="sidebar" style={{ width }}>
       <div className="sidebar-inner" style={{ width }}>
         <SidebarHeader />
-        <ChannelTree onJoinVoice={onJoinVoice} sendWS={sendWS} />
+        <ChannelTree onJoinVoice={onJoinVoice} />
         <UserBar
           onToggleMute={onToggleMute}
           onToggleDeafen={onToggleDeafen}
