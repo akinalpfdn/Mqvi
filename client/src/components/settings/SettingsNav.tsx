@@ -12,6 +12,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
+import { isTauri } from "../../utils/constants";
 import type { SettingsTab } from "../../stores/settingsStore";
 
 /** Tek bir navigation item tanımı */
@@ -85,6 +86,20 @@ function SettingsNav() {
         </>
       )}
 
+      {/* Connection (Tauri desktop only) */}
+      {isTauri() && (
+        <>
+          <div style={{ height: 1, background: "var(--b1)", margin: "8px 0" }} />
+          <h3 className="settings-nav-label">{t("connection")}</h3>
+          <button
+            className={`settings-nav-item${activeTab === "connection" ? " active" : ""}`}
+            onClick={() => setActiveTab("connection")}
+          >
+            {t("connection")}
+          </button>
+        </>
+      )}
+
       {/* Log Out */}
       <div style={{ marginTop: "auto", borderTop: "1px solid var(--b1)", paddingTop: 8 }}>
         <button
@@ -97,7 +112,7 @@ function SettingsNav() {
       </div>
 
       {/* App Version */}
-      <p style={{ marginTop: 8, padding: "0 8px", fontSize: 11, color: "var(--t3)" }}>
+      <p style={{ marginTop: 8, padding: "0 8px", fontSize: 13, color: "var(--t3)" }}>
         mqvi v0.1.0
       </p>
     </nav>

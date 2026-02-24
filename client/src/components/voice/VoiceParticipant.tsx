@@ -27,6 +27,7 @@ import type { Participant } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useAuthStore } from "../../stores/authStore";
 import VoiceUserContextMenu from "./VoiceUserContextMenu";
+import { resolveAssetUrl } from "../../utils/constants";
 
 type VoiceParticipantProps = {
   participant: Participant;
@@ -106,7 +107,7 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
   // Avatar içeriği — resim varsa img, yoksa ilk harf
   const avatarContent = avatarUrl ? (
     <img
-      src={avatarUrl}
+      src={resolveAssetUrl(avatarUrl)}
       alt={displayName}
       style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }}
     />

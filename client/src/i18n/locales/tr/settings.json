@@ -164,5 +164,18 @@
   "memberKicked": "Üye sunucudan atıldı",
   "memberKickError": "Üye atılırken hata oluştu",
   "memberBanned": "Üye yasaklandı",
-  "memberBanError": "Üye yasaklanırken hata oluştu"
+  "memberBanError": "Üye yasaklanırken hata oluştu",
+
+  "connection": "Bağlantı",
+  "serverUrl": "Sunucu Adresi",
+  "serverUrlDesc": "Bu uygulamanın bağlandığı mqvi sunucu adresi. Sadece kendi sunucunuza bağlanıyorsanız değiştirin.",
+  "serverUrlPlaceholder": "https://mqvi.net",
+  "testConnection": "Bağlantıyı Test Et",
+  "connectionSuccess": "Başarıyla bağlanıldı!",
+  "connectionFailed": "Sunucuya bağlanılamadı",
+  "connectionTesting": "Test ediliyor...",
+  "saveAndRestart": "Kaydet ve Yeniden Başlat",
+  "restartRequired": "Değişikliklerin uygulanması için uygulama yeniden başlatılmalı",
+  "resetToDefault": "Varsayılana Sıfırla",
+  "currentConnection": "Şu anda bağlı"
 }

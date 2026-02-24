@@ -164,5 +164,18 @@
   "memberKicked": "Member has been kicked",
   "memberKickError": "Failed to kick member",
   "memberBanned": "Member has been banned",
-  "memberBanError": "Failed to ban member"
+  "memberBanError": "Failed to ban member",
+
+  "connection": "Connection",
+  "serverUrl": "Server URL",
+  "serverUrlDesc": "The address of the mqvi server this app connects to. Only change this if you are connecting to a self-hosted server.",
+  "serverUrlPlaceholder": "https://mqvi.net",
+  "testConnection": "Test Connection",
+  "connectionSuccess": "Connected successfully!",
+  "connectionFailed": "Could not connect to server",
+  "connectionTesting": "Testing...",
+  "saveAndRestart": "Save & Restart",
+  "restartRequired": "App restart required for changes to take effect",
+  "resetToDefault": "Reset to Default",
+  "currentConnection": "Currently connected to"
 }

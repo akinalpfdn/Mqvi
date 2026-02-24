@@ -10,6 +10,7 @@
 
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { resolveAssetUrl } from "../../utils/constants";
 
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/gif,image/webp";
 const MAX_FILE_SIZE = 8 * 1024 * 1024;
@@ -78,7 +79,7 @@ function AvatarUpload({
       >
         {(previewUrl ?? currentUrl) ? (
           <img
-            src={(previewUrl ?? currentUrl)!}
+            src={previewUrl ?? resolveAssetUrl(currentUrl!)}
             alt={fallbackText}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
@@ -106,8 +107,8 @@ function AvatarUpload({
 
       {/* Alt bilgi text'leri */}
       <div style={{ textAlign: "center" }}>
-        <p style={{ fontSize: 11, color: "var(--t2)" }}>{t("avatarUpload")}</p>
-        <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>{t("avatarMaxSize")}</p>
+        <p style={{ fontSize: 13, color: "var(--t2)" }}>{t("avatarUpload")}</p>
+        <p style={{ fontSize: 13, color: "var(--t3)", marginTop: 2 }}>{t("avatarMaxSize")}</p>
       </div>
 
       {/* Gizli file input */}

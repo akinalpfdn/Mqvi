@@ -22,6 +22,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
+import { resolveAssetUrl } from "../../utils/constants";
 
 function MembersSettings() {
   const { t } = useTranslation("settings");
@@ -163,7 +164,7 @@ function MembersSettings() {
               >
                 {member.avatar_url ? (
                   <img
-                    src={member.avatar_url}
+                    src={resolveAssetUrl(member.avatar_url)}
                     alt={member.username}
                     className="member-settings-avatar-img"
                   />
@@ -203,7 +204,7 @@ function MembersSettings() {
               >
                 {selectedMember.avatar_url ? (
                   <img
-                    src={selectedMember.avatar_url}
+                    src={resolveAssetUrl(selectedMember.avatar_url)}
                     alt={selectedMember.username}
                     className="member-settings-avatar-img"
                   />

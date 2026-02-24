@@ -24,6 +24,12 @@ client/.tsbuildinfo
 src-tauri/target/
 
 # ========================
+# Root node_modules (Tauri CLI)
+# ========================
+/node_modules/
+/package-lock.json
+
+# ========================
 # Environment & Secrets
 # ========================
 .env

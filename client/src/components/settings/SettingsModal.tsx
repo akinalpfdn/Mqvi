@@ -20,6 +20,7 @@ import InviteSettings from "./InviteSettings";
 import VoiceSettings from "./VoiceSettings";
 import ChannelSettings from "./ChannelSettings";
 import MembersSettings from "./MembersSettings";
+import ConnectionSettings from "./ConnectionSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -105,6 +106,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "members":
       return <MembersSettings />;
+
+    case "connection":
+      return <ConnectionSettings />;
 
     default:
       return null;

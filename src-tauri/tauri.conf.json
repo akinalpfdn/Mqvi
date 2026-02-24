@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "mqvi",
+  "version": "0.1.0",
+  "identifier": "net.mqvi.app",
+  "build": {
+    "beforeDevCommand": "npm run dev --prefix client",
+    "beforeBuildCommand": "npm run build --prefix client",
+    "devUrl": "http://localhost:3030",
+    "frontendDist": "../client/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "mqvi",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 940,
+        "minHeight": 560,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' https://*.mqvi.net wss://*.mqvi.net https://localhost:* ws://localhost:* http://localhost:*; img-src 'self' data: blob: https://*.mqvi.net; media-src 'self' blob: https://*.mqvi.net; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": false,
+    "icon": [
+      "icons/icon.ico",
+      "icons/128x128.png",
+      "icons/256x256.png",
+      "icons/512x512.png"
+    ],
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": true,
+        "languages": ["English", "Turkish"]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  },
+  "plugins": {}
+}

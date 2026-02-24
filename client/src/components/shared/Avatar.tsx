@@ -12,6 +12,8 @@
  * Boyut (size) runtime'da hesaplandığı için inline style ile verilir.
  */
 
+import { resolveAssetUrl } from "../../utils/constants";
+
 type AvatarProps = {
   name: string;
   role?: "admin" | "mod" | null;
@@ -38,7 +40,7 @@ function Avatar({ name, role, avatarUrl, size = 30, isCircle = false }: AvatarPr
   if (avatarUrl) {
     return (
       <img
-        src={avatarUrl}
+        src={resolveAssetUrl(avatarUrl)}
         alt={name}
         className={roundClass}
         style={{ width: size, height: size, objectFit: "cover" }}

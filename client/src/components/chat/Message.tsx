@@ -22,6 +22,7 @@ import { useMessageStore } from "../../stores/messageStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { usePinStore } from "../../stores/pinStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
+import { resolveAssetUrl } from "../../utils/constants";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
@@ -364,12 +365,12 @@ function Message({ message, isCompact }: MessageProps) {
                   return (
                     <a
                       key={attachment.id}
-                      href={attachment.file_url}
+                      href={resolveAssetUrl(attachment.file_url)}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
                       <img
-                        src={attachment.file_url}
+                        src={resolveAssetUrl(attachment.file_url)}
                         alt={attachment.filename}
                         className="msg-attachment-img"
                         loading="lazy"
@@ -381,7 +382,7 @@ function Message({ message, isCompact }: MessageProps) {
                 return (
                   <a
                     key={attachment.id}
-                    href={attachment.file_url}
+                    href={resolveAssetUrl(attachment.file_url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="msg-attachment-file"

@@ -556,9 +556,10 @@ func main() {
 	// Production'da frontend aynı origin'den servis edilir — CORS gerekmez.
 	// Ama Tauri desktop client ve development için CORS hâlâ gerekli.
 	corsOrigins := []string{
-		"http://localhost:3030",  // Vite dev server
-		"http://localhost:1420",  // Tauri dev
-		"tauri://localhost",      // Tauri production
+		"http://localhost:3030",    // Vite dev server
+		"http://localhost:1420",    // Tauri dev
+		"tauri://localhost",        // Tauri production (macOS/Linux)
+		"https://tauri.localhost",  // Tauri production (Windows)
 	}
 	if extra := os.Getenv("CORS_ORIGINS"); extra != "" {
 		for _, origin := range strings.Split(extra, ",") {
