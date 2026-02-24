@@ -98,12 +98,28 @@ function VoiceStateManager() {
 
   // ─── Screen share senkronizasyonu ───
   // isStreaming değiştiğinde LiveKit'in screen share durumunu güncelle.
+  //
+  // Capture options (tarayıcı getDisplayMedia constraints):
+  //   - audio: true → "Share tab/system audio" seçeneği gösterilir
+  //   - resolution: 1920x1080 @ 30fps → tarayıcıdan 1080p yakalama
+  //   - contentHint: "motion" → encoder'a motion optimization ipucu verir.
+  //     "motion" frame rate'i korur (detail yerine smoothness öncelikli) —
+  //     oyun/video paylaşımı için ideal. "detail" ise metin/kod için uygun.
+  //
+  // Encoding ayarları (bitrate, simulcast) VoiceProvider'daki publishDefaults'ta
+  // tanımlıdır — capture tarafı değil, publish tarafı kontrol eder.
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
-    localParticipant.setScreenShareEnabled(isStreaming).catch((err: unknown) => {
-      console.error("[VoiceStateManager] Failed to toggle screen share:", err);
-    });
+    localParticipant
+      .setScreenShareEnabled(isStreaming, {
+        audio: true,
+        resolution: { width: 1920, height: 1080, frameRate: 30 },
+        contentHint: "motion",
+      })
+      .catch((err: unknown) => {
+        console.error("[VoiceStateManager] Failed to toggle screen share:", err);
+      });
   }, [isStreaming, localParticipant]);
 
   // ─── Bağlantı kurulduğunda ilk senkronizasyon ───

@@ -22,7 +22,7 @@
 
 import { useCallback, useMemo } from "react";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
-import { DisconnectReason } from "livekit-client";
+import { DisconnectReason, VideoPreset } from "livekit-client";
 import type { AudioCaptureOptions } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -126,6 +126,40 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   );
 
   /**
+   * publishDefaults — Screen share encoding + simulcast ayarları.
+   *
+   * Ana encoding: 1080p/30fps, 3 Mbps — oyun içeriği için yeterli kalite.
+   *
+   * Simulcast: SFU aynı stream'i birden fazla kalite katmanında tutar.
+   * Her alıcıya bant genişliğine göre en uygun katman gönderilir:
+   *   - High (1080p/30fps, 3 Mbps): Tam kalite — güçlü bağlantı
+   *   - Mid  (720p/30fps, 1.5 Mbps): Orta kalite — normal bağlantı
+   *   - Low  (720p/15fps, 800 Kbps): Düşük fps — zayıf bağlantı
+   *
+   * VP9 codec: Aynı bitrate'te H264'e göre ~30-40% daha iyi sıkıştırma →
+   * server bandwidth tasarrufu + daha iyi görüntü kalitesi.
+   * Modern GPU'larda (Chrome/Edge) hardware encoding desteği var.
+   *
+   * useMemo — stable referans: LiveKitRoom prop comparison referans bazlıdır.
+   * Yeni obje → gereksiz room reconfiguration. Static config olduğu için
+   * dependency boş array — sadece mount'ta oluşturulur.
+   */
+  const publishDefaults = useMemo(
+    () => ({
+      screenShareEncoding: {
+        maxBitrate: 3_000_000,
+        maxFramerate: 30,
+      },
+      screenShareSimulcastLayers: [
+        new VideoPreset(1280, 720, 1_500_000, 30),
+        new VideoPreset(1280, 720, 800_000, 15),
+      ],
+      videoCodec: "vp9" as const,
+    }),
+    []
+  );
+
+  /**
    * LiveKitRoom her zaman render edilir:
    * - connect={false} → Room obje oluşturulur ama bağlanmaz
    * - connect={true}  → Bağlanır, audio/video pipeline aktif
@@ -143,7 +177,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       connect={isConnected}
       audio={isConnected}
       video={false}
-      options={isConnected ? { audioCaptureDefaults, webAudioMix: true } : undefined}
+      options={isConnected ? { audioCaptureDefaults, publishDefaults, webAudioMix: true } : undefined}
       onDisconnected={handleDisconnected}
       onError={handleError}
       style={{ display: "contents" }}
