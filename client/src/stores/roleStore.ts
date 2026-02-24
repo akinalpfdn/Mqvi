@@ -39,11 +39,15 @@ type RoleState = {
   ) => Promise<boolean>;
   /** Rol sil — başarılıysa true döner (toast feedback için) */
   deleteRole: (id: string) => Promise<boolean>;
+  /** Rol sıralamasını toplu güncelle — optimistic update + API call */
+  reorderRoles: (items: { id: string; position: number }[]) => Promise<boolean>;
 
   // ─── WS Event Handlers ───
   handleRoleCreate: (role: Role) => void;
   handleRoleUpdate: (role: Role) => void;
   handleRoleDelete: (roleId: string) => void;
+  /** WS roles_reorder event handler — store'u tam listeyle replace eder */
+  handleRolesReorder: (roles: Role[]) => void;
 };
 
 export const useRoleStore = create<RoleState>((set, get) => ({
@@ -124,6 +128,30 @@ export const useRoleStore = create<RoleState>((set, get) => ({
     return false;
   },
 
+  reorderRoles: async (items) => {
+    const prevRoles = get().roles;
+
+    // Optimistic update — position değerlerini anında uygula
+    const positionMap = new Map(items.map((item) => [item.id, item.position]));
+    set((state) => ({
+      roles: state.roles
+        .map((r) => {
+          const newPos = positionMap.get(r.id);
+          return newPos !== undefined ? { ...r, position: newPos } : r;
+        })
+        .sort((a, b) => b.position - a.position),
+    }));
+
+    const res = await roleApi.reorderRoles(items);
+    if (!res.success) {
+      // API hatası — eski state'e geri dön
+      set({ roles: prevRoles });
+      return false;
+    }
+
+    return true;
+  },
+
   // ─── WS Event Handlers ───
 
   handleRoleCreate: (role) => {
@@ -154,5 +182,10 @@ export const useRoleStore = create<RoleState>((set, get) => ({
             : state.selectedRoleId,
       };
     });
+  },
+
+  handleRolesReorder: (roles) => {
+    const sorted = [...roles].sort((a, b) => b.position - a.position);
+    set({ roles: sorted });
   },
 }));

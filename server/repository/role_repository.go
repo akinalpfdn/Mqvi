@@ -20,6 +20,10 @@ type RoleRepository interface {
 	Update(ctx context.Context, role *models.Role) error
 	Delete(ctx context.Context, id string) error
 
+	// UpdatePositions, birden fazla rolün position değerini atomik olarak günceller.
+	// Transaction kullanılır — bir hata olursa tüm değişiklikler geri alınır.
+	UpdatePositions(ctx context.Context, items []models.PositionUpdate) error
+
 	// ─── User-Role mapping ───
 	AssignToUser(ctx context.Context, userID string, roleID string) error
 	RemoveFromUser(ctx context.Context, userID string, roleID string) error

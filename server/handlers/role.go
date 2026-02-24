@@ -113,3 +113,34 @@ func (h *RoleHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "role deleted"})
 }
+
+// Reorder godoc
+// PATCH /api/roles/reorder
+// Body: { "items": [{ "id": "abc", "position": 3 }, { "id": "def", "position": 2 }] }
+//
+// Rollerin sıralamasını toplu olarak günceller. MANAGE_ROLES yetkisi + hiyerarşi kontrolü gerektirir.
+// Transaction ile atomik — ya hepsi güncellenir ya hiçbiri.
+// Default rol dahil edilemez.
+func (h *RoleHandler) Reorder(w http.ResponseWriter, r *http.Request) {
+	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	var body struct {
+		Items []models.PositionUpdate `json:"items"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	roles, err := h.roleService.ReorderRoles(r.Context(), actor.ID, body.Items)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, roles)
+}

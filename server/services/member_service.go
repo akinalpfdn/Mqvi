@@ -190,6 +190,11 @@ func (s *memberService) ModifyRoles(ctx context.Context, actorID string, targetI
 	}
 	targetMaxPos := models.HighestPosition(targetRoles)
 
+	// Owner kimlik bazlı koruma — owner'ın rolleri değiştirilemez
+	if models.HasOwnerRole(targetRoles) {
+		return nil, fmt.Errorf("%w: cannot modify the server owner's roles", pkg.ErrForbidden)
+	}
+
 	// Hiyerarşi kontrolü: üstündekini yönetemezsin
 	if targetMaxPos >= actorMaxPos {
 		return nil, fmt.Errorf("%w: cannot modify roles of a user with equal or higher role", pkg.ErrForbidden)
@@ -338,19 +343,30 @@ func (s *memberService) IsBanned(ctx context.Context, userID string) (bool, erro
 
 // checkHierarchy, actor'un target üzerinde yetki sahibi olup olmadığını kontrol eder.
 //
-// Kural: Actor'un en yüksek rol position'ı, target'ınkinden büyük olmalı.
-// Eşit position'lar bile yeterli değil — kesinlikle büyük olmalı.
+// Güvenlik katmanları:
+// 1. Owner koruma — Owner rolüne sahip kullanıcı asla atılamaz/yasaklanamaz
+// 2. Position kontrolü — Actor'un en yüksek position'ı target'ınkinden büyük olmalı
+//
+// Bu iki katmanlı (defense in depth) yaklaşım sayesinde:
+// - Position manipülasyonu olsa bile owner korunur
+// - Normal kullanıcılar arası hiyerarşi position ile enforced olur
 func (s *memberService) checkHierarchy(ctx context.Context, actorID, targetID string) error {
-	actorRoles, err := s.roleRepo.GetByUserID(ctx, actorID)
-	if err != nil {
-		return fmt.Errorf("failed to get actor roles: %w", err)
-	}
-
 	targetRoles, err := s.roleRepo.GetByUserID(ctx, targetID)
 	if err != nil {
 		return fmt.Errorf("failed to get target roles: %w", err)
 	}
 
+	// Katman 1: Owner kimlik bazlı koruma — hedef owner ise işlem reddedilir
+	if models.HasOwnerRole(targetRoles) {
+		return fmt.Errorf("%w: the server owner cannot be kicked or banned", pkg.ErrForbidden)
+	}
+
+	actorRoles, err := s.roleRepo.GetByUserID(ctx, actorID)
+	if err != nil {
+		return fmt.Errorf("failed to get actor roles: %w", err)
+	}
+
+	// Katman 2: Position bazlı hiyerarşi kontrolü
 	actorMaxPos := models.HighestPosition(actorRoles)
 	targetMaxPos := models.HighestPosition(targetRoles)
 

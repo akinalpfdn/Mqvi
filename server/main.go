@@ -446,6 +446,10 @@ func main() {
 		http.HandlerFunc(roleHandler.List)))
 	mux.Handle("POST /api/roles", authMiddleware.Require(
 		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Create))))
+	// Reorder route'u {id} parametreli route'lardan ÖNCE tanımlanmalı —
+	// yoksa Go router "reorder" kelimesini bir {id} olarak yorumlar.
+	mux.Handle("PATCH /api/roles/reorder", authMiddleware.Require(
+		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Reorder))))
 	mux.Handle("PATCH /api/roles/{id}", authMiddleware.Require(
 		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Update))))
 	mux.Handle("DELETE /api/roles/{id}", authMiddleware.Require(

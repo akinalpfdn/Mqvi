@@ -6,6 +6,7 @@ import LoginPage from "./components/auth/LoginPage";
 import RegisterPage from "./components/auth/RegisterPage";
 import AppLayout from "./components/layout/AppLayout";
 import LandingPage from "./components/landing/LandingPage";
+import { isTauri } from "./utils/constants";
 
 /**
  * App — Root component. Routing ve auth initialization burada.
@@ -44,10 +45,19 @@ function App() {
 
   return (
     <Routes>
-      {/* Landing — giriş yapmamış kullanıcılar tanıtım sayfası görür */}
+      {/* Landing — giriş yapmamış kullanıcılar tanıtım sayfası görür.
+          Tauri desktop'ta onboarding gereksiz → direkt login'e yönlendir. */}
       <Route
         path="/"
-        element={user ? <Navigate to="/channels" replace /> : <LandingPage />}
+        element={
+          user ? (
+            <Navigate to="/channels" replace />
+          ) : isTauri() ? (
+            <Navigate to="/login" replace />
+          ) : (
+            <LandingPage />
+          )
+        }
       />
 
       {/* Auth sayfaları — sadece giriş yapmamış kullanıcılar */}
@@ -66,11 +76,11 @@ function App() {
         element={user ? <AppLayout /> : <Navigate to="/login" replace />}
       />
 
-      {/* Varsayılan yönlendirme — bilinmeyen rotalar landing'e */}
+      {/* Varsayılan yönlendirme — bilinmeyen rotalar */}
       <Route
         path="*"
         element={
-          <Navigate to={user ? "/channels" : "/"} replace />
+          <Navigate to={user ? "/channels" : isTauri() ? "/login" : "/"} replace />
         }
       />
     </Routes>

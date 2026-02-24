@@ -64,9 +64,32 @@ function MembersSettings() {
     return me?.effective_permissions ?? 0;
   }, [members, currentUser]);
 
+  /** Actor'un en yüksek rol position'ı — hiyerarşi kontrolü için */
+  const actorMaxPos = useMemo(() => {
+    const me = members.find((m) => m.id === currentUser?.id);
+    if (!me || me.roles.length === 0) return 0;
+    return Math.max(...me.roles.map((r) => r.position));
+  }, [members, currentUser]);
+
   const canManageRoles = hasPermission(myPerms, Permissions.ManageRoles);
   const canKick = hasPermission(myPerms, Permissions.KickMembers);
   const canBan = hasPermission(myPerms, Permissions.BanMembers);
+
+  /** Seçili üyenin en yüksek rol position'ı */
+  const targetMaxPos = useMemo(() => {
+    if (!selectedMember || selectedMember.roles.length === 0) return 0;
+    return Math.max(...selectedMember.roles.map((r) => r.position));
+  }, [selectedMember]);
+
+  /** Seçili üye owner rolüne sahip mi? */
+  const isTargetOwner = selectedMember?.roles.some((r) => r.id === "owner") ?? false;
+
+  /**
+   * Hiyerarşi bazlı aksiyon kontrolü:
+   * - Owner hiçbir zaman kick/ban edilemez (kimlik bazlı)
+   * - Target'ın max position'ı >= actor'unkiyse aksiyon yapılamaz (position bazlı)
+   */
+  const canActOnTarget = !isTargetOwner && targetMaxPos < actorMaxPos;
 
   /** Üyenin en yüksek rol rengi — avatar border ve isim rengi için */
   function getMemberColor(member: typeof members[0]): string {
@@ -251,12 +274,14 @@ function MembersSettings() {
               </div>
             </div>
 
-            {/* Rol atama — ManageRoles yetkisi gerektirir */}
-            {canManageRoles && !isSelf && (
+            {/* Rol atama — ManageRoles yetkisi + hiyerarşi gerektirir */}
+            {canManageRoles && canActOnTarget && !isSelf && (
               <div className="settings-field">
                 <label className="settings-label">{t("memberAssignRoles")}</label>
                 <div className="member-settings-role-checkboxes">
-                  {roles.map((role) => (
+                  {roles
+                    .filter((role) => role.id !== "owner" && role.position < actorMaxPos)
+                    .map((role) => (
                     <label key={role.id} className="member-settings-role-checkbox">
                       <input
                         type="checkbox"
@@ -275,7 +300,7 @@ function MembersSettings() {
             )}
 
             {/* Kaydet butonu */}
-            {canManageRoles && hasChanges && !isSelf && (
+            {canManageRoles && canActOnTarget && hasChanges && !isSelf && (
               <div className="member-settings-actions">
                 <button onClick={handleSaveRoles} className="settings-btn">
                   {t("saveChanges")}
@@ -284,8 +309,8 @@ function MembersSettings() {
               </div>
             )}
 
-            {/* Kick / Ban — sadece başkalarına, yetki varsa */}
-            {!isSelf && (canKick || canBan) && (
+            {/* Kick / Ban — sadece başkalarına, yetki + hiyerarşi varsa */}
+            {!isSelf && canActOnTarget && (canKick || canBan) && (
               <div className="settings-field">
                 <label className="settings-label">{t("dangerZone")}</label>
                 <div className="member-settings-actions">

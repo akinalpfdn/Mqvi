@@ -5,7 +5,8 @@
  * - GET    /api/roles       → Tüm rolleri döner
  * - POST   /api/roles       → Yeni rol oluştur [MANAGE_ROLES]
  * - PATCH  /api/roles/{id}  → Rol güncelle [MANAGE_ROLES]
- * - DELETE /api/roles/{id}  → Rol sil [MANAGE_ROLES]
+ * - DELETE /api/roles/{id}       → Rol sil [MANAGE_ROLES]
+ * - PATCH  /api/roles/reorder   → Rol sıralamasını güncelle [MANAGE_ROLES]
  */
 
 import { apiClient } from "./client";
@@ -43,5 +44,13 @@ export async function updateRole(
 export async function deleteRole(id: string) {
   return apiClient<{ message: string }>(`/roles/${id}`, {
     method: "DELETE",
+  });
+}
+
+/** Rol sıralamasını toplu günceller */
+export async function reorderRoles(items: { id: string; position: number }[]) {
+  return apiClient<Role[]>("/roles/reorder", {
+    method: "PATCH",
+    body: { items },
   });
 }

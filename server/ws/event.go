@@ -58,6 +58,7 @@ const (
 	OpRoleCreate    = "role_create"    // Yeni rol oluşturuldu
 	OpRoleUpdate    = "role_update"    // Rol güncellendi
 	OpRoleDelete    = "role_delete"    // Rol silindi
+	OpRolesReorder  = "roles_reorder" // Rol sıralaması güncellendi — tam Role[] listesi
 	OpServerUpdate  = "server_update" // Sunucu bilgileri güncellendi (isim, ikon)
 
 	// Pin (mesaj sabitleme) operasyonları

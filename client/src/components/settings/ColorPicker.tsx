@@ -15,9 +15,10 @@ const PRESET_COLORS = [
 type ColorPickerProps = {
   value: string;
   onChange: (color: string) => void;
+  disabled?: boolean;
 };
 
-function ColorPicker({ value, onChange }: ColorPickerProps) {
+function ColorPicker({ value, onChange, disabled }: ColorPickerProps) {
   return (
     <div>
       {/* Preset renkler grid'i */}
@@ -25,9 +26,10 @@ function ColorPicker({ value, onChange }: ColorPickerProps) {
         {PRESET_COLORS.map((color) => (
           <button
             key={color}
-            onClick={() => onChange(color)}
+            onClick={() => !disabled && onChange(color)}
             className={`color-swatch${value.toUpperCase() === color ? " selected" : ""}`}
-            style={{ backgroundColor: color }}
+            style={{ backgroundColor: color, opacity: disabled ? 0.5 : 1 }}
+            disabled={disabled}
           />
         ))}
       </div>
@@ -41,10 +43,11 @@ function ColorPicker({ value, onChange }: ColorPickerProps) {
         <input
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => !disabled && onChange(e.target.value)}
           placeholder="#99AAB5"
           maxLength={7}
           className="color-hex-input"
+          disabled={disabled}
         />
       </div>
     </div>

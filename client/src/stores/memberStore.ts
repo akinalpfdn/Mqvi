@@ -56,6 +56,9 @@ type MemberState = {
 
   /** "role_delete" — rol silindi */
   handleRoleDelete: (roleId: string) => void;
+
+  /** "roles_reorder" — rol sıralaması güncellendi */
+  handleRolesReorder: (roles: Role[]) => void;
 };
 
 export const useMemberStore = create<MemberState>((set) => ({
@@ -171,6 +174,18 @@ export const useMemberStore = create<MemberState>((set) => ({
         );
         return { ...m, roles: filteredRoles, effective_permissions: effectivePerms };
       }),
+    }));
+  },
+
+  handleRolesReorder: (roles) => {
+    // Rol sıralaması değiştiğinde, üyelerin roles[] dizisindeki rolleri güncelle.
+    // Position değişir ama permissions değişmez → effective_permissions aynı kalır.
+    const roleMap = new Map(roles.map((r) => [r.id, r]));
+    set((state) => ({
+      members: state.members.map((m) => ({
+        ...m,
+        roles: m.roles.map((r) => roleMap.get(r.id) ?? r),
+      })),
     }));
   },
 }));

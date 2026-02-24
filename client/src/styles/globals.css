@@ -737,6 +737,19 @@ button { font-family:inherit; }
 .role-list-dot { width:12px;height:12px;border-radius:999px;flex-shrink:0; }
 .role-list-name { font-size:13px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .role-list-item.active .role-list-name { color:var(--t0);font-weight:500; }
+/* Role drag & drop (HTML5 DnD — ChannelTree pattern) */
+.role-drag-wrap { position:relative;transition:opacity .15s; }
+.role-drag-wrap.dragging { opacity:0.4; }
+.role-drag-wrap.drop-above::before,
+.role-drag-wrap.drop-below::after { content:"";position:absolute;left:8px;right:8px;height:2px;background:var(--primary);border-radius:1px;pointer-events:none;z-index:2; }
+.role-drag-wrap.drop-above::before { top:0; }
+.role-drag-wrap.drop-below::after { bottom:0; }
+.role-drag-handle { color:var(--t3);font-size:14px;cursor:grab;flex-shrink:0;user-select:none; }
+.role-drag-handle:active { cursor:grabbing; }
+/* Hierarchy warning — rol editörü üstünde uyarı */
+.role-hierarchy-warning { background:var(--bg-4);border-radius:8px;padding:12px;font-size:13px;color:var(--t2);margin-bottom:16px; }
+/* Permission toggle disabled state */
+.permission-toggle-checkbox.disabled { opacity:0.4;cursor:not-allowed; }
 
 /* Member settings */
 .member-settings-avatar {

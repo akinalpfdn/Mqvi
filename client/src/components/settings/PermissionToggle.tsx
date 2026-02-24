@@ -15,6 +15,7 @@ type PermissionToggleProps = {
   isChecked: boolean;
   onChange: (permBit: number, checked: boolean) => void;
   warningKey?: string;
+  disabled?: boolean;
 };
 
 function PermissionToggle({
@@ -24,6 +25,7 @@ function PermissionToggle({
   isChecked,
   onChange,
   warningKey,
+  disabled,
 }: PermissionToggleProps) {
   const { t } = useTranslation("settings");
 
@@ -31,8 +33,9 @@ function PermissionToggle({
     <div className="permission-toggle">
       {/* Checkbox */}
       <button
-        onClick={() => onChange(permBit, !isChecked)}
-        className={`permission-toggle-checkbox${isChecked ? " checked" : ""}`}
+        onClick={() => !disabled && onChange(permBit, !isChecked)}
+        className={`permission-toggle-checkbox${isChecked ? " checked" : ""}${disabled ? " disabled" : ""}`}
+        disabled={disabled}
       >
         {isChecked && (
           <svg className="permission-toggle-check" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>

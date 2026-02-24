@@ -278,6 +278,12 @@ export function useWebSocket() {
         useRoleStore.getState().handleRoleDelete(roleId);
         break;
       }
+      case "roles_reorder": {
+        const roles = msg.d as Role[];
+        useRoleStore.getState().handleRolesReorder(roles);
+        useMemberStore.getState().handleRolesReorder(roles);
+        break;
+      }
 
       // ─── Voice Events ───
       case "voice_state_update": {

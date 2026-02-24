@@ -196,6 +196,44 @@ func (r *sqliteRoleRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdatePositions, birden fazla rolün position değerini atomik olarak günceller.
+// Transaction kullanılır — bir hata olursa tüm değişiklikler geri alınır.
+// Bu sayede kısmi güncelleme (partial update) riski ortadan kalkar.
+// sqlite_channel.go'daki UpdatePositions ile aynı pattern.
+func (r *sqliteRoleRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE roles SET position = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, item := range items {
+		result, err := stmt.ExecContext(ctx, item.Position, item.ID)
+		if err != nil {
+			return fmt.Errorf("failed to update position for role %s: %w", item.ID, err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to check rows affected for role %s: %w", item.ID, err)
+		}
+		if affected == 0 {
+			return fmt.Errorf("%w: role %s", pkg.ErrNotFound, item.ID)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
 func (r *sqliteRoleRepo) GetMaxPosition(ctx context.Context) (int, error) {
 	var maxPos int
 	err := r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(position), 0) FROM roles`).Scan(&maxPos)

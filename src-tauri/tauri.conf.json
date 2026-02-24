@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://*.mqvi.net wss://*.mqvi.net https://localhost:* ws://localhost:* http://localhost:*; img-src 'self' data: blob: https://*.mqvi.net; media-src 'self' blob: https://*.mqvi.net; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' http: https: ws: wss:; img-src 'self' data: blob: http: https:; media-src 'self' blob: http: https:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
