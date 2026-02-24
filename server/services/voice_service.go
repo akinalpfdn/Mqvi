@@ -82,6 +82,11 @@ type VoiceService interface {
 
 	// GetStreamCount, bir kanaldaki aktif ekran paylaşımı sayısını döner.
 	GetStreamCount(channelID string) int
+
+	// AdminUpdateState, bir admin'in başka bir kullanıcıyı server mute/deafen yapmasını sağlar.
+	// Admin yetkisi hedef kullanıcının bulunduğu kanalda kontrol edilir (channel override dahil).
+	// Pointer parametreler: nil ise o alan değiştirilmez (partial update).
+	AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error
 }
 
 // ─── Implementasyon ───
@@ -231,12 +236,14 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		s.hub.BroadcastToAll(ws.Event{
 			Op: ws.OpVoiceStateUpdate,
 			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:      userID,
-				ChannelID:   oldChannelID,
-				Username:    username,
-				DisplayName: displayName,
-				AvatarURL:   avatarURL,
-				Action:      "leave",
+				UserID:           userID,
+				ChannelID:        oldChannelID,
+				Username:         username,
+				DisplayName:      displayName,
+				AvatarURL:        avatarURL,
+				IsServerMuted:    existing.IsServerMuted,
+				IsServerDeafened: existing.IsServerDeafened,
+				Action:           "leave",
 			},
 		})
 	}
@@ -262,6 +269,8 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			Action:      "join",
 		},
 	})
+	// Not: Yeni katılımda IsServerMuted/IsServerDeafened false (zero value) —
+	// struct'ın default'u zaten false, bu yüzden explicit set gerekmez.
 
 	log.Printf("[voice] user %s joined channel %s", userID, channelID)
 	return nil
@@ -282,7 +291,8 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	avatarURL := state.AvatarURL
 	delete(s.states, userID)
 
-	// Ayrılma broadcast'i
+	// Ayrılma broadcast'i — server mute/deafen state'ini de taşır,
+	// frontend'in sidebar ikonlarını doğru kaldırması için.
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
@@ -334,19 +344,21 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 		state.IsStreaming = *isStreaming
 	}
 
-	// Güncelleme broadcast'i
+	// Güncelleme broadcast'i — tüm state alanlarını taşır (server mute/deafen dahil).
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
-			UserID:      state.UserID,
-			ChannelID:   state.ChannelID,
-			Username:    state.Username,
-			DisplayName: state.DisplayName,
-			AvatarURL:   state.AvatarURL,
-			IsMuted:     state.IsMuted,
-			IsDeafened:  state.IsDeafened,
-			IsStreaming: state.IsStreaming,
-			Action:      "update",
+			UserID:           state.UserID,
+			ChannelID:        state.ChannelID,
+			Username:         state.Username,
+			DisplayName:      state.DisplayName,
+			AvatarURL:        state.AvatarURL,
+			IsMuted:          state.IsMuted,
+			IsDeafened:       state.IsDeafened,
+			IsStreaming:      state.IsStreaming,
+			IsServerMuted:    state.IsServerMuted,
+			IsServerDeafened: state.IsServerDeafened,
+			Action:           "update",
 		},
 	})
 
@@ -406,4 +418,67 @@ func (s *voiceService) GetStreamCount(channelID string) int {
 		}
 	}
 	return count
+}
+
+// ─── Admin State Update ───
+
+// AdminUpdateState, bir admin'in başka bir kullanıcıyı sunucu genelinde
+// susturma (server mute) veya sağırlaştırma (server deafen) yapmasını sağlar.
+//
+// Permission kontrolü: Admin'in hedef kullanıcının bulunduğu ses kanalındaki
+// effective permission'ları hesaplanır (kanal bazlı override'lar dahil).
+// PermAdmin yetkisi gereklidir — yoksa işlem reddedilir.
+//
+// Partial update: isServerMuted veya isServerDeafened nil ise o alan değiştirilmez.
+// Sadece gönderilen alanlar güncellenir — Discord'un toggle pattern'i ile uyumlu.
+func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error {
+	// 1. Hedef kullanıcı ses kanalında mı?
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, ok := s.states[targetUserID]
+	if !ok {
+		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
+	}
+
+	// 2. Admin yetkisi kontrolü — hedef kullanıcının bulunduğu kanalda
+	//    admin'in effective permission'larını hesapla (rol + override).
+	//    PermAdmin yetkisi her şeyi bypass eder (models.Permission.Has).
+	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, adminUserID, state.ChannelID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve admin permissions: %w", err)
+	}
+	if !effectivePerms.Has(models.PermAdmin) {
+		return fmt.Errorf("%w: admin permission required", pkg.ErrForbidden)
+	}
+
+	// 3. State güncelle (partial update — nil alanlar dokunulmaz)
+	if isServerMuted != nil {
+		state.IsServerMuted = *isServerMuted
+	}
+	if isServerDeafened != nil {
+		state.IsServerDeafened = *isServerDeafened
+	}
+
+	// 4. Tüm client'lara broadcast et
+	s.hub.BroadcastToAll(ws.Event{
+		Op: ws.OpVoiceStateUpdate,
+		Data: ws.VoiceStateUpdateBroadcast{
+			UserID:           state.UserID,
+			ChannelID:        state.ChannelID,
+			Username:         state.Username,
+			DisplayName:      state.DisplayName,
+			AvatarURL:        state.AvatarURL,
+			IsMuted:          state.IsMuted,
+			IsDeafened:       state.IsDeafened,
+			IsStreaming:      state.IsStreaming,
+			IsServerMuted:    state.IsServerMuted,
+			IsServerDeafened: state.IsServerDeafened,
+			Action:           "update",
+		},
+	})
+
+	log.Printf("[voice] admin %s updated server state for user %s (muted=%v, deafened=%v)",
+		adminUserID, targetUserID, state.IsServerMuted, state.IsServerDeafened)
+	return nil
 }

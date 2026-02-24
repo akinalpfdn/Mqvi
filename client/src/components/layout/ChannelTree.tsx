@@ -40,12 +40,15 @@ import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as channelApi from "../../api/channels";
 import Avatar from "../shared/Avatar";
+import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
 
 type ChannelTreeProps = {
   onJoinVoice: (channelId: string) => void;
+  /** Generic WS event sender — admin voice state update için */
+  sendWS: (op: string, data?: unknown) => void;
 };
 
-function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
+function ChannelTree({ onJoinVoice, sendWS }: ChannelTreeProps) {
   const { t } = useTranslation("common");
   const { t: tVoice } = useTranslation("voice");
 
@@ -76,6 +79,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const openTab = useUIStore((s) => s.openTab);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
+  const localMutedUsers = useVoiceStore((s) => s.localMutedUsers);
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
 
   const dmChannels = useDMStore((s) => s.channels);
@@ -98,6 +102,16 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const canManageChannels = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.ManageChannels)
     : false;
+
+  // ─── Voice User Context Menu State ───
+  const [voiceCtxMenu, setVoiceCtxMenu] = useState<{
+    userId: string;
+    username: string;
+    displayName: string;
+    avatarUrl: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // ─── Inline Create Channel State ───
   // createTarget: hangi kategoriye kanal ekleniyor (category_id)
@@ -520,37 +534,76 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         {/* Voice kanalı altında bağlı kullanıcılar */}
                         {!isText && participants.length > 0 && (
                           <div className="ch-tree-voice-users">
-                            {participants.map((p) => (
-                              <div key={p.user_id} className="ch-tree-voice-user">
-                                <Avatar
-                                  name={p.display_name || p.username}
-                                  avatarUrl={p.avatar_url}
-                                  size={22}
-                                  isCircle
-                                />
-                                <span className="ch-tree-vu-name">{p.display_name || p.username}</span>
-                                {/* Durum ikonları: yayın, mute, deafen */}
-                                <span className="ch-tree-vu-icons">
-                                  {p.is_streaming && (
-                                    <svg className="ch-tree-vu-icon ch-tree-vu-stream" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("screenShare")}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                    </svg>
-                                  )}
-                                  {p.is_deafened ? (
-                                    <svg className="ch-tree-vu-icon ch-tree-vu-deafen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636" />
-                                    </svg>
-                                  ) : p.is_muted ? (
-                                    <svg className="ch-tree-vu-icon ch-tree-vu-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                                    </svg>
-                                  ) : (
-                                    <span className="ch-tree-vu-dot" />
-                                  )}
-                                </span>
-                              </div>
-                            ))}
+                            {participants.map((p) => {
+                              const isMe = p.user_id === currentUser?.id;
+                              const isLocalMuted = localMutedUsers[p.user_id] ?? false;
+
+                              return (
+                                <div
+                                  key={p.user_id}
+                                  className="ch-tree-voice-user"
+                                  onContextMenu={(e) => {
+                                    if (isMe) return; // Kendi kendine context menu açma
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setVoiceCtxMenu({
+                                      userId: p.user_id,
+                                      username: p.username,
+                                      displayName: p.display_name,
+                                      avatarUrl: p.avatar_url,
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                    });
+                                  }}
+                                >
+                                  <Avatar
+                                    name={p.display_name || p.username}
+                                    avatarUrl={p.avatar_url}
+                                    size={22}
+                                    isCircle
+                                  />
+                                  <span className="ch-tree-vu-name">{p.display_name || p.username}</span>
+                                  {/* Durum ikonları: server deafen > server mute > local mute > streaming > self deafen > self mute > online dot */}
+                                  <span className="ch-tree-vu-icons">
+                                    {p.is_server_deafened && (
+                                      <svg className="ch-tree-vu-icon ch-tree-vu-server-deafen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("serverDeafened")}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 18v-6a9 9 0 0118 0v6M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+                                      </svg>
+                                    )}
+                                    {p.is_server_muted && (
+                                      <svg className="ch-tree-vu-icon ch-tree-vu-server-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("serverMuted")}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+                                      </svg>
+                                    )}
+                                    {!isMe && isLocalMuted && (
+                                      <svg className="ch-tree-vu-icon ch-tree-vu-local-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("localMuted")}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                                      </svg>
+                                    )}
+                                    {p.is_streaming && (
+                                      <svg className="ch-tree-vu-icon ch-tree-vu-stream" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("screenShare")}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                      </svg>
+                                    )}
+                                    {p.is_deafened ? (
+                                      <svg className="ch-tree-vu-icon ch-tree-vu-deafen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636" />
+                                      </svg>
+                                    ) : p.is_muted ? (
+                                      <svg className="ch-tree-vu-icon ch-tree-vu-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                                      </svg>
+                                    ) : (
+                                      <span className="ch-tree-vu-dot" />
+                                    )}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -562,6 +615,25 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           </div>
         )}
       </div>
+
+      {/* Voice User Context Menu — sağ tık menüsü (portal ile body'ye render edilir) */}
+      {voiceCtxMenu && (
+        <VoiceUserContextMenu
+          userId={voiceCtxMenu.userId}
+          username={voiceCtxMenu.username}
+          displayName={voiceCtxMenu.displayName}
+          avatarUrl={voiceCtxMenu.avatarUrl}
+          position={{ x: voiceCtxMenu.x, y: voiceCtxMenu.y }}
+          onClose={() => setVoiceCtxMenu(null)}
+          onAdminStateUpdate={(targetUserId, isServerMuted, isServerDeafened) => {
+            sendWS("voice_admin_state_update", {
+              target_user_id: targetUserId,
+              is_server_muted: isServerMuted,
+              is_server_deafened: isServerDeafened,
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

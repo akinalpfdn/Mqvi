@@ -42,7 +42,7 @@ import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 
 function AppLayout() {
-  const { sendTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate } =
+  const { sendTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS } =
     useWebSocket();
 
   // Idle detection — 5dk inaktiflik → "idle", aktivite geri gelince → "online"
@@ -170,6 +170,7 @@ function AppLayout() {
         onToggleDeafen={toggleDeafen}
         onToggleScreenShare={toggleScreenShare}
         onDisconnect={leaveVoice}
+        sendWS={sendWS}
       />
 
       {/* Sağ taraf — TopBar + content area */}

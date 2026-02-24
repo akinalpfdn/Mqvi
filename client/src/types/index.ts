@@ -240,6 +240,10 @@ export type VoiceState = {
   is_muted: boolean;
   is_deafened: boolean;
   is_streaming: boolean;
+  /** Admin tarafından sunucu genelinde susturulmuş (herkes için) */
+  is_server_muted: boolean;
+  /** Admin tarafından sunucu genelinde sağırlaştırılmış (herkes için) */
+  is_server_deafened: boolean;
 };
 
 /**
@@ -267,6 +271,8 @@ export type VoiceStateUpdateData = {
   is_muted: boolean;
   is_deafened: boolean;
   is_streaming: boolean;
+  is_server_muted: boolean;
+  is_server_deafened: boolean;
   action: "join" | "leave" | "update";
 };
 

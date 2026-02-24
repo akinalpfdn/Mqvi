@@ -201,14 +201,16 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		items := make([]VoiceStateItem, len(allStates))
 		for i, s := range allStates {
 			items[i] = VoiceStateItem{
-				UserID:      s.UserID,
-				ChannelID:   s.ChannelID,
-				Username:    s.Username,
-				DisplayName: s.DisplayName,
-				AvatarURL:   s.AvatarURL,
-				IsMuted:     s.IsMuted,
-				IsDeafened:  s.IsDeafened,
-				IsStreaming: s.IsStreaming,
+				UserID:           s.UserID,
+				ChannelID:        s.ChannelID,
+				Username:         s.Username,
+				DisplayName:      s.DisplayName,
+				AvatarURL:        s.AvatarURL,
+				IsMuted:          s.IsMuted,
+				IsDeafened:       s.IsDeafened,
+				IsStreaming:      s.IsStreaming,
+				IsServerMuted:    s.IsServerMuted,
+				IsServerDeafened: s.IsServerDeafened,
 			}
 		}
 		client.sendEvent(Event{

@@ -22,5 +22,15 @@
   "minimize": "Küçült",
   "livekitConnectionError": "Ses sunucusuna bağlanılamadı. Lütfen sunucunun çalıştığından emin olun ve tekrar deneyin.",
   "voiceDisconnectedHint": "Ses bağlantısı koptu — ses sunucusu erişilemez olabilir",
-  "ping": "Gecikme"
+  "ping": "Gecikme",
+  "userVolume": "Kullanıcı Sesi",
+  "localMute": "Benim İçin Sustur",
+  "localUnmute": "Benim İçin Sesi Aç",
+  "serverMute": "Sunucu Susturma",
+  "serverUnmute": "Sunucu Sesini Aç",
+  "serverDeafen": "Sunucu Sağırlaştırma",
+  "serverUndeafen": "Sunucu Sağırlaştırmayı Kapat",
+  "localMuted": "Yerel Olarak Susturulmuş",
+  "serverMuted": "Sunucu Tarafından Susturulmuş",
+  "serverDeafened": "Sunucu Tarafından Sağırlaştırılmış"
 }

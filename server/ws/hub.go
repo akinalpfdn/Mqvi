@@ -52,6 +52,11 @@ type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreami
 // main.go'da wire-up yapılır — DB persist + broadcast bu callback'te gerçekleşir.
 type PresenceManualUpdateCallback func(userID string, status string)
 
+// VoiceAdminStateUpdateCallback, admin bir kullanıcıyı server mute/deafen ettiğinde çağrılır.
+// adminUserID: İşlemi yapan admin, targetUserID: Hedef kullanıcı.
+// Pointer parametreler: nil = o alan değişmiyor (partial update).
+type VoiceAdminStateUpdateCallback func(adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool)
+
 // ─── P2P Call Callback Tipleri ───
 //
 // P2P arama event'leri de aynı callback pattern'ini kullanır.
@@ -138,9 +143,10 @@ type Hub struct {
 
 	// Voice callback'leri — main.go'da set edilir.
 	// Client voice event gönderdiğinde handleEvent → Hub callback → main.go → VoiceService
-	onVoiceJoin        VoiceJoinCallback
-	onVoiceLeave       VoiceLeaveCallback
-	onVoiceStateUpdate VoiceStateUpdateCallback
+	onVoiceJoin             VoiceJoinCallback
+	onVoiceLeave            VoiceLeaveCallback
+	onVoiceStateUpdate      VoiceStateUpdateCallback
+	onVoiceAdminStateUpdate VoiceAdminStateUpdateCallback
 
 	// Presence manuel güncelleme callback'i — main.go'da set edilir.
 	// Client idle/dnd gibi durum değişikliği gönderdiğinde DB persist için çağrılır.
@@ -398,6 +404,12 @@ func (h *Hub) OnVoiceLeave(cb VoiceLeaveCallback) {
 // OnVoiceStateUpdate, kullanıcı mute/deafen/stream toggle'ladığında çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceStateUpdate(cb VoiceStateUpdateCallback) {
 	h.onVoiceStateUpdate = cb
+}
+
+// OnVoiceAdminStateUpdate, admin bir kullanıcıyı server mute/deafen ettiğinde
+// çağrılacak callback'i ayarlar.
+func (h *Hub) OnVoiceAdminStateUpdate(cb VoiceAdminStateUpdateCallback) {
+	h.onVoiceAdminStateUpdate = cb
 }
 
 // OnP2PCallInitiate, kullanıcı P2P arama başlattığında çağrılacak callback'i ayarlar.

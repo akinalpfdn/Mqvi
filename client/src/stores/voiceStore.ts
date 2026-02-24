@@ -45,6 +45,12 @@ type VoiceSettings = {
   outputDevice: string;
   masterVolume: number;
   soundsEnabled: boolean;
+  /**
+   * localMutedUsers — Kullanıcı bazlı yerel sessize alma.
+   * userId → true ise o kullanıcının sesi sadece bu client'ta kapalıdır.
+   * Diğer kullanıcıları etkilemez — tamamen lokal.
+   */
+  localMutedUsers: Record<string, boolean>;
 };
 
 /**
@@ -63,6 +69,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   outputDevice: "",
   masterVolume: 100,
   soundsEnabled: true,
+  localMutedUsers: {},
 };
 
 /**
@@ -174,6 +181,20 @@ type VoiceStore = {
   soundsEnabled: boolean;
 
   /**
+   * localMutedUsers — Kullanıcı bazlı yerel sessize alma.
+   * userId → true ise o kullanıcının sesi sadece bu client'ta kapalıdır.
+   * Diğer kullanıcıları etkilemez — tamamen lokal.
+   */
+  localMutedUsers: Record<string, boolean>;
+
+  /**
+   * preMuteVolumes — Local mute öncesi volume değerleri.
+   * Mute açılırken volume 0'a çekilir, eski değer burada saklanır.
+   * Mute kapatılırken eski volume geri yüklenir.
+   */
+  preMuteVolumes: Record<string, number>;
+
+  /**
    * rtt — LiveKit signal server'a round-trip time (ms).
    * VoiceStateManager tarafından periyodik olarak güncellenir.
    * 0 = henüz ölçülmedi veya bağlı değil.
@@ -223,6 +244,16 @@ type VoiceStore = {
   setMasterVolume: (value: number) => void;
   setSoundsEnabled: (enabled: boolean) => void;
   setRtt: (rtt: number) => void;
+
+  /**
+   * toggleLocalMute — Belirli bir kullanıcıyı yerel olarak sessize al/aç.
+   *
+   * Mute açılırken: Mevcut volume değeri preMuteVolumes'a kaydedilir,
+   * volume 0'a çekilir, localMutedUsers[userId] = true.
+   * Mute kapatılırken: preMuteVolumes'dan eski volume geri yüklenir,
+   * localMutedUsers'dan silinir.
+   */
+  toggleLocalMute: (userId: string) => void;
 
   // ─── Cross-store Callback ───
 
@@ -275,6 +306,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   outputDevice: initialSettings.outputDevice,
   masterVolume: initialSettings.masterVolume,
   soundsEnabled: initialSettings.soundsEnabled,
+  localMutedUsers: initialSettings.localMutedUsers,
+  preMuteVolumes: {},
   rtt: 0,
 
   // ─── Cross-store Callback ───
@@ -369,6 +402,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
     });
   },
 
@@ -384,6 +418,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
     });
   },
 
@@ -399,6 +434,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
     });
   },
 
@@ -415,6 +451,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
     });
   },
 
@@ -430,6 +467,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
     });
   },
 
@@ -445,6 +483,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       outputDevice: deviceId,
       masterVolume: s.masterVolume,
       soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
     });
   },
 
@@ -460,6 +499,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       outputDevice: s.outputDevice,
       masterVolume: value,
       soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
     });
   },
 
@@ -475,10 +515,72 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
       soundsEnabled: enabled,
+      localMutedUsers: s.localMutedUsers,
     });
   },
 
   setRtt: (rtt) => set({ rtt }),
+
+  toggleLocalMute: (userId: string) => {
+    const { localMutedUsers, preMuteVolumes, userVolumes } = get();
+    const isCurrentlyMuted = localMutedUsers[userId] ?? false;
+
+    if (isCurrentlyMuted) {
+      // Unmute: Eski volume'u geri yükle, localMutedUsers'dan çıkar
+      const restoredVolume = preMuteVolumes[userId] ?? 100;
+      const newLocalMuted = { ...localMutedUsers };
+      delete newLocalMuted[userId];
+      const newPreMute = { ...preMuteVolumes };
+      delete newPreMute[userId];
+      const newVolumes = { ...userVolumes, [userId]: restoredVolume };
+
+      set({
+        localMutedUsers: newLocalMuted,
+        preMuteVolumes: newPreMute,
+        userVolumes: newVolumes,
+      });
+
+      // localStorage persist
+      const s = get();
+      saveSettings({
+        inputMode: s.inputMode,
+        pttKey: s.pttKey,
+        micSensitivity: s.micSensitivity,
+        userVolumes: newVolumes,
+        inputDevice: s.inputDevice,
+        outputDevice: s.outputDevice,
+        masterVolume: s.masterVolume,
+        soundsEnabled: s.soundsEnabled,
+        localMutedUsers: newLocalMuted,
+      });
+    } else {
+      // Mute: Mevcut volume'u sakla, volume'u 0'a çek
+      const currentVolume = userVolumes[userId] ?? 100;
+      const newLocalMuted = { ...localMutedUsers, [userId]: true };
+      const newPreMute = { ...preMuteVolumes, [userId]: currentVolume };
+      const newVolumes = { ...userVolumes, [userId]: 0 };
+
+      set({
+        localMutedUsers: newLocalMuted,
+        preMuteVolumes: newPreMute,
+        userVolumes: newVolumes,
+      });
+
+      // localStorage persist
+      const s = get();
+      saveSettings({
+        inputMode: s.inputMode,
+        pttKey: s.pttKey,
+        micSensitivity: s.micSensitivity,
+        userVolumes: newVolumes,
+        inputDevice: s.inputDevice,
+        outputDevice: s.outputDevice,
+        masterVolume: s.masterVolume,
+        soundsEnabled: s.soundsEnabled,
+        localMutedUsers: newLocalMuted,
+      });
+    }
+  },
 
   // ─── WS Event Handlers ───
 
@@ -511,6 +613,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
               is_muted: data.is_muted,
               is_deafened: data.is_deafened,
               is_streaming: data.is_streaming,
+              is_server_muted: data.is_server_muted,
+              is_server_deafened: data.is_server_deafened,
             },
           ];
           break;
@@ -539,6 +643,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
                     is_muted: data.is_muted,
                     is_deafened: data.is_deafened,
                     is_streaming: data.is_streaming,
+                    is_server_muted: data.is_server_muted,
+                    is_server_deafened: data.is_server_deafened,
                   }
                 : s
             );

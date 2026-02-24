@@ -12,14 +12,16 @@ package models
 // Bu struct hem backend in-memory tracking hem de
 // WS event payload'ları ve REST API response'ları için kullanılır.
 type VoiceState struct {
-	UserID      string `json:"user_id"`
-	ChannelID   string `json:"channel_id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	AvatarURL   string `json:"avatar_url"`
-	IsMuted     bool   `json:"is_muted"`
-	IsDeafened  bool   `json:"is_deafened"`
-	IsStreaming bool   `json:"is_streaming"` // Ekran paylaşımı aktif mi
+	UserID           string `json:"user_id"`
+	ChannelID        string `json:"channel_id"`
+	Username         string `json:"username"`
+	DisplayName      string `json:"display_name"`
+	AvatarURL        string `json:"avatar_url"`
+	IsMuted          bool   `json:"is_muted"`
+	IsDeafened       bool   `json:"is_deafened"`
+	IsStreaming      bool   `json:"is_streaming"`       // Ekran paylaşımı aktif mi
+	IsServerMuted    bool   `json:"is_server_muted"`    // Admin tarafından sunucu genelinde susturulmuş
+	IsServerDeafened bool   `json:"is_server_deafened"` // Admin tarafından sunucu genelinde sağırlaştırılmış
 }
 
 // VoiceTokenRequest, ses kanalına katılmak için token isteği.

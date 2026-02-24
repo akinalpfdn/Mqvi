@@ -22,5 +22,15 @@
   "minimize": "Minimize",
   "livekitConnectionError": "Could not connect to the voice server. Please check that the server is running and try again.",
   "voiceDisconnectedHint": "Voice disconnected — the voice server may be unavailable",
-  "ping": "Ping"
+  "ping": "Ping",
+  "userVolume": "User Volume",
+  "localMute": "Mute For Me",
+  "localUnmute": "Unmute For Me",
+  "serverMute": "Server Mute",
+  "serverUnmute": "Server Unmute",
+  "serverDeafen": "Server Deafen",
+  "serverUndeafen": "Server Undeafen",
+  "localMuted": "Locally Muted",
+  "serverMuted": "Server Muted",
+  "serverDeafened": "Server Deafened"
 }

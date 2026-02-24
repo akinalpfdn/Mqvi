@@ -127,6 +127,10 @@ func (c *Client) handleEvent(event Event) {
 		// Kullanıcı mute/deafen/stream durumunu değiştirmek istiyor
 		c.handleVoiceStateUpdate(event)
 
+	case OpVoiceAdminStateUpdate:
+		// Admin: kullanıcıyı server mute/deafen
+		c.handleVoiceAdminStateUpdate(event)
+
 	// ─── P2P Call Event'leri ───
 	case OpP2PCallInitiate:
 		c.handleP2PCallInitiate(event)
@@ -263,6 +267,30 @@ func (c *Client) handleVoiceStateUpdate(event Event) {
 
 	if c.hub.onVoiceStateUpdate != nil {
 		go c.hub.onVoiceStateUpdate(c.userID, data.IsMuted, data.IsDeafened, data.IsStreaming)
+	}
+}
+
+// handleVoiceAdminStateUpdate, voice_admin_state_update event'ini işler.
+// Admin kullanıcı { op: "voice_admin_state_update", d: { target_user_id: "abc", is_server_muted: true } }
+// gönderdiğinde Hub'ın admin state update callback'ini tetikler.
+func (c *Client) handleVoiceAdminStateUpdate(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data VoiceAdminStateUpdateData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.TargetUserID == "" {
+		log.Printf("[ws] voice_admin_state_update missing target_user_id from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onVoiceAdminStateUpdate != nil {
+		go c.hub.onVoiceAdminStateUpdate(c.userID, data.TargetUserID, data.IsServerMuted, data.IsServerDeafened)
 	}
 }
 

@@ -216,6 +216,11 @@ func main() {
 			log.Printf("[voice] state update error user=%s: %v", userID, err)
 		}
 	})
+	hub.OnVoiceAdminStateUpdate(func(adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) {
+		if err := voiceService.AdminUpdateState(context.Background(), adminUserID, targetUserID, isServerMuted, isServerDeafened); err != nil {
+			log.Printf("[voice] admin state update error admin=%s target=%s: %v", adminUserID, targetUserID, err)
+		}
+	})
 
 	// P2P Call callback'leri — client P2P arama event'leri gönderdiğinde
 	// Hub bu callback'leri tetikler, callback'ler p2pCallService'i çağırır.

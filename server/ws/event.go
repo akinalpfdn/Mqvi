@@ -93,9 +93,10 @@ const (
 
 // Client → Server voice operasyonları
 const (
-	OpVoiceJoin           = "voice_join"                  // Kullanıcı ses kanalına katılmak istiyor
-	OpVoiceLeave          = "voice_leave"                 // Kullanıcı ses kanalından ayrılmak istiyor
-	OpVoiceStateUpdateReq = "voice_state_update_request"  // Kullanıcı mute/deafen/stream toggle'lıyor
+	OpVoiceJoin             = "voice_join"                  // Kullanıcı ses kanalına katılmak istiyor
+	OpVoiceLeave            = "voice_leave"                 // Kullanıcı ses kanalından ayrılmak istiyor
+	OpVoiceStateUpdateReq   = "voice_state_update_request"  // Kullanıcı mute/deafen/stream toggle'lıyor
+	OpVoiceAdminStateUpdate = "voice_admin_state_update"    // Admin: kullanıcıyı server mute/deafen
 )
 
 // P2P Call operasyonları — hem Client → Server hem Server → Client
@@ -156,18 +157,29 @@ type VoiceStateUpdateRequestData struct {
 	IsStreaming *bool `json:"is_streaming,omitempty"`
 }
 
+// VoiceAdminStateUpdateData, voice_admin_state_update event'inin Client → Server payload'ı.
+// Admin bir kullanıcıyı sunucu genelinde susturma veya sağırlaştırma isteği gönderir.
+// Pointer kullanılır — nil ise o alan değiştirilmez (partial update).
+type VoiceAdminStateUpdateData struct {
+	TargetUserID     string `json:"target_user_id"`
+	IsServerMuted    *bool  `json:"is_server_muted,omitempty"`
+	IsServerDeafened *bool  `json:"is_server_deafened,omitempty"`
+}
+
 // VoiceStateUpdateBroadcast, voice_state_update event'inin payload'ı (Server → Client).
 // Bir kullanıcının ses durumu değiştiğinde tüm client'lara broadcast edilir.
 type VoiceStateUpdateBroadcast struct {
-	UserID      string `json:"user_id"`
-	ChannelID   string `json:"channel_id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	AvatarURL   string `json:"avatar_url"`
-	IsMuted     bool   `json:"is_muted"`
-	IsDeafened  bool   `json:"is_deafened"`
-	IsStreaming bool   `json:"is_streaming"`
-	Action      string `json:"action"` // "join", "leave", "update"
+	UserID           string `json:"user_id"`
+	ChannelID        string `json:"channel_id"`
+	Username         string `json:"username"`
+	DisplayName      string `json:"display_name"`
+	AvatarURL        string `json:"avatar_url"`
+	IsMuted          bool   `json:"is_muted"`
+	IsDeafened       bool   `json:"is_deafened"`
+	IsStreaming      bool   `json:"is_streaming"`
+	IsServerMuted    bool   `json:"is_server_muted"`
+	IsServerDeafened bool   `json:"is_server_deafened"`
+	Action           string `json:"action"` // "join", "leave", "update"
 }
 
 // VoiceStatesSyncData, voice_states_sync event'inin payload'ı (Server → Client).
@@ -180,14 +192,16 @@ type VoiceStatesSyncData struct {
 // models.VoiceState ile aynı alanları taşır — ws paketinin models'a
 // bağımlılığını kırmak için ayrı tanımlanır.
 type VoiceStateItem struct {
-	UserID      string `json:"user_id"`
-	ChannelID   string `json:"channel_id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	AvatarURL   string `json:"avatar_url"`
-	IsMuted     bool   `json:"is_muted"`
-	IsDeafened  bool   `json:"is_deafened"`
-	IsStreaming bool   `json:"is_streaming"`
+	UserID           string `json:"user_id"`
+	ChannelID        string `json:"channel_id"`
+	Username         string `json:"username"`
+	DisplayName      string `json:"display_name"`
+	AvatarURL        string `json:"avatar_url"`
+	IsMuted          bool   `json:"is_muted"`
+	IsDeafened       bool   `json:"is_deafened"`
+	IsStreaming      bool   `json:"is_streaming"`
+	IsServerMuted    bool   `json:"is_server_muted"`
+	IsServerDeafened bool   `json:"is_server_deafened"`
 }
 
 // ─── P2P Call Event Data Struct'ları ───
