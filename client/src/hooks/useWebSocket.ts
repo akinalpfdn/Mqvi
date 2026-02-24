@@ -395,7 +395,7 @@ export function useWebSocket() {
         useP2PCallStore.getState().handleCallAccept(msg.d as { call_id: string });
         break;
       case "p2p_call_decline":
-        useP2PCallStore.getState().handleCallDecline(msg.d as { call_id: string });
+        useP2PCallStore.getState().handleCallDecline(msg.d as { call_id: string; reason?: string });
         break;
       case "p2p_call_end":
         useP2PCallStore.getState().handleCallEnd(

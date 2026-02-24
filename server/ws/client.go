@@ -233,10 +233,9 @@ func (c *Client) handleVoiceJoin(event Event) {
 	}
 
 	if c.hub.onVoiceJoin != nil {
-		username := c.hub.getUserUsername(c.userID)
-		// Avatar URL henüz Hub cache'inde tutulmuyor — boş string ile devam.
-		// Frontend zaten letter avatar (ilk harf) kullanıyor.
-		go c.hub.onVoiceJoin(c.userID, username, "", data.ChannelID)
+		// Hub cache'inden kullanıcı bilgilerini al (WS connect'te set edilmiş).
+		info := c.hub.getUserInfo(c.userID)
+		go c.hub.onVoiceJoin(c.userID, info.Username, info.DisplayName, info.AvatarURL, data.ChannelID)
 	}
 }
 

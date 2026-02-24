@@ -506,6 +506,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
               user_id: data.user_id,
               channel_id: data.channel_id,
               username: data.username,
+              display_name: data.display_name,
               avatar_url: data.avatar_url,
               is_muted: data.is_muted,
               is_deafened: data.is_deafened,

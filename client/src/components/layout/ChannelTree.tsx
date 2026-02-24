@@ -523,12 +523,12 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                             {participants.map((p) => (
                               <div key={p.user_id} className="ch-tree-voice-user">
                                 <Avatar
-                                  name={p.username}
+                                  name={p.display_name || p.username}
                                   avatarUrl={p.avatar_url}
                                   size={22}
                                   isCircle
                                 />
-                                <span className="ch-tree-vu-name">{p.username}</span>
+                                <span className="ch-tree-vu-name">{p.display_name || p.username}</span>
                                 {/* Durum ikonları: yayın, mute, deafen */}
                                 <span className="ch-tree-vu-icons">
                                   {p.is_streaming && (

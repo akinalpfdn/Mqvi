@@ -235,6 +235,7 @@ export type VoiceState = {
   user_id: string;
   channel_id: string;
   username: string;
+  display_name: string;
   avatar_url: string;
   is_muted: boolean;
   is_deafened: boolean;
@@ -261,6 +262,7 @@ export type VoiceStateUpdateData = {
   user_id: string;
   channel_id: string;
   username: string;
+  display_name: string;
   avatar_url: string;
   is_muted: boolean;
   is_deafened: boolean;

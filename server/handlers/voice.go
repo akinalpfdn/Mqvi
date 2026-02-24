@@ -55,7 +55,12 @@ func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.voiceService.GenerateToken(r.Context(), user.ID, user.Username, req.ChannelID)
+	// display_name varsa onu tercih et, yoksa username kullanılır (service katmanında).
+	var displayName string
+	if user.DisplayName != nil {
+		displayName = *user.DisplayName
+	}
+	resp, err := h.voiceService.GenerateToken(r.Context(), user.ID, user.Username, displayName, req.ChannelID)
 	if err != nil {
 		pkg.Error(w, err)
 		return

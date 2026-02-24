@@ -13,6 +13,7 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { MemberWithRoles } from "../../types";
+import Avatar from "../shared/Avatar";
 import RoleBadge from "./RoleBadge";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
@@ -126,12 +127,12 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
 
         {/* Avatar */}
         <div className="member-card-avatar">
-          <div
-            className="avatar av-default avatar-round"
-            style={{ width: 64, height: 64, fontSize: 24 }}
-          >
-            {member.username.charAt(0).toUpperCase()}
-          </div>
+          <Avatar
+            name={member.display_name ?? member.username}
+            avatarUrl={member.avatar_url}
+            size={64}
+            isCircle
+          />
         </div>
 
         {/* Body */}

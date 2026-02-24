@@ -54,11 +54,13 @@ type ChannelGetter interface {
 // VoiceService, ses kanalı operasyonları için iş mantığı interface'i.
 type VoiceService interface {
 	// GenerateToken, LiveKit JWT oluşturur. Permission kontrolü içerir.
-	GenerateToken(ctx context.Context, userID, username, channelID string) (*models.VoiceTokenResponse, error)
+	// displayName tercih edilen görünen isimdir — LiveKit'te participant.name olarak kullanılır.
+	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 
 	// JoinChannel, kullanıcıyı ses kanalına kaydeder ve broadcast eder.
 	// Kullanıcı başka bir kanalda ise önce oradan çıkarılır.
-	JoinChannel(userID, username, avatarURL, channelID string) error
+	// displayName boş ise username gösterilir.
+	JoinChannel(userID, username, displayName, avatarURL, channelID string) error
 
 	// LeaveChannel, kullanıcıyı mevcut ses kanalından çıkarır.
 	LeaveChannel(userID string) error
@@ -129,7 +131,7 @@ func NewVoiceService(
 
 // ─── Token Generation ───
 
-func (s *voiceService) GenerateToken(ctx context.Context, userID, username, channelID string) (*models.VoiceTokenResponse, error) {
+func (s *voiceService) GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error) {
 	// 1. Kanal var mı ve voice tipinde mi?
 	channel, err := s.channelGetter.GetByID(ctx, channelID)
 	if err != nil {
@@ -190,9 +192,16 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, chan
 		CanPublishData: &canPublishData,
 	}
 
+	// LiveKit participant.name — UI'da gösterilecek isim.
+	// display_name varsa onu kullan, yoksa username'e düş.
+	participantName := username
+	if displayName != "" {
+		participantName = displayName
+	}
+
 	at.AddGrant(grant).
 		SetIdentity(userID).
-		SetName(username).
+		SetName(participantName).
 		SetValidFor(24 * time.Hour) // Uzun validite — LiveKit disconnect'i kendisi yönetir
 
 	token, err := at.ToJWT()
@@ -209,7 +218,7 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, chan
 
 // ─── Channel Join/Leave ───
 
-func (s *voiceService) JoinChannel(userID, username, avatarURL, channelID string) error {
+func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -222,32 +231,35 @@ func (s *voiceService) JoinChannel(userID, username, avatarURL, channelID string
 		s.hub.BroadcastToAll(ws.Event{
 			Op: ws.OpVoiceStateUpdate,
 			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:    userID,
-				ChannelID: oldChannelID,
-				Username:  username,
-				AvatarURL: avatarURL,
-				Action:    "leave",
+				UserID:      userID,
+				ChannelID:   oldChannelID,
+				Username:    username,
+				DisplayName: displayName,
+				AvatarURL:   avatarURL,
+				Action:      "leave",
 			},
 		})
 	}
 
 	// Yeni kanala katıl
 	s.states[userID] = &models.VoiceState{
-		UserID:    userID,
-		ChannelID: channelID,
-		Username:  username,
-		AvatarURL: avatarURL,
+		UserID:      userID,
+		ChannelID:   channelID,
+		Username:    username,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
 	}
 
 	// Katılma broadcast'i
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
-			UserID:    userID,
-			ChannelID: channelID,
-			Username:  username,
-			AvatarURL: avatarURL,
-			Action:    "join",
+			UserID:      userID,
+			ChannelID:   channelID,
+			Username:    username,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Action:      "join",
 		},
 	})
 
@@ -266,6 +278,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 
 	channelID := state.ChannelID
 	username := state.Username
+	displayName := state.DisplayName
 	avatarURL := state.AvatarURL
 	delete(s.states, userID)
 
@@ -273,11 +286,12 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
-			UserID:    userID,
-			ChannelID: channelID,
-			Username:  username,
-			AvatarURL: avatarURL,
-			Action:    "leave",
+			UserID:      userID,
+			ChannelID:   channelID,
+			Username:    username,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Action:      "leave",
 		},
 	})
 
@@ -327,6 +341,7 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 			UserID:      state.UserID,
 			ChannelID:   state.ChannelID,
 			Username:    state.Username,
+			DisplayName: state.DisplayName,
 			AvatarURL:   state.AvatarURL,
 			IsMuted:     state.IsMuted,
 			IsDeafened:  state.IsDeafened,

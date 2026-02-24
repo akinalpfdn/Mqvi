@@ -43,6 +43,16 @@ type VoiceStatesProvider interface {
 	GetAllVoiceStates() []models.VoiceState
 }
 
+// UserInfoProvider, kullanıcı bilgilerini DB'den sorgulayan interface (ISP).
+//
+// UserRepository'nin GetByID metodunu karşılar (Go implicit interface).
+// WS bağlantısı kurulduğunda kullanıcının display_name ve avatar_url
+// bilgilerini Hub cache'ine yazmak için kullanılır.
+// JWT claims sadece userID + username içerir — profil verileri DB'den çekilir.
+type UserInfoProvider interface {
+	GetByID(ctx context.Context, id string) (*models.User, error)
+}
+
 // upgrader, HTTP bağlantısını WebSocket bağlantısına yükseltir.
 //
 // WebSocket Upgrade nedir?
@@ -66,6 +76,7 @@ type Handler struct {
 	tokenValidator      TokenValidator
 	banChecker          BanChecker
 	voiceStatesProvider VoiceStatesProvider
+	userInfoProvider    UserInfoProvider
 }
 
 // NewHandler, yeni bir WebSocket handler oluşturur.
@@ -79,12 +90,17 @@ type Handler struct {
 //
 // voiceStatesProvider parametresi VoiceStatesProvider interface'ini karşılar
 // (pratikte voiceService). Bağlantı kurulduğunda aktif voice state'leri gönderir.
-func NewHandler(hub *Hub, tokenValidator TokenValidator, banChecker BanChecker, voiceStatesProvider VoiceStatesProvider) *Handler {
+//
+// userInfoProvider parametresi UserInfoProvider interface'ini karşılar (pratikte userRepo).
+// WS bağlantısı kurulduğunda kullanıcının display_name ve avatar_url bilgilerini
+// Hub cache'ine yazar — voice join gibi event'lerde DB'ye gitmeden kullanılır.
+func NewHandler(hub *Hub, tokenValidator TokenValidator, banChecker BanChecker, voiceStatesProvider VoiceStatesProvider, userInfoProvider UserInfoProvider) *Handler {
 	return &Handler{
 		hub:                 hub,
 		tokenValidator:      tokenValidator,
 		banChecker:          banChecker,
 		voiceStatesProvider: voiceStatesProvider,
+		userInfoProvider:    userInfoProvider,
 	}
 }
 
@@ -148,8 +164,21 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		send:   make(chan []byte, sendBufferSize),
 	}
 
-	// Username cache'ini güncelle (typing broadcast için)
-	h.hub.SetUserUsername(claims.UserID, claims.Username)
+	// User bilgilerini DB'den çekip Hub cache'ine yaz.
+	// display_name ve avatar_url JWT claims'te bulunmaz — DB lookup gerekir.
+	// Bu bilgiler voice join gibi event'lerde tekrar DB'ye gitmeden kullanılır.
+	var displayName, avatarURL string
+	if h.userInfoProvider != nil {
+		if user, err := h.userInfoProvider.GetByID(r.Context(), claims.UserID); err == nil {
+			if user.DisplayName != nil {
+				displayName = *user.DisplayName
+			}
+			if user.AvatarURL != nil {
+				avatarURL = *user.AvatarURL
+			}
+		}
+	}
+	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 
 	// 6. Hub'a kaydet
 	h.hub.register <- client
@@ -175,6 +204,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 				UserID:      s.UserID,
 				ChannelID:   s.ChannelID,
 				Username:    s.Username,
+				DisplayName: s.DisplayName,
 				AvatarURL:   s.AvatarURL,
 				IsMuted:     s.IsMuted,
 				IsDeafened:  s.IsDeafened,

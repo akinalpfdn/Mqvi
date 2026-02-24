@@ -201,8 +201,8 @@ func main() {
 	// Voice callback'leri — client ses kanalı event'leri gönderdiğinde
 	// Hub bu callback'leri tetikler, callback'ler voiceService'i çağırır.
 	// Presence callback'leri ile aynı pattern (Dependency Inversion).
-	hub.OnVoiceJoin(func(userID, username, avatarURL, channelID string) {
-		if err := voiceService.JoinChannel(userID, username, avatarURL, channelID); err != nil {
+	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string) {
+		if err := voiceService.JoinChannel(userID, username, displayName, avatarURL, channelID); err != nil {
 			log.Printf("[voice] join error user=%s channel=%s: %v", userID, channelID, err)
 		}
 	})
@@ -300,7 +300,7 @@ func main() {
 	friendshipHandler := handlers.NewFriendshipHandler(friendshipService)
 	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
 	statsHandler := handlers.NewStatsHandler(userRepo)
-	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService)
+	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService, userRepo)
 
 	// ─── 9. Middleware ───
 	authMiddleware := middleware.NewAuthMiddleware(authService, userRepo)

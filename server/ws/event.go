@@ -162,6 +162,7 @@ type VoiceStateUpdateBroadcast struct {
 	UserID      string `json:"user_id"`
 	ChannelID   string `json:"channel_id"`
 	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
 	AvatarURL   string `json:"avatar_url"`
 	IsMuted     bool   `json:"is_muted"`
 	IsDeafened  bool   `json:"is_deafened"`
@@ -182,6 +183,7 @@ type VoiceStateItem struct {
 	UserID      string `json:"user_id"`
 	ChannelID   string `json:"channel_id"`
 	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
 	AvatarURL   string `json:"avatar_url"`
 	IsMuted     bool   `json:"is_muted"`
 	IsDeafened  bool   `json:"is_deafened"`

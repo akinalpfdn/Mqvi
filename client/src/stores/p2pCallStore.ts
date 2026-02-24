@@ -26,7 +26,9 @@
  */
 
 import { create } from "zustand";
+import i18n from "../i18n";
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
+import { useToastStore } from "./toastStore";
 
 // ─── STUN Configuration ───
 
@@ -144,8 +146,8 @@ type P2PCallStore = {
   /** p2p_call_accept event'i geldiğinde */
   handleCallAccept: (data: { call_id: string }) => void;
 
-  /** p2p_call_decline event'i geldiğinde */
-  handleCallDecline: (data: { call_id: string }) => void;
+  /** p2p_call_decline event'i geldiğinde. reason: "offline" ise kullanıcı çevrimdışı. */
+  handleCallDecline: (data: { call_id: string; reason?: string }) => void;
 
   /** p2p_call_end event'i geldiğinde */
   handleCallEnd: (data: { call_id: string; reason?: string }) => void;
@@ -523,9 +525,18 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
   handleCallDecline: (data) => {
     const { activeCall, incomingCall } = get();
+    const t = i18n.t.bind(i18n);
+
+    // Server "offline" reason ile decline gönderirse → toast göster
+    if (data.reason === "offline") {
+      useToastStore.getState().addToast("warning", t("common:userOffline"));
+      get().cleanup();
+      return;
+    }
 
     // Aktif arama reddedildi
     if (activeCall && activeCall.id === data.call_id) {
+      useToastStore.getState().addToast("info", t("common:callDeclined"));
       get().cleanup();
       return;
     }
@@ -541,7 +552,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   handleCallBusy: () => {
-    // Karşı taraf meşgul — arama state'ini temizle
+    const t = i18n.t.bind(i18n);
+    useToastStore.getState().addToast("warning", t("common:userBusy"));
     get().cleanup();
   },
 

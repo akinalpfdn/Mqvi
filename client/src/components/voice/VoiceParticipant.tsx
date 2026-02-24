@@ -56,8 +56,11 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     (s) => s.user_id === participant.identity
   );
 
-  const displayName = participant.name || participant.identity;
+  // Görünen isim: voiceState'teki display_name > LiveKit participant.name > username > identity
+  const displayName =
+    voiceState?.display_name || voiceState?.username || participant.name || participant.identity;
   const firstLetter = displayName.charAt(0).toUpperCase();
+  const avatarUrl = voiceState?.avatar_url || "";
   const isMuted = voiceState?.is_muted ?? false;
   const isDeafened = voiceState?.is_deafened ?? false;
 
@@ -179,13 +182,24 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     </div>
   ) : null;
 
+  // Avatar içeriği — resim varsa img, yoksa ilk harf
+  const avatarContent = avatarUrl ? (
+    <img
+      src={avatarUrl}
+      alt={displayName}
+      style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }}
+    />
+  ) : (
+    firstLetter
+  );
+
   // ─── Kompakt mod: Screen share strip'inde küçük avatar + isim ───
   if (compact) {
     return (
       <>
         <div className="voice-participant-compact" onContextMenu={handleContextMenu}>
           <div className={avatarClass}>
-            {firstLetter}
+            {avatarContent}
             {overlay}
           </div>
           <span className="voice-participant-name">{displayName}</span>
@@ -200,7 +214,7 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     <>
       <div className="voice-participant" onContextMenu={handleContextMenu}>
         <div className={avatarClass}>
-          {firstLetter}
+          {avatarContent}
           {overlay}
         </div>
         <span className="voice-participant-name">{displayName}</span>

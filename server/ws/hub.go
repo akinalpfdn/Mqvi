@@ -37,7 +37,8 @@ type UserConnectionCallback func(userID string)
 // Hub bu callback'leri tetikler. main.go'da voiceService'e wire-up yapılır.
 
 // VoiceJoinCallback, kullanıcı ses kanalına katılmak istediğinde çağrılır.
-type VoiceJoinCallback func(userID, username, avatarURL, channelID string)
+// displayName: Kullanıcının tercih ettiği görünen isim (boş ise username kullanılır).
+type VoiceJoinCallback func(userID, username, displayName, avatarURL, channelID string)
 
 // VoiceLeaveCallback, kullanıcı ses kanalından ayrılmak istediğinde çağrılır.
 type VoiceLeaveCallback func(userID string)
@@ -72,6 +73,15 @@ type P2PCallEndCallback func(userID string)
 // P2PSignalCallback, WebRTC signaling verisi geldiğinde çağrılır.
 // Server bu veriyi doğrudan karşı tarafa relay eder.
 type P2PSignalCallback func(senderID string, data P2PSignalData)
+
+// cachedUserInfo, Hub'da cache'lenen kullanıcı bilgileri.
+// WS bağlantısı kurulduğunda DB'den çekilir, voice join gibi event'lerde
+// tekrar DB'ye gitmeden kullanılır.
+type cachedUserInfo struct {
+	Username    string
+	DisplayName string // Boş olabilir — kullanıcı display name ayarlamamış olabilir
+	AvatarURL   string // Boş olabilir — kullanıcının avatar'ı yoksa
+}
 
 // Hub, tüm WebSocket bağlantılarını yöneten merkezi yapıdır (Observer pattern).
 //
@@ -109,8 +119,10 @@ type Hub struct {
 	// Normal int64 kullanılsaydı race condition oluşurdu.
 	seq atomic.Int64
 
-	// usernames: userID → username cache (typing broadcast için).
-	usernames map[string]string
+	// userInfos: userID → cachedUserInfo cache (typing, voice broadcast için).
+	// WS bağlantısı kurulduğunda user bilgileri burada cache'lenir —
+	// voice join gibi event'lerde DB'ye gitmeden username/displayName/avatarURL alınabilir.
+	userInfos map[string]cachedUserInfo
 	userMu    sync.RWMutex
 
 	// Presence callback'leri — main.go'da set edilir.
@@ -146,10 +158,10 @@ type Hub struct {
 // NewHub, yeni bir Hub oluşturur.
 func NewHub() *Hub {
 	return &Hub{
-		clients:    make(map[string]map[*Client]bool),
-		register:   make(chan *Client),
+		clients:   make(map[string]map[*Client]bool),
+		register:  make(chan *Client),
 		unregister: make(chan *Client),
-		usernames:  make(map[string]string),
+		userInfos: make(map[string]cachedUserInfo),
 	}
 }
 
@@ -321,18 +333,30 @@ func (h *Hub) GetOnlineUserIDs() []string {
 	return ids
 }
 
-// SetUserUsername, kullanıcı bağlandığında username cache'ini günceller.
-func (h *Hub) SetUserUsername(userID, username string) {
+// SetUserInfo, kullanıcı WS bağlantısı kurduğunda user bilgilerini cache'ler.
+// displayName ve avatarURL boş olabilir — nullable alanlar.
+func (h *Hub) SetUserInfo(userID, username, displayName, avatarURL string) {
 	h.userMu.Lock()
 	defer h.userMu.Unlock()
-	h.usernames[userID] = username
+	h.userInfos[userID] = cachedUserInfo{
+		Username:    username,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+	}
 }
 
 // getUserUsername, userID'den username döner (typing broadcast için).
 func (h *Hub) getUserUsername(userID string) string {
 	h.userMu.RLock()
 	defer h.userMu.RUnlock()
-	return h.usernames[userID]
+	return h.userInfos[userID].Username
+}
+
+// getUserInfo, userID'den cachedUserInfo döner (voice join broadcast için).
+func (h *Hub) getUserInfo(userID string) cachedUserInfo {
+	h.userMu.RLock()
+	defer h.userMu.RUnlock()
+	return h.userInfos[userID]
 }
 
 // OnUserFirstConnect, kullanıcının ilk bağlantısında çağrılacak callback'i ayarlar.
