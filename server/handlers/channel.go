@@ -21,9 +21,16 @@ func NewChannelHandler(channelService services.ChannelService) *ChannelHandler {
 
 // List godoc
 // GET /api/channels
-// Tüm kanalları kategorilere göre gruplar ve döner.
+// Kullanıcının görebileceği kanalları kategorilere göre gruplar ve döner.
+// ViewChannel yetkisi olmayan kanallar filtrelenir (sidebar'da gizli kalır).
 func (h *ChannelHandler) List(w http.ResponseWriter, r *http.Request) {
-	grouped, err := h.channelService.GetAllGrouped(r.Context())
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	grouped, err := h.channelService.GetAllGrouped(r.Context(), user.ID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -99,13 +106,19 @@ func (h *ChannelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // Transaction ile atomik — ya hepsi güncellenir ya hiçbiri.
 // Başarılıysa güncel CategoryWithChannels listesini döner ve WS broadcast eder.
 func (h *ChannelHandler) Reorder(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	var req models.ReorderChannelsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	grouped, err := h.channelService.ReorderChannels(r.Context(), &req)
+	grouped, err := h.channelService.ReorderChannels(r.Context(), &req, user.ID)
 	if err != nil {
 		pkg.Error(w, err)
 		return

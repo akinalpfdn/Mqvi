@@ -31,11 +31,12 @@ const (
 	PermAdmin                                  // 512
 	PermManageInvites                          // 1024 — davet kodu yönetimi
 	PermReadMessages                           // 2048 — kanal mesajlarını okuma (kanal bazlı override için)
+	PermViewChannel                            // 4096 — kanal görünürlüğü (sidebar'da görünme, hem text hem voice)
 )
 
-// PermAll, tüm yetkilerin toplamıdır (4095).
+// PermAll, tüm yetkilerin toplamıdır (8191).
 // Yeni permission eklendikçe bu değer güncellenir: (1 << N) - 1
-const PermAll Permission = (1 << 12) - 1
+const PermAll Permission = (1 << 13) - 1
 
 // Has, belirli bir yetkinin var olup olmadığını kontrol eder.
 func (p Permission) Has(perm Permission) bool {

@@ -52,26 +52,40 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   isLoading: false,
 
   /**
-   * fetchChannels — Backend'den tüm kanalları kategorilere göre gruplu çeker.
-   * Uygulama başladığında ve sidebar mount edildiğinde çağrılır.
+   * fetchChannels — Backend'den kullanıcının görebileceği kanalları çeker.
+   *
+   * Backend ViewChannel yetkisine göre filtreler — yetki olmayan kanallar dönmez.
+   * Çağrıldığında seçili kanalın hala görünür olup olmadığını kontrol eder:
+   * - Seçili kanal artık görünür değilse → ilk görünür text kanala geçiş yapar
+   * - Bu sayede ViewChannel deny edildiğinde kullanıcı otomatik yönlendirilir
    */
   fetchChannels: async () => {
     set({ isLoading: true });
 
     const res = await channelApi.getChannels();
     if (res.success && res.data) {
-      set({ categories: res.data, isLoading: false });
-
-      // İlk yüklemede: seçili kanal yoksa ilk text kanalını otomatik seç
       const state = get();
-      if (!state.selectedChannelId) {
-        const firstTextChannel = res.data
-          .flatMap((cg) => cg.channels)
-          .find((ch) => ch.type === "text");
-        if (firstTextChannel) {
-          set({ selectedChannelId: firstTextChannel.id });
+      let selectedChannelId = state.selectedChannelId;
+
+      // Seçili kanal hala görünür listede mi?
+      const allVisible = res.data.flatMap((cg) => cg.channels);
+
+      if (selectedChannelId) {
+        const stillVisible = allVisible.some((ch) => ch.id === selectedChannelId);
+        if (!stillVisible) {
+          // Seçili kanal artık görünür değil → ilk görünür text kanala geç
+          const firstText = allVisible.find((ch) => ch.type === "text");
+          selectedChannelId = firstText?.id ?? null;
+        }
+      } else {
+        // İlk yüklemede: seçili kanal yoksa ilk text kanalını otomatik seç
+        const firstText = allVisible.find((ch) => ch.type === "text");
+        if (firstText) {
+          selectedChannelId = firstText.id;
         }
       }
+
+      set({ categories: res.data, isLoading: false, selectedChannelId });
     } else {
       set({ isLoading: false });
     }

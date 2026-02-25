@@ -34,6 +34,8 @@
   "permSendMessagesDesc": "Metin kanallarında mesaj gönderme",
   "permReadMessages": "Mesajları Oku",
   "permReadMessagesDesc": "Metin kanallarındaki mesajları görüntüleme",
+  "permViewChannel": "Kanalı Gör",
+  "permViewChannelDesc": "Üyelerin bu kanalı kenar çubuğunda görmesine izin verir",
   "permConnect": "Bağlan",
   "permConnectDesc": "Ses kanallarına katılma",
   "permSpeak": "Konuş",

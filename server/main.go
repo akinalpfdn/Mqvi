@@ -271,7 +271,7 @@ func main() {
 		cfg.JWT.RefreshTokenExpiry,
 	)
 
-	channelService := services.NewChannelService(channelRepo, categoryRepo, hub)
+	channelService := services.NewChannelService(channelRepo, categoryRepo, hub, channelPermService)
 	categoryService := services.NewCategoryService(categoryRepo, hub)
 	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, mentionRepo, reactionRepo, hub, channelPermService)
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
@@ -563,7 +563,8 @@ func main() {
 		"http://localhost:3030",    // Vite dev server
 		"http://localhost:1420",    // Tauri dev
 		"tauri://localhost",        // Tauri production (macOS/Linux)
-		"https://tauri.localhost",  // Tauri production (Windows)
+		"https://tauri.localhost",  // Tauri production (Windows, release)
+		"http://tauri.localhost",   // Tauri production (Windows, debug)
 	}
 	if extra := os.Getenv("CORS_ORIGINS"); extra != "" {
 		for _, origin := range strings.Split(extra, ",") {
@@ -573,12 +574,12 @@ func main() {
 			}
 		}
 	}
+	log.Printf("[cors] allowed origins: %v", corsOrigins)
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
-		Debug:            false,
 	})
 
 	// ─── 13. Final Handler ───

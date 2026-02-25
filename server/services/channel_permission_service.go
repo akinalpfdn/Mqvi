@@ -56,6 +56,11 @@ type ChannelPermissionService interface {
 	// 5. Allow ve Deny bit'lerini OR'la
 	// 6. effective = (base & ~deny) | allow
 	ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error)
+
+	// BuildVisibilityFilter, kullanıcı bazlı kanal görünürlük filtresi oluşturur.
+	// ChannelService tarafından GetAllGrouped'da ViewChannel yetkisi kontrolü için kullanılır.
+	// ChannelVisibilityChecker ISP'yi de karşılar (Go duck typing).
+	BuildVisibilityFilter(ctx context.Context, userID string) (*ChannelVisibilityFilter, error)
 }
 
 type channelPermService struct {
@@ -151,6 +156,95 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, channelID, role
 	})
 
 	return nil
+}
+
+// BuildVisibilityFilter, kullanıcı bazlı kanal görünürlük filtresi oluşturur.
+//
+// Tüm kanallardaki ViewChannel override'larını tek sorguda çeker (GetByRoles)
+// ve her kanal için effective ViewChannel yetkisini hesaplar.
+//
+// Sonuç:
+// - IsAdmin=true → Admin tüm kanalları görür
+// - HasBaseView=true → Base permission'da ViewChannel var, override yoksa görünür
+// - HiddenChannels → Override ile ViewChannel kaldırılan kanallar
+// - GrantedChannels → Override ile ViewChannel eklenen kanallar (base'de yoksa)
+func (s *channelPermService) BuildVisibilityFilter(ctx context.Context, userID string) (*ChannelVisibilityFilter, error) {
+	// 1. Kullanıcının tüm rollerini al
+	roles, err := s.roleRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user roles for visibility filter: %w", err)
+	}
+
+	// 2. Base permission = tüm rollerin OR'u
+	var base models.Permission
+	roleIDs := make([]string, len(roles))
+	for i, r := range roles {
+		base |= r.Permissions
+		roleIDs[i] = r.ID
+	}
+
+	// 3. Admin → her şeyi görür, filtreleme gereksiz
+	if base.Has(models.PermAdmin) {
+		return &ChannelVisibilityFilter{IsAdmin: true}, nil
+	}
+
+	hasBaseView := base.Has(models.PermViewChannel)
+
+	// 4. Tüm override'ları tek sorguda çek
+	overrides, err := s.permRepo.GetByRoles(ctx, roleIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get role overrides for visibility filter: %w", err)
+	}
+
+	// Override yoksa sadece base'e göre karar ver
+	if len(overrides) == 0 {
+		return &ChannelVisibilityFilter{
+			HasBaseView:     hasBaseView,
+			HiddenChannels:  make(map[string]bool),
+			GrantedChannels: make(map[string]bool),
+		}, nil
+	}
+
+	// 5. Override'ları channel_id bazında grupla
+	// Her kanal için kullanıcının TÜM rollerinin allow/deny OR'u hesaplanır.
+	type channelOverride struct {
+		allow models.Permission
+		deny  models.Permission
+	}
+	byChannel := make(map[string]*channelOverride)
+	for _, o := range overrides {
+		co, ok := byChannel[o.ChannelID]
+		if !ok {
+			co = &channelOverride{}
+			byChannel[o.ChannelID] = co
+		}
+		co.allow |= o.Allow
+		co.deny |= o.Deny
+	}
+
+	// 6. Her kanal için effective ViewChannel hesapla
+	hidden := make(map[string]bool)
+	granted := make(map[string]bool)
+
+	for channelID, co := range byChannel {
+		// Discord formülü: effective = (base & ~deny) | allow
+		effective := (base & ^co.deny) | co.allow
+		hasView := effective.Has(models.PermViewChannel)
+
+		if hasBaseView && !hasView {
+			// Base'de var ama override kaldırmış → gizle
+			hidden[channelID] = true
+		} else if !hasBaseView && hasView {
+			// Base'de yok ama override eklemiş → göster
+			granted[channelID] = true
+		}
+	}
+
+	return &ChannelVisibilityFilter{
+		HasBaseView:     hasBaseView,
+		HiddenChannels:  hidden,
+		GrantedChannels: granted,
+	}, nil
 }
 
 func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error) {

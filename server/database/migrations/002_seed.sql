@@ -6,15 +6,15 @@
 INSERT OR IGNORE INTO server (id, name) VALUES ('default', 'mqvi Server');
 
 -- Varsayılan roller:
--- Owner: tüm yetkiler (512 = ADMIN bit), position en yüksek
--- Admin: tüm yetkiler (512), position 3
--- Moderator: mesaj/kanal yönetimi (1+4+16+32+64+128+256 = 501), position 2
--- Member: temel yetkiler (32+64+128 = 224), position 1
+-- Owner: tüm yetkiler (512=ADMIN + ViewChannel=4096), position en yüksek
+-- Admin: tüm yetkiler, position 3
+-- Moderator: mesaj/kanal yönetimi + ViewChannel (1+4+16+32+64+128+256+4096 = 4597), position 2
+-- Member: temel yetkiler + ViewChannel (32+64+128+4096 = 4320), position 1
 INSERT OR IGNORE INTO roles (id, name, color, position, permissions, is_default) VALUES
-    ('owner',     'Owner',     '#E74C3C', 4, 1023, 0),
-    ('admin',     'Admin',     '#E91E63', 3, 1023, 0),
-    ('moderator', 'Moderator', '#2ECC71', 2, 501,  0),
-    ('member',    'Member',    '#99AAB5', 1, 224,  1);
+    ('owner',     'Owner',     '#E74C3C', 4, 5119, 0),
+    ('admin',     'Admin',     '#E91E63', 3, 5119, 0),
+    ('moderator', 'Moderator', '#2ECC71', 2, 4597, 0),
+    ('member',    'Member',    '#99AAB5', 1, 4320, 1);
 
 -- Varsayılan kategoriler
 INSERT OR IGNORE INTO categories (id, name, position) VALUES

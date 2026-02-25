@@ -115,23 +115,48 @@ export async function apiClient<T>(
       body instanceof FormData ? body : JSON.stringify(body);
   }
 
-  let res = await fetch(`${API_BASE_URL}${endpoint}`, fetchOptions);
+  let res: Response;
+
+  try {
+    res = await fetch(`${API_BASE_URL}${endpoint}`, fetchOptions);
+  } catch (err) {
+    // Network hatası, DNS çözülemedi, TLS hatası, CORS reject vb.
+    const message =
+      err instanceof Error ? err.message : "Network request failed";
+    console.error(`[apiClient] ${method} ${endpoint}:`, message);
+    return { success: false, error: message } as APIResponse<T>;
+  }
 
   // 401 Unauthorized → refresh token ile yenilemeyi dene
   if (res.status === 401 && getRefreshToken()) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      // Yeni token ile tekrar dene
       headers["Authorization"] = `Bearer ${getAccessToken()}`;
-      res = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...fetchOptions,
-        headers,
-      });
+      try {
+        res = await fetch(`${API_BASE_URL}${endpoint}`, {
+          ...fetchOptions,
+          headers,
+        });
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Network request failed";
+        console.error(`[apiClient] ${method} ${endpoint} (retry):`, message);
+        return { success: false, error: message } as APIResponse<T>;
+      }
     }
   }
 
-  const data: APIResponse<T> = await res.json();
-  return data;
+  // JSON parse hatası koruması (sunucu beklenmeyen yanıt dönerse)
+  try {
+    const data: APIResponse<T> = await res.json();
+    return data;
+  } catch {
+    console.error(`[apiClient] ${method} ${endpoint}: invalid JSON (HTTP ${res.status})`);
+    return {
+      success: false,
+      error: `HTTP ${res.status}: ${res.statusText}`,
+    } as APIResponse<T>;
+  }
 }
 
 export { setTokens, clearTokens, getAccessToken };

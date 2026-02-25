@@ -34,6 +34,8 @@
   "permSendMessagesDesc": "Send messages in text channels",
   "permReadMessages": "Read Messages",
   "permReadMessagesDesc": "View messages in text channels",
+  "permViewChannel": "View Channel",
+  "permViewChannelDesc": "Allows members to see this channel in the sidebar",
   "permConnect": "Connect",
   "permConnectDesc": "Join voice channels",
   "permSpeak": "Speak",

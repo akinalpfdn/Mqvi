@@ -52,7 +52,6 @@ import type {
   WSMessage,
   Channel,
   Category,
-  CategoryWithChannels,
   Message,
   MemberWithRoles,
   Role,
@@ -154,8 +153,11 @@ export function useWebSocket() {
         break;
 
       // ─── Channel Events ───
+      // channel_create ve channel_reorder artık data taşımıyor (nil/null).
+      // Gizli kanal sızıntısını önlemek için her client kendi visibility'sine
+      // göre backend'den fetch eder (kullanıcı bazlı ViewChannel filtreleme).
       case "channel_create":
-        useChannelStore.getState().handleChannelCreate(msg.d as Channel);
+        useChannelStore.getState().fetchChannels();
         break;
       case "channel_update":
         useChannelStore.getState().handleChannelUpdate(msg.d as Channel);
@@ -164,7 +166,7 @@ export function useWebSocket() {
         useChannelStore.getState().handleChannelDelete((msg.d as { id: string }).id);
         break;
       case "channel_reorder":
-        useChannelStore.getState().handleChannelReorder(msg.d as CategoryWithChannels[]);
+        useChannelStore.getState().fetchChannels();
         break;
 
       // ─── Category Events ───
@@ -270,12 +272,16 @@ export function useWebSocket() {
         const role = msg.d as Role;
         useMemberStore.getState().handleRoleUpdate(role);
         useRoleStore.getState().handleRoleUpdate(role);
+        // Rol yetkileri değiştiğinde kanal görünürlüğü değişebilir (ViewChannel)
+        useChannelStore.getState().fetchChannels();
         break;
       }
       case "role_delete": {
         const roleId = (msg.d as { id: string }).id;
         useMemberStore.getState().handleRoleDelete(roleId);
         useRoleStore.getState().handleRoleDelete(roleId);
+        // Silinen rol ViewChannel yetkisi taşıyor olabilir
+        useChannelStore.getState().fetchChannels();
         break;
       }
       case "roles_reorder": {
@@ -360,16 +366,19 @@ export function useWebSocket() {
         break;
 
       // ─── Channel Permission Events ───
+      // Override değişikliğinde kanal görünürlüğü de değişebilir (ViewChannel deny/allow)
       case "channel_permission_update":
         useChannelPermissionStore
           .getState()
           .handleOverrideUpdate(msg.d as ChannelPermissionOverride);
+        useChannelStore.getState().fetchChannels();
         break;
       case "channel_permission_delete": {
         const cpDel = msg.d as { channel_id: string; role_id: string };
         useChannelPermissionStore
           .getState()
           .handleOverrideDelete(cpDel.channel_id, cpDel.role_id);
+        useChannelStore.getState().fetchChannels();
         break;
       }
 

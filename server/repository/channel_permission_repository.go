@@ -19,6 +19,11 @@ type ChannelPermissionRepository interface {
 	// Permission resolution'da kullanılır — "bu kullanıcının rolleri için bu kanalda override var mı?"
 	GetByChannelAndRoles(ctx context.Context, channelID string, roleIDs []string) ([]models.ChannelPermissionOverride, error)
 
+	// GetByRoles, verilen rollere ait TÜM kanal override'larını döner (tüm kanallar).
+	// Kanal listesi filtreleme sırasında toplu permission resolution için kullanılır.
+	// Tek sorguda tüm override'ları çekerek N+1 query sorununu önler.
+	GetByRoles(ctx context.Context, roleIDs []string) ([]models.ChannelPermissionOverride, error)
+
 	// Set, bir (channel_id, role_id) çifti için override oluşturur veya günceller (UPSERT).
 	Set(ctx context.Context, override *models.ChannelPermissionOverride) error
 

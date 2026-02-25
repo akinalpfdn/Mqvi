@@ -5,6 +5,7 @@
  * - Üstte: Rol seçim dropdown'ı (settings-input select)
  * - Altta: Seçili rol için tri-state permission toggle'ları
  *
+ * Ortak: ViewChannel (hem text hem voice — sidebar görünürlüğü)
  * Text kanalları: SendMessages, ReadMessages, ManageMessages
  * Voice kanalları: ConnectVoice, Speak, Stream
  *
@@ -19,6 +20,11 @@ import { useToastStore } from "../../stores/toastStore";
 import { Permissions } from "../../utils/permissions";
 import PermissionTriToggle, { type TriState } from "./PermissionTriToggle";
 import type { Channel, ChannelPermissionOverride } from "../../types";
+
+/** Ortak permission'lar — hem text hem voice kanallar için (sidebar görünürlüğü) */
+const COMMON_PERM_DEFS = [
+  { bit: Permissions.ViewChannel, label: "permViewChannel", desc: "permViewChannelDesc" },
+] as const;
 
 /** Text kanallarında override edilebilecek permission'lar */
 const TEXT_PERM_DEFS = [
@@ -60,7 +66,9 @@ function ChannelPermissionEditor({ channel }: Props) {
   }, [selectedRoleId, roles]);
 
   const overrides = getOverrides(channel.id);
-  const permDefs = channel.type === "voice" ? VOICE_PERM_DEFS : TEXT_PERM_DEFS;
+  const permDefs = channel.type === "voice"
+    ? [...COMMON_PERM_DEFS, ...VOICE_PERM_DEFS]
+    : [...COMMON_PERM_DEFS, ...TEXT_PERM_DEFS];
 
   // Seçili rol için override
   const currentOverride: ChannelPermissionOverride | undefined = overrides.find(
