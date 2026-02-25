@@ -1,5 +1,5 @@
 /**
- * sounds.ts — Kanal giriş/çıkış ses efektleri.
+ * sounds.ts — Kanal giriş/çıkış ve yayın izleme ses efektleri.
  *
  * Web Audio API ile runtime'da sentezlenen kısa sesler kullanılır.
  * Fiziksel ses dosyası (mp3) yerine bu yaklaşım:
@@ -7,8 +7,16 @@
  * - Bundle boyutunu artırmaz
  * - Her zaman çalışır (dosya 404 riski yok)
  *
- * Join sesi: Yükselen ton (200Hz → 500Hz, 0.15s) — pozitif, "bloop" hissi
- * Leave sesi: Düşen ton (400Hz → 200Hz, 0.12s) — negatif, "pop-down" hissi
+ * İki farklı ses ailesi — birbirinden ayırt edilebilir olması için
+ * farklı dalga tipi ve frekans aralığı kullanır:
+ *
+ * Voice (sine wave, 200-600Hz — yumuşak, organik):
+ *   Join:  Yükselen ton 350Hz → 600Hz, 0.15s — pozitif "bloop"
+ *   Leave: Düşen ton 400Hz → 200Hz, 0.12s — "pop-down"
+ *
+ * Watch (triangle wave, 320-620Hz — kalın, hafif dijital):
+ *   Start: Çift yükselen pop 380→500Hz + 500→620Hz, triangle — "bip-bip"
+ *   Stop:  Düşen ton 480→320Hz, triangle — "pop-down" (leave'den farklı tını)
  *
  * Volume: voiceStore.masterVolume ayarına bağlıdır.
  * Tüm sesler GainNode ile volume kontrol edilir.
@@ -43,12 +51,14 @@ function getAudioContext(): AudioContext {
  * @param endFreq — Bitiş frekansı (Hz) — frekans ramp'i ile geçiş
  * @param duration — Süre (saniye)
  * @param volume — Volume (0-1)
+ * @param waveType — Dalga tipi (varsayılan "sine"). "triangle" daha dijital tını verir.
  */
 function playTone(
   startFreq: number,
   endFreq: number,
   duration: number,
-  volume: number
+  volume: number,
+  waveType: OscillatorType = "sine"
 ): void {
   try {
     const ctx = getAudioContext();
@@ -60,9 +70,11 @@ function playTone(
 
     const now = ctx.currentTime;
 
-    // Oscillator: sinüs dalgası — en temiz, tıkırtısız ses
+    // Oscillator: waveType ile dalga tipi seçilir
+    // sine → yumuşak, organik (voice join/leave)
+    // triangle → hafif keskin, dijital (watch start/stop)
     const osc = ctx.createOscillator();
-    osc.type = "sine";
+    osc.type = waveType;
     osc.frequency.setValueAtTime(startFreq, now);
     osc.frequency.linearRampToValueAtTime(endFreq, now + duration);
 
@@ -108,4 +120,38 @@ export function playLeaveSound(): void {
 
   const volume = masterVolume / 100;
   playTone(400, 200, 0.12, volume);
+}
+
+/**
+ * playWatchStartSound — Yayın izlemeye başlama sesi.
+ *
+ * Çift yükselen triangle pop: 380→500Hz ardından 500→620Hz.
+ * Join sesinden (sine 350→600Hz tek pop) farklı:
+ * - Triangle wave → daha dijital tını (sine'ın yumuşaklığı yok)
+ * - Çift pop pattern → tek pop olan join'den ritm olarak farklı
+ */
+export function playWatchStartSound(): void {
+  const { soundsEnabled, masterVolume } = useVoiceStore.getState();
+  if (!soundsEnabled) return;
+
+  const volume = masterVolume / 100;
+  playTone(380, 500, 0.08, volume, "triangle");
+  // İkinci pop biraz gecikmeyle — çift "bip-bip" hissi
+  setTimeout(() => playTone(500, 620, 0.08, volume, "triangle"), 90);
+}
+
+/**
+ * playWatchStopSound — Yayın izlemeyi bırakma sesi.
+ *
+ * Triangle düşen ton: 480Hz → 320Hz, 0.1s.
+ * Leave sesinden (sine 400→200Hz) farklı:
+ * - Triangle wave → farklı tını
+ * - Leave'in derin "pop-down"u yerine daha hafif bir "tık-down"
+ */
+export function playWatchStopSound(): void {
+  const { soundsEnabled, masterVolume } = useVoiceStore.getState();
+  if (!soundsEnabled) return;
+
+  const volume = masterVolume / 100;
+  playTone(480, 320, 0.1, volume, "triangle");
 }

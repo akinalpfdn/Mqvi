@@ -24,6 +24,7 @@ import { VideoTrack } from "@livekit/components-react";
 import type { TrackReferenceOrPlaceholder, TrackReference } from "@livekit/components-react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
+import { useVoiceStore } from "../../stores/voiceStore";
 import ScreenShareContextMenu from "./ScreenShareContextMenu";
 
 type ScreenSharePanelProps = {
@@ -38,6 +39,12 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
 
   // Fullscreen durumu — buton ikonunu belirler
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // ─── Focus (çift tıklama) ───
+  const focusScreenShare = useVoiceStore((s) => s.focusScreenShare);
+  const watchingCount = useVoiceStore(
+    (s) => Object.keys(s.watchingScreenShares).length
+  );
 
   // ─── Context Menu State ───
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -73,6 +80,14 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
 
   const displayName = trackRef.participant.name || trackRef.participant.identity;
 
+  // Çift tıklama handler — birden fazla yayın izleniyorken tek birine odaklan.
+  // Tek yayın izleniyorsa çift tıklama işlevsiz (zaten tek o var).
+  const handleDoubleClick = useCallback(() => {
+    if (watchingCount > 1) {
+      focusScreenShare(trackRef.participant.identity);
+    }
+  }, [watchingCount, focusScreenShare, trackRef.participant.identity]);
+
   // Sağ tık handler — kendi screen share'imize context menu gösterme
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -84,7 +99,7 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
   );
 
   return (
-    <div ref={containerRef} className="screen-share-panel" onContextMenu={handleContextMenu}>
+    <div ref={containerRef} className="screen-share-panel" onContextMenu={handleContextMenu} onDoubleClick={handleDoubleClick}>
       {/* Screen share video — aspect ratio korunarak container'ı doldurur */}
       {/* TrackReferenceOrPlaceholder → TrackReference narrowing: publication varsa gerçek track */}
       {trackRef.publication && (

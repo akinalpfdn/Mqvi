@@ -21,6 +21,7 @@
 import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
+import { playWatchStartSound, playWatchStopSound } from "../utils/sounds";
 
 // ─── localStorage Persistence ───
 
@@ -318,6 +319,15 @@ type VoiceStore = {
    * Local kullanıcı için ScreenShareView'de göster/gizle.
    */
   toggleWatchScreenShare: (userId: string) => void;
+
+  /**
+   * focusScreenShare — Birden fazla yayın izlenirken tek birine odaklan.
+   *
+   * Çift tıklama ile tetiklenir: Sadece belirtilen userId'nin yayını kalır,
+   * diğer tüm izlenen yayınlar kapatılır. Zaten tek bu yayın izleniyorsa
+   * hiçbir şey yapmaz (gereksiz state güncellemesi önlenir).
+   */
+  focusScreenShare: (userId: string) => void;
 
   /**
    *
@@ -684,10 +694,24 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       const next = { ...watchingScreenShares };
       delete next[userId];
       set({ watchingScreenShares: next });
+      playWatchStopSound();
     } else {
       // İzlemeye başla
       set({ watchingScreenShares: { ...watchingScreenShares, [userId]: true } });
+      playWatchStartSound();
     }
+  },
+
+  focusScreenShare: (userId: string) => {
+    const { watchingScreenShares } = get();
+    const watchingIds = Object.keys(watchingScreenShares);
+
+    // Zaten sadece bu yayın izleniyorsa → no-op
+    if (watchingIds.length === 1 && watchingScreenShares[userId]) return;
+
+    // Sadece bu userId'yi tut, diğerlerini kapat
+    set({ watchingScreenShares: { [userId]: true } });
+    playWatchStopSound();
   },
 
   toggleLocalMute: (userId: string) => {
