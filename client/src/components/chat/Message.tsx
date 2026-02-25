@@ -55,18 +55,17 @@ function getRoleType(member: MemberWithRoles | undefined): "admin" | "mod" | nul
 }
 
 /**
- * getNameClass — Role'a göre CSS class döner.
- * admin → "name-admin", mod → "name-mod", diğer → "name-default"
+ * getHighestRoleColor — Üyenin en yüksek pozisyonlu rolünün rengini döner.
+ * Discord'taki gibi: kullanıcı adı, sahip olduğu en yüksek rolün rengine boyanır.
  */
-function getNameClass(roleType: "admin" | "mod" | null): string {
-  switch (roleType) {
-    case "admin":
-      return "name-admin";
-    case "mod":
-      return "name-mod";
-    default:
-      return "name-default";
-  }
+function getHighestRoleColor(member: MemberWithRoles | undefined): string | undefined {
+  if (!member || member.roles.length === 0) return undefined;
+
+  const highest = member.roles.reduce((h, r) =>
+    r.position > h.position ? r : h
+  );
+
+  return highest.color || undefined;
 }
 
 function Message({ message, isCompact }: MessageProps) {
@@ -92,6 +91,7 @@ function Message({ message, isCompact }: MessageProps) {
   const isOwner = currentUser?.id === message.user_id;
   const member = members.find((m) => m.id === message.user_id);
   const roleType = getRoleType(member);
+  const roleColor = getHighestRoleColor(member);
 
   // Mevcut kullanıcının yetkilerini hesapla (pin butonu gösterimi için)
   const currentMember = members.find((m) => m.id === currentUser?.id);
@@ -282,7 +282,10 @@ function Message({ message, isCompact }: MessageProps) {
         <div className="msg-body">
           {/* Username + timestamp — grouped mesajlarda CSS ile gizlenir (display:none) */}
           <div className="msg-meta">
-            <span className={`msg-name ${getNameClass(roleType)}`}>
+            <span
+              className="msg-name"
+              style={roleColor ? { color: roleColor } : undefined}
+            >
               {displayName}
             </span>
             <span

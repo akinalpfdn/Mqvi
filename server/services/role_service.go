@@ -72,12 +72,6 @@ func (s *roleService) Create(ctx context.Context, actorID string, req *models.Cr
 		return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
 	}
 
-	// Actor'un en yüksek position'ını al
-	actorMaxPos, err := s.getActorMaxPosition(ctx, actorID)
-	if err != nil {
-		return nil, err
-	}
-
 	// Permission escalation kontrolü — actor sahip olmadığı yetkiyi yeni role veremez
 	actorPerms, permErr := s.getActorEffectivePermissions(ctx, actorID)
 	if permErr != nil {
@@ -90,12 +84,31 @@ func (s *roleService) Create(ctx context.Context, actorID string, req *models.Cr
 		}
 	}
 
-	// Yeni rolün position'ı: actor'un altında, mevcut rollerin en yükseğinin bir altı
-	// Default olarak actor position - 1 kullanıyoruz (actor'un hemen altı)
-	newPosition := actorMaxPos - 1
-	if newPosition < 1 {
-		newPosition = 1
+	// Yeni rolün position'ı: member'ın hemen üstü (position 2).
+	// Mevcut position 2+ olan roller bir yukarı kayar.
+	// Böylece yeni rol her zaman en altta (member'ın üstünde) oluşur.
+	allRoles, err := s.roleRepo.GetAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all roles: %w", err)
 	}
+
+	// Member (default, position=1) hariç, Owner dahil tüm rollerin position'ını 1 artır.
+	// Owner da shift edilmeli — yoksa diğer roller yukarı kayınca Owner'ı geçer.
+	var shifts []models.PositionUpdate
+	for _, r := range allRoles {
+		if r.IsDefault {
+			continue
+		}
+		shifts = append(shifts, models.PositionUpdate{ID: r.ID, Position: r.Position + 1})
+	}
+	if len(shifts) > 0 {
+		if err := s.roleRepo.UpdatePositions(ctx, shifts); err != nil {
+			return nil, fmt.Errorf("failed to shift role positions: %w", err)
+		}
+	}
+
+	// Yeni rol member'ın hemen üstünde: position 2
+	newPosition := 2
 
 	role := &models.Role{
 		Name:        req.Name,
@@ -251,11 +264,16 @@ func (s *roleService) ReorderRoles(ctx context.Context, actorID string, items []
 		return nil, fmt.Errorf("%w: items cannot be empty", pkg.ErrBadRequest)
 	}
 
-	// Actor'un en yüksek position'ını al
-	actorMaxPos, err := s.getActorMaxPosition(ctx, actorID)
+	// Actor'un rollerini al
+	actorRoles, err := s.roleRepo.GetByUserID(ctx, actorID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get actor roles: %w", err)
 	}
+	actorMaxPos := models.HighestPosition(actorRoles)
+
+	// Owner tüm rolleri yönetebilir — hiyerarşi kontrolü atlanır.
+	// Sadece owner rolünün kendisi ve default rol sıralanamaz.
+	isOwner := models.HasOwnerRole(actorRoles)
 
 	// Her item için hiyerarşi ve default rol kontrolü
 	for _, item := range items {
@@ -274,14 +292,17 @@ func (s *roleService) ReorderRoles(ctx context.Context, actorID string, items []
 			return nil, fmt.Errorf("%w: cannot reorder the default role", pkg.ErrBadRequest)
 		}
 
-		// Mevcut position kontrolü: actor sadece kendinden düşük rolleri yönetebilir
-		if role.Position >= actorMaxPos {
-			return nil, fmt.Errorf("%w: cannot reorder a role with equal or higher position", pkg.ErrForbidden)
-		}
+		// Owner olmayan kullanıcılar için hiyerarşi kontrolü
+		if !isOwner {
+			// Mevcut position kontrolü: actor sadece kendinden düşük rolleri yönetebilir
+			if role.Position >= actorMaxPos {
+				return nil, fmt.Errorf("%w: cannot reorder a role with equal or higher position", pkg.ErrForbidden)
+			}
 
-		// Yeni position kontrolü: actor kendinden yükseğe taşıyamaz
-		if item.Position >= actorMaxPos {
-			return nil, fmt.Errorf("%w: cannot move a role to equal or higher position than your own", pkg.ErrForbidden)
+			// Yeni position kontrolü: actor kendinden yükseğe taşıyamaz
+			if item.Position >= actorMaxPos {
+				return nil, fmt.Errorf("%w: cannot move a role to equal or higher position than your own", pkg.ErrForbidden)
+			}
 		}
 	}
 

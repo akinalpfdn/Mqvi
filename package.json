@@ -14,9 +14,10 @@
     "electron-updater": "^6"
   },
   "devDependencies": {
+    "concurrently": "^9",
     "electron": "^33",
     "electron-builder": "^25",
-    "concurrently": "^9",
+    "rcedit": "^5.0.2",
     "typescript": "~5.9.3"
   },
   "build": {
@@ -31,7 +32,9 @@
       "icons"
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "icons/mqvi-icon.ico",
       "signAndEditExecutable": false
     },
@@ -41,7 +44,9 @@
       "displayLanguageSelector": true
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "icon": "icons/icon.icns"
     },
     "publish": {

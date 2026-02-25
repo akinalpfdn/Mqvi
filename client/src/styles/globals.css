@@ -318,11 +318,8 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .msg-avatar { flex-shrink:0; }
 .msg-body { min-width:0;flex:1; }
 .msg-meta { display:flex;align-items:baseline;gap:6px;margin-bottom:1px; }
-.msg-name { font-size:13px;font-weight:600;cursor:pointer; }
+.msg-name { font-size:13px;font-weight:600;cursor:pointer;color:var(--t0); }
 .msg-name:hover { opacity:.75; }
-.name-admin { color:var(--primary); }
-.name-mod { color:var(--green); }
-.name-default { color:var(--t0); }
 .msg-time { font-size:13px;color:var(--t3);font-family:var(--f-m); }
 .msg-text { font-size:13px;line-height:1.45;color:var(--t0);white-space:pre-wrap;word-break:break-word; }
 .msg-text code { font-family:var(--f-m);font-size:13px;background:var(--bg-0);padding:1px 5px;border-radius:3px;border:1px solid var(--b1);color:var(--teal); }

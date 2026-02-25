@@ -36,18 +36,38 @@ Write-Host "Compiling Electron TypeScript..." -ForegroundColor Cyan
 & "C:\Program Files\nodejs\npx.cmd" tsc -p electron/tsconfig.json
 if ($LASTEXITCODE -ne 0) { throw "Electron TS compilation failed" }
 
-# Package with electron-builder
-Write-Host "Packaging with electron-builder..." -ForegroundColor Cyan
-if ($Nsis) {
-    & "C:\Program Files\nodejs\npx.cmd" electron-builder --win nsis
-} else {
-    & "C:\Program Files\nodejs\npx.cmd" electron-builder --win --dir
+# Phase 1: Build unpacked directory
+# signAndEditExecutable: false is set in package.json because winCodeSign
+# extraction fails on non-admin Windows (macOS symlink error).
+# We build unpacked first, then embed icon manually with rcedit.
+Write-Host "Phase 1: Building unpacked app..." -ForegroundColor Cyan
+& "C:\Program Files\nodejs\npx.cmd" electron-builder --win --dir
+if ($LASTEXITCODE -ne 0) { throw "electron-builder (unpacked) failed" }
+
+# Phase 2: Embed custom icon into EXE using rcedit binary
+# The rcedit npm package ships with rcedit-x64.exe in its bin/ directory.
+# This runs BEFORE the NSIS step so the installer contains the patched exe.
+$rceditBin = "node_modules\rcedit\bin\rcedit-x64.exe"
+$exePath = "release\win-unpacked\mqvi.exe"
+$icoPath = "icons\mqvi-icon.ico"
+
+if ((Test-Path $exePath) -and (Test-Path $rceditBin)) {
+    Write-Host "Phase 2: Embedding icon into EXE..." -ForegroundColor Cyan
+    & $rceditBin $exePath --set-icon $icoPath
+    if ($LASTEXITCODE -ne 0) { throw "rcedit icon embedding failed" }
+    Write-Host "Icon embedded successfully" -ForegroundColor Green
 }
-if ($LASTEXITCODE -ne 0) { throw "electron-builder failed" }
+
+# Phase 3: Build NSIS installer from the patched unpacked directory
+if ($Nsis) {
+    Write-Host "Phase 3: Building NSIS installer from patched app..." -ForegroundColor Cyan
+    & "C:\Program Files\nodejs\npx.cmd" electron-builder --win nsis --prepackaged release/win-unpacked
+    if ($LASTEXITCODE -ne 0) { throw "electron-builder (NSIS) failed" }
+}
 
 # Generate app-update.yml for electron-updater
 # electron-builder creates this only for installer builds, but electron-updater
-# always looks for it on startup. Without it → ENOENT error.
+# always looks for it on startup. Without it: ENOENT error.
 $resourcesDir = "release\win-unpacked\resources"
 if (Test-Path $resourcesDir) {
     $updateYml = @"
@@ -58,29 +78,6 @@ updaterCacheDirName: mqvi-desktop-updater
 "@
     Set-Content -Path "$resourcesDir\app-update.yml" -Value $updateYml -Encoding UTF8
     Write-Host "Created app-update.yml" -ForegroundColor Green
-}
-
-# Embed custom icon into EXE using rcedit (post-build step)
-# signAndEditExecutable: false is set in package.json to avoid winCodeSign symlink error
-# on Windows. We use rcedit directly to patch the icon into the built EXE.
-$exePath = "release\win-unpacked\mqvi.exe"
-$icoPath = "icons\mqvi-icon.ico"
-$rceditCacheDir = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign"
-
-if (Test-Path $exePath) {
-    # Find rcedit in electron-builder cache
-    $rcedit = Get-ChildItem -Path $rceditCacheDir -Recurse -Filter "rcedit-x64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($rcedit -and (Test-Path $icoPath)) {
-        Write-Host "Embedding icon into EXE..." -ForegroundColor Cyan
-        & $rcedit.FullName $exePath --set-icon $icoPath
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "Icon embedded successfully" -ForegroundColor Green
-        } else {
-            Write-Host "Warning: Icon embedding failed (non-critical)" -ForegroundColor Yellow
-        }
-    } else {
-        Write-Host "Warning: rcedit not found in cache, skipping icon embedding" -ForegroundColor Yellow
-    }
 }
 
 Write-Host "Build complete! Output: release/" -ForegroundColor Green

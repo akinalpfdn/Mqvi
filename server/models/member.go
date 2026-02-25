@@ -11,6 +11,7 @@ package models
 
 import (
 	"fmt"
+	"math"
 	"time"
 	"unicode/utf8"
 )
@@ -114,7 +115,14 @@ func (r *RoleModifyRequest) Validate() error {
 // Daha yüksek position = daha güçlü rol.
 // Bu fonksiyon hiyerarşi kontrollerinde kullanılır:
 // "Bir kullanıcı sadece kendisinden düşük position'daki rolleri yönetebilir."
+//
+// Owner rolü varsa math.MaxInt32 döner — Owner'ın gücü hiçbir
+// position değerine bağlı değildir, her zaman en yüksektir.
+// Bu sayede kaç rol oluşturulursa oluşturulsun Owner her zaman üstte kalır.
 func HighestPosition(roles []Role) int {
+	if HasOwnerRole(roles) {
+		return math.MaxInt32
+	}
 	max := 0
 	for _, r := range roles {
 		if r.Position > max {

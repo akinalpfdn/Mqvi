@@ -365,6 +365,22 @@ function RoleSettings() {
               />
             </div>
 
+            {/* Aksiyon butonlari — yetkiler ile renk arasinda */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button
+                onClick={handleSave}
+                className="settings-btn"
+                disabled={!hasChanges || !canEditSelected}
+              >
+                {t("saveChanges")}
+              </button>
+              {!selectedRole.is_default && !isOwnerRole && canEditSelected && (
+                <button onClick={handleDelete} className="settings-btn settings-btn-danger">
+                  {t("deleteRole")}
+                </button>
+              )}
+            </div>
+
             {/* Default rol uyarisi */}
             {selectedRole.is_default && (
               <div style={{ background: "var(--bg-4)", borderRadius: 8, padding: 12, fontSize: 13, color: "var(--t2)", marginBottom: 16 }}>
@@ -376,7 +392,15 @@ function RoleSettings() {
             <div className="settings-field">
               <label className="settings-label">{t("permissions")}</label>
               <div style={{ background: "var(--bg-1)", borderRadius: 8, overflow: "hidden" }}>
-                {PERMISSION_DEFS.map((perm) => (
+                {PERMISSION_DEFS.map((perm) => {
+                  // Admin yetkisi verme: sadece Admin yetkisine sahip olanlar yapabilir.
+                  // ManageRoles yetkisi olan ama Admin olmayan biri, bir role Admin
+                  // atayıp kendine vererek privilege escalation yapabilir — bunu engelliyoruz.
+                  const isAdminPerm = perm.bit === Permissions.Admin;
+                  const actorHasAdmin = hasPermission(myPerms, Permissions.Admin);
+                  const permDisabled = !canEditSelected || (isAdminPerm && !actorHasAdmin);
+
+                  return (
                   <PermissionToggle
                     key={perm.bit}
                     permBit={perm.bit}
@@ -385,29 +409,12 @@ function RoleSettings() {
                     isChecked={(editPerms & perm.bit) !== 0}
                     onChange={handlePermToggle}
                     warningKey={"warning" in perm ? perm.warning : undefined}
-                    disabled={!canEditSelected}
+                    disabled={permDisabled}
                   />
-                ))}
+                  );
+                })}
               </div>
             </div>
-
-            {/* Aksiyon butonlari */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              {hasChanges && canEditSelected && (
-                <button onClick={handleSave} className="settings-btn">
-                  {t("saveChanges")}
-                </button>
-              )}
-              {!selectedRole.is_default && !isOwnerRole && canEditSelected && (
-                <button onClick={handleDelete} className="settings-btn settings-btn-danger">
-                  {t("deleteRole")}
-                </button>
-              )}
-            </div>
-
-            {hasChanges && canEditSelected && (
-              <p style={{ marginTop: 8, fontSize: 13, color: "var(--primary)" }}>{t("unsavedChanges")}</p>
-            )}
           </div>
         ) : (
           <div className="no-channel">
