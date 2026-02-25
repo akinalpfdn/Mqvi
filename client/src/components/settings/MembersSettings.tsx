@@ -280,7 +280,7 @@ function MembersSettings() {
                 <label className="settings-label">{t("memberAssignRoles")}</label>
                 <div className="member-settings-role-checkboxes">
                   {roles
-                    .filter((role) => role.id !== "owner" && role.position < actorMaxPos)
+                    .filter((role) => role.id !== "owner" && !role.is_default && role.position < actorMaxPos)
                     .map((role) => (
                     <label key={role.id} className="member-settings-role-checkbox">
                       <input

@@ -79,6 +79,11 @@ func (h *MemberHandler) ModifyRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := req.Validate(); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	member, err := h.memberService.ModifyRoles(r.Context(), actor.ID, targetID, req.RoleIDs)
 	if err != nil {
 		pkg.Error(w, err)

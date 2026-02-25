@@ -234,6 +234,10 @@ func (s *memberService) ModifyRoles(ctx context.Context, actorID string, targetI
 	// Çıkarılması gerekenler: current set'te var ama target set'te yok
 	for _, r := range targetRoles {
 		if !targetSet[r.ID] {
+			// Default rol (member) kaldırılamaz — her kullanıcıda bulunmalı
+			if r.IsDefault {
+				continue
+			}
 			// Sadece actor'dan düşük position'daki roller çıkarılabilir
 			if r.Position >= actorMaxPos {
 				continue // Üstündeki rolü çıkaramazsın, atla
