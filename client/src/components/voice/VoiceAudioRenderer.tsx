@@ -34,6 +34,11 @@
  * 2. Her track attach'inde resume()
  * 3. Fallback: click/keydown listener ile resume
  * 4. statechange event: "running" olunca tüm pipeline'lar GainNode'a geçer
+ *
+ * Source-spesifik volume:
+ * - Mic audio (Track.Source.Microphone) → userVolumes[identity]
+ * - Screen share audio (Track.Source.ScreenShareAudio) → screenShareVolumes[identity]
+ * - trackSource field: pipeline'ın hangi audio kaynağından geldiğini belirler
  */
 
 import { useEffect, useRef } from "react";
@@ -54,6 +59,7 @@ import { useVoiceStore } from "../../stores/voiceStore";
  * source: MediaStreamAudioSourceNode — track → AudioContext köprüsü (Katman 2)
  * gain: GainNode — volume kontrolü, null ise GainNode kurulumu başarısız olmuş
  * participantIdentity: voiceStore.userVolumes key'i (user ID)
+ * trackSource: LiveKit Track.Source değeri — mic vs screen share audio ayırımı
  * gainActive: true ise GainNode ses veriyor + element muted
  *             false ise element ses veriyor + GainNode pasif
  */
@@ -63,8 +69,26 @@ type AudioPipeline = {
   source: MediaStreamAudioSourceNode | null;
   gain: GainNode | null;
   participantIdentity: string;
+  trackSource: string;
   gainActive: boolean;
 };
+
+/**
+ * resolveVolume — Pipeline'ın track source'una göre doğru volume değerini döner.
+ *
+ * Screen share audio → screenShareVolumes[identity] (default 100)
+ * Diğer audio (mic vb.) → userVolumes[identity] (default 100)
+ */
+function resolveVolume(
+  pipeline: AudioPipeline,
+  userVolumes: Record<string, number>,
+  screenShareVolumes: Record<string, number>
+): number {
+  if (pipeline.trackSource === Track.Source.ScreenShareAudio) {
+    return screenShareVolumes[pipeline.participantIdentity] ?? 100;
+  }
+  return userVolumes[pipeline.participantIdentity] ?? 100;
+}
 
 function VoiceAudioRenderer() {
   const room = useRoomContext();
@@ -77,6 +101,7 @@ function VoiceAudioRenderer() {
 
   // ─── Volume state ───
   const userVolumes = useVoiceStore((s) => s.userVolumes);
+  const screenShareVolumes = useVoiceStore((s) => s.screenShareVolumes);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
   const isDeafened = useVoiceStore((s) => s.isDeafened);
   const outputDevice = useVoiceStore((s) => s.outputDevice);
@@ -114,18 +139,20 @@ function VoiceAudioRenderer() {
      */
     function handleStateChange() {
       if (ctx.state === "running") {
+        const {
+          userVolumes: vols,
+          screenShareVolumes: ssVols,
+          masterVolume: master,
+          isDeafened: deaf,
+        } = useVoiceStore.getState();
+
         pipelinesRef.current.forEach((pipeline) => {
           if (!pipeline.gainActive && pipeline.gain) {
             pipeline.audioEl.muted = true;
             pipeline.gainActive = true;
 
             // GainNode'a geçerken güncel volume'u uygula
-            const {
-              userVolumes: vols,
-              masterVolume: master,
-              isDeafened: deaf,
-            } = useVoiceStore.getState();
-            const userVol = vols[pipeline.participantIdentity] ?? 100;
+            const userVol = resolveVolume(pipeline, vols, ssVols);
             pipeline.gain.gain.value = deaf
               ? 0
               : (userVol / 100) * (master / 100);
@@ -154,21 +181,33 @@ function VoiceAudioRenderer() {
 
   // ─── Effect 2: Track subscription — pipeline oluştur / kaldır ───
   useEffect(() => {
+    /**
+     * attachTrack — Yeni audio track için pipeline oluştur.
+     *
+     * trackSource parametresi: Track.Source değeri (e.g. "microphone", "screen_share_audio").
+     * Bu sayede pipeline oluşturulurken doğru volume kaynağı seçilir.
+     */
     function attachTrack(
       track: RemoteTrack,
-      participant: RemoteParticipant
+      participant: RemoteParticipant,
+      trackSource: string
     ): void {
       if (track.kind !== Track.Kind.Audio) return;
       const sid = track.sid;
       if (!sid || pipelinesRef.current.has(sid)) return;
 
-      // Efektif volume hesapla
+      // Efektif volume hesapla — track source'a göre doğru volume map kullanılır
       const {
         userVolumes: vols,
+        screenShareVolumes: ssVols,
         masterVolume: master,
         isDeafened: deaf,
       } = useVoiceStore.getState();
-      const userVol = vols[participant.identity] ?? 100;
+
+      const isScreenShareAudio = trackSource === Track.Source.ScreenShareAudio;
+      const userVol = isScreenShareAudio
+        ? (ssVols[participant.identity] ?? 100)
+        : (vols[participant.identity] ?? 100);
       const effectiveGain = deaf ? 0 : (userVol / 100) * (master / 100);
 
       try {
@@ -233,6 +272,7 @@ function VoiceAudioRenderer() {
           source,
           gain,
           participantIdentity: participant.identity,
+          trackSource,
           gainActive,
         });
       } catch (err) {
@@ -257,10 +297,10 @@ function VoiceAudioRenderer() {
     // ─── LiveKit event handler'ları ───
     function handleTrackSubscribed(
       track: RemoteTrack,
-      _publication: RemoteTrackPublication,
+      publication: RemoteTrackPublication,
       participant: RemoteParticipant
     ): void {
-      attachTrack(track, participant);
+      attachTrack(track, participant, publication.source.toString());
     }
 
     function handleTrackUnsubscribed(track: RemoteTrack): void {
@@ -273,7 +313,7 @@ function VoiceAudioRenderer() {
     room.remoteParticipants.forEach((participant) => {
       participant.audioTrackPublications.forEach((pub) => {
         if (pub.isSubscribed && pub.track) {
-          attachTrack(pub.track as RemoteTrack, participant);
+          attachTrack(pub.track as RemoteTrack, participant, pub.source.toString());
         }
       });
     });
@@ -304,6 +344,10 @@ function VoiceAudioRenderer() {
   // gainActive=true:  gain.gain.value set (0-2.0 arası, amplification mümkün)
   // gainActive=false: audioEl.volume set (0-1 arası, amplification yok)
   //
+  // Source-spesifik volume:
+  // - Mic audio → userVolumes[identity]
+  // - Screen share audio → screenShareVolumes[identity]
+  //
   // Ek güvenlik: Her volume update'te AudioContext state kontrol edilir.
   // statechange event'i kaçırılmış olabilir (race condition, suspended→running
   // geçişi Effect 1'deki handler'dan önce tamamlanmış olabilir).
@@ -313,7 +357,7 @@ function VoiceAudioRenderer() {
     const masterFactor = masterVolume / 100;
 
     pipelinesRef.current.forEach((pipeline) => {
-      const userVol = userVolumes[pipeline.participantIdentity] ?? 100;
+      const userVol = resolveVolume(pipeline, userVolumes, screenShareVolumes);
       const effectiveGain = isDeafened
         ? 0
         : (userVol / 100) * masterFactor;
@@ -334,7 +378,7 @@ function VoiceAudioRenderer() {
         pipeline.audioEl.volume = Math.min(Math.max(effectiveGain, 0), 1);
       }
     });
-  }, [userVolumes, masterVolume, isDeafened]);
+  }, [userVolumes, screenShareVolumes, masterVolume, isDeafened]);
 
   // ─── Effect 4: Output device ───
   useEffect(() => {

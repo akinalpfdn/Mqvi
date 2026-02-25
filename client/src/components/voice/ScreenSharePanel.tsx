@@ -10,6 +10,7 @@
  *    - Sol alt: Paylaşan kullanıcının ismi
  *    - Sağ alt: Fullscreen butonu
  * 3. Browser Fullscreen API ile tam ekran modu
+ * 4. Sağ tık context menu: ScreenShareContextMenu (bağımsız screen share audio volume)
  *
  * Fullscreen API nasıl çalışır?
  * element.requestFullscreen(): Elementi tam ekran yapar
@@ -22,6 +23,8 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { VideoTrack } from "@livekit/components-react";
 import type { TrackReferenceOrPlaceholder, TrackReference } from "@livekit/components-react";
 import { useTranslation } from "react-i18next";
+import { useAuthStore } from "../../stores/authStore";
+import ScreenShareContextMenu from "./ScreenShareContextMenu";
 
 type ScreenSharePanelProps = {
   trackRef: TrackReferenceOrPlaceholder;
@@ -35,6 +38,11 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
 
   // Fullscreen durumu — buton ikonunu belirler
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // ─── Context Menu State ───
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const currentUser = useAuthStore((s) => s.user);
+  const isLocalUser = trackRef.participant.identity === currentUser?.id;
 
   // Fullscreen durum değişikliğini dinle
   useEffect(() => {
@@ -65,8 +73,18 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
 
   const displayName = trackRef.participant.name || trackRef.participant.identity;
 
+  // Sağ tık handler — kendi screen share'imize context menu gösterme
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (isLocalUser) return;
+      e.preventDefault();
+      setCtxMenu({ x: e.clientX, y: e.clientY });
+    },
+    [isLocalUser]
+  );
+
   return (
-    <div ref={containerRef} className="screen-share-panel">
+    <div ref={containerRef} className="screen-share-panel" onContextMenu={handleContextMenu}>
       {/* Screen share video — aspect ratio korunarak container'ı doldurur */}
       {/* TrackReferenceOrPlaceholder → TrackReference narrowing: publication varsa gerçek track */}
       {trackRef.publication && (
@@ -97,6 +115,16 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
           )}
         </button>
       </div>
+
+      {/* Sağ tık context menu — screen share audio bağımsız volume kontrolü */}
+      {ctxMenu && (
+        <ScreenShareContextMenu
+          userId={trackRef.participant.identity}
+          displayName={displayName}
+          position={ctxMenu}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   );
 }

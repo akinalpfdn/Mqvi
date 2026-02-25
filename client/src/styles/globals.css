@@ -849,6 +849,7 @@ button { font-family:inherit; }
 .voice-ctx-header { display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg-4);border-bottom:1px solid var(--b1); }
 .voice-ctx-header-name { font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .voice-ctx-body { padding:8px; }
+.voice-ctx-label { font-size:13px;font-weight:600;color:var(--t2);padding:2px 8px 0;text-transform:uppercase;letter-spacing:.03em; }
 .voice-ctx-slider { display:flex;align-items:center;gap:10px;padding:6px 8px; }
 .voice-ctx-slider svg { color:var(--primary);flex-shrink:0; }
 .voice-ctx-range { flex:1;height:6px;-webkit-appearance:none;appearance:none;background:var(--bg-5);border-radius:3px;outline:none;cursor:pointer; }

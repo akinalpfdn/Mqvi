@@ -53,6 +53,7 @@ function VoiceStateManager() {
   const isStreaming = useVoiceStore((s) => s.isStreaming);
   const inputMode = useVoiceStore((s) => s.inputMode);
   const userVolumes = useVoiceStore((s) => s.userVolumes);
+  const screenShareVolumes = useVoiceStore((s) => s.screenShareVolumes);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
   const isDeafened = useVoiceStore((s) => s.isDeafened);
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
@@ -232,29 +233,51 @@ function VoiceStateManager() {
   // Effect dependency'si olarak kullanmadan güncel volume state'ine erişim sağlar.
   // Bu sayede TrackSubscribed listener sadece [room] değiştiğinde yeniden kurulur,
   // her volume değişikliğinde değil (gereksiz add/remove listener önlenir).
-  const volumeRef = useRef({ userVolumes, masterVolume, isDeafened });
-  volumeRef.current = { userVolumes, masterVolume, isDeafened };
+  const volumeRef = useRef({ userVolumes, screenShareVolumes, masterVolume, isDeafened });
+  volumeRef.current = { userVolumes, screenShareVolumes, masterVolume, isDeafened };
 
   // Mevcut katılımcılara volume uygula — store state değiştiğinde tetiklenir.
+  // Dual-source: mic ve screen share audio ayrı ayrı set edilir.
+  // LiveKit'in setVolume(vol, source) API'si source parametresiyle
+  // hangi track tipine volume uygulanacağını belirler.
   useEffect(() => {
     room.remoteParticipants.forEach((participant) => {
-      const userVol = userVolumes[participant.identity] ?? 100;
-      const effectiveVolume = isDeafened
-        ? 0
-        : (userVol / 100) * (masterVolume / 100);
-      participant.setVolume(effectiveVolume);
+      const masterFactor = masterVolume / 100;
+
+      // Mic volume
+      const micVol = userVolumes[participant.identity] ?? 100;
+      const effectiveMic = isDeafened ? 0 : (micVol / 100) * masterFactor;
+      participant.setVolume(effectiveMic, Track.Source.Microphone);
+
+      // Screen share audio volume — bağımsız kontrol
+      const ssVol = screenShareVolumes[participant.identity] ?? 100;
+      const effectiveSS = isDeafened ? 0 : (ssVol / 100) * masterFactor;
+      participant.setVolume(effectiveSS, Track.Source.ScreenShareAudio);
     });
-  }, [userVolumes, masterVolume, isDeafened, room]);
+  }, [userVolumes, screenShareVolumes, masterVolume, isDeafened, room]);
 
   // ─── Helper: Tek bir participant'a stored volume uygula ───
   // Birden fazla event handler'da kullanıldığı için ayrı fonksiyon.
+  // Dual-source: hem mic hem screen share audio volume'u ayrı ayrı set edilir.
   const applyVolumeToParticipant = useCallback(
     (participant: RemoteParticipant) => {
-      const { userVolumes: vols, masterVolume: master, isDeafened: deaf } =
-        volumeRef.current;
-      const userVol = vols[participant.identity] ?? 100;
-      const effectiveVolume = deaf ? 0 : (userVol / 100) * (master / 100);
-      participant.setVolume(effectiveVolume);
+      const {
+        userVolumes: vols,
+        screenShareVolumes: ssVols,
+        masterVolume: master,
+        isDeafened: deaf,
+      } = volumeRef.current;
+      const masterFactor = master / 100;
+
+      // Mic
+      const micVol = vols[participant.identity] ?? 100;
+      const effectiveMic = deaf ? 0 : (micVol / 100) * masterFactor;
+      participant.setVolume(effectiveMic, Track.Source.Microphone);
+
+      // Screen share audio
+      const ssVol = ssVols[participant.identity] ?? 100;
+      const effectiveSS = deaf ? 0 : (ssVol / 100) * masterFactor;
+      participant.setVolume(effectiveSS, Track.Source.ScreenShareAudio);
     },
     []
   );

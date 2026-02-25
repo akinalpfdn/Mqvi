@@ -64,6 +64,10 @@ uploads/
 # Documents (private)
 # ========================
 documents/
+# ========================
+# MD files (private)
+# ========================
+docs/
 
 # ========================
 # Deploy build output (contains compiled binary + real configs)

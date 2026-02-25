@@ -182,5 +182,16 @@
   "saveAndRestart": "Kaydet ve Yeniden Başlat",
   "restartRequired": "Değişikliklerin uygulanması için uygulama yeniden başlatılmalı",
   "resetToDefault": "Varsayılana Sıfırla",
-  "currentConnection": "Şu anda bağlı"
+  "currentConnection": "Şu anda bağlı",
+
+  "updateAvailable": "Güncelleme Mevcut",
+  "updateVersion": "Sürüm {{version}} mevcut",
+  "updateNow": "Şimdi Güncelle",
+  "updateLater": "Daha Sonra",
+  "updateDownloading": "Güncelleme indiriliyor...",
+  "updateInstalling": "Güncelleme kuruluyor...",
+  "updateRestarting": "Yeniden başlatılıyor...",
+  "updateError": "Güncelleme başarısız",
+  "updateCheckFailed": "Güncelleme kontrol edilemedi",
+  "updateUpToDate": "Güncelsiniz"
 }

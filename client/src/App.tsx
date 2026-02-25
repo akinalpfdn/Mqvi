@@ -6,6 +6,8 @@ import LoginPage from "./components/auth/LoginPage";
 import RegisterPage from "./components/auth/RegisterPage";
 import AppLayout from "./components/layout/AppLayout";
 import LandingPage from "./components/landing/LandingPage";
+import UpdateNotification from "./components/shared/UpdateNotification";
+import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { isTauri } from "./utils/constants";
 
 /**
@@ -24,14 +26,12 @@ function App() {
   const initialize = useAuthStore((s) => s.initialize);
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const user = useAuthStore((s) => s.user);
+  const updater = useUpdateChecker();
 
-  // useEffect: Component mount olduğunda (ilk render) çalışır.
-  // [] dependency array boş = sadece bir kez çalışır (componentDidMount gibi).
   useEffect(() => {
     initialize();
   }, [initialize]);
 
-  // Henüz auth kontrolü yapılmadıysa → loading göster
   if (!isInitialized) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
@@ -44,6 +44,21 @@ function App() {
   }
 
   return (
+    <>
+      {/* Auto-update banner — Tauri modda güncelleme varsa gösterilir */}
+      {(updater.status === "available" ||
+        updater.status === "downloading" ||
+        updater.status === "installing" ||
+        updater.status === "error") && (
+        <UpdateNotification
+          status={updater.status}
+          version={updater.update?.version ?? ""}
+          progress={updater.progress}
+          error={updater.error}
+          onInstall={updater.installUpdate}
+          onDismiss={updater.dismiss}
+        />
+      )}
     <Routes>
       {/* Landing — giriş yapmamış kullanıcılar tanıtım sayfası görür.
           Tauri desktop'ta onboarding gereksiz → direkt login'e yönlendir. */}
@@ -84,6 +99,7 @@ function App() {
         }
       />
     </Routes>
+    </>
   );
 }
 

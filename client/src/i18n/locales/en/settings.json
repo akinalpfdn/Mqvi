@@ -182,5 +182,16 @@
   "saveAndRestart": "Save & Restart",
   "restartRequired": "App restart required for changes to take effect",
   "resetToDefault": "Reset to Default",
-  "currentConnection": "Currently connected to"
+  "currentConnection": "Currently connected to",
+
+  "updateAvailable": "Update Available",
+  "updateVersion": "Version {{version}} is available",
+  "updateNow": "Update Now",
+  "updateLater": "Later",
+  "updateDownloading": "Downloading update...",
+  "updateInstalling": "Installing update...",
+  "updateRestarting": "Restarting...",
+  "updateError": "Update failed",
+  "updateCheckFailed": "Could not check for updates",
+  "updateUpToDate": "You're up to date"
 }

@@ -57,6 +57,12 @@ type VoiceSettings = {
    * Nefes, klavye, fan gibi gürültüleri agresif biçimde bastırır.
    */
   noiseReduction: boolean;
+  /**
+   * screenShareVolumes — Ekran paylaşımı audio'su için bağımsız volume.
+   * userId → volume (0-200, default 100).
+   * userVolumes mic sesini, bu ise screen share audio'sunu kontrol eder.
+   */
+  screenShareVolumes: Record<string, number>;
 };
 
 /**
@@ -77,6 +83,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   soundsEnabled: true,
   localMutedUsers: {},
   noiseReduction: false,
+  screenShareVolumes: {},
 };
 
 /**
@@ -203,6 +210,13 @@ type VoiceStore = {
   noiseReduction: boolean;
 
   /**
+   * screenShareVolumes — Ekran paylaşımı audio'su için bağımsız volume.
+   * userId → volume (0-200, default 100).
+   * userVolumes mikrofon sesini kontrol ederken, bu sadece screen share audio'sunu kontrol eder.
+   */
+  screenShareVolumes: Record<string, number>;
+
+  /**
    * preMuteVolumes — Local mute öncesi volume değerleri.
    * Mute açılırken volume 0'a çekilir, eski değer burada saklanır.
    * Mute kapatılırken eski volume geri yüklenir.
@@ -254,6 +268,7 @@ type VoiceStore = {
   setPTTKey: (key: string) => void;
   setMicSensitivity: (value: number) => void;
   setUserVolume: (userId: string, volume: number) => void;
+  setScreenShareVolume: (userId: string, volume: number) => void;
   setInputDevice: (deviceId: string) => void;
   setOutputDevice: (deviceId: string) => void;
   setMasterVolume: (value: number) => void;
@@ -336,6 +351,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   soundsEnabled: initialSettings.soundsEnabled,
   localMutedUsers: initialSettings.localMutedUsers,
   noiseReduction: initialSettings.noiseReduction,
+  screenShareVolumes: initialSettings.screenShareVolumes,
   preMuteVolumes: {},
   rtt: 0,
 
@@ -435,6 +451,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
     });
   },
 
@@ -452,6 +469,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
     });
   },
 
@@ -469,6 +487,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
     });
   },
 
@@ -487,6 +506,26 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
+    });
+  },
+
+  setScreenShareVolume: (userId, volume) => {
+    const newVolumes = { ...get().screenShareVolumes, [userId]: volume };
+    set({ screenShareVolumes: newVolumes });
+    const s = get();
+    saveSettings({
+      inputMode: s.inputMode,
+      pttKey: s.pttKey,
+      micSensitivity: s.micSensitivity,
+      userVolumes: s.userVolumes,
+      inputDevice: s.inputDevice,
+      outputDevice: s.outputDevice,
+      masterVolume: s.masterVolume,
+      soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
+      screenShareVolumes: newVolumes,
     });
   },
 
@@ -504,6 +543,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
     });
   },
 
@@ -521,6 +561,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
     });
   },
 
@@ -538,6 +579,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
     });
   },
 
@@ -555,6 +597,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: enabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
     });
   },
 
@@ -572,6 +615,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: enabled,
+      screenShareVolumes: s.screenShareVolumes,
     });
   },
 
@@ -609,6 +653,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         soundsEnabled: s.soundsEnabled,
         localMutedUsers: newLocalMuted,
         noiseReduction: s.noiseReduction,
+        screenShareVolumes: s.screenShareVolumes,
       });
     } else {
       // Mute: Mevcut volume'u sakla, volume'u 0'a çek
@@ -636,6 +681,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         soundsEnabled: s.soundsEnabled,
         localMutedUsers: newLocalMuted,
         noiseReduction: s.noiseReduction,
+        screenShareVolumes: s.screenShareVolumes,
       });
     }
   },

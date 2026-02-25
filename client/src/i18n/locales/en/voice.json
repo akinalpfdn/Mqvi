@@ -10,6 +10,7 @@
   "voiceConnected": "Voice Connected",
   "noOneInVoice": "No one is in this voice channel",
   "screenShareLimit": "Maximum of 2 screen shares reached",
+  "screenShareVolume": "Screen Share Volume",
   "voiceChannelFull": "This voice channel is full",
   "connectingToVoice": "Connecting...",
   "reconnectingToVoice": "Reconnecting...",
