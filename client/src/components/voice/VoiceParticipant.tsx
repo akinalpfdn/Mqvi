@@ -14,14 +14,15 @@
  * - VoiceUserContextMenu açılır (volume slider, local mute, admin server mute/deafen)
  * - Kendi kullanıcımız için context menu açılmaz
  *
- * LiveKit'in useIsSpeaking hook'u ile konuşma algılama yapılır.
+ * voiceStore.activeSpeakers üzerinden konuşma algılama yapılır
+ * (VoiceStateManager tarafından güncellenir).
  * Katılımcının durumuna göre:
  * - Konuşuyorsa: yeşil ring animasyonu
  * - Mute ise: kırmızı mic-off icon overlay
  * - Deafen ise: kırmızı headphone-off icon overlay
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useIsSpeaking } from "@livekit/components-react";
 import type { Participant } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
@@ -35,8 +36,50 @@ type VoiceParticipantProps = {
   compact?: boolean;
 };
 
+/** Konuşma hold süresi (ms). useIsSpeaking heceler arası false döndüğünde
+ *  bu süre kadar bekler — tekrar true gelirse timer iptal edilir.
+ *  Discord ~250-350ms kullanır. 300ms doğal konuşmadaki mikro-sessizlikleri kapsar. */
+const SPEAKING_HOLD_MS = 300;
+
 function VoiceParticipant({ participant, compact = false }: VoiceParticipantProps) {
-  const isSpeaking = useIsSpeaking(participant);
+  // useIsSpeaking: LiveKit'in kendi hook'u.
+  // LOCAL participant için → lokal AnalyserNode ile ses analizi (SFU'ya gitmez, anında tepki)
+  // REMOTE participant için → SFU'dan gelen speaker bilgisi
+  const rawSpeaking = useIsSpeaking(participant);
+
+  // ─── Hold timer: yanıp sönmeyi önler ───
+  // rawSpeaking true olunca anında isSpeaking=true set edilir.
+  // rawSpeaking false olunca SPEAKING_HOLD_MS bekler — bu süre içinde tekrar
+  // true gelirse timer iptal edilir ve isSpeaking true kalır.
+  // Bu pattern Discord'un speaking indicator davranışını replike eder.
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const holdTimerRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (rawSpeaking) {
+      // Konuşma başladı — bekleyen "kapat" timer'ını iptal et, hemen göster
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = 0;
+      }
+      setIsSpeaking(true);
+    } else {
+      // Konuşma durdu — hold süresi kadar bekle, belki heceler arası sessizliktir
+      if (!holdTimerRef.current) {
+        holdTimerRef.current = window.setTimeout(() => {
+          setIsSpeaking(false);
+          holdTimerRef.current = 0;
+        }, SPEAKING_HOLD_MS);
+      }
+    }
+
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = 0;
+      }
+    };
+  }, [rawSpeaking]);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
   const currentUserId = useAuthStore((s) => s.user?.id);

@@ -38,6 +38,7 @@ import { RoomEvent, ConnectionState, Track } from "livekit-client";
 import type {
   LocalAudioTrack,
   LocalTrackPublication,
+  Participant,
   RemoteTrack,
   RemoteTrackPublication,
   RemoteParticipant,
@@ -193,6 +194,100 @@ function VoiceStateManager() {
     const interval = setInterval(pollRtt, 3000);
     return () => clearInterval(interval);
   }, [room, room.state]);
+
+  // ─── Speaking detection → store (sidebar için) ───
+  //
+  // VoiceParticipant (voice room panel): useIsSpeaking hook'u + hold timer kullanır.
+  // ChannelTree (sidebar): LiveKit context dışında → store'dan okur.
+  //
+  // Store güncelleme:
+  // - Remote speakers: ActiveSpeakersChanged SFU event'i
+  // - Local speaker: localParticipant.isSpeaking polling (150ms interval)
+  //
+  // Hold timer: Her speaker için 300ms debounce — konuşma bittiğinde hemen
+  // store'dan silmek yerine 300ms bekler. Bu sürede tekrar konuşursa timer
+  // iptal edilir. VoiceParticipant'taki hold timer ile aynı mantık —
+  // sidebar'daki speaking indicator'ın da yanıp sönmesini önler.
+  useEffect(() => {
+    const HOLD_MS = 300;
+    const setActiveSpeakers = useVoiceStore.getState().setActiveSpeakers;
+
+    // Her speaker için: gerçekte konuşuyor mu (raw) + hold timer sonrası durumu (held)
+    const heldSpeakers = new Map<string, boolean>(); // identity → held speaking state
+    const holdTimers = new Map<string, number>(); // identity → setTimeout id
+
+    function updateStore() {
+      const ids: string[] = [];
+      heldSpeakers.forEach((speaking, identity) => {
+        if (speaking) ids.push(identity);
+      });
+      setActiveSpeakers(ids);
+    }
+
+    /** Bir speaker'ın raw speaking durumunu set et — hold timer ile debounce */
+    function setSpeakerRaw(identity: string, speaking: boolean) {
+      if (speaking) {
+        // Konuşma başladı — bekleyen timer'ı iptal et, hemen göster
+        const existing = holdTimers.get(identity);
+        if (existing) {
+          clearTimeout(existing);
+          holdTimers.delete(identity);
+        }
+        if (!heldSpeakers.get(identity)) {
+          heldSpeakers.set(identity, true);
+          updateStore();
+        }
+      } else {
+        // Konuşma durdu — hold süresi bekle
+        if (heldSpeakers.get(identity) && !holdTimers.has(identity)) {
+          const timerId = window.setTimeout(() => {
+            holdTimers.delete(identity);
+            heldSpeakers.set(identity, false);
+            updateStore();
+          }, HOLD_MS);
+          holdTimers.set(identity, timerId);
+        }
+      }
+    }
+
+    // Remote speakers: SFU event
+    function handleActiveSpeakers(speakers: Participant[]) {
+      const activeSpeakerIds = new Set(speakers.map((s) => s.identity));
+
+      // Yeni konuşanları işaretle
+      for (const s of speakers) {
+        if (s.identity !== localParticipant.identity) {
+          setSpeakerRaw(s.identity, true);
+        }
+      }
+      // Artık konuşmayan remote'ları işaretle
+      heldSpeakers.forEach((_speaking, identity) => {
+        if (identity !== localParticipant.identity && !activeSpeakerIds.has(identity)) {
+          setSpeakerRaw(identity, false);
+        }
+      });
+
+      // SFU event geldiğinde local state'i de kontrol et
+      setSpeakerRaw(localParticipant.identity, localParticipant.isSpeaking);
+    }
+
+    room.on(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakers);
+
+    // Local speaker: basit polling — participant.isSpeaking property'sini oku
+    const pollId = setInterval(() => {
+      setSpeakerRaw(localParticipant.identity, localParticipant.isSpeaking);
+    }, 150);
+
+    return () => {
+      room.off(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakers);
+      clearInterval(pollId);
+      // Tüm hold timer'ları temizle
+      holdTimers.forEach((timerId) => clearTimeout(timerId));
+      holdTimers.clear();
+      heldSpeakers.clear();
+      setActiveSpeakers([]);
+    };
+  }, [room, localParticipant]);
 
   // ─── inputMode değiştiğinde mic state güncelle ───
   // Kullanıcı voice settings'ten mod değiştirdiğinde:

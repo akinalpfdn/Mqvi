@@ -175,6 +175,9 @@ button { font-family:inherit; }
 .ch-tree-vu-mute { color:var(--red);opacity:0.7; }
 .ch-tree-vu-deafen { color:var(--red);opacity:0.7; }
 .ch-tree-vu-dot { width:6px;height:6px;border-radius:999px;background:var(--green);animation:pulse 1.5s ease-in-out infinite;flex-shrink:0; }
+/* Speaking indicator — sidebar voice user konuşurken yeşil ring + parlak isim */
+.ch-tree-voice-user.speaking { color:var(--t1); }
+.ch-tree-voice-user.speaking .avatar { box-shadow:0 0 0 2px var(--green); }
 
 /* Placeholder */
 .ch-tree-placeholder { padding:6px 16px; }

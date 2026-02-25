@@ -78,6 +78,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const voiceStates = useVoiceStore((s) => s.voiceStates);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const localMutedUsers = useVoiceStore((s) => s.localMutedUsers);
+  const activeSpeakers = useVoiceStore((s) => s.activeSpeakers);
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
 
   const dmChannels = useDMStore((s) => s.channels);
@@ -535,11 +536,12 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                             {participants.map((p) => {
                               const isMe = p.user_id === currentUser?.id;
                               const isLocalMuted = localMutedUsers[p.user_id] ?? false;
+                              const isSpeaking = activeSpeakers[p.user_id] ?? false;
 
                               return (
                                 <div
                                   key={p.user_id}
-                                  className="ch-tree-voice-user"
+                                  className={`ch-tree-voice-user${isSpeaking ? " speaking" : ""}`}
                                   onContextMenu={(e) => {
                                     if (isMe) return; // Kendi kendine context menu açma
                                     e.preventDefault();

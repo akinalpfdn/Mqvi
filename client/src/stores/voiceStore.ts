@@ -217,6 +217,17 @@ type VoiceStore = {
   screenShareVolumes: Record<string, number>;
 
   /**
+   * activeSpeakers — Şu anda konuşan kullanıcılar.
+   * userId → true. LiveKit'in ActiveSpeakersChanged event'i ile güncellenir.
+   * Transient state — localStorage'a persist edilmez.
+   *
+   * Neden store'da?
+   * VoiceParticipant (LiveKit context içinde) ve ChannelTree (LiveKit dışında)
+   * her ikisi de bu state'e ihtiyaç duyar. Store merkezi erişim sağlar.
+   */
+  activeSpeakers: Record<string, boolean>;
+
+  /**
    * preMuteVolumes — Local mute öncesi volume değerleri.
    * Mute açılırken volume 0'a çekilir, eski değer burada saklanır.
    * Mute kapatılırken eski volume geri yüklenir.
@@ -275,6 +286,13 @@ type VoiceStore = {
   setSoundsEnabled: (enabled: boolean) => void;
   setNoiseReduction: (enabled: boolean) => void;
   setRtt: (rtt: number) => void;
+
+  /**
+   * setActiveSpeakers — Konuşan kullanıcıları günceller.
+   * LiveKit ActiveSpeakersChanged event'inden gelen speaker listesi ile çağrılır.
+   * Eski speaker'lar temizlenir, yeni liste set edilir.
+   */
+  setActiveSpeakers: (speakerIds: string[]) => void;
 
   /**
    * toggleLocalMute — Belirli bir kullanıcıyı yerel olarak sessize al/aç.
@@ -352,6 +370,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   localMutedUsers: initialSettings.localMutedUsers,
   noiseReduction: initialSettings.noiseReduction,
   screenShareVolumes: initialSettings.screenShareVolumes,
+  activeSpeakers: {},
   preMuteVolumes: {},
   rtt: 0,
 
@@ -402,6 +421,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       isMuted: false,
       isDeafened: false,
       isStreaming: false,
+      activeSpeakers: {},
       rtt: 0,
     });
   },
@@ -620,6 +640,14 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   setRtt: (rtt) => set({ rtt }),
+
+  setActiveSpeakers: (speakerIds) => {
+    const map: Record<string, boolean> = {};
+    for (const id of speakerIds) {
+      map[id] = true;
+    }
+    set({ activeSpeakers: map });
+  },
 
   toggleLocalMute: (userId: string) => {
     const { localMutedUsers, preMuteVolumes, userVolumes } = get();
