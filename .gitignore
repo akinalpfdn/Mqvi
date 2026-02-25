@@ -25,6 +25,13 @@ dist-electron/
 release/
 
 # ========================
+# Native (WASAPI audio capture)
+# ========================
+native/*.exe
+native/*.obj
+*.obj
+
+# ========================
 # Root node_modules (Electron + build tools)
 # ========================
 /node_modules/

@@ -26,6 +26,7 @@ import {
   desktopCapturer,
 } from "electron";
 import { autoUpdater } from "electron-updater";
+import { spawn, ChildProcess } from "child_process";
 import path from "path";
 
 /** Ana uygulama penceresi referansı */
@@ -40,6 +41,38 @@ let tray: Tray | null = null;
  * false iken (varsayılan) pencere kapatma → hide (tray'e küçült).
  */
 let isQuitting = false;
+
+/**
+ * Process-exclusive audio capture child process.
+ *
+ * audio-capture.exe uses WASAPI ActivateAudioInterfaceAsync with
+ * PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE to capture all system
+ * audio EXCEPT our own Electron process tree. This solves the screen share
+ * echo problem: remote voice chat audio (played by our app) is excluded
+ * from the capture, while game/music audio is still captured.
+ *
+ * Lifecycle:
+ *   1. Renderer starts screen share with audio → IPC "start-system-capture"
+ *   2. Main spawns audio-capture.exe with our PID
+ *   3. Exe writes PCM header + data to stdout → forwarded to renderer via IPC
+ *   4. Renderer creates AudioWorklet → MediaStreamTrack → LiveKit publishes
+ *   5. Screen share stops → IPC "stop-system-capture" → kill child process
+ */
+let captureProcess: ChildProcess | null = null;
+
+/**
+ * Monotonically increasing capture generation ID.
+ * Prevents stale exit/error handlers from a killed process from
+ * interfering with a newer capture session. Each start increments
+ * the ID; handlers check their captured ID against the current one.
+ */
+let captureGeneration = 0;
+
+/** Whether the PCM header has been parsed from the capture process stdout */
+let captureHeaderParsed = false;
+
+/** Buffer for accumulating stdout data before header is fully read */
+let captureHeaderBuffer = Buffer.alloc(0);
 
 // ─── Pencere Oluşturma ───
 
@@ -76,10 +109,16 @@ function createWindow(): void {
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:3030");
-    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, "../client/dist/index.html"));
   }
+
+  // F12 ile DevTools açma — production'da da debug için
+  mainWindow.webContents.on("before-input-event", (_event, input) => {
+    if (input.key === "F12") {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
 
   // ─── Close-to-Tray ───
   // Pencere kapatma talebi geldiğinde:
@@ -132,6 +171,12 @@ function setupPermissions(): void {
   // 5. Renderer "screen-picker-result" IPC ile seçilen source ID'yi döner
   // 6. Handler callback ile source'u Electron'a verir → stream başlar
   //
+  // Audio: VIDEO ONLY — audio is handled separately by our native
+  // audio-capture.exe process which uses WASAPI process-exclusive loopback.
+  // This prevents echo: our own voice chat audio is excluded from capture.
+  // Electron's built-in "loopback" captures ALL system audio including
+  // our voice chat, causing remote participants to hear their own voice.
+  //
   // Cancel: Kullanıcı picker'da iptal ederse sourceId null gelir → callback({})
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
@@ -167,7 +212,10 @@ function setupPermissions(): void {
           // Seçilen kaynağı orijinal sources listesinden bul
           const selected = sources.find((s) => s.id === sourceId);
           if (selected) {
-            callback({ video: selected, audio: "loopback" });
+            // Video only — no "loopback" audio.
+            // Audio capture is handled by audio-capture.exe (process-exclusive)
+            // which is started/stopped by the renderer via IPC.
+            callback({ video: selected });
           } else {
             callback({});
           }
@@ -269,7 +317,6 @@ function setupIPC(): void {
 
   // ─── Desktop Capturer ───
   // Ekran paylaşımı için mevcut pencere/ekran kaynaklarını listele.
-  // İleride custom picker UI yapılırsa kullanılacak.
   ipcMain.handle("get-desktop-sources", async () => {
     const sources = await desktopCapturer.getSources({
       types: ["window", "screen"],
@@ -279,6 +326,126 @@ function setupIPC(): void {
       name: s.name,
       thumbnail: s.thumbnail.toDataURL(),
     }));
+  });
+
+  // ─── Process-Exclusive Audio Capture ───
+  // Renderer requests system audio capture (excluding our process).
+  // This replaces Electron's built-in "loopback" which captures everything
+  // including voice chat audio, causing echo for remote participants.
+
+  ipcMain.handle("start-system-capture", () => {
+    // If a previous capture is still running, kill it first.
+    // This handles rapid stop→start cycles where the old process
+    // hasn't exited yet.
+    if (captureProcess) {
+      console.log("[main] Killing previous capture process before starting new one");
+      captureProcess.kill();
+      captureProcess = null;
+    }
+
+    // Increment generation — any exit/error handlers from previous
+    // processes will see a stale generation and skip their cleanup.
+    const thisGen = ++captureGeneration;
+
+    // Resolve path to audio-capture.exe
+    // Dev: native/audio-capture.exe (relative to project root)
+    // Prod: resources/native/audio-capture.exe (inside asar extraResources)
+    const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+    const exePath = isDev
+      ? path.join(app.getAppPath(), "native", "audio-capture.exe")
+      : path.join(process.resourcesPath, "native", "audio-capture.exe");
+
+    console.log(`[main] Starting audio capture gen=${thisGen}: ${exePath} (exclude PID ${process.pid})`);
+
+    captureHeaderParsed = false;
+    captureHeaderBuffer = Buffer.alloc(0);
+
+    captureProcess = spawn(exePath, [process.pid.toString()], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // ─── Parse stdout: header (12 bytes) then raw PCM data ───
+    captureProcess.stdout?.on("data", (chunk: Buffer) => {
+      // Stale process — ignore its output
+      if (thisGen !== captureGeneration) return;
+
+      if (!captureHeaderParsed) {
+        // Accumulate until we have the full 12-byte header
+        captureHeaderBuffer = Buffer.concat([captureHeaderBuffer, chunk]);
+        if (captureHeaderBuffer.length >= 12) {
+          const sampleRate = captureHeaderBuffer.readUInt32LE(0);
+          const channels = captureHeaderBuffer.readUInt16LE(4);
+          const bitsPerSample = captureHeaderBuffer.readUInt16LE(6);
+          const formatTag = captureHeaderBuffer.readUInt32LE(8);
+
+          console.log(
+            `[main] Audio capture format gen=${thisGen}: ${sampleRate}Hz ${channels}ch ${bitsPerSample}bit tag=${formatTag}`
+          );
+
+          // Send header info to renderer
+          mainWindow?.webContents.send("capture-audio-header", {
+            sampleRate,
+            channels,
+            bitsPerSample,
+            formatTag,
+          });
+
+          captureHeaderParsed = true;
+
+          // Forward remaining data after header
+          const remaining = captureHeaderBuffer.subarray(12);
+          if (remaining.length > 0) {
+            mainWindow?.webContents.send("capture-audio-data", remaining);
+          }
+          captureHeaderBuffer = Buffer.alloc(0);
+        }
+      } else {
+        // Forward raw PCM data to renderer
+        mainWindow?.webContents.send("capture-audio-data", chunk);
+      }
+    });
+
+    captureProcess.stderr?.on("data", (data: Buffer) => {
+      if (thisGen !== captureGeneration) return;
+      const msg = data.toString().trim();
+      console.log(`[audio-capture] ${msg}`);
+      // Forward stderr to renderer for debugging
+      mainWindow?.webContents.send("capture-audio-error", msg);
+    });
+
+    captureProcess.on("exit", (code) => {
+      console.log(`[main] Audio capture gen=${thisGen} exited with code ${code}`);
+      // Stale process exit — a newer capture may already be running.
+      // Do NOT null out captureProcess or send events to renderer.
+      if (thisGen !== captureGeneration) {
+        console.log(`[main] Ignoring stale exit (current gen=${captureGeneration})`);
+        return;
+      }
+      mainWindow?.webContents.send("capture-audio-error", `EXIT code=${code}`);
+      captureProcess = null;
+      captureHeaderParsed = false;
+      mainWindow?.webContents.send("capture-audio-stopped");
+    });
+
+    captureProcess.on("error", (err) => {
+      if (thisGen !== captureGeneration) return;
+      console.error("[main] Audio capture spawn error:", err);
+      mainWindow?.webContents.send("capture-audio-error", `SPAWN ERROR: ${err.message}`);
+      captureProcess = null;
+      mainWindow?.webContents.send("capture-audio-stopped");
+    });
+  });
+
+  ipcMain.handle("stop-system-capture", () => {
+    if (captureProcess) {
+      console.log("[main] Stopping audio capture gen=" + captureGeneration);
+      captureProcess.kill();
+      captureProcess = null;
+      captureHeaderParsed = false;
+      // Increment generation so the killed process's exit handler
+      // won't send "capture-audio-stopped" to renderer
+      captureGeneration++;
+    }
   });
 }
 

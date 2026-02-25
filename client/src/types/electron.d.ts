@@ -30,6 +30,14 @@ interface ElectronDesktopSource {
   thumbnail: string;
 }
 
+/** Audio capture header — format info from native audio-capture.exe */
+interface ElectronCaptureAudioHeader {
+  sampleRate: number;
+  channels: number;
+  bitsPerSample: number;
+  formatTag: number; // 1=PCM, 3=IEEE_FLOAT
+}
+
 /** Electron preload API — window.electronAPI üzerinden erişilir */
 interface ElectronAPI {
   /** Uygulama versiyonunu al (package.json version) */
@@ -55,6 +63,27 @@ interface ElectronAPI {
 
   /** Kullanıcının seçim sonucunu main process'e gönderir (null = iptal) */
   sendScreenPickerResult: (sourceId: string | null) => void;
+
+  /** Start process-exclusive system audio capture (excludes our own audio) */
+  startSystemCapture: () => Promise<void>;
+
+  /** Stop system audio capture */
+  stopSystemCapture: () => Promise<void>;
+
+  /** Remove all capture-related IPC listeners to prevent accumulation */
+  removeCaptureListeners: () => void;
+
+  /** Audio capture header received (format info from native exe) */
+  onCaptureAudioHeader: (cb: (header: ElectronCaptureAudioHeader) => void) => void;
+
+  /** Raw PCM audio data chunk from capture process */
+  onCaptureAudioData: (cb: (data: Uint8Array) => void) => void;
+
+  /** Audio capture process stopped (exited or error) */
+  onCaptureAudioStopped: (cb: () => void) => void;
+
+  /** Audio capture error/debug message from main process */
+  onCaptureAudioError: (cb: (msg: string) => void) => void;
 
   /** Güncelleme mevcut event'i dinle */
   onUpdateAvailable: (cb: (info: ElectronUpdateInfo) => void) => void;

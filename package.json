@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "mqvi-desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "mqvi desktop application",
   "author": "akinalpfdn",
   "main": "dist-electron/main.js",
@@ -30,6 +30,12 @@
       "dist-electron",
       "client/dist",
       "icons"
+    ],
+    "extraResources": [
+      {
+        "from": "native/audio-capture.exe",
+        "to": "native/audio-capture.exe"
+      }
     ],
     "win": {
       "target": [

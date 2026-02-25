@@ -52,6 +52,51 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("screen-picker-result", sourceId);
   },
 
+  // ─── Process-Exclusive Audio Capture IPC ───
+  // Uses native audio-capture.exe (WASAPI process loopback) to capture
+  // system audio while excluding our own process tree — no voice echo.
+
+  /** Start system audio capture (excludes Electron's own audio) */
+  startSystemCapture: (): Promise<void> => ipcRenderer.invoke("start-system-capture"),
+
+  /** Stop system audio capture */
+  stopSystemCapture: (): Promise<void> => ipcRenderer.invoke("stop-system-capture"),
+
+  /**
+   * Remove all capture-related IPC listeners.
+   * MUST be called before registering new listeners in start() and during stop().
+   * Without this, ipcRenderer.on() accumulates duplicate listeners across
+   * screen share sessions — old listeners intercept events meant for new sessions.
+   */
+  removeCaptureListeners: (): void => {
+    ipcRenderer.removeAllListeners("capture-audio-header");
+    ipcRenderer.removeAllListeners("capture-audio-data");
+    ipcRenderer.removeAllListeners("capture-audio-stopped");
+    ipcRenderer.removeAllListeners("capture-audio-error");
+  },
+
+  /** Audio capture header received (format info) */
+  onCaptureAudioHeader: (
+    cb: (header: { sampleRate: number; channels: number; bitsPerSample: number; formatTag: number }) => void
+  ): void => {
+    ipcRenderer.on("capture-audio-header", (_e, header) => cb(header));
+  },
+
+  /** Raw PCM audio data chunk from capture process */
+  onCaptureAudioData: (cb: (data: Uint8Array) => void): void => {
+    ipcRenderer.on("capture-audio-data", (_e, data) => cb(new Uint8Array(data)));
+  },
+
+  /** Audio capture process stopped (exited or error) */
+  onCaptureAudioStopped: (cb: () => void): void => {
+    ipcRenderer.on("capture-audio-stopped", () => cb());
+  },
+
+  /** Audio capture error/debug message from main process */
+  onCaptureAudioError: (cb: (msg: string) => void): void => {
+    ipcRenderer.on("capture-audio-error", (_e, msg) => cb(msg));
+  },
+
   // ─── Event listeners (main → renderer) ───
 
   /** Güncelleme mevcut bilgisi geldiğinde */

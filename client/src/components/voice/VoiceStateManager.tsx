@@ -34,7 +34,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
-import { RoomEvent, ConnectionState, Track } from "livekit-client";
+import { RoomEvent, ConnectionState, Track, LocalAudioTrack as LKLocalAudioTrack } from "livekit-client";
 import type {
   LocalAudioTrack,
   LocalTrackPublication,
@@ -46,6 +46,8 @@ import type {
 import { useVoiceStore } from "../../stores/voiceStore";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
+import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
+import { isElectron } from "../../utils/constants";
 
 function VoiceStateManager() {
   const room = useRoomContext();
@@ -104,13 +106,30 @@ function VoiceStateManager() {
     });
   }, [isMuted, localParticipant]);
 
+  // ─── Process-exclusive audio capture (Electron only) ───
+  // Uses native audio-capture.exe to capture system audio excluding our
+  // own Electron process tree — prevents screen share echo.
+  const systemAudioCapture = useSystemAudioCapture();
+  const systemAudioCaptureRef = useRef(systemAudioCapture);
+  systemAudioCaptureRef.current = systemAudioCapture;
+
+  // Ref to track the custom audio publication for cleanup
+  const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
+
   // ─── Screen share senkronizasyonu ───
   // isStreaming değiştiğinde LiveKit'in screen share durumunu güncelle.
   //
-  // Audio: screenShareAudio ayarına göre ses paylaşımı açılır/kapanır.
-  // Electron'da session.setDisplayMediaRequestHandler loopback audio desteği sağlar —
-  // kendi uygulamamızın sesi hariç tutulur, echo olmaz.
-  // Browser'da getDisplayMedia({ audio: true }) kullanılır.
+  // Electron audio strategy:
+  //   - Video: Electron's setDisplayMediaRequestHandler provides the video source
+  //   - Audio: NOT from Electron's loopback (causes echo). Instead, our native
+  //     audio-capture.exe captures system audio excluding Electron's PID via
+  //     WASAPI PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE.
+  //   - The custom audio track is published separately to LiveKit as
+  //     Track.Source.ScreenShareAudio.
+  //
+  // Browser audio strategy:
+  //   - Uses getDisplayMedia({ audio: true }) — standard browser behavior.
+  //   - No process-exclusive capture available in browsers.
   //
   // Capture options:
   //   - resolution: 1920x1080 @ 30fps → tarayıcıdan 1080p yakalama
@@ -120,15 +139,67 @@ function VoiceStateManager() {
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
-    localParticipant
-      .setScreenShareEnabled(isStreaming, {
-        audio: screenShareAudio,
-        resolution: { width: 1920, height: 1080, frameRate: 30 },
-        contentHint: "motion",
-      })
-      .catch((err: unknown) => {
+    let cancelled = false;
+
+    async function toggleScreenShare() {
+      if (cancelled) return;
+
+      if (isStreaming) {
+        // ─── START screen share ───
+        if (isElectron() && screenShareAudio) {
+          // Electron: video only via getDisplayMedia, audio via native capture
+          await localParticipant.setScreenShareEnabled(true, {
+            audio: false, // NO loopback audio — we handle audio separately
+            resolution: { width: 1920, height: 1080, frameRate: 30 },
+            contentHint: "motion",
+          });
+
+          if (cancelled) return;
+
+          // Start native process-exclusive audio capture
+          const audioTrack = await systemAudioCaptureRef.current.start();
+
+          if (cancelled || !audioTrack) return;
+
+          // Wrap in LiveKit's LocalAudioTrack and publish as ScreenShareAudio
+          const lkTrack = new LKLocalAudioTrack(audioTrack, undefined, false);
+          const pub = await localParticipant.publishTrack(lkTrack, {
+            source: Track.Source.ScreenShareAudio,
+          });
+          customAudioPubRef.current = pub;
+        } else {
+          // Browser or no audio: standard getDisplayMedia path
+          await localParticipant.setScreenShareEnabled(true, {
+            audio: screenShareAudio,
+            resolution: { width: 1920, height: 1080, frameRate: 30 },
+            contentHint: "motion",
+          });
+        }
+      } else {
+        // ─── STOP screen share ───
+        // Unpublish custom audio track if we published one
+        if (customAudioPubRef.current) {
+          await localParticipant.unpublishTrack(
+            customAudioPubRef.current.track!
+          );
+          customAudioPubRef.current = null;
+        }
+
+        // Stop native capture
+        systemAudioCaptureRef.current.stop();
+
+        // Stop screen share video
+        await localParticipant.setScreenShareEnabled(false);
+      }
+    }
+
+    toggleScreenShare().catch((err: unknown) => {
+      if (!cancelled) {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
-      });
+      }
+    });
+
+    return () => { cancelled = true; };
   }, [isStreaming, screenShareAudio, localParticipant]);
 
   // ─── Bağlantı kurulduğunda ilk senkronizasyon ───
