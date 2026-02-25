@@ -57,6 +57,7 @@ function VoiceStateManager() {
   const screenShareVolumes = useVoiceStore((s) => s.screenShareVolumes);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
   const isDeafened = useVoiceStore((s) => s.isDeafened);
+  const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
 
   // İlk mount tracking — ilk render'da gereksiz toggle'ları önlemek için.
@@ -147,6 +148,21 @@ function VoiceStateManager() {
 
       localParticipant.setMicrophoneEnabled(shouldEnable).catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to set initial mic state:", err);
+      });
+
+      // ─── Screen share auto-subscribe engelleme ───
+      // Room'a bağlandığında zaten auto-subscribe olmuş screen share track'lerini
+      // unsubscribe et. Kullanıcı sidebar'dan tıklayınca tekrar subscribe olur.
+      // Ses (Microphone) track'leri etkilenmez — sadece ScreenShare/ScreenShareAudio.
+      room.remoteParticipants.forEach((p) => {
+        p.trackPublications.forEach((pub) => {
+          if (
+            pub.source === Track.Source.ScreenShare ||
+            pub.source === Track.Source.ScreenShareAudio
+          ) {
+            (pub as RemoteTrackPublication).setSubscribed(false);
+          }
+        });
       });
 
       // İlk sync tamamlandı, artık effect'ler çalışabilir
@@ -502,6 +518,61 @@ function VoiceStateManager() {
       room.off(RoomEvent.LocalTrackPublished, handleLocalTrackPublished);
     };
   }, [room]);
+
+  // ─── Screen share subscription kontrolü ───
+  //
+  // autoSubscribe: true kalır (ses track'leri otomatik subscribe olur).
+  // Screen share (video + audio) track'leri ise VoiceStateManager tarafından
+  // kontrol edilir: publish edildiğinde hemen unsubscribe, kullanıcı
+  // sidebar'dan tıklayınca subscribe.
+  //
+  // Effect A: TrackPublished → yeni screen share track'i auto-subscribe'ı engelle.
+  // RoomEvent.TrackPublished, autoSubscribe'dan ÖNCE tetiklenir —
+  // setSubscribed(false) çağrılınca SDK subscribe talebini iptal eder.
+  useEffect(() => {
+    function handleTrackPublished(
+      publication: RemoteTrackPublication,
+      participant: RemoteParticipant
+    ) {
+      if (
+        publication.source === Track.Source.ScreenShare ||
+        publication.source === Track.Source.ScreenShareAudio
+      ) {
+        const watching = useVoiceStore.getState().watchingScreenShares[participant.identity];
+        if (!watching) {
+          publication.setSubscribed(false);
+        }
+      }
+    }
+
+    room.on(RoomEvent.TrackPublished, handleTrackPublished);
+    return () => {
+      room.off(RoomEvent.TrackPublished, handleTrackPublished);
+    };
+  }, [room]);
+
+  // Effect B: watchingScreenShares değiştiğinde subscribe/unsubscribe.
+  // Kullanıcı sidebar'daki yayın ikonuna tıkladığında store güncellenir →
+  // bu effect tetiklenir → ilgili remote participant'ın screen share track'lerine
+  // subscribe (izle) veya unsubscribe (bırak) yapılır.
+  //
+  // Local participant'ın track'leri burada YOK — room.remoteParticipants
+  // sadece remote'ları döndürür. Local yayın preview'i ScreenShareView'de
+  // UI filtresi ile kontrol edilir (subscription gerekmez).
+  useEffect(() => {
+    room.remoteParticipants.forEach((participant) => {
+      const watching = watchingScreenShares[participant.identity] ?? false;
+
+      participant.trackPublications.forEach((pub) => {
+        if (
+          pub.source === Track.Source.ScreenShare ||
+          pub.source === Track.Source.ScreenShareAudio
+        ) {
+          (pub as RemoteTrackPublication).setSubscribed(watching);
+        }
+      });
+    });
+  }, [watchingScreenShares, room]);
 
   // Görsel çıktısı yok — sadece side-effect'ler
   return null;

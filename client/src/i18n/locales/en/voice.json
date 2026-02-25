@@ -38,5 +38,7 @@
   "noiseReductionOn": "Turn off noise reduction",
   "noiseReductionOff": "Turn on noise reduction",
   "on": "ON",
-  "off": "OFF"
+  "off": "OFF",
+  "watchScreenShare": "Watch screen share",
+  "stopWatching": "Stop watching"
 }

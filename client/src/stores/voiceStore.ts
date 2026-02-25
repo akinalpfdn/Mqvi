@@ -228,6 +228,23 @@ type VoiceStore = {
   activeSpeakers: Record<string, boolean>;
 
   /**
+   * watchingScreenShares — Hangi kullanıcıların ekran paylaşımını izliyoruz.
+   * userId → true ise o kullanıcının screen share track'ine subscribe olunur.
+   *
+   * Varsayılan olarak hiç kimsenin yayını izlenmez — sidebar'daki yayın ikonuna
+   * tıklanınca subscribe olunur. Bu bandwidth tasarrufu sağlar:
+   * autoSubscribe: true kalır (ses için) ama screen share video/audio
+   * VoiceStateManager tarafından hemen unsubscribe edilir, sadece bu map'teki
+   * kullanıcılar için tekrar subscribe yapılır.
+   *
+   * Local participant'ın kendi yayını için de çalışır: subscribe gerekmez,
+   * sadece ScreenShareView'de göster/gizle kontrolü sağlar (preview).
+   *
+   * Transient state — leaveVoiceChannel'da temizlenir, persist edilmez.
+   */
+  watchingScreenShares: Record<string, boolean>;
+
+  /**
    * preMuteVolumes — Local mute öncesi volume değerleri.
    * Mute açılırken volume 0'a çekilir, eski değer burada saklanır.
    * Mute kapatılırken eski volume geri yüklenir.
@@ -295,7 +312,14 @@ type VoiceStore = {
   setActiveSpeakers: (speakerIds: string[]) => void;
 
   /**
-   * toggleLocalMute — Belirli bir kullanıcıyı yerel olarak sessize al/aç.
+   * toggleWatchScreenShare — Belirli bir kullanıcının ekran paylaşımını izle/bırak.
+   * Toggle pattern: zaten izleniyorsa bırak, izlenmiyorsa izlemeye başla.
+   * Remote kullanıcılar için VoiceStateManager subscription'ı kontrol eder.
+   * Local kullanıcı için ScreenShareView'de göster/gizle.
+   */
+  toggleWatchScreenShare: (userId: string) => void;
+
+  /**
    *
    * Mute açılırken: Mevcut volume değeri preMuteVolumes'a kaydedilir,
    * volume 0'a çekilir, localMutedUsers[userId] = true.
@@ -371,6 +395,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   noiseReduction: initialSettings.noiseReduction,
   screenShareVolumes: initialSettings.screenShareVolumes,
   activeSpeakers: {},
+  watchingScreenShares: {},
   preMuteVolumes: {},
   rtt: 0,
 
@@ -422,6 +447,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       isDeafened: false,
       isStreaming: false,
       activeSpeakers: {},
+      watchingScreenShares: {},
       rtt: 0,
     });
   },
@@ -647,6 +673,21 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       map[id] = true;
     }
     set({ activeSpeakers: map });
+  },
+
+  toggleWatchScreenShare: (userId: string) => {
+    const { watchingScreenShares } = get();
+    const isWatching = watchingScreenShares[userId] ?? false;
+
+    if (isWatching) {
+      // İzlemeyi bırak — key'i sil
+      const next = { ...watchingScreenShares };
+      delete next[userId];
+      set({ watchingScreenShares: next });
+    } else {
+      // İzlemeye başla
+      set({ watchingScreenShares: { ...watchingScreenShares, [userId]: true } });
+    }
   },
 
   toggleLocalMute: (userId: string) => {

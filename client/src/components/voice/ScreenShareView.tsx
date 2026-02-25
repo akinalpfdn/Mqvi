@@ -27,10 +27,11 @@
  * Bu, pixel hesabı gerektirmeden responsive çalışır.
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useTracks } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { useTranslation } from "react-i18next";
+import { useVoiceStore } from "../../stores/voiceStore";
 import ScreenSharePanel from "./ScreenSharePanel";
 import ScreenShareResizeHandle from "./ScreenShareResizeHandle";
 
@@ -45,12 +46,27 @@ const DEFAULT_RATIO = 50;
 function ScreenShareView() {
   const { t } = useTranslation("voice");
 
+  // watchingScreenShares: Hangi kullanıcıların yayınını izliyoruz
+  const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
+
   // LiveKit'ten aktif screen share track'lerini al
   // withPlaceholder: false → sadece gerçek track'ler (placeholder yok)
-  // onlySubscribed: true → sadece subscribe olunan track'ler (remote)
-  const screenShareTracks = useTracks(
+  // onlySubscribed: false → tüm track'ler (local + remote)
+  //   - Local participant'ın kendi yayını da dahil (preview için)
+  //   - Remote unsubscribed track'ler de listede olur ama watchingScreenShares filtresi eler
+  const allScreenShareTracks = useTracks(
     [{ source: Track.Source.ScreenShare, withPlaceholder: false }],
-    { onlySubscribed: true }
+    { onlySubscribed: false }
+  );
+
+  // watchingScreenShares ile filtrele — sadece izlenmek istenen track'ler gösterilir.
+  // Remote track'ler için VoiceStateManager subscription'ı kontrol eder (bant genişliği).
+  // Local track için subscription gerekmez — sadece göster/gizle.
+  const screenShareTracks = useMemo(
+    () => allScreenShareTracks.filter(
+      (t) => watchingScreenShares[t.participant.identity] ?? false
+    ),
+    [allScreenShareTracks, watchingScreenShares]
   );
 
   // Split view state — geçici UI state, Zustand'a gerek yok
@@ -114,72 +130,90 @@ function ScreenShareView() {
     );
   }
 
-  // 2 track → split view
-  const isVertical = layoutMode === "vertical";
-  const splitClass = `screen-share-split ${isVertical ? "vertical" : "horizontal"}`;
+  // 2 track → split view (resize handle ile)
+  if (screenShareTracks.length === 2) {
+    const isVertical = layoutMode === "vertical";
+    const splitClass = `screen-share-split ${isVertical ? "vertical" : "horizontal"}`;
 
+    return (
+      <div className="screen-share-view">
+        {/* Layout toggle butonu — sağ üst köşe.
+            z-10: Panel'lerin üstünde kalması için.
+            Buton şu anki modun karşıtını gösterir (ne'ye geçileceğini). */}
+        <button
+          onClick={handleToggleLayout}
+          className="screen-share-toggle"
+          title={t("toggleLayout")}
+        >
+          {isVertical ? (
+            // Şu an dikey (alt alta) → tıklayınca yatay (yan yana) olacak.
+            // İkon: Dikey çizgiyle bölünmüş dikdörtgen (columns).
+            <svg
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 3v18M3.75 3h16.5a.75.75 0 01.75.75v16.5a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V3.75A.75.75 0 013.75 3z"
+              />
+            </svg>
+          ) : (
+            // Şu an yatay (yan yana) → tıklayınca dikey (alt alta) olacak.
+            // İkon: Yatay çizgiyle bölünmüş dikdörtgen (rows).
+            <svg
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 12h18M3.75 3h16.5a.75.75 0 01.75.75v16.5a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V3.75A.75.75 0 013.75 3z"
+              />
+            </svg>
+          )}
+        </button>
+
+        {/* Split container — direction'a göre flex-col (dikey) veya flex-row (yatay).
+            min-h-0 min-w-0: Flex child overflow trick — her iki yönde de. */}
+        <div ref={containerRef} className={splitClass}>
+          {/* Panel 1 — flex: splitRatio ile oransal alan kaplar.
+              min-h-0 min-w-0: İç video element'inin container'ı taşırmasını engeller. */}
+          <div style={{ flex: splitRatio }} className="screen-share-pane">
+            <ScreenSharePanel trackRef={screenShareTracks[0]} />
+          </div>
+
+          {/* Sürüklenebilir divider — delta pixel cinsinden handleResize'a gelir */}
+          <ScreenShareResizeHandle
+            direction={layoutMode}
+            onResize={handleResize}
+          />
+
+          {/* Panel 2 — flex: (100 - splitRatio) ile kalan alanı kaplar */}
+          <div style={{ flex: 100 - splitRatio }} className="screen-share-pane">
+            <ScreenSharePanel trackRef={screenShareTracks[1]} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3+ track → CSS grid layout
+  // 2 sütunlu grid: her panel eşit boyutta, satır sayısı otomatik artar.
+  // Grid, 3+ screen share için resize handle'dan daha pratik —
+  // her panel eşit alan alır, kullanıcı hangisini isterse fullscreen yapabilir.
   return (
     <div className="screen-share-view">
-      {/* Layout toggle butonu — sağ üst köşe.
-          z-10: Panel'lerin üstünde kalması için.
-          Buton şu anki modun karşıtını gösterir (ne'ye geçileceğini). */}
-      <button
-        onClick={handleToggleLayout}
-        className="screen-share-toggle"
-        title={t("toggleLayout")}
-      >
-        {isVertical ? (
-          // Şu an dikey (alt alta) → tıklayınca yatay (yan yana) olacak.
-          // İkon: Dikey çizgiyle bölünmüş dikdörtgen (columns).
-          <svg
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 3v18M3.75 3h16.5a.75.75 0 01.75.75v16.5a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V3.75A.75.75 0 013.75 3z"
-            />
-          </svg>
-        ) : (
-          // Şu an yatay (yan yana) → tıklayınca dikey (alt alta) olacak.
-          // İkon: Yatay çizgiyle bölünmüş dikdörtgen (rows).
-          <svg
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 12h18M3.75 3h16.5a.75.75 0 01.75.75v16.5a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V3.75A.75.75 0 013.75 3z"
-            />
-          </svg>
-        )}
-      </button>
-
-      {/* Split container — direction'a göre flex-col (dikey) veya flex-row (yatay).
-          min-h-0 min-w-0: Flex child overflow trick — her iki yönde de. */}
-      <div ref={containerRef} className={splitClass}>
-        {/* Panel 1 — flex: splitRatio ile oransal alan kaplar.
-            min-h-0 min-w-0: İç video element'inin container'ı taşırmasını engeller. */}
-        <div style={{ flex: splitRatio }} className="screen-share-pane">
-          <ScreenSharePanel trackRef={screenShareTracks[0]} />
-        </div>
-
-        {/* Sürüklenebilir divider — delta pixel cinsinden handleResize'a gelir */}
-        <ScreenShareResizeHandle
-          direction={layoutMode}
-          onResize={handleResize}
-        />
-
-        {/* Panel 2 — flex: (100 - splitRatio) ile kalan alanı kaplar */}
-        <div style={{ flex: 100 - splitRatio }} className="screen-share-pane">
-          <ScreenSharePanel trackRef={screenShareTracks[1]} />
-        </div>
+      <div className="screen-share-grid">
+        {screenShareTracks.map((trackRef) => (
+          <div key={trackRef.participant.identity} className="screen-share-pane">
+            <ScreenSharePanel trackRef={trackRef} />
+          </div>
+        ))}
       </div>
     </div>
   );

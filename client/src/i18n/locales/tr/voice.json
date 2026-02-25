@@ -38,5 +38,7 @@
   "noiseReductionOn": "Gürültü azaltmayı kapat",
   "noiseReductionOff": "Gürültü azaltmayı aç",
   "on": "AÇIK",
-  "off": "KAPALI"
+  "off": "KAPALI",
+  "watchScreenShare": "Yayını izle",
+  "stopWatching": "İzlemeyi bırak"
 }

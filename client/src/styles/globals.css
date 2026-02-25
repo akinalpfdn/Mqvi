@@ -171,7 +171,11 @@ button { font-family:inherit; }
 /* Voice user status icons container — sağa hizala */
 .ch-tree-vu-icons { display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0; }
 .ch-tree-vu-icon { width:14px;height:14px;flex-shrink:0; }
-.ch-tree-vu-stream { color:var(--primary);opacity:0.9; }
+/* Streaming ikon — tıklanabilir button. Yayın izlenirken yeşile döner. */
+button.ch-tree-vu-stream { all:unset;display:flex;align-items:center;justify-content:center;width:14px;height:14px;flex-shrink:0;cursor:pointer;color:var(--t2);transition:color .15s; }
+button.ch-tree-vu-stream:hover { color:var(--t0); }
+button.ch-tree-vu-stream.watching { color:var(--green); }
+button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ch-tree-vu-mute { color:var(--red);opacity:0.7; }
 .ch-tree-vu-deafen { color:var(--red);opacity:0.7; }
 .ch-tree-vu-dot { width:6px;height:6px;border-radius:999px;background:var(--green);animation:pulse 1.5s ease-in-out infinite;flex-shrink:0; }
@@ -894,6 +898,7 @@ button { font-family:inherit; }
 .screen-share-split.vertical { flex-direction:column; }
 .screen-share-split.horizontal { flex-direction:row; }
 .screen-share-pane { min-height:0;min-width:0;overflow:hidden; }
+.screen-share-grid { display:grid;grid-template-columns:repeat(2,1fr);flex:1;min-height:0;gap:4px; }
 
 /* Screen share panel (video container) */
 .screen-share-panel { width:100%;height:100%;position:relative;overflow:hidden;border-radius:8px;background:var(--bg-1); }

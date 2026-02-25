@@ -79,6 +79,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const localMutedUsers = useVoiceStore((s) => s.localMutedUsers);
   const activeSpeakers = useVoiceStore((s) => s.activeSpeakers);
+  const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
+  const toggleWatchScreenShare = useVoiceStore((s) => s.toggleWatchScreenShare);
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
 
   const dmChannels = useDMStore((s) => s.channels);
@@ -584,9 +586,15 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                       </svg>
                                     )}
                                     {p.is_streaming && (
-                                      <svg className="ch-tree-vu-icon ch-tree-vu-stream" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("screenShare")}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                      </svg>
+                                      <button
+                                        className={`ch-tree-vu-icon ch-tree-vu-stream${watchingScreenShares[p.user_id] ? " watching" : ""}`}
+                                        onClick={(e) => { e.stopPropagation(); toggleWatchScreenShare(p.user_id); }}
+                                        title={watchingScreenShares[p.user_id] ? tVoice("stopWatching") : tVoice("watchScreenShare")}
+                                      >
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                        </svg>
+                                      </button>
                                     )}
                                     {p.is_deafened ? (
                                       <svg className="ch-tree-vu-icon ch-tree-vu-deafen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
