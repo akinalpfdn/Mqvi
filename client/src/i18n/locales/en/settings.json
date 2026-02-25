@@ -131,6 +131,8 @@
   "masterVolume": "Output Volume",
   "joinLeaveSounds": "Join/Leave Sounds",
   "joinLeaveSoundsDesc": "Play a sound when someone joins or leaves voice",
+  "screenShareAudio": "Screen Share Audio",
+  "screenShareAudioDesc": "Share system audio when screen sharing (game, music). Voice chat audio is automatically excluded.",
 
   "selectChannelToEdit": "Select a channel to edit its permissions",
   "selectRoleToEdit": "Select a role to edit overrides",

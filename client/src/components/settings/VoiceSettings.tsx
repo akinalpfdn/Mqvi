@@ -22,6 +22,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
 import type { InputMode } from "../../stores/voiceStore";
+import { isTauri } from "../../utils/constants";
 
 /**
  * MediaDeviceInfo'nun basitleştirilmiş hali.
@@ -99,6 +100,7 @@ function VoiceSettings() {
   const outputDevice = useVoiceStore((s) => s.outputDevice);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
   const soundsEnabled = useVoiceStore((s) => s.soundsEnabled);
+  const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
 
   const setInputMode = useVoiceStore((s) => s.setInputMode);
   const setPTTKey = useVoiceStore((s) => s.setPTTKey);
@@ -107,6 +109,7 @@ function VoiceSettings() {
   const setOutputDevice = useVoiceStore((s) => s.setOutputDevice);
   const setMasterVolume = useVoiceStore((s) => s.setMasterVolume);
   const setSoundsEnabled = useVoiceStore((s) => s.setSoundsEnabled);
+  const setScreenShareAudio = useVoiceStore((s) => s.setScreenShareAudio);
 
   // ─── Local state ───
   const [audioInputs, setAudioInputs] = useState<DeviceOption[]>([]);
@@ -321,6 +324,30 @@ function VoiceSettings() {
           </label>
         </div>
       </div>
+
+      {/* ─── Screen Share Audio (Tauri desktop only) ─── */}
+      {/* Native WASAPI per-process audio capture sadece Tauri desktop'ta desteklenir.
+          Browser'da getDisplayMedia audio kullanıldığında voice chat echo oluşur
+          ve bunu engelleyecek mekanizma yok. Bu yüzden toggle sadece desktop'ta
+          gösterilir — browser kullanıcıları için kafa karıştırıcı olmaz. */}
+      {isTauri() && (
+        <div className="vs-section">
+          <div className="vs-toggle-row">
+            <div>
+              <div className="vs-label">{t("screenShareAudio")}</div>
+              <div className="vs-desc">{t("screenShareAudioDesc")}</div>
+            </div>
+            <label className="vs-switch">
+              <input
+                type="checkbox"
+                checked={screenShareAudio}
+                onChange={(e) => setScreenShareAudio(e.target.checked)}
+              />
+              <span className="vs-switch-slider" />
+            </label>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

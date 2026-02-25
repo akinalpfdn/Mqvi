@@ -13,15 +13,88 @@
 /// Tray ikonuna sol tık ile pencere geri açılır.
 /// Sağ tık menüsünden "Show mqvi" veya "Quit" seçilebilir.
 /// Discord benzeri davranış: arka planda çalışmaya devam eder (WS, voice vb.)
+///
+/// Audio Capture:
+/// WASAPI per-process audio capture (Windows-only).
+/// Screen share sırasında kendi uygulamamızın sesini hariç tutarak
+/// sistem sesini yakalar → voice chat echo olmaz.
+/// Frontend'den `invoke("start_audio_capture")` / `invoke("stop_audio_capture")`
+/// ile kontrol edilir.
+
+mod audio_capture;
+
+use std::sync::Mutex;
 use tauri::{
     Manager, WindowEvent,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
+/// Tauri managed state: WASAPI audio capture controller.
+///
+/// Mutex ile sarılır çünkü Tauri command'ları farklı thread'lerden çağrılabilir.
+/// AudioCapture içindeki AtomicBool thread-safe olsa da, Tauri State<T> için
+/// Sync trait gerekir — Mutex bunu sağlar.
+struct AudioCaptureState(Mutex<audio_capture::AudioCapture>);
+
+/// Tauri command: WASAPI per-process audio capture başlat.
+///
+/// Frontend'den çağrılır:
+/// ```typescript
+/// await invoke("start_audio_capture");
+/// ```
+///
+/// Background thread'de WASAPI capture loop başlatır.
+/// 48kHz stereo i16 PCM chunk'ları "audio-pcm" event'i ile frontend'e gönderilir.
+/// Hata durumunda string mesaj döner (frontend toast gösterebilir).
+#[tauri::command]
+fn start_audio_capture(
+    app: tauri::AppHandle,
+    state: tauri::State<AudioCaptureState>,
+) -> Result<(), String> {
+    let capture = state
+        .0
+        .lock()
+        .map_err(|e| format!("State lock failed: {}", e))?;
+    capture.start(app)
+}
+
+/// Tauri command: WASAPI audio capture durdur.
+///
+/// Frontend'den çağrılır:
+/// ```typescript
+/// await invoke("stop_audio_capture");
+/// ```
+///
+/// AtomicBool flag'i false yapar → background thread temiz kapanır.
+/// Capture zaten çalışmıyorsa sessizce başarılı döner.
+#[tauri::command]
+fn stop_audio_capture(state: tauri::State<AudioCaptureState>) -> Result<(), String> {
+    let capture = state
+        .0
+        .lock()
+        .map_err(|e| format!("State lock failed: {}", e))?;
+    capture.stop();
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // ─── Managed State ───
+        // AudioCaptureState: WASAPI capture controller.
+        // Tauri command'ları State<AudioCaptureState> parametresi ile erişir.
+        .manage(AudioCaptureState(Mutex::new(
+            audio_capture::AudioCapture::new(),
+        )))
+        // ─── Tauri Commands ───
+        // Frontend'den invoke() ile çağrılabilecek Rust fonksiyonları.
+        // generate_handler!: Compile-time macro — command isimlerini string olarak
+        // kaydeder, type-safe deserialization sağlar.
+        .invoke_handler(tauri::generate_handler![
+            start_audio_capture,
+            stop_audio_capture
+        ])
         .setup(|app| {
             #[cfg(desktop)]
             {

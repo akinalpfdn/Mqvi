@@ -64,6 +64,18 @@ type VoiceSettings = {
    * userVolumes mic sesini, bu ise screen share audio'sunu kontrol eder.
    */
   screenShareVolumes: Record<string, number>;
+  /**
+   * screenShareAudio — Ekran paylaşırken sistem sesini de paylaş.
+   *
+   * true ise getDisplayMedia({ audio: true }) ile sistem/tab sesi yakalanır.
+   * false ise sadece video paylaşılır, ses yakalanmaz.
+   *
+   * Varsayılan: false — çünkü sistem sesi yakalandığında voice chat
+   * katılımcılarının sesleri de ekran paylaşımına karışır (echo).
+   * Discord bunu native per-process audio capture ile çözer,
+   * tarayıcı/WebView ortamında bu mümkün değil.
+   */
+  screenShareAudio: boolean;
 };
 
 /**
@@ -85,6 +97,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   localMutedUsers: {},
   noiseReduction: false,
   screenShareVolumes: {},
+  screenShareAudio: false,
 };
 
 /**
@@ -196,6 +209,18 @@ type VoiceStore = {
   soundsEnabled: boolean;
 
   /**
+   * screenShareAudio — Ekran paylaşırken sistem sesini de paylaş.
+   *
+   * true ise getDisplayMedia({ audio: true }) — ses ve video paylaşılır.
+   * false ise getDisplayMedia({ audio: false }) — sadece video paylaşılır.
+   *
+   * Varsayılan: false — tarayıcı ortamında getDisplayMedia sistem sesini
+   * yakaladığında voice chat sesleri de karışır (echo). Discord bunu
+   * native per-process audio capture ile çözer, biz tarayıcıda çözemeyiz.
+   */
+  screenShareAudio: boolean;
+
+  /**
    * localMutedUsers — Kullanıcı bazlı yerel sessize alma.
    * userId → true ise o kullanıcının sesi sadece bu client'ta kapalıdır.
    * Diğer kullanıcıları etkilemez — tamamen lokal.
@@ -302,6 +327,7 @@ type VoiceStore = {
   setOutputDevice: (deviceId: string) => void;
   setMasterVolume: (value: number) => void;
   setSoundsEnabled: (enabled: boolean) => void;
+  setScreenShareAudio: (enabled: boolean) => void;
   setNoiseReduction: (enabled: boolean) => void;
   setRtt: (rtt: number) => void;
 
@@ -401,6 +427,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   outputDevice: initialSettings.outputDevice,
   masterVolume: initialSettings.masterVolume,
   soundsEnabled: initialSettings.soundsEnabled,
+  screenShareAudio: initialSettings.screenShareAudio,
   localMutedUsers: initialSettings.localMutedUsers,
   noiseReduction: initialSettings.noiseReduction,
   screenShareVolumes: initialSettings.screenShareVolumes,
@@ -508,6 +535,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 
@@ -526,6 +554,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 
@@ -544,6 +573,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 
@@ -563,6 +593,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 
@@ -600,6 +631,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 
@@ -618,6 +650,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 
@@ -636,6 +669,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 
@@ -654,6 +688,26 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
+    });
+  },
+
+  setScreenShareAudio: (enabled) => {
+    set({ screenShareAudio: enabled });
+    const s = get();
+    saveSettings({
+      inputMode: s.inputMode,
+      pttKey: s.pttKey,
+      micSensitivity: s.micSensitivity,
+      userVolumes: s.userVolumes,
+      inputDevice: s.inputDevice,
+      outputDevice: s.outputDevice,
+      masterVolume: s.masterVolume,
+      soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: enabled,
     });
   },
 
@@ -672,6 +726,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: enabled,
       screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 

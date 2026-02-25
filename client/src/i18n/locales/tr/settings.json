@@ -131,6 +131,8 @@
   "masterVolume": "Çıkış Sesi",
   "joinLeaveSounds": "Giriş/Çıkış Sesleri",
   "joinLeaveSoundsDesc": "Biri ses kanalına girip çıktığında ses çal",
+  "screenShareAudio": "Ekran Paylaşımı Sesi",
+  "screenShareAudioDesc": "Ekran paylaşırken sistem sesini paylaş (oyun, müzik). Ses sohbeti otomatik olarak hariç tutulur.",
 
   "selectChannelToEdit": "İzinlerini düzenlemek için bir kanal seçin",
   "selectRoleToEdit": "Override düzenlemek için bir rol seçin",
