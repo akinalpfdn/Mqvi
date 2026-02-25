@@ -40,5 +40,11 @@
   "on": "AÇIK",
   "off": "KAPALI",
   "watchScreenShare": "Yayını izle",
-  "stopWatching": "İzlemeyi bırak"
+  "stopWatching": "İzlemeyi bırak",
+  "screenPickerTitle": "Paylaşılacak ekranı seçin",
+  "screenPickerScreens": "Ekranlar",
+  "screenPickerWindows": "Pencereler",
+  "screenPickerNoSources": "Kullanılabilir kaynak yok",
+  "screenPickerHint": "Paylaşmak için bir ekran veya pencere seçin",
+  "screenPickerShareAudio": "Sesi paylaş"
 }

@@ -40,5 +40,11 @@
   "on": "ON",
   "off": "OFF",
   "watchScreenShare": "Watch screen share",
-  "stopWatching": "Stop watching"
+  "stopWatching": "Stop watching",
+  "screenPickerTitle": "Choose what to share",
+  "screenPickerScreens": "Screens",
+  "screenPickerWindows": "Windows",
+  "screenPickerNoSources": "No sources available",
+  "screenPickerHint": "Select a screen or window to share",
+  "screenPickerShareAudio": "Share audio"
 }

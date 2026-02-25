@@ -133,6 +133,7 @@
   "joinLeaveSoundsDesc": "Biri ses kanalına girip çıktığında ses çal",
   "screenShareAudio": "Ekran Paylaşımı Sesi",
   "screenShareAudioDesc": "Ekran paylaşırken sistem sesini paylaş (oyun, müzik). Ses sohbeti otomatik olarak hariç tutulur.",
+  "screenShareAudioDescBrowser": "Ekran paylaşırken sistem sesini paylaş. Ses kanalında yankıya neden olabilir.",
 
   "selectChannelToEdit": "İzinlerini düzenlemek için bir kanal seçin",
   "selectRoleToEdit": "Override düzenlemek için bir rol seçin",

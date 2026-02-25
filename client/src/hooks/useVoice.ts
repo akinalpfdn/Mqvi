@@ -56,14 +56,31 @@ export function useVoice({
 
   const joinVoice = useCallback(
     async (channelId: string) => {
-      // 1. API'den token al + store state güncelle
+      const currentChannel = useVoiceStore.getState().currentVoiceChannelId;
+
+      // Zaten bu kanaldayız — tekrar katılma.
+      // openTab() zaten mevcut tab'ı focus eder, burada da erken çıkıyoruz.
+      if (currentChannel === channelId) return;
+
+      // Farklı bir kanaldayız — önce ayrıl.
+      // 1. WS voice_leave gönder → backend eski kanaldan çıkar
+      // 2. Store state temizle → currentVoiceChannelId = null
+      // React re-render tetiklenir → AppLayout effect eski voice tab'larını kapatır.
+      // await joinVoiceChannel'daki async break sayesinde React bu re-render'ı
+      // işler → eski tab'lar temizlenir, sonra yeni kanal kurulur.
+      if (currentChannel) {
+        sendVoiceLeave();
+        leaveVoiceChannel();
+      }
+
+      // Yeni kanala katıl: API'den token al + store state güncelle
       const tokenData = await joinVoiceChannel(channelId);
       if (!tokenData) return;
 
-      // 2. WS voice_join event'i gönder (backend in-memory state güncellemesi)
+      // WS voice_join event'i gönder (backend in-memory state güncellemesi)
       sendVoiceJoin(channelId);
     },
-    [joinVoiceChannel, sendVoiceJoin]
+    [joinVoiceChannel, leaveVoiceChannel, sendVoiceJoin, sendVoiceLeave]
   );
 
   const leaveVoice = useCallback(() => {

@@ -4,6 +4,15 @@ Bu dosya Claude Code'un her konuşmada otomatik okuduğu kural setidir.
 **Bu projede "basit tut / over-engineering yapma" varsayılanı GEÇERSİZDİR.**
 Kod her zaman production-grade, scalable ve SOLID uyumlu olmalıdır.
 
+## ⚠️ MUTLAK KURAL — Workaround / Scope Küçültme YASAK
+
+**Bu proje production'dadır.** Aşağıdaki kurallar her zaman geçerlidir:
+
+1. İstenen özellik **tam olarak** implement edilmeli — workaround, çakma çözüm, "şimdilik basit yap sonra ekleriz" YASAK.
+2. Bir özellik başarılamadığında **scope küçültme** veya kullanıcının istediğinden farklı birşey yapma. Sorunun kök nedenini bul ve düzgünce çöz.
+3. Kullanıcı picker istiyorsa picker yapılacak, "auto-select" gibi kısayollar **kullanıcıya sorulmadan** alınmayacak.
+4. Eğer bir şey yapılamıyorsa, kullanıcıya **neden yapılamadığını** açıkla ve **alternatif sor** — kendi başına karar verip farklı bir şey implement etme.
+
 ---
 
 ## Geliştirme Ortamı (Windows)

@@ -294,12 +294,20 @@ export function useWebSocket() {
       // ─── Voice Events ───
       case "voice_state_update": {
         const voiceData = msg.d as VoiceStateUpdateData;
-        useVoiceStore.getState().handleVoiceStateUpdate(voiceData);
+        const voiceState = useVoiceStore.getState();
+        voiceState.handleVoiceStateUpdate(voiceData);
 
-        // Join/Leave sesleri — sadece başka kullanıcıların giriş/çıkışlarında çal.
-        // Kendi join/leave event'imiz için ses çalmayız (zaten biliyoruz).
+        // Join/Leave sesleri:
+        // 1. Aynı kanaldaysak → başkalarının giriş/çıkış sesini duyarız
+        // 2. Kendimizin giriş/çıkışı → her zaman duyarız
+        // Not: Leave'de currentVoiceChannelId zaten null olur (hemen set edilir),
+        // bu yüzden kendi leave'imiz için ayrıca isMe kontrolü gerekir.
         const myUserId = useAuthStore.getState().user?.id;
-        if (voiceData.user_id !== myUserId) {
+        const myChannelId = voiceState.currentVoiceChannelId;
+        const isMe = voiceData.user_id === myUserId;
+        const isSameChannel = myChannelId && myChannelId === voiceData.channel_id;
+
+        if (isSameChannel || isMe) {
           if (voiceData.action === "join") {
             playJoinSound();
           } else if (voiceData.action === "leave") {

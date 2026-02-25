@@ -11,6 +11,7 @@
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useUIStore } from "../../stores/uiStore";
+import { publicAsset } from "../../utils/constants";
 
 function SidebarHeader() {
   const { t } = useTranslation("common");
@@ -20,7 +21,7 @@ function SidebarHeader() {
   return (
     <div className="sb-header">
       <div className="sb-header-brand">
-        <img src="/mqvi-icon.svg" alt="mqvi" className="sb-logo" />
+        <img src={publicAsset("mqvi-icon.svg")} alt="mqvi" className="sb-logo" />
         <span className="sb-brand-name">{t("appName")}</span>
       </div>
 

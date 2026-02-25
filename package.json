@@ -1,11 +1,53 @@
 {
   "private": true,
   "name": "mqvi-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "description": "mqvi desktop application",
+  "author": "akinalpfdn",
+  "main": "dist-electron/main.js",
   "scripts": {
-    "tauri": "tauri"
+    "electron:dev": "concurrently \"npm run dev --prefix client\" \"npx tsc -p electron/tsconfig.json && electron .\"",
+    "electron:build": "npm run build --prefix client && npx tsc -p electron/tsconfig.json && electron-builder",
+    "electron:dist": "npm run electron:build"
+  },
+  "dependencies": {
+    "electron-updater": "^6"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "electron": "^33",
+    "electron-builder": "^25",
+    "concurrently": "^9",
+    "typescript": "~5.9.3"
+  },
+  "build": {
+    "appId": "net.mqvi.app",
+    "productName": "mqvi",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron",
+      "client/dist",
+      "icons"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "icons/mqvi-icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "displayLanguageSelector": true
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "icons/icon.icns"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "akinalpfdn",
+      "repo": "Mqvi"
+    }
   }
 }

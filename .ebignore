@@ -1,0 +1,50 @@
+# electron-builder ignore file
+# Used INSTEAD OF .gitignore for determining what goes into the app.asar
+# We need dist-electron/ and client/dist/ included (they're in .gitignore as build output)
+
+# Backend — not part of desktop app
+server/
+
+# Source files — only dist is needed
+client/src/
+client/public/
+client/node_modules/
+client/package.json
+client/package-lock.json
+client/tsconfig*.json
+client/vite.config.ts
+client/index.html
+client/eslint.config.js
+client/.vite/
+
+# Electron source — only dist-electron is needed
+electron/
+
+# Build tools & config
+deploy/
+docs/
+documents/
+.git/
+.github/
+.vscode/
+node_modules/.cache/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Misc
+*.log
+*.tmp
+coverage/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

@@ -19,12 +19,13 @@ client/.vite/
 client/.tsbuildinfo
 
 # ========================
-# Tauri
+# Electron
 # ========================
-src-tauri/target/
+dist-electron/
+release/
 
 # ========================
-# Root node_modules (Tauri CLI)
+# Root node_modules (Electron + build tools)
 # ========================
 /node_modules/
 /package-lock.json

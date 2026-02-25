@@ -3,14 +3,17 @@
  * No hardcoded values elsewhere — every constant goes here.
  */
 
-// ─── Tauri Detection ───
+// ─── Electron Detection ───
 
 /**
- * Detects if the app is running inside a Tauri v2 desktop webview.
- * Tauri always injects __TAURI_INTERNALS__ into the window object.
+ * Detects if the app is running inside an Electron desktop shell.
+ * Electron preload script injects window.electronAPI via contextBridge.
+ *
+ * Tauri'den geçiş: eski isTauri() → yeni isElectron()
+ * Tauri "__TAURI_INTERNALS__" kullanıyordu, Electron "electronAPI" kullanır.
  */
-export function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export function isElectron(): boolean {
+  return typeof window !== "undefined" && !!window.electronAPI;
 }
 
 // ─── Server URL Resolution ───
@@ -21,17 +24,17 @@ export function isTauri(): boolean {
  * Web mode: Frontend is served by the Go backend (same-origin),
  *           so "" (empty) lets relative paths like /api/... work naturally.
  *
- * Tauri mode: Frontend is served from tauri://localhost (local webview),
- *             so we need the absolute server URL (e.g. "https://mqvi.net").
+ * Electron mode: Frontend is served from file:// (local dist),
+ *                so we need the absolute server URL (e.g. "https://mqvi.net").
  *
  * Resolution order:
  * 1. localStorage("mqvi_server_url") — user's explicit setting
  * 2. VITE_SERVER_URL env var — build-time default
- * 3. "https://mqvi.net" — hardcoded fallback for Tauri
+ * 3. "https://mqvi.net" — hardcoded fallback for Electron
  * 4. "" — same-origin (web mode)
  */
 function resolveServerUrl(): string {
-  if (!isTauri()) return "";
+  if (!isElectron()) return "";
 
   const stored = localStorage.getItem("mqvi_server_url");
   if (stored) return stored.replace(/\/$/, "");
@@ -42,7 +45,7 @@ function resolveServerUrl(): string {
   return "https://mqvi.net";
 }
 
-/** Server base URL — absolute in Tauri mode, empty in web mode */
+/** Server base URL — absolute in Electron mode, empty in web mode */
 export const SERVER_URL = resolveServerUrl();
 
 /** API base URL — e.g. "https://mqvi.net/api" or "/api" */
@@ -56,12 +59,26 @@ export const WS_URL = SERVER_URL
 /**
  * Resolves a relative asset path to an absolute URL.
  * In web mode (same-origin), paths like "/api/uploads/abc.jpg" work as-is.
- * In Tauri mode, we need to prepend the server URL.
+ * In Electron mode, we need to prepend the server URL.
  */
 export function resolveAssetUrl(path: string): string {
   if (!path) return path;
   if (path.startsWith("http") || path.startsWith("data:") || path.startsWith("blob:")) return path;
   return `${SERVER_URL}${path}`;
+}
+
+/**
+ * Vite public dizinindeki asset'lere güvenli referans.
+ *
+ * Web modda base '/' → '/mqvi-icon.svg' (absolute, çalışır)
+ * Electron modda base './' → './mqvi-icon.svg' (relative, file:// ile çalışır)
+ *
+ * Neden gerekli? JSX'teki '/mqvi-icon.svg' literal string'i Vite tarafından
+ * dönüştürülmez (sadece index.html'deki href'ler dönüşür).
+ * Electron'da file:///mqvi-icon.svg → bulunamaz hatası verir.
+ */
+export function publicAsset(filename: string): string {
+  return `${import.meta.env.BASE_URL}${filename}`;
 }
 
 /** WebSocket heartbeat interval (ms) */

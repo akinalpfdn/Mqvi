@@ -46,8 +46,6 @@ import type {
 import { useVoiceStore } from "../../stores/voiceStore";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
-import { isTauri } from "../../utils/constants";
-import type { ProcessAudioCapture } from "../../utils/processAudio";
 
 function VoiceStateManager() {
   const room = useRoomContext();
@@ -106,20 +104,15 @@ function VoiceStateManager() {
     });
   }, [isMuted, localParticipant]);
 
-  // ─── Screen share video senkronizasyonu ───
+  // ─── Screen share senkronizasyonu ───
   // isStreaming değiştiğinde LiveKit'in screen share durumunu güncelle.
   //
-  // ÖNEMLİ: audio HER ZAMAN false — getDisplayMedia audio kullanılmaz.
-  // Sistem sesi yakalama native WASAPI capture ile ayrı bir track olarak
-  // publish edilir (aşağıdaki native audio capture effect'i).
-  //
-  // Neden getDisplayMedia audio kullanılmıyor?
-  // getDisplayMedia({ audio: true }) tüm sistem sesini yakalar — voice chat
-  // katılımcılarının sesleri de stream'e girer → echo. Native WASAPI capture
-  // kendi uygulamamızın sesini hariç tutarak bu sorunu ortadan kaldırır.
+  // Audio: screenShareAudio ayarına göre ses paylaşımı açılır/kapanır.
+  // Electron'da session.setDisplayMediaRequestHandler loopback audio desteği sağlar —
+  // kendi uygulamamızın sesi hariç tutulur, echo olmaz.
+  // Browser'da getDisplayMedia({ audio: true }) kullanılır.
   //
   // Capture options:
-  //   - audio: false — HER ZAMAN. Ses ayrı track olarak yönetilir.
   //   - resolution: 1920x1080 @ 30fps → tarayıcıdan 1080p yakalama
   //   - contentHint: "motion" → encoder'a motion optimization ipucu verir.
   //     "motion" frame rate'i korur (detail yerine smoothness öncelikli) —
@@ -129,118 +122,13 @@ function VoiceStateManager() {
 
     localParticipant
       .setScreenShareEnabled(isStreaming, {
-        audio: false,
+        audio: screenShareAudio,
         resolution: { width: 1920, height: 1080, frameRate: 30 },
         contentHint: "motion",
       })
       .catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
       });
-  }, [isStreaming, localParticipant]);
-
-  // ─── Native WASAPI audio capture (Tauri desktop only) ───
-  // Screen share aktifken ve screenShareAudio açıkken:
-  // 1. ProcessAudioCapture başlat (WASAPI → AudioWorklet → MediaStreamTrack)
-  // 2. Dönen track'i LiveKit'e ScreenShareAudio source olarak publish et
-  //
-  // WASAPI EXCLUDE mode: kendi process tree'mizin ses çıkışını hariç tutar.
-  // → Oyun/müzik sesi yakalanır, voice chat sesi yakalanMAZ — echo olmaz.
-  //
-  // Bu effect screen share video'dan BAĞIMSIZ:
-  // - screenShareAudio toggle edildiğinde video kesilmez
-  // - Sadece audio capture start/stop olur
-  //
-  // Browser'da (isTauri() = false): bu effect hiçbir şey yapmaz.
-  // Audio paylaşımı sadece Tauri desktop'ta desteklenir.
-  const processAudioRef = useRef<ProcessAudioCapture | null>(null);
-  const nativeAudioPubRef = useRef<LocalTrackPublication | null>(null);
-
-  useEffect(() => {
-    if (!initialSyncDone.current) return;
-
-    // Koşullar sağlanmıyorsa effect çalışmaz
-    // isStreaming: ekran paylaşımı aktif mi
-    // screenShareAudio: kullanıcı ses paylaşımını açmış mı (Settings)
-    // isTauri(): Tauri desktop ortamında mıyız (WASAPI sadece burada çalışır)
-    if (!isStreaming || !screenShareAudio || !isTauri()) {
-      return;
-    }
-
-    let cancelled = false;
-
-    async function startNativeCapture() {
-      try {
-        // Dynamic import: processAudio modülü sadece gerçekten gerektiğinde
-        // yüklenir. Browser build'inde bu kod yoluna ulaşılmaz.
-        const { ProcessAudioCapture: CaptureClass } = await import("../../utils/processAudio");
-
-        if (cancelled) return;
-
-        const capture = new CaptureClass();
-        processAudioRef.current = capture;
-
-        // WASAPI capture başlat → AudioWorklet → MediaStreamTrack
-        const audioTrack = await capture.start();
-
-        if (cancelled) {
-          await capture.stop();
-          return;
-        }
-
-        // Track'i LiveKit'e ScreenShareAudio source olarak publish et.
-        // LiveKit diğer katılımcılara bu track'i screen share'in ses kanalı
-        // olarak iletir. Per-user volume (ScreenShareContextMenu) bu source
-        // üzerinden çalışır.
-        const pub = await localParticipant.publishTrack(audioTrack, {
-          source: Track.Source.ScreenShareAudio,
-          name: "native-screen-audio",
-        });
-
-        if (cancelled) {
-          // Race: publish tamamlandı ama effect cleanup oldu
-          if (pub.track) {
-            localParticipant.unpublishTrack(pub.track).catch(() => {});
-          }
-          await capture.stop();
-          return;
-        }
-
-        nativeAudioPubRef.current = pub;
-        console.log("[VoiceStateManager] Native audio capture started — WASAPI EXCLUDE mode");
-      } catch (err) {
-        if (!cancelled) {
-          // Hata durumunda sadece video paylaşılır — graceful degradation.
-          // WASAPI hatası olabilir: eski Windows, cihaz yok, izin sorunu vb.
-          console.error("[VoiceStateManager] Native audio capture failed:", err);
-        }
-      }
-    }
-
-    startNativeCapture();
-
-    // Cleanup: effect yeniden çalıştığında veya component unmount olduğunda
-    // native capture'ı durdur ve track'i unpublish et.
-    return () => {
-      cancelled = true;
-
-      // Unpublish: LiveKit'ten audio track'i kaldır
-      const pub = nativeAudioPubRef.current;
-      if (pub?.track) {
-        localParticipant.unpublishTrack(pub.track).catch((err: unknown) => {
-          console.error("[VoiceStateManager] Failed to unpublish native audio:", err);
-        });
-      }
-      nativeAudioPubRef.current = null;
-
-      // Capture durdur: Rust WASAPI thread + AudioWorklet + IPC listener temizle
-      const capture = processAudioRef.current;
-      if (capture) {
-        capture.stop().catch((err: unknown) => {
-          console.error("[VoiceStateManager] Failed to stop native capture:", err);
-        });
-      }
-      processAudioRef.current = null;
-    };
   }, [isStreaming, screenShareAudio, localParticipant]);
 
   // ─── Bağlantı kurulduğunda ilk senkronizasyon ───

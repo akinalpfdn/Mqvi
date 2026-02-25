@@ -19,6 +19,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import Avatar from "../shared/Avatar";
+import { publicAsset } from "../../utils/constants";
 
 function CollapsedSidebar() {
   const { t } = useTranslation("common");
@@ -48,7 +49,7 @@ function CollapsedSidebar() {
         onClick={expandSidebar}
         title={t("server")}
       >
-        <img src="/mqvi-icon.svg" alt="mqvi" className="sb-collapsed-icon" />
+        <img src={publicAsset("mqvi-icon.svg")} alt="mqvi" className="sb-collapsed-icon" />
         {totalChannelUnread > 0 && (
           <span className="sb-collapsed-badge">{totalChannelUnread}</span>
         )}

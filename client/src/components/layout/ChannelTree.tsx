@@ -38,6 +38,7 @@ import { useMemberStore } from "../../stores/memberStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
+import { resolveAssetUrl } from "../../utils/constants";
 import * as channelApi from "../../api/channels";
 import Avatar from "../shared/Avatar";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
@@ -402,7 +403,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           <Chevron expanded={isSectionExpanded("server")} />
           {server?.icon_url ? (
             <img
-              src={server.icon_url}
+              src={resolveAssetUrl(server.icon_url)}
               alt={server.name}
               className="ch-tree-server-icon"
             />

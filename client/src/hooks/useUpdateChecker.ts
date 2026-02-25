@@ -1,18 +1,20 @@
 /**
- * useUpdateChecker — Tauri auto-update hook.
+ * useUpdateChecker — Electron auto-update hook.
  *
  * Uygulama mount olduğunda arka planda güncelleme kontrolü yapar.
  * Güncelleme varsa state'e kaydeder, UI bunu gösterir.
- * Web modda (isTauri() === false) hiçbir şey yapmaz.
+ * Web modda (isElectron() === false) hiçbir şey yapmaz.
  *
- * Tauri v2 updater plugin kullanır:
- * - check(): GitHub Releases endpoint'inden latest.json çeker
- * - downloadAndInstall(): İmzalı güncellemeyi indirir, doğrular, kurar
- * - relaunch(): Uygulamayı yeni sürümle yeniden başlatır
+ * Electron'un electron-updater kütüphanesini kullanır:
+ * - Main process'te autoUpdater güncelleme kontrol eder
+ * - IPC üzerinden renderer'a event gönderir
+ * - Renderer preload API ile güncelleme indirir/kurar
+ *
+ * Tauri'den geçiş: @tauri-apps/plugin-updater → electron-updater IPC bridge
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { isTauri } from "../utils/constants";
+import { isElectron } from "../utils/constants";
 
 /** Güncelleme durumu */
 type UpdateStatus =
@@ -39,101 +41,90 @@ type UpdateChecker = {
   dismiss: () => void;
 };
 
-/**
- * Tauri plugin'lerini dinamik import eder.
- * Web modda bu modüller mevcut olmaz — catch ile güvenli.
- */
-async function getTauriPlugins() {
-  const [updater, process] = await Promise.all([
-    import("@tauri-apps/plugin-updater"),
-    import("@tauri-apps/plugin-process"),
-  ]);
-  return { check: updater.check, relaunch: process.relaunch };
-}
-
 export function useUpdateChecker(): UpdateChecker {
   const [status, setStatus] = useState<UpdateStatus>("idle");
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  // Uygulama başladığında güncelleme kontrolü
+  // ─── Event listener'ları kur ve güncelleme kontrolü yap ───
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isElectron()) return;
 
-    let cancelled = false;
+    const api = window.electronAPI!;
 
-    async function checkForUpdate() {
+    // Main process'ten gelen güncelleme event'lerini dinle
+    api.onUpdateAvailable((info) => {
+      setUpdate({
+        version: info.version,
+        notes: info.releaseNotes ?? "",
+      });
+      setStatus("available");
+    });
+
+    api.onUpdateProgress((progressInfo) => {
+      setStatus("downloading");
+      setProgress(Math.round(progressInfo.percent));
+    });
+
+    api.onUpdateDownloaded(() => {
+      setProgress(100);
+      setStatus("installing");
+    });
+
+    api.onUpdateError(() => {
+      // Güncelleme hatası — banner gösterme, sessizce idle'a dön.
+      // Kullanıcı manual kontrol ederse installUpdate catch'inde hata gösterilir.
+      setStatus("idle");
+    });
+
+    // 3 saniye bekle — uygulamanın tam yüklenmesini bekle, sonra güncelleme kontrolü
+    const timer = setTimeout(async () => {
       setStatus("checking");
-
       try {
-        const { check } = await getTauriPlugins();
-        const result = await check();
-
-        if (cancelled) return;
-
+        const result = await api.checkUpdate();
         if (result) {
           setUpdate({
             version: result.version,
-            notes: result.body ?? "",
+            notes: result.releaseNotes ?? "",
           });
           setStatus("available");
         } else {
           setStatus("idle");
         }
-      } catch (err) {
-        if (cancelled) return;
-        console.error("[updater] check failed:", err);
-        setError(err instanceof Error ? err.message : "Update check failed");
-        setStatus("error");
+      } catch {
+        // GitHub'da release asset yoksa veya ağ hatası olursa sessizce geç.
+        // Güncelleme kontrolü başarısız olması uygulamayı etkilemez.
+        setStatus("idle");
       }
-    }
-
-    // 3 saniye bekle — uygulamanın tam yüklenmesini bekle
-    const timer = setTimeout(checkForUpdate, 3000);
+    }, 3000);
 
     return () => {
-      cancelled = true;
       clearTimeout(timer);
     };
   }, []);
 
   // Güncellemeyi indir ve kur
   const installUpdate = useCallback(async () => {
-    if (!isTauri()) return;
+    if (!isElectron()) return;
+
+    const api = window.electronAPI!;
 
     try {
-      const { check, relaunch } = await getTauriPlugins();
-      const result = await check();
-
-      if (!result) return;
-
       setStatus("downloading");
       setProgress(0);
 
-      let totalBytes = 0;
-      let downloadedBytes = 0;
+      // İndirme başlat — progress event'leri onUpdateProgress callback'i ile gelir
+      const success = await api.downloadUpdate();
 
-      await result.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            totalBytes = event.data.contentLength ?? 0;
-            break;
-          case "Progress":
-            downloadedBytes += event.data.chunkLength;
-            if (totalBytes > 0) {
-              setProgress(Math.round((downloadedBytes / totalBytes) * 100));
-            }
-            break;
-          case "Finished":
-            setProgress(100);
-            setStatus("installing");
-            break;
-        }
-      });
-
-      // Uygulamayı yeniden başlat
-      await relaunch();
+      if (success) {
+        // İndirme tamamlandı — kurulumu başlat ve uygulamayı yeniden başlat
+        setStatus("installing");
+        await api.installUpdate();
+      } else {
+        setError("Download failed");
+        setStatus("error");
+      }
     } catch (err) {
       console.error("[updater] install failed:", err);
       setError(err instanceof Error ? err.message : "Update failed");

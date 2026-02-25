@@ -12,7 +12,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import { isTauri } from "../../utils/constants";
+import { isElectron } from "../../utils/constants";
 import type { SettingsTab } from "../../stores/settingsStore";
 
 /** Tek bir navigation item tanımı */
@@ -86,8 +86,8 @@ function SettingsNav() {
         </>
       )}
 
-      {/* Connection (Tauri desktop only) */}
-      {isTauri() && (
+      {/* Connection (Electron desktop only) */}
+      {isElectron() && (
         <>
           <div style={{ height: 1, background: "var(--b1)", margin: "8px 0" }} />
           <h3 className="settings-nav-label">{t("connection")}</h3>

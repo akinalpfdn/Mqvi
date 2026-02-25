@@ -8,7 +8,7 @@ import AppLayout from "./components/layout/AppLayout";
 import LandingPage from "./components/landing/LandingPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
-import { isTauri } from "./utils/constants";
+import { isElectron } from "./utils/constants";
 
 /**
  * App — Root component. Routing ve auth initialization burada.
@@ -45,7 +45,7 @@ function App() {
 
   return (
     <>
-      {/* Auto-update banner — Tauri modda güncelleme varsa gösterilir */}
+      {/* Auto-update banner — Electron modda güncelleme varsa gösterilir */}
       {(updater.status === "available" ||
         updater.status === "downloading" ||
         updater.status === "installing" ||
@@ -61,13 +61,13 @@ function App() {
       )}
     <Routes>
       {/* Landing — giriş yapmamış kullanıcılar tanıtım sayfası görür.
-          Tauri desktop'ta onboarding gereksiz → direkt login'e yönlendir. */}
+          Electron desktop'ta onboarding gereksiz → direkt login'e yönlendir. */}
       <Route
         path="/"
         element={
           user ? (
             <Navigate to="/channels" replace />
-          ) : isTauri() ? (
+          ) : isElectron() ? (
             <Navigate to="/login" replace />
           ) : (
             <LandingPage />
@@ -95,7 +95,7 @@ function App() {
       <Route
         path="*"
         element={
-          <Navigate to={user ? "/channels" : isTauri() ? "/login" : "/"} replace />
+          <Navigate to={user ? "/channels" : isElectron() ? "/login" : "/"} replace />
         }
       />
     </Routes>

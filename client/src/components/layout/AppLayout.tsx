@@ -33,6 +33,7 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useP2PCall } from "../../hooks/useP2PCall";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
 import QuickSwitcher from "../shared/QuickSwitcher";
+import ScreenPicker from "../voice/ScreenPicker";
 import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
@@ -215,6 +216,9 @@ function AppLayout() {
 
       {/* P2P gelen arama overlay — z-200, en üst katman */}
       <IncomingCallOverlay />
+
+      {/* Electron screen picker — getDisplayMedia tetiklendiğinde açılır (z-150) */}
+      <ScreenPicker />
     </div>
   );
 }

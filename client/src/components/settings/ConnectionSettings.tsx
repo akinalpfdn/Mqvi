@@ -1,7 +1,7 @@
 /**
- * ConnectionSettings — Server connection settings for Tauri desktop app.
+ * ConnectionSettings — Server connection settings for Electron desktop app.
  *
- * Only rendered in Tauri mode (isTauri() check in SettingsNav).
+ * Only rendered in Electron mode (isElectron() check in SettingsNav).
  * Allows users to change the server URL for self-hosted instances.
  *
  * CSS classes: .settings-section, .settings-section-title, .conn-*
@@ -55,12 +55,11 @@ function ConnectionSettings() {
     const url = serverUrl.replace(/\/$/, "");
     localStorage.setItem("mqvi_server_url", url);
 
-    // Use Tauri's process plugin to relaunch the app
+    // Electron API ile uygulamayı yeniden başlat
     try {
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
+      await window.electronAPI?.relaunch();
     } catch {
-      // Fallback: reload the webview
+      // Fallback: sayfayı yeniden yükle
       window.location.reload();
     }
   }

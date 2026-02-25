@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { useServerStore } from "../../stores/serverStore";
 import { useUIStore } from "../../stores/uiStore";
 import type { Tab, Panel } from "../../stores/uiStore";
+import { publicAsset } from "../../utils/constants";
 
 /**
  * Tüm panellerdeki tab'ları birleştirip flat bir liste döner.
@@ -53,7 +54,7 @@ function TopBar() {
     <div className="top-bar">
       {/* ─── Server Pill ─── */}
       <div className="server-pill">
-        <img src="/mqvi-icon.svg" alt="mqvi" className="sp-avatar" />
+        <img src={publicAsset("mqvi-icon.svg")} alt="mqvi" className="sp-avatar" />
         <span className="sp-name">
           {server?.name ?? "mqvi Server"}
         </span>

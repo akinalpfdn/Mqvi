@@ -1173,7 +1173,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .dm-call-btn:hover { background:var(--bg-h);color:var(--t0); }
 
 /* ═══════════════════════════════════════════════════════
-   CONNECTION SETTINGS (Tauri desktop — server URL config)
+   CONNECTION SETTINGS (Electron desktop — server URL config)
    ═══════════════════════════════════════════════════════ */
 .conn-current { display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg-3);border-radius:8px;margin-bottom:20px;font-size:14px;color:var(--t1); }
 .conn-current-label { color:var(--t2);flex-shrink:0; }
@@ -1202,3 +1202,53 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .conn-result-testing { background:var(--bg-3);color:var(--t2); }
 
 .conn-restart-warning { margin-top:16px;padding:10px 14px;background:var(--yellow-s);color:var(--yellow);border-radius:6px;font-size:13px;line-height:1.4; }
+
+/* ═══════════════════════════════════════
+   SCREEN PICKER MODAL (Electron)
+   ═══════════════════════════════════════ */
+
+/* Overlay — tüm viewport'u kaplar, modal-backdrop ile aynı pattern */
+.sp-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:150;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px); }
+
+/* Card — merkezi container, vpIn animation ile girer */
+.sp-card { width:680px;max-width:90vw;max-height:80vh;background:var(--bg-2);border:1px solid var(--b1);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;animation:vpIn 0.2s ease-out; }
+
+/* Header */
+.sp-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid var(--b1); }
+.sp-title { font-family:var(--f-d);font-size:18px;font-weight:700;color:var(--t0);margin:0; }
+.sp-close { width:32px;height:32px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:background .1s,color .1s; }
+.sp-close:hover { background:var(--bg-h);color:var(--t0); }
+
+/* Tab bar — Screens / Windows */
+.sp-tabs { display:flex;gap:2px;padding:0 20px;border-bottom:1px solid var(--b1); }
+.sp-tab { display:flex;align-items:center;gap:6px;padding:10px 14px;border:none;background:transparent;color:var(--t2);cursor:pointer;font-size:13px;font-weight:500;font-family:var(--f-ui);position:relative;transition:color .1s; }
+.sp-tab:hover { color:var(--t1); }
+.sp-tab-active { color:var(--t0); }
+.sp-tab-active::after { content:'';position:absolute;bottom:0;left:8px;right:8px;height:2px;background:var(--primary);border-radius:1px; }
+.sp-tab-count { font-size:13px;color:var(--t3);font-weight:400; }
+
+/* Source grid — thumbnail kartları */
+.sp-grid { flex:1;overflow-y:auto;padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));gap:12px; }
+.sp-empty { grid-column:1/-1;text-align:center;padding:40px 0;font-size:14px;color:var(--t2); }
+
+/* Source card — tıklanabilir thumbnail */
+.sp-source { display:flex;flex-direction:column;gap:8px;padding:8px;border:2px solid var(--b1);border-radius:10px;background:var(--bg-3);cursor:pointer;transition:border-color .15s,background .15s; }
+.sp-source:hover { border-color:var(--primary);background:var(--bg-4); }
+
+/* Thumbnail wrapper — sabit 16:9 aspect ratio */
+.sp-thumbnail-wrap { width:100%;aspect-ratio:16/9;border-radius:6px;overflow:hidden;background:var(--bg-0); }
+.sp-thumbnail { width:100%;height:100%;object-fit:contain; }
+
+/* Source name — tek satır, truncate */
+.sp-source-name { font-size:13px;color:var(--t1);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px; }
+
+/* Footer — ses toggle */
+.sp-footer { padding:12px 20px;border-top:1px solid var(--b1); }
+.sp-audio-toggle { display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none; }
+.sp-audio-label { display:flex;align-items:center;gap:8px;font-size:14px;color:var(--t1); }
+
+/* Mini switch — footer toggle icin */
+.sp-switch { width:36px;height:20px;border-radius:10px;background:var(--bg-5);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0; }
+.sp-switch-on { background:var(--primary); }
+.sp-switch-thumb { width:16px;height:16px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:transform .2s; }
+.sp-switch-on .sp-switch-thumb { transform:translateX(16px); }

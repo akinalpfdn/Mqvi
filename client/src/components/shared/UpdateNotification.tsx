@@ -3,7 +3,7 @@
  *
  * Güncelleme mevcut olduğunda ekranın üstünde sabit banner gösterir.
  * İndirme sırasında progress bar gösterir.
- * Sadece Tauri modda render edilir (hook isTauri guard'ı var).
+ * Sadece Electron modda render edilir (hook isElectron guard'ı var).
  *
  * CSS: Tema token'ları kullanır (globals.css @theme).
  */
