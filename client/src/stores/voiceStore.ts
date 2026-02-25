@@ -613,6 +613,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
       screenShareVolumes: newVolumes,
+      screenShareAudio: s.screenShareAudio,
     });
   },
 
@@ -802,6 +803,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         localMutedUsers: newLocalMuted,
         noiseReduction: s.noiseReduction,
         screenShareVolumes: s.screenShareVolumes,
+        screenShareAudio: s.screenShareAudio,
       });
     } else {
       // Mute: Mevcut volume'u sakla, volume'u 0'a çek
@@ -830,6 +832,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         localMutedUsers: newLocalMuted,
         noiseReduction: s.noiseReduction,
         screenShareVolumes: s.screenShareVolumes,
+        screenShareAudio: s.screenShareAudio,
       });
     }
   },
