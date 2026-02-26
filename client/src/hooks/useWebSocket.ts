@@ -230,11 +230,28 @@ export function useWebSocket() {
       case "message_update":
         useMessageStore.getState().handleMessageUpdate(msg.d as Message);
         break;
-      case "message_delete":
-        useMessageStore.getState().handleMessageDelete(
-          msg.d as { id: string; channel_id: string }
-        );
+      case "message_delete": {
+        const delData = msg.d as { id: string; channel_id: string };
+
+        // Mesaj silindiğinde okunmamış sayacını azalt:
+        // - Silinen mesaj store'da varsa author'ını kontrol et (kendi mesajımız değilse azalt)
+        // - Store'da yoksa (kanal mesajları yüklenmemiş) yine azalt — unread increment
+        //   store'a mesaj yüklenmeden yapılmıştı, silme de aynı şekilde olmalı
+        const unreadCount = useReadStateStore.getState().unreadCounts[delData.channel_id] ?? 0;
+        if (unreadCount > 0) {
+          const channelMessages = useMessageStore.getState().messagesByChannel[delData.channel_id];
+          const deletedMsg = channelMessages?.find((m) => m.id === delData.id);
+          const myId = useAuthStore.getState().user?.id;
+          // Kendi mesajımız siliniyorsa unread değişmez (kendi mesajlarımız unread'e dahil değildi)
+          const isOwnMessage = deletedMsg?.user_id === myId || deletedMsg?.author?.id === myId;
+          if (!isOwnMessage) {
+            useReadStateStore.getState().decrementUnread(delData.channel_id);
+          }
+        }
+
+        useMessageStore.getState().handleMessageDelete(delData);
         break;
+      }
 
       // ─── Typing ───
       case "typing_start": {
@@ -412,11 +429,25 @@ export function useWebSocket() {
       case "dm_message_update":
         useDMStore.getState().handleDMMessageUpdate(msg.d as DMMessage);
         break;
-      case "dm_message_delete":
-        useDMStore.getState().handleDMMessageDelete(
-          msg.d as { id: string; dm_channel_id: string }
-        );
+      case "dm_message_delete": {
+        const dmDelData = msg.d as { id: string; dm_channel_id: string };
+
+        // DM mesaj silindiğinde okunmamış sayacını azalt
+        const dmState = useDMStore.getState();
+        const dmUnread = dmState.dmUnreadCounts[dmDelData.dm_channel_id] ?? 0;
+        if (dmUnread > 0) {
+          const dmMessages = dmState.messagesByChannel[dmDelData.dm_channel_id];
+          const deletedDMMsg = dmMessages?.find((m) => m.id === dmDelData.id);
+          const myId = useAuthStore.getState().user?.id;
+          const isOwnDM = deletedDMMsg?.user_id === myId;
+          if (!isOwnDM) {
+            dmState.decrementDMUnread(dmDelData.dm_channel_id);
+          }
+        }
+
+        dmState.handleDMMessageDelete(dmDelData);
         break;
+      }
 
       // ─── Channel Permission Events ───
       // Override değişikliğinde kanal görünürlüğü de değişebilir (ViewChannel deny/allow)

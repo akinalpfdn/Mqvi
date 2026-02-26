@@ -46,5 +46,9 @@
   "screenPickerWindows": "Pencereler",
   "screenPickerNoSources": "Kullanılabilir kaynak yok",
   "screenPickerHint": "Paylaşmak için bir ekran veya pencere seçin",
-  "screenPickerShareAudio": "Sesi paylaş"
+  "screenPickerShareAudio": "Sesi paylaş",
+  "pingMeasuring": "Ölçülüyor...",
+  "pingGood": "İyi bağlantı",
+  "pingMedium": "Orta bağlantı",
+  "pingBad": "Zayıf bağlantı"
 }

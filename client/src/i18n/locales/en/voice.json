@@ -46,5 +46,9 @@
   "screenPickerWindows": "Windows",
   "screenPickerNoSources": "No sources available",
   "screenPickerHint": "Select a screen or window to share",
-  "screenPickerShareAudio": "Share audio"
+  "screenPickerShareAudio": "Share audio",
+  "pingMeasuring": "Measuring...",
+  "pingGood": "Good connection",
+  "pingMedium": "Average connection",
+  "pingBad": "Poor connection"
 }

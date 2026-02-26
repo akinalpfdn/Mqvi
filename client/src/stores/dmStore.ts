@@ -46,6 +46,8 @@ type DMState = {
   // ─── Unread ───
   /** DM okunmamış sayacını artır (mesaj başka birinden geldiğinde) */
   incrementDMUnread: (channelId: string) => void;
+  /** DM mesaj silindiğinde okunmamış sayacını azalt (0'ın altına düşmez) */
+  decrementDMUnread: (channelId: string) => void;
   /** DM okunmamış sayacını sıfırla (kanal açıldığında) */
   clearDMUnread: (channelId: string) => void;
   /** Toplam DM okunmamış sayısı */
@@ -165,6 +167,26 @@ export const useDMStore = create<DMState>((set, get) => ({
         [channelId]: (state.dmUnreadCounts[channelId] ?? 0) + 1,
       },
     }));
+  },
+
+  decrementDMUnread: (channelId) => {
+    set((state) => {
+      const current = state.dmUnreadCounts[channelId] ?? 0;
+      if (current <= 0) return state;
+
+      if (current === 1) {
+        const next = { ...state.dmUnreadCounts };
+        delete next[channelId];
+        return { dmUnreadCounts: next };
+      }
+
+      return {
+        dmUnreadCounts: {
+          ...state.dmUnreadCounts,
+          [channelId]: current - 1,
+        },
+      };
+    });
   },
 
   clearDMUnread: (channelId) => {

@@ -256,57 +256,64 @@ function VoiceStateManager() {
   }, [room, localParticipant]);
 
   // ─── RTT (ping) polling ───
-  // LiveKit SignalClient, WebSocket ping/pong ile RTT ölçer.
-  // room.engine.client.rtt → millisecond cinsinden round-trip time.
+  // İki katmanlı RTT ölçümü:
   //
-  // İlk ölçüm gecikmesi: LiveKit sunucusu ping interval'ini join response'ta
-  // belirler (genellikle ~10sn). İlk pongResp gelene kadar rtt=0 olur.
-  // Bu yüzden ilk 15 saniye 1sn aralıkla, sonra 5sn aralıkla poll ederiz.
+  // 1. Signaling RTT: room.engine.client.rtt → LiveKit'in WebSocket ping/pong'u ile ölçülür.
+  //    Sunucu join response'ta pingInterval gönderir, SDK bu aralıkla ping atar.
+  //    pongResp geldiğinde rtt güncellenir. Ancak bazı server versiyonlarında
+  //    sadece legacy "pong" gönderilir (rtt güncellemez), bu durumda değer 0 kalır.
   //
-  // engine ve client @internal olarak işaretli ama public property —
+  // 2. WebRTC Stats RTT (fallback): RTCPeerConnection.getStats() → ICE candidate-pair'dan
+  //    currentRoundTripTime okunur (saniye cinsinden, 1000 ile çarpılır).
+  //    Bu, STUN binding request round-trip'i ile ölçülür ve daha güvenilirdir.
+  //
+  // engine, client, pcManager @internal olarak işaretli ama public property —
   // LiveKit GitHub #1293'te önerilen yaklaşım budur.
   useEffect(() => {
     if (room.state !== ConnectionState.Connected) return;
+    let cancelled = false;
 
-    let gotFirstRtt = false;
-
-    function pollRtt() {
+    async function pollRtt() {
+      if (cancelled) return;
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rtt = (room as any).engine?.client?.rtt as number | undefined;
-        if (typeof rtt === "number" && rtt > 0) {
-          useVoiceStore.getState().setRtt(Math.round(rtt));
-          gotFirstRtt = true;
+        const engine = (room as any).engine;
+
+        // Katman 1: Signaling RTT (hızlı, senkron okuma)
+        const signalRtt = engine?.client?.rtt as number | undefined;
+        if (typeof signalRtt === "number" && signalRtt > 0) {
+          useVoiceStore.getState().setRtt(Math.round(signalRtt));
+          return;
         }
+
+        // Katman 2: WebRTC stats RTT (async, daha güvenilir fallback)
+        const pc = engine?.pcManager?.subscriber?.pc as RTCPeerConnection | undefined;
+        if (!pc) return;
+        const stats = await pc.getStats();
+        if (cancelled) return;
+
+        stats.forEach((report: Record<string, unknown>) => {
+          if (
+            report.type === "candidate-pair" &&
+            report.nominated === true &&
+            typeof report.currentRoundTripTime === "number" &&
+            report.currentRoundTripTime > 0
+          ) {
+            useVoiceStore.getState().setRtt(Math.round((report.currentRoundTripTime as number) * 1000));
+          }
+        });
       } catch {
         // engine/client henüz hazır değilse sessizce geç
       }
     }
 
-    // İlk değer gelene kadar sık poll et (1sn), sonra yavaşlat (5sn)
+    // Hemen bir kez kontrol et, sonra 3sn aralıkla poll et.
     pollRtt();
-    const fastInterval = setInterval(() => {
-      pollRtt();
-      if (gotFirstRtt) {
-        clearInterval(fastInterval);
-        slowIntervalId = setInterval(pollRtt, 5000);
-      }
-    }, 1000);
-
-    let slowIntervalId: ReturnType<typeof setInterval> | null = null;
-
-    // 15sn sonra hâlâ hızlı poll devam ediyorsa yavaşlat
-    const fallbackTimeout = setTimeout(() => {
-      if (!gotFirstRtt) {
-        clearInterval(fastInterval);
-        slowIntervalId = setInterval(pollRtt, 5000);
-      }
-    }, 15000);
+    const interval = setInterval(pollRtt, 3000);
 
     return () => {
-      clearInterval(fastInterval);
-      if (slowIntervalId) clearInterval(slowIntervalId);
-      clearTimeout(fallbackTimeout);
+      cancelled = true;
+      clearInterval(interval);
     };
   }, [room, room.state]);
 

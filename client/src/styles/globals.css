@@ -195,7 +195,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ub-voice-info { display:flex;align-items:center;gap:6px;position:relative;padding:0 10px; }
 .ub-voice-pulse { width:8px;height:8px;background:var(--green);border-radius:999px;animation:pulse 2s ease-in-out infinite;flex-shrink:0; }
 .ub-voice-label { font-size:13px;font-weight:600;color:var(--green);font-family:var(--f-d); }
-/* Ping tooltip — hover'da görünür, voice-info'nun üzerinde */
+/* Ping tooltip — hover ile görünür, position:absolute voice-info'ya relative */
 .ub-ping-tooltip { position:absolute;bottom:calc(100% + 8px);left:0;display:flex;align-items:center;gap:6px;background:var(--bg-1);border:1px solid var(--b1);border-radius:6px;padding:6px 10px;box-shadow:0 4px 12px rgba(0,0,0,0.3);opacity:0;pointer-events:none;transition:opacity 0.15s;white-space:nowrap;z-index:50; }
 .ub-voice-info:hover .ub-ping-tooltip { opacity:1;pointer-events:auto; }
 .ub-ping-dot { width:8px;height:8px;border-radius:999px;flex-shrink:0;background:var(--t3); }

@@ -146,7 +146,7 @@ function UserBar({
           <div className="ub-voice-info">
             <span className="ub-voice-pulse" />
             <span className="ub-voice-label">{t("voiceConnected")}</span>
-            {/* Ping tooltip — hover'da gösterilir */}
+            {/* Ping tooltip — hover ile görünür */}
             {rtt > 0 && (
               <div className="ub-ping-tooltip">
                 <div className={`ub-ping-dot ${pingColor}`} />

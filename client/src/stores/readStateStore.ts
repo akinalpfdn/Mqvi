@@ -26,6 +26,8 @@ type ReadStateState = {
   markAsRead: (channelId: string, lastMessageId: string) => void;
   /** Yeni mesaj geldiğinde okunmamış sayacını artır (aktif kanal değilse) */
   incrementUnread: (channelId: string) => void;
+  /** Mesaj silindiğinde okunmamış sayacını azalt (0'ın altına düşmez) */
+  decrementUnread: (channelId: string) => void;
   /** Bir kanalın okunmamış sayısını sıfırla (sadece local) */
   clearUnread: (channelId: string) => void;
 };
@@ -77,6 +79,27 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
         [channelId]: (state.unreadCounts[channelId] ?? 0) + 1,
       },
     }));
+  },
+
+  decrementUnread: (channelId) => {
+    set((state) => {
+      const current = state.unreadCounts[channelId] ?? 0;
+      if (current <= 0) return state;
+
+      // Sayaç 1 ise tamamen sil (0 tutmak yerine key'i kaldır — badge kaybolsun)
+      if (current === 1) {
+        const next = { ...state.unreadCounts };
+        delete next[channelId];
+        return { unreadCounts: next };
+      }
+
+      return {
+        unreadCounts: {
+          ...state.unreadCounts,
+          [channelId]: current - 1,
+        },
+      };
+    });
   },
 
   clearUnread: (channelId) => {
