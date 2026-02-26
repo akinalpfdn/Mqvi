@@ -37,8 +37,33 @@ function clearTokens(): void {
 /**
  * refreshAccessToken — Süresi dolmuş access token'ı yenilemek için
  * refresh token ile backend'e istek atar.
+ *
+ * Race condition koruması:
+ * Birden fazla istek aynı anda 401 alırsa, hepsi refreshAccessToken() çağırır.
+ * İlk çağrı refresh endpoint'ine gider ve eski refresh token'ı invalidate eder.
+ * Eğer diğer istekler de ayrı ayrı refresh yapsa, eski (artık geçersiz) token'la
+ * giderler → fail → clearTokens() → kullanıcı beklenmedik şekilde logout olur.
+ *
+ * Çözüm: refreshPromise lock. İlk 401 gerçek refresh isteğini başlatır,
+ * sonraki 401'ler aynı promise'i bekler. Refresh tamamlanınca (başarılı veya
+ * başarısız) promise sıfırlanır ve hepsi yeni token'la retry eder.
  */
+let refreshPromise: Promise<boolean> | null = null;
+
 async function refreshAccessToken(): Promise<boolean> {
+  // Zaten bir refresh devam ediyorsa, onu bekle — ikinci istek yapmadan
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = doRefresh();
+  try {
+    return await refreshPromise;
+  } finally {
+    // Tamamlanınca lock'u serbest bırak — sonraki 401'ler yeni refresh başlatabilsin
+    refreshPromise = null;
+  }
+}
+
+async function doRefresh(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 
@@ -159,4 +184,48 @@ export async function apiClient<T>(
   }
 }
 
-export { setTokens, clearTokens, getAccessToken };
+/**
+ * isTokenExpired — JWT access token'ın süresinin dolup dolmadığını kontrol eder.
+ *
+ * JWT yapısı: header.payload.signature (base64 encoded, nokta ile ayrılmış)
+ * Payload içindeki "exp" alanı token'ın geçerlilik bitiş zamanını (Unix timestamp) tutar.
+ *
+ * 10 saniyelik buffer: Token 10 saniye içinde expire olacaksa da "expired" sayılır.
+ * Bu, tam son anda gönderilen isteklerin transport sırasında expire olmasını önler.
+ */
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.exp * 1000 < Date.now() + 10_000;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * ensureFreshToken — Geçerli bir access token olduğundan emin ol.
+ *
+ * WebSocket reconnect'te kullanılır: bağlanmadan önce token'ın expire olup
+ * olmadığını kontrol eder, expire olduysa refresh token ile yeniler.
+ *
+ * HTTP istekleri için bu gerekmez — apiClient zaten 401'de refresh yapar.
+ * Ama WebSocket bağlantısında 401 dönmez, sadece connection reject edilir
+ * ve onclose tetiklenir. Bu da sonsuz reconnect döngüsüne yol açar:
+ * expired token → reject → onclose → reconnect → expired token → ...
+ *
+ * @returns Taze access token veya null (refresh de başarısızsa)
+ */
+async function ensureFreshToken(): Promise<string | null> {
+  const token = getAccessToken();
+  if (!token) return null;
+
+  if (!isTokenExpired(token)) return token;
+
+  // Token expired veya expire olmak üzere — refresh yap
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) return null;
+
+  return getAccessToken();
+}
+
+export { setTokens, clearTokens, getAccessToken, ensureFreshToken };

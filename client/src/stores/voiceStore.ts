@@ -507,8 +507,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       // Deafen açılıyor → mute da açılır (Discord davranışı)
       set({ isDeafened: true, isMuted: true });
     } else {
-      // Deafen kapatılıyor → mute kalır (kullanıcı isterse ayrıca kapatır)
-      set({ isDeafened: false });
+      // Deafen kapatılıyor → mute da açılır (Discord davranışı)
+      set({ isDeafened: false, isMuted: false });
     }
   },
 

@@ -327,7 +327,7 @@ func main() {
 	mux.HandleFunc("POST /api/auth/register", authHandler.Register)
 	mux.HandleFunc("POST /api/auth/login", authHandler.Login)
 	mux.HandleFunc("POST /api/auth/refresh", authHandler.Refresh)
-	mux.HandleFunc("POST /api/auth/logout", authHandler.Logout)
+	mux.Handle("POST /api/auth/logout", authMiddleware.Require(http.HandlerFunc(authHandler.Logout)))
 
 	// Protected endpoint'ler — authMiddleware.Require() sarar
 	mux.Handle("GET /api/users/me", authMiddleware.Require(http.HandlerFunc(authHandler.Me)))

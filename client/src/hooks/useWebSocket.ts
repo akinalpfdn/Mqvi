@@ -27,7 +27,7 @@
  */
 
 import { useEffect, useRef, useCallback } from "react";
-import { getAccessToken } from "../api/client";
+import { getAccessToken, ensureFreshToken } from "../api/client";
 import { useChannelStore } from "../stores/channelStore";
 import { useMessageStore } from "../stores/messageStore";
 import { useMemberStore } from "../stores/memberStore";
@@ -594,9 +594,21 @@ export function useWebSocket() {
      * - myId'yi closure ile yakalar — her effect invocation'ı kendi ID'sini bilir
      * - Reconnect'te aynı myId'yi kullanır — effect scope boyunca tutarlı
      * - useCallback'in stale closure riski yok
+     *
+     * Neden async?
+     * Token expire olmuşsa bağlanmadan ÖNCE refresh etmek gerekir.
+     * WebSocket'te HTTP gibi 401 retry mekanizması yok — bağlantı doğrudan
+     * reddedilir ve onclose tetiklenir. Expire token ile bağlanmak:
+     * expired → reject → onclose → reconnect → expired → sonsuz döngü yaratır.
+     * ensureFreshToken() expire durumunda refresh yapıp taze token döner.
      */
-    function doConnect() {
-      const token = getAccessToken();
+    async function doConnect() {
+      if (activeConnectionIdRef.current !== myId) return;
+
+      // Token expire olduysa refresh yap, taze token al.
+      // ensureFreshToken: expire değilse mevcut token'ı döner (sıfır maliyet),
+      // expire olduysa refreshAccessToken() çağırır (race-safe, promise lock'lu).
+      const token = await ensureFreshToken();
       if (!token || activeConnectionIdRef.current !== myId) return;
 
       // Önceki bağlantıyı ve timer'ları temizle

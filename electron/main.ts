@@ -481,6 +481,27 @@ function setupAutoUpdater(): void {
   });
 }
 
+// ─── Single Instance Lock ───
+// Aynı anda sadece bir mqvi instance'ı çalışabilir.
+// İkinci instance açılmaya çalışınca mevcut pencere öne getirilir,
+// yeni instance kapanır. Bu, tray'de birden fazla ikon oluşmasını önler.
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  // Başka bir instance zaten çalışıyor — bu instance'ı hemen kapat
+  app.quit();
+} else {
+  // Bu birinci (veya tek) instance — ikinci instance denendiğinde
+  // mevcut pencereyi öne getir
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // ─── App Lifecycle ───
 
 app.whenReady().then(() => {
