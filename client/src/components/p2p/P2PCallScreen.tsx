@@ -86,7 +86,7 @@ function P2PCallScreen() {
 
   const isRinging = activeCall?.status === "ringing";
   const isActive = activeCall?.status === "active";
-  const isVideo = activeCall?.call_type === "video";
+  const isScreenSharing = useP2PCallStore((s) => s.isScreenSharing);
 
   const hasRemoteVideo = remoteStream?.getVideoTracks().some((tr) => tr.enabled);
   const hasLocalVideo = localStream?.getVideoTracks().some((tr) => tr.enabled);
@@ -131,17 +131,21 @@ function P2PCallScreen() {
         <div className="p2p-call-screen p2p-active">
           {/* Video grid veya büyük avatar */}
           <div className="p2p-media-area">
-            {isVideo && hasRemoteVideo ? (
+            {hasRemoteVideo ? (
               <>
-                {/* Remote video (büyük) */}
+                {/* Remote video (büyük) — video call veya screen share olabilir.
+                    call_type kontrolü yok: voice call'da screen share açılırsa da
+                    video track gelir — gösterilmeli. */}
                 <video
                   ref={remoteVideoRef}
                   className="p2p-remote-video"
                   autoPlay
                   playsInline
                 />
-                {/* Local video (küçük overlay, sağ alt) */}
-                {hasLocalVideo && isVideoOn && (
+                {/* Local video (küçük overlay, sağ alt) — sadece kamera açıksa göster.
+                    Screen share aktifken local preview gösterilmez (kamera track'i
+                    sender'da replace edilmiş olabilir). */}
+                {hasLocalVideo && isVideoOn && !isScreenSharing && (
                   <video
                     ref={localVideoRef}
                     className="p2p-local-video"

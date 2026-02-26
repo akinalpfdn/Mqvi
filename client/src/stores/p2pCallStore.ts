@@ -177,6 +177,98 @@ async function getMediaStream(callType: P2PCallType): Promise<MediaStream> {
   });
 }
 
+// ─── PeerConnection Factory ───
+
+/**
+ * createPeerConnection — RTCPeerConnection oluşturur ve standart handler'ları bağlar.
+ *
+ * Tek yerde PC oluşturmak critical — eskiden caller (startWebRTC) ve receiver (handleSignal)
+ * ayrı ayrı PC oluşturuyordu, bu race condition'a yol açıyordu.
+ *
+ * Handler'lar:
+ * - onicecandidate: ICE candidate'ları WS üzerinden relay eder
+ * - ontrack: Remote medya geldiğinde remoteStream'i günceller
+ * - onconnectionstatechange: Bağlantı koptuğunda aramayı sonlandırır
+ * - onnegotiationneeded: addTrack sonrası otomatik renegotiation yapar
+ *   (screen share toggle gibi mid-call track değişikliklerinde gerekli)
+ *
+ * @param activeCall — Aktif arama bilgisi (call_id, call_type)
+ * @param sendWS — WS mesaj gönderme fonksiyonu
+ * @param set — Zustand set fonksiyonu
+ * @param get — Zustand get fonksiyonu
+ */
+function createPeerConnection(
+  activeCall: P2PCall,
+  sendWS: (op: string, data?: unknown) => void,
+  set: (partial: Partial<P2PCallStore> | ((state: P2PCallStore) => Partial<P2PCallStore>)) => void,
+  get: () => P2PCallStore,
+): RTCPeerConnection {
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+  // ICE candidate — yeni ağ adresi bulunduğunda karşı tarafa relay et
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      sendWS("p2p_signal", {
+        call_id: activeCall.id,
+        type: "ice-candidate",
+        candidate: event.candidate.toJSON(),
+      });
+    }
+  };
+
+  // Remote medya geldiğinde store'u güncelle
+  pc.ontrack = (event) => {
+    set({ remoteStream: event.streams[0] ?? null });
+  };
+
+  // Bağlantı durumu takibi — koptuğunda aramayı sonlandır
+  pc.onconnectionstatechange = () => {
+    if (
+      pc.connectionState === "disconnected" ||
+      pc.connectionState === "failed" ||
+      pc.connectionState === "closed"
+    ) {
+      console.warn("[p2p] PeerConnection state:", pc.connectionState);
+      const current = get();
+      if (current.activeCall) {
+        current.endCall();
+      }
+    }
+  };
+
+  // onnegotiationneeded — addTrack veya removeTrack sonrası otomatik renegotiation.
+  //
+  // Bu handler ne zaman tetiklenir?
+  // - İlk offer/answer'dan SONRA yeni track eklendiğinde (screen share, video toggle)
+  // - replaceTrack() bunu TETİKLEMEZ (aynı transceiver kullanılır)
+  // - addTrack() bunu TETİKLER (yeni transceiver oluşur)
+  //
+  // Ne yapar?
+  // 1. Yeni SDP offer oluşturur (güncel track listesiyle)
+  // 2. localDescription set eder
+  // 3. Offer'ı WS üzerinden karşı tarafa gönderir
+  // 4. Karşı taraf handleSignal("offer") ile renegotiation answer'ı döner
+  pc.onnegotiationneeded = async () => {
+    try {
+      const call = get().activeCall;
+      if (!call) return;
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      sendWS("p2p_signal", {
+        call_id: call.id,
+        type: "offer",
+        sdp: offer.sdp,
+      });
+    } catch (err) {
+      console.error("[p2p] Renegotiation error:", err);
+    }
+  };
+
+  return pc;
+}
+
 // ─── Store ───
 
 export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
@@ -245,7 +337,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   toggleVideo: () => {
-    const { localStream, isVideoOn, peerConnection, activeCall, _sendWS } = get();
+    const { localStream, isVideoOn, peerConnection, activeCall } = get();
     if (!localStream || !peerConnection || !activeCall) return;
 
     if (isVideoOn) {
@@ -261,30 +353,15 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
         existingVideoTrack.enabled = true;
         set({ isVideoOn: true });
       } else {
-        // Yeni video track al ve PeerConnection'a ekle
+        // Yeni video track al ve PeerConnection'a ekle.
+        // addTrack() onnegotiationneeded event'ini tetikler →
+        // createPeerConnection'daki handler otomatik renegotiation yapar.
         navigator.mediaDevices
           .getUserMedia({ video: true })
           .then((videoStream) => {
             const videoTrack = videoStream.getVideoTracks()[0];
             localStream.addTrack(videoTrack);
-
-            // PeerConnection'a video track ekle
             peerConnection.addTrack(videoTrack, localStream);
-
-            // Renegotiation gerekli — yeni offer oluştur
-            peerConnection
-              .createOffer()
-              .then((offer) => peerConnection.setLocalDescription(offer))
-              .then(() => {
-                if (_sendWS && peerConnection.localDescription) {
-                  _sendWS("p2p_signal", {
-                    call_id: activeCall.id,
-                    type: "offer",
-                    sdp: peerConnection.localDescription.sdp,
-                  });
-                }
-              });
-
             set({ isVideoOn: true });
           })
           .catch((err) => {
@@ -363,73 +440,40 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
         isVideoOn: activeCall.call_type === "video",
       });
 
-      // 2. RTCPeerConnection oluştur
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      // Receiver: Sadece medya stream'i hazırla — PeerConnection'ı handleSignal("offer")
+      // oluşturacak. Neden? Race condition:
+      //   - startWebRTC async (getMediaStream bekliyor)
+      //   - Bu sırada caller'ın offer'ı WS'ten gelebilir
+      //   - Eğer burada PC oluştursak + handleSignal'da da oluşturulsa → çift PC, biri kaybolur
+      //   - En güvenlisi: receiver'da PC oluşturmayı tek yere toplamak (handleSignal)
+      if (!isCaller) {
+        return;
+      }
 
-      // 3. onicecandidate — Yeni ICE candidate bulunduğunda WS üzerinden relay et
-      //
-      // ICE candidate nedir?
-      // Cihazın ağ üzerinden erişilebilir olduğu adres bilgisi (IP:port).
-      // STUN sunucusu ile public adresi öğrenilir, bu candidate karşı tarafa gönderilir.
-      // Her iki taraf da birbirinin candidate'larını deneyerek bağlantı kurar.
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          _sendWS("p2p_signal", {
-            call_id: activeCall.id,
-            type: "ice-candidate",
-            candidate: event.candidate.toJSON(),
-          });
-        }
-      };
+      // 2. Caller: RTCPeerConnection oluştur
+      const pc = createPeerConnection(activeCall, _sendWS, set, get);
 
-      // 4. ontrack — Karşı taraftan medya geldiğinde remote stream'e ekle
-      //
-      // ontrack nedir?
-      // RTCPeerConnection karşı taraftan medya track (ses/video) aldığında tetiklenir.
-      // event.streams[0] karşı tarafın MediaStream'idir — <video> elementine bağlanır.
-      pc.ontrack = (event) => {
-        set({ remoteStream: event.streams[0] ?? null });
-      };
-
-      // 5. onconnectionstatechange — Bağlantı durumu takibi
-      pc.onconnectionstatechange = () => {
-        if (
-          pc.connectionState === "disconnected" ||
-          pc.connectionState === "failed" ||
-          pc.connectionState === "closed"
-        ) {
-          console.warn("[p2p] PeerConnection state:", pc.connectionState);
-          // Bağlantı koptu — arama sonlandır
-          const current = get();
-          if (current.activeCall) {
-            current.endCall();
-          }
-        }
-      };
-
-      // 6. Lokal track'leri PeerConnection'a ekle
+      // 3. Lokal track'leri PeerConnection'a ekle
       for (const track of stream.getTracks()) {
         pc.addTrack(track, stream);
       }
 
       set({ peerConnection: pc });
 
-      // 7. Caller ise → SDP offer oluştur ve relay et
+      // 4. SDP offer oluştur ve relay et
       //
       // SDP Offer/Answer modeli:
       // - Caller "offer" oluşturur (hangi codec'leri, formatları desteklediğini bildirir)
       // - Receiver "answer" oluşturur (desteklediği codec'leri bildirir)
       // - İki taraf ortak codec'te anlaşır → medya akmaya başlar
-      if (isCaller) {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
 
-        _sendWS("p2p_signal", {
-          call_id: activeCall.id,
-          type: "offer",
-          sdp: offer.sdp,
-        });
-      }
+      _sendWS("p2p_signal", {
+        call_id: activeCall.id,
+        type: "offer",
+        sdp: offer.sdp,
+      });
     } catch (err) {
       console.error("[p2p] WebRTC start error:", err);
       get().cleanup();
@@ -558,47 +602,42 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   handleSignal: async (data) => {
-    const { peerConnection, activeCall, _sendWS, localStream } = get();
+    const { peerConnection, activeCall, _sendWS } = get();
 
     switch (data.type) {
       case "offer": {
-        // SDP offer geldi (biz receiver'ız)
-        // PeerConnection yoksa oluştur
+        // SDP offer geldi — iki senaryo:
+        //
+        // A) İlk offer (yeni arama): PC yoksa oluştur, local track ekle, answer döndür.
+        //    Receiver'da PC sadece burada oluşturulur (startWebRTC(false) PC oluşturmaz).
+        //    Bu race condition'ı ortadan kaldırır.
+        //
+        // B) Renegotiation offer (mid-call): PC zaten var (screen share, video toggle).
+        //    Mevcut PC üzerinden yeni remote description set et, yeni answer döndür.
+
         let pc = peerConnection;
+
         if (!pc) {
-          pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+          if (!activeCall || !_sendWS) break;
 
-          pc.onicecandidate = (event) => {
-            if (event.candidate && _sendWS && activeCall) {
-              _sendWS("p2p_signal", {
-                call_id: activeCall.id,
-                type: "ice-candidate",
-                candidate: event.candidate.toJSON(),
-              });
+          pc = createPeerConnection(activeCall, _sendWS, set, get);
+
+          // Local stream'i ekle — startWebRTC(false) tarafından hazırlanmış olmalı.
+          // Race condition koruması: eğer startWebRTC henüz tamamlanmadıysa
+          // (getMediaStream devam ediyorsa) stream null olabilir → burada da al.
+          let stream = get().localStream;
+          if (!stream) {
+            try {
+              stream = await getMediaStream(activeCall.call_type);
+              set({ localStream: stream, isVideoOn: activeCall.call_type === "video" });
+            } catch (err) {
+              console.error("[p2p] Failed to get media in handleSignal:", err);
             }
-          };
+          }
 
-          pc.ontrack = (event) => {
-            set({ remoteStream: event.streams[0] ?? null });
-          };
-
-          pc.onconnectionstatechange = () => {
-            if (
-              pc!.connectionState === "disconnected" ||
-              pc!.connectionState === "failed" ||
-              pc!.connectionState === "closed"
-            ) {
-              const current = get();
-              if (current.activeCall) {
-                current.endCall();
-              }
-            }
-          };
-
-          // Lokal stream'i ekle
-          if (localStream) {
-            for (const track of localStream.getTracks()) {
-              pc.addTrack(track, localStream);
+          if (stream) {
+            for (const track of stream.getTracks()) {
+              pc.addTrack(track, stream);
             }
           }
 
@@ -624,9 +663,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
-        if (_sendWS && activeCall) {
-          _sendWS("p2p_signal", {
-            call_id: activeCall.id,
+        const call = get().activeCall;
+        const ws = get()._sendWS;
+        if (ws && call) {
+          ws("p2p_signal", {
+            call_id: call.id,
             type: "answer",
             sdp: answer.sdp,
           });
