@@ -38,6 +38,9 @@ const VOICE_PERM_DEFS = [
   { bit: Permissions.ConnectVoice, label: "permConnect", desc: "permConnectDesc" },
   { bit: Permissions.Speak, label: "permSpeak", desc: "permSpeakDesc" },
   { bit: Permissions.Stream, label: "permStream", desc: "permStreamDesc" },
+  { bit: Permissions.MoveMembers, label: "permMoveMembers", desc: "permMoveMembersDesc" },
+  { bit: Permissions.MuteMembers, label: "permMuteMembers", desc: "permMuteMembersDesc" },
+  { bit: Permissions.DeafenMembers, label: "permDeafenMembers", desc: "permDeafenMembersDesc" },
 ] as const;
 
 type Props = {

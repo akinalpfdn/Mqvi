@@ -98,6 +98,14 @@ const (
 	OpVoiceLeave            = "voice_leave"                 // Kullanıcı ses kanalından ayrılmak istiyor
 	OpVoiceStateUpdateReq   = "voice_state_update_request"  // Kullanıcı mute/deafen/stream toggle'lıyor
 	OpVoiceAdminStateUpdate = "voice_admin_state_update"    // Admin: kullanıcıyı server mute/deafen
+	OpVoiceMoveUser        = "voice_move_user"             // Yetkili: kullanıcıyı başka voice kanala taşı
+	OpVoiceDisconnectUser  = "voice_disconnect_user"       // Yetkili: kullanıcıyı voice'tan at
+)
+
+// Server → Client voice moderation operasyonları
+const (
+	OpVoiceForceMove       = "voice_force_move"       // Sen başka kanala taşındın
+	OpVoiceForceDisconnect = "voice_force_disconnect"  // Sen voice'tan atıldın
 )
 
 // P2P Call operasyonları — hem Client → Server hem Server → Client
@@ -165,6 +173,25 @@ type VoiceAdminStateUpdateData struct {
 	TargetUserID     string `json:"target_user_id"`
 	IsServerMuted    *bool  `json:"is_server_muted,omitempty"`
 	IsServerDeafened *bool  `json:"is_server_deafened,omitempty"`
+}
+
+// VoiceMoveUserData, voice_move_user event'inin Client → Server payload'ı.
+// Yetkili kullanıcı, hedef kullanıcıyı başka bir voice kanala taşır.
+type VoiceMoveUserData struct {
+	TargetUserID    string `json:"target_user_id"`
+	TargetChannelID string `json:"target_channel_id"`
+}
+
+// VoiceDisconnectUserData, voice_disconnect_user event'inin Client → Server payload'ı.
+// Yetkili kullanıcı, hedef kullanıcıyı voice'tan atar.
+type VoiceDisconnectUserData struct {
+	TargetUserID string `json:"target_user_id"`
+}
+
+// VoiceForceMoveData, voice_force_move event'inin Server → Client payload'ı.
+// Kullanıcı başka bir kanala taşındığında alır — client LiveKit room'u değiştirecek.
+type VoiceForceMoveData struct {
+	ChannelID string `json:"channel_id"` // Taşınılan yeni kanal ID'si
 }
 
 // VoiceStateUpdateBroadcast, voice_state_update event'inin payload'ı (Server → Client).

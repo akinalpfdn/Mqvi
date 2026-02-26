@@ -50,5 +50,9 @@
   "pingMeasuring": "Ölçülüyor...",
   "pingGood": "İyi bağlantı",
   "pingMedium": "Orta bağlantı",
-  "pingBad": "Zayıf bağlantı"
+  "pingBad": "Zayıf bağlantı",
+  "moveToChannel": "Kanala Taşı",
+  "disconnectFromVoice": "Ses Bağlantısını Kes",
+  "youWereMoved": "Başka bir kanala taşındınız",
+  "youWereDisconnected": "Ses bağlantınız kesildi"
 }

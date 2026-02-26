@@ -221,6 +221,16 @@ func main() {
 			log.Printf("[voice] admin state update error admin=%s target=%s: %v", adminUserID, targetUserID, err)
 		}
 	})
+	hub.OnVoiceMoveUser(func(moverUserID, targetUserID, targetChannelID string) {
+		if err := voiceService.MoveUser(context.Background(), moverUserID, targetUserID, targetChannelID); err != nil {
+			log.Printf("[voice] move user error mover=%s target=%s channel=%s: %v", moverUserID, targetUserID, targetChannelID, err)
+		}
+	})
+	hub.OnVoiceDisconnectUser(func(disconnecterUserID, targetUserID string) {
+		if err := voiceService.AdminDisconnectUser(context.Background(), disconnecterUserID, targetUserID); err != nil {
+			log.Printf("[voice] disconnect user error disconnecter=%s target=%s: %v", disconnecterUserID, targetUserID, err)
+		}
+	})
 
 	// P2P Call callback'leri — client P2P arama event'leri gönderdiğinde
 	// Hub bu callback'leri tetikler, callback'ler p2pCallService'i çağırır.

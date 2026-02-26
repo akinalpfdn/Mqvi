@@ -131,6 +131,14 @@ func (c *Client) handleEvent(event Event) {
 		// Admin: kullanıcıyı server mute/deafen
 		c.handleVoiceAdminStateUpdate(event)
 
+	case OpVoiceMoveUser:
+		// Yetkili: kullanıcıyı başka voice kanala taşı
+		c.handleVoiceMoveUser(event)
+
+	case OpVoiceDisconnectUser:
+		// Yetkili: kullanıcıyı voice'tan at
+		c.handleVoiceDisconnectUser(event)
+
 	// ─── P2P Call Event'leri ───
 	case OpP2PCallInitiate:
 		c.handleP2PCallInitiate(event)
@@ -291,6 +299,54 @@ func (c *Client) handleVoiceAdminStateUpdate(event Event) {
 
 	if c.hub.onVoiceAdminStateUpdate != nil {
 		go c.hub.onVoiceAdminStateUpdate(c.userID, data.TargetUserID, data.IsServerMuted, data.IsServerDeafened)
+	}
+}
+
+// handleVoiceMoveUser, voice_move_user event'ini işler.
+// Yetkili kullanıcı { op: "voice_move_user", d: { target_user_id: "abc", target_channel_id: "xyz" } }
+// gönderdiğinde Hub'ın voice move callback'ini tetikler.
+func (c *Client) handleVoiceMoveUser(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data VoiceMoveUserData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.TargetUserID == "" || data.TargetChannelID == "" {
+		log.Printf("[ws] voice_move_user missing fields from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onVoiceMoveUser != nil {
+		go c.hub.onVoiceMoveUser(c.userID, data.TargetUserID, data.TargetChannelID)
+	}
+}
+
+// handleVoiceDisconnectUser, voice_disconnect_user event'ini işler.
+// Yetkili kullanıcı { op: "voice_disconnect_user", d: { target_user_id: "abc" } }
+// gönderdiğinde Hub'ın voice disconnect callback'ini tetikler.
+func (c *Client) handleVoiceDisconnectUser(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data VoiceDisconnectUserData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.TargetUserID == "" {
+		log.Printf("[ws] voice_disconnect_user missing target_user_id from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onVoiceDisconnectUser != nil {
+		go c.hub.onVoiceDisconnectUser(c.userID, data.TargetUserID)
 	}
 }
 

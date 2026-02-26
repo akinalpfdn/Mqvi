@@ -26,7 +26,8 @@ type ChannelPermissionOverride struct {
 // ManageInvites) kanal bazında override edilemez — bunlar global kalır.
 // Sadece kanal içi aktivite yetkileri override edilebilir.
 const ChannelOverridablePerms Permission = PermSendMessages | PermReadMessages |
-	PermManageMessages | PermConnectVoice | PermSpeak | PermStream | PermViewChannel
+	PermManageMessages | PermConnectVoice | PermSpeak | PermStream | PermViewChannel |
+	PermMoveMembers | PermMuteMembers | PermDeafenMembers
 
 // SetOverrideRequest, kanal permission override oluşturma/güncelleme isteği.
 type SetOverrideRequest struct {

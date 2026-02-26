@@ -359,6 +359,33 @@ export function useWebSocket() {
         break;
       }
 
+      // ─── Voice Moderation Events ───
+      case "voice_force_move": {
+        // Yetkili biri bizi başka voice kanala taşıdı.
+        // Mevcut kanaldan ayrılıp yeni kanala otomatik join yapılır.
+        const forceMoveData = msg.d as { channel_id: string };
+        const voiceStore = useVoiceStore.getState();
+
+        // Önce mevcut voice bağlantısını temizle, sonra yeni kanala join et.
+        // joinVoiceChannel API'den yeni LiveKit token alır.
+        voiceStore.leaveVoiceChannel();
+        voiceStore.joinVoiceChannel(forceMoveData.channel_id).then((tokenResp) => {
+          if (tokenResp) {
+            // WS voice_join event'i gönder — server tarafında zaten state güncellendi
+            // ama LiveKit token alınması için voice_join gerekli.
+            sendVoiceJoin(forceMoveData.channel_id);
+          }
+        });
+        break;
+      }
+      case "voice_force_disconnect": {
+        // Yetkili biri bizi voice'tan attı.
+        // Voice bağlantısını temizle — WS voice_leave göndermiyoruz çünkü
+        // server tarafında zaten state temizlendi.
+        useVoiceStore.getState().handleForceDisconnect();
+        break;
+      }
+
       // ─── Pin Events ───
       case "message_pin":
         usePinStore.getState().handleMessagePin(msg.d as PinnedMessage);

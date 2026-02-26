@@ -58,6 +58,14 @@ type PresenceManualUpdateCallback func(userID string, status string)
 // Pointer parametreler: nil = o alan değişmiyor (partial update).
 type VoiceAdminStateUpdateCallback func(adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool)
 
+// VoiceMoveUserCallback, yetkili bir kullanıcı başka bir kullanıcıyı voice kanallar arası taşıdığında çağrılır.
+// moverUserID: İşlemi yapan kullanıcı, targetUserID: Taşınan kullanıcı, targetChannelID: Hedef kanal.
+type VoiceMoveUserCallback func(moverUserID, targetUserID, targetChannelID string)
+
+// VoiceDisconnectUserCallback, yetkili bir kullanıcı başka bir kullanıcıyı voice'tan attığında çağrılır.
+// disconnecterUserID: İşlemi yapan kullanıcı, targetUserID: Atılan kullanıcı.
+type VoiceDisconnectUserCallback func(disconnecterUserID, targetUserID string)
+
 // ─── P2P Call Callback Tipleri ───
 //
 // P2P arama event'leri de aynı callback pattern'ini kullanır.
@@ -148,6 +156,8 @@ type Hub struct {
 	onVoiceLeave            VoiceLeaveCallback
 	onVoiceStateUpdate      VoiceStateUpdateCallback
 	onVoiceAdminStateUpdate VoiceAdminStateUpdateCallback
+	onVoiceMoveUser         VoiceMoveUserCallback
+	onVoiceDisconnectUser   VoiceDisconnectUserCallback
 
 	// Presence manuel güncelleme callback'i — main.go'da set edilir.
 	// Client idle/dnd gibi durum değişikliği gönderdiğinde DB persist için çağrılır.
@@ -449,6 +459,18 @@ func (h *Hub) OnVoiceStateUpdate(cb VoiceStateUpdateCallback) {
 // çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceAdminStateUpdate(cb VoiceAdminStateUpdateCallback) {
 	h.onVoiceAdminStateUpdate = cb
+}
+
+// OnVoiceMoveUser, yetkili kullanıcı başka bir kullanıcıyı voice kanallar arası taşıdığında
+// çağrılacak callback'i ayarlar.
+func (h *Hub) OnVoiceMoveUser(cb VoiceMoveUserCallback) {
+	h.onVoiceMoveUser = cb
+}
+
+// OnVoiceDisconnectUser, yetkili kullanıcı başka bir kullanıcıyı voice'tan attığında
+// çağrılacak callback'i ayarlar.
+func (h *Hub) OnVoiceDisconnectUser(cb VoiceDisconnectUserCallback) {
+	h.onVoiceDisconnectUser = cb
 }
 
 // OnP2PCallInitiate, kullanıcı P2P arama başlattığında çağrılacak callback'i ayarlar.

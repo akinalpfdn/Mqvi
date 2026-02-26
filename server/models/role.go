@@ -32,11 +32,14 @@ const (
 	PermManageInvites                          // 1024 — davet kodu yönetimi
 	PermReadMessages                           // 2048 — kanal mesajlarını okuma (kanal bazlı override için)
 	PermViewChannel                            // 4096 — kanal görünürlüğü (sidebar'da görünme, hem text hem voice)
+	PermMoveMembers                            // 8192 — üyeleri voice kanallar arası taşıma + voice'tan atma
+	PermMuteMembers                            // 16384 — üyeleri sunucu genelinde susturma (server mute)
+	PermDeafenMembers                          // 32768 — üyeleri sunucu genelinde sağırlaştırma (server deafen)
 )
 
-// PermAll, tüm yetkilerin toplamıdır (8191).
+// PermAll, tüm yetkilerin toplamıdır (65535).
 // Yeni permission eklendikçe bu değer güncellenir: (1 << N) - 1
-const PermAll Permission = (1 << 13) - 1
+const PermAll Permission = (1 << 16) - 1
 
 // Has, belirli bir yetkinin var olup olmadığını kontrol eder.
 func (p Permission) Has(perm Permission) bool {

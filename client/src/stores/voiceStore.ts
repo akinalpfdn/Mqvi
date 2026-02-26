@@ -407,6 +407,20 @@ type VoiceStore = {
    * Bağlantı kurulduğunda tüm aktif voice state'leri bulk sync eder.
    */
   handleVoiceStatesSync: (states: VoiceState[]) => void;
+
+  /**
+   * handleForceMove — voice_force_move WS event handler.
+   * Yetkili biri bizi başka voice kanala taşıdığında tetiklenir.
+   * Mevcut kanaldan ayrılıp yeni kanala otomatik join yapılır.
+   */
+  handleForceMove: (channelId: string) => void;
+
+  /**
+   * handleForceDisconnect — voice_force_disconnect WS event handler.
+   * Yetkili biri bizi voice'tan attığında tetiklenir.
+   * Voice bağlantısı temizlenir.
+   */
+  handleForceDisconnect: () => void;
 };
 
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
@@ -924,5 +938,38 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     }
 
     set({ voiceStates: grouped });
+  },
+
+  handleForceMove: (channelId: string) => {
+    // Yetkili biri bizi başka voice kanala taşıdı.
+    // currentVoiceChannelId'yi güncelle — LiveKit bağlantısı VoiceStateManager
+    // tarafından bu state değişikliğine tepki olarak yeniden kurulacak.
+    //
+    // Neden sadece channelId set ediyoruz?
+    // LiveKit token yeni kanal için geçerli değil — joinVoiceChannel API'den
+    // yeni token alır. Bu yüzden önce leaveVoiceChannel() sonra joinVoiceChannel()
+    // akışı gerekir. Ancak bunu burada yapamayız — joinVoiceChannel async API call
+    // yapar ve store action'ından side effect tetiklemek Zustand anti-pattern.
+    //
+    // Çözüm: useWebSocket'teki voice_force_move handler'ı bu akışı yönetir.
+    // Store sadece state'i günceller.
+    set({ currentVoiceChannelId: channelId });
+  },
+
+  handleForceDisconnect: () => {
+    // Yetkili biri bizi voice'tan attı.
+    // leaveVoiceChannel ile aynı temizlik — ancak WS voice_leave event'i
+    // göndermiyoruz çünkü server tarafında zaten state temizlendi.
+    set({
+      currentVoiceChannelId: null,
+      livekitUrl: null,
+      livekitToken: null,
+      isMuted: false,
+      isDeafened: false,
+      isStreaming: false,
+      activeSpeakers: {},
+      watchingScreenShares: {},
+      rtt: 0,
+    });
   },
 }));

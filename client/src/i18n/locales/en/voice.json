@@ -50,5 +50,9 @@
   "pingMeasuring": "Measuring...",
   "pingGood": "Good connection",
   "pingMedium": "Average connection",
-  "pingBad": "Poor connection"
+  "pingBad": "Poor connection",
+  "moveToChannel": "Move to Channel",
+  "disconnectFromVoice": "Disconnect from Voice",
+  "youWereMoved": "You were moved to another channel",
+  "youWereDisconnected": "You were disconnected from voice"
 }

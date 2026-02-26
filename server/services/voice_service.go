@@ -83,10 +83,19 @@ type VoiceService interface {
 	// GetStreamCount, bir kanaldaki aktif ekran paylaşımı sayısını döner.
 	GetStreamCount(channelID string) int
 
-	// AdminUpdateState, bir admin'in başka bir kullanıcıyı server mute/deafen yapmasını sağlar.
-	// Admin yetkisi hedef kullanıcının bulunduğu kanalda kontrol edilir (channel override dahil).
+	// AdminUpdateState, yetkili bir kullanıcının başka bir kullanıcıyı server mute/deafen yapmasını sağlar.
+	// PermMuteMembers veya PermDeafenMembers yetkisi gerektirir (hedef kullanıcının kanalında).
 	// Pointer parametreler: nil ise o alan değiştirilmez (partial update).
 	AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error
+
+	// MoveUser, bir kullanıcıyı mevcut ses kanalından başka bir ses kanalına taşır.
+	// Taşıyan kişinin HER İKİ kanalda da PermMoveMembers yetkisi olmalıdır.
+	MoveUser(ctx context.Context, moverUserID, targetUserID, targetChannelID string) error
+
+	// AdminDisconnectUser, bir kullanıcıyı ses kanalından atar.
+	// Atan kişinin hedef kullanıcının bulunduğu kanalda PermMoveMembers yetkisi olmalıdır.
+	// (Discord'da da Disconnect = Move Members yetkisine bağlıdır.)
+	AdminDisconnectUser(ctx context.Context, disconnecterUserID, targetUserID string) error
 }
 
 // ─── Implementasyon ───
@@ -422,15 +431,15 @@ func (s *voiceService) GetStreamCount(channelID string) int {
 
 // ─── Admin State Update ───
 
-// AdminUpdateState, bir admin'in başka bir kullanıcıyı sunucu genelinde
+// AdminUpdateState, yetkili bir kullanıcının başka bir kullanıcıyı sunucu genelinde
 // susturma (server mute) veya sağırlaştırma (server deafen) yapmasını sağlar.
 //
-// Permission kontrolü: Admin'in hedef kullanıcının bulunduğu ses kanalındaki
-// effective permission'ları hesaplanır (kanal bazlı override'lar dahil).
-// PermAdmin yetkisi gereklidir — yoksa işlem reddedilir.
+// Permission kontrolü:
+// - isServerMuted değiştiriliyorsa → PermMuteMembers gerekli
+// - isServerDeafened değiştiriliyorsa → PermDeafenMembers gerekli
+// Admin yetkisi (PermAdmin) her iki kontrolü de bypass eder (Permission.Has() içindeki check).
 //
 // Partial update: isServerMuted veya isServerDeafened nil ise o alan değiştirilmez.
-// Sadece gönderilen alanlar güncellenir — Discord'un toggle pattern'i ile uyumlu.
 func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error {
 	// 1. Hedef kullanıcı ses kanalında mı?
 	s.mu.Lock()
@@ -441,15 +450,21 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
 	}
 
-	// 2. Admin yetkisi kontrolü — hedef kullanıcının bulunduğu kanalda
-	//    admin'in effective permission'larını hesapla (rol + override).
+	// 2. Granüler yetki kontrolü — hedef kullanıcının bulunduğu kanalda
+	//    effective permission'ları hesapla (rol + kanal override).
 	//    PermAdmin yetkisi her şeyi bypass eder (models.Permission.Has).
 	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, adminUserID, state.ChannelID)
 	if err != nil {
-		return fmt.Errorf("failed to resolve admin permissions: %w", err)
+		return fmt.Errorf("failed to resolve permissions: %w", err)
 	}
-	if !effectivePerms.Has(models.PermAdmin) {
-		return fmt.Errorf("%w: admin permission required", pkg.ErrForbidden)
+
+	// isServerMuted değiştiriliyorsa PermMuteMembers gerekli
+	if isServerMuted != nil && !effectivePerms.Has(models.PermMuteMembers) {
+		return fmt.Errorf("%w: mute members permission required", pkg.ErrForbidden)
+	}
+	// isServerDeafened değiştiriliyorsa PermDeafenMembers gerekli
+	if isServerDeafened != nil && !effectivePerms.Has(models.PermDeafenMembers) {
+		return fmt.Errorf("%w: deafen members permission required", pkg.ErrForbidden)
 	}
 
 	// 3. State güncelle (partial update — nil alanlar dokunulmaz)
@@ -480,5 +495,162 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 
 	log.Printf("[voice] admin %s updated server state for user %s (muted=%v, deafened=%v)",
 		adminUserID, targetUserID, state.IsServerMuted, state.IsServerDeafened)
+	return nil
+}
+
+// ─── Move & Disconnect ───
+
+// MoveUser, bir kullanıcıyı mevcut ses kanalından başka bir ses kanalına taşır.
+//
+// Permission kontrolü:
+// Mover'ın KAYNAK kanalda ve HEDEF kanalda PermMoveMembers yetkisi olmalıdır.
+// Admin yetkisi her ikisini de bypass eder.
+//
+// İşlem sırası:
+// 1. Hedef kullanıcı voice'ta mı?
+// 2. Hedef kanal voice tipinde mi?
+// 3. Kaynak + hedef kanalda PermMoveMembers?
+// 4. State güncelle → leave(eski) + join(yeni) broadcast
+// 5. Hedef kullanıcıya voice_force_move gönder
+func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, targetChannelID string) error {
+	// 1. Hedef kanal voice tipinde mi?
+	channel, err := s.channelGetter.GetByID(ctx, targetChannelID)
+	if err != nil {
+		return fmt.Errorf("%w: target channel not found", pkg.ErrNotFound)
+	}
+	if channel.Type != models.ChannelTypeVoice {
+		return fmt.Errorf("%w: target is not a voice channel", pkg.ErrBadRequest)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 2. Hedef kullanıcı voice'ta mı?
+	state, ok := s.states[targetUserID]
+	if !ok {
+		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
+	}
+
+	sourceChannelID := state.ChannelID
+
+	// Aynı kanala taşımaya gerek yok
+	if sourceChannelID == targetChannelID {
+		return fmt.Errorf("%w: user is already in that channel", pkg.ErrBadRequest)
+	}
+
+	// 3. Mover'ın kaynak kanalda PermMoveMembers yetkisi var mı?
+	sourcePerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, sourceChannelID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve source channel permissions: %w", err)
+	}
+	if !sourcePerms.Has(models.PermMoveMembers) {
+		return fmt.Errorf("%w: move members permission required in source channel", pkg.ErrForbidden)
+	}
+
+	// 4. Mover'ın hedef kanalda PermMoveMembers yetkisi var mı?
+	targetPerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, targetChannelID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve target channel permissions: %w", err)
+	}
+	if !targetPerms.Has(models.PermMoveMembers) {
+		return fmt.Errorf("%w: move members permission required in target channel", pkg.ErrForbidden)
+	}
+
+	// 5. State güncelle — eski kanaldan çık, yeni kanala geç
+	state.ChannelID = targetChannelID
+
+	// 6. Broadcast: leave(eski kanal) + join(yeni kanal)
+	s.hub.BroadcastToAll(ws.Event{
+		Op: ws.OpVoiceStateUpdate,
+		Data: ws.VoiceStateUpdateBroadcast{
+			UserID:           state.UserID,
+			ChannelID:        sourceChannelID,
+			Username:         state.Username,
+			DisplayName:      state.DisplayName,
+			AvatarURL:        state.AvatarURL,
+			IsServerMuted:    state.IsServerMuted,
+			IsServerDeafened: state.IsServerDeafened,
+			Action:           "leave",
+		},
+	})
+	s.hub.BroadcastToAll(ws.Event{
+		Op: ws.OpVoiceStateUpdate,
+		Data: ws.VoiceStateUpdateBroadcast{
+			UserID:           state.UserID,
+			ChannelID:        targetChannelID,
+			Username:         state.Username,
+			DisplayName:      state.DisplayName,
+			AvatarURL:        state.AvatarURL,
+			IsMuted:          state.IsMuted,
+			IsDeafened:       state.IsDeafened,
+			IsStreaming:      state.IsStreaming,
+			IsServerMuted:    state.IsServerMuted,
+			IsServerDeafened: state.IsServerDeafened,
+			Action:           "join",
+		},
+	})
+
+	// 7. Hedef kullanıcıya voice_force_move gönder — client LiveKit room'u değiştirecek
+	s.hub.BroadcastToUser(targetUserID, ws.Event{
+		Op:   ws.OpVoiceForceMove,
+		Data: ws.VoiceForceMoveData{ChannelID: targetChannelID},
+	})
+
+	log.Printf("[voice] user %s moved user %s from channel %s to %s",
+		moverUserID, targetUserID, sourceChannelID, targetChannelID)
+	return nil
+}
+
+// AdminDisconnectUser, bir kullanıcıyı ses kanalından atar (force disconnect).
+//
+// Permission kontrolü:
+// Atan kişinin hedef kullanıcının bulunduğu kanalda PermMoveMembers yetkisi olmalıdır.
+// Discord'da da Disconnect = Move Members yetkisine bağlıdır.
+func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUserID, targetUserID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 1. Hedef kullanıcı voice'ta mı?
+	state, ok := s.states[targetUserID]
+	if !ok {
+		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
+	}
+
+	// 2. Disconnecter'ın o kanalda PermMoveMembers yetkisi var mı?
+	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, disconnecterUserID, state.ChannelID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve permissions: %w", err)
+	}
+	if !effectivePerms.Has(models.PermMoveMembers) {
+		return fmt.Errorf("%w: move members permission required", pkg.ErrForbidden)
+	}
+
+	// 3. State temizle
+	channelID := state.ChannelID
+	username := state.Username
+	displayName := state.DisplayName
+	avatarURL := state.AvatarURL
+	delete(s.states, targetUserID)
+
+	// 4. Broadcast: leave
+	s.hub.BroadcastToAll(ws.Event{
+		Op: ws.OpVoiceStateUpdate,
+		Data: ws.VoiceStateUpdateBroadcast{
+			UserID:      targetUserID,
+			ChannelID:   channelID,
+			Username:    username,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Action:      "leave",
+		},
+	})
+
+	// 5. Hedef kullanıcıya voice_force_disconnect gönder — client LiveKit'ten çıksın
+	s.hub.BroadcastToUser(targetUserID, ws.Event{
+		Op: ws.OpVoiceForceDisconnect,
+	})
+
+	log.Printf("[voice] admin %s disconnected user %s from channel %s",
+		disconnecterUserID, targetUserID, channelID)
 	return nil
 }

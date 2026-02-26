@@ -28,6 +28,9 @@ export const Permissions = {
   ManageInvites: 1024,
   ReadMessages: 2048,
   ViewChannel: 4096,
+  MoveMembers: 8192,
+  MuteMembers: 16384,
+  DeafenMembers: 32768,
 } as const;
 
 /** Permission türü (type-safe) */
@@ -64,7 +67,10 @@ export const ChannelOverridablePerms =
   Permissions.ConnectVoice |
   Permissions.Speak |
   Permissions.Stream |
-  Permissions.ViewChannel;
+  Permissions.ViewChannel |
+  Permissions.MoveMembers |
+  Permissions.MuteMembers |
+  Permissions.DeafenMembers;
 
 /**
  * resolveChannelPermissions — Kanal bazlı effective permissions hesaplar.
@@ -87,8 +93,8 @@ export function resolveChannelPermissions(
 ): number {
   // Admin tüm override'ları bypass eder
   if ((basePermissions & Permissions.Admin) !== 0) {
-    // PermAll = (1 << 13) - 1 = 8191
-    return 8191;
+    // PermAll = (1 << 16) - 1 = 65535
+    return 65535;
   }
 
   // Kullanıcının rollerine ait override'ları filtrele
