@@ -62,6 +62,17 @@ const TYPING_TIMEOUT = 5_000;
 /** Typing timer'ları: `channelId:username` → timeout ID */
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+/**
+ * fetchedChannels — API'den başarıyla mesaj çekilmiş kanalları takip eder.
+ *
+ * Neden ayrı bir Set?
+ * messagesByChannel[channelId] artık WS mesajlarını da buffer'lıyor (fetchMessages
+ * tamamlanmadan gelen mesajlar). Eski cache guard `if (messagesByChannel[channelId]) return`
+ * buffer'lanmış mesajları da "fetched" sanıyordu. Bu Set ile "API'den çekildi" ve
+ * "WS'den buffer'landı" ayrımı net olur.
+ */
+const fetchedChannels = new Set<string>();
+
 export const useMessageStore = create<MessageState>((set, get) => ({
   messagesByChannel: {},
   hasMoreByChannel: {},
@@ -74,26 +85,44 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   /**
    * fetchMessages — Bir kanalın mesajlarını ilk kez yükler.
    * Cache'de varsa tekrar çekmez (kanal değiştirince hızlı geçiş).
+   *
+   * Merge mekanizması: fetchMessages çalışırken WS'den gelen mesajlar
+   * handleMessageCreate tarafından buffer'lanır. API response geldiğinde
+   * buffer'daki mesajlar API sonuçlarıyla merge edilir (duplicate'ler filtrelenir).
    */
   fetchMessages: async (channelId) => {
-    // Cache'de varsa tekrar çekme
-    if (get().messagesByChannel[channelId]) return;
+    // API'den zaten çekilmişse tekrar çekme.
+    // fetchedChannels Set'i kullanılır — messagesByChannel'da WS buffer'ı
+    // olabilir, bu "fetched" anlamına gelmez.
+    if (fetchedChannels.has(channelId)) return;
 
     set({ isLoading: true });
 
     const res = await messageApi.getMessages(channelId, undefined, DEFAULT_MESSAGE_LIMIT);
     if (res.success && res.data) {
-      set((state) => ({
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [channelId]: res.data!.messages,
-        },
-        hasMoreByChannel: {
-          ...state.hasMoreByChannel,
-          [channelId]: res.data!.has_more,
-        },
-        isLoading: false,
-      }));
+      fetchedChannels.add(channelId);
+
+      set((state) => {
+        const apiMessages = res.data!.messages;
+
+        // Fetch sırasında WS'den buffer'lanmış mesajları al.
+        // API response'ta olmayan WS mesajlarını sonuna ekle (daha yeni oldukları için).
+        const buffered = state.messagesByChannel[channelId] ?? [];
+        const apiIds = new Set(apiMessages.map((m) => m.id));
+        const newFromWS = buffered.filter((m) => !apiIds.has(m.id));
+
+        return {
+          messagesByChannel: {
+            ...state.messagesByChannel,
+            [channelId]: [...apiMessages, ...newFromWS],
+          },
+          hasMoreByChannel: {
+            ...state.hasMoreByChannel,
+            [channelId]: res.data!.has_more,
+          },
+          isLoading: false,
+        };
+      });
     } else {
       set({ isLoading: false });
     }
@@ -180,9 +209,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
    */
   handleMessageCreate: (message) => {
     set((state) => {
-      const channelMessages = state.messagesByChannel[message.channel_id];
-      // Kanal henüz yüklenmemişse ekleme — kullanıcı o kanala geçince fetch edecek
-      if (!channelMessages) return state;
+      // Kanal henüz yüklenmemişse bile mesajı buffer'la.
+      // fetchMessages tamamlandığında buffer'daki mesajlarla merge eder.
+      // Eski davranış `if (!channelMessages) return state` idi — bu da fetch
+      // sırasında gelen WS mesajlarının kaybolmasına neden oluyordu.
+      const channelMessages = state.messagesByChannel[message.channel_id] ?? [];
 
       // Duplicate kontrolü (aynı mesaj iki kez gelmesin)
       if (channelMessages.some((m) => m.id === message.id)) return state;

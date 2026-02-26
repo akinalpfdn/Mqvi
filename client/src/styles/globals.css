@@ -226,7 +226,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ub-settings { font-size:16px; }
 
 /* ─── Status Picker Popup ─── */
-.ub-sp { position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:var(--bg-1);border:1px solid var(--b1);border-radius:8px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;animation:ub-sp-in .12s ease-out; }
+.ub-sp { position:absolute;bottom:calc(100% + 6px);left:0;width:300px;background:var(--bg-1);border:1px solid var(--b1);border-radius:8px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;animation:ub-sp-in .12s ease-out; }
 @keyframes ub-sp-in { from { opacity:0;transform:translateY(4px); } to { opacity:1;transform:translateY(0); } }
 .ub-sp-header { padding:6px 8px 4px;font-size:13px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.02em; }
 .ub-sp-divider { height:1px;background:var(--b1);margin:2px 0; }
@@ -496,7 +496,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .member-av-wrap { position:relative;flex-shrink:0; }
 .member-status { position:absolute;bottom:-1px;right:-1px;width:9px;height:9px;border-radius:999px;border:2px solid var(--bg-1); }
 .status-on { background:var(--green); }
-.status-idle { background:var(--primary); }
+.status-idle { background:var(--yellow); }
 .status-dnd { background:var(--red); }
 .status-off { background:var(--t3); }
 .member-name { font-size:13px;font-weight:500;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }

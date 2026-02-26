@@ -47,7 +47,7 @@ import {
   WS_HEARTBEAT_INTERVAL,
   WS_HEARTBEAT_MAX_MISS,
 } from "../utils/constants";
-import { playJoinSound, playLeaveSound } from "../utils/sounds";
+import { playJoinSound, playLeaveSound, playNotificationSound } from "../utils/sounds";
 import type {
   WSMessage,
   Channel,
@@ -187,11 +187,18 @@ export function useWebSocket() {
         // Görme yetkisi kontrolü: channelStore sadece ViewChannel yetkisi olan
         // kanalları içerir (backend filtreler). Mesajın geldiği kanal store'da
         // yoksa kullanıcının o kanalı görme yetkisi yok — mesajı işleme, unread artırma.
-        const visibleChannels = useChannelStore.getState().categories
-          .flatMap((cg) => cg.channels);
-        const isChannelVisible = visibleChannels.some((ch) => ch.id === message.channel_id);
-        if (!isChannelVisible) {
-          break;
+        //
+        // ÖNEMLİ: Sadece categories yüklendiyse kontrol et. Categories boşken
+        // (henüz fetch edilmemiş) tüm mesajlar drop ediliyordu — bu da "typing
+        // görünüyor ama mesaj gelmiyor" bugına neden oluyordu. typing_start'ta
+        // bu kontrol olmadığı için typing geçiyordu ama message_create geçmiyordu.
+        const categories = useChannelStore.getState().categories;
+        if (categories.length > 0) {
+          const visibleChannels = categories.flatMap((cg) => cg.channels);
+          const isChannelVisible = visibleChannels.some((ch) => ch.id === message.channel_id);
+          if (!isChannelVisible) {
+            break;
+          }
         }
 
         useMessageStore.getState().handleMessageCreate(message);
@@ -216,6 +223,7 @@ export function useWebSocket() {
           useReadStateStore.getState().markAsRead(message.channel_id, message.id);
         } else {
           useReadStateStore.getState().incrementUnread(message.channel_id);
+          playNotificationSound();
         }
         break;
       }
@@ -350,8 +358,32 @@ export function useWebSocket() {
           message_id: string;
           channel_id: string;
           reactions: ReactionGroup[];
+          actor_id: string;
+          message_author_id: string;
+          added: boolean;
         };
         useMessageStore.getState().handleReactionUpdate(reactionData);
+
+        // Başkası benim mesajıma reaction ekledi → unread artır
+        if (reactionData.added) {
+          const myId = useAuthStore.getState().user?.id;
+          const isMyMessage = reactionData.message_author_id === myId;
+          const isSelfReaction = reactionData.actor_id === myId;
+
+          if (isMyMessage && !isSelfReaction) {
+            // Aktif olarak bu kanalı görüntülüyorsam unread artırma
+            const uiState = useUIStore.getState();
+            const panel = uiState.panels[uiState.activePanelId];
+            const activeTab = panel?.tabs.find((tab) => tab.id === panel.activeTabId);
+            const isViewingChannel =
+              activeTab?.type === "text" && activeTab?.channelId === reactionData.channel_id;
+
+            if (!isViewingChannel) {
+              useReadStateStore.getState().incrementUnread(reactionData.channel_id);
+              playNotificationSound();
+            }
+          }
+        }
         break;
       }
 
@@ -373,6 +405,7 @@ export function useWebSocket() {
         const activeDMId = dmState.selectedDMId;
         if (dmMsg.dm_channel_id !== activeDMId) {
           dmState.incrementDMUnread(dmMsg.dm_channel_id);
+          playNotificationSound();
         }
         break;
       }

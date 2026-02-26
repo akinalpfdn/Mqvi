@@ -71,8 +71,8 @@ func (s *reactionService) ToggleReaction(ctx context.Context, messageID, userID,
 		return err
 	}
 
-	// 3. Toggle (ekle veya kaldır)
-	_, err = s.reactionRepo.Toggle(ctx, messageID, userID, emoji)
+	// 3. Toggle (ekle veya kaldır) — added true ise reaction eklendi, false ise kaldırıldı
+	added, err := s.reactionRepo.Toggle(ctx, messageID, userID, emoji)
 	if err != nil {
 		return fmt.Errorf("failed to toggle reaction: %w", err)
 	}
@@ -84,12 +84,17 @@ func (s *reactionService) ToggleReaction(ctx context.Context, messageID, userID,
 	}
 
 	// 5. WS broadcast — tüm client'lara reaction güncelleme gönder
+	// actor_id: kim react etti, message_author_id: mesaj sahibi, added: ekleme mi kaldırma mı
+	// Frontend bu bilgiyle "başkası benim mesajıma react ekledi → unread" kararı verir.
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpReactionUpdate,
 		Data: map[string]any{
-			"message_id": messageID,
-			"channel_id": message.ChannelID,
-			"reactions":  reactions,
+			"message_id":        messageID,
+			"channel_id":        message.ChannelID,
+			"reactions":         reactions,
+			"actor_id":          userID,
+			"message_author_id": message.UserID,
+			"added":             added,
 		},
 	})
 

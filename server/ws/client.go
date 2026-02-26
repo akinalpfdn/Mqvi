@@ -167,9 +167,9 @@ func (c *Client) handlePresenceUpdate(event Event) {
 		return
 	}
 
-	// Geçerli status kontrolü
+	// Geçerli status kontrolü — "offline" = invisible (kullanıcı çevrimdışı görünmek istiyor)
 	switch data.Status {
-	case "online", "idle", "dnd":
+	case "online", "idle", "dnd", "offline":
 		// geçerli
 	default:
 		log.Printf("[ws] invalid presence status from user %s: %s", c.userID, data.Status)

@@ -1,5 +1,5 @@
 /**
- * sounds.ts — Kanal giriş/çıkış ve yayın izleme ses efektleri.
+ * sounds.ts — Kanal giriş/çıkış, yayın izleme ve mesaj bildirim ses efektleri.
  *
  * Web Audio API ile runtime'da sentezlenen kısa sesler kullanılır.
  * Fiziksel ses dosyası (mp3) yerine bu yaklaşım:
@@ -7,7 +7,7 @@
  * - Bundle boyutunu artırmaz
  * - Her zaman çalışır (dosya 404 riski yok)
  *
- * İki farklı ses ailesi — birbirinden ayırt edilebilir olması için
+ * Üç farklı ses ailesi — birbirinden ayırt edilebilir olması için
  * farklı dalga tipi ve frekans aralığı kullanır:
  *
  * Voice (sine wave, 200-600Hz — yumuşak, organik):
@@ -18,11 +18,17 @@
  *   Start: Çift yükselen pop 380→500Hz + 500→620Hz, triangle — "bip-bip"
  *   Stop:  Düşen ton 480→320Hz, triangle — "pop-down" (leave'den farklı tını)
  *
+ * Notification (sine wave, 800-1000Hz — kısa, hafif "ding"):
+ *   Mesaj/DM/Reaction bildirimi. Çift kısa sine pop: 800→900Hz + 900→1000Hz.
+ *   Voice seslerinden (200-600Hz) daha yüksek frekans → bildirimlere özgü tını.
+ *   DND modunda çalmaz.
+ *
  * Volume: voiceStore.masterVolume ayarına bağlıdır.
  * Tüm sesler GainNode ile volume kontrol edilir.
  */
 
 import { useVoiceStore } from "../stores/voiceStore";
+import { useAuthStore } from "../stores/authStore";
 
 /**
  * Lazily initialized AudioContext.
@@ -154,4 +160,27 @@ export function playWatchStopSound(): void {
 
   const volume = masterVolume / 100;
   playTone(480, 320, 0.1, volume, "triangle");
+}
+
+/**
+ * playNotificationSound — Mesaj / DM / Reaction bildirim sesi.
+ *
+ * Çift kısa sine pop: 800→900Hz ardından 900→1000Hz.
+ * Voice seslerinden (200-600Hz) daha yüksek frekansta — bildirim tınısı.
+ * Kısa süreli (toplam ~0.14s) ve düşük volume — rahatsız etmez.
+ *
+ * DND ve Invisible modunda çalmaz (kullanıcı rahatsız edilmek istemiyor).
+ * soundsEnabled=false ise de çalmaz.
+ */
+export function playNotificationSound(): void {
+  // DND veya Invisible modunda bildirim sesi çalma
+  const manualStatus = useAuthStore.getState().manualStatus;
+  if (manualStatus === "dnd" || manualStatus === "offline") return;
+
+  const { soundsEnabled, masterVolume } = useVoiceStore.getState();
+  if (!soundsEnabled) return;
+
+  const volume = (masterVolume / 100) * 0.6; // Bildirim sesi biraz daha kısık
+  playTone(800, 900, 0.06, volume);
+  setTimeout(() => playTone(900, 1000, 0.06, volume), 70);
 }
