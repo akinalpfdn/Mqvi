@@ -206,7 +206,15 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ub-voice-btns { display:flex;gap:3px;padding:2px 10px;justify-content:center; }
 
 .ub-main { display:flex;align-items:center;gap:8px;padding:8px 10px; }
-.ub-user { display:flex;align-items:center;gap:8px;flex:1;min-width:0; }
+.ub-user-wrap { position:relative;flex:1;min-width:0; }
+.ub-user { display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer;border-radius:6px;padding:2px 4px;margin:-2px -4px;transition:background .1s; }
+.ub-user:hover { background:var(--bg-h); }
+.ub-avatar-wrap { position:relative;flex-shrink:0; }
+.ub-status-dot { position:absolute;bottom:-1px;right:-1px;width:10px;height:10px;border-radius:999px;border:2px solid var(--bg-ub); }
+.ub-dot-online { background:var(--green); }
+.ub-dot-idle { background:var(--yellow); }
+.ub-dot-dnd { background:var(--red); }
+.ub-dot-offline { background:var(--t3); }
 .ub-info { display:flex;flex-direction:column;min-width:0; }
 .ub-name { font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .ub-status { font-size:13px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
@@ -216,6 +224,24 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ub-end { color:var(--red) !important; }
 .ub-end:hover { background:var(--red-s) !important; }
 .ub-settings { font-size:16px; }
+
+/* ─── Status Picker Popup ─── */
+.ub-sp { position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:var(--bg-1);border:1px solid var(--b1);border-radius:8px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;animation:ub-sp-in .12s ease-out; }
+@keyframes ub-sp-in { from { opacity:0;transform:translateY(4px); } to { opacity:1;transform:translateY(0); } }
+.ub-sp-header { padding:6px 8px 4px;font-size:13px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.02em; }
+.ub-sp-divider { height:1px;background:var(--b1);margin:2px 0; }
+.ub-sp-item { display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;padding:8px;border-radius:6px;cursor:pointer;transition:background .1s;text-align:left; }
+.ub-sp-item:hover { background:var(--bg-h); }
+.ub-sp-item.active { background:var(--primary-s); }
+.ub-sp-dot { width:10px;height:10px;border-radius:999px;flex-shrink:0; }
+.ub-sp-green { background:var(--green); }
+.ub-sp-yellow { background:var(--yellow); }
+.ub-sp-red { background:var(--red); }
+.ub-sp-gray { background:var(--t3); }
+.ub-sp-text { display:flex;flex-direction:column;flex:1;min-width:0; }
+.ub-sp-label { font-size:14px;font-weight:500;color:var(--t0); }
+.ub-sp-desc { font-size:13px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.ub-sp-check { color:var(--primary);flex-shrink:0; }
 /* Noise Reduction toggle row — voice-info ile voice-btns arası */
 .ub-nr-row { display:flex;align-items:center;justify-content:space-between;padding:4px 10px;gap:8px; }
 .ub-nr-label { display:flex;align-items:center;gap:6px;font-size:13px;color:var(--t2); }

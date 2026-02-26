@@ -258,12 +258,17 @@ function VoiceStateManager() {
   // ─── RTT (ping) polling ───
   // LiveKit SignalClient, WebSocket ping/pong ile RTT ölçer.
   // room.engine.client.rtt → millisecond cinsinden round-trip time.
-  // Her 3 saniyede store'a yazılır → UserBar'da gösterilir.
+  //
+  // İlk ölçüm gecikmesi: LiveKit sunucusu ping interval'ini join response'ta
+  // belirler (genellikle ~10sn). İlk pongResp gelene kadar rtt=0 olur.
+  // Bu yüzden ilk 15 saniye 1sn aralıkla, sonra 5sn aralıkla poll ederiz.
   //
   // engine ve client @internal olarak işaretli ama public property —
   // LiveKit GitHub #1293'te önerilen yaklaşım budur.
   useEffect(() => {
     if (room.state !== ConnectionState.Connected) return;
+
+    let gotFirstRtt = false;
 
     function pollRtt() {
       try {
@@ -271,17 +276,38 @@ function VoiceStateManager() {
         const rtt = (room as any).engine?.client?.rtt as number | undefined;
         if (typeof rtt === "number" && rtt > 0) {
           useVoiceStore.getState().setRtt(Math.round(rtt));
+          gotFirstRtt = true;
         }
       } catch {
         // engine/client henüz hazır değilse sessizce geç
       }
     }
 
-    // Hemen bir kez oku
+    // İlk değer gelene kadar sık poll et (1sn), sonra yavaşlat (5sn)
     pollRtt();
+    const fastInterval = setInterval(() => {
+      pollRtt();
+      if (gotFirstRtt) {
+        clearInterval(fastInterval);
+        slowIntervalId = setInterval(pollRtt, 5000);
+      }
+    }, 1000);
 
-    const interval = setInterval(pollRtt, 3000);
-    return () => clearInterval(interval);
+    let slowIntervalId: ReturnType<typeof setInterval> | null = null;
+
+    // 15sn sonra hâlâ hızlı poll devam ediyorsa yavaşlat
+    const fallbackTimeout = setTimeout(() => {
+      if (!gotFirstRtt) {
+        clearInterval(fastInterval);
+        slowIntervalId = setInterval(pollRtt, 5000);
+      }
+    }, 15000);
+
+    return () => {
+      clearInterval(fastInterval);
+      if (slowIntervalId) clearInterval(slowIntervalId);
+      clearTimeout(fallbackTimeout);
+    };
   }, [room, room.state]);
 
   // ─── Speaking detection → store (sidebar için) ───

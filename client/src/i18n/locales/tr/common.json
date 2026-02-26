@@ -84,5 +84,11 @@
   "toggleCamera": "Kamerayı Aç/Kapat",
   "toggleMic": "Mikrofonu Aç/Kapat",
   "callDuration": "Arama Süresi",
-  "connecting": "Bağlanıyor..."
+  "connecting": "Bağlanıyor...",
+  "invisible": "Görünmez",
+  "setStatus": "Durum Ayarla",
+  "onlineDesc": "Diğer kullanıcılara çevrimiçi görünürsün",
+  "idleDesc": "Boşta olarak görünürsün",
+  "dndDesc": "Bildirim almayacaksın",
+  "invisibleDesc": "Diğer kullanıcılara çevrimdışı görünürsün"
 }

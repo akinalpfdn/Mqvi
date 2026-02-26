@@ -17,7 +17,10 @@
 import { create } from "zustand";
 import * as authApi from "../api/auth";
 import { setTokens, clearTokens } from "../api/client";
-import type { User } from "../types";
+import type { User, UserStatus } from "../types";
+
+/** localStorage key — kullanıcının manuel seçtiği presence durumu */
+const MANUAL_STATUS_KEY = "mqvi_manual_status";
 
 /** Store'un state + action tipleri */
 type AuthState = {
@@ -45,6 +48,23 @@ type AuthState = {
    * sadece değişen field'ları günceller. Performans + anında UI yansıması.
    */
   updateUser: (partial: Partial<User>) => void;
+
+  /**
+   * manualStatus — Kullanıcının manuel olarak seçtiği presence durumu.
+   *
+   * "online" seçiliyken idle detection normal çalışır (online ↔ idle).
+   * "dnd", "idle", "offline" (invisible) seçiliyken idle detection devre dışı kalır —
+   * kullanıcının bilinçli tercihi korunur. localStorage'da persist edilir.
+   */
+  manualStatus: UserStatus;
+
+  /**
+   * setManualStatus — Status picker'dan çağrılır.
+   * 1. manualStatus state'ini günceller
+   * 2. localStorage'a persist eder
+   * 3. user.status'u da günceller (anında UI yansıması)
+   */
+  setManualStatus: (status: UserStatus) => void;
 };
 
 /**
@@ -62,6 +82,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: false,
   error: null,
   isInitialized: false,
+  manualStatus: (localStorage.getItem(MANUAL_STATUS_KEY) as UserStatus) || "online",
 
   register: async (username, password, displayName, inviteCode) => {
     set({ isLoading: true, error: null });
@@ -136,4 +157,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     set((state) => ({
       user: state.user ? { ...state.user, ...partial } : null,
     })),
+
+  setManualStatus: (status) => {
+    localStorage.setItem(MANUAL_STATUS_KEY, status);
+    set((state) => ({
+      manualStatus: status,
+      user: state.user ? { ...state.user, status } : null,
+    }));
+  },
 }));

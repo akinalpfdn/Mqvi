@@ -180,6 +180,7 @@ function AppLayout() {
         onToggleDeafen={toggleDeafen}
         onToggleScreenShare={toggleScreenShare}
         onDisconnect={leaveVoice}
+        sendPresenceUpdate={sendPresenceUpdate}
       />
 
       {/* Sağ taraf — TopBar + content area */}

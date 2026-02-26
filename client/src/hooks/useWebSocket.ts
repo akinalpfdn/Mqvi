@@ -27,7 +27,7 @@
  */
 
 import { useEffect, useRef, useCallback } from "react";
-import { getAccessToken, ensureFreshToken } from "../api/client";
+import { ensureFreshToken } from "../api/client";
 import { useChannelStore } from "../stores/channelStore";
 import { useMessageStore } from "../stores/messageStore";
 import { useMemberStore } from "../stores/memberStore";
@@ -183,6 +183,17 @@ export function useWebSocket() {
       // ─── Message Events ───
       case "message_create": {
         const message = msg.d as Message;
+
+        // Görme yetkisi kontrolü: channelStore sadece ViewChannel yetkisi olan
+        // kanalları içerir (backend filtreler). Mesajın geldiği kanal store'da
+        // yoksa kullanıcının o kanalı görme yetkisi yok — mesajı işleme, unread artırma.
+        const visibleChannels = useChannelStore.getState().categories
+          .flatMap((cg) => cg.channels);
+        const isChannelVisible = visibleChannels.some((ch) => ch.id === message.channel_id);
+        if (!isChannelVisible) {
+          break;
+        }
+
         useMessageStore.getState().handleMessageCreate(message);
 
         // Kendi gönderdiğimiz mesajlar için unread artırma.
@@ -194,10 +205,6 @@ export function useWebSocket() {
         }
 
         // Okunmamış sayacı: kullanıcı o kanalı aktif olarak GÖRÜYOR MU?
-        // uiStore'daki aktif tab'ın tipini ve channelId'sini doğrudan kontrol ediyoruz.
-        // Bu yaklaşım selectedDMId'ye bağımlı değildir — tab type "text" ve channelId
-        // eşleşiyorsa kullanıcı o kanalı görüyor demektir. Diğer tüm durumlar
-        // (DM tab, voice tab, farklı kanal) → unread artır.
         const uiState = useUIStore.getState();
         const panel = uiState.panels[uiState.activePanelId];
         const activeTab = panel?.tabs.find((t) => t.id === panel.activeTabId);
@@ -244,6 +251,11 @@ export function useWebSocket() {
       case "presence_update": {
         const data = msg.d as { user_id: string; status: UserStatus };
         useMemberStore.getState().handlePresenceUpdate(data.user_id, data.status);
+        // Kendi presence güncellemesi ise authStore'daki user.status'u da senkronize et
+        const myId = useAuthStore.getState().user?.id;
+        if (data.user_id === myId) {
+          useAuthStore.getState().updateUser({ status: data.status });
+        }
         break;
       }
       case "member_join":

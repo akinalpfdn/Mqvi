@@ -107,7 +107,6 @@ export function useSystemAudioCapture(): SystemAudioCapture {
           // Now listen for PCM data and feed to worklet
           const isFloat = header.formatTag === 3;
           const bytesPerSample = header.bitsPerSample / 8;
-          const channels = header.channels;
 
           api.onCaptureAudioData((data: Uint8Array) => {
             // Convert raw bytes to Float32Array for the worklet

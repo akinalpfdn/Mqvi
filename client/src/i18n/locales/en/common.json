@@ -84,5 +84,11 @@
   "toggleCamera": "Toggle Camera",
   "toggleMic": "Toggle Microphone",
   "callDuration": "Call Duration",
-  "connecting": "Connecting..."
+  "connecting": "Connecting...",
+  "invisible": "Invisible",
+  "setStatus": "Set Status",
+  "onlineDesc": "You will appear online to others",
+  "idleDesc": "You will appear as away",
+  "dndDesc": "You will not receive notifications",
+  "invisibleDesc": "You will appear offline to others"
 }

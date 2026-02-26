@@ -18,6 +18,7 @@ type EventPublisher interface {
 	BroadcastToAll(event Event)
 	BroadcastToAllExcept(excludeUserID string, event Event)
 	BroadcastToUser(userID string, event Event)
+	BroadcastToUsers(userIDs []string, event Event)
 	GetOnlineUserIDs() []string
 	DisconnectUser(userID string)
 }
@@ -269,6 +270,44 @@ func (h *Hub) BroadcastToAll(event Event) {
 			case client.send <- data:
 			default:
 				// Buffer dolu — bu client yavaş, kapat
+				go func(c *Client) { h.unregister <- c }(client)
+			}
+		}
+	}
+}
+
+// BroadcastToUsers, belirli kullanıcı listesine event gönderir.
+// Kanal bazlı yetki filtrelemesinde kullanılır — sadece yetkili kullanıcılar alır.
+func (h *Hub) BroadcastToUsers(userIDs []string, event Event) {
+	if len(userIDs) == 0 {
+		return
+	}
+
+	event.Seq = h.seq.Add(1)
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("[ws] failed to marshal broadcast event: %v", err)
+		return
+	}
+
+	// Hızlı lookup için set oluştur
+	allowed := make(map[string]bool, len(userIDs))
+	for _, id := range userIDs {
+		allowed[id] = true
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for userID, clients := range h.clients {
+		if !allowed[userID] {
+			continue
+		}
+		for client := range clients {
+			select {
+			case client.send <- data:
+			default:
 				go func(c *Client) { h.unregister <- c }(client)
 			}
 		}

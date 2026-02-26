@@ -249,11 +249,32 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 // Multipart mesajlarda dosyalar handler'da yüklenir (service dosya I/O bilmez).
 // Handler önce Create ile mesajı oluşturur, sonra dosyaları yükler,
 // son olarak BroadcastCreate ile attachment'lı mesajı broadcast eder.
+//
+// Güvenlik: Mesaj sadece ViewChannel yetkisi olan kullanıcılara gönderilir.
+// Hub'daki online kullanıcı listesi alınır, her biri için kanal bazlı
+// permission kontrol edilir. Yetkisi olmayana mesaj içeriği bile ulaşmaz.
 func (s *messageService) BroadcastCreate(message *models.Message) {
-	s.hub.BroadcastToAll(ws.Event{
+	event := ws.Event{
 		Op:   ws.OpMessageCreate,
 		Data: message,
-	})
+	}
+
+	// Online kullanıcıları al ve ViewChannel yetkisi olanları filtrele
+	onlineUsers := s.hub.GetOnlineUserIDs()
+	ctx := context.Background()
+	var allowed []string
+
+	for _, userID := range onlineUsers {
+		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, message.ChannelID)
+		if err != nil {
+			continue // Hata durumunda güvenli tarafta kal — gönderme
+		}
+		if perms.Has(models.PermViewChannel) {
+			allowed = append(allowed, userID)
+		}
+	}
+
+	s.hub.BroadcastToUsers(allowed, event)
 }
 
 // Update, bir mesajı düzenler.

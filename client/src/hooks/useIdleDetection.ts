@@ -6,13 +6,14 @@
  * 2. IDLE_TIMEOUT (5dk) boyunca hiçbir event tetiklenmezse "idle" durumuna geçer.
  * 3. Tekrar aktivite algılandığında "online" durumuna döner.
  *
+ * manualStatus desteği:
+ * Kullanıcı status picker'dan manuel bir durum seçtiyse (DND, Idle, Invisible),
+ * idle detection otomatik geçişleri devre dışı bırakır. Sadece "online" modunda
+ * idle ↔ online otomatik geçişi aktiftir.
+ *
  * sendPresenceUpdate fonksiyonu useWebSocket hook'undan gelir.
  * Bu hook sadece "idle" ↔ "online" geçişlerinde WS event gönderir —
  * gereksiz tekrarlı mesaj göndermez.
- *
- * Throttle: Aktivite event'leri çok sık tetiklenir (özellikle mousemove).
- * Her event'te timer sıfırlamak pahalı olmasa da, status zaten "online" iken
- * tekrar sendPresenceUpdate göndermemek önemlidir.
  *
  * Bu hook AppLayout'ta bir kez çağrılır (singleton pattern —
  * useWebSocket ile aynı yaklaşım).
@@ -20,6 +21,7 @@
 
 import { useEffect, useRef } from "react";
 import { IDLE_TIMEOUT, ACTIVITY_EVENTS } from "../utils/constants";
+import { useAuthStore } from "../stores/authStore";
 import type { UserStatus } from "../types";
 
 type UseIdleDetectionParams = {
@@ -46,13 +48,21 @@ export function useIdleDetection({ sendPresenceUpdate }: UseIdleDetectionParams)
      * resetTimer — Her aktivitede çağrılır.
      *
      * 1. Mevcut timer'ı iptal eder (henüz idle olmadıysa yeniden başlat).
-     * 2. Eğer kullanıcı idle durumdaysa → "online" gönder.
-     * 3. Yeni IDLE_TIMEOUT timer'ı başlatır.
+     * 2. manualStatus kontrol eder — "online" dışında bir şey seçilmişse
+     *    otomatik idle/online geçişi yapılmaz.
+     * 3. Eğer kullanıcı idle durumdaysa → "online" gönder.
+     * 4. Yeni IDLE_TIMEOUT timer'ı başlatır.
      */
     function resetTimer() {
       // Mevcut timer'ı temizle
       if (timerRef.current) {
         clearTimeout(timerRef.current);
+      }
+
+      // Manuel durum "online" dışındaysa idle detection devre dışı
+      const manual = useAuthStore.getState().manualStatus;
+      if (manual !== "online") {
+        return;
       }
 
       // Eğer idle durumundayken aktivite algılandıysa → online'a dön
@@ -63,6 +73,11 @@ export function useIdleDetection({ sendPresenceUpdate }: UseIdleDetectionParams)
 
       // Yeni idle timer başlat
       timerRef.current = setTimeout(() => {
+        // Timer tetiklendiğinde tekrar kontrol et (arada değişmiş olabilir)
+        const currentManual = useAuthStore.getState().manualStatus;
+        if (currentManual !== "online") {
+          return;
+        }
         isIdleRef.current = true;
         sendPresenceUpdate("idle");
       }, IDLE_TIMEOUT);

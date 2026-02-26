@@ -1,26 +1,51 @@
 /**
- * UserBar — Sidebar alt kısmı: kullanıcı bilgisi + voice kontrolleri.
+ * UserBar — Sidebar alt kısmı: kullanıcı bilgisi + voice kontrolleri + status picker.
  *
  * VoicePopup'ın TÜM işlevselliğini devralır:
  * - Voice'a bağlıyken: Mic, Deafen, ScreenShare, Disconnect butonları gösterilir
  * - Bağlı değilken: sadece avatar + isim + settings ikonu
  *
+ * Status Picker:
+ * - Kullanıcı avatarına tıklayınca Discord tarzı status seçim popup'ı açılır
+ * - 4 seçenek: Online, Idle, DND, Invisible
+ * - Manuel seçim idle detection'ı override eder (Online hariç)
+ *
  * CSS class'ları: .user-bar, .ub-user, .ub-avatar, .ub-info,
  * .ub-name, .ub-status, .ub-controls, .ub-ctrl, .ub-ctrl.active,
- * .ub-ctrl.ub-end, .ub-settings
+ * .ub-ctrl.ub-end, .ub-settings, .ub-sp-*
  */
 
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import Avatar from "../shared/Avatar";
+import type { UserStatus } from "../../types";
+
+/** Status picker'daki seçenekler — her birinin wire value'su ve i18n key'i */
+const STATUS_OPTIONS: {
+  /** Backend'e gönderilen presence değeri */
+  value: UserStatus;
+  /** i18n label key'i (common namespace) */
+  labelKey: string;
+  /** i18n description key'i */
+  descKey: string;
+  /** CSS renk class'ı */
+  colorClass: string;
+}[] = [
+  { value: "online", labelKey: "online", descKey: "onlineDesc", colorClass: "ub-sp-green" },
+  { value: "idle", labelKey: "idle", descKey: "idleDesc", colorClass: "ub-sp-yellow" },
+  { value: "dnd", labelKey: "dnd", descKey: "dndDesc", colorClass: "ub-sp-red" },
+  { value: "offline", labelKey: "invisible", descKey: "invisibleDesc", colorClass: "ub-sp-gray" },
+];
 
 type UserBarProps = {
   onToggleMute: () => void;
   onToggleDeafen: () => void;
   onToggleScreenShare: () => void;
   onDisconnect: () => void;
+  sendPresenceUpdate: (status: UserStatus) => void;
 };
 
 function UserBar({
@@ -28,9 +53,13 @@ function UserBar({
   onToggleDeafen,
   onToggleScreenShare,
   onDisconnect,
+  sendPresenceUpdate,
 }: UserBarProps) {
   const { t } = useTranslation("voice");
+  const { t: tc } = useTranslation("common");
   const user = useAuthStore((s) => s.user);
+  const manualStatus = useAuthStore((s) => s.manualStatus);
+  const setManualStatus = useAuthStore((s) => s.setManualStatus);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const isMuted = useVoiceStore((s) => s.isMuted);
   const isDeafened = useVoiceStore((s) => s.isDeafened);
@@ -42,8 +71,69 @@ function UserBar({
   const rtt = useVoiceStore((s) => s.rtt);
   const isInVoice = !!currentVoiceChannelId;
 
+  // Status picker popup state
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
   // Ping renk sınıfı — Discord tarzı: yeşil < 100ms, sarı 100-200ms, kırmızı > 200ms
   const pingColor = rtt <= 0 ? "" : rtt < 100 ? "ub-ping-good" : rtt < 200 ? "ub-ping-mid" : "ub-ping-bad";
+
+  /**
+   * Status seçimi handler'ı.
+   * 1. manualStatus'u günceller (localStorage + authStore)
+   * 2. WS üzerinden backend'e gönderir
+   * 3. Picker'ı kapatır
+   */
+  const handleStatusSelect = useCallback(
+    (status: UserStatus) => {
+      setManualStatus(status);
+      sendPresenceUpdate(status);
+      setIsPickerOpen(false);
+    },
+    [setManualStatus, sendPresenceUpdate],
+  );
+
+  // Click-outside: picker dışına tıklanınca kapat
+  useEffect(() => {
+    if (!isPickerOpen) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setIsPickerOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isPickerOpen]);
+
+  // Escape tuşu ile picker'ı kapat
+  useEffect(() => {
+    if (!isPickerOpen) return;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setIsPickerOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isPickerOpen]);
+
+  /**
+   * Avatar üzerindeki status dot renk class'ı.
+   * manualStatus'a göre belirlenir (user.status backend'den gelen değer,
+   * manualStatus kullanıcının bilinçli tercihi).
+   */
+  const statusDotClass =
+    manualStatus === "online"
+      ? "ub-dot-online"
+      : manualStatus === "idle"
+        ? "ub-dot-idle"
+        : manualStatus === "dnd"
+          ? "ub-dot-dnd"
+          : "ub-dot-offline";
 
   if (!user) return null;
 
@@ -138,24 +228,64 @@ function UserBar({
 
       {/* Kullanıcı bilgisi + settings — her zaman altta */}
       <div className="ub-main">
-        <div className="ub-user">
-          <Avatar
-            name={user.display_name || user.username}
-            avatarUrl={user.avatar_url}
-            size={32}
-            isCircle
-          />
-          <div className="ub-info">
-            <span className="ub-name">{user.display_name || user.username}</span>
-            <span className="ub-status">#{user.username}</span>
+        {/* Status picker container — popup pozisyonlaması için relative */}
+        <div className="ub-user-wrap" ref={pickerRef}>
+          <div
+            className="ub-user"
+            onClick={() => setIsPickerOpen((prev) => !prev)}
+            title={tc("setStatus")}
+          >
+            {/* Avatar + status dot overlay */}
+            <div className="ub-avatar-wrap">
+              <Avatar
+                name={user.display_name || user.username}
+                avatarUrl={user.avatar_url}
+                size={32}
+                isCircle
+              />
+              <span className={`ub-status-dot ${statusDotClass}`} />
+            </div>
+            <div className="ub-info">
+              <span className="ub-name">{user.display_name || user.username}</span>
+              <span className="ub-status">#{user.username}</span>
+            </div>
           </div>
+
+          {/* Status Picker Popup — Discord tarzı, yukarı doğru açılır */}
+          {isPickerOpen && (
+            <div className="ub-sp">
+              <div className="ub-sp-header">{tc("setStatus")}</div>
+              <div className="ub-sp-divider" />
+              {STATUS_OPTIONS.map((opt) => {
+                const isActive = manualStatus === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    className={`ub-sp-item${isActive ? " active" : ""}`}
+                    onClick={() => handleStatusSelect(opt.value)}
+                  >
+                    <span className={`ub-sp-dot ${opt.colorClass}`} />
+                    <div className="ub-sp-text">
+                      <span className="ub-sp-label">{tc(opt.labelKey)}</span>
+                      <span className="ub-sp-desc">{tc(opt.descKey)}</span>
+                    </div>
+                    {isActive && (
+                      <svg className="ub-sp-check" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Settings — her zaman görünür */}
         <button
           className="ub-ctrl ub-settings"
           onClick={() => openSettings("profile")}
-          title="Settings"
+          title={tc("settings")}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm8.3-3.7a1.5 1.5 0 0 1 .3 1.7l-.9 1.5a1.5 1.5 0 0 1-1.6.7l-1.1-.2a7 7 0 0 1-1.2.7l-.3 1.1a1.5 1.5 0 0 1-1.4 1h-1.8a1.5 1.5 0 0 1-1.4-1l-.3-1.1a7 7 0 0 1-1.2-.7l-1.1.2a1.5 1.5 0 0 1-1.6-.7l-.9-1.5a1.5 1.5 0 0 1 .3-1.7l.8-.9V10a7 7 0 0 1 0-1.4l-.8-.9a1.5 1.5 0 0 1-.3-1.7l.9-1.5a1.5 1.5 0 0 1 1.6-.7l1.1.2a7 7 0 0 1 1.2-.7l.3-1.1a1.5 1.5 0 0 1 1.4-1h1.8a1.5 1.5 0 0 1 1.4 1l.3 1.1a7 7 0 0 1 1.2.7l1.1-.2a1.5 1.5 0 0 1 1.6.7l.9 1.5a1.5 1.5 0 0 1-.3 1.7l-.8.9a7 7 0 0 1 0 1.4l.8.9z" />
