@@ -1,49 +1,50 @@
 /**
  * DMChat — DM sohbet görünümü.
  *
- * Server kanal sohbetine benzer ama DM store'dan veri çeker.
- * PanelView'de bir tab olarak açılır (type: "dm").
+ * Artık shared component'lar (MessageList, MessageInput, TypingIndicator)
+ * DMChatProvider üzerinden ChatContext ile çalışıyor.
+ * Eskiden monolitik bir component'ti — tüm mesaj rendering, input,
+ * edit/delete burada inline yapılıyordu.
  *
- * CSS class'ları: Server ChatArea'dan miras — .chat-area, .message-list, .msg-*
+ * Channel ChatArea ile aynı özellik seti:
+ * - Reply (ReplyBar + referenced message preview)
+ * - Reactions (EmojiPicker + reaction buttons)
+ * - File upload (multipart/form-data)
+ * - Pin (pin/unpin + DM pinned messages panel)
+ * - Search (DM FTS5 search panel)
+ * - Typing indicator
+ * - Auto-focus after send (input focus bug fix)
+ *
+ * CSS class'ları: Server ChatArea'dan miras — .chat-area, .dm-header, vb.
  */
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
-import { useAuthStore } from "../../stores/authStore";
+import DMChatProvider from "./DMChatProvider";
+import MessageList from "../chat/MessageList";
+import MessageInput from "../chat/MessageInput";
+import TypingIndicator from "../chat/TypingIndicator";
+import DMPinnedMessages from "./DMPinnedMessages";
+import DMSearchPanel from "./DMSearchPanel";
 import Avatar from "../shared/Avatar";
-import type { DMMessage } from "../../types";
 
 type DMChatProps = {
   channelId: string;
+  sendDMTyping: (dmChannelId: string) => void;
 };
 
-function DMChat({ channelId }: DMChatProps) {
+function DMChat({ channelId, sendDMTyping }: DMChatProps) {
   const { t } = useTranslation("chat");
-  const currentUser = useAuthStore((s) => s.user);
-  const fetchMessages = useDMStore((s) => s.fetchMessages);
-  const messages = useDMStore((s) => s.messagesByChannel[channelId] ?? EMPTY_MESSAGES);
-  const isLoadingMessages = useDMStore((s) => s.isLoadingMessages);
-  const sendMessage = useDMStore((s) => s.sendMessage);
-  const editMessage = useDMStore((s) => s.editMessage);
-  const deleteMessage = useDMStore((s) => s.deleteMessage);
   const channels = useDMStore((s) => s.channels);
   const selectDM = useDMStore((s) => s.selectDM);
   const clearDMUnread = useDMStore((s) => s.clearDMUnread);
 
-  const [content, setContent] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showPins, setShowPins] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   const otherUser = channels.find((ch) => ch.id === channelId)?.other_user;
-
-  // Mesajları fetch et
-  useEffect(() => {
-    fetchMessages(channelId);
-  }, [channelId, fetchMessages]);
+  const channelName = otherUser?.display_name ?? otherUser?.username ?? "DM";
 
   // DM tab açıldığında: selectedDMId güncelle + unread sıfırla
   useEffect(() => {
@@ -54,178 +55,84 @@ function DMChat({ channelId }: DMChatProps) {
     };
   }, [channelId, selectDM, clearDMUnread]);
 
-  // Yeni mesaj geldiğinde en alta scroll
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  /** Pin paneli aç/kapa toggle */
+  const handleTogglePins = useCallback(() => {
+    setShowPins((prev) => !prev);
+  }, []);
 
-  /** Mesaj gönder */
-  const handleSend = useCallback(async () => {
-    if (!content.trim() || isSending) return;
-    setIsSending(true);
-    const success = await sendMessage(channelId, content.trim());
-    if (success) {
-      setContent("");
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-      }
-    }
-    setIsSending(false);
-  }, [channelId, content, isSending, sendMessage]);
-
-  /** Klavye — Enter gönder */
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }
-
-  /** Textarea auto-resize */
-  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setContent(e.target.value);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
-    }
-  }
-
-  /** Edit kaydet */
-  async function handleEditSave(msgId: string) {
-    if (editContent.trim()) {
-      await editMessage(msgId, editContent.trim());
-    }
-    setEditingId(null);
-  }
-
-  /** Zaman formatı */
-  function formatTime(dateStr: string): string {
-    return new Date(dateStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-
-  /** İki mesajın aynı gruba ait olup olmadığını kontrol et */
-  function isSameGroup(prev: DMMessage | undefined, curr: DMMessage): boolean {
-    if (!prev) return false;
-    if (prev.user_id !== curr.user_id) return false;
-    const diff = new Date(curr.created_at).getTime() - new Date(prev.created_at).getTime();
-    return diff < 5 * 60 * 1000; // 5 dakika içindeyse grupla
-  }
-
-  if (isLoadingMessages && messages.length === 0) {
-    return <div className="chat-area"><div className="dm-loading">{t("loading", { ns: "common" })}</div></div>;
-  }
+  /** Arama paneli aç/kapa toggle */
+  const handleToggleSearch = useCallback(() => {
+    setShowSearch((prev) => !prev);
+  }, []);
 
   return (
-    <div className="chat-area">
-      {/* DM Header */}
-      <div className="dm-header">
-        <Avatar
-          name={otherUser?.display_name ?? otherUser?.username ?? "?"}
-          avatarUrl={otherUser?.avatar_url ?? undefined}
-          size={24}
-        />
-        <span className="dm-header-name">
-          {otherUser?.display_name ?? otherUser?.username ?? "DM"}
-        </span>
-      </div>
-
-      {/* Message list — messages-scroll: flex:1 + overflow-y:auto, input alta sabit kalir */}
-      <div className="messages-scroll">
-        {messages.map((msg, i) => {
-          const isCompact = isSameGroup(messages[i - 1], msg);
-          const isOwner = currentUser?.id === msg.user_id;
-          const displayName = msg.author?.display_name ?? msg.author?.username ?? "Unknown";
-
-          return (
-            <div key={msg.id} className={`msg${!isCompact ? " first-of-group" : " grouped"}`}>
-              <span className="msg-gtime">{formatTime(msg.created_at)}</span>
-              <div className="msg-row">
-                <div className="msg-avatar">
-                  <Avatar
-                    name={displayName}
-                    avatarUrl={msg.author?.avatar_url ?? undefined}
-                    size={30}
-                  />
-                </div>
-                <div className="msg-body">
-                  <div className="msg-meta">
-                    <span className="msg-name name-default">{displayName}</span>
-                    <span className="msg-time">{formatTime(msg.created_at)}</span>
-                  </div>
-
-                  {editingId === msg.id ? (
-                    <div className="msg-edit-area">
-                      <textarea
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            handleEditSave(msg.id);
-                          }
-                          if (e.key === "Escape") setEditingId(null);
-                        }}
-                        className="msg-edit-textarea"
-                        rows={2}
-                        autoFocus
-                      />
-                      <p className="msg-edit-hint">escape = {t("editCancel")}, enter = {t("editSave")}</p>
-                    </div>
-                  ) : (
-                    <div className="msg-text">
-                      {msg.content}
-                      {msg.edited_at && <span className="msg-edited">{t("edited")}</span>}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {isOwner && editingId !== msg.id && (
-                <div className="msg-hover-actions">
-                  <button
-                    onClick={() => { setEditContent(msg.content ?? ""); setEditingId(msg.id); }}
-                    title={t("editMessage")}
-                  >
-                    <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <button onClick={() => deleteMessage(msg.id)} title={t("deleteMessage")}>
-                    <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input area */}
-      <div className="input-area">
-        <div className="input-box">
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={t("dmPlaceholder", { user: otherUser?.username ?? "DM" })}
-            rows={1}
-            disabled={isSending}
+    <DMChatProvider
+      channelId={channelId}
+      channelName={channelName}
+      sendDMTyping={sendDMTyping}
+    >
+      <div className="chat-area">
+        {/* ─── DM Header ─── */}
+        <div className="dm-header">
+          <Avatar
+            name={channelName}
+            avatarUrl={otherUser?.avatar_url ?? undefined}
+            size={24}
           />
-          <button className="send-btn" onClick={handleSend}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-          </button>
+          <span className="dm-header-name">{channelName}</span>
+
+          {/* Header actions — pin, search */}
+          <div className="ch-actions">
+            {/* Pin ikonu */}
+            <button
+              className={showPins ? "active" : ""}
+              onClick={handleTogglePins}
+              title={t("pinnedMessages")}
+            >
+              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
+              </svg>
+            </button>
+            {/* Arama ikonu */}
+            <button
+              className={showSearch ? "active" : ""}
+              onClick={handleToggleSearch}
+              title={t("searchMessages")}
+            >
+              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </button>
+          </div>
         </div>
+
+        {/* ─── DM Pinned Messages Panel ─── */}
+        {showPins && (
+          <DMPinnedMessages
+            channelId={channelId}
+            onClose={() => setShowPins(false)}
+          />
+        )}
+
+        {/* ─── DM Search Panel ─── */}
+        {showSearch && (
+          <DMSearchPanel
+            channelId={channelId}
+            onClose={() => setShowSearch(false)}
+          />
+        )}
+
+        {/* ─── Messages Area (shared component) ─── */}
+        <MessageList />
+
+        {/* ─── Typing Indicator (shared component) ─── */}
+        <TypingIndicator />
+
+        {/* ─── Message Input (shared component) ─── */}
+        <MessageInput />
       </div>
-    </div>
+    </DMChatProvider>
   );
 }
-
-const EMPTY_MESSAGES: DMMessage[] = [];
 
 export default DMChat;

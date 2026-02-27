@@ -6,23 +6,18 @@
  * Animasyon: .typing-dots i { animation: bip ... }
  * nth-child delay'leri CSS'te tanımlıdır.
  *
- * channelId prop olarak ChatArea'dan gelir.
+ * ChatContext refaktörü:
+ * Eskiden doğrudan useMessageStore import ediyordu.
+ * Artık useChatContext() üzerinden typingUsers alıyor —
+ * hem channel hem DM'de aynı component çalışıyor.
  */
 
 import { useTranslation } from "react-i18next";
-import { useMessageStore } from "../../stores/messageStore";
+import { useChatContext } from "../../hooks/useChatContext";
 
-const EMPTY_TYPING: string[] = [];
-
-type TypingIndicatorProps = {
-  channelId: string;
-};
-
-function TypingIndicator({ channelId }: TypingIndicatorProps) {
+function TypingIndicator() {
   const { t } = useTranslation("chat");
-  const typingUsers = useMessageStore((s) =>
-    channelId ? s.typingUsers[channelId] ?? EMPTY_TYPING : EMPTY_TYPING
-  );
+  const { typingUsers } = useChatContext();
 
   if (typingUsers.length === 0) return null;
 

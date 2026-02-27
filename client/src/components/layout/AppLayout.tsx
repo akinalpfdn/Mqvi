@@ -43,7 +43,7 @@ import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 
 function AppLayout() {
-  const { sendTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS } =
+  const { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS } =
     useWebSocket();
 
   // Idle detection — 5dk inaktiflik → "idle", aktivite geri gelince → "online"
@@ -195,7 +195,7 @@ function AppLayout() {
           {/* Ana içerik alanı — split paneller + member list */}
           <div className="main-area">
             {/* Split pane container — recursive layout ağacını render eder */}
-            <SplitPaneContainer node={layout} sendTyping={sendTyping} />
+            <SplitPaneContainer node={layout} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
 
             {/* Sağ panel — CSS transition ile açılıp kapanır (.members-panel.open) */}
             <MemberList />

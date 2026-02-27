@@ -88,6 +88,14 @@ type P2PCallEndCallback func(userID string)
 // Server bu veriyi doğrudan karşı tarafa relay eder.
 type P2PSignalCallback func(senderID string, data P2PSignalData)
 
+// ─── DM Callback Tipleri ───
+
+// DMTypingCallback, DM kanalında kullanıcı yazıyor event'i geldiğinde çağrılır.
+// senderUserID: Yazan kullanıcı, senderUsername: Yazan kullanıcının adı,
+// dmChannelID: DM kanalı ID'si.
+// main.go'da wire-up: DM kanal üyesi lookup → karşı tarafa broadcast.
+type DMTypingCallback func(senderUserID, senderUsername, dmChannelID string)
+
 // cachedUserInfo, Hub'da cache'lenen kullanıcı bilgileri.
 // WS bağlantısı kurulduğunda DB'den çekilir, voice join gibi event'lerde
 // tekrar DB'ye gitmeden kullanılır.
@@ -170,6 +178,10 @@ type Hub struct {
 	onP2PCallDecline  P2PCallDeclineCallback
 	onP2PCallEnd      P2PCallEndCallback
 	onP2PSignal       P2PSignalCallback
+
+	// DM callback'leri — main.go'da set edilir.
+	// Client DM kanalında typing event'i gönderdiğinde Hub bu callback'i tetikler.
+	onDMTyping DMTypingCallback
 }
 
 // NewHub, yeni bir Hub oluşturur.
@@ -496,6 +508,12 @@ func (h *Hub) OnP2PCallEnd(cb P2PCallEndCallback) {
 // OnP2PSignal, WebRTC signaling verisi geldiğinde çağrılacak callback'i ayarlar.
 func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {
 	h.onP2PSignal = cb
+}
+
+// OnDMTyping, DM kanalında typing event'i geldiğinde çağrılacak callback'i ayarlar.
+// main.go'da wire-up: dmRepo.GetChannelByID → karşı tarafa broadcast.
+func (h *Hub) OnDMTyping(cb DMTypingCallback) {
+	h.onDMTyping = cb
 }
 
 // DisconnectUser, bir kullanıcının tüm WebSocket bağlantılarını kapatır.

@@ -9,33 +9,41 @@
  * - Dosya ekleme (file input ile)
  * - Typing indicator trigger (3sn throttle)
  * - Auto-resize textarea
+ *
+ * ChatContext refaktörü:
+ * Eskiden sendTyping, channelId, channelName, canSend props alıyordu.
+ * Artık tüm bu değerler useChatContext() üzerinden geliyor.
+ * Hem channel hem DM'de aynı component çalışıyor.
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useMessageStore } from "../../stores/messageStore";
+import { useChatContext } from "../../hooks/useChatContext";
+import EmojiPicker from "../shared/EmojiPicker";
 import FilePreview from "./FilePreview";
 import MentionAutocomplete from "./MentionAutocomplete";
 import ReplyBar from "./ReplyBar";
 import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES } from "../../utils/constants";
 
-type MessageInputProps = {
-  sendTyping: (channelId: string) => void;
-  channelId: string;
-  channelName: string;
-  /** Kullanıcının bu kanalda mesaj gönderme yetkisi var mı? */
-  canSend: boolean;
-};
-
-function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageInputProps) {
+function MessageInput() {
   const { t } = useTranslation("chat");
-  const sendMessage = useMessageStore((s) => s.sendMessage);
-  const replyingTo = useMessageStore((s) => s.replyingTo);
-  const setReplyingTo = useMessageStore((s) => s.setReplyingTo);
+  const {
+    mode,
+    channelId,
+    channelName,
+    canSend,
+    sendMessage,
+    replyingTo,
+    setReplyingTo,
+    sendTyping,
+  } = useChatContext();
 
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
+
+  /** Emoji picker state */
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   /** Mention autocomplete state */
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -60,7 +68,7 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
 
     setIsSending(true);
     const replyToId = replyingTo?.id;
-    const success = await sendMessage(channelId, content.trim(), files, replyToId);
+    const success = await sendMessage(content.trim(), files, replyToId);
     if (success) {
       setContent("");
       setFiles([]);
@@ -74,6 +82,7 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
     // Gönderim sonrası focus'u textarea'ya geri ver.
     // disabled={isSending} geçici olarak textarea'yı devre dışı bırakır,
     // tarayıcı bu sırada focus'u kaldırır — burada geri yüklüyoruz.
+    // Bu aynı zamanda DM input focus bug'ını da çözer.
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
@@ -81,10 +90,10 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
 
   /** Klavye event handler */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Mention popup açıkken Enter/Tab/ArrowUp/Down → popup'a bırak (global listener yakalar)
+    // Mention popup açıkken Enter/Tab/ArrowUp/Down → popup'a bırak
     if (mentionQuery !== null) {
       if (["Enter", "Tab", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) {
-        return; // MentionAutocomplete'in global keydown listener'ı bunu yakalar
+        return;
       }
     }
 
@@ -107,20 +116,20 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
     setContent(value);
 
     if (channelId && value.length > 0) {
-      sendTyping(channelId);
+      sendTyping();
     }
 
     // Mention detection — cursor konumundan geriye bakarak @ ara
+    // DM modunda mention kullanılmaz, ama MentionAutocomplete
+    // zaten DM'de boş sonuç döneceği için sorun yok.
     const cursorPos = e.target.selectionStart ?? value.length;
     const textBeforeCursor = value.slice(0, cursorPos);
     const atIndex = textBeforeCursor.lastIndexOf("@");
 
     if (atIndex >= 0) {
-      // @ öncesi boşluk veya satır başı olmalı (email adreslerini ayırt etmek için)
       const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : " ";
       if (charBeforeAt === " " || charBeforeAt === "\n" || atIndex === 0) {
         const query = textBeforeCursor.slice(atIndex + 1);
-        // Query'de boşluk varsa mention bitti
         if (!query.includes(" ") && !query.includes("\n")) {
           mentionStartRef.current = atIndex;
           setMentionQuery(query);
@@ -142,7 +151,6 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
 
   /**
    * handleMentionSelect — Autocomplete'ten kullanıcı seçildiğinde çağrılır.
-   * @username metnini textarea'ya yerleştirir.
    */
   function handleMentionSelect(username: string) {
     const start = mentionStartRef.current;
@@ -157,10 +165,9 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
     setMentionQuery(null);
     mentionStartRef.current = -1;
 
-    // Cursor'u mention'dan sonraya konumlandır
     requestAnimationFrame(() => {
       if (textareaRef.current) {
-        const pos = start + username.length + 2; // @username + space
+        const pos = start + username.length + 2;
         textareaRef.current.selectionStart = pos;
         textareaRef.current.selectionEnd = pos;
         textareaRef.current.focus();
@@ -172,6 +179,26 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
   function handleMentionClose() {
     setMentionQuery(null);
     mentionStartRef.current = -1;
+  }
+
+  /**
+   * handleEmojiSelect — EmojiPicker'dan emoji seçildiğinde çağrılır.
+   * Emojiyi textarea'da cursor pozisyonuna ekler ve cursor'ı emojinin sonuna taşır.
+   */
+  function handleEmojiSelect(emoji: string) {
+    const cursorPos = textareaRef.current?.selectionStart ?? content.length;
+    const newContent = content.slice(0, cursorPos) + emoji + content.slice(cursorPos);
+    setContent(newContent);
+    setShowEmojiPicker(false);
+
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        const pos = cursorPos + emoji.length;
+        textareaRef.current.selectionStart = pos;
+        textareaRef.current.selectionEnd = pos;
+        textareaRef.current.focus();
+      }
+    });
   }
 
   /** Dosya ekleme */
@@ -209,10 +236,15 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
     );
   }
 
+  // Placeholder: Channel modunda "#kanal" formatı, DM modunda "@kullanıcı" formatı
+  const placeholder = mode === "dm"
+    ? t("dmPlaceholder", { user: channelName })
+    : t("messagePlaceholder", { channel: channelName });
+
   return (
     <div className="input-area">
       {/* Mention autocomplete popup — textarea'nın üstünde gösterilir */}
-      {mentionQuery !== null && (
+      {mentionQuery !== null && mode === "channel" && (
         <MentionAutocomplete
           query={mentionQuery}
           onSelect={handleMentionSelect}
@@ -232,7 +264,7 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
       <FilePreview files={files} onRemove={handleFileRemove} />
 
       <div className="input-box">
-        {/* File upload button — paperclip/plus-circle SVG */}
+        {/* File upload button */}
         <button
           className="input-action-btn"
           onClick={() => fileInputRef.current?.click()}
@@ -260,20 +292,34 @@ function MessageInput({ sendTyping, channelId, channelName, canSend }: MessageIn
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={t("messagePlaceholder", { channel: channelName })}
+          placeholder={placeholder}
           rows={1}
           disabled={isSending}
         />
 
-        {/* Emoji button — smiley face SVG */}
-        <button className="input-action-btn" title={t("emoji")}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-            <line x1="9" y1="9" x2="9.01" y2="9" />
-            <line x1="15" y1="9" x2="15.01" y2="9" />
-          </svg>
-        </button>
+        {/* Emoji button + picker */}
+        <div style={{ position: "relative" }}>
+          <button
+            className="input-action-btn"
+            title={t("emoji")}
+            onClick={() => setShowEmojiPicker((prev) => !prev)}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+              <line x1="9" y1="9" x2="9.01" y2="9" />
+              <line x1="15" y1="9" x2="15.01" y2="9" />
+            </svg>
+          </button>
+          {showEmojiPicker && (
+            <div className="input-emoji-picker-wrap">
+              <EmojiPicker
+                onSelect={handleEmojiSelect}
+                onClose={() => setShowEmojiPicker(false)}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

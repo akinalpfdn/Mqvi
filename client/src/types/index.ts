@@ -301,7 +301,25 @@ export type DMMessage = {
   content: string | null;
   edited_at: string | null;
   created_at: string;
+  reply_to_id: string | null;
+  is_pinned: boolean;
   author: User;
+  attachments: DMAttachment[];
+  reactions: ReactionGroup[];
+  referenced_message: MessageReference | null;
+};
+
+/**
+ * DMAttachment — DM mesajına eklenmiş dosya.
+ * Channel Attachment ile aynı yapı ama dm_message_id kullanır.
+ */
+export type DMAttachment = {
+  id: string;
+  dm_message_id: string;
+  filename: string;
+  file_url: string;
+  file_size: number | null;
+  mime_type: string | null;
 };
 
 /**

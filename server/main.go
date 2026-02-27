@@ -261,6 +261,33 @@ func main() {
 		}
 	})
 
+	// DM typing callback — DM kanalında typing event'i geldiğinde
+	// kanal üyesi lookup + karşı tarafa broadcast
+	hub.OnDMTyping(func(senderUserID, senderUsername, dmChannelID string) {
+		channel, err := dmRepo.GetChannelByID(context.Background(), dmChannelID)
+		if err != nil {
+			return
+		}
+		// Gönderen bu kanalın üyesi mi kontrol et
+		if channel.User1ID != senderUserID && channel.User2ID != senderUserID {
+			return
+		}
+		// Karşı tarafı bul
+		otherUserID := channel.User1ID
+		if otherUserID == senderUserID {
+			otherUserID = channel.User2ID
+		}
+		// Sadece karşı tarafa typing event'i gönder (gönderen hariç)
+		hub.BroadcastToUser(otherUserID, ws.Event{
+			Op: ws.OpDMTypingStart,
+			Data: ws.DMTypingStartData{
+				UserID:      senderUserID,
+				Username:    senderUsername,
+				DMChannelID: dmChannelID,
+			},
+		})
+	})
+
 	go hub.Run()
 
 	// ─── 7. Service Layer ───
@@ -292,6 +319,7 @@ func main() {
 	searchService := services.NewSearchService(searchRepo)
 	readStateService := services.NewReadStateService(readStateRepo)
 	dmService := services.NewDMService(dmRepo, userRepo, hub)
+	dmUploadService := services.NewDMUploadService(dmRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(reactionRepo, messageRepo, hub)
 	friendshipService := services.NewFriendshipService(friendshipRepo, userRepo, hub)
 	// voiceService ve channelPermService yukarıda (Hub callback'lerinden önce) oluşturuldu
@@ -309,7 +337,7 @@ func main() {
 	pinHandler := handlers.NewPinHandler(pinService)
 	searchHandler := handlers.NewSearchHandler(searchService)
 	readStateHandler := handlers.NewReadStateHandler(readStateService)
-	dmHandler := handlers.NewDMHandler(dmService)
+	dmHandler := handlers.NewDMHandler(dmService, dmUploadService, cfg.Upload.MaxSize)
 	reactionHandler := handlers.NewReactionHandler(reactionService)
 	channelPermHandler := handlers.NewChannelPermissionHandler(channelPermService)
 	friendshipHandler := handlers.NewFriendshipHandler(friendshipService)
@@ -487,6 +515,22 @@ func main() {
 		http.HandlerFunc(dmHandler.EditMessage)))
 	mux.Handle("DELETE /api/dms/messages/{id}", authMiddleware.Require(
 		http.HandlerFunc(dmHandler.DeleteMessage)))
+
+	// DM Reactions — emoji tepkileri
+	mux.Handle("POST /api/dms/messages/{id}/reactions", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.ToggleReaction)))
+
+	// DM Pins — mesaj sabitleme
+	mux.Handle("POST /api/dms/messages/{id}/pin", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.PinMessage)))
+	mux.Handle("DELETE /api/dms/messages/{id}/pin", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.UnpinMessage)))
+	mux.Handle("GET /api/dms/{channelId}/pinned", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.GetPinnedMessages)))
+
+	// DM Search — FTS5 tam metin arama
+	mux.Handle("GET /api/dms/{channelId}/search", authMiddleware.Require(
+		http.HandlerFunc(dmHandler.SearchMessages)))
 
 	// Friends — arkadaşlık yönetimi, tüm authenticated kullanıcılar kullanabilir
 	// "requests" literal path'i {userId} parametresinden ÖNCE tanımlanmalı —

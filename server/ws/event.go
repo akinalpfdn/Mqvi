@@ -76,10 +76,14 @@ const (
 	OpChannelReorder = "channel_reorder" // Kanal sıralaması güncellendi — tam CategoryWithChannels[] listesi
 
 	// DM (Direct Messages) operasyonları
-	OpDMChannelCreate = "dm_channel_create"  // Yeni DM kanalı oluşturuldu
-	OpDMMessageCreate = "dm_message_create"  // Yeni DM mesajı gönderildi
-	OpDMMessageUpdate = "dm_message_update"  // DM mesajı düzenlendi
-	OpDMMessageDelete = "dm_message_delete"  // DM mesajı silindi
+	OpDMChannelCreate  = "dm_channel_create"   // Yeni DM kanalı oluşturuldu
+	OpDMMessageCreate  = "dm_message_create"   // Yeni DM mesajı gönderildi
+	OpDMMessageUpdate  = "dm_message_update"   // DM mesajı düzenlendi
+	OpDMMessageDelete  = "dm_message_delete"   // DM mesajı silindi
+	OpDMReactionUpdate = "dm_reaction_update"  // DM mesajının reaction listesi güncellendi
+	OpDMTypingStart    = "dm_typing_start"     // DM kanalında kullanıcı yazıyor
+	OpDMMessagePin     = "dm_message_pin"      // DM mesajı sabitlendi
+	OpDMMessageUnpin   = "dm_message_unpin"    // DM mesajı pin'den çıkarıldı
 
 	// Voice (ses kanalı) operasyonları
 	OpVoiceStateUpdate = "voice_state_update"  // Bir kullanıcının ses durumu değişti (join/leave/mute/deafen/stream)
@@ -149,6 +153,14 @@ type TypingStartData struct {
 	UserID    string `json:"user_id"`
 	Username  string `json:"username"`
 	ChannelID string `json:"channel_id"`
+}
+
+// DMTypingStartData, dm_typing_start event'inin payload'ı.
+// DM kanalında birisi yazıyor — sadece kanal katılımcılarına gönderilir.
+type DMTypingStartData struct {
+	UserID      string `json:"user_id"`
+	Username    string `json:"username"`
+	DMChannelID string `json:"dm_channel_id"`
 }
 
 // ─── Voice Event Data Struct'ları ───

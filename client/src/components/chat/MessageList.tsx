@@ -11,78 +11,59 @@
  * - Mesaj yoksa welcome ekranı
  *
  * Compact mode: Aynı yazarın 5dk içindeki ardışık mesajları compact gösterilir.
+ *
+ * ChatContext refaktörü:
+ * Eskiden doğrudan useMessageStore ve useChannelStore import ediyordu.
+ * Artık useChatContext() üzerinden erişiyor — hem channel hem DM'de çalışıyor.
  */
 
 import { useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { useMessageStore } from "../../stores/messageStore";
-import { useChannelStore } from "../../stores/channelStore";
+import { useChatContext } from "../../hooks/useChatContext";
 import { MessageSkeleton } from "../shared/Skeleton";
 import Message from "./Message";
-import type { Message as MessageType } from "../../types";
 
 /** Aynı yazarın ardışık mesajı compact olacak süre (ms) */
 const COMPACT_THRESHOLD = 5 * 60 * 1000;
 
-const EMPTY_MESSAGES: MessageType[] = [];
-
 /**
  * scrollPositions — Kanal bazlı scroll pozisyonu cache'i.
- *
  * Module-level Map kullanılır (component dışında tanımlanır):
  * - Component unmount/remount olsa bile pozisyon korunur
  * - channelId → scrollTop eşlemesi tutar
- * - Bellek kullanımı ihmal edilebilir düzeydedir (birkaç string-number çifti)
- *
- * Alternatif: Zustand store'da tutulabilirdi ama bu tamamen local bir
- * concern olduğundan (hiçbir başka component erişmez) module-level
- * Map daha uygun.
  */
 const scrollPositions = new Map<string, number>();
 
-type MessageListProps = {
-  channelId: string;
-};
-
-function MessageList({ channelId }: MessageListProps) {
+function MessageList() {
   const { t } = useTranslation("chat");
-  const categories = useChannelStore((s) => s.categories);
-  const messages = useMessageStore((s) =>
-    channelId
-      ? s.messagesByChannel[channelId] ?? EMPTY_MESSAGES
-      : EMPTY_MESSAGES
-  );
-  const hasMore = useMessageStore((s) =>
-    channelId ? s.hasMoreByChannel[channelId] ?? false : false
-  );
-  const isLoading = useMessageStore((s) => s.isLoading);
-  const isLoadingMore = useMessageStore((s) => s.isLoadingMore);
-  const fetchMessages = useMessageStore((s) => s.fetchMessages);
-  const fetchOlderMessages = useMessageStore((s) => s.fetchOlderMessages);
-  const scrollToMessageId = useMessageStore((s) => s.scrollToMessageId);
-  const setScrollToMessageId = useMessageStore((s) => s.setScrollToMessageId);
+  const {
+    mode,
+    channelId,
+    channelName,
+    messages,
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    fetchMessages,
+    fetchOlderMessages,
+    scrollToMessageId,
+    setScrollToMessageId,
+  } = useChatContext();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
 
-  const channelName = categories
-    .flatMap((cg) => cg.channels)
-    .find((ch) => ch.id === channelId)?.name ?? "";
-
   // Kanal değiştiğinde mesajları fetch et + auto-scroll'u engelle
   useEffect(() => {
-    // Kanal geçişi sırasında auto-scroll'u engelle.
-    // isAtBottomRef false yapılmazsa, auto-scroll effect kanal değişiminde de
-    // tetiklenir ve restore edilen scroll pozisyonunu override eder.
     isAtBottomRef.current = false;
 
     if (channelId) {
-      fetchMessages(channelId);
+      fetchMessages();
     }
   }, [channelId, fetchMessages]);
 
-  // Yeni mesaj geldiğinde auto-scroll (sadece aktif kanalda, kanal geçişinde değil)
+  // Yeni mesaj geldiğinde auto-scroll (sadece aktif kanalda)
   useEffect(() => {
     if (messages.length > prevMessageCountRef.current && isAtBottomRef.current) {
       scrollToBottom();
@@ -92,15 +73,6 @@ function MessageList({ channelId }: MessageListProps) {
 
   /**
    * Scroll pozisyonu restore — useLayoutEffect ile paint'ten ÖNCE çalışır.
-   *
-   * Neden useLayoutEffect?
-   * React DOM'u commit ettikten sonra, tarayıcı paint etmeden önce çalışır.
-   * useEffect kullanılsaydı, tarayıcı önce scrollTop=0 ile boyar, sonra
-   * pozisyonu geri yüklerdi — bu da bir "flash" efekti yaratırdı.
-   *
-   * Scroll pozisyonu kaydetme handleScroll'da sürekli yapılır (aşağıda),
-   * channel-change effect'te değil. Çünkü useEffect çalıştığında DOM zaten
-   * yeni kanalın içeriğiyle güncellenmiş ve scrollTop sıfırlanmış olur.
    */
   useLayoutEffect(() => {
     if (!isLoading && messages.length > 0 && scrollRef.current) {
@@ -110,8 +82,6 @@ function MessageList({ channelId }: MessageListProps) {
       } else {
         scrollToBottom();
       }
-      // Pozisyon ayarlandıktan sonra tracking ref'leri güncelle —
-      // sonraki yeni mesajlarda doğru karşılaştırma yapılabilsin.
       prevMessageCountRef.current = messages.length;
       const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
       isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 20;
@@ -120,8 +90,6 @@ function MessageList({ channelId }: MessageListProps) {
 
   /**
    * Scroll-to-message effect — reply preview tıklandığında tetiklenir.
-   * Hedef mesaja scroll eder ve kısa süreliğine highlight animasyonu uygular.
-   * scrollToMessageId set edildikten sonra tek seferlik çalışır ve null'a sıfırlanır.
    */
   useEffect(() => {
     if (!scrollToMessageId) return;
@@ -130,7 +98,6 @@ function MessageList({ channelId }: MessageListProps) {
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       el.classList.add("msg-highlight");
-      // Highlight'ı kaldır — CSS transition ile fade out
       const timer = setTimeout(() => {
         el.classList.remove("msg-highlight");
       }, 2000);
@@ -138,7 +105,6 @@ function MessageList({ channelId }: MessageListProps) {
       return () => clearTimeout(timer);
     }
 
-    // Mesaj DOM'da bulunamadı (henüz yüklenmemiş olabilir) — state'i temizle
     setScrollToMessageId(null);
   }, [scrollToMessageId, setScrollToMessageId]);
 
@@ -156,16 +122,13 @@ function MessageList({ channelId }: MessageListProps) {
 
     isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 20;
 
-    // Scroll pozisyonunu sürekli kaydet — kanal geçişlerinde restore etmek için.
-    // Bu kaydetme handleScroll'da yapılır (useEffect'te değil), çünkü
-    // useEffect çalıştığında DOM zaten değişmiş ve scrollTop sıfırlanmış olur.
     if (channelId) {
       scrollPositions.set(channelId, scrollTop);
     }
 
     if (scrollTop < 100 && hasMore && !isLoadingMore && channelId) {
       const prevScrollHeight = scrollRef.current.scrollHeight;
-      fetchOlderMessages(channelId).then(() => {
+      fetchOlderMessages().then(() => {
         if (scrollRef.current) {
           scrollRef.current.scrollTop =
             scrollRef.current.scrollHeight - prevScrollHeight;
@@ -176,14 +139,12 @@ function MessageList({ channelId }: MessageListProps) {
 
   /**
    * isCompact — Aynı yazarın 5dk içindeki ardışık mesajı compact gösterilir.
-   * Reply mesajları her zaman full header gösterir (compact değil) —
-   * referans preview'ın yazar + zaman bilgisi ile birlikte görünmesi gerekir.
+   * Reply mesajları her zaman full header gösterir.
    */
   function isCompact(index: number): boolean {
     if (index === 0) return false;
 
     const current = messages[index];
-    // Reply mesajlar her zaman full header gösterir
     if (current.reply_to_id) return false;
 
     const previous = messages[index - 1];
@@ -209,6 +170,9 @@ function MessageList({ channelId }: MessageListProps) {
     );
   }
 
+  // Welcome mesajı: Channel modunda "#kanal" ikonu, DM modunda "@kullanıcı" ikonu
+  const welcomeIcon = mode === "dm" ? "@" : "#";
+
   return (
     <div
       ref={scrollRef}
@@ -226,10 +190,18 @@ function MessageList({ channelId }: MessageListProps) {
       {messages.length === 0 ? (
         <div className="msg-welcome">
           <div className="msg-welcome-icon">
-            <span>#</span>
+            <span>{welcomeIcon}</span>
           </div>
-          <h2>{t("welcomeChannel", { channel: channelName })}</h2>
-          <p>{t("channelStart", { channel: channelName })}</p>
+          <h2>
+            {mode === "dm"
+              ? t("welcomeDM", { user: channelName })
+              : t("welcomeChannel", { channel: channelName })}
+          </h2>
+          <p>
+            {mode === "dm"
+              ? t("dmStart", { user: channelName })
+              : t("channelStart", { channel: channelName })}
+          </p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: "8px 0" }}>

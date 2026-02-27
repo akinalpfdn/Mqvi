@@ -17,11 +17,12 @@ type SplitPaneContainerProps = {
   node: LayoutNode;
   path?: number[];
   sendTyping: (channelId: string) => void;
+  sendDMTyping: (dmChannelId: string) => void;
 };
 
-function SplitPaneContainer({ node, path = [], sendTyping }: SplitPaneContainerProps) {
+function SplitPaneContainer({ node, path = [], sendTyping, sendDMTyping }: SplitPaneContainerProps) {
   if (node.type === "leaf") {
-    return <PanelView panelId={node.panelId} sendTyping={sendTyping} />;
+    return <PanelView panelId={node.panelId} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />;
   }
 
   const isVertical = node.direction === "vertical";
@@ -30,7 +31,7 @@ function SplitPaneContainer({ node, path = [], sendTyping }: SplitPaneContainerP
     <div className={`split-container${isVertical ? " vertical" : ""}`}>
       {/* Sol / Üst panel */}
       <div className="split-pane" style={{ flex: node.ratio }}>
-        <SplitPaneContainer node={node.children[0]} path={[...path, 0]} sendTyping={sendTyping} />
+        <SplitPaneContainer node={node.children[0]} path={[...path, 0]} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
       </div>
 
       {/* Resize handle */}
@@ -42,7 +43,7 @@ function SplitPaneContainer({ node, path = [], sendTyping }: SplitPaneContainerP
 
       {/* Sağ / Alt panel */}
       <div className="split-pane" style={{ flex: 1 - node.ratio }}>
-        <SplitPaneContainer node={node.children[1]} path={[...path, 1]} sendTyping={sendTyping} />
+        <SplitPaneContainer node={node.children[1]} path={[...path, 1]} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
       </div>
     </div>
   );

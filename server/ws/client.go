@@ -139,6 +139,11 @@ func (c *Client) handleEvent(event Event) {
 		// Yetkili: kullanıcıyı voice'tan at
 		c.handleVoiceDisconnectUser(event)
 
+	// ─── DM Event'leri ───
+	case OpDMTypingStart:
+		// DM kanalında typing event'i — sadece karşı tarafa broadcast
+		c.handleDMTyping(event)
+
 	// ─── P2P Call Event'leri ───
 	case OpP2PCallInitiate:
 		c.handleP2PCallInitiate(event)
@@ -221,6 +226,35 @@ func (c *Client) handleTyping(event Event) {
 			ChannelID: typing.ChannelID,
 		},
 	})
+}
+
+// handleDMTyping, DM kanalında typing event'ini işler.
+//
+// Channel typing'den farklı olarak, tüm kullanıcılara değil
+// sadece DM kanalının karşı tarafına broadcast edilir.
+// Bu işlem callback üzerinden yapılır — Hub doğrudan DM repo'ya bağımlı olmaz.
+func (c *Client) handleDMTyping(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data struct {
+		DMChannelID string `json:"dm_channel_id"`
+	}
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.DMChannelID == "" {
+		return
+	}
+
+	// Callback üzerinden DM kanal üyesi lookup + broadcast
+	if c.hub.onDMTyping != nil {
+		username := c.hub.getUserUsername(c.userID)
+		go c.hub.onDMTyping(c.userID, username, data.DMChannelID)
+	}
 }
 
 // ─── Voice Event Handlers ───

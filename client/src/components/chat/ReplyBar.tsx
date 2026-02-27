@@ -9,10 +9,10 @@
  */
 
 import { useTranslation } from "react-i18next";
-import type { Message } from "../../types";
+import type { ChatMessage } from "../../hooks/useChatContext";
 
 type ReplyBarProps = {
-  message: Message;
+  message: ChatMessage;
   onCancel: () => void;
 };
 

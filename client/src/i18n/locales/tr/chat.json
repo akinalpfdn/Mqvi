@@ -49,5 +49,7 @@
   "noContent": "Eki görmek için tıklayın",
   "noSendPermission": "Bu kanalda mesaj gönderme yetkiniz yok",
   "attachFile": "Dosya ekle",
-  "emoji": "Emoji"
+  "emoji": "Emoji",
+  "welcomeDM": "{{user}} ile konuşmanıza hoş geldiniz!",
+  "dmStart": "{{user}} ile direkt mesaj geçmişinizin başlangıcı."
 }

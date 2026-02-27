@@ -476,6 +476,49 @@ export function useWebSocket() {
         break;
       }
 
+      // ─── DM Reaction Events ───
+      case "dm_reaction_update": {
+        const dmReactionData = msg.d as {
+          dm_message_id: string;
+          dm_channel_id: string;
+          reactions: ReactionGroup[];
+        };
+        useDMStore.getState().handleDMReactionUpdate(dmReactionData);
+        break;
+      }
+
+      // ─── DM Typing ───
+      case "dm_typing_start": {
+        const dmTypingData = msg.d as {
+          user_id: string;
+          username: string;
+          dm_channel_id: string;
+        };
+        useDMStore.getState().handleDMTypingStart(
+          dmTypingData.dm_channel_id,
+          dmTypingData.username
+        );
+        break;
+      }
+
+      // ─── DM Pin Events ───
+      case "dm_message_pin": {
+        const dmPinData = msg.d as {
+          dm_channel_id: string;
+          message: DMMessage;
+        };
+        useDMStore.getState().handleDMMessagePin(dmPinData);
+        break;
+      }
+      case "dm_message_unpin": {
+        const dmUnpinData = msg.d as {
+          dm_channel_id: string;
+          message_id: string;
+        };
+        useDMStore.getState().handleDMMessageUnpin(dmUnpinData);
+        break;
+      }
+
       // ─── Channel Permission Events ───
       // Override değişikliğinde kanal görünürlüğü de değişebilir (ViewChannel deny/allow)
       case "channel_permission_update":
@@ -579,6 +622,30 @@ export function useWebSocket() {
         })
       );
       lastTypingRef.current.set(channelId, now);
+    }
+  }, []);
+
+  /**
+   * sendDMTyping — DM kanalında typing event'i gönderir.
+   *
+   * Channel typing ile aynı throttle mekanizması.
+   * Backend dm_typing_start olarak işler ve karşı tarafa broadcast eder.
+   */
+  const sendDMTyping = useCallback((dmChannelId: string) => {
+    const now = Date.now();
+    const key = `dm:${dmChannelId}`;
+    const lastSent = lastTypingRef.current.get(key) ?? 0;
+
+    if (now - lastSent < TYPING_THROTTLE) return;
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          op: "dm_typing_start",
+          d: { dm_channel_id: dmChannelId },
+        })
+      );
+      lastTypingRef.current.set(key, now);
     }
   }, []);
 
@@ -825,5 +892,5 @@ export function useWebSocket() {
     };
   }, []);
 
-  return { sendTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS };
+  return { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS };
 }

@@ -49,5 +49,7 @@
   "noContent": "Click to see attachment",
   "noSendPermission": "You do not have permission to send messages in this channel",
   "attachFile": "Attach file",
-  "emoji": "Emoji"
+  "emoji": "Emoji",
+  "welcomeDM": "Welcome to your conversation with {{user}}!",
+  "dmStart": "This is the beginning of your direct message history with {{user}}."
 }

@@ -13,15 +13,17 @@
  * Hover efektleri tamamen CSS ile yönetilir:
  * - .msg:hover .msg-hover-actions { opacity:1 }
  * - .msg.grouped:hover .msg-gtime { opacity:1 }
+ *
+ * ChatContext refaktörü:
+ * Eskiden doğrudan useMessageStore, usePinStore, useMemberStore import
+ * ediyordu. Artık useChatContext() üzerinden erişiyor — hem channel
+ * hem DM'de aynı component çalışıyor.
  */
 
 import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
-import { useMessageStore } from "../../stores/messageStore";
-import { useMemberStore } from "../../stores/memberStore";
-import { usePinStore } from "../../stores/pinStore";
-import { hasPermission, Permissions } from "../../utils/permissions";
+import { useChatContext, type ChatMessage } from "../../hooks/useChatContext";
 import { resolveAssetUrl } from "../../utils/constants";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
@@ -29,10 +31,10 @@ import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import EmojiPicker from "../shared/EmojiPicker";
-import type { Message as MessageType, MemberWithRoles } from "../../types";
+import type { MemberWithRoles } from "../../types";
 
 type MessageProps = {
-  message: MessageType;
+  message: ChatMessage;
   /** Aynı yazarın ardışık mesajı mı? (compact mode için) */
   isCompact: boolean;
 };
@@ -56,7 +58,6 @@ function getRoleType(member: MemberWithRoles | undefined): "admin" | "mod" | nul
 
 /**
  * getHighestRoleColor — Üyenin en yüksek pozisyonlu rolünün rengini döner.
- * Discord'taki gibi: kullanıcı adı, sahip olduğu en yüksek rolün rengine boyanır.
  */
 function getHighestRoleColor(member: MemberWithRoles | undefined): string | undefined {
   if (!member || member.roles.length === 0) return undefined;
@@ -71,16 +72,21 @@ function getHighestRoleColor(member: MemberWithRoles | undefined): string | unde
 function Message({ message, isCompact }: MessageProps) {
   const { t } = useTranslation("chat");
   const currentUser = useAuthStore((s) => s.user);
-  const editMessage = useMessageStore((s) => s.editMessage);
-  const deleteMessage = useMessageStore((s) => s.deleteMessage);
-  const toggleReaction = useMessageStore((s) => s.toggleReaction);
-  const setReplyingTo = useMessageStore((s) => s.setReplyingTo);
-  const setScrollToMessageId = useMessageStore((s) => s.setScrollToMessageId);
-  const members = useMemberStore((s) => s.members);
 
-  const pinAction = usePinStore((s) => s.pin);
-  const unpinAction = usePinStore((s) => s.unpin);
-  const isMessagePinned = usePinStore((s) => s.isMessagePinned);
+  // ChatContext — store farkını soyutlar (channel vs DM)
+  const {
+    editMessage,
+    deleteMessage,
+    toggleReaction,
+    setReplyingTo,
+    setScrollToMessageId,
+    pinMessage,
+    unpinMessage,
+    isMessagePinned,
+    canManageMessages,
+    showRoleColors,
+    members,
+  } = useChatContext();
 
   const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
@@ -89,16 +95,13 @@ function Message({ message, isCompact }: MessageProps) {
   const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
 
   const isOwner = currentUser?.id === message.user_id;
-  const member = members.find((m) => m.id === message.user_id);
+
+  // Rol bilgileri — DM'de showRoleColors=false, members=[] olduğundan atlanır
+  const member = showRoleColors ? members.find((m) => m.id === message.user_id) : undefined;
   const roleType = getRoleType(member);
   const roleColor = getHighestRoleColor(member);
 
-  // Mevcut kullanıcının yetkilerini hesapla (pin butonu gösterimi için)
-  const currentMember = members.find((m) => m.id === currentUser?.id);
-  const canManageMessages = currentMember
-    ? hasPermission(currentMember.effective_permissions, Permissions.ManageMessages)
-    : false;
-  const isPinned = isMessagePinned(message.channel_id, message.id);
+  const isPinned = isMessagePinned(message.id);
 
   /** Timestamp formatı: HH:MM */
   const formatTime = useCallback((dateStr: string) => {
@@ -146,9 +149,9 @@ function Message({ message, isCompact }: MessageProps) {
   /** Pin/Unpin toggle */
   async function handlePinToggle() {
     if (isPinned) {
-      await unpinAction(message.channel_id, message.id);
+      await unpinMessage(message.id);
     } else {
-      await pinAction(message.channel_id, message.id);
+      await pinMessage(message.id);
     }
   }
 
@@ -166,7 +169,7 @@ function Message({ message, isCompact }: MessageProps) {
 
   /** Emoji reaction toggle — mevcut reaction'a tıklayınca veya picker'dan seçince */
   function handleReaction(emoji: string) {
-    toggleReaction(message.id, message.channel_id, emoji);
+    toggleReaction(message.id, emoji);
   }
 
   /** Sağ tık context menu — mesaj aksiyonları */
@@ -238,15 +241,10 @@ function Message({ message, isCompact }: MessageProps) {
 
   /**
    * renderContent — Mesaj içeriğindeki @username kalıplarını highlight ile render eder.
-   *
-   * Regex ile @username'leri bulur ve <span className="msg-mention"> ile sarar.
-   * Mention olmayan kısımlar düz metin olarak kalır.
-   * React.Fragment (key ile) kullanılır — her parça benzersiz key alır.
    */
   function renderContent(text: string | null): React.ReactNode {
     if (!text) return null;
 
-    // @kelime_karakterleri pattern'ini parçala
     const parts = text.split(/(@\w+)/g);
     return parts.map((part, i) => {
       if (/^@\w+$/.test(part)) {
@@ -264,11 +262,9 @@ function Message({ message, isCompact }: MessageProps) {
 
   return (
     <div className={msgClass} onContextMenu={handleContextMenu}>
-      {/* Compact timestamp — grouped mesajlarda hover ile görünür (CSS) */}
       <span className="msg-gtime">{formatTime(message.created_at)}</span>
 
       <div className="msg-row">
-        {/* Avatar — grouped mesajlarda CSS ile gizlenir (visibility:hidden) */}
         <div className="msg-avatar">
           <Avatar
             name={displayName}
@@ -278,9 +274,7 @@ function Message({ message, isCompact }: MessageProps) {
           />
         </div>
 
-        {/* Mesaj içeriği */}
         <div className="msg-body">
-          {/* Username + timestamp — grouped mesajlarda CSS ile gizlenir (display:none) */}
           <div className="msg-meta">
             <span
               className="msg-name"
@@ -296,7 +290,7 @@ function Message({ message, isCompact }: MessageProps) {
             </span>
           </div>
 
-          {/* Reply preview — yanıt yapılan mesajın ön izlemesi */}
+          {/* Reply preview */}
           {message.reply_to_id && (
             <div className="msg-reply-preview" onClick={handleScrollToReply}>
               <div className="msg-reply-bar" />
@@ -316,7 +310,7 @@ function Message({ message, isCompact }: MessageProps) {
             </div>
           )}
 
-          {/* Pin indicator — mesaj pinliyse küçük pin ikonu göster */}
+          {/* Pin indicator */}
           {isPinned && (
             <div className="msg-pin-indicator">
               <svg style={{ width: 12, height: 12 }} fill="currentColor" viewBox="0 0 24 24" stroke="none">
@@ -419,8 +413,7 @@ function Message({ message, isCompact }: MessageProps) {
             </div>
           )}
 
-          {/* Reactions — mesajın altında emoji tepki butonları */}
-          {/* Picker "bar" modunda açıkken de göster (reaction yokken bile picker yerleşmeli) */}
+          {/* Reactions */}
           {((message.reactions && message.reactions.length > 0) || pickerSource === "bar") && (
             <div className="msg-reactions">
               {message.reactions?.map((reaction) => {
@@ -441,7 +434,6 @@ function Message({ message, isCompact }: MessageProps) {
                 );
               })}
 
-              {/* Add Reaction (+) butonu — picker "bar" kaynağından açılır */}
               <div className="msg-reaction-add-wrap">
                 <button
                   className="msg-reaction-add"
@@ -462,19 +454,16 @@ function Message({ message, isCompact }: MessageProps) {
         </div>
       </div>
 
-      {/* Hover actions (edit/delete/pin) — CSS ile hover'da görünür */}
-      {/* Context Menu — sağ tık ile açılır */}
+      {/* Hover actions + Context Menu */}
       <ContextMenu state={menuState} onClose={closeMenu} />
 
       {!isEditing && (
         <div className="msg-hover-actions">
-          {/* Reply — herkes */}
           <button onClick={handleReply} title={t("replyMessage")}>
             <svg style={{ width: 14, height: 14 }} fill="currentColor" viewBox="0 0 24 24" stroke="none">
               <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
             </svg>
           </button>
-          {/* Add Reaction — herkes, picker "hover" kaynağından sağ-hizalı açılır */}
           <div className="msg-reaction-add-wrap">
             <button
               onClick={() => setPickerSource("hover")}
@@ -491,7 +480,6 @@ function Message({ message, isCompact }: MessageProps) {
               />
             )}
           </div>
-          {/* Pin/Unpin — ManageMessages yetkisi gerekir */}
           {canManageMessages && (
             <button
               onClick={handlePinToggle}
@@ -502,7 +490,6 @@ function Message({ message, isCompact }: MessageProps) {
               </svg>
             </button>
           )}
-          {/* Edit — sadece mesaj sahibi */}
           {isOwner && (
             <button
               onClick={() => {
@@ -516,7 +503,6 @@ function Message({ message, isCompact }: MessageProps) {
               </svg>
             </button>
           )}
-          {/* Delete — mesaj sahibi VEYA ManageMessages */}
           {(isOwner || canManageMessages) && (
             <button
               onClick={handleDelete}
