@@ -20,6 +20,8 @@ type EventPublisher interface {
 	BroadcastToUser(userID string, event Event)
 	BroadcastToUsers(userIDs []string, event Event)
 	GetOnlineUserIDs() []string
+	GetVisibleOnlineUserIDs() []string
+	SetInvisible(userID string, invisible bool)
 	DisconnectUser(userID string)
 }
 
@@ -147,6 +149,18 @@ type Hub struct {
 	userInfos map[string]cachedUserInfo
 	userMu    sync.RWMutex
 
+	// invisibleUsers: "invisible" (offline) status seçmiş bağlı kullanıcıların set'i.
+	//
+	// Neden gerekli?
+	// Kullanıcı status olarak "offline" (invisible) seçtiğinde WS bağlantısı devam eder
+	// ama diğer kullanıcılar onu "online" listesinde görmemeli.
+	// GetOnlineUserIDs() tüm bağlı kullanıcıları döner (internal kullanım),
+	// GetVisibleOnlineUserIDs() ise invisible kullanıcıları filtreler (ready event için).
+	//
+	// mu (clients mutex) ile korunur — aynı lock altında tutarak
+	// clients ve invisibleUsers arasında tutarsızlık olmasını önleriz.
+	invisibleUsers map[string]bool
+
 	// Presence callback'leri — main.go'da set edilir.
 	// Hub bağlantı olaylarında bu fonksiyonları çağırır.
 	// Callback'ler ayrı goroutine'de çalıştırılır (deadlock önleme).
@@ -187,10 +201,11 @@ type Hub struct {
 // NewHub, yeni bir Hub oluşturur.
 func NewHub() *Hub {
 	return &Hub{
-		clients:   make(map[string]map[*Client]bool),
-		register:  make(chan *Client),
-		unregister: make(chan *Client),
-		userInfos: make(map[string]cachedUserInfo),
+		clients:        make(map[string]map[*Client]bool),
+		register:       make(chan *Client),
+		unregister:     make(chan *Client),
+		userInfos:      make(map[string]cachedUserInfo),
+		invisibleUsers: make(map[string]bool),
 	}
 }
 
@@ -398,6 +413,43 @@ func (h *Hub) GetOnlineUserIDs() []string {
 		ids = append(ids, userID)
 	}
 	return ids
+}
+
+// GetVisibleOnlineUserIDs, bağlı olan ve invisible OLMAYAN kullanıcı ID'lerini döner.
+//
+// Ready event'te kullanılır — yeni bağlanan client'a "kimler online?" bilgisini
+// verirken invisible kullanıcıları hariç tutar.
+// GetOnlineUserIDs ise internal kullanım içindir (tüm bağlı kullanıcılar).
+func (h *Hub) GetVisibleOnlineUserIDs() []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	ids := make([]string, 0, len(h.clients))
+	for userID := range h.clients {
+		if h.invisibleUsers[userID] {
+			continue
+		}
+		ids = append(ids, userID)
+	}
+	return ids
+}
+
+// SetInvisible, bir kullanıcıyı invisible (görünmez) olarak işaretler veya
+// işareti kaldırır.
+//
+// invisible=true: Kullanıcı "offline" status seçti ama hâlâ bağlı.
+//   GetVisibleOnlineUserIDs()'dan hariç tutulur.
+// invisible=false: Kullanıcı online/idle/dnd'ye döndü veya gerçekten koptu.
+//   Normal şekilde online listesinde görünür (bağlıysa).
+func (h *Hub) SetInvisible(userID string, invisible bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if invisible {
+		h.invisibleUsers[userID] = true
+	} else {
+		delete(h.invisibleUsers, userID)
+	}
 }
 
 // SetUserInfo, kullanıcı WS bağlantısı kurduğunda user bilgilerini cache'ler.

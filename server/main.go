@@ -139,26 +139,57 @@ func main() {
 	// (addClient/removeClient içinde `go callback()` ile çağrılır),
 	// böylece Hub'ın mutex Lock'u ile BroadcastToAll'ın RLock'u çakışmaz.
 	hub.OnUserFirstConnect(func(userID string) {
-		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatusOnline); err != nil {
-			log.Printf("[presence] failed to set online for user %s: %v", userID, err)
+		// Kullanıcının DB'deki tercih edilen status'unu oku.
+		// Bu status, kullanıcının en son seçtiği durumu temsil eder
+		// ve oturumlar arası korunur (persist).
+		user, err := userRepo.GetByID(context.Background(), userID)
+		if err != nil {
+			log.Printf("[presence] failed to get user %s: %v", userID, err)
 			return
 		}
+
+		preferredStatus := user.Status
+
+		// Invisible modu: DB'de "offline" = kullanıcı invisible olmak istiyor.
+		// Bu durumda:
+		// 1. Hub'da invisible olarak işaretle (handler.go'da da yapılıyor,
+		//    ama callback race condition'a karşı burada da set ederiz)
+		// 2. Diğer kullanıcılara "offline" olarak broadcast et (görünmez kal)
+		// 3. DB status'unu DEĞİŞTİRME — tercih korunsun
+		if preferredStatus == models.UserStatusOffline {
+			hub.SetInvisible(userID, true)
+			// Invisible kullanıcı için broadcast YAPMA — zaten "offline" görünüyor.
+			// Diğer client'lar ready event'te bu kullanıcıyı görmeyecek.
+			log.Printf("[presence] user %s connected as invisible", userID)
+			return
+		}
+
+		// Normal durum: Tercih edilen status'u broadcast et.
+		// "online", "idle" veya "dnd" — kullanıcının seçimi korunur.
+		// DB'deki status zaten doğru olduğu için güncelleme gerekmez.
 		hub.BroadcastToAll(ws.Event{
 			Op: ws.OpPresence,
 			Data: ws.PresenceData{
 				UserID: userID,
-				Status: string(models.UserStatusOnline),
+				Status: string(preferredStatus),
 			},
 		})
-		log.Printf("[presence] user %s is now online", userID)
+		log.Printf("[presence] user %s is now %s (restored preference)", userID, preferredStatus)
 	})
 
 	hub.OnUserFullyDisconnected(func(userID string) {
-		// Presence: kullanıcıyı offline yap
-		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatusOffline); err != nil {
-			log.Printf("[presence] failed to set offline for user %s: %v", userID, err)
-			return
-		}
+		// Presence: DB status'unu DEĞİŞTİRME — kullanıcının tercih ettiği status
+		// (online/idle/dnd/offline) korunmalı. Bir sonraki bağlantıda
+		// OnUserFirstConnect bu tercihi okuyup doğru şekilde broadcast edecek.
+		//
+		// Invisible tracking: kullanıcı koptuğunda invisible set'inden temizle.
+		// Zaten bağlı olmadığı için GetVisibleOnlineUserIDs'ta görünmez,
+		// ama set'i temiz tutmak için kaldırıyoruz.
+		hub.SetInvisible(userID, false)
+
+		// Diğer kullanıcılara "offline" olarak broadcast et.
+		// Invisible kullanıcılar zaten "offline" görünüyordu, normal kullanıcılar
+		// artık gerçekten offline. Her iki durumda da doğru broadcast.
 		hub.BroadcastToAll(ws.Event{
 			Op: ws.OpPresence,
 			Data: ws.PresenceData{
@@ -166,7 +197,7 @@ func main() {
 				Status: string(models.UserStatusOffline),
 			},
 		})
-		log.Printf("[presence] user %s is now offline", userID)
+		log.Printf("[presence] user %s disconnected (preference preserved in DB)", userID)
 
 		// Voice: kullanıcı ses kanalındaysa state'ini temizle ve broadcast et.
 		// DisconnectUser içinde LeaveChannel çağrılır — broadcast dahil.
@@ -188,6 +219,11 @@ func main() {
 			log.Printf("[presence] failed to set %s for user %s: %v", status, userID, err)
 			return
 		}
+
+		// Invisible tracking: "offline" seçilirse invisible olarak işaretle,
+		// başka bir status seçilirse invisible'dan çıkar.
+		hub.SetInvisible(userID, status == string(models.UserStatusOffline))
+
 		hub.BroadcastToAll(ws.Event{
 			Op: ws.OpPresence,
 			Data: ws.PresenceData{

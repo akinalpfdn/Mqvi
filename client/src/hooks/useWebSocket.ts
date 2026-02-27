@@ -271,6 +271,17 @@ export function useWebSocket() {
         // Arkadaş listesi ve istekleri çek
         useFriendStore.getState().fetchFriends();
         useFriendStore.getState().fetchRequests();
+
+        // Status persistence safety net — localStorage'daki manualStatus'u backend'e gönder.
+        // Backend OnUserFirstConnect'te DB'den okur, ama frontend'in localStorage'ı
+        // ile DB arasında uyumsuzluk olabilir (ör. DB resetlendi, farklı cihaz).
+        // Bu sync ile her iki taraf da aynı durumda olur.
+        const storedStatus = useAuthStore.getState().manualStatus;
+        if (storedStatus && storedStatus !== "online") {
+          wsRef.current?.send(
+            JSON.stringify({ op: "presence_update", d: { status: storedStatus } })
+          );
+        }
         break;
       }
       case "presence_update": {

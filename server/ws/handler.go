@@ -167,7 +167,9 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// User bilgilerini DB'den çekip Hub cache'ine yaz.
 	// display_name ve avatar_url JWT claims'te bulunmaz — DB lookup gerekir.
 	// Bu bilgiler voice join gibi event'lerde tekrar DB'ye gitmeden kullanılır.
+	// Ayrıca kullanıcının DB'deki status tercihi okunur — invisible tracking için.
 	var displayName, avatarURL string
+	var dbStatus models.UserStatus
 	if h.userInfoProvider != nil {
 		if user, err := h.userInfoProvider.GetByID(r.Context(), claims.UserID); err == nil {
 			if user.DisplayName != nil {
@@ -176,19 +178,30 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			if user.AvatarURL != nil {
 				avatarURL = *user.AvatarURL
 			}
+			dbStatus = user.Status
 		}
 	}
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
+
+	// Invisible tracking: Kullanıcının DB'deki tercih edilen status'u "offline" ise
+	// (invisible modu), Hub'a kayıt OLMADAN ÖNCE invisible olarak işaretle.
+	// Bu sayede register sonrası tetiklenen OnUserFirstConnect callback'i
+	// ve ready event'teki online listesi doğru çalışır.
+	if dbStatus == models.UserStatusOffline {
+		h.hub.SetInvisible(claims.UserID, true)
+	}
 
 	// 6. Hub'a kaydet
 	h.hub.register <- client
 
 	// 7. "ready" event gönder — client bağlantı kurduğunda hangi kullanıcıların
 	// online olduğunu bilmeli. Bu event ile frontend memberStore'u başlatır.
+	// GetVisibleOnlineUserIDs() invisible kullanıcıları hariç tutar —
+	// "offline" status seçmiş ama bağlı olan kullanıcılar listede görünmez.
 	client.sendEvent(Event{
 		Op: OpReady,
 		Data: ReadyData{
-			OnlineUserIDs: h.hub.GetOnlineUserIDs(),
+			OnlineUserIDs: h.hub.GetVisibleOnlineUserIDs(),
 		},
 	})
 
