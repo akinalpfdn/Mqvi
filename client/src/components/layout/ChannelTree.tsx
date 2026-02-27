@@ -105,6 +105,15 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     ? hasPermission(currentMember.effective_permissions, Permissions.ManageChannels)
     : false;
 
+  // Permission: MOVE_MEMBERS yetkisi olan kullanıcılar başka kullanıcıları
+  // voice kanallar arası sürükleyerek taşıyabilir (drag & drop).
+  const canMoveMembers = currentMember
+    ? hasPermission(currentMember.effective_permissions, Permissions.MoveMembers)
+    : false;
+
+  // Voice user drag & drop için WS send
+  const wsSend = useVoiceStore((s) => s._wsSend);
+
   // ─── Voice User Context Menu State ───
   const [voiceCtxMenu, setVoiceCtxMenu] = useState<{
     userId: string;
@@ -172,6 +181,19 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     channelId: string;
     position: "above" | "below";
   } | null>(null);
+
+  // ─── Voice User Drag & Drop State ───
+  // Yetkili kullanıcıların voice kullanıcılarını sürükleyerek başka kanala taşıması.
+  // Discord'daki gibi: kullanıcıyı tutup başka voice kanala bırakma.
+
+  /** Sürüklenen voice kullanıcının user_id'si */
+  const dragVoiceUserIdRef = useRef<string | null>(null);
+  /** Sürüklenen kullanıcının kaynak (source) kanal id'si */
+  const dragVoiceSourceChannelRef = useRef<string | null>(null);
+  /** Sürüklenen kullanıcı id (CSS vu-dragging class'ı için state — ref render tetiklemez) */
+  const [draggingVoiceUserId, setDraggingVoiceUserId] = useState<string | null>(null);
+  /** Hover edilen hedef voice kanal id (drop target highlight için) */
+  const [voiceDropTargetId, setVoiceDropTargetId] = useState<string | null>(null);
 
   function handleDragStart(channelId: string, categoryId: string) {
     dragChannelIdRef.current = channelId;
@@ -248,6 +270,94 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     dragChannelIdRef.current = null;
     dragCategoryIdRef.current = null;
     setDropIndicator(null);
+  }
+
+  // ─── Voice User Drag Handlers ───
+
+  /**
+   * Voice kullanıcı sürüklemeye başladığında çağrılır.
+   * stopPropagation() ile parent'taki kanal reorder drag'ı engellenir —
+   * böylece iki drag sistemi birbirine karışmaz.
+   */
+  function handleVoiceUserDragStart(e: React.DragEvent, userId: string, channelId: string) {
+    e.stopPropagation();
+    dragVoiceUserIdRef.current = userId;
+    dragVoiceSourceChannelRef.current = channelId;
+    setDraggingVoiceUserId(userId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/voice-user", userId);
+  }
+
+  /** Sürükleme bittiğinde (drop veya iptal) tüm voice drag state'i temizle. */
+  function handleVoiceUserDragEnd() {
+    dragVoiceUserIdRef.current = null;
+    dragVoiceSourceChannelRef.current = null;
+    setDraggingVoiceUserId(null);
+    setVoiceDropTargetId(null);
+  }
+
+  /**
+   * Birleşik DragOver — hem kanal reorder hem voice user move'u aynı element üzerinde işler.
+   *
+   * dragVoiceUserIdRef set ise voice user sürükleniyor demektir:
+   *   - Sadece voice kanallar (kaynak kanal hariç) geçerli drop target'tır
+   *   - Text kanallar veya kaynak kanal reddedilir
+   *
+   * Aksi halde mevcut kanal reorder mantığı çalışır.
+   */
+  function handleChannelDragOver(
+    e: React.DragEvent,
+    channelId: string,
+    channelType: string,
+    categoryId: string
+  ) {
+    if (dragVoiceUserIdRef.current) {
+      if (channelType !== "voice" || dragVoiceSourceChannelRef.current === channelId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setVoiceDropTargetId(channelId);
+      return;
+    }
+    handleDragOver(e, channelId, categoryId);
+  }
+
+  /**
+   * Birleşik DragLeave — cursor kanal elemanının dışına çıktığında çağrılır.
+   *
+   * relatedTarget kontrolü ile child element geçişlerindeki sahte leave event'leri
+   * filtrelenir — cursor hâlâ parent içindeyse highlight kaldırılmaz.
+   */
+  function handleChannelDragLeave(e: React.DragEvent) {
+    if (dragVoiceUserIdRef.current) {
+      const related = e.relatedTarget as Node | null;
+      if (related && e.currentTarget.contains(related)) return;
+      setVoiceDropTargetId(null);
+      return;
+    }
+    handleDragLeave();
+  }
+
+  /**
+   * Birleşik Drop — voice user move veya kanal reorder'ı gerçekleştirir.
+   *
+   * Voice user drop'ta: WS üzerinden voice_move_user event'i gönderilir,
+   * backend hem kaynak hem hedef kanalda MoveMembers yetkisini kontrol eder.
+   */
+  function handleChannelDrop(e: React.DragEvent, targetChannelId: string, categoryId: string) {
+    if (dragVoiceUserIdRef.current) {
+      e.preventDefault();
+      const targetUserId = dragVoiceUserIdRef.current;
+      dragVoiceUserIdRef.current = null;
+      dragVoiceSourceChannelRef.current = null;
+      setDraggingVoiceUserId(null);
+      setVoiceDropTargetId(null);
+      wsSend?.("voice_move_user", {
+        target_user_id: targetUserId,
+        target_channel_id: targetChannelId,
+      });
+      return;
+    }
+    handleDrop(e, targetChannelId, categoryId);
   }
 
   // ─── Handlers ───
@@ -505,14 +615,14 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         className={`ch-tree-drag-wrap${isDragging ? " dragging" : ""}${dropPos === "above" ? " drop-above" : ""}${dropPos === "below" ? " drop-below" : ""}`}
                         draggable={canManageChannels}
                         onDragStart={() => handleDragStart(ch.id, cg.category.id)}
-                        onDragOver={(e) => handleDragOver(e, ch.id, cg.category.id)}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => handleDrop(e, ch.id, cg.category.id)}
+                        onDragOver={(e) => handleChannelDragOver(e, ch.id, ch.type, cg.category.id)}
+                        onDragLeave={handleChannelDragLeave}
+                        onDrop={(e) => handleChannelDrop(e, ch.id, cg.category.id)}
                         onDragEnd={handleDragEnd}
                       >
                         {/* Kanal satırı */}
                         <button
-                          className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${unread > 0 ? " has-unread" : ""}`}
+                          className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${unread > 0 ? " has-unread" : ""}${voiceDropTargetId === ch.id ? " voice-drop-target" : ""}`}
                           onClick={() =>
                             isText
                               ? handleTextChannelClick(ch.id, ch.name)
@@ -544,9 +654,13 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                               return (
                                 <div
                                   key={p.user_id}
-                                  className={`ch-tree-voice-user${isSpeaking ? " speaking" : ""}`}
+                                  className={`ch-tree-voice-user${isSpeaking ? " speaking" : ""}${draggingVoiceUserId === p.user_id ? " vu-dragging" : ""}`}
+                                  draggable={canMoveMembers && !isMe}
+                                  onDragStart={(e) => handleVoiceUserDragStart(e, p.user_id, ch.id)}
+                                  onDragEnd={handleVoiceUserDragEnd}
+                                  title={canMoveMembers && !isMe ? tVoice("dragToMove") : undefined}
                                   onContextMenu={(e) => {
-                                    if (isMe) return; // Kendi kendine context menu açma
+                                    if (isMe) return;
                                     e.preventDefault();
                                     e.stopPropagation();
                                     setVoiceCtxMenu({

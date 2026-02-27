@@ -183,6 +183,13 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ch-tree-voice-user.speaking { color:var(--t1); }
 .ch-tree-voice-user.speaking .avatar { box-shadow:0 0 0 2px var(--green); }
 
+/* Voice user drag & drop — kullanıcıyı başka voice kanala sürükleme */
+.ch-tree-voice-user[draggable="true"] { cursor:grab;user-select:none; }
+.ch-tree-voice-user[draggable="true"]:active { cursor:grabbing; }
+.ch-tree-voice-user.vu-dragging { opacity:0.35; }
+/* Voice channel drop target highlight — sürüklenen kullanıcı hedef kanal üzerindeyken */
+.ch-tree-item.voice.voice-drop-target { background:color-mix(in srgb, var(--primary) 18%, transparent);box-shadow:inset 0 0 0 1.5px var(--primary);border-radius:5px; }
+
 /* Placeholder */
 .ch-tree-placeholder { padding:6px 16px; }
 .ch-tree-placeholder-text { font-size:13px;color:var(--t3);font-style:italic; }

@@ -54,5 +54,6 @@
   "moveToChannel": "Kanala Taşı",
   "disconnectFromVoice": "Ses Bağlantısını Kes",
   "youWereMoved": "Başka bir kanala taşındınız",
-  "youWereDisconnected": "Ses bağlantınız kesildi"
+  "youWereDisconnected": "Ses bağlantınız kesildi",
+  "dragToMove": "Başka kanala taşımak için sürükle"
 }

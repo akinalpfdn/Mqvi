@@ -54,5 +54,6 @@
   "moveToChannel": "Move to Channel",
   "disconnectFromVoice": "Disconnect from Voice",
   "youWereMoved": "You were moved to another channel",
-  "youWereDisconnected": "You were disconnected from voice"
+  "youWereDisconnected": "You were disconnected from voice",
+  "dragToMove": "Drag to move to another channel"
 }
