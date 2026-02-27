@@ -10,11 +10,8 @@
  */
 
 import { useTranslation } from "react-i18next";
-import { useServerStore } from "../../stores/serverStore";
 import { useUIStore } from "../../stores/uiStore";
 import type { Tab, Panel } from "../../stores/uiStore";
-import { publicAsset } from "../../utils/constants";
-
 /**
  * Tüm panellerdeki tab'ları birleştirip flat bir liste döner.
  * Her tab'a ait panelId bilgisi de eklenir.
@@ -35,7 +32,6 @@ function flattenTabs(panels: Record<string, Panel>): Array<Tab & { panelId: stri
 
 function TopBar() {
   const { t } = useTranslation("common");
-  const server = useServerStore((s) => s.server);
   const panels = useUIStore((s) => s.panels);
   const activePanelId = useUIStore((s) => s.activePanelId);
   const setActiveTab = useUIStore((s) => s.setActiveTab);
@@ -52,15 +48,6 @@ function TopBar() {
 
   return (
     <div className="top-bar">
-      {/* ─── Server Pill ─── */}
-      <div className="server-pill">
-        <img src={publicAsset("mqvi-icon.svg")} alt="mqvi" className="sp-avatar" />
-        <span className="sp-name">
-          {server?.name ?? "mqvi Server"}
-        </span>
-        <span className="sp-chevron">▾</span>
-      </div>
-
       {/* ─── Tab Strip ─── */}
       <div className="tab-strip">
         {allTabs.map((tab) => {

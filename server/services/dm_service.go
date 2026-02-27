@@ -277,6 +277,10 @@ func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, b
 		return nil, err
 	}
 
+	if messages == nil {
+		messages = []models.DMMessage{}
+	}
+
 	return &models.DMMessagePage{
 		Messages: messages,
 		HasMore:  hasMore,

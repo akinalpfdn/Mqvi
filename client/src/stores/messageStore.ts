@@ -103,7 +103,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       fetchedChannels.add(channelId);
 
       set((state) => {
-        const apiMessages = res.data!.messages;
+        // Backend boş kanalda messages: null dönebilir (Go nil slice → JSON null).
+        // Null üzerinde .map() crash eder — boş array'e fallback.
+        const apiMessages = res.data!.messages ?? [];
 
         // Fetch sırasında WS'den buffer'lanmış mesajları al.
         // API response'ta olmayan WS mesajlarını sonuna ekle (daha yeni oldukları için).

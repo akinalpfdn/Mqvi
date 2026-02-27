@@ -151,6 +151,12 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 		}
 	}
 
+	// Go'da nil slice JSON'a "null" olarak serialize edilir, frontend "null.map()" ile crash eder.
+	// Boş kanalda (hiç mesaj yok) messages nil olabilir — boş slice'a çevir.
+	if messages == nil {
+		messages = []models.Message{}
+	}
+
 	return &models.MessagePage{
 		Messages: messages,
 		HasMore:  hasMore,

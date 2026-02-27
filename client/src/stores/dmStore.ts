@@ -159,7 +159,7 @@ export const useDMStore = create<DMState>((set, get) => ({
       set((state) => ({
         messagesByChannel: {
           ...state.messagesByChannel,
-          [channelId]: res.data!.messages,
+          [channelId]: res.data!.messages ?? [],
         },
         hasMoreByChannel: {
           ...state.hasMoreByChannel,
