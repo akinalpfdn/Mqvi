@@ -85,6 +85,12 @@ interface ElectronAPI {
   /** Audio capture error/debug message from main process */
   onCaptureAudioError: (cb: (msg: string) => void) => void;
 
+  /** Taskbar overlay badge icon ayarla (Windows). count=0 → badge kaldır. */
+  setBadgeCount: (count: number, iconDataURL: string | null) => Promise<void>;
+
+  /** Taskbar'da pencereyi flash et — mesaj/arama geldiğinde dikkat çeker */
+  flashFrame: () => Promise<void>;
+
   /** Güncelleme mevcut event'i dinle */
   onUpdateAvailable: (cb: (info: ElectronUpdateInfo) => void) => void;
 

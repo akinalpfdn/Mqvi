@@ -44,6 +44,7 @@ import { useUIStore } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
+import { useNotificationBadge } from "../../hooks/useNotificationBadge";
 
 function AppLayout() {
   const { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS } =
@@ -51,6 +52,9 @@ function AppLayout() {
 
   // Idle detection — 5dk inaktiflik → "idle", aktivite geri gelince → "online"
   useIdleDetection({ sendPresenceUpdate });
+
+  // Electron taskbar badge — okunmamış mesaj sayısını taskbar ikonunda gösterir
+  useNotificationBadge();
   const fetchServer = useServerStore((s) => s.fetchServer);
   const fetchChannels = useChannelStore((s) => s.fetchChannels);
   const fetchMembers = useMemberStore((s) => s.fetchMembers);

@@ -97,6 +97,7 @@ function createWindow(): void {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
   });
 
@@ -434,6 +435,33 @@ function setupIPC(): void {
       captureProcess = null;
       mainWindow?.webContents.send("capture-audio-stopped");
     });
+  });
+
+  // ─── Taskbar Badge (Windows Overlay Icon) ───
+  // Renderer'dan gelen unread count + canvas dataURL ile taskbar overlay icon set eder.
+  // count=0 → overlay kaldır, count>0 → kırmızı badge göster.
+  // Tray tooltip da güncellenir.
+  ipcMain.handle(
+    "set-badge-count",
+    (_e: Electron.IpcMainInvokeEvent, count: number, iconDataURL: string | null) => {
+      if (!mainWindow) return;
+      if (count === 0 || !iconDataURL) {
+        mainWindow.setOverlayIcon(null, "");
+      } else {
+        const icon = nativeImage.createFromDataURL(iconDataURL);
+        mainWindow.setOverlayIcon(icon, `${count} unread`);
+      }
+      tray?.setToolTip(count > 0 ? `mqvi (${count})` : "mqvi");
+    }
+  );
+
+  // ─── Flash Frame ───
+  // Mesaj veya arama geldiğinde taskbar ikonunu yanıp söndür (dikkat çek).
+  // Pencere focus alınca flash otomatik durur.
+  ipcMain.handle("flash-frame", () => {
+    if (mainWindow && !mainWindow.isFocused()) {
+      mainWindow.flashFrame(true);
+    }
   });
 
   ipcMain.handle("stop-system-capture", () => {

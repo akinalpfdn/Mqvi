@@ -69,8 +69,10 @@ function playTone(
   try {
     const ctx = getAudioContext();
 
-    // Suspended context'i resume et (Chrome autoplay policy)
-    if (ctx.state === "suspended") {
+    // Context resume — "suspended" (Chrome autoplay policy) veya
+    // "interrupted" (Electron arka plana alındığında) durumlarında.
+    // resume() idempotent — zaten "running" ise no-op.
+    if (ctx.state !== "running") {
       ctx.resume().catch(() => {});
     }
 

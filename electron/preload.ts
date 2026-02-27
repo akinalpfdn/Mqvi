@@ -97,6 +97,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("capture-audio-error", (_e, msg) => cb(msg));
   },
 
+  // ─── Taskbar Badge + Flash ───
+
+  /** Taskbar overlay badge icon ayarla (Windows). count=0 → badge kaldır. */
+  setBadgeCount: (count: number, iconDataURL: string | null): Promise<void> =>
+    ipcRenderer.invoke("set-badge-count", count, iconDataURL),
+
+  /** Taskbar'da pencereyi flash et — mesaj/arama geldiğinde dikkat çeker */
+  flashFrame: (): Promise<void> => ipcRenderer.invoke("flash-frame"),
+
   // ─── Event listeners (main → renderer) ───
 
   /** Güncelleme mevcut bilgisi geldiğinde */

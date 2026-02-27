@@ -69,8 +69,9 @@ import type {
   P2PSignalPayload,
 } from "../types";
 
-/** Reconnect denemesi arasındaki bekleme süresi (ms) */
-const RECONNECT_DELAY = 3_000;
+/** Reconnect bekleme süreleri (ms) — exponential backoff */
+const RECONNECT_DELAY_BASE = 3_000;
+const RECONNECT_DELAY_MAX = 30_000;
 
 /** Typing throttle süresi (ms) — aynı kanala bu süreden sık typing gönderilmez */
 const TYPING_THROTTLE = 3_000;
@@ -98,6 +99,9 @@ export function useWebSocket() {
 
   /** Reconnect timeout ID'si */
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Ardışık reconnect deneme sayısı — exponential backoff hesabı için */
+  const reconnectAttemptRef = useRef<number>(0);
 
   /**
    * Monoton artan bağlantı ID'si — React StrictMode koruması.
@@ -224,6 +228,7 @@ export function useWebSocket() {
         } else {
           useReadStateStore.getState().incrementUnread(message.channel_id);
           playNotificationSound();
+          window.electronAPI?.flashFrame();
         }
         break;
       }
@@ -461,6 +466,7 @@ export function useWebSocket() {
         if (dmMsg.dm_channel_id !== activeDMId) {
           dmState.incrementDMUnread(dmMsg.dm_channel_id);
           playNotificationSound();
+          window.electronAPI?.flashFrame();
         }
         break;
       }
@@ -570,6 +576,7 @@ export function useWebSocket() {
       // Server sadece relay görevi yapar — medya doğrudan kullanıcılar arasında akar.
       case "p2p_call_initiate":
         useP2PCallStore.getState().handleCallInitiate(msg.d as P2PCall);
+        window.electronAPI?.flashFrame();
         break;
       case "p2p_call_accept":
         useP2PCallStore.getState().handleCallAccept(msg.d as { call_id: string });
@@ -612,6 +619,24 @@ export function useWebSocket() {
       reconnectTimeoutRef.current = null;
     }
   }
+
+  /**
+   * getReconnectDelay — Exponential backoff ile reconnect bekleme süresi hesaplar.
+   *
+   * Formül: min(base * 2^attempt, max)
+   * attempt=0 → 3s, attempt=1 → 6s, attempt=2 → 12s, attempt=3 → 24s, attempt=4+ → 30s
+   *
+   * Neden exponential backoff?
+   * Server kapanıp yeniden başlatılırken sabit 3sn retry çok agresif.
+   * Backoff ile server'a nefes aldırılır, network kaynağı israf edilmez.
+   * Server geldiğinde bağlantı en geç 30sn içinde kurulur.
+   */
+  function getReconnectDelay(): number {
+    const delay = RECONNECT_DELAY_BASE * Math.pow(2, reconnectAttemptRef.current);
+    return Math.min(delay, RECONNECT_DELAY_MAX);
+  }
+
+  // scheduleReconnect, doConnect scope'unda tanımlanır (myId closure'dan gelir)
 
   /**
    * sendTyping — MessageInput'un her keystroke'da çağırdığı fonksiyon.
@@ -783,14 +808,45 @@ export function useWebSocket() {
      * expired → reject → onclose → reconnect → expired → sonsuz döngü yaratır.
      * ensureFreshToken() expire durumunda refresh yapıp taze token döner.
      */
+    /**
+     * scheduleReconnect — Exponential backoff ile reconnect planlar.
+     * Token alınamazsa veya WS bağlantısı kurulamazsa da çağrılır —
+     * böylece retry döngüsü hiçbir zaman durmaz (logout olmadıkça).
+     */
+    function scheduleReconnect() {
+      if (activeConnectionIdRef.current !== myId) return;
+
+      const delay = getReconnectDelay();
+      reconnectAttemptRef.current++;
+
+      reconnectTimeoutRef.current = setTimeout(() => {
+        if (activeConnectionIdRef.current === myId) {
+          doConnect();
+        }
+      }, delay);
+    }
+
     async function doConnect() {
       if (activeConnectionIdRef.current !== myId) return;
 
       // Token expire olduysa refresh yap, taze token al.
       // ensureFreshToken: expire değilse mevcut token'ı döner (sıfır maliyet),
       // expire olduysa refreshAccessToken() çağırır (race-safe, promise lock'lu).
-      const token = await ensureFreshToken();
-      if (!token || activeConnectionIdRef.current !== myId) return;
+      let token: string | null = null;
+      try {
+        token = await ensureFreshToken();
+      } catch {
+        // Server kapalıysa refresh isteği network error fırlatır
+      }
+
+      if (activeConnectionIdRef.current !== myId) return;
+
+      if (!token) {
+        // Token alınamadı (server kapalı veya refresh başarısız).
+        // Retry döngüsünü DURDURMUYORUZ — exponential backoff ile tekrar dene.
+        scheduleReconnect();
+        return;
+      }
 
       // Önceki bağlantıyı ve timer'ları temizle
       cleanupTimers();
@@ -807,6 +863,8 @@ export function useWebSocket() {
         // Stale socket kontrolü
         if (activeConnectionIdRef.current !== myId) return;
 
+        // Bağlantı başarılı — backoff sayacını sıfırla
+        reconnectAttemptRef.current = 0;
         missedHeartbeatsRef.current = 0;
 
         // Heartbeat interval başlat
@@ -864,12 +922,8 @@ export function useWebSocket() {
 
         cleanupTimers();
 
-        // Otomatik reconnect — aynı myId ile doConnect'i çağır
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (activeConnectionIdRef.current === myId) {
-            doConnect();
-          }
-        }, RECONNECT_DELAY);
+        // Otomatik reconnect — exponential backoff ile
+        scheduleReconnect();
       };
 
       // ─── onerror ───

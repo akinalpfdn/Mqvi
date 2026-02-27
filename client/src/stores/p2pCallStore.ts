@@ -221,17 +221,48 @@ function createPeerConnection(
     set({ remoteStream: event.streams[0] ?? null });
   };
 
-  // Bağlantı durumu takibi — koptuğunda aramayı sonlandır
+  // Bağlantı durumu takibi — koptuğunda aramayı sonlandır.
+  //
+  // "disconnected" state geçici olabilir (renegotiation, ağ değişikliği).
+  // Hemen endCall çağırmak yerine 3sn bekle — eğer bağlantı recovery yapamazsa sonlandır.
+  // "failed" ve "closed" ise kesin kopma — anında sonlandır.
+  let disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
+
   pc.onconnectionstatechange = () => {
-    if (
-      pc.connectionState === "disconnected" ||
-      pc.connectionState === "failed" ||
-      pc.connectionState === "closed"
-    ) {
+    // Bağlantı recovery yaptıysa bekleyen timer'ı iptal et
+    if (pc.connectionState === "connected" || pc.connectionState === "connecting") {
+      if (disconnectedTimer) {
+        clearTimeout(disconnectedTimer);
+        disconnectedTimer = null;
+      }
+      return;
+    }
+
+    if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+      // Kesin kopma — anında sonlandır
+      if (disconnectedTimer) {
+        clearTimeout(disconnectedTimer);
+        disconnectedTimer = null;
+      }
       console.warn("[p2p] PeerConnection state:", pc.connectionState);
       const current = get();
       if (current.activeCall) {
         current.endCall();
+      }
+    } else if (pc.connectionState === "disconnected") {
+      // Geçici kopma olabilir — 3sn bekle, recovery olmazsa sonlandır
+      console.warn("[p2p] PeerConnection disconnected, waiting for recovery...");
+      if (!disconnectedTimer) {
+        disconnectedTimer = setTimeout(() => {
+          disconnectedTimer = null;
+          if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+            console.warn("[p2p] PeerConnection did not recover, ending call");
+            const current = get();
+            if (current.activeCall) {
+              current.endCall();
+            }
+          }
+        }, 3000);
       }
     }
   };
@@ -373,48 +404,89 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
   toggleScreenShare: () => {
     const { isScreenSharing, peerConnection, localStream, activeCall } = get();
-    if (!peerConnection || !activeCall) return;
+    if (!peerConnection || !activeCall || !localStream) return;
 
     if (isScreenSharing) {
-      // Ekran paylaşımını durdur — screen track'i kamera ile değiştir veya kaldır
-      const senders = peerConnection.getSenders();
-      const videoSender = senders.find((s) => s.track?.kind === "video");
+      // ── Ekran paylaşımını durdur ──
+      // _screenSender'da sakladığımız sender'ı kullanarak screen track'i
+      // kamera track'i ile değiştir veya null yap.
+      const screenSender = (peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender;
 
-      if (videoSender && localStream) {
+      if (screenSender) {
         const cameraTrack = localStream.getVideoTracks()[0];
-        if (cameraTrack) {
-          // replaceTrack — mevcut video sender'ın track'ini değiştirir.
-          // Renegotiation gerektirmez (aynı medya türü için).
-          videoSender.replaceTrack(cameraTrack);
-        } else {
-          videoSender.replaceTrack(null);
-        }
+        screenSender.replaceTrack(cameraTrack ?? null).catch(() => {});
+        (peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender = undefined;
       }
+
       set({ isScreenSharing: false });
     } else {
-      // Ekran paylaşımını başlat
-      // getDisplayMedia — tarayıcıdan ekran/pencere/sekme seçimi ister.
+      // ── Ekran paylaşımını başlat ──
+      //
+      // Strateji: Mevcut bir video sender varsa replaceTrack kullan (renegotiation yok).
+      // Yoksa (voice-only arama) addTransceiver ile "sendonly" video transceiver oluştur
+      // ve ardından replaceTrack ile screen track'i set et. addTransceiver
+      // onnegotiationneeded'ı tetikler → createPeerConnection'daki handler
+      // otomatik renegotiation yapar.
+      //
+      // addTrack(track, screenStream) KULLANMIYORUZ çünkü:
+      // 1. screenStream ayrı bir MediaStream, PC stream association karışır
+      // 2. Renegotiation sırasında geçici "disconnected" state endCall'ı tetikleyebilir
+      // 3. addTransceiver + replaceTrack daha kontrollü bir akış sağlar
       navigator.mediaDevices
         .getDisplayMedia({ video: true })
-        .then((screenStream) => {
+        .then(async (screenStream) => {
           const screenTrack = screenStream.getVideoTracks()[0];
-
-          // PeerConnection'daki video track'i ekran track'i ile değiştir
-          const senders = peerConnection.getSenders();
-          const videoSender = senders.find((s) => s.track?.kind === "video");
-
-          if (videoSender) {
-            videoSender.replaceTrack(screenTrack);
-          } else {
-            peerConnection.addTrack(screenTrack, screenStream);
+          const pc = get().peerConnection;
+          if (!pc) {
+            screenTrack.stop();
+            return;
           }
 
-          // Kullanıcı "paylaşımı durdur" butonuna tıklarsa (tarayıcı native UI)
-          // track.onended otomatik tetiklenir — state'i sıfırla.
+          // Mevcut video sender'ı bul (varsa)
+          const senders = pc.getSenders();
+          let videoSender = senders.find((s) => s.track?.kind === "video");
+
+          if (!videoSender) {
+            // Voice-only arama — video sender yok.
+            // Boş track'li video transceiver ekle. addTransceiver onnegotiationneeded tetikler.
+            // Renegotiation tamamlanana kadar beklemeliyiz yoksa replaceTrack başarısız olabilir.
+            const transceiver = pc.addTransceiver("video", { direction: "sendrecv" });
+            videoSender = transceiver.sender;
+
+            // Renegotiation'ın tamamlanmasını bekle — offer/answer exchange olmalı.
+            // onnegotiationneeded handler otomatik offer gönderir, karşı taraf answer döner.
+            // signalingState "stable" olana kadar kısa bir bekleme yeterli.
+            await new Promise<void>((resolve) => {
+              const check = () => {
+                if (pc.signalingState === "stable") {
+                  resolve();
+                } else {
+                  setTimeout(check, 50);
+                }
+              };
+              // İlk kontrolü biraz geciktir — onnegotiationneeded async tetiklenir
+              setTimeout(check, 100);
+            });
+          }
+
+          // replaceTrack ile screen track'i set et — renegotiation gerektirmez
+          await videoSender.replaceTrack(screenTrack);
+
+          // Sender referansını PC'ye kaydet — durdurma sırasında lazım
+          (pc as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender = videoSender;
+
+          // Kullanıcı tarayıcı native "paylaşımı durdur" butonuna tıklarsa
           screenTrack.onended = () => {
-            if (videoSender && localStream) {
-              const cam = localStream.getVideoTracks()[0];
-              videoSender.replaceTrack(cam ?? null);
+            const current = get();
+            if (!current.isScreenSharing) return;
+
+            const sender = (current.peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })?._screenSender;
+            if (sender && current.localStream) {
+              const cam = current.localStream.getVideoTracks()[0];
+              sender.replaceTrack(cam ?? null).catch(() => {});
+            }
+            if (current.peerConnection) {
+              (current.peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender = undefined;
             }
             set({ isScreenSharing: false });
           };
