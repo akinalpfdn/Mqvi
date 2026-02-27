@@ -131,7 +131,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
       useDMStore.getState().selectDM(channelId);
       useUIStore.getState().openTab(channelId, "dm", displayName);
     }
-    useP2PCallStore.getState().initiateCall(member.id, "audio");
+    useP2PCallStore.getState().initiateCall(member.id, "voice");
     onClose();
   }
 

@@ -353,7 +353,7 @@ func main() {
 	serverService := services.NewServerService(serverRepo, hub)
 	pinService := services.NewPinService(pinRepo, messageRepo, hub)
 	searchService := services.NewSearchService(searchRepo)
-	readStateService := services.NewReadStateService(readStateRepo)
+	readStateService := services.NewReadStateService(readStateRepo, channelPermService)
 	dmService := services.NewDMService(dmRepo, userRepo, hub)
 	dmUploadService := services.NewDMUploadService(dmRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(reactionRepo, messageRepo, hub)

@@ -129,7 +129,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
               useDMStore.getState().selectDM(channelId);
               useUIStore.getState().openTab(channelId, "dm", member.display_name ?? member.username);
             }
-            useP2PCallStore.getState().initiateCall(member.id, "audio");
+            useP2PCallStore.getState().initiateCall(member.id, "voice");
           },
         });
       }

@@ -265,7 +265,10 @@ func (s *messageService) BroadcastCreate(message *models.Message) {
 		Data: message,
 	}
 
-	// Online kullanıcıları al ve ViewChannel yetkisi olanları filtrele
+	// Online kullanıcıları al ve ReadMessages yetkisi olanları filtrele.
+	// PermReadMessages kullanıyoruz (PermViewChannel değil) çünkü mesaj içeriği
+	// sadece okuma yetkisi olan kullanıcılara ulaşmalı. ViewChannel sadece kanalı
+	// sidebar'da görmeyi sağlar (ör. voice-only erişim), mesaj okuma ayrı bir yetki.
 	onlineUsers := s.hub.GetOnlineUserIDs()
 	ctx := context.Background()
 	var allowed []string
@@ -275,7 +278,7 @@ func (s *messageService) BroadcastCreate(message *models.Message) {
 		if err != nil {
 			continue // Hata durumunda güvenli tarafta kal — gönderme
 		}
-		if perms.Has(models.PermViewChannel) {
+		if perms.Has(models.PermReadMessages) {
 			allowed = append(allowed, userID)
 		}
 	}
