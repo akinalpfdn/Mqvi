@@ -55,16 +55,17 @@ func (r *sqliteReadStateRepo) Upsert(ctx context.Context, userID, channelID, mes
 // Kanal sayısı genellikle düşük (10-50) olduğu için bu yeterince hızlı.
 func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID string) ([]models.UnreadInfo, error) {
 	query := `
-		SELECT c.id,
-		       (SELECT COUNT(*) FROM messages m
-		        WHERE m.channel_id = c.id
-		          AND (cr.last_read_message_id IS NULL
-		               OR m.created_at > (SELECT created_at FROM messages WHERE id = cr.last_read_message_id))
-		       ) as unread_count
-		FROM channels c
-		LEFT JOIN channel_reads cr ON cr.channel_id = c.id AND cr.user_id = ?
-		WHERE c.type = 'text'
-		HAVING unread_count > 0`
+		SELECT id, unread_count FROM (
+			SELECT c.id,
+			       (SELECT COUNT(*) FROM messages m
+			        WHERE m.channel_id = c.id
+			          AND (cr.last_read_message_id IS NULL
+			               OR m.created_at > (SELECT created_at FROM messages WHERE id = cr.last_read_message_id))
+			       ) as unread_count
+			FROM channels c
+			LEFT JOIN channel_reads cr ON cr.channel_id = c.id AND cr.user_id = ?
+			WHERE c.type = 'text'
+		) WHERE unread_count > 0`
 
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {
