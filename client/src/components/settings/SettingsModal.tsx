@@ -21,6 +21,7 @@ import VoiceSettings from "./VoiceSettings";
 import ChannelSettings from "./ChannelSettings";
 import MembersSettings from "./MembersSettings";
 import ConnectionSettings from "./ConnectionSettings";
+import SecuritySettings from "./SecuritySettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -106,6 +107,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "members":
       return <MembersSettings />;
+
+    case "security":
+      return <SecuritySettings />;
 
     case "connection":
       return <ConnectionSettings />;

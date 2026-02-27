@@ -47,3 +47,14 @@ export async function logout(refresh_token: string) {
 export async function getMe() {
   return apiClient<User>("/users/me");
 }
+
+/** Şifre değiştirme — mevcut şifre doğrulandıktan sonra yeni şifre set eder */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+) {
+  return apiClient<{ message: string }>("/users/me/password", {
+    method: "POST",
+    body: { current_password: currentPassword, new_password: newPassword },
+  });
+}

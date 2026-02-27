@@ -214,5 +214,20 @@
   "updateRestarting": "Restarting...",
   "updateError": "Update failed",
   "updateCheckFailed": "Could not check for updates",
-  "updateUpToDate": "You're up to date"
+  "updateUpToDate": "You're up to date",
+
+  "security": "Security",
+  "changePassword": "Change Password",
+  "currentPassword": "Current Password",
+  "newPassword": "New Password",
+  "confirmNewPassword": "Confirm New Password",
+  "currentPasswordPlaceholder": "Enter your current password",
+  "newPasswordPlaceholder": "Enter your new password",
+  "confirmNewPasswordPlaceholder": "Confirm your new password",
+  "passwordChanged": "Password changed successfully",
+  "passwordMismatch": "New passwords do not match",
+  "passwordTooShort": "Password must be at least 6 characters",
+  "passwordSameAsOld": "New password must be different from current password",
+  "wrongCurrentPassword": "Current password is incorrect",
+  "passwordChangeError": "Failed to change password"
 }

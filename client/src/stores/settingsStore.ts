@@ -50,6 +50,7 @@ type SettingsTab =
   | "profile"
   | "appearance"
   | "voice"
+  | "security"
   | "server-general"
   | "channels"
   | "roles"

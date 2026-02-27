@@ -33,6 +33,9 @@ type UserRepository interface {
 	GetAll(ctx context.Context) ([]models.User, error)
 	Update(ctx context.Context, user *models.User) error
 	UpdateStatus(ctx context.Context, userID string, status models.UserStatus) error
+	// UpdatePassword, kullanıcının şifre hash'ini günceller.
+	// AuthService.ChangePassword tarafından çağrılır — yeni bcrypt hash alır.
+	UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error
 	Count(ctx context.Context) (int, error)
 	// Delete, kullanıcıyı siler (kick işlemi için).
 	// FK cascade ile user_roles, sessions vb. ilişkili kayıtlar da silinir.

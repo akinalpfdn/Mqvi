@@ -39,6 +39,9 @@ type AuthService interface {
 	RefreshToken(ctx context.Context, refreshToken string) (*AuthTokens, error)
 	Logout(ctx context.Context, refreshToken string) error
 	ValidateAccessToken(tokenString string) (*models.TokenClaims, error)
+	// ChangePassword, kullanıcının şifresini değiştirir.
+	// Mevcut şifreyi doğruladıktan sonra yeni hash oluşturur ve kaydeder.
+	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error
 }
 
 // AuthTokens, login/register sonrası dönen token çifti.
@@ -334,6 +337,49 @@ func (s *authService) ValidateAccessToken(tokenString string) (*models.TokenClai
 	}
 
 	return claims, nil
+}
+
+// ChangePassword, kullanıcının şifresini değiştirir.
+//
+// Akış:
+// 1. Kullanıcıyı DB'den getir (password hash'ini almak için)
+// 2. Mevcut şifreyi bcrypt ile doğrula (timing-safe comparison)
+// 3. Yeni şifre validasyonu (min uzunluk, mevcut şifreden farklı olmalı)
+// 4. Yeni bcrypt hash oluştur (cost=12)
+// 5. DB'ye kaydet
+//
+// Güvenlik notu: Mevcut şifreyi mutlaka doğruluyoruz —
+// çalınmış bir session token'ı ile şifre değiştirmeyi önlemek için.
+func (s *authService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	// Yeni şifre minimum uzunluk kontrolü
+	if len(newPassword) < 6 {
+		return fmt.Errorf("%w: password must be at least 6 characters", pkg.ErrBadRequest)
+	}
+
+	// Kullanıcıyı getir (password hash'i dahil)
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	// Mevcut şifreyi doğrula — timing-safe bcrypt comparison
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		return fmt.Errorf("%w: current password is incorrect", pkg.ErrUnauthorized)
+	}
+
+	// Yeni şifre mevcut şifre ile aynı olmamalı
+	if currentPassword == newPassword {
+		return fmt.Errorf("%w: new password must be different from current password", pkg.ErrBadRequest)
+	}
+
+	// Yeni bcrypt hash oluştur (cost=12)
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
+	if err != nil {
+		return fmt.Errorf("failed to hash new password: %w", err)
+	}
+
+	// DB'ye kaydet
+	return s.userRepo.UpdatePassword(ctx, userID, string(newHash))
 }
 
 // ─── Private Helpers ───

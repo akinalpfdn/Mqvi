@@ -214,5 +214,20 @@
   "updateRestarting": "Yeniden başlatılıyor...",
   "updateError": "Güncelleme başarısız",
   "updateCheckFailed": "Güncelleme kontrol edilemedi",
-  "updateUpToDate": "Güncelsiniz"
+  "updateUpToDate": "Güncelsiniz",
+
+  "security": "Güvenlik",
+  "changePassword": "Şifre Değiştir",
+  "currentPassword": "Mevcut Şifre",
+  "newPassword": "Yeni Şifre",
+  "confirmNewPassword": "Yeni Şifre (Tekrar)",
+  "currentPasswordPlaceholder": "Mevcut şifrenizi girin",
+  "newPasswordPlaceholder": "Yeni şifrenizi girin",
+  "confirmNewPasswordPlaceholder": "Yeni şifrenizi tekrar girin",
+  "passwordChanged": "Şifre başarıyla değiştirildi",
+  "passwordMismatch": "Yeni şifreler eşleşmiyor",
+  "passwordTooShort": "Şifre en az 6 karakter olmalıdır",
+  "passwordSameAsOld": "Yeni şifre mevcut şifreden farklı olmalıdır",
+  "wrongCurrentPassword": "Mevcut şifre hatalı",
+  "passwordChangeError": "Şifre değiştirilemedi"
 }

@@ -133,6 +133,42 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, user)
 }
 
+// ChangePassword godoc
+// POST /api/users/me/password
+// Auth middleware gerektirir — kullanıcı kendi şifresini değiştirir.
+//
+// Body: { "current_password": "...", "new_password": "..." }
+// Mevcut şifre doğrulandıktan sonra yeni hash oluşturulur.
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "current_password and new_password are required")
+		return
+	}
+
+	if err := h.authService.ChangePassword(r.Context(), user.ID, req.CurrentPassword, req.NewPassword); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "password changed"})
+}
+
 // UserContextKey, context'te kullanıcı bilgisi taşımak için kullanılan key tipi.
 //
 // Go'da context.Value() any tip kabul eder — string key kullanmak çakışmaya neden olabilir.

@@ -176,6 +176,26 @@ func (r *sqliteUserRepo) UpdateStatus(ctx context.Context, userID string, status
 	return nil
 }
 
+// UpdatePassword, kullanıcının şifre hash'ini günceller.
+func (r *sqliteUserRepo) UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error {
+	query := `UPDATE users SET password_hash = ? WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, newPasswordHash, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+
+	return nil
+}
+
 func (r *sqliteUserRepo) Count(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)

@@ -466,6 +466,10 @@ func main() {
 	mux.Handle("PATCH /api/users/me/profile", authMiddleware.Require(
 		http.HandlerFunc(memberHandler.UpdateProfile)))
 
+	// Password — kullanıcının kendi şifresini değiştirme endpoint'i
+	mux.Handle("POST /api/users/me/password", authMiddleware.Require(
+		http.HandlerFunc(authHandler.ChangePassword)))
+
 	// Avatar — kullanıcı avatar yükleme endpoint'i
 	// Ayrı bir handler çünkü multipart form parse ve resim validasyonu
 	// mevcut UploadService'den farklıdır (message attachment'a bağlı değil).
