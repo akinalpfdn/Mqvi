@@ -6,6 +6,14 @@
  * .member-info, .member-name, .member-activity
  *
  * MemberCard popup: React Portal ile body seviyesinde render edilir.
+ *
+ * Sağ tık context menu aksiyonları:
+ * - Send Message (DM)
+ * - Call (P2P audio)
+ * - Add Friend / Cancel Request / Accept Request / Remove Friend
+ * - Copy ID
+ * - Edit Roles (ManageRoles yetkisi)
+ * - Kick / Ban (yetki + hiyerarşi)
  */
 
 import { useState, useRef, useCallback } from "react";
@@ -19,11 +27,14 @@ import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useFriendStore } from "../../stores/friendStore";
+import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
 import type { MemberWithRoles } from "../../types";
 import MemberCard from "./MemberCard";
+import RoleEditorPopup from "./RoleEditorPopup";
 
 type MemberItemProps = {
   member: MemberWithRoles;
@@ -66,8 +77,14 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
   const confirm = useConfirm();
   const currentUser = useAuthStore((s) => s.user);
   const members = useMemberStore((s) => s.members);
+  const friends = useFriendStore((s) => s.friends);
+  const incoming = useFriendStore((s) => s.incoming);
+  const outgoing = useFriendStore((s) => s.outgoing);
+
   const [showCard, setShowCard] = useState(false);
   const [cardPos, setCardPos] = useState({ top: 0, left: 0 });
+  const [showRoleEditor, setShowRoleEditor] = useState(false);
+  const [roleEditorPos, setRoleEditorPos] = useState({ top: 0, left: 0 });
   const itemRef = useRef<HTMLDivElement>(null);
   const highestRole = getHighestRole(member);
   const roleType = getRoleType(member);
@@ -83,10 +100,11 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
       const myPerms = currentMember?.effective_permissions ?? 0;
       const canKick = hasPermission(myPerms, Permissions.KickMembers);
       const canBan = hasPermission(myPerms, Permissions.BanMembers);
+      const canManageRoles = hasPermission(myPerms, Permissions.ManageRoles);
 
       const items: ContextMenuItem[] = [];
 
-      // Send Message (DM) — kendine mesaj atma yok
+      // ─── Send Message (DM) — kendine mesaj atma yok ───
       if (!isSelf) {
         items.push({
           label: t("sendMessage"),
@@ -100,14 +118,85 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         });
       }
 
-      // Copy ID
+      // ─── Call (P2P audio) ───
+      if (!isSelf) {
+        items.push({
+          label: t("call"),
+          onClick: async () => {
+            // DM kanalı oluştur/al, sonra arama başlat
+            const channelId = await useDMStore.getState().createOrGetChannel(member.id);
+            if (channelId) {
+              useDMStore.getState().selectDM(channelId);
+              useUIStore.getState().openTab(channelId, "dm", member.display_name ?? member.username);
+            }
+            useP2PCallStore.getState().initiateCall(member.id, "audio");
+          },
+        });
+      }
+
+      // ─── Friend action — duruma göre dinamik ───
+      if (!isSelf) {
+        const isFriend = friends.some((f) => f.user_id === member.id);
+        const outReq = outgoing.find((r) => r.user_id === member.id);
+        const inReq = incoming.find((r) => r.user_id === member.id);
+
+        if (isFriend) {
+          items.push({
+            label: t("removeFriend"),
+            onClick: async () => {
+              const ok = await confirm({
+                message: t("confirmRemoveFriend", { username: member.username }),
+                confirmLabel: t("removeFriend"),
+                danger: true,
+              });
+              if (ok) await useFriendStore.getState().removeFriend(member.id);
+            },
+            danger: true,
+          });
+        } else if (outReq) {
+          items.push({
+            label: t("cancelRequest"),
+            onClick: async () => {
+              await useFriendStore.getState().declineRequest(outReq.id);
+            },
+          });
+        } else if (inReq) {
+          items.push({
+            label: t("acceptRequest"),
+            onClick: async () => {
+              await useFriendStore.getState().acceptRequest(inReq.id);
+            },
+          });
+        } else {
+          items.push({
+            label: t("addFriend"),
+            onClick: async () => {
+              await useFriendStore.getState().sendRequest(member.username);
+            },
+          });
+        }
+      }
+
+      // ─── Copy ID ───
       items.push({
         label: "Copy ID",
         onClick: () => navigator.clipboard.writeText(member.id),
         separator: !isSelf,
       });
 
-      // Kick — kendini kick edemezsin
+      // ─── Edit Roles — ManageRoles yetkisi, kendine yapılamaz ───
+      if (canManageRoles && !isSelf) {
+        items.push({
+          label: t("editRoles"),
+          onClick: () => {
+            setRoleEditorPos({ top: e.clientY, left: e.clientX });
+            setShowRoleEditor(true);
+          },
+          separator: true,
+        });
+      }
+
+      // ─── Kick ───
       if (canKick && !isSelf) {
         items.push({
           label: t("kick"),
@@ -120,11 +209,11 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
             if (ok) await memberApi.kickMember(member.id);
           },
           danger: true,
-          separator: true,
+          separator: !canManageRoles,
         });
       }
 
-      // Ban — kendini ban edemezsin
+      // ─── Ban ───
       if (canBan && !isSelf) {
         items.push({
           label: t("ban"),
@@ -142,7 +231,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
 
       openMenu(e, items);
     },
-    [currentUser, member, members, openMenu, confirm, t]
+    [currentUser, member, members, friends, incoming, outgoing, openMenu, confirm, t]
   );
 
   const handleClick = useCallback(() => {
@@ -221,6 +310,15 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
           />,
           document.body
         )}
+
+      {/* RoleEditorPopup — rol düzenleme popup'ı */}
+      {showRoleEditor && (
+        <RoleEditorPopup
+          member={member}
+          position={roleEditorPos}
+          onClose={() => setShowRoleEditor(false)}
+        />
+      )}
     </>
   );
 }

@@ -521,8 +521,9 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .member-card-section-title { font-size:13px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px; }
 .member-card-roles { display:flex;flex-wrap:wrap;gap:4px; }
 .member-card-joined { font-size:13px;color:var(--t2); }
-.member-card-actions { display:flex;gap:4px;margin-top:10px; }
-.member-card-btn { flex:1;height:28px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;font-family:var(--f-ui);display:flex;align-items:center;justify-content:center; }
+.member-card-actions { display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px; }
+.member-card-btn { height:30px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;font-family:var(--f-ui);display:flex;align-items:center;justify-content:center;background:var(--bg-4);color:var(--t1);transition:background .15s,color .15s; }
+.member-card-btn:hover { background:var(--bg-5);color:var(--t0); }
 .member-card-btn-kick { background:var(--bg-4);color:var(--t1); }
 .member-card-btn-kick:hover { background:var(--bg-5);color:var(--t0); }
 .member-card-btn-ban { background:var(--red-s);color:var(--red); }
@@ -531,6 +532,21 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* Role badge */
 .role-badge { display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:var(--bg-4);border:1px solid var(--b1);font-size:13px;font-weight:500;color:var(--t1); }
 .role-badge-dot { width:10px;height:10px;border-radius:999px;flex-shrink:0; }
+
+/* ── Role Editor Popup ── */
+.role-editor-popup { position:fixed;z-index:52;width:240px;max-height:360px;background:var(--bg-2);border:1px solid var(--b1);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;animation:vpIn .12s ease-out; }
+.role-editor-title { padding:12px 14px 8px;font-size:14px;font-weight:700;color:var(--t0);font-family:var(--f-ui); }
+.role-editor-list { flex:1;overflow-y:auto;padding:0 6px 6px; }
+.role-editor-empty { text-align:center;font-size:13px;color:var(--t3);padding:16px 8px; }
+.role-editor-item { display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--t1);font-family:var(--f-ui); }
+.role-editor-item:hover { background:var(--bg-4); }
+.role-editor-item.disabled { opacity:0.4;cursor:not-allowed; }
+.role-editor-item input[type="checkbox"] { width:16px;height:16px;accent-color:var(--primary);cursor:pointer;flex-shrink:0; }
+.role-editor-dot { width:12px;height:12px;border-radius:999px;flex-shrink:0; }
+.role-editor-actions { padding:8px;border-top:1px solid var(--b1);display:flex;justify-content:flex-end; }
+.role-editor-save { height:30px;padding:0 16px;border:none;border-radius:6px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;font-family:var(--f-ui);cursor:pointer;transition:opacity .15s; }
+.role-editor-save:hover { opacity:0.85; }
+.role-editor-save:disabled { opacity:0.4;cursor:not-allowed; }
 
 /* ═══════════════════════════════════════
    AVATARS
@@ -1047,6 +1063,15 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* MemberCard DM button */
 .member-card-btn-dm { background:var(--primary-s);color:var(--primary); }
 .member-card-btn-dm:hover { background:var(--primary);color:#fff; }
+
+/* MemberCard Call button */
+.member-card-btn-call { background:var(--green-s);color:var(--green); }
+.member-card-btn-call:hover { background:var(--green);color:#fff; }
+
+/* MemberCard danger (remove friend) */
+.member-card-btn-danger { background:var(--red-s);color:var(--red); }
+.member-card-btn-danger:hover { background:var(--red);color:#fff; }
+
 
 /* ═══════════════════════════════════════
    QUICK SWITCHER (Ctrl+K)

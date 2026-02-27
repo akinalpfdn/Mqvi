@@ -95,5 +95,12 @@
   "openSidebar": "Kenar Çubuğunu Aç",
   "closeSidebar": "Kenar Çubuğunu Kapat",
   "openMembers": "Üyeleri Aç",
-  "closeMembers": "Üyeleri Kapat"
+  "closeMembers": "Üyeleri Kapat",
+  "call": "Ara",
+  "cancelRequest": "İsteği İptal Et",
+  "acceptRequest": "İsteği Kabul Et",
+  "removeFriend": "Arkadaşlıktan Çıkar",
+  "editRoles": "Rolleri Düzenle",
+  "requestPending": "İstek Bekliyor",
+  "confirmRemoveFriend": "{{username}} adlı kullanıcıyı arkadaş listenizden çıkarmak istiyor musunuz?"
 }

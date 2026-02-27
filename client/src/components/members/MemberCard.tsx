@@ -10,15 +10,18 @@
  * Pozisyon: MemberItem'ın solunda portal ile gösterilir.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MemberWithRoles } from "../../types";
 import Avatar from "../shared/Avatar";
 import RoleBadge from "./RoleBadge";
+import RoleEditorPopup from "./RoleEditorPopup";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useFriendStore } from "../../stores/friendStore";
+import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
@@ -40,9 +43,21 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   );
   const myPerms = currentMember?.effective_permissions ?? 0;
 
+  const friends = useFriendStore((s) => s.friends);
+  const incoming = useFriendStore((s) => s.incoming);
+  const outgoing = useFriendStore((s) => s.outgoing);
+
+  const [showRoleEditor, setShowRoleEditor] = useState(false);
+
   const isMe = currentUser?.id === member.id;
   const canKick = !isMe && hasPermission(myPerms, Permissions.KickMembers);
   const canBan = !isMe && hasPermission(myPerms, Permissions.BanMembers);
+  const canManageRoles = !isMe && hasPermission(myPerms, Permissions.ManageRoles);
+
+  // Arkadaşlık durumu
+  const isFriend = friends.some((f) => f.user_id === member.id);
+  const outReq = outgoing.find((r) => r.user_id === member.id);
+  const inReq = incoming.find((r) => r.user_id === member.id);
 
   useEffect(() => {
     let frameId: number;
@@ -103,6 +118,51 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
       useUIStore.getState().openTab(channelId, "dm", displayName);
     }
     onClose();
+  }
+
+  /**
+   * handleCall — DM kanalı açar ve P2P sesli arama başlatır.
+   * initiateCall: WebRTC signaling başlatır, karşı tarafa offer gönderir.
+   */
+  async function handleCall() {
+    const channelId = await useDMStore.getState().createOrGetChannel(member.id);
+    if (channelId) {
+      const displayName = member.display_name ?? member.username;
+      useDMStore.getState().selectDM(channelId);
+      useUIStore.getState().openTab(channelId, "dm", displayName);
+    }
+    useP2PCallStore.getState().initiateCall(member.id, "audio");
+    onClose();
+  }
+
+  /**
+   * handleFriendAction — Arkadaşlık durumuna göre uygun aksiyonu çalıştırır.
+   * isFriend → removeFriend (onay ile), outReq → cancelRequest, inReq → acceptRequest,
+   * hiçbiri değilse → sendRequest (arkadaş ekle).
+   */
+  async function handleFriendAction() {
+    if (isFriend) {
+      const ok = await confirm({
+        message: t("confirmRemoveFriend", { username: member.username }),
+        confirmLabel: t("removeFriend"),
+        danger: true,
+      });
+      if (ok) await useFriendStore.getState().removeFriend(member.id);
+    } else if (outReq) {
+      await useFriendStore.getState().declineRequest(outReq.id);
+    } else if (inReq) {
+      await useFriendStore.getState().acceptRequest(inReq.id);
+    } else {
+      await useFriendStore.getState().sendRequest(member.username);
+    }
+  }
+
+  /** friendLabel — Arkadaşlık durumuna göre buton metni */
+  function getFriendLabel(): string {
+    if (isFriend) return t("removeFriend");
+    if (outReq) return t("cancelRequest");
+    if (inReq) return t("acceptRequest");
+    return t("addFriend");
   }
 
   return (
@@ -181,6 +241,30 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
                 {t("sendMessage")}
               </button>
             )}
+            {!isMe && (
+              <button
+                className="member-card-btn member-card-btn-call"
+                onClick={handleCall}
+              >
+                {t("call")}
+              </button>
+            )}
+            {!isMe && (
+              <button
+                className={`member-card-btn${isFriend ? " member-card-btn-danger" : ""}`}
+                onClick={handleFriendAction}
+              >
+                {getFriendLabel()}
+              </button>
+            )}
+            {canManageRoles && (
+              <button
+                className="member-card-btn"
+                onClick={() => setShowRoleEditor(true)}
+              >
+                {t("editRoles")}
+              </button>
+            )}
             {canKick && (
               <button
                 className="member-card-btn member-card-btn-kick"
@@ -200,6 +284,15 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
           </div>
         </div>
       </div>
+
+      {/* RoleEditorPopup — rol düzenleme popup'ı */}
+      {showRoleEditor && (
+        <RoleEditorPopup
+          member={member}
+          position={{ top: position.top + 100, left: position.left }}
+          onClose={() => setShowRoleEditor(false)}
+        />
+      )}
     </>
   );
 }

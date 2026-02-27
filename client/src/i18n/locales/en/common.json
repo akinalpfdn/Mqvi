@@ -95,5 +95,12 @@
   "openSidebar": "Open Sidebar",
   "closeSidebar": "Close Sidebar",
   "openMembers": "Open Members",
-  "closeMembers": "Close Members"
+  "closeMembers": "Close Members",
+  "call": "Call",
+  "cancelRequest": "Cancel Request",
+  "acceptRequest": "Accept Request",
+  "removeFriend": "Remove Friend",
+  "editRoles": "Edit Roles",
+  "requestPending": "Request Pending",
+  "confirmRemoveFriend": "Remove {{username}} from your friends?"
 }
