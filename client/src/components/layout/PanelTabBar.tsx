@@ -13,6 +13,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useUIStore } from "../../stores/uiStore";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 
 type PanelTabBarProps = {
   panelId: string;
@@ -20,6 +21,7 @@ type PanelTabBarProps = {
 
 function PanelTabBar({ panelId }: PanelTabBarProps) {
   const { t } = useTranslation("common");
+  const isMobile = useIsMobile();
   const panel = useUIStore((s) => s.panels[panelId]);
   const activePanelId = useUIStore((s) => s.activePanelId);
   const setActiveTab = useUIStore((s) => s.setActiveTab);
@@ -79,15 +81,20 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
   let barClass = "panel-tab-bar";
   if (isActivePanel) barClass += " active-panel";
   if (dropHover) barClass += " drop-hover";
+  if (isMobile) barClass += " mobile";
+
+  // Mobilde drag-drop devre dışı — HTML5 DnD touch'ta çalışmaz
+  const dragHandlers = isMobile
+    ? {}
+    : {
+        onDragEnter: handleBarDragEnter,
+        onDragOver: handleBarDragOver,
+        onDragLeave: handleBarDragLeave,
+        onDrop: handleBarDrop,
+      };
 
   return (
-    <div
-      className={barClass}
-      onDragEnter={handleBarDragEnter}
-      onDragOver={handleBarDragOver}
-      onDragLeave={handleBarDragLeave}
-      onDrop={handleBarDrop}
-    >
+    <div className={barClass} {...dragHandlers}>
       {panel.tabs.map((tab) => {
         const isActive = tab.id === panel.activeTabId;
         const isVoice = tab.type === "voice";
@@ -102,12 +109,16 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
           <div
             key={tab.id}
             className={tabClass}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData("text/tab-id", tab.id);
-              e.dataTransfer.setData("text/panel-id", panelId);
-              e.dataTransfer.effectAllowed = "move";
-            }}
+            draggable={!isMobile}
+            onDragStart={
+              isMobile
+                ? undefined
+                : (e) => {
+                    e.dataTransfer.setData("text/tab-id", tab.id);
+                    e.dataTransfer.setData("text/panel-id", panelId);
+                    e.dataTransfer.effectAllowed = "move";
+                  }
+            }
             onClick={() => setActiveTab(panelId, tab.id)}
           >
             {/* Type-based ikon */}

@@ -17,6 +17,7 @@
 
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useResizeHandle } from "../../hooks/useResizeHandle";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import SidebarHeader from "./SidebarHeader";
 import ChannelTree from "./ChannelTree";
 import CollapsedSidebar from "./CollapsedSidebar";
@@ -46,6 +47,7 @@ function Sidebar({
   sendPresenceUpdate,
 }: SidebarProps) {
   const isExpanded = useSidebarStore((s) => s.isExpanded);
+  const isMobile = useIsMobile();
 
   const { width, handleMouseDown, isDragging } = useResizeHandle({
     initialWidth: SIDEBAR_DEFAULT,
@@ -55,7 +57,8 @@ function Sidebar({
     storageKey: "mqvi_sidebar_width",
   });
 
-  if (!isExpanded) {
+  // Mobilde sidebar her zaman expanded — drawer içinde collapsed mantıksız
+  if (!isExpanded && !isMobile) {
     return <CollapsedSidebar />;
   }
 

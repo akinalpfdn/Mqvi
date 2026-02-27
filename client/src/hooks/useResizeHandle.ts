@@ -24,6 +24,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useIsMobile } from "./useMediaQuery";
 
 type ResizeHandleOptions = {
   /** Başlangıç genişliği (px) — localStorage'ta değer yoksa kullanılır */
@@ -81,8 +82,12 @@ function saveWidth(key: string, width: number): void {
   }
 }
 
+/** No-op mouse handler — mobilde resize devre dışı */
+const NOOP_MOUSE_DOWN = () => {};
+
 export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResult {
   const { initialWidth, minWidth, maxWidth, direction, storageKey, onWidthChange } = options;
+  const isMobile = useIsMobile();
 
   const [width, setWidth] = useState(() => {
     const saved = loadWidth(storageKey);
@@ -103,6 +108,9 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // Mobilde resize devre dışı
+      if (isMobile) return;
+
       e.preventDefault();
       startXRef.current = e.clientX;
       startWidthRef.current = width;
@@ -112,11 +120,11 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
       document.body.style.userSelect = "none";
       document.body.style.cursor = direction === "right" ? "col-resize" : "col-resize";
     },
-    [width, direction]
+    [width, direction, isMobile]
   );
 
   useEffect(() => {
-    if (!isDragging) return;
+    if (!isDragging || isMobile) return;
 
     function handleMouseMove(e: MouseEvent) {
       const delta = e.clientX - startXRef.current;
@@ -148,7 +156,7 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isDragging, direction, minWidth, maxWidth, onWidthChange]);
+  }, [isDragging, isMobile, direction, minWidth, maxWidth, onWidthChange]);
 
   /**
    * Drag bittiğinde (isDragging false olunca) son genişliği persist et.
@@ -161,6 +169,11 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
     }
     prevDraggingRef.current = isDragging;
   }, [isDragging, width, storageKey]);
+
+  // Mobilde resize handle devre dışı — no-op handler + isDragging her zaman false
+  if (isMobile) {
+    return { width, handleMouseDown: NOOP_MOUSE_DOWN, isDragging: false };
+  }
 
   return { width, handleMouseDown, isDragging };
 }

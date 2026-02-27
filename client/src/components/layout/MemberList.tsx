@@ -14,6 +14,8 @@
 import { useTranslation } from "react-i18next";
 import { useMemberStore } from "../../stores/memberStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useMobileStore } from "../../stores/mobileStore";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import { useResizeHandle } from "../../hooks/useResizeHandle";
 import MemberItem from "../members/MemberItem";
 import { MemberSkeleton } from "../shared/Skeleton";
@@ -85,6 +87,8 @@ function MemberList() {
   const onlineUserIds = useMemberStore((s) => s.onlineUserIds);
   const toggleMembers = useUIStore((s) => s.toggleMembers);
   const membersOpen = useUIStore((s) => s.membersOpen);
+  const closeRightDrawer = useMobileStore((s) => s.closeRightDrawer);
+  const isMobile = useIsMobile();
 
   const { width, handleMouseDown, isDragging } = useResizeHandle({
     initialWidth: MEMBERS_DEFAULT,
@@ -132,7 +136,7 @@ function MemberList() {
         {/* ─── Header ─── */}
         <div className="members-header">
           <h3>{t("members")}</h3>
-          <button onClick={toggleMembers}>✕</button>
+          <button onClick={isMobile ? closeRightDrawer : toggleMembers}>✕</button>
         </div>
 
         {/* ─── Member List ─── */}

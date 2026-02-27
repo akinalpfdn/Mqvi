@@ -90,5 +90,10 @@
   "onlineDesc": "You will appear online to others",
   "idleDesc": "You will appear as away",
   "dndDesc": "You will not receive notifications",
-  "invisibleDesc": "You will appear offline to others"
+  "invisibleDesc": "You will appear offline to others",
+  "menu": "Menu",
+  "openSidebar": "Open Sidebar",
+  "closeSidebar": "Close Sidebar",
+  "openMembers": "Open Members",
+  "closeMembers": "Close Members"
 }

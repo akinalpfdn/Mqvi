@@ -52,5 +52,6 @@
   "emoji": "Emoji",
   "welcomeDM": "{{user}} ile konuşmanıza hoş geldiniz!",
   "dmStart": "{{user}} ile direkt mesaj geçmişinizin başlangıcı.",
-  "dropFilesHere": "Yüklemek için dosyaları bırakın"
+  "dropFilesHere": "Yüklemek için dosyaları bırakın",
+  "longPressForActions": "Mesaj işlemleri için uzun basın"
 }

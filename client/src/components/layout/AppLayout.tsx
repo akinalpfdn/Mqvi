@@ -1,12 +1,14 @@
 /**
  * AppLayout — Sidebar-based ana layout.
  *
+ * Desktop:
  * ┌─────────┬──────────────────────┬─────────┐
  * │ Sidebar │ SplitPaneContainer   │ Members │
  * │ (240px) │ (flex-1, recursive)  │ (240px) │
- * │         │ Her panel kendi      │         │
- * │         │ PanelTabBar'ına sahip│         │
  * └─────────┴──────────────────────┴─────────┘
+ *
+ * Mobil (768px altı): MobileAppLayout render edilir →
+ * Drawer sidebar + drawer members + MobileHeader + tek panel.
  *
  * useWebSocket hook'u burada çağrılır — tüm WS event'leri
  * bu noktadan store'lara yönlendirilir.
@@ -14,11 +16,13 @@
  * useVoice hook'u burada çağrılır — voice join/leave/mute/deafen
  * orkestrasyon fonksiyonları Sidebar/UserBar'a prop olarak geçilir.
  *
- * CSS: .mqvi-app, .app-body, .main-area
+ * CSS: .mqvi-app, .mqvi-app.mobile, .app-body, .main-area
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import SplitPaneContainer from "./SplitPaneContainer";
+import MobileAppLayout from "./MobileAppLayout";
 import MemberList from "./MemberList";
 import Sidebar from "./Sidebar";
 import ToastContainer from "../shared/ToastContainer";
@@ -170,17 +174,70 @@ function AppLayout() {
     }
   }, [currentVoiceChannelId]);
 
+  // ─── Responsive layout ───
+  const isMobile = useIsMobile();
+
+  /**
+   * Sidebar prop'ları — hem desktop Sidebar hem MobileAppLayout tarafından
+   * kullanılır. useMemo ile stable referans sağlanır.
+   */
+  const sidebarProps = useMemo(
+    () => ({
+      onJoinVoice: joinVoice,
+      onToggleMute: toggleMute,
+      onToggleDeafen: toggleDeafen,
+      onToggleScreenShare: toggleScreenShare,
+      onDisconnect: leaveVoice,
+      sendPresenceUpdate,
+    }),
+    [joinVoice, toggleMute, toggleDeafen, toggleScreenShare, leaveVoice, sendPresenceUpdate]
+  );
+
+  /**
+   * Ortak overlay'lar — hem mobil hem desktop'ta gösterilir.
+   * Layout'tan bağımsız, z-index ile üst katmanlarda render edilir.
+   */
+  const overlays = (
+    <>
+      {/* Settings modal — tam ekran overlay (z-50) */}
+      <SettingsModal />
+
+      {/* Onay dialogu — window.confirm() yerine (z-50) */}
+      <ConfirmDialog />
+
+      {/* Toast notifications — sağ alt köşe (z-100) */}
+      <ToastContainer />
+
+      {/* Quick Switcher — Ctrl+K ile açılır (z-60) */}
+      <QuickSwitcher />
+
+      {/* P2P gelen arama overlay — z-200, en üst katman */}
+      <IncomingCallOverlay />
+
+      {/* Electron screen picker — getDisplayMedia tetiklendiğinde açılır (z-150) */}
+      <ScreenPicker />
+    </>
+  );
+
+  // ─── Mobil layout ───
+  if (isMobile) {
+    return (
+      <VoiceProvider>
+        <MobileAppLayout
+          sidebarProps={sidebarProps}
+          sendTyping={sendTyping}
+          sendDMTyping={sendDMTyping}
+        />
+        {overlays}
+      </VoiceProvider>
+    );
+  }
+
+  // ─── Desktop layout ───
   return (
     <div className="mqvi-app">
       {/* Sol sidebar — kanal ağacı + voice kontrolleri */}
-      <Sidebar
-        onJoinVoice={joinVoice}
-        onToggleMute={toggleMute}
-        onToggleDeafen={toggleDeafen}
-        onToggleScreenShare={toggleScreenShare}
-        onDisconnect={leaveVoice}
-        sendPresenceUpdate={sendPresenceUpdate}
-      />
+      <Sidebar {...sidebarProps} />
 
       {/* Sağ taraf — split paneller + member list */}
       {/* VoiceProvider: LiveKit bağlantısını her zaman mount tutar.
@@ -199,23 +256,7 @@ function AppLayout() {
         </div>
       </VoiceProvider>
 
-      {/* Settings modal — tam ekran overlay (z-50) */}
-      <SettingsModal />
-
-      {/* Onay dialogu — window.confirm() yerine (z-50) */}
-      <ConfirmDialog />
-
-      {/* Toast notifications — sağ alt köşe (z-100) */}
-      <ToastContainer />
-
-      {/* Quick Switcher — Ctrl+K ile açılır (z-60) */}
-      <QuickSwitcher />
-
-      {/* P2P gelen arama overlay — z-200, en üst katman */}
-      <IncomingCallOverlay />
-
-      {/* Electron screen picker — getDisplayMedia tetiklendiğinde açılır (z-150) */}
-      <ScreenPicker />
+      {overlays}
     </div>
   );
 }

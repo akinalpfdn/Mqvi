@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useUIStore } from "../../stores/uiStore";
 import { useChannelStore } from "../../stores/channelStore";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import PanelTabBar from "./PanelTabBar";
 import ChatArea from "./ChatArea";
 import VoiceRoom from "../voice/VoiceRoom";
@@ -39,6 +40,7 @@ type PanelViewProps = {
 
 function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
   const { t } = useTranslation("chat");
+  const isMobile = useIsMobile();
   const panel = useUIStore((s) => s.panels[panelId]);
   const setActivePanel = useUIStore((s) => s.setActivePanel);
   const splitPanel = useUIStore((s) => s.splitPanel);
@@ -167,19 +169,26 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
 
   if (!panel) return null;
 
+  // Mobilde drag-drop devre dışı — HTML5 DnD touch'ta çalışmaz
+  const dragHandlers = isMobile
+    ? {}
+    : {
+        onDragEnter: handleDragEnter,
+        onDragOver: handleDragOver,
+        onDragLeave: handleDragLeave,
+        onDrop: handleDrop,
+      };
+
   return (
     <div
       ref={containerRef}
       className="split-pane"
       style={{ flex: 1, position: "relative" }}
       onClick={handleFocus}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      {...dragHandlers}
     >
-      {/* VS Code tarzı drop zone overlay — sadece görsel, pointer-events: none */}
-      <DropZoneOverlay activeZone={activeZone} />
+      {/* VS Code tarzı drop zone overlay — mobilde gösterilmez */}
+      {!isMobile && <DropZoneOverlay activeZone={activeZone} />}
 
       {/* Panel-level tab bar — VS Code tarzı, her zaman gösterilir */}
       <PanelTabBar panelId={panelId} />

@@ -90,5 +90,10 @@
   "onlineDesc": "Diğer kullanıcılara çevrimiçi görünürsün",
   "idleDesc": "Boşta olarak görünürsün",
   "dndDesc": "Bildirim almayacaksın",
-  "invisibleDesc": "Diğer kullanıcılara çevrimdışı görünürsün"
+  "invisibleDesc": "Diğer kullanıcılara çevrimdışı görünürsün",
+  "menu": "Menü",
+  "openSidebar": "Kenar Çubuğunu Aç",
+  "closeSidebar": "Kenar Çubuğunu Kapat",
+  "openMembers": "Üyeleri Aç",
+  "closeMembers": "Üyeleri Kapat"
 }

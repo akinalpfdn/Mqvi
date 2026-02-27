@@ -13,6 +13,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { isElectron } from "../../utils/constants";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import type { SettingsTab } from "../../stores/settingsStore";
 
 /** Tek bir navigation item tanımı */
@@ -43,6 +44,7 @@ function SettingsNav() {
   const setActiveTab = useSettingsStore((s) => s.setActiveTab);
   const logout = useAuthStore((s) => s.logout);
   const user = useAuthStore((s) => s.user);
+  const isMobile = useIsMobile();
 
   const members = useMemberStore((s) => s.members);
   const currentMember = members.find((m) => m.id === user?.id);
@@ -72,7 +74,7 @@ function SettingsNav() {
       {/* Server Settings (permission-gated) */}
       {canSeeServerSettings && (
         <>
-          <div style={{ height: 1, background: "var(--b1)", margin: "8px 0" }} />
+          {!isMobile && <div className="settings-nav-divider" />}
           <h3 className="settings-nav-label">{t("serverSettings")}</h3>
           {SERVER_ITEMS.map((item) => (
             <button
@@ -89,7 +91,7 @@ function SettingsNav() {
       {/* Connection (Electron desktop only) */}
       {isElectron() && (
         <>
-          <div style={{ height: 1, background: "var(--b1)", margin: "8px 0" }} />
+          {!isMobile && <div className="settings-nav-divider" />}
           <h3 className="settings-nav-label">{t("connection")}</h3>
           <button
             className={`settings-nav-item${activeTab === "connection" ? " active" : ""}`}
@@ -100,21 +102,19 @@ function SettingsNav() {
         </>
       )}
 
-      {/* Log Out */}
-      <div style={{ marginTop: "auto", borderTop: "1px solid var(--b1)", paddingTop: 8 }}>
-        <button
-          className="settings-nav-item"
-          onClick={logout}
-          style={{ color: "var(--red)" }}
-        >
-          {t("logOut")}
-        </button>
-      </div>
+      {/* Log Out — mobilde horizontal tab bar'ın sonuna eklenir */}
+      {!isMobile && <div className="settings-nav-divider settings-nav-divider-push" />}
+      <button
+        className="settings-nav-item settings-nav-logout"
+        onClick={logout}
+      >
+        {t("logOut")}
+      </button>
 
-      {/* App Version */}
-      <p style={{ marginTop: 8, padding: "0 8px", fontSize: 13, color: "var(--t3)" }}>
-        mqvi v0.1.0
-      </p>
+      {/* App Version — sadece desktop */}
+      {!isMobile && (
+        <p className="settings-nav-version">mqvi v0.1.0</p>
+      )}
     </nav>
   );
 }

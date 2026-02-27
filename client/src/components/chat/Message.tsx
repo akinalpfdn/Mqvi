@@ -27,10 +27,13 @@ import { useChatContext, type ChatMessage } from "../../hooks/useChatContext";
 import { resolveAssetUrl } from "../../utils/constants";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { useIsMobile } from "../../hooks/useMediaQuery";
+import { useLongPress } from "../../hooks/useLongPress";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import EmojiPicker from "../shared/EmojiPicker";
+import MobileMessageActions from "./MobileMessageActions";
 import type { MemberWithRoles } from "../../types";
 
 type MessageProps = {
@@ -88,11 +91,13 @@ function Message({ message, isCompact }: MessageProps) {
     members,
   } = useChatContext();
 
+  const isMobile = useIsMobile();
   const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content ?? "");
   const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
 
   const isOwner = currentUser?.id === message.user_id;
 
@@ -236,6 +241,12 @@ function Message({ message, isCompact }: MessageProps) {
     openMenu(e, items);
   }
 
+  // Long-press handler — mobilde context menu yerine bottom sheet açar
+  const longPressHandlers = useLongPress(
+    useCallback(() => setMobileActionsOpen(true), []),
+    { delay: 500 }
+  );
+
   const displayName =
     message.author?.display_name ?? message.author?.username ?? "Unknown";
 
@@ -261,7 +272,11 @@ function Message({ message, isCompact }: MessageProps) {
   const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}${pickerSource ? " picker-open" : ""}`;
 
   return (
-    <div className={msgClass} onContextMenu={handleContextMenu}>
+    <div
+      className={msgClass}
+      {...(isMobile ? longPressHandlers : {})}
+      onContextMenu={isMobile ? longPressHandlers.onContextMenu : handleContextMenu}
+    >
       <span className="msg-gtime">{formatTime(message.created_at)}</span>
 
       <div className="msg-row">
@@ -514,6 +529,31 @@ function Message({ message, isCompact }: MessageProps) {
             </button>
           )}
         </div>
+      )}
+
+      {/* Mobile message actions bottom sheet — long-press ile açılır */}
+      {isMobile && (
+        <MobileMessageActions
+          isOpen={mobileActionsOpen}
+          onClose={() => setMobileActionsOpen(false)}
+          message={message}
+          onReply={() => {
+            handleReply();
+            setMobileActionsOpen(false);
+          }}
+          onPinToggle={handlePinToggle}
+          onEdit={() => {
+            setEditContent(message.content ?? "");
+            setIsEditing(true);
+          }}
+          onDelete={handleDelete}
+          onReaction={handleReaction}
+          onCopy={() => {
+            if (message.content) navigator.clipboard.writeText(message.content);
+          }}
+          canManageMessages={canManageMessages}
+          isPinned={isPinned}
+        />
       )}
     </div>
   );

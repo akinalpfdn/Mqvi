@@ -52,5 +52,6 @@
   "emoji": "Emoji",
   "welcomeDM": "Welcome to your conversation with {{user}}!",
   "dmStart": "This is the beginning of your direct message history with {{user}}.",
-  "dropFilesHere": "Drop files to upload"
+  "dropFilesHere": "Drop files to upload",
+  "longPressForActions": "Long press for message actions"
 }
