@@ -85,7 +85,7 @@ button { font-family:inherit; }
 .sidebar-inner { height:100%;display:flex;flex-direction:column;overflow:hidden; }
 
 /* Sidebar Header */
-.sb-header { height:40px;padding:0 8px 0 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--b1);flex-shrink:0; }
+.sb-header { height:36px;padding:0 8px 0 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--b1);flex-shrink:0; }
 .sb-header-brand { display:flex;align-items:center;gap:8px; }
 .sb-logo { width:24px;height:24px;border-radius:5px; }
 .sb-brand-name { font-family:var(--f-d);font-size:16px;font-weight:700;color:var(--t0);letter-spacing:0.02em; }
@@ -283,34 +283,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .sb-collapsed-avatar { padding:4px 0; }
 
 /* ═══════════════════════════════════════
-   TOP BAR
+   SHARED TAB STYLES (PanelTabBar)
    ═══════════════════════════════════════ */
-.top-bar { height:40px;background:var(--bg-1);border-bottom:1px solid var(--b1);display:flex;align-items:center;padding:0 10px;flex-shrink:0; }
-.server-pill { display:flex;align-items:center;gap:7px;padding:4px 12px 4px 6px;background:var(--bg-3);border:1px solid var(--b1);border-radius:999px;cursor:pointer; }
-.server-pill:hover { background:var(--bg-4);border-color:var(--b2); }
-.sp-avatar { width:26px;height:26px;border-radius:7px;object-fit:cover;flex-shrink:0; }
-.sp-name { font-size:15px;font-weight:700;color:var(--t0);font-family:var(--f-d);letter-spacing:0.01em; }
-.sp-chevron { font-size:13px;color:var(--t3); }
-
-.tab-strip { display:flex;align-items:stretch;flex:1;min-width:0;margin-left:6px;overflow-x:auto; }
-.tab-strip::-webkit-scrollbar { display:none; }
-.tab { display:flex;align-items:center;gap:5px;padding:0 11px;max-width:170px;cursor:pointer;transition:all .1s;position:relative;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.03); }
-.tab:hover { background:var(--bg-h); }
-.tab-active { background:var(--bg-2); }
-.tab-active::after { content:'';position:absolute;bottom:0;left:6px;right:6px;height:2px;background:var(--primary);border-radius:1px 1px 0 0; }
-.tab-icon { font-size:13px;color:var(--t3); }
-.tab-active .tab-icon { color:var(--primary); }
-.tab-voice .tab-icon { color:var(--green); }
-.tab-voice.tab-active::after { background:var(--green); }
-.tab-screen .tab-icon { color:var(--red); }
-.tab-screen.tab-active::after { background:var(--red); }
+.tab-icon { font-size:13px;color:var(--t3);display:flex;align-items:center; }
 .tab-label { font-size:13.5px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.tab-active .tab-label { color:var(--t0);font-weight:500; }
-.tab-srv { font-size:13px;color:var(--t3);font-family:var(--f-m);background:var(--bg-4);padding:2px 5px;border-radius:3px; }
-.tab-dot { width:5px;height:5px;background:var(--primary);border-radius:999px; }
-.tab-close { width:17px;height:17px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:13px;opacity:0;margin-left:auto; }
-.tab:hover .tab-close { opacity:1; }
-.tab-close:hover { color:var(--t0);background:var(--bg-h); }
 
 /* ═══════════════════════════════════════
    MAIN AREA
@@ -567,13 +543,22 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .split-handle-dot { position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:4px;border-radius:999px;background:var(--t3);opacity:0;transition:opacity .15s; }
 .split-handle:hover .split-handle-dot { opacity:1; }
 
-/* Panel Tab Bar (split pane içindeki tab bar) */
-.panel-tab-bar { display:flex;align-items:stretch;background:var(--bg-1);border-bottom:1px solid var(--b1);min-height:32px;overflow-x:auto; }
+/* Panel Tab Bar — VS Code tarzı, her zaman görünür */
+.panel-tab-bar { display:flex;align-items:stretch;background:var(--bg-1);border-bottom:1px solid var(--b1);min-height:36px;overflow-x:auto;flex-shrink:0; }
 .panel-tab-bar::-webkit-scrollbar { display:none; }
+.panel-tab-bar.active-panel { background:var(--bg-2); }
+.panel-tab-bar.drop-hover { border-bottom:2px solid var(--primary); }
 .panel-tab { display:flex;align-items:center;gap:5px;padding:0 12px;cursor:pointer;font-size:13px;color:var(--t2);position:relative;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.03);transition:background .1s;max-width:180px; }
 .panel-tab:hover { background:var(--bg-h); }
 .panel-tab.active { background:var(--bg-2);color:var(--t0); }
 .panel-tab.active::after { content:'';position:absolute;bottom:0;left:4px;right:4px;height:2px;background:var(--primary);border-radius:1px 1px 0 0; }
+.panel-tab.active .tab-icon { color:var(--primary); }
+.panel-tab.active .tab-label { color:var(--t0);font-weight:500; }
+.panel-tab.tab-voice .tab-icon { color:var(--green); }
+.panel-tab.tab-voice.active::after { background:var(--green); }
+.panel-tab.tab-screen .tab-icon { color:var(--red); }
+.panel-tab.tab-screen.active::after { background:var(--red); }
+.panel-tab-dot { width:5px;height:5px;background:var(--primary);border-radius:999px;flex-shrink:0; }
 .panel-tab-close { width:16px;height:16px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:13px;opacity:0;margin-left:auto; }
 .panel-tab:hover .panel-tab-close { opacity:1; }
 .panel-tab-close:hover { color:var(--t0);background:var(--bg-h); }

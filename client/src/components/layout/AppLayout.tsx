@@ -1,11 +1,11 @@
 /**
  * AppLayout — Sidebar-based ana layout.
  *
- * ┌─────────┬────────────────────────────────┐
- * │         │ TopBar (40px) — Server + Tabs   │
- * │ Sidebar ├──────────────────────┬─────────┤
- * │ (240px) │ SplitPaneContainer   │ Members │
- * │         │ (flex-1, recursive)  │ (240px) │
+ * ┌─────────┬──────────────────────┬─────────┐
+ * │ Sidebar │ SplitPaneContainer   │ Members │
+ * │ (240px) │ (flex-1, recursive)  │ (240px) │
+ * │         │ Her panel kendi      │         │
+ * │         │ PanelTabBar'ına sahip│         │
  * └─────────┴──────────────────────┴─────────┘
  *
  * useWebSocket hook'u burada çağrılır — tüm WS event'leri
@@ -18,7 +18,6 @@
  */
 
 import { useEffect, useRef } from "react";
-import TopBar from "./TopBar";
 import SplitPaneContainer from "./SplitPaneContainer";
 import MemberList from "./MemberList";
 import Sidebar from "./Sidebar";
@@ -183,15 +182,12 @@ function AppLayout() {
         sendPresenceUpdate={sendPresenceUpdate}
       />
 
-      {/* Sağ taraf — TopBar + content area */}
+      {/* Sağ taraf — split paneller + member list */}
       {/* VoiceProvider: LiveKit bağlantısını her zaman mount tutar.
           Tab değişince VoiceRoom visual component'i unmount olsa bile
           ses bağlantısı korunur. display:contents ile layout etkilenmez. */}
       <VoiceProvider>
         <div className="app-body">
-          {/* Üst bar — server pill + tab strip */}
-          <TopBar />
-
           {/* Ana içerik alanı — split paneller + member list */}
           <div className="main-area">
             {/* Split pane container — recursive layout ağacını render eder */}

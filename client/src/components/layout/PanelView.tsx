@@ -18,7 +18,7 @@
  * - Tab yoksa → boş durum
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useUIStore } from "../../stores/uiStore";
 import { useChannelStore } from "../../stores/channelStore";
@@ -44,7 +44,6 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
   const splitPanel = useUIStore((s) => s.splitPanel);
   const moveTab = useUIStore((s) => s.moveTab);
 
-  const panelCount = useUIStore((s) => Object.keys(s.panels).length);
   const categories = useChannelStore((s) => s.categories);
 
   const activeTab = panel?.tabs.find((t) => t.id === panel.activeTabId);
@@ -61,6 +60,18 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
   // dragEnter counter — nested child element'lerin yanlış dragLeave tetiklemesini engeller.
   // Her child'a girişte counter artar, çıkışta azalır. 0'a düşünce gerçekten çıkmış demektir.
   const enterCountRef = useRef(0);
+
+  // dragend event'i — drag operasyonu bittiğinde (başarılı drop veya iptal)
+  // overlay'ı temizle. PanelTabBar stopPropagation kullandığı için PanelView'ın
+  // onDrop handler'ı her zaman tetiklenmeyebilir. dragend bunu garanti eder.
+  useEffect(() => {
+    function handleDragEnd() {
+      setActiveZone(null);
+      enterCountRef.current = 0;
+    }
+    document.addEventListener("dragend", handleDragEnd);
+    return () => document.removeEventListener("dragend", handleDragEnd);
+  }, []);
 
   const handleFocus = useCallback(() => {
     setActivePanel(panelId);
@@ -170,10 +181,8 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
       {/* VS Code tarzı drop zone overlay — sadece görsel, pointer-events: none */}
       <DropZoneOverlay activeZone={activeZone} />
 
-      {/* Panel-level tab bar — split view aktifken her panelde göster (merge-back için) */}
-      {panelCount > 1 && (
-        <PanelTabBar panelId={panelId} />
-      )}
+      {/* Panel-level tab bar — VS Code tarzı, her zaman gösterilir */}
+      <PanelTabBar panelId={panelId} />
 
       {/* İçerik */}
       {!activeTab ? (
