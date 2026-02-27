@@ -21,7 +21,7 @@
  * çünkü "fazla alan varsa sorun değil" kuralı geçerlidir.
  */
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, type RefObject } from "react";
 import type { User, ReactionGroup, MessageReference, MemberWithRoles } from "../types";
 
 // ─── ChatMessage — Ortak mesaj tipi ───
@@ -91,6 +91,14 @@ export type ChatContextValue = {
   pinMessage: (messageId: string) => Promise<void>;
   unpinMessage: (messageId: string) => Promise<void>;
   isMessagePinned: (messageId: string) => boolean;
+
+  // ─── File Drop (drag-drop communication) ───
+  /**
+   * addFilesRef — Chat area wrapper'dan MessageInput'a dosya iletimi için ref.
+   * MessageInput mount olunca callback'i register eder,
+   * ChatArea/DMChat drag-drop'ta çağırır.
+   */
+  addFilesRef: RefObject<((files: File[]) => void) | null>;
 
   // ─── Permissions / UI ───
   /** Kullanıcının bu kanalda mesaj gönderme yetkisi var mı? */

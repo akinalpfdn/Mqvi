@@ -12,7 +12,7 @@
  * </ChannelChatProvider>
  */
 
-import { useMemo, useCallback, type ReactNode } from "react";
+import { useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useMessageStore } from "../../stores/messageStore";
 import { usePinStore } from "../../stores/pinStore";
@@ -69,6 +69,9 @@ function ChannelChatProvider({
   const members = useMemberStore((s) => s.members);
   const currentUser = useAuthStore((s) => s.user);
   const { hasChannelPerm } = useChannelPermissions(channelId);
+
+  // ─── File drop ref — ChatArea drag-drop'tan MessageInput'a dosya iletimi ───
+  const addFilesRef = useRef<((files: File[]) => void) | null>(null);
 
   // ─── Permission hesaplama ───
   const canSend = hasChannelPerm(Permissions.SendMessages);
@@ -177,6 +180,7 @@ function ChannelChatProvider({
       canManageMessages,
       showRoleColors: true,
       members,
+      addFilesRef,
     }),
     [
       channelId, channelName, messages, isLoading, isLoadingMore, hasMore,
@@ -184,7 +188,7 @@ function ChannelChatProvider({
       sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
       pinMessage, unpinMessage, isMessagePinned,
-      canSend, canManageMessages, members,
+      canSend, canManageMessages, members, addFilesRef,
     ]
   );
 

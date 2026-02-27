@@ -19,11 +19,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
+import { validateFiles } from "../../utils/fileValidation";
 import EmojiPicker from "../shared/EmojiPicker";
 import FilePreview from "./FilePreview";
 import MentionAutocomplete from "./MentionAutocomplete";
 import ReplyBar from "./ReplyBar";
-import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES } from "../../utils/constants";
 
 function MessageInput() {
   const { t } = useTranslation("chat");
@@ -36,6 +36,7 @@ function MessageInput() {
     replyingTo,
     setReplyingTo,
     sendTyping,
+    addFilesRef,
   } = useChatContext();
 
   const [content, setContent] = useState("");
@@ -52,6 +53,20 @@ function MessageInput() {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * addFilesRef register — ChatArea/DMChat drag-drop'tan dosya iletimi.
+   * Drag-drop event'inde addFilesRef.current?.(files) çağrılır,
+   * burada register edilen callback files state'ine ekler.
+   */
+  useEffect(() => {
+    addFilesRef.current = (newFiles: File[]) => {
+      setFiles((prev) => [...prev, ...newFiles]);
+    };
+    return () => {
+      addFilesRef.current = null;
+    };
+  }, [addFilesRef]);
 
   /** Reply seçildiğinde textarea'ya otomatik focus ver */
   useEffect(() => {
@@ -201,20 +216,40 @@ function MessageInput() {
     });
   }
 
-  /** Dosya ekleme */
+  /**
+   * handlePaste — Clipboard'dan dosya/görsel yapıştırma desteği.
+   * Ctrl+V ile clipboard'daki görseller FilePreview'a eklenir.
+   * Sadece dosya varsa preventDefault yapılır — metin paste'i etkilenmez.
+   */
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const pastedFiles: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) pastedFiles.push(file);
+      }
+    }
+
+    if (pastedFiles.length > 0) {
+      e.preventDefault();
+      const valid = validateFiles(pastedFiles);
+      if (valid.length > 0) {
+        setFiles((prev) => [...prev, ...valid]);
+      }
+    }
+  }
+
+  /** Dosya ekleme — validateFiles utility kullanır */
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
 
-    const newFiles = Array.from(e.target.files);
-    const validFiles: File[] = [];
-
-    for (const file of newFiles) {
-      if (file.size > MAX_FILE_SIZE) continue;
-      if (!ALLOWED_MIME_TYPES.includes(file.type as typeof ALLOWED_MIME_TYPES[number])) continue;
-      validFiles.push(file);
+    const valid = validateFiles(e.target.files);
+    if (valid.length > 0) {
+      setFiles((prev) => [...prev, ...valid]);
     }
-
-    setFiles((prev) => [...prev, ...validFiles]);
     e.target.value = "";
   }
 
@@ -292,6 +327,7 @@ function MessageInput() {
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={placeholder}
           rows={1}
           disabled={isSending}

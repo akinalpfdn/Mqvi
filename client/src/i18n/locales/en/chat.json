@@ -51,5 +51,6 @@
   "attachFile": "Attach file",
   "emoji": "Emoji",
   "welcomeDM": "Welcome to your conversation with {{user}}!",
-  "dmStart": "This is the beginning of your direct message history with {{user}}."
+  "dmStart": "This is the beginning of your direct message history with {{user}}.",
+  "dropFilesHere": "Drop files to upload"
 }

@@ -15,7 +15,7 @@
  * </DMChatProvider>
  */
 
-import { useMemo, useCallback, type ReactNode } from "react";
+import { useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useDMStore } from "../../stores/dmStore";
 import type { DMMessage, MemberWithRoles } from "../../types";
@@ -61,6 +61,9 @@ function DMChatProvider({
   const storeFetchOlderMessages = useDMStore((s) => s.fetchOlderMessages);
   const storePinMessage = useDMStore((s) => s.pinMessage);
   const storeUnpinMessage = useDMStore((s) => s.unpinMessage);
+
+  // ─── File drop ref — DMChat drag-drop'tan MessageInput'a dosya iletimi ───
+  const addFilesRef = useRef<((files: File[]) => void) | null>(null);
 
   // ─── Actions (stable refs) ───
   const sendMessage = useCallback(
@@ -170,13 +173,14 @@ function DMChatProvider({
       canManageMessages: true,
       showRoleColors: false,
       members: EMPTY_MEMBERS,
+      addFilesRef,
     }),
     [
       channelId, channelName, messages, isLoadingMessages, hasMore,
       replyingTo, scrollToMessageId, typingUsers,
       sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
-      pinMessage, unpinMessage, isMessagePinned,
+      pinMessage, unpinMessage, isMessagePinned, addFilesRef,
     ]
   );
 

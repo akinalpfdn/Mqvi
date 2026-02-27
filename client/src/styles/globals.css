@@ -486,6 +486,12 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .file-preview-remove { position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:999px;background:var(--bg-5);border:1.5px solid var(--bg-1);color:var(--t1);font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1; }
 .file-preview-remove:hover { background:var(--red);color:#fff; }
 
+/* File drop overlay — drag-drop dosya yükleme sırasında görsel overlay */
+.file-drop-overlay { position:absolute;inset:0;z-index:50;background:color-mix(in srgb, var(--primary) 12%, transparent);border:2px dashed var(--primary);border-radius:8px;display:flex;align-items:center;justify-content:center;pointer-events:none; }
+.file-drop-overlay-content { display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--primary);pointer-events:none; }
+.file-drop-overlay-content svg { opacity:0.8; }
+.file-drop-overlay-content span { font-size:16px;font-weight:600;font-family:var(--f-d); }
+
 /* ═══════════════════════════════════════
    MEMBERS PANEL
    ═══════════════════════════════════════ */
