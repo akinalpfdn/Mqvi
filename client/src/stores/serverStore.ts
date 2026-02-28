@@ -16,6 +16,10 @@
 
 import { create } from "zustand";
 import * as serversApi from "../api/servers";
+import { useChannelStore } from "./channelStore";
+import { useMemberStore } from "./memberStore";
+import { useRoleStore } from "./roleStore";
+import { useReadStateStore } from "./readStateStore";
 import type { Server, ServerListItem, CreateServerRequest } from "../types";
 
 /** localStorage key — son aktif sunucu ID'si (sayfa yenileme sonrası kurtarma) */
@@ -110,6 +114,16 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   setActiveServer: (serverId) => {
+    // Server-scoped store'ları hemen temizle — böylece ChannelTree
+    // yeniden render olduğunda eski sunucunun kanalları gösterilmez.
+    // AppLayout'taki useEffect de cascadeRefetch yapar (clear + fetch),
+    // ama useEffect render SONRASI çalışır — o ana kadar eski veri
+    // yeni sunucu altında görünebilir. Bu early-clear bunu engeller.
+    useChannelStore.getState().clearForServerSwitch();
+    useMemberStore.getState().clearForServerSwitch();
+    useRoleStore.getState().clearForServerSwitch();
+    useReadStateStore.getState().clearForServerSwitch();
+
     set({ activeServerId: serverId, activeServer: null });
     localStorage.setItem(LAST_SERVER_KEY, serverId);
   },
@@ -128,13 +142,19 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const res = await serversApi.createServer(req);
     if (res.success && res.data) {
       const server = res.data;
+      // Sunucu listesine ekle + aktif sunucu olarak set et (atomik)
       // WS server_create event de gelecek ama race condition'a karşı burada da ekle
       set((state) => {
-        if (state.servers.some((s) => s.id === server.id)) return state;
+        const servers = state.servers.some((s) => s.id === server.id)
+          ? state.servers
+          : [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }];
         return {
-          servers: [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }],
+          servers,
+          activeServerId: server.id,
+          activeServer: server,
         };
       });
+      localStorage.setItem(LAST_SERVER_KEY, server.id);
       return server;
     }
     return null;
@@ -144,13 +164,19 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const res = await serversApi.joinServer(inviteCode);
     if (res.success && res.data) {
       const server = res.data;
+      // Sunucu listesine ekle + aktif sunucu olarak set et (atomik)
       // WS server_create event de gelecek
       set((state) => {
-        if (state.servers.some((s) => s.id === server.id)) return state;
+        const servers = state.servers.some((s) => s.id === server.id)
+          ? state.servers
+          : [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }];
         return {
-          servers: [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }],
+          servers,
+          activeServerId: server.id,
+          activeServer: server,
         };
       });
+      localStorage.setItem(LAST_SERVER_KEY, server.id);
       return server;
     }
     return null;

@@ -71,8 +71,8 @@ function groupByHighestRole(members: MemberWithRoles[]): RoleGroup[] {
 
   for (const group of result) {
     group.members.sort((a, b) => {
-      const nameA = a.display_name ?? a.username;
-      const nameB = b.display_name ?? b.username;
+      const nameA = a.display_name ?? a.username ?? "";
+      const nameB = b.display_name ?? b.username ?? "";
       return nameA.localeCompare(nameB);
     });
   }
@@ -112,8 +112,8 @@ function MemberList() {
 
   // Offline üyeleri username'e göre sırala (gruplama yok)
   const sortedOffline = [...offlineMembers].sort((a, b) => {
-    const nameA = a.display_name ?? a.username;
-    const nameB = b.display_name ?? b.username;
+    const nameA = a.display_name ?? a.username ?? "";
+    const nameB = b.display_name ?? b.username ?? "";
     return nameA.localeCompare(nameB);
   });
 

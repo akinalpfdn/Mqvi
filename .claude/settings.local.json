@@ -17,7 +17,8 @@
       "Bash(powershell.exe:*)",
       "Bash(ls -la \"c:\\\\Users\\\\akina\\\\source\\\\repos\\\\VoidChat\\\\server\\\\database\\\\migrations\"\" 2>/dev/null || ls -la \"c:UsersakinasourcereposVoidChatservermigrations\"\")",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:docs.rs)"
+      "WebFetch(domain:docs.rs)",
+      "Bash(find /c/Users/akina/source/repos/VoidChat/client/src -name \"*.tsx\" -type f -exec grep -l \"openSettings\" {} ;)"
     ]
   }
 }

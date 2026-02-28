@@ -124,7 +124,7 @@ func main() {
 	// platform-managed bir LiveKit instance yoksa, veritabanına seed et.
 	// Bu, "mqvi hosted" sunucuların kullanacağı platform LiveKit instance'ıdır.
 	if cfg.LiveKit.URL != "" && cfg.LiveKit.APIKey != "" && cfg.LiveKit.APISecret != "" {
-		_, seedErr := livekitRepo.GetLeastLoadedPlatformInstance(context.Background())
+		platformInstance, seedErr := livekitRepo.GetLeastLoadedPlatformInstance(context.Background())
 		if seedErr != nil {
 			// Platform instance yok, yeni bir tane oluştur
 			encKey, encErr := crypto.Encrypt(cfg.LiveKit.APIKey, encryptionKey)
@@ -136,7 +136,7 @@ func main() {
 				log.Fatalf("[main] failed to encrypt platform livekit secret: %v", encErr)
 			}
 
-			platformInstance := &models.LiveKitInstance{
+			platformInstance = &models.LiveKitInstance{
 				URL:               cfg.LiveKit.URL,
 				APIKey:            encKey,
 				APISecret:         encSecret,
@@ -147,6 +147,64 @@ func main() {
 				log.Fatalf("[main] failed to seed platform livekit instance: %v", createErr)
 			}
 			log.Printf("[main] seeded platform LiveKit instance (url=%s)", cfg.LiveKit.URL)
+		}
+
+		// Migration sonrası orphan sunucuları (livekit_instance_id = NULL) platform instance'a bağla.
+		// Eski tek-sunucu mimarisinden migrate edilen "default" sunucu buna dahildir.
+		result, linkErr := db.Conn.ExecContext(context.Background(),
+			`UPDATE servers SET livekit_instance_id = ? WHERE livekit_instance_id IS NULL`,
+			platformInstance.ID,
+		)
+		if linkErr != nil {
+			log.Printf("[main] warning: failed to link orphan servers to platform livekit: %v", linkErr)
+		} else if affected, _ := result.RowsAffected(); affected > 0 {
+			log.Printf("[main] linked %d orphan server(s) to platform LiveKit instance", affected)
+		}
+	}
+
+	// ─── 7b. Empty-ID Cleanup ───
+	//
+	// Önceki bir bug'da servers ve livekit_instances tablolarına boş ID ("") ile
+	// kayıt ekleniyordu (ID auto-generation eksikti). Bu kayıtlar fonksiyonel değil
+	// çünkü API path'te serverId boş olunca 400 döner. Burada temizliyoruz.
+	{
+		// 1. Boş ID'li livekit instance varsa, yeni rastgele ID ata
+		//    ve bağlı sunucuların referanslarını güncelle
+		var emptyLK int
+		_ = db.Conn.QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM livekit_instances WHERE id = ''`).Scan(&emptyLK)
+		if emptyLK > 0 {
+			// Yeni ID üret
+			var newLKID string
+			_ = db.Conn.QueryRowContext(context.Background(),
+				`SELECT lower(hex(randomblob(8)))`).Scan(&newLKID)
+			_, _ = db.Conn.ExecContext(context.Background(),
+				`UPDATE livekit_instances SET id = ? WHERE id = ''`, newLKID)
+			// Sunucuların referanslarını güncelle
+			res, err := db.Conn.ExecContext(context.Background(),
+				`UPDATE servers SET livekit_instance_id = ? WHERE livekit_instance_id = ''`, newLKID)
+			if err == nil {
+				if aff, _ := res.RowsAffected(); aff > 0 {
+					log.Printf("[main] fixed empty-ID livekit instance → %s (%d server refs updated)", newLKID, aff)
+				}
+			}
+		}
+
+		// 2. Boş ID'li sunucuları ve ilişkili verilerini temizle
+		//    (ALTER TABLE ile eklenen FK'lar CASCADE yapmaz, manual temizlik gerek)
+		var emptySrv int
+		_ = db.Conn.QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM servers WHERE id = ''`).Scan(&emptySrv)
+		if emptySrv > 0 {
+			db.Conn.ExecContext(context.Background(), `DELETE FROM channels WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM categories WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM roles WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM user_roles WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM invites WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM bans WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM server_members WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM servers WHERE id = ''`)
+			log.Printf("[main] cleaned up %d empty-ID server(s) and related data", emptySrv)
 		}
 	}
 
@@ -414,6 +472,7 @@ func main() {
 		roleRepo,
 		channelRepo,
 		categoryRepo,
+		userRepo,
 		inviteService,
 		hub,
 		encryptionKey,

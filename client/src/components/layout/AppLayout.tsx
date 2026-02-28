@@ -1,13 +1,11 @@
 /**
  * AppLayout — Sidebar-based ana layout.
  *
- * Desktop (multi-server):
- * ┌────┬─────────┬──────────────────────┬─────────┐
- * │ SL │ Sidebar │ SplitPaneContainer   │ Members │
- * │56px│ (240px) │ (flex-1, recursive)  │ (240px) │
- * └────┴─────────┴──────────────────────┴─────────┘
- *
- * SL = ServerListSidebar — dikey sunucu ikonu listesi
+ * Desktop:
+ * ┌─────────┬──────────────────────┬─────────┐
+ * │ Sidebar │ SplitPaneContainer   │ Members │
+ * │ (240px) │ (flex-1, recursive)  │ (240px) │
+ * └─────────┴──────────────────────┴─────────┘
  *
  * Mobil (768px altı): MobileAppLayout render edilir →
  * Drawer sidebar + drawer members + MobileHeader + tek panel.
@@ -30,7 +28,6 @@ import SplitPaneContainer from "./SplitPaneContainer";
 import MobileAppLayout from "./MobileAppLayout";
 import MemberList from "./MemberList";
 import Sidebar from "./Sidebar";
-import ServerListSidebar from "./ServerListSidebar";
 import ToastContainer from "../shared/ToastContainer";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import SettingsModal from "../settings/SettingsModal";
@@ -85,7 +82,7 @@ function AppLayout() {
    * cascadeRefetch — Server değiştiğinde tüm server-scoped store'ları
    * temizleyip yeniden fetch eder.
    *
-   * ServerListSidebar'dan onServerChange callback'i olarak çağrılır.
+   * ChannelTree'de sunucu tıklandığında çağrılır.
    * Ayrıca ilk mount'ta aktif sunucu varsa çalışır.
    */
   const cascadeRefetch = useCallback(() => {
@@ -106,13 +103,17 @@ function AppLayout() {
     fetchUnreadCounts();
   }, [fetchActiveServer, fetchChannels, fetchMembers, fetchRoles, fetchUnreadCounts]);
 
-  // İlk mount'ta aktif sunucu varsa verilerini çek
+  /**
+   * İlk mount'ta ve activeServerId değiştiğinde (WS ready sonrası)
+   * sunucu verilerini çek. prevServerRef ile gereksiz tekrar çağrıyı engelle.
+   */
+  const prevServerRef = useRef<string | null>(null);
   useEffect(() => {
-    if (activeServerId) {
+    if (activeServerId && activeServerId !== prevServerRef.current) {
+      prevServerRef.current = activeServerId;
       cascadeRefetch();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeServerId, cascadeRefetch]);
 
   /**
    * Kanallar yüklendikten sonra ilk text kanalını otomatik tab olarak aç.
@@ -278,9 +279,6 @@ function AppLayout() {
   // ─── Desktop layout ───
   return (
     <div className="mqvi-app">
-      {/* Server list sidebar — dikey sunucu ikonu listesi (en sol) */}
-      <ServerListSidebar onServerChange={cascadeRefetch} />
-
       {/* Sol sidebar — kanal ağacı + voice kontrolleri */}
       <Sidebar {...sidebarProps} />
 

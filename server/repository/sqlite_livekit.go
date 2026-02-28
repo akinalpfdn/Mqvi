@@ -23,13 +23,13 @@ func NewSQLiteLiveKitRepo(db *sql.DB) LiveKitRepository {
 func (r *sqliteLiveKitRepo) Create(ctx context.Context, instance *models.LiveKitInstance) error {
 	query := `
 		INSERT INTO livekit_instances (id, url, api_key, api_secret, is_platform_managed, server_count)
-		VALUES (?, ?, ?, ?, ?, ?)
-		RETURNING created_at`
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?)
+		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
-		instance.ID, instance.URL, instance.APIKey, instance.APISecret,
+		instance.URL, instance.APIKey, instance.APISecret,
 		instance.IsPlatformManaged, instance.ServerCount,
-	).Scan(&instance.CreatedAt)
+	).Scan(&instance.ID, &instance.CreatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create livekit instance: %w", err)

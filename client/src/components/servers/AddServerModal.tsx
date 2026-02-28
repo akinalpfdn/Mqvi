@@ -23,19 +23,16 @@ import type { CreateServerRequest } from "../../types";
 
 type AddServerModalProps = {
   onClose: () => void;
-  /** Sunucu oluşturulup/katılınca cascade refetch tetiklemek için */
-  onServerChange: (serverId: string) => void;
 };
 
 type View = "choice" | "create" | "join";
 type HostType = "mqvi_hosted" | "self_hosted";
 
-function AddServerModal({ onClose, onServerChange }: AddServerModalProps) {
+function AddServerModal({ onClose }: AddServerModalProps) {
   const { t } = useTranslation("servers");
   const { t: tCommon } = useTranslation("common");
   const createServer = useServerStore((s) => s.createServer);
   const joinServer = useServerStore((s) => s.joinServer);
-  const setActiveServer = useServerStore((s) => s.setActiveServer);
   const addToast = useToastStore((s) => s.addToast);
 
   // ─── State ───
@@ -126,8 +123,8 @@ function AddServerModal({ onClose, onServerChange }: AddServerModalProps) {
 
     if (server) {
       addToast("success", t("serverCreated"));
-      setActiveServer(server.id);
-      onServerChange(server.id);
+      // createServer zaten activeServerId + activeServer'ı atomik olarak set eder.
+      // AppLayout useEffect activeServerId değişimini algılayıp cascadeRefetch yapar.
       onClose();
     } else {
       addToast("error", tCommon("somethingWentWrong"));
@@ -148,8 +145,7 @@ function AddServerModal({ onClose, onServerChange }: AddServerModalProps) {
 
     if (server) {
       addToast("success", t("serverJoined"));
-      setActiveServer(server.id);
-      onServerChange(server.id);
+      // joinServer zaten activeServerId + activeServer'ı atomik olarak set eder.
       onClose();
     } else {
       setJoinError(t("invalidInviteCode"));

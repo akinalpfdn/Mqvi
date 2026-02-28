@@ -51,6 +51,7 @@ type serverService struct {
 	roleRepo      repository.RoleRepository
 	channelRepo   repository.ChannelRepository
 	categoryRepo  repository.CategoryRepository
+	userRepo      repository.UserRepository
 	inviteService InviteService
 	hub           ws.EventPublisher
 	encryptionKey []byte
@@ -66,6 +67,7 @@ func NewServerService(
 	roleRepo repository.RoleRepository,
 	channelRepo repository.ChannelRepository,
 	categoryRepo repository.CategoryRepository,
+	userRepo repository.UserRepository,
 	inviteService InviteService,
 	hub ws.EventPublisher,
 	encryptionKey []byte,
@@ -76,6 +78,7 @@ func NewServerService(
 		roleRepo:      roleRepo,
 		channelRepo:   channelRepo,
 		categoryRepo:  categoryRepo,
+		userRepo:      userRepo,
 		inviteService: inviteService,
 		hub:           hub,
 		encryptionKey: encryptionKey,
@@ -177,6 +180,7 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		Color:       "#99AAB5",
 		Position:    1,
 		Permissions: defaultPerms,
+		IsDefault:   true,
 	}
 
 	if err := s.roleRepo.Create(ctx, defaultRole); err != nil {
@@ -204,21 +208,31 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		return nil, fmt.Errorf("failed to assign owner role: %w", err)
 	}
 
-	// ─── Default kategori + kanallar ───
-	category := &models.Category{
+	// ─── Default kategoriler + kanallar ───
+	// Discord benzeri yapı: "Text Channels" ve "Voice Channels" ayrı kategoriler.
+	textCategory := &models.Category{
 		ServerID: server.ID,
-		Name:     "General",
+		Name:     "Text Channels",
 		Position: 0,
 	}
-	if err := s.categoryRepo.Create(ctx, category); err != nil {
-		return nil, fmt.Errorf("failed to create default category: %w", err)
+	if err := s.categoryRepo.Create(ctx, textCategory); err != nil {
+		return nil, fmt.Errorf("failed to create text category: %w", err)
+	}
+
+	voiceCategory := &models.Category{
+		ServerID: server.ID,
+		Name:     "Voice Channels",
+		Position: 1,
+	}
+	if err := s.categoryRepo.Create(ctx, voiceCategory); err != nil {
+		return nil, fmt.Errorf("failed to create voice category: %w", err)
 	}
 
 	textChannel := &models.Channel{
 		ServerID:   server.ID,
 		Name:       "general",
 		Type:       models.ChannelTypeText,
-		CategoryID: &category.ID,
+		CategoryID: &textCategory.ID,
 		Position:   0,
 	}
 	if err := s.channelRepo.Create(ctx, textChannel); err != nil {
@@ -229,8 +243,8 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		ServerID:   server.ID,
 		Name:       "General",
 		Type:       models.ChannelTypeVoice,
-		CategoryID: &category.ID,
-		Position:   1,
+		CategoryID: &voiceCategory.ID,
+		Position:   0,
 		Bitrate:    64000,
 	}
 	if err := s.channelRepo.Create(ctx, voiceChannel); err != nil {
@@ -412,14 +426,20 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		},
 	})
 
-	// Sunucu üyelerine yeni üye katıldı bildirimi
-	s.hub.BroadcastToServer(serverID, ws.Event{
-		Op: ws.OpMemberJoin,
-		Data: map[string]string{
-			"server_id": serverID,
-			"user_id":   userID,
-		},
-	})
+	// Sunucu üyelerine yeni üye katıldı bildirimi — tam MemberWithRoles gönder
+	// Frontend handleMemberJoin bu veriyi doğrudan member listesine ekler,
+	// eksik field olursa sort sırasında localeCompare crash'i olur.
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		log.Printf("[server] failed to get user %s for member_join broadcast: %v", userID, err)
+	} else {
+		roles, _ := s.roleRepo.GetByUserIDAndServer(ctx, userID, serverID)
+		member := models.ToMemberWithRoles(user, roles)
+		s.hub.BroadcastToServer(serverID, ws.Event{
+			Op:   ws.OpMemberJoin,
+			Data: member,
+		})
+	}
 
 	log.Printf("[server] user %s joined server %s via invite", userID, serverID)
 	return server, nil

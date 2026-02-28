@@ -42,6 +42,7 @@ import { resolveAssetUrl } from "../../utils/constants";
 import * as channelApi from "../../api/channels";
 import Avatar from "../shared/Avatar";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
+import AddServerModal from "../servers/AddServerModal";
 
 type ChannelTreeProps = {
   onJoinVoice: (channelId: string) => void;
@@ -50,8 +51,10 @@ type ChannelTreeProps = {
 function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const { t } = useTranslation("common");
   const { t: tVoice } = useTranslation("voice");
+  const { t: tServers } = useTranslation("servers");
 
   const toggleSection = useSidebarStore((s) => s.toggleSection);
+  const expandSection = useSidebarStore((s) => s.expandSection);
   /**
    * expandedSections MAP'ine subscribe ol — reactive re-render sağlar.
    *
@@ -73,7 +76,12 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const categories = useChannelStore((s) => s.categories);
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const selectChannel = useChannelStore((s) => s.selectChannel);
-  const server = useServerStore((s) => s.activeServer);
+  const servers = useServerStore((s) => s.servers);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const setActiveServer = useServerStore((s) => s.setActiveServer);
+
+  // Add Server modal state
+  const [showAddServer, setShowAddServer] = useState(false);
 
   const openTab = useUIStore((s) => s.openTab);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
@@ -385,6 +393,16 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     openTab("friends", "friends", t("friends"));
   }
 
+  /**
+   * Sunucu tıklandığında aktif sunucuyu değiştir.
+   * Cascade refetch, AppLayout'taki useEffect tarafından otomatik tetiklenir
+   * (activeServerId değiştiğinde).
+   */
+  function handleServerClick(serverId: string) {
+    if (serverId === activeServerId) return; // zaten aktif
+    setActiveServer(serverId);
+  }
+
   // ─── Render helpers ───
 
   /** Chevron ikonu — section açık/kapalı durumuna göre döner */
@@ -506,102 +524,135 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         )}
       </div>
 
-      {/* ═══ Server Section — sunucu ikonu + ismi ═══ */}
+      {/* ═══ Servers Section — çoklu sunucu, her biri collapsible ═══ */}
       <div className="ch-tree-section">
         <button
-          className="ch-tree-server-header"
-          onClick={() => toggleSection("server")}
+          className="ch-tree-section-header"
+          onClick={() => toggleSection("servers")}
         >
-          <Chevron expanded={isSectionExpanded("server")} />
-          {server?.icon_url ? (
-            <img
-              src={resolveAssetUrl(server.icon_url)}
-              alt={server.name}
-              className="ch-tree-server-icon"
-            />
-          ) : (
-            <span className="ch-tree-server-icon-fallback">
-              {(server?.name ?? "S").charAt(0).toUpperCase()}
-            </span>
-          )}
-          <span className="ch-tree-server-name">{server?.name ?? t("server")}</span>
-          {/* Server-level unread badge — tüm kanalların toplam okunmamış sayısı */}
-          {(() => {
-            const total = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
-            return total > 0 ? (
-              <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
-            ) : null;
-          })()}
+          <Chevron expanded={isSectionExpanded("servers")} />
+          <span>{tServers("servers")}</span>
         </button>
 
-        {isSectionExpanded("server") && (
+        {isSectionExpanded("servers") && (
           <div className="ch-tree-section-body">
-            {categories.map((cg) => {
-              const catKey = `cat:${cg.category.id}`;
-              const catExpanded = isSectionExpanded(catKey);
+            {servers.map((srv) => {
+              const srvKey = `srv:${srv.id}`;
+              const isActive = srv.id === activeServerId;
+              const srvExpanded = isSectionExpanded(srvKey);
+
+              // Sunucu tıklandığında:
+              // - Aktif değilse: aktif yap + section'ı expand et (toggle değil!)
+              // - Zaten aktifse: sadece expand/collapse toggle
+              //
+              // Neden toggle değil expand? Çünkü yeni seçilen sunucunun section'ı
+              // expandedSections map'inde yoksa varsayılan true kabul edilir.
+              // toggleSection bu true'yu false'a çevirir → kanallar gizlenir!
+              function handleSrvHeaderClick() {
+                if (!isActive) {
+                  handleServerClick(srv.id);
+                  expandSection(srvKey);
+                } else {
+                  toggleSection(srvKey);
+                }
+              }
 
               return (
-                <div key={cg.category.id} className="ch-tree-category">
-                  {/* Kategori başlığı + kanal ekleme butonu */}
-                  <div className="ch-tree-cat-row">
-                    <button
-                      className="ch-tree-cat-header"
-                      onClick={() => toggleSection(catKey)}
-                    >
-                      <Chevron expanded={catExpanded} />
-                      <span>{cg.category.name}</span>
-                    </button>
-                    {canManageChannels && (
-                      <button
-                        className="ch-tree-cat-add"
-                        title={tCh("createChannel")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCreateTarget(
-                            createTarget === cg.category.id ? null : cg.category.id
-                          );
-                          setCreateName("");
-                        }}
-                      >
-                        +
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Inline kanal oluşturma formu */}
-                  {createTarget === cg.category.id && (
-                    <div className="ch-tree-create-form">
-                      <input
-                        className="ch-tree-create-input"
-                        type="text"
-                        placeholder={tCh("channelName")}
-                        value={createName}
-                        onChange={(e) => setCreateName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleCreateChannel();
-                          if (e.key === "Escape") setCreateTarget(null);
-                        }}
-                        autoFocus
+                <div key={srv.id} className="ch-tree-server-group">
+                  {/* Sunucu başlığı — ikon + isim + unread badge */}
+                  <button
+                    className={`ch-tree-server-header${isActive ? " active" : ""}`}
+                    onClick={handleSrvHeaderClick}
+                  >
+                    <Chevron expanded={srvExpanded && isActive} />
+                    {srv.icon_url ? (
+                      <img
+                        src={resolveAssetUrl(srv.icon_url)}
+                        alt={srv.name}
+                        className="ch-tree-server-icon"
                       />
-                      <div className="ch-tree-create-actions">
-                        <button
-                          className="ch-tree-create-btn"
-                          onClick={handleCreateChannel}
-                          disabled={!createName.trim() || isCreating}
-                        >
-                          {isCreating ? "..." : tCh("createChannel")}
-                        </button>
-                        <button
-                          className="ch-tree-create-cancel"
-                          onClick={() => setCreateTarget(null)}
-                        >
-                          {tCh("cancel")}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                    ) : (
+                      <span className="ch-tree-server-icon-fallback">
+                        {srv.name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="ch-tree-server-name">{srv.name}</span>
+                    {/* Server-level unread badge — sadece aktif sunucu için göster */}
+                    {isActive && (() => {
+                      const total = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
+                      return total > 0 ? (
+                        <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
+                      ) : null;
+                    })()}
+                  </button>
 
-                  {catExpanded && cg.channels.map((ch) => {
+                  {/* Kategoriler + kanallar — sadece aktif sunucu expanded ise */}
+                  {isActive && srvExpanded && categories.map((cg) => {
+                    const catKey = `cat:${cg.category.id}`;
+                    const catExpanded = isSectionExpanded(catKey);
+
+                    return (
+                      <div key={cg.category.id} className="ch-tree-category">
+                        {/* Kategori başlığı + kanal ekleme butonu */}
+                        <div className="ch-tree-cat-row">
+                          <button
+                            className="ch-tree-cat-header"
+                            onClick={() => toggleSection(catKey)}
+                          >
+                            <Chevron expanded={catExpanded} />
+                            <span>{cg.category.name}</span>
+                          </button>
+                          {canManageChannels && (
+                            <button
+                              className="ch-tree-cat-add"
+                              title={tCh("createChannel")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCreateTarget(
+                                  createTarget === cg.category.id ? null : cg.category.id
+                                );
+                                setCreateName("");
+                              }}
+                            >
+                              +
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Inline kanal oluşturma formu */}
+                        {createTarget === cg.category.id && (
+                          <div className="ch-tree-create-form">
+                            <input
+                              className="ch-tree-create-input"
+                              type="text"
+                              placeholder={tCh("channelName")}
+                              value={createName}
+                              onChange={(e) => setCreateName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleCreateChannel();
+                                if (e.key === "Escape") setCreateTarget(null);
+                              }}
+                              autoFocus
+                            />
+                            <div className="ch-tree-create-actions">
+                              <button
+                                className="ch-tree-create-btn"
+                                onClick={handleCreateChannel}
+                                disabled={!createName.trim() || isCreating}
+                              >
+                                {isCreating ? "..." : tCh("createChannel")}
+                              </button>
+                              <button
+                                className="ch-tree-create-cancel"
+                                onClick={() => setCreateTarget(null)}
+                              >
+                                {tCh("cancel")}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {catExpanded && cg.channels.map((ch) => {
                     const isText = ch.type === "text";
                     const isActive = isText
                       ? ch.id === selectedChannelId
@@ -738,9 +789,28 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                 </div>
               );
             })}
+                </div>
+              );
+            })}
+
+            {/* + Sunucu Ekle butonu — her zaman en altta */}
+            <button
+              className="ch-tree-item ch-tree-add-server"
+              onClick={() => setShowAddServer(true)}
+            >
+              <span className="ch-tree-icon">+</span>
+              <span className="ch-tree-label">{tServers("addServer")}</span>
+            </button>
           </div>
         )}
       </div>
+
+      {/* Add Server Modal */}
+      {showAddServer && (
+        <AddServerModal
+          onClose={() => setShowAddServer(false)}
+        />
+      )}
 
       {/* Voice User Context Menu — sağ tık menüsü (portal ile body'ye render edilir) */}
       {voiceCtxMenu && (

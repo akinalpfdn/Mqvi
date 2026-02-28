@@ -25,6 +25,11 @@ function ServerGeneralSettings() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
+    // Server değiştiğinde eski state'i temizle — yeni sunucu
+    // yüklenene kadar loading göster, stale veri gösterme.
+    setServer(null);
+    setIsLoaded(false);
+
     async function fetchServer() {
       if (!activeServerId) return;
       const res = await serverApi.getServer(activeServerId);

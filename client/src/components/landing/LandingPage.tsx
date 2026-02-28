@@ -302,51 +302,245 @@ function LandingPage() {
         {/* ═══ SELF-HOST ═══ */}
         <RevealOnScroll>
           <section id="selfhost" className="lp-section">
-            <div className="lp-selfhost">
-              {/* Sol: Metin */}
-              <div className="lp-selfhost-left">
-                <div className="lp-section-label">{t("sh_label")}</div>
-                <h2 className="lp-section-title">
-                  {t("sh_t1")}<br />
-                  {t("sh_t2")}
-                </h2>
-                <p className="lp-section-desc">{t("sh_desc")}</p>
+            {/* Başlık */}
+            <div className="lp-features-header">
+              <div className="lp-section-label">{t("sh_label")}</div>
+              <h2 className="lp-section-title">
+                {t("sh_t1")}<br />
+                {t("sh_t2")}
+              </h2>
+              <p className="lp-section-desc" style={{ margin: "0 auto" }}>
+                {t("sh_desc")}
+              </p>
+            </div>
+
+            {/* Adım adım rehber */}
+            <div className="lp-guide">
+              {/* Adım 1: Sunucu Edin */}
+              <div className="lp-guide-step">
+                <div className="lp-guide-step-num">1</div>
+                <div className="lp-guide-step-content">
+                  <h3 className="lp-guide-step-title">{t("guide_s1_title")}</h3>
+                  <p className="lp-guide-step-desc">{t("guide_s1_desc")}</p>
+                  <div className="lp-guide-providers">
+                    {["Hetzner", "DigitalOcean", "Oracle Cloud", "AWS", "Contabo"].map((p) => (
+                      <span key={p} className="lp-guide-provider-tag">{p}</span>
+                    ))}
+                  </div>
+                  <div className="lp-guide-specs">
+                    <div className="lp-guide-spec">
+                      <span className="lp-guide-spec-label">{t("guide_s1_os")}</span>
+                      <span className="lp-guide-spec-val">Ubuntu 22.04 / Debian 12</span>
+                    </div>
+                    <div className="lp-guide-spec">
+                      <span className="lp-guide-spec-label">{t("guide_s1_ram")}</span>
+                      <span className="lp-guide-spec-val">{t("guide_s1_ram_val")}</span>
+                    </div>
+                    <div className="lp-guide-spec">
+                      <span className="lp-guide-spec-label">{t("guide_s1_cpu")}</span>
+                      <span className="lp-guide-spec-val">{t("guide_s1_cpu_val")}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Sağ: Terminal mockup */}
-              <div className="lp-selfhost-right">
-                <div className="lp-terminal">
-                  <div className="lp-terminal-bar">
-                    <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
-                    <div className="lp-terminal-dot" style={{ background: "#febc2e" }} />
-                    <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
+              {/* Adım 2: Docker Kur */}
+              <div className="lp-guide-step">
+                <div className="lp-guide-step-num">2</div>
+                <div className="lp-guide-step-content">
+                  <h3 className="lp-guide-step-title">{t("guide_s2_title")}</h3>
+                  <p className="lp-guide-step-desc">{t("guide_s2_desc")}</p>
+                  <div className="lp-terminal">
+                    <div className="lp-terminal-bar">
+                      <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
+                      <div className="lp-terminal-dot" style={{ background: "#febc2e" }} />
+                      <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
+                    </div>
+                    <div className="lp-terminal-body">
+                      <div><span className="lp-terminal-comment"># {t("guide_s2_c1")}</span></div>
+                      <div>
+                        <span className="lp-terminal-cmd">curl</span>{" "}
+                        <span className="lp-terminal-flag">-fsSL</span>{" "}
+                        <span className="lp-terminal-url">https://get.docker.com</span>{" "}
+                        | <span className="lp-terminal-cmd">sh</span>
+                      </div>
+                      <br />
+                      <div><span className="lp-terminal-comment"># {t("guide_s2_c2")}</span></div>
+                      <div>
+                        <span className="lp-terminal-cmd">docker</span> --version
+                      </div>
+                      <div><span className="lp-terminal-ok">{"\u2713"}</span> Docker 27.x.x</div>
+                    </div>
                   </div>
-                  <div className="lp-terminal-body">
-                    <div><span className="lp-terminal-comment">{t("term_c1")}</span></div>
-                    <div>
-                      <span className="lp-terminal-cmd">curl</span>{" "}
-                      <span className="lp-terminal-flag">-fsSL</span>{" "}
-                      <span className="lp-terminal-url">https://get.mqvi.app</span>{" "}
-                      | <span className="lp-terminal-cmd">sh</span>
+                </div>
+              </div>
+
+              {/* Adım 3: Firewall / Port */}
+              <div className="lp-guide-step">
+                <div className="lp-guide-step-num">3</div>
+                <div className="lp-guide-step-content">
+                  <h3 className="lp-guide-step-title">{t("guide_s3_title")}</h3>
+                  <p className="lp-guide-step-desc">{t("guide_s3_desc")}</p>
+                  <div className="lp-guide-port-table">
+                    <div className="lp-guide-port-row lp-guide-port-row--header">
+                      <span>{t("guide_s3_port")}</span>
+                      <span>{t("guide_s3_proto")}</span>
+                      <span>{t("guide_s3_usage")}</span>
                     </div>
-                    <br />
-                    <div><span className="lp-terminal-comment">{t("term_c2")}</span></div>
-                    <div>
-                      <span className="lp-terminal-cmd">docker</span>{" "}
-                      run <span className="lp-terminal-flag">-d -p</span> 443:443 \
+                    <div className="lp-guide-port-row">
+                      <span className="lp-guide-port-num">7880</span>
+                      <span>TCP</span>
+                      <span>{t("guide_s3_p7880")}</span>
                     </div>
-                    <div>&nbsp;&nbsp;<span className="lp-terminal-flag">--name</span> mqvi \</div>
-                    <div>
-                      &nbsp;&nbsp;mqvi/server:<span className="lp-terminal-version">latest</span>
+                    <div className="lp-guide-port-row">
+                      <span className="lp-guide-port-num">7881</span>
+                      <span>TCP</span>
+                      <span>{t("guide_s3_p7881")}</span>
                     </div>
-                    <br />
-                    <div>
-                      <span className="lp-terminal-ok">{"\u2713"}</span>{" "}
-                      {t("term_ok1")} {"\u2192"}{" "}
-                      <span className="lp-terminal-url">https://your-server.com</span>
+                    <div className="lp-guide-port-row">
+                      <span className="lp-guide-port-num">7882</span>
+                      <span>UDP</span>
+                      <span>{t("guide_s3_p7882")}</span>
                     </div>
-                    <div><span className="lp-terminal-ok">{"\u2713"}</span> {t("term_ok2")}</div>
-                    <div><span className="lp-terminal-ok">{"\u2713"}</span> {t("term_ok3")}</div>
+                    <div className="lp-guide-port-row">
+                      <span className="lp-guide-port-num">50000–60000</span>
+                      <span>UDP</span>
+                      <span>{t("guide_s3_prange")}</span>
+                    </div>
+                  </div>
+                  <div className="lp-terminal">
+                    <div className="lp-terminal-bar">
+                      <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
+                      <div className="lp-terminal-dot" style={{ background: "#febc2e" }} />
+                      <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
+                    </div>
+                    <div className="lp-terminal-body">
+                      <div><span className="lp-terminal-comment"># {t("guide_s3_c1")}</span></div>
+                      <div><span className="lp-terminal-cmd">sudo ufw allow</span> 7880:7882/tcp</div>
+                      <div><span className="lp-terminal-cmd">sudo ufw allow</span> 7882/udp</div>
+                      <div><span className="lp-terminal-cmd">sudo ufw allow</span> 50000:60000/udp</div>
+                      <br />
+                      <div><span className="lp-terminal-comment"># {t("guide_s3_c2")}</span></div>
+                      <div><span className="lp-terminal-cmd">sudo ufw enable</span></div>
+                      <div><span className="lp-terminal-cmd">sudo ufw status</span></div>
+                    </div>
+                  </div>
+                  <div className="lp-guide-tip">
+                    <span className="lp-guide-tip-icon">{"\u26A0\uFE0F"}</span>
+                    <span>{t("guide_s3_tip")}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Adım 4: LiveKit Kur */}
+              <div className="lp-guide-step">
+                <div className="lp-guide-step-num">4</div>
+                <div className="lp-guide-step-content">
+                  <h3 className="lp-guide-step-title">{t("guide_s4_title")}</h3>
+                  <p className="lp-guide-step-desc">{t("guide_s4_desc")}</p>
+                  <div className="lp-terminal">
+                    <div className="lp-terminal-bar">
+                      <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
+                      <div className="lp-terminal-dot" style={{ background: "#febc2e" }} />
+                      <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
+                    </div>
+                    <div className="lp-terminal-body">
+                      <div><span className="lp-terminal-comment"># {t("guide_s4_c1")}</span></div>
+                      <div>
+                        <span className="lp-terminal-cmd">docker</span> run{" "}
+                        <span className="lp-terminal-flag">-d</span> \
+                      </div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">--name</span> livekit \</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-p</span> 7880:7880 \</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-p</span> 7881:7881 \</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-p</span> 7882:7882/udp \</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-p</span> 50000-60000:50000-60000/udp \</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-v</span> ./livekit.yaml:/etc/livekit.yaml \</div>
+                      <div>&nbsp;&nbsp;livekit/livekit-server \</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">--config</span> /etc/livekit.yaml</div>
+                      <br />
+                      <div><span className="lp-terminal-ok">{"\u2713"}</span> LiveKit {t("guide_s4_ok")}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Adım 5: Config dosyası */}
+              <div className="lp-guide-step">
+                <div className="lp-guide-step-num">5</div>
+                <div className="lp-guide-step-content">
+                  <h3 className="lp-guide-step-title">{t("guide_s5_title")}</h3>
+                  <p className="lp-guide-step-desc">{t("guide_s5_desc")}</p>
+                  <div className="lp-terminal">
+                    <div className="lp-terminal-bar">
+                      <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
+                      <div className="lp-terminal-dot" style={{ background: "#febc2e" }} />
+                      <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
+                    </div>
+                    <div className="lp-terminal-body">
+                      <div><span className="lp-terminal-comment"># livekit.yaml</span></div>
+                      <div><span className="lp-terminal-flag">port</span>: 7880</div>
+                      <div><span className="lp-terminal-flag">rtc</span>:</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">port_range_start</span>: 50000</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">port_range_end</span>: 60000</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">use_external_ip</span>: true</div>
+                      <div><span className="lp-terminal-flag">keys</span>:</div>
+                      <div>&nbsp;&nbsp;<span className="lp-terminal-cmd">myapikey</span>: <span className="lp-terminal-url">mysecretkey123456</span></div>
+                    </div>
+                  </div>
+                  <div className="lp-guide-tip">
+                    <span className="lp-guide-tip-icon">{"\uD83D\uDCA1"}</span>
+                    <span>{t("guide_s5_tip")}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Adım 6: mqvi'ye bağla */}
+              <div className="lp-guide-step">
+                <div className="lp-guide-step-num">6</div>
+                <div className="lp-guide-step-content">
+                  <h3 className="lp-guide-step-title">{t("guide_s6_title")}</h3>
+                  <p className="lp-guide-step-desc">{t("guide_s6_desc")}</p>
+                  <div className="lp-guide-fields">
+                    <div className="lp-guide-field">
+                      <span className="lp-guide-field-label">LiveKit URL</span>
+                      <span className="lp-guide-field-val">wss://your-server.com:7880</span>
+                    </div>
+                    <div className="lp-guide-field">
+                      <span className="lp-guide-field-label">API Key</span>
+                      <span className="lp-guide-field-val">myapikey</span>
+                    </div>
+                    <div className="lp-guide-field">
+                      <span className="lp-guide-field-label">API Secret</span>
+                      <span className="lp-guide-field-val">mysecretkey123456</span>
+                    </div>
+                  </div>
+                  <div className="lp-guide-tip">
+                    <span className="lp-guide-tip-icon">{"\u2705"}</span>
+                    <span>{t("guide_s6_tip")}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hata durumları */}
+              <div className="lp-guide-troubleshoot">
+                <h3 className="lp-guide-troubleshoot-title">{t("guide_trouble_title")}</h3>
+                <div className="lp-guide-trouble-grid">
+                  <div className="lp-guide-trouble-card">
+                    <div className="lp-guide-trouble-q">{t("guide_trouble_q1")}</div>
+                    <div className="lp-guide-trouble-a">{t("guide_trouble_a1")}</div>
+                  </div>
+                  <div className="lp-guide-trouble-card">
+                    <div className="lp-guide-trouble-q">{t("guide_trouble_q2")}</div>
+                    <div className="lp-guide-trouble-a">{t("guide_trouble_a2")}</div>
+                  </div>
+                  <div className="lp-guide-trouble-card">
+                    <div className="lp-guide-trouble-q">{t("guide_trouble_q3")}</div>
+                    <div className="lp-guide-trouble-a">{t("guide_trouble_a3")}</div>
+                  </div>
+                  <div className="lp-guide-trouble-card">
+                    <div className="lp-guide-trouble-q">{t("guide_trouble_q4")}</div>
+                    <div className="lp-guide-trouble-a">{t("guide_trouble_a4")}</div>
                   </div>
                 </div>
               </div>

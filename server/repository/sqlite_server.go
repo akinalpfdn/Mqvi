@@ -27,13 +27,13 @@ func NewSQLiteServerRepo(db *sql.DB) ServerRepository {
 func (r *sqliteServerRepo) Create(ctx context.Context, server *models.Server) error {
 	query := `
 		INSERT INTO servers (id, name, icon_url, owner_id, invite_required, livekit_instance_id)
-		VALUES (?, ?, ?, ?, ?, ?)
-		RETURNING created_at`
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?)
+		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
-		server.ID, server.Name, server.IconURL, server.OwnerID,
+		server.Name, server.IconURL, server.OwnerID,
 		server.InviteRequired, server.LiveKitInstanceID,
-	).Scan(&server.CreatedAt)
+	).Scan(&server.ID, &server.CreatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)

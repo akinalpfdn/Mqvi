@@ -118,10 +118,10 @@ button { font-family:inherit; }
 .ch-tree-section-body { padding:0 4px; }
 
 /* Server section header — sunucu ikonu + ismi ile özel stil */
-.ch-tree-server-header { display:flex;align-items:center;justify-content:flex-start;gap:8px;width:100%;padding:8px 10px;border:none;background:transparent;color:var(--t0);font-size:14px;font-weight:700;font-family:var(--f-d);cursor:pointer;transition:color .1s;letter-spacing:0;text-align:left; }
+.ch-tree-server-header { display:flex;align-items:center;justify-content:flex-start;gap:8px;width:100%;padding:8px 10px;border:none;background:transparent;color:var(--t0);font-size:15px;font-weight:700;font-family:var(--f-d);cursor:pointer;transition:color .1s;letter-spacing:0;text-align:left; }
 .ch-tree-server-header:hover { color:var(--t0); }
-.ch-tree-server-icon { width:22px;height:22px;border-radius:6px;flex-shrink:0;object-fit:cover; }
-.ch-tree-server-icon-fallback { width:22px;height:22px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0; }
+.ch-tree-server-icon { width:24px;height:24px;border-radius:6px;flex-shrink:0;object-fit:cover; }
+.ch-tree-server-icon-fallback { width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0; }
 .ch-tree-server-name { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .ch-tree-server-badge { background:var(--red);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:18px;text-align:center;flex-shrink:0;line-height:16px; }
 
@@ -129,8 +129,8 @@ button { font-family:inherit; }
 .ch-tree-chevron { font-size:13px;color:var(--t3);transition:transform .15s;display:inline-block; }
 .ch-tree-chevron.expanded { transform:rotate(90deg); }
 
-/* Category header (inside Server section) */
-.ch-tree-category { margin-bottom:2px; }
+/* Category header (inside Server section) — server'ın alt hiyerarşisi */
+.ch-tree-category { margin-bottom:2px;padding-left:8px; }
 .ch-tree-cat-row { display:flex;align-items:center; }
 .ch-tree-cat-header { display:flex;align-items:center;gap:5px;flex:1;padding:5px 8px 5px 14px;border:none;background:transparent;color:var(--t3);font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-family:var(--f-d);cursor:pointer;transition:color .1s; }
 .ch-tree-cat-header:hover { color:var(--t1); }
@@ -139,7 +139,7 @@ button { font-family:inherit; }
 .ch-tree-cat-row:hover .ch-tree-cat-add { opacity:1; }
 .ch-tree-cat-add:hover { color:var(--t0);background:var(--bg-h); }
 /* Inline create form */
-.ch-tree-create-form { padding:4px 10px 6px 24px;display:flex;flex-direction:column;gap:4px; }
+.ch-tree-create-form { padding:4px 10px 6px 28px;display:flex;flex-direction:column;gap:4px; }
 .ch-tree-create-input { width:100%;padding:5px 8px;border:1px solid var(--b1);border-radius:4px;background:var(--bg-0);color:var(--t0);font-size:13px;font-family:var(--f-ui);outline:none; }
 .ch-tree-create-input:focus { border-color:var(--primary); }
 .ch-tree-create-actions { display:flex;align-items:center;gap:4px; }
@@ -156,8 +156,8 @@ button { font-family:inherit; }
 .ch-tree-drag-wrap.drop-above::before { top:0; }
 .ch-tree-drag-wrap.drop-below::after { bottom:0; }
 
-/* Channel item (text, voice, DM) — font %30 büyüdü (13→17px) */
-.ch-tree-item { display:flex;align-items:center;gap:7px;width:100%;padding:5px 8px 5px 24px;border:none;background:transparent;color:var(--t1);font-size:14px;font-weight:500;font-family:var(--f-ui);cursor:pointer;border-radius:5px;transition:background .08s;text-align:left; }
+/* Channel item (text, voice, DM) — category altında daha derin indent */
+.ch-tree-item { display:flex;align-items:center;gap:7px;width:100%;padding:5px 8px 5px 28px;border:none;background:transparent;color:var(--t1);font-size:14px;font-weight:500;font-family:var(--f-ui);cursor:pointer;border-radius:5px;transition:background .08s;text-align:left; }
 .ch-tree-item:hover { background:var(--bg-h);color:var(--t0); }
 .ch-tree-item.active { background:var(--primary-s);color:var(--t0); }
 .ch-tree-item.voice { color:var(--t2); }
@@ -179,7 +179,7 @@ button { font-family:inherit; }
 .ch-tree-unread-dot { width:8px;height:8px;border-radius:999px;background:var(--primary);flex-shrink:0;margin-left:auto; }
 
 /* Voice users inside voice channel */
-.ch-tree-voice-users { padding:2px 0 2px 38px; }
+.ch-tree-voice-users { padding:2px 0 2px 42px; }
 .ch-tree-voice-user { display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;font-size:13px;color:var(--t2); }
 .ch-tree-voice-user:hover { background:var(--bg-h); }
 .ch-tree-vu-name { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
@@ -1887,56 +1887,16 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
     padding: 8px;
   }
 
-  /* ─── Server List Sidebar — Mobilde Gizle ─── */
-  .server-list-sidebar { display:none; }
 }
 
 /* ═══════════════════════════════════════
-   SERVER LIST SIDEBAR (56px sol dikey bar)
-   Discord benzeri sunucu ikonu listesi.
+   CHANNEL TREE — SERVER GROUP + ADD SERVER
+   ChannelTree'deki sunucu listesi öğeleri.
    ═══════════════════════════════════════ */
-.server-list-sidebar { width:56px;flex-shrink:0;background:var(--bg-ub);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:4px;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;border-right:1px solid var(--b1); }
-.server-list-sidebar::-webkit-scrollbar { display:none; }
-
-/* Her sunucu ikonu — yuvarlak, hover'da hafif kare */
-.srv-icon-wrap { position:relative;width:48px;height:48px;display:flex;align-items:center;justify-content:center;cursor:pointer; }
-
-/* Aktif sunucu indicator — sol tarafta beyaz dikey çizgi */
-.srv-indicator { position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:0;background:var(--t0);border-radius:0 3px 3px 0;transition:height .15s ease; }
-.srv-icon-wrap:hover .srv-indicator { height:20px; }
-.srv-icon-wrap.active .srv-indicator { height:36px; }
-
-/* Sunucu ikonu — daire, hover/active'de border-radius düşer */
-.srv-icon { width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:border-radius .15s ease,background .15s ease;overflow:hidden; }
-.srv-icon-wrap:hover .srv-icon,
-.srv-icon-wrap.active .srv-icon { border-radius:30%; }
-
-/* İkon resim — server icon_url varsa */
-.srv-icon img { width:100%;height:100%;object-fit:cover; }
-
-/* İkon fallback — ilk 2 harf */
-.srv-icon-fallback { width:40px;height:40px;border-radius:inherit;background:var(--bg-3);color:var(--t1);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;font-family:var(--f-d);transition:background .15s ease,color .15s ease; }
-.srv-icon-wrap:hover .srv-icon-fallback { background:var(--primary);color:#fff; }
-.srv-icon-wrap.active .srv-icon-fallback { background:var(--primary);color:#fff; }
-
-/* DM butonu — en üstte özel ikon */
-.srv-dm-icon { width:40px;height:40px;border-radius:50%;background:var(--bg-3);color:var(--t1);display:flex;align-items:center;justify-content:center;font-size:18px;transition:border-radius .15s ease,background .15s ease,color .15s ease; }
-.srv-icon-wrap:hover .srv-dm-icon,
-.srv-icon-wrap.active .srv-dm-icon { border-radius:30%;background:var(--primary);color:#fff; }
-
-/* Separator çizgi */
-.srv-separator { width:32px;height:2px;background:var(--b1);border-radius:1px;flex-shrink:0;margin:4px 0; }
-
-/* "+" butonu — en altta */
-.srv-add-icon { width:40px;height:40px;border-radius:50%;background:var(--bg-3);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:300;transition:border-radius .15s ease,background .15s ease,color .15s ease; }
-.srv-icon-wrap:hover .srv-add-icon { border-radius:30%;background:var(--green);color:#fff; }
-
-/* Tooltip — hover'da sağda gösterilir */
-.srv-tooltip { position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%);background:var(--bg-0);color:var(--t0);font-size:13px;font-weight:600;padding:6px 10px;border-radius:4px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.3); }
-.srv-icon-wrap:hover .srv-tooltip { opacity:1; }
-
-/* Unread badge — sunucu ikonunda */
-.srv-badge { position:absolute;bottom:0;right:0;min-width:16px;height:16px;padding:0 4px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:999px;display:flex;align-items:center;justify-content:center;line-height:1;border:2px solid var(--bg-ub); }
+.ch-tree-server-group { margin-bottom:2px; }
+.ch-tree-add-server { opacity:0.7;transition:opacity .15s ease; }
+.ch-tree-add-server:hover { opacity:1; }
+.ch-tree-add-server .ch-tree-icon { color:var(--green);font-size:16px;font-weight:700; }
 
 /* ═══════════════════════════════════════
    ADD SERVER MODAL
