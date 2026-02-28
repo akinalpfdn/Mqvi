@@ -75,7 +75,15 @@ export const useMemberStore = create<MemberState>((set) => ({
 
     const res = await memberApi.getMembers();
     if (res.data) {
-      set({ members: res.data, isLoading: false });
+      // API'den gelen member.status bilgisine göre onlineUserIds Set'ini yeniden oluştur.
+      // Ready event'ten gelen Set eksik olabilir (race condition) — API veritabanından
+      // güncel status bilgisini döner, bu yüzden en güvenilir kaynaktır.
+      const freshOnlineIds = new Set<string>(
+        res.data
+          .filter((m) => m.status !== "offline")
+          .map((m) => m.id),
+      );
+      set({ members: res.data, onlineUserIds: freshOnlineIds, isLoading: false });
     } else {
       set({ isLoading: false });
     }
