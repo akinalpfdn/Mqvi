@@ -2,13 +2,13 @@
 #  mqvi — LiveKit Auto-Setup Script (Windows)
 #
 #  Bu script tek komutla LiveKit ses sunucusunu kurar:
-#    1. Docker Desktop kurulumu (yoksa)
-#    2. Windows Firewall port açma
-#    3. API Key + Secret üretimi
-#    4. livekit.yaml oluşturma
-#    5. LiveKit Docker container başlatma
+#    1. LiveKit binary indirme (GitHub Releases)
+#    2. Windows Firewall port acma
+#    3. API Key + Secret uretimi
+#    4. livekit.yaml olusturma
+#    5. LiveKit'i baslatma (+ opsiyonel otomatik baslangic)
 #
-#  Kullanım (PowerShell'i Yönetici olarak aç):
+#  Kullanim (PowerShell'i Yonetici olarak ac):
 #    irm https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.ps1 | iex
 #
 # ═══════════════════════════════════════════════════════════════
@@ -32,53 +32,58 @@ if (-not $isAdmin) {
     exit 1
 }
 
-# --- 1/5: Docker Desktop Kontrolu ---
-Write-Host "[1/5] Checking Docker..." -ForegroundColor Yellow
+$installDir = "$env:ProgramFiles\LiveKit"
+$binaryPath = Join-Path $installDir "livekit-server.exe"
+$configPath = Join-Path $installDir "livekit.yaml"
 
-$dockerExists = $false
-try {
-    $null = Get-Command docker -ErrorAction Stop
-    $dockerExists = $true
-} catch {
-    $dockerExists = $false
-}
+# --- 1/5: LiveKit Binary Indir ---
+Write-Host "[1/5] Installing LiveKit..." -ForegroundColor Yellow
 
-if ($dockerExists) {
-    $dockerVersion = docker --version 2>&1 | Select-Object -First 1
-    Write-Host "  Docker already installed: $dockerVersion" -ForegroundColor Green
-
-    # Docker Desktop calisiyormu kontrol et
-    try {
-        $null = docker info 2>&1
-    } catch {
-        Write-Host "  Docker Desktop is installed but not running. Please start Docker Desktop and try again." -ForegroundColor Red
-        exit 1
-    }
+if (Test-Path $binaryPath) {
+    Write-Host "  LiveKit already installed at $binaryPath" -ForegroundColor Green
 } else {
-    Write-Host "  Docker not found. Installing Docker Desktop..." -ForegroundColor Yellow
+    Write-Host "  Downloading LiveKit binary from GitHub..." -ForegroundColor Yellow
 
-    $wingetExists = $false
-    try {
-        $null = Get-Command winget -ErrorAction Stop
-        $wingetExists = $true
-    } catch {
-        $wingetExists = $false
-    }
+    # En son release'in indirme URL'sini bul
+    $releaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/livekit/livekit/releases/latest" -TimeoutSec 15
+    $version = $releaseInfo.tag_name
+    $asset = $releaseInfo.assets | Where-Object { $_.name -match "windows_amd64\.zip$" } | Select-Object -First 1
 
-    if ($wingetExists) {
-        Write-Host "  Installing via winget..." -ForegroundColor Yellow
-        winget install Docker.DockerDesktop --accept-package-agreements --accept-source-agreements
-        Write-Host ""
-        Write-Host "  Docker Desktop installed!" -ForegroundColor Green
-        Write-Host "  Please RESTART your computer, then run this script again." -ForegroundColor Yellow
-        Write-Host "  Docker Desktop needs a restart to complete setup." -ForegroundColor Yellow
-        exit 0
-    } else {
-        Write-Host "  winget not available. Please install Docker Desktop manually:" -ForegroundColor Red
-        Write-Host "  https://www.docker.com/products/docker-desktop/" -ForegroundColor Cyan
-        Write-Host "  After installing, restart your computer and run this script again." -ForegroundColor Yellow
+    if (-not $asset) {
+        Write-Host "  Could not find Windows binary in latest release ($version)." -ForegroundColor Red
+        Write-Host "  Download manually from: https://github.com/livekit/livekit/releases" -ForegroundColor Yellow
         exit 1
     }
+
+    $zipUrl = $asset.browser_download_url
+    $zipPath = Join-Path $env:TEMP "livekit-server.zip"
+    $extractPath = Join-Path $env:TEMP "livekit-extract"
+
+    Write-Host "  Downloading $version..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+
+    # Zip'i ac ve binary'yi tasi
+    if (Test-Path $extractPath) { Remove-Item -Recurse -Force $extractPath }
+    Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+
+    if (-not (Test-Path $installDir)) {
+        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+    }
+
+    # Binary'yi bul (zip icinde alt klasorde olabilir)
+    $exe = Get-ChildItem -Path $extractPath -Recurse -Filter "livekit-server.exe" | Select-Object -First 1
+    if (-not $exe) {
+        Write-Host "  livekit-server.exe not found in downloaded archive." -ForegroundColor Red
+        exit 1
+    }
+
+    Copy-Item -Path $exe.FullName -Destination $binaryPath -Force
+
+    # Temizlik
+    Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
+
+    Write-Host "  LiveKit $version installed to $binaryPath" -ForegroundColor Green
 }
 
 # --- 2/5: Firewall Port Acma ---
@@ -124,12 +129,7 @@ Write-Host "  API Key:    $API_KEY" -ForegroundColor Green
 Write-Host "  API Secret: $API_SECRET" -ForegroundColor Green
 
 # --- 4/5: livekit.yaml Olustur ---
-Write-Host "[4/5] Creating livekit.yaml..." -ForegroundColor Yellow
-
-$installDir = "$env:USERPROFILE\livekit"
-if (-not (Test-Path $installDir)) {
-    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-}
+Write-Host "[4/5] Creating config..." -ForegroundColor Yellow
 
 $yamlContent = @"
 port: 7880
@@ -142,47 +142,48 @@ keys:
   ${API_KEY}: ${API_SECRET}
 "@
 
-$yamlPath = Join-Path $installDir "livekit.yaml"
-$yamlContent | Set-Content -Path $yamlPath -Encoding UTF8
-Write-Host "  Config saved to $yamlPath" -ForegroundColor Green
+$yamlContent | Set-Content -Path $configPath -Encoding UTF8
+Write-Host "  Config saved to $configPath" -ForegroundColor Green
 
-# --- 5/5: LiveKit Docker Container Baslat ---
+# --- 5/5: LiveKit Baslat + Task Scheduler (otomatik baslangic) ---
 Write-Host "[5/5] Starting LiveKit..." -ForegroundColor Yellow
 
-# Eski container varsa kaldir
-$existing = docker ps -a --format "{{.Names}}" 2>&1 | Where-Object { $_ -eq "livekit" }
+# Eski process varsa durdur
+$existing = Get-Process -Name "livekit-server" -ErrorAction SilentlyContinue
 if ($existing) {
-    docker stop livekit 2>&1 | Out-Null
-    docker rm livekit 2>&1 | Out-Null
+    Stop-Process -Name "livekit-server" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
 }
 
-# Docker icin path formatini ayarla (Windows -> Linux path)
-$dockerYamlPath = $yamlPath.Replace('\', '/')
+# Arka planda baslat
+Start-Process -FilePath $binaryPath `
+    -ArgumentList "--config", $configPath `
+    -WindowStyle Hidden
 
-docker run -d `
-    --name livekit `
-    --restart unless-stopped `
-    -p 7880:7880 `
-    -p 7881:7881 `
-    -p 7882:7882/udp `
-    -p 50000-60000:50000-60000/udp `
-    -v "${dockerYamlPath}:/etc/livekit.yaml" `
-    livekit/livekit-server `
-    --config /etc/livekit.yaml
+# Task Scheduler ile otomatik baslangic ayarla
+$taskName = "LiveKit Server"
+$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if (-not $existingTask) {
+    $action = New-ScheduledTaskAction -Execute $binaryPath -Argument "--config `"$configPath`""
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
+    Write-Host "  Auto-start configured (Task Scheduler)." -ForegroundColor Green
+}
 
-# Container'in basladigini dogrula
-Start-Sleep -Seconds 3
-$running = docker ps --format "{{.Names}}" 2>&1 | Where-Object { $_ -eq "livekit" }
-
+# Dogrula
+Start-Sleep -Seconds 2
+$running = Get-Process -Name "livekit-server" -ErrorAction SilentlyContinue
 if ($running) {
     Write-Host "  LiveKit is running on port 7880." -ForegroundColor Green
 } else {
-    Write-Host "  LiveKit failed to start. Run 'docker logs livekit' to see what went wrong." -ForegroundColor Red
+    Write-Host "  LiveKit may have failed to start. Try running manually:" -ForegroundColor Red
+    Write-Host "  & `"$binaryPath`" --config `"$configPath`"" -ForegroundColor Yellow
     exit 1
 }
 
 # --- Sonuc ---
-# Public IP bul
 $publicIP = "YOUR_SERVER_IP"
 try {
     $publicIP = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 5) 2>$null
@@ -205,7 +206,12 @@ Write-Host "  URL:        " -NoNewline; Write-Host "ws://${publicIP}:7880" -Fore
 Write-Host "  API Key:    " -NoNewline; Write-Host "$API_KEY" -ForegroundColor White
 Write-Host "  API Secret: " -NoNewline; Write-Host "$API_SECRET" -ForegroundColor White
 Write-Host ""
-Write-Host "  Config file: $yamlPath" -ForegroundColor Yellow
+Write-Host "  Config: $configPath" -ForegroundColor Yellow
+Write-Host "  Binary: $binaryPath" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Manage:" -ForegroundColor Yellow
+Write-Host "    Stop:    Stop-Process -Name livekit-server" -ForegroundColor Yellow
+Write-Host "    Start:   Start-Process `"$binaryPath`" -ArgumentList '--config','`"$configPath`"'" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  If accessing from outside your local network," -ForegroundColor Yellow
 Write-Host "  make sure your router forwards ports 7880, 7881," -ForegroundColor Yellow

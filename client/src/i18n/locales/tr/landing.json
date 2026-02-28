@@ -88,7 +88,7 @@
   "sh_label": "Self-Host",
   "sh_t1": "Kendi ses sunucun.",
   "sh_t2": "Tek komut.",
-  "sh_desc": "Kurulum script'imizi çalıştır, gerisini o halleder — Docker, firewall, kimlik bilgileri, LiveKit. Yazılım bilgisi gerekmiyor.",
+  "sh_desc": "Kurulum script'imizi çalıştır, gerisini o halleder — firewall, kimlik bilgileri, LiveKit. Docker gerekmiyor, yazılım bilgisi gerekmiyor.",
 
   "guide_os_linux": "Linux",
   "guide_os_windows": "Windows",
@@ -105,12 +105,12 @@
   "guide_s1_cpu_val": "1 çekirdek yeterli",
 
   "guide_auto_title": "Kurulum Script'ini Çalıştır",
-  "guide_auto_desc_linux": "Sunucuna SSH ile bağlan, sonra bu tek komutu çalıştır. Script Docker'ı kurar, firewall portlarını açar, güvenli kimlik bilgilerini üretir ve LiveKit'i başlatır — hepsi otomatik.",
-  "guide_auto_desc_windows": "PowerShell'i Yönetici olarak aç, sonra bu komutu çalıştır. Script Docker Desktop'ı kurar, firewall portlarını açar, güvenli kimlik bilgilerini üretir ve LiveKit'i başlatır.",
+  "guide_auto_desc_linux": "Sunucuna SSH ile bağlan, sonra bu tek komutu çalıştır. Script LiveKit'i indirir, firewall portlarını açar, güvenli kimlik bilgilerini üretir ve servis olarak başlatır — hepsi otomatik.",
+  "guide_auto_desc_windows": "PowerShell'i Yönetici olarak aç, sonra bu komutu çalıştır. Script LiveKit'i indirir, firewall portlarını açar, güvenli kimlik bilgilerini üretir ve otomatik başlangıç ayarlar.",
   "guide_auto_comment_linux": "Tek komut her şeyi yapar",
   "guide_auto_comment_windows": "PowerShell'i Yönetici olarak çalıştır",
   "guide_auto_output": "Script tamamlandığında 3 değer göreceksin:",
-  "guide_auto_note_windows": "Docker Desktop yeni kurulduysa bilgisayarını yeniden başlatıp script'i tekrar çalıştır.",
+  "guide_auto_note_windows": "Script, LiveKit'i bilgisayar açıldığında otomatik başlayacak şekilde ayarlar.",
 
   "guide_connect_title": "mqvi'ye Bağla",
   "guide_connect_desc": "mqvi'ye git, yeni sunucu oluştur ve \"Self-Hosted\" seç. Script'in verdiği 3 değeri gir:",
@@ -122,7 +122,7 @@
   "guide_trouble_q2": "Bağlanıyorum ama ses gelmiyor",
   "guide_trouble_a2": "50000-60000 UDP portları engellenmiş olabilir. Ses verisi bu portlardan geçer. Sağlayıcının bu portlarda UDP trafiğine izin verdiğinden emin ol.",
   "guide_trouble_q3": "\"Connection refused\" hatası",
-  "guide_trouble_a3": "LiveKit container'ı çalışmıyor olabilir. 'docker ps' ile kontrol et. Listede yoksa 'docker logs livekit' ile neyin yanlış gittiğini gör.",
+  "guide_trouble_a3": "LiveKit çalışmıyor olabilir. Linux'ta 'systemctl status livekit' çalıştır. Windows'ta Görev Yöneticisi'nde 'livekit-server' ara. 'systemctl restart livekit' (Linux) ile yeniden başlatmayı dene veya script'i tekrar çalıştır.",
   "guide_trouble_q4": "Yerel ağda çalışıyor ama dışarıdan çalışmıyor",
   "guide_trouble_a4": "livekit.yaml dosyanda 'use_external_ip: true' ayarının olduğundan emin ol. Windows'ta ayrıca router'ının 7880, 7881, 7882 ve 50000-60000 portlarını bu makineye yönlendirdiğinden emin ol.",
   "cta_t1": "Gizliliğini",

@@ -328,13 +328,14 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 32px;
+  margin-top: 24px;
+  padding: 14px 40px;
   border-radius: 12px;
-  border: 1px solid var(--lp-accent);
+  border: 2px solid var(--lp-accent);
   background: transparent;
   color: var(--lp-accent);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   font-family: inherit;
   text-decoration: none;
   transition: background 0.2s, color 0.2s;
@@ -344,7 +345,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   background: var(--lp-accent);
   color: var(--lp-bg);
 }
-.lp-download-link svg { flex-shrink: 0; }
+.lp-download-link svg { flex-shrink: 0; width: 20px; height: 20px; }
 .lp-hero-scroll {
   position: absolute;
   bottom: 40px;

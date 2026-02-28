@@ -88,7 +88,7 @@
   "sh_label": "Self-Host",
   "sh_t1": "Your own voice server.",
   "sh_t2": "One command.",
-  "sh_desc": "Run our setup script and it handles everything — Docker, firewall, credentials, LiveKit. No coding experience needed.",
+  "sh_desc": "Run our setup script and it handles everything — firewall, credentials, LiveKit. No Docker, no coding experience needed.",
 
   "guide_os_linux": "Linux",
   "guide_os_windows": "Windows",
@@ -105,12 +105,12 @@
   "guide_s1_cpu_val": "1 core is enough",
 
   "guide_auto_title": "Run the Setup Script",
-  "guide_auto_desc_linux": "Connect to your server via SSH, then run this single command. The script installs Docker, opens firewall ports, generates secure credentials, and starts LiveKit — all automatically.",
-  "guide_auto_desc_windows": "Open PowerShell as Administrator, then run this command. The script installs Docker Desktop, opens firewall ports, generates secure credentials, and starts LiveKit.",
+  "guide_auto_desc_linux": "Connect to your server via SSH, then run this single command. The script downloads LiveKit, opens firewall ports, generates secure credentials, and starts it as a service — all automatically.",
+  "guide_auto_desc_windows": "Open PowerShell as Administrator, then run this command. The script downloads LiveKit, opens firewall ports, generates secure credentials, and sets it up to start automatically.",
   "guide_auto_comment_linux": "One command does everything",
   "guide_auto_comment_windows": "Run PowerShell as Administrator",
   "guide_auto_output": "When the script finishes, you'll see 3 values:",
-  "guide_auto_note_windows": "If Docker Desktop was just installed, restart your computer and run the script again.",
+  "guide_auto_note_windows": "The script sets up LiveKit to start automatically when your computer boots.",
 
   "guide_connect_title": "Connect to mqvi",
   "guide_connect_desc": "Go to mqvi, create a new server, and select \"Self-Hosted\". Enter the 3 values the script gave you:",
@@ -122,7 +122,7 @@
   "guide_trouble_q2": "I can connect but hear no audio",
   "guide_trouble_a2": "UDP ports 50000-60000 might be blocked. These carry the actual voice data. Make sure your provider allows UDP traffic on these ports.",
   "guide_trouble_q3": "\"Connection refused\" error",
-  "guide_trouble_a3": "LiveKit container might not be running. Run 'docker ps' to check. If it's not listed, run 'docker logs livekit' to see what went wrong.",
+  "guide_trouble_a3": "LiveKit might not be running. On Linux, run 'systemctl status livekit'. On Windows, check Task Manager for 'livekit-server'. Try restarting with 'systemctl restart livekit' (Linux) or re-running the script.",
   "guide_trouble_q4": "Works on LAN but not from outside",
   "guide_trouble_a4": "Make sure 'use_external_ip: true' is set in your livekit.yaml. On Windows, also check that your router forwards ports 7880, 7881, 7882, and 50000-60000.",
   "cta_t1": "Take back your",
