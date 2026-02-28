@@ -660,6 +660,36 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   min-width: 300px;
 }
 
+/* OS Tab Bar */
+.lp-guide-os-tabs {
+  display: flex;
+  gap: 0;
+  max-width: 780px;
+  margin: 40px auto 0;
+  border-bottom: 1px solid var(--lp-border);
+}
+.lp-guide-os-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border: none;
+  background: none;
+  color: var(--lp-text-dim);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+  margin-bottom: -1px;
+}
+.lp-guide-os-tab:hover { color: var(--lp-text); }
+.lp-guide-os-tab.active {
+  color: var(--lp-accent);
+  border-bottom-color: var(--lp-accent);
+}
+
 /* Terminal mockup */
 .lp-terminal {
   background: #0a0a0a;

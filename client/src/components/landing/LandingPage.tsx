@@ -38,6 +38,7 @@ function LandingPage() {
   const { t, i18n } = useTranslation("landing");
   const navigate = useNavigate();
   const [totalUsers, setTotalUsers] = useState(0);
+  const [guideOS, setGuideOS] = useState<"linux" | "windows">("linux");
 
   // Toplam kullanıcı sayısını çek (mount'ta bir kez)
   useEffect(() => {
@@ -329,6 +330,28 @@ function LandingPage() {
               </p>
             </div>
 
+            {/* OS Tab Bar */}
+            <div className="lp-guide-os-tabs">
+              <button
+                className={`lp-guide-os-tab ${guideOS === "linux" ? "active" : ""}`}
+                onClick={() => setGuideOS("linux")}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12.5 2c-.4 0-.8.3-.8.8v.1c-.1.6-.4 1.1-.8 1.5-.5.4-1 .7-1.5.8-.3.1-.5.3-.5.6v.3c0 .6.2 1.2.5 1.7.2.3.2.7.1 1-.2.4-.5.7-.9.9-.4.2-.6.6-.5 1 .2 1 .7 1.9 1.5 2.5-.2.5-.3 1-.3 1.5 0 .7.2 1.3.5 1.9-.8.6-1.3 1.4-1.3 2.2 0 1.8 2 3.2 4.5 3.2s4.5-1.4 4.5-3.2c0-.8-.5-1.6-1.3-2.2.3-.6.5-1.2.5-1.9 0-.5-.1-1-.3-1.5.8-.6 1.3-1.5 1.5-2.5.1-.4-.1-.8-.5-1-.4-.2-.7-.5-.9-.9-.1-.3-.1-.7.1-1 .3-.5.5-1.1.5-1.7v-.3c0-.3-.2-.5-.5-.6-.5-.1-1-.4-1.5-.8-.4-.4-.7-.9-.8-1.5v-.1c0-.5-.4-.8-.8-.8z" />
+                </svg>
+                {t("guide_os_linux")}
+              </button>
+              <button
+                className={`lp-guide-os-tab ${guideOS === "windows" ? "active" : ""}`}
+                onClick={() => setGuideOS("windows")}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 5.5l7.5-1v7H3V5.5zm0 13l7.5 1v-7H3v6zm8.5 1.2L21 21V12.5h-9.5v7.2zm0-15.4v7.2H21V3l-9.5 1.3z" />
+                </svg>
+                {t("guide_os_windows")}
+              </button>
+            </div>
+
             {/* Adım adım rehber */}
             <div className="lp-guide">
               {/* Adım 1: Sunucu Edin */}
@@ -336,16 +359,22 @@ function LandingPage() {
                 <div className="lp-guide-step-num">1</div>
                 <div className="lp-guide-step-content">
                   <h3 className="lp-guide-step-title">{t("guide_s1_title")}</h3>
-                  <p className="lp-guide-step-desc">{t("guide_s1_desc")}</p>
-                  <div className="lp-guide-providers">
-                    {["Hetzner", "DigitalOcean", "Oracle Cloud", "AWS", "Contabo"].map((p) => (
-                      <span key={p} className="lp-guide-provider-tag">{p}</span>
-                    ))}
-                  </div>
+                  <p className="lp-guide-step-desc">
+                    {guideOS === "linux" ? t("guide_s1_desc_linux") : t("guide_s1_desc_windows")}
+                  </p>
+                  {guideOS === "linux" && (
+                    <div className="lp-guide-providers">
+                      {["Hetzner", "DigitalOcean", "Oracle Cloud", "AWS", "Contabo"].map((p) => (
+                        <span key={p} className="lp-guide-provider-tag">{p}</span>
+                      ))}
+                    </div>
+                  )}
                   <div className="lp-guide-specs">
                     <div className="lp-guide-spec">
                       <span className="lp-guide-spec-label">{t("guide_s1_os")}</span>
-                      <span className="lp-guide-spec-val">Ubuntu 22.04 / Debian 12</span>
+                      <span className="lp-guide-spec-val">
+                        {guideOS === "linux" ? t("guide_s1_os_linux") : t("guide_s1_os_windows")}
+                      </span>
                     </div>
                     <div className="lp-guide-spec">
                       <span className="lp-guide-spec-label">{t("guide_s1_ram")}</span>
@@ -359,12 +388,14 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* Adım 2: Docker Kur */}
+              {/* Adım 2: Kurulum Script'ini Çalıştır */}
               <div className="lp-guide-step">
                 <div className="lp-guide-step-num">2</div>
                 <div className="lp-guide-step-content">
-                  <h3 className="lp-guide-step-title">{t("guide_s2_title")}</h3>
-                  <p className="lp-guide-step-desc">{t("guide_s2_desc")}</p>
+                  <h3 className="lp-guide-step-title">{t("guide_auto_title")}</h3>
+                  <p className="lp-guide-step-desc">
+                    {guideOS === "linux" ? t("guide_auto_desc_linux") : t("guide_auto_desc_windows")}
+                  </p>
                   <div className="lp-terminal">
                     <div className="lp-terminal-bar">
                       <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
@@ -372,167 +403,65 @@ function LandingPage() {
                       <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
                     </div>
                     <div className="lp-terminal-body">
-                      <div><span className="lp-terminal-comment"># {t("guide_s2_c1")}</span></div>
-                      <div>
-                        <span className="lp-terminal-cmd">curl</span>{" "}
-                        <span className="lp-terminal-flag">-fsSL</span>{" "}
-                        <span className="lp-terminal-url">https://get.docker.com</span>{" "}
-                        | <span className="lp-terminal-cmd">sh</span>
-                      </div>
+                      {guideOS === "linux" ? (
+                        <>
+                          <div><span className="lp-terminal-comment"># {t("guide_auto_comment_linux")}</span></div>
+                          <div>
+                            <span className="lp-terminal-cmd">curl</span>{" "}
+                            <span className="lp-terminal-flag">-fsSL</span>{" "}
+                            <span className="lp-terminal-url">https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.sh</span>{" "}
+                            | <span className="lp-terminal-cmd">sudo bash</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div><span className="lp-terminal-comment"># {t("guide_auto_comment_windows")}</span></div>
+                          <div>
+                            <span className="lp-terminal-cmd">irm</span>{" "}
+                            <span className="lp-terminal-url">https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.ps1</span>{" "}
+                            | <span className="lp-terminal-cmd">iex</span>
+                          </div>
+                        </>
+                      )}
                       <br />
-                      <div><span className="lp-terminal-comment"># {t("guide_s2_c2")}</span></div>
-                      <div>
-                        <span className="lp-terminal-cmd">docker</span> --version
-                      </div>
-                      <div><span className="lp-terminal-ok">{"\u2713"}</span> Docker 27.x.x</div>
+                      <div><span className="lp-terminal-ok">{"\u2713"}</span> LiveKit is running!</div>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Adım 3: Firewall / Port */}
-              <div className="lp-guide-step">
-                <div className="lp-guide-step-num">3</div>
-                <div className="lp-guide-step-content">
-                  <h3 className="lp-guide-step-title">{t("guide_s3_title")}</h3>
-                  <p className="lp-guide-step-desc">{t("guide_s3_desc")}</p>
-                  <div className="lp-guide-port-table">
-                    <div className="lp-guide-port-row lp-guide-port-row--header">
-                      <span>{t("guide_s3_port")}</span>
-                      <span>{t("guide_s3_proto")}</span>
-                      <span>{t("guide_s3_usage")}</span>
+                  {guideOS === "windows" && (
+                    <div className="lp-guide-tip">
+                      <span className="lp-guide-tip-icon">{"\u26A0\uFE0F"}</span>
+                      <span>{t("guide_auto_note_windows")}</span>
                     </div>
-                    <div className="lp-guide-port-row">
-                      <span className="lp-guide-port-num">7880</span>
-                      <span>TCP</span>
-                      <span>{t("guide_s3_p7880")}</span>
-                    </div>
-                    <div className="lp-guide-port-row">
-                      <span className="lp-guide-port-num">7881</span>
-                      <span>TCP</span>
-                      <span>{t("guide_s3_p7881")}</span>
-                    </div>
-                    <div className="lp-guide-port-row">
-                      <span className="lp-guide-port-num">7882</span>
-                      <span>UDP</span>
-                      <span>{t("guide_s3_p7882")}</span>
-                    </div>
-                    <div className="lp-guide-port-row">
-                      <span className="lp-guide-port-num">50000–60000</span>
-                      <span>UDP</span>
-                      <span>{t("guide_s3_prange")}</span>
-                    </div>
-                  </div>
-                  <div className="lp-terminal">
-                    <div className="lp-terminal-bar">
-                      <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
-                      <div className="lp-terminal-dot" style={{ background: "#febc2e" }} />
-                      <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
-                    </div>
-                    <div className="lp-terminal-body">
-                      <div><span className="lp-terminal-comment"># {t("guide_s3_c1")}</span></div>
-                      <div><span className="lp-terminal-cmd">sudo ufw allow</span> 7880:7882/tcp</div>
-                      <div><span className="lp-terminal-cmd">sudo ufw allow</span> 7882/udp</div>
-                      <div><span className="lp-terminal-cmd">sudo ufw allow</span> 50000:60000/udp</div>
-                      <br />
-                      <div><span className="lp-terminal-comment"># {t("guide_s3_c2")}</span></div>
-                      <div><span className="lp-terminal-cmd">sudo ufw enable</span></div>
-                      <div><span className="lp-terminal-cmd">sudo ufw status</span></div>
-                    </div>
-                  </div>
-                  <div className="lp-guide-tip">
-                    <span className="lp-guide-tip-icon">{"\u26A0\uFE0F"}</span>
-                    <span>{t("guide_s3_tip")}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Adım 4: LiveKit Kur */}
-              <div className="lp-guide-step">
-                <div className="lp-guide-step-num">4</div>
-                <div className="lp-guide-step-content">
-                  <h3 className="lp-guide-step-title">{t("guide_s4_title")}</h3>
-                  <p className="lp-guide-step-desc">{t("guide_s4_desc")}</p>
-                  <div className="lp-terminal">
-                    <div className="lp-terminal-bar">
-                      <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
-                      <div className="lp-terminal-dot" style={{ background: "#febc2e" }} />
-                      <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
-                    </div>
-                    <div className="lp-terminal-body">
-                      <div><span className="lp-terminal-comment"># {t("guide_s4_c1")}</span></div>
-                      <div>
-                        <span className="lp-terminal-cmd">docker</span> run{" "}
-                        <span className="lp-terminal-flag">-d</span> \
-                      </div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">--name</span> livekit \</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-p</span> 7880:7880 \</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-p</span> 7881:7881 \</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-p</span> 7882:7882/udp \</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-p</span> 50000-60000:50000-60000/udp \</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">-v</span> ./livekit.yaml:/etc/livekit.yaml \</div>
-                      <div>&nbsp;&nbsp;livekit/livekit-server \</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">--config</span> /etc/livekit.yaml</div>
-                      <br />
-                      <div><span className="lp-terminal-ok">{"\u2713"}</span> LiveKit {t("guide_s4_ok")}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Adım 5: Config dosyası */}
-              <div className="lp-guide-step">
-                <div className="lp-guide-step-num">5</div>
-                <div className="lp-guide-step-content">
-                  <h3 className="lp-guide-step-title">{t("guide_s5_title")}</h3>
-                  <p className="lp-guide-step-desc">{t("guide_s5_desc")}</p>
-                  <div className="lp-terminal">
-                    <div className="lp-terminal-bar">
-                      <div className="lp-terminal-dot" style={{ background: "#ff5f57" }} />
-                      <div className="lp-terminal-dot" style={{ background: "#febc2e" }} />
-                      <div className="lp-terminal-dot" style={{ background: "#28c840" }} />
-                    </div>
-                    <div className="lp-terminal-body">
-                      <div><span className="lp-terminal-comment"># livekit.yaml</span></div>
-                      <div><span className="lp-terminal-flag">port</span>: 7880</div>
-                      <div><span className="lp-terminal-flag">rtc</span>:</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">port_range_start</span>: 50000</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">port_range_end</span>: 60000</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-flag">use_external_ip</span>: true</div>
-                      <div><span className="lp-terminal-flag">keys</span>:</div>
-                      <div>&nbsp;&nbsp;<span className="lp-terminal-cmd">myapikey</span>: <span className="lp-terminal-url">mysecretkey123456</span></div>
-                    </div>
-                  </div>
-                  <div className="lp-guide-tip">
-                    <span className="lp-guide-tip-icon">{"\uD83D\uDCA1"}</span>
-                    <span>{t("guide_s5_tip")}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Adım 6: mqvi'ye bağla */}
-              <div className="lp-guide-step">
-                <div className="lp-guide-step-num">6</div>
-                <div className="lp-guide-step-content">
-                  <h3 className="lp-guide-step-title">{t("guide_s6_title")}</h3>
-                  <p className="lp-guide-step-desc">{t("guide_s6_desc")}</p>
+                  )}
+                  <p className="lp-guide-step-desc" style={{ marginTop: 16 }}>
+                    {t("guide_auto_output")}
+                  </p>
                   <div className="lp-guide-fields">
                     <div className="lp-guide-field">
-                      <span className="lp-guide-field-label">LiveKit URL</span>
-                      <span className="lp-guide-field-val">wss://your-server.com:7880</span>
+                      <span className="lp-guide-field-label">URL</span>
+                      <span className="lp-guide-field-val">ws://203.0.113.10:7880</span>
                     </div>
                     <div className="lp-guide-field">
                       <span className="lp-guide-field-label">API Key</span>
-                      <span className="lp-guide-field-val">myapikey</span>
+                      <span className="lp-guide-field-val">LiveKitKeyf3a1b2c4</span>
                     </div>
                     <div className="lp-guide-field">
                       <span className="lp-guide-field-label">API Secret</span>
-                      <span className="lp-guide-field-val">mysecretkey123456</span>
+                      <span className="lp-guide-field-val">aBcDeFgHiJkLmNoPqRsTuVwXyZ012345</span>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Adım 3: mqvi'ye Bağla */}
+              <div className="lp-guide-step">
+                <div className="lp-guide-step-num">3</div>
+                <div className="lp-guide-step-content">
+                  <h3 className="lp-guide-step-title">{t("guide_connect_title")}</h3>
+                  <p className="lp-guide-step-desc">{t("guide_connect_desc")}</p>
                   <div className="lp-guide-tip">
                     <span className="lp-guide-tip-icon">{"\u2705"}</span>
-                    <span>{t("guide_s6_tip")}</span>
+                    <span>{t("guide_connect_tip")}</span>
                   </div>
                 </div>
               </div>
