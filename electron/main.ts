@@ -530,10 +530,146 @@ if (!gotTheLock) {
   });
 }
 
+// ─── Pre-Launch Update Check ───
+
+/**
+ * Uygulama penceresi açılmadan ÖNCE güncelleme kontrolü yapar.
+ * Discord/Slack modeli: eski client yeni API'ye bağlanmadan güncelleme al.
+ *
+ * Akış:
+ * 1. Küçük bir splash penceresi göster ("Güncellemeler kontrol ediliyor...")
+ * 2. GitHub Releases'ten yeni versiyon var mı kontrol et
+ * 3. Varsa → otomatik indir, kur, uygulamayı yeniden başlat
+ * 4. Yoksa veya hata olursa → splash kapat, normal uygulamayı aç
+ *
+ * Dev modda (app.isPackaged === false) skip edilir.
+ */
+let updateWindow: BrowserWindow | null = null;
+
+function createUpdateWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 380,
+    height: 180,
+    frame: false,
+    resizable: false,
+    center: true,
+    transparent: false,
+    alwaysOnTop: true,
+    icon: path.join(__dirname, "../icons/mqvi-icon.ico"),
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  // Minimal HTML — inline, dosya gerektirmez
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+          background: #1a1a2e; color: #e0e0e0;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          height: 100vh; user-select: none;
+          -webkit-app-region: drag;
+        }
+        .logo { font-size: 32px; font-weight: 800; color: #7c6cf0; margin-bottom: 16px; }
+        .status { font-size: 14px; color: #888; }
+        .progress-wrap {
+          width: 240px; height: 4px; background: #2a2a40;
+          border-radius: 2px; margin-top: 12px; overflow: hidden;
+        }
+        .progress-bar {
+          height: 100%; width: 0%; background: #7c6cf0;
+          border-radius: 2px; transition: width 0.3s ease;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="logo">mqvi</div>
+      <div class="status" id="status">Checking for updates...</div>
+      <div class="progress-wrap"><div class="progress-bar" id="bar"></div></div>
+      <script>
+        window.setStatus = (text) => document.getElementById('status').textContent = text;
+        window.setProgress = (pct) => document.getElementById('bar').style.width = pct + '%';
+      </script>
+    </body>
+    </html>
+  `)}`);
+
+  return win;
+}
+
+async function checkForUpdateBeforeLaunch(): Promise<boolean> {
+  // Dev modda update check yapma
+  const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+  if (isDev) return false;
+
+  updateWindow = createUpdateWindow();
+
+  try {
+    autoUpdater.autoDownload = false;
+
+    const result = await autoUpdater.checkForUpdates();
+    if (!result || !result.updateInfo || result.updateInfo.version === app.getVersion()) {
+      // Güncelleme yok — splash kapat, devam et
+      updateWindow.close();
+      updateWindow = null;
+      return false;
+    }
+
+    // Güncelleme var — progress göster ve indir
+    const newVersion = result.updateInfo.version;
+    updateWindow.webContents.executeJavaScript(
+      `window.setStatus('Downloading v${newVersion}...')`
+    );
+
+    autoUpdater.on("download-progress", (progress) => {
+      if (updateWindow && !updateWindow.isDestroyed()) {
+        updateWindow.webContents.executeJavaScript(
+          `window.setProgress(${Math.round(progress.percent)})`
+        );
+      }
+    });
+
+    autoUpdater.on("update-downloaded", () => {
+      if (updateWindow && !updateWindow.isDestroyed()) {
+        updateWindow.webContents.executeJavaScript(
+          `window.setStatus('Installing...'); window.setProgress(100)`
+        );
+      }
+      // Kısa bekleme sonra kur ve yeniden başlat
+      setTimeout(() => {
+        autoUpdater.quitAndInstall(false, true);
+      }, 1000);
+    });
+
+    await autoUpdater.downloadUpdate();
+    return true; // Güncelleme indiriliyor, uygulama yeniden başlayacak
+  } catch (err) {
+    // Güncelleme kontrolü başarısız — sessizce devam et
+    console.error("[updater] pre-launch check failed:", err);
+    if (updateWindow && !updateWindow.isDestroyed()) {
+      updateWindow.close();
+    }
+    updateWindow = null;
+    return false;
+  }
+}
+
 // ─── App Lifecycle ───
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setupPermissions();
+
+  // Pencere açılmadan önce güncelleme kontrolü
+  const updating = await checkForUpdateBeforeLaunch();
+  if (updating) return; // Güncelleme indiriliyor, quitAndInstall tetiklenecek
+
   setupIPC();
   setupAutoUpdater();
   createWindow();

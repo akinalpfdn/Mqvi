@@ -324,6 +324,27 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   transition: border-color 0.2s;
 }
 .lp-btn-secondary:hover { border-color: var(--lp-text-dim); }
+.lp-download-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 32px;
+  border-radius: 12px;
+  border: 1px solid var(--lp-accent);
+  background: transparent;
+  color: var(--lp-accent);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  text-decoration: none;
+  transition: background 0.2s, color 0.2s;
+  animation: lp-fadeUp 0.8s ease 0.5s both;
+}
+.lp-download-link:hover {
+  background: var(--lp-accent);
+  color: var(--lp-bg);
+}
+.lp-download-link svg { flex-shrink: 0; }
 .lp-hero-scroll {
   position: absolute;
   bottom: 40px;
