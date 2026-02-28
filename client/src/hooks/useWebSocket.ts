@@ -612,11 +612,19 @@ export function useWebSocket() {
       case "server_create":
         useServerStore.getState().handleServerCreate(msg.d as ServerListItem);
         break;
-      case "server_delete":
-        useServerStore.getState().handleServerDelete(
-          (msg.d as { id: string }).id
-        );
+      case "server_delete": {
+        const deletedId = (msg.d as { id: string }).id;
+
+        // Kick/ban veya sunucu silindiğinde voice'taydık ise anında çık.
+        // Backend zaten voiceService.DisconnectUser çağırdı (server-side state temiz),
+        // ama client'ın LiveKit room bağlantısını da koparması lazım.
+        if (useVoiceStore.getState().currentVoiceChannelId) {
+          useVoiceStore.getState().handleForceDisconnect();
+        }
+
+        useServerStore.getState().handleServerDelete(deletedId);
         break;
+      }
     }
   }
 

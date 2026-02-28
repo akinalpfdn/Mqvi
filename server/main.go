@@ -461,7 +461,7 @@ func main() {
 	categoryService := services.NewCategoryService(categoryRepo, hub)
 	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, mentionRepo, reactionRepo, hub, channelPermService)
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
-	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, serverRepo, hub)
+	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, serverRepo, hub, voiceService)
 	roleService := services.NewRoleService(roleRepo, userRepo, hub)
 
 	// ServerService — multi-server'ın kalbi: sunucu CRUD, üyelik, LiveKit instance yönetimi.

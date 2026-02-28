@@ -30,12 +30,21 @@ type MemberService interface {
 	IsBanned(ctx context.Context, serverID, userID string) (bool, error)
 }
 
+// VoiceDisconnecter — kick/ban sonrası kullanıcıyı ses kanalından atan minimal interface.
+//
+// Interface Segregation: memberService, voiceService'in tamamına değil sadece
+// DisconnectUser metoduna bağımlı olur. Böylece circular dependency riski yok.
+type VoiceDisconnecter interface {
+	DisconnectUser(userID string)
+}
+
 type memberService struct {
 	userRepo   repository.UserRepository
 	roleRepo   repository.RoleRepository
 	banRepo    repository.BanRepository
 	serverRepo repository.ServerRepository
 	hub        ws.EventPublisher
+	voiceKick  VoiceDisconnecter
 }
 
 func NewMemberService(
@@ -44,6 +53,7 @@ func NewMemberService(
 	banRepo repository.BanRepository,
 	serverRepo repository.ServerRepository,
 	hub ws.EventPublisher,
+	voiceKick VoiceDisconnecter,
 ) MemberService {
 	return &memberService{
 		userRepo:   userRepo,
@@ -51,6 +61,7 @@ func NewMemberService(
 		banRepo:    banRepo,
 		serverRepo: serverRepo,
 		hub:        hub,
+		voiceKick:  voiceKick,
 	}
 }
 
@@ -242,14 +253,7 @@ func (s *memberService) Kick(ctx context.Context, serverID, actorID, targetID st
 		return fmt.Errorf("failed to kick user: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
-		Op: ws.OpMemberLeave,
-		Data: map[string]string{
-			"server_id": serverID,
-			"user_id":   targetID,
-		},
-	})
-
+	s.removeFromServer(serverID, targetID)
 	return nil
 }
 
@@ -282,7 +286,25 @@ func (s *memberService) Ban(ctx context.Context, serverID, actorID, targetID, re
 	// Sunucudan çıkar
 	_ = s.serverRepo.RemoveMember(ctx, serverID, targetID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.removeFromServer(serverID, targetID)
+	return nil
+}
+
+// removeFromServer — Kick/Ban sonrası ortak temizlik: voice disconnect, WS broadcast, server ID kaldır.
+//
+// Sıra önemlidir:
+// 1. Voice disconnect — kullanıcı ses kanalındaysa anında düşsün
+// 2. member_leave → sunucudaki üyelere bildir (kullanıcı hâlâ serverIDs'de, broadcast alır)
+// 3. server_delete → atılan kullanıcıya "bu sunucudan çıkarıldın" bildir
+// 4. RemoveClientServerID → artık bu sunucudan event almayacak
+func (s *memberService) removeFromServer(serverID, targetID string) {
+	// 1. Ses kanalından düşür
+	if s.voiceKick != nil {
+		s.voiceKick.DisconnectUser(targetID)
+	}
+
+	// 2. Sunucu üyelerine: "bu kullanıcı ayrıldı"
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op: ws.OpMemberLeave,
 		Data: map[string]string{
 			"server_id": serverID,
@@ -290,7 +312,14 @@ func (s *memberService) Ban(ctx context.Context, serverID, actorID, targetID, re
 		},
 	})
 
-	return nil
+	// 3. Atılan kullanıcıya: "bu sunucu listenden silindi" (frontend server_delete handler'ı tetikler)
+	s.hub.BroadcastToUser(targetID, ws.Event{
+		Op:   ws.OpServerDelete,
+		Data: map[string]string{"id": serverID},
+	})
+
+	// 4. Artık bu sunucunun broadcast'lerini alma
+	s.hub.RemoveClientServerID(targetID, serverID)
 }
 
 func (s *memberService) Unban(ctx context.Context, serverID, userID string) error {
