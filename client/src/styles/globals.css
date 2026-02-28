@@ -709,6 +709,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .auth-title { font-family:var(--f-d);font-size:26px;font-weight:700;color:var(--t0);text-align:center;margin-bottom:8px; }
 .auth-subtitle { font-size:14px;color:var(--t2);text-align:center;margin-bottom:28px; }
 .auth-error { background:var(--red-s);border:1px solid var(--red);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--red); }
+.auth-email-warning { margin-top:6px;font-size:13px;color:var(--yellow);line-height:1.4; }
 .auth-label { display:block;font-size:13px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px; }
 .auth-input { width:100%;height:44px;background:var(--bg-3);border:1px solid var(--b1);border-radius:8px;padding:0 14px;color:var(--t0);font-size:14px;font-family:var(--f-ui);outline:none;transition:border-color .15s; }
 .auth-input:focus { border-color:var(--primary); }
@@ -756,6 +757,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .settings-btn-danger:hover { background:var(--red);color:#fff; }
 .settings-btn-secondary { background:var(--bg-4);color:var(--t1); }
 .settings-btn-secondary:hover { background:var(--bg-5);color:var(--t0); }
+.settings-btn-row { display:flex;gap:8px;margin-top:16px; }
+.settings-value { font-size:14px;color:var(--t0);margin:0;padding:8px 0; }
+.settings-hint { font-size:13px;color:var(--t2);margin-top:4px; }
+.settings-divider { height:1px;background:var(--b1);margin:24px 0; }
 
 /* Theme picker (AppearanceSettings) */
 .theme-section-desc { font-size:13px;color:var(--t2);margin-bottom:20px;line-height:1.5; }

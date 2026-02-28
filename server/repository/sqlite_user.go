@@ -31,8 +31,8 @@ func NewSQLiteUserRepo(db *sql.DB) UserRepository {
 
 func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 	query := `
-		INSERT INTO users (id, username, display_name, avatar_url, password_hash, status, language)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, username, display_name, avatar_url, password_hash, status, email, language)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	// QueryRowContext: tek bir satır dönen sorgu çalıştırır.
@@ -44,12 +44,16 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 		user.AvatarURL,
 		user.PasswordHash,
 		user.Status,
+		user.Email,
 		user.Language,
 	).Scan(&user.ID, &user.CreatedAt)
 
 	if err != nil {
-		// UNIQUE constraint violation → kullanıcı adı zaten var
+		// UNIQUE constraint violation → kullanıcı adı veya email zaten var
 		if isUniqueViolation(err) {
+			if containsString(err.Error(), "idx_users_email") {
+				return fmt.Errorf("%w: email already in use", pkg.ErrAlreadyExists)
+			}
 			return fmt.Errorf("%w: username already taken", pkg.ErrAlreadyExists)
 		}
 		return fmt.Errorf("failed to create user: %w", err)
@@ -60,13 +64,13 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 
 func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, language, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, created_at
 		FROM users WHERE id = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
-		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Language, &user.CreatedAt,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -81,13 +85,13 @@ func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, 
 
 func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, language, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, created_at
 		FROM users WHERE username = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
-		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Language, &user.CreatedAt,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -102,7 +106,7 @@ func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*m
 
 func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, language, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, created_at
 		FROM users ORDER BY username`
 
 	// QueryContext: birden fazla satır dönen sorgu.
@@ -118,7 +122,7 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 		var u models.User
 		if err := rows.Scan(
 			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
-			&u.PasswordHash, &u.Status, &u.CustomStatus, &u.Language, &u.CreatedAt,
+			&u.PasswordHash, &u.Status, &u.CustomStatus, &u.Email, &u.Language, &u.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan user row: %w", err)
 		}
@@ -194,6 +198,53 @@ func (r *sqliteUserRepo) UpdatePassword(ctx context.Context, userID string, newP
 	}
 
 	return nil
+}
+
+// UpdateEmail, kullanıcının email adresini günceller.
+// nil → email kaldır (NULL), *string → yeni email set et.
+func (r *sqliteUserRepo) UpdateEmail(ctx context.Context, userID string, email *string) error {
+	query := `UPDATE users SET email = ? WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, email, userID)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("%w: email already in use", pkg.ErrAlreadyExists)
+		}
+		return fmt.Errorf("failed to update email: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+
+	return nil
+}
+
+// GetByEmail, email adresine göre kullanıcı arar.
+// İleride "şifremi unuttum" akışı için kullanılacak.
+func (r *sqliteUserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
+	query := `
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, created_at
+		FROM users WHERE email = ?`
+
+	user := &models.User{}
+	err := r.db.QueryRowContext(ctx, query, email).Scan(
+		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.CreatedAt,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, pkg.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
+	}
+
+	return user, nil
 }
 
 func (r *sqliteUserRepo) Count(ctx context.Context) (int, error) {

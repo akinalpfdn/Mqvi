@@ -13,7 +13,12 @@
     "refreshTokenExpired": "Refresh token expired",
     "invalidToken": "Invalid token",
     "authRequired": "Authorization required",
-    "invalidAuthFormat": "Invalid authorization format, use: Bearer <token>"
+    "invalidAuthFormat": "Invalid authorization format, use: Bearer <token>",
+    "invalidEmail": "Invalid email format",
+    "emailAlreadyExists": "This email is already in use",
+    "emailUpdated": "Email updated successfully",
+    "emailRemoved": "Email removed successfully",
+    "noEmailToRemove": "No email to remove"
   },
   "user": {
     "notFound": "User not found"

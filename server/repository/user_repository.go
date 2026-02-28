@@ -36,6 +36,12 @@ type UserRepository interface {
 	// UpdatePassword, kullanıcının şifre hash'ini günceller.
 	// AuthService.ChangePassword tarafından çağrılır — yeni bcrypt hash alır.
 	UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error
+	// UpdateEmail, kullanıcının email adresini günceller.
+	// nil → email kaldır, *string → yeni email set et.
+	UpdateEmail(ctx context.Context, userID string, email *string) error
+	// GetByEmail, email adresine göre kullanıcı arar.
+	// İleride "şifremi unuttum" akışı için kullanılacak.
+	GetByEmail(ctx context.Context, email string) (*models.User, error)
 	Count(ctx context.Context) (int, error)
 	// Delete, kullanıcıyı siler (kick işlemi için).
 	// FK cascade ile user_roles, sessions vb. ilişkili kayıtlar da silinir.

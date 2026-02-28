@@ -42,6 +42,10 @@ type AuthService interface {
 	// ChangePassword, kullanıcının şifresini değiştirir.
 	// Mevcut şifreyi doğruladıktan sonra yeni hash oluşturur ve kaydeder.
 	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error
+	// ChangeEmail, kullanıcının email adresini değiştirir.
+	// Güvenlik gereği mevcut şifre doğrulaması yapılır.
+	// Boş string → email kaldır.
+	ChangeEmail(ctx context.Context, userID, password, newEmail string) error
 }
 
 // AuthTokens, login/register sonrası dönen token çifti.
@@ -155,9 +159,16 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		displayName = &req.DisplayName
 	}
 
+	// Email opsiyonel — boş string geldiyse nil olarak bırak (DB'de NULL)
+	var email *string
+	if req.Email != "" {
+		email = &req.Email
+	}
+
 	user := &models.User{
 		Username:     req.Username,
 		DisplayName:  displayName,
+		Email:        email,
 		PasswordHash: string(hash),
 		Status:       models.UserStatusOnline,
 	}
@@ -380,6 +391,51 @@ func (s *authService) ChangePassword(ctx context.Context, userID, currentPasswor
 
 	// DB'ye kaydet
 	return s.userRepo.UpdatePassword(ctx, userID, string(newHash))
+}
+
+// ChangeEmail, kullanıcının email adresini değiştirir.
+//
+// Akış:
+// 1. Kullanıcıyı DB'den getir (şifre doğrulama için)
+// 2. Mevcut şifreyi bcrypt ile doğrula
+// 3. Yeni email format doğrulaması (boş string → email kaldır)
+// 4. Aynı email ise hata dön
+// 5. DB'ye kaydet
+//
+// Güvenlik: Şifre doğrulaması zorunlu — çalınmış session ile email değiştirmeyi önler.
+func (s *authService) ChangeEmail(ctx context.Context, userID, password, newEmail string) error {
+	// Kullanıcıyı getir
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	// Şifre doğrula
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return fmt.Errorf("%w: password is incorrect", pkg.ErrUnauthorized)
+	}
+
+	// Boş string → email kaldır
+	if strings.TrimSpace(newEmail) == "" {
+		if user.Email == nil {
+			return fmt.Errorf("%w: no email to remove", pkg.ErrBadRequest)
+		}
+		return s.userRepo.UpdateEmail(ctx, userID, nil)
+	}
+
+	// Email format doğrula
+	newEmail = strings.TrimSpace(newEmail)
+	if !models.EmailRegex().MatchString(newEmail) {
+		return fmt.Errorf("%w: invalid email format", pkg.ErrBadRequest)
+	}
+
+	// Aynı email mi?
+	if user.Email != nil && *user.Email == newEmail {
+		return fmt.Errorf("%w: new email is the same as current email", pkg.ErrBadRequest)
+	}
+
+	// DB'ye kaydet — unique constraint ihlali olursa repository hata döner
+	return s.userRepo.UpdateEmail(ctx, userID, &newEmail)
 }
 
 // ─── Private Helpers ───

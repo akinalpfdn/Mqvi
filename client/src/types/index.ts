@@ -20,6 +20,7 @@ export type User = {
   avatar_url: string | null;
   status: UserStatus;
   custom_status: string | null;
+  email: string | null;
   language: string;
   created_at: string;
 };
@@ -450,6 +451,7 @@ export type RegisterRequest = {
   username: string;
   password: string;
   display_name?: string;
+  email?: string;
   invite_code?: string;
 };
 

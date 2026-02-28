@@ -11,10 +11,21 @@ package models
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 )
+
+// emailRegex — basit email format doğrulaması.
+// RFC 5322 tam uyum yerine pratik bir regex kullanıyoruz.
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+// EmailRegex, email validation regex'ini döner.
+// Service katmanı gibi dış paketlerin email doğrulaması yapabilmesi için export edilir.
+func EmailRegex() *regexp.Regexp {
+	return emailRegex
+}
 
 // UserStatus, kullanıcının çevrimiçi durumunu temsil eder.
 // Go'da "type alias" ile string'e özel bir tip veririz —
@@ -40,6 +51,7 @@ type User struct {
 	PasswordHash string     `json:"-"`             // json:"-" → API response'a DAHİL ETME (güvenlik!)
 	Status       UserStatus `json:"status"`
 	CustomStatus *string    `json:"custom_status"`
+	Email        *string    `json:"email"`    // Opsiyonel — şifremi unuttum için kullanılır
 	Language     string     `json:"language"` // Dil tercihi: "en", "tr"
 	CreatedAt    time.Time  `json:"created_at"`
 }
@@ -51,6 +63,7 @@ type CreateUserRequest struct {
 	Username    string `json:"username"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`       // Opsiyonel — boş string = email yok
 	InviteCode  string `json:"invite_code"`
 }
 
@@ -90,6 +103,12 @@ func (r *CreateUserRequest) Validate() error {
 		return fmt.Errorf("display name must be at most 32 characters")
 	}
 
+	// Email kontrolü (opsiyonel — boş string geçerli, ama doluysa format doğrulanır)
+	r.Email = strings.TrimSpace(r.Email)
+	if r.Email != "" && !emailRegex.MatchString(r.Email) {
+		return fmt.Errorf("invalid email format")
+	}
+
 	return nil
 }
 
@@ -116,6 +135,25 @@ type UpdateUserRequest struct {
 	DisplayName  *string `json:"display_name"`
 	CustomStatus *string `json:"custom_status"`
 	Language     *string `json:"language"`
+}
+
+// ChangeEmailRequest, email değiştirmek için frontend'den gelen veri.
+// Güvenlik gereği mevcut şifre zorunludur.
+type ChangeEmailRequest struct {
+	Password string `json:"password"`  // Mevcut şifre — doğrulama için
+	NewEmail string `json:"new_email"` // Boş string = email kaldır
+}
+
+// Validate, ChangeEmailRequest'in geçerli olup olmadığını kontrol eder.
+func (r *ChangeEmailRequest) Validate() error {
+	if r.Password == "" {
+		return fmt.Errorf("password is required")
+	}
+	r.NewEmail = strings.TrimSpace(r.NewEmail)
+	if r.NewEmail != "" && !emailRegex.MatchString(r.NewEmail) {
+		return fmt.Errorf("invalid email format")
+	}
+	return nil
 }
 
 // isValidUsernameChar, username'de izin verilen karakterleri kontrol eder.

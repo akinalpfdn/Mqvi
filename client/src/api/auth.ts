@@ -58,3 +58,14 @@ export async function changePassword(
     body: { current_password: currentPassword, new_password: newPassword },
   });
 }
+
+/** Email değiştirme/kaldırma — güvenlik gereği mevcut şifre doğrulaması gerekir */
+export async function changeEmail(password: string, newEmail: string) {
+  return apiClient<{ message: string; email: string | null }>(
+    "/users/me/email",
+    {
+      method: "PUT",
+      body: { password, new_email: newEmail },
+    },
+  );
+}

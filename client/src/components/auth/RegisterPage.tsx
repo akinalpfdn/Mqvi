@@ -23,6 +23,7 @@ function RegisterPage() {
 
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -47,7 +48,8 @@ function RegisterPage() {
       username,
       password,
       displayName || undefined,
-      inviteCode || undefined
+      email || undefined,
+      inviteCode || undefined,
     );
     if (success) {
       navigate("/channels");
@@ -110,6 +112,27 @@ function RegisterPage() {
               maxLength={32}
               className="auth-input"
             />
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="email" className="auth-label">
+              {t("emailOptional")}
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                handleInputChange();
+              }}
+              placeholder={t("emailPlaceholder")}
+              className="auth-input"
+            />
+            {/* Email boşsa uyarı göster — şifremi unuttum kullanılamaz */}
+            {!email.trim() && (
+              <p className="auth-email-warning">{t("emailWarning")}</p>
+            )}
           </div>
 
           <div className="auth-field">

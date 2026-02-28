@@ -169,6 +169,48 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "password changed"})
 }
 
+// ChangeEmail godoc
+// PUT /api/users/me/email
+// Auth middleware gerektirir — kullanıcı kendi email'ini değiştirir/kaldırır.
+//
+// Body: { "password": "...", "new_email": "..." }
+// Güvenlik: Mevcut şifre doğrulaması zorunlu.
+// new_email boş string → email kaldır (NULL).
+func (h *AuthHandler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	var req models.ChangeEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.authService.ChangeEmail(r.Context(), user.ID, req.Password, req.NewEmail); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	// Response'ta güncel email bilgisini dön
+	var emailResult *string
+	if req.NewEmail != "" {
+		emailResult = &req.NewEmail
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]any{
+		"message": "email updated",
+		"email":   emailResult,
+	})
+}
+
 // UserContextKey, context'te kullanıcı bilgisi taşımak için kullanılan key tipi.
 //
 // Go'da context.Value() any tip kabul eder — string key kullanmak çakışmaya neden olabilir.

@@ -13,7 +13,12 @@
     "refreshTokenExpired": "Refresh token süresi dolmuş",
     "invalidToken": "Geçersiz token",
     "authRequired": "Yetkilendirme gerekli",
-    "invalidAuthFormat": "Geçersiz yetkilendirme formatı, kullanım: Bearer <token>"
+    "invalidAuthFormat": "Geçersiz yetkilendirme formatı, kullanım: Bearer <token>",
+    "invalidEmail": "Geçersiz e-posta formatı",
+    "emailAlreadyExists": "Bu e-posta adresi zaten kullanılıyor",
+    "emailUpdated": "E-posta başarıyla güncellendi",
+    "emailRemoved": "E-posta başarıyla kaldırıldı",
+    "noEmailToRemove": "Kaldırılacak e-posta yok"
   },
   "user": {
     "notFound": "Kullanıcı bulunamadı"

@@ -470,6 +470,10 @@ func main() {
 	mux.Handle("POST /api/users/me/password", authMiddleware.Require(
 		http.HandlerFunc(authHandler.ChangePassword)))
 
+	// Email — kullanıcının kendi email'ini değiştirme/kaldırma endpoint'i
+	mux.Handle("PUT /api/users/me/email", authMiddleware.Require(
+		http.HandlerFunc(authHandler.ChangeEmail)))
+
 	// Avatar — kullanıcı avatar yükleme endpoint'i
 	// Ayrı bir handler çünkü multipart form parse ve resim validasyonu
 	// mevcut UploadService'den farklıdır (message attachment'a bağlı değil).
