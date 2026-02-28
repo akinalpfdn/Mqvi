@@ -611,6 +611,9 @@ func main() {
 	mux.Handle("POST /api/servers/{serverId}/leave", authServer(serverHandler.LeaveServer))
 	mux.Handle("POST /api/servers/{serverId}/icon", authServerPerm(models.PermAdmin, avatarHandler.UploadServerIcon))
 
+	// LiveKit — sunucunun LiveKit ayarları (URL + tip bilgisi, secret yok)
+	mux.Handle("GET /api/servers/{serverId}/livekit", authServerPerm(models.PermAdmin, serverHandler.GetLiveKitSettings))
+
 	// Channels — sunucu bazlı kanal yönetimi
 	mux.Handle("GET /api/servers/{serverId}/channels", authServer(channelHandler.List))
 	mux.Handle("POST /api/servers/{serverId}/channels", authServerPerm(models.PermManageChannels, channelHandler.Create))

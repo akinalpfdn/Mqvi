@@ -34,6 +34,10 @@ type LiveKitRepository interface {
 	// DecrementServerCount, bir instance'ın bağlı sunucu sayısını 1 azaltır.
 	DecrementServerCount(ctx context.Context, instanceID string) error
 
+	// Update, mevcut bir LiveKit instance'ın URL ve credential'larını günceller.
+	// Self-hosted sunucularda owner'ın bağlantı bilgilerini değiştirmesi için kullanılır.
+	Update(ctx context.Context, instance *models.LiveKitInstance) error
+
 	// Delete, bir LiveKit instance kaydını siler.
 	Delete(ctx context.Context, id string) error
 }

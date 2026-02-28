@@ -11,6 +11,7 @@
 //   PATCH  /api/servers/{serverId}   → sunucu güncelle (Admin perm required)
 //   DELETE /api/servers/{serverId}   → sunucu sil (owner only)
 //   POST   /api/servers/{serverId}/leave → sunucudan ayrıl
+//   GET    /api/servers/{serverId}/livekit → LiveKit ayarları (owner only)
 package handlers
 
 import (
@@ -198,4 +199,26 @@ func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "left server"})
+}
+
+// GetLiveKitSettings godoc
+// GET /api/servers/{serverId}/livekit
+//
+// Sunucunun LiveKit ayarlarını döner (URL + platform-managed mı).
+// Secret'lar dahil edilmez — sadece owner'ın ayarlar sayfasında görmesi için.
+// Admin yetkisi gerektirir (route middleware'de).
+func (h *ServerHandler) GetLiveKitSettings(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	settings, err := h.serverService.GetLiveKitSettings(r.Context(), serverID)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, settings)
 }

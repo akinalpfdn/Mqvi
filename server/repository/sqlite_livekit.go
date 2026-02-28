@@ -146,6 +146,27 @@ func (r *sqliteLiveKitRepo) DecrementServerCount(ctx context.Context, instanceID
 	return nil
 }
 
+func (r *sqliteLiveKitRepo) Update(ctx context.Context, instance *models.LiveKitInstance) error {
+	query := `UPDATE livekit_instances SET url = ?, api_key = ?, api_secret = ? WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query,
+		instance.URL, instance.APIKey, instance.APISecret, instance.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update livekit instance: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+
+	return nil
+}
+
 func (r *sqliteLiveKitRepo) Delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM livekit_instances WHERE id = ?`, id)
 	if err != nil {

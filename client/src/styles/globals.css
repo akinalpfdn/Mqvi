@@ -1249,37 +1249,6 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .dm-call-btn { width:30px;height:30px;border-radius:5px;border:none;background:transparent;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s,color .1s; }
 .dm-call-btn:hover { background:var(--bg-h);color:var(--t0); }
 
-/* ═══════════════════════════════════════════════════════
-   CONNECTION SETTINGS (Electron desktop — server URL config)
-   ═══════════════════════════════════════════════════════ */
-.conn-current { display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg-3);border-radius:8px;margin-bottom:20px;font-size:14px;color:var(--t1); }
-.conn-current-label { color:var(--t2);flex-shrink:0; }
-.conn-current-url { font-family:var(--f-m);color:var(--t0);word-break:break-all; }
-
-.conn-field { margin-bottom:16px; }
-.conn-label { display:block;font-size:14px;font-weight:600;color:var(--t0);margin-bottom:4px; }
-.conn-desc { font-size:13px;color:var(--t2);margin-bottom:8px;line-height:1.4; }
-.conn-input { width:100%;padding:10px 12px;background:var(--bg-1);border:1px solid var(--b1);border-radius:6px;color:var(--t0);font-size:14px;font-family:var(--f-m);outline:none;transition:border-color .15s; }
-.conn-input:focus { border-color:var(--accent); }
-.conn-input::placeholder { color:var(--t3); }
-
-.conn-actions { display:flex;gap:8px;flex-wrap:wrap;margin-top:16px; }
-.conn-btn { padding:8px 16px;border-radius:6px;border:none;font-size:14px;font-weight:500;cursor:pointer;transition:background .15s,opacity .15s; }
-.conn-btn:disabled { opacity:0.5;cursor:not-allowed; }
-.conn-btn-primary { background:var(--accent);color:#fff; }
-.conn-btn-primary:hover:not(:disabled) { filter:brightness(1.1); }
-.conn-btn-secondary { background:var(--bg-4);color:var(--t1); }
-.conn-btn-secondary:hover:not(:disabled) { background:var(--bg-5);color:var(--t0); }
-.conn-btn-danger { background:var(--red-s);color:var(--red); }
-.conn-btn-danger:hover:not(:disabled) { background:var(--red);color:#fff; }
-
-.conn-result { margin-top:12px;padding:10px 14px;border-radius:6px;font-size:13px;line-height:1.4; }
-.conn-result-success { background:var(--green-s);color:var(--green); }
-.conn-result-error { background:var(--red-s);color:var(--red); }
-.conn-result-testing { background:var(--bg-3);color:var(--t2); }
-
-.conn-restart-warning { margin-top:16px;padding:10px 14px;background:var(--yellow-s);color:var(--yellow);border-radius:6px;font-size:13px;line-height:1.4; }
-
 /* ═══════════════════════════════════════
    SCREEN PICKER MODAL (Electron)
    ═══════════════════════════════════════ */

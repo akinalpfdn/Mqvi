@@ -10,6 +10,7 @@
  * - DELETE /api/servers/{serverId}          → Sunucu sil [Owner]
  * - POST   /api/servers/{serverId}/leave    → Sunucudan ayrıl
  * - POST   /api/servers/{serverId}/icon     → Sunucu ikonu yükle [Admin]
+ * - GET    /api/servers/{serverId}/livekit  → LiveKit ayarları [Admin]
  */
 
 import { apiClient } from "./client";
@@ -45,10 +46,16 @@ export async function getServer(serverId: string) {
   return apiClient<Server>(`/servers/${serverId}`);
 }
 
-/** Sunucu bilgisini günceller (isim, invite_required) */
+/** Sunucu bilgisini günceller (isim, invite_required, livekit credentials) */
 export async function updateServer(
   serverId: string,
-  data: { name?: string; invite_required?: boolean }
+  data: {
+    name?: string;
+    invite_required?: boolean;
+    livekit_url?: string;
+    livekit_key?: string;
+    livekit_secret?: string;
+  }
 ) {
   return apiClient<Server>(`/servers/${serverId}`, {
     method: "PATCH",
@@ -68,6 +75,13 @@ export async function leaveServer(serverId: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/leave`, {
     method: "POST",
   });
+}
+
+/** LiveKit ayarlarını getirir (URL + tip bilgisi, secret yok) */
+export async function getLiveKitSettings(serverId: string) {
+  return apiClient<{ url: string; is_platform_managed: boolean }>(
+    `/servers/${serverId}/livekit`
+  );
 }
 
 /** Sunucu ikonu yükler — multipart/form-data */

@@ -20,7 +20,6 @@ import InviteSettings from "./InviteSettings";
 import VoiceSettings from "./VoiceSettings";
 import ChannelSettings from "./ChannelSettings";
 import MembersSettings from "./MembersSettings";
-import ConnectionSettings from "./ConnectionSettings";
 import SecuritySettings from "./SecuritySettings";
 
 function SettingsModal() {
@@ -110,9 +109,6 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "security":
       return <SecuritySettings />;
-
-    case "connection":
-      return <ConnectionSettings />;
 
     default:
       return null;

@@ -55,8 +55,7 @@ type SettingsTab =
   | "channels"
   | "roles"
   | "members"
-  | "invites"
-  | "connection";
+  | "invites";
 
 type SettingsState = {
   /** Modal açık mı? */

@@ -12,7 +12,6 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import { isElectron } from "../../utils/constants";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import type { SettingsTab } from "../../stores/settingsStore";
 
@@ -86,20 +85,6 @@ function SettingsNav() {
               {t(item.labelKey)}
             </button>
           ))}
-        </>
-      )}
-
-      {/* Connection (Electron desktop only) */}
-      {isElectron() && (
-        <>
-          {!isMobile && <div className="settings-nav-divider" />}
-          <h3 className="settings-nav-label">{t("connection")}</h3>
-          <button
-            className={`settings-nav-item${activeTab === "connection" ? " active" : ""}`}
-            onClick={() => setActiveTab("connection")}
-          >
-            {t("connection")}
-          </button>
         </>
       )}
 

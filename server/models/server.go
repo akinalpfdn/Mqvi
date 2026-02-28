@@ -81,6 +81,15 @@ func (r *CreateServerRequest) Validate() error {
 type UpdateServerRequest struct {
 	Name           *string `json:"name"`
 	InviteRequired *bool   `json:"invite_required"`
+	// LiveKit credential güncelleme (sadece self-hosted sunucular için)
+	LiveKitURL    *string `json:"livekit_url,omitempty"`
+	LiveKitKey    *string `json:"livekit_key,omitempty"`
+	LiveKitSecret *string `json:"livekit_secret,omitempty"`
+}
+
+// HasLiveKitUpdate, LiveKit credential değişikliği olup olmadığını kontrol eder.
+func (r *UpdateServerRequest) HasLiveKitUpdate() bool {
+	return r.LiveKitURL != nil || r.LiveKitKey != nil || r.LiveKitSecret != nil
 }
 
 // Validate, UpdateServerRequest kontrolü.
@@ -89,6 +98,18 @@ func (r *UpdateServerRequest) Validate() error {
 		nameLen := utf8.RuneCountInString(*r.Name)
 		if nameLen < 1 || nameLen > 100 {
 			return fmt.Errorf("server name must be between 1 and 100 characters")
+		}
+	}
+	// LiveKit güncellemesi varsa 3 alanın hepsi zorunlu
+	if r.HasLiveKitUpdate() {
+		if r.LiveKitURL == nil || strings.TrimSpace(*r.LiveKitURL) == "" {
+			return fmt.Errorf("livekit_url is required when updating LiveKit settings")
+		}
+		if r.LiveKitKey == nil || strings.TrimSpace(*r.LiveKitKey) == "" {
+			return fmt.Errorf("livekit_key is required when updating LiveKit settings")
+		}
+		if r.LiveKitSecret == nil || strings.TrimSpace(*r.LiveKitSecret) == "" {
+			return fmt.Errorf("livekit_secret is required when updating LiveKit settings")
 		}
 	}
 	return nil

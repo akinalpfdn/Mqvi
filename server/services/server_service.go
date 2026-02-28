@@ -17,6 +17,13 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
+// LiveKitSettings, sunucu ayarlarında göstermek için LiveKit bilgileri.
+// Secret'lar asla client'a gönderilmez — sadece URL ve tip bilgisi.
+type LiveKitSettings struct {
+	URL               string `json:"url"`
+	IsPlatformManaged bool   `json:"is_platform_managed"`
+}
+
 // ServerService, çoklu sunucu yönetimi iş mantığı interface'i.
 type ServerService interface {
 	// CreateServer, yeni bir sunucu oluşturur.
@@ -29,7 +36,7 @@ type ServerService interface {
 	// GetUserServers, kullanıcının üye olduğu sunucuların listesini döner.
 	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
 
-	// UpdateServer, sunucu bilgisini günceller (isim, invite_required).
+	// UpdateServer, sunucu bilgisini günceller (isim, invite_required, livekit credentials).
 	UpdateServer(ctx context.Context, serverID string, req *models.UpdateServerRequest) (*models.Server, error)
 
 	// UpdateIcon, sunucu ikonunu günceller.
@@ -43,6 +50,10 @@ type ServerService interface {
 
 	// LeaveServer, sunucudan ayrılır. Owner ayrılamaz.
 	LeaveServer(ctx context.Context, serverID, userID string) error
+
+	// GetLiveKitSettings, sunucunun LiveKit ayarlarını döner (URL + tip).
+	// Secret'lar dahil edilmez — sadece owner'ın ayarlar sayfasında görmesi için.
+	GetLiveKitSettings(ctx context.Context, serverID string) (*LiveKitSettings, error)
 }
 
 type serverService struct {
@@ -286,7 +297,7 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 		return nil, err
 	}
 
-	// Partial update
+	// Partial update — sunucu genel bilgileri
 	if req.Name != nil {
 		server.Name = *req.Name
 	}
@@ -296,6 +307,44 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 
 	if err := s.serverRepo.Update(ctx, server); err != nil {
 		return nil, fmt.Errorf("failed to update server: %w", err)
+	}
+
+	// ─── LiveKit credential güncelleme ───
+	// Sadece self-hosted sunucularda kullanılır.
+	// 3 alanın tamamı zorunlu (Validate zaten kontrol ediyor).
+	if req.HasLiveKitUpdate() {
+		if server.LiveKitInstanceID == nil {
+			return nil, fmt.Errorf("%w: this server has no LiveKit instance", pkg.ErrBadRequest)
+		}
+
+		// Mevcut instance'ı kontrol et — platform-managed değiştirilemez
+		instance, err := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get livekit instance: %w", err)
+		}
+		if instance.IsPlatformManaged {
+			return nil, fmt.Errorf("%w: cannot modify platform-managed LiveKit instance", pkg.ErrForbidden)
+		}
+
+		// Yeni credential'ları şifrele
+		encKey, err := crypto.Encrypt(*req.LiveKitKey, s.encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt livekit key: %w", err)
+		}
+		encSecret, err := crypto.Encrypt(*req.LiveKitSecret, s.encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt livekit secret: %w", err)
+		}
+
+		instance.URL = *req.LiveKitURL
+		instance.APIKey = encKey
+		instance.APISecret = encSecret
+
+		if err := s.livekitRepo.Update(ctx, instance); err != nil {
+			return nil, fmt.Errorf("failed to update livekit instance: %w", err)
+		}
+
+		log.Printf("[server] livekit credentials updated for server %s", serverID)
 	}
 
 	// Sunucu üyelerine broadcast
@@ -480,4 +529,27 @@ func (s *serverService) LeaveServer(ctx context.Context, serverID, userID string
 
 	log.Printf("[server] user %s left server %s", userID, serverID)
 	return nil
+}
+
+// GetLiveKitSettings, sunucuya bağlı LiveKit instance'ın URL ve tip bilgisini döner.
+// Secret'lar dahil edilmez — sadece ayarlar sayfasında göstermek için.
+func (s *serverService) GetLiveKitSettings(ctx context.Context, serverID string) (*LiveKitSettings, error) {
+	server, err := s.serverRepo.GetByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+
+	if server.LiveKitInstanceID == nil {
+		return nil, fmt.Errorf("%w: this server has no LiveKit instance", pkg.ErrNotFound)
+	}
+
+	instance, err := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get livekit instance: %w", err)
+	}
+
+	return &LiveKitSettings{
+		URL:               instance.URL,
+		IsPlatformManaged: instance.IsPlatformManaged,
+	}, nil
 }
