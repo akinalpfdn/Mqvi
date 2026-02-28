@@ -8,13 +8,15 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
-import * as serverApi from "../../api/server";
+import { useServerStore } from "../../stores/serverStore";
+import * as serverApi from "../../api/servers";
 import AvatarUpload from "./AvatarUpload";
 import type { Server } from "../../types";
 
 function ServerGeneralSettings() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const activeServerId = useServerStore((s) => s.activeServerId);
 
   const [server, setServer] = useState<Server | null>(null);
   const [editName, setEditName] = useState("");
@@ -24,7 +26,8 @@ function ServerGeneralSettings() {
 
   useEffect(() => {
     async function fetchServer() {
-      const res = await serverApi.getServer();
+      if (!activeServerId) return;
+      const res = await serverApi.getServer(activeServerId);
       if (res.success && res.data) {
         setServer(res.data);
         setEditName(res.data.name);
@@ -33,7 +36,7 @@ function ServerGeneralSettings() {
       setIsLoaded(true);
     }
     fetchServer();
-  }, []);
+  }, [activeServerId]);
 
   const hasChanges =
     server !== null &&
@@ -45,7 +48,8 @@ function ServerGeneralSettings() {
 
     setIsSaving(true);
     try {
-      const res = await serverApi.updateServer({
+      if (!activeServerId) return;
+      const res = await serverApi.updateServer(activeServerId, {
         name: editName,
         invite_required: editInviteRequired,
       });
@@ -64,8 +68,9 @@ function ServerGeneralSettings() {
   }
 
   async function handleIconUpload(file: File) {
+    if (!activeServerId) return;
     try {
-      const res = await serverApi.uploadServerIcon(file);
+      const res = await serverApi.uploadServerIcon(activeServerId, file);
       if (res.success && res.data) {
         setServer(res.data);
         addToast("success", t("serverSaved"));
@@ -136,7 +141,7 @@ function ServerGeneralSettings() {
           >
             {t("inviteRequired")}
           </label>
-          <p style={{ fontSize: 11, color: "var(--t2)", marginTop: 2 }}>
+          <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 2 }}>
             {t("inviteRequiredDesc")}
           </p>
         </div>

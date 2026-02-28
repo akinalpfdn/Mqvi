@@ -21,12 +21,12 @@ func NewSQLiteBanRepo(db *sql.DB) BanRepository {
 
 func (r *sqliteBanRepo) Create(ctx context.Context, ban *models.Ban) error {
 	query := `
-		INSERT INTO bans (user_id, username, reason, banned_by)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO bans (server_id, user_id, username, reason, banned_by)
+		VALUES (?, ?, ?, ?, ?)
 		RETURNING created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
-		ban.UserID, ban.Username, ban.Reason, ban.BannedBy,
+		ban.ServerID, ban.UserID, ban.Username, ban.Reason, ban.BannedBy,
 	).Scan(&ban.CreatedAt)
 
 	if err != nil {
@@ -36,12 +36,14 @@ func (r *sqliteBanRepo) Create(ctx context.Context, ban *models.Ban) error {
 	return nil
 }
 
-func (r *sqliteBanRepo) GetByUserID(ctx context.Context, userID string) (*models.Ban, error) {
-	query := `SELECT user_id, username, reason, banned_by, created_at FROM bans WHERE user_id = ?`
+func (r *sqliteBanRepo) GetByUserID(ctx context.Context, serverID, userID string) (*models.Ban, error) {
+	query := `
+		SELECT server_id, user_id, username, reason, banned_by, created_at
+		FROM bans WHERE server_id = ? AND user_id = ?`
 
 	ban := &models.Ban{}
-	err := r.db.QueryRowContext(ctx, query, userID).Scan(
-		&ban.UserID, &ban.Username, &ban.Reason, &ban.BannedBy, &ban.CreatedAt,
+	err := r.db.QueryRowContext(ctx, query, serverID, userID).Scan(
+		&ban.ServerID, &ban.UserID, &ban.Username, &ban.Reason, &ban.BannedBy, &ban.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -54,12 +56,14 @@ func (r *sqliteBanRepo) GetByUserID(ctx context.Context, userID string) (*models
 	return ban, nil
 }
 
-func (r *sqliteBanRepo) GetAll(ctx context.Context) ([]models.Ban, error) {
-	query := `SELECT user_id, username, reason, banned_by, created_at FROM bans ORDER BY created_at DESC`
+func (r *sqliteBanRepo) GetAllByServer(ctx context.Context, serverID string) ([]models.Ban, error) {
+	query := `
+		SELECT server_id, user_id, username, reason, banned_by, created_at
+		FROM bans WHERE server_id = ? ORDER BY created_at DESC`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, serverID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get all bans: %w", err)
+		return nil, fmt.Errorf("failed to get bans by server: %w", err)
 	}
 	defer rows.Close()
 
@@ -67,7 +71,7 @@ func (r *sqliteBanRepo) GetAll(ctx context.Context) ([]models.Ban, error) {
 	for rows.Next() {
 		var ban models.Ban
 		if err := rows.Scan(
-			&ban.UserID, &ban.Username, &ban.Reason, &ban.BannedBy, &ban.CreatedAt,
+			&ban.ServerID, &ban.UserID, &ban.Username, &ban.Reason, &ban.BannedBy, &ban.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan ban row: %w", err)
 		}
@@ -81,10 +85,10 @@ func (r *sqliteBanRepo) GetAll(ctx context.Context) ([]models.Ban, error) {
 	return bans, nil
 }
 
-func (r *sqliteBanRepo) Delete(ctx context.Context, userID string) error {
-	query := `DELETE FROM bans WHERE user_id = ?`
+func (r *sqliteBanRepo) Delete(ctx context.Context, serverID, userID string) error {
+	query := `DELETE FROM bans WHERE server_id = ? AND user_id = ?`
 
-	result, err := r.db.ExecContext(ctx, query, userID)
+	result, err := r.db.ExecContext(ctx, query, serverID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete ban: %w", err)
 	}
@@ -100,11 +104,11 @@ func (r *sqliteBanRepo) Delete(ctx context.Context, userID string) error {
 	return nil
 }
 
-func (r *sqliteBanRepo) Exists(ctx context.Context, userID string) (bool, error) {
-	query := `SELECT 1 FROM bans WHERE user_id = ? LIMIT 1`
+func (r *sqliteBanRepo) Exists(ctx context.Context, serverID, userID string) (bool, error) {
+	query := `SELECT 1 FROM bans WHERE server_id = ? AND user_id = ? LIMIT 1`
 
 	var dummy int
-	err := r.db.QueryRowContext(ctx, query, userID).Scan(&dummy)
+	err := r.db.QueryRowContext(ctx, query, serverID, userID).Scan(&dummy)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil

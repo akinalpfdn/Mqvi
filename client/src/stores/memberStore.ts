@@ -6,18 +6,17 @@
  * - Online kullanıcı ID'lerini Set olarak tutar (hızlı lookup)
  * - WebSocket event'leri ile gerçek zamanlı güncellenir
  *
+ * Multi-server: fetchMembers activeServerId'ye göre server-scoped API çağrısı yapar.
+ *
  * Online tracking neden Set?
  * Array'de includes() O(n), Set'te has() O(1).
  * Üye listesi sürekli render edildiğinden, her member için
  * "bu kullanıcı online mı?" sorusunun hızlı cevaplanması gerekir.
- *
- * WS Event → Store entegrasyonu:
- * useWebSocket hook'u gelen event'e göre bu store'un handler'larını çağırır.
- * Handler'lar immutable update yapar (Zustand → React rerender tetikler).
  */
 
 import { create } from "zustand";
 import * as memberApi from "../api/members";
+import { useServerStore } from "./serverStore";
 import type { MemberWithRoles, UserStatus, Role } from "../types";
 
 type MemberState = {
@@ -59,6 +58,9 @@ type MemberState = {
 
   /** "roles_reorder" — rol sıralaması güncellendi */
   handleRolesReorder: (roles: Role[]) => void;
+
+  /** Server değiştirildiğinde store'u temizler */
+  clearForServerSwitch: () => void;
 };
 
 export const useMemberStore = create<MemberState>((set) => ({
@@ -67,17 +69,19 @@ export const useMemberStore = create<MemberState>((set) => ({
   isLoading: false,
 
   /**
-   * fetchMembers — Backend'den tüm üyeleri çeker.
-   * "ready" event'i geldiğinde ve component mount olduğunda çağrılır.
+   * fetchMembers — Backend'den aktif sunucunun üyelerini çeker.
+   *
+   * Multi-server: serverStore'dan activeServerId alır ve
+   * GET /api/servers/{serverId}/members çağırır.
    */
   fetchMembers: async () => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+
     set({ isLoading: true });
 
-    const res = await memberApi.getMembers();
+    const res = await memberApi.getMembers(serverId);
     if (res.data) {
-      // API'den gelen member.status bilgisine göre onlineUserIds Set'ini yeniden oluştur.
-      // Ready event'ten gelen Set eksik olabilir (race condition) — API veritabanından
-      // güncel status bilgisini döner, bu yüzden en güvenilir kaynaktır.
       const freshOnlineIds = new Set<string>(
         res.data
           .filter((m) => m.status !== "offline")
@@ -99,7 +103,6 @@ export const useMemberStore = create<MemberState>((set) => ({
 
   handlePresenceUpdate: (userId, status) => {
     set((state) => {
-      // Online set'i güncelle
       const newSet = new Set(state.onlineUserIds);
       if (status === "offline") {
         newSet.delete(userId);
@@ -107,7 +110,6 @@ export const useMemberStore = create<MemberState>((set) => ({
         newSet.add(userId);
       }
 
-      // Members dizisindeki status'u da güncelle
       const members = state.members.map((m) =>
         m.id === userId ? { ...m, status } : m
       );
@@ -118,7 +120,6 @@ export const useMemberStore = create<MemberState>((set) => ({
 
   handleMemberJoin: (member) => {
     set((state) => {
-      // Duplicate kontrolü
       if (state.members.some((m) => m.id === member.id)) return state;
       return { members: [...state.members, member] };
     });
@@ -144,21 +145,10 @@ export const useMemberStore = create<MemberState>((set) => ({
   },
 
   handleRoleCreate: (_role) => {
-    // Yeni rol oluşturulduğunda üye listesini yenilemek gerekmez —
-    // roller üyelerin roles[] dizisinde taşınır.
-    // Bu event roleStore tarafından handle edilir (Faz 3G).
-    // Burada sadece placeholder, ileride roleStore'a aktarılacak.
+    // roleStore handle eder
   },
 
   handleRoleUpdate: (role) => {
-    // Bir rol güncellendiğinde, o role sahip tüm üyelerin görünümü değişir
-    // (renk, isim, permission). Members dizisindeki role referanslarını güncelle
-    // ve effective_permissions'ı yeniden hesapla.
-    //
-    // effective_permissions = tüm rollerin permissions'ının bitwise OR'u.
-    // Backend'deki ToMemberWithRoles ile aynı algoritma — frontend'de de
-    // hesaplanması gerekir ki role_update geldiğinde permission-gated UI
-    // (MessageInput, VoiceService, MemberItem) anında güncellensin.
     set((state) => ({
       members: state.members.map((m) => {
         const updatedRoles = m.roles.map((r) => (r.id === role.id ? role : r));
@@ -172,7 +162,6 @@ export const useMemberStore = create<MemberState>((set) => ({
   },
 
   handleRoleDelete: (roleId) => {
-    // Silinen rolü tüm üyelerden çıkar ve effective_permissions'ı yeniden hesapla.
     set((state) => ({
       members: state.members.map((m) => {
         const filteredRoles = m.roles.filter((r) => r.id !== roleId);
@@ -186,8 +175,6 @@ export const useMemberStore = create<MemberState>((set) => ({
   },
 
   handleRolesReorder: (roles) => {
-    // Rol sıralaması değiştiğinde, üyelerin roles[] dizisindeki rolleri güncelle.
-    // Position değişir ama permissions değişmez → effective_permissions aynı kalır.
     const roleMap = new Map(roles.map((r) => [r.id, r]));
     set((state) => ({
       members: state.members.map((m) => ({
@@ -195,5 +182,9 @@ export const useMemberStore = create<MemberState>((set) => ({
         roles: m.roles.map((r) => roleMap.get(r.id) ?? r),
       })),
     }));
+  },
+
+  clearForServerSwitch: () => {
+    set({ members: [], isLoading: false });
   },
 }));

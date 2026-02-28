@@ -17,11 +17,12 @@ import (
 // Config, uygulamanın tüm konfigürasyon değerlerini taşır.
 // Her alt bölüm ayrı bir struct — Single Responsibility: her struct tek bir concern'ü temsil eder.
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	JWT      JWTConfig
-	LiveKit  LiveKitConfig
-	Upload   UploadConfig
+	Server        ServerConfig
+	Database      DatabaseConfig
+	JWT           JWTConfig
+	LiveKit       LiveKitConfig
+	Upload        UploadConfig
+	EncryptionKey string // AES-256 key (64 hex char = 32 byte) — LiveKit credential şifreleme
 }
 
 // ServerConfig, HTTP server ayarları.
@@ -91,6 +92,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET environment variable is required")
 	}
 
+	encKey := getEnv("ENCRYPTION_KEY", "")
+	if encKey == "" {
+		return nil, fmt.Errorf("ENCRYPTION_KEY environment variable is required (64 hex chars = 32 byte AES-256 key)")
+	}
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Host: getEnv("SERVER_HOST", "0.0.0.0"),
@@ -113,6 +119,7 @@ func Load() (*Config, error) {
 			Dir:     getEnv("UPLOAD_DIR", "./data/uploads"),
 			MaxSize: maxSize,
 		},
+		EncryptionKey: encKey,
 	}
 
 	return cfg, nil

@@ -20,9 +20,15 @@ func NewCategoryHandler(categoryService services.CategoryService) *CategoryHandl
 }
 
 // List godoc
-// GET /api/categories
+// GET /api/servers/{serverId}/categories
 func (h *CategoryHandler) List(w http.ResponseWriter, r *http.Request) {
-	categories, err := h.categoryService.GetAll(r.Context())
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	categories, err := h.categoryService.GetAllByServer(r.Context(), serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -32,15 +38,21 @@ func (h *CategoryHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Create godoc
-// POST /api/categories
+// POST /api/servers/{serverId}/categories
 func (h *CategoryHandler) Create(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
 	var req models.CreateCategoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	category, err := h.categoryService.Create(r.Context(), &req)
+	category, err := h.categoryService.Create(r.Context(), serverID, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -50,7 +62,7 @@ func (h *CategoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // Update godoc
-// PATCH /api/categories/{id}
+// PATCH /api/servers/{serverId}/categories/{id}
 func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -70,7 +82,7 @@ func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete godoc
-// DELETE /api/categories/{id}
+// DELETE /api/servers/{serverId}/categories/{id}
 func (h *CategoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 

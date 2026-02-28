@@ -73,7 +73,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const categories = useChannelStore((s) => s.categories);
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const selectChannel = useChannelStore((s) => s.selectChannel);
-  const server = useServerStore((s) => s.server);
+  const server = useServerStore((s) => s.activeServer);
 
   const openTab = useUIStore((s) => s.openTab);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
@@ -148,8 +148,10 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
     const type = inferChannelType(createTarget);
 
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
     setIsCreating(true);
-    const res = await channelApi.createChannel({
+    const res = await channelApi.createChannel(serverId, {
       name: trimmed,
       type,
       category_id: createTarget,

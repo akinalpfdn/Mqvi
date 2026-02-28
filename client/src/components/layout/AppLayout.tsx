@@ -1,11 +1,13 @@
 /**
  * AppLayout — Sidebar-based ana layout.
  *
- * Desktop:
- * ┌─────────┬──────────────────────┬─────────┐
- * │ Sidebar │ SplitPaneContainer   │ Members │
- * │ (240px) │ (flex-1, recursive)  │ (240px) │
- * └─────────┴──────────────────────┴─────────┘
+ * Desktop (multi-server):
+ * ┌────┬─────────┬──────────────────────┬─────────┐
+ * │ SL │ Sidebar │ SplitPaneContainer   │ Members │
+ * │56px│ (240px) │ (flex-1, recursive)  │ (240px) │
+ * └────┴─────────┴──────────────────────┴─────────┘
+ *
+ * SL = ServerListSidebar — dikey sunucu ikonu listesi
  *
  * Mobil (768px altı): MobileAppLayout render edilir →
  * Drawer sidebar + drawer members + MobileHeader + tek panel.
@@ -16,15 +18,19 @@
  * useVoice hook'u burada çağrılır — voice join/leave/mute/deafen
  * orkestrasyon fonksiyonları Sidebar/UserBar'a prop olarak geçilir.
  *
+ * Cascade refetch: Server değiştiğinde channelStore, memberStore,
+ * roleStore, readStateStore temizlenip yeniden fetch edilir.
+ *
  * CSS: .mqvi-app, .mqvi-app.mobile, .app-body, .main-area
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useCallback } from "react";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import SplitPaneContainer from "./SplitPaneContainer";
 import MobileAppLayout from "./MobileAppLayout";
 import MemberList from "./MemberList";
 import Sidebar from "./Sidebar";
+import ServerListSidebar from "./ServerListSidebar";
 import ToastContainer from "../shared/ToastContainer";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import SettingsModal from "../settings/SettingsModal";
@@ -40,6 +46,7 @@ import ScreenPicker from "../voice/ScreenPicker";
 import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
+import { useRoleStore } from "../../stores/roleStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useMessageStore } from "../../stores/messageStore";
@@ -55,9 +62,13 @@ function AppLayout() {
 
   // Electron taskbar badge — okunmamış mesaj sayısını taskbar ikonunda gösterir
   useNotificationBadge();
-  const fetchServer = useServerStore((s) => s.fetchServer);
+
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const fetchActiveServer = useServerStore((s) => s.fetchActiveServer);
   const fetchChannels = useChannelStore((s) => s.fetchChannels);
   const fetchMembers = useMemberStore((s) => s.fetchMembers);
+  const fetchRoles = useRoleStore((s) => s.fetchRoles);
+  const fetchUnreadCounts = useReadStateStore((s) => s.fetchUnreadCounts);
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   const categories = useChannelStore((s) => s.categories);
   const layout = useUIStore((s) => s.layout);
@@ -66,15 +77,42 @@ function AppLayout() {
   /**
    * autoOpenedRef — İlk kanal seçildiğinde otomatik tab açılmasını
    * tek seferlik yapar. Birden fazla çağrıyı engeller.
+   * Server değiştiğinde sıfırlanır.
    */
   const autoOpenedRef = useRef(false);
 
-  // Sunucu, kanal ve üye bilgilerini uygulama başlatıldığında çek
-  useEffect(() => {
-    fetchServer();
+  /**
+   * cascadeRefetch — Server değiştiğinde tüm server-scoped store'ları
+   * temizleyip yeniden fetch eder.
+   *
+   * ServerListSidebar'dan onServerChange callback'i olarak çağrılır.
+   * Ayrıca ilk mount'ta aktif sunucu varsa çalışır.
+   */
+  const cascadeRefetch = useCallback(() => {
+    // Mevcut store verileri temizle (server-scoped olanlar)
+    useChannelStore.getState().clearForServerSwitch();
+    useMemberStore.getState().clearForServerSwitch();
+    useRoleStore.getState().clearForServerSwitch();
+    useReadStateStore.getState().clearForServerSwitch();
+
+    // Tab auto-open flag'ini sıfırla — yeni sunucuda ilk kanalı açması lazım
+    autoOpenedRef.current = false;
+
+    // Yeni sunucu verilerini fetch et
+    fetchActiveServer();
     fetchChannels();
     fetchMembers();
-  }, [fetchServer, fetchChannels, fetchMembers]);
+    fetchRoles();
+    fetchUnreadCounts();
+  }, [fetchActiveServer, fetchChannels, fetchMembers, fetchRoles, fetchUnreadCounts]);
+
+  // İlk mount'ta aktif sunucu varsa verilerini çek
+  useEffect(() => {
+    if (activeServerId) {
+      cascadeRefetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Kanallar yüklendikten sonra ilk text kanalını otomatik tab olarak aç.
@@ -240,6 +278,9 @@ function AppLayout() {
   // ─── Desktop layout ───
   return (
     <div className="mqvi-app">
+      {/* Server list sidebar — dikey sunucu ikonu listesi (en sol) */}
+      <ServerListSidebar onServerChange={cascadeRefetch} />
+
       {/* Sol sidebar — kanal ağacı + voice kontrolleri */}
       <Sidebar {...sidebarProps} />
 

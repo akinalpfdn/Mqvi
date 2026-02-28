@@ -22,11 +22,12 @@ func NewSQLiteCategoryRepo(db *sql.DB) CategoryRepository {
 
 func (r *sqliteCategoryRepo) Create(ctx context.Context, category *models.Category) error {
 	query := `
-		INSERT INTO categories (id, name, position)
-		VALUES (lower(hex(randomblob(8))), ?, ?)
+		INSERT INTO categories (id, server_id, name, position)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
+		category.ServerID,
 		category.Name,
 		category.Position,
 	).Scan(&category.ID, &category.CreatedAt)
@@ -39,11 +40,11 @@ func (r *sqliteCategoryRepo) Create(ctx context.Context, category *models.Catego
 }
 
 func (r *sqliteCategoryRepo) GetByID(ctx context.Context, id string) (*models.Category, error) {
-	query := `SELECT id, name, position, created_at FROM categories WHERE id = ?`
+	query := `SELECT id, server_id, name, position, created_at FROM categories WHERE id = ?`
 
 	cat := &models.Category{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&cat.ID, &cat.Name, &cat.Position, &cat.CreatedAt,
+		&cat.ID, &cat.ServerID, &cat.Name, &cat.Position, &cat.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -56,19 +57,21 @@ func (r *sqliteCategoryRepo) GetByID(ctx context.Context, id string) (*models.Ca
 	return cat, nil
 }
 
-func (r *sqliteCategoryRepo) GetAll(ctx context.Context) ([]models.Category, error) {
-	query := `SELECT id, name, position, created_at FROM categories ORDER BY position ASC`
+func (r *sqliteCategoryRepo) GetAllByServer(ctx context.Context, serverID string) ([]models.Category, error) {
+	query := `
+		SELECT id, server_id, name, position, created_at
+		FROM categories WHERE server_id = ? ORDER BY position ASC`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, serverID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get all categories: %w", err)
+		return nil, fmt.Errorf("failed to get categories by server: %w", err)
 	}
 	defer rows.Close()
 
 	var categories []models.Category
 	for rows.Next() {
 		var cat models.Category
-		if err := rows.Scan(&cat.ID, &cat.Name, &cat.Position, &cat.CreatedAt); err != nil {
+		if err := rows.Scan(&cat.ID, &cat.ServerID, &cat.Name, &cat.Position, &cat.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan category row: %w", err)
 		}
 		categories = append(categories, cat)
@@ -118,11 +121,12 @@ func (r *sqliteCategoryRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetMaxPosition, en yüksek kategori position değerini döner.
-func (r *sqliteCategoryRepo) GetMaxPosition(ctx context.Context) (int, error) {
+// GetMaxPosition, belirli bir sunucudaki en yüksek kategori position değerini döner.
+func (r *sqliteCategoryRepo) GetMaxPosition(ctx context.Context, serverID string) (int, error) {
 	var maxPos int
 	err := r.db.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(position), -1) FROM categories`,
+		`SELECT COALESCE(MAX(position), -1) FROM categories WHERE server_id = ?`,
+		serverID,
 	).Scan(&maxPos)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get max category position: %w", err)

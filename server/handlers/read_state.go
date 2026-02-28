@@ -19,17 +19,14 @@ func NewReadStateHandler(readStateService services.ReadStateService) *ReadStateH
 	return &ReadStateHandler{readStateService: readStateService}
 }
 
-// markReadRequest, POST /api/channels/{id}/read body'si.
+// markReadRequest, POST /api/servers/{serverId}/channels/{id}/read body'si.
 type markReadRequest struct {
 	MessageID string `json:"message_id"`
 }
 
 // MarkRead godoc
-// POST /api/channels/{id}/read
+// POST /api/servers/{serverId}/channels/{id}/read
 // Bir kanalı belirli bir mesaja kadar okunmuş olarak işaretler.
-//
-// Body: { "message_id": "abc123" }
-// Frontend kanal değiştirdiğinde veya mesaj listesi sonuna ulaştığında çağırır.
 func (h *ReadStateHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
@@ -54,11 +51,8 @@ func (h *ReadStateHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetUnreads godoc
-// GET /api/channels/unread
-// Kullanıcının tüm kanallarındaki okunmamış mesaj sayılarını döner.
-//
-// Response: [{ "channel_id": "abc", "unread_count": 5 }, ...]
-// Frontend uygulama başlatıldığında ve WS reconnect'te çağırır.
+// GET /api/servers/{serverId}/channels/unread
+// Kullanıcının bu sunucudaki tüm kanallarındaki okunmamış mesaj sayılarını döner.
 func (h *ReadStateHandler) GetUnreads(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -66,7 +60,13 @@ func (h *ReadStateHandler) GetUnreads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	unreads, err := h.readStateService.GetUnreadCounts(r.Context(), user.ID)
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	unreads, err := h.readStateService.GetUnreadCounts(r.Context(), user.ID, serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return

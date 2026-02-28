@@ -6,14 +6,16 @@
 //   3.  i18n çevirilerini yükle
 //   4.  Upload dizinini oluştur
 //   5.  Repository'leri oluştur (DB bağlantısı ile)
-//   6.  WebSocket Hub'ı başlat
-//   7.  Service'leri oluştur (repository'ler + hub ile)
-//   8.  Handler'ları oluştur (service'ler ile)
-//   9.  Middleware'ları oluştur (service + repo'lar ile)
-//  10.  HTTP router'ı kur, route'ları bağla
-//  11.  CORS yapılandır
-//  12.  HTTP Server'ı başlat
-//  13.  Graceful shutdown
+//   6.  Encryption key derive et (AES-256)
+//   7.  Platform LiveKit instance seed et
+//   8.  WebSocket Hub'ı başlat
+//   9.  Service'leri oluştur (repository'ler + hub ile)
+//  10.  Handler'ları oluştur (service'ler ile)
+//  11.  Middleware'ları oluştur (service + repo'lar ile)
+//  12.  HTTP router'ı kur, route'ları bağla
+//  13.  CORS yapılandır
+//  14.  HTTP Server'ı başlat
+//  15.  Graceful shutdown
 //
 // Global değişken YOK — her şey bu fonksiyonda oluşturulup birbirine bağlanıyor.
 package main
@@ -35,6 +37,7 @@ import (
 	"github.com/akinalp/mqvi/handlers"
 	"github.com/akinalp/mqvi/middleware"
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
@@ -103,8 +106,51 @@ func main() {
 	reactionRepo := repository.NewSQLiteReactionRepo(db.Conn)
 	channelPermRepo := repository.NewSQLiteChannelPermRepo(db.Conn)
 	friendshipRepo := repository.NewSQLiteFriendshipRepo(db.Conn)
+	livekitRepo := repository.NewSQLiteLiveKitRepo(db.Conn)
 
-	// ─── 6. WebSocket Hub ───
+	// ─── 6. Encryption Key ───
+	//
+	// AES-256-GCM şifreleme anahtarı — LiveKit credential'larını DB'de
+	// şifrelenmiş saklamak için. ENCRYPTION_KEY env variable'dan (64 hex char)
+	// 32-byte binary key'e dönüştürülür.
+	encryptionKey, err := crypto.DeriveKey(cfg.EncryptionKey)
+	if err != nil {
+		log.Fatalf("[main] invalid ENCRYPTION_KEY: %v", err)
+	}
+
+	// ─── 7. Platform LiveKit Instance Seed ───
+	//
+	// Eğer LIVEKIT_URL + API key/secret env var'larında tanımlıysa ve henüz
+	// platform-managed bir LiveKit instance yoksa, veritabanına seed et.
+	// Bu, "mqvi hosted" sunucuların kullanacağı platform LiveKit instance'ıdır.
+	if cfg.LiveKit.URL != "" && cfg.LiveKit.APIKey != "" && cfg.LiveKit.APISecret != "" {
+		_, seedErr := livekitRepo.GetLeastLoadedPlatformInstance(context.Background())
+		if seedErr != nil {
+			// Platform instance yok, yeni bir tane oluştur
+			encKey, encErr := crypto.Encrypt(cfg.LiveKit.APIKey, encryptionKey)
+			if encErr != nil {
+				log.Fatalf("[main] failed to encrypt platform livekit key: %v", encErr)
+			}
+			encSecret, encErr := crypto.Encrypt(cfg.LiveKit.APISecret, encryptionKey)
+			if encErr != nil {
+				log.Fatalf("[main] failed to encrypt platform livekit secret: %v", encErr)
+			}
+
+			platformInstance := &models.LiveKitInstance{
+				URL:               cfg.LiveKit.URL,
+				APIKey:            encKey,
+				APISecret:         encSecret,
+				IsPlatformManaged: true,
+				ServerCount:       0,
+			}
+			if createErr := livekitRepo.Create(context.Background(), platformInstance); createErr != nil {
+				log.Fatalf("[main] failed to seed platform livekit instance: %v", createErr)
+			}
+			log.Printf("[main] seeded platform LiveKit instance (url=%s)", cfg.LiveKit.URL)
+		}
+	}
+
+	// ─── 8. WebSocket Hub ───
 	//
 	// Hub, tüm WebSocket bağlantılarını yöneten merkezi yapıdır.
 	// `go hub.Run()` ayrı bir goroutine'de event loop başlatır:
@@ -115,12 +161,17 @@ func main() {
 
 	// ChannelPermissionService — VoiceService ve MessageService'den ÖNCE oluşturulmalı,
 	// çünkü ikisi de kanal bazlı permission resolution için buna bağımlı.
-	channelPermService := services.NewChannelPermissionService(channelPermRepo, roleRepo, hub)
+	//
+	// Multi-server: channelGetter (channelRepo) eklendi — ResolveChannelPermissions'da
+	// channel → server_id lookup yaparak rolleri sunucu bazlı çeker.
+	channelPermService := services.NewChannelPermissionService(channelPermRepo, roleRepo, channelRepo, hub)
 
 	// VoiceService — Hub callback'lerinden önce oluşturulmalı çünkü
 	// OnUserFullyDisconnected callback'i voice cleanup için voiceService'e ihtiyaç duyar.
-	// channelPermService kanal bazlı permission resolution sağlar (rol + override).
-	voiceService := services.NewVoiceService(channelRepo, channelPermService, hub, cfg.LiveKit)
+	//
+	// Multi-server: livekitGetter (livekitRepo) + encryptionKey ile per-server
+	// LiveKit token generation. Static cfg.LiveKit yerine DB'den instance lookup yapılır.
+	voiceService := services.NewVoiceService(channelRepo, livekitRepo, channelPermService, hub, encryptionKey)
 
 	// P2PCallService — Hub callback'lerinden önce oluşturulmalı.
 	// Arkadaşlık kontrolü için friendshipRepo, kullanıcı bilgisi için userRepo kullanır.
@@ -326,18 +377,22 @@ func main() {
 
 	go hub.Run()
 
-	// ─── 7. Service Layer ───
+	// ─── 9. Service Layer ───
 	//
-	// InviteService, AuthService'den ÖNCE oluşturulmalı — AuthService buna bağımlı.
-	// (Register sırasında davet kodu doğrulaması için InviteService kullanılır)
+	// Multi-server mimaride service constructor'ları güncellendi:
+	// - AuthService: invite code ve ban kontrolü kaldırıldı (sunucu bağımsız kayıt)
+	// - ServerService: yeni — sunucu oluşturma, katılma, ayrılma, silme
+	// - MemberService: serverRepo eklendi (sunucu bazlı üyelik)
+	// - VoiceService: per-server LiveKit (livekitGetter + encryptionKey)
+	// - ChannelPermService: channelGetter eklendi (channel → server_id lookup)
+
 	inviteService := services.NewInviteService(inviteRepo, serverRepo)
 
+	// AuthService — multi-server'da simplified: sadece userRepo + sessionRepo + hub.
+	// Register hiçbir sunucuya üye eklemez, ban kontrolü sunucu bazlı olduğu için kaldırıldı.
 	authService := services.NewAuthService(
 		userRepo,
 		sessionRepo,
-		roleRepo,
-		banRepo,
-		inviteService,
 		hub,
 		cfg.JWT.Secret,
 		cfg.JWT.AccessTokenExpiry,
@@ -348,9 +403,22 @@ func main() {
 	categoryService := services.NewCategoryService(categoryRepo, hub)
 	messageService := services.NewMessageService(messageRepo, attachmentRepo, channelRepo, userRepo, mentionRepo, reactionRepo, hub, channelPermService)
 	uploadService := services.NewUploadService(attachmentRepo, cfg.Upload.Dir, cfg.Upload.MaxSize)
-	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, hub)
+	memberService := services.NewMemberService(userRepo, roleRepo, banRepo, serverRepo, hub)
 	roleService := services.NewRoleService(roleRepo, userRepo, hub)
-	serverService := services.NewServerService(serverRepo, hub)
+
+	// ServerService — multi-server'ın kalbi: sunucu CRUD, üyelik, LiveKit instance yönetimi.
+	// CreateServer akışı: server → livekit instance → default roller → default kanallar → owner membership.
+	serverService := services.NewServerService(
+		serverRepo,
+		livekitRepo,
+		roleRepo,
+		channelRepo,
+		categoryRepo,
+		inviteService,
+		hub,
+		encryptionKey,
+	)
+
 	pinService := services.NewPinService(pinRepo, messageRepo, hub)
 	searchService := services.NewSearchService(searchRepo)
 	readStateService := services.NewReadStateService(readStateRepo, channelPermService)
@@ -360,7 +428,7 @@ func main() {
 	friendshipService := services.NewFriendshipService(friendshipRepo, userRepo, hub)
 	// voiceService ve channelPermService yukarıda (Hub callback'lerinden önce) oluşturuldu
 
-	// ─── 8. Handler Layer ───
+	// ─── 10. Handler Layer ───
 	authHandler := handlers.NewAuthHandler(authService)
 	channelHandler := handlers.NewChannelHandler(channelService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
@@ -379,14 +447,43 @@ func main() {
 	friendshipHandler := handlers.NewFriendshipHandler(friendshipService)
 	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
 	statsHandler := handlers.NewStatsHandler(userRepo)
-	wsHandler := ws.NewHandler(hub, authService, memberService, voiceService, userRepo)
 
-	// ─── 9. Middleware ───
-	authMiddleware := middleware.NewAuthMiddleware(authService, userRepo)
-	permMiddleware := middleware.NewPermissionMiddleware(roleRepo)
+	// WS Handler — multi-server'da ban kontrolü sunucu bazlı olduğu için
+	// BanChecker nil geçilir. WS bağlantısı platforma erişim verir;
+	// sunucu erişimi ServerMembershipMiddleware ile korunur.
+	// serverRepo: ready event'te sunucu listesi + client.serverIDs doldurma.
+	wsHandler := ws.NewHandler(hub, authService, nil, voiceService, userRepo, serverRepo)
 
-	// ─── 10. HTTP Router ───
+	// ─── 11. Middleware ───
+	authMw := middleware.NewAuthMiddleware(authService, userRepo)
+	permMw := middleware.NewPermissionMiddleware(roleRepo)
+	serverMw := middleware.NewServerMembershipMiddleware(serverRepo)
+
+	// ─── Middleware Chain Helpers ───
+	//
+	// auth: sadece JWT token doğrulaması
+	// authServer: auth + sunucu üyelik kontrolü (serverID context'e eklenir)
+	// authServerPerm: auth + sunucu üyelik + belirli permission kontrolü
+	// authServerPermLoad: auth + sunucu üyelik + permission bilgisi yükleme (kontrol handler'da)
+	auth := func(h http.HandlerFunc) http.Handler {
+		return authMw.Require(http.HandlerFunc(h))
+	}
+	authServer := func(h http.HandlerFunc) http.Handler {
+		return authMw.Require(serverMw.Require(http.HandlerFunc(h)))
+	}
+	authServerPerm := func(perm models.Permission, h http.HandlerFunc) http.Handler {
+		return authMw.Require(serverMw.Require(permMw.Require(perm, http.HandlerFunc(h))))
+	}
+	authServerPermLoad := func(h http.HandlerFunc) http.Handler {
+		return authMw.Require(serverMw.Require(permMw.Load(http.HandlerFunc(h))))
+	}
+
+	// ─── 12. HTTP Router ───
 	mux := http.NewServeMux()
+
+	// ╔══════════════════════════════════════════╗
+	// ║  GLOBAL ROUTES (sunucu bağımsız)         ║
+	// ╚══════════════════════════════════════════╝
 
 	// Health check
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -401,207 +498,138 @@ func main() {
 	mux.HandleFunc("POST /api/auth/register", authHandler.Register)
 	mux.HandleFunc("POST /api/auth/login", authHandler.Login)
 	mux.HandleFunc("POST /api/auth/refresh", authHandler.Refresh)
-	mux.Handle("POST /api/auth/logout", authMiddleware.Require(http.HandlerFunc(authHandler.Logout)))
+	mux.Handle("POST /api/auth/logout", auth(authHandler.Logout))
 
-	// Protected endpoint'ler — authMiddleware.Require() sarar
-	mux.Handle("GET /api/users/me", authMiddleware.Require(http.HandlerFunc(authHandler.Me)))
+	// User — kendi profili, şifre, email, avatar
+	mux.Handle("GET /api/users/me", auth(authHandler.Me))
+	mux.Handle("PATCH /api/users/me/profile", auth(memberHandler.UpdateProfile))
+	mux.Handle("POST /api/users/me/password", auth(authHandler.ChangePassword))
+	mux.Handle("PUT /api/users/me/email", auth(authHandler.ChangeEmail))
+	mux.Handle("POST /api/users/me/avatar", auth(avatarHandler.UploadUserAvatar))
 
-	// Channels — List herkese açık, CUD için MANAGE_CHANNELS yetkisi gerekir
-	mux.Handle("GET /api/channels", authMiddleware.Require(
-		http.HandlerFunc(channelHandler.List)))
-	mux.Handle("POST /api/channels", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Create))))
-	// Reorder route'u {id} parametreli route'lardan ÖNCE tanımlanmalı —
-	// yoksa Go router "reorder" kelimesini bir {id} olarak yorumlar.
-	mux.Handle("PATCH /api/channels/reorder", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Reorder))))
-	mux.Handle("PATCH /api/channels/{id}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Update))))
-	mux.Handle("DELETE /api/channels/{id}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelHandler.Delete))))
+	// Servers — sunucu listesi, oluşturma, katılma (sunucu üyeliği gerekmez)
+	mux.Handle("GET /api/servers", auth(serverHandler.ListMyServers))
+	mux.Handle("POST /api/servers", auth(serverHandler.CreateServer))
+	// "join" literal path'i {serverId} parametresinden ÖNCE tanımlanmalı —
+	// yoksa Go router "join" kelimesini bir {serverId} olarak yorumlar.
+	mux.Handle("POST /api/servers/join", auth(serverHandler.JoinServer))
 
-	// Categories — List herkese açık, CUD için MANAGE_CHANNELS yetkisi gerekir
-	mux.Handle("GET /api/categories", authMiddleware.Require(
-		http.HandlerFunc(categoryHandler.List)))
-	mux.Handle("POST /api/categories", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(categoryHandler.Create))))
-	mux.Handle("PATCH /api/categories/{id}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(categoryHandler.Update))))
-	mux.Handle("DELETE /api/categories/{id}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(categoryHandler.Delete))))
+	// Upload — bağımsız dosya yükleme endpoint'i (sunucu bağımsız)
+	mux.Handle("POST /api/upload", auth(messageHandler.Upload))
 
-	// Messages — tüm authenticated kullanıcılar mesaj okuyup yazabilir
-	mux.Handle("GET /api/channels/{id}/messages", authMiddleware.Require(
-		http.HandlerFunc(messageHandler.List)))
-	mux.Handle("POST /api/channels/{id}/messages", authMiddleware.Require(
-		http.HandlerFunc(messageHandler.Create)))
-	mux.Handle("PATCH /api/messages/{id}", authMiddleware.Require(
-		http.HandlerFunc(messageHandler.Update)))
-	mux.Handle("DELETE /api/messages/{id}", authMiddleware.Require(
-		permMiddleware.Load(http.HandlerFunc(messageHandler.Delete))))
+	// DMs — Direct Messages, sunucu bağımsız özel mesajlaşma
+	mux.Handle("GET /api/dms", auth(dmHandler.ListChannels))
+	mux.Handle("POST /api/dms", auth(dmHandler.CreateOrGetChannel))
+	mux.Handle("GET /api/dms/{channelId}/messages", auth(dmHandler.GetMessages))
+	mux.Handle("POST /api/dms/{channelId}/messages", auth(dmHandler.SendMessage))
+	mux.Handle("PATCH /api/dms/messages/{id}", auth(dmHandler.EditMessage))
+	mux.Handle("DELETE /api/dms/messages/{id}", auth(dmHandler.DeleteMessage))
+	mux.Handle("POST /api/dms/messages/{id}/reactions", auth(dmHandler.ToggleReaction))
+	mux.Handle("POST /api/dms/messages/{id}/pin", auth(dmHandler.PinMessage))
+	mux.Handle("DELETE /api/dms/messages/{id}/pin", auth(dmHandler.UnpinMessage))
+	mux.Handle("GET /api/dms/{channelId}/pinned", auth(dmHandler.GetPinnedMessages))
+	mux.Handle("GET /api/dms/{channelId}/search", auth(dmHandler.SearchMessages))
 
-	// Upload — bağımsız dosya yükleme endpoint'i
-	mux.Handle("POST /api/upload", authMiddleware.Require(
-		http.HandlerFunc(messageHandler.Upload)))
-
-	// Members — üye listesi herkese açık, moderation işlemleri yetki gerektirir
-	mux.Handle("GET /api/members", authMiddleware.Require(
-		http.HandlerFunc(memberHandler.List)))
-	mux.Handle("GET /api/members/{id}", authMiddleware.Require(
-		http.HandlerFunc(memberHandler.Get)))
-	mux.Handle("PATCH /api/members/{id}/roles", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(memberHandler.ModifyRoles))))
-	mux.Handle("DELETE /api/members/{id}", authMiddleware.Require(
-		permMiddleware.Require(models.PermKickMembers, http.HandlerFunc(memberHandler.Kick))))
-	mux.Handle("POST /api/members/{id}/ban", authMiddleware.Require(
-		permMiddleware.Require(models.PermBanMembers, http.HandlerFunc(memberHandler.Ban))))
-
-	// Bans — yasaklı üye yönetimi, BAN_MEMBERS yetkisi gerektirir
-	mux.Handle("GET /api/bans", authMiddleware.Require(
-		permMiddleware.Require(models.PermBanMembers, http.HandlerFunc(memberHandler.GetBans))))
-	mux.Handle("DELETE /api/bans/{id}", authMiddleware.Require(
-		permMiddleware.Require(models.PermBanMembers, http.HandlerFunc(memberHandler.Unban))))
-
-	// Profile — kullanıcının kendi profil güncelleme endpoint'i
-	mux.Handle("PATCH /api/users/me/profile", authMiddleware.Require(
-		http.HandlerFunc(memberHandler.UpdateProfile)))
-
-	// Password — kullanıcının kendi şifresini değiştirme endpoint'i
-	mux.Handle("POST /api/users/me/password", authMiddleware.Require(
-		http.HandlerFunc(authHandler.ChangePassword)))
-
-	// Email — kullanıcının kendi email'ini değiştirme/kaldırma endpoint'i
-	mux.Handle("PUT /api/users/me/email", authMiddleware.Require(
-		http.HandlerFunc(authHandler.ChangeEmail)))
-
-	// Avatar — kullanıcı avatar yükleme endpoint'i
-	// Ayrı bir handler çünkü multipart form parse ve resim validasyonu
-	// mevcut UploadService'den farklıdır (message attachment'a bağlı değil).
-	mux.Handle("POST /api/users/me/avatar", authMiddleware.Require(
-		http.HandlerFunc(avatarHandler.UploadUserAvatar)))
-
-	// Server — sunucu bilgileri, ikon yükleme
-	// Get herkese açık (authenticated), Update/Icon Admin yetkisi gerektirir
-	mux.Handle("GET /api/server", authMiddleware.Require(
-		http.HandlerFunc(serverHandler.Get)))
-	mux.Handle("PATCH /api/server", authMiddleware.Require(
-		permMiddleware.Require(models.PermAdmin, http.HandlerFunc(serverHandler.Update))))
-	mux.Handle("POST /api/server/icon", authMiddleware.Require(
-		permMiddleware.Require(models.PermAdmin, http.HandlerFunc(avatarHandler.UploadServerIcon))))
-
-	// Invites — davet kodu yönetimi, ManageInvites yetkisi gerektirir
-	mux.Handle("GET /api/invites", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageInvites, http.HandlerFunc(inviteHandler.List))))
-	mux.Handle("POST /api/invites", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageInvites, http.HandlerFunc(inviteHandler.Create))))
-	mux.Handle("DELETE /api/invites/{code}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageInvites, http.HandlerFunc(inviteHandler.Delete))))
-
-	// Search — FTS5 tam metin arama, authenticated kullanıcılar kullanabilir
-	mux.Handle("GET /api/search", authMiddleware.Require(
-		http.HandlerFunc(searchHandler.Search)))
-
-	// Pins — mesaj sabitleme, ManageMessages yetkisi gerekir (list herkese açık)
-	mux.Handle("GET /api/channels/{id}/pins", authMiddleware.Require(
-		http.HandlerFunc(pinHandler.ListPins)))
-	mux.Handle("POST /api/channels/{channelId}/messages/{messageId}/pin", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageMessages, http.HandlerFunc(pinHandler.Pin))))
-	mux.Handle("DELETE /api/channels/{channelId}/messages/{messageId}/pin", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageMessages, http.HandlerFunc(pinHandler.Unpin))))
-
-	// Reactions — emoji tepkileri, tüm authenticated kullanıcılar kullanabilir
-	// Toggle: Aynı emoji ile tekrar çağrılırsa reaction kaldırılır (toggle pattern)
-	// Emoji body'de gönderilir (URL path'te encoding sorunları yaratabilir)
-	mux.Handle("POST /api/messages/{messageId}/reactions", authMiddleware.Require(
-		http.HandlerFunc(reactionHandler.Toggle)))
-
-	// Read State — okunmamış mesaj takibi, authenticated kullanıcılar kullanabilir
-	// MarkRead: kanal değiştirdiğinde frontend otomatik çağırır (auto-mark-read)
-	// GetUnreads: uygulama başlangıcında ve WS reconnect'te çağrılır
-	mux.Handle("POST /api/channels/{id}/read", authMiddleware.Require(
-		http.HandlerFunc(readStateHandler.MarkRead)))
-	mux.Handle("GET /api/channels/unread", authMiddleware.Require(
-		http.HandlerFunc(readStateHandler.GetUnreads)))
-
-	// Roles — rol listesi herkese açık, CUD için MANAGE_ROLES yetkisi gerekir
-	mux.Handle("GET /api/roles", authMiddleware.Require(
-		http.HandlerFunc(roleHandler.List)))
-	mux.Handle("POST /api/roles", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Create))))
-	// Reorder route'u {id} parametreli route'lardan ÖNCE tanımlanmalı —
-	// yoksa Go router "reorder" kelimesini bir {id} olarak yorumlar.
-	mux.Handle("PATCH /api/roles/reorder", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Reorder))))
-	mux.Handle("PATCH /api/roles/{id}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Update))))
-	mux.Handle("DELETE /api/roles/{id}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageRoles, http.HandlerFunc(roleHandler.Delete))))
-
-	// Channel Permissions — kanal bazlı permission override yönetimi
-	// List herkese açık (authenticated), CUD için ManageChannels yetkisi gerekir
-	mux.Handle("GET /api/channels/{id}/permissions", authMiddleware.Require(
-		http.HandlerFunc(channelPermHandler.ListOverrides)))
-	mux.Handle("PUT /api/channels/{channelId}/permissions/{roleId}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelPermHandler.SetOverride))))
-	mux.Handle("DELETE /api/channels/{channelId}/permissions/{roleId}", authMiddleware.Require(
-		permMiddleware.Require(models.PermManageChannels, http.HandlerFunc(channelPermHandler.DeleteOverride))))
-
-	// DMs — Direct Messages, authenticated kullanıcılar arası özel mesajlaşma
-	mux.Handle("GET /api/dms", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.ListChannels)))
-	mux.Handle("POST /api/dms", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.CreateOrGetChannel)))
-	mux.Handle("GET /api/dms/{channelId}/messages", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.GetMessages)))
-	mux.Handle("POST /api/dms/{channelId}/messages", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.SendMessage)))
-	mux.Handle("PATCH /api/dms/messages/{id}", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.EditMessage)))
-	mux.Handle("DELETE /api/dms/messages/{id}", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.DeleteMessage)))
-
-	// DM Reactions — emoji tepkileri
-	mux.Handle("POST /api/dms/messages/{id}/reactions", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.ToggleReaction)))
-
-	// DM Pins — mesaj sabitleme
-	mux.Handle("POST /api/dms/messages/{id}/pin", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.PinMessage)))
-	mux.Handle("DELETE /api/dms/messages/{id}/pin", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.UnpinMessage)))
-	mux.Handle("GET /api/dms/{channelId}/pinned", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.GetPinnedMessages)))
-
-	// DM Search — FTS5 tam metin arama
-	mux.Handle("GET /api/dms/{channelId}/search", authMiddleware.Require(
-		http.HandlerFunc(dmHandler.SearchMessages)))
-
-	// Friends — arkadaşlık yönetimi, tüm authenticated kullanıcılar kullanabilir
+	// Friends — arkadaşlık yönetimi, sunucu bağımsız
 	// "requests" literal path'i {userId} parametresinden ÖNCE tanımlanmalı —
 	// yoksa Go router "requests" kelimesini bir {userId} olarak yorumlar.
-	mux.Handle("GET /api/friends/requests", authMiddleware.Require(
-		http.HandlerFunc(friendshipHandler.ListRequests)))
-	mux.Handle("POST /api/friends/requests", authMiddleware.Require(
-		http.HandlerFunc(friendshipHandler.SendRequest)))
-	mux.Handle("POST /api/friends/requests/{id}/accept", authMiddleware.Require(
-		http.HandlerFunc(friendshipHandler.AcceptRequest)))
-	mux.Handle("DELETE /api/friends/requests/{id}", authMiddleware.Require(
-		http.HandlerFunc(friendshipHandler.DeclineRequest)))
-	mux.Handle("GET /api/friends", authMiddleware.Require(
-		http.HandlerFunc(friendshipHandler.ListFriends)))
-	mux.Handle("DELETE /api/friends/{userId}", authMiddleware.Require(
-		http.HandlerFunc(friendshipHandler.RemoveFriend)))
+	mux.Handle("GET /api/friends/requests", auth(friendshipHandler.ListRequests))
+	mux.Handle("POST /api/friends/requests", auth(friendshipHandler.SendRequest))
+	mux.Handle("POST /api/friends/requests/{id}/accept", auth(friendshipHandler.AcceptRequest))
+	mux.Handle("DELETE /api/friends/requests/{id}", auth(friendshipHandler.DeclineRequest))
+	mux.Handle("GET /api/friends", auth(friendshipHandler.ListFriends))
+	mux.Handle("DELETE /api/friends/{userId}", auth(friendshipHandler.RemoveFriend))
 
-	// Voice — LiveKit token alma ve aktif ses durumlarını sorgulama
+	// ╔══════════════════════════════════════════╗
+	// ║  SERVER-SCOPED ROUTES                     ║
+	// ║  auth + ServerMembership middleware       ║
+	// ╚══════════════════════════════════════════╝
+
+	// Server — detay, güncelleme, silme, ayrılma, ikon
+	mux.Handle("GET /api/servers/{serverId}", authServer(serverHandler.GetServer))
+	mux.Handle("PATCH /api/servers/{serverId}", authServerPerm(models.PermAdmin, serverHandler.UpdateServer))
+	mux.Handle("DELETE /api/servers/{serverId}", authServer(serverHandler.DeleteServer))
+	mux.Handle("POST /api/servers/{serverId}/leave", authServer(serverHandler.LeaveServer))
+	mux.Handle("POST /api/servers/{serverId}/icon", authServerPerm(models.PermAdmin, avatarHandler.UploadServerIcon))
+
+	// Channels — sunucu bazlı kanal yönetimi
+	mux.Handle("GET /api/servers/{serverId}/channels", authServer(channelHandler.List))
+	mux.Handle("POST /api/servers/{serverId}/channels", authServerPerm(models.PermManageChannels, channelHandler.Create))
+	// Reorder route'u {id} parametreli route'lardan ÖNCE tanımlanmalı —
+	// yoksa Go router "reorder" kelimesini bir {id} olarak yorumlar.
+	mux.Handle("PATCH /api/servers/{serverId}/channels/reorder", authServerPerm(models.PermManageChannels, channelHandler.Reorder))
+	mux.Handle("PATCH /api/servers/{serverId}/channels/{id}", authServerPerm(models.PermManageChannels, channelHandler.Update))
+	mux.Handle("DELETE /api/servers/{serverId}/channels/{id}", authServerPerm(models.PermManageChannels, channelHandler.Delete))
+
+	// Categories — sunucu bazlı kategori yönetimi
+	mux.Handle("GET /api/servers/{serverId}/categories", authServer(categoryHandler.List))
+	mux.Handle("POST /api/servers/{serverId}/categories", authServerPerm(models.PermManageChannels, categoryHandler.Create))
+	mux.Handle("PATCH /api/servers/{serverId}/categories/{id}", authServerPerm(models.PermManageChannels, categoryHandler.Update))
+	mux.Handle("DELETE /api/servers/{serverId}/categories/{id}", authServerPerm(models.PermManageChannels, categoryHandler.Delete))
+
+	// Messages — sunucu bazlı mesaj CRUD
+	mux.Handle("GET /api/servers/{serverId}/channels/{id}/messages", authServer(messageHandler.List))
+	mux.Handle("POST /api/servers/{serverId}/channels/{id}/messages", authServer(messageHandler.Create))
+	mux.Handle("PATCH /api/servers/{serverId}/messages/{id}", authServer(messageHandler.Update))
+	mux.Handle("DELETE /api/servers/{serverId}/messages/{id}", authServerPermLoad(messageHandler.Delete))
+
+	// Reactions — sunucu bazlı emoji tepkileri
+	mux.Handle("POST /api/servers/{serverId}/messages/{messageId}/reactions", authServer(reactionHandler.Toggle))
+
+	// Pins — sunucu bazlı mesaj sabitleme
+	mux.Handle("GET /api/servers/{serverId}/channels/{id}/pins", authServer(pinHandler.ListPins))
+	mux.Handle("POST /api/servers/{serverId}/channels/{channelId}/messages/{messageId}/pin", authServerPerm(models.PermManageMessages, pinHandler.Pin))
+	mux.Handle("DELETE /api/servers/{serverId}/channels/{channelId}/messages/{messageId}/pin", authServerPerm(models.PermManageMessages, pinHandler.Unpin))
+
+	// Read State — sunucu bazlı okunmamış mesaj takibi
+	mux.Handle("POST /api/servers/{serverId}/channels/{id}/read", authServer(readStateHandler.MarkRead))
+	mux.Handle("GET /api/servers/{serverId}/channels/unread", authServer(readStateHandler.GetUnreads))
+
+	// Members — sunucu bazlı üye yönetimi
+	mux.Handle("GET /api/servers/{serverId}/members", authServer(memberHandler.List))
+	mux.Handle("GET /api/servers/{serverId}/members/{id}", authServer(memberHandler.Get))
+	mux.Handle("PATCH /api/servers/{serverId}/members/{id}/roles", authServerPerm(models.PermManageRoles, memberHandler.ModifyRoles))
+	mux.Handle("DELETE /api/servers/{serverId}/members/{id}", authServerPerm(models.PermKickMembers, memberHandler.Kick))
+	mux.Handle("POST /api/servers/{serverId}/members/{id}/ban", authServerPerm(models.PermBanMembers, memberHandler.Ban))
+
+	// Bans — sunucu bazlı ban yönetimi
+	mux.Handle("GET /api/servers/{serverId}/bans", authServerPerm(models.PermBanMembers, memberHandler.GetBans))
+	mux.Handle("DELETE /api/servers/{serverId}/bans/{id}", authServerPerm(models.PermBanMembers, memberHandler.Unban))
+
+	// Roles — sunucu bazlı rol yönetimi
+	mux.Handle("GET /api/servers/{serverId}/roles", authServer(roleHandler.List))
+	mux.Handle("POST /api/servers/{serverId}/roles", authServerPerm(models.PermManageRoles, roleHandler.Create))
+	// Reorder route'u {id} parametreli route'lardan ÖNCE tanımlanmalı
+	mux.Handle("PATCH /api/servers/{serverId}/roles/reorder", authServerPerm(models.PermManageRoles, roleHandler.Reorder))
+	mux.Handle("PATCH /api/servers/{serverId}/roles/{id}", authServerPerm(models.PermManageRoles, roleHandler.Update))
+	mux.Handle("DELETE /api/servers/{serverId}/roles/{id}", authServerPerm(models.PermManageRoles, roleHandler.Delete))
+
+	// Channel Permissions — sunucu bazlı kanal permission override
+	mux.Handle("GET /api/servers/{serverId}/channels/{id}/permissions", authServer(channelPermHandler.ListOverrides))
+	mux.Handle("PUT /api/servers/{serverId}/channels/{channelId}/permissions/{roleId}", authServerPerm(models.PermManageChannels, channelPermHandler.SetOverride))
+	mux.Handle("DELETE /api/servers/{serverId}/channels/{channelId}/permissions/{roleId}", authServerPerm(models.PermManageChannels, channelPermHandler.DeleteOverride))
+
+	// Invites — sunucu bazlı davet kodu yönetimi
+	mux.Handle("GET /api/servers/{serverId}/invites", authServerPerm(models.PermManageInvites, inviteHandler.List))
+	mux.Handle("POST /api/servers/{serverId}/invites", authServerPerm(models.PermManageInvites, inviteHandler.Create))
+	mux.Handle("DELETE /api/servers/{serverId}/invites/{code}", authServerPerm(models.PermManageInvites, inviteHandler.Delete))
+
+	// Search — sunucu bazlı FTS5 tam metin arama
+	mux.Handle("GET /api/servers/{serverId}/search", authServer(searchHandler.Search))
+
+	// Voice — sunucu bazlı ses kanalı token ve durumlar
 	//
 	// Token endpoint, kullanıcının voice kanala bağlanmak için ihtiyaç duyduğu
 	// LiveKit JWT'sini döner. Permission kontrolü service katmanında yapılır
 	// (PermConnectVoice, PermSpeak, PermStream ayrı ayrı kontrol edilip
 	// LiveKit token grant'larına yansıtılır).
-	mux.Handle("POST /api/voice/token", authMiddleware.Require(
-		http.HandlerFunc(voiceHandler.Token)))
-	mux.Handle("GET /api/voice/states", authMiddleware.Require(
-		http.HandlerFunc(voiceHandler.VoiceStates)))
+	// Per-server: token, sunucuya bağlı LiveKit instance üzerinden üretilir.
+	mux.Handle("POST /api/servers/{serverId}/voice/token", authServer(voiceHandler.Token))
+	mux.Handle("GET /api/servers/{serverId}/voice/states", authServer(voiceHandler.VoiceStates))
+
+	// ╔══════════════════════════════════════════╗
+	// ║  STATIC FILES & WEBSOCKET                ║
+	// ╚══════════════════════════════════════════╝
 
 	// Static file serving — yüklenen dosyalara erişim
 	//
@@ -631,7 +659,7 @@ func main() {
 	// WS handler kendi içinde token doğrulaması yapar.
 	mux.HandleFunc("GET /ws", wsHandler.HandleConnection)
 
-	// ─── 11. SPA Frontend Serving ───
+	// ─── 13. SPA Frontend Serving ───
 	//
 	// React frontend build çıktısı binary'ye gömülü (embed.FS).
 	// /api/* ve /ws dışındaki tüm request'ler frontend'e yönlendirilir.
@@ -652,7 +680,7 @@ func main() {
 		log.Println("[main] no embedded frontend, API-only mode (use Vite dev server for frontend)")
 	}
 
-	// ─── 12. CORS ───
+	// ─── 14. CORS ───
 	//
 	// CORS_ORIGINS env variable ile ek origin'ler eklenebilir (virgülle ayrılmış).
 	// Production'da frontend aynı origin'den servis edilir — CORS gerekmez.
@@ -680,7 +708,7 @@ func main() {
 		AllowCredentials: true,
 	})
 
-	// ─── 13. Final Handler ───
+	// ─── 15. Final Handler ───
 	//
 	// Request akışı: CORS → API/WS mux VEYA SPA frontend
 	// /api/* ve /ws → normal mux (API handler'lar)
@@ -722,7 +750,7 @@ func main() {
 		w.Write(indexData)
 	})
 
-	// ─── 14. HTTP Server ───
+	// ─── 16. HTTP Server ───
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
 		Handler:      finalHandler,
@@ -731,7 +759,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// ─── 15. Graceful Shutdown ───
+	// ─── 17. Graceful Shutdown ───
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 

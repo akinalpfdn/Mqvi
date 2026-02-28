@@ -7,13 +7,14 @@ import (
 )
 
 // RoleRepository, rol veritabanı işlemleri için interface.
+// Tüm list operasyonları server-scoped: serverID parametresi zorunlu.
 type RoleRepository interface {
 	// ─── Read ───
 	GetByID(ctx context.Context, id string) (*models.Role, error)
-	GetAll(ctx context.Context) ([]models.Role, error)
-	GetDefault(ctx context.Context) (*models.Role, error)
-	GetByUserID(ctx context.Context, userID string) ([]models.Role, error)
-	GetMaxPosition(ctx context.Context) (int, error)
+	GetAllByServer(ctx context.Context, serverID string) ([]models.Role, error)
+	GetDefaultByServer(ctx context.Context, serverID string) (*models.Role, error)
+	GetByUserIDAndServer(ctx context.Context, userID, serverID string) ([]models.Role, error)
+	GetMaxPosition(ctx context.Context, serverID string) (int, error)
 
 	// ─── Write ───
 	Create(ctx context.Context, role *models.Role) error
@@ -21,10 +22,9 @@ type RoleRepository interface {
 	Delete(ctx context.Context, id string) error
 
 	// UpdatePositions, birden fazla rolün position değerini atomik olarak günceller.
-	// Transaction kullanılır — bir hata olursa tüm değişiklikler geri alınır.
 	UpdatePositions(ctx context.Context, items []models.PositionUpdate) error
 
 	// ─── User-Role mapping ───
-	AssignToUser(ctx context.Context, userID string, roleID string) error
-	RemoveFromUser(ctx context.Context, userID string, roleID string) error
+	AssignToUser(ctx context.Context, userID, roleID, serverID string) error
+	RemoveFromUser(ctx context.Context, userID, roleID string) error
 }

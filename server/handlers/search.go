@@ -9,9 +9,6 @@ import (
 )
 
 // SearchHandler, mesaj arama endpoint'ini yöneten struct.
-//
-// Thin handler: query parameter parse + response yazımı.
-// Tüm iş mantığı SearchService'de.
 type SearchHandler struct {
 	searchService services.SearchService
 }
@@ -22,15 +19,15 @@ func NewSearchHandler(searchService services.SearchService) *SearchHandler {
 }
 
 // Search godoc
-// GET /api/search?q=query&channel_id=optional&limit=25&offset=0
-// FTS5 ile tam metin araması yapar.
-//
-// Query parametreleri:
-// - q (zorunlu): Arama terimi
-// - channel_id (opsiyonel): Belirli bir kanalla sınırla
-// - limit (opsiyonel): Sonuç sayısı (default 25, max 100)
-// - offset (opsiyonel): Pagination offset (default 0)
+// GET /api/servers/{serverId}/search?q=query&channel_id=optional&limit=25&offset=0
+// FTS5 ile tam metin araması yapar. Sunucu bazlı — sadece bu sunucunun kanallarında arar.
 func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
 	query := r.URL.Query().Get("q")
 	if query == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "query parameter 'q' is required")
@@ -59,7 +56,7 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := h.searchService.Search(r.Context(), query, channelID, limit, offset)
+	result, err := h.searchService.Search(r.Context(), serverID, query, channelID, limit, offset)
 	if err != nil {
 		pkg.Error(w, err)
 		return

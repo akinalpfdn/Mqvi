@@ -2,11 +2,7 @@
 //
 // Bu service, üye listesi, profil güncelleme, rol atama,
 // kick ve ban işlemlerinin tüm business logic'ini içerir.
-//
-// Kritik güvenlik kuralı — Rol Hiyerarşisi:
-// Discord'da olduğu gibi, bir kullanıcı sadece kendisinden
-// düşük position'daki rolleri ve kullanıcıları yönetebilir.
-// Bu kural tüm mutating operasyonlarda (ModifyRoles, Kick, Ban) enforced edilir.
+// Tüm operasyonlar server-scoped.
 package services
 
 import (
@@ -20,73 +16,64 @@ import (
 )
 
 // MemberService, üye yönetimi iş mantığı interface'i.
+// Tüm operasyonlar server-scoped.
 type MemberService interface {
-	// GetAll, tüm üyeleri rolleriyle birlikte döner.
-	GetAll(ctx context.Context) ([]models.MemberWithRoles, error)
-
-	// GetByID, belirli bir üyeyi rolleriyle birlikte döner.
-	GetByID(ctx context.Context, userID string) (*models.MemberWithRoles, error)
-
-	// UpdateProfile, kullanıcının kendi profilini günceller.
+	GetAll(ctx context.Context, serverID string) ([]models.MemberWithRoles, error)
+	GetByID(ctx context.Context, serverID, userID string) (*models.MemberWithRoles, error)
 	UpdateProfile(ctx context.Context, userID string, req *models.UpdateProfileRequest) (*models.MemberWithRoles, error)
-
-	// UpdatePresence, kullanıcının online durumunu günceller (WS presence event'i ile).
 	UpdatePresence(ctx context.Context, userID string, status models.UserStatus) error
-
-	// ModifyRoles, bir üyenin rollerini değiştirir (hiyerarşi kontrolü ile).
-	ModifyRoles(ctx context.Context, actorID string, targetID string, roleIDs []string) (*models.MemberWithRoles, error)
-
-	// Kick, bir üyeyi sunucudan çıkarır (hiyerarşi kontrolü ile).
-	Kick(ctx context.Context, actorID string, targetID string) error
-
-	// Ban, bir üyeyi yasaklar (hiyerarşi kontrolü ile).
-	Ban(ctx context.Context, actorID string, targetID string, reason string) error
-
-	// Unban, bir üyenin yasağını kaldırır.
-	Unban(ctx context.Context, userID string) error
-
-	// GetBans, tüm yasaklı üyeleri döner.
-	GetBans(ctx context.Context) ([]models.Ban, error)
-
-	// IsBanned, kullanıcının banlı olup olmadığını kontrol eder.
-	IsBanned(ctx context.Context, userID string) (bool, error)
+	ModifyRoles(ctx context.Context, serverID, actorID, targetID string, roleIDs []string) (*models.MemberWithRoles, error)
+	Kick(ctx context.Context, serverID, actorID, targetID string) error
+	Ban(ctx context.Context, serverID, actorID, targetID, reason string) error
+	Unban(ctx context.Context, serverID, userID string) error
+	GetBans(ctx context.Context, serverID string) ([]models.Ban, error)
+	IsBanned(ctx context.Context, serverID, userID string) (bool, error)
 }
 
 type memberService struct {
-	userRepo repository.UserRepository
-	roleRepo repository.RoleRepository
-	banRepo  repository.BanRepository
-	hub      ws.EventPublisher
+	userRepo   repository.UserRepository
+	roleRepo   repository.RoleRepository
+	banRepo    repository.BanRepository
+	serverRepo repository.ServerRepository
+	hub        ws.EventPublisher
 }
 
-// NewMemberService, MemberService implementasyonunu oluşturur.
-//
-// Constructor injection: Tüm dependency'ler dışarıdan alınır.
-// hub (EventPublisher) ile WS broadcast yapılır — DB değişikliklerini
-// gerçek zamanlı olarak tüm bağlı client'lara iletmek için.
 func NewMemberService(
 	userRepo repository.UserRepository,
 	roleRepo repository.RoleRepository,
 	banRepo repository.BanRepository,
+	serverRepo repository.ServerRepository,
 	hub ws.EventPublisher,
 ) MemberService {
 	return &memberService{
-		userRepo: userRepo,
-		roleRepo: roleRepo,
-		banRepo:  banRepo,
-		hub:      hub,
+		userRepo:   userRepo,
+		roleRepo:   roleRepo,
+		banRepo:    banRepo,
+		serverRepo: serverRepo,
+		hub:        hub,
 	}
 }
 
-func (s *memberService) GetAll(ctx context.Context) ([]models.MemberWithRoles, error) {
+// GetAll, belirli bir sunucudaki tüm üyeleri rolleriyle birlikte döner.
+// server_members tablosuyla JOIN yaparak sadece sunucu üyelerini getirir.
+func (s *memberService) GetAll(ctx context.Context, serverID string) ([]models.MemberWithRoles, error) {
 	users, err := s.userRepo.GetAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all users: %w", err)
 	}
 
-	members := make([]models.MemberWithRoles, 0, len(users))
+	// Sadece sunucu üyelerini filtrele
+	members := make([]models.MemberWithRoles, 0)
 	for i := range users {
-		roles, err := s.roleRepo.GetByUserID(ctx, users[i].ID)
+		isMember, err := s.serverRepo.IsMember(ctx, serverID, users[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check membership: %w", err)
+		}
+		if !isMember {
+			continue
+		}
+
+		roles, err := s.roleRepo.GetByUserIDAndServer(ctx, users[i].ID, serverID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get roles for user %s: %w", users[i].ID, err)
 		}
@@ -96,13 +83,13 @@ func (s *memberService) GetAll(ctx context.Context) ([]models.MemberWithRoles, e
 	return members, nil
 }
 
-func (s *memberService) GetByID(ctx context.Context, userID string) (*models.MemberWithRoles, error) {
+func (s *memberService) GetByID(ctx context.Context, serverID, userID string) (*models.MemberWithRoles, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	roles, err := s.roleRepo.GetByUserID(ctx, userID)
+	roles, err := s.roleRepo.GetByUserIDAndServer(ctx, userID, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get roles for user: %w", err)
 	}
@@ -121,7 +108,6 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 		return nil, err
 	}
 
-	// Partial update: sadece non-nil field'ları güncelle
 	if req.DisplayName != nil {
 		user.DisplayName = req.DisplayName
 	}
@@ -139,18 +125,15 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 		return nil, fmt.Errorf("failed to update user profile: %w", err)
 	}
 
-	// Güncellenmiş member'ı al ve broadcast et
-	member, err := s.GetByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
+	// Profile güncelleme global — tüm sunuculara broadcast
+	// serverID bilmiyoruz burada, global member update yap
+	member := models.ToMemberWithRoles(user, nil)
 	s.hub.BroadcastToAll(ws.Event{
 		Op:   ws.OpMemberUpdate,
-		Data: member,
+		Data: &member,
 	})
 
-	return member, nil
+	return &member, nil
 }
 
 func (s *memberService) UpdatePresence(ctx context.Context, userID string, status models.UserStatus) error {
@@ -169,38 +152,27 @@ func (s *memberService) UpdatePresence(ctx context.Context, userID string, statu
 	return nil
 }
 
-// ModifyRoles, bir üyenin rollerini değiştirir.
-//
-// Hiyerarşi kuralları:
-// 1. Actor kendi üstündekini yönetemez (target position >= actor position → forbidden)
-// 2. Actor kendisinden yüksek rol atayamaz (role position >= actor position → forbidden)
-// 3. Mevcut roller ile hedef roller diff'lenir: eksikler eklenir, fazlalar çıkarılır
-func (s *memberService) ModifyRoles(ctx context.Context, actorID string, targetID string, roleIDs []string) (*models.MemberWithRoles, error) {
-	// Actor'un rollerini al ve en yüksek position'ı hesapla
-	actorRoles, err := s.roleRepo.GetByUserID(ctx, actorID)
+func (s *memberService) ModifyRoles(ctx context.Context, serverID, actorID, targetID string, roleIDs []string) (*models.MemberWithRoles, error) {
+	actorRoles, err := s.roleRepo.GetByUserIDAndServer(ctx, actorID, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get actor roles: %w", err)
 	}
 	actorMaxPos := models.HighestPosition(actorRoles)
 
-	// Target'in rollerini al
-	targetRoles, err := s.roleRepo.GetByUserID(ctx, targetID)
+	targetRoles, err := s.roleRepo.GetByUserIDAndServer(ctx, targetID, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get target roles: %w", err)
 	}
 	targetMaxPos := models.HighestPosition(targetRoles)
 
-	// Owner kimlik bazlı koruma — owner'ın rolleri değiştirilemez
 	if models.HasOwnerRole(targetRoles) {
 		return nil, fmt.Errorf("%w: cannot modify the server owner's roles", pkg.ErrForbidden)
 	}
 
-	// Hiyerarşi kontrolü: üstündekini yönetemezsin
 	if targetMaxPos >= actorMaxPos {
 		return nil, fmt.Errorf("%w: cannot modify roles of a user with equal or higher role", pkg.ErrForbidden)
 	}
 
-	// Atanacak rolleri kontrol et: kendinden yüksek rol atayamazsın
 	for _, roleID := range roleIDs {
 		role, err := s.roleRepo.GetByID(ctx, roleID)
 		if err != nil {
@@ -211,7 +183,6 @@ func (s *memberService) ModifyRoles(ctx context.Context, actorID string, targetI
 		}
 	}
 
-	// Mevcut roller ile hedef roller arasında diff yap
 	currentSet := make(map[string]bool, len(targetRoles))
 	for _, r := range targetRoles {
 		currentSet[r.ID] = true
@@ -222,25 +193,21 @@ func (s *memberService) ModifyRoles(ctx context.Context, actorID string, targetI
 		targetSet[id] = true
 	}
 
-	// Eklenmesi gerekenler: target set'te var ama current set'te yok
 	for _, id := range roleIDs {
 		if !currentSet[id] {
-			if err := s.roleRepo.AssignToUser(ctx, targetID, id); err != nil {
+			if err := s.roleRepo.AssignToUser(ctx, targetID, id, serverID); err != nil {
 				return nil, fmt.Errorf("failed to assign role: %w", err)
 			}
 		}
 	}
 
-	// Çıkarılması gerekenler: current set'te var ama target set'te yok
 	for _, r := range targetRoles {
 		if !targetSet[r.ID] {
-			// Default rol (member) kaldırılamaz — her kullanıcıda bulunmalı
 			if r.IsDefault {
 				continue
 			}
-			// Sadece actor'dan düşük position'daki roller çıkarılabilir
 			if r.Position >= actorMaxPos {
-				continue // Üstündeki rolü çıkaramazsın, atla
+				continue
 			}
 			if err := s.roleRepo.RemoveFromUser(ctx, targetID, r.ID); err != nil {
 				return nil, fmt.Errorf("failed to remove role: %w", err)
@@ -248,8 +215,7 @@ func (s *memberService) ModifyRoles(ctx context.Context, actorID string, targetI
 		}
 	}
 
-	// Güncellenmiş member'ı al ve broadcast et
-	member, err := s.GetByID(ctx, targetID)
+	member, err := s.GetByID(ctx, serverID, targetID)
 	if err != nil {
 		return nil, err
 	}
@@ -262,55 +228,47 @@ func (s *memberService) ModifyRoles(ctx context.Context, actorID string, targetI
 	return member, nil
 }
 
-// Kick, bir üyeyi sunucudan çıkarır.
-//
-// Hiyerarşi: Actor position > Target position olmalı.
-// İşlem: User silinir (FK cascade ile user_roles, sessions vb. de silinir).
-// WS broadcast: member_leave event'i tüm client'lara iletilir.
-func (s *memberService) Kick(ctx context.Context, actorID string, targetID string) error {
+func (s *memberService) Kick(ctx context.Context, serverID, actorID, targetID string) error {
 	if actorID == targetID {
 		return fmt.Errorf("%w: cannot kick yourself", pkg.ErrBadRequest)
 	}
 
-	if err := s.checkHierarchy(ctx, actorID, targetID); err != nil {
+	if err := s.checkHierarchy(ctx, serverID, actorID, targetID); err != nil {
 		return err
 	}
 
-	if err := s.userRepo.Delete(ctx, targetID); err != nil {
+	// Sunucudan çıkar (üyelik + roller)
+	if err := s.serverRepo.RemoveMember(ctx, serverID, targetID); err != nil {
 		return fmt.Errorf("failed to kick user: %w", err)
 	}
 
 	s.hub.BroadcastToAll(ws.Event{
-		Op:   ws.OpMemberLeave,
-		Data: map[string]string{"user_id": targetID},
+		Op: ws.OpMemberLeave,
+		Data: map[string]string{
+			"server_id": serverID,
+			"user_id":   targetID,
+		},
 	})
 
 	return nil
 }
 
-// Ban, bir üyeyi yasaklar.
-//
-// Akış:
-// 1. Hiyerarşi kontrolü
-// 2. Ban kaydı oluştur
-// 3. Kullanıcıyı WS'den disconnect et (Hub.DisconnectUser)
-// 4. member_leave broadcast
-func (s *memberService) Ban(ctx context.Context, actorID string, targetID string, reason string) error {
+func (s *memberService) Ban(ctx context.Context, serverID, actorID, targetID, reason string) error {
 	if actorID == targetID {
 		return fmt.Errorf("%w: cannot ban yourself", pkg.ErrBadRequest)
 	}
 
-	if err := s.checkHierarchy(ctx, actorID, targetID); err != nil {
+	if err := s.checkHierarchy(ctx, serverID, actorID, targetID); err != nil {
 		return err
 	}
 
-	// Hedef kullanıcının bilgilerini al (ban kaydında username saklamak için)
 	target, err := s.userRepo.GetByID(ctx, targetID)
 	if err != nil {
 		return fmt.Errorf("failed to get target user: %w", err)
 	}
 
 	ban := &models.Ban{
+		ServerID: serverID,
 		UserID:   targetID,
 		Username: target.Username,
 		Reason:   reason,
@@ -321,56 +279,47 @@ func (s *memberService) Ban(ctx context.Context, actorID string, targetID string
 		return fmt.Errorf("failed to create ban: %w", err)
 	}
 
-	// WS'den disconnect et (Hub'ın DisconnectUser metodu EventPublisher'da)
-	// Not: EventPublisher interface'inde DisconnectUser yok, bunu Hub'a eklememiz gerekiyor.
-	// Şimdilik broadcast ile member_leave gönderiyoruz.
+	// Sunucudan çıkar
+	_ = s.serverRepo.RemoveMember(ctx, serverID, targetID)
 
 	s.hub.BroadcastToAll(ws.Event{
-		Op:   ws.OpMemberLeave,
-		Data: map[string]string{"user_id": targetID},
+		Op: ws.OpMemberLeave,
+		Data: map[string]string{
+			"server_id": serverID,
+			"user_id":   targetID,
+		},
 	})
 
 	return nil
 }
 
-func (s *memberService) Unban(ctx context.Context, userID string) error {
-	return s.banRepo.Delete(ctx, userID)
+func (s *memberService) Unban(ctx context.Context, serverID, userID string) error {
+	return s.banRepo.Delete(ctx, serverID, userID)
 }
 
-func (s *memberService) GetBans(ctx context.Context) ([]models.Ban, error) {
-	return s.banRepo.GetAll(ctx)
+func (s *memberService) GetBans(ctx context.Context, serverID string) ([]models.Ban, error) {
+	return s.banRepo.GetAllByServer(ctx, serverID)
 }
 
-func (s *memberService) IsBanned(ctx context.Context, userID string) (bool, error) {
-	return s.banRepo.Exists(ctx, userID)
+func (s *memberService) IsBanned(ctx context.Context, serverID, userID string) (bool, error) {
+	return s.banRepo.Exists(ctx, serverID, userID)
 }
 
-// checkHierarchy, actor'un target üzerinde yetki sahibi olup olmadığını kontrol eder.
-//
-// Güvenlik katmanları:
-// 1. Owner koruma — Owner rolüne sahip kullanıcı asla atılamaz/yasaklanamaz
-// 2. Position kontrolü — Actor'un en yüksek position'ı target'ınkinden büyük olmalı
-//
-// Bu iki katmanlı (defense in depth) yaklaşım sayesinde:
-// - Position manipülasyonu olsa bile owner korunur
-// - Normal kullanıcılar arası hiyerarşi position ile enforced olur
-func (s *memberService) checkHierarchy(ctx context.Context, actorID, targetID string) error {
-	targetRoles, err := s.roleRepo.GetByUserID(ctx, targetID)
+func (s *memberService) checkHierarchy(ctx context.Context, serverID, actorID, targetID string) error {
+	targetRoles, err := s.roleRepo.GetByUserIDAndServer(ctx, targetID, serverID)
 	if err != nil {
 		return fmt.Errorf("failed to get target roles: %w", err)
 	}
 
-	// Katman 1: Owner kimlik bazlı koruma — hedef owner ise işlem reddedilir
 	if models.HasOwnerRole(targetRoles) {
 		return fmt.Errorf("%w: the server owner cannot be kicked or banned", pkg.ErrForbidden)
 	}
 
-	actorRoles, err := s.roleRepo.GetByUserID(ctx, actorID)
+	actorRoles, err := s.roleRepo.GetByUserIDAndServer(ctx, actorID, serverID)
 	if err != nil {
 		return fmt.Errorf("failed to get actor roles: %w", err)
 	}
 
-	// Katman 2: Position bazlı hiyerarşi kontrolü
 	actorMaxPos := models.HighestPosition(actorRoles)
 	targetMaxPos := models.HighestPosition(targetRoles)
 

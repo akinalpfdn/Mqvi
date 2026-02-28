@@ -12,6 +12,7 @@
 
 import { create } from "zustand";
 import * as channelPermApi from "../api/channelPermissions";
+import { useServerStore } from "./serverStore";
 import type { ChannelPermissionOverride } from "../types";
 
 /** Boş override dizisi — selector'larda stable ref sağlar */
@@ -65,7 +66,10 @@ export const useChannelPermissionStore = create<ChannelPermissionState>(
       // Cache hit — zaten yüklenmiş
       if (get().fetchedChannels.has(channelID)) return;
 
-      const res = await channelPermApi.getOverrides(channelID);
+      const serverId = useServerStore.getState().activeServerId;
+      if (!serverId) return;
+
+      const res = await channelPermApi.getOverrides(serverId, channelID);
       if (res.data) {
         set((state) => ({
           overridesByChannel: {
@@ -78,7 +82,10 @@ export const useChannelPermissionStore = create<ChannelPermissionState>(
     },
 
     setOverride: async (channelID, roleID, allow, deny) => {
+      const serverId = useServerStore.getState().activeServerId;
+      if (!serverId) return false;
       const res = await channelPermApi.setOverride(
+        serverId,
         channelID,
         roleID,
         allow,
@@ -89,7 +96,9 @@ export const useChannelPermissionStore = create<ChannelPermissionState>(
     },
 
     deleteOverride: async (channelID, roleID) => {
-      const res = await channelPermApi.deleteOverride(channelID, roleID);
+      const serverId = useServerStore.getState().activeServerId;
+      if (!serverId) return false;
+      const res = await channelPermApi.deleteOverride(serverId, channelID, roleID);
       // WS broadcast ile state güncellenecek
       return !!res.data;
     },

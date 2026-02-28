@@ -12,8 +12,10 @@ import (
 
 // Invite, bir davet kodunu temsil eder.
 // DB'deki "invites" tablosunun Go karşılığıdır.
+// ServerID, davetin hangi sunucuya ait olduğunu belirtir.
 type Invite struct {
 	Code      string     `json:"code"`
+	ServerID  string     `json:"server_id"`
 	CreatedBy string     `json:"created_by"`
 	MaxUses   int        `json:"max_uses"`   // 0 = sınırsız
 	Uses      int        `json:"uses"`

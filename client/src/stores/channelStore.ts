@@ -6,13 +6,13 @@
  * - Seçili kanalı takip eder
  * - WebSocket event'leri ile gerçek zamanlı güncellenir
  *
- * Store'un WebSocket ile entegrasyonu:
- * useWebSocket hook'u WS event geldiğinde bu store'un handler'larını çağırır.
- * Store → API çağrısı yapar, WS → Store'u günceller (tek yönlü akış).
+ * Multi-server: fetchChannels activeServerId'ye göre server-scoped API çağrısı yapar.
+ * Server değiştirildiğinde dışarıdan fetchChannels() çağrılır (cascade refetch).
  */
 
 import { create } from "zustand";
 import * as channelApi from "../api/channels";
+import { useServerStore } from "./serverStore";
 import type {
   Channel,
   Category,
@@ -44,6 +44,9 @@ type ChannelState = {
   reorderChannels: (items: { id: string; position: number }[]) => Promise<boolean>;
   /** WS channel_reorder event handler — store'u tam listeyle replace eder */
   handleChannelReorder: (categories: CategoryWithChannels[]) => void;
+
+  /** Server değiştirildiğinde store'u temizler */
+  clearForServerSwitch: () => void;
 };
 
 export const useChannelStore = create<ChannelState>((set, get) => ({
@@ -52,17 +55,19 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   isLoading: false,
 
   /**
-   * fetchChannels — Backend'den kullanıcının görebileceği kanalları çeker.
+   * fetchChannels — Backend'den aktif sunucunun kanallarını çeker.
    *
-   * Backend ViewChannel yetkisine göre filtreler — yetki olmayan kanallar dönmez.
-   * Çağrıldığında seçili kanalın hala görünür olup olmadığını kontrol eder:
-   * - Seçili kanal artık görünür değilse → ilk görünür text kanala geçiş yapar
-   * - Bu sayede ViewChannel deny edildiğinde kullanıcı otomatik yönlendirilir
+   * Multi-server: serverStore'dan activeServerId alır ve
+   * GET /api/servers/{serverId}/channels çağırır.
+   * Server yoksa erken dönüş.
    */
   fetchChannels: async () => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+
     set({ isLoading: true });
 
-    const res = await channelApi.getChannels();
+    const res = await channelApi.getChannels(serverId);
     if (res.success && res.data) {
       const state = get();
       let selectedChannelId = state.selectedChannelId;
@@ -73,12 +78,10 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       if (selectedChannelId) {
         const stillVisible = allVisible.some((ch) => ch.id === selectedChannelId);
         if (!stillVisible) {
-          // Seçili kanal artık görünür değil → ilk görünür text kanala geç
           const firstText = allVisible.find((ch) => ch.type === "text");
           selectedChannelId = firstText?.id ?? null;
         }
       } else {
-        // İlk yüklemede: seçili kanal yoksa ilk text kanalını otomatik seç
         const firstText = allVisible.find((ch) => ch.type === "text");
         if (firstText) {
           selectedChannelId = firstText.id;
@@ -96,15 +99,10 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   },
 
   // ─── WebSocket Event Handlers ───
-  //
-  // Bu handler'lar WebSocket'ten gelen event'leri store state'ine yansıtır.
-  // Böylece bir kullanıcı kanal oluşturduğunda diğer kullanıcıların
-  // sidebar'ı anında güncellenir (refetch gerekmez).
 
   handleChannelCreate: (channel) => {
     set((state) => {
       const categories = state.categories.map((cg) => {
-        // Kanalın ait olduğu kategoriyi bul ve ekle
         if (cg.category.id === (channel.category_id ?? "")) {
           return {
             ...cg,
@@ -114,8 +112,6 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
         return cg;
       });
 
-      // Eğer kanal uncategorized ise (category_id = null)
-      // ve "uncategorized" grubu yoksa, channels'ın ilk grubuna ekle
       const found = categories.some((cg) =>
         cg.channels.some((ch) => ch.id === channel.id)
       );
@@ -147,7 +143,6 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
         channels: cg.channels.filter((ch) => ch.id !== channelId),
       }));
 
-      // Silinen kanal seçili ise, başka bir kanala geç
       let selectedChannelId = state.selectedChannelId;
       if (selectedChannelId === channelId) {
         const firstTextChannel = categories
@@ -189,22 +184,13 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
   // ─── Reorder ───
 
-  /**
-   * reorderChannels — Kanal sıralamasını optimistic olarak günceller.
-   *
-   * Akış:
-   * 1. Mevcut categories'ı kaydet (revert için)
-   * 2. items'daki position değerlerini store'a anında yansıt (optimistic update)
-   * 3. API çağrısı yap
-   * 4. Hata olursa eski state'e geri dön (revert)
-   *
-   * WS broadcast sonucu zaten handleChannelReorder ile gelecek —
-   * optimistic update sayesinde kullanıcı gecikme hissetmez.
-   */
   reorderChannels: async (items) => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+
     const prevCategories = get().categories;
 
-    // Optimistic update — position değerlerini anında uygula
+    // Optimistic update
     const positionMap = new Map(items.map((item) => [item.id, item.position]));
     set((state) => ({
       categories: state.categories.map((cg) => ({
@@ -218,9 +204,8 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       })),
     }));
 
-    const res = await channelApi.reorderChannels(items);
+    const res = await channelApi.reorderChannels(serverId, items);
     if (!res.success) {
-      // API hatası — eski state'e geri dön
       set({ categories: prevCategories });
       return false;
     }
@@ -228,12 +213,11 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return true;
   },
 
-  /**
-   * handleChannelReorder — WS channel_reorder event handler.
-   * Backend'den gelen tam CategoryWithChannels[] listesiyle store'u replace eder.
-   * Bu sayede tüm client'lar aynı sıraya gelir.
-   */
   handleChannelReorder: (categories) => {
     set({ categories });
+  },
+
+  clearForServerSwitch: () => {
+    set({ categories: [], selectedChannelId: null, isLoading: false });
   },
 }));

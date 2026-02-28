@@ -18,12 +18,16 @@ func NewSQLiteRoleRepo(db *sql.DB) RoleRepository {
 	return &sqliteRoleRepo{db: db}
 }
 
+// ─── Read operasyonları ───
+
 func (r *sqliteRoleRepo) GetByID(ctx context.Context, id string) (*models.Role, error) {
-	query := `SELECT id, name, color, position, permissions, is_default, created_at FROM roles WHERE id = ?`
+	query := `
+		SELECT id, server_id, name, color, position, permissions, is_default, created_at
+		FROM roles WHERE id = ?`
 
 	role := &models.Role{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&role.ID, &role.Name, &role.Color, &role.Position,
+		&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
 		&role.Permissions, &role.IsDefault, &role.CreatedAt,
 	)
 
@@ -37,12 +41,14 @@ func (r *sqliteRoleRepo) GetByID(ctx context.Context, id string) (*models.Role, 
 	return role, nil
 }
 
-func (r *sqliteRoleRepo) GetAll(ctx context.Context) ([]models.Role, error) {
-	query := `SELECT id, name, color, position, permissions, is_default, created_at FROM roles ORDER BY position DESC`
+func (r *sqliteRoleRepo) GetAllByServer(ctx context.Context, serverID string) ([]models.Role, error) {
+	query := `
+		SELECT id, server_id, name, color, position, permissions, is_default, created_at
+		FROM roles WHERE server_id = ? ORDER BY position DESC`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, serverID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get all roles: %w", err)
+		return nil, fmt.Errorf("failed to get roles by server: %w", err)
 	}
 	defer rows.Close()
 
@@ -50,7 +56,7 @@ func (r *sqliteRoleRepo) GetAll(ctx context.Context) ([]models.Role, error) {
 	for rows.Next() {
 		var role models.Role
 		if err := rows.Scan(
-			&role.ID, &role.Name, &role.Color, &role.Position,
+			&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
 			&role.Permissions, &role.IsDefault, &role.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan role row: %w", err)
@@ -65,12 +71,14 @@ func (r *sqliteRoleRepo) GetAll(ctx context.Context) ([]models.Role, error) {
 	return roles, nil
 }
 
-func (r *sqliteRoleRepo) GetDefault(ctx context.Context) (*models.Role, error) {
-	query := `SELECT id, name, color, position, permissions, is_default, created_at FROM roles WHERE is_default = 1 LIMIT 1`
+func (r *sqliteRoleRepo) GetDefaultByServer(ctx context.Context, serverID string) (*models.Role, error) {
+	query := `
+		SELECT id, server_id, name, color, position, permissions, is_default, created_at
+		FROM roles WHERE server_id = ? AND is_default = 1 LIMIT 1`
 
 	role := &models.Role{}
-	err := r.db.QueryRowContext(ctx, query).Scan(
-		&role.ID, &role.Name, &role.Color, &role.Position,
+	err := r.db.QueryRowContext(ctx, query, serverID).Scan(
+		&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
 		&role.Permissions, &role.IsDefault, &role.CreatedAt,
 	)
 
@@ -84,17 +92,17 @@ func (r *sqliteRoleRepo) GetDefault(ctx context.Context) (*models.Role, error) {
 	return role, nil
 }
 
-func (r *sqliteRoleRepo) GetByUserID(ctx context.Context, userID string) ([]models.Role, error) {
+func (r *sqliteRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serverID string) ([]models.Role, error) {
 	query := `
-		SELECT r.id, r.name, r.color, r.position, r.permissions, r.is_default, r.created_at
+		SELECT r.id, r.server_id, r.name, r.color, r.position, r.permissions, r.is_default, r.created_at
 		FROM roles r
 		INNER JOIN user_roles ur ON r.id = ur.role_id
-		WHERE ur.user_id = ?
+		WHERE ur.user_id = ? AND ur.server_id = ?
 		ORDER BY r.position DESC`
 
-	rows, err := r.db.QueryContext(ctx, query, userID)
+	rows, err := r.db.QueryContext(ctx, query, userID, serverID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get roles by user id: %w", err)
+		return nil, fmt.Errorf("failed to get roles by user and server: %w", err)
 	}
 	defer rows.Close()
 
@@ -102,7 +110,7 @@ func (r *sqliteRoleRepo) GetByUserID(ctx context.Context, userID string) ([]mode
 	for rows.Next() {
 		var role models.Role
 		if err := rows.Scan(
-			&role.ID, &role.Name, &role.Color, &role.Position,
+			&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
 			&role.Permissions, &role.IsDefault, &role.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan role row: %w", err)
@@ -117,35 +125,28 @@ func (r *sqliteRoleRepo) GetByUserID(ctx context.Context, userID string) ([]mode
 	return roles, nil
 }
 
-func (r *sqliteRoleRepo) AssignToUser(ctx context.Context, userID string, roleID string) error {
-	query := `INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)`
-	_, err := r.db.ExecContext(ctx, query, userID, roleID)
+func (r *sqliteRoleRepo) GetMaxPosition(ctx context.Context, serverID string) (int, error) {
+	var maxPos int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(position), 0) FROM roles WHERE server_id = ?`,
+		serverID,
+	).Scan(&maxPos)
 	if err != nil {
-		return fmt.Errorf("failed to assign role to user: %w", err)
+		return 0, fmt.Errorf("failed to get max role position: %w", err)
 	}
-	return nil
+	return maxPos, nil
 }
 
-func (r *sqliteRoleRepo) RemoveFromUser(ctx context.Context, userID string, roleID string) error {
-	_, err := r.db.ExecContext(ctx, query_removeRole, userID, roleID)
-	if err != nil {
-		return fmt.Errorf("failed to remove role from user: %w", err)
-	}
-	return nil
-}
-
-const query_removeRole = `DELETE FROM user_roles WHERE user_id = ? AND role_id = ?`
-
-// ─── CRUD operasyonları (Faz 3'te eklendi) ───
+// ─── Write operasyonları ───
 
 func (r *sqliteRoleRepo) Create(ctx context.Context, role *models.Role) error {
 	query := `
-		INSERT INTO roles (id, name, color, position, permissions, is_default)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, 0)
+		INSERT INTO roles (id, server_id, name, color, position, permissions, is_default)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, 0)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
-		role.Name, role.Color, role.Position, role.Permissions,
+		role.ServerID, role.Name, role.Color, role.Position, role.Permissions,
 	).Scan(&role.ID, &role.CreatedAt)
 
 	if err != nil {
@@ -198,8 +199,6 @@ func (r *sqliteRoleRepo) Delete(ctx context.Context, id string) error {
 
 // UpdatePositions, birden fazla rolün position değerini atomik olarak günceller.
 // Transaction kullanılır — bir hata olursa tüm değişiklikler geri alınır.
-// Bu sayede kısmi güncelleme (partial update) riski ortadan kalkar.
-// sqlite_channel.go'daki UpdatePositions ile aynı pattern.
 func (r *sqliteRoleRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -234,11 +233,22 @@ func (r *sqliteRoleRepo) UpdatePositions(ctx context.Context, items []models.Pos
 	return nil
 }
 
-func (r *sqliteRoleRepo) GetMaxPosition(ctx context.Context) (int, error) {
-	var maxPos int
-	err := r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(position), 0) FROM roles`).Scan(&maxPos)
+// ─── User-Role mapping ───
+
+func (r *sqliteRoleRepo) AssignToUser(ctx context.Context, userID, roleID, serverID string) error {
+	query := `INSERT OR IGNORE INTO user_roles (user_id, role_id, server_id) VALUES (?, ?, ?)`
+	_, err := r.db.ExecContext(ctx, query, userID, roleID, serverID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get max role position: %w", err)
+		return fmt.Errorf("failed to assign role to user: %w", err)
 	}
-	return maxPos, nil
+	return nil
+}
+
+func (r *sqliteRoleRepo) RemoveFromUser(ctx context.Context, userID, roleID string) error {
+	query := `DELETE FROM user_roles WHERE user_id = ? AND role_id = ?`
+	_, err := r.db.ExecContext(ctx, query, userID, roleID)
+	if err != nil {
+		return fmt.Errorf("failed to remove role from user: %w", err)
+	}
+	return nil
 }

@@ -4,9 +4,6 @@
 // - Request parse et
 // - Service çağır
 // - Response yaz
-//
-// İş mantığı (permission kontrolü, token oluşturma) burada değil,
-// VoiceService'te yaşar. Handler sadece HTTP request/response köprüsüdür.
 package handlers
 
 import (
@@ -24,19 +21,17 @@ type VoiceHandler struct {
 }
 
 // NewVoiceHandler, yeni bir VoiceHandler oluşturur.
-// Constructor injection: VoiceService interface'i parametre olarak alınır.
 func NewVoiceHandler(voiceService services.VoiceService) *VoiceHandler {
 	return &VoiceHandler{voiceService: voiceService}
 }
 
 // Token, ses kanalına katılmak için LiveKit JWT token oluşturur.
 //
-//	POST /api/voice/token
+//	POST /api/servers/{serverId}/voice/token
 //	Request:  { "channel_id": "abc123" }
-//	Response: { "token": "eyJ...", "url": "ws://localhost:7880", "channel_id": "abc123" }
+//	Response: { "token": "eyJ...", "url": "ws://livekit-url", "channel_id": "abc123" }
 //
-// Permission kontrolü (PermConnectVoice, PermSpeak, PermStream)
-// VoiceService.GenerateToken içinde yapılır — handler sadece iletir.
+// Per-server LiveKit: token, sunucuya bağlı LiveKit instance üzerinden üretilir.
 func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -55,7 +50,6 @@ func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// display_name varsa onu tercih et, yoksa username kullanılır (service katmanında).
 	var displayName string
 	if user.DisplayName != nil {
 		displayName = *user.DisplayName
@@ -73,7 +67,7 @@ func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
 // İlk bağlantı veya reconnect sonrası frontend bu endpoint'i çağırarak
 // hangi kullanıcıların hangi ses kanallarında olduğunu öğrenir.
 //
-//	GET /api/voice/states
+//	GET /api/servers/{serverId}/voice/states
 //	Response: [ { "user_id": "...", "channel_id": "...", ... } ]
 func (h *VoiceHandler) VoiceStates(w http.ResponseWriter, r *http.Request) {
 	states := h.voiceService.GetAllVoiceStates()

@@ -17,6 +17,7 @@ import { useChannelStore } from "../../stores/channelStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import * as channelApi from "../../api/channels";
+import { useServerStore } from "../../stores/serverStore";
 import ChannelPermissionEditor from "./ChannelPermissionEditor";
 import type { Channel } from "../../types";
 
@@ -45,8 +46,10 @@ function ChannelSettings() {
     const trimmed = newName.trim();
     if (!trimmed || isCreating) return;
 
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
     setIsCreating(true);
-    const res = await channelApi.createChannel({
+    const res = await channelApi.createChannel(serverId, {
       name: trimmed,
       type: newType,
     });
@@ -69,7 +72,9 @@ function ChannelSettings() {
     });
     if (!ok) return;
 
-    const res = await channelApi.deleteChannel(channelId);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    const res = await channelApi.deleteChannel(serverId, channelId);
     if (res.success) {
       addToast("success", t("channelDeleted"));
       if (selectedChannel?.id === channelId) setSelectedChannel(null);

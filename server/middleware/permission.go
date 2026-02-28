@@ -12,12 +12,16 @@ import (
 
 // PermissionMiddleware, kullanıcının gerekli yetkiye sahip olup olmadığını kontrol eder.
 //
-// Bu middleware AuthMiddleware'den SONRA çalışır —
-// context'te zaten doğrulanmış user bilgisi vardır.
+// Bu middleware AuthMiddleware + ServerMembershipMiddleware'den SONRA çalışır —
+// context'te zaten doğrulanmış user bilgisi VE serverID mevcuttur.
+//
+// Multi-server mimaride roller sunucu bazlıdır. Bu yüzden permission kontrolü
+// yapılırken context'teki serverID kullanılarak GetByUserIDAndServer çağrılır.
 //
 // Akış:
 // HTTP request → AuthMiddleware (JWT doğrula, user'ı context'e koy)
-//              → PermissionMiddleware (user'ın rollerini al, yetkiyi kontrol et)
+//              → ServerMembershipMiddleware (serverID'yi context'e koy)
+//              → PermissionMiddleware (user'ın o sunucudaki rollerini al, yetkiyi kontrol et)
 //              → Handler
 type PermissionMiddleware struct {
 	roleRepo repository.RoleRepository
@@ -44,7 +48,14 @@ func (m *PermissionMiddleware) Load(next http.Handler) http.Handler {
 			return
 		}
 
-		roles, err := m.roleRepo.GetByUserID(r.Context(), user.ID)
+		// ServerID context'ten al — ServerMembershipMiddleware tarafından eklenir.
+		serverID, ok := r.Context().Value(handlers.ServerIDContextKey).(string)
+		if !ok || serverID == "" {
+			pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required for permission check")
+			return
+		}
+
+		roles, err := m.roleRepo.GetByUserIDAndServer(r.Context(), user.ID, serverID)
 		if err != nil {
 			pkg.ErrorWithMessage(w, http.StatusInternalServerError, "failed to get user roles")
 			return
@@ -77,8 +88,15 @@ func (m *PermissionMiddleware) Require(perm models.Permission, next http.Handler
 			return
 		}
 
-		// Kullanıcının rollerini getir
-		roles, err := m.roleRepo.GetByUserID(r.Context(), user.ID)
+		// ServerID context'ten al — ServerMembershipMiddleware tarafından eklenir.
+		serverID, ok := r.Context().Value(handlers.ServerIDContextKey).(string)
+		if !ok || serverID == "" {
+			pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required for permission check")
+			return
+		}
+
+		// Kullanıcının o sunucudaki rollerini getir
+		roles, err := m.roleRepo.GetByUserIDAndServer(r.Context(), user.ID, serverID)
 		if err != nil {
 			pkg.ErrorWithMessage(w, http.StatusInternalServerError, "failed to get user roles")
 			return
@@ -86,10 +104,6 @@ func (m *PermissionMiddleware) Require(perm models.Permission, next http.Handler
 
 		// Effective permissions: tüm rollerin permission'larının OR'u.
 		// Kullanıcının birden fazla rolü olabilir — herhangi birindeki yetki geçerlidir.
-		//
-		// Bitwise OR nedir?
-		// İki sayının bitlerini birleştirir: 32 | 64 = 96
-		// Her rol'un permission'ını OR'layarak tüm yetkileri tek sayıda toplarız.
 		var effectivePerms models.Permission
 		for _, role := range roles {
 			effectivePerms |= role.Permissions

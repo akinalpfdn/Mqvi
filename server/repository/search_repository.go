@@ -17,8 +17,9 @@ type SearchResult struct {
 //
 // Search: FTS5 ile mesaj araması yapar.
 // query: Arama terimi — FTS5 match syntax'ı destekler.
-// channelID: Opsiyonel — belirli bir kanalla sınırla (nil = tüm kanallar).
+// serverID: Zorunlu — aramayı sunucunun kanallarıyla sınırlar.
+// channelID: Opsiyonel — belirli bir kanalla sınırla (nil = sunucunun tüm kanalları).
 // limit, offset: Pagination parametreleri.
 type SearchRepository interface {
-	Search(ctx context.Context, query string, channelID *string, limit, offset int) (*SearchResult, error)
+	Search(ctx context.Context, query string, serverID string, channelID *string, limit, offset int) (*SearchResult, error)
 }

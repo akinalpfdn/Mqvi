@@ -53,6 +53,15 @@ type UserInfoProvider interface {
 	GetByID(ctx context.Context, id string) (*models.User, error)
 }
 
+// ServerListProvider, kullanıcının üye olduğu sunucu listesini dönen interface (ISP).
+//
+// ServerRepository'nin GetUserServers metodunu karşılar (Go implicit interface).
+// WS bağlantısı kurulduğunda ready event'e sunucu listesi eklenir ve
+// client.serverIDs doldurulur (BroadcastToServer filtrelemesi için).
+type ServerListProvider interface {
+	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
+}
+
 // upgrader, HTTP bağlantısını WebSocket bağlantısına yükseltir.
 //
 // WebSocket Upgrade nedir?
@@ -77,30 +86,31 @@ type Handler struct {
 	banChecker          BanChecker
 	voiceStatesProvider VoiceStatesProvider
 	userInfoProvider    UserInfoProvider
+	serverListProvider  ServerListProvider
 }
 
 // NewHandler, yeni bir WebSocket handler oluşturur.
 //
-// tokenValidator parametresi TokenValidator interface'ini karşılayan herhangi bir
-// struct olabilir. Pratikte bu authService'dir — Go'da interface'ler implicit'tir,
-// yani authService.ValidateAccessToken metodu varsa otomatik olarak karşılar.
-//
-// banChecker parametresi BanChecker interface'ini karşılar (pratikte memberService).
-// Banlı kullanıcıların WS bağlantısı kurmasını engeller.
-//
-// voiceStatesProvider parametresi VoiceStatesProvider interface'ini karşılar
-// (pratikte voiceService). Bağlantı kurulduğunda aktif voice state'leri gönderir.
-//
-// userInfoProvider parametresi UserInfoProvider interface'ini karşılar (pratikte userRepo).
-// WS bağlantısı kurulduğunda kullanıcının display_name ve avatar_url bilgilerini
-// Hub cache'ine yazar — voice join gibi event'lerde DB'ye gitmeden kullanılır.
-func NewHandler(hub *Hub, tokenValidator TokenValidator, banChecker BanChecker, voiceStatesProvider VoiceStatesProvider, userInfoProvider UserInfoProvider) *Handler {
+// tokenValidator: JWT token doğrulaması (pratikte authService).
+// banChecker: Banlı kullanıcı kontrolü — multi-server'da nil geçilir (ban sunucu bazlı).
+// voiceStatesProvider: Aktif voice state'leri (pratikte voiceService).
+// userInfoProvider: Kullanıcı profil bilgileri (pratikte userRepo).
+// serverListProvider: Kullanıcının sunucu listesi (pratikte serverRepo).
+func NewHandler(
+	hub *Hub,
+	tokenValidator TokenValidator,
+	banChecker BanChecker,
+	voiceStatesProvider VoiceStatesProvider,
+	userInfoProvider UserInfoProvider,
+	serverListProvider ServerListProvider,
+) *Handler {
 	return &Handler{
 		hub:                 hub,
 		tokenValidator:      tokenValidator,
 		banChecker:          banChecker,
 		voiceStatesProvider: voiceStatesProvider,
 		userInfoProvider:    userInfoProvider,
+		serverListProvider:  serverListProvider,
 	}
 }
 
@@ -191,17 +201,44 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		h.hub.SetInvisible(claims.UserID, true)
 	}
 
-	// 6. Hub'a kaydet
+	// 6. Sunucu listesini al ve client.serverIDs'i doldur
+	//
+	// Multi-server: bağlantı kurulduğunda kullanıcının üye olduğu sunucuları
+	// DB'den çek. İki amaçla kullanılır:
+	// 1. Ready event'te sunucu listesini frontend'e gönder
+	// 2. client.serverIDs'i doldur — BroadcastToServer filtrelemesi için
+	var readyServers []ReadyServerItem
+	var serverIDs []string
+	if h.serverListProvider != nil {
+		if servers, err := h.serverListProvider.GetUserServers(r.Context(), claims.UserID); err == nil {
+			readyServers = make([]ReadyServerItem, len(servers))
+			serverIDs = make([]string, len(servers))
+			for i, s := range servers {
+				readyServers[i] = ReadyServerItem{
+					ID:      s.ID,
+					Name:    s.Name,
+					IconURL: s.IconURL,
+				}
+				serverIDs[i] = s.ID
+			}
+		}
+	}
+	client.serverIDs = serverIDs
+
+	// 7. Hub'a kaydet
 	h.hub.register <- client
 
-	// 7. "ready" event gönder — client bağlantı kurduğunda hangi kullanıcıların
-	// online olduğunu bilmeli. Bu event ile frontend memberStore'u başlatır.
+	// 8. "ready" event gönder — client bağlantı kurduğunda:
+	// - Hangi sunuculara üye olduğunu bilmeli (server list sidebar)
+	// - Hangi kullanıcıların online olduğunu bilmeli (presence indicator)
+	//
 	// GetVisibleOnlineUserIDs() invisible kullanıcıları hariç tutar —
 	// "offline" status seçmiş ama bağlı olan kullanıcılar listede görünmez.
 	client.sendEvent(Event{
 		Op: OpReady,
 		Data: ReadyData{
 			OnlineUserIDs: h.hub.GetVisibleOnlineUserIDs(),
+			Servers:       readyServers,
 		},
 	})
 

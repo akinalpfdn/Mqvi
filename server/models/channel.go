@@ -19,8 +19,10 @@ const (
 
 // Channel, bir sunucu kanalını temsil eder (text chat veya voice).
 // DB'deki "channels" tablosunun Go karşılığı.
+// ServerID, kanalın hangi sunucuya ait olduğunu belirtir.
 type Channel struct {
 	ID         string      `json:"id"`
+	ServerID   string      `json:"server_id"`
 	Name       string      `json:"name"`
 	Type       ChannelType `json:"type"`
 	CategoryID *string     `json:"category_id"` // Nullable — kategorisiz kanal olabilir
@@ -33,8 +35,10 @@ type Channel struct {
 
 // Category, kanalları gruplamak için kullanılan kategorileri temsil eder.
 // Discord'daki "TEXT CHANNELS", "VOICE CHANNELS" gibi başlıklar.
+// ServerID, kategorinin hangi sunucuya ait olduğunu belirtir.
 type Category struct {
 	ID        string    `json:"id"`
+	ServerID  string    `json:"server_id"`
 	Name      string    `json:"name"`
 	Position  int       `json:"position"`
 	CreatedAt time.Time `json:"created_at"`

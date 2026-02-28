@@ -26,7 +26,6 @@ function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
   // ─── Handlers ───
@@ -49,7 +48,6 @@ function RegisterPage() {
       password,
       displayName || undefined,
       email || undefined,
-      inviteCode || undefined,
     );
     if (success) {
       navigate("/channels");
@@ -133,24 +131,6 @@ function RegisterPage() {
             {!email.trim() && (
               <p className="auth-email-warning">{t("emailWarning")}</p>
             )}
-          </div>
-
-          <div className="auth-field">
-            <label htmlFor="inviteCode" className="auth-label">
-              {t("inviteCode")}
-            </label>
-            <input
-              id="inviteCode"
-              type="text"
-              value={inviteCode}
-              onChange={(e) => {
-                setInviteCode(e.target.value);
-                handleInputChange();
-              }}
-              placeholder={t("inviteCodePlaceholder")}
-              maxLength={32}
-              className="auth-input"
-            />
           </div>
 
           <div className="auth-field">

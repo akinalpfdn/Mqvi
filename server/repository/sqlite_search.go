@@ -24,15 +24,11 @@ func NewSQLiteSearchRepo(db *sql.DB) SearchRepository {
 // FTS5 sorgu mantığı:
 // 1. messages_fts tablosunda MATCH ile arama yap
 // 2. Bulunan rowid'ler ile messages tablosunu JOIN et
-// 3. Opsiyonel kanal filtresi uygula
-// 4. Yazar bilgisini JOIN ile çek
-// 5. BM25 ranking ile sırala (en alakalı üstte)
-//
-// BM25 nedir?
-// "Best Matching 25" — bilgi erişiminde yaygın kullanılan bir ranking algoritması.
-// Arama teriminin dokümandaki frekansına ve doküman uzunluğuna göre skor hesaplar.
-// FTS5'in `rank` sütunu otomatik olarak BM25 skoru döner.
-func (r *sqliteSearchRepo) Search(ctx context.Context, query string, channelID *string, limit, offset int) (*SearchResult, error) {
+// 3. channels tablosuyla JOIN ederek server_id filtresi uygula
+// 4. Opsiyonel kanal filtresi uygula
+// 5. Yazar bilgisini JOIN ile çek
+// 6. BM25 ranking ile sırala (en alakalı üstte)
+func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID string, channelID *string, limit, offset int) (*SearchResult, error) {
 	// Limit koruma
 	if limit <= 0 || limit > 100 {
 		limit = 25
@@ -42,15 +38,10 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, channelID *
 	}
 
 	// FTS5 query sanitize — kullanıcı girdisini güvenli hale getir.
-	// FTS5'in özel operatörlerini (AND, OR, NOT, NEAR) kötüye kullanılmaktan korumak için
-	// her kelimeyi tırnak içine alıyoruz.
 	safeQuery := sanitizeFTSQuery(query)
 	if safeQuery == "" {
 		return &SearchResult{Messages: []models.Message{}, TotalCount: 0}, nil
 	}
-
-	// Sonuçları ve toplam sayıyı çekmek için 2 sorgu kullanıyoruz.
-	// Alternatif: CTE ile tek sorguda yapılabilir ama okunabilirlik için ayrı tuttuk.
 
 	// 1. Toplam sonuç sayısı
 	var countQuery string
@@ -61,15 +52,17 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, channelID *
 			SELECT COUNT(*)
 			FROM messages_fts fts
 			JOIN messages m ON m.rowid = fts.rowid
-			WHERE messages_fts MATCH ? AND m.channel_id = ?`
-		countArgs = []any{safeQuery, *channelID}
+			JOIN channels ch ON ch.id = m.channel_id
+			WHERE messages_fts MATCH ? AND ch.server_id = ? AND m.channel_id = ?`
+		countArgs = []any{safeQuery, serverID, *channelID}
 	} else {
 		countQuery = `
 			SELECT COUNT(*)
 			FROM messages_fts fts
 			JOIN messages m ON m.rowid = fts.rowid
-			WHERE messages_fts MATCH ?`
-		countArgs = []any{safeQuery}
+			JOIN channels ch ON ch.id = m.channel_id
+			WHERE messages_fts MATCH ? AND ch.server_id = ?`
+		countArgs = []any{safeQuery, serverID}
 	}
 
 	var totalCount int
@@ -91,22 +84,24 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, channelID *
 			       u.id, u.username, u.display_name, u.avatar_url, u.status
 			FROM messages_fts fts
 			JOIN messages m ON m.rowid = fts.rowid
+			JOIN channels ch ON ch.id = m.channel_id
 			LEFT JOIN users u ON m.user_id = u.id
-			WHERE messages_fts MATCH ? AND m.channel_id = ?
+			WHERE messages_fts MATCH ? AND ch.server_id = ? AND m.channel_id = ?
 			ORDER BY fts.rank
 			LIMIT ? OFFSET ?`
-		dataArgs = []any{safeQuery, *channelID, limit, offset}
+		dataArgs = []any{safeQuery, serverID, *channelID, limit, offset}
 	} else {
 		dataQuery = `
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at,
 			       u.id, u.username, u.display_name, u.avatar_url, u.status
 			FROM messages_fts fts
 			JOIN messages m ON m.rowid = fts.rowid
+			JOIN channels ch ON ch.id = m.channel_id
 			LEFT JOIN users u ON m.user_id = u.id
-			WHERE messages_fts MATCH ?
+			WHERE messages_fts MATCH ? AND ch.server_id = ?
 			ORDER BY fts.rank
 			LIMIT ? OFFSET ?`
-		dataArgs = []any{safeQuery, limit, offset}
+		dataArgs = []any{safeQuery, serverID, limit, offset}
 	}
 
 	rows, err := r.db.QueryContext(ctx, dataQuery, dataArgs...)
@@ -157,8 +152,6 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, channelID *
 // FTS5 özel operatörleri (AND, OR, NOT, NEAR, *, ^) kötüye kullanılabilir.
 // Bu fonksiyon her kelimeyi çift tırnak içine alıp sonuna * ekleyerek prefix arama yapar.
 // Böylece "tes" sorgusu "test", "testing" gibi kelimeleri de bulur.
-//
-// FTS5 prefix syntax: "kelime"* → kelime ile başlayan tüm terimleri eşleştirir.
 func sanitizeFTSQuery(query string) string {
 	words := strings.Fields(query)
 	if len(words) == 0 {

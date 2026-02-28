@@ -22,11 +22,12 @@ func NewSQLiteChannelRepo(db *sql.DB) ChannelRepository {
 
 func (r *sqliteChannelRepo) Create(ctx context.Context, channel *models.Channel) error {
 	query := `
-		INSERT INTO channels (id, name, type, category_id, topic, position, user_limit, bitrate)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO channels (id, server_id, name, type, category_id, topic, position, user_limit, bitrate)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
+		channel.ServerID,
 		channel.Name,
 		channel.Type,
 		channel.CategoryID,
@@ -45,12 +46,12 @@ func (r *sqliteChannelRepo) Create(ctx context.Context, channel *models.Channel)
 
 func (r *sqliteChannelRepo) GetByID(ctx context.Context, id string) (*models.Channel, error) {
 	query := `
-		SELECT id, name, type, category_id, topic, position, user_limit, bitrate, created_at
+		SELECT id, server_id, name, type, category_id, topic, position, user_limit, bitrate, created_at
 		FROM channels WHERE id = ?`
 
 	ch := &models.Channel{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&ch.ID, &ch.Name, &ch.Type, &ch.CategoryID, &ch.Topic,
+		&ch.ID, &ch.ServerID, &ch.Name, &ch.Type, &ch.CategoryID, &ch.Topic,
 		&ch.Position, &ch.UserLimit, &ch.Bitrate, &ch.CreatedAt,
 	)
 
@@ -64,14 +65,14 @@ func (r *sqliteChannelRepo) GetByID(ctx context.Context, id string) (*models.Cha
 	return ch, nil
 }
 
-func (r *sqliteChannelRepo) GetAll(ctx context.Context) ([]models.Channel, error) {
+func (r *sqliteChannelRepo) GetAllByServer(ctx context.Context, serverID string) ([]models.Channel, error) {
 	query := `
-		SELECT id, name, type, category_id, topic, position, user_limit, bitrate, created_at
-		FROM channels ORDER BY position ASC`
+		SELECT id, server_id, name, type, category_id, topic, position, user_limit, bitrate, created_at
+		FROM channels WHERE server_id = ? ORDER BY position ASC`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, serverID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get all channels: %w", err)
+		return nil, fmt.Errorf("failed to get channels by server: %w", err)
 	}
 	defer rows.Close()
 
@@ -79,7 +80,7 @@ func (r *sqliteChannelRepo) GetAll(ctx context.Context) ([]models.Channel, error
 	for rows.Next() {
 		var ch models.Channel
 		if err := rows.Scan(
-			&ch.ID, &ch.Name, &ch.Type, &ch.CategoryID, &ch.Topic,
+			&ch.ID, &ch.ServerID, &ch.Name, &ch.Type, &ch.CategoryID, &ch.Topic,
 			&ch.Position, &ch.UserLimit, &ch.Bitrate, &ch.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan channel row: %w", err)
@@ -96,7 +97,7 @@ func (r *sqliteChannelRepo) GetAll(ctx context.Context) ([]models.Channel, error
 
 func (r *sqliteChannelRepo) GetByCategoryID(ctx context.Context, categoryID string) ([]models.Channel, error) {
 	query := `
-		SELECT id, name, type, category_id, topic, position, user_limit, bitrate, created_at
+		SELECT id, server_id, name, type, category_id, topic, position, user_limit, bitrate, created_at
 		FROM channels WHERE category_id = ? ORDER BY position ASC`
 
 	rows, err := r.db.QueryContext(ctx, query, categoryID)
@@ -109,7 +110,7 @@ func (r *sqliteChannelRepo) GetByCategoryID(ctx context.Context, categoryID stri
 	for rows.Next() {
 		var ch models.Channel
 		if err := rows.Scan(
-			&ch.ID, &ch.Name, &ch.Type, &ch.CategoryID, &ch.Topic,
+			&ch.ID, &ch.ServerID, &ch.Name, &ch.Type, &ch.CategoryID, &ch.Topic,
 			&ch.Position, &ch.UserLimit, &ch.Bitrate, &ch.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan channel row: %w", err)
@@ -163,8 +164,6 @@ func (r *sqliteChannelRepo) Delete(ctx context.Context, id string) error {
 }
 
 // UpdatePositions, birden fazla kanalın position değerini atomik olarak günceller.
-// Transaction kullanılır — bir hata olursa tüm değişiklikler geri alınır.
-// Bu sayede kısmi güncelleme (partial update) riski ortadan kalkar.
 func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -200,7 +199,6 @@ func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.
 }
 
 // GetMaxPosition, belirli bir kategorideki en yüksek position değerini döner.
-// Yeni kanal eklenirken position = max + 1 olarak atanır.
 func (r *sqliteChannelRepo) GetMaxPosition(ctx context.Context, categoryID string) (int, error) {
 	query := `SELECT COALESCE(MAX(position), -1) FROM channels WHERE category_id = ?`
 

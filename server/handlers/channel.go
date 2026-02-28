@@ -20,7 +20,7 @@ func NewChannelHandler(channelService services.ChannelService) *ChannelHandler {
 }
 
 // List godoc
-// GET /api/channels
+// GET /api/servers/{serverId}/channels
 // Kullanıcının görebileceği kanalları kategorilere göre gruplar ve döner.
 // ViewChannel yetkisi olmayan kanallar filtrelenir (sidebar'da gizli kalır).
 func (h *ChannelHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +30,13 @@ func (h *ChannelHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grouped, err := h.channelService.GetAllGrouped(r.Context(), user.ID)
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	grouped, err := h.channelService.GetAllGrouped(r.Context(), serverID, user.ID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -40,16 +46,22 @@ func (h *ChannelHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Create godoc
-// POST /api/channels
+// POST /api/servers/{serverId}/channels
 // Yeni kanal oluşturur. MANAGE_CHANNELS yetkisi gerektirir.
 func (h *ChannelHandler) Create(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
 	var req models.CreateChannelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	channel, err := h.channelService.Create(r.Context(), &req)
+	channel, err := h.channelService.Create(r.Context(), serverID, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -59,13 +71,8 @@ func (h *ChannelHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // Update godoc
-// PATCH /api/channels/{id}
+// PATCH /api/servers/{serverId}/channels/{id}
 // Kanalı günceller. MANAGE_CHANNELS yetkisi gerektirir.
-//
-// r.PathValue("id") — Go 1.22+ ile gelen path parameter desteği.
-// Route tanımında {id} olarak yazılan parametreyi çeker.
-// Eski yöntem: gorilla/mux veya chi router gerekiyordu.
-// Go 1.22'den itibaren standart kütüphane bunu destekliyor.
 func (h *ChannelHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -85,7 +92,7 @@ func (h *ChannelHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete godoc
-// DELETE /api/channels/{id}
+// DELETE /api/servers/{serverId}/channels/{id}
 // Kanalı siler. MANAGE_CHANNELS yetkisi gerektirir.
 func (h *ChannelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -99,16 +106,18 @@ func (h *ChannelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // Reorder godoc
-// PATCH /api/channels/reorder
+// PATCH /api/servers/{serverId}/channels/reorder
 // Kanal sıralamasını toplu olarak günceller. MANAGE_CHANNELS yetkisi gerektirir.
-//
-// Body: { "items": [{ "id": "abc", "position": 0 }, { "id": "def", "position": 1 }] }
-// Transaction ile atomik — ya hepsi güncellenir ya hiçbiri.
-// Başarılıysa güncel CategoryWithChannels listesini döner ve WS broadcast eder.
 func (h *ChannelHandler) Reorder(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
 	}
 
@@ -118,7 +127,7 @@ func (h *ChannelHandler) Reorder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grouped, err := h.channelService.ReorderChannels(r.Context(), &req, user.ID)
+	grouped, err := h.channelService.ReorderChannels(r.Context(), serverID, &req, user.ID)
 	if err != nil {
 		pkg.Error(w, err)
 		return

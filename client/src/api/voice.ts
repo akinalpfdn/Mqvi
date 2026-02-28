@@ -1,9 +1,10 @@
 /**
  * Voice API fonksiyonları.
  *
+ * Multi-server: Per-server LiveKit token generation.
  * Backend endpoint'leri:
- * - POST /api/voice/token   → LiveKit JWT token oluşturur (ses kanalına katılım için)
- * - GET  /api/voice/states  → Tüm aktif ses durumlarını döner
+ * - POST /api/servers/{serverId}/voice/token   → LiveKit JWT token oluşturur
+ * - GET  /api/servers/{serverId}/voice/states  → Aktif ses durumlarını döner
  */
 
 import { apiClient } from "./client";
@@ -12,15 +13,12 @@ import type { VoiceTokenResponse, VoiceState } from "../types";
 /**
  * getVoiceToken — Ses kanalına katılmak için LiveKit JWT token alır.
  *
- * Backend bu token'ı oluştururken şu kontrolleri yapar:
- * 1. Kanal var mı ve voice tipinde mi?
- * 2. PermConnectVoice yetkisi var mı?
- * 3. Kanal dolu mu? (user_limit kontrolü)
- * 4. PermSpeak → canPublish grant (ses yayını)
- * 5. PermStream → screen share izni
+ * Multi-server: serverId ile hangi sunucunun LiveKit instance'ından
+ * token alınacağı belirlenir. Backend credential'ları decrypt edip
+ * token üretir — client LiveKit URL + token ile doğrudan bağlanır.
  */
-export async function getVoiceToken(channelId: string) {
-  return apiClient<VoiceTokenResponse>("/voice/token", {
+export async function getVoiceToken(serverId: string, channelId: string) {
+  return apiClient<VoiceTokenResponse>(`/servers/${serverId}/voice/token`, {
     method: "POST",
     body: { channel_id: channelId },
   });
@@ -31,8 +29,7 @@ export async function getVoiceToken(channelId: string) {
  *
  * Kullanım: İlk bağlantı veya reconnect sonrası hangi kullanıcıların
  * hangi ses kanallarında olduğunu öğrenmek için.
- * Normal akışta WS voice_states_sync event'i bunu zaten sağlar.
  */
-export async function getVoiceStates() {
-  return apiClient<VoiceState[]>("/voice/states");
+export async function getVoiceStates(serverId: string) {
+  return apiClient<VoiceState[]>(`/servers/${serverId}/voice/states`);
 }

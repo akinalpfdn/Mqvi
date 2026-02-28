@@ -113,7 +113,7 @@ func (h *AvatarHandler) UploadUserAvatar(w http.ResponseWriter, r *http.Request)
 }
 
 // UploadServerIcon godoc
-// POST /api/server/icon
+// POST /api/servers/{serverId}/icon
 // Content-Type: multipart/form-data
 // Body: file field ile resim dosyası
 //
@@ -121,6 +121,12 @@ func (h *AvatarHandler) UploadUserAvatar(w http.ResponseWriter, r *http.Request)
 // Eski ikon dosyası varsa diskten silinir.
 // Yeni ikon URL'i server kaydına yazılır ve server_update WS broadcast yapılır.
 func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
 	// Dosyayı parse et ve validate et
 	fileURL, err := h.processUpload(r)
 	if err != nil {
@@ -129,7 +135,7 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Mevcut sunucu bilgisini al — eski ikonu silmek için
-	currentServer, err := h.serverService.Get(r.Context())
+	currentServer, err := h.serverService.GetServer(r.Context(), serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -139,7 +145,7 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 	h.deleteOldFile(currentServer.IconURL)
 
 	// ServerService ile icon_url güncelle + WS broadcast
-	server, err := h.serverService.UpdateIcon(r.Context(), fileURL)
+	server, err := h.serverService.UpdateIcon(r.Context(), serverID, fileURL)
 	if err != nil {
 		pkg.Error(w, err)
 		return

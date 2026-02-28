@@ -19,10 +19,14 @@ type EventPublisher interface {
 	BroadcastToAllExcept(excludeUserID string, event Event)
 	BroadcastToUser(userID string, event Event)
 	BroadcastToUsers(userIDs []string, event Event)
+	BroadcastToServer(serverID string, event Event)
+	BroadcastToServerExcept(serverID, excludeUserID string, event Event)
 	GetOnlineUserIDs() []string
 	GetVisibleOnlineUserIDs() []string
 	SetInvisible(userID string, invisible bool)
 	DisconnectUser(userID string)
+	AddClientServerID(userID, serverID string)
+	RemoveClientServerID(userID, serverID string)
 }
 
 // UserConnectionCallback, bir kullanıcının bağlantı durumu değiştiğinde çağrılır.
@@ -599,4 +603,125 @@ func (h *Hub) Shutdown() {
 	}
 	h.clients = make(map[string]map[*Client]bool)
 	log.Println("[ws] hub shut down, all connections closed")
+}
+
+// ─── Multi-Server Broadcast Metotları ───
+
+// BroadcastToServer, belirli bir sunucunun üyesi olan tüm bağlı client'lara event gönderir.
+//
+// Multi-server mimaride kritik — sunucu A'daki mesaj sadece sunucu A'nın
+// üyelerine gider, sunucu B üyelerine gitmez.
+//
+// Nasıl çalışır: Tüm client'ları dolaş, client.serverIDs slice'ında serverID
+// varsa event'i gönder. O(clients × serverIDs) — kullanıcı başına ortalama
+// 3-5 sunucu olduğu için pratikte O(clients).
+func (h *Hub) BroadcastToServer(serverID string, event Event) {
+	event.Seq = h.seq.Add(1)
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("[ws] failed to marshal server broadcast event: %v", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, clients := range h.clients {
+		for client := range clients {
+			if !clientHasServer(client, serverID) {
+				continue
+			}
+			select {
+			case client.send <- data:
+			default:
+				go func(c *Client) { h.unregister <- c }(client)
+			}
+		}
+	}
+}
+
+// BroadcastToServerExcept, belirli bir sunucunun üyelerine (bir kullanıcı hariç) event gönderir.
+// Typing indicator gibi durumlarda gönderen kişiye kendi event'i gitmez.
+func (h *Hub) BroadcastToServerExcept(serverID, excludeUserID string, event Event) {
+	event.Seq = h.seq.Add(1)
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("[ws] failed to marshal server broadcast event: %v", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for userID, clients := range h.clients {
+		if userID == excludeUserID {
+			continue
+		}
+		for client := range clients {
+			if !clientHasServer(client, serverID) {
+				continue
+			}
+			select {
+			case client.send <- data:
+			default:
+				go func(c *Client) { h.unregister <- c }(client)
+			}
+		}
+	}
+}
+
+// AddClientServerID, bir kullanıcının tüm bağlı client'larına sunucu ID'si ekler.
+// Kullanıcı yeni bir sunucuya katıldığında çağrılır — artık o sunucunun
+// broadcast'lerini alacak.
+func (h *Hub) AddClientServerID(userID, serverID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if clients, ok := h.clients[userID]; ok {
+		for client := range clients {
+			if !clientHasServer(client, serverID) {
+				client.serverIDs = append(client.serverIDs, serverID)
+			}
+		}
+	}
+}
+
+// RemoveClientServerID, bir kullanıcının tüm bağlı client'larından sunucu ID'sini kaldırır.
+// Kullanıcı sunucudan ayrıldığında veya atıldığında çağrılır — artık o sunucunun
+// broadcast'lerini almayacak.
+func (h *Hub) RemoveClientServerID(userID, serverID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if clients, ok := h.clients[userID]; ok {
+		for client := range clients {
+			for i, id := range client.serverIDs {
+				if id == serverID {
+					client.serverIDs = append(client.serverIDs[:i], client.serverIDs[i+1:]...)
+					break
+				}
+			}
+		}
+	}
+}
+
+// SetClientServerIDs, bir client'ın serverIDs'ini toplu olarak ayarlar.
+// WS bağlantısı kurulduğunda DB'den okunan sunucu listesiyle doldurulur.
+func (h *Hub) SetClientServerIDs(client *Client, serverIDs []string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	client.serverIDs = serverIDs
+}
+
+// clientHasServer, bir client'ın belirli bir sunucunun üyesi olup olmadığını kontrol eder.
+// O(n) — n = kullanıcının sunucu sayısı (tipik 3-10, max ~100).
+func clientHasServer(client *Client, serverID string) bool {
+	for _, id := range client.serverIDs {
+		if id == serverID {
+			return true
+		}
+	}
+	return false
 }

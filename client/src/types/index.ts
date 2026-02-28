@@ -452,7 +452,6 @@ export type RegisterRequest = {
   password: string;
   display_name?: string;
   email?: string;
-  invite_code?: string;
 };
 
 export type AuthTokens = {
@@ -464,10 +463,52 @@ export type AuthTokens = {
 // ──────────────────────────────────
 // Server
 // ──────────────────────────────────
+
+/**
+ * Server — Tam sunucu bilgisi.
+ * Backend'deki models.Server struct'ının TypeScript karşılığı.
+ * Multi-server mimaride kullanıcı birden fazla sunucuya üye olabilir.
+ */
 export type Server = {
   id: string;
   name: string;
   icon_url: string | null;
+  owner_id: string;
   invite_required: boolean;
+  livekit_instance_id: string | null;
   member_count: number;
+  created_at: string;
+};
+
+/**
+ * ServerListItem — Sunucu listesinde gösterilen minimal sunucu bilgisi.
+ * WS ready event'inde ve GET /api/servers endpoint'inden döner.
+ * Tam Server nesnesinden çok daha hafif — sadece sidebar render'ı için yeterli.
+ */
+export type ServerListItem = {
+  id: string;
+  name: string;
+  icon_url: string | null;
+};
+
+/**
+ * CreateServerRequest — Yeni sunucu oluşturma isteği.
+ *
+ * host_type seçenekleri:
+ * - "mqvi_hosted": Platformun sağladığı LiveKit instance kullanılır (önerilen)
+ * - "self_hosted": Kullanıcı kendi LiveKit URL, API Key ve Secret'ını verir
+ */
+export type CreateServerRequest = {
+  name: string;
+  host_type: "mqvi_hosted" | "self_hosted";
+  livekit_url?: string;
+  livekit_key?: string;
+  livekit_secret?: string;
+};
+
+/**
+ * JoinServerRequest — Davet koduyla sunucuya katılma isteği.
+ */
+export type JoinServerRequest = {
+  invite_code: string;
 };

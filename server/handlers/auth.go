@@ -218,3 +218,8 @@ func (h *AuthHandler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 type contextKey string
 
 const UserContextKey contextKey = "user"
+
+// ServerIDContextKey, context'te aktif sunucu ID'sini taşıyan key.
+// ServerMembershipMiddleware tarafından URL path'ten {serverId} okunup eklenir.
+// Handler'larda r.Context().Value(ServerIDContextKey).(string) ile erişilir.
+const ServerIDContextKey contextKey = "server_id"

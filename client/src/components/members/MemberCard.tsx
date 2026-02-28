@@ -25,6 +25,7 @@ import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
+import { useServerStore } from "../../stores/serverStore";
 
 type MemberCardProps = {
   member: MemberWithRoles;
@@ -91,7 +92,9 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
       danger: true,
     });
     if (!ok) return;
-    await memberApi.kickMember(member.id);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    await memberApi.kickMember(serverId, member.id);
     onClose();
   }
 
@@ -102,7 +105,9 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
       danger: true,
     });
     if (!ok) return;
-    await memberApi.banMember(member.id, "");
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    await memberApi.banMember(serverId, member.id, "");
     onClose();
   }
 

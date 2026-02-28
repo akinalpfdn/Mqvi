@@ -22,6 +22,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
+import { useServerStore } from "../../stores/serverStore";
 import { resolveAssetUrl } from "../../utils/constants";
 
 function MembersSettings() {
@@ -111,7 +112,9 @@ function MembersSettings() {
   async function handleSaveRoles() {
     if (!selectedMemberId || !hasChanges) return;
 
-    const res = await memberApi.modifyMemberRoles(selectedMemberId, editRoleIds);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    const res = await memberApi.modifyMemberRoles(serverId, selectedMemberId, editRoleIds);
     if (res.data) {
       setHasChanges(false);
       addToast("success", t("memberRolesSaved"));
@@ -130,7 +133,9 @@ function MembersSettings() {
     });
     if (!ok) return;
 
-    const res = await memberApi.kickMember(selectedMember.id);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    const res = await memberApi.kickMember(serverId, selectedMember.id);
     if (res.data) {
       addToast("success", t("memberKicked"));
       setSelectedMemberId(null);
@@ -149,7 +154,9 @@ function MembersSettings() {
     });
     if (!ok) return;
 
-    const res = await memberApi.banMember(selectedMember.id, "Banned by admin");
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    const res = await memberApi.banMember(serverId, selectedMember.id, "Banned by admin");
     if (res.data) {
       addToast("success", t("memberBanned"));
       setSelectedMemberId(null);

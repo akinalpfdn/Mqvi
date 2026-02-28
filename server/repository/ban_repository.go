@@ -7,26 +7,20 @@ import (
 )
 
 // BanRepository, ban (yasaklama) veritabanı işlemleri için interface.
-//
-// Interface Segregation: Bu interface sadece ban ile ilgili operasyonları tanımlar.
-// UserRepository'ye eklemek yerine ayrı tutuyoruz çünkü:
-// 1. Ban ve User farklı domain'ler — sorumlulukları ayrı
-// 2. Ban kontrolü farklı yerlerde yapılır (login, WS connect)
-// 3. Test'te sadece ban davranışını mock'lamak kolaylaşır
+// Tüm operasyonlar server-scoped: serverID parametresi zorunlu.
 type BanRepository interface {
 	// Create, yeni bir ban kaydı oluşturur.
 	Create(ctx context.Context, ban *models.Ban) error
 
-	// GetByUserID, belirli bir kullanıcının ban kaydını döner.
-	GetByUserID(ctx context.Context, userID string) (*models.Ban, error)
+	// GetByUserID, belirli bir sunucuda belirli bir kullanıcının ban kaydını döner.
+	GetByUserID(ctx context.Context, serverID, userID string) (*models.Ban, error)
 
-	// GetAll, tüm ban kayıtlarını döner.
-	GetAll(ctx context.Context) ([]models.Ban, error)
+	// GetAllByServer, bir sunucudaki tüm ban kayıtlarını döner.
+	GetAllByServer(ctx context.Context, serverID string) ([]models.Ban, error)
 
 	// Delete, bir ban kaydını siler (unban).
-	Delete(ctx context.Context, userID string) error
+	Delete(ctx context.Context, serverID, userID string) error
 
-	// Exists, kullanıcının banlı olup olmadığını kontrol eder.
-	// GetByUserID'den farkı: sadece boolean döner, tüm kaydı yüklemez.
-	Exists(ctx context.Context, userID string) (bool, error)
+	// Exists, kullanıcının belirli bir sunucuda banlı olup olmadığını kontrol eder.
+	Exists(ctx context.Context, serverID, userID string) (bool, error)
 }

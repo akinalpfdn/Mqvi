@@ -67,8 +67,10 @@ func HasOwnerRole(roles []Role) bool {
 }
 
 // Role, bir kullanıcı rolünü temsil eder.
+// ServerID, rolün hangi sunucuya ait olduğunu belirtir.
 type Role struct {
 	ID          string     `json:"id"`
+	ServerID    string     `json:"server_id"`
 	Name        string     `json:"name"`
 	Color       string     `json:"color"`
 	Position    int        `json:"position"`

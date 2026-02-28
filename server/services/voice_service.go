@@ -5,18 +5,17 @@
 // 2. In-memory voice state yönetimi (kim hangi kanalda, mute/deafen/stream)
 // 3. State değişikliklerini WS Hub üzerinden broadcast etme
 //
+// Multi-server mimaride her sunucu kendi LiveKit instance'ına bağlıdır.
+// Token generation sırasında: channel → server → livekit_instance lookup yapılır,
+// credential'lar AES-256-GCM ile decrypt edilir ve token üretilir.
+//
 // Neden in-memory (DB değil)?
 // Voice state geçicidir — sunucu yeniden başlatıldığında tüm WS
 // bağlantıları da düşer. DB'ye yazmak gereksiz I/O olur.
 // sync.RWMutex ile concurrent erişim güvenliği sağlanır.
 //
-// Token generation nedir?
-// LiveKit'e bağlanmak için client'ın bir JWT token'a ihtiyacı var.
-// Bu token sunucu tarafında oluşturulur ve şunları içerir:
-// - Hangi odaya (channel) katılabilir
-// - Ses yayını yapabilir mi (PermSpeak)
-// - Ekran paylaşabilir mi (PermStream)
-// Token, LiveKit'in API key/secret çiftiyle imzalanır.
+// Room name format: "{serverID}:{channelID}" — farklı sunuculardaki aynı
+// channel_id'li kanalların LiveKit'te çakışmaması için.
 package services
 
 import (
@@ -26,9 +25,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/akinalp/mqvi/config"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/ws"
 
 	// LiveKit Go SDK — token generation için.
@@ -49,12 +48,19 @@ type ChannelGetter interface {
 	GetByID(ctx context.Context, id string) (*models.Channel, error)
 }
 
+// LiveKitInstanceGetter, sunucuya bağlı LiveKit instance bilgisi almak için ISP interface.
+// repository.LiveKitRepository bu interface'i Go duck typing ile karşılar.
+type LiveKitInstanceGetter interface {
+	GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error)
+}
+
 // ─── VoiceService Interface ───
 
 // VoiceService, ses kanalı operasyonları için iş mantığı interface'i.
 type VoiceService interface {
 	// GenerateToken, LiveKit JWT oluşturur. Permission kontrolü içerir.
 	// displayName tercih edilen görünen isimdir — LiveKit'te participant.name olarak kullanılır.
+	// Kanal → sunucu → LiveKit instance lookup yaparak per-server token üretir.
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 
 	// JoinChannel, kullanıcıyı ses kanalına kaydeder ve broadcast eder.
@@ -114,10 +120,11 @@ type voiceService struct {
 	mu sync.RWMutex
 
 	// Dependency'ler — interface üzerinden enjekte edilir (DI)
-	channelGetter ChannelGetter
-	permResolver  ChannelPermResolver // Kanal bazlı permission override çözümleme (rol + channel override)
-	hub           ws.EventPublisher
-	livekitCfg    config.LiveKitConfig
+	channelGetter  ChannelGetter
+	livekitGetter  LiveKitInstanceGetter // sunucu → LiveKit instance lookup
+	permResolver   ChannelPermResolver   // Kanal bazlı permission override çözümleme (rol + channel override)
+	hub            ws.EventPublisher
+	encryptionKey  []byte // AES-256-GCM key — LiveKit credential'ları decrypt etmek için
 }
 
 // maxScreenShares — bir ses kanalında aynı anda izin verilen
@@ -126,20 +133,26 @@ const maxScreenShares = 0
 
 // NewVoiceService, yeni bir VoiceService oluşturur.
 // Constructor injection pattern: tüm dependency'ler parametre olarak alınır.
-// permResolver: Kanal bazlı permission override çözümleme — ConnectVoice, Speak, Stream
-// kontrolünde rol + kanal override birlikte hesaplanır.
+//
+// Multi-server mimaride livekitCfg yerine livekitGetter + encryptionKey kullanılır:
+// - livekitGetter: sunucuya bağlı LiveKit instance'ını DB'den çeker
+// - encryptionKey: credential'ları AES-256-GCM ile decrypt etmek için
+// - permResolver: Kanal bazlı permission override çözümleme — ConnectVoice, Speak, Stream
+//   kontrolünde rol + kanal override birlikte hesaplanır.
 func NewVoiceService(
 	channelGetter ChannelGetter,
+	livekitGetter LiveKitInstanceGetter,
 	permResolver ChannelPermResolver,
 	hub ws.EventPublisher,
-	livekitCfg config.LiveKitConfig,
+	encryptionKey []byte,
 ) VoiceService {
 	return &voiceService{
 		states:        make(map[string]*models.VoiceState),
 		channelGetter: channelGetter,
+		livekitGetter: livekitGetter,
 		permResolver:  permResolver,
 		hub:           hub,
-		livekitCfg:    livekitCfg,
+		encryptionKey: encryptionKey,
 	}
 }
 
@@ -155,7 +168,26 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("%w: not a voice channel", pkg.ErrBadRequest)
 	}
 
-	// 2. Kanal bazlı effective permissions hesapla (override'lar dahil)
+	// 2. Sunucuya bağlı LiveKit instance'ı al
+	//
+	// channel.ServerID → servers.livekit_instance_id → livekit_instances
+	// Her sunucu kendi LiveKit instance'ına bağlıdır.
+	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get livekit instance for server %s: %w", channel.ServerID, err)
+	}
+
+	// 3. Credential'ları AES-256-GCM ile decrypt et
+	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt livekit api key: %w", err)
+	}
+	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt livekit api secret: %w", err)
+	}
+
+	// 4. Kanal bazlı effective permissions hesapla (override'lar dahil)
 	//
 	// ResolveChannelPermissions, Discord algoritmasını uygular:
 	// base (tüm rollerin OR'u) + channel override'lar (allow/deny).
@@ -165,12 +197,12 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
 	}
 
-	// 3. PermConnectVoice kontrolü
+	// 5. PermConnectVoice kontrolü
 	if !effectivePerms.Has(models.PermConnectVoice) {
 		return nil, fmt.Errorf("%w: missing voice connect permission", pkg.ErrForbidden)
 	}
 
-	// 4. UserLimit kontrolü (0 = sınırsız)
+	// 6. UserLimit kontrolü (0 = sınırsız)
 	if channel.UserLimit > 0 {
 		participants := s.GetChannelParticipants(channelID)
 		// Kullanıcı zaten bu kanalda ise (yeniden bağlanma) sayma
@@ -186,21 +218,25 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		}
 	}
 
-	// 5. LiveKit grant'larını permission'lara göre belirle
+	// 7. LiveKit grant'larını permission'lara göre belirle
 	canPublish := effectivePerms.Has(models.PermSpeak)
 	canSubscribe := true
 	canPublishData := true
 
-	// 6. LiveKit AccessToken oluştur
+	// 8. LiveKit AccessToken oluştur
 	//
 	// auth.NewAccessToken: LiveKit'in JWT builder'ı.
 	// API key + secret ile imzalanır, client bununla LiveKit'e bağlanır.
 	// LiveKit sunucusu token'ı doğrular ve grant'lara göre izin verir.
-	at := auth.NewAccessToken(s.livekitCfg.APIKey, s.livekitCfg.APISecret)
+	at := auth.NewAccessToken(apiKey, apiSecret)
+
+	// Room name = "{serverID}:{channelID}" — farklı sunuculardaki aynı
+	// channel_id'li kanallar LiveKit'te çakışmasın.
+	roomName := channel.ServerID + ":" + channelID
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
-		Room:           channelID, // LiveKit room name = channel ID
+		Room:           roomName,
 		CanPublish:     &canPublish,
 		CanSubscribe:   &canSubscribe,
 		CanPublishData: &canPublishData,
@@ -225,7 +261,7 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 
 	return &models.VoiceTokenResponse{
 		Token:     token,
-		URL:       s.livekitCfg.URL,
+		URL:       lkInstance.URL,
 		ChannelID: channelID,
 	}, nil
 }

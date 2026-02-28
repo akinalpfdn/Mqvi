@@ -32,6 +32,7 @@ import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
+import { useServerStore } from "../../stores/serverStore";
 import type { MemberWithRoles } from "../../types";
 import MemberCard from "./MemberCard";
 import RoleEditorPopup from "./RoleEditorPopup";
@@ -206,7 +207,10 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
               confirmLabel: t("kick"),
               danger: true,
             });
-            if (ok) await memberApi.kickMember(member.id);
+            if (ok) {
+              const serverId = useServerStore.getState().activeServerId;
+              if (serverId) await memberApi.kickMember(serverId, member.id);
+            }
           },
           danger: true,
           separator: !canManageRoles,
@@ -223,7 +227,10 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
               confirmLabel: t("ban"),
               danger: true,
             });
-            if (ok) await memberApi.banMember(member.id, "");
+            if (ok) {
+              const serverId = useServerStore.getState().activeServerId;
+              if (serverId) await memberApi.banMember(serverId, member.id, "");
+            }
           },
           danger: true,
         });

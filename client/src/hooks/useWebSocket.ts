@@ -56,6 +56,7 @@ import type {
   MemberWithRoles,
   Role,
   Server,
+  ServerListItem,
   UserStatus,
   VoiceState,
   VoiceStateUpdateData,
@@ -267,7 +268,18 @@ export function useWebSocket() {
 
       // ─── Presence & Member Events ───
       case "ready": {
-        const data = msg.d as { online_user_ids: string[] };
+        const data = msg.d as {
+          online_user_ids: string[];
+          servers: ServerListItem[];
+        };
+
+        // Multi-server: Ready event artık sunucu listesini de içerir.
+        // serverStore'a sun — ilk sunucu yoksa veya kayıtlı sunucu listede yoksa
+        // otomatik olarak ilk sunucu seçilir.
+        if (data.servers) {
+          useServerStore.getState().setServersFromReady(data.servers);
+        }
+
         useMemberStore.getState().handleReady(data.online_user_ids);
         // WS bağlantısı kurulduğunda (ilk bağlantı veya reconnect) okunmamış sayıları çek
         useReadStateStore.getState().fetchUnreadCounts();
@@ -277,10 +289,7 @@ export function useWebSocket() {
         useFriendStore.getState().fetchFriends();
         useFriendStore.getState().fetchRequests();
 
-        // Status persistence safety net — localStorage'daki manualStatus'u backend'e gönder.
-        // Backend OnUserFirstConnect'te DB'den okur, ama frontend'in localStorage'ı
-        // ile DB arasında uyumsuzluk olabilir (ör. DB resetlendi, farklı cihaz).
-        // Bu sync ile her iki taraf da aynı durumda olur.
+        // Status persistence safety net
         const storedStatus = useAuthStore.getState().manualStatus;
         if (storedStatus && storedStatus !== "online") {
           wsRef.current?.send(
@@ -599,6 +608,14 @@ export function useWebSocket() {
       // ─── Server Events ───
       case "server_update":
         useServerStore.getState().handleServerUpdate(msg.d as Server);
+        break;
+      case "server_create":
+        useServerStore.getState().handleServerCreate(msg.d as ServerListItem);
+        break;
+      case "server_delete":
+        useServerStore.getState().handleServerDelete(
+          (msg.d as { id: string }).id
+        );
         break;
     }
   }

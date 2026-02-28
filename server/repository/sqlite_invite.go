@@ -1,8 +1,7 @@
 // Package repository — InviteRepository'nin SQLite implementasyonu.
 //
 // Davet kodları CRUD işlemleri.
-// invites tablosu 001_init.sql'de oluşturuldu:
-//   code (PK), created_by, max_uses, uses, expires_at, created_at
+// invites tablosu 001_init.sql'de oluşturuldu, 018_multi_server.sql ile server_id eklendi.
 package repository
 
 import (
@@ -23,14 +22,15 @@ func NewSQLiteInviteRepo(db *sql.DB) InviteRepository {
 	return &sqliteInviteRepo{db: db}
 }
 
-// GetByCode, belirli bir davet kodunu döner.
+// GetByCode, belirli bir davet kodunu döner (server_id bilgisi dahil).
 func (r *sqliteInviteRepo) GetByCode(ctx context.Context, code string) (*models.Invite, error) {
-	query := `SELECT code, created_by, max_uses, uses, expires_at, created_at
-              FROM invites WHERE code = ?`
+	query := `
+		SELECT code, server_id, created_by, max_uses, uses, expires_at, created_at
+		FROM invites WHERE code = ?`
 
 	invite := &models.Invite{}
 	err := r.db.QueryRowContext(ctx, query, code).Scan(
-		&invite.Code, &invite.CreatedBy, &invite.MaxUses,
+		&invite.Code, &invite.ServerID, &invite.CreatedBy, &invite.MaxUses,
 		&invite.Uses, &invite.ExpiresAt, &invite.CreatedAt,
 	)
 
@@ -44,17 +44,18 @@ func (r *sqliteInviteRepo) GetByCode(ctx context.Context, code string) (*models.
 	return invite, nil
 }
 
-// List, tüm davet kodlarını oluşturan kullanıcı bilgisiyle döner.
+// ListByServer, belirli bir sunucunun davet kodlarını oluşturan kullanıcı bilgisiyle döner.
 // LEFT JOIN ile oluşturanın username/display_name'i alınır.
-// Kullanıcı silinmişse (ON DELETE SET NULL) created_by NULL olabilir.
-func (r *sqliteInviteRepo) List(ctx context.Context) ([]models.InviteWithCreator, error) {
-	query := `SELECT i.code, i.created_by, i.max_uses, i.uses, i.expires_at, i.created_at,
-                     COALESCE(u.username, ''), u.display_name
-              FROM invites i
-              LEFT JOIN users u ON u.id = i.created_by
-              ORDER BY i.created_at DESC`
+func (r *sqliteInviteRepo) ListByServer(ctx context.Context, serverID string) ([]models.InviteWithCreator, error) {
+	query := `
+		SELECT i.code, i.server_id, i.created_by, i.max_uses, i.uses, i.expires_at, i.created_at,
+		       COALESCE(u.username, ''), u.display_name
+		FROM invites i
+		LEFT JOIN users u ON u.id = i.created_by
+		WHERE i.server_id = ?
+		ORDER BY i.created_at DESC`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list invites: %w", err)
 	}
@@ -64,7 +65,7 @@ func (r *sqliteInviteRepo) List(ctx context.Context) ([]models.InviteWithCreator
 	for rows.Next() {
 		var inv models.InviteWithCreator
 		if err := rows.Scan(
-			&inv.Code, &inv.CreatedBy, &inv.MaxUses,
+			&inv.Code, &inv.ServerID, &inv.CreatedBy, &inv.MaxUses,
 			&inv.Uses, &inv.ExpiresAt, &inv.CreatedAt,
 			&inv.CreatorUsername, &inv.CreatorDisplayName,
 		); err != nil {
@@ -80,13 +81,14 @@ func (r *sqliteInviteRepo) List(ctx context.Context) ([]models.InviteWithCreator
 	return invites, nil
 }
 
-// Create, yeni bir davet kodu oluşturur.
+// Create, yeni bir davet kodu oluşturur (server_id dahil).
 func (r *sqliteInviteRepo) Create(ctx context.Context, invite *models.Invite) error {
-	query := `INSERT INTO invites (code, created_by, max_uses, uses, expires_at)
-              VALUES (?, ?, ?, 0, ?)`
+	query := `
+		INSERT INTO invites (code, server_id, created_by, max_uses, uses, expires_at)
+		VALUES (?, ?, ?, ?, 0, ?)`
 
 	_, err := r.db.ExecContext(ctx, query,
-		invite.Code, invite.CreatedBy, invite.MaxUses, invite.ExpiresAt,
+		invite.Code, invite.ServerID, invite.CreatedBy, invite.MaxUses, invite.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create invite: %w", err)

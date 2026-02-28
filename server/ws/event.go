@@ -59,7 +59,9 @@ const (
 	OpRoleUpdate    = "role_update"    // Rol güncellendi
 	OpRoleDelete    = "role_delete"    // Rol silindi
 	OpRolesReorder  = "roles_reorder" // Rol sıralaması güncellendi — tam Role[] listesi
-	OpServerUpdate  = "server_update" // Sunucu bilgileri güncellendi (isim, ikon)
+	OpServerUpdate = "server_update" // Sunucu bilgileri güncellendi (isim, ikon)
+	OpServerCreate = "server_create" // Kullanıcı yeni sunucu oluşturdu veya katıldı
+	OpServerDelete = "server_delete" // Sunucu silindi veya kullanıcı ayrıldı
 
 	// Pin (mesaj sabitleme) operasyonları
 	OpMessagePin   = "message_pin"   // Mesaj sabitlendi
@@ -130,11 +132,22 @@ const (
 
 // ReadyData, bağlantı kurulduğunda client'a gönderilen ilk event'in payload'ı.
 //
+// Multi-server mimaride ready event kullanıcının sunucu listesini de içerir.
 // Frontend bu event ile:
-// 1. Online kullanıcıları Set'e atar (presence indicator için)
-// 2. Gerekli verileri fetch eder (members, channels vb.)
+// 1. Sunucu listesini serverStore'a atar (server list sidebar için)
+// 2. Online kullanıcıları Set'e atar (presence indicator için)
+// 3. Gerekli verileri fetch eder (members, channels vb.)
 type ReadyData struct {
-	OnlineUserIDs []string `json:"online_user_ids"`
+	OnlineUserIDs []string         `json:"online_user_ids"`
+	Servers       []ReadyServerItem `json:"servers"`
+}
+
+// ReadyServerItem, ready event'inde gönderilen minimal sunucu bilgisi.
+// ws paketinin models'a bağımlılığını kırmak için ayrı tanımlanır.
+type ReadyServerItem struct {
+	ID      string  `json:"id"`
+	Name    string  `json:"name"`
+	IconURL *string `json:"icon_url"`
 }
 
 // PresenceData, bir kullanıcının online durumu değiştiğinde broadcast edilen payload.

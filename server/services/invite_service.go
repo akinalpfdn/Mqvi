@@ -1,8 +1,7 @@
 // Package services — InviteService: davet kodu iş mantığı.
 //
 // Davet kodu oluşturma, listeleme, silme ve doğrulama (validation).
-// Register sırasında invite_code doğrulaması AuthService'den çağrılır,
-// bu yüzden InviteService'in ValidateAndUse metodu public interface'te yer alır.
+// Tüm davet kodları sunucu bazlıdır (server_id ile ilişkili).
 //
 // Kod üretimi: crypto/rand ile 8 byte → hex string → 16 karakter benzersiz kod.
 package services
@@ -21,24 +20,21 @@ import (
 
 // InviteService, davet kodu iş mantığı interface'i.
 type InviteService interface {
-	// Create, yeni bir davet kodu oluşturur.
-	// createdBy: daveti oluşturan kullanıcı ID'si.
-	Create(ctx context.Context, createdBy string, req *models.CreateInviteRequest) (*models.Invite, error)
+	// Create, yeni bir davet kodu oluşturur (sunucu bazlı).
+	Create(ctx context.Context, serverID, createdBy string, req *models.CreateInviteRequest) (*models.Invite, error)
 
-	// List, tüm davet kodlarını oluşturan kullanıcı bilgisiyle döner.
-	List(ctx context.Context) ([]models.InviteWithCreator, error)
+	// ListByServer, belirli bir sunucunun davet kodlarını döner.
+	ListByServer(ctx context.Context, serverID string) ([]models.InviteWithCreator, error)
 
 	// Delete, bir davet kodunu siler.
 	Delete(ctx context.Context, code string) error
 
-	// ValidateAndUse, davet kodunu doğrular ve kullanım sayısını artırır.
-	// Register sırasında AuthService tarafından çağrılır.
-	// Geçersiz / süresi dolmuş / dolmuş kodlar için hata döner.
-	ValidateAndUse(ctx context.Context, code string) error
+	// ValidateAndUse, davet kodunu doğrular, kullanım sayısını artırır ve invite'ı döner.
+	// ServerService.JoinServer tarafından çağrılır — invite'tan server_id alınır.
+	ValidateAndUse(ctx context.Context, code string) (*models.Invite, error)
 
-	// IsInviteRequired, sunucunun davet kodu gerektirip gerektirmediğini döner.
-	// Register sırasında AuthService tarafından çağrılır.
-	IsInviteRequired(ctx context.Context) (bool, error)
+	// IsInviteRequired, belirli bir sunucunun davet kodu gerektirip gerektirmediğini döner.
+	IsInviteRequired(ctx context.Context, serverID string) (bool, error)
 }
 
 type inviteService struct {
@@ -47,9 +43,6 @@ type inviteService struct {
 }
 
 // NewInviteService, constructor.
-//
-// serverRepo: invite_required ayarını kontrol etmek için gereklidir.
-// Kullanıcı kayıt olurken invite_required=true ise davet kodu zorunludur.
 func NewInviteService(
 	inviteRepo repository.InviteRepository,
 	serverRepo repository.ServerRepository,
@@ -61,20 +54,12 @@ func NewInviteService(
 }
 
 // Create, yeni bir davet kodu oluşturur.
-//
-// İş kuralları:
-// 1. Request validasyonu
-// 2. Benzersiz kod üret (crypto/rand — kriptografik güvenli rastgele sayı)
-// 3. Opsiyonel son kullanma tarihi hesapla
-// 4. DB'ye kaydet
-func (s *inviteService) Create(ctx context.Context, createdBy string, req *models.CreateInviteRequest) (*models.Invite, error) {
+func (s *inviteService) Create(ctx context.Context, serverID, createdBy string, req *models.CreateInviteRequest) (*models.Invite, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
 	}
 
 	// Kod üret: 8 byte rastgele → 16 hex karakter
-	// crypto/rand: Kriptografik güvenli rastgele sayı üretir (math/rand'den farklı).
-	// Bu, davet kodlarının tahmin edilemez olmasını sağlar.
 	codeBytes := make([]byte, 8)
 	if _, err := rand.Read(codeBytes); err != nil {
 		return nil, fmt.Errorf("failed to generate invite code: %w", err)
@@ -83,6 +68,7 @@ func (s *inviteService) Create(ctx context.Context, createdBy string, req *model
 
 	invite := &models.Invite{
 		Code:      code,
+		ServerID:  serverID,
 		CreatedBy: createdBy,
 		MaxUses:   req.MaxUses,
 	}
@@ -106,14 +92,13 @@ func (s *inviteService) Create(ctx context.Context, createdBy string, req *model
 	return created, nil
 }
 
-// List, tüm davet kodlarını döner.
-func (s *inviteService) List(ctx context.Context) ([]models.InviteWithCreator, error) {
-	invites, err := s.inviteRepo.List(ctx)
+// ListByServer, belirli bir sunucunun davet kodlarını döner.
+func (s *inviteService) ListByServer(ctx context.Context, serverID string) ([]models.InviteWithCreator, error) {
+	invites, err := s.inviteRepo.ListByServer(ctx, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list invites: %w", err)
 	}
 
-	// nil slice yerine boş slice döndür (JSON'da [] olması için, null değil)
 	if invites == nil {
 		invites = []models.InviteWithCreator{}
 	}
@@ -129,40 +114,37 @@ func (s *inviteService) Delete(ctx context.Context, code string) error {
 	return nil
 }
 
-// ValidateAndUse, davet kodunu doğrular ve kullanım sayısını artırır.
+// ValidateAndUse, davet kodunu doğrular, kullanım sayısını artırır ve invite'ı döner.
 //
-// Doğrulama kuralları:
-// 1. Kod mevcut mu? (ErrNotFound → geçersiz kod)
-// 2. Süresi dolmuş mu? (ExpiresAt < now → expired)
-// 3. Maksimum kullanıma ulaşılmış mı? (MaxUses > 0 && Uses >= MaxUses → depleted)
-// 4. Tüm kontroller geçerse → uses++ ve nil döner
-func (s *inviteService) ValidateAndUse(ctx context.Context, code string) error {
+// Dönen *Invite, server_id bilgisini içerir — ServerService.JoinServer
+// bu bilgiyle kullanıcıyı doğru sunucuya ekler.
+func (s *inviteService) ValidateAndUse(ctx context.Context, code string) (*models.Invite, error) {
 	invite, err := s.inviteRepo.GetByCode(ctx, code)
 	if err != nil {
-		return fmt.Errorf("%w: invalid invite code", pkg.ErrBadRequest)
+		return nil, fmt.Errorf("%w: invalid invite code", pkg.ErrBadRequest)
 	}
 
 	// Süre kontrolü
 	if invite.ExpiresAt != nil && time.Now().After(*invite.ExpiresAt) {
-		return fmt.Errorf("%w: invite code has expired", pkg.ErrBadRequest)
+		return nil, fmt.Errorf("%w: invite code has expired", pkg.ErrBadRequest)
 	}
 
 	// Kullanım limiti kontrolü
 	if invite.MaxUses > 0 && invite.Uses >= invite.MaxUses {
-		return fmt.Errorf("%w: invite code has reached max uses", pkg.ErrBadRequest)
+		return nil, fmt.Errorf("%w: invite code has reached max uses", pkg.ErrBadRequest)
 	}
 
 	// Kullanım sayısını artır
 	if err := s.inviteRepo.IncrementUses(ctx, code); err != nil {
-		return fmt.Errorf("failed to increment invite uses: %w", err)
+		return nil, fmt.Errorf("failed to increment invite uses: %w", err)
 	}
 
-	return nil
+	return invite, nil
 }
 
-// IsInviteRequired, sunucunun davet kodu gerektirip gerektirmediğini döner.
-func (s *inviteService) IsInviteRequired(ctx context.Context) (bool, error) {
-	server, err := s.serverRepo.Get(ctx)
+// IsInviteRequired, belirli bir sunucunun davet kodu gerektirip gerektirmediğini döner.
+func (s *inviteService) IsInviteRequired(ctx context.Context, serverID string) (bool, error) {
+	server, err := s.serverRepo.GetByID(ctx, serverID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get server: %w", err)
 	}

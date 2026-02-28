@@ -34,7 +34,7 @@ type AuthState = {
   isInitialized: boolean;
 
   // ─── Actions ───
-  register: (username: string, password: string, displayName?: string, email?: string, inviteCode?: string) => Promise<boolean>;
+  register: (username: string, password: string, displayName?: string, email?: string) => Promise<boolean>;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   initialize: () => Promise<void>;
@@ -84,7 +84,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isInitialized: false,
   manualStatus: (localStorage.getItem(MANUAL_STATUS_KEY) as UserStatus) || "online",
 
-  register: async (username, password, displayName, email, inviteCode) => {
+  register: async (username, password, displayName, email) => {
     set({ isLoading: true, error: null });
 
     const res = await authApi.register({
@@ -92,7 +92,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       password,
       display_name: displayName,
       email: email || undefined,
-      invite_code: inviteCode,
     });
 
     if (res.success && res.data) {

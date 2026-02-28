@@ -1,8 +1,9 @@
 /**
  * Reaction API fonksiyonları.
  *
+ * Multi-server: server-scoped endpoint.
  * Backend endpoint:
- * - POST /api/messages/{messageId}/reactions → Toggle reaction (ekle veya kaldır)
+ * - POST /api/servers/{serverId}/messages/{messageId}/reactions → Toggle reaction (ekle veya kaldır)
  *   Body: { "emoji": "👍" }
  */
 
@@ -16,12 +17,13 @@ import { apiClient } from "./client";
  *
  * Emoji URL path'te encoding sorunları yaratabileceği için body'de gönderilir.
  *
+ * @param serverId - Sunucu ID'si (multi-server scope)
  * @param messageId - Reaction eklenecek mesajın ID'si
  * @param emoji - Emoji karakteri (ör. "👍", "❤️", "😂")
  */
-export async function toggleReaction(messageId: string, emoji: string) {
+export async function toggleReaction(serverId: string, messageId: string, emoji: string) {
   return apiClient<{ message: string }>(
-    `/messages/${messageId}/reactions`,
+    `/servers/${serverId}/messages/${messageId}/reactions`,
     { method: "POST", body: { emoji } }
   );
 }

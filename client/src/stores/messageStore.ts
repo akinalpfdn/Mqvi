@@ -13,6 +13,7 @@
 import { create } from "zustand";
 import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
+import { useServerStore } from "./serverStore";
 import type { Message, ReactionGroup } from "../types";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
 
@@ -98,7 +99,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     set({ isLoading: true });
 
-    const res = await messageApi.getMessages(channelId, undefined, DEFAULT_MESSAGE_LIMIT);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) { set({ isLoading: false }); return; }
+
+    const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
     if (res.success && res.data) {
       fetchedChannels.add(channelId);
 
@@ -142,8 +146,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ isLoadingMore: true });
 
     // İlk mesajın ID'si cursor olur (en eski mesaj dizinin başında)
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) { set({ isLoadingMore: false }); return; }
+
     const beforeId = messages[0].id;
-    const res = await messageApi.getMessages(channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
+    const res = await messageApi.getMessages(serverId, channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
 
     if (res.success && res.data) {
       set((state) => ({
@@ -163,18 +170,24 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   sendMessage: async (channelId, content, files, replyToId) => {
-    const res = await messageApi.sendMessage(channelId, content, files, replyToId);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+    const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId);
     // Mesaj WS üzerinden gelecek (handleMessageCreate), HTTP response'u beklemeye gerek yok
     return res.success;
   },
 
   editMessage: async (messageId, content) => {
-    const res = await messageApi.editMessage(messageId, content);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+    const res = await messageApi.editMessage(serverId, messageId, content);
     return res.success;
   },
 
   deleteMessage: async (messageId) => {
-    const res = await messageApi.deleteMessage(messageId);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+    const res = await messageApi.deleteMessage(serverId, messageId);
     return res.success;
   },
 
@@ -199,7 +212,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
    * Bu daha basit ve race condition riski yok.
    */
   toggleReaction: async (messageId, _channelId, emoji) => {
-    await reactionApi.toggleReaction(messageId, emoji);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    await reactionApi.toggleReaction(serverId, messageId, emoji);
   },
 
   // ─── WebSocket Event Handlers ───

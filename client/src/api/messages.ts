@@ -1,11 +1,12 @@
 /**
  * Message API fonksiyonları.
  *
+ * Multi-server: Tüm endpoint'ler server-scoped.
  * Backend endpoint'leri:
- * - GET    /api/channels/{id}/messages  → Mesajları cursor-based pagination ile döner
- * - POST   /api/channels/{id}/messages  → Yeni mesaj gönder (JSON veya multipart)
- * - PATCH  /api/messages/{id}           → Mesajı düzenle
- * - DELETE /api/messages/{id}           → Mesajı sil
+ * - GET    /api/servers/{serverId}/channels/{id}/messages  → Mesajları cursor-based pagination ile döner
+ * - POST   /api/servers/{serverId}/channels/{id}/messages  → Yeni mesaj gönder (JSON veya multipart)
+ * - PATCH  /api/servers/{serverId}/messages/{id}           → Mesajı düzenle
+ * - DELETE /api/servers/{serverId}/messages/{id}           → Mesajı sil
  */
 
 import { apiClient } from "./client";
@@ -15,11 +16,13 @@ import { API_BASE_URL } from "../utils/constants";
 /**
  * Mesajları cursor-based pagination ile getirir.
  *
+ * @param serverId - Sunucu ID'si
  * @param channelId - Kanal ID'si
  * @param before - Bu ID'den önceki mesajları getir (boşsa en yenilerden başla)
  * @param limit - Kaç mesaj dönsün (default 50, max 100)
  */
 export async function getMessages(
+  serverId: string,
   channelId: string,
   before?: string,
   limit?: number
@@ -29,7 +32,7 @@ export async function getMessages(
   if (limit) params.set("limit", limit.toString());
 
   const query = params.toString();
-  const endpoint = `/channels/${channelId}/messages${query ? `?${query}` : ""}`;
+  const endpoint = `/servers/${serverId}/channels/${channelId}/messages${query ? `?${query}` : ""}`;
 
   return apiClient<MessagePage>(endpoint);
 }
@@ -42,6 +45,7 @@ export async function getMessages(
  * otomatik ayarlanır (boundary dahil). Manuel set etmek HATALI olur.
  */
 export async function sendMessage(
+  serverId: string,
   channelId: string,
   content: string,
   files?: File[],
@@ -58,30 +62,30 @@ export async function sendMessage(
       formData.append("files", file);
     }
 
-    return apiClient<Message>(`/channels/${channelId}/messages`, {
+    return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
       method: "POST",
       body: formData,
     });
   }
 
   // JSON: sadece metin (+ opsiyonel reply)
-  return apiClient<Message>(`/channels/${channelId}/messages`, {
+  return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
     method: "POST",
     body: { content, reply_to_id: replyToId },
   });
 }
 
 /** Mesajı düzenler (sadece mesaj sahibi) */
-export async function editMessage(messageId: string, content: string) {
-  return apiClient<Message>(`/messages/${messageId}`, {
+export async function editMessage(serverId: string, messageId: string, content: string) {
+  return apiClient<Message>(`/servers/${serverId}/messages/${messageId}`, {
     method: "PATCH",
     body: { content },
   });
 }
 
 /** Mesajı siler (mesaj sahibi veya MANAGE_MESSAGES yetkisi) */
-export async function deleteMessage(messageId: string) {
-  return apiClient<{ message: string }>(`/messages/${messageId}`, {
+export async function deleteMessage(serverId: string, messageId: string) {
+  return apiClient<{ message: string }>(`/servers/${serverId}/messages/${messageId}`, {
     method: "DELETE",
   });
 }

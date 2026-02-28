@@ -21,6 +21,7 @@
 import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
+import { useServerStore } from "./serverStore";
 import { playWatchStartSound, playWatchStopSound } from "../utils/sounds";
 
 // ─── localStorage Persistence ───
@@ -460,7 +461,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
   joinVoiceChannel: async (channelId: string) => {
     try {
-      const response = await voiceApi.getVoiceToken(channelId);
+      const serverId = useServerStore.getState().activeServerId;
+      if (!serverId) return null;
+      const response = await voiceApi.getVoiceToken(serverId, channelId);
 
       if (!response.success || !response.data) {
         console.error("[voiceStore] Failed to get voice token:", response.error);

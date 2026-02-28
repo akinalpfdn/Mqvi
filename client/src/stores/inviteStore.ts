@@ -12,6 +12,7 @@
 
 import { create } from "zustand";
 import * as inviteApi from "../api/invites";
+import { useServerStore } from "./serverStore";
 import type { Invite } from "../types";
 
 /** Stable empty array referansı — infinite re-render önlemi */
@@ -38,9 +39,11 @@ export const useInviteStore = create<InviteState>((set, get) => ({
   isLoading: false,
 
   fetchInvites: async () => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
     set({ isLoading: true });
 
-    const res = await inviteApi.getInvites();
+    const res = await inviteApi.getInvites(serverId);
     if (res.success && res.data) {
       set({ invites: res.data, isLoading: false });
     } else {
@@ -49,7 +52,9 @@ export const useInviteStore = create<InviteState>((set, get) => ({
   },
 
   createInvite: async (maxUses, expiresIn) => {
-    const res = await inviteApi.createInvite({
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return null;
+    const res = await inviteApi.createInvite(serverId, {
       max_uses: maxUses,
       expires_in: expiresIn,
     });
@@ -65,7 +70,9 @@ export const useInviteStore = create<InviteState>((set, get) => ({
   },
 
   deleteInvite: async (code) => {
-    const res = await inviteApi.deleteInvite(code);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+    const res = await inviteApi.deleteInvite(serverId, code);
 
     if (res.success) {
       // Optimistic update: listeden hemen çıkar

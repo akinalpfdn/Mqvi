@@ -1886,4 +1886,114 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   .voice-session-bar {
     padding: 8px;
   }
+
+  /* ─── Server List Sidebar — Mobilde Gizle ─── */
+  .server-list-sidebar { display:none; }
 }
+
+/* ═══════════════════════════════════════
+   SERVER LIST SIDEBAR (56px sol dikey bar)
+   Discord benzeri sunucu ikonu listesi.
+   ═══════════════════════════════════════ */
+.server-list-sidebar { width:56px;flex-shrink:0;background:var(--bg-ub);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:4px;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;border-right:1px solid var(--b1); }
+.server-list-sidebar::-webkit-scrollbar { display:none; }
+
+/* Her sunucu ikonu — yuvarlak, hover'da hafif kare */
+.srv-icon-wrap { position:relative;width:48px;height:48px;display:flex;align-items:center;justify-content:center;cursor:pointer; }
+
+/* Aktif sunucu indicator — sol tarafta beyaz dikey çizgi */
+.srv-indicator { position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:0;background:var(--t0);border-radius:0 3px 3px 0;transition:height .15s ease; }
+.srv-icon-wrap:hover .srv-indicator { height:20px; }
+.srv-icon-wrap.active .srv-indicator { height:36px; }
+
+/* Sunucu ikonu — daire, hover/active'de border-radius düşer */
+.srv-icon { width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:border-radius .15s ease,background .15s ease;overflow:hidden; }
+.srv-icon-wrap:hover .srv-icon,
+.srv-icon-wrap.active .srv-icon { border-radius:30%; }
+
+/* İkon resim — server icon_url varsa */
+.srv-icon img { width:100%;height:100%;object-fit:cover; }
+
+/* İkon fallback — ilk 2 harf */
+.srv-icon-fallback { width:40px;height:40px;border-radius:inherit;background:var(--bg-3);color:var(--t1);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;font-family:var(--f-d);transition:background .15s ease,color .15s ease; }
+.srv-icon-wrap:hover .srv-icon-fallback { background:var(--primary);color:#fff; }
+.srv-icon-wrap.active .srv-icon-fallback { background:var(--primary);color:#fff; }
+
+/* DM butonu — en üstte özel ikon */
+.srv-dm-icon { width:40px;height:40px;border-radius:50%;background:var(--bg-3);color:var(--t1);display:flex;align-items:center;justify-content:center;font-size:18px;transition:border-radius .15s ease,background .15s ease,color .15s ease; }
+.srv-icon-wrap:hover .srv-dm-icon,
+.srv-icon-wrap.active .srv-dm-icon { border-radius:30%;background:var(--primary);color:#fff; }
+
+/* Separator çizgi */
+.srv-separator { width:32px;height:2px;background:var(--b1);border-radius:1px;flex-shrink:0;margin:4px 0; }
+
+/* "+" butonu — en altta */
+.srv-add-icon { width:40px;height:40px;border-radius:50%;background:var(--bg-3);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:300;transition:border-radius .15s ease,background .15s ease,color .15s ease; }
+.srv-icon-wrap:hover .srv-add-icon { border-radius:30%;background:var(--green);color:#fff; }
+
+/* Tooltip — hover'da sağda gösterilir */
+.srv-tooltip { position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%);background:var(--bg-0);color:var(--t0);font-size:13px;font-weight:600;padding:6px 10px;border-radius:4px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.3); }
+.srv-icon-wrap:hover .srv-tooltip { opacity:1; }
+
+/* Unread badge — sunucu ikonunda */
+.srv-badge { position:absolute;bottom:0;right:0;min-width:16px;height:16px;padding:0 4px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:999px;display:flex;align-items:center;justify-content:center;line-height:1;border:2px solid var(--bg-ub); }
+
+/* ═══════════════════════════════════════
+   ADD SERVER MODAL
+   Sunucu oluşturma / katılma modal'ı.
+   ═══════════════════════════════════════ */
+.add-server-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:50;animation:vpIn .15s ease; }
+.add-server-modal { background:var(--bg-1);border-radius:10px;width:440px;max-width:90vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.4); }
+.add-server-header { padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between; }
+.add-server-title { font-family:var(--f-d);font-size:20px;font-weight:700;color:var(--t0); }
+.add-server-close { width:28px;height:28px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:18px;transition:background .1s,color .1s; }
+.add-server-close:hover { background:var(--bg-h);color:var(--t0); }
+.add-server-body { padding:16px 24px 24px; }
+
+/* Step indicator */
+.add-server-steps { display:flex;gap:6px;margin-bottom:20px; }
+.add-server-step { flex:1;height:3px;border-radius:2px;background:var(--bg-4);transition:background .2s; }
+.add-server-step.active { background:var(--primary); }
+.add-server-step.done { background:var(--green); }
+
+/* Form alanları */
+.add-server-field { margin-bottom:16px; }
+.add-server-label { display:block;font-size:13px;font-weight:600;color:var(--t1);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em; }
+.add-server-input { width:100%;padding:10px 12px;border:1px solid var(--b2);border-radius:6px;background:var(--bg-0);color:var(--t0);font-size:14px;font-family:var(--f-ui);outline:none;transition:border-color .15s; }
+.add-server-input:focus { border-color:var(--primary); }
+.add-server-input::placeholder { color:var(--t3); }
+
+/* Host tipi seçim kartları */
+.host-type-cards { display:flex;flex-direction:column;gap:10px; }
+.host-type-card { display:flex;align-items:center;gap:12px;padding:14px 16px;border:2px solid var(--b2);border-radius:8px;cursor:pointer;transition:border-color .15s,background .15s; }
+.host-type-card:hover { background:var(--bg-h); }
+.host-type-card.selected { border-color:var(--primary);background:var(--primary-s); }
+.host-type-radio { width:18px;height:18px;border-radius:50%;border:2px solid var(--t3);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:border-color .15s; }
+.host-type-card.selected .host-type-radio { border-color:var(--primary); }
+.host-type-radio-dot { width:10px;height:10px;border-radius:50%;background:var(--primary);transform:scale(0);transition:transform .15s; }
+.host-type-card.selected .host-type-radio-dot { transform:scale(1); }
+.host-type-info { flex:1; }
+.host-type-name { font-size:14px;font-weight:600;color:var(--t0);margin-bottom:2px; }
+.host-type-desc { font-size:13px;color:var(--t2); }
+
+/* Action butonları */
+.add-server-actions { display:flex;gap:10px;margin-top:20px; }
+.add-server-btn-primary { flex:1;padding:10px;border:none;border-radius:6px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s;font-family:var(--f-ui); }
+.add-server-btn-primary:hover { background:var(--primary-h); }
+.add-server-btn-primary:disabled { opacity:0.5;cursor:not-allowed; }
+.add-server-btn-secondary { flex:1;padding:10px;border:1px solid var(--b2);border-radius:6px;background:transparent;color:var(--t1);font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;font-family:var(--f-ui); }
+.add-server-btn-secondary:hover { background:var(--bg-h);color:var(--t0); }
+
+/* Choice view — oluştur veya katıl */
+.add-server-choice { display:flex;flex-direction:column;gap:12px; }
+.add-server-choice-btn { display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--b2);border-radius:8px;background:transparent;cursor:pointer;transition:background .15s,border-color .15s;text-align:left;font-family:var(--f-ui); }
+.add-server-choice-btn:hover { background:var(--bg-h);border-color:var(--primary); }
+.add-server-choice-icon { width:42px;height:42px;border-radius:50%;background:var(--primary-s);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0; }
+.add-server-choice-text { flex:1; }
+.add-server-choice-title { font-size:15px;font-weight:600;color:var(--t0);margin-bottom:2px; }
+.add-server-choice-desc { font-size:13px;color:var(--t2); }
+.add-server-choice-arrow { color:var(--t3);font-size:18px;flex-shrink:0; }
+
+/* Or separator */
+.add-server-or { display:flex;align-items:center;gap:12px;color:var(--t3);font-size:13px;font-weight:600;text-transform:uppercase; }
+.add-server-or::before,.add-server-or::after { content:"";flex:1;height:1px;background:var(--b1); }

@@ -15,7 +15,9 @@ import (
 )
 
 // Ban, yasaklanmış bir kullanıcıyı temsil eder.
+// ServerID, hangi sunucuda yasaklandığını belirtir (bir kullanıcı farklı sunucularda farklı ban durumuna sahip olabilir).
 type Ban struct {
+	ServerID  string    `json:"server_id"`
 	UserID    string    `json:"user_id"`
 	Username  string    `json:"username"`
 	Reason    string    `json:"reason"`

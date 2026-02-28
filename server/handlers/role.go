@@ -24,10 +24,16 @@ func NewRoleHandler(roleService services.RoleService) *RoleHandler {
 }
 
 // List godoc
-// GET /api/roles
+// GET /api/servers/{serverId}/roles
 // Tüm rolleri position DESC sıralı döner.
 func (h *RoleHandler) List(w http.ResponseWriter, r *http.Request) {
-	roles, err := h.roleService.GetAll(r.Context())
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	roles, err := h.roleService.GetAllByServer(r.Context(), serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -37,15 +43,18 @@ func (h *RoleHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Create godoc
-// POST /api/roles
-// Body: { "name": "...", "color": "#FF5733", "permissions": 123 }
-//
+// POST /api/servers/{serverId}/roles
 // Yeni rol oluşturur. MANAGE_ROLES yetkisi + hiyerarşi kontrolü gerektirir.
-// Position otomatik atanır (actor'un hemen altı).
 func (h *RoleHandler) Create(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
 	}
 
@@ -55,7 +64,7 @@ func (h *RoleHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	role, err := h.roleService.Create(r.Context(), actor.ID, &req)
+	role, err := h.roleService.Create(r.Context(), serverID, actor.ID, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -65,14 +74,18 @@ func (h *RoleHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // Update godoc
-// PATCH /api/roles/{id}
-// Body: { "name": "...", "color": "...", "permissions": 123 } (partial update)
-//
+// PATCH /api/servers/{serverId}/roles/{id}
 // Rolü günceller. MANAGE_ROLES yetkisi + hiyerarşi kontrolü gerektirir.
 func (h *RoleHandler) Update(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
 	}
 
@@ -84,7 +97,7 @@ func (h *RoleHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	role, err := h.roleService.Update(r.Context(), actor.ID, roleID, &req)
+	role, err := h.roleService.Update(r.Context(), serverID, actor.ID, roleID, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -94,9 +107,8 @@ func (h *RoleHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete godoc
-// DELETE /api/roles/{id}
+// DELETE /api/servers/{serverId}/roles/{id}
 // Rolü siler. MANAGE_ROLES yetkisi + hiyerarşi kontrolü gerektirir.
-// Default rol silinemez.
 func (h *RoleHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -104,9 +116,15 @@ func (h *RoleHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
 	roleID := r.PathValue("id")
 
-	if err := h.roleService.Delete(r.Context(), actor.ID, roleID); err != nil {
+	if err := h.roleService.Delete(r.Context(), serverID, actor.ID, roleID); err != nil {
 		pkg.Error(w, err)
 		return
 	}
@@ -115,16 +133,18 @@ func (h *RoleHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // Reorder godoc
-// PATCH /api/roles/reorder
-// Body: { "items": [{ "id": "abc", "position": 3 }, { "id": "def", "position": 2 }] }
-//
-// Rollerin sıralamasını toplu olarak günceller. MANAGE_ROLES yetkisi + hiyerarşi kontrolü gerektirir.
-// Transaction ile atomik — ya hepsi güncellenir ya hiçbiri.
-// Default rol dahil edilemez.
+// PATCH /api/servers/{serverId}/roles/reorder
+// Rollerin sıralamasını toplu olarak günceller. MANAGE_ROLES yetkisi gerektirir.
 func (h *RoleHandler) Reorder(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
 	}
 
@@ -136,7 +156,7 @@ func (h *RoleHandler) Reorder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roles, err := h.roleService.ReorderRoles(r.Context(), actor.ID, body.Items)
+	roles, err := h.roleService.ReorderRoles(r.Context(), serverID, actor.ID, body.Items)
 	if err != nil {
 		pkg.Error(w, err)
 		return

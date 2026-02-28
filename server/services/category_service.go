@@ -11,9 +11,10 @@ import (
 )
 
 // CategoryService, kategori iş mantığı interface'i.
+// Tüm list operasyonları server-scoped.
 type CategoryService interface {
-	GetAll(ctx context.Context) ([]models.Category, error)
-	Create(ctx context.Context, req *models.CreateCategoryRequest) (*models.Category, error)
+	GetAllByServer(ctx context.Context, serverID string) ([]models.Category, error)
+	Create(ctx context.Context, serverID string, req *models.CreateCategoryRequest) (*models.Category, error)
 	Update(ctx context.Context, id string, req *models.UpdateCategoryRequest) (*models.Category, error)
 	Delete(ctx context.Context, id string) error
 }
@@ -23,7 +24,6 @@ type categoryService struct {
 	hub          ws.EventPublisher
 }
 
-// NewCategoryService, constructor.
 func NewCategoryService(
 	categoryRepo repository.CategoryRepository,
 	hub ws.EventPublisher,
@@ -34,21 +34,22 @@ func NewCategoryService(
 	}
 }
 
-func (s *categoryService) GetAll(ctx context.Context) ([]models.Category, error) {
-	return s.categoryRepo.GetAll(ctx)
+func (s *categoryService) GetAllByServer(ctx context.Context, serverID string) ([]models.Category, error) {
+	return s.categoryRepo.GetAllByServer(ctx, serverID)
 }
 
-func (s *categoryService) Create(ctx context.Context, req *models.CreateCategoryRequest) (*models.Category, error) {
+func (s *categoryService) Create(ctx context.Context, serverID string, req *models.CreateCategoryRequest) (*models.Category, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	maxPos, err := s.categoryRepo.GetMaxPosition(ctx)
+	maxPos, err := s.categoryRepo.GetMaxPosition(ctx, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get max position: %w", err)
 	}
 
 	category := &models.Category{
+		ServerID: serverID,
 		Name:     req.Name,
 		Position: maxPos + 1,
 	}

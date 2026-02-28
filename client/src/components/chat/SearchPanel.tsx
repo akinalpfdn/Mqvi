@@ -13,6 +13,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { searchMessages } from "../../api/search";
+import { useServerStore } from "../../stores/serverStore";
 import type { SearchResult } from "../../api/search";
 import type { Message } from "../../types";
 import Avatar from "../shared/Avatar";
@@ -51,7 +52,9 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
       }
 
       setIsSearching(true);
-      const res = await searchMessages(searchQuery.trim(), channelId, limit, searchOffset);
+      const serverId = useServerStore.getState().activeServerId;
+      if (!serverId) return;
+      const res = await searchMessages(serverId, searchQuery.trim(), channelId, limit, searchOffset);
       if (res.success && res.data) {
         setResults(res.data);
       } else {

@@ -49,24 +49,27 @@ type ChannelPermissionService interface {
 	// ResolveChannelPermissions, bir kullanıcının belirli bir kanaldaki effective permission'ını hesaplar.
 	//
 	// Discord algoritması:
-	// 1. Kullanıcının tüm rollerini al
-	// 2. Base permissions = tüm rollerin OR'u
-	// 3. Admin varsa → PermAll döner (tüm override'ları bypass)
-	// 4. Bu kanal için kullanıcının rollerine ait override'ları al
-	// 5. Allow ve Deny bit'lerini OR'la
-	// 6. effective = (base & ~deny) | allow
+	// 1. Kanalın ait olduğu sunucuyu bul (channel → server_id)
+	// 2. Kullanıcının o sunucudaki rollerini al
+	// 3. Base permissions = tüm rollerin OR'u
+	// 4. Admin varsa → PermAll döner (tüm override'ları bypass)
+	// 5. Bu kanal için kullanıcının rollerine ait override'ları al
+	// 6. Allow ve Deny bit'lerini OR'la
+	// 7. effective = (base & ~deny) | allow
 	ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error)
 
 	// BuildVisibilityFilter, kullanıcı bazlı kanal görünürlük filtresi oluşturur.
 	// ChannelService tarafından GetAllGrouped'da ViewChannel yetkisi kontrolü için kullanılır.
 	// ChannelVisibilityChecker ISP'yi de karşılar (Go duck typing).
-	BuildVisibilityFilter(ctx context.Context, userID string) (*ChannelVisibilityFilter, error)
+	// serverID parametresi ile kullanıcının o sunucudaki rolleri alınır.
+	BuildVisibilityFilter(ctx context.Context, userID, serverID string) (*ChannelVisibilityFilter, error)
 }
 
 type channelPermService struct {
-	permRepo repository.ChannelPermissionRepository
-	roleRepo repository.RoleRepository
-	hub      ws.EventPublisher
+	permRepo      repository.ChannelPermissionRepository
+	roleRepo      repository.RoleRepository
+	channelGetter ChannelGetter // kanal → server_id lookup (ResolveChannelPermissions için)
+	hub           ws.EventPublisher
 }
 
 // NewChannelPermissionService, ChannelPermissionService implementasyonunu oluşturur.
@@ -74,16 +77,19 @@ type channelPermService struct {
 // Dependency'ler:
 // - permRepo: kanal permission override CRUD
 // - roleRepo: kullanıcının rollerini almak için (ResolveChannelPermissions'da)
+// - channelGetter: kanal → server_id lookup (rolları sunucu bazlı çekmek için)
 // - hub: override değişikliklerini WS ile broadcast etmek için
 func NewChannelPermissionService(
 	permRepo repository.ChannelPermissionRepository,
 	roleRepo repository.RoleRepository,
+	channelGetter ChannelGetter,
 	hub ws.EventPublisher,
 ) ChannelPermissionService {
 	return &channelPermService{
-		permRepo: permRepo,
-		roleRepo: roleRepo,
-		hub:      hub,
+		permRepo:      permRepo,
+		roleRepo:      roleRepo,
+		channelGetter: channelGetter,
+		hub:           hub,
 	}
 }
 
@@ -160,6 +166,7 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, channelID, role
 
 // BuildVisibilityFilter, kullanıcı bazlı kanal görünürlük filtresi oluşturur.
 //
+// serverID parametresi sayesinde kullanıcının o sunucudaki rollerini alır.
 // Tüm kanallardaki ViewChannel override'larını tek sorguda çeker (GetByRoles)
 // ve her kanal için effective ViewChannel yetkisini hesaplar.
 //
@@ -168,9 +175,9 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, channelID, role
 // - HasBaseView=true → Base permission'da ViewChannel var, override yoksa görünür
 // - HiddenChannels → Override ile ViewChannel kaldırılan kanallar
 // - GrantedChannels → Override ile ViewChannel eklenen kanallar (base'de yoksa)
-func (s *channelPermService) BuildVisibilityFilter(ctx context.Context, userID string) (*ChannelVisibilityFilter, error) {
-	// 1. Kullanıcının tüm rollerini al
-	roles, err := s.roleRepo.GetByUserID(ctx, userID)
+func (s *channelPermService) BuildVisibilityFilter(ctx context.Context, userID, serverID string) (*ChannelVisibilityFilter, error) {
+	// 1. Kullanıcının o sunucudaki rollerini al
+	roles, err := s.roleRepo.GetByUserIDAndServer(ctx, userID, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user roles for visibility filter: %w", err)
 	}
@@ -248,13 +255,19 @@ func (s *channelPermService) BuildVisibilityFilter(ctx context.Context, userID s
 }
 
 func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error) {
-	// 1. Kullanıcının tüm rollerini al
-	roles, err := s.roleRepo.GetByUserID(ctx, userID)
+	// 1. Kanalın ait olduğu sunucuyu bul — server-scoped rol lookup için gerekli
+	channel, err := s.channelGetter.GetByID(ctx, channelID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get channel for permission resolution: %w", err)
+	}
+
+	// 2. Kullanıcının o sunucudaki rollerini al
+	roles, err := s.roleRepo.GetByUserIDAndServer(ctx, userID, channel.ServerID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get user roles: %w", err)
 	}
 
-	// 2. Base permissions = tüm rollerin OR'u
+	// 3. Base permissions = tüm rollerin OR'u
 	var base models.Permission
 	roleIDs := make([]string, len(roles))
 	for i, role := range roles {
@@ -262,12 +275,12 @@ func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, user
 		roleIDs[i] = role.ID
 	}
 
-	// 3. Admin → tüm yetkiler, override'ları bypass
+	// 4. Admin → tüm yetkiler, override'ları bypass
 	if base.Has(models.PermAdmin) {
 		return models.PermAll, nil
 	}
 
-	// 4. Bu kanal için kullanıcının rollerine ait override'ları al
+	// 5. Bu kanal için kullanıcının rollerine ait override'ları al
 	overrides, err := s.permRepo.GetByChannelAndRoles(ctx, channelID, roleIDs)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get channel overrides for roles: %w", err)
@@ -278,7 +291,7 @@ func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, user
 		return base, nil
 	}
 
-	// 5. Tüm override'ların allow ve deny bit'lerini OR'la
+	// 6. Tüm override'ların allow ve deny bit'lerini OR'la
 	//
 	// Neden OR? Bir kullanıcı birden fazla role sahip olabilir.
 	// Eğer Rol-A allow=SendMessages ve Rol-B deny=SendMessages ise,
@@ -291,7 +304,7 @@ func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, user
 		channelDeny |= o.Deny
 	}
 
-	// 6. Discord formülü: effective = (base & ~deny) | allow
+	// 7. Discord formülü: effective = (base & ~deny) | allow
 	//
 	// Adım adım:
 	// - base & ~deny  → deny'daki bit'leri base'den kaldır

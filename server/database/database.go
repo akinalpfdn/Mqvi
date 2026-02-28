@@ -19,6 +19,13 @@ import (
 	_ "modernc.org/sqlite" // Pure-Go SQLite driver — CGO gerekmez, her platformda çalışır
 )
 
+// recoverableError, migration sırasında tolere edilebilen hata pattern'larıdır.
+// Örneğin yarım kalan bir migration tekrar çalıştırıldığında "duplicate column name"
+// hatası verir — bu güvenle atlanabilir çünkü kolon zaten eklenmiş demektir.
+var recoverableErrors = []string{
+	"duplicate column name", // ALTER TABLE ADD COLUMN tekrar çalıştırılmış
+}
+
 // DB, veritabanı bağlantısını saran struct.
 // *sql.DB Go'nun built-in connection pool'udur — thread-safe'dir,
 // birden fazla goroutine aynı anda güvenle kullanabilir.
@@ -172,8 +179,12 @@ func (db *DB) runMigrations(migrationsFS fs.FS) error {
 			return fmt.Errorf("failed to read migration %s: %w", file, err)
 		}
 
-		if _, err := db.Conn.Exec(string(content)); err != nil {
-			return fmt.Errorf("failed to execute migration %s: %w", file, err)
+		// Migration'ı statement-by-statement çalıştır.
+		// SQLite Exec() birden fazla statement'ı kabul eder ama her biri ayrı
+		// autocommit'tir — yarım kalan migration'ı kurtarmak için her statement'ı
+		// ayrı çalıştırıp recoverable hatalar (ör. "duplicate column name") atlanır.
+		if err := db.execStatements(file, string(content)); err != nil {
+			return err
 		}
 
 		// Migration'ı uygulanmış olarak kaydet
@@ -187,4 +198,85 @@ func (db *DB) runMigrations(migrationsFS fs.FS) error {
 	}
 
 	return nil
+}
+
+// execStatements, bir migration dosyasındaki SQL'i statement-by-statement çalıştırır.
+// Her statement noktalı virgül (;) ile ayrılır. Bazı hatalar tolere edilir:
+// örneğin "duplicate column name" — yarım kalan migration tekrar çalıştırıldığında
+// ALTER TABLE ADD COLUMN zaten eklenmiş kolonu tekrar eklemeye çalışır.
+// Bu güvenle atlanır çünkü kolon zaten mevcut demektir.
+func (db *DB) execStatements(filename, content string) error {
+	// SQL'i statement'lara böl (noktalı virgül ile)
+	statements := splitStatements(content)
+
+	for i, stmt := range statements {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+
+		if _, err := db.Conn.Exec(stmt); err != nil {
+			// Hata recoverable mi kontrol et
+			errMsg := err.Error()
+			recoverable := false
+			for _, pattern := range recoverableErrors {
+				if strings.Contains(errMsg, pattern) {
+					recoverable = true
+					break
+				}
+			}
+
+			if recoverable {
+				log.Printf("[database] %s: statement %d skipped (recoverable: %s)", filename, i+1, errMsg)
+				continue
+			}
+
+			return fmt.Errorf("failed to execute migration %s (statement %d): %w", filename, i+1, err)
+		}
+	}
+
+	return nil
+}
+
+// splitStatements, SQL metnini statement'lara böler.
+// Noktalı virgül (;) ile ayırır ama string literal'lerin içindeki
+// noktalı virgülleri (tek tırnak ile çevrili) yoksayar.
+func splitStatements(sql string) []string {
+	var statements []string
+	var current strings.Builder
+	inString := false
+
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+
+		if ch == '\'' {
+			// String literal toggle — '' (escape) handle et
+			if inString && i+1 < len(sql) && sql[i+1] == '\'' {
+				current.WriteByte(ch)
+				current.WriteByte(sql[i+1])
+				i++ // '' → iki tırnak yaz, skip
+				continue
+			}
+			inString = !inString
+		}
+
+		if ch == ';' && !inString {
+			s := strings.TrimSpace(current.String())
+			if s != "" {
+				statements = append(statements, s)
+			}
+			current.Reset()
+			continue
+		}
+
+		current.WriteByte(ch)
+	}
+
+	// Son statement (noktalı virgülsüz bitmiş olabilir)
+	s := strings.TrimSpace(current.String())
+	if s != "" {
+		statements = append(statements, s)
+	}
+
+	return statements
 }

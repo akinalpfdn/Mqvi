@@ -52,6 +52,13 @@ type Client struct {
 	// WritePump `data := <-client.send` ile okur.
 	send chan []byte
 	mu   sync.Mutex // conn.WriteMessage çağrılarını korur
+
+	// serverIDs, kullanıcının üye olduğu sunucu ID'leri.
+	// WS bağlantısı kurulduğunda DB'den doldurulur.
+	// Sunucu join/leave olaylarında güncellenir.
+	// BroadcastToServer bu listeyi kontrol ederek
+	// event'i sadece ilgili sunucunun üyelerine gönderir.
+	serverIDs []string
 }
 
 // ReadPump, WebSocket bağlantısından gelen mesajları okur ve işler.

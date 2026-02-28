@@ -22,10 +22,6 @@ func NewSQLiteReadStateRepo(db *sql.DB) ReadStateRepository {
 //
 // INSERT OR REPLACE kullanıyoruz (SQLite "upsert" pattern).
 // PRIMARY KEY (user_id, channel_id) çakışırsa satır güncellenir.
-//
-// Neden UPSERT?
-// Kullanıcı kanala ilk kez girdiğinde INSERT, sonraki seferlerde UPDATE olması gerekir.
-// Tek sorgu ile her iki durumu da ele alıyoruz.
 func (r *sqliteReadStateRepo) Upsert(ctx context.Context, userID, channelID, messageID string) error {
 	query := `
 		INSERT INTO channel_reads (user_id, channel_id, last_read_message_id, last_read_at)
@@ -41,19 +37,15 @@ func (r *sqliteReadStateRepo) Upsert(ctx context.Context, userID, channelID, mes
 	return nil
 }
 
-// GetUnreadCounts, bir kullanıcının tüm kanallarındaki okunmamış mesaj sayılarını döner.
+// GetUnreadCounts, bir kullanıcının belirli bir sunucudaki okunmamış mesaj sayılarını döner.
 //
 // Sorgu mantığı:
-// 1. channels tablosundan tüm text kanallarını al (voice kanalları hariç)
+// 1. channels tablosundan sunucuya ait text kanallarını al (voice kanalları hariç)
 // 2. channel_reads ile LEFT JOIN — kullanıcının okuma durumunu bul
 // 3. Okunmamış mesaj sayısı = last_read_message_id'den sonraki mesaj sayısı
 // 4. Hiç okuma kaydı yoksa (yeni kanal) tüm mesajlar okunmamış sayılır
-// 5. Sadece okunmamış > 0 olan kanalları döner (gereksiz veri gönderme)
-//
-// Performans notu:
-// Her kanal için subquery yerine correlated subquery kullanıyoruz.
-// Kanal sayısı genellikle düşük (10-50) olduğu için bu yeterince hızlı.
-func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID string) ([]models.UnreadInfo, error) {
+// 5. Sadece okunmamış > 0 olan kanalları döner
+func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error) {
 	query := `
 		SELECT id, unread_count FROM (
 			SELECT c.id,
@@ -64,10 +56,10 @@ func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID string
 			       ) as unread_count
 			FROM channels c
 			LEFT JOIN channel_reads cr ON cr.channel_id = c.id AND cr.user_id = ?
-			WHERE c.type = 'text'
+			WHERE c.type = 'text' AND c.server_id = ?
 		) WHERE unread_count > 0`
 
-	rows, err := r.db.QueryContext(ctx, query, userID)
+	rows, err := r.db.QueryContext(ctx, query, userID, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get unread counts: %w", err)
 	}

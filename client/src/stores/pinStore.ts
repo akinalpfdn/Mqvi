@@ -15,6 +15,7 @@
 
 import { create } from "zustand";
 import { getPins, pinMessage, unpinMessage } from "../api/pins";
+import { useServerStore } from "./serverStore";
 import type { PinnedMessage } from "../types";
 
 /** Stable boş dizi referansı — selector'larda kullanılır. */
@@ -52,8 +53,10 @@ export const usePinStore = create<PinState>((set, get) => ({
   isLoading: false,
 
   fetchPins: async (channelId) => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
     set({ isLoading: true });
-    const res = await getPins(channelId);
+    const res = await getPins(serverId, channelId);
     if (res.success && res.data) {
       set((state) => ({
         pins: { ...state.pins, [channelId]: res.data! },
@@ -65,13 +68,17 @@ export const usePinStore = create<PinState>((set, get) => ({
   },
 
   pin: async (channelId, messageId) => {
-    const res = await pinMessage(channelId, messageId);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+    const res = await pinMessage(serverId, channelId, messageId);
     // WS event ile güncelleme gelecek — burada ek state güncellemesi gereksiz
     return res.success;
   },
 
   unpin: async (channelId, messageId) => {
-    const res = await unpinMessage(channelId, messageId);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+    const res = await unpinMessage(serverId, channelId, messageId);
     // WS event ile güncelleme gelecek — burada ek state güncellemesi gereksiz
     return res.success;
   },

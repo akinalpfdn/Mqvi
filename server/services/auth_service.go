@@ -5,7 +5,6 @@
 // Tüm iş kuralları burada yaşar:
 //   - Şifre hash'leme
 //   - JWT token oluşturma
-//   - "İlk kullanıcı admin olsun" kuralı
 //   - Yetki kontrolleri
 //
 // Service ASLA http.Request/Response bilmez — sadece domain modelleri alır/verir.
@@ -20,8 +19,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"log"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -40,11 +37,8 @@ type AuthService interface {
 	Logout(ctx context.Context, refreshToken string) error
 	ValidateAccessToken(tokenString string) (*models.TokenClaims, error)
 	// ChangePassword, kullanıcının şifresini değiştirir.
-	// Mevcut şifreyi doğruladıktan sonra yeni hash oluşturur ve kaydeder.
 	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error
 	// ChangeEmail, kullanıcının email adresini değiştirir.
-	// Güvenlik gereği mevcut şifre doğrulaması yapılır.
-	// Boş string → email kaldır.
 	ChangeEmail(ctx context.Context, userID, password, newEmail string) error
 }
 
@@ -56,110 +50,65 @@ type AuthTokens struct {
 }
 
 // authService, AuthService interface'inin implementasyonu.
-// Tüm dependency'ler constructor injection ile alınır.
 type authService struct {
-	userRepo      repository.UserRepository
-	sessionRepo   repository.SessionRepository
-	roleRepo      repository.RoleRepository
-	banRepo       repository.BanRepository
-	inviteService InviteService       // Circular dep yok: InviteService, AuthService'e bağımlı değil
-	hub           ws.EventPublisher   // Register sonrası member_join broadcast için
-	jwtSecret     []byte
-	accessExp     time.Duration
-	refreshExp    time.Duration
+	userRepo    repository.UserRepository
+	sessionRepo repository.SessionRepository
+	hub         ws.EventPublisher
+	jwtSecret   []byte
+	accessExp   time.Duration
+	refreshExp  time.Duration
 }
 
 // NewAuthService, constructor.
-// jwtSecret: token imzalama anahtarı
-// accessExpMinutes: access token ömrü (dakika)
-// refreshExpDays: refresh token ömrü (gün)
-// banRepo: Login sırasında ban kontrolü için
-// inviteService: Register sırasında davet kodu doğrulaması için
-// hub: Register sonrası member_join WS event'i broadcast etmek için
+//
+// Multi-server mimarisinde Register artık hiçbir sunucuya üye eklemez.
+// Kullanıcı kayıt olduktan sonra sunuculara invite ile katılır veya yeni sunucu oluşturur.
+// Ban kontrolü de sunucu bazlı olduğu için Login'den kaldırıldı.
 func NewAuthService(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
-	roleRepo repository.RoleRepository,
-	banRepo repository.BanRepository,
-	inviteService InviteService,
 	hub ws.EventPublisher,
 	jwtSecret string,
 	accessExpMinutes int,
 	refreshExpDays int,
 ) AuthService {
 	return &authService{
-		userRepo:      userRepo,
-		sessionRepo:   sessionRepo,
-		roleRepo:      roleRepo,
-		banRepo:       banRepo,
-		inviteService: inviteService,
-		hub:           hub,
-		jwtSecret:     []byte(jwtSecret),
-		accessExp:     time.Duration(accessExpMinutes) * time.Minute,
-		refreshExp:    time.Duration(refreshExpDays) * 24 * time.Hour,
+		userRepo:    userRepo,
+		sessionRepo: sessionRepo,
+		hub:         hub,
+		jwtSecret:   []byte(jwtSecret),
+		accessExp:   time.Duration(accessExpMinutes) * time.Minute,
+		refreshExp:  time.Duration(refreshExpDays) * 24 * time.Hour,
 	}
 }
 
 // Register, yeni kullanıcı kaydı oluşturur.
 //
-// İş kuralları:
-// 1. Request validation
-// 2. Kullanıcı sayısını kontrol et (ilk kullanıcı invite'a tabi değil)
-// 3. İlk kullanıcı değilse → invite_required ayarını kontrol et
-// 4. Şifreyi bcrypt ile hash'le (cost=12)
-// 5. Kullanıcıyı DB'ye kaydet
-// 6. İlk kullanıcı ise → Owner rolü ata, değilse → Member rolü
-// 7. JWT token çifti oluştur
+// Multi-server mimarisinde değişiklikler:
+// - Invite code kontrolü KALDIRILDI — kayıt sunucu bağımsız
+// - Rol ataması KALDIRILDI — roller sunucu bazlı, sunucuya katılınca atanır
+// - member_join broadcast KALDIRILDI — sunucu üyeliği kayıt sırasında yok
+//
+// Kullanıcı kayıt olunca boş bir hesap oluşur. Sunuculara katılım
+// ServerService.JoinServer veya CreateServer ile yapılır.
 func (s *authService) Register(ctx context.Context, req *models.CreateUserRequest) (*AuthTokens, error) {
 	// 1. Validation
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// 2. Kullanıcı sayısını kontrol et — ilk kullanıcı davet koduna tabi değildir.
-	// İlk kullanıcı sunucunun sahibi olacak, davet kodu gerekliliği sonra ayarlanabilir.
-	existingCount, err := s.userRepo.Count(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count users: %w", err)
-	}
-
-	// 3. İlk kullanıcı değilse → davet kodu kontrolü
-	if existingCount > 0 {
-		inviteCode := strings.TrimSpace(req.InviteCode)
-
-		if inviteCode != "" {
-			// Davet kodu verilmiş → doğrula ve kullanım sayısını artır
-			if err := s.inviteService.ValidateAndUse(ctx, inviteCode); err != nil {
-				return nil, err
-			}
-		} else {
-			// Davet kodu verilmemiş → sunucu invite_required mı kontrol et
-			required, err := s.inviteService.IsInviteRequired(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("failed to check invite requirement: %w", err)
-			}
-			if required {
-				return nil, fmt.Errorf("%w: invite code is required to register", pkg.ErrBadRequest)
-			}
-		}
-	}
-
-	// 4. Bcrypt hash
-	// bcrypt: Şifre hash'leme algoritması. cost=12 demek 2^12 iterasyon yapılır.
-	// Bu, brute-force saldırılarını yavaşlatır. Her hash benzersizdir (salt içerir),
-	// aynı şifreyi iki kez hash'lesen farklı sonuç çıkar.
+	// 2. Bcrypt hash (cost=12)
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// 5. User oluştur
+	// 3. User oluştur
 	var displayName *string
 	if req.DisplayName != "" {
 		displayName = &req.DisplayName
 	}
 
-	// Email opsiyonel — boş string geldiyse nil olarak bırak (DB'de NULL)
 	var email *string
 	if req.Email != "" {
 		email = &req.Email
@@ -177,40 +126,7 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		return nil, err // ErrAlreadyExists olabilir
 	}
 
-	// 6. Rol ata — ilk kullanıcı mı?
-	// existingCount kullanıcı oluşturulmadan ÖNCEKİ sayı —
-	// 0 ise bu ilk kullanıcı (Owner rolü), değilse Member rolü.
-	if existingCount == 0 {
-		// İlk kullanıcı → Owner rolü
-		if err := s.roleRepo.AssignToUser(ctx, user.ID, "owner"); err != nil {
-			return nil, fmt.Errorf("failed to assign owner role: %w", err)
-		}
-	} else {
-		// Diğer kullanıcılar → default (Member) rolü
-		defaultRole, err := s.roleRepo.GetDefault(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get default role: %w", err)
-		}
-		if err := s.roleRepo.AssignToUser(ctx, user.ID, defaultRole.ID); err != nil {
-			return nil, fmt.Errorf("failed to assign default role: %w", err)
-		}
-	}
-
-	// 7. member_join WS broadcast — tüm bağlı client'ları yeni üyeden haberdar et.
-	// Broadcast token oluşturmadan ÖNCE yapılır — böylece mevcut kullanıcılar
-	// yeni üyeyi hemen üye listesinde görür.
-	roles, err := s.roleRepo.GetByUserID(ctx, user.ID)
-	if err != nil {
-		log.Printf("[auth] failed to get roles for member_join broadcast: %v", err)
-	} else {
-		member := models.ToMemberWithRoles(user, roles)
-		s.hub.BroadcastToAll(ws.Event{
-			Op:   ws.OpMemberJoin,
-			Data: member,
-		})
-	}
-
-	// 8. Token çifti oluştur
+	// 4. Token çifti oluştur
 	tokens, err := s.generateTokens(ctx, user)
 	if err != nil {
 		return nil, err
@@ -221,10 +137,8 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 
 // Login, kullanıcı girişi yapar.
 //
-// İş kuralları:
-// 1. Username ile kullanıcıyı bul
-// 2. Bcrypt ile şifre doğrula
-// 3. JWT token çifti oluştur
+// Multi-server mimarisinde ban kontrolü kaldırıldı — ban sunucu bazlıdır.
+// Banlı bir kullanıcı diğer sunucularını kullanabilir.
 func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*AuthTokens, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
@@ -234,29 +148,14 @@ func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*Aut
 	user, err := s.userRepo.GetByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
-			// Güvenlik: "kullanıcı bulunamadı" demek yerine generic hata döneriz.
-			// Böylece saldırgan hangi username'lerin var olduğunu öğrenemez.
 			return nil, fmt.Errorf("%w: invalid username or password", pkg.ErrUnauthorized)
 		}
 		return nil, err
 	}
 
 	// Bcrypt şifre karşılaştırması
-	// CompareHashAndPassword: hash'i çözer ve verilen şifre ile karşılaştırır.
-	// Eşleşmezse hata döner. Timing-safe karşılaştırma yapar (side-channel attack koruması).
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, fmt.Errorf("%w: invalid username or password", pkg.ErrUnauthorized)
-	}
-
-	// Ban kontrolü — banlı kullanıcı giriş yapamaz.
-	// Şifre doğrulamasından SONRA kontrol ediyoruz:
-	// Böylece saldırgan ban durumunu kullanarak username enumerate edemez.
-	banned, err := s.banRepo.Exists(ctx, user.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check ban status: %w", err)
-	}
-	if banned {
-		return nil, fmt.Errorf("%w: this account has been banned", pkg.ErrForbidden)
 	}
 
 	// Status'u online yap
@@ -269,12 +168,6 @@ func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*Aut
 }
 
 // RefreshToken, süresi dolmuş access token'ı yenilemek için kullanılır.
-//
-// Akış:
-// 1. Refresh token ile DB'deki session'ı bul
-// 2. Expire olmuş mu kontrol et
-// 3. Eski session'ı sil (rotation — çalınan token tekrar kullanılamaz)
-// 4. Yeni token çifti oluştur
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*AuthTokens, error) {
 	session, err := s.sessionRepo.GetByRefreshToken(ctx, refreshToken)
 	if err != nil {
@@ -284,21 +177,17 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*A
 		return nil, err
 	}
 
-	// Expire kontrolü
 	if time.Now().After(session.ExpiresAt) {
-		// Süresi dolmuş → sil
 		if delErr := s.sessionRepo.DeleteByID(ctx, session.ID); delErr != nil {
 			return nil, fmt.Errorf("failed to delete expired session: %w", delErr)
 		}
 		return nil, fmt.Errorf("%w: refresh token expired", pkg.ErrUnauthorized)
 	}
 
-	// Token rotation: eski session'ı sil
 	if err := s.sessionRepo.DeleteByID(ctx, session.ID); err != nil {
 		return nil, fmt.Errorf("failed to delete old session: %w", err)
 	}
 
-	// Kullanıcıyı getir
 	user, err := s.userRepo.GetByID(ctx, session.UserID)
 	if err != nil {
 		return nil, err
@@ -312,12 +201,11 @@ func (s *authService) Logout(ctx context.Context, refreshToken string) error {
 	session, err := s.sessionRepo.GetByRefreshToken(ctx, refreshToken)
 	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
-			return nil // Zaten yok, sorun değil
+			return nil
 		}
 		return err
 	}
 
-	// Status'u offline yap
 	if err := s.userRepo.UpdateStatus(ctx, session.UserID, models.UserStatusOffline); err != nil {
 		return fmt.Errorf("failed to update status: %w", err)
 	}
@@ -326,12 +214,8 @@ func (s *authService) Logout(ctx context.Context, refreshToken string) error {
 }
 
 // ValidateAccessToken, JWT access token'ı doğrular ve claims'i döner.
-// Middleware tarafından her request'te çağrılır.
 func (s *authService) ValidateAccessToken(tokenString string) (*models.TokenClaims, error) {
-	// jwt.ParseWithClaims: Token string'ini parse edip signature'ı doğrular.
-	// keyFunc: imzayı doğrulamak için kullanılacak secret'ı döner.
 	token, err := jwt.ParseWithClaims(tokenString, &models.TokenClaims{}, func(token *jwt.Token) (any, error) {
-		// Signing method kontrolü — sadece HMAC kabul ediyoruz
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -351,71 +235,43 @@ func (s *authService) ValidateAccessToken(tokenString string) (*models.TokenClai
 }
 
 // ChangePassword, kullanıcının şifresini değiştirir.
-//
-// Akış:
-// 1. Kullanıcıyı DB'den getir (password hash'ini almak için)
-// 2. Mevcut şifreyi bcrypt ile doğrula (timing-safe comparison)
-// 3. Yeni şifre validasyonu (min uzunluk, mevcut şifreden farklı olmalı)
-// 4. Yeni bcrypt hash oluştur (cost=12)
-// 5. DB'ye kaydet
-//
-// Güvenlik notu: Mevcut şifreyi mutlaka doğruluyoruz —
-// çalınmış bir session token'ı ile şifre değiştirmeyi önlemek için.
 func (s *authService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
-	// Yeni şifre minimum uzunluk kontrolü
 	if len(newPassword) < 6 {
 		return fmt.Errorf("%w: password must be at least 6 characters", pkg.ErrBadRequest)
 	}
 
-	// Kullanıcıyı getir (password hash'i dahil)
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	// Mevcut şifreyi doğrula — timing-safe bcrypt comparison
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
 		return fmt.Errorf("%w: current password is incorrect", pkg.ErrUnauthorized)
 	}
 
-	// Yeni şifre mevcut şifre ile aynı olmamalı
 	if currentPassword == newPassword {
 		return fmt.Errorf("%w: new password must be different from current password", pkg.ErrBadRequest)
 	}
 
-	// Yeni bcrypt hash oluştur (cost=12)
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
 	if err != nil {
 		return fmt.Errorf("failed to hash new password: %w", err)
 	}
 
-	// DB'ye kaydet
 	return s.userRepo.UpdatePassword(ctx, userID, string(newHash))
 }
 
 // ChangeEmail, kullanıcının email adresini değiştirir.
-//
-// Akış:
-// 1. Kullanıcıyı DB'den getir (şifre doğrulama için)
-// 2. Mevcut şifreyi bcrypt ile doğrula
-// 3. Yeni email format doğrulaması (boş string → email kaldır)
-// 4. Aynı email ise hata dön
-// 5. DB'ye kaydet
-//
-// Güvenlik: Şifre doğrulaması zorunlu — çalınmış session ile email değiştirmeyi önler.
 func (s *authService) ChangeEmail(ctx context.Context, userID, password, newEmail string) error {
-	// Kullanıcıyı getir
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	// Şifre doğrula
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return fmt.Errorf("%w: password is incorrect", pkg.ErrUnauthorized)
 	}
 
-	// Boş string → email kaldır
 	if strings.TrimSpace(newEmail) == "" {
 		if user.Email == nil {
 			return fmt.Errorf("%w: no email to remove", pkg.ErrBadRequest)
@@ -423,26 +279,21 @@ func (s *authService) ChangeEmail(ctx context.Context, userID, password, newEmai
 		return s.userRepo.UpdateEmail(ctx, userID, nil)
 	}
 
-	// Email format doğrula
 	newEmail = strings.TrimSpace(newEmail)
 	if !models.EmailRegex().MatchString(newEmail) {
 		return fmt.Errorf("%w: invalid email format", pkg.ErrBadRequest)
 	}
 
-	// Aynı email mi?
 	if user.Email != nil && *user.Email == newEmail {
 		return fmt.Errorf("%w: new email is the same as current email", pkg.ErrBadRequest)
 	}
 
-	// DB'ye kaydet — unique constraint ihlali olursa repository hata döner
 	return s.userRepo.UpdateEmail(ctx, userID, &newEmail)
 }
 
 // ─── Private Helpers ───
 
-// generateTokens, access + refresh token çifti oluşturur.
 func (s *authService) generateTokens(ctx context.Context, user *models.User) (*AuthTokens, error) {
-	// Access token oluştur
 	now := time.Now()
 	accessClaims := &models.TokenClaims{
 		UserID:   user.ID,
@@ -460,14 +311,12 @@ func (s *authService) generateTokens(ctx context.Context, user *models.User) (*A
 		return nil, fmt.Errorf("failed to sign access token: %w", err)
 	}
 
-	// Refresh token oluştur — rastgele hex string
 	refreshBytes := make([]byte, 32)
 	if _, err := rand.Read(refreshBytes); err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 	refreshString := hex.EncodeToString(refreshBytes)
 
-	// Session'ı DB'ye kaydet
 	session := &models.Session{
 		UserID:       user.ID,
 		RefreshToken: refreshString,
@@ -478,7 +327,6 @@ func (s *authService) generateTokens(ctx context.Context, user *models.User) (*A
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
-	// Password hash'i yanıta dahil etme
 	user.PasswordHash = ""
 
 	return &AuthTokens{

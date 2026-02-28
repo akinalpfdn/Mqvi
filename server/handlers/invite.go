@@ -1,12 +1,12 @@
 // Package handlers — InviteHandler: davet kodu HTTP endpoint'leri.
 //
 // Thin handler prensibi: Parse → Service → Response.
-// Tüm endpoint'ler auth + ManageInvites permission gerektirir.
+// Tüm endpoint'ler auth + ServerMembership + ManageInvites permission gerektirir.
 //
-// Route'lar (main.go'da bağlanır):
-//   GET    /api/invites       → List
-//   POST   /api/invites       → Create
-//   DELETE /api/invites/{code} → Delete
+// Route'lar:
+//   GET    /api/servers/{serverId}/invites       → List
+//   POST   /api/servers/{serverId}/invites       → Create
+//   DELETE /api/servers/{serverId}/invites/{code} → Delete
 package handlers
 
 import (
@@ -29,10 +29,16 @@ func NewInviteHandler(inviteService services.InviteService) *InviteHandler {
 }
 
 // List godoc
-// GET /api/invites
-// Tüm davet kodlarını oluşturan kullanıcı bilgisiyle döner.
+// GET /api/servers/{serverId}/invites
+// Sunucunun tüm davet kodlarını oluşturan kullanıcı bilgisiyle döner.
 func (h *InviteHandler) List(w http.ResponseWriter, r *http.Request) {
-	invites, err := h.inviteService.List(r.Context())
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	invites, err := h.inviteService.ListByServer(r.Context(), serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -42,14 +48,18 @@ func (h *InviteHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Create godoc
-// POST /api/invites
+// POST /api/servers/{serverId}/invites
 // Body: { "max_uses": 5, "expires_in": 1440 }
-// expires_in dakika cinsinden (1440 = 24 saat), 0 = süresiz
 func (h *InviteHandler) Create(w http.ResponseWriter, r *http.Request) {
-	// Context'ten user bilgisini al (auth middleware tarafından eklenir)
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
 	}
 
@@ -59,7 +69,7 @@ func (h *InviteHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invite, err := h.inviteService.Create(r.Context(), user.ID, &req)
+	invite, err := h.inviteService.Create(r.Context(), serverID, user.ID, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -69,8 +79,7 @@ func (h *InviteHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete godoc
-// DELETE /api/invites/{code}
-// URL'deki {code} path parameter'ını kullanır.
+// DELETE /api/servers/{serverId}/invites/{code}
 func (h *InviteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	if code == "" {

@@ -3,10 +3,8 @@
 // Thin handler prensibi: Parse → Service → Response.
 // Tüm iş mantığı (hiyerarşi kontrolü, ban, kick) MemberService'dedir.
 //
-// Context'ten user bilgisi almak:
-// AuthMiddleware her protected endpoint'te context'e *models.User ekler.
-// Handler'da `r.Context().Value(UserContextKey)` ile alırız.
-// Bu bilgi actorID (işlemi yapan kişi) olarak service'e iletilir.
+// Multi-server mimaride tüm üye operasyonları sunucu bazlıdır.
+// ServerID context'ten alınır (ServerMembershipMiddleware tarafından eklenir).
 package handlers
 
 import (
@@ -29,10 +27,16 @@ func NewMemberHandler(memberService services.MemberService) *MemberHandler {
 }
 
 // List godoc
-// GET /api/members
-// Tüm üyeleri rolleriyle birlikte döner.
+// GET /api/servers/{serverId}/members
+// Sunucudaki tüm üyeleri rolleriyle birlikte döner.
 func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
-	members, err := h.memberService.GetAll(r.Context())
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	members, err := h.memberService.GetAll(r.Context(), serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -42,12 +46,18 @@ func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get godoc
-// GET /api/members/{id}
+// GET /api/servers/{serverId}/members/{id}
 // Belirli bir üyeyi rolleriyle birlikte döner.
 func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
 	id := r.PathValue("id")
 
-	member, err := h.memberService.GetByID(r.Context(), id)
+	member, err := h.memberService.GetByID(r.Context(), serverID, id)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -57,17 +67,18 @@ func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 // ModifyRoles godoc
-// PATCH /api/members/{id}/roles
+// PATCH /api/servers/{serverId}/members/{id}/roles
 // Body: { "role_ids": ["roleId1", "roleId2"] }
-//
-// Bir üyenin rollerini değiştirir.
-// Actor (işlemi yapan) context'teki user'dır.
-// Target (hedef) URL'deki {id}'dir.
-// Hiyerarşi kontrolü MemberService'de yapılır.
 func (h *MemberHandler) ModifyRoles(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
 	}
 
@@ -84,7 +95,7 @@ func (h *MemberHandler) ModifyRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	member, err := h.memberService.ModifyRoles(r.Context(), actor.ID, targetID, req.RoleIDs)
+	member, err := h.memberService.ModifyRoles(r.Context(), serverID, actor.ID, targetID, req.RoleIDs)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -94,9 +105,8 @@ func (h *MemberHandler) ModifyRoles(w http.ResponseWriter, r *http.Request) {
 }
 
 // Kick godoc
-// DELETE /api/members/{id}
+// DELETE /api/servers/{serverId}/members/{id}
 // Bir üyeyi sunucudan çıkarır.
-// KICK_MEMBERS yetkisi + hiyerarşi kontrolü gerektirir.
 func (h *MemberHandler) Kick(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -104,9 +114,15 @@ func (h *MemberHandler) Kick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
 	targetID := r.PathValue("id")
 
-	if err := h.memberService.Kick(r.Context(), actor.ID, targetID); err != nil {
+	if err := h.memberService.Kick(r.Context(), serverID, actor.ID, targetID); err != nil {
 		pkg.Error(w, err)
 		return
 	}
@@ -115,14 +131,18 @@ func (h *MemberHandler) Kick(w http.ResponseWriter, r *http.Request) {
 }
 
 // Ban godoc
-// POST /api/members/{id}/ban
+// POST /api/servers/{serverId}/members/{id}/ban
 // Body: { "reason": "optional ban reason" }
-//
-// Bir üyeyi yasaklar. BAN_MEMBERS yetkisi + hiyerarşi kontrolü gerektirir.
 func (h *MemberHandler) Ban(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
 	}
 
@@ -134,7 +154,7 @@ func (h *MemberHandler) Ban(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.memberService.Ban(r.Context(), actor.ID, targetID, req.Reason); err != nil {
+	if err := h.memberService.Ban(r.Context(), serverID, actor.ID, targetID, req.Reason); err != nil {
 		pkg.Error(w, err)
 		return
 	}
@@ -143,10 +163,16 @@ func (h *MemberHandler) Ban(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetBans godoc
-// GET /api/bans
+// GET /api/servers/{serverId}/bans
 // Tüm yasaklı üyeleri listeler. BAN_MEMBERS yetkisi gerektirir.
 func (h *MemberHandler) GetBans(w http.ResponseWriter, r *http.Request) {
-	bans, err := h.memberService.GetBans(r.Context())
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	bans, err := h.memberService.GetBans(r.Context(), serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -156,12 +182,18 @@ func (h *MemberHandler) GetBans(w http.ResponseWriter, r *http.Request) {
 }
 
 // Unban godoc
-// DELETE /api/bans/{id}
+// DELETE /api/servers/{serverId}/bans/{id}
 // Bir üyenin yasağını kaldırır. BAN_MEMBERS yetkisi gerektirir.
 func (h *MemberHandler) Unban(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
 	userID := r.PathValue("id")
 
-	if err := h.memberService.Unban(r.Context(), userID); err != nil {
+	if err := h.memberService.Unban(r.Context(), serverID, userID); err != nil {
 		pkg.Error(w, err)
 		return
 	}
@@ -174,7 +206,7 @@ func (h *MemberHandler) Unban(w http.ResponseWriter, r *http.Request) {
 // Body: { "display_name": "...", "avatar_url": "...", "custom_status": "..." }
 //
 // Kullanıcının kendi profilini günceller.
-// Başkasının profilini güncelleyemezsin — her zaman context'teki user'ın bilgileri güncellenir.
+// Bu endpoint global — sunucu bağımsız (profil tüm sunucularda aynı).
 func (h *MemberHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

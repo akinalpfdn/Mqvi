@@ -1,8 +1,7 @@
 // Package repository — ServerRepository interface.
 //
-// Sunucu verisi için CRUD soyutlaması.
-// Tek sunucu mimarisi olduğu için Get/Update yeterlidir —
-// Create/Delete gerekmez (sunucu seed migration ile oluşturulur).
+// Çoklu sunucu CRUD + üyelik yönetimi soyutlaması.
+// Her kullanıcı birden fazla sunucuya üye olabilir.
 package repository
 
 import (
@@ -13,9 +12,38 @@ import (
 
 // ServerRepository, sunucu veritabanı işlemleri için interface.
 type ServerRepository interface {
-	// Get, sunucu bilgisini döner. Tek sunucu olduğu için ID gerekmez.
-	Get(ctx context.Context) (*models.Server, error)
+	// ─── Server CRUD ───
+
+	// Create, yeni bir sunucu oluşturur.
+	Create(ctx context.Context, server *models.Server) error
+
+	// GetByID, ID ile sunucu döner.
+	GetByID(ctx context.Context, serverID string) (*models.Server, error)
 
 	// Update, sunucu bilgisini günceller.
 	Update(ctx context.Context, server *models.Server) error
+
+	// Delete, bir sunucuyu siler. CASCADE ile tüm bağlı veriler silinir.
+	Delete(ctx context.Context, serverID string) error
+
+	// ─── Üyelik ───
+
+	// GetUserServers, kullanıcının üye olduğu sunucuların listesini döner.
+	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
+
+	// AddMember, kullanıcıyı sunucuya üye yapar.
+	AddMember(ctx context.Context, serverID, userID string) error
+
+	// RemoveMember, kullanıcıyı sunucudan çıkarır.
+	RemoveMember(ctx context.Context, serverID, userID string) error
+
+	// IsMember, kullanıcının sunucu üyesi olup olmadığını kontrol eder.
+	IsMember(ctx context.Context, serverID, userID string) (bool, error)
+
+	// GetMemberCount, sunucunun üye sayısını döner.
+	GetMemberCount(ctx context.Context, serverID string) (int, error)
+
+	// GetMemberServerIDs, kullanıcının üye olduğu tüm sunucu ID'lerini döner.
+	// WebSocket hub'da client.ServerIDs doldurmak için kullanılır.
+	GetMemberServerIDs(ctx context.Context, userID string) ([]string, error)
 }

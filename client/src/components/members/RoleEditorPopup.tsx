@@ -22,6 +22,7 @@ import { useRoleStore } from "../../stores/roleStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import * as memberApi from "../../api/members";
+import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
 import type { MemberWithRoles } from "../../types";
 
@@ -128,7 +129,9 @@ function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
     if (!hasChanges || isSaving) return;
     setIsSaving(true);
 
-    const res = await memberApi.modifyMemberRoles(member.id, editRoleIds);
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    const res = await memberApi.modifyMemberRoles(serverId, member.id, editRoleIds);
     if (res.data) {
       addToast("success", t("success"));
       onClose();
