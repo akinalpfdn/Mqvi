@@ -78,6 +78,7 @@
   "roleReorderError": "Failed to reorder roles",
   "roleCannotEdit": "You cannot edit roles at or above your level",
   "ownerRoleWarning": "This is the Owner role. It has full permissions and cannot be modified, deleted, or reordered.",
+  "ownerRoleEditHint": "You can change the name and color of the Owner role. Permissions cannot be modified.",
   "permMoveMembers": "Move Members",
   "permMoveMembersDesc": "Move members between voice channels and disconnect from voice",
   "permMuteMembers": "Mute Members",

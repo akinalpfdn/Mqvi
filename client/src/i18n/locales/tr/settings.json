@@ -78,6 +78,7 @@
   "roleReorderError": "Rol sıralaması başarısız oldu",
   "roleCannotEdit": "Kendi seviyenizdeki veya üstündeki rolleri düzenleyemezsiniz",
   "ownerRoleWarning": "Bu Owner rolüdür. Tam yetkiye sahiptir ve düzenlenemez, silinemez veya sıralanamaz.",
+  "ownerRoleEditHint": "Owner rolünün adını ve rengini değiştirebilirsiniz. Yetkiler değiştirilemez.",
   "permMoveMembers": "Üyeleri Taşı",
   "permMoveMembersDesc": "Üyeleri ses kanalları arasında taşıma ve ses bağlantısını kesme",
   "permMuteMembers": "Üyeleri Sustur",

@@ -115,8 +115,35 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 		return nil, err
 	}
 
+	// Owner rolü özel işlem: sadece server owner isim ve renk değiştirebilir,
+	// permission ve position değişikliği YASAK.
 	if role.ID == models.OwnerRoleID {
-		return nil, fmt.Errorf("%w: the Owner role cannot be modified", pkg.ErrForbidden)
+		actorRoles, roleErr := s.roleRepo.GetByUserIDAndServer(ctx, actorID, serverID)
+		if roleErr != nil {
+			return nil, fmt.Errorf("failed to get actor roles: %w", roleErr)
+		}
+		if !models.HasOwnerRole(actorRoles) {
+			return nil, fmt.Errorf("%w: only the server owner can modify the Owner role", pkg.ErrForbidden)
+		}
+		// Permission değişikliği engelle — Owner rolü her zaman tam yetkili
+		if req.Permissions != nil {
+			return nil, fmt.Errorf("%w: Owner role permissions cannot be changed", pkg.ErrForbidden)
+		}
+		// Sadece isim ve renk güncellenebilir
+		if req.Name != nil {
+			role.Name = *req.Name
+		}
+		if req.Color != nil {
+			role.Color = *req.Color
+		}
+		if err := s.roleRepo.Update(ctx, role); err != nil {
+			return nil, fmt.Errorf("failed to update role: %w", err)
+		}
+		s.hub.BroadcastToServer(serverID, ws.Event{
+			Op:   ws.OpRoleUpdate,
+			Data: role,
+		})
+		return role, nil
 	}
 
 	actorMaxPos, err := s.getActorMaxPosition(ctx, actorID, serverID)
@@ -156,7 +183,7 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 		return nil, fmt.Errorf("failed to update role: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRoleUpdate,
 		Data: role,
 	})

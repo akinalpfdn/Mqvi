@@ -88,15 +88,24 @@ function RoleSettings() {
   const [editPerms, setEditPerms] = useState(0);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Owner rolü kimlik bazlı koruma — hiç kimse düzenleyemez
   const isOwnerRole = selectedRole?.id === "owner";
+
+  // Actor server owner mı? (owner rolüne sahip mi)
+  const isActorOwner = useMemo(() => {
+    const me = members.find((m) => m.id === currentUser?.id);
+    return me?.roles.some((r) => r.id === "owner") ?? false;
+  }, [members, currentUser]);
 
   // Seçili rol actor'dan yüksek veya eşit mi?
   // Eğer öyleyse düzenleme disabled olmalı.
   const isRoleAboveActor = selectedRole
     ? selectedRole.position >= actorMaxPos
     : false;
+
+  // Owner rolü → sadece server owner isim + renk düzenleyebilir
+  // Diğer roller → canManageRoles + hiyerarşi kontrolü
   const canEditSelected = canManageRoles && !isRoleAboveActor && !isOwnerRole;
+  const canEditOwnerAppearance = isOwnerRole && isActorOwner;
 
   // ─── Drag & Drop state ───
   // HTML5 DnD API — ChannelTree.tsx pattern ile aynı.
@@ -327,9 +336,14 @@ function RoleSettings() {
         {selectedRole ? (
           <div className="channel-perm-section">
             {/* Owner rolü uyarısı */}
-            {isOwnerRole && (
+            {isOwnerRole && !isActorOwner && (
               <div className="role-hierarchy-warning">
                 {t("ownerRoleWarning")}
+              </div>
+            )}
+            {isOwnerRole && isActorOwner && (
+              <div className="role-hierarchy-warning">
+                {t("ownerRoleEditHint")}
               </div>
             )}
 
@@ -351,7 +365,7 @@ function RoleSettings() {
                   setHasChanges(true);
                 }}
                 className="settings-input"
-                disabled={!canEditSelected}
+                disabled={!(canEditSelected || canEditOwnerAppearance)}
               />
             </div>
 
@@ -364,7 +378,7 @@ function RoleSettings() {
                   setEditColor(color);
                   setHasChanges(true);
                 }}
-                disabled={!canEditSelected}
+                disabled={!(canEditSelected || canEditOwnerAppearance)}
               />
             </div>
 
@@ -373,7 +387,7 @@ function RoleSettings() {
               <button
                 onClick={handleSave}
                 className="settings-btn"
-                disabled={!hasChanges || !canEditSelected}
+                disabled={!hasChanges || !(canEditSelected || canEditOwnerAppearance)}
               >
                 {t("saveChanges")}
               </button>
