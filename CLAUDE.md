@@ -383,6 +383,7 @@ mqvi/
 12. Circular dependency (katmanlar arası tek yönlü bağımlılık)
 13. Hardcoded kullanıcıya görünen string (i18n kullan — hem EN hem TR)
 14. Çeviri key'ini tek dile ekleme (her zaman EN + TR birlikte)
+15. `artifactName`'e `${version}` ekleme — sabit `"mqvi-setup.${ext}"` olmalı (landing page download URL bozulur)
 
 ---
 

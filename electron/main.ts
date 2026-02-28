@@ -27,6 +27,7 @@ import {
 } from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn, ChildProcess } from "child_process";
+import { readFileSync } from "fs";
 import path from "path";
 
 /** Ana uygulama penceresi referansı */
@@ -93,12 +94,23 @@ function createWindow(): void {
     minWidth: 940,
     minHeight: 560,
     icon: path.join(__dirname, "../icons/mqvi-icon.ico"),
+    // Pencere oluşturulduğu an koyu arka plan — HTML/CSS yüklenmeden önce
+    // beyaz flash'ı önler. Midnight temasının --bg-0 değeri.
+    backgroundColor: "#111111",
+    // Pencereyi hazır olana kadar gizle (show: false), sonra ready-to-show
+    // event'inde göster — bu sayede kullanıcı yarım yüklenmiş sayfa görmez
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
     },
+  });
+
+  // Pencere hazır olduğunda göster — yarım yüklenmiş sayfa göstermeyi önler
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
   });
 
   // Varsayılan Electron menü çubuğunu (File/Edit/View/Window/Help) kaldır.
@@ -555,12 +567,28 @@ function createUpdateWindow(): BrowserWindow {
     center: true,
     transparent: false,
     alwaysOnTop: true,
+    backgroundColor: "#111111",
     icon: path.join(__dirname, "../icons/mqvi-icon.ico"),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+
+  // Logo PNG dosyasını runtime'da oku ve base64 data URL oluştur.
+  // data: URL içinden file:// yüklenemez (güvenlik kısıtı), bu yüzden
+  // logoyu direkt inline embed ediyoruz.
+  const logoPath = path.join(__dirname, "../icons/mqvi-icon-128x128.png");
+  let logoDataUrl = "";
+  try {
+    const logoBuffer = readFileSync(logoPath);
+    logoDataUrl = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+  } catch {
+    /* Logo dosyası bulunamazsa text fallback kullanılır */
+  }
+  const logoHtml = logoDataUrl
+    ? `<img class="logo" src="${logoDataUrl}" alt="mqvi" />`
+    : `<div class="logo-text">mqvi</div>`;
 
   // Minimal HTML — inline, dosya gerektirmez
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
@@ -570,27 +598,28 @@ function createUpdateWindow(): BrowserWindow {
       <style>
         * { margin:0; padding:0; box-sizing:border-box; }
         body {
-          background: #1a1a2e; color: #e0e0e0;
+          background: #111111; color: #e0e0e0;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
           height: 100vh; user-select: none;
           -webkit-app-region: drag;
         }
-        .logo { font-size: 32px; font-weight: 800; color: #7c6cf0; margin-bottom: 16px; }
+        .logo { width: 64px; height: 64px; margin-bottom: 16px; }
+        .logo-text { font-size: 32px; font-weight: 800; color: #3b82f6; margin-bottom: 16px; }
         .status { font-size: 14px; color: #888; }
         .progress-wrap {
-          width: 240px; height: 4px; background: #2a2a40;
+          width: 240px; height: 4px; background: #222222;
           border-radius: 2px; margin-top: 12px; overflow: hidden;
         }
         .progress-bar {
-          height: 100%; width: 0%; background: #7c6cf0;
+          height: 100%; width: 0%; background: #3b82f6;
           border-radius: 2px; transition: width 0.3s ease;
         }
       </style>
     </head>
     <body>
-      <div class="logo">mqvi</div>
+      ${logoHtml}
       <div class="status" id="status">Checking for updates...</div>
       <div class="progress-wrap"><div class="progress-bar" id="bar"></div></div>
       <script>

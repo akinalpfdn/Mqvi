@@ -64,16 +64,11 @@ if ((Test-Path $exePath) -and (Test-Path $rceditBin)) {
     Write-Host "Icon embedded successfully" -ForegroundColor Green
 }
 
-# Phase 3: Build NSIS installer from the patched unpacked directory
-if ($Nsis) {
-    Write-Host "Phase 3: Building NSIS installer from patched app..." -ForegroundColor Cyan
-    & "C:\Program Files\nodejs\npx.cmd" electron-builder --win nsis --prepackaged release/win-unpacked
-    if ($LASTEXITCODE -ne 0) { throw "electron-builder (NSIS) failed" }
-}
-
-# Generate app-update.yml for electron-updater
-# electron-builder creates this only for installer builds, but electron-updater
-# always looks for it on startup. Without it: ENOENT error.
+# Phase 2.5: Generate app-update.yml for electron-updater
+# electron-builder --dir does not create this file, but electron-updater
+# requires it at runtime to know where to check for updates.
+# MUST be created BEFORE the NSIS step — NSIS packs the unpacked directory,
+# so app-update.yml needs to be inside it at that point.
 $resourcesDir = "release\win-unpacked\resources"
 if (Test-Path $resourcesDir) {
     $updateYml = @"
@@ -83,7 +78,24 @@ repo: Mqvi
 updaterCacheDirName: mqvi-desktop-updater
 "@
     Set-Content -Path "$resourcesDir\app-update.yml" -Value $updateYml -Encoding UTF8
-    Write-Host "Created app-update.yml" -ForegroundColor Green
+    Write-Host "Created app-update.yml in unpacked resources" -ForegroundColor Green
+}
+
+# Phase 3: Build NSIS installer from the patched unpacked directory
+if ($Nsis) {
+    Write-Host "Phase 3: Building NSIS installer from patched app..." -ForegroundColor Cyan
+    & "C:\Program Files\nodejs\npx.cmd" electron-builder --win nsis --prepackaged release/win-unpacked
+    if ($LASTEXITCODE -ne 0) { throw "electron-builder (NSIS) failed" }
 }
 
 Write-Host "Build complete! Output: release/" -ForegroundColor Green
+
+# Reminder: When creating a GitHub release, upload BOTH files:
+#   gh release upload vX.Y.Z release/mqvi-setup.exe release/latest.yml
+# latest.yml is REQUIRED for electron-updater auto-update to work.
+if ($Nsis -and (Test-Path "release\latest.yml")) {
+    Write-Host ""
+    Write-Host "IMPORTANT: Upload both files to GitHub release:" -ForegroundColor Yellow
+    Write-Host "  gh release upload vX.Y.Z release/mqvi-setup.exe release/latest.yml" -ForegroundColor Yellow
+    Write-Host "  (latest.yml is required for auto-update)" -ForegroundColor Yellow
+}

@@ -7,9 +7,31 @@
     <link rel="apple-touch-icon" sizes="256x256" href="/mqvi-icon-256.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mqvi</title>
+    <!-- Inline dark styles — CSS/JS yüklenmeden önce beyaz flash'ı önler -->
+    <style>
+      html, body { margin:0; padding:0; background:#111111; color:#e0e0e0; }
+      #app-loader {
+        display:flex; flex-direction:column; align-items:center;
+        justify-content:center; height:100vh; gap:16px;
+        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      }
+      #app-loader .logo { width:72px; height:72px; }
+      #app-loader .spinner {
+        width:28px; height:28px; border:3px solid rgba(255,255,255,0.1);
+        border-top-color:#3b82f6; border-radius:50%;
+        animation:spin .7s linear infinite;
+      }
+      @keyframes spin { to { transform:rotate(360deg); } }
+    </style>
   </head>
-  <body class="bg-background text-text-primary">
-    <div id="root"></div>
+  <body>
+    <div id="root">
+      <!-- React mount olana kadar gösterilen loading state -->
+      <div id="app-loader">
+        <img class="logo" src="/mqvi-icon-128.png" alt="mqvi" />
+        <div class="spinner"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -8,8 +8,8 @@
  * .settings-field, .settings-label, .settings-input, .settings-btn
  */
 
-import { useState, useEffect } from "react";
-import { useTranslation } from "react-i18next";
+import { useState, useEffect, useCallback } from "react";
+import { useTranslation, Trans } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useServerStore } from "../../stores/serverStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -25,8 +25,10 @@ type LiveKitSettings = {
 
 function ServerGeneralSettings() {
   const { t } = useTranslation("settings");
+  const { t: tServers } = useTranslation("servers");
   const addToast = useToastStore((s) => s.addToast);
   const activeServerId = useServerStore((s) => s.activeServerId);
+  const deleteServerAction = useServerStore((s) => s.deleteServer);
   const currentUser = useAuthStore((s) => s.user);
 
   const [server, setServer] = useState<Server | null>(null);
@@ -42,6 +44,10 @@ function ServerGeneralSettings() {
   const [editLkKey, setEditLkKey] = useState("");
   const [editLkSecret, setEditLkSecret] = useState("");
   const [isLkSaving, setIsLkSaving] = useState(false);
+
+  // Delete server state
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const isOwner = server !== null && currentUser !== null && server.owner_id === currentUser.id;
 
@@ -160,6 +166,25 @@ function ServerGeneralSettings() {
       addToast("error", t("serverSaveError"));
     }
   }
+
+  const handleDeleteServer = useCallback(async () => {
+    if (!activeServerId || !server || isDeleting) return;
+    if (deleteConfirmName !== server.name) return;
+
+    setIsDeleting(true);
+    try {
+      const ok = await deleteServerAction(activeServerId);
+      if (ok) {
+        addToast("success", tServers("serverDeleted"));
+      } else {
+        addToast("error", tServers("confirmDelete", { name: server.name }));
+      }
+    } catch {
+      addToast("error", tServers("confirmDelete", { name: server.name }));
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [activeServerId, server, deleteConfirmName, isDeleting, deleteServerAction, addToast, tServers]);
 
   if (!isLoaded) {
     return (
@@ -355,6 +380,47 @@ function ServerGeneralSettings() {
               )}
             </>
           )}
+        </>
+      )}
+
+      {/* ─── Danger Zone — Server Silme ─── */}
+      {isOwner && (
+        <>
+          <div className="dz-separator" />
+          <div className="dz-section">
+            <h2 className="dz-title">{t("dangerZone")}</h2>
+
+            <div className="dz-card">
+              <h3 className="dz-card-title">{tServers("deleteServer")}</h3>
+              <p className="dz-card-desc">{tServers("deleteServerWarning")}</p>
+
+              <label className="dz-confirm-label">
+                <Trans
+                  i18nKey="deleteServerConfirmLabel"
+                  ns="servers"
+                  values={{ name: server.name }}
+                  components={{ strong: <strong /> }}
+                />
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                placeholder={tServers("deleteServerConfirmPlaceholder")}
+                className="settings-input dz-input"
+                autoComplete="off"
+                spellCheck={false}
+              />
+
+              <button
+                onClick={handleDeleteServer}
+                disabled={deleteConfirmName !== server.name || isDeleting}
+                className="dz-btn"
+              >
+                {isDeleting ? tServers("deleting") : tServers("deleteServer")}
+              </button>
+            </div>
+          </div>
         </>
       )}
     </div>

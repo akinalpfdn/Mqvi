@@ -762,6 +762,20 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .settings-hint { font-size:13px;color:var(--t2);margin-top:4px; }
 .settings-divider { height:1px;background:var(--b1);margin:24px 0; }
 
+/* Danger Zone (Server delete) */
+.dz-separator { height:1px;background:var(--red-s);margin:32px 0 0; }
+.dz-section { margin-top:24px; }
+.dz-title { font-family:var(--f-d);font-size:18px;font-weight:700;color:var(--red);margin-bottom:16px; }
+.dz-card { border:1px solid var(--red-s);border-radius:10px;padding:20px;background:var(--bg-1); }
+.dz-card-title { font-size:15px;font-weight:600;color:var(--t0);margin:0 0 8px; }
+.dz-card-desc { font-size:13px;color:var(--t2);line-height:1.5;margin:0 0 16px; }
+.dz-confirm-label { display:block;font-size:13px;color:var(--t1);margin-bottom:8px; }
+.dz-confirm-label strong { color:var(--t0);font-weight:700; }
+.dz-input { margin-bottom:16px; }
+.dz-btn { height:36px;padding:0 20px;border:none;border-radius:8px;background:var(--red);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--f-ui);transition:background .15s,opacity .15s; }
+.dz-btn:hover { opacity:.9; }
+.dz-btn:disabled { opacity:.4;cursor:not-allowed; }
+
 /* Theme picker (AppearanceSettings) */
 .theme-section-desc { font-size:13px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
 .theme-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;max-width:660px; }
