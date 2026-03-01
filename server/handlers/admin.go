@@ -158,6 +158,25 @@ func (h *AdminHandler) MigrateServerInstance(w http.ResponseWriter, r *http.Requ
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server instance updated"})
 }
 
+// GetLiveKitInstanceMetrics — GET /api/admin/livekit-instances/{id}/metrics
+// Bir LiveKit instance'ın Prometheus /metrics endpoint'inden anlık metrikleri çeker.
+// Erişilemezse available=false döner.
+func (h *AdminHandler) GetLiveKitInstanceMetrics(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "instance id is required")
+		return
+	}
+
+	metrics, err := h.livekitAdminService.GetInstanceMetrics(r.Context(), id)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, metrics)
+}
+
 // ListUsers — GET /api/admin/users
 // Platformdaki tüm kullanıcıları istatistikleriyle listeler.
 func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {

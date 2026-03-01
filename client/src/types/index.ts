@@ -454,6 +454,28 @@ export type UpdateLiveKitInstanceRequest = {
 };
 
 /**
+ * LiveKitInstanceMetrics — Prometheus /metrics endpoint'inden parse edilen
+ * LiveKit instance anlık kaynak kullanım metrikleri.
+ */
+export type LiveKitInstanceMetrics = {
+  cpu_load: number;
+  num_cpus: number;
+  memory_used: number;
+  memory_load: number;
+  room_count: number;
+  participant_count: number;
+  track_publish_count: number;
+  track_subscribe_count: number;
+  bytes_in: number;
+  bytes_out: number;
+  packets_in: number;
+  packets_out: number;
+  nack_total: number;
+  fetched_at: string;
+  available: boolean;
+};
+
+/**
  * AdminServerListItem — Platform admin panelde gösterilen sunucu bilgisi.
  * Tek SQL sorgusu ile tüm istatistikler toplanır.
  */

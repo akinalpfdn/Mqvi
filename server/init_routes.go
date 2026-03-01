@@ -104,6 +104,7 @@ func initRoutes(
 
 	// Platform Admin — LiveKit instance yönetimi
 	mux.Handle("GET /api/admin/livekit-instances", authAdmin(h.Admin.ListLiveKitInstances))
+	mux.Handle("GET /api/admin/livekit-instances/{id}/metrics", authAdmin(h.Admin.GetLiveKitInstanceMetrics))
 	mux.Handle("GET /api/admin/livekit-instances/{id}", authAdmin(h.Admin.GetLiveKitInstance))
 	mux.Handle("POST /api/admin/livekit-instances", authAdmin(h.Admin.CreateLiveKitInstance))
 	mux.Handle("PATCH /api/admin/livekit-instances/{id}", authAdmin(h.Admin.UpdateLiveKitInstance))

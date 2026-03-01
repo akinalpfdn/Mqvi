@@ -829,6 +829,19 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .platform-instance-capacity { font-size:13px;color:var(--t3); }
 .role-list-item.active .platform-instance-capacity { color:var(--t2); }
 
+/* ── Metrics Panel — LiveKit Prometheus monitoring ── */
+.metrics-section { margin-top:8px; }
+.metrics-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:12px; }
+.metrics-header .settings-section-title { margin:0; }
+.metrics-refresh-btn { padding:4px 12px;font-size:13px; }
+.metrics-unavailable { color:var(--t3);font-size:13px;padding:12px;background:var(--bg3);border-radius:6px;text-align:center; }
+.metrics-timestamp { color:var(--t3);font-size:13px;margin-bottom:12px; }
+.metrics-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px; }
+.metrics-card { display:flex;flex-direction:column;gap:2px;padding:12px;background:var(--bg3);border-radius:6px; }
+.metrics-card-label { font-size:13px;color:var(--t3);font-weight:500; }
+.metrics-card-value { font-size:20px;font-weight:600;color:var(--t0);font-family:var(--font-mono); }
+.metrics-card-sub { font-size:13px;color:var(--t3); }
+
 /* Admin server list — Platform admin sunucu yönetim tablosu */
 
 /* Content area'yı full-width yap (server tablosu geniş alan gerektirir) */

@@ -9,12 +9,17 @@ package services
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/crypto"
+	"github.com/akinalp/mqvi/pkg/promparse"
 	"github.com/akinalp/mqvi/repository"
 )
 
@@ -59,6 +64,12 @@ type LiveKitAdminService interface {
 	// ListUsers, platformdaki tüm kullanıcıları istatistikleriyle döner.
 	// Admin panelde kullanıcı listesi için kullanılır.
 	ListUsers(ctx context.Context) ([]models.AdminUserListItem, error)
+
+	// GetInstanceMetrics, bir LiveKit instance'ın Prometheus /metrics endpoint'inden
+	// anlık kaynak kullanım metriklerini çeker ve parse eder.
+	// Instance URL'si DB'den alınır, credential'lar decrypt edilir (gerekirse).
+	// /metrics erişilemezse Available=false döner, hata dönmez.
+	GetInstanceMetrics(ctx context.Context, instanceID string) (*models.LiveKitInstanceMetrics, error)
 }
 
 type livekitAdminService struct {
@@ -68,6 +79,7 @@ type livekitAdminService struct {
 	channelRepo   repository.ChannelRepository
 	voiceProvider ActiveVoiceProvider
 	encryptionKey []byte
+	httpClient    *http.Client // Prometheus /metrics fetch için
 }
 
 // NewLiveKitAdminService, constructor — interface döner.
@@ -90,6 +102,14 @@ func NewLiveKitAdminService(
 		channelRepo:   channelRepo,
 		voiceProvider: voiceProvider,
 		encryptionKey: encryptionKey,
+		httpClient: &http.Client{
+			Timeout: 5 * time.Second,
+			// Self-signed sertifika kullanan LiveKit instance'lar için TLS skip.
+			// Bu sadece backend → LiveKit server arası internal trafikte kullanılır.
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		},
 	}
 }
 
@@ -379,6 +399,98 @@ func (s *livekitAdminService) getActiveVoiceUserIDs() map[string]bool {
 		userIDs[st.UserID] = true
 	}
 	return userIDs
+}
+
+func (s *livekitAdminService) GetInstanceMetrics(ctx context.Context, instanceID string) (*models.LiveKitInstanceMetrics, error) {
+	// 1. Instance'ı DB'den getir
+	inst, err := s.livekitRepo.GetByID(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. URL'yi /metrics endpoint'ine çevir
+	// wss://livekit.example.com → https://livekit.example.com/metrics
+	// ws://localhost:7880 → http://localhost:7880/metrics
+	metricsURL := livekitURLToMetrics(inst.URL)
+
+	// 3. /metrics endpoint'ini çağır
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
+	if err != nil {
+		// URL parse hatası — available=false dön
+		return &models.LiveKitInstanceMetrics{
+			FetchedAt: time.Now().UTC(),
+			Available: false,
+		}, nil
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		// Bağlantı hatası — available=false dön, hata dönme
+		return &models.LiveKitInstanceMetrics{
+			FetchedAt: time.Now().UTC(),
+			Available: false,
+		}, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return &models.LiveKitInstanceMetrics{
+			FetchedAt: time.Now().UTC(),
+			Available: false,
+		}, nil
+	}
+
+	// 4. Response body'yi oku (max 5MB — Prometheus metrics genelde küçüktür)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+	if err != nil {
+		return &models.LiveKitInstanceMetrics{
+			FetchedAt: time.Now().UTC(),
+			Available: false,
+		}, nil
+	}
+
+	// 5. Prometheus formatını parse et
+	m := promparse.Parse(string(body))
+
+	return &models.LiveKitInstanceMetrics{
+		CPULoad:             m.Float64("livekit_node_sys_cpu_load"),
+		NumCPUs:             m.Int("livekit_node_sys_cpus"),
+		MemoryUsed:          m.Uint64("process_resident_memory_bytes"),
+		MemoryLoad:          m.Float64("livekit_node_sys_memory_load"),
+		RoomCount:           m.Int("livekit_node_rooms"),
+		ParticipantCount:    m.Int("livekit_node_participants"),
+		TrackPublishCount:   m.Int("livekit_node_published_tracks"),
+		TrackSubscribeCount: m.Int("livekit_node_subscribed_tracks"),
+		BytesIn:             m.Uint64("livekit_node_bytes_in_total"),
+		BytesOut:            m.Uint64("livekit_node_bytes_out_total"),
+		PacketsIn:           m.Uint64("livekit_node_packets_in_total"),
+		PacketsOut:          m.Uint64("livekit_node_packets_out_total"),
+		NackTotal:           m.Uint64("livekit_node_nack_total"),
+		FetchedAt:           time.Now().UTC(),
+		Available:           true,
+	}, nil
+}
+
+// livekitURLToMetrics, LiveKit WebSocket URL'sini Prometheus /metrics HTTP URL'sine
+// dönüştürür.
+//
+//	wss://livekit.example.com → https://livekit.example.com/metrics
+//	ws://localhost:7880 → http://localhost:7880/metrics
+//	https://livekit.example.com → https://livekit.example.com/metrics
+func livekitURLToMetrics(rawURL string) string {
+	u := rawURL
+
+	// Protokol dönüşümü: wss→https, ws→http
+	if strings.HasPrefix(u, "wss://") {
+		u = "https://" + strings.TrimPrefix(u, "wss://")
+	} else if strings.HasPrefix(u, "ws://") {
+		u = "http://" + strings.TrimPrefix(u, "ws://")
+	}
+
+	// Trailing slash temizle
+	u = strings.TrimRight(u, "/")
+
+	return u + "/metrics"
 }
 
 // toAdminView, LiveKitInstance'ı credential'sız admin view'a dönüştürür.

@@ -8,6 +8,7 @@
 import { apiClient } from "./client";
 import type {
   LiveKitInstanceAdmin,
+  LiveKitInstanceMetrics,
   CreateLiveKitInstanceRequest,
   UpdateLiveKitInstanceRequest,
   AdminServerListItem,
@@ -57,6 +58,13 @@ export async function deleteLiveKitInstance(
     ? `/admin/livekit-instances/${id}?migrate_to=${migrateToId}`
     : `/admin/livekit-instances/${id}`;
   return apiClient<{ message: string }>(url, { method: "DELETE" });
+}
+
+/** Bir LiveKit instance'ın anlık Prometheus metriklerini çeker. */
+export async function getLiveKitInstanceMetrics(id: string) {
+  return apiClient<LiveKitInstanceMetrics>(
+    `/admin/livekit-instances/${id}/metrics`
+  );
 }
 
 /** Platformdaki tüm sunucuları istatistikleriyle listeler (admin). */

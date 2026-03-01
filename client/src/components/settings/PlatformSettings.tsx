@@ -18,8 +18,9 @@ import {
   createLiveKitInstance,
   updateLiveKitInstance,
   deleteLiveKitInstance,
+  getLiveKitInstanceMetrics,
 } from "../../api/admin";
-import type { LiveKitInstanceAdmin } from "../../types";
+import type { LiveKitInstanceAdmin, LiveKitInstanceMetrics } from "../../types";
 
 function PlatformSettings() {
   return <LiveKitTab />;
@@ -549,6 +550,9 @@ function EditForm({
         </button>
       </div>
 
+      {/* ── Metrics Panel ── */}
+      <MetricsPanel instanceId={instance.id} t={t} />
+
       {/* ── Danger Zone ── */}
       <div className="dz-separator" />
       <div className="dz-section">
@@ -584,6 +588,156 @@ function EditForm({
       </div>
     </div>
   );
+}
+
+// ═══════════════════════════════════════════════════════
+// Metrics Panel — Prometheus /metrics monitoring
+// ═══════════════════════════════════════════════════════
+
+type MetricsPanelProps = {
+  instanceId: string;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+};
+
+function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
+  const addToast = useToastStore((s) => s.addToast);
+  const [metrics, setMetrics] = useState<LiveKitInstanceMetrics | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const fetchMetrics = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await getLiveKitInstanceMetrics(instanceId);
+      if (res.success && res.data) {
+        setMetrics(res.data);
+      } else {
+        addToast("error", res.error ?? t("platformMetricsLoadError"));
+      }
+    } catch {
+      addToast("error", t("platformMetricsLoadError"));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [instanceId, addToast, t]);
+
+  // Instance değiştiğinde otomatik fetch
+  useEffect(() => {
+    fetchMetrics();
+  }, [fetchMetrics]);
+
+  return (
+    <>
+      <div className="dz-separator" />
+      <div className="metrics-section">
+        <div className="metrics-header">
+          <h2 className="settings-section-title">{t("platformMetrics")}</h2>
+          <button
+            className="settings-btn settings-btn-secondary metrics-refresh-btn"
+            onClick={fetchMetrics}
+            disabled={isLoading}
+          >
+            {isLoading ? t("platformMetricsRefreshing") : t("platformMetricsRefresh")}
+          </button>
+        </div>
+
+        {metrics && !metrics.available && (
+          <p className="metrics-unavailable">
+            {t("platformMetricsUnavailable")}
+          </p>
+        )}
+
+        {metrics?.available && (
+          <>
+            <p className="metrics-timestamp">
+              {t("platformMetricsLastUpdated", {
+                time: new Date(metrics.fetched_at).toLocaleTimeString(),
+              })}
+            </p>
+
+            <div className="metrics-grid">
+              {/* CPU */}
+              <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsCPULoad")}</span>
+                <span className="metrics-card-value">
+                  {(metrics.cpu_load * 100).toFixed(1)}%
+                </span>
+                <span className="metrics-card-sub">
+                  {t("platformMetricsCPUCores", { count: metrics.num_cpus })}
+                </span>
+              </div>
+
+              {/* Memory */}
+              <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsMemoryUsed")}</span>
+                <span className="metrics-card-value">
+                  {formatBytes(metrics.memory_used)}
+                </span>
+                <span className="metrics-card-sub">
+                  {t("platformMetricsMemoryLoad")}: {(metrics.memory_load * 100).toFixed(1)}%
+                </span>
+              </div>
+
+              {/* Rooms */}
+              <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsRooms")}</span>
+                <span className="metrics-card-value">{metrics.room_count}</span>
+              </div>
+
+              {/* Participants */}
+              <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsParticipants")}</span>
+                <span className="metrics-card-value">{metrics.participant_count}</span>
+              </div>
+
+              {/* Tracks */}
+              <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsTracks")}</span>
+                <span className="metrics-card-value">
+                  {metrics.track_publish_count} / {metrics.track_subscribe_count}
+                </span>
+                <span className="metrics-card-sub">
+                  {t("platformMetricsPublished")} / {t("platformMetricsSubscribed")}
+                </span>
+              </div>
+
+              {/* NACK */}
+              <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsNack")}</span>
+                <span className="metrics-card-value">{metrics.nack_total.toLocaleString()}</span>
+              </div>
+
+              {/* Bandwidth In */}
+              <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsBytesIn")}</span>
+                <span className="metrics-card-value">{formatBytes(metrics.bytes_in)}</span>
+                <span className="metrics-card-sub">
+                  {t("platformMetricsPacketsIn")}: {metrics.packets_in.toLocaleString()}
+                </span>
+              </div>
+
+              {/* Bandwidth Out */}
+              <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsBytesOut")}</span>
+                <span className="metrics-card-value">{formatBytes(metrics.bytes_out)}</span>
+                <span className="metrics-card-sub">
+                  {t("platformMetricsPacketsOut")}: {metrics.packets_out.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Byte değerini okunabilir formata çevir (KB/MB/GB) */
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const val = bytes / Math.pow(1024, i);
+  return `${val.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
 export default PlatformSettings;
