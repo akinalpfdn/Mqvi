@@ -411,7 +411,7 @@ func (s *livekitAdminService) GetInstanceMetrics(ctx context.Context, instanceID
 	// 2. URL'yi /metrics endpoint'ine çevir
 	// wss://livekit.example.com → https://livekit.example.com/metrics
 	// ws://localhost:7880 → http://localhost:7880/metrics
-	metricsURL := livekitURLToMetrics(inst.URL)
+	metricsURL := LiveKitURLToMetrics(inst.URL)
 
 	// 3. /metrics endpoint'ini çağır
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
@@ -452,32 +452,36 @@ func (s *livekitAdminService) GetInstanceMetrics(ctx context.Context, instanceID
 	// 5. Prometheus formatını parse et
 	m := promparse.Parse(string(body))
 
+	// LiveKit metric isimleri (kaynak: github.com/livekit/livekit/pkg/telemetry/prometheus):
+	//   rooms.go:   livekit_room_total, livekit_participant_total,
+	//               livekit_track_published_total{kind}, livekit_track_subscribed_total{kind}
+	//   packets.go: livekit_packet_bytes{direction}, livekit_packet_total{direction}
+	//               livekit_nack_total
+	// Go standard: process_resident_memory_bytes, go_goroutines
 	return &models.LiveKitInstanceMetrics{
-		CPULoad:             m.Float64("livekit_node_sys_cpu_load"),
-		NumCPUs:             m.Int("livekit_node_sys_cpus"),
+		Goroutines:          m.Int("go_goroutines"),
 		MemoryUsed:          m.Uint64("process_resident_memory_bytes"),
-		MemoryLoad:          m.Float64("livekit_node_sys_memory_load"),
-		RoomCount:           m.Int("livekit_node_rooms"),
-		ParticipantCount:    m.Int("livekit_node_participants"),
-		TrackPublishCount:   m.Int("livekit_node_published_tracks"),
-		TrackSubscribeCount: m.Int("livekit_node_subscribed_tracks"),
-		BytesIn:             m.Uint64("livekit_node_bytes_in_total"),
-		BytesOut:            m.Uint64("livekit_node_bytes_out_total"),
-		PacketsIn:           m.Uint64("livekit_node_packets_in_total"),
-		PacketsOut:          m.Uint64("livekit_node_packets_out_total"),
-		NackTotal:           m.Uint64("livekit_node_nack_total"),
+		RoomCount:           m.Int("livekit_room_total"),
+		ParticipantCount:    m.Int("livekit_participant_total"),
+		TrackPublishCount:   m.SumInt("livekit_track_published_total"),   // sum audio+video
+		TrackSubscribeCount: m.SumInt("livekit_track_subscribed_total"),  // sum audio+video
+		BytesIn:             m.Uint64WithLabel("livekit_packet_bytes", "direction", "incoming"),
+		BytesOut:            m.Uint64WithLabel("livekit_packet_bytes", "direction", "outgoing"),
+		PacketsIn:           m.Uint64WithLabel("livekit_packet_total", "direction", "incoming"),
+		PacketsOut:          m.Uint64WithLabel("livekit_packet_total", "direction", "outgoing"),
+		NackTotal:           m.SumUint64("livekit_nack_total"),
 		FetchedAt:           time.Now().UTC(),
 		Available:           true,
 	}, nil
 }
 
-// livekitURLToMetrics, LiveKit WebSocket URL'sini Prometheus /metrics HTTP URL'sine
-// dönüştürür.
+// LiveKitURLToMetrics, LiveKit WebSocket URL'sini Prometheus /metrics HTTP URL'sine
+// dönüştürür. MetricsCollector da bu fonksiyonu kullanır.
 //
 //	wss://livekit.example.com → https://livekit.example.com/metrics
 //	ws://localhost:7880 → http://localhost:7880/metrics
 //	https://livekit.example.com → https://livekit.example.com/metrics
-func livekitURLToMetrics(rawURL string) string {
+func LiveKitURLToMetrics(rawURL string) string {
 	u := rawURL
 
 	// Protokol dönüşümü: wss→https, ws→http

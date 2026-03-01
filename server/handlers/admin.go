@@ -18,12 +18,19 @@ import (
 
 // AdminHandler, platform admin endpoint'lerini yönetir.
 type AdminHandler struct {
-	livekitAdminService services.LiveKitAdminService
+	livekitAdminService    services.LiveKitAdminService
+	metricsHistoryService  services.MetricsHistoryService
 }
 
 // NewAdminHandler, constructor.
-func NewAdminHandler(livekitAdminService services.LiveKitAdminService) *AdminHandler {
-	return &AdminHandler{livekitAdminService: livekitAdminService}
+func NewAdminHandler(
+	livekitAdminService services.LiveKitAdminService,
+	metricsHistoryService services.MetricsHistoryService,
+) *AdminHandler {
+	return &AdminHandler{
+		livekitAdminService:   livekitAdminService,
+		metricsHistoryService: metricsHistoryService,
+	}
 }
 
 // ListLiveKitInstances — GET /api/admin/livekit-instances
@@ -187,4 +194,28 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pkg.JSON(w, http.StatusOK, users)
+}
+
+// GetLiveKitInstanceMetricsHistory — GET /api/admin/livekit-instances/{id}/metrics/history?period=24h
+// Bir LiveKit instance'ın tarihsel metrik özetini döner.
+// period: "24h" (default), "7d", "30d"
+func (h *AdminHandler) GetLiveKitInstanceMetricsHistory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "instance id is required")
+		return
+	}
+
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "24h"
+	}
+
+	summary, err := h.metricsHistoryService.GetSummary(r.Context(), id, period)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, summary)
 }

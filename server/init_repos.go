@@ -38,6 +38,7 @@ type Repositories struct {
 	Friendship        repository.FriendshipRepository
 	LiveKit           repository.LiveKitRepository
 	ResetToken        repository.PasswordResetRepository
+	MetricsHistory    repository.MetricsHistoryRepository
 }
 
 // initRepositories, veritabanı bağlantısından tüm repository'leri oluşturur.
@@ -66,5 +67,6 @@ func initRepositories(conn *sql.DB) *Repositories {
 		Friendship:        repository.NewSQLiteFriendshipRepo(conn),
 		LiveKit:           repository.NewSQLiteLiveKitRepo(conn),
 		ResetToken:        repository.NewSQLiteResetTokenRepo(conn),
+		MetricsHistory:    repository.NewSQLiteMetricsHistoryRepo(conn),
 	}
 }

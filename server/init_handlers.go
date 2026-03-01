@@ -56,7 +56,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Friendship:        handlers.NewFriendshipHandler(svcs.Friendship),
 		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, cfg.Upload.Dir),
 		Stats:             handlers.NewStatsHandler(repos.User),
-		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin),
+		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server),
 	}
 }

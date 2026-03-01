@@ -9,6 +9,7 @@ import { apiClient } from "./client";
 import type {
   LiveKitInstanceAdmin,
   LiveKitInstanceMetrics,
+  MetricsHistorySummary,
   CreateLiveKitInstanceRequest,
   UpdateLiveKitInstanceRequest,
   AdminServerListItem,
@@ -64,6 +65,16 @@ export async function deleteLiveKitInstance(
 export async function getLiveKitInstanceMetrics(id: string) {
   return apiClient<LiveKitInstanceMetrics>(
     `/admin/livekit-instances/${id}/metrics`
+  );
+}
+
+/** Bir LiveKit instance'ın tarihsel metrik özetini getirir (admin). */
+export async function getLiveKitMetricsHistory(
+  id: string,
+  period: "24h" | "7d" | "30d" = "24h"
+) {
+  return apiClient<MetricsHistorySummary>(
+    `/admin/livekit-instances/${id}/metrics/history?period=${period}`
   );
 }
 

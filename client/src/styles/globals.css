@@ -842,6 +842,16 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .metrics-card-value { font-size:20px;font-weight:600;color:var(--t0);font-family:var(--font-mono); }
 .metrics-card-sub { font-size:13px;color:var(--t3); }
 
+/* ── Metrics Period Toggle — 24h/7d/30d selector ── */
+.metrics-period-toggle { display:flex;gap:4px; }
+.metrics-period-btn {
+  padding:4px 10px;font-size:13px;border:1px solid var(--border);border-radius:4px;
+  background:transparent;color:var(--t2);cursor:pointer;transition:all .15s ease;
+}
+.metrics-period-btn:hover { background:var(--bg3);color:var(--t0); }
+.metrics-period-btn.active { background:var(--accent);color:#fff;border-color:var(--accent); }
+.metrics-period-btn:disabled { opacity:.5;cursor:not-allowed; }
+
 /* Admin server list — Platform admin sunucu yönetim tablosu */
 
 /* Content area'yı full-width yap (server tablosu geniş alan gerektirir) */

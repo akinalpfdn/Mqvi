@@ -99,7 +99,7 @@ func main() {
 	//
 	// initServices sıralama-kritik service'leri doğru sırada oluşturur:
 	// channelPermService → voiceService → p2pCallService → diğerleri
-	svcs, limiters := initServices(db.Conn, repos, hub, cfg, encryptionKey)
+	svcs, limiters, metricsCollector := initServices(db.Conn, repos, hub, cfg, encryptionKey)
 
 	// ─── 10. Hub Callback'leri ───
 	//
@@ -108,6 +108,13 @@ func main() {
 	registerHubCallbacks(hub, repos.User, repos.DM, svcs.Voice, svcs.P2PCall, repos.Channel, repos.Server)
 
 	go hub.Run()
+
+	// ─── 10b. Metrics Collector ───
+	//
+	// Arka plan goroutine'i: her 5 dakikada tüm platform-managed LiveKit
+	// instance'lardan Prometheus metrikleri çeker ve DB'ye yazar.
+	// Graceful shutdown'da Stop() çağrılır.
+	metricsCollector.Start()
 
 	// ─── 11. Handler Layer ───
 	h := initHandlers(svcs, repos, limiters, hub, cfg)
@@ -183,6 +190,7 @@ func main() {
 	<-done
 	log.Println("[main] shutting down...")
 
+	metricsCollector.Stop()
 	hub.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

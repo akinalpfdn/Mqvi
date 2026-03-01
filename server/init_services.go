@@ -44,6 +44,7 @@ type Services struct {
 	Friendship        services.FriendshipService
 	LiveKitAdmin      services.LiveKitAdminService
 	P2PCall           services.P2PCallService
+	MetricsHistory    services.MetricsHistoryService
 }
 
 // RateLimiters, tüm rate limiter instance'larını tutan container.
@@ -56,7 +57,7 @@ type RateLimiters struct {
 //
 // Sıralama kritiktir — bkz. dosya başı yorum.
 // hub ve encryptionKey service'ler arası paylaşılan dependency'lerdir.
-func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte) (*Services, *RateLimiters) {
+func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte) (*Services, *RateLimiters, services.MetricsCollector) {
 	// ─── Sıralama-kritik service'ler ───
 
 	// ChannelPermissionService — VoiceService ve MessageService'den ÖNCE
@@ -114,6 +115,14 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, hub)
 	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
 
+	// ─── Metrics History ───
+	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
+	metricsCollector := services.NewMetricsCollector(
+		repos.LiveKit, repos.MetricsHistory,
+		5*time.Minute, // collection interval
+		30,            // retention days
+	)
+
 	// ─── Rate Limiters ───
 	loginLimiter := ratelimit.NewLoginRateLimiter(5, 2*time.Minute)
 	messageLimiter := ratelimit.NewMessageRateLimiter(5, 5*time.Second, 15*time.Second)
@@ -139,6 +148,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Friendship:        friendshipService,
 		LiveKitAdmin:      livekitAdminService,
 		P2PCall:           p2pCallService,
+		MetricsHistory:    metricsHistoryService,
 	}
 
 	limiters := &RateLimiters{
@@ -146,5 +156,5 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Message: messageLimiter,
 	}
 
-	return svcs, limiters
+	return svcs, limiters, metricsCollector
 }

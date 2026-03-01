@@ -458,10 +458,8 @@ export type UpdateLiveKitInstanceRequest = {
  * LiveKit instance anlık kaynak kullanım metrikleri.
  */
 export type LiveKitInstanceMetrics = {
-  cpu_load: number;
-  num_cpus: number;
+  goroutines: number;
   memory_used: number;
-  memory_load: number;
   room_count: number;
   participant_count: number;
   track_publish_count: number;
@@ -473,6 +471,29 @@ export type LiveKitInstanceMetrics = {
   nack_total: number;
   fetched_at: string;
   available: boolean;
+};
+
+/**
+ * MetricsHistorySummary — Belirli bir zaman aralığı için özetlenmiş
+ * tarihsel LiveKit metrik verileri. SQL aggregate ile backend'de hesaplanır.
+ */
+export type MetricsHistorySummary = {
+  period: string;
+  sample_count: number;
+  peak_participants: number;
+  avg_participants: number;
+  peak_rooms: number;
+  avg_rooms: number;
+  peak_memory_bytes: number;
+  avg_memory_bytes: number;
+  peak_cpu_pct: number;
+  avg_cpu_pct: number;
+  peak_bandwidth_in_bps: number;
+  avg_bandwidth_in_bps: number;
+  peak_bandwidth_out_bps: number;
+  avg_bandwidth_out_bps: number;
+  peak_goroutines: number;
+  avg_goroutines: number;
 };
 
 /**

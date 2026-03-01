@@ -19,8 +19,13 @@ import {
   updateLiveKitInstance,
   deleteLiveKitInstance,
   getLiveKitInstanceMetrics,
+  getLiveKitMetricsHistory,
 } from "../../api/admin";
-import type { LiveKitInstanceAdmin, LiveKitInstanceMetrics } from "../../types";
+import type {
+  LiveKitInstanceAdmin,
+  LiveKitInstanceMetrics,
+  MetricsHistorySummary,
+} from "../../types";
 
 function PlatformSettings() {
   return <LiveKitTab />;
@@ -604,6 +609,11 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
   const [metrics, setMetrics] = useState<LiveKitInstanceMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // ─── History state ───
+  const [selectedPeriod, setSelectedPeriod] = useState<"24h" | "7d" | "30d">("24h");
+  const [historySummary, setHistorySummary] = useState<MetricsHistorySummary | null>(null);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
   const fetchMetrics = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -620,10 +630,35 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
     }
   }, [instanceId, addToast, t]);
 
+  const fetchHistory = useCallback(async (period: "24h" | "7d" | "30d") => {
+    try {
+      setIsHistoryLoading(true);
+      const res = await getLiveKitMetricsHistory(instanceId, period);
+      if (res.success && res.data) {
+        setHistorySummary(res.data);
+      } else {
+        addToast("error", res.error ?? t("platformMetricsHistoryLoadError"));
+      }
+    } catch {
+      addToast("error", t("platformMetricsHistoryLoadError"));
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, [instanceId, addToast, t]);
+
   // Instance değiştiğinde otomatik fetch
   useEffect(() => {
     fetchMetrics();
   }, [fetchMetrics]);
+
+  // Period veya instance değiştiğinde history fetch
+  useEffect(() => {
+    fetchHistory(selectedPeriod);
+  }, [fetchHistory, selectedPeriod]);
+
+  const handlePeriodChange = useCallback((period: "24h" | "7d" | "30d") => {
+    setSelectedPeriod(period);
+  }, []);
 
   return (
     <>
@@ -655,14 +690,11 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
             </p>
 
             <div className="metrics-grid">
-              {/* CPU */}
+              {/* Goroutines */}
               <div className="metrics-card">
-                <span className="metrics-card-label">{t("platformMetricsCPULoad")}</span>
+                <span className="metrics-card-label">{t("platformMetricsGoroutines")}</span>
                 <span className="metrics-card-value">
-                  {(metrics.cpu_load * 100).toFixed(1)}%
-                </span>
-                <span className="metrics-card-sub">
-                  {t("platformMetricsCPUCores", { count: metrics.num_cpus })}
+                  {metrics.goroutines.toLocaleString()}
                 </span>
               </div>
 
@@ -671,9 +703,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
                 <span className="metrics-card-label">{t("platformMetricsMemoryUsed")}</span>
                 <span className="metrics-card-value">
                   {formatBytes(metrics.memory_used)}
-                </span>
-                <span className="metrics-card-sub">
-                  {t("platformMetricsMemoryLoad")}: {(metrics.memory_load * 100).toFixed(1)}%
                 </span>
               </div>
 
@@ -727,6 +756,88 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
           </>
         )}
       </div>
+
+      {/* ─── Capacity History Section ─── */}
+      <div className="dz-separator" />
+      <div className="metrics-section">
+        <div className="metrics-header">
+          <h2 className="settings-section-title">{t("platformMetricsHistory")}</h2>
+          <div className="metrics-period-toggle">
+            {(["24h", "7d", "30d"] as const).map((period) => (
+              <button
+                key={period}
+                className={`metrics-period-btn${selectedPeriod === period ? " active" : ""}`}
+                onClick={() => handlePeriodChange(period)}
+                disabled={isHistoryLoading}
+              >
+                {t(`platformMetricsPeriod${period}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {isHistoryLoading && !historySummary && (
+          <p className="metrics-timestamp">{t("platformMetricsRefreshing")}</p>
+        )}
+
+        {historySummary && historySummary.sample_count === 0 && (
+          <p className="metrics-unavailable">
+            {t("platformMetricsHistoryNoData")}
+          </p>
+        )}
+
+        {historySummary && historySummary.sample_count > 0 && (
+          <div className="metrics-grid">
+            {/* Peak Participants */}
+            <div className="metrics-card">
+              <span className="metrics-card-label">{t("platformMetricsPeakParticipants")}</span>
+              <span className="metrics-card-value">{historySummary.peak_participants}</span>
+            </div>
+
+            {/* Avg Participants */}
+            <div className="metrics-card">
+              <span className="metrics-card-label">{t("platformMetricsAvgParticipants")}</span>
+              <span className="metrics-card-value">{historySummary.avg_participants.toFixed(1)}</span>
+            </div>
+
+            {/* Peak Rooms */}
+            <div className="metrics-card">
+              <span className="metrics-card-label">{t("platformMetricsPeakRooms")}</span>
+              <span className="metrics-card-value">{historySummary.peak_rooms}</span>
+            </div>
+
+            {/* Peak CPU */}
+            <div className="metrics-card">
+              <span className="metrics-card-label">{t("platformMetricsPeakCPU")}</span>
+              <span className="metrics-card-value">{historySummary.peak_cpu_pct.toFixed(1)}%</span>
+            </div>
+
+            {/* Avg CPU */}
+            <div className="metrics-card">
+              <span className="metrics-card-label">{t("platformMetricsAvgCPU")}</span>
+              <span className="metrics-card-value">{historySummary.avg_cpu_pct.toFixed(1)}%</span>
+            </div>
+
+            {/* Peak Memory */}
+            <div className="metrics-card">
+              <span className="metrics-card-label">{t("platformMetricsPeakMemory")}</span>
+              <span className="metrics-card-value">{formatBytes(historySummary.peak_memory_bytes)}</span>
+            </div>
+
+            {/* Avg Bandwidth In */}
+            <div className="metrics-card">
+              <span className="metrics-card-label">{t("platformMetricsAvgBandwidthIn")}</span>
+              <span className="metrics-card-value">{formatBps(historySummary.avg_bandwidth_in_bps)}</span>
+            </div>
+
+            {/* Avg Bandwidth Out */}
+            <div className="metrics-card">
+              <span className="metrics-card-label">{t("platformMetricsAvgBandwidthOut")}</span>
+              <span className="metrics-card-value">{formatBps(historySummary.avg_bandwidth_out_bps)}</span>
+            </div>
+          </div>
+        )}
+      </div>
     </>
   );
 }
@@ -738,6 +849,16 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   const val = bytes / Math.pow(1024, i);
   return `${val.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
+}
+
+/** Bytes/s değerini okunabilir bps formatına çevir (Kbps/Mbps/Gbps) */
+function formatBps(bytesPerSec: number): string {
+  const bps = bytesPerSec * 8;
+  if (bps === 0) return "0 bps";
+  const units = ["bps", "Kbps", "Mbps", "Gbps"];
+  const i = Math.floor(Math.log(bps) / Math.log(1000));
+  const val = bps / Math.pow(1000, i);
+  return `${val.toFixed(1)} ${units[Math.min(i, units.length - 1)]}`;
 }
 
 export default PlatformSettings;
