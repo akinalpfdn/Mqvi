@@ -4,6 +4,7 @@ import { BrowserRouter, HashRouter } from "react-router-dom";
 import "./i18n"; // i18n initialization — import order matters, must be before App
 import "./styles/globals.css";
 import App from "./App";
+import ErrorBoundary from "./components/shared/ErrorBoundary";
 import { isElectron } from "./utils/constants";
 
 /**
@@ -20,8 +21,10 @@ const Router = isElectron() ? HashRouter : BrowserRouter;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Router>
-      <App />
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <App />
+      </Router>
+    </ErrorBoundary>
   </StrictMode>
 );
