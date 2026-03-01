@@ -44,5 +44,13 @@
     "callNotFound": "Arama bulunamadı",
     "notInCall": "Bir aramada değilsiniz",
     "cannotCallSelf": "Kendinizi arayamazsınız"
+  },
+  "admin": {
+    "platformAdminRequired": "Platform yöneticisi erişimi gerekli",
+    "instanceNotFound": "LiveKit sunucusu bulunamadı",
+    "cannotDeleteWithServers": "Aktif sunucuları olan bir instance, taşıma hedefi belirtilmeden silinemez",
+    "migrationTargetNotFound": "Taşıma hedefi bulunamadı",
+    "cannotMigrateToSelf": "Aynı sunucuya taşıma yapılamaz",
+    "onlyPlatformManaged": "Sadece platform tarafından yönetilen sunucular admin API ile değiştirilebilir"
   }
 }

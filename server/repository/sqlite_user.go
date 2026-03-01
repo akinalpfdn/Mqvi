@@ -31,8 +31,8 @@ func NewSQLiteUserRepo(db *sql.DB) UserRepository {
 
 func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 	query := `
-		INSERT INTO users (id, username, display_name, avatar_url, password_hash, status, email, language)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, username, display_name, avatar_url, password_hash, status, email, language, is_platform_admin)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	// QueryRowContext: tek bir satır dönen sorgu çalıştırır.
@@ -46,6 +46,7 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 		user.Status,
 		user.Email,
 		user.Language,
+		user.IsPlatformAdmin,
 	).Scan(&user.ID, &user.CreatedAt)
 
 	if err != nil {
@@ -64,13 +65,13 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 
 func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, is_platform_admin, created_at
 		FROM users WHERE id = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
-		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.CreatedAt,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.IsPlatformAdmin, &user.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -85,13 +86,13 @@ func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, 
 
 func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, is_platform_admin, created_at
 		FROM users WHERE username = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
-		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.CreatedAt,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.IsPlatformAdmin, &user.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -106,7 +107,7 @@ func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*m
 
 func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, is_platform_admin, created_at
 		FROM users ORDER BY username`
 
 	// QueryContext: birden fazla satır dönen sorgu.
@@ -122,7 +123,7 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 		var u models.User
 		if err := rows.Scan(
 			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
-			&u.PasswordHash, &u.Status, &u.CustomStatus, &u.Email, &u.Language, &u.CreatedAt,
+			&u.PasswordHash, &u.Status, &u.CustomStatus, &u.Email, &u.Language, &u.IsPlatformAdmin, &u.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan user row: %w", err)
 		}
@@ -228,13 +229,13 @@ func (r *sqliteUserRepo) UpdateEmail(ctx context.Context, userID string, email *
 // İleride "şifremi unuttum" akışı için kullanılacak.
 func (r *sqliteUserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, is_platform_admin, created_at
 		FROM users WHERE email = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, email).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
-		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.CreatedAt,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.IsPlatformAdmin, &user.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {

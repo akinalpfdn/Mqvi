@@ -21,6 +21,7 @@ import VoiceSettings from "./VoiceSettings";
 import ChannelSettings from "./ChannelSettings";
 import MembersSettings from "./MembersSettings";
 import SecuritySettings from "./SecuritySettings";
+import PlatformSettings from "./PlatformSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -109,6 +110,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "security":
       return <SecuritySettings />;
+
+    case "platform":
+      return <PlatformSettings />;
 
     default:
       return null;

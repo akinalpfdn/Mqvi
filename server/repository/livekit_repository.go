@@ -40,4 +40,13 @@ type LiveKitRepository interface {
 
 	// Delete, bir LiveKit instance kaydını siler.
 	Delete(ctx context.Context, id string) error
+
+	// ListPlatformInstances, tüm platform-managed LiveKit instance'larını döner.
+	// Admin panelde liste görünümü için kullanılır.
+	ListPlatformInstances(ctx context.Context) ([]models.LiveKitInstance, error)
+
+	// MigrateServers, bir instance'daki tüm sunucuları başka bir instance'a taşır.
+	// Instance silme öncesi çağrılır. Taşınan sunucu sayısını döner.
+	// Transaction içinde çalışır: server_count güncelleme + servers.livekit_instance_id güncelleme.
+	MigrateServers(ctx context.Context, fromInstanceID, toInstanceID string) (int64, error)
 }

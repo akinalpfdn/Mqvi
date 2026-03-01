@@ -44,16 +44,17 @@ const (
 // User, bir kullanıcıyı temsil eder.
 // JSON tag'leri API response'larında, db tag'leri SQL sorgularında kullanılır.
 type User struct {
-	ID           string     `json:"id"`
-	Username     string     `json:"username"`
-	DisplayName  *string    `json:"display_name"`  // *string = nullable — Go'da nil olabilir
-	AvatarURL    *string    `json:"avatar_url"`
-	PasswordHash string     `json:"-"`             // json:"-" → API response'a DAHİL ETME (güvenlik!)
-	Status       UserStatus `json:"status"`
-	CustomStatus *string    `json:"custom_status"`
-	Email        *string    `json:"email"`    // Opsiyonel — şifremi unuttum için kullanılır
-	Language     string     `json:"language"` // Dil tercihi: "en", "tr"
-	CreatedAt    time.Time  `json:"created_at"`
+	ID              string     `json:"id"`
+	Username        string     `json:"username"`
+	DisplayName     *string    `json:"display_name"`    // *string = nullable — Go'da nil olabilir
+	AvatarURL       *string    `json:"avatar_url"`
+	PasswordHash    string     `json:"-"`               // json:"-" → API response'a DAHİL ETME (güvenlik!)
+	Status          UserStatus `json:"status"`
+	CustomStatus    *string    `json:"custom_status"`
+	Email           *string    `json:"email"`            // Opsiyonel — şifremi unuttum için kullanılır
+	Language        string     `json:"language"`          // Dil tercihi: "en", "tr"
+	IsPlatformAdmin bool       `json:"is_platform_admin"` // Platform yöneticisi — SQL ile manual atanır
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 // CreateUserRequest, kayıt olurken frontend'den gelen veri.

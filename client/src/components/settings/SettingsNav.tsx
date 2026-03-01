@@ -38,6 +38,11 @@ const SERVER_ITEMS: NavItem[] = [
   { id: "invites", labelKey: "invites" },
 ];
 
+/** Platform Settings kategorisi — sadece platform admin'lere görünür */
+const PLATFORM_ITEMS: NavItem[] = [
+  { id: "platform", labelKey: "platformAdmin" },
+];
+
 function SettingsNav() {
   const { t } = useTranslation("settings");
   const activeTab = useSettingsStore((s) => s.activeTab);
@@ -49,6 +54,8 @@ function SettingsNav() {
   const members = useMemberStore((s) => s.members);
   const currentMember = members.find((m) => m.id === user?.id);
   const perms = currentMember?.effective_permissions ?? 0;
+
+  const isPlatformAdmin = user?.is_platform_admin ?? false;
 
   const canSeeServerSettings =
     hasPermission(perms, Permissions.Admin) ||
@@ -77,6 +84,23 @@ function SettingsNav() {
           {!isMobile && <div className="settings-nav-divider" />}
           <h3 className="settings-nav-label">{t("serverSettings")}</h3>
           {SERVER_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
+              onClick={() => setActiveTab(item.id)}
+            >
+              {t(item.labelKey)}
+            </button>
+          ))}
+        </>
+      )}
+
+      {/* Platform Settings (platform admin only) */}
+      {isPlatformAdmin && (
+        <>
+          {!isMobile && <div className="settings-nav-divider" />}
+          <h3 className="settings-nav-label">{t("platformSettings")}</h3>
+          {PLATFORM_ITEMS.map((item) => (
             <button
               key={item.id}
               className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}

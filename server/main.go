@@ -479,6 +479,7 @@ func main() {
 		encryptionKey,
 	)
 
+	livekitAdminService := services.NewLiveKitAdminService(livekitRepo, encryptionKey)
 	pinService := services.NewPinService(pinRepo, messageRepo, hub)
 	searchService := services.NewSearchService(searchRepo)
 	readStateService := services.NewReadStateService(readStateRepo, channelPermService)
@@ -518,6 +519,7 @@ func main() {
 	friendshipHandler := handlers.NewFriendshipHandler(friendshipService)
 	avatarHandler := handlers.NewAvatarHandler(userRepo, memberService, serverService, cfg.Upload.Dir)
 	statsHandler := handlers.NewStatsHandler(userRepo)
+	adminHandler := handlers.NewAdminHandler(livekitAdminService)
 
 	// WS Handler — multi-server'da ban kontrolü sunucu bazlı olduğu için
 	// BanChecker nil geçilir. WS bağlantısı platforma erişim verir;
@@ -529,6 +531,7 @@ func main() {
 	authMw := middleware.NewAuthMiddleware(authService, userRepo)
 	permMw := middleware.NewPermissionMiddleware(roleRepo)
 	serverMw := middleware.NewServerMembershipMiddleware(serverRepo)
+	platformAdminMw := middleware.NewPlatformAdminMiddleware()
 
 	// ─── Middleware Chain Helpers ───
 	//
@@ -536,6 +539,7 @@ func main() {
 	// authServer: auth + sunucu üyelik kontrolü (serverID context'e eklenir)
 	// authServerPerm: auth + sunucu üyelik + belirli permission kontrolü
 	// authServerPermLoad: auth + sunucu üyelik + permission bilgisi yükleme (kontrol handler'da)
+	// authAdmin: auth + platform admin yetkisi (sunucu bağımsız)
 	auth := func(h http.HandlerFunc) http.Handler {
 		return authMw.Require(http.HandlerFunc(h))
 	}
@@ -547,6 +551,9 @@ func main() {
 	}
 	authServerPermLoad := func(h http.HandlerFunc) http.Handler {
 		return authMw.Require(serverMw.Require(permMw.Load(http.HandlerFunc(h))))
+	}
+	authAdmin := func(h http.HandlerFunc) http.Handler {
+		return authMw.Require(platformAdminMw.Require(http.HandlerFunc(h)))
 	}
 
 	// ─── 12. HTTP Router ───
@@ -612,6 +619,14 @@ func main() {
 	mux.Handle("DELETE /api/friends/requests/{id}", auth(friendshipHandler.DeclineRequest))
 	mux.Handle("GET /api/friends", auth(friendshipHandler.ListFriends))
 	mux.Handle("DELETE /api/friends/{userId}", auth(friendshipHandler.RemoveFriend))
+
+	// Platform Admin — LiveKit instance yönetimi (sunucu bağımsız)
+	// authAdmin: auth + platformAdminMw.Require (IsPlatformAdmin kontrolü)
+	mux.Handle("GET /api/admin/livekit-instances", authAdmin(adminHandler.ListLiveKitInstances))
+	mux.Handle("GET /api/admin/livekit-instances/{id}", authAdmin(adminHandler.GetLiveKitInstance))
+	mux.Handle("POST /api/admin/livekit-instances", authAdmin(adminHandler.CreateLiveKitInstance))
+	mux.Handle("PATCH /api/admin/livekit-instances/{id}", authAdmin(adminHandler.UpdateLiveKitInstance))
+	mux.Handle("DELETE /api/admin/livekit-instances/{id}", authAdmin(adminHandler.DeleteLiveKitInstance))
 
 	// ╔══════════════════════════════════════════╗
 	// ║  SERVER-SCOPED ROUTES                     ║

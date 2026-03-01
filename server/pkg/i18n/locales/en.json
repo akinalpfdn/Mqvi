@@ -44,5 +44,13 @@
     "callNotFound": "Call not found",
     "notInCall": "You are not in a call",
     "cannotCallSelf": "You cannot call yourself"
+  },
+  "admin": {
+    "platformAdminRequired": "Platform admin access required",
+    "instanceNotFound": "LiveKit instance not found",
+    "cannotDeleteWithServers": "Cannot delete instance with active servers without specifying a migration target",
+    "migrationTargetNotFound": "Migration target instance not found",
+    "cannotMigrateToSelf": "Cannot migrate to the same instance",
+    "onlyPlatformManaged": "Only platform-managed instances can be modified via admin API"
   }
 }

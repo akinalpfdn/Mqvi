@@ -22,6 +22,7 @@ export type User = {
   custom_status: string | null;
   email: string | null;
   language: string;
+  is_platform_admin: boolean;
   created_at: string;
 };
 
@@ -419,6 +420,37 @@ export type P2PSignalPayload = {
   type: "offer" | "answer" | "ice-candidate";
   sdp?: string;
   candidate?: RTCIceCandidateInit;
+};
+
+// ──────────────────────────────────
+// Platform Admin
+// ──────────────────────────────────
+
+/**
+ * LiveKitInstanceAdmin — Admin panelde gösterilen LiveKit instance bilgisi.
+ * Credential'lar backend'de kalır, sadece URL ve kapasite bilgisi döner.
+ */
+export type LiveKitInstanceAdmin = {
+  id: string;
+  url: string;
+  is_platform_managed: boolean;
+  server_count: number;
+  max_servers: number;
+  created_at: string;
+};
+
+export type CreateLiveKitInstanceRequest = {
+  url: string;
+  api_key: string;
+  api_secret: string;
+  max_servers: number;
+};
+
+export type UpdateLiveKitInstanceRequest = {
+  url?: string;
+  api_key?: string;
+  api_secret?: string;
+  max_servers?: number;
 };
 
 // ──────────────────────────────────
