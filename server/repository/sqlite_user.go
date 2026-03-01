@@ -309,7 +309,11 @@ func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.Ad
 			u.is_platform_admin,
 			u.created_at,
 			u.status,
-			(SELECT MAX(m.created_at) FROM messages m WHERE m.user_id = u.id),
+			(SELECT MAX(val) FROM (
+				SELECT MAX(m.created_at) AS val FROM messages m WHERE m.user_id = u.id
+				UNION ALL
+				SELECT u.last_voice_activity
+			) sub WHERE val IS NOT NULL),
 			(SELECT COUNT(*) FROM messages m2 WHERE m2.user_id = u.id),
 			COALESCE(
 				(SELECT SUM(a.file_size) FROM attachments a
@@ -353,4 +357,16 @@ func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.Ad
 	}
 
 	return users, nil
+}
+
+// UpdateLastVoiceActivity, kullanıcının son ses aktivitesi zamanını şimdiki zamana günceller.
+func (r *sqliteUserRepo) UpdateLastVoiceActivity(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users SET last_voice_activity = CURRENT_TIMESTAMP WHERE id = ?`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update user voice activity: %w", err)
+	}
+	return nil
 }

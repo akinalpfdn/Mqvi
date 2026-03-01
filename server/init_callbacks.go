@@ -123,7 +123,12 @@ func registerHubCallbacks(
 			return
 		}
 
-		// Sunucunun son ses aktivitesi zamanını güncelle (admin panel last_activity için).
+		// Kullanıcının son ses aktivitesi zamanını güncelle (admin panel user last_activity için).
+		if actErr := userRepo.UpdateLastVoiceActivity(context.Background(), userID); actErr != nil {
+			log.Printf("[voice] failed to update user voice activity user=%s: %v", userID, actErr)
+		}
+
+		// Sunucunun son ses aktivitesi zamanını güncelle (admin panel server last_activity için).
 		// channel → server lookup yapıp servers.last_voice_activity'yi set eder.
 		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
 		if chErr != nil {

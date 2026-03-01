@@ -10,12 +10,19 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/repository"
 )
+
+// ActiveVoiceProvider — admin service'in in-memory voice state'e erişmesi için ISP interface.
+// VoiceService bu interface'i Go duck typing ile otomatik karşılar.
+type ActiveVoiceProvider interface {
+	GetAllVoiceStates() []models.VoiceState
+}
 
 // LiveKitAdminService, platform admin'in LiveKit instance yönetimi için interface.
 type LiveKitAdminService interface {
@@ -58,17 +65,30 @@ type livekitAdminService struct {
 	livekitRepo   repository.LiveKitRepository
 	serverRepo    repository.ServerRepository
 	userRepo      repository.UserRepository
+	channelRepo   repository.ChannelRepository
+	voiceProvider ActiveVoiceProvider
 	encryptionKey []byte
 }
 
 // NewLiveKitAdminService, constructor — interface döner.
 // serverRepo: admin sunucu listesi (ListAllWithStats) için gerekli.
 // userRepo: admin kullanıcı listesi (ListAllUsersWithStats) için gerekli.
-func NewLiveKitAdminService(livekitRepo repository.LiveKitRepository, serverRepo repository.ServerRepository, userRepo repository.UserRepository, encryptionKey []byte) LiveKitAdminService {
+// channelRepo: aktif ses kullanıcılarının kanal → sunucu lookup'ı için gerekli.
+// voiceProvider: in-memory voice state'e erişim (aktif ses kullanıcıları last_activity hesabında kullanılır).
+func NewLiveKitAdminService(
+	livekitRepo repository.LiveKitRepository,
+	serverRepo repository.ServerRepository,
+	userRepo repository.UserRepository,
+	channelRepo repository.ChannelRepository,
+	voiceProvider ActiveVoiceProvider,
+	encryptionKey []byte,
+) LiveKitAdminService {
 	return &livekitAdminService{
 		livekitRepo:   livekitRepo,
 		serverRepo:    serverRepo,
 		userRepo:      userRepo,
+		channelRepo:   channelRepo,
+		voiceProvider: voiceProvider,
 		encryptionKey: encryptionKey,
 	}
 }
@@ -230,6 +250,20 @@ func (s *livekitAdminService) ListServers(ctx context.Context) ([]models.AdminSe
 		return nil, fmt.Errorf("failed to list all servers: %w", err)
 	}
 
+	// In-memory voice state'ten aktif ses kullanıcılarını al.
+	// Şu anda ses kanalında olan kullanıcılar varsa, o sunucunun last_activity'sini "now" yap.
+	// DB sadece JOIN anını kaydeder — devam eden voice session'ı göstermek için
+	// in-memory state ile cross-reference gerekli.
+	activeServerIDs := s.getActiveVoiceServerIDs(ctx)
+	if len(activeServerIDs) > 0 {
+		now := time.Now().UTC().Format("2006-01-02 15:04:05")
+		for i := range servers {
+			if activeServerIDs[servers[i].ID] {
+				servers[i].LastActivity = &now
+			}
+		}
+	}
+
 	return servers, nil
 }
 
@@ -289,7 +323,62 @@ func (s *livekitAdminService) ListUsers(ctx context.Context) ([]models.AdminUser
 		return nil, fmt.Errorf("failed to list all users: %w", err)
 	}
 
+	// In-memory voice state'ten aktif ses kullanıcılarını al.
+	// Ses kanalında olan kullanıcıların last_activity'sini "now" yap.
+	activeUserIDs := s.getActiveVoiceUserIDs()
+	if len(activeUserIDs) > 0 {
+		now := time.Now().UTC().Format("2006-01-02 15:04:05")
+		for i := range users {
+			if activeUserIDs[users[i].ID] {
+				users[i].LastActivity = &now
+			}
+		}
+	}
+
 	return users, nil
+}
+
+// getActiveVoiceServerIDs, in-memory voice state'ten hangi sunucularda aktif ses
+// kullanıcısı olduğunu hesaplar. VoiceState sadece channelID tutar — channel → server
+// lookup'ı için channelRepo kullanılır.
+func (s *livekitAdminService) getActiveVoiceServerIDs(ctx context.Context) map[string]bool {
+	states := s.voiceProvider.GetAllVoiceStates()
+	if len(states) == 0 {
+		return nil
+	}
+
+	// Unique channel ID'leri topla (aynı kanalda birden fazla kullanıcı olabilir)
+	channelIDs := make(map[string]struct{})
+	for _, st := range states {
+		channelIDs[st.ChannelID] = struct{}{}
+	}
+
+	// Her channel'dan server ID'yi bul
+	serverIDs := make(map[string]bool)
+	for chID := range channelIDs {
+		ch, err := s.channelRepo.GetByID(ctx, chID)
+		if err != nil {
+			continue // kanal silinmiş olabilir, skip
+		}
+		serverIDs[ch.ServerID] = true
+	}
+
+	return serverIDs
+}
+
+// getActiveVoiceUserIDs, in-memory voice state'ten şu anda ses kanalında olan
+// kullanıcı ID'lerini döner.
+func (s *livekitAdminService) getActiveVoiceUserIDs() map[string]bool {
+	states := s.voiceProvider.GetAllVoiceStates()
+	if len(states) == 0 {
+		return nil
+	}
+
+	userIDs := make(map[string]bool, len(states))
+	for _, st := range states {
+		userIDs[st.UserID] = true
+	}
+	return userIDs
 }
 
 // toAdminView, LiveKitInstance'ı credential'sız admin view'a dönüştürür.

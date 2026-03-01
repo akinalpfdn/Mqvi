@@ -54,4 +54,8 @@ type UserRepository interface {
 	// Tek SQL sorgusu ile message_count, storage_mb, owned server counts,
 	// member_server_count, ban_count ve last_activity hesaplanır.
 	ListAllUsersWithStats(ctx context.Context) ([]models.AdminUserListItem, error)
+
+	// UpdateLastVoiceActivity, bir kullanıcının son ses aktivitesi zamanını günceller.
+	// Ses kanalına katılım olduğunda çağrılır (hub callback'ten).
+	UpdateLastVoiceActivity(ctx context.Context, userID string) error
 }
