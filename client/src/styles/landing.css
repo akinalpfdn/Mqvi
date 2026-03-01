@@ -6,7 +6,7 @@
    Prefix: .lp- (landing page)
 */
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ── Scroll override ──
    globals.css'deki overflow:hidden'ı landing page için geçersiz kılar.
@@ -18,20 +18,20 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
    Landing page kendi renk paletini kullanır (uygulama temasından bağımsız).
    --lp- prefix ile namespace çakışması önlenir. */
 .landing-page {
-  --lp-bg: #091416;
-  --lp-surface: #0e1e22;
-  --lp-surface-light: #15292e;
-  --lp-border: #1a3038;
-  --lp-text: #daf0ee;
-  --lp-text-muted: #5e9490;
-  --lp-text-dim: #3d6e6a;
-  --lp-accent: #20dbb0;
-  --lp-accent-dim: rgba(32,219,176,0.10);
-  --lp-secondary: #50b4d0;
-  --lp-tertiary: #f07068;
-  --lp-glow: rgba(32,219,176,0.15);
+  --lp-bg: #0a0a0a;
+  --lp-surface: #141414;
+  --lp-surface-light: #1c1c1c;
+  --lp-border: rgba(255,255,255,0.08);
+  --lp-text: #e8e8e8;
+  --lp-text-muted: #888;
+  --lp-text-dim: #555;
+  --lp-accent: #3b82f6;
+  --lp-accent-dim: rgba(59,130,246,0.10);
+  --lp-secondary: #6366f1;
+  --lp-tertiary: #ef4444;
+  --lp-glow: rgba(59,130,246,0.12);
 
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
   background: var(--lp-bg);
   color: var(--lp-text);
   overflow-x: hidden;
@@ -89,6 +89,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   background: var(--lp-accent);
   top: -200px; left: 10%;
   animation-duration: 20s;
+  opacity: 0.08;
 }
 .lp-aurora-blob--2 {
   width: 500px; height: 500px;
@@ -96,13 +97,15 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   top: 30%; right: -100px;
   animation-duration: 25s;
   animation-delay: -7s;
+  opacity: 0.06;
 }
 .lp-aurora-blob--3 {
   width: 400px; height: 400px;
-  background: #7c6cf0;
+  background: var(--lp-secondary);
   bottom: 10%; left: 20%;
   animation-duration: 22s;
   animation-delay: -14s;
+  opacity: 0.05;
 }
 
 /* ── Grain Overlay ── */
@@ -134,30 +137,27 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(9, 20, 22, 0.7);
+  background: rgba(10, 10, 10, 0.8);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(26, 48, 56, 0.5);
 }
 .lp-nav-logo {
   width: 34px; height: 34px;
   border-radius: 9px;
-  background: linear-gradient(135deg, var(--lp-accent), var(--lp-secondary));
+  background: var(--lp-accent);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
   font-size: 16px;
-  color: var(--lp-bg);
+  color: #fff;
   flex-shrink: 0;
 }
 .lp-nav-brand {
-  font-weight: 800;
+  font-weight: 700;
   font-size: 18px;
   letter-spacing: -0.5px;
-  background: linear-gradient(90deg, var(--lp-text), var(--lp-accent));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--lp-text);
 }
 .lp-nav-links {
   display: flex;
@@ -269,19 +269,16 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   animation: lp-pulse 2s ease-in-out infinite;
 }
 .lp-hero h1 {
-  font-size: clamp(42px, 6.5vw, 80px);
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: -2px;
-  max-width: 800px;
+  font-size: clamp(36px, 5.5vw, 64px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -1.5px;
+  max-width: 700px;
   margin-bottom: 24px;
   animation: lp-fadeUp 0.8s ease 0.1s both;
 }
 .lp-hero-gradient {
-  background: linear-gradient(135deg, var(--lp-accent), var(--lp-secondary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--lp-accent);
 }
 .lp-hero p {
   font-size: clamp(16px, 2vw, 20px);
@@ -370,10 +367,10 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   margin-bottom: 16px;
 }
 .lp-section-title {
-  font-size: clamp(28px, 4vw, 44px);
-  font-weight: 800;
-  letter-spacing: -1px;
-  line-height: 1.15;
+  font-size: clamp(26px, 3.5vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
   margin-bottom: 20px;
 }
 .lp-section-desc {
@@ -413,7 +410,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 4px;
-  background: linear-gradient(90deg, var(--lp-tertiary), #f0a060);
+  background: var(--lp-tertiary);
 }
 .lp-id-card-header {
   display: flex;
@@ -432,6 +429,9 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   align-items: center;
   justify-content: center;
   font-size: 18px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: var(--lp-tertiary);
 }
 .lp-id-card-row {
   display: flex;
@@ -525,8 +525,8 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   margin-bottom: 12px;
 }
 .lp-feature-tag--live {
-  background: rgba(34, 197, 94, 0.12);
-  color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+  color: #4ade80;
 }
 .lp-feature-tag--beta {
   background: var(--lp-accent-dim);
@@ -539,6 +539,9 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   align-items: center;
   justify-content: center;
   font-size: 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: var(--lp-accent);
   margin-bottom: 20px;
 }
 .lp-feature-card h3 {
@@ -644,7 +647,12 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   align-items: center;
   gap: 10px;
 }
-.lp-roadmap-item-icon { font-size: 15px; }
+.lp-roadmap-item-icon {
+  font-size: 15px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: var(--lp-accent);
+}
 
 /* ═══════════════════════════════════════
    SELF-HOST
@@ -664,31 +672,39 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 /* OS Tab Bar */
 .lp-guide-os-tabs {
   display: flex;
-  gap: 0;
+  gap: 8px;
   max-width: 780px;
   margin: 40px auto 0;
-  border-bottom: 1px solid var(--lp-border);
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--lp-card);
+  border: 1px solid var(--lp-border);
 }
 .lp-guide-os-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 24px;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  padding: 16px 32px;
   border: none;
-  background: none;
+  border-radius: 8px;
+  background: transparent;
   color: var(--lp-text-dim);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
-  margin-bottom: -1px;
+  transition: color 0.2s, background 0.2s;
 }
-.lp-guide-os-tab:hover { color: var(--lp-text); }
+.lp-guide-os-tab svg { width: 22px; height: 22px; }
+.lp-guide-os-tab:hover {
+  color: var(--lp-text);
+  background: rgba(255,255,255,0.04);
+}
 .lp-guide-os-tab.active {
-  color: var(--lp-accent);
-  border-bottom-color: var(--lp-accent);
+  color: #fff;
+  background: var(--lp-accent);
 }
 
 /* Terminal mockup */
@@ -725,8 +741,8 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   color: var(--lp-text-muted);
   text-decoration: underline;
 }
-.lp-terminal-ok { color: #22c55e; }
-.lp-terminal-version { color: #22c55e; }
+.lp-terminal-ok { color: var(--lp-accent); }
+.lp-terminal-version { color: var(--lp-accent); }
 
 /* ═══════════════════════════════════════
    SELF-HOST GUIDE
@@ -818,7 +834,14 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   color: var(--lp-text-muted);
   line-height: 1.6;
 }
-.lp-guide-tip-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+.lp-guide-tip-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: var(--lp-accent);
+}
 
 /* Adım 6: mqvi'ye bağla — mock field'lar */
 .lp-guide-fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
@@ -887,9 +910,9 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   pointer-events: none;
 }
 .lp-cta h2 {
-  font-size: clamp(32px, 4.5vw, 52px);
-  font-weight: 800;
-  letter-spacing: -1.5px;
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 700;
+  letter-spacing: -1px;
   margin-bottom: 20px;
 }
 .lp-cta p {
@@ -930,13 +953,13 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-footer-logo {
   width: 24px; height: 24px;
   border-radius: 6px;
-  background: linear-gradient(135deg, var(--lp-accent), var(--lp-secondary));
+  background: var(--lp-accent);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
   font-size: 11px;
-  color: var(--lp-bg);
+  color: #fff;
 }
 .lp-footer-copy {
   font-size: 13px;

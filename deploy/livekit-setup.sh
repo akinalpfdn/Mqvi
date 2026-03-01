@@ -2,14 +2,14 @@
 # ═══════════════════════════════════════════════════════════════
 #  mqvi — LiveKit Auto-Setup Script (Linux)
 #
-#  Bu script tek komutla LiveKit ses sunucusunu kurar:
-#    1. LiveKit binary indirme (resmi install script)
-#    2. Firewall port açma (UFW / firewalld)
-#    3. API Key + Secret üretimi
-#    4. livekit.yaml oluşturma
-#    5. LiveKit'i systemd service olarak başlatma
+#  Sets up a LiveKit voice server with a single command:
+#    1. Download LiveKit binary (official install script)
+#    2. Open firewall ports (UFW / firewalld)
+#    3. Generate API Key + Secret
+#    4. Create livekit.yaml config
+#    5. Start LiveKit as a systemd service
 #
-#  Kullanım:
+#  Usage:
 #    curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.sh | sudo bash
 #
 # ═══════════════════════════════════════════════════════════════
@@ -30,7 +30,7 @@ echo -e "${CYAN}  mqvi LiveKit Setup Script (Linux)${NC}"
 echo -e "${CYAN}═══════════════════════════════════════${NC}"
 echo ""
 
-# ─── Root kontrolü ───
+# ─── Root check ───
 if [ "$EUID" -ne 0 ]; then
     echo -e "${RED}Error: This script must be run as root.${NC}"
     echo "Usage: sudo bash livekit-setup.sh"
@@ -38,7 +38,7 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# ─── 1/5: LiveKit Binary İndirme ───
+# ─── 1/5: Download LiveKit Binary ───
 echo -e "${YELLOW}[1/5] Installing LiveKit...${NC}"
 if command -v livekit-server &> /dev/null; then
     LK_VERSION=$(livekit-server --version 2>/dev/null || echo "installed")
@@ -49,7 +49,7 @@ else
     echo -e "${GREEN}  LiveKit installed successfully.${NC}"
 fi
 
-# ─── 2/5: Firewall Port Açma ───
+# ─── 2/5: Open Firewall Ports ───
 echo -e "${YELLOW}[2/5] Opening firewall ports...${NC}"
 if command -v ufw &> /dev/null; then
     ufw allow 7880/tcp   >/dev/null 2>&1
@@ -69,14 +69,14 @@ else
     echo -e "${YELLOW}  No firewall manager found (ufw/firewalld). Make sure ports 7880, 7881, 7882, 50000-60000 are open.${NC}"
 fi
 
-# ─── 3/5: Credential Üretimi ───
+# ─── 3/5: Generate Credentials ───
 echo -e "${YELLOW}[3/5] Generating credentials...${NC}"
 API_KEY="LiveKitKey$(openssl rand -hex 4)"
 API_SECRET=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
 echo -e "${GREEN}  API Key:    ${API_KEY}${NC}"
 echo -e "${GREEN}  API Secret: ${API_SECRET}${NC}"
 
-# ─── 4/5: livekit.yaml Oluştur ───
+# ─── 4/5: Create livekit.yaml ───
 echo -e "${YELLOW}[4/5] Creating config...${NC}"
 mkdir -p "$INSTALL_DIR"
 
@@ -93,10 +93,10 @@ EOF
 
 echo -e "${GREEN}  Config saved to ${INSTALL_DIR}/livekit.yaml${NC}"
 
-# ─── 5/5: Systemd Service Oluştur ve Başlat ───
+# ─── 5/5: Create and Start Systemd Service ───
 echo -e "${YELLOW}[5/5] Setting up LiveKit service...${NC}"
 
-# livekit-server binary path bul
+# Locate livekit-server binary
 LK_BIN=$(command -v livekit-server 2>/dev/null || echo "/usr/local/bin/livekit-server")
 
 cat > /etc/systemd/system/livekit.service << EOF
@@ -119,7 +119,7 @@ systemctl daemon-reload
 systemctl enable livekit  >/dev/null 2>&1
 systemctl restart livekit
 
-# Başladığını doğrula
+# Verify it started
 sleep 2
 if systemctl is-active --quiet livekit; then
     echo -e "${GREEN}  LiveKit service is running on port 7880.${NC}"
@@ -128,8 +128,29 @@ else
     exit 1
 fi
 
-# ─── Sonuç ───
+# ─── Result ───
 PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || curl -s --max-time 5 https://ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
+
+# ─── Verify external port accessibility ───
+# LiveKit is running on port 7880. Try to reach it from the public IP
+# to confirm that firewall rules are working correctly.
+# On a VPS the public IP is usually the server's own IP, so this works reliably.
+echo ""
+echo -e "${YELLOW}Verifying external port accessibility...${NC}"
+
+PORTS_VERIFIED=false
+if [ "$PUBLIC_IP" != "YOUR_SERVER_IP" ]; then
+    HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "http://${PUBLIC_IP}:7880" 2>/dev/null)
+    if [ "$HTTP_CODE" = "200" ]; then
+        PORTS_VERIFIED=true
+    fi
+fi
+
+if [ "$PORTS_VERIFIED" = true ]; then
+    echo -e "${GREEN}  Port 7880 is externally accessible!${NC}"
+else
+    echo -e "${YELLOW}  Could not verify external access from this machine.${NC}"
+fi
 
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════${NC}"
@@ -141,10 +162,28 @@ echo ""
 echo -e "  ${CYAN}URL:        ${NC}ws://${PUBLIC_IP}:7880"
 echo -e "  ${CYAN}API Key:    ${NC}${API_KEY}"
 echo -e "  ${CYAN}API Secret: ${NC}${API_SECRET}"
-echo ""
-echo -e "  ${YELLOW}Important:${NC} If your cloud provider has a web-based firewall"
-echo -e "  (like Hetzner, DigitalOcean, AWS Security Groups), you must"
-echo -e "  also open these ports there."
+
+# Show cloud firewall warning only if ports could not be verified
+if [ "$PORTS_VERIFIED" = true ]; then
+    echo ""
+    echo -e "  ${GREEN}Ports are externally accessible. You're all set!${NC}"
+else
+    echo ""
+    echo -e "  ${YELLOW}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${YELLOW}║  IMPORTANT: CLOUD FIREWALL                             ║${NC}"
+    echo -e "  ${YELLOW}║                                                        ║${NC}"
+    echo -e "  ${YELLOW}║  Could not verify external port access.                ║${NC}"
+    echo -e "  ${YELLOW}║  If your VPS provider has a web-based firewall         ║${NC}"
+    echo -e "  ${YELLOW}║  (Hetzner, DigitalOcean, AWS Security Groups, etc.),   ║${NC}"
+    echo -e "  ${YELLOW}║  make sure these ports are open:                       ║${NC}"
+    echo -e "  ${YELLOW}║                                                        ║${NC}"
+    echo -e "  ${YELLOW}║    7880  TCP   (signaling)                             ║${NC}"
+    echo -e "  ${YELLOW}║    7881  TCP   (TURN relay)                            ║${NC}"
+    echo -e "  ${YELLOW}║    7882  UDP   (media)                                 ║${NC}"
+    echo -e "  ${YELLOW}║    50000-60000 UDP (ICE candidates)                    ║${NC}"
+    echo -e "  ${YELLOW}╚══════════════════════════════════════════════════════════╝${NC}"
+fi
+
 echo ""
 echo -e "  Manage: systemctl {start|stop|restart|status} livekit"
 echo -e "  Logs:   journalctl -u livekit -f"

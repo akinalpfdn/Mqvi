@@ -859,6 +859,26 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .member-settings-actions { display:flex;align-items:center;gap:12px;margin-top:8px; }
 .member-settings-unsaved { font-size:13px;color:var(--primary); }
 
+/* Member settings — tab toggle */
+.member-settings-tabs {
+  display:flex;gap:0;border-bottom:1px solid var(--b1);padding:0 8px;
+}
+.member-settings-tab {
+  flex:1;padding:10px 0;font-size:13px;font-weight:500;color:var(--t2);
+  background:none;border:none;border-bottom:2px solid transparent;
+  cursor:pointer;transition:color .15s,border-color .15s;text-align:center;
+}
+.member-settings-tab:hover { color:var(--t0); }
+.member-settings-tab.active { color:var(--primary);border-bottom-color:var(--primary); }
+
+/* Banned member styles */
+.member-settings-avatar-banned { border-color:var(--red) !important;opacity:0.7; }
+.member-settings-name-banned { color:var(--t2) !important; }
+.ban-detail-value {
+  font-size:14px;color:var(--t1);background:var(--bg-1);
+  padding:8px 12px;border-radius:6px;word-break:break-word;
+}
+
 /* ═══════════════════════════════════════
    TOAST NOTIFICATIONS
    ═══════════════════════════════════════ */

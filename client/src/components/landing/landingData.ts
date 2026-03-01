@@ -20,15 +20,15 @@ export type FeatureItem = {
 };
 
 export const FEATURES: FeatureItem[] = [
-  { icon: "\uD83D\uDD12", tag: "live", bgColor: "rgba(32,219,176,0.10)", translationKey: "f1" },
-  { icon: "\uD83C\uDF99", tag: "live", bgColor: "rgba(80,180,208,0.10)", translationKey: "f2" },
-  { icon: "\uD83C\uDFE0", tag: "live", bgColor: "rgba(124,108,240,0.10)", translationKey: "f3" },
-  { icon: "\uD83D\uDC64", tag: "live", bgColor: "rgba(240,112,104,0.10)", translationKey: "f4" },
-  { icon: "\uD83D\uDDA5", tag: "beta", bgColor: "rgba(32,219,176,0.10)", translationKey: "f5" },
-  { icon: "\uD83D\uDEE1", tag: "live", bgColor: "rgba(80,180,208,0.10)", translationKey: "f6" },
-  { icon: "\uD83E\uDD1D", tag: "beta", bgColor: "rgba(124,108,240,0.10)", translationKey: "f7" },
-  { icon: "\uD83D\uDCD6", tag: "live", bgColor: "rgba(240,112,104,0.10)", translationKey: "f8" },
-  { icon: "\u26A1", tag: "live", bgColor: "rgba(32,219,176,0.10)", translationKey: "f9" },
+  { icon: "#", tag: "live", bgColor: "rgba(59,130,246,0.10)", translationKey: "f1" },
+  { icon: "~", tag: "live", bgColor: "rgba(99,102,241,0.10)", translationKey: "f2" },
+  { icon: ">", tag: "live", bgColor: "rgba(59,130,246,0.10)", translationKey: "f3" },
+  { icon: "_", tag: "live", bgColor: "rgba(99,102,241,0.10)", translationKey: "f4" },
+  { icon: "^", tag: "beta", bgColor: "rgba(59,130,246,0.10)", translationKey: "f5" },
+  { icon: "&", tag: "live", bgColor: "rgba(99,102,241,0.10)", translationKey: "f6" },
+  { icon: "@", tag: "beta", bgColor: "rgba(59,130,246,0.10)", translationKey: "f7" },
+  { icon: "/", tag: "live", bgColor: "rgba(99,102,241,0.10)", translationKey: "f8" },
+  { icon: "%", tag: "live", bgColor: "rgba(59,130,246,0.10)", translationKey: "f9" },
 ];
 
 // ─── Comparison Table ───
@@ -63,24 +63,24 @@ export type RoadmapItem = {
 };
 
 export const ROADMAP_DONE: RoadmapItem[] = [
-  { icon: "\uD83D\uDCAC", key: "rd1" },
-  { icon: "\uD83C\uDF99", key: "rd2" },
-  { icon: "\uD83D\uDD12", key: "rd3" },
-  { icon: "\uD83D\uDEE1", key: "rd4" },
-  { icon: "\uD83D\uDE00", key: "rd5" },
-  { icon: "\u21A9\uFE0F", key: "rd6" },
+  { icon: "#", key: "rd1" },
+  { icon: "~", key: "rd2" },
+  { icon: "&", key: "rd4" },
+  { icon: ":", key: "rd5" },
+  { icon: "<", key: "rd6" },
+  { icon: "^", key: "rd7" },
+  { icon: "@", key: "rd8" },
+  { icon: ">", key: "rd9" },
+  { icon: "*", key: "rd10" },
 ];
 
 export const ROADMAP_WIP: RoadmapItem[] = [
-  { icon: "\uD83D\uDDA5", key: "rw1" },
-  { icon: "\uD83E\uDD1D", key: "rw2" },
-  { icon: "\uD83C\uDFE0", key: "rw3" },
-  { icon: "\uD83C\uDFA8", key: "rw4" },
+  { icon: "#", key: "rw1" },
 ];
 
 export const ROADMAP_PLANNED: RoadmapItem[] = [
-  { icon: "\uD83D\uDCF1", key: "rp1" },
-  { icon: "\uD83D\uDD0C", key: "rp2" },
-  { icon: "\uD83C\uDF10", key: "rp3" },
-  { icon: "\uD83D\uDCC1", key: "rp4" },
+  { icon: "+", key: "rp1" },
+  { icon: "$", key: "rp2" },
+  { icon: "=", key: "rp3" },
+  { icon: "/", key: "rp4" },
 ];

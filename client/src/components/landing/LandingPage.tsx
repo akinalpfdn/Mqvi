@@ -196,7 +196,7 @@ function LandingPage() {
                 <div className="lp-id-card">
                   <div className="lp-id-card-bar" />
                   <div className="lp-id-card-header">
-                    <div className="lp-id-card-icon">{"\uD83E\uDEAA"}</div>
+                    <div className="lp-id-card-icon">!</div>
                     {t("id_header")}
                   </div>
                   {(["id_name", "id_number", "id_dob"] as const).map((key) => (
@@ -207,7 +207,7 @@ function LandingPage() {
                   ))}
                   <div className="lp-id-card-row">
                     <span className="lp-id-card-label">{t("id_photo")}</span>
-                    <span className="lp-id-card-upload">{"\uD83D\uDCF7"} {t("id_upload")}</span>
+                    <span className="lp-id-card-upload">{t("id_upload")}</span>
                   </div>
                   <div className="lp-id-card-stamp">{t("id_stamp")}</div>
                 </div>
@@ -429,7 +429,7 @@ function LandingPage() {
                   </div>
                   {guideOS === "windows" && (
                     <div className="lp-guide-tip">
-                      <span className="lp-guide-tip-icon">{"\u26A0\uFE0F"}</span>
+                      <span className="lp-guide-tip-icon">!</span>
                       <span>{t("guide_auto_note_windows")}</span>
                     </div>
                   )}
@@ -460,7 +460,7 @@ function LandingPage() {
                   <h3 className="lp-guide-step-title">{t("guide_connect_title")}</h3>
                   <p className="lp-guide-step-desc">{t("guide_connect_desc")}</p>
                   <div className="lp-guide-tip">
-                    <span className="lp-guide-tip-icon">{"\u2705"}</span>
+                    <span className="lp-guide-tip-icon">*</span>
                     <span>{t("guide_connect_tip")}</span>
                   </div>
                 </div>
@@ -507,7 +507,7 @@ function LandingPage() {
               </button>
               <button
                 className="lp-btn-secondary"
-                onClick={() => window.open("https://github.com", "_blank")}
+                onClick={() => window.open("https://github.com/akinalpfdn/Mqvi", "_blank")}
               >
                 {t("cta_btn2")}
               </button>
@@ -523,7 +523,7 @@ function LandingPage() {
           </div>
           <div className="lp-footer-links">
             <a href="#" className="lp-footer-link">{t("footer_docs")}</a>
-            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="lp-footer-link">GitHub</a>
+            <a href="https://github.com/akinalpfdn/Mqvi" target="_blank" rel="noopener noreferrer" className="lp-footer-link">GitHub</a>
             <a href="#" className="lp-footer-link">{t("footer_privacy")}</a>
           </div>
         </footer>
