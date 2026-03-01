@@ -12,16 +12,14 @@ import { useTranslation } from "react-i18next";
 import RevealOnScroll from "./RevealOnScroll";
 
 type FeatureCardProps = {
-  icon: string;
   tag: "live" | "beta";
-  bgColor: string;
   /** i18n çeviri key prefix'i — f1 → f1_title, f1_desc */
   translationKey: string;
   /** Sıralı animasyon gecikmesi (saniye) */
   delay: number;
 };
 
-function FeatureCard({ icon, tag, bgColor, translationKey, delay }: FeatureCardProps) {
+function FeatureCard({ tag, translationKey, delay }: FeatureCardProps) {
   const { t } = useTranslation("landing");
 
   return (
@@ -34,11 +32,6 @@ function FeatureCard({ icon, tag, bgColor, translationKey, delay }: FeatureCardP
         <span className={`lp-feature-tag lp-feature-tag--${tag}`}>
           {t(tag === "live" ? "tag_live" : "tag_beta")}
         </span>
-
-        {/* Icon */}
-        <div className="lp-feature-icon" style={{ background: bgColor }}>
-          {icon}
-        </div>
 
         {/* Başlık + açıklama */}
         <h3>{t(`${translationKey}_title`)}</h3>

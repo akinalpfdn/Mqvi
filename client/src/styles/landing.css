@@ -532,18 +532,6 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   background: var(--lp-accent-dim);
   color: var(--lp-accent);
 }
-.lp-feature-icon {
-  width: 44px; height: 44px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 700;
-  color: var(--lp-accent);
-  margin-bottom: 20px;
-}
 .lp-feature-card h3 {
   font-size: 16px;
   font-weight: 700;
@@ -646,12 +634,6 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.lp-roadmap-item-icon {
-  font-size: 15px;
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 700;
-  color: var(--lp-accent);
 }
 
 /* ═══════════════════════════════════════

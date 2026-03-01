@@ -37,7 +37,6 @@ function RoadmapColumn({ title, color, items }: RoadmapColumnProps) {
       <div className="lp-roadmap-col-body">
         {items.map((item) => (
           <div key={item.key} className="lp-roadmap-item">
-            <span className="lp-roadmap-item-icon">{item.icon}</span>
             {t(item.key)}
           </div>
         ))}

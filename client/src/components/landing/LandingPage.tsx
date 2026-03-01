@@ -29,7 +29,6 @@ import {
   FEATURES,
   COMPARISON_ROWS,
   ROADMAP_DONE,
-  ROADMAP_WIP,
   ROADMAP_PLANNED,
 } from "./landingData";
 import "../../styles/landing.css";
@@ -235,9 +234,7 @@ function LandingPage() {
             {FEATURES.map((f, i) => (
               <FeatureCard
                 key={f.translationKey}
-                icon={f.icon}
                 tag={f.tag}
-                bgColor={f.bgColor}
                 translationKey={f.translationKey}
                 delay={i * 0.06}
               />
@@ -309,7 +306,6 @@ function LandingPage() {
           <RevealOnScroll delay={0.1}>
             <div className="lp-roadmap-grid">
               <RoadmapColumn title={t("road_done")} color="#22c55e" items={ROADMAP_DONE} />
-              <RoadmapColumn title={t("road_wip")} color="var(--lp-accent)" items={ROADMAP_WIP} />
               <RoadmapColumn title={t("road_plan")} color="var(--lp-secondary)" items={ROADMAP_PLANNED} />
             </div>
           </RevealOnScroll>

@@ -12,9 +12,13 @@
 <p align="center">
   <a href="https://mqvi.net">Website</a> &middot;
   <a href="#features">Features</a> &middot;
-  <a href="#self-hosting">Self-Host</a> &middot;
+  <a href="#self-host-voice-server-only">Self-Host</a> &middot;
   <a href="#development">Development</a> &middot;
   <a href="#roadmap">Roadmap</a>
+</p>
+
+<p align="center">
+  <a href="README.tr.md">🇹🇷 Türkçe</a>
 </p>
 
 ---
@@ -25,7 +29,7 @@ Popular communication platforms are increasingly demanding government-issued IDs
 
 **mqvi** is built on a simple principle: your conversations should belong to no one but you.
 
-- No phone number, or government ID required
+- No phone number or government ID required
 - Zero data collection
 - Full source code is public — don't trust, verify
 - Self-host on your own server for complete control
@@ -38,10 +42,11 @@ Popular communication platforms are increasingly demanding government-issued IDs
 - **Text Channels** — Real-time messaging with file/image sharing, typing indicators, and message editing
 - **Voice & Video** — Low-latency voice and video powered by [LiveKit](https://livekit.io) SFU
 - **Screen Sharing** — 1080p/30fps with VP9 codec and adaptive bitrate
-- **Direct Messages** — Private one-on-one conversations
+- **Direct Messages** — Private one-on-one conversations with friend system
 - **Emoji Reactions** — React to messages with emoji
 
 ### Organization
+- **Multi-Server** — Join and manage multiple servers from a single account (Discord-style)
 - **Channels & Categories** — Organize conversations into text and voice channels
 - **Roles & Permissions** — Granular permission system with channel-level overrides
 - **Invite System** — Control who joins your server with invite codes
@@ -50,17 +55,18 @@ Popular communication platforms are increasingly demanding government-issued IDs
 
 ### Voice Features
 - **Push-to-Talk & Voice Activity Detection**
-- **Per-User Volume Control** — Adjust individual user volumes (0-200%)
+- **Per-User Volume Control** — Adjust individual user volumes (0–200%)
 - **Microphone Sensitivity** — Configurable VAD threshold
 - **Noise Suppression** — Built-in via LiveKit
 - **Join/Leave Sounds**
 
 ### User Experience
+- **Desktop App** — Native Electron app with auto-update
 - **Presence System** — Online, idle, DND status with automatic idle detection
 - **Unread Tracking** — Per-channel unread message counts with @mention badges
 - **Keyboard Shortcuts** — Navigate without touching the mouse
 - **Context Menus** — Right-click actions everywhere
-- **Theme Support** — Multiple color themes
+- **Custom Themes** — Multiple color themes
 - **i18n** — English and Turkish, with infrastructure for more languages
 
 ---
@@ -71,7 +77,7 @@ Popular communication platforms are increasingly demanding government-issued IDs
 |-------|-----------|
 | Backend | Go (net/http + gorilla/websocket) |
 | Frontend | React + TypeScript + Vite + Tailwind CSS |
-| Desktop | Tauri v2 (planned) |
+| Desktop | Electron |
 | State | Zustand |
 | Voice/Video | LiveKit (self-hosted SFU) |
 | Database | SQLite (modernc.org/sqlite, pure Go) |
@@ -97,63 +103,123 @@ Popular communication platforms are increasingly demanding government-issued IDs
     └── Roles & permissions               └── Roles & permissions
 ```
 
-All users have a single account on **mqvi.net**. Your account, friends, DMs, and server memberships live centrally. No extra domain or setup needed to start using mqvi.(You can still fork the project and manage everything by your own.)
+All users have a single account on **mqvi.net**. Your account, friends, DMs, and server memberships live centrally. No extra domain or setup needed to start using mqvi. (You can still fork the project and run everything independently — see [Full Server](#self-host-full-server) below.)
 
 **Servers** (where channels and voice chat live) can be hosted in two ways:
 
 ### Public Hosting
-Create a server directly from the app. We handle the infrastructure — no technical knowledge needed, no domain to buy, no VPS to manage.
+Create a server directly from the app. We handle the infrastructure — no technical knowledge needed.
 
 ### Bring Your Own Server
-Run your own server for full control over your community's data. Set up the server backend on your own hardware, then register it with the mqvi network by entering the server IP and secret key in the app. You automatically become the server owner.
-
-- Channels, messages, voice, and files stay on **your** server
-- Users still log in with their mqvi account — no separate registration
-- You control roles, permissions, and server settings
+Run your own voice/video server for full control. See [Self-Host: Voice Server Only](#self-host-voice-server-only) below.
 
 ---
 
-## Self-Hosting
+## Self-Host: Voice Server Only
+
+Use your mqvi.net account normally — create a server, add friends, chat. The only difference: voice and video traffic goes through **your own LiveKit server** instead of ours. Your conversations never touch our infrastructure.
+
+### Linux
+
+SSH into your server and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.sh | sudo bash
+```
+
+The script automatically:
+1. Downloads the LiveKit binary
+2. Opens firewall ports (UFW / firewalld)
+3. Generates secure API credentials
+4. Creates `livekit.yaml` config
+5. Starts LiveKit as a systemd service
+
+**Requirements:** Any Linux server (Ubuntu 22.04+ / Debian 12+ recommended), 1 GB RAM, 1 CPU core. Providers like Hetzner, DigitalOcean, or Contabo offer this for $3–5/month.
+
+### Windows
+
+Open **PowerShell as Administrator** and run:
+
+```powershell
+irm https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.ps1 | iex
+```
+
+The script automatically:
+1. Downloads the LiveKit binary
+2. Opens Windows Firewall ports
+3. Attempts router port forwarding via UPnP
+4. Generates secure API credentials
+5. Creates `livekit.yaml` config
+6. Starts LiveKit with auto-start on boot (Task Scheduler)
+
+**Requirements:** Windows 10/11. If using your own PC, it needs to stay on and connected to the internet.
+
+### After Setup
+
+When the script finishes, you'll see 3 values:
+
+| Value | Example |
+|-------|---------|
+| **URL** | `ws://203.0.113.10:7880` |
+| **API Key** | `LiveKitKeyf3a1b2c4` |
+| **API Secret** | `aBcDeFgHiJkLmNoPqRsTuVwXyZ012345` |
+
+Go to mqvi, create a new server, select **"Self-Hosted"**, and enter these 3 values. That's it.
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Voice doesn't connect | Ports are probably closed. Run `sudo ufw status` (Linux) or check Windows Firewall. Also check your cloud provider's web firewall. |
+| I can connect but hear no audio | UDP ports 50000–60000 might be blocked. Make sure your provider allows UDP on these ports. |
+| "Connection refused" error | LiveKit might not be running. Run `systemctl status livekit` (Linux) or check Task Manager for `livekit-server` (Windows). |
+| Works on LAN but not from outside | Make sure `use_external_ip: true` is set in your `livekit.yaml`. On Windows, also check that your router forwards ports 7880, 7881, 7882, and 50000–60000. |
+
+---
+
+## Self-Host: Full Server
+
+Run the entire mqvi platform on your own infrastructure. Completely independent from mqvi.net — you control everything: accounts, messages, files, voice.
 
 ### Requirements
 
 - Linux server (Ubuntu 22.04+ recommended)
-- 2 vCPU, 4 GB RAM minimum (Hetzner CX23 works great)
-- A domain name (optional — IP address works fine)
+- 2 vCPU, 4 GB RAM minimum
+- Domain name (optional — IP address works fine)
 
-### 1. Download
-
-Grab the latest release from [GitHub Releases](https://github.com/akinalp/mqvi/releases):
+### Quick Start
 
 ```bash
-# On your server
 mkdir -p ~/mqvi && cd ~/mqvi
 
 # Download the latest release
-curl -fsSL https://github.com/akinalp/mqvi/releases/latest/download/mqvi-server -o mqvi-server
-curl -fsSL https://github.com/akinalp/mqvi/releases/latest/download/start.sh -o start.sh
-curl -fsSL https://github.com/akinalp/mqvi/releases/latest/download/livekit.yaml -o livekit.yaml
-curl -fsSL https://github.com/akinalp/mqvi/releases/latest/download/.env.example -o .env
+curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-server -o mqvi-server
+curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/start.sh -o start.sh
+curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/livekit.yaml -o livekit.yaml
+curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/.env.example -o .env
 
 chmod +x mqvi-server start.sh
 ```
 
-The `mqvi-server` binary (~38 MB) is a single executable with the frontend, database migrations, and i18n files all embedded. No Go, Node.js, or any other runtime needed.
+The `mqvi-server` binary (~40 MB) is a single executable with the frontend, database migrations, and i18n files all embedded. No Go, Node.js, or any other runtime needed.
 
-### 2. Configure
+### Configure
+
+Edit `.env` and set at least these 3 secrets:
 
 ```bash
-nano .env   # Change JWT_SECRET and LIVEKIT_API_SECRET
+nano .env
 ```
 
-Generate secrets with:
-```bash
-openssl rand -hex 32
-```
+| Variable | How to generate |
+|----------|----------------|
+| `JWT_SECRET` | `openssl rand -hex 32` |
+| `LIVEKIT_API_SECRET` | `openssl rand -hex 32` |
+| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
 
 Make sure `LIVEKIT_API_SECRET` in `.env` matches the `keys.devkey` value in `livekit.yaml`.
 
-### 3. Start
+### Start
 
 ```bash
 ./start.sh
@@ -199,11 +265,13 @@ Make sure these ports are open:
 |------|----------|---------|
 | `9090` | TCP | Web UI + API |
 | `7880` | TCP | LiveKit signaling |
-| `50000-50200` | UDP | LiveKit RTC (voice/video) |
+| `7881` | TCP | LiveKit TURN relay |
+| `7882` | UDP | LiveKit media |
+| `50000–60000` | UDP | LiveKit ICE candidates |
 
 ### Environment Variables
 
-See [`.env.example`](.env.example) for all options. Key settings:
+See [`.env.example`](deploy/.env.example) for all options. Key settings:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -212,6 +280,7 @@ See [`.env.example`](.env.example) for all options. Key settings:
 | `LIVEKIT_URL` | `ws://localhost:7880` | LiveKit server URL (use `wss://` with Caddy) |
 | `LIVEKIT_API_KEY` | `devkey` | LiveKit API key (must match livekit.yaml) |
 | `LIVEKIT_API_SECRET` | — | **Required.** Must match livekit.yaml |
+| `ENCRYPTION_KEY` | — | **Required.** AES-256 key for encrypting stored credentials |
 | `DATABASE_PATH` | `./data/mqvi.db` | SQLite database path |
 | `UPLOAD_DIR` | `./data/uploads` | File upload directory |
 | `UPLOAD_MAX_SIZE` | `26214400` | Max upload size in bytes (25 MB) |
@@ -230,8 +299,8 @@ See [`.env.example`](.env.example) for all options. Key settings:
 
 ```bash
 # Clone
-git clone https://github.com/akinalp/mqvi.git
-cd mqvi
+git clone https://github.com/akinalpfdn/Mqvi.git
+cd Mqvi
 
 # Backend
 cd server
@@ -244,11 +313,9 @@ npm install
 npm run dev
 ```
 
-The Vite dev server proxies `/api` and `/ws` to `localhost:8080`.
+The Vite dev server proxies `/api` and `/ws` to `localhost:9090`.
 
 ### Building from Source
-
-If you want to build the server binary yourself instead of downloading a release:
 
 **Windows (PowerShell):**
 ```powershell
@@ -269,8 +336,6 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../deploy/package/mqvi-server 
 cd ..
 ```
 
-This produces a single `mqvi-server` binary (~38 MB) with the frontend, migrations, and i18n files all embedded.
-
 ### Project Structure
 
 ```
@@ -286,7 +351,9 @@ mqvi/
 │   ├── ws/               # WebSocket hub + events
 │   ├── database/         # SQLite + embedded migrations
 │   ├── static/           # Embedded frontend (populated at build)
-│   └── pkg/i18n/         # Backend i18n + embedded locales
+│   └── pkg/              # Shared utilities
+│       ├── i18n/         # Backend i18n + embedded locales
+│       └── crypto/       # AES-256-GCM encryption
 ├── client/               # React frontend
 │   └── src/
 │       ├── api/          # API client functions
@@ -294,18 +361,19 @@ mqvi/
 │       ├── hooks/        # Custom React hooks
 │       ├── components/   # UI components
 │       ├── styles/       # Theme + globals
-│       ├── i18n/         # Frontend translations
+│       ├── i18n/         # Frontend translations (EN + TR)
 │       └── types/        # TypeScript types
+├── electron/             # Electron desktop wrapper
+│   ├── main.ts           # Main process
+│   └── preload.ts        # Preload script (secure IPC)
 ├── deploy/               # Build & deploy scripts
 │   ├── build.ps1         # Windows build script
-│   ├── redeploy.example.ps1  # Windows one-click redeploy (template)
-│   ├── redeploy.example.sh   # Linux/macOS one-click redeploy (template)
 │   ├── start.sh          # Server startup script
-│   ├── livekit.yaml      # LiveKit SFU config template
+│   ├── livekit-setup.sh  # LiveKit auto-setup (Linux)
+│   ├── livekit-setup.ps1 # LiveKit auto-setup (Windows)
+│   ├── livekit.yaml      # LiveKit config template
 │   └── .env.example      # Environment config template
-├── livekit.yaml          # LiveKit config (development)
-├── .env.example          # Environment config (development)
-└── src-tauri/            # Tauri desktop wrapper (planned)
+└── docker-compose.yml    # Docker development stack
 ```
 
 ### Architecture
@@ -331,25 +399,23 @@ middleware    ws/hub (WebSocket broadcast)
 - Screen sharing (1080p/30fps)
 - Role & permission system with channel overrides
 - Emoji reactions
-- Direct messages
+- Direct messages & friend system
 - Message pinning & search
 - Invite system
 - Presence & idle detection
 - Keyboard shortcuts
-- Multiple themes
+- Custom themes
 - i18n (EN + TR)
-
-### In Progress
-- Desktop app (Tauri v2)
-- Docker Compose deployment
+- Desktop app (Electron with auto-update)
+- Multi-server architecture
+- One-click self-host setup (LiveKit)
 
 ### Planned
 - End-to-end encryption (E2EE)
-- Multi-server architecture
-- Thread / reply messages
-- Take control (remote control via screen share)
 - Mobile apps (iOS & Android)
-- Bot / webhook API
+- Plugin / bot API
+- Federation between servers
+- Encrypted file sharing
 
 ---
 

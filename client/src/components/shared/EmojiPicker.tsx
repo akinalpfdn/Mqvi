@@ -97,6 +97,18 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   const { t } = useTranslation("chat");
   const [activeTab, setActiveTab] = useState(0);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const [flipped, setFlipped] = useState(false);
+
+  // Viewport sığma kontrolü — picker mount olduktan sonra konumunu kontrol et.
+  // Eğer üst kenarı viewport dışına çıkıyorsa (top < 0), picker'ı aşağı doğru aç.
+  // Bu, chat'in en üstündeki mesajlarda emoji picker'ın erişilemez olmasını önler.
+  useEffect(() => {
+    if (!pickerRef.current) return;
+    const rect = pickerRef.current.getBoundingClientRect();
+    if (rect.top < 0) {
+      setFlipped(true);
+    }
+  }, []);
 
   // Click-outside: picker dışına tıklanırsa kapat
   useEffect(() => {
@@ -137,7 +149,7 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   const category = EMOJI_CATEGORIES[activeTab];
 
   return (
-    <div className="emoji-picker" ref={pickerRef}>
+    <div className={`emoji-picker${flipped ? " emoji-picker-flipped" : ""}`} ref={pickerRef}>
       {/* Kategori sekmeleri */}
       <div className="emoji-picker-tabs">
         {EMOJI_CATEGORIES.map((cat, i) => (

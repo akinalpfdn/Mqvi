@@ -9,26 +9,22 @@
 // ─── Feature Cards ───
 
 export type FeatureItem = {
-  /** Emoji icon */
-  icon: string;
   /** "live" veya "beta" — tag rengi belirler */
   tag: "live" | "beta";
-  /** Icon arka plan rengi */
-  bgColor: string;
   /** i18n çeviri key prefix'i (f1 → f1_title, f1_desc) */
   translationKey: string;
 };
 
 export const FEATURES: FeatureItem[] = [
-  { icon: "#", tag: "live", bgColor: "rgba(59,130,246,0.10)", translationKey: "f1" },
-  { icon: "~", tag: "live", bgColor: "rgba(99,102,241,0.10)", translationKey: "f2" },
-  { icon: ">", tag: "live", bgColor: "rgba(59,130,246,0.10)", translationKey: "f3" },
-  { icon: "_", tag: "live", bgColor: "rgba(99,102,241,0.10)", translationKey: "f4" },
-  { icon: "^", tag: "beta", bgColor: "rgba(59,130,246,0.10)", translationKey: "f5" },
-  { icon: "&", tag: "live", bgColor: "rgba(99,102,241,0.10)", translationKey: "f6" },
-  { icon: "@", tag: "beta", bgColor: "rgba(59,130,246,0.10)", translationKey: "f7" },
-  { icon: "/", tag: "live", bgColor: "rgba(99,102,241,0.10)", translationKey: "f8" },
-  { icon: "%", tag: "live", bgColor: "rgba(59,130,246,0.10)", translationKey: "f9" },
+  { tag: "live", translationKey: "f1" },
+  { tag: "live", translationKey: "f2" },
+  { tag: "live", translationKey: "f3" },
+  { tag: "live", translationKey: "f4" },
+  { tag: "beta", translationKey: "f5" },
+  { tag: "live", translationKey: "f6" },
+  { tag: "beta", translationKey: "f7" },
+  { tag: "live", translationKey: "f8" },
+  { tag: "live", translationKey: "f9" },
 ];
 
 // ─── Comparison Table ───
@@ -56,31 +52,29 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
 // ─── Roadmap ───
 
 export type RoadmapItem = {
-  /** Emoji icon */
-  icon: string;
   /** i18n çeviri key'i */
   key: string;
 };
 
 export const ROADMAP_DONE: RoadmapItem[] = [
-  { icon: "#", key: "rd1" },
-  { icon: "~", key: "rd2" },
-  { icon: "&", key: "rd4" },
-  { icon: ":", key: "rd5" },
-  { icon: "<", key: "rd6" },
-  { icon: "^", key: "rd7" },
-  { icon: "@", key: "rd8" },
-  { icon: ">", key: "rd9" },
-  { icon: "*", key: "rd10" },
+  { key: "rd1" },
+  { key: "rd2" },
+  { key: "rd4" },
+  { key: "rd5" },
+  { key: "rd6" },
+  { key: "rd7" },
+  { key: "rd8" },
+  { key: "rd9" },
+  { key: "rd10" },
 ];
 
 export const ROADMAP_WIP: RoadmapItem[] = [
-  { icon: "#", key: "rw1" },
+  { key: "rw1" },
 ];
 
 export const ROADMAP_PLANNED: RoadmapItem[] = [
-  { icon: "+", key: "rp1" },
-  { icon: "$", key: "rp2" },
-  { icon: "=", key: "rp3" },
-  { icon: "/", key: "rp4" },
+  { key: "rp1" },
+  { key: "rp2" },
+  { key: "rp3" },
+  { key: "rp4" },
 ];

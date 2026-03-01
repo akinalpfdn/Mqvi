@@ -389,6 +389,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 /* Emoji Picker */
 .emoji-picker { position:absolute;bottom:100%;left:0;width:320px;background:var(--bg-3);border:1px solid var(--b2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:100;overflow:hidden;margin-bottom:6px; }
+.emoji-picker-flipped { bottom:auto;top:100%;margin-bottom:0;margin-top:6px; }
 .msg-hover-actions .emoji-picker { left:auto;right:0; }
 .input-emoji-picker-wrap .emoji-picker { left:auto;right:0; }
 .emoji-picker-tabs { display:flex;border-bottom:1px solid var(--b1);padding:0 4px; }
