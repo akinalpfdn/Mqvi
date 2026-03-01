@@ -7,10 +7,11 @@
  * i18n: "auth" namespace'ini kullanır.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
+import { isElectron } from "../../utils/constants";
 
 function LoginPage() {
   // ─── Hooks ───
@@ -23,12 +24,35 @@ function LoginPage() {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // ─── Electron: Kayıtlı credential'ları yükle ───
+  // Mount'ta safeStorage'dan şifreli credential'ları çöz ve formu doldur.
+  // Sadece Electron'da çalışır — web'de electronAPI undefined.
+  useEffect(() => {
+    if (!isElectron()) return;
+    window.electronAPI?.loadCredentials().then((cred) => {
+      if (cred) {
+        setUsername(cred.username);
+        setPassword(cred.password);
+        setRememberMe(true);
+      }
+    });
+  }, []);
 
   // ─── Handlers ───
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const success = await login(username, password);
     if (success) {
+      // Electron: credential'ları kaydet veya sil
+      if (isElectron()) {
+        if (rememberMe) {
+          window.electronAPI?.saveCredentials(username, password);
+        } else {
+          window.electronAPI?.clearCredentials();
+        }
+      }
       navigate("/channels");
     }
   }
@@ -84,6 +108,18 @@ function LoginPage() {
               className="auth-input"
             />
           </div>
+
+          {/* Electron: Beni hatırla checkbox */}
+          {isElectron() && (
+            <label className="auth-remember">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+              />
+              <span>{t("rememberMe")}</span>
+            </label>
+          )}
 
           <button type="submit" disabled={isLoading} className="auth-btn">
             {isLoading ? t("loggingIn") : t("login")}

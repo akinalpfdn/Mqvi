@@ -24,10 +24,11 @@ import {
   Menu,
   nativeImage,
   desktopCapturer,
+  safeStorage,
 } from "electron";
 import { autoUpdater } from "electron-updater";
 import { spawn, ChildProcess } from "child_process";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import path from "path";
 
 /** Ana uygulama penceresi referansı */
@@ -499,6 +500,42 @@ function setupIPC(): void {
       // Increment generation so the killed process's exit handler
       // won't send "capture-audio-stopped" to renderer
       captureGeneration++;
+    }
+  });
+
+  // ─── Credential Storage (Remember Me) ───
+  // safeStorage: Windows DPAPI ile kullanıcı session'ına özel AES-256 şifreleme.
+  // Şifrelenmiş credential dosyası %APPDATA%/mqvi/cred.enc'de saklanır.
+  // Sadece bu Windows kullanıcısı çözebilir.
+
+  const credPath = path.join(app.getPath("userData"), "cred.enc");
+
+  ipcMain.handle(
+    "save-credentials",
+    (_e: Electron.IpcMainInvokeEvent, username: string, password: string) => {
+      const data = JSON.stringify({ username, password });
+      const encrypted = safeStorage.encryptString(data);
+      writeFileSync(credPath, encrypted);
+    }
+  );
+
+  ipcMain.handle("load-credentials", () => {
+    try {
+      if (!existsSync(credPath)) return null;
+      const encrypted = readFileSync(credPath);
+      const decrypted = safeStorage.decryptString(Buffer.from(encrypted));
+      return JSON.parse(decrypted) as { username: string; password: string };
+    } catch {
+      // Dosya bozuksa veya decrypt başarısızsa sessizce null dön
+      return null;
+    }
+  });
+
+  ipcMain.handle("clear-credentials", () => {
+    try {
+      if (existsSync(credPath)) unlinkSync(credPath);
+    } catch {
+      // Dosya silinememişse sessizce geç
     }
   });
 }

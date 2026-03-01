@@ -88,6 +88,15 @@ interface ElectronAPI {
   /** Audio capture error/debug message from main process */
   onCaptureAudioError: (cb: (msg: string) => void) => void;
 
+  /** Kullanıcı adı ve şifreyi safeStorage ile şifreli olarak kaydet */
+  saveCredentials: (username: string, password: string) => Promise<void>;
+
+  /** Kayıtlı credential'ları yükle (yoksa null) */
+  loadCredentials: () => Promise<{ username: string; password: string } | null>;
+
+  /** Kayıtlı credential'ları sil */
+  clearCredentials: () => Promise<void>;
+
   /** Taskbar overlay badge icon ayarla (Windows). count=0 → badge kaldır. */
   setBadgeCount: (count: number, iconDataURL: string | null) => Promise<void>;
 

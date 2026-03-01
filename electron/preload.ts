@@ -100,6 +100,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("capture-audio-error", (_e, msg) => cb(msg));
   },
 
+  // ─── Credential Storage (Remember Me) ───
+  // safeStorage ile şifrelenmiş kullanıcı adı + şifre kaydetme/yükleme/silme.
+  // Sadece Electron'da çalışır — web'de bu API mevcut değildir.
+
+  /** Kullanıcı adı ve şifreyi şifreli olarak kaydet */
+  saveCredentials: (username: string, password: string): Promise<void> =>
+    ipcRenderer.invoke("save-credentials", username, password),
+
+  /** Kayıtlı credential'ları yükle (yoksa null) */
+  loadCredentials: (): Promise<{ username: string; password: string } | null> =>
+    ipcRenderer.invoke("load-credentials"),
+
+  /** Kayıtlı credential'ları sil */
+  clearCredentials: (): Promise<void> =>
+    ipcRenderer.invoke("clear-credentials"),
+
   // ─── Taskbar Badge + Flash ───
 
   /** Taskbar overlay badge icon ayarla (Windows). count=0 → badge kaldır. */
