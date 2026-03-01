@@ -43,17 +43,24 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
 
     const res = await readStateApi.getUnreadCounts(serverId);
     if (res.success && res.data) {
-      // Backend sayılarını local state ile birleştir (merge).
-      set((state) => {
-        const merged: Record<string, number> = { ...state.unreadCounts };
-        for (const info of res.data!) {
-          merged[info.channel_id] = Math.max(
-            info.unread_count,
-            merged[info.channel_id] ?? 0,
-          );
-        }
-        return { unreadCounts: merged };
-      });
+      // Backend sonucunu direkt kullan (replace, merge değil).
+      //
+      // Neden Math.max merge kaldırıldı:
+      // Server switch'te clearForServerSwitch → fetchUnreadCounts arasında
+      // WS'den gelen incrementUnread çağrıları eski server'ın kanalları için
+      // count artırıyordu. Fetch sonucu geldiğinde Math.max(backend=0, local=1)
+      // → stale unread kalıyordu. Replace ile fetch sonucu her zaman doğru.
+      //
+      // incrementUnread race condition: Fetch sırasında gelen yeni mesajlar
+      // fetch sonucundan sonraya kadar kaybolabilir mi? Hayır — çünkü
+      // backend zaten o mesajı saydı (count'a dahil), veya mesaj
+      // fetchUnreadCounts'un backend'e gittiği andan sonra geldi ki bu
+      // durumda WS event'i ile incrementUnread zaten çalışacak.
+      const counts: Record<string, number> = {};
+      for (const info of res.data) {
+        counts[info.channel_id] = info.unread_count;
+      }
+      set({ unreadCounts: counts });
     }
   },
 

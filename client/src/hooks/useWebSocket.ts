@@ -101,6 +101,9 @@ export function useWebSocket() {
   /** Reconnect timeout ID'si */
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** Token refresh interval ID'si — WS açıkken token'ı proaktif yeniler */
+  const tokenRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   /** Ardışık reconnect deneme sayısı — exponential backoff hesabı için */
   const reconnectAttemptRef = useRef<number>(0);
 
@@ -193,17 +196,14 @@ export function useWebSocket() {
         // kanalları içerir (backend filtreler). Mesajın geldiği kanal store'da
         // yoksa kullanıcının o kanalı görme yetkisi yok — mesajı işleme, unread artırma.
         //
-        // ÖNEMLİ: Sadece categories yüklendiyse kontrol et. Categories boşken
-        // (henüz fetch edilmemiş) tüm mesajlar drop ediliyordu — bu da "typing
-        // görünüyor ama mesaj gelmiyor" bugına neden oluyordu. typing_start'ta
-        // bu kontrol olmadığı için typing geçiyordu ama message_create geçmiyordu.
+        // Categories boşken (henüz fetch edilmemiş VEYA server switch sırasında
+        // clearForServerSwitch ile temizlenmiş) mesajları da drop et.
+        // Eski mantık categories boşken kontrol atladığı için, server switch
+        // sırasında eski server'ın mesajları yeni server'ın unread'ine yazılıyordu.
         const categories = useChannelStore.getState().categories;
-        if (categories.length > 0) {
-          const visibleChannels = categories.flatMap((cg) => cg.channels);
-          const isChannelVisible = visibleChannels.some((ch) => ch.id === message.channel_id);
-          if (!isChannelVisible) {
-            break;
-          }
+        const visibleChannels = categories.flatMap((cg) => cg.channels);
+        if (!visibleChannels.some((ch) => ch.id === message.channel_id)) {
+          break;
         }
 
         useMessageStore.getState().handleMessageCreate(message);
@@ -643,6 +643,10 @@ export function useWebSocket() {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
+    if (tokenRefreshIntervalRef.current) {
+      clearInterval(tokenRefreshIntervalRef.current);
+      tokenRefreshIntervalRef.current = null;
+    }
   }
 
   /**
@@ -895,7 +899,6 @@ export function useWebSocket() {
         // Heartbeat interval başlat
         heartbeatIntervalRef.current = setInterval(() => {
           if (activeConnectionIdRef.current !== myId) {
-            // Bu interval artık stale — temizle
             clearInterval(heartbeatIntervalRef.current!);
             return;
           }
@@ -910,6 +913,27 @@ export function useWebSocket() {
             }
           }
         }, WS_HEARTBEAT_INTERVAL);
+
+        // ─── Proaktif Token Refresh ───
+        // Access token 15dk'da expire oluyor. WS açık kaldığı sürece
+        // heartbeat'ler devam ediyor ama token yenilenmiyor.
+        // Saatlerce idle kalındığında WS kopup reconnect denediğinde
+        // expired token ile bağlanamıyor → kullanıcı logout oluyor.
+        //
+        // Çözüm: WS açıkken her 12 dakikada bir token'ı proaktif refresh et.
+        // Böylece reconnect gerektiğinde token her zaman taze olur.
+        const TOKEN_REFRESH_INTERVAL = 12 * 60 * 1000; // 12 dakika
+        tokenRefreshIntervalRef.current = setInterval(async () => {
+          if (activeConnectionIdRef.current !== myId) {
+            clearInterval(tokenRefreshIntervalRef.current!);
+            return;
+          }
+          try {
+            await ensureFreshToken();
+          } catch {
+            // Network hatası — sonraki interval'de tekrar denenir
+          }
+        }, TOKEN_REFRESH_INTERVAL);
       };
 
       // ─── onmessage ───

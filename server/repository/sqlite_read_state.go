@@ -46,11 +46,16 @@ func (r *sqliteReadStateRepo) Upsert(ctx context.Context, userID, channelID, mes
 // 4. Hiç okuma kaydı yoksa (yeni kanal) tüm mesajlar okunmamış sayılır
 // 5. Sadece okunmamış > 0 olan kanalları döner
 func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error) {
+	// Okunmamış mesaj sayısını hesaplarken kullanıcının KENDİ mesajlarını hariç tut.
+	// Kendi yazdığımız mesajlar "okunmamış" sayılmamalı — Discord da böyle çalışır.
+	// m.user_id != ? filtresi olmazsa, fetchUnreadCounts kendi mesajlarımızı da sayar
+	// ve server switch sonrası "tekrar unread" görünür.
 	query := `
 		SELECT id, unread_count FROM (
 			SELECT c.id,
 			       (SELECT COUNT(*) FROM messages m
 			        WHERE m.channel_id = c.id
+			          AND m.user_id != ?
 			          AND (cr.last_read_message_id IS NULL
 			               OR m.created_at > (SELECT created_at FROM messages WHERE id = cr.last_read_message_id))
 			       ) as unread_count
@@ -59,7 +64,7 @@ func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serve
 			WHERE c.type = 'text' AND c.server_id = ?
 		) WHERE unread_count > 0`
 
-	rows, err := r.db.QueryContext(ctx, query, userID, serverID)
+	rows, err := r.db.QueryContext(ctx, query, userID, userID, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get unread counts: %w", err)
 	}
