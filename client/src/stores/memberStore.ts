@@ -82,12 +82,10 @@ export const useMemberStore = create<MemberState>((set) => ({
 
     const res = await memberApi.getMembers(serverId);
     if (res.data) {
-      const freshOnlineIds = new Set<string>(
-        res.data
-          .filter((m) => m.status !== "offline")
-          .map((m) => m.id),
-      );
-      set({ members: res.data, onlineUserIds: freshOnlineIds, isLoading: false });
+      // onlineUserIds'ı burada SET ETME — WS ready event'i ve
+      // handlePresenceUpdate tek otorite. DB status'u stale olabilir
+      // (server restart sonrası "online"/"idle" kalabilir), WS gerçeği bilir.
+      set({ members: res.data, isLoading: false });
     } else {
       set({ isLoading: false });
     }
