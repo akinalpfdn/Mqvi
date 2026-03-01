@@ -2,19 +2,26 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
 
 // MessageHandler, mesaj endpoint'lerini yöneten struct.
+//
+// messageLimiter: Spam koruması — kullanıcı bazlı mesaj rate limiting.
+// Aynı limiter instance'ı DMHandler ile paylaşılır (userID bazlı olduğu için
+// kanal/DM ayrımı yapmaya gerek yok, toplam mesaj hızını kontrol eder).
 type MessageHandler struct {
 	messageService services.MessageService
 	uploadService  services.UploadService
 	maxUploadSize  int64
+	messageLimiter *ratelimit.MessageRateLimiter
 }
 
 // NewMessageHandler, constructor.
@@ -22,11 +29,13 @@ func NewMessageHandler(
 	messageService services.MessageService,
 	uploadService services.UploadService,
 	maxUploadSize int64,
+	messageLimiter *ratelimit.MessageRateLimiter,
 ) *MessageHandler {
 	return &MessageHandler{
 		messageService: messageService,
 		uploadService:  uploadService,
 		maxUploadSize:  maxUploadSize,
+		messageLimiter: messageLimiter,
 	}
 }
 
@@ -76,6 +85,17 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	// Spam koruması — kullanıcı bazlı mesaj rate limiting.
+	// Aynı limiter hem channel hem DM mesajlarını kontrol eder.
+	if h.messageLimiter != nil && !h.messageLimiter.Allow(user.ID) {
+		retryAfter := h.messageLimiter.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests,
+			fmt.Sprintf("too many messages, please wait %s",
+				ratelimit.FormatRetryMessage(retryAfter)))
 		return
 	}
 

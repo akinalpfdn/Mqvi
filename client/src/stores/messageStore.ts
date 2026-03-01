@@ -11,9 +11,11 @@
  */
 
 import { create } from "zustand";
+import i18n from "../i18n";
 import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
 import { useServerStore } from "./serverStore";
+import { useToastStore } from "./toastStore";
 import type { Message, ReactionGroup } from "../types";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
 
@@ -174,6 +176,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     if (!serverId) return false;
     const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId);
     // Mesaj WS üzerinden gelecek (handleMessageCreate), HTTP response'u beklemeye gerek yok
+
+    // Rate limit aşıldıysa kullanıcıya toast ile bildir
+    if (!res.success && res.error?.includes("too many")) {
+      useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
+    }
+
     return res.success;
   },
 

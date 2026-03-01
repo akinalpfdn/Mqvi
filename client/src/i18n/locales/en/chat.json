@@ -53,5 +53,6 @@
   "welcomeDM": "Welcome to your conversation with {{user}}!",
   "dmStart": "This is the beginning of your direct message history with {{user}}.",
   "dropFilesHere": "Drop files to upload",
-  "longPressForActions": "Long press for message actions"
+  "longPressForActions": "Long press for message actions",
+  "tooManyMessages": "You're sending messages too fast. Please wait a moment."
 }

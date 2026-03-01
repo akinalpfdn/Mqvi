@@ -53,5 +53,6 @@
   "welcomeDM": "{{user}} ile konuşmanıza hoş geldiniz!",
   "dmStart": "{{user}} ile direkt mesaj geçmişinizin başlangıcı.",
   "dropFilesHere": "Yüklemek için dosyaları bırakın",
-  "longPressForActions": "Mesaj işlemleri için uzun basın"
+  "longPressForActions": "Mesaj işlemleri için uzun basın",
+  "tooManyMessages": "Çok hızlı mesaj gönderiyorsunuz. Lütfen biraz bekleyin."
 }

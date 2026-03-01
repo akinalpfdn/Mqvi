@@ -495,10 +495,15 @@ func main() {
 	// Başarılı login sayacı sıfırlar — meşru kullanıcı etkilenmez.
 	loginLimiter := ratelimit.NewLoginRateLimiter(5, 2*time.Minute)
 
+	// Mesaj spam koruması: 5 saniyede 5 mesaj, aşıldığında 15 saniye cooldown.
+	// Tek instance — hem channel hem DM mesajları için aynı limiter kullanılır.
+	// userID bazlı olduğu için kanal/DM ayrımı yapmaya gerek yok.
+	messageLimiter := ratelimit.NewMessageRateLimiter(5, 5*time.Second, 15*time.Second)
+
 	authHandler := handlers.NewAuthHandler(authService, loginLimiter)
 	channelHandler := handlers.NewChannelHandler(channelService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
-	messageHandler := handlers.NewMessageHandler(messageService, uploadService, cfg.Upload.MaxSize)
+	messageHandler := handlers.NewMessageHandler(messageService, uploadService, cfg.Upload.MaxSize, messageLimiter)
 	memberHandler := handlers.NewMemberHandler(memberService)
 	roleHandler := handlers.NewRoleHandler(roleService)
 	voiceHandler := handlers.NewVoiceHandler(voiceService)
@@ -507,7 +512,7 @@ func main() {
 	pinHandler := handlers.NewPinHandler(pinService)
 	searchHandler := handlers.NewSearchHandler(searchService)
 	readStateHandler := handlers.NewReadStateHandler(readStateService)
-	dmHandler := handlers.NewDMHandler(dmService, dmUploadService, cfg.Upload.MaxSize)
+	dmHandler := handlers.NewDMHandler(dmService, dmUploadService, cfg.Upload.MaxSize, messageLimiter)
 	reactionHandler := handlers.NewReactionHandler(reactionService)
 	channelPermHandler := handlers.NewChannelPermissionHandler(channelPermService)
 	friendshipHandler := handlers.NewFriendshipHandler(friendshipService)

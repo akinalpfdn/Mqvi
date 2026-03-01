@@ -21,9 +21,11 @@
  */
 
 import { create } from "zustand";
+import i18n from "../i18n";
 import * as dmApi from "../api/dm";
 import type { DMSearchResult } from "../api/dm";
 import type { DMChannelWithUser, DMMessage, ReactionGroup } from "../types";
+import { useToastStore } from "./toastStore";
 
 const EMPTY_CHANNELS: DMChannelWithUser[] = [];
 const EMPTY_MESSAGES: DMMessage[] = [];
@@ -203,6 +205,12 @@ export const useDMStore = create<DMState>((set, get) => ({
    */
   sendMessage: async (channelId, content, files, replyToId) => {
     const res = await dmApi.sendDMMessage(channelId, content, files, replyToId);
+
+    // Rate limit aşıldıysa kullanıcıya toast ile bildir
+    if (!res.success && res.error?.includes("too many")) {
+      useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
+    }
+
     return res.success;
   },
 
