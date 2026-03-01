@@ -18,7 +18,8 @@
     "emailAlreadyExists": "Bu e-posta adresi zaten kullanılıyor",
     "emailUpdated": "E-posta başarıyla güncellendi",
     "emailRemoved": "E-posta başarıyla kaldırıldı",
-    "noEmailToRemove": "Kaldırılacak e-posta yok"
+    "noEmailToRemove": "Kaldırılacak e-posta yok",
+    "tooManyAttempts": "Çok fazla giriş denemesi, lütfen daha sonra tekrar deneyin"
   },
   "user": {
     "notFound": "Kullanıcı bulunamadı"

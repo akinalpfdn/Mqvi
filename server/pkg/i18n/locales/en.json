@@ -18,7 +18,8 @@
     "emailAlreadyExists": "This email is already in use",
     "emailUpdated": "Email updated successfully",
     "emailRemoved": "Email removed successfully",
-    "noEmailToRemove": "No email to remove"
+    "noEmailToRemove": "No email to remove",
+    "tooManyAttempts": "Too many login attempts, please try again later"
   },
   "user": {
     "notFound": "User not found"

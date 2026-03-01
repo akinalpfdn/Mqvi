@@ -39,6 +39,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/i18n"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
 	"github.com/akinalp/mqvi/static"
@@ -488,7 +489,13 @@ func main() {
 	// voiceService ve channelPermService yukarıda (Hub callback'lerinden önce) oluşturuldu
 
 	// ─── 10. Handler Layer ───
-	authHandler := handlers.NewAuthHandler(authService)
+
+	// Login brute-force koruması: 2 dakikalık pencerede IP başına 5 deneme.
+	// 5 başarısız denemeden sonra o IP 2 dakika boyunca bloke olur.
+	// Başarılı login sayacı sıfırlar — meşru kullanıcı etkilenmez.
+	loginLimiter := ratelimit.NewLoginRateLimiter(5, 2*time.Minute)
+
+	authHandler := handlers.NewAuthHandler(authService, loginLimiter)
 	channelHandler := handlers.NewChannelHandler(channelService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	messageHandler := handlers.NewMessageHandler(messageService, uploadService, cfg.Upload.MaxSize)

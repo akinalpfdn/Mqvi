@@ -12,22 +12,29 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/services"
 )
 
 // AuthHandler, auth endpoint'lerini yöneten struct.
-// Service interface'i constructor'dan alınır (DI).
+// Service interface'i ve rate limiter constructor'dan alınır (DI).
 type AuthHandler struct {
-	authService services.AuthService
+	authService  services.AuthService
+	loginLimiter *ratelimit.LoginRateLimiter
 }
 
 // NewAuthHandler, constructor.
-func NewAuthHandler(authService services.AuthService) *AuthHandler {
-	return &AuthHandler{authService: authService}
+// loginLimiter: Login brute-force koruması. nil ise rate limiting devre dışı kalır.
+func NewAuthHandler(authService services.AuthService, loginLimiter *ratelimit.LoginRateLimiter) *AuthHandler {
+	return &AuthHandler{
+		authService:  authService,
+		loginLimiter: loginLimiter,
+	}
 }
 
 // Register godoc
@@ -54,7 +61,24 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 // Login godoc
 // POST /api/auth/login
+//
+// Rate limiting: IP bazlı brute-force koruması.
+// - Her IP adresi için belirli bir zaman penceresi içinde izin verilen
+//   maksimum login denemesi sayısı sınırlandırılır.
+// - Limit aşıldığında 429 Too Many Requests döner.
+// - Başarılı login sayacı sıfırlar — meşru kullanıcı bloke olmaz.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	// Rate limit kontrolü — brute-force koruması
+	ip := ratelimit.ExtractIP(r)
+	if h.loginLimiter != nil && !h.loginLimiter.Allow(ip) {
+		retryAfter := h.loginLimiter.RetryAfterSeconds(ip)
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests,
+			fmt.Sprintf("too many login attempts, please try again in %s",
+				ratelimit.FormatRetryMessage(retryAfter)))
+		return
+	}
+
 	var req models.LoginRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -66,6 +90,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		pkg.Error(w, err)
 		return
+	}
+
+	// Başarılı login — sayacı sıfırla.
+	// Meşru kullanıcı doğru şifreyi girdiğinde sayaç temizlenir,
+	// böylece sonraki oturumlarında rate limit'e takılmaz.
+	if h.loginLimiter != nil {
+		h.loginLimiter.Reset(ip)
 	}
 
 	pkg.JSON(w, http.StatusOK, tokens)
