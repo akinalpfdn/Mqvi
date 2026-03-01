@@ -116,6 +116,9 @@
   "guide_connect_desc": "Go to mqvi, create a new server, and select \"Self-Hosted\". Enter the 3 values the script gave you:",
   "guide_connect_tip": "That's it! mqvi will use your LiveKit server for all voice and video. Your conversations never touch our infrastructure.",
 
+  "guide_ssl_title": "Important: SSL Required for Web Voice",
+  "guide_ssl_desc": "If your LiveKit server doesn't have SSL (WSS), voice and video will only work through the desktop app. Web browsers require a secure connection (HTTPS/WSS) for microphone and camera access. To enable web voice, put a reverse proxy like Caddy in front of LiveKit to get automatic SSL.",
+
   "guide_trouble_title": "Common Issues",
   "guide_trouble_q1": "Voice doesn't connect at all",
   "guide_trouble_a1": "Ports are probably closed. Run 'sudo ufw status' (Linux) or check Windows Firewall. Also check your cloud provider's web firewall if applicable.",

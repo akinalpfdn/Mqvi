@@ -116,6 +116,9 @@
   "guide_connect_desc": "mqvi'ye git, yeni sunucu oluştur ve \"Self-Hosted\" seç. Script'in verdiği 3 değeri gir:",
   "guide_connect_tip": "Bu kadar! mqvi, sunucundaki tüm ses ve görüntü için senin LiveKit sunucunu kullanacak. Konuşmaların bizim altyapımıza asla dokunmaz.",
 
+  "guide_ssl_title": "Önemli: Web Ses İçin SSL Gerekli",
+  "guide_ssl_desc": "LiveKit sunucunda SSL (WSS) yoksa, ses ve görüntü yalnızca masaüstü uygulaması üzerinden çalışır. Web tarayıcıları mikrofon ve kamera erişimi için güvenli bağlantı (HTTPS/WSS) gerektirir. Web üzerinden ses kullanmak için LiveKit'in önüne Caddy gibi bir reverse proxy koyarak otomatik SSL alabilirsin.",
+
   "guide_trouble_title": "Sık Karşılaşılan Sorunlar",
   "guide_trouble_q1": "Ses hiç bağlanmıyor",
   "guide_trouble_a1": "Portlar muhtemelen kapalı. 'sudo ufw status' (Linux) çalıştır veya Windows Güvenlik Duvarı'nı kontrol et. Bulut sağlayıcı kullanıyorsan web güvenlik duvarını da kontrol et.",

@@ -839,6 +839,35 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-guide-field-label { color: var(--lp-text-muted); font-size: 13px; font-weight: 600; min-width: 100px; }
 .lp-guide-field-val { color: var(--lp-accent); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
 
+/* SSL Uyarısı */
+.lp-guide-ssl-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 24px;
+  margin-top: 32px;
+  border-radius: 12px;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+}
+.lp-guide-ssl-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #eab308;
+}
+.lp-guide-ssl-content { flex: 1; }
+.lp-guide-ssl-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #eab308;
+  margin-bottom: 6px;
+}
+.lp-guide-ssl-desc {
+  font-size: 14px;
+  color: var(--lp-text-secondary);
+  line-height: 1.7;
+}
+
 /* Troubleshoot bölümü */
 .lp-guide-troubleshoot { margin-top: 48px; }
 .lp-guide-troubleshoot-title {
