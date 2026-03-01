@@ -453,6 +453,26 @@ export type UpdateLiveKitInstanceRequest = {
   max_servers?: number;
 };
 
+/**
+ * AdminServerListItem — Platform admin panelde gösterilen sunucu bilgisi.
+ * Tek SQL sorgusu ile tüm istatistikler toplanır.
+ */
+export type AdminServerListItem = {
+  id: string;
+  name: string;
+  icon_url: string | null;
+  owner_id: string;
+  owner_username: string;
+  created_at: string;
+  is_platform_managed: boolean;
+  livekit_instance_id: string | null;
+  member_count: number;
+  channel_count: number;
+  message_count: number;
+  storage_mb: number;
+  last_activity: string | null;
+};
+
 // ──────────────────────────────────
 // WebSocket
 // ──────────────────────────────────

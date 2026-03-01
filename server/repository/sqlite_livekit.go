@@ -292,3 +292,64 @@ func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, 
 
 	return count, nil
 }
+
+// MigrateOneServer, tek bir sunucunun LiveKit instance'ını değiştirir.
+// Transaction içinde:
+//  1. Sunucunun mevcut livekit_instance_id'sini oku
+//  2. servers.livekit_instance_id = newInstanceID güncelle
+//  3. Eski instance'ın server_count'unu 1 azalt (varsa)
+//  4. Yeni instance'ın server_count'unu 1 artır
+func (r *sqliteLiveKitRepo) MigrateOneServer(ctx context.Context, serverID, newInstanceID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Mevcut instance ID'yi al
+	var oldInstanceID sql.NullString
+	err = tx.QueryRowContext(ctx,
+		`SELECT livekit_instance_id FROM servers WHERE id = ?`, serverID,
+	).Scan(&oldInstanceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return pkg.ErrNotFound
+		}
+		return fmt.Errorf("failed to get server current instance: %w", err)
+	}
+
+	// 2. Sunucunun instance'ını güncelle
+	_, err = tx.ExecContext(ctx,
+		`UPDATE servers SET livekit_instance_id = ? WHERE id = ?`,
+		newInstanceID, serverID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update server instance: %w", err)
+	}
+
+	// 3. Eski instance'ın server_count'unu azalt (varsa ve değişmişse)
+	if oldInstanceID.Valid && oldInstanceID.String != "" && oldInstanceID.String != newInstanceID {
+		_, err = tx.ExecContext(ctx,
+			`UPDATE livekit_instances SET server_count = MAX(server_count - 1, 0) WHERE id = ?`,
+			oldInstanceID.String,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to decrement old instance count: %w", err)
+		}
+	}
+
+	// 4. Yeni instance'ın server_count'unu artır
+	_, err = tx.ExecContext(ctx,
+		`UPDATE livekit_instances SET server_count = server_count + 1 WHERE id = ?`,
+		newInstanceID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to increment new instance count: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit single server migration: %w", err)
+	}
+
+	return nil
+}

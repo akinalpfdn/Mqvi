@@ -56,7 +56,8 @@ type SettingsTab =
   | "roles"
   | "members"
   | "invites"
-  | "platform";
+  | "platform"
+  | "platform-servers";
 
 type SettingsState = {
   /** Modal açık mı? */

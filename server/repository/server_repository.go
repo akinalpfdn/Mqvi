@@ -55,4 +55,12 @@ type ServerRepository interface {
 	// GetMaxMemberPosition, bir kullanıcının en yüksek position değerini döner.
 	// Yeni sunucuya katılırken position = max+1 atamak için kullanılır.
 	GetMaxMemberPosition(ctx context.Context, userID string) (int, error)
+
+	// ─── Admin ───
+
+	// ListAllWithStats, platformdaki tüm sunucuları istatistikleriyle birlikte döner.
+	// Platform admin panelde sunucu listesi için kullanılır.
+	// Tek SQL sorgusu ile member_count, channel_count, message_count,
+	// storage_mb ve last_activity hesaplanır.
+	ListAllWithStats(ctx context.Context) ([]models.AdminServerListItem, error)
 }

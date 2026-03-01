@@ -22,6 +22,7 @@ import ChannelSettings from "./ChannelSettings";
 import MembersSettings from "./MembersSettings";
 import SecuritySettings from "./SecuritySettings";
 import PlatformSettings from "./PlatformSettings";
+import AdminServerList from "./AdminServerList";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -113,6 +114,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "platform":
       return <PlatformSettings />;
+
+    case "platform-servers":
+      return <AdminServerList />;
 
     default:
       return null;

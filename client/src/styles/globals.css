@@ -825,6 +825,113 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .platform-instance-item { flex-direction:column;align-items:flex-start;gap:2px;padding:8px; }
 .platform-instance-capacity { font-size:13px;color:var(--t3); }
 .role-list-item.active .platform-instance-capacity { color:var(--t2); }
+
+/* Admin server list — Platform admin sunucu yönetim tablosu */
+
+/* Content area'yı full-width yap (server tablosu geniş alan gerektirir) */
+.settings-content:has(.admin-server-list) { max-width:none; }
+
+.admin-server-list {
+  display:flex;flex-direction:column;gap:16px;height:100%;
+}
+
+/* ── Toolbar: Search + Count ── */
+.admin-server-toolbar {
+  display:flex;align-items:center;gap:12px;flex-shrink:0;
+}
+.admin-server-search {
+  flex:1;max-width:320px;height:36px;background:var(--bg-3);
+  border:1px solid var(--b1);border-radius:8px;padding:0 12px;
+  color:var(--t0);font-size:14px;font-family:var(--f-ui);
+  outline:none;transition:border-color .15s;
+}
+.admin-server-search:focus { border-color:var(--primary); }
+.admin-server-search::placeholder { color:var(--t3); }
+.admin-server-count { font-size:13px;color:var(--t3);font-family:var(--f-m);white-space:nowrap; }
+
+/* ── Table wrapper (scrollable) ── */
+.admin-server-table-wrap { flex:1;overflow:auto; }
+
+/* ── Table ── */
+.admin-server-table {
+  width:max-content;min-width:100%;table-layout:fixed;
+  border-collapse:collapse;font-size:13px;
+}
+
+/* ── Header ── */
+.admin-server-table th {
+  position:relative;text-align:left;padding:8px 12px;font-weight:600;
+  color:var(--t2);border-bottom:2px solid var(--b1);white-space:nowrap;
+  position:sticky;top:0;background:var(--bg-2);z-index:1;user-select:none;
+}
+.admin-server-table th.sortable { cursor:pointer; }
+.admin-server-table th.sortable:hover { color:var(--t0); }
+
+.admin-server-th-content {
+  display:flex;align-items:center;gap:4px;padding-right:8px;
+}
+.admin-server-sort-icon { font-size:10px;color:var(--primary);flex-shrink:0; }
+
+/* ── Resize handle ── */
+.admin-server-resize-handle {
+  position:absolute;top:0;right:0;width:5px;height:100%;
+  cursor:col-resize;background:transparent;transition:background .12s;
+  z-index:2;
+}
+.admin-server-resize-handle:hover { background:var(--primary); }
+.admin-server-resize-handle:active { background:var(--primary); }
+
+/* ── Cells ── */
+.admin-server-table td {
+  padding:7px 12px;color:var(--t1);border-bottom:1px solid var(--b1);
+  white-space:nowrap;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;
+}
+.admin-server-table tbody tr { transition:background .08s; }
+.admin-server-table tbody tr:hover td { background:var(--bg-h); }
+
+/* ── Name cell (icon + text) ── */
+.admin-server-name-cell {
+  display:flex;align-items:center;gap:8px;overflow:hidden;
+}
+.admin-server-name-cell span {
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.admin-server-icon {
+  width:24px;height:24px;border-radius:999px;background:var(--bg-4);
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:11px;color:var(--t0);font-weight:600;overflow:hidden;flex-shrink:0;
+}
+.admin-server-icon img { width:100%;height:100%;object-fit:cover; }
+
+/* ── ID (monospace, truncated) ── */
+.admin-server-id {
+  font-family:var(--f-m);font-size:13px;color:var(--t2);
+  max-width:100px;overflow:hidden;text-overflow:ellipsis;cursor:default;
+}
+
+/* ── Type badge ── */
+.admin-server-type-badge {
+  display:inline-block;padding:2px 8px;border-radius:4px;font-size:13px;font-weight:500;
+}
+.admin-server-type-badge.managed { background:var(--primary-s);color:var(--primary); }
+.admin-server-type-badge.self { background:var(--bg-4);color:var(--t2); }
+
+/* ── Instance cell (select + confirm) ── */
+.admin-server-instance-cell { display:flex;align-items:center;gap:4px; }
+.admin-server-instance-select {
+  background:var(--bg-3);border:1px solid var(--b1);border-radius:4px;
+  color:var(--t1);font-size:13px;padding:4px 8px;font-family:var(--f-ui);
+  max-width:180px;outline:none;transition:border-color .12s;
+}
+.admin-server-instance-select:focus { border-color:var(--primary); }
+.admin-server-confirm-btn {
+  background:none;border:none;cursor:pointer;color:var(--green);
+  font-size:16px;padding:2px 6px;border-radius:4px;transition:background .1s;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.admin-server-confirm-btn:hover { background:var(--green-s); }
+.admin-server-confirm-btn:disabled { opacity:0.4;cursor:not-allowed; }
+
 /* Role drag & drop (HTML5 DnD — ChannelTree pattern) */
 .role-drag-wrap { position:relative;transition:opacity .15s; }
 .role-drag-wrap.dragging { opacity:0.4; }

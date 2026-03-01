@@ -1,22 +1,12 @@
 /**
  * PlatformSettings — Platform admin LiveKit instance yönetim paneli.
  *
- * Two-panel layout (RoleSettings / ChannelSettings pattern):
- * - Sol: Instance listesi (URL + kapasite göstergesi) + "Sunucu Ekle" butonu
- * - Sağ: Instance oluşturma/düzenleme formu veya boş durum mesajı
+ * Two-panel layout:
+ * - Sol: Instance listesi (URL + kapasite)
+ * - Sağ: Create/Edit form
  *
  * Sadece is_platform_admin = true olan kullanıcılara görünür.
  * Backend PlatformAdminMiddleware ile korunur.
- *
- * CSS class'ları: .channel-settings-wrapper, .channel-settings-header,
- * .channel-settings-header-label, .channel-settings-header-btn,
- * .channel-settings-ch-list, .role-list, .role-list-item,
- * .platform-instance-item, .platform-instance-capacity,
- * .channel-perm-section, .settings-section-title, .channel-settings-right-title,
- * .settings-field, .settings-label, .settings-input, .settings-select,
- * .settings-hint, .settings-value, .settings-btn, .settings-btn-row,
- * .dz-separator, .dz-section, .dz-title, .dz-card, .dz-card-title,
- * .dz-card-desc, .dz-btn
  */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
@@ -32,12 +22,18 @@ import {
 import type { LiveKitInstanceAdmin } from "../../types";
 
 function PlatformSettings() {
+  return <LiveKitTab />;
+}
+
+// ═══════════════════════════════════════════════════════
+// LiveKit Instances Tab (mevcut işlevsellik)
+// ═══════════════════════════════════════════════════════
+
+function LiveKitTab() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
   const confirm = useConfirm();
 
-  // t referansı her renderda değişebilir (react-i18next).
-  // fetchInstances'ın gereksiz yeniden oluşturulmasını önlemek için ref kullanıyoruz.
   const tRef = useRef(t);
   tRef.current = t;
 
@@ -57,17 +53,12 @@ function PlatformSettings() {
   // Delete migration target
   const [migrateTargetId, setMigrateTargetId] = useState("");
 
-  // useMemo: instances.find() her renderda yeni referans döner.
-  // Bu yüzden effect dependency'lerinde kararsız davranır. Memoize edince
-  // sadece instances veya selectedId değiştiğinde yeni referans oluşur.
   const selectedInstance = useMemo(
     () => instances.find((i) => i.id === selectedId) ?? null,
     [instances, selectedId]
   );
 
   // ─── Fetch ───
-  // addToast zustanddan gelir (stabil referans). t ise ref üzerinden erişilir.
-  // Böylece fetchInstances SADECE mount'ta çalışır, t değişince tekrar çalışmaz.
   const fetchInstances = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -88,11 +79,6 @@ function PlatformSettings() {
     fetchInstances();
   }, [fetchInstances]);
 
-  // ─── Formu doldur: seçili instance veya create mode ───
-  // Dependency: selectedId (primitive — stabil) ve isCreating.
-  // selectedInstance yerine selectedId kullanıyoruz çünkü instances refetch olduğunda
-  // selectedInstance yeni referans alır ve bu effect gereksiz yere tekrar çalışırdı,
-  // kullanıcının form'a girdiği API key/secret değerlerini sıfırlardı.
   useEffect(() => {
     if (isCreating) {
       setFormUrl("");
@@ -139,14 +125,11 @@ function PlatformSettings() {
 
   // ─── Update ───
   async function handleUpdate() {
-    // Strict null check: selectedId boş string ("") olabilir (eski DB bug'ı).
-    // !selectedId boş string'de de true döner, bu yüzden === null kullanıyoruz.
     if (selectedId === null) {
       addToast("error", t("platformNoInstanceSelected"));
       return;
     }
 
-    // selectedInstance yerine instances'dan taze bul — closure staleness koruması.
     const current = instances.find((i) => i.id === selectedId);
     if (!current) {
       addToast("error", t("platformNoInstanceSelected"));
@@ -235,10 +218,9 @@ function PlatformSettings() {
 
   // ─── Render ───
   return (
-    <div className="channel-settings-wrapper">
+    <div className="channel-settings-wrapper" style={{ flex: 1, minHeight: 0 }}>
       {/* ── Sol Panel: Instance Listesi ── */}
       <div className="role-list">
-        {/* Header — ChannelSettings / RoleSettings pattern */}
         <div className="channel-settings-header">
           <span className="channel-settings-header-label">
             {t("platformLiveKitInstances")}
@@ -254,7 +236,6 @@ function PlatformSettings() {
           </button>
         </div>
 
-        {/* Instance listesi — scrollable wrapper */}
         <div className="channel-settings-ch-list">
           {isLoading && <p className="no-channel">{t("loading")}</p>}
 
@@ -330,7 +311,9 @@ function PlatformSettings() {
   );
 }
 
-// ─── Create Form ───
+// ═══════════════════════════════════════════════════════
+// Create Form
+// ═══════════════════════════════════════════════════════
 
 type CreateFormProps = {
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -440,7 +423,9 @@ function CreateForm({
   );
 }
 
-// ─── Edit Form ───
+// ═══════════════════════════════════════════════════════
+// Edit Form
+// ═══════════════════════════════════════════════════════
 
 type EditFormProps = {
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -564,7 +549,7 @@ function EditForm({
         </button>
       </div>
 
-      {/* ── Danger Zone — ServerGeneralSettings pattern ── */}
+      {/* ── Danger Zone ── */}
       <div className="dz-separator" />
       <div className="dz-section">
         <h2 className="dz-title">{t("dangerZone")}</h2>

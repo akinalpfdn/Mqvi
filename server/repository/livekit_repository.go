@@ -49,4 +49,9 @@ type LiveKitRepository interface {
 	// Instance silme öncesi çağrılır. Taşınan sunucu sayısını döner.
 	// Transaction içinde çalışır: server_count güncelleme + servers.livekit_instance_id güncelleme.
 	MigrateServers(ctx context.Context, fromInstanceID, toInstanceID string) (int64, error)
+
+	// MigrateOneServer, tek bir sunucunun LiveKit instance'ını değiştirir.
+	// Transaction içinde: eski instance server_count--, yeni instance server_count++,
+	// servers.livekit_instance_id güncelle.
+	MigrateOneServer(ctx context.Context, serverID, newInstanceID string) error
 }

@@ -40,7 +40,8 @@ const SERVER_ITEMS: NavItem[] = [
 
 /** Platform Settings kategorisi — sadece platform admin'lere görünür */
 const PLATFORM_ITEMS: NavItem[] = [
-  { id: "platform", labelKey: "platformAdmin" },
+  { id: "platform", labelKey: "platformLiveKitInstances" },
+  { id: "platform-servers", labelKey: "platformServersTab" },
 ];
 
 function SettingsNav() {

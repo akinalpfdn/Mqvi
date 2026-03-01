@@ -242,6 +242,67 @@ func (r *sqliteServerRepo) GetMaxMemberPosition(ctx context.Context, userID stri
 	return maxPos, nil
 }
 
+// ─── Admin ───
+
+func (r *sqliteServerRepo) ListAllWithStats(ctx context.Context) ([]models.AdminServerListItem, error) {
+	// Tek sorgu ile tüm sunucu istatistiklerini toplayan correlated subquery pattern.
+	// Moderate ölçekteki platformlar için (yüzlerce sunucu) performans sorunsuz.
+	query := `
+		SELECT
+			s.id,
+			s.name,
+			s.icon_url,
+			s.owner_id,
+			COALESCE(u.username, ''),
+			s.created_at,
+			COALESCE(li.is_platform_managed, 0),
+			s.livekit_instance_id,
+			(SELECT COUNT(*) FROM server_members sm WHERE sm.server_id = s.id),
+			(SELECT COUNT(*) FROM channels c WHERE c.server_id = s.id),
+			(SELECT COUNT(*) FROM messages m
+			 INNER JOIN channels c2 ON m.channel_id = c2.id
+			 WHERE c2.server_id = s.id),
+			COALESCE(
+				(SELECT SUM(a.file_size) FROM attachments a
+				 INNER JOIN messages m2 ON a.message_id = m2.id
+				 INNER JOIN channels c3 ON m2.channel_id = c3.id
+				 WHERE c3.server_id = s.id), 0
+			) / 1048576.0,
+			(SELECT MAX(m3.created_at) FROM messages m3
+			 INNER JOIN channels c4 ON m3.channel_id = c4.id
+			 WHERE c4.server_id = s.id)
+		FROM servers s
+		LEFT JOIN users u ON s.owner_id = u.id
+		LEFT JOIN livekit_instances li ON s.livekit_instance_id = li.id
+		ORDER BY s.created_at DESC`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all servers with stats: %w", err)
+	}
+	defer rows.Close()
+
+	var servers []models.AdminServerListItem
+	for rows.Next() {
+		var s models.AdminServerListItem
+		if err := rows.Scan(
+			&s.ID, &s.Name, &s.IconURL, &s.OwnerID, &s.OwnerUsername,
+			&s.CreatedAt, &s.IsPlatformManaged, &s.LiveKitInstanceID,
+			&s.MemberCount, &s.ChannelCount, &s.MessageCount,
+			&s.StorageMB, &s.LastActivity,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan admin server row: %w", err)
+		}
+		servers = append(servers, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating admin server rows: %w", err)
+	}
+
+	return servers, nil
+}
+
 func (r *sqliteServerRepo) GetMemberServerIDs(ctx context.Context, userID string) ([]string, error) {
 	query := `SELECT server_id FROM server_members WHERE user_id = ?`
 

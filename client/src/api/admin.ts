@@ -10,6 +10,7 @@ import type {
   LiveKitInstanceAdmin,
   CreateLiveKitInstanceRequest,
   UpdateLiveKitInstanceRequest,
+  AdminServerListItem,
 } from "../types";
 
 /** Tüm platform-managed LiveKit instance'larını listeler. */
@@ -55,4 +56,23 @@ export async function deleteLiveKitInstance(
     ? `/admin/livekit-instances/${id}?migrate_to=${migrateToId}`
     : `/admin/livekit-instances/${id}`;
   return apiClient<{ message: string }>(url, { method: "DELETE" });
+}
+
+/** Platformdaki tüm sunucuları istatistikleriyle listeler (admin). */
+export async function listAdminServers() {
+  return apiClient<AdminServerListItem[]>("/admin/servers");
+}
+
+/** Tek bir sunucunun LiveKit instance'ını değiştirir (admin). */
+export async function migrateServerInstance(
+  serverId: string,
+  livekitInstanceId: string
+) {
+  return apiClient<{ message: string }>(
+    `/admin/servers/${serverId}/instance`,
+    {
+      method: "PATCH",
+      body: { livekit_instance_id: livekitInstanceId },
+    }
+  );
 }

@@ -39,17 +39,29 @@ type LiveKitAdminService interface {
 	// Bağlı sunucular varsa targetInstanceID'ye migrate eder.
 	// targetInstanceID boş ve serverCount > 0 ise hata döner.
 	DeleteInstance(ctx context.Context, instanceID, targetInstanceID string) error
+
+	// ListServers, platformdaki tüm sunucuları istatistikleriyle döner.
+	// Admin panelde sunucu listesi için kullanılır.
+	ListServers(ctx context.Context) ([]models.AdminServerListItem, error)
+
+	// MigrateServerInstance, tek bir sunucunun LiveKit instance'ını değiştirir.
+	// Validation: hedef instance platform-managed olmalı, kapasitesi dolmamış olmalı.
+	// Self-hosted sunucular taşınamaz.
+	MigrateServerInstance(ctx context.Context, serverID, newInstanceID string) error
 }
 
 type livekitAdminService struct {
 	livekitRepo   repository.LiveKitRepository
+	serverRepo    repository.ServerRepository
 	encryptionKey []byte
 }
 
 // NewLiveKitAdminService, constructor — interface döner.
-func NewLiveKitAdminService(livekitRepo repository.LiveKitRepository, encryptionKey []byte) LiveKitAdminService {
+// serverRepo: admin sunucu listesi (ListAllWithStats) için gerekli.
+func NewLiveKitAdminService(livekitRepo repository.LiveKitRepository, serverRepo repository.ServerRepository, encryptionKey []byte) LiveKitAdminService {
 	return &livekitAdminService{
 		livekitRepo:   livekitRepo,
+		serverRepo:    serverRepo,
 		encryptionKey: encryptionKey,
 	}
 }
@@ -200,6 +212,65 @@ func (s *livekitAdminService) DeleteInstance(ctx context.Context, instanceID, ta
 	// Instance'ı sil
 	if err := s.livekitRepo.Delete(ctx, instanceID); err != nil {
 		return fmt.Errorf("failed to delete livekit instance: %w", err)
+	}
+
+	return nil
+}
+
+func (s *livekitAdminService) ListServers(ctx context.Context) ([]models.AdminServerListItem, error) {
+	servers, err := s.serverRepo.ListAllWithStats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all servers: %w", err)
+	}
+
+	return servers, nil
+}
+
+func (s *livekitAdminService) MigrateServerInstance(ctx context.Context, serverID, newInstanceID string) error {
+	// 1. Sunucunun varlığını kontrol et
+	server, err := s.serverRepo.GetByID(ctx, serverID)
+	if err != nil {
+		return err
+	}
+
+	// 2. Sunucunun mevcut instance'ı platform-managed olmalı (self-hosted taşınamaz)
+	if server.LiveKitInstanceID == nil || *server.LiveKitInstanceID == "" {
+		return fmt.Errorf("%w: server has no LiveKit instance assigned", pkg.ErrBadRequest)
+	}
+
+	currentInstance, err := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
+	if err != nil {
+		return fmt.Errorf("failed to get current instance: %w", err)
+	}
+
+	if !currentInstance.IsPlatformManaged {
+		return fmt.Errorf("%w: self-hosted servers cannot be migrated via admin API", pkg.ErrForbidden)
+	}
+
+	// 3. Aynı instance'a taşıma yapma
+	if *server.LiveKitInstanceID == newInstanceID {
+		return fmt.Errorf("%w: server is already on this instance", pkg.ErrBadRequest)
+	}
+
+	// 4. Hedef instance var mı, platform-managed mi
+	targetInstance, err := s.livekitRepo.GetByID(ctx, newInstanceID)
+	if err != nil {
+		return fmt.Errorf("target instance not found: %w", err)
+	}
+
+	if !targetInstance.IsPlatformManaged {
+		return fmt.Errorf("%w: target must be a platform-managed instance", pkg.ErrBadRequest)
+	}
+
+	// 5. Hedef kapasite dolmamış mı
+	if targetInstance.MaxServers > 0 && targetInstance.ServerCount >= targetInstance.MaxServers {
+		return fmt.Errorf("%w: target instance is at capacity (%d/%d)", pkg.ErrBadRequest,
+			targetInstance.ServerCount, targetInstance.MaxServers)
+	}
+
+	// 6. Transaction ile taşı
+	if err := s.livekitRepo.MigrateOneServer(ctx, serverID, newInstanceID); err != nil {
+		return fmt.Errorf("failed to migrate server instance: %w", err)
 	}
 
 	return nil

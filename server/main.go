@@ -517,7 +517,7 @@ func main() {
 		encryptionKey,
 	)
 
-	livekitAdminService := services.NewLiveKitAdminService(livekitRepo, encryptionKey)
+	livekitAdminService := services.NewLiveKitAdminService(livekitRepo, serverRepo, encryptionKey)
 	pinService := services.NewPinService(pinRepo, messageRepo, hub)
 	searchService := services.NewSearchService(searchRepo)
 	readStateService := services.NewReadStateService(readStateRepo, channelPermService)
@@ -667,6 +667,10 @@ func main() {
 	mux.Handle("POST /api/admin/livekit-instances", authAdmin(adminHandler.CreateLiveKitInstance))
 	mux.Handle("PATCH /api/admin/livekit-instances/{id}", authAdmin(adminHandler.UpdateLiveKitInstance))
 	mux.Handle("DELETE /api/admin/livekit-instances/{id}", authAdmin(adminHandler.DeleteLiveKitInstance))
+
+	// Platform Admin — Sunucu listesi + instance migration
+	mux.Handle("GET /api/admin/servers", authAdmin(adminHandler.ListServers))
+	mux.Handle("PATCH /api/admin/servers/{serverId}/instance", authAdmin(adminHandler.MigrateServerInstance))
 
 	// ╔══════════════════════════════════════════╗
 	// ║  SERVER-SCOPED ROUTES                     ║

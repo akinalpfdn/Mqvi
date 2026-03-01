@@ -117,3 +117,43 @@ func (h *AdminHandler) DeleteLiveKitInstance(w http.ResponseWriter, r *http.Requ
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "instance deleted"})
 }
+
+// ListServers — GET /api/admin/servers
+// Platformdaki tüm sunucuları istatistikleriyle listeler.
+func (h *AdminHandler) ListServers(w http.ResponseWriter, r *http.Request) {
+	servers, err := h.livekitAdminService.ListServers(r.Context())
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, servers)
+}
+
+// MigrateServerInstance — PATCH /api/admin/servers/{serverId}/instance
+// Tek bir sunucunun LiveKit instance'ını değiştirir.
+func (h *AdminHandler) MigrateServerInstance(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
+	if serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	var req models.MigrateServerInstanceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.livekitAdminService.MigrateServerInstance(r.Context(), serverID, req.LiveKitInstanceID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server instance updated"})
+}
