@@ -17,10 +17,25 @@
 import { create } from "zustand";
 import * as authApi from "../api/auth";
 import { setTokens, clearTokens } from "../api/client";
+import { changeLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import type { User, UserStatus } from "../types";
 
 /** localStorage key — kullanıcının manuel seçtiği presence durumu */
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
+
+/**
+ * syncLanguageFromUser — Kullanıcının DB'deki dil tercihini i18n'e uygular.
+ *
+ * Login ve initialize sonrası çağrılır. DB'deki dil tercihi,
+ * localStorage veya navigator.language'den her zaman önceliklidir.
+ * Böylece kullanıcı profilde Türkçe seçtiyse, PC dili İngilizce olsa bile
+ * uygulama her zaman Türkçe açılır.
+ */
+function syncLanguageFromUser(user: User): void {
+  if (user.language && user.language in SUPPORTED_LANGUAGES) {
+    changeLanguage(user.language as Language);
+  }
+}
 
 /** Store'un state + action tipleri */
 type AuthState = {
@@ -96,6 +111,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     if (res.success && res.data) {
       setTokens(res.data.access_token, res.data.refresh_token);
+      syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false });
       return true;
     }
@@ -111,6 +127,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     if (res.success && res.data) {
       setTokens(res.data.access_token, res.data.refresh_token);
+      syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false });
       return true;
     }
@@ -144,6 +161,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     const res = await authApi.getMe();
     if (res.success && res.data) {
+      syncLanguageFromUser(res.data);
       set({ user: res.data, isInitialized: true });
     } else {
       clearTokens();

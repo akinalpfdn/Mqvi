@@ -14,7 +14,7 @@
  */
 
 import { create } from "zustand";
-import { type ThemeId, DEFAULT_THEME, applyTheme } from "../styles/themes";
+import { type ThemeId, DEFAULT_THEME, THEMES, applyTheme } from "../styles/themes";
 
 /** localStorage key — tema tercihi burada saklanır */
 const THEME_STORAGE_KEY = "mqvi_theme";
@@ -26,14 +26,11 @@ const THEME_STORAGE_KEY = "mqvi_theme";
 function loadPersistedTheme(): ThemeId {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (
-      stored === "ocean" ||
-      stored === "aurora" ||
-      stored === "midnight" ||
-      stored === "ember" ||
-      stored === "deepTeal"
-    ) {
-      return stored;
+    // THEMES object'indeki tüm tema ID'lerini kontrol et.
+    // Hardcoded whitelist yerine THEMES kullanılır — yeni tema eklendiğinde
+    // buranın güncellenmesi gerekmez.
+    if (stored && stored in THEMES) {
+      return stored as ThemeId;
     }
   } catch {
     /* SSR veya localStorage erişim hatası — sessizce geç */
