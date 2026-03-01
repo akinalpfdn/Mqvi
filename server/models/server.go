@@ -128,3 +128,34 @@ func (r *JoinServerRequest) Validate() error {
 	}
 	return nil
 }
+
+// ReorderServersRequest, kullanıcının sunucu listesi sıralamasını güncelleme isteği.
+//
+// Per-user sıralama: her kullanıcı kendi server listesini bağımsız sıralar.
+// PositionUpdate (channel.go'da tanımlı) yeniden kullanılır — ID+Position çifti.
+type ReorderServersRequest struct {
+	Items []PositionUpdate `json:"items"`
+}
+
+// Validate, ReorderServersRequest kontrolü.
+func (r *ReorderServersRequest) Validate() error {
+	if len(r.Items) == 0 {
+		return fmt.Errorf("items cannot be empty")
+	}
+
+	seen := make(map[string]bool, len(r.Items))
+	for _, item := range r.Items {
+		if item.ID == "" {
+			return fmt.Errorf("item id cannot be empty")
+		}
+		if item.Position < 0 {
+			return fmt.Errorf("position cannot be negative")
+		}
+		if seen[item.ID] {
+			return fmt.Errorf("duplicate server id: %s", item.ID)
+		}
+		seen[item.ID] = true
+	}
+
+	return nil
+}

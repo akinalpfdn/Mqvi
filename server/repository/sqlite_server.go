@@ -107,12 +107,15 @@ func (r *sqliteServerRepo) Delete(ctx context.Context, serverID string) error {
 // ─── Üyelik ───
 
 func (r *sqliteServerRepo) GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error) {
+	// position'a göre sırala — kullanıcının kendi sıralama tercihi.
+	// Aynı position değerine sahip sunucular (migration sonrası edge case)
+	// joined_at ile tiebreak yapılır.
 	query := `
 		SELECT s.id, s.name, s.icon_url
 		FROM servers s
 		INNER JOIN server_members sm ON s.id = sm.server_id
 		WHERE sm.user_id = ?
-		ORDER BY sm.joined_at ASC`
+		ORDER BY sm.position ASC, sm.joined_at ASC`
 
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {
@@ -137,9 +140,14 @@ func (r *sqliteServerRepo) GetUserServers(ctx context.Context, userID string) ([
 }
 
 func (r *sqliteServerRepo) AddMember(ctx context.Context, serverID, userID string) error {
-	query := `INSERT OR IGNORE INTO server_members (server_id, user_id) VALUES (?, ?)`
+	// Yeni üye her zaman listenin sonuna eklenir.
+	// position = mevcut max position + 1 (hiç sunucu yoksa 0).
+	// Subquery ile atomic yapıyoruz — ayrı SELECT + INSERT yerine tek sorgu.
+	query := `
+		INSERT OR IGNORE INTO server_members (server_id, user_id, position)
+		VALUES (?, ?, COALESCE((SELECT MAX(position) FROM server_members WHERE user_id = ?), -1) + 1)`
 
-	_, err := r.db.ExecContext(ctx, query, serverID, userID)
+	_, err := r.db.ExecContext(ctx, query, serverID, userID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to add server member: %w", err)
 	}
@@ -192,6 +200,46 @@ func (r *sqliteServerRepo) GetMemberCount(ctx context.Context, serverID string) 
 	}
 
 	return count, nil
+}
+
+func (r *sqliteServerRepo) UpdateMemberPositions(ctx context.Context, userID string, items []models.PositionUpdate) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Prepared statement ile her item'ı tek tek güncelle.
+	// server_members'da PRIMARY KEY (server_id, user_id) — hem serverID hem userID gerekli.
+	stmt, err := tx.PrepareContext(ctx, `UPDATE server_members SET position = ? WHERE server_id = ? AND user_id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare position update: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, item := range items {
+		if _, err := stmt.ExecContext(ctx, item.Position, item.ID, userID); err != nil {
+			return fmt.Errorf("failed to update position for server %s: %w", item.ID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit position update: %w", err)
+	}
+
+	return nil
+}
+
+func (r *sqliteServerRepo) GetMaxMemberPosition(ctx context.Context, userID string) (int, error) {
+	query := `SELECT COALESCE(MAX(position), -1) FROM server_members WHERE user_id = ?`
+
+	var maxPos int
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(&maxPos)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get max member position: %w", err)
+	}
+
+	return maxPos, nil
 }
 
 func (r *sqliteServerRepo) GetMemberServerIDs(ctx context.Context, userID string) ([]string, error) {

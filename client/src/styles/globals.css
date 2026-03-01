@@ -1897,7 +1897,13 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    CHANNEL TREE — SERVER GROUP + ADD SERVER
    ChannelTree'deki sunucu listesi öğeleri.
    ═══════════════════════════════════════ */
-.ch-tree-server-group { margin-bottom:2px; }
+.ch-tree-server-group { margin-bottom:2px;position:relative;transition:opacity .15s;cursor:grab; }
+.ch-tree-server-group:active { cursor:grabbing; }
+.ch-tree-server-group.srv-dragging { opacity:0.4; }
+.ch-tree-server-group.srv-drop-above::before,
+.ch-tree-server-group.srv-drop-below::after { content:"";position:absolute;left:10px;right:8px;height:2px;background:var(--primary);border-radius:1px;pointer-events:none;z-index:2; }
+.ch-tree-server-group.srv-drop-above::before { top:0; }
+.ch-tree-server-group.srv-drop-below::after { bottom:0; }
 .ch-tree-add-server { opacity:0.7;transition:opacity .15s ease; }
 .ch-tree-add-server:hover { opacity:1; }
 .ch-tree-add-server .ch-tree-icon { color:var(--green);font-size:16px;font-weight:700; }

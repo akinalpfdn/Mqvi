@@ -54,6 +54,11 @@ type ServerService interface {
 	// GetLiveKitSettings, sunucunun LiveKit ayarlarını döner (URL + tip).
 	// Secret'lar dahil edilmez — sadece owner'ın ayarlar sayfasında görmesi için.
 	GetLiveKitSettings(ctx context.Context, serverID string) (*LiveKitSettings, error)
+
+	// ReorderServers, kullanıcının sunucu listesini sıralar.
+	// Per-user: sadece o kullanıcının sıralaması değişir, başkalarını etkilemez.
+	// WS broadcast YAPILMAZ — kişisel sıralama.
+	ReorderServers(ctx context.Context, userID string, req *models.ReorderServersRequest) ([]models.ServerListItem, error)
 }
 
 type serverService struct {
@@ -552,4 +557,30 @@ func (s *serverService) GetLiveKitSettings(ctx context.Context, serverID string)
 		URL:               instance.URL,
 		IsPlatformManaged: instance.IsPlatformManaged,
 	}, nil
+}
+
+// ReorderServers, kullanıcının sunucu listesi sıralamasını günceller.
+//
+// Per-user sıralama: server_members.position alanı sadece o kullanıcının
+// kendi görünümünü etkiler. Başka kullanıcıların sıralaması değişmez.
+// Bu yüzden WS broadcast YAPILMAZ — Discord da aynı şekilde çalışır.
+//
+// İstek body'sinde items array'i vardır: her item bir server_id + yeni position.
+// Validate edildikten sonra transaction içinde güncellenir.
+func (s *serverService) ReorderServers(ctx context.Context, userID string, req *models.ReorderServersRequest) ([]models.ServerListItem, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
+	}
+
+	if err := s.serverRepo.UpdateMemberPositions(ctx, userID, req.Items); err != nil {
+		return nil, fmt.Errorf("failed to update server positions: %w", err)
+	}
+
+	// Güncel sıralı listeyi döndür
+	servers, err := s.serverRepo.GetUserServers(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reload servers after reorder: %w", err)
+	}
+
+	return servers, nil
 }

@@ -70,6 +70,9 @@ type ServerState = {
   /** Sunucuyu siler (owner only) */
   deleteServer: (serverId: string) => Promise<boolean>;
 
+  /** Sunucu listesini sürükleyerek sıralar (per-user, optimistic update) */
+  reorderServers: (items: { id: string; position: number }[]) => Promise<boolean>;
+
   // ─── WS Event Handlers ───
 
   /** server_update — sunucu bilgisi güncellendi */
@@ -224,6 +227,30 @@ export const useServerStore = create<ServerState>((set, get) => ({
       return true;
     }
     return false;
+  },
+
+  reorderServers: async (items) => {
+    // Önceki listeyi sakla — rollback için
+    const prevServers = get().servers;
+
+    // Optimistic update: items zaten sıralı position değerleri taşıyor.
+    // ID → position map'i oluştur, listeyi position'a göre sırala.
+    const positionMap = new Map(items.map((item) => [item.id, item.position]));
+    const sorted = [...prevServers].sort((a, b) => {
+      const posA = positionMap.get(a.id) ?? 9999;
+      const posB = positionMap.get(b.id) ?? 9999;
+      return posA - posB;
+    });
+    set({ servers: sorted });
+
+    const res = await serversApi.reorderServers(items);
+    if (!res.success) {
+      // Rollback
+      set({ servers: prevServers });
+      return false;
+    }
+
+    return true;
   },
 
   // ─── WS Event Handlers ───

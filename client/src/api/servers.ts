@@ -84,6 +84,14 @@ export async function getLiveKitSettings(serverId: string) {
   );
 }
 
+/** Kullanıcının sunucu listesini sıralar (per-user) */
+export async function reorderServers(items: { id: string; position: number }[]) {
+  return apiClient<ServerListItem[]>("/servers/reorder", {
+    method: "PATCH",
+    body: { items },
+  });
+}
+
 /** Sunucu ikonu yükler — multipart/form-data */
 export async function uploadServerIcon(serverId: string, file: File) {
   const formData = new FormData();

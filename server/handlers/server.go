@@ -201,6 +201,35 @@ func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "left server"})
 }
 
+// ReorderServers godoc
+// PATCH /api/servers/reorder
+// Body: { "items": [{ "id": "serverId", "position": 0 }, ...] }
+//
+// Kullanıcının sunucu listesini sıralar. Per-user sıralama —
+// sadece isteği yapan kullanıcının görünümü değişir.
+// Auth middleware yeterli, server membership gerekmez (kendi listesini sıralıyor).
+func (h *ServerHandler) ReorderServers(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	var req models.ReorderServersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	servers, err := h.serverService.ReorderServers(r.Context(), user.ID, &req)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, servers)
+}
+
 // GetLiveKitSettings godoc
 // GET /api/servers/{serverId}/livekit
 //

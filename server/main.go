@@ -581,9 +581,11 @@ func main() {
 	// Servers — sunucu listesi, oluşturma, katılma (sunucu üyeliği gerekmez)
 	mux.Handle("GET /api/servers", auth(serverHandler.ListMyServers))
 	mux.Handle("POST /api/servers", auth(serverHandler.CreateServer))
-	// "join" literal path'i {serverId} parametresinden ÖNCE tanımlanmalı —
-	// yoksa Go router "join" kelimesini bir {serverId} olarak yorumlar.
+	// "join" ve "reorder" literal path'leri {serverId} parametresinden ÖNCE tanımlanmalı —
+	// yoksa Go router bu kelimeleri bir {serverId} olarak yorumlar.
 	mux.Handle("POST /api/servers/join", auth(serverHandler.JoinServer))
+	// Server reorder — per-user sıralama, auth yeterli (server membership gerekmez)
+	mux.Handle("PATCH /api/servers/reorder", auth(serverHandler.ReorderServers))
 
 	// Upload — bağımsız dosya yükleme endpoint'i (sunucu bağımsız)
 	mux.Handle("POST /api/upload", auth(messageHandler.Upload))

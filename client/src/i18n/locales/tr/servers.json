@@ -47,5 +47,6 @@
   "step3LiveKit": "LiveKit Yapılandırması",
   "addServer": "Sunucu Ekle",
   "addServerDesc": "Yeni bir sunucu oluşturun veya mevcut birine katılın",
-  "orSeparator": "veya"
+  "orSeparator": "veya",
+  "reorderError": "Sunucu sıralaması güncellenemedi"
 }

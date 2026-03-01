@@ -47,5 +47,6 @@
   "step3LiveKit": "LiveKit Configuration",
   "addServer": "Add Server",
   "addServerDesc": "Create a new server or join an existing one",
-  "orSeparator": "or"
+  "orSeparator": "or",
+  "reorderError": "Failed to reorder servers"
 }

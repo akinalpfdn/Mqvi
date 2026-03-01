@@ -79,6 +79,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const servers = useServerStore((s) => s.servers);
   const activeServerId = useServerStore((s) => s.activeServerId);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
+  const reorderServers = useServerStore((s) => s.reorderServers);
 
   // Add Server modal state
   const [showAddServer, setShowAddServer] = useState(false);
@@ -204,6 +205,90 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const [draggingVoiceUserId, setDraggingVoiceUserId] = useState<string | null>(null);
   /** Hover edilen hedef voice kanal id (drop target highlight için) */
   const [voiceDropTargetId, setVoiceDropTargetId] = useState<string | null>(null);
+
+  // ─── Server Drag & Drop State ───
+  // Kullanıcının sunucu listesini sürükleyerek sıralaması.
+  // Per-user — başkalarını etkilemez, DB'de persist.
+
+  /** Sürüklenen sunucunun id'si */
+  const dragServerIdRef = useRef<string | null>(null);
+  /** Drop hedefinin üstünde/altında çizgi göstermek için */
+  const [serverDropIndicator, setServerDropIndicator] = useState<{
+    serverId: string;
+    position: "above" | "below";
+  } | null>(null);
+
+  function handleServerDragStart(e: React.DragEvent, serverId: string) {
+    // Kanal veya voice user sürüklemesiyle çakışmasın
+    e.stopPropagation();
+    dragServerIdRef.current = serverId;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/server", serverId);
+  }
+
+  function handleServerDragOver(e: React.DragEvent, serverId: string) {
+    // Sadece server sürükleme aktifse işle
+    if (!dragServerIdRef.current) return;
+    // Kendi üzerine bırakma ihmal
+    if (dragServerIdRef.current === serverId) {
+      e.preventDefault();
+      setServerDropIndicator(null);
+      return;
+    }
+
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos: "above" | "below" = e.clientY < midY ? "above" : "below";
+    setServerDropIndicator({ serverId, position: pos });
+  }
+
+  function handleServerDragLeave() {
+    setServerDropIndicator(null);
+  }
+
+  function handleServerDrop(e: React.DragEvent, targetServerId: string) {
+    e.preventDefault();
+    setServerDropIndicator(null);
+
+    const dragId = dragServerIdRef.current;
+    dragServerIdRef.current = null;
+
+    if (!dragId || dragId === targetServerId) return;
+
+    // Mevcut listeyi kopyala
+    const ordered = [...servers];
+    const dragIdx = ordered.findIndex((s) => s.id === dragId);
+    const targetIdx = ordered.findIndex((s) => s.id === targetServerId);
+    if (dragIdx === -1 || targetIdx === -1) return;
+
+    // Sürüklenen sunucuyu çıkar
+    const [dragged] = ordered.splice(dragIdx, 1);
+
+    // Hedefin yeni index'ini hesapla (splice sonrası kayma)
+    let insertIdx = ordered.findIndex((s) => s.id === targetServerId);
+    if (insertIdx === -1) insertIdx = ordered.length;
+
+    // Mouse pozisyonuna göre üstte veya altta ekle
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    if (e.clientY >= midY) insertIdx += 1;
+
+    ordered.splice(insertIdx, 0, dragged);
+
+    // Position değerlerini 0'dan başlayarak ata
+    const items = ordered.map((s, idx) => ({ id: s.id, position: idx }));
+    reorderServers(items).then((ok) => {
+      if (!ok) addToast("error", tServers("reorderError"));
+    });
+  }
+
+  function handleServerDragEnd() {
+    dragServerIdRef.current = null;
+    setServerDropIndicator(null);
+  }
 
   function handleDragStart(channelId: string, categoryId: string) {
     dragChannelIdRef.current = channelId;
@@ -557,8 +642,20 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                 }
               }
 
+              const srvDropPos = serverDropIndicator?.serverId === srv.id ? serverDropIndicator.position : null;
+              const isSrvDragging = dragServerIdRef.current === srv.id;
+
               return (
-                <div key={srv.id} className="ch-tree-server-group">
+                <div
+                  key={srv.id}
+                  className={`ch-tree-server-group${isSrvDragging ? " srv-dragging" : ""}${srvDropPos === "above" ? " srv-drop-above" : ""}${srvDropPos === "below" ? " srv-drop-below" : ""}`}
+                  draggable
+                  onDragStart={(e) => handleServerDragStart(e, srv.id)}
+                  onDragOver={(e) => handleServerDragOver(e, srv.id)}
+                  onDragLeave={handleServerDragLeave}
+                  onDrop={(e) => handleServerDrop(e, srv.id)}
+                  onDragEnd={handleServerDragEnd}
+                >
                   {/* Sunucu başlığı — ikon + isim + unread badge */}
                   <button
                     className={`ch-tree-server-header${isActive ? " active" : ""}`}

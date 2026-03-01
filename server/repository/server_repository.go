@@ -46,4 +46,13 @@ type ServerRepository interface {
 	// GetMemberServerIDs, kullanıcının üye olduğu tüm sunucu ID'lerini döner.
 	// WebSocket hub'da client.ServerIDs doldurmak için kullanılır.
 	GetMemberServerIDs(ctx context.Context, userID string) ([]string, error)
+
+	// UpdateMemberPositions, bir kullanıcının sunucu sıralamasını günceller.
+	// Per-user: sadece o kullanıcının server_members.position değerlerini değiştirir.
+	// Transaction içinde çalışır — ya hepsi güncellenir ya hiçbiri.
+	UpdateMemberPositions(ctx context.Context, userID string, items []models.PositionUpdate) error
+
+	// GetMaxMemberPosition, bir kullanıcının en yüksek position değerini döner.
+	// Yeni sunucuya katılırken position = max+1 atamak için kullanılır.
+	GetMaxMemberPosition(ctx context.Context, userID string) (int, error)
 }
