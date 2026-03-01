@@ -136,11 +136,24 @@ export const useMemberStore = create<MemberState>((set) => ({
     });
   },
 
-  handleMemberUpdate: (member) => {
+  handleMemberUpdate: (updated) => {
     set((state) => ({
-      members: state.members.map((m) =>
-        m.id === member.id ? member : m
-      ),
+      members: state.members.map((m) => {
+        if (m.id !== updated.id) return m;
+        // Profile update (BroadcastToAll) roles boş gönderir çünkü
+        // server-agnostic — hangi sunucunun rollerini göndereceğini bilmez.
+        // Bu durumda mevcut rolleri ve yetkileri koru.
+        // Rol değişikliği ise (roles dolu) yeni rolleri kullan.
+        const hasRoles = updated.roles && updated.roles.length > 0;
+        return {
+          ...m,
+          ...updated,
+          roles: hasRoles ? updated.roles : m.roles,
+          effective_permissions: hasRoles
+            ? updated.effective_permissions
+            : m.effective_permissions,
+        };
+      }),
     }));
   },
 

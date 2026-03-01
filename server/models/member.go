@@ -42,6 +42,13 @@ type MemberWithRoles struct {
 // Effective permissions hesaplaması (bitwise OR) burada yapılır —
 // her yerde tekrar etmek yerine tek noktada merkezi hesaplama.
 func ToMemberWithRoles(user *User, roles []Role) MemberWithRoles {
+	// nil slice Go'da JSON'a "null" olarak serialize edilir.
+	// Frontend'de roles.map() çağrıldığında null.map() → crash.
+	// Boş slice ise JSON'da "[]" olur — güvenli.
+	if roles == nil {
+		roles = []Role{}
+	}
+
 	var effectivePerms Permission
 	for _, role := range roles {
 		effectivePerms |= role.Permissions
