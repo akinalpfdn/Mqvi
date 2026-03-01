@@ -48,20 +48,27 @@ type LiveKitAdminService interface {
 	// Validation: hedef instance platform-managed olmalı, kapasitesi dolmamış olmalı.
 	// Self-hosted sunucular taşınamaz.
 	MigrateServerInstance(ctx context.Context, serverID, newInstanceID string) error
+
+	// ListUsers, platformdaki tüm kullanıcıları istatistikleriyle döner.
+	// Admin panelde kullanıcı listesi için kullanılır.
+	ListUsers(ctx context.Context) ([]models.AdminUserListItem, error)
 }
 
 type livekitAdminService struct {
 	livekitRepo   repository.LiveKitRepository
 	serverRepo    repository.ServerRepository
+	userRepo      repository.UserRepository
 	encryptionKey []byte
 }
 
 // NewLiveKitAdminService, constructor — interface döner.
 // serverRepo: admin sunucu listesi (ListAllWithStats) için gerekli.
-func NewLiveKitAdminService(livekitRepo repository.LiveKitRepository, serverRepo repository.ServerRepository, encryptionKey []byte) LiveKitAdminService {
+// userRepo: admin kullanıcı listesi (ListAllUsersWithStats) için gerekli.
+func NewLiveKitAdminService(livekitRepo repository.LiveKitRepository, serverRepo repository.ServerRepository, userRepo repository.UserRepository, encryptionKey []byte) LiveKitAdminService {
 	return &livekitAdminService{
 		livekitRepo:   livekitRepo,
 		serverRepo:    serverRepo,
+		userRepo:      userRepo,
 		encryptionKey: encryptionKey,
 	}
 }
@@ -274,6 +281,15 @@ func (s *livekitAdminService) MigrateServerInstance(ctx context.Context, serverI
 	}
 
 	return nil
+}
+
+func (s *livekitAdminService) ListUsers(ctx context.Context) ([]models.AdminUserListItem, error) {
+	users, err := s.userRepo.ListAllUsersWithStats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all users: %w", err)
+	}
+
+	return users, nil
 }
 
 // toAdminView, LiveKitInstance'ı credential'sız admin view'a dönüştürür.

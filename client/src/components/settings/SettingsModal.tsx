@@ -23,6 +23,7 @@ import MembersSettings from "./MembersSettings";
 import SecuritySettings from "./SecuritySettings";
 import PlatformSettings from "./PlatformSettings";
 import AdminServerList from "./AdminServerList";
+import AdminUserList from "./AdminUserList";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -117,6 +118,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "platform-servers":
       return <AdminServerList />;
+
+    case "platform-users":
+      return <AdminUserList />;
 
     default:
       return null;

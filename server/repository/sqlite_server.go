@@ -273,9 +273,12 @@ func (r *sqliteServerRepo) ListAllWithStats(ctx context.Context) ([]models.Admin
 				 INNER JOIN channels c3 ON m2.channel_id = c3.id
 				 WHERE c3.server_id = s.id), 0
 			) / 1048576.0,
-			(SELECT MAX(m3.created_at) FROM messages m3
-			 INNER JOIN channels c4 ON m3.channel_id = c4.id
-			 WHERE c4.server_id = s.id)
+			MAX(
+				COALESCE((SELECT MAX(m3.created_at) FROM messages m3
+				 INNER JOIN channels c4 ON m3.channel_id = c4.id
+				 WHERE c4.server_id = s.id), ''),
+				COALESCE(s.last_voice_activity, '')
+			)
 		FROM servers s
 		LEFT JOIN users u ON s.owner_id = u.id
 		LEFT JOIN livekit_instances li ON s.livekit_instance_id = li.id
@@ -306,6 +309,15 @@ func (r *sqliteServerRepo) ListAllWithStats(ctx context.Context) ([]models.Admin
 	}
 
 	return servers, nil
+}
+
+func (r *sqliteServerRepo) UpdateLastVoiceActivity(ctx context.Context, serverID string) error {
+	query := `UPDATE servers SET last_voice_activity = CURRENT_TIMESTAMP WHERE id = ?`
+	_, err := r.db.ExecContext(ctx, query, serverID)
+	if err != nil {
+		return fmt.Errorf("failed to update last voice activity: %w", err)
+	}
+	return nil
 }
 
 func (r *sqliteServerRepo) GetMemberServerIDs(ctx context.Context, userID string) ([]string, error) {

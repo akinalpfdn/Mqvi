@@ -157,3 +157,15 @@ func (h *AdminHandler) MigrateServerInstance(w http.ResponseWriter, r *http.Requ
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server instance updated"})
 }
+
+// ListUsers — GET /api/admin/users
+// Platformdaki tüm kullanıcıları istatistikleriyle listeler.
+func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.livekitAdminService.ListUsers(r.Context())
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, users)
+}

@@ -252,6 +252,14 @@ function AdminServerList() {
     }
   }
 
+  function handleCancelChange(serverId: string) {
+    setPendingChanges((prev) => {
+      const copy = { ...prev };
+      delete copy[serverId];
+      return copy;
+    });
+  }
+
   async function handleConfirm(serverId: string) {
     const newInstanceId = pendingChanges[serverId];
     if (!newInstanceId) return;
@@ -426,14 +434,24 @@ function AdminServerList() {
               ))}
             </select>
             {hasPending && (
-              <button
-                className="admin-server-confirm-btn"
-                onClick={() => handleConfirm(srv.id)}
-                disabled={isSavingThis}
-                title={t("save")}
-              >
-                {isSavingThis ? "..." : "\u2713"}
-              </button>
+              <>
+                <button
+                  className="admin-server-confirm-btn"
+                  onClick={() => handleConfirm(srv.id)}
+                  disabled={isSavingThis}
+                  title={t("save")}
+                >
+                  {isSavingThis ? "..." : "\u2713"}
+                </button>
+                <button
+                  className="admin-server-cancel-btn"
+                  onClick={() => handleCancelChange(srv.id)}
+                  disabled={isSavingThis}
+                  title={t("cancel")}
+                >
+                  {"\u2715"}
+                </button>
+              </>
             )}
           </div>
         );

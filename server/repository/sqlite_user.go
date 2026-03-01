@@ -295,3 +295,62 @@ func searchString(s, substr string) bool {
 	}
 	return false
 }
+
+// ─── Admin ───
+
+func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.AdminUserListItem, error) {
+	// Tek sorgu ile tüm kullanıcı istatistiklerini toplayan correlated subquery pattern.
+	query := `
+		SELECT
+			u.id,
+			u.username,
+			u.display_name,
+			u.avatar_url,
+			u.is_platform_admin,
+			u.created_at,
+			u.status,
+			(SELECT MAX(m.created_at) FROM messages m WHERE m.user_id = u.id),
+			(SELECT COUNT(*) FROM messages m2 WHERE m2.user_id = u.id),
+			COALESCE(
+				(SELECT SUM(a.file_size) FROM attachments a
+				 INNER JOIN messages m3 ON a.message_id = m3.id
+				 WHERE m3.user_id = u.id), 0
+			) / 1048576.0,
+			(SELECT COUNT(*) FROM servers sv
+			 LEFT JOIN livekit_instances li ON sv.livekit_instance_id = li.id
+			 WHERE sv.owner_id = u.id AND COALESCE(li.is_platform_managed, 0) = 0),
+			(SELECT COUNT(*) FROM servers sv2
+			 LEFT JOIN livekit_instances li2 ON sv2.livekit_instance_id = li2.id
+			 WHERE sv2.owner_id = u.id AND COALESCE(li2.is_platform_managed, 0) = 1),
+			(SELECT COUNT(*) FROM server_members sm WHERE sm.user_id = u.id),
+			(SELECT COUNT(*) FROM bans b WHERE b.user_id = u.id)
+		FROM users u
+		ORDER BY u.created_at DESC`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all users with stats: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.AdminUserListItem
+	for rows.Next() {
+		var u models.AdminUserListItem
+		if err := rows.Scan(
+			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
+			&u.IsPlatformAdmin, &u.CreatedAt, &u.Status,
+			&u.LastActivity, &u.MessageCount, &u.StorageMB,
+			&u.OwnedSelfServers, &u.OwnedMqviServers,
+			&u.MemberServerCount, &u.BanCount,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan admin user row: %w", err)
+		}
+		users = append(users, u)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating admin user rows: %w", err)
+	}
+
+	return users, nil
+}

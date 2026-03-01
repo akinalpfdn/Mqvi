@@ -63,4 +63,8 @@ type ServerRepository interface {
 	// Tek SQL sorgusu ile member_count, channel_count, message_count,
 	// storage_mb ve last_activity hesaplanır.
 	ListAllWithStats(ctx context.Context) ([]models.AdminServerListItem, error)
+
+	// UpdateLastVoiceActivity, bir sunucunun son ses aktivitesi zamanını günceller.
+	// Ses kanalına katılım olduğunda çağrılır (hub callback'ten).
+	UpdateLastVoiceActivity(ctx context.Context, serverID string) error
 }

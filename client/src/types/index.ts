@@ -473,6 +473,27 @@ export type AdminServerListItem = {
   last_activity: string | null;
 };
 
+/**
+ * AdminUserListItem — Platform admin panelde gösterilen kullanıcı bilgisi.
+ * Tek SQL sorgusu ile tüm istatistikler toplanır (correlated subquery pattern).
+ */
+export type AdminUserListItem = {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  is_platform_admin: boolean;
+  created_at: string;
+  status: string;
+  last_activity: string | null;
+  message_count: number;
+  storage_mb: number;
+  owned_self_servers: number;
+  owned_mqvi_servers: number;
+  member_server_count: number;
+  ban_count: number;
+};
+
 // ──────────────────────────────────
 // WebSocket
 // ──────────────────────────────────

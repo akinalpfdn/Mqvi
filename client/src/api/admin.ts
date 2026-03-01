@@ -11,6 +11,7 @@ import type {
   CreateLiveKitInstanceRequest,
   UpdateLiveKitInstanceRequest,
   AdminServerListItem,
+  AdminUserListItem,
 } from "../types";
 
 /** Tüm platform-managed LiveKit instance'larını listeler. */
@@ -61,6 +62,11 @@ export async function deleteLiveKitInstance(
 /** Platformdaki tüm sunucuları istatistikleriyle listeler (admin). */
 export async function listAdminServers() {
   return apiClient<AdminServerListItem[]>("/admin/servers");
+}
+
+/** Platformdaki tüm kullanıcıları istatistikleriyle listeler (admin). */
+export async function listAdminUsers() {
+  return apiClient<AdminUserListItem[]>("/admin/users");
 }
 
 /** Tek bir sunucunun LiveKit instance'ını değiştirir (admin). */

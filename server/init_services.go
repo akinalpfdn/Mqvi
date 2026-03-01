@@ -102,7 +102,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		db, repos.Server, repos.LiveKit, repos.Role, repos.Channel,
 		repos.Category, repos.User, inviteService, hub, encryptionKey,
 	)
-	livekitAdminService := services.NewLiveKitAdminService(repos.LiveKit, repos.Server, encryptionKey)
+	livekitAdminService := services.NewLiveKitAdminService(repos.LiveKit, repos.Server, repos.User, encryptionKey)
 	pinService := services.NewPinService(repos.Pin, repos.Message, hub)
 	searchService := services.NewSearchService(repos.Search)
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)

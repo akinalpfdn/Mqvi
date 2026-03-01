@@ -29,6 +29,7 @@
   --red:#ef4444;
   --red-s:rgba(239,68,68,0.10);
   --yellow:#f0b232;
+  --yellow-s:rgba(240,178,50,0.10);
   --teal:#3b82f6;
   --secondary:#3b82f6;
   --secondary-s:rgba(59,130,246,0.08);
@@ -854,13 +855,12 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 /* ── Table ── */
 .admin-server-table {
-  width:max-content;min-width:100%;table-layout:fixed;
-  border-collapse:collapse;font-size:13px;
+  table-layout:fixed;border-collapse:collapse;font-size:13px;
 }
 
 /* ── Header ── */
 .admin-server-table th {
-  position:relative;text-align:left;padding:8px 12px;font-weight:600;
+  text-align:left;padding:8px 12px;font-weight:600;
   color:var(--t2);border-bottom:2px solid var(--b1);white-space:nowrap;
   position:sticky;top:0;background:var(--bg-2);z-index:1;user-select:none;
 }
@@ -874,12 +874,15 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 /* ── Resize handle ── */
 .admin-server-resize-handle {
-  position:absolute;top:0;right:0;width:5px;height:100%;
-  cursor:col-resize;background:transparent;transition:background .12s;
-  z-index:2;
+  position:absolute;top:0;right:-4px;width:8px;height:100%;
+  cursor:col-resize;z-index:2;
 }
-.admin-server-resize-handle:hover { background:var(--primary); }
-.admin-server-resize-handle:active { background:var(--primary); }
+.admin-server-resize-handle::after {
+  content:'';position:absolute;top:25%;right:3px;width:2px;height:50%;
+  background:var(--b1);border-radius:1px;transition:background .12s;
+}
+.admin-server-resize-handle:hover::after,
+.admin-server-resize-handle:active::after { background:var(--primary); }
 
 /* ── Cells ── */
 .admin-server-table td {
@@ -931,6 +934,130 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 }
 .admin-server-confirm-btn:hover { background:var(--green-s); }
 .admin-server-confirm-btn:disabled { opacity:0.4;cursor:not-allowed; }
+.admin-server-cancel-btn {
+  background:none;border:none;cursor:pointer;color:var(--red);
+  font-size:14px;padding:2px 6px;border-radius:4px;transition:background .1s;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.admin-server-cancel-btn:hover { background:var(--red-s); }
+.admin-server-cancel-btn:disabled { opacity:0.4;cursor:not-allowed; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Admin User List Table — Platform admin kullanıcı listesi
+   AdminServerList ile aynı pattern (sort, filter, resizable)
+   ═══════════════════════════════════════════════════════════════ */
+
+.settings-content:has(.admin-user-list) { max-width:none; }
+
+.admin-user-list {
+  display:flex;flex-direction:column;gap:16px;height:100%;
+}
+
+/* ── Toolbar: Search + Count ── */
+.admin-user-toolbar {
+  display:flex;align-items:center;gap:12px;flex-shrink:0;
+}
+.admin-user-search {
+  flex:1;max-width:320px;height:36px;background:var(--bg-3);
+  border:1px solid var(--b1);border-radius:8px;padding:0 12px;
+  color:var(--t0);font-size:14px;font-family:var(--f-ui);
+  outline:none;transition:border-color .15s;
+}
+.admin-user-search:focus { border-color:var(--primary); }
+.admin-user-search::placeholder { color:var(--t3); }
+.admin-user-count { font-size:13px;color:var(--t3);font-family:var(--f-m);white-space:nowrap; }
+
+/* ── Table wrapper (scrollable) ── */
+.admin-user-table-wrap { flex:1;overflow:auto; }
+
+/* ── Table ── */
+.admin-user-table {
+  table-layout:fixed;border-collapse:collapse;font-size:13px;
+}
+
+/* ── Header ── */
+.admin-user-table th {
+  text-align:left;padding:8px 12px;font-weight:600;
+  color:var(--t2);border-bottom:2px solid var(--b1);white-space:nowrap;
+  position:sticky;top:0;background:var(--bg-2);z-index:1;user-select:none;
+}
+.admin-user-table th.sortable { cursor:pointer; }
+.admin-user-table th.sortable:hover { color:var(--t0); }
+
+.admin-user-th-content {
+  display:flex;align-items:center;gap:4px;padding-right:8px;
+}
+.admin-user-sort-icon { font-size:10px;color:var(--primary);flex-shrink:0; }
+
+/* ── Resize handle ── */
+.admin-user-resize-handle {
+  position:absolute;top:0;right:-4px;width:8px;height:100%;
+  cursor:col-resize;z-index:2;
+}
+.admin-user-resize-handle::after {
+  content:'';position:absolute;top:25%;right:3px;width:2px;height:50%;
+  background:var(--b1);border-radius:1px;transition:background .12s;
+}
+.admin-user-resize-handle:hover::after,
+.admin-user-resize-handle:active::after { background:var(--primary); }
+
+/* ── Cells ── */
+.admin-user-table td {
+  padding:7px 12px;color:var(--t1);border-bottom:1px solid var(--b1);
+  white-space:nowrap;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;
+}
+.admin-user-table tbody tr { transition:background .08s; }
+.admin-user-table tbody tr:hover td { background:var(--bg-h); }
+
+/* ── Username cell (avatar + text) ── */
+.admin-user-name-cell {
+  display:flex;align-items:center;gap:8px;overflow:hidden;
+}
+.admin-user-name-cell span {
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.admin-user-avatar {
+  width:24px;height:24px;border-radius:999px;background:var(--bg-4);
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:11px;color:var(--t0);font-weight:600;overflow:hidden;flex-shrink:0;
+}
+.admin-user-avatar img { width:100%;height:100%;object-fit:cover; }
+
+/* ── Display name (muted when empty) ── */
+.admin-user-display-name {
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+/* ── ID (monospace, truncated) ── */
+.admin-user-id {
+  font-family:var(--f-m);font-size:13px;color:var(--t2);
+  max-width:100px;overflow:hidden;text-overflow:ellipsis;cursor:default;
+}
+
+/* ── Status badge ── */
+.admin-user-status-badge {
+  display:inline-block;padding:2px 8px;border-radius:4px;font-size:13px;font-weight:500;
+}
+.admin-user-status-badge.online { background:var(--green-s);color:var(--green); }
+.admin-user-status-badge.idle { background:var(--yellow-s);color:var(--yellow); }
+.admin-user-status-badge.dnd { background:var(--red-s);color:var(--red); }
+.admin-user-status-badge.offline { background:var(--bg-4);color:var(--t3); }
+
+/* ── Admin badge ── */
+.admin-user-admin-badge {
+  display:inline-block;padding:2px 8px;border-radius:4px;font-size:13px;font-weight:500;
+  background:var(--primary-s);color:var(--primary);
+}
+
+/* ── Ban count highlight ── */
+.admin-user-ban-count {
+  color:var(--red);font-weight:600;
+}
+
+/* ── Muted text for empty/zero values ── */
+.admin-user-text-muted {
+  color:var(--t3);
+}
 
 /* Role drag & drop (HTML5 DnD — ChannelTree pattern) */
 .role-drag-wrap { position:relative;transition:opacity .15s; }

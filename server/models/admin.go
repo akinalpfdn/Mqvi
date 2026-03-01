@@ -23,6 +23,25 @@ type AdminServerListItem struct {
 	LastActivity      *string `json:"last_activity"`
 }
 
+// AdminUserListItem — Platform admin panelde gösterilen kullanıcı bilgisi.
+// Tek SQL sorgusu ile tüm istatistikler toplanır (correlated subquery pattern).
+type AdminUserListItem struct {
+	ID                string  `json:"id"`
+	Username          string  `json:"username"`
+	DisplayName       *string `json:"display_name"`
+	AvatarURL         *string `json:"avatar_url"`
+	IsPlatformAdmin   bool    `json:"is_platform_admin"`
+	CreatedAt         string  `json:"created_at"`
+	Status            string  `json:"status"`
+	LastActivity      *string `json:"last_activity"`
+	MessageCount      int     `json:"message_count"`
+	StorageMB         float64 `json:"storage_mb"`
+	OwnedSelfServers  int     `json:"owned_self_servers"`
+	OwnedMqviServers  int     `json:"owned_mqvi_servers"`
+	MemberServerCount int     `json:"member_server_count"`
+	BanCount          int     `json:"ban_count"`
+}
+
 // MigrateServerInstanceRequest — Tek bir sunucunun LiveKit instance'ını değiştirme isteği.
 type MigrateServerInstanceRequest struct {
 	LiveKitInstanceID string `json:"livekit_instance_id"`

@@ -105,7 +105,7 @@ func main() {
 	//
 	// Callback'ler service'lerden SONRA kaydedilmeli (closure scoping).
 	// Hub.Run() ise callback'lerden SONRA başlatılmalı.
-	registerHubCallbacks(hub, repos.User, repos.DM, svcs.Voice, svcs.P2PCall)
+	registerHubCallbacks(hub, repos.User, repos.DM, svcs.Voice, svcs.P2PCall, repos.Channel, repos.Server)
 
 	go hub.Run()
 

@@ -113,6 +113,9 @@ func initRoutes(
 	mux.Handle("GET /api/admin/servers", authAdmin(h.Admin.ListServers))
 	mux.Handle("PATCH /api/admin/servers/{serverId}/instance", authAdmin(h.Admin.MigrateServerInstance))
 
+	// Platform Admin — Kullanıcı listesi
+	mux.Handle("GET /api/admin/users", authAdmin(h.Admin.ListUsers))
+
 	// Stats — public
 	mux.HandleFunc("GET /api/stats", h.Stats.GetPublicStats)
 

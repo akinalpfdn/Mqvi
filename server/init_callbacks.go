@@ -30,12 +30,16 @@ import (
 // - dmRepo: DM typing callback'inde kanal üyesi lookup için
 // - voiceService: disconnect ve voice event'leri için
 // - p2pCallService: P2P arama event'leri için
+// - channelRepo: ses kanalı → sunucu lookup için (voice activity tracking)
+// - serverRepo: sunucu last_voice_activity güncelleme için
 func registerHubCallbacks(
 	hub *ws.Hub,
 	userRepo repository.UserRepository,
 	dmRepo repository.DMRepository,
 	voiceService services.VoiceService,
 	p2pCallService services.P2PCallService,
+	channelRepo repository.ChannelRepository,
+	serverRepo repository.ServerRepository,
 ) {
 	// ─── Presence Callback'leri ───
 
@@ -116,6 +120,18 @@ func registerHubCallbacks(
 	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string) {
 		if err := voiceService.JoinChannel(userID, username, displayName, avatarURL, channelID); err != nil {
 			log.Printf("[voice] join error user=%s channel=%s: %v", userID, channelID, err)
+			return
+		}
+
+		// Sunucunun son ses aktivitesi zamanını güncelle (admin panel last_activity için).
+		// channel → server lookup yapıp servers.last_voice_activity'yi set eder.
+		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
+		if chErr != nil {
+			log.Printf("[voice] channel lookup for activity tracking failed channel=%s: %v", channelID, chErr)
+			return
+		}
+		if actErr := serverRepo.UpdateLastVoiceActivity(context.Background(), ch.ServerID); actErr != nil {
+			log.Printf("[voice] failed to update server voice activity server=%s: %v", ch.ServerID, actErr)
 		}
 	})
 	hub.OnVoiceLeave(func(userID string) {

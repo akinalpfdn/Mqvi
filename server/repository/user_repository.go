@@ -46,4 +46,12 @@ type UserRepository interface {
 	// Delete, kullanıcıyı siler (kick işlemi için).
 	// FK cascade ile user_roles, sessions vb. ilişkili kayıtlar da silinir.
 	Delete(ctx context.Context, id string) error
+
+	// ─── Admin ───
+
+	// ListAllUsersWithStats, platformdaki tüm kullanıcıları istatistikleriyle döner.
+	// Platform admin panelde kullanıcı listesi için kullanılır.
+	// Tek SQL sorgusu ile message_count, storage_mb, owned server counts,
+	// member_server_count, ban_count ve last_activity hesaplanır.
+	ListAllUsersWithStats(ctx context.Context) ([]models.AdminUserListItem, error)
 }
