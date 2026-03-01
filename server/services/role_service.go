@@ -28,13 +28,13 @@ type RoleService interface {
 type roleService struct {
 	roleRepo repository.RoleRepository
 	userRepo repository.UserRepository
-	hub      ws.EventPublisher
+	hub      ws.Broadcaster
 }
 
 func NewRoleService(
 	roleRepo repository.RoleRepository,
 	userRepo repository.UserRepository,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 ) RoleService {
 	return &roleService{
 		roleRepo: roleRepo,

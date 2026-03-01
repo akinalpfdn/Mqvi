@@ -7,17 +7,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 // sqliteDMRepo, DMRepository interface'inin SQLite implementasyonu.
 type sqliteDMRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteDMRepo, constructor — interface döner.
-func NewSQLiteDMRepo(db *sql.DB) DMRepository {
+func NewSQLiteDMRepo(db database.TxQuerier) DMRepository {
 	return &sqliteDMRepo{db: db}
 }
 

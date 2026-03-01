@@ -83,7 +83,7 @@ type P2PCallService interface {
 type p2pCallService struct {
 	friendChecker FriendChecker
 	userGetter    UserInfoGetter
-	hub           ws.EventPublisher
+	hub           ws.BroadcastAndOnline
 
 	// activeCalls: callID → *P2PCall (aktif aramalar)
 	// In-memory — sunucu restart'ında temizlenir.
@@ -101,7 +101,7 @@ type p2pCallService struct {
 func NewP2PCallService(
 	friendChecker FriendChecker,
 	userGetter UserInfoGetter,
-	hub ws.EventPublisher,
+	hub ws.BroadcastAndOnline,
 ) P2PCallService {
 	return &p2pCallService{
 		friendChecker: friendChecker,

@@ -6,16 +6,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 )
 
 // sqliteReactionRepo, ReactionRepository interface'inin SQLite implementasyonu.
 type sqliteReactionRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteReactionRepo, constructor — interface döner.
-func NewSQLiteReactionRepo(db *sql.DB) ReactionRepository {
+func NewSQLiteReactionRepo(db database.TxQuerier) ReactionRepository {
 	return &sqliteReactionRepo{db: db}
 }
 

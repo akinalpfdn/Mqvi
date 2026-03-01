@@ -6,17 +6,18 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 // sqlitePinRepo, PinRepository interface'inin SQLite implementasyonu.
 type sqlitePinRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLitePinRepo, constructor — interface döner.
-func NewSQLitePinRepo(db *sql.DB) PinRepository {
+func NewSQLitePinRepo(db database.TxQuerier) PinRepository {
 	return &sqlitePinRepo{db: db}
 }
 

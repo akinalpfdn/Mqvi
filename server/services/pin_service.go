@@ -29,7 +29,7 @@ type PinService interface {
 type pinService struct {
 	pinRepo     repository.PinRepository
 	messageRepo repository.MessageRepository
-	hub         ws.EventPublisher
+	hub         ws.Broadcaster
 }
 
 // NewPinService, constructor.
@@ -38,7 +38,7 @@ type pinService struct {
 func NewPinService(
 	pinRepo repository.PinRepository,
 	messageRepo repository.MessageRepository,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 ) PinService {
 	return &pinService{
 		pinRepo:     pinRepo,

@@ -61,14 +61,14 @@ type FriendRequestsResponse struct {
 type friendshipService struct {
 	friendRepo repository.FriendshipRepository
 	userRepo   repository.UserRepository
-	hub        ws.EventPublisher
+	hub        ws.Broadcaster
 }
 
 // NewFriendshipService, constructor. Tüm dependency'ler injection ile alınır.
 func NewFriendshipService(
 	friendRepo repository.FriendshipRepository,
 	userRepo repository.UserRepository,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 ) FriendshipService {
 	return &friendshipService{
 		friendRepo: friendRepo,

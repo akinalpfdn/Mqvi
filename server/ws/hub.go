@@ -7,26 +7,91 @@ import (
 	"sync/atomic"
 )
 
-// EventPublisher, service katmanının WebSocket event'leri broadcast etmek için
-// kullandığı interface.
+// ─── Interface Segregation: Hub Yetenekleri ───
 //
-// Dependency Inversion: Service'ler Hub'ın concrete struct'ına değil,
-// bu interface'e bağımlıdır. Böylece:
-// 1. Service test edilirken mock EventPublisher kullanılabilir
-// 2. Hub implementasyonu değişse bile service kodu etkilenmez
-type EventPublisher interface {
+// Eski 12-metotlu EventPublisher interface'i 3 odaklı interface'e bölündü.
+// Her service sadece ihtiyaç duyduğu interface'e bağımlı olur (ISP).
+//
+// Broadcaster: event yayınlama (tüm servisler kullanır)
+// UserStateProvider: online kullanıcı bilgisi (message, p2p_call)
+// ClientManager: client bağlantı yönetimi (server, member)
+//
+// Composed interface'ler:
+// BroadcastAndOnline = Broadcaster + UserStateProvider (message, p2p_call)
+// BroadcastAndManage = Broadcaster + ClientManager (server, member)
+// EventPublisher = Broadcaster + UserStateProvider + ClientManager (ws paketi, main wire-up)
+//
+// Hub tüm interface'leri implicit olarak karşılar (Go duck typing).
+
+// Broadcaster, WebSocket üzerinden event yayınlama yeteneklerini tanımlar.
+//
+// Tüm broadcast operasyonlarını içerir: tüm client'lara, belirli bir kullanıcıya,
+// belirli bir sunucuya, veya belirli kullanıcı listesine event gönderme.
+// En yaygın kullanılan interface — 13 service tarafından kullanılır.
+type Broadcaster interface {
 	BroadcastToAll(event Event)
 	BroadcastToAllExcept(excludeUserID string, event Event)
 	BroadcastToUser(userID string, event Event)
 	BroadcastToUsers(userIDs []string, event Event)
 	BroadcastToServer(serverID string, event Event)
 	BroadcastToServerExcept(serverID, excludeUserID string, event Event)
+}
+
+// UserStateProvider, bağlı kullanıcı durumu sorgulama yeteneklerini tanımlar.
+//
+// Hangi kullanıcıların online olduğunu sorgulamak için kullanılır.
+// MessageService: @mention bildirimlerinde online kullanıcıları filtrelemek için.
+// P2PCallService: arama başlatırken hedefin erişilebilir olup olmadığını kontrol etmek için.
+type UserStateProvider interface {
 	GetOnlineUserIDs() []string
 	GetVisibleOnlineUserIDs() []string
+}
+
+// ClientManager, WebSocket client bağlantı yönetimi yeteneklerini tanımlar.
+//
+// Client'ları disconnect etme, invisible işaretleme ve sunucu üyelik
+// değişikliklerinde client'ın broadcast kapsamını güncelleme.
+// ServerService: katılma/ayrılma sırasında serverIDs güncelleme.
+// MemberService: kick/ban sonrası disconnect ve serverID kaldırma.
+type ClientManager interface {
 	SetInvisible(userID string, invisible bool)
 	DisconnectUser(userID string)
 	AddClientServerID(userID, serverID string)
 	RemoveClientServerID(userID, serverID string)
+}
+
+// BroadcastAndOnline, broadcast + online kullanıcı sorgulaması gerektiren
+// servisler için composed interface.
+//
+// Kullanım: MessageService (broadcast + @mention online filter),
+// P2PCallService (broadcast + reachability check).
+type BroadcastAndOnline interface {
+	Broadcaster
+	UserStateProvider
+}
+
+// BroadcastAndManage, broadcast + client yönetimi gerektiren servisler için composed interface.
+//
+// Kullanım: ServerService (broadcast + serverID tracking),
+// MemberService (broadcast + kick/ban disconnect).
+type BroadcastAndManage interface {
+	Broadcaster
+	ClientManager
+}
+
+// EventPublisher, Hub'ın tüm yeteneklerini birleştiren tam interface.
+//
+// Dependency Inversion: Service'ler Hub'ın concrete struct'ına değil,
+// bu (veya alt) interface'lere bağımlıdır. Böylece:
+// 1. Service test edilirken mock kullanılabilir
+// 2. Hub implementasyonu değişse bile service kodu etkilenmez
+//
+// Tam interface sadece ws paketi ve main wire-up'ta kullanılır.
+// Servisler mümkün olduğunca dar interface kullanmalı (ISP).
+type EventPublisher interface {
+	Broadcaster
+	UserStateProvider
+	ClientManager
 }
 
 // UserConnectionCallback, bir kullanıcının bağlantı durumu değiştiğinde çağrılır.

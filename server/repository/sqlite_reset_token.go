@@ -10,17 +10,18 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 // sqliteResetTokenRepo, PasswordResetRepository'nin SQLite implementasyonu.
 type sqliteResetTokenRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteResetTokenRepo, constructor.
-func NewSQLiteResetTokenRepo(db *sql.DB) PasswordResetRepository {
+func NewSQLiteResetTokenRepo(db database.TxQuerier) PasswordResetRepository {
 	return &sqliteResetTokenRepo{db: db}
 }
 

@@ -8,6 +8,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -43,7 +44,7 @@ type memberService struct {
 	roleRepo   repository.RoleRepository
 	banRepo    repository.BanRepository
 	serverRepo repository.ServerRepository
-	hub        ws.EventPublisher
+	hub        ws.BroadcastAndManage
 	voiceKick  VoiceDisconnecter
 }
 
@@ -52,7 +53,7 @@ func NewMemberService(
 	roleRepo repository.RoleRepository,
 	banRepo repository.BanRepository,
 	serverRepo repository.ServerRepository,
-	hub ws.EventPublisher,
+	hub ws.BroadcastAndManage,
 	voiceKick VoiceDisconnecter,
 ) MemberService {
 	return &memberService{
@@ -283,8 +284,10 @@ func (s *memberService) Ban(ctx context.Context, serverID, actorID, targetID, re
 		return fmt.Errorf("failed to create ban: %w", err)
 	}
 
-	// Sunucudan çıkar
-	_ = s.serverRepo.RemoveMember(ctx, serverID, targetID)
+	// Sunucudan çıkar — ban zaten oluşturuldu, üyelik kaldırma best-effort
+	if rmErr := s.serverRepo.RemoveMember(ctx, serverID, targetID); rmErr != nil {
+		log.Printf("[member] failed to remove member after ban server=%s user=%s: %v", serverID, targetID, rmErr)
+	}
 
 	s.removeFromServer(serverID, targetID)
 	return nil

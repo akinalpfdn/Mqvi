@@ -2,18 +2,19 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/akinalp/mqvi/database"
 )
 
 // sqliteMentionRepo, MentionRepository interface'inin SQLite implementasyonu.
 type sqliteMentionRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteMentionRepo, constructor — interface döner.
-func NewSQLiteMentionRepo(db *sql.DB) MentionRepository {
+func NewSQLiteMentionRepo(db database.TxQuerier) MentionRepository {
 	return &sqliteMentionRepo{db: db}
 }
 

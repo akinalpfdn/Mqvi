@@ -6,15 +6,16 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 type sqliteRoleRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
-func NewSQLiteRoleRepo(db *sql.DB) RoleRepository {
+func NewSQLiteRoleRepo(db database.TxQuerier) RoleRepository {
 	return &sqliteRoleRepo{db: db}
 }
 
@@ -205,7 +206,11 @@ func (r *sqliteRoleRepo) Delete(ctx context.Context, id string) error {
 // UpdatePositions, birden fazla rolün position değerini atomik olarak günceller.
 // Transaction kullanılır — bir hata olursa tüm değişiklikler geri alınır.
 func (r *sqliteRoleRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	sqlDB, ok := r.db.(*sql.DB)
+	if !ok {
+		return fmt.Errorf("UpdatePositions requires *sql.DB to start transaction")
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

@@ -41,7 +41,7 @@ type messageService struct {
 	userRepo       repository.UserRepository
 	mentionRepo    repository.MentionRepository
 	reactionRepo   repository.ReactionRepository
-	hub            ws.EventPublisher
+	hub            ws.BroadcastAndOnline
 	permResolver   ChannelPermResolver
 }
 
@@ -55,7 +55,7 @@ func NewMessageService(
 	userRepo repository.UserRepository,
 	mentionRepo repository.MentionRepository,
 	reactionRepo repository.ReactionRepository,
-	hub ws.EventPublisher,
+	hub ws.BroadcastAndOnline,
 	permResolver ChannelPermResolver,
 ) MessageService {
 	return &messageService{

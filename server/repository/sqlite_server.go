@@ -9,16 +9,17 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 type sqliteServerRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteServerRepo, constructor.
-func NewSQLiteServerRepo(db *sql.DB) ServerRepository {
+func NewSQLiteServerRepo(db database.TxQuerier) ServerRepository {
 	return &sqliteServerRepo{db: db}
 }
 
@@ -203,7 +204,11 @@ func (r *sqliteServerRepo) GetMemberCount(ctx context.Context, serverID string) 
 }
 
 func (r *sqliteServerRepo) UpdateMemberPositions(ctx context.Context, userID string, items []models.PositionUpdate) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	sqlDB, ok := r.db.(*sql.DB)
+	if !ok {
+		return fmt.Errorf("UpdateMemberPositions requires *sql.DB to start transaction")
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

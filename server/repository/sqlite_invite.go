@@ -9,16 +9,17 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 type sqliteInviteRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteInviteRepo, constructor.
-func NewSQLiteInviteRepo(db *sql.DB) InviteRepository {
+func NewSQLiteInviteRepo(db database.TxQuerier) InviteRepository {
 	return &sqliteInviteRepo{db: db}
 }
 

@@ -21,12 +21,12 @@ type CategoryService interface {
 
 type categoryService struct {
 	categoryRepo repository.CategoryRepository
-	hub          ws.EventPublisher
+	hub          ws.Broadcaster
 }
 
 func NewCategoryService(
 	categoryRepo repository.CategoryRepository,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 ) CategoryService {
 	return &categoryService{
 		categoryRepo: categoryRepo,

@@ -50,14 +50,14 @@ type ChannelService interface {
 type channelService struct {
 	channelRepo  repository.ChannelRepository
 	categoryRepo repository.CategoryRepository
-	hub          ws.EventPublisher
+	hub          ws.Broadcaster
 	visChecker   ChannelVisibilityChecker
 }
 
 func NewChannelService(
 	channelRepo repository.ChannelRepository,
 	categoryRepo repository.CategoryRepository,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 	visChecker ChannelVisibilityChecker,
 ) ChannelService {
 	return &channelService{

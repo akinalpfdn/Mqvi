@@ -53,14 +53,14 @@ type DMService interface {
 type dmService struct {
 	dmRepo   repository.DMRepository
 	userRepo repository.UserRepository
-	hub      ws.EventPublisher
+	hub      ws.Broadcaster
 }
 
 // NewDMService, constructor.
 func NewDMService(
 	dmRepo repository.DMRepository,
 	userRepo repository.UserRepository,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 ) DMService {
 	return &dmService{
 		dmRepo:   dmRepo,

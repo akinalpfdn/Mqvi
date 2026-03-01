@@ -2,21 +2,21 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 // sqliteAttachmentRepo, AttachmentRepository interface'inin SQLite implementasyonu.
 type sqliteAttachmentRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteAttachmentRepo, constructor — interface döner.
-func NewSQLiteAttachmentRepo(db *sql.DB) AttachmentRepository {
+func NewSQLiteAttachmentRepo(db database.TxQuerier) AttachmentRepository {
 	return &sqliteAttachmentRepo{db: db}
 }
 

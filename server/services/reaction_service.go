@@ -27,7 +27,7 @@ type ReactionService interface {
 type reactionService struct {
 	reactionRepo repository.ReactionRepository
 	messageRepo  repository.MessageRepository
-	hub          ws.EventPublisher
+	hub          ws.Broadcaster
 }
 
 // NewReactionService, constructor.
@@ -36,7 +36,7 @@ type reactionService struct {
 func NewReactionService(
 	reactionRepo repository.ReactionRepository,
 	messageRepo repository.MessageRepository,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 ) ReactionService {
 	return &reactionService{
 		reactionRepo: reactionRepo,

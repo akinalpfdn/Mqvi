@@ -6,16 +6,17 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 type sqliteBanRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteBanRepo, BanRepository'nin SQLite implementasyonunu oluşturur.
-func NewSQLiteBanRepo(db *sql.DB) BanRepository {
+func NewSQLiteBanRepo(db database.TxQuerier) BanRepository {
 	return &sqliteBanRepo{db: db}
 }
 

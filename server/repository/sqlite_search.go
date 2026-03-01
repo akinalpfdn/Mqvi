@@ -6,16 +6,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 )
 
 // sqliteSearchRepo, SearchRepository interface'inin SQLite FTS5 implementasyonu.
 type sqliteSearchRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteSearchRepo, constructor — interface döner.
-func NewSQLiteSearchRepo(db *sql.DB) SearchRepository {
+func NewSQLiteSearchRepo(db database.TxQuerier) SearchRepository {
 	return &sqliteSearchRepo{db: db}
 }
 

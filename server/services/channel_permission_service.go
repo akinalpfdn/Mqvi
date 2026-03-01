@@ -16,10 +16,27 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/cache"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
+)
+
+// Permission cache TTL ve cleanup ayarları.
+//
+// 30 saniyelik TTL: Permission override'lar nadir değişir,
+// ama değiştiğinde cache invalidation da yapıldığı için TTL sadece
+// "en kötü durumda ne kadar stale kalabilir" sorusunu yanıtlar.
+//
+// Cache key formatı: "userID:channelID" — her kullanıcı+kanal çifti
+// ayrı bir entry olarak saklanır.
+const (
+	permCacheTTL     = 30 * time.Second
+	permCacheCleanup = 5 * time.Minute
 )
 
 // ChannelPermResolver, kanal bazlı effective permission hesaplayan ISP interface.
@@ -69,7 +86,17 @@ type channelPermService struct {
 	permRepo      repository.ChannelPermissionRepository
 	roleRepo      repository.RoleRepository
 	channelGetter ChannelGetter // kanal → server_id lookup (ResolveChannelPermissions için)
-	hub           ws.EventPublisher
+	hub           ws.Broadcaster
+
+	// permCache: ResolveChannelPermissions sonuçlarını cache'ler.
+	//
+	// Neden cache? ResolveChannelPermissions her mesaj gönderiminde, ses kanalına
+	// bağlanmada vs. çağrılır — 3 DB query (channel lookup + roles + overrides).
+	// Cache ile hot path'te DB'ye inmeden bellekten döner.
+	//
+	// Invalidation: SetOverride/DeleteOverride'da channelID'ye ait TÜM entry'ler silinir.
+	// Key format: "userID:channelID"
+	permCache *cache.TTLCache[string, models.Permission]
 }
 
 // NewChannelPermissionService, ChannelPermissionService implementasyonunu oluşturur.
@@ -83,13 +110,14 @@ func NewChannelPermissionService(
 	permRepo repository.ChannelPermissionRepository,
 	roleRepo repository.RoleRepository,
 	channelGetter ChannelGetter,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 ) ChannelPermissionService {
 	return &channelPermService{
 		permRepo:      permRepo,
 		roleRepo:      roleRepo,
 		channelGetter: channelGetter,
 		hub:           hub,
+		permCache:     cache.New[string, models.Permission](permCacheTTL, permCacheCleanup),
 	}
 }
 
@@ -114,8 +142,13 @@ func (s *channelPermService) SetOverride(ctx context.Context, channelID, roleID 
 
 	// allow=0, deny=0 → override'ın anlamı yok (inherit ile aynı), sil
 	if req.Allow == 0 && req.Deny == 0 {
-		// Override yoksa hata dönecek ama bunu yutuyoruz — idempotent olsun
-		_ = s.permRepo.Delete(ctx, channelID, roleID)
+		// Override yoksa hata dönecek — idempotent olması için hatayı logla ama döndürme
+		if err := s.permRepo.Delete(ctx, channelID, roleID); err != nil {
+			log.Printf("[channel-perm] failed to delete override (idempotent, non-fatal) channel=%s role=%s: %v", channelID, roleID, err)
+		}
+
+		// Cache invalidation — bu kanaldaki TÜM kullanıcıların cache'i stale oldu
+		s.invalidateChannelCache(channelID)
 
 		s.hub.BroadcastToAll(ws.Event{
 			Op: ws.OpChannelPermissionDelete,
@@ -139,6 +172,9 @@ func (s *channelPermService) SetOverride(ctx context.Context, channelID, roleID 
 		return fmt.Errorf("failed to set channel override: %w", err)
 	}
 
+	// Cache invalidation — override değişti, bu kanaldaki tüm kullanıcıların sonucu etkilenebilir
+	s.invalidateChannelCache(channelID)
+
 	// WS broadcast — tüm client'lar override değişikliğini görsün
 	s.hub.BroadcastToAll(ws.Event{
 		Op:   ws.OpChannelPermissionUpdate,
@@ -152,6 +188,9 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, channelID, role
 	if err := s.permRepo.Delete(ctx, channelID, roleID); err != nil {
 		return fmt.Errorf("failed to delete channel override: %w", err)
 	}
+
+	// Cache invalidation — override kaldırıldı, bu kanaldaki sonuçlar değişir
+	s.invalidateChannelCache(channelID)
 
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpChannelPermissionDelete,
@@ -255,6 +294,16 @@ func (s *channelPermService) BuildVisibilityFilter(ctx context.Context, userID, 
 }
 
 func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error) {
+	// ─── Cache lookup ───
+	// Hot path: mesaj gönderimi, ses bağlantısı gibi sık çağrılan operasyonlarda
+	// cache hit'te 3 DB query atlanır → önemli latency kazancı.
+	cacheKey := userID + ":" + channelID
+	if cached, ok := s.permCache.Get(cacheKey); ok {
+		return cached, nil
+	}
+
+	// ─── Cache miss: DB'den hesapla ───
+
 	// 1. Kanalın ait olduğu sunucuyu bul — server-scoped rol lookup için gerekli
 	channel, err := s.channelGetter.GetByID(ctx, channelID)
 	if err != nil {
@@ -277,6 +326,7 @@ func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, user
 
 	// 4. Admin → tüm yetkiler, override'ları bypass
 	if base.Has(models.PermAdmin) {
+		s.permCache.Set(cacheKey, models.PermAll)
 		return models.PermAll, nil
 	}
 
@@ -288,6 +338,7 @@ func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, user
 
 	// Override yoksa base döner
 	if len(overrides) == 0 {
+		s.permCache.Set(cacheKey, base)
 		return base, nil
 	}
 
@@ -311,5 +362,21 @@ func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, user
 	// - | allow       → allow'daki bit'leri ekle (deny'ı ezer)
 	effective := (base & ^channelDeny) | channelAllow
 
+	// ─── Cache store ───
+	s.permCache.Set(cacheKey, effective)
+
 	return effective, nil
+}
+
+// invalidateChannelCache, belirli bir kanala ait TÜM permission cache entry'lerini siler.
+//
+// Key format "userID:channelID" olduğundan, channelID suffix'i ile eşleşen
+// tüm entry'ler silinir. Override değiştiğinde hangi kullanıcıların etkilendiğini
+// bilemeyiz (bir rol birçok kullanıcıya atanmış olabilir), bu yüzden
+// o kanaldaki TÜM kullanıcıların cache'ini temizlemek güvenli yaklaşım.
+func (s *channelPermService) invalidateChannelCache(channelID string) {
+	suffix := ":" + channelID
+	s.permCache.DeleteFunc(func(key string) bool {
+		return strings.HasSuffix(key, suffix)
+	})
 }

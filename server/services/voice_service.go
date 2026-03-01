@@ -123,7 +123,7 @@ type voiceService struct {
 	channelGetter  ChannelGetter
 	livekitGetter  LiveKitInstanceGetter // sunucu → LiveKit instance lookup
 	permResolver   ChannelPermResolver   // Kanal bazlı permission override çözümleme (rol + channel override)
-	hub            ws.EventPublisher
+	hub            ws.Broadcaster
 	encryptionKey  []byte // AES-256-GCM key — LiveKit credential'ları decrypt etmek için
 }
 
@@ -143,7 +143,7 @@ func NewVoiceService(
 	channelGetter ChannelGetter,
 	livekitGetter LiveKitInstanceGetter,
 	permResolver ChannelPermResolver,
-	hub ws.EventPublisher,
+	hub ws.Broadcaster,
 	encryptionKey []byte,
 ) VoiceService {
 	return &voiceService{
@@ -448,8 +448,10 @@ func (s *voiceService) GetAllVoiceStates() []models.VoiceState {
 }
 
 func (s *voiceService) DisconnectUser(userID string) {
-	// LeaveChannel zaten lock alıyor, bu wrapper sadece error'ı yoksayar
-	_ = s.LeaveChannel(userID)
+	// LeaveChannel zaten lock alıyor — cleanup best-effort, hatayı logla
+	if err := s.LeaveChannel(userID); err != nil {
+		log.Printf("[voice] disconnect cleanup failed for user=%s: %v", userID, err)
+	}
 }
 
 func (s *voiceService) GetStreamCount(channelID string) int {

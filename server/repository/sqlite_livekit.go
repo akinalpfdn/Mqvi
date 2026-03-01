@@ -7,16 +7,17 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 type sqliteLiveKitRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteLiveKitRepo, constructor — interface döner.
-func NewSQLiteLiveKitRepo(db *sql.DB) LiveKitRepository {
+func NewSQLiteLiveKitRepo(db database.TxQuerier) LiveKitRepository {
 	return &sqliteLiveKitRepo{db: db}
 }
 
@@ -241,7 +242,11 @@ func (r *sqliteLiveKitRepo) ListPlatformInstances(ctx context.Context) ([]models
 //  3. Kaynak instance'ın server_count'unu 0 yapar
 //  4. Hedef instance'ın server_count'unu artırır
 func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, toInstanceID string) (int64, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	sqlDB, ok := r.db.(*sql.DB)
+	if !ok {
+		return 0, fmt.Errorf("MigrateServers requires *sql.DB to start transaction")
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -300,7 +305,11 @@ func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, 
 //  3. Eski instance'ın server_count'unu 1 azalt (varsa)
 //  4. Yeni instance'ın server_count'unu 1 artır
 func (r *sqliteLiveKitRepo) MigrateOneServer(ctx context.Context, serverID, newInstanceID string) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	sqlDB, ok := r.db.(*sql.DB)
+	if !ok {
+		return fmt.Errorf("MigrateOneServer requires *sql.DB to start transaction")
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

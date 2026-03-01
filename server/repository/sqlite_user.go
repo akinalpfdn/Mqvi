@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
@@ -16,7 +17,7 @@ import (
 // Büyük harfle başlarsa (DB) → public.
 // Repository'nin DB bağlantısı dışarıya açık olmamalı — bu yüzden küçük harf.
 type sqliteUserRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteUserRepo, constructor fonksiyonu.
@@ -25,7 +26,7 @@ type sqliteUserRepo struct {
 // Go'da "constructor" diye özel bir syntax yok.
 // Konvansiyon: New + tip adı → NewSQLiteUserRepo.
 // Interface dönmek, çağıran tarafın implementasyondan bağımsız olmasını sağlar.
-func NewSQLiteUserRepo(db *sql.DB) UserRepository {
+func NewSQLiteUserRepo(db database.TxQuerier) UserRepository {
 	return &sqliteUserRepo{db: db}
 }
 

@@ -6,17 +6,18 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 // sqliteChannelRepo, ChannelRepository interface'inin SQLite implementasyonu.
 type sqliteChannelRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteChannelRepo, constructor — interface döner (Dependency Inversion).
-func NewSQLiteChannelRepo(db *sql.DB) ChannelRepository {
+func NewSQLiteChannelRepo(db database.TxQuerier) ChannelRepository {
 	return &sqliteChannelRepo{db: db}
 }
 
@@ -165,7 +166,11 @@ func (r *sqliteChannelRepo) Delete(ctx context.Context, id string) error {
 
 // UpdatePositions, birden fazla kanalın position değerini atomik olarak günceller.
 func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	sqlDB, ok := r.db.(*sql.DB)
+	if !ok {
+		return fmt.Errorf("UpdatePositions requires *sql.DB to start transaction")
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

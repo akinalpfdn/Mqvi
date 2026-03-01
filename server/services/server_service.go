@@ -7,9 +7,11 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/crypto"
@@ -62,6 +64,7 @@ type ServerService interface {
 }
 
 type serverService struct {
+	db            *sql.DB // Transaction desteği (WithTx) için — CreateServer atomik çalışır
 	serverRepo    repository.ServerRepository
 	livekitRepo   repository.LiveKitRepository
 	roleRepo      repository.RoleRepository
@@ -69,15 +72,20 @@ type serverService struct {
 	categoryRepo  repository.CategoryRepository
 	userRepo      repository.UserRepository
 	inviteService InviteService
-	hub           ws.EventPublisher
+	hub           ws.BroadcastAndManage
 	encryptionKey []byte
 }
 
 // NewServerService, constructor.
 //
+// db: CreateServer'da WithTx ile atomik işlem için doğrudan *sql.DB gerekir.
+// Repository'ler normal operasyonlarda kullanılır, transaction içinde tx-bound
+// repo'lar oluşturulur.
+//
 // encryptionKey: LiveKit credential'larını AES-256-GCM ile şifrelemek için kullanılır.
 // inviteService: JoinServer'da davet kodunu doğrulamak için.
 func NewServerService(
+	db *sql.DB,
 	serverRepo repository.ServerRepository,
 	livekitRepo repository.LiveKitRepository,
 	roleRepo repository.RoleRepository,
@@ -85,10 +93,11 @@ func NewServerService(
 	categoryRepo repository.CategoryRepository,
 	userRepo repository.UserRepository,
 	inviteService InviteService,
-	hub ws.EventPublisher,
+	hub ws.BroadcastAndManage,
 	encryptionKey []byte,
 ) ServerService {
 	return &serverService{
+		db:            db,
 		serverRepo:    serverRepo,
 		livekitRepo:   livekitRepo,
 		roleRepo:      roleRepo,
@@ -106,19 +115,22 @@ func NewServerService(
 // Akış:
 // 1. Validate request
 // 2. host_type'a göre LiveKit instance oluştur veya platform instance bağla
-// 3. Server INSERT
-// 4. Owner'ı server_members'a ekle
-// 5. Default "@everyone" rolü oluştur (position=1, default permissions)
-// 6. "Owner" rolü oluştur (position=MAX, PermAdmin)
-// 7. Owner'a Owner rolü + default rolü ata
-// 8. Default "Genel" kategori + text + voice kanal oluştur
-// 9. WS broadcast
+// 3-8. Transaction: Server INSERT → üyelik → roller → kanallar (atomik)
+// 9. WS broadcast (transaction dışında — DB'ye yazıldıktan sonra)
+//
+// Transaction neden gerekli?
+// Adım 3-8'de 9 ayrı INSERT yapılır. Herhangi biri başarısız olursa
+// (örneğin rol oluşturma hatası), önceki adımlar DB'de kalır — "sahipsiz"
+// sunucu, rolsüz üye gibi tutarsız veri oluşur.
+// WithTx ile hepsi tek birim: ya hepsi yazılır (COMMIT) ya hiçbiri (ROLLBACK).
 func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *models.CreateServerRequest) (*models.Server, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
 	}
 
-	// ─── LiveKit Instance ───
+	// ─── LiveKit Instance (transaction dışında) ───
+	// LiveKit operasyonları bağımsız — kendi tablosunda çalışır.
+	// Hata olursa sunucu oluşturulmadan dönülür.
 	var livekitInstanceID *string
 
 	switch req.HostType {
@@ -168,7 +180,11 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		// host_type verilmemişse voice'suz sunucu oluştur
 	}
 
-	// ─── Server INSERT ───
+	// ─── Atomik transaction: Server + Üyelik + Roller + Kanallar ───
+	//
+	// WithTx, tek bir *sql.Tx açar. Bu tx'i repository constructor'larına
+	// geçirerek tüm INSERT'ler aynı transaction'da çalışır.
+	// Herhangi bir adım hata verirse ROLLBACK — DB'de hiçbir iz kalmaz.
 	server := &models.Server{
 		Name:              req.Name,
 		OwnerID:           ownerID,
@@ -176,98 +192,110 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		LiveKitInstanceID: livekitInstanceID,
 	}
 
-	if err := s.serverRepo.Create(ctx, server); err != nil {
-		return nil, fmt.Errorf("failed to create server: %w", err)
+	err := database.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+		// Transaction-bound repository'ler — aynı tx üzerinden çalışır
+		txServerRepo := repository.NewSQLiteServerRepo(tx)
+		txRoleRepo := repository.NewSQLiteRoleRepo(tx)
+		txChannelRepo := repository.NewSQLiteChannelRepo(tx)
+		txCategoryRepo := repository.NewSQLiteCategoryRepo(tx)
+
+		// 3. Server INSERT
+		if err := txServerRepo.Create(ctx, server); err != nil {
+			return fmt.Errorf("failed to create server: %w", err)
+		}
+
+		// 4. Owner üyeliği
+		if err := txServerRepo.AddMember(ctx, server.ID, ownerID); err != nil {
+			return fmt.Errorf("failed to add owner as member: %w", err)
+		}
+
+		// 5. Default "@everyone" rolü — position=1, temel yetkiler
+		defaultPerms := models.PermViewChannel | models.PermReadMessages | models.PermSendMessages |
+			models.PermConnectVoice | models.PermSpeak
+
+		defaultRole := &models.Role{
+			ServerID:    server.ID,
+			Name:        "Member",
+			Color:       "#99AAB5",
+			Position:    1,
+			Permissions: defaultPerms,
+			IsDefault:   true,
+		}
+		if err := txRoleRepo.Create(ctx, defaultRole); err != nil {
+			return fmt.Errorf("failed to create default role: %w", err)
+		}
+
+		// 6. Owner rolü — en yüksek position, tüm yetkiler
+		ownerRole := &models.Role{
+			ServerID:    server.ID,
+			Name:        "Owner",
+			Color:       "#E74C3C",
+			Position:    100,
+			Permissions: models.PermAll,
+		}
+		if err := txRoleRepo.Create(ctx, ownerRole); err != nil {
+			return fmt.Errorf("failed to create owner role: %w", err)
+		}
+
+		// 7. Rol atamaları
+		if err := txRoleRepo.AssignToUser(ctx, ownerID, defaultRole.ID, server.ID); err != nil {
+			return fmt.Errorf("failed to assign default role to owner: %w", err)
+		}
+		if err := txRoleRepo.AssignToUser(ctx, ownerID, ownerRole.ID, server.ID); err != nil {
+			return fmt.Errorf("failed to assign owner role: %w", err)
+		}
+
+		// 8. Default kategoriler + kanallar
+		// Discord benzeri yapı: "Text Channels" ve "Voice Channels" ayrı kategoriler.
+		textCategory := &models.Category{
+			ServerID: server.ID,
+			Name:     "Text Channels",
+			Position: 0,
+		}
+		if err := txCategoryRepo.Create(ctx, textCategory); err != nil {
+			return fmt.Errorf("failed to create text category: %w", err)
+		}
+
+		voiceCategory := &models.Category{
+			ServerID: server.ID,
+			Name:     "Voice Channels",
+			Position: 1,
+		}
+		if err := txCategoryRepo.Create(ctx, voiceCategory); err != nil {
+			return fmt.Errorf("failed to create voice category: %w", err)
+		}
+
+		textChannel := &models.Channel{
+			ServerID:   server.ID,
+			Name:       "general",
+			Type:       models.ChannelTypeText,
+			CategoryID: &textCategory.ID,
+			Position:   0,
+		}
+		if err := txChannelRepo.Create(ctx, textChannel); err != nil {
+			return fmt.Errorf("failed to create default text channel: %w", err)
+		}
+
+		voiceChannel := &models.Channel{
+			ServerID:   server.ID,
+			Name:       "General",
+			Type:       models.ChannelTypeVoice,
+			CategoryID: &voiceCategory.ID,
+			Position:   0,
+			Bitrate:    64000,
+		}
+		if err := txChannelRepo.Create(ctx, voiceChannel); err != nil {
+			return fmt.Errorf("failed to create default voice channel: %w", err)
+		}
+
+		return nil // → COMMIT
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create server (transaction): %w", err)
 	}
 
-	// ─── Owner üyeliği ───
-	if err := s.serverRepo.AddMember(ctx, server.ID, ownerID); err != nil {
-		return nil, fmt.Errorf("failed to add owner as member: %w", err)
-	}
-
-	// ─── Default roller ───
-	// 1. @everyone (default) — position=1, temel yetkiler
-	defaultPerms := models.PermViewChannel | models.PermReadMessages | models.PermSendMessages |
-		models.PermConnectVoice | models.PermSpeak
-
-	defaultRole := &models.Role{
-		ServerID:    server.ID,
-		Name:        "Member",
-		Color:       "#99AAB5",
-		Position:    1,
-		Permissions: defaultPerms,
-		IsDefault:   true,
-	}
-
-	if err := s.roleRepo.Create(ctx, defaultRole); err != nil {
-		return nil, fmt.Errorf("failed to create default role: %w", err)
-	}
-
-	// 2. Owner rolü — en yüksek position, tüm yetkiler
-	ownerRole := &models.Role{
-		ServerID:    server.ID,
-		Name:        "Owner",
-		Color:       "#E74C3C",
-		Position:    100,
-		Permissions: models.PermAll,
-	}
-
-	if err := s.roleRepo.Create(ctx, ownerRole); err != nil {
-		return nil, fmt.Errorf("failed to create owner role: %w", err)
-	}
-
-	// ─── Rol atamaları ───
-	if err := s.roleRepo.AssignToUser(ctx, ownerID, defaultRole.ID, server.ID); err != nil {
-		return nil, fmt.Errorf("failed to assign default role to owner: %w", err)
-	}
-	if err := s.roleRepo.AssignToUser(ctx, ownerID, ownerRole.ID, server.ID); err != nil {
-		return nil, fmt.Errorf("failed to assign owner role: %w", err)
-	}
-
-	// ─── Default kategoriler + kanallar ───
-	// Discord benzeri yapı: "Text Channels" ve "Voice Channels" ayrı kategoriler.
-	textCategory := &models.Category{
-		ServerID: server.ID,
-		Name:     "Text Channels",
-		Position: 0,
-	}
-	if err := s.categoryRepo.Create(ctx, textCategory); err != nil {
-		return nil, fmt.Errorf("failed to create text category: %w", err)
-	}
-
-	voiceCategory := &models.Category{
-		ServerID: server.ID,
-		Name:     "Voice Channels",
-		Position: 1,
-	}
-	if err := s.categoryRepo.Create(ctx, voiceCategory); err != nil {
-		return nil, fmt.Errorf("failed to create voice category: %w", err)
-	}
-
-	textChannel := &models.Channel{
-		ServerID:   server.ID,
-		Name:       "general",
-		Type:       models.ChannelTypeText,
-		CategoryID: &textCategory.ID,
-		Position:   0,
-	}
-	if err := s.channelRepo.Create(ctx, textChannel); err != nil {
-		return nil, fmt.Errorf("failed to create default text channel: %w", err)
-	}
-
-	voiceChannel := &models.Channel{
-		ServerID:   server.ID,
-		Name:       "General",
-		Type:       models.ChannelTypeVoice,
-		CategoryID: &voiceCategory.ID,
-		Position:   0,
-		Bitrate:    64000,
-	}
-	if err := s.channelRepo.Create(ctx, voiceChannel); err != nil {
-		return nil, fmt.Errorf("failed to create default voice channel: %w", err)
-	}
-
-	// ─── WS client serverIDs güncelle + broadcast ───
+	// ─── WS broadcast (transaction dışında — DB'ye yazıldıktan sonra) ───
 	s.hub.AddClientServerID(ownerID, server.ID)
 	s.hub.BroadcastToUser(ownerID, ws.Event{
 		Op: ws.OpServerCreate,
@@ -397,9 +425,13 @@ func (s *serverService) DeleteServer(ctx context.Context, serverID, userID strin
 		instance, err := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
 		if err == nil {
 			if instance.IsPlatformManaged {
-				_ = s.livekitRepo.DecrementServerCount(ctx, instance.ID)
+				if decErr := s.livekitRepo.DecrementServerCount(ctx, instance.ID); decErr != nil {
+					log.Printf("[server] failed to decrement livekit server count instance=%s: %v", instance.ID, decErr)
+				}
 			} else {
-				_ = s.livekitRepo.Delete(ctx, instance.ID)
+				if delErr := s.livekitRepo.Delete(ctx, instance.ID); delErr != nil {
+					log.Printf("[server] failed to delete self-hosted livekit instance=%s: %v", instance.ID, delErr)
+				}
 			}
 		}
 	}

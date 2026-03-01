@@ -2,19 +2,19 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 )
 
 // sqliteReadStateRepo, ReadStateRepository interface'inin SQLite implementasyonu.
 type sqliteReadStateRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteReadStateRepo, constructor — interface döner.
-func NewSQLiteReadStateRepo(db *sql.DB) ReadStateRepository {
+func NewSQLiteReadStateRepo(db database.TxQuerier) ReadStateRepository {
 	return &sqliteReadStateRepo{db: db}
 }
 

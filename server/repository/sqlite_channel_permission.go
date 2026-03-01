@@ -2,10 +2,10 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 )
 
@@ -17,11 +17,11 @@ import (
 //	allow INTEGER → izin verilen permission bit'leri
 //	deny INTEGER  → engellenen permission bit'leri
 type sqliteChannelPermRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteChannelPermRepo, SQLite tabanlı ChannelPermissionRepository oluşturur.
-func NewSQLiteChannelPermRepo(db *sql.DB) ChannelPermissionRepository {
+func NewSQLiteChannelPermRepo(db database.TxQuerier) ChannelPermissionRepository {
 	return &sqliteChannelPermRepo{db: db}
 }
 

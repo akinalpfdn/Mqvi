@@ -6,17 +6,18 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 // sqliteSessionRepo, SessionRepository interface'inin SQLite implementasyonu.
 type sqliteSessionRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteSessionRepo, constructor.
-func NewSQLiteSessionRepo(db *sql.DB) SessionRepository {
+func NewSQLiteSessionRepo(db database.TxQuerier) SessionRepository {
 	return &sqliteSessionRepo{db: db}
 }
 

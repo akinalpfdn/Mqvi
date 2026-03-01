@@ -6,17 +6,18 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 // sqliteCategoryRepo, CategoryRepository interface'inin SQLite implementasyonu.
 type sqliteCategoryRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteCategoryRepo, constructor — interface döner.
-func NewSQLiteCategoryRepo(db *sql.DB) CategoryRepository {
+func NewSQLiteCategoryRepo(db database.TxQuerier) CategoryRepository {
 	return &sqliteCategoryRepo{db: db}
 }
 

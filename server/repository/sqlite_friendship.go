@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
@@ -20,11 +21,11 @@ import (
 // sqliteFriendshipRepo, FriendshipRepository'nin SQLite implementasyonu.
 // Private struct — dışarıdan sadece interface üzerinden erişilir.
 type sqliteFriendshipRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteFriendshipRepo, constructor. Dependency injection ile DB bağlantısı alır.
-func NewSQLiteFriendshipRepo(db *sql.DB) FriendshipRepository {
+func NewSQLiteFriendshipRepo(db database.TxQuerier) FriendshipRepository {
 	return &sqliteFriendshipRepo{db: db}
 }
 

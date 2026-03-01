@@ -7,17 +7,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 )
 
 // sqliteMessageRepo, MessageRepository interface'inin SQLite implementasyonu.
 type sqliteMessageRepo struct {
-	db *sql.DB
+	db database.TxQuerier
 }
 
 // NewSQLiteMessageRepo, constructor — interface döner.
-func NewSQLiteMessageRepo(db *sql.DB) MessageRepository {
+func NewSQLiteMessageRepo(db database.TxQuerier) MessageRepository {
 	return &sqliteMessageRepo{db: db}
 }
 
