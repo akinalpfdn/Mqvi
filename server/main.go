@@ -119,7 +119,53 @@ func main() {
 		log.Fatalf("[main] invalid ENCRYPTION_KEY: %v", err)
 	}
 
-	// ─── 7. Platform LiveKit Instance Seed ───
+	// ─── 7. Empty-ID Cleanup (SEED'DEN ÖNCE ÇALIŞMALI) ───
+	//
+	// Önceki bir bug'da servers ve livekit_instances tablolarına boş ID ("") ile
+	// kayıt ekleniyordu (ID auto-generation eksikti). Bu kayıtlar fonksiyonel değil
+	// çünkü API path'te serverId boş olunca 400 döner.
+	//
+	// NEDEN seed'den önce? Seed adımı GetLeastLoadedPlatformInstance ile mevcut
+	// instance'ı bulur. Eğer bulunan instance'ın ID'si boşsa, orphan sunucular
+	// boş ID ile bağlanır. Cleanup önce çalışarak ID'yi düzeltir, seed doğru ID'yi kullanır.
+	{
+		// 1. Boş ID'li livekit instance varsa, yeni rastgele ID ata
+		//    ve bağlı sunucuların referanslarını güncelle
+		var emptyLK int
+		_ = db.Conn.QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM livekit_instances WHERE id = ''`).Scan(&emptyLK)
+		if emptyLK > 0 {
+			var newLKID string
+			_ = db.Conn.QueryRowContext(context.Background(),
+				`SELECT lower(hex(randomblob(8)))`).Scan(&newLKID)
+			_, _ = db.Conn.ExecContext(context.Background(),
+				`UPDATE livekit_instances SET id = ? WHERE id = ''`, newLKID)
+			res, fixErr := db.Conn.ExecContext(context.Background(),
+				`UPDATE servers SET livekit_instance_id = ? WHERE livekit_instance_id = ''`, newLKID)
+			if fixErr == nil {
+				aff, _ := res.RowsAffected()
+				log.Printf("[main] fixed empty-ID livekit instance → %s (%d server refs updated)", newLKID, aff)
+			}
+		}
+
+		// 2. Boş ID'li sunucuları ve ilişkili verilerini temizle
+		var emptySrv int
+		_ = db.Conn.QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM servers WHERE id = ''`).Scan(&emptySrv)
+		if emptySrv > 0 {
+			db.Conn.ExecContext(context.Background(), `DELETE FROM channels WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM categories WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM roles WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM user_roles WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM invites WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM bans WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM server_members WHERE server_id = ''`)
+			db.Conn.ExecContext(context.Background(), `DELETE FROM servers WHERE id = ''`)
+			log.Printf("[main] cleaned up %d empty-ID server(s) and related data", emptySrv)
+		}
+	}
+
+	// ─── 7b. Platform LiveKit Instance Seed ───
 	//
 	// Eğer LIVEKIT_URL + API key/secret env var'larında tanımlıysa ve henüz
 	// platform-managed bir LiveKit instance yoksa, veritabanına seed et.
@@ -147,7 +193,7 @@ func main() {
 			if createErr := livekitRepo.Create(context.Background(), platformInstance); createErr != nil {
 				log.Fatalf("[main] failed to seed platform livekit instance: %v", createErr)
 			}
-			log.Printf("[main] seeded platform LiveKit instance (url=%s)", cfg.LiveKit.URL)
+			log.Printf("[main] seeded platform LiveKit instance (url=%s, id=%s)", cfg.LiveKit.URL, platformInstance.ID)
 		}
 
 		// Migration sonrası orphan sunucuları (livekit_instance_id = NULL) platform instance'a bağla.
@@ -160,52 +206,6 @@ func main() {
 			log.Printf("[main] warning: failed to link orphan servers to platform livekit: %v", linkErr)
 		} else if affected, _ := result.RowsAffected(); affected > 0 {
 			log.Printf("[main] linked %d orphan server(s) to platform LiveKit instance", affected)
-		}
-	}
-
-	// ─── 7b. Empty-ID Cleanup ───
-	//
-	// Önceki bir bug'da servers ve livekit_instances tablolarına boş ID ("") ile
-	// kayıt ekleniyordu (ID auto-generation eksikti). Bu kayıtlar fonksiyonel değil
-	// çünkü API path'te serverId boş olunca 400 döner. Burada temizliyoruz.
-	{
-		// 1. Boş ID'li livekit instance varsa, yeni rastgele ID ata
-		//    ve bağlı sunucuların referanslarını güncelle
-		var emptyLK int
-		_ = db.Conn.QueryRowContext(context.Background(),
-			`SELECT COUNT(*) FROM livekit_instances WHERE id = ''`).Scan(&emptyLK)
-		if emptyLK > 0 {
-			// Yeni ID üret
-			var newLKID string
-			_ = db.Conn.QueryRowContext(context.Background(),
-				`SELECT lower(hex(randomblob(8)))`).Scan(&newLKID)
-			_, _ = db.Conn.ExecContext(context.Background(),
-				`UPDATE livekit_instances SET id = ? WHERE id = ''`, newLKID)
-			// Sunucuların referanslarını güncelle
-			res, err := db.Conn.ExecContext(context.Background(),
-				`UPDATE servers SET livekit_instance_id = ? WHERE livekit_instance_id = ''`, newLKID)
-			if err == nil {
-				if aff, _ := res.RowsAffected(); aff > 0 {
-					log.Printf("[main] fixed empty-ID livekit instance → %s (%d server refs updated)", newLKID, aff)
-				}
-			}
-		}
-
-		// 2. Boş ID'li sunucuları ve ilişkili verilerini temizle
-		//    (ALTER TABLE ile eklenen FK'lar CASCADE yapmaz, manual temizlik gerek)
-		var emptySrv int
-		_ = db.Conn.QueryRowContext(context.Background(),
-			`SELECT COUNT(*) FROM servers WHERE id = ''`).Scan(&emptySrv)
-		if emptySrv > 0 {
-			db.Conn.ExecContext(context.Background(), `DELETE FROM channels WHERE server_id = ''`)
-			db.Conn.ExecContext(context.Background(), `DELETE FROM categories WHERE server_id = ''`)
-			db.Conn.ExecContext(context.Background(), `DELETE FROM roles WHERE server_id = ''`)
-			db.Conn.ExecContext(context.Background(), `DELETE FROM user_roles WHERE server_id = ''`)
-			db.Conn.ExecContext(context.Background(), `DELETE FROM invites WHERE server_id = ''`)
-			db.Conn.ExecContext(context.Background(), `DELETE FROM bans WHERE server_id = ''`)
-			db.Conn.ExecContext(context.Background(), `DELETE FROM server_members WHERE server_id = ''`)
-			db.Conn.ExecContext(context.Background(), `DELETE FROM servers WHERE id = ''`)
-			log.Printf("[main] cleaned up %d empty-ID server(s) and related data", emptySrv)
 		}
 	}
 

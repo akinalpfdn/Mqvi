@@ -821,6 +821,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .role-list-dot { width:12px;height:12px;border-radius:999px;flex-shrink:0; }
 .role-list-name { font-size:13px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .role-list-item.active .role-list-name { color:var(--t0);font-weight:500; }
+/* Platform instance list items */
+.platform-instance-item { flex-direction:column;align-items:flex-start;gap:2px;padding:8px; }
+.platform-instance-capacity { font-size:13px;color:var(--t3); }
+.role-list-item.active .platform-instance-capacity { color:var(--t2); }
 /* Role drag & drop (HTML5 DnD — ChannelTree pattern) */
 .role-drag-wrap { position:relative;transition:opacity .15s; }
 .role-drag-wrap.dragging { opacity:0.4; }

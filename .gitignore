@@ -89,6 +89,11 @@ deploy/REDEPLOY.md
 # ========================
 deploy/redeploy.sh
 deploy/redeploy.ps1
+# ========================
+# Deploy scripts with real server IP (use .example versions)
+# ========================
+deploy/redeploy-prod.sh
+deploy/redeploy-prod.ps1
 
 # ========================
 # Embedded frontend build

@@ -1,19 +1,25 @@
 /**
  * PlatformSettings — Platform admin LiveKit instance yönetim paneli.
  *
- * Two-panel layout (RoleSettings pattern):
- * - Sol: Instance listesi (URL + kapasite göstergesi) + "Yeni Ekle" butonu
+ * Two-panel layout (RoleSettings / ChannelSettings pattern):
+ * - Sol: Instance listesi (URL + kapasite göstergesi) + "Sunucu Ekle" butonu
  * - Sağ: Instance oluşturma/düzenleme formu veya boş durum mesajı
  *
  * Sadece is_platform_admin = true olan kullanıcılara görünür.
  * Backend PlatformAdminMiddleware ile korunur.
  *
- * CSS class'ları: .channel-settings-wrapper (two-panel reuse),
- * .role-list, .role-list-item, .settings-section, .settings-field,
- * .settings-label, .settings-input, .settings-btn, .settings-btn-danger
+ * CSS class'ları: .channel-settings-wrapper, .channel-settings-header,
+ * .channel-settings-header-label, .channel-settings-header-btn,
+ * .channel-settings-ch-list, .role-list, .role-list-item,
+ * .platform-instance-item, .platform-instance-capacity,
+ * .channel-perm-section, .settings-section-title, .channel-settings-right-title,
+ * .settings-field, .settings-label, .settings-input, .settings-select,
+ * .settings-hint, .settings-value, .settings-btn, .settings-btn-row,
+ * .dz-separator, .dz-section, .dz-title, .dz-card, .dz-card-title,
+ * .dz-card-desc, .dz-btn
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -29,6 +35,11 @@ function PlatformSettings() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
   const confirm = useConfirm();
+
+  // t referansı her renderda değişebilir (react-i18next).
+  // fetchInstances'ın gereksiz yeniden oluşturulmasını önlemek için ref kullanıyoruz.
+  const tRef = useRef(t);
+  tRef.current = t;
 
   // ─── State ───
   const [instances, setInstances] = useState<LiveKitInstanceAdmin[]>([]);
@@ -46,57 +57,81 @@ function PlatformSettings() {
   // Delete migration target
   const [migrateTargetId, setMigrateTargetId] = useState("");
 
-  const selectedInstance = instances.find((i) => i.id === selectedId) ?? null;
+  // useMemo: instances.find() her renderda yeni referans döner.
+  // Bu yüzden effect dependency'lerinde kararsız davranır. Memoize edince
+  // sadece instances veya selectedId değiştiğinde yeni referans oluşur.
+  const selectedInstance = useMemo(
+    () => instances.find((i) => i.id === selectedId) ?? null,
+    [instances, selectedId]
+  );
 
   // ─── Fetch ───
+  // addToast zustanddan gelir (stabil referans). t ise ref üzerinden erişilir.
+  // Böylece fetchInstances SADECE mount'ta çalışır, t değişince tekrar çalışmaz.
   const fetchInstances = useCallback(async () => {
     try {
       setIsLoading(true);
-      const data = await listLiveKitInstances();
-      setInstances(data);
+      const res = await listLiveKitInstances();
+      if (res.success && res.data) {
+        setInstances(res.data);
+      } else {
+        addToast("error", res.error ?? tRef.current("platformInstanceLoadError"));
+      }
     } catch {
-      addToast(t("platformInstanceLoadError"), "error");
+      addToast("error", tRef.current("platformInstanceLoadError"));
     } finally {
       setIsLoading(false);
     }
-  }, [addToast, t]);
+  }, [addToast]);
 
   useEffect(() => {
     fetchInstances();
   }, [fetchInstances]);
 
   // ─── Formu doldur: seçili instance veya create mode ───
+  // Dependency: selectedId (primitive — stabil) ve isCreating.
+  // selectedInstance yerine selectedId kullanıyoruz çünkü instances refetch olduğunda
+  // selectedInstance yeni referans alır ve bu effect gereksiz yere tekrar çalışırdı,
+  // kullanıcının form'a girdiği API key/secret değerlerini sıfırlardı.
   useEffect(() => {
     if (isCreating) {
       setFormUrl("");
       setFormApiKey("");
       setFormApiSecret("");
       setFormMaxServers(0);
-    } else if (selectedInstance) {
-      setFormUrl(selectedInstance.url);
-      setFormApiKey("");
-      setFormApiSecret("");
-      setFormMaxServers(selectedInstance.max_servers);
+    } else {
+      const inst = instances.find((i) => i.id === selectedId);
+      if (inst) {
+        setFormUrl(inst.url);
+        setFormApiKey("");
+        setFormApiSecret("");
+        setFormMaxServers(inst.max_servers);
+      }
     }
-  }, [selectedId, isCreating, selectedInstance]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, isCreating]);
 
   // ─── Create ───
   async function handleCreate() {
     if (!formUrl || !formApiKey || !formApiSecret) return;
     try {
       setIsSaving(true);
-      const created = await createLiveKitInstance({
+      const res = await createLiveKitInstance({
         url: formUrl,
         api_key: formApiKey,
         api_secret: formApiSecret,
         max_servers: formMaxServers,
       });
-      setInstances((prev) => [...prev, created]);
-      setIsCreating(false);
-      setSelectedId(created.id);
-      addToast(t("platformInstanceCreated"), "success");
+      if (res.success && res.data) {
+        setInstances((prev) => [...prev, res.data!]);
+        setIsCreating(false);
+        setSelectedId(res.data.id);
+        addToast("success", t("platformInstanceCreated"));
+      } else {
+        addToast("error", res.error ?? t("platformInstanceCreateError"));
+      }
     } catch {
-      addToast(t("platformInstanceCreateError"), "error");
+      addToast("error", t("platformInstanceCreateError"));
     } finally {
       setIsSaving(false);
     }
@@ -104,25 +139,46 @@ function PlatformSettings() {
 
   // ─── Update ───
   async function handleUpdate() {
-    if (!selectedId) return;
+    // Strict null check: selectedId boş string ("") olabilir (eski DB bug'ı).
+    // !selectedId boş string'de de true döner, bu yüzden === null kullanıyoruz.
+    if (selectedId === null) {
+      addToast("error", t("platformNoInstanceSelected"));
+      return;
+    }
+
+    // selectedInstance yerine instances'dan taze bul — closure staleness koruması.
+    const current = instances.find((i) => i.id === selectedId);
+    if (!current) {
+      addToast("error", t("platformNoInstanceSelected"));
+      return;
+    }
+
+    const body: Record<string, string | number> = {};
+    if (formUrl !== current.url) body.url = formUrl;
+    if (formApiKey) body.api_key = formApiKey;
+    if (formApiSecret) body.api_secret = formApiSecret;
+    if (formMaxServers !== current.max_servers)
+      body.max_servers = formMaxServers;
+
+    if (Object.keys(body).length === 0) {
+      addToast("info", t("platformNoChanges"));
+      return;
+    }
+
     try {
       setIsSaving(true);
-      const body: Record<string, string | number> = {};
-      if (formUrl !== selectedInstance?.url) body.url = formUrl;
-      if (formApiKey) body.api_key = formApiKey;
-      if (formApiSecret) body.api_secret = formApiSecret;
-      if (formMaxServers !== selectedInstance?.max_servers)
-        body.max_servers = formMaxServers;
-
-      if (Object.keys(body).length === 0) return;
-
-      const updated = await updateLiveKitInstance(selectedId, body);
-      setInstances((prev) =>
-        prev.map((i) => (i.id === updated.id ? updated : i))
-      );
-      addToast(t("platformInstanceUpdated"), "success");
+      const res = await updateLiveKitInstance(selectedId, body);
+      if (res.success && res.data) {
+        const updated = res.data;
+        setInstances((prev) =>
+          prev.map((i) => (i.id === updated.id ? updated : i))
+        );
+        addToast("success", t("platformInstanceUpdated"));
+      } else {
+        addToast("error", res.error ?? t("platformInstanceUpdateError"));
+      }
     } catch {
-      addToast(t("platformInstanceUpdateError"), "error");
+      addToast("error", t("platformInstanceUpdateError"));
     } finally {
       setIsSaving(false);
     }
@@ -133,9 +189,8 @@ function PlatformSettings() {
     if (!selectedInstance) return;
 
     if (selectedInstance.server_count > 0) {
-      // Migration gerekli — target seçmeli
       if (!migrateTargetId) {
-        addToast(t("platformMigrateTargetRequired"), "error");
+        addToast("error", t("platformMigrateTargetRequired"));
         return;
       }
     }
@@ -159,9 +214,9 @@ function PlatformSettings() {
       setInstances((prev) => prev.filter((i) => i.id !== selectedInstance.id));
       setSelectedId(null);
       setMigrateTargetId("");
-      addToast(t("platformInstanceDeleted"), "success");
+      addToast("success", t("platformInstanceDeleted"));
     } catch {
-      addToast(t("platformInstanceDeleteError"), "error");
+      addToast("error", t("platformInstanceDeleteError"));
     }
   }
 
@@ -183,44 +238,48 @@ function PlatformSettings() {
     <div className="channel-settings-wrapper">
       {/* ── Sol Panel: Instance Listesi ── */}
       <div className="role-list">
-        <div className="role-list-header">
-          <h2 className="settings-section-title">
+        {/* Header — ChannelSettings / RoleSettings pattern */}
+        <div className="channel-settings-header">
+          <span className="channel-settings-header-label">
             {t("platformLiveKitInstances")}
-          </h2>
+          </span>
           <button
-            className="settings-btn"
+            className="settings-btn channel-settings-header-btn"
             onClick={() => {
               setIsCreating(true);
               setSelectedId(null);
             }}
           >
-            {t("platformAddInstance")}
+            +
           </button>
         </div>
 
-        {isLoading && <p className="no-channel">{t("loading")}</p>}
+        {/* Instance listesi — scrollable wrapper */}
+        <div className="channel-settings-ch-list">
+          {isLoading && <p className="no-channel">{t("loading")}</p>}
 
-        {!isLoading && instances.length === 0 && (
-          <p className="no-channel">{t("platformNoInstances")}</p>
-        )}
+          {!isLoading && instances.length === 0 && (
+            <p className="no-channel">{t("platformNoInstances")}</p>
+          )}
 
-        {instances.map((inst) => (
-          <div
-            key={inst.id}
-            className={`role-list-item${selectedId === inst.id ? " active" : ""}`}
-            onClick={() => {
-              setSelectedId(inst.id);
-              setIsCreating(false);
-            }}
-          >
-            <span className="role-list-name" title={inst.url}>
-              {inst.url}
-            </span>
-            <span className="platform-instance-capacity">
-              {formatCapacity(inst)}
-            </span>
-          </div>
-        ))}
+          {instances.map((inst) => (
+            <div
+              key={inst.id}
+              className={`role-list-item platform-instance-item${selectedId === inst.id ? " active" : ""}`}
+              onClick={() => {
+                setSelectedId(inst.id);
+                setIsCreating(false);
+              }}
+            >
+              <span className="role-list-name" title={inst.url}>
+                {inst.url}
+              </span>
+              <span className="platform-instance-capacity">
+                {formatCapacity(inst)}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Sağ Panel: Form ── */}
@@ -262,7 +321,9 @@ function PlatformSettings() {
             )}
           />
         ) : (
-          <p className="no-channel">{t("platformNoInstanceSelected")}</p>
+          <div className="no-channel">
+            {t("platformNoInstanceSelected")}
+          </div>
         )}
       </div>
     </div>
@@ -272,7 +333,7 @@ function PlatformSettings() {
 // ─── Create Form ───
 
 type CreateFormProps = {
-  t: (key: string) => string;
+  t: (key: string, opts?: Record<string, unknown>) => string;
   formUrl: string;
   setFormUrl: (v: string) => void;
   formApiKey: string;
@@ -303,8 +364,10 @@ function CreateForm({
   const canSave = formUrl && formApiKey && formApiSecret;
 
   return (
-    <div className="settings-section">
-      <h2 className="settings-section-title">{t("platformAddInstance")}</h2>
+    <div className="channel-perm-section">
+      <h2 className="settings-section-title channel-settings-right-title">
+        {t("platformAddInstance")}
+      </h2>
 
       <div className="settings-field">
         <label className="settings-label">{t("platformInstanceUrl")}</label>
@@ -323,6 +386,9 @@ function CreateForm({
           value={formApiKey}
           onChange={(e) => setFormApiKey(e.target.value)}
           placeholder={t("platformInstanceApiKeyPlaceholder")}
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
         />
       </div>
 
@@ -336,6 +402,9 @@ function CreateForm({
           value={formApiSecret}
           onChange={(e) => setFormApiSecret(e.target.value)}
           placeholder={t("platformInstanceApiSecretPlaceholder")}
+          autoComplete="new-password"
+          data-1p-ignore
+          data-lpignore="true"
         />
       </div>
 
@@ -355,7 +424,7 @@ function CreateForm({
         </span>
       </div>
 
-      <div className="settings-field" style={{ flexDirection: "row", gap: 8 }}>
+      <div className="settings-btn-row">
         <button
           className="settings-btn"
           disabled={!canSave || isSaving}
@@ -363,7 +432,7 @@ function CreateForm({
         >
           {isSaving ? t("saving") : t("platformAddInstance")}
         </button>
-        <button className="settings-btn-secondary" onClick={onCancel}>
+        <button className="settings-btn settings-btn-secondary" onClick={onCancel}>
           {t("cancel")}
         </button>
       </div>
@@ -374,7 +443,7 @@ function CreateForm({
 // ─── Edit Form ───
 
 type EditFormProps = {
-  t: (key: string) => string;
+  t: (key: string, opts?: Record<string, unknown>) => string;
   instance: LiveKitInstanceAdmin;
   formUrl: string;
   setFormUrl: (v: string) => void;
@@ -417,8 +486,10 @@ function EditForm({
     formMaxServers !== instance.max_servers;
 
   return (
-    <div className="settings-section">
-      <h2 className="settings-section-title">{t("platformEditInstance")}</h2>
+    <div className="channel-perm-section">
+      <h2 className="settings-section-title channel-settings-right-title">
+        {t("platformEditInstance")}
+      </h2>
 
       <div className="settings-field">
         <label className="settings-label">{t("platformInstanceUrl")}</label>
@@ -437,6 +508,9 @@ function EditForm({
           value={formApiKey}
           onChange={(e) => setFormApiKey(e.target.value)}
           placeholder={t("platformInstanceApiKeyPlaceholder")}
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
         />
         <span className="settings-hint">{t("platformCredentialsHint")}</span>
       </div>
@@ -451,6 +525,9 @@ function EditForm({
           value={formApiSecret}
           onChange={(e) => setFormApiSecret(e.target.value)}
           placeholder={t("platformInstanceApiSecretPlaceholder")}
+          autoComplete="new-password"
+          data-1p-ignore
+          data-lpignore="true"
         />
       </div>
 
@@ -477,42 +554,48 @@ function EditForm({
         <span className="settings-value">{instance.server_count}</span>
       </div>
 
-      <button
-        className="settings-btn"
-        disabled={!hasChanges || isSaving}
-        onClick={onSave}
-      >
-        {isSaving ? t("saving") : t("save")}
-      </button>
-
-      {/* ── Danger Zone: Delete ── */}
-      <div className="settings-section settings-danger-zone">
-        <h3 className="settings-section-title settings-danger-title">
-          {t("dangerZone")}
-        </h3>
-
-        {instance.server_count > 0 && (
-          <div className="settings-field">
-            <label className="settings-label">{t("platformMigrateTarget")}</label>
-            <select
-              className="settings-select"
-              value={migrateTargetId}
-              onChange={(e) => setMigrateTargetId(e.target.value)}
-            >
-              <option value="">{t("platformSelectTarget")}</option>
-              {otherInstances.map((other) => (
-                <option key={other.id} value={other.id}>
-                  {other.url} ({other.server_count}
-                  {other.max_servers > 0 ? `/${other.max_servers}` : ""})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <button className="settings-btn-danger" onClick={onDelete}>
-          {t("platformDeleteInstance")}
+      <div className="settings-btn-row">
+        <button
+          className="settings-btn"
+          disabled={!hasChanges || isSaving}
+          onClick={onSave}
+        >
+          {isSaving ? t("saving") : t("save")}
         </button>
+      </div>
+
+      {/* ── Danger Zone — ServerGeneralSettings pattern ── */}
+      <div className="dz-separator" />
+      <div className="dz-section">
+        <h2 className="dz-title">{t("dangerZone")}</h2>
+
+        <div className="dz-card">
+          <h3 className="dz-card-title">{t("platformDeleteInstance")}</h3>
+          <p className="dz-card-desc">{t("platformDeleteDesc")}</p>
+
+          {instance.server_count > 0 && (
+            <div className="settings-field">
+              <label className="settings-label">{t("platformMigrateTarget")}</label>
+              <select
+                className="settings-select"
+                value={migrateTargetId}
+                onChange={(e) => setMigrateTargetId(e.target.value)}
+              >
+                <option value="">{t("platformSelectTarget")}</option>
+                {otherInstances.map((other) => (
+                  <option key={other.id} value={other.id}>
+                    {other.url} ({other.server_count}
+                    {other.max_servers > 0 ? `/${other.max_servers}` : ""})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <button className="dz-btn" onClick={onDelete}>
+            {t("platformDeleteInstance")}
+          </button>
+        </div>
       </div>
     </div>
   );

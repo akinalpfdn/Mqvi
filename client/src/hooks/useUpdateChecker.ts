@@ -66,9 +66,10 @@ export function useUpdateChecker(): UpdateChecker {
       setStatus("ready");
     });
 
-    api.onUpdateError(() => {
-      // Güncelleme hatası — sessizce idle'a dön
-      setStatus("idle");
+    api.onUpdateError((message) => {
+      // Güncelleme hatası — error banner göster
+      setError(message);
+      setStatus("error");
     });
 
     // Cleanup yok — listener'lar app ömrü boyunca kalır

@@ -278,6 +278,7 @@
   "platformInstanceCreateError": "Sunucu oluşturulamadı",
   "platformInstanceUpdateError": "Sunucu güncellenemedi",
   "platformInstanceDeleteError": "Sunucu silinemedi",
+  "platformDeleteDesc": "Bu LiveKit sunucusunu kalıcı olarak sil. Bu işlem geri alınamaz.",
   "platformDeleteConfirm": "Bu LiveKit sunucusunu silmek istediğinizden emin misiniz?",
   "platformDeleteMigrateConfirm": "Bu sunucuda {{count}} bağlı sunucu var. Seçilen hedefe taşınacaklar.",
   "platformMigrateTarget": "Sunucuları Taşı",
@@ -286,6 +287,7 @@
   "platformNoInstances": "Yapılandırılmış LiveKit sunucusu yok",
   "platformNoInstanceSelected": "Ayarlarını görmek için bir sunucu seçin",
   "platformCredentialsHint": "Mevcut kimlik bilgilerini korumak için boş bırakın",
+  "platformNoChanges": "Kaydedilecek değişiklik yok",
   "saving": "Kaydediliyor...",
   "save": "Kaydet",
   "cancel": "İptal"

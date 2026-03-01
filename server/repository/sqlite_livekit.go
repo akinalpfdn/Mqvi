@@ -21,21 +21,34 @@ func NewSQLiteLiveKitRepo(db *sql.DB) LiveKitRepository {
 }
 
 func (r *sqliteLiveKitRepo) Create(ctx context.Context, instance *models.LiveKitInstance) error {
+	// ID'yi Go tarafında üretiyoruz — RETURNING clause'una bağımlı olmamak için.
+	// Bazı SQLite driver'larında (modernc.org/sqlite) RETURNING desteklenmeyebilir
+	// veya beklenmedik davranış gösterebilir. ID'yi önceden üretmek daha güvenli.
+	var generatedID string
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT lower(hex(randomblob(8)))`,
+	).Scan(&generatedID); err != nil {
+		return fmt.Errorf("failed to generate livekit instance id: %w", err)
+	}
+
 	query := `
 		INSERT INTO livekit_instances (id, url, api_key, api_secret, is_platform_managed, server_count, max_servers)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?)
-		RETURNING id, created_at`
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-	err := r.db.QueryRowContext(ctx, query,
-		instance.URL, instance.APIKey, instance.APISecret,
+	_, err := r.db.ExecContext(ctx, query,
+		generatedID, instance.URL, instance.APIKey, instance.APISecret,
 		instance.IsPlatformManaged, instance.ServerCount, instance.MaxServers,
-	).Scan(&instance.ID, &instance.CreatedAt)
-
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create livekit instance: %w", err)
 	}
 
-	return nil
+	// created_at DB tarafında DEFAULT CURRENT_TIMESTAMP ile atanıyor,
+	// geri okuyarak Go struct'ını güncelliyoruz.
+	instance.ID = generatedID
+	return r.db.QueryRowContext(ctx,
+		`SELECT created_at FROM livekit_instances WHERE id = ?`, generatedID,
+	).Scan(&instance.CreatedAt)
 }
 
 func (r *sqliteLiveKitRepo) GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error) {

@@ -278,6 +278,7 @@
   "platformInstanceCreateError": "Failed to create instance",
   "platformInstanceUpdateError": "Failed to update instance",
   "platformInstanceDeleteError": "Failed to delete instance",
+  "platformDeleteDesc": "Permanently remove this LiveKit instance. This action cannot be undone.",
   "platformDeleteConfirm": "Are you sure you want to delete this LiveKit instance?",
   "platformDeleteMigrateConfirm": "This instance has {{count}} server(s). They will be migrated to the selected target.",
   "platformMigrateTarget": "Migrate Servers To",
@@ -286,6 +287,7 @@
   "platformNoInstances": "No LiveKit instances configured",
   "platformNoInstanceSelected": "Select an instance to view its settings",
   "platformCredentialsHint": "Leave blank to keep current credentials",
+  "platformNoChanges": "No changes to save",
   "saving": "Saving...",
   "save": "Save",
   "cancel": "Cancel"
