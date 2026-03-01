@@ -38,6 +38,7 @@ import (
 	"github.com/akinalp/mqvi/middleware"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/crypto"
+	"github.com/akinalp/mqvi/pkg/email"
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/repository"
@@ -468,13 +469,28 @@ func main() {
 	// - ChannelPermService: channelGetter eklendi (channel → server_id lookup)
 
 	inviteService := services.NewInviteService(inviteRepo, serverRepo)
+	resetTokenRepo := repository.NewSQLiteResetTokenRepo(db.Conn)
+
+	// Email service — Resend API ile email gönderimi.
+	// RESEND_API_KEY yoksa nil — password reset özelliği devre dışı kalır.
+	// Self-hosted kurulum yapan herkesin email servisi olmayabilir.
+	var emailSender email.EmailSender
+	if cfg.Email.ResendAPIKey != "" && cfg.Email.FromEmail != "" && cfg.Email.AppURL != "" {
+		emailSender = email.NewResendSender(cfg.Email.ResendAPIKey, cfg.Email.FromEmail, cfg.Email.AppURL)
+		log.Printf("[main] email service enabled (from=%s)", cfg.Email.FromEmail)
+	} else {
+		log.Println("[main] email service disabled (RESEND_API_KEY, RESEND_FROM or APP_URL not set)")
+	}
 
 	// AuthService — multi-server'da simplified: sadece userRepo + sessionRepo + hub.
 	// Register hiçbir sunucuya üye eklemez, ban kontrolü sunucu bazlı olduğu için kaldırıldı.
+	// Password reset: resetTokenRepo + emailSender (nil olabilir → feature devre dışı).
 	authService := services.NewAuthService(
 		userRepo,
 		sessionRepo,
+		resetTokenRepo,
 		hub,
+		emailSender,
 		cfg.JWT.Secret,
 		cfg.JWT.AccessTokenExpiry,
 		cfg.JWT.RefreshTokenExpiry,
@@ -599,6 +615,8 @@ func main() {
 	mux.HandleFunc("POST /api/auth/login", authHandler.Login)
 	mux.HandleFunc("POST /api/auth/refresh", authHandler.Refresh)
 	mux.Handle("POST /api/auth/logout", auth(authHandler.Logout))
+	mux.HandleFunc("POST /api/auth/forgot-password", authHandler.ForgotPassword)
+	mux.HandleFunc("POST /api/auth/reset-password", authHandler.ResetPassword)
 
 	// User — kendi profili, şifre, email, avatar
 	mux.Handle("GET /api/users/me", auth(authHandler.Me))

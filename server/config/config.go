@@ -22,7 +22,18 @@ type Config struct {
 	JWT           JWTConfig
 	LiveKit       LiveKitConfig
 	Upload        UploadConfig
+	Email         EmailConfig
 	EncryptionKey string // AES-256 key (64 hex char = 32 byte) — LiveKit credential şifreleme
+}
+
+// EmailConfig, email gönderim ayarları (Resend API).
+//
+// Opsiyonel — RESEND_API_KEY boşsa password reset özelliği devre dışı kalır.
+// Self-hosted kurulum yapan herkesin email servisi olmayabilir.
+type EmailConfig struct {
+	ResendAPIKey string // Resend API key (re_xxxxxxxx formatında)
+	FromEmail    string // Gönderici adres (ör: noreply@mqvi.app)
+	AppURL       string // Uygulamanın public URL'i (ör: https://app.mqvi.app) — reset link'te kullanılır
 }
 
 // ServerConfig, HTTP server ayarları.
@@ -118,6 +129,11 @@ func Load() (*Config, error) {
 		Upload: UploadConfig{
 			Dir:     getEnv("UPLOAD_DIR", "./data/uploads"),
 			MaxSize: maxSize,
+		},
+		Email: EmailConfig{
+			ResendAPIKey: getEnv("RESEND_API_KEY", ""),
+			FromEmail:    getEnv("RESEND_FROM", ""),
+			AppURL:       getEnv("APP_URL", ""),
 		},
 		EncryptionKey: encKey,
 	}

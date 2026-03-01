@@ -4,6 +4,8 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/authStore";
 import LoginPage from "./components/auth/LoginPage";
 import RegisterPage from "./components/auth/RegisterPage";
+import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
+import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import AppLayout from "./components/layout/AppLayout";
 import LandingPage from "./components/landing/LandingPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
@@ -82,6 +84,14 @@ function App() {
       <Route
         path="/register"
         element={user ? <Navigate to="/channels" replace /> : <RegisterPage />}
+      />
+      <Route
+        path="/forgot-password"
+        element={user ? <Navigate to="/channels" replace /> : <ForgotPasswordPage />}
+      />
+      <Route
+        path="/reset-password"
+        element={user ? <Navigate to="/channels" replace /> : <ResetPasswordPage />}
       />
 
       {/* Ana uygulama — sadece giriş yapmış kullanıcılar */}

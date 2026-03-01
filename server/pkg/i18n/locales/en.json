@@ -19,7 +19,11 @@
     "emailUpdated": "Email updated successfully",
     "emailRemoved": "Email removed successfully",
     "noEmailToRemove": "No email to remove",
-    "tooManyAttempts": "Too many login attempts, please try again later"
+    "tooManyAttempts": "Too many login attempts, please try again later",
+    "resetNotConfigured": "Password reset is not configured on this server",
+    "invalidOrExpiredToken": "Invalid or expired reset token",
+    "tokenExpired": "Reset token has expired",
+    "passwordResetSuccess": "Password has been reset successfully"
   },
   "user": {
     "notFound": "User not found"

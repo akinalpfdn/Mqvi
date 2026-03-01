@@ -242,6 +242,74 @@ func (h *AuthHandler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ForgotPassword godoc
+// POST /api/auth/forgot-password
+// Body: { "email": "..." }
+//
+// Şifre sıfırlama emaili gönderir.
+// Güvenlik: Email DB'de yoksa bile aynı success yanıtı döner (enumeration koruması).
+// Cooldown: Aynı email'e 90 saniyede 1 istek. Cooldown aktifse kalan süre response'ta döner.
+func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req models.ForgotPasswordRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	cooldown, err := h.authService.ForgotPassword(r.Context(), req.Email)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	// Cooldown aktifse kalan süreyi response'a ekle — frontend geri sayım gösterir
+	if cooldown > 0 {
+		pkg.JSON(w, http.StatusOK, map[string]any{
+			"message":  "cooldown active",
+			"cooldown": cooldown,
+		})
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{
+		"message": "if the email exists, a reset link has been sent",
+	})
+}
+
+// ResetPassword godoc
+// POST /api/auth/reset-password
+// Body: { "token": "...", "new_password": "..." }
+//
+// Email'deki token ile şifre sıfırlar. Token doğrulanır, şifre güncellenir, token silinir.
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req models.ResetPasswordRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.authService.ResetPassword(r.Context(), req.Token, req.NewPassword); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{
+		"message": "password has been reset successfully",
+	})
+}
+
 // UserContextKey, context'te kullanıcı bilgisi taşımak için kullanılan key tipi.
 //
 // Go'da context.Value() any tip kabul eder — string key kullanmak çakışmaya neden olabilir.

@@ -90,6 +90,11 @@ function LoginPage() {
           </button>
         </form>
 
+        {/* Forgot Password Link */}
+        <p className="auth-link" style={{ marginTop: "12px" }}>
+          <Link to="/forgot-password">{t("forgotPassword")}</Link>
+        </p>
+
         {/* Footer Link */}
         <p className="auth-link">
           {t("needAccount")}{" "}

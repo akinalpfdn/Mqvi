@@ -19,7 +19,11 @@
     "emailUpdated": "E-posta başarıyla güncellendi",
     "emailRemoved": "E-posta başarıyla kaldırıldı",
     "noEmailToRemove": "Kaldırılacak e-posta yok",
-    "tooManyAttempts": "Çok fazla giriş denemesi, lütfen daha sonra tekrar deneyin"
+    "tooManyAttempts": "Çok fazla giriş denemesi, lütfen daha sonra tekrar deneyin",
+    "resetNotConfigured": "Bu sunucuda şifre sıfırlama yapılandırılmamış",
+    "invalidOrExpiredToken": "Geçersiz veya süresi dolmuş sıfırlama token'ı",
+    "tokenExpired": "Sıfırlama token'ının süresi dolmuş",
+    "passwordResetSuccess": "Şifre başarıyla sıfırlandı"
   },
   "user": {
     "notFound": "Kullanıcı bulunamadı"

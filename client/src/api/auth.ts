@@ -59,6 +59,25 @@ export async function changePassword(
   });
 }
 
+/** Şifre sıfırlama emaili gönderir. cooldown > 0 ise kalan saniye döner. */
+export async function forgotPassword(email: string) {
+  return apiClient<{ message: string; cooldown?: number }>(
+    "/auth/forgot-password",
+    {
+      method: "POST",
+      body: { email },
+    },
+  );
+}
+
+/** Token ile şifre sıfırlar */
+export async function resetPassword(token: string, newPassword: string) {
+  return apiClient<{ message: string }>("/auth/reset-password", {
+    method: "POST",
+    body: { token, new_password: newPassword },
+  });
+}
+
 /** Email değiştirme/kaldırma — güvenlik gereği mevcut şifre doğrulaması gerekir */
 export async function changeEmail(password: string, newEmail: string) {
   return apiClient<{ message: string; email: string | null }>(

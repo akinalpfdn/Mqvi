@@ -14,14 +14,17 @@ package services
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/email"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
 	"github.com/golang-jwt/jwt/v5"
@@ -40,6 +43,16 @@ type AuthService interface {
 	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error
 	// ChangeEmail, kullanıcının email adresini değiştirir.
 	ChangeEmail(ctx context.Context, userID, password, newEmail string) error
+
+	// ForgotPassword, kullanıcıya şifre sıfırlama emaili gönderir.
+	// Email DB'de yoksa bile hata vermez (email enumeration koruması).
+	// Cooldown: aynı email'e 90 saniyede 1 istek.
+	// cooldownRemaining > 0 ise kalan süreyi döner.
+	ForgotPassword(ctx context.Context, email string) (cooldownRemaining int, err error)
+
+	// ResetPassword, token ile şifre sıfırlar.
+	// Token doğrulanır, şifre güncellenir, token silinir.
+	ResetPassword(ctx context.Context, token, newPassword string) error
 }
 
 // AuthTokens, login/register sonrası dönen token çifti.
@@ -53,7 +66,9 @@ type AuthTokens struct {
 type authService struct {
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
+	resetRepo   repository.PasswordResetRepository // nil olabilir — email yoksa reset devre dışı
 	hub         ws.EventPublisher
+	emailSender email.EmailSender // nil olabilir — RESEND_API_KEY yoksa feature devre dışı
 	jwtSecret   []byte
 	accessExp   time.Duration
 	refreshExp  time.Duration
@@ -67,7 +82,9 @@ type authService struct {
 func NewAuthService(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
+	resetRepo repository.PasswordResetRepository,
 	hub ws.EventPublisher,
+	emailSender email.EmailSender,
 	jwtSecret string,
 	accessExpMinutes int,
 	refreshExpDays int,
@@ -75,7 +92,9 @@ func NewAuthService(
 	return &authService{
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
+		resetRepo:   resetRepo,
 		hub:         hub,
+		emailSender: emailSender,
 		jwtSecret:   []byte(jwtSecret),
 		accessExp:   time.Duration(accessExpMinutes) * time.Minute,
 		refreshExp:  time.Duration(refreshExpDays) * 24 * time.Hour,
@@ -289,6 +308,154 @@ func (s *authService) ChangeEmail(ctx context.Context, userID, password, newEmai
 	}
 
 	return s.userRepo.UpdateEmail(ctx, userID, &newEmail)
+}
+
+// ─── Password Reset ───
+
+// resetCooldown, aynı kullanıcının arka arkaya reset emaili almasını engeller.
+// 90 saniye — spam koruması.
+const resetCooldown = 90 * time.Second
+
+// resetTokenExpiry, şifre sıfırlama token'ının geçerlilik süresi.
+const resetTokenExpiry = 20 * time.Minute
+
+// ForgotPassword, şifre sıfırlama emaili gönderir.
+//
+// Güvenlik kararları:
+// 1. Email DB'de yoksa bile aynı success yanıtı döner — saldırgan hangi email'lerin
+//    kayıtlı olduğunu tespit edemez (email enumeration koruması).
+// 2. Token plaintext olarak email'e gömülür, DB'de SHA256 hash saklanır.
+// 3. Cooldown: aynı email'e 90 saniyede 1 istek (spam engeli).
+//    cooldownRemaining > 0 ise kalan saniyeyi döner.
+func (s *authService) ForgotPassword(ctx context.Context, emailAddr string) (int, error) {
+	// Email özelliği devre dışıysa (RESEND_API_KEY yoksa)
+	if s.emailSender == nil || s.resetRepo == nil {
+		return 0, fmt.Errorf("%w: password reset is not configured on this server", pkg.ErrBadRequest)
+	}
+
+	// Kullanıcıyı email'e göre bul
+	user, err := s.userRepo.GetByEmail(ctx, emailAddr)
+	if err != nil {
+		if errors.Is(err, pkg.ErrNotFound) {
+			// Email enumeration koruması: email yoksa da success gibi davran.
+			// Ama cooldown dönemeyiz çünkü user yok — 0 dön.
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to look up user: %w", err)
+	}
+
+	// Cooldown kontrolü: son token'ın oluşturulma zamanına bak
+	lastToken, err := s.resetRepo.GetLatestByUserID(ctx, user.ID)
+	if err == nil {
+		// Token var — cooldown doldu mu?
+		elapsed := time.Since(lastToken.CreatedAt)
+		if elapsed < resetCooldown {
+			remaining := int((resetCooldown - elapsed).Seconds())
+			if remaining < 1 {
+				remaining = 1
+			}
+			return remaining, nil
+		}
+	}
+	// err != nil → token yok (ErrNotFound) veya DB hatası — devam et
+
+	// Eski tokenları temizle (bu kullanıcı için)
+	if delErr := s.resetRepo.DeleteByUserID(ctx, user.ID); delErr != nil {
+		log.Printf("[auth] warning: failed to delete old reset tokens for user %s: %v", user.ID, delErr)
+	}
+
+	// Süresi dolmuş tüm tokenları temizle (fırsat temizliği)
+	if delErr := s.resetRepo.DeleteExpired(ctx); delErr != nil {
+		log.Printf("[auth] warning: failed to delete expired reset tokens: %v", delErr)
+	}
+
+	// Yeni token üret (32 byte = 64 hex karakter)
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return 0, fmt.Errorf("failed to generate reset token: %w", err)
+	}
+	plainToken := hex.EncodeToString(tokenBytes)
+
+	// SHA256 hash — DB'de plaintext saklanmaz
+	hashBytes := sha256.Sum256([]byte(plainToken))
+	tokenHash := hex.EncodeToString(hashBytes[:])
+
+	// DB'ye kaydet
+	resetToken := &models.PasswordResetToken{
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(resetTokenExpiry),
+	}
+	if err := s.resetRepo.Create(ctx, resetToken); err != nil {
+		return 0, fmt.Errorf("failed to store reset token: %w", err)
+	}
+
+	// Email gönder (plaintext token email'e gömülür)
+	if err := s.emailSender.SendPasswordReset(ctx, emailAddr, plainToken); err != nil {
+		return 0, fmt.Errorf("failed to send reset email: %w", err)
+	}
+
+	log.Printf("[auth] password reset email sent to user %s", user.ID)
+	return 0, nil
+}
+
+// ResetPassword, token ile şifre sıfırlar.
+//
+// Akış:
+// 1. Gelen plaintext token'ı SHA256 hash'le
+// 2. Hash ile DB'den token kaydını bul
+// 3. Süresi dolmuş mu kontrol et
+// 4. Yeni şifreyi bcrypt ile hash'le
+// 5. Kullanıcının şifresini güncelle
+// 6. Token'ı sil (one-time use)
+func (s *authService) ResetPassword(ctx context.Context, token, newPassword string) error {
+	if s.resetRepo == nil {
+		return fmt.Errorf("%w: password reset is not configured on this server", pkg.ErrBadRequest)
+	}
+
+	if len(newPassword) < 8 {
+		return fmt.Errorf("%w: password must be at least 8 characters", pkg.ErrBadRequest)
+	}
+
+	// Token'ı hash'le ve DB'de ara
+	hashBytes := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(hashBytes[:])
+
+	resetToken, err := s.resetRepo.GetByTokenHash(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, pkg.ErrNotFound) {
+			return fmt.Errorf("%w: invalid or expired reset token", pkg.ErrBadRequest)
+		}
+		return fmt.Errorf("failed to look up reset token: %w", err)
+	}
+
+	// Süre kontrolü
+	if time.Now().After(resetToken.ExpiresAt) {
+		// Süresi dolmuş — token'ı sil ve hata ver
+		if delErr := s.resetRepo.DeleteByID(ctx, resetToken.ID); delErr != nil {
+			log.Printf("[auth] warning: failed to delete expired token %s: %v", resetToken.ID, delErr)
+		}
+		return fmt.Errorf("%w: reset token has expired", pkg.ErrBadRequest)
+	}
+
+	// Yeni şifreyi hash'le (bcrypt cost=12)
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
+	if err != nil {
+		return fmt.Errorf("failed to hash new password: %w", err)
+	}
+
+	// Şifreyi güncelle
+	if err := s.userRepo.UpdatePassword(ctx, resetToken.UserID, string(newHash)); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	// Token'ı sil (one-time use) + bu kullanıcının diğer tokenlarını da temizle
+	if err := s.resetRepo.DeleteByUserID(ctx, resetToken.UserID); err != nil {
+		log.Printf("[auth] warning: failed to delete reset tokens for user %s: %v", resetToken.UserID, err)
+	}
+
+	log.Printf("[auth] password reset completed for user %s", resetToken.UserID)
+	return nil
 }
 
 // ─── Private Helpers ───
