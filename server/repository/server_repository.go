@@ -67,4 +67,9 @@ type ServerRepository interface {
 	// UpdateLastVoiceActivity, bir sunucunun son ses aktivitesi zamanını günceller.
 	// Ses kanalına katılım olduğunda çağrılır (hub callback'ten).
 	UpdateLastVoiceActivity(ctx context.Context, serverID string) error
+
+	// CountOwnedMqviHostedServers, bir kullanıcının owner olduğu
+	// mqvi-hosted (platform-managed) sunucu sayısını döner.
+	// Sunucu oluşturma limiti kontrolünde kullanılır.
+	CountOwnedMqviHostedServers(ctx context.Context, ownerID string) (int, error)
 }

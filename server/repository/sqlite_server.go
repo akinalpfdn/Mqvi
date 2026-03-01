@@ -344,3 +344,16 @@ func (r *sqliteServerRepo) GetMemberServerIDs(ctx context.Context, userID string
 
 	return ids, nil
 }
+
+func (r *sqliteServerRepo) CountOwnedMqviHostedServers(ctx context.Context, ownerID string) (int, error) {
+	query := `
+		SELECT COUNT(*) FROM servers s
+		JOIN livekit_instances li ON s.livekit_instance_id = li.id
+		WHERE s.owner_id = ? AND li.is_platform_managed = true`
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count owned mqvi-hosted servers: %w", err)
+	}
+	return count, nil
+}

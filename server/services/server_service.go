@@ -128,6 +128,25 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
 	}
 
+	// ─── mqvi-hosted sunucu limiti ───
+	// Normal kullanıcılar max 1 mqvi-hosted sunucu oluşturabilir (owner olarak).
+	// Platform admin sınırsız. Self-hosted sınırsız.
+	if req.HostType == "mqvi_hosted" {
+		user, err := s.userRepo.GetByID(ctx, ownerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+		if !user.IsPlatformAdmin {
+			count, err := s.serverRepo.CountOwnedMqviHostedServers(ctx, ownerID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to count owned servers: %w", err)
+			}
+			if count >= 1 {
+				return nil, fmt.Errorf("%w: you can only own 1 mqvi-hosted server, you can create unlimited self-hosted servers", pkg.ErrBadRequest)
+			}
+		}
+	}
+
 	// ─── LiveKit Instance (transaction dışında) ───
 	// LiveKit operasyonları bağımsız — kendi tablosunda çalışır.
 	// Hata olursa sunucu oluşturulmadan dönülür.
