@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** Uygulamayı yeniden başlat — ConnectionSettings'te kullanılır */
   relaunch: (): Promise<void> => ipcRenderer.invoke("relaunch"),
 
+  /** Splash'te update kontrolü yapıldı mı? true ise renderer tekrar kontrol etmesin */
+  wasUpdateChecked: (): Promise<boolean> => ipcRenderer.invoke("was-update-checked"),
+
   /** Güncelleme kontrolü — UpdateInfo veya null döner */
   checkUpdate: (): Promise<unknown> => ipcRenderer.invoke("check-update"),
 

@@ -46,9 +46,8 @@
     },
     "artifactName": "mqvi-setup.${ext}",
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "displayLanguageSelector": true
+      "oneClick": true,
+      "perMachine": false
     },
     "mac": {
       "target": [

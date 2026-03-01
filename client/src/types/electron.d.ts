@@ -46,6 +46,9 @@ interface ElectronAPI {
   /** Uygulamayı yeniden başlat */
   relaunch: () => Promise<void>;
 
+  /** Splash'te update kontrolü yapıldı mı? */
+  wasUpdateChecked: () => Promise<boolean>;
+
   /** Güncelleme kontrolü */
   checkUpdate: () => Promise<ElectronUpdateInfo | null>;
 

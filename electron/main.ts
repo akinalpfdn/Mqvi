@@ -69,6 +69,13 @@ let captureProcess: ChildProcess | null = null;
  */
 let captureGeneration = 0;
 
+/**
+ * Pre-launch update check sonucu.
+ * true → splash'te güncelleme bulunamadı (renderer tekrar kontrol etmesin).
+ * false → splash hiç çalışmadı (dev mod) veya hata oldu.
+ */
+let prelaunchUpdateChecked = false;
+
 /** Whether the PCM header has been parsed from the capture process stdout */
 let captureHeaderParsed = false;
 
@@ -305,6 +312,11 @@ function setupIPC(): void {
   });
 
   // ─── Auto-Updater IPC ───
+
+  // Renderer, splash'te update kontrolünün yapılıp yapılmadığını sorar.
+  // Yapıldıysa renderer tekrar kontrol etmez — çift banner sorunu önlenir.
+  ipcMain.handle("was-update-checked", () => prelaunchUpdateChecked);
+
   // Renderer'dan güncelleme kontrolü ve kurma talebi
   ipcMain.handle("check-update", async () => {
     try {
@@ -325,7 +337,9 @@ function setupIPC(): void {
   });
 
   ipcMain.handle("install-update", () => {
-    autoUpdater.quitAndInstall();
+    // isSilent=true: Installer penceresi gösterilmez
+    // isForceRunAfter=true: Kurulumdan sonra app otomatik açılır
+    autoUpdater.quitAndInstall(true, true);
   });
 
   // ─── Desktop Capturer ───
@@ -502,7 +516,10 @@ function setupIPC(): void {
  * Fark: electron-updater progress event'leri daha detaylı.
  */
 function setupAutoUpdater(): void {
-  autoUpdater.autoDownload = false;
+  // Discord modeli: güncelleme bulunursa otomatik indir
+  autoUpdater.autoDownload = true;
+  // İndirme bitince otomatik kurma — app kapanırken kurulsun
+  autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on("update-available", (info) => {
     mainWindow?.webContents.send("update-available", info);
@@ -512,8 +529,8 @@ function setupAutoUpdater(): void {
     mainWindow?.webContents.send("update-progress", progress);
   });
 
-  autoUpdater.on("update-downloaded", () => {
-    mainWindow?.webContents.send("update-downloaded");
+  autoUpdater.on("update-downloaded", (info) => {
+    mainWindow?.webContents.send("update-downloaded", info);
   });
 
   autoUpdater.on("error", (err) => {
@@ -575,60 +592,67 @@ function createUpdateWindow(): BrowserWindow {
     },
   });
 
-  // Logo PNG dosyasını runtime'da oku ve base64 data URL oluştur.
-  // data: URL içinden file:// yüklenemez (güvenlik kısıtı), bu yüzden
-  // logoyu direkt inline embed ediyoruz.
-  const logoPath = path.join(__dirname, "../icons/mqvi-icon-128x128.png");
-  let logoDataUrl = "";
-  try {
-    const logoBuffer = readFileSync(logoPath);
-    logoDataUrl = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-  } catch {
-    /* Logo dosyası bulunamazsa text fallback kullanılır */
-  }
-  const logoHtml = logoDataUrl
-    ? `<img class="logo" src="${logoDataUrl}" alt="mqvi" />`
-    : `<div class="logo-text">mqvi</div>`;
+  // Minimal HTML — inline, dosya gerektirmez.
+  // Logo base64 encode edilerek JS ile set edilir (encodeURIComponent
+  // base64'teki +/= karakterlerini bozabilir, JS ile daha güvenilir).
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: #111111; color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100vh; user-select: none;
+      -webkit-app-region: drag;
+    }
+    .logo { width: 64px; height: 64px; margin-bottom: 16px; }
+    .logo-text { font-size: 32px; font-weight: 800; color: #3b82f6; margin-bottom: 16px; }
+    .status { font-size: 14px; color: #888; }
+    .progress-wrap {
+      width: 240px; height: 4px; background: #222222;
+      border-radius: 2px; margin-top: 12px; overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%; width: 0%; background: #3b82f6;
+      border-radius: 2px; transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+  <div id="logo-container"></div>
+  <div class="status" id="status">Checking for updates...</div>
+  <div class="progress-wrap"><div class="progress-bar" id="bar"></div></div>
+  <script>
+    window.setStatus = (text) => document.getElementById('status').textContent = text;
+    window.setProgress = (pct) => document.getElementById('bar').style.width = pct + '%';
+    window.setLogo = (dataUrl) => {
+      const c = document.getElementById('logo-container');
+      if (dataUrl) {
+        c.innerHTML = '<img class="logo" src="' + dataUrl + '" alt="mqvi" />';
+      } else {
+        c.innerHTML = '<div class="logo-text">mqvi</div>';
+      }
+    };
+  </script>
+</body>
+</html>`;
 
-  // Minimal HTML — inline, dosya gerektirmez
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body {
-          background: #111111; color: #e0e0e0;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          height: 100vh; user-select: none;
-          -webkit-app-region: drag;
-        }
-        .logo { width: 64px; height: 64px; margin-bottom: 16px; }
-        .logo-text { font-size: 32px; font-weight: 800; color: #3b82f6; margin-bottom: 16px; }
-        .status { font-size: 14px; color: #888; }
-        .progress-wrap {
-          width: 240px; height: 4px; background: #222222;
-          border-radius: 2px; margin-top: 12px; overflow: hidden;
-        }
-        .progress-bar {
-          height: 100%; width: 0%; background: #3b82f6;
-          border-radius: 2px; transition: width 0.3s ease;
-        }
-      </style>
-    </head>
-    <body>
-      ${logoHtml}
-      <div class="status" id="status">Checking for updates...</div>
-      <div class="progress-wrap"><div class="progress-bar" id="bar"></div></div>
-      <script>
-        window.setStatus = (text) => document.getElementById('status').textContent = text;
-        window.setProgress = (pct) => document.getElementById('bar').style.width = pct + '%';
-      </script>
-    </body>
-    </html>
-  `)}`);
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  // HTML yüklendikten sonra logoyu JS ile set et — encodeURIComponent sorununu önler
+  win.webContents.once("did-finish-load", () => {
+    const logoPath = path.join(__dirname, "../icons/mqvi-icon-128x128.png");
+    try {
+      const logoBuffer = readFileSync(logoPath);
+      const dataUrl = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+      win.webContents.executeJavaScript(`window.setLogo(${JSON.stringify(dataUrl)})`);
+    } catch {
+      win.webContents.executeJavaScript(`window.setLogo(null)`);
+    }
+  });
 
   return win;
 }
@@ -644,6 +668,9 @@ async function checkForUpdateBeforeLaunch(): Promise<boolean> {
     autoUpdater.autoDownload = false;
 
     const result = await autoUpdater.checkForUpdates();
+    // Splash'te kontrol yapıldı — renderer tekrar kontrol etmesin
+    prelaunchUpdateChecked = true;
+
     if (!result || !result.updateInfo || result.updateInfo.version === app.getVersion()) {
       // Güncelleme yok — splash kapat, devam et
       updateWindow.close();
@@ -671,9 +698,11 @@ async function checkForUpdateBeforeLaunch(): Promise<boolean> {
           `window.setStatus('Installing...'); window.setProgress(100)`
         );
       }
-      // Kısa bekleme sonra kur ve yeniden başlat
+      // Kısa bekleme sonra sessizce kur ve yeniden başlat
+      // isSilent=true: NSIS installer penceresi gösterilmez (Discord modeli)
+      // isForceRunAfter=true: Kurulumdan sonra uygulama otomatik açılır
       setTimeout(() => {
-        autoUpdater.quitAndInstall(false, true);
+        autoUpdater.quitAndInstall(true, true);
       }, 1000);
     });
 
@@ -681,6 +710,8 @@ async function checkForUpdateBeforeLaunch(): Promise<boolean> {
     return true; // Güncelleme indiriliyor, uygulama yeniden başlayacak
   } catch (err) {
     // Güncelleme kontrolü başarısız — sessizce devam et
+    // Hata olsa bile kontrol denendi — renderer tekrar denemesin
+    prelaunchUpdateChecked = true;
     console.error("[updater] pre-launch check failed:", err);
     if (updateWindow && !updateWindow.isDestroyed()) {
       updateWindow.close();

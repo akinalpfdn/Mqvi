@@ -45,17 +45,16 @@ function App() {
 
   return (
     <>
-      {/* Auto-update banner — Electron modda güncelleme varsa gösterilir */}
-      {(updater.status === "available" ||
-        updater.status === "downloading" ||
-        updater.status === "installing" ||
+      {/* Auto-update banner — indirme sırasında progress, bitince restart butonu */}
+      {(updater.status === "downloading" ||
+        updater.status === "ready" ||
         updater.status === "error") && (
         <UpdateNotification
           status={updater.status}
           version={updater.update?.version ?? ""}
           progress={updater.progress}
           error={updater.error}
-          onInstall={updater.installUpdate}
+          onRestart={updater.restartAndInstall}
           onDismiss={updater.dismiss}
         />
       )}

@@ -1,9 +1,9 @@
 /**
- * UpdateNotification — Auto-update banner.
+ * UpdateNotification — Auto-update banner (Discord modeli).
  *
- * Güncelleme mevcut olduğunda ekranın üstünde sabit banner gösterir.
- * İndirme sırasında progress bar gösterir.
- * Sadece Electron modda render edilir (hook isElectron guard'ı var).
+ * İki durum gösterir:
+ * 1. "downloading": Arka planda indiriliyor — progress bar
+ * 2. "ready": İndirme bitti — "Yeniden Başlat" butonu
  *
  * CSS: Tema token'ları kullanır (globals.css @theme).
  */
@@ -12,11 +12,11 @@ import { useTranslation } from "react-i18next";
 import type { FC } from "react";
 
 type Props = {
-  status: "available" | "downloading" | "installing" | "error";
+  status: "downloading" | "ready" | "error";
   version: string;
   progress: number;
   error: string | null;
-  onInstall: () => void;
+  onRestart: () => void;
   onDismiss: () => void;
 };
 
@@ -25,7 +25,7 @@ const UpdateNotification: FC<Props> = ({
   version,
   progress,
   error,
-  onInstall,
+  onRestart,
   onDismiss,
 }) => {
   const { t } = useTranslation("settings");
@@ -49,45 +49,9 @@ const UpdateNotification: FC<Props> = ({
         fontFamily: "var(--f-s)",
       }}
     >
-      {status === "available" && (
-        <>
-          <span>{t("updateVersion", { version })}</span>
-          <button
-            onClick={onInstall}
-            style={{
-              padding: "4px 14px",
-              borderRadius: 4,
-              border: "1px solid rgba(255,255,255,0.3)",
-              background: "rgba(255,255,255,0.15)",
-              color: "#fff",
-              fontSize: 13,
-              cursor: "pointer",
-              fontFamily: "var(--f-s)",
-            }}
-          >
-            {t("updateNow")}
-          </button>
-          <button
-            onClick={onDismiss}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 4,
-              border: "none",
-              background: "transparent",
-              color: "rgba(255,255,255,0.7)",
-              fontSize: 13,
-              cursor: "pointer",
-              fontFamily: "var(--f-s)",
-            }}
-          >
-            {t("updateLater")}
-          </button>
-        </>
-      )}
-
       {status === "downloading" && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 400 }}>
-          <span>{t("updateDownloading")}</span>
+          <span>{t("updateDownloading", { version })}</span>
           <div
             style={{
               flex: 1,
@@ -107,14 +71,46 @@ const UpdateNotification: FC<Props> = ({
               }}
             />
           </div>
-          <span style={{ fontSize: 12, minWidth: 36, textAlign: "right" }}>
+          <span style={{ fontSize: 13, minWidth: 36, textAlign: "right" }}>
             {progress}%
           </span>
         </div>
       )}
 
-      {status === "installing" && (
-        <span>{t("updateInstalling")}</span>
+      {status === "ready" && (
+        <>
+          <span>{t("updateReady", { version })}</span>
+          <button
+            onClick={onRestart}
+            style={{
+              padding: "4px 14px",
+              borderRadius: 4,
+              border: "1px solid rgba(255,255,255,0.3)",
+              background: "rgba(255,255,255,0.15)",
+              color: "#fff",
+              fontSize: 13,
+              cursor: "pointer",
+              fontFamily: "var(--f-s)",
+            }}
+          >
+            {t("updateRestart")}
+          </button>
+          <button
+            onClick={onDismiss}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 4,
+              border: "none",
+              background: "transparent",
+              color: "rgba(255,255,255,0.7)",
+              fontSize: 13,
+              cursor: "pointer",
+              fontFamily: "var(--f-s)",
+            }}
+          >
+            {t("updateLater")}
+          </button>
+        </>
       )}
 
       {status === "error" && (
