@@ -14,12 +14,20 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { useDMStore } from "../../stores/dmStore";
+import { useUIStore } from "../../stores/uiStore";
 import {
   listLiveKitInstances,
   listAdminServers,
   migrateServerInstance,
+  adminDeleteServer,
 } from "../../api/admin";
+import { useContextMenu } from "../../hooks/useContextMenu";
+import ContextMenu from "../shared/ContextMenu";
+import PlatformActionDialog from "./PlatformActionDialog";
 import type { LiveKitInstanceAdmin, AdminServerListItem } from "../../types";
+import type { ContextMenuItem } from "../../hooks/useContextMenu";
 
 // ─── Column Definition ───
 
@@ -132,11 +140,15 @@ function compareSortValue(
 function AdminServerList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const { menuState, openMenu, closeMenu } = useContextMenu();
 
   // ─── Data state ───
   const [servers, setServers] = useState<AdminServerListItem[]>([]);
   const [instances, setInstances] = useState<LiveKitInstanceAdmin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // ─── Delete dialog state ───
+  const [deleteTarget, setDeleteTarget] = useState<AdminServerListItem | null>(null);
 
   // ─── Table state ───
   const [searchQuery, setSearchQuery] = useState("");
@@ -350,6 +362,62 @@ function AdminServerList() {
     }
   }
 
+  // ─── Context Menu ───
+
+  /** Sunucu listesini yeniden yükle (delete sonrası) */
+  const refetchServers = useCallback(async () => {
+    const res = await listAdminServers();
+    if (res.success && res.data) {
+      setServers(res.data);
+    }
+  }, []);
+
+  /** Sağ tık menü öğelerini oluştur */
+  function buildContextItems(srv: AdminServerListItem): ContextMenuItem[] {
+    const items: ContextMenuItem[] = [];
+
+    // Sahibine DM Gönder
+    items.push({
+      label: t("platformServerSendDMOwner"),
+      onClick: () => handleSendDMOwner(srv),
+    });
+
+    // Sunucuyu Sil
+    items.push({
+      label: t("platformServerDelete"),
+      danger: true,
+      separator: true,
+      onClick: () => setDeleteTarget(srv),
+    });
+
+    return items;
+  }
+
+  /** DM kanalı aç — sunucu sahibine DM gönder */
+  async function handleSendDMOwner(srv: AdminServerListItem) {
+    const channelId = await useDMStore.getState().createOrGetChannel(srv.owner_id);
+    if (channelId) {
+      useUIStore.getState().openTab(channelId, "dm", srv.owner_username);
+      useSettingsStore.getState().closeSettings();
+    }
+  }
+
+  /** Delete onayı — PlatformActionDialog'dan gelen callback */
+  async function handleDeleteConfirm(reason: string) {
+    if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    const targetName = deleteTarget.name;
+    setDeleteTarget(null);
+
+    const res = await adminDeleteServer(targetId, reason ? { reason } : undefined);
+    if (res.success) {
+      addToast("success", t("platformServerDeleteSuccess", { serverName: targetName }));
+      await refetchServers();
+    } else {
+      addToast("error", res.error ?? t("platformServerDeleteError"));
+    }
+  }
+
   // ─── Sort indicator ───
   function sortIndicator(key: SortKey) {
     if (sortKey !== key) return null;
@@ -540,7 +608,13 @@ function AdminServerList() {
             </thead>
             <tbody>
               {filteredServers.map((srv) => (
-                <tr key={srv.id}>
+                <tr
+                  key={srv.id}
+                  onContextMenu={(e) => {
+                    const items = buildContextItems(srv);
+                    if (items.length > 0) openMenu(e, items);
+                  }}
+                >
                   {COLUMNS.map((col) => (
                     <td key={col.key} style={{ textAlign: col.align }}>
                       {renderCell(srv, col.key)}
@@ -551,6 +625,21 @@ function AdminServerList() {
             </tbody>
           </table>
         </div>
+      )}
+      {/* Context Menu */}
+      <ContextMenu state={menuState} onClose={closeMenu} />
+
+      {/* Delete Dialog */}
+      {deleteTarget && (
+        <PlatformActionDialog
+          title={t("platformServerDeleteTitle")}
+          description={t("platformServerDeleteDescription", { serverName: deleteTarget.name })}
+          reasonLabel={t("platformServerDeleteReasonLabel")}
+          reasonPlaceholder={t("platformServerDeleteReasonPlaceholder")}
+          confirmLabel={t("platformServerDeleteConfirm")}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );

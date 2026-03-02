@@ -114,9 +114,10 @@ func initRoutes(
 	mux.Handle("PATCH /api/admin/livekit-instances/{id}", authAdmin(h.Admin.UpdateLiveKitInstance))
 	mux.Handle("DELETE /api/admin/livekit-instances/{id}", authAdmin(h.Admin.DeleteLiveKitInstance))
 
-	// Platform Admin — Sunucu listesi + instance migration
+	// Platform Admin — Sunucu listesi + instance migration + silme
 	mux.Handle("GET /api/admin/servers", authAdmin(h.Admin.ListServers))
 	mux.Handle("PATCH /api/admin/servers/{serverId}/instance", authAdmin(h.Admin.MigrateServerInstance))
+	mux.Handle("DELETE /api/admin/servers/{serverId}", authAdmin(h.Admin.AdminDeleteServer))
 
 	// Platform Admin — Kullanıcı yönetimi
 	mux.Handle("GET /api/admin/users", authAdmin(h.Admin.ListUsers))

@@ -22,6 +22,21 @@ type EmailSender interface {
 	// SendPasswordReset, kullanıcıya şifre sıfırlama linki içeren email gönderir.
 	// toEmail: alıcı email adresi, token: plaintext reset token (link'e gömülecek).
 	SendPasswordReset(ctx context.Context, toEmail, token string) error
+
+	// SendPlatformBanNotification, platform ban bildirimi gönderir.
+	// Kullanıcı platform admini tarafından yasaklandığında çağrılır.
+	// reason: ban sebebi (admin tarafından girilmiş).
+	SendPlatformBanNotification(ctx context.Context, toEmail, reason string) error
+
+	// SendAccountDeleteNotification, hesap silme bildirimi gönderir.
+	// Kullanıcı platform admini tarafından kalıcı olarak silindiğinde çağrılır.
+	// reason: silme sebebi (admin tarafından girilmiş).
+	SendAccountDeleteNotification(ctx context.Context, toEmail, reason string) error
+
+	// SendServerDeleteNotification, sunucu silme bildirimi gönderir.
+	// Sunucu platform admini tarafından silindiğinde sunucu sahibine gönderilir.
+	// serverName: silinen sunucunun adı, reason: silme sebebi.
+	SendServerDeleteNotification(ctx context.Context, toEmail, serverName, reason string) error
 }
 
 // resendSender, Resend API ile email gönderen EmailSender implementasyonu.
@@ -110,6 +125,190 @@ func (s *resendSender) SendPasswordReset(ctx context.Context, toEmail, token str
 	_, err := s.client.Emails.SendWithContext(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to send password reset email: %w", err)
+	}
+
+	return nil
+}
+
+// SendPlatformBanNotification, platform ban bildirimi gönderir.
+//
+// Email içeriği:
+// - Subject: "Your Account Has Been Suspended — mqvi"
+// - Body: Ban sebebini içeren bilgilendirme maili
+func (s *resendSender) SendPlatformBanNotification(ctx context.Context, toEmail, reason string) error {
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#1a1a2e;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="480" cellpadding="0" cellspacing="0" style="background-color:#16213e;border-radius:8px;padding:40px;">
+          <tr>
+            <td>
+              <h1 style="color:#e2e8f0;font-size:24px;margin:0 0 8px 0;">mqvi</h1>
+              <h2 style="color:#e2e8f0;font-size:18px;margin:0 0 24px 0;">Account Suspended</h2>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 24px 0;">
+                Your mqvi account has been suspended by a platform administrator.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;width:100%%;">
+                <tr>
+                  <td style="background-color:#1e293b;border-radius:6px;padding:16px;border-left:4px solid #ef4444;">
+                    <p style="color:#64748b;font-size:13px;margin:0 0 4px 0;font-weight:600;">Reason</p>
+                    <p style="color:#e2e8f0;font-size:15px;line-height:1.6;margin:0;">%s</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#64748b;font-size:13px;line-height:1.6;margin:0;">
+                If you believe this was a mistake, please contact the platform administrator.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`, reason)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: "Your Account Has Been Suspended — mqvi",
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.SendWithContext(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to send platform ban notification: %w", err)
+	}
+
+	return nil
+}
+
+// SendAccountDeleteNotification, hesap silme bildirimi gönderir.
+//
+// Email içeriği:
+// - Subject: "Your Account Has Been Deleted — mqvi"
+// - Body: Silme sebebini içeren bilgilendirme maili
+//
+// NOT: Email kullanıcı silinmeden ÖNCE gönderilmelidir (silindikten sonra
+// email adresi kaybolur). Service katmanı bu sıralamayı garanti eder.
+func (s *resendSender) SendAccountDeleteNotification(ctx context.Context, toEmail, reason string) error {
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#1a1a2e;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="480" cellpadding="0" cellspacing="0" style="background-color:#16213e;border-radius:8px;padding:40px;">
+          <tr>
+            <td>
+              <h1 style="color:#e2e8f0;font-size:24px;margin:0 0 8px 0;">mqvi</h1>
+              <h2 style="color:#e2e8f0;font-size:18px;margin:0 0 24px 0;">Account Deleted</h2>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 24px 0;">
+                Your mqvi account has been permanently deleted by a platform administrator.
+                All associated data has been removed.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;width:100%%;">
+                <tr>
+                  <td style="background-color:#1e293b;border-radius:6px;padding:16px;border-left:4px solid #ef4444;">
+                    <p style="color:#64748b;font-size:13px;margin:0 0 4px 0;font-weight:600;">Reason</p>
+                    <p style="color:#e2e8f0;font-size:15px;line-height:1.6;margin:0;">%s</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#64748b;font-size:13px;line-height:1.6;margin:0;">
+                If you believe this was a mistake, please contact the platform administrator.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`, reason)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: "Your Account Has Been Deleted — mqvi",
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.SendWithContext(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to send account delete notification: %w", err)
+	}
+
+	return nil
+}
+
+// SendServerDeleteNotification, sunucu silme bildirimi gönderir.
+//
+// Email içeriği:
+// - Subject: "Your Server Has Been Deleted — mqvi"
+// - Body: Sunucu adı ve silme sebebini içeren bilgilendirme maili
+//
+// Sunucu platform admini tarafından silindiğinde sunucu sahibine gönderilir.
+func (s *resendSender) SendServerDeleteNotification(ctx context.Context, toEmail, serverName, reason string) error {
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#1a1a2e;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="480" cellpadding="0" cellspacing="0" style="background-color:#16213e;border-radius:8px;padding:40px;">
+          <tr>
+            <td>
+              <h1 style="color:#e2e8f0;font-size:24px;margin:0 0 8px 0;">mqvi</h1>
+              <h2 style="color:#e2e8f0;font-size:18px;margin:0 0 24px 0;">Server Deleted</h2>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 24px 0;">
+                Your server <strong style="color:#e2e8f0;">%s</strong> has been deleted by a platform administrator.
+                All channels, messages, and members have been removed.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;width:100%%;">
+                <tr>
+                  <td style="background-color:#1e293b;border-radius:6px;padding:16px;border-left:4px solid #ef4444;">
+                    <p style="color:#64748b;font-size:13px;margin:0 0 4px 0;font-weight:600;">Reason</p>
+                    <p style="color:#e2e8f0;font-size:15px;line-height:1.6;margin:0;">%s</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#64748b;font-size:13px;line-height:1.6;margin:0;">
+                If you believe this was a mistake, please contact the platform administrator.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`, serverName, reason)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: "Your Server Has Been Deleted — mqvi",
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.SendWithContext(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to send server delete notification: %w", err)
 	}
 
 	return nil

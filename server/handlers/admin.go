@@ -21,6 +21,7 @@ type AdminHandler struct {
 	livekitAdminService   services.LiveKitAdminService
 	metricsHistoryService services.MetricsHistoryService
 	adminUserService      services.AdminUserService
+	adminServerService    services.AdminServerService
 }
 
 // NewAdminHandler, constructor.
@@ -28,11 +29,13 @@ func NewAdminHandler(
 	livekitAdminService services.LiveKitAdminService,
 	metricsHistoryService services.MetricsHistoryService,
 	adminUserService services.AdminUserService,
+	adminServerService services.AdminServerService,
 ) *AdminHandler {
 	return &AdminHandler{
 		livekitAdminService:   livekitAdminService,
 		metricsHistoryService: metricsHistoryService,
 		adminUserService:      adminUserService,
+		adminServerService:    adminServerService,
 	}
 }
 
@@ -255,6 +258,7 @@ func (h *AdminHandler) PlatformBanUser(w http.ResponseWriter, r *http.Request) {
 
 // HardDeleteUser — DELETE /api/admin/users/{id}
 // Kullanıcıyı ve tüm verilerini kalıcı olarak siler.
+// Opsiyonel request body: { "reason": "..." } — doldurulursa kullanıcıya email bildirim gönderilir.
 func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -268,10 +272,42 @@ func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.adminUserService.HardDeleteUser(r.Context(), admin.ID, targetID); err != nil {
+	// Opsiyonel reason body — DELETE body boş olabilir, hata yutulur
+	var req models.HardDeleteUserRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if err := h.adminUserService.HardDeleteUser(r.Context(), admin.ID, targetID, req.Reason); err != nil {
 		pkg.Error(w, err)
 		return
 	}
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user deleted"})
+}
+
+// AdminDeleteServer — DELETE /api/admin/servers/{serverId}
+// Sunucuyu platform admin yetkisiyle kalıcı olarak siler.
+// Opsiyonel request body: { "reason": "..." } — doldurulursa sunucu sahibine email bildirim gönderilir.
+func (h *AdminHandler) AdminDeleteServer(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	serverID := r.PathValue("serverId")
+	if serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	// Opsiyonel reason body — DELETE body boş olabilir, hata yutulur
+	var req models.AdminDeleteServerRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if err := h.adminServerService.DeleteServer(r.Context(), admin.ID, serverID, req.Reason); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server deleted"})
 }

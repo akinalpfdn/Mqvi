@@ -99,10 +99,31 @@ export async function platformBanUser(
   });
 }
 
-/** Kullanıcıyı ve tüm verilerini kalıcı olarak siler (admin). */
-export async function hardDeleteUser(userId: string) {
+/**
+ * Kullanıcıyı ve tüm verilerini kalıcı olarak siler (admin).
+ * Reason opsiyonel — doldurulursa kullanıcıya email bildirim gönderilir.
+ */
+export async function hardDeleteUser(
+  userId: string,
+  data?: { reason: string }
+) {
   return apiClient<{ message: string }>(`/admin/users/${userId}`, {
     method: "DELETE",
+    body: data,
+  });
+}
+
+/**
+ * Sunucuyu platform admin yetkisiyle kalıcı olarak siler.
+ * Reason opsiyonel — doldurulursa sunucu sahibine email bildirim gönderilir.
+ */
+export async function adminDeleteServer(
+  serverId: string,
+  data?: { reason: string }
+) {
+  return apiClient<{ message: string }>(`/admin/servers/${serverId}`, {
+    method: "DELETE",
+    body: data,
   });
 }
 

@@ -47,6 +47,7 @@ type Services struct {
 	MetricsHistory    services.MetricsHistoryService
 	ServerMute        services.ServerMuteService
 	AdminUser         services.AdminUserService
+	AdminServer       services.AdminServerService
 }
 
 // RateLimiters, tüm rate limiter instance'larını tutan container.
@@ -118,8 +119,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 
-	// ─── Platform Admin — User Management ───
-	adminUserService := services.NewAdminUserService(repos.User, hub, voiceService)
+	// ─── Platform Admin — User + Server Management ───
+	adminUserService := services.NewAdminUserService(repos.User, hub, voiceService, emailSender)
+	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, emailSender)
 
 	// ─── Metrics History ───
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
@@ -157,6 +159,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		MetricsHistory:    metricsHistoryService,
 		ServerMute:        serverMuteService,
 		AdminUser:         adminUserService,
+		AdminServer:       adminServerService,
 	}
 
 	limiters := &RateLimiters{

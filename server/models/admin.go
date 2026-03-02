@@ -51,6 +51,18 @@ type PlatformBanRequest struct {
 	DeleteMessages bool   `json:"delete_messages"`
 }
 
+// HardDeleteUserRequest — Kullanıcı silme isteği.
+// Reason opsiyonel — doldurulursa kullanıcıya email ile bildirilir.
+type HardDeleteUserRequest struct {
+	Reason string `json:"reason"`
+}
+
+// AdminDeleteServerRequest — Platform admin sunucu silme isteği.
+// Reason opsiyonel — doldurulursa sunucu sahibine email ile bildirilir.
+type AdminDeleteServerRequest struct {
+	Reason string `json:"reason"`
+}
+
 // MigrateServerInstanceRequest — Tek bir sunucunun LiveKit instance'ını değiştirme isteği.
 type MigrateServerInstanceRequest struct {
 	LiveKitInstanceID string `json:"livekit_instance_id"`

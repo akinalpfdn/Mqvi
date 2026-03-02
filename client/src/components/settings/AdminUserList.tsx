@@ -19,9 +19,9 @@ import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
 import { listAdminUsers, platformBanUser, hardDeleteUser } from "../../api/admin";
 import { useContextMenu } from "../../hooks/useContextMenu";
-import { useConfirm } from "../../hooks/useConfirm";
 import ContextMenu from "../shared/ContextMenu";
 import PlatformBanDialog from "./PlatformBanDialog";
+import PlatformActionDialog from "./PlatformActionDialog";
 import type { AdminUserListItem } from "../../types";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 
@@ -153,7 +153,6 @@ function AdminUserList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
   const currentUser = useAuthStore((s) => s.user);
-  const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
 
   // ─── Data state ───
@@ -162,6 +161,9 @@ function AdminUserList() {
 
   // ─── Ban dialog state ───
   const [banTarget, setBanTarget] = useState<AdminUserListItem | null>(null);
+
+  // ─── Delete dialog state ───
+  const [deleteTarget, setDeleteTarget] = useState<AdminUserListItem | null>(null);
 
   // ─── Table state ───
   const [searchQuery, setSearchQuery] = useState("");
@@ -263,7 +265,7 @@ function AdminUserList() {
         label: t("platformUserDelete"),
         danger: true,
         separator: items.length > 0 && !items[items.length - 1]?.separator,
-        onClick: () => handleDeleteUser(user),
+        onClick: () => setDeleteTarget(user),
       });
     }
 
@@ -296,19 +298,16 @@ function AdminUserList() {
     }
   }
 
-  /** Hard delete — useConfirm ile onay dialogu */
-  async function handleDeleteUser(user: AdminUserListItem) {
-    const ok = await confirm({
-      title: t("platformDeleteTitle"),
-      message: t("platformDeleteDescription", { username: user.username }),
-      confirmLabel: t("platformDeleteConfirm"),
-      danger: true,
-    });
-    if (!ok) return;
+  /** Hard delete — PlatformActionDialog ile onay + opsiyonel reason */
+  async function handleDeleteConfirm(reason: string) {
+    if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    const targetName = deleteTarget.username;
+    setDeleteTarget(null);
 
-    const res = await hardDeleteUser(user.id);
+    const res = await hardDeleteUser(targetId, reason ? { reason } : undefined);
     if (res.success) {
-      addToast("success", t("platformDeleteSuccess", { username: user.username }));
+      addToast("success", t("platformDeleteSuccess", { username: targetName }));
       await refetchUsers();
     } else {
       addToast("error", res.error ?? t("platformDeleteError"));
@@ -598,6 +597,19 @@ function AdminUserList() {
           username={banTarget.username}
           onConfirm={handleBanConfirm}
           onCancel={() => setBanTarget(null)}
+        />
+      )}
+
+      {/* Delete Dialog */}
+      {deleteTarget && (
+        <PlatformActionDialog
+          title={t("platformDeleteTitle")}
+          description={t("platformDeleteDescription", { username: deleteTarget.username })}
+          reasonLabel={t("platformDeleteReasonLabel")}
+          reasonPlaceholder={t("platformDeleteReasonPlaceholder")}
+          confirmLabel={t("platformDeleteConfirm")}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>

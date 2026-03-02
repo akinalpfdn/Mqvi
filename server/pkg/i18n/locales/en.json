@@ -67,6 +67,8 @@
     "userBanned": "User has been banned",
     "cannotDeleteSelf": "You cannot delete yourself",
     "cannotDeleteAdmin": "Cannot delete a platform admin",
-    "userDeleted": "User has been deleted"
+    "userDeleted": "User has been deleted",
+    "serverDeletedByAdmin": "Server has been deleted by admin",
+    "serverNotFound": "Server not found"
   }
 }

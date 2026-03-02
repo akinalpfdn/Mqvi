@@ -67,6 +67,8 @@
     "userBanned": "Kullanıcı yasaklandı",
     "cannotDeleteSelf": "Kendinizi silemezsiniz",
     "cannotDeleteAdmin": "Platform yöneticisi silinemez",
-    "userDeleted": "Kullanıcı silindi"
+    "userDeleted": "Kullanıcı silindi",
+    "serverDeletedByAdmin": "Sunucu admin tarafından silindi",
+    "serverNotFound": "Sunucu bulunamadı"
   }
 }
