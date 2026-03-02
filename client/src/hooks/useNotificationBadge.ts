@@ -20,6 +20,7 @@
 import { useEffect, useRef } from "react";
 import { useReadStateStore } from "../stores/readStateStore";
 import { useDMStore } from "../stores/dmStore";
+import { useServerStore } from "../stores/serverStore";
 
 /** Badge rengi — Discord kırmızısı */
 const BADGE_COLOR = "#ED4245";
@@ -165,6 +166,8 @@ function setFavicon(href: string): void {
 export function useNotificationBadge(): void {
   const channelUnreads = useReadStateStore((s) => s.unreadCounts);
   const dmUnreads = useDMStore((s) => s.dmUnreadCounts);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const mutedServerIds = useServerStore((s) => s.mutedServerIds);
 
   /**
    * Orijinal favicon Image referansı — bir kez yüklenir, sonra her badge
@@ -193,10 +196,12 @@ export function useNotificationBadge(): void {
 
   useEffect(() => {
     // Toplam okunmamış sayı hesapla
-    const channelTotal = Object.values(channelUnreads).reduce(
-      (sum, c) => sum + c,
-      0,
-    );
+    // Muted sunucunun channel unread'leri badge toplamından hariç tutulur.
+    // channelUnreads aktif sunucuya ait — aktif sunucu muted ise sıfır say.
+    const isActiveMuted = activeServerId ? mutedServerIds.has(activeServerId) : false;
+    const channelTotal = isActiveMuted
+      ? 0
+      : Object.values(channelUnreads).reduce((sum, c) => sum + c, 0);
     const dmTotal = Object.values(dmUnreads).reduce(
       (sum, c) => sum + c,
       0,
@@ -231,5 +236,5 @@ export function useNotificationBadge(): void {
         }
       }
     }
-  }, [channelUnreads, dmUnreads]);
+  }, [channelUnreads, dmUnreads, activeServerId, mutedServerIds]);
 }

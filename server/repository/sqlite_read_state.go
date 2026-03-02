@@ -89,3 +89,33 @@ func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serve
 
 	return unreads, nil
 }
+
+// MarkAllRead, sunucudaki tüm text kanallarının son mesajını okunmuş olarak işaretler.
+//
+// Tek bir SQL ile tüm kanalları topluca upsert eder:
+// 1. Sunucudaki her text kanalının en son mesajını bul (sub-query)
+// 2. INSERT OR REPLACE ile read_states'e yaz
+// Mesajı olmayan kanallar otomatik olarak hariç tutulur (INNER JOIN).
+func (r *sqliteReadStateRepo) MarkAllRead(ctx context.Context, userID, serverID string) error {
+	query := `
+		INSERT INTO channel_reads (user_id, channel_id, last_read_message_id, last_read_at)
+		SELECT ?, c.id, latest.id, CURRENT_TIMESTAMP
+		FROM channels c
+		INNER JOIN (
+			SELECT channel_id, id
+			FROM messages m1
+			WHERE m1.created_at = (
+				SELECT MAX(m2.created_at) FROM messages m2 WHERE m2.channel_id = m1.channel_id
+			)
+		) latest ON latest.channel_id = c.id
+		WHERE c.server_id = ? AND c.type = 'text'
+		ON CONFLICT(user_id, channel_id)
+		DO UPDATE SET last_read_message_id = excluded.last_read_message_id,
+		              last_read_at = excluded.last_read_at`
+
+	_, err := r.db.ExecContext(ctx, query, userID, serverID)
+	if err != nil {
+		return fmt.Errorf("failed to mark all channels as read: %w", err)
+	}
+	return nil
+}

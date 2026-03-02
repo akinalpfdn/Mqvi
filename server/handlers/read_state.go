@@ -50,6 +50,30 @@ func (h *ReadStateHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "marked as read"})
 }
 
+// MarkAllRead godoc
+// POST /api/servers/{serverId}/channels/read-all
+// Sunucudaki tüm kanalları okunmuş olarak işaretler.
+func (h *ReadStateHandler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	if err := h.readStateService.MarkAllRead(r.Context(), user.ID, serverID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "all channels marked as read"})
+}
+
 // GetUnreads godoc
 // GET /api/servers/{serverId}/channels/unread
 // Kullanıcının bu sunucudaki tüm kanallarındaki okunmamış mesaj sayılarını döner.

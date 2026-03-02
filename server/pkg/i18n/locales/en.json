@@ -49,6 +49,9 @@
     "notInCall": "You are not in a call",
     "cannotCallSelf": "You cannot call yourself"
   },
+  "server": {
+    "muteInvalidDuration": "Invalid mute duration. Valid values: 1h, 8h, 7d, forever"
+  },
   "admin": {
     "platformAdminRequired": "Platform admin access required",
     "instanceNotFound": "LiveKit instance not found",

@@ -36,3 +36,13 @@ export function markRead(serverId: string, channelId: string, messageId: string)
 export function getUnreadCounts(serverId: string) {
   return apiClient<UnreadInfo[]>(`/servers/${serverId}/channels/unread`);
 }
+
+/**
+ * markAllRead — Sunucudaki tüm kanalları okunmuş olarak işaretler.
+ * Context menüden "Tümünü okundu işaretle" seçeneği için.
+ */
+export function markAllRead(serverId: string) {
+  return apiClient<{ message: string }>(`/servers/${serverId}/channels/read-all`, {
+    method: "POST",
+  });
+}

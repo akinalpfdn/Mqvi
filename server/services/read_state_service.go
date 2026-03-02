@@ -15,6 +15,9 @@ import (
 type ReadStateService interface {
 	MarkRead(ctx context.Context, userID, channelID, messageID string) error
 	GetUnreadCounts(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error)
+
+	// MarkAllRead, sunucudaki tüm kanalları okunmuş olarak işaretler.
+	MarkAllRead(ctx context.Context, userID, serverID string) error
 }
 
 type readStateService struct {
@@ -37,6 +40,10 @@ func (s *readStateService) MarkRead(ctx context.Context, userID, channelID, mess
 		return fmt.Errorf("%w: message_id is required", pkg.ErrBadRequest)
 	}
 	return s.readStateRepo.Upsert(ctx, userID, channelID, messageID)
+}
+
+func (s *readStateService) MarkAllRead(ctx context.Context, userID, serverID string) error {
+	return s.readStateRepo.MarkAllRead(ctx, userID, serverID)
 }
 
 func (s *readStateService) GetUnreadCounts(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error) {

@@ -41,8 +41,13 @@ import { hasPermission, Permissions } from "../../utils/permissions";
 import { resolveAssetUrl } from "../../utils/constants";
 import * as channelApi from "../../api/channels";
 import Avatar from "../shared/Avatar";
+import ContextMenu from "../shared/ContextMenu";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
+import MuteDurationPicker from "../servers/MuteDurationPicker";
+import InviteFriendsModal from "../servers/InviteFriendsModal";
 import AddServerModal from "../servers/AddServerModal";
+import { useContextMenu } from "../../hooks/useContextMenu";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 type ChannelTreeProps = {
   onJoinVoice: (channelId: string) => void;
@@ -80,6 +85,28 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const activeServerId = useServerStore((s) => s.activeServerId);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const reorderServers = useServerStore((s) => s.reorderServers);
+  const mutedServerIds = useServerStore((s) => s.mutedServerIds);
+  const unmuteServer = useServerStore((s) => s.unmuteServer);
+  const activeServer = useServerStore((s) => s.activeServer);
+  const leaveServer = useServerStore((s) => s.leaveServer);
+  const markAllAsRead = useReadStateStore((s) => s.markAllAsRead);
+  const openSettings = useSettingsStore((s) => s.openSettings);
+
+  // Server context menu
+  const { menuState: serverMenuState, openMenu: openServerMenu, closeMenu: closeServerMenu } = useContextMenu();
+
+  // Mute duration picker state
+  const [mutePicker, setMutePicker] = useState<{
+    serverId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Invite Friends modal state
+  const [inviteTarget, setInviteTarget] = useState<{
+    serverId: string;
+    serverName: string;
+  } | null>(null);
 
   // Add Server modal state
   const [showAddServer, setShowAddServer] = useState(false);
@@ -496,6 +523,73 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     setActiveServer(serverId);
   }
 
+  /**
+   * Sunucu sag tik context menu.
+   * Menu ogeleri: Sunucu Ayarlari, Tumunu Okundu Isaretle,
+   * Arkadaslari Davet Et, Sessize Al / Kaldir, Sunucudan Ayril.
+   */
+  function handleServerContextMenu(e: React.MouseEvent, serverId: string, serverName: string) {
+    const isMuted = mutedServerIds.has(serverId);
+    // Owner kontrolu — activeServer (tam Server nesnesi) sadece aktif sunucu icin var
+    const isOwner = activeServer?.owner_id === currentUser?.id && activeServer?.id === serverId;
+
+    const items = [
+      {
+        label: tServers("serverSettings"),
+        onClick: () => {
+          // Sunucu ayarlarina gitmeden once aktif sunucu olmali
+          if (serverId !== activeServerId) setActiveServer(serverId);
+          openSettings("server-general");
+        },
+      },
+      {
+        label: tServers("markAllAsRead"),
+        onClick: async () => {
+          const ok = await markAllAsRead(serverId);
+          if (ok) addToast("success", tServers("allMarkedAsRead"));
+        },
+      },
+      {
+        label: tServers("inviteFriends"),
+        onClick: () => {
+          setInviteTarget({ serverId, serverName });
+        },
+      },
+      { separator: true } as const,
+      isMuted
+        ? {
+            label: tServers("unmuteServer"),
+            onClick: async () => {
+              const ok = await unmuteServer(serverId);
+              if (ok) addToast("success", tServers("serverUnmuted"));
+            },
+            separator: true,
+          }
+        : {
+            label: tServers("muteServer"),
+            onClick: () => {
+              // MuteDurationPicker'i context menu pozisyonunda ac
+              setMutePicker({ serverId, x: e.clientX, y: e.clientY });
+            },
+            separator: true,
+          },
+      {
+        label: tServers("leaveServer"),
+        danger: true,
+        disabled: isOwner,
+        onClick: async () => {
+          if (isOwner) return;
+          if (!confirm(tServers("leaveServerConfirmDesc"))) return;
+          const ok = await leaveServer(serverId);
+          if (ok) addToast("success", tServers("serverLeft"));
+        },
+        separator: true,
+      },
+    ];
+
+    openServerMenu(e, items.filter((item): item is typeof items[0] => !!item));
+  }
+
   // ─── Render helpers ───
 
   /** Chevron ikonu — section açık/kapalı durumuna göre döner */
@@ -666,8 +760,9 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                 >
                   {/* Sunucu başlığı — ikon + isim + unread badge */}
                   <button
-                    className={`ch-tree-server-header${isActive ? " active" : ""}`}
+                    className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
                     onClick={handleSrvHeaderClick}
+                    onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
                   >
                     <Chevron expanded={srvExpanded && isActive} />
                     {srv.icon_url ? (
@@ -682,8 +777,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                       </span>
                     )}
                     <span className="ch-tree-server-name">{srv.name}</span>
-                    {/* Server-level unread badge — sadece aktif sunucu için göster */}
-                    {isActive && (() => {
+                    {/* Server-level unread badge — aktif + muted değilse göster */}
+                    {isActive && !mutedServerIds.has(srv.id) && (() => {
                       const total = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
                       return total > 0 ? (
                         <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
@@ -796,7 +891,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                             {isText ? "#" : "\uD83D\uDD0A"}
                           </span>
                           <span className="ch-tree-label">{ch.name}</span>
-                          {unread > 0 && (
+                          {unread > 0 && !mutedServerIds.has(srv.id) && (
                             <span className="ch-tree-unread-dot" title={`${unread}`} />
                           )}
                         </button>
@@ -914,6 +1009,28 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       {showAddServer && (
         <AddServerModal
           onClose={() => setShowAddServer(false)}
+        />
+      )}
+
+      {/* Server Context Menu — sağ tık menüsü */}
+      <ContextMenu state={serverMenuState} onClose={closeServerMenu} />
+
+      {/* Mute Duration Picker — mute seçeneklerini gösteren portal popover */}
+      {mutePicker && (
+        <MuteDurationPicker
+          serverId={mutePicker.serverId}
+          x={mutePicker.x}
+          y={mutePicker.y}
+          onClose={() => setMutePicker(null)}
+        />
+      )}
+
+      {/* Invite Friends Modal */}
+      {inviteTarget && (
+        <InviteFriendsModal
+          serverId={inviteTarget.serverId}
+          serverName={inviteTarget.serverName}
+          onClose={() => setInviteTarget(null)}
         />
       )}
 

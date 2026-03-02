@@ -228,8 +228,18 @@ export function useWebSocket() {
           useReadStateStore.getState().markAsRead(message.channel_id, message.id);
         } else {
           useReadStateStore.getState().incrementUnread(message.channel_id);
-          playNotificationSound();
-          window.electronAPI?.flashFrame();
+
+          // Muted server kontrolü — sessize alınan sunucudan gelen mesajlar
+          // için bildirim sesi ve pencere flash'ı bastırılır.
+          // Unread sayacı yine artırılır (backend tracking) — sadece göstergeler gizlenir.
+          const activeServerId = useServerStore.getState().activeServerId;
+          const isMuted = activeServerId
+            ? useServerStore.getState().isServerMuted(activeServerId)
+            : false;
+          if (!isMuted) {
+            playNotificationSound();
+            window.electronAPI?.flashFrame();
+          }
         }
         break;
       }
@@ -271,6 +281,7 @@ export function useWebSocket() {
         const data = msg.d as {
           online_user_ids: string[];
           servers: ServerListItem[];
+          muted_server_ids: string[];
         };
 
         // Multi-server: Ready event artık sunucu listesini de içerir.
@@ -278,6 +289,11 @@ export function useWebSocket() {
         // otomatik olarak ilk sunucu seçilir.
         if (data.servers) {
           useServerStore.getState().setServersFromReady(data.servers);
+        }
+
+        // Muted server ID'lerini serverStore'a yaz — bildirim bastırma için
+        if (data.muted_server_ids) {
+          useServerStore.getState().setMutedServersFromReady(data.muted_server_ids);
         }
 
         useMemberStore.getState().handleReady(data.online_user_ids);

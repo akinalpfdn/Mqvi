@@ -49,6 +49,9 @@
     "notInCall": "Bir aramada değilsiniz",
     "cannotCallSelf": "Kendinizi arayamazsınız"
   },
+  "server": {
+    "muteInvalidDuration": "Geçersiz sessize alma süresi. Geçerli değerler: 1h, 8h, 7d, forever"
+  },
   "admin": {
     "platformAdminRequired": "Platform yöneticisi erişimi gerekli",
     "instanceNotFound": "LiveKit sunucusu bulunamadı",

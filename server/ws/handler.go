@@ -62,6 +62,15 @@ type ServerListProvider interface {
 	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
 }
 
+// MuteChecker, kullanıcının sessize aldığı sunucuları sorgulayan interface (ISP).
+//
+// ServerMuteService'in GetMutedServerIDs metodunu karşılar (Go implicit interface).
+// WS bağlantısı kurulduğunda ready event'e muted sunucu ID'leri eklenir.
+// Frontend bu bilgiyle muted sunuculardaki bildirimleri bastırır.
+type MuteChecker interface {
+	GetMutedServerIDs(ctx context.Context, userID string) ([]string, error)
+}
+
 // upgrader, HTTP bağlantısını WebSocket bağlantısına yükseltir.
 //
 // WebSocket Upgrade nedir?
@@ -87,6 +96,7 @@ type Handler struct {
 	voiceStatesProvider VoiceStatesProvider
 	userInfoProvider    UserInfoProvider
 	serverListProvider  ServerListProvider
+	muteChecker         MuteChecker
 }
 
 // NewHandler, yeni bir WebSocket handler oluşturur.
@@ -96,6 +106,7 @@ type Handler struct {
 // voiceStatesProvider: Aktif voice state'leri (pratikte voiceService).
 // userInfoProvider: Kullanıcı profil bilgileri (pratikte userRepo).
 // serverListProvider: Kullanıcının sunucu listesi (pratikte serverRepo).
+// muteChecker: Kullanıcının mute'lu sunucu ID'leri (pratikte serverMuteService).
 func NewHandler(
 	hub *Hub,
 	tokenValidator TokenValidator,
@@ -103,6 +114,7 @@ func NewHandler(
 	voiceStatesProvider VoiceStatesProvider,
 	userInfoProvider UserInfoProvider,
 	serverListProvider ServerListProvider,
+	muteChecker MuteChecker,
 ) *Handler {
 	return &Handler{
 		hub:                 hub,
@@ -111,6 +123,7 @@ func NewHandler(
 		voiceStatesProvider: voiceStatesProvider,
 		userInfoProvider:    userInfoProvider,
 		serverListProvider:  serverListProvider,
+		muteChecker:         muteChecker,
 	}
 }
 
@@ -225,20 +238,38 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	client.serverIDs = serverIDs
 
+	// 6.5. Kullanıcının mute'lu sunucu ID'lerini al
+	//
+	// Ready event'e eklenir — frontend bu bilgiyle muted sunuculardan
+	// gelen bildirimleri (unread badge, ses, flash) bastırır.
+	var mutedServerIDs []string
+	if h.muteChecker != nil {
+		if ids, err := h.muteChecker.GetMutedServerIDs(r.Context(), claims.UserID); err == nil {
+			mutedServerIDs = ids
+		} else {
+			log.Printf("[ws] mute check failed for user %s: %v", claims.UserID, err)
+		}
+	}
+	if mutedServerIDs == nil {
+		mutedServerIDs = []string{}
+	}
+
 	// 7. Hub'a kaydet
 	h.hub.register <- client
 
 	// 8. "ready" event gönder — client bağlantı kurduğunda:
 	// - Hangi sunuculara üye olduğunu bilmeli (server list sidebar)
 	// - Hangi kullanıcıların online olduğunu bilmeli (presence indicator)
+	// - Hangi sunucuları sessize aldığını bilmeli (mute suppression)
 	//
 	// GetVisibleOnlineUserIDs() invisible kullanıcıları hariç tutar —
 	// "offline" status seçmiş ama bağlı olan kullanıcılar listede görünmez.
 	client.sendEvent(Event{
 		Op: OpReady,
 		Data: ReadyData{
-			OnlineUserIDs: h.hub.GetVisibleOnlineUserIDs(),
-			Servers:       readyServers,
+			OnlineUserIDs:  h.hub.GetVisibleOnlineUserIDs(),
+			Servers:        readyServers,
+			MutedServerIDs: mutedServerIDs,
 		},
 	})
 

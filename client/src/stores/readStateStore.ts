@@ -32,6 +32,8 @@ type ReadStateState = {
   clearUnread: (channelId: string) => void;
   /** Server değiştirildiğinde store'u temizler */
   clearForServerSwitch: () => void;
+  /** Sunucudaki tüm kanalları okundu olarak işaretle */
+  markAllAsRead: (serverId: string) => Promise<boolean>;
 };
 
 export const useReadStateStore = create<ReadStateState>((set) => ({
@@ -120,5 +122,14 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
 
   clearForServerSwitch: () => {
     set({ unreadCounts: {} });
+  },
+
+  markAllAsRead: async (serverId) => {
+    // Önce local'i sıfırla (anında UI güncellemesi)
+    set({ unreadCounts: {} });
+
+    // Backend'e bildir
+    const res = await readStateApi.markAllRead(serverId);
+    return res.success;
   },
 }));

@@ -78,6 +78,9 @@ func initRoutes(
 	mux.Handle("POST /api/servers/join", auth(h.Server.JoinServer))
 	mux.Handle("PATCH /api/servers/reorder", auth(h.Server.ReorderServers))
 
+	// Server Mutes — literal path, {serverId} wildcard'dan ÖNCE olmalı
+	mux.Handle("GET /api/servers/mutes", auth(h.ServerMute.ListMuted))
+
 	// Upload
 	mux.Handle("POST /api/upload", auth(h.Message.Upload))
 
@@ -132,6 +135,10 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/leave", authServer(h.Server.LeaveServer))
 	mux.Handle("POST /api/servers/{serverId}/icon", authServerPerm(models.PermAdmin, h.Avatar.UploadServerIcon))
 
+	// Server Mute — sunucu sessize alma
+	mux.Handle("POST /api/servers/{serverId}/mute", authServer(h.ServerMute.Mute))
+	mux.Handle("DELETE /api/servers/{serverId}/mute", authServer(h.ServerMute.Unmute))
+
 	// LiveKit settings
 	mux.Handle("GET /api/servers/{serverId}/livekit", authServerPerm(models.PermAdmin, h.Server.GetLiveKitSettings))
 
@@ -162,9 +169,10 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/channels/{channelId}/messages/{messageId}/pin", authServerPerm(models.PermManageMessages, h.Pin.Pin))
 	mux.Handle("DELETE /api/servers/{serverId}/channels/{channelId}/messages/{messageId}/pin", authServerPerm(models.PermManageMessages, h.Pin.Unpin))
 
-	// Read State
-	mux.Handle("POST /api/servers/{serverId}/channels/{id}/read", authServer(h.ReadState.MarkRead))
+	// Read State — literal path "read-all" ve "unread" {id} wildcard'dan ÖNCE
+	mux.Handle("POST /api/servers/{serverId}/channels/read-all", authServer(h.ReadState.MarkAllRead))
 	mux.Handle("GET /api/servers/{serverId}/channels/unread", authServer(h.ReadState.GetUnreads))
+	mux.Handle("POST /api/servers/{serverId}/channels/{id}/read", authServer(h.ReadState.MarkRead))
 
 	// Members
 	mux.Handle("GET /api/servers/{serverId}/members", authServer(h.Member.List))

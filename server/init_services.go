@@ -45,6 +45,7 @@ type Services struct {
 	LiveKitAdmin      services.LiveKitAdminService
 	P2PCall           services.P2PCallService
 	MetricsHistory    services.MetricsHistoryService
+	ServerMute        services.ServerMuteService
 }
 
 // RateLimiters, tüm rate limiter instance'larını tutan container.
@@ -114,6 +115,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	dmUploadService := services.NewDMUploadService(repos.DM, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, hub)
 	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
+	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 
 	// ─── Metrics History ───
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
@@ -149,6 +151,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		LiveKitAdmin:      livekitAdminService,
 		P2PCall:           p2pCallService,
 		MetricsHistory:    metricsHistoryService,
+		ServerMute:        serverMuteService,
 	}
 
 	limiters := &RateLimiters{

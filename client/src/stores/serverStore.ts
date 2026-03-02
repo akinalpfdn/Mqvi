@@ -34,6 +34,8 @@ type ServerState = {
   activeServer: Server | null;
   /** Yüklenme durumu */
   isLoading: boolean;
+  /** Sessize alınan sunucu ID'leri — Set olarak tutulur (hızlı lookup) */
+  mutedServerIds: Set<string>;
 
   // ─── Actions ───
 
@@ -83,6 +85,20 @@ type ServerState = {
 
   /** server_delete — sunucu silindi veya kullanıcı ayrıldı */
   handleServerDelete: (serverId: string) => void;
+
+  // ─── Mute Actions ───
+
+  /** WS ready event'inden gelen muted server ID'lerini set eder */
+  setMutedServersFromReady: (ids: string[]) => void;
+
+  /** Sunucuyu sessize al — API çağırır + local state günceller */
+  muteServer: (serverId: string, duration: string) => Promise<boolean>;
+
+  /** Sunucu sessizliğini kaldır — API çağırır + local state günceller */
+  unmuteServer: (serverId: string) => Promise<boolean>;
+
+  /** Sunucunun muted olup olmadığını kontrol eder */
+  isServerMuted: (serverId: string) => boolean;
 };
 
 export const useServerStore = create<ServerState>((set, get) => ({
@@ -90,6 +106,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   activeServerId: localStorage.getItem(LAST_SERVER_KEY),
   activeServer: null,
   isLoading: false,
+  mutedServerIds: new Set<string>(),
 
   setServersFromReady: (servers) => {
     set({ servers });
@@ -291,5 +308,41 @@ export const useServerStore = create<ServerState>((set, get) => ({
       }
       return { servers, activeServerId, activeServer: null };
     });
+  },
+
+  // ─── Mute Actions ───
+
+  setMutedServersFromReady: (ids) => {
+    set({ mutedServerIds: new Set(ids) });
+  },
+
+  muteServer: async (serverId, duration) => {
+    const res = await serversApi.muteServer(serverId, duration);
+    if (res.success) {
+      set((state) => {
+        const next = new Set(state.mutedServerIds);
+        next.add(serverId);
+        return { mutedServerIds: next };
+      });
+      return true;
+    }
+    return false;
+  },
+
+  unmuteServer: async (serverId) => {
+    const res = await serversApi.unmuteServer(serverId);
+    if (res.success) {
+      set((state) => {
+        const next = new Set(state.mutedServerIds);
+        next.delete(serverId);
+        return { mutedServerIds: next };
+      });
+      return true;
+    }
+    return false;
+  },
+
+  isServerMuted: (serverId) => {
+    return get().mutedServerIds.has(serverId);
   },
 }));

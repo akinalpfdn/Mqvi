@@ -33,6 +33,7 @@ import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import EmojiPicker from "../shared/EmojiPicker";
+import InviteCard from "./InviteCard";
 import MobileMessageActions from "./MobileMessageActions";
 import type { MemberWithRoles } from "../../types";
 
@@ -251,19 +252,29 @@ function Message({ message, isCompact }: MessageProps) {
     message.author?.display_name ?? message.author?.username ?? "Unknown";
 
   /**
-   * renderContent — Mesaj içeriğindeki @username kalıplarını highlight ile render eder.
+   * renderContent — Mesaj içeriğindeki özel kalıpları parse eder.
+   *
+   * Desteklenen kalıplar:
+   * - @username → mention highlight
+   * - mqvi:invite/{hex16} → tıklanabilir davet kartı
    */
   function renderContent(text: string | null): React.ReactNode {
     if (!text) return null;
 
-    const parts = text.split(/(@\w+)/g);
+    const parts = text.split(/(@\w+|mqvi:invite\/[a-f0-9]{16})/gi);
     return parts.map((part, i) => {
+      // @mention
       if (/^@\w+$/.test(part)) {
         return (
           <span key={i} className="msg-mention">
             {part}
           </span>
         );
+      }
+      // mqvi:invite/{code}
+      const inviteMatch = part.match(/^mqvi:invite\/([a-f0-9]{16})$/i);
+      if (inviteMatch) {
+        return <InviteCard key={i} code={inviteMatch[1]} />;
       }
       return part;
     });

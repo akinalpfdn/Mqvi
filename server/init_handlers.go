@@ -32,6 +32,7 @@ type Handlers struct {
 	Avatar            *handlers.AvatarHandler
 	Stats             *handlers.StatsHandler
 	Admin             *handlers.AdminHandler
+	ServerMute        *handlers.ServerMuteHandler
 	WS                *ws.Handler
 }
 
@@ -57,6 +58,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, cfg.Upload.Dir),
 		Stats:             handlers.NewStatsHandler(repos.User),
 		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory),
-		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server),
+		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
+		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute),
 	}
 }

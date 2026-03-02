@@ -92,6 +92,28 @@ export async function reorderServers(items: { id: string; position: number }[]) 
   });
 }
 
+// ─── Server Mute ───
+
+/** Sunucuyu sessize al */
+export async function muteServer(serverId: string, duration: string) {
+  return apiClient<{ message: string }>(`/servers/${serverId}/mute`, {
+    method: "POST",
+    body: { duration },
+  });
+}
+
+/** Sunucu sessizliğini kaldır */
+export async function unmuteServer(serverId: string) {
+  return apiClient<{ message: string }>(`/servers/${serverId}/mute`, {
+    method: "DELETE",
+  });
+}
+
+/** Kullanıcının mute'lu sunucu ID'lerini getir */
+export async function getMutedServers() {
+  return apiClient<string[]>("/servers/mutes");
+}
+
 /** Sunucu ikonu yükler — multipart/form-data */
 export async function uploadServerIcon(serverId: string, file: File) {
   const formData = new FormData();

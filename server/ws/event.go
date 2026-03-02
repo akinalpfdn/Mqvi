@@ -138,8 +138,9 @@ const (
 // 2. Online kullanıcıları Set'e atar (presence indicator için)
 // 3. Gerekli verileri fetch eder (members, channels vb.)
 type ReadyData struct {
-	OnlineUserIDs []string         `json:"online_user_ids"`
-	Servers       []ReadyServerItem `json:"servers"`
+	OnlineUserIDs  []string          `json:"online_user_ids"`
+	Servers        []ReadyServerItem `json:"servers"`
+	MutedServerIDs []string          `json:"muted_server_ids"`
 }
 
 // ReadyServerItem, ready event'inde gönderilen minimal sunucu bilgisi.
