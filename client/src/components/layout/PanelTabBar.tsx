@@ -14,6 +14,7 @@ import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useUIStore } from "../../stores/uiStore";
 import { useIsMobile } from "../../hooks/useMediaQuery";
+import { resolveAssetUrl } from "../../utils/constants";
 
 type PanelTabBarProps = {
   panelId: string;
@@ -121,6 +122,23 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
             }
             onClick={() => setActiveTab(panelId, tab.id)}
           >
+            {/* Server ikonu — multi-server'da aynı isimli kanalları ayırt etmek için */}
+            {tab.serverInfo && (
+              <span className="tab-server-icon" title={tab.serverInfo.serverName}>
+                {tab.serverInfo.serverIconUrl ? (
+                  <img
+                    src={resolveAssetUrl(tab.serverInfo.serverIconUrl)}
+                    alt={tab.serverInfo.serverName}
+                    className="tab-server-img"
+                  />
+                ) : (
+                  <span className="tab-server-fallback">
+                    {tab.serverInfo.serverName.charAt(0).toUpperCase()}
+                  </span>
+                )}
+              </span>
+            )}
+
             {/* Type-based ikon */}
             <span className="tab-icon">
               {tab.type === "text" && "#"}

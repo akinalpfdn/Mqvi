@@ -15,8 +15,9 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useUIStore } from "../../stores/uiStore";
+import { useUIStore, type TabServerInfo } from "../../stores/uiStore";
 import { useChannelStore } from "../../stores/channelStore";
+import { useServerStore } from "../../stores/serverStore";
 import { useDMStore } from "../../stores/dmStore";
 import type { Channel, DMChannelWithUser } from "../../types";
 
@@ -37,6 +38,8 @@ function QuickSwitcher() {
   const openTab = useUIStore((s) => s.openTab);
   const categories = useChannelStore((s) => s.categories);
   const selectChannel = useChannelStore((s) => s.selectChannel);
+  const servers = useServerStore((s) => s.servers);
+  const activeServerId = useServerStore((s) => s.activeServerId);
   const dmChannels = useDMStore((s) => s.channels);
   const selectDM = useDMStore((s) => s.selectDM);
 
@@ -96,7 +99,15 @@ function QuickSwitcher() {
     if (item.type === "channel") {
       selectChannel(item.id);
       const tabType = item.channelType === "voice" ? "voice" : "text";
-      openTab(item.id, tabType, item.label);
+      // Multi-server'da tab'a server bilgisi ekle
+      let serverInfo: TabServerInfo | undefined;
+      if (activeServerId) {
+        const srv = servers.find((s) => s.id === activeServerId);
+        if (srv) {
+          serverInfo = { serverId: srv.id, serverName: srv.name, serverIconUrl: srv.icon_url };
+        }
+      }
+      openTab(item.id, tabType, item.label, serverInfo);
     } else {
       selectDM(item.id);
       openTab(item.id, "dm", item.label);

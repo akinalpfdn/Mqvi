@@ -44,7 +44,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useRoleStore } from "../../stores/roleStore";
-import { useUIStore } from "../../stores/uiStore";
+import { useUIStore, type TabServerInfo } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
@@ -61,6 +61,7 @@ function AppLayout() {
   useNotificationBadge();
 
   const activeServerId = useServerStore((s) => s.activeServerId);
+  const servers = useServerStore((s) => s.servers);
   const fetchActiveServer = useServerStore((s) => s.fetchActiveServer);
   const fetchChannels = useChannelStore((s) => s.fetchChannels);
   const fetchMembers = useMemberStore((s) => s.fetchMembers);
@@ -129,14 +130,23 @@ function AppLayout() {
       .find((ch) => ch.id === selectedChannelId);
 
     if (channel) {
+      // Tab'a server bilgisini ekle (multi-server'da kanal ayırt etme)
+      let serverInfo: TabServerInfo | undefined;
+      if (activeServerId) {
+        const srv = servers.find((s) => s.id === activeServerId);
+        if (srv) {
+          serverInfo = { serverId: srv.id, serverName: srv.name, serverIconUrl: srv.icon_url };
+        }
+      }
       openTab(
         channel.id,
         channel.type === "text" ? "text" : "voice",
-        channel.name
+        channel.name,
+        serverInfo
       );
       autoOpenedRef.current = true;
     }
-  }, [selectedChannelId, categories, openTab]);
+  }, [selectedChannelId, categories, openTab, activeServerId, servers]);
 
   /**
    * Auto-mark-read — Kanal değiştiğinde okunmamış sayacını sıfırla.

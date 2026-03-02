@@ -29,7 +29,7 @@ import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useServerStore } from "../../stores/serverStore";
-import { useUIStore } from "../../stores/uiStore";
+import { useUIStore, type TabServerInfo } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useDMStore } from "../../stores/dmStore";
@@ -457,14 +457,22 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
   // ─── Handlers ───
 
+  /** Aktif sunucunun tab'da gösterilecek bilgisi */
+  function getActiveServerInfo(): TabServerInfo | undefined {
+    if (!activeServerId) return undefined;
+    const srv = servers.find((s) => s.id === activeServerId);
+    if (!srv) return undefined;
+    return { serverId: srv.id, serverName: srv.name, serverIconUrl: srv.icon_url };
+  }
+
   function handleTextChannelClick(channelId: string, channelName: string) {
     selectChannel(channelId);
-    openTab(channelId, "text", channelName);
+    openTab(channelId, "text", channelName, getActiveServerInfo());
   }
 
   function handleVoiceChannelClick(channelId: string, channelName: string) {
     onJoinVoice(channelId);
-    openTab(channelId, "voice", channelName);
+    openTab(channelId, "voice", channelName, getActiveServerInfo());
   }
 
   function handleDMClick(dmId: string, userName: string) {

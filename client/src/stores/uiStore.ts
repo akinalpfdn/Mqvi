@@ -22,12 +22,24 @@ import { useVoiceStore } from "./voiceStore";
 
 export type TabType = "text" | "voice" | "screen" | "dm" | "friends" | "p2p";
 
+/**
+ * TabServerInfo — Tab'ın ait olduğu sunucu bilgisi.
+ * Multi-server'da aynı isimli kanalları ayırt etmek için tab'da
+ * küçük server ikonu gösterilir. DM/friends/p2p tab'larında gerekmez.
+ */
+export type TabServerInfo = {
+  serverId: string;
+  serverName: string;
+  serverIconUrl: string | null;
+};
+
 export type Tab = {
   id: string;
   channelId: string;
   type: TabType;
   label: string;
-  serverShort?: string;
+  /** Ait olduğu sunucu (text/voice tab'larında zorunlu, DM/friends/p2p'de undefined) */
+  serverInfo?: TabServerInfo;
   hasUnread?: boolean;
 };
 
@@ -60,7 +72,7 @@ type UIState = {
   quickSwitcherOpen: boolean;
 
   // Tab actions
-  openTab: (channelId: string, type: TabType, label: string, serverShort?: string) => void;
+  openTab: (channelId: string, type: TabType, label: string, serverInfo?: TabServerInfo) => void;
   closeTab: (panelId: string, tabId: string) => void;
   setActiveTab: (panelId: string, tabId: string) => void;
 
@@ -205,7 +217,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   membersOpen: true,
   quickSwitcherOpen: false,
 
-  openTab(channelId, type, label, serverShort) {
+  openTab(channelId, type, label, serverInfo) {
     const state = get();
 
     // Aynı kanal zaten açıksa → o tab'a ve panele focus yap
@@ -233,7 +245,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       channelId,
       type,
       label,
-      serverShort,
+      serverInfo,
     };
 
     set({

@@ -304,6 +304,11 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .tab-icon { font-size:13px;color:var(--t3);display:flex;align-items:center; }
 .tab-label { font-size:13.5px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 
+/* Tab Server Icon — multi-server'da kanal tab'larında sunucu ayırt etme */
+.tab-server-icon { display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.tab-server-img { width:16px;height:16px;border-radius:4px;object-fit:cover; }
+.tab-server-fallback { width:16px;height:16px;border-radius:4px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1; }
+
 /* ═══════════════════════════════════════
    MAIN AREA
    ═══════════════════════════════════════ */
@@ -581,7 +586,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .panel-tab-bar::-webkit-scrollbar { display:none; }
 .panel-tab-bar.active-panel { background:var(--bg-2); }
 .panel-tab-bar.drop-hover { border-bottom:2px solid var(--primary); }
-.panel-tab { display:flex;align-items:center;gap:5px;padding:0 12px;cursor:pointer;font-size:13px;color:var(--t2);position:relative;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.03);transition:background .1s;max-width:180px; }
+.panel-tab { display:flex;align-items:center;gap:5px;padding:0 12px;cursor:pointer;font-size:13px;color:var(--t2);position:relative;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.03);transition:background .1s;max-width:210px; }
 .panel-tab:hover { background:var(--bg-h); }
 .panel-tab.active { background:var(--bg-2);color:var(--t0); }
 .panel-tab.active::after { content:'';position:absolute;bottom:0;left:4px;right:4px;height:2px;background:var(--primary);border-radius:1px 1px 0 0; }
