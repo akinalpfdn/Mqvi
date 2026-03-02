@@ -332,9 +332,18 @@ export function useWebSocket() {
           (msg.d as { user_id: string }).user_id
         );
         break;
-      case "member_update":
-        useMemberStore.getState().handleMemberUpdate(msg.d as MemberWithRoles);
+      case "member_update": {
+        const updatedMember = msg.d as MemberWithRoles;
+        useMemberStore.getState().handleMemberUpdate(updatedMember);
+        // Kendi rollerim değiştiyse kanal görünürlüğü değişmiş olabilir
+        // (channel permission override'lar role bazlı çalışır).
+        // Diğer üyelerin rol değişikliğinde refetch gereksiz.
+        const myUserId = useAuthStore.getState().user?.id;
+        if (updatedMember.id === myUserId) {
+          useChannelStore.getState().fetchChannels();
+        }
         break;
+      }
 
       // ─── Role Events ───
       // Her iki store'a da yönlendir:
