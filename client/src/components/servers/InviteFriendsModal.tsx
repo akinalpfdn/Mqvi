@@ -19,6 +19,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { useInviteStore } from "../../stores/inviteStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useToastStore } from "../../stores/toastStore";
+import { getInviteUrl } from "../../utils/constants";
 import type { FriendshipWithUser } from "../../types";
 import Avatar from "../shared/Avatar";
 
@@ -109,7 +110,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
       return;
     }
 
-    const inviteContent = `mqvi:invite/${invite.code}`;
+    const inviteContent = getInviteUrl(invite.code);
     let sentCount = 0;
 
     // 2. Her arkadaşa sıralı gönder (rate limit koruması)

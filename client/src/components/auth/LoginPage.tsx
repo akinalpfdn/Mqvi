@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
 import { isElectron } from "../../utils/constants";
 
@@ -21,6 +21,7 @@ function LoginPage() {
   const error = useAuthStore((s) => s.error);
   const clearError = useAuthStore((s) => s.clearError);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -53,7 +54,9 @@ function LoginPage() {
           window.electronAPI?.clearCredentials();
         }
       }
-      navigate("/channels");
+      // returnUrl varsa oraya yönlendir (davet linki gibi), yoksa /channels
+      const returnUrl = searchParams.get("returnUrl");
+      navigate(returnUrl ?? "/channels");
     }
   }
 
@@ -134,7 +137,7 @@ function LoginPage() {
         {/* Footer Link */}
         <p className="auth-link">
           {t("needAccount")}{" "}
-          <Link to="/register">{t("registerLink")}</Link>
+          <Link to={searchParams.get("returnUrl") ? `/register?returnUrl=${searchParams.get("returnUrl")}` : "/register"}>{t("registerLink")}</Link>
         </p>
       </div>
     </div>

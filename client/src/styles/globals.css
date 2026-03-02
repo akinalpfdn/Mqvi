@@ -1443,14 +1443,32 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .invite-friends-progress-fill { height:100%;background:var(--primary);border-radius:2px;transition:width .2s; }
 
 /* ─── Invite Card (message inline) ─── */
-.invite-card { display:inline-flex;align-items:center;gap:8px;padding:6px 10px;margin:4px 0;border:1px solid var(--b1);border-radius:8px;background:var(--bg-3);max-width:320px; }
-.invite-card-icon { display:flex;align-items:center;color:var(--primary);flex-shrink:0; }
-.invite-card-info { display:flex;flex-direction:column;min-width:0;flex:1; }
-.invite-card-label { font-size:13px;font-weight:600;color:var(--t1); }
-.invite-card-code { font-size:13px;color:var(--t3);font-family:var(--f-m);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.invite-card-btn { padding:4px 12px;border:none;border-radius:4px;background:var(--primary);color:var(--text-white, #fff);font-size:13px;font-family:var(--f-ui);font-weight:600;cursor:pointer;flex-shrink:0;transition:opacity .1s; }
+.invite-card { display:inline-flex;align-items:center;gap:10px;padding:10px 14px;margin:4px 0;border:1px solid var(--b1);border-radius:10px;background:var(--bg-3);max-width:360px; }
+.invite-card-icon { display:flex;align-items:center;flex-shrink:0; }
+.invite-card-img { width:36px;height:36px;border-radius:8px;object-fit:cover; }
+.invite-card-info { display:flex;flex-direction:column;min-width:0;flex:1;gap:2px; }
+.invite-card-name { font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.invite-card-meta { font-size:13px;color:var(--t3); }
+.invite-card-btn { padding:6px 14px;border:none;border-radius:6px;background:var(--primary);color:var(--text-white, #fff);font-size:13px;font-family:var(--f-ui);font-weight:600;cursor:pointer;flex-shrink:0;transition:opacity .1s; }
 .invite-card-btn:hover:not(:disabled) { opacity:.9; }
 .invite-card-btn:disabled { opacity:.5;cursor:default; }
+
+/* ═══════════════════════════════════════
+   INVITE JOIN PAGE — /invite/:code
+   ═══════════════════════════════════════ */
+.invite-join-page { display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:var(--bg-0); }
+.invite-join-card { display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px 48px;background:var(--bg-2);border:1px solid var(--b1);border-radius:16px;min-width:320px;max-width:420px;text-align:center; }
+.invite-join-loading { padding:24px 0; }
+.invite-join-icon { margin-bottom:4px; }
+.invite-join-img { width:64px;height:64px;border-radius:14px;object-fit:cover; }
+.invite-join-name { font-size:22px;font-weight:700;color:var(--t0);margin:0; }
+.invite-join-meta { font-size:14px;color:var(--t3);margin:0; }
+.invite-join-btn { margin-top:8px;padding:10px 32px;border:none;border-radius:8px;background:var(--primary);color:var(--text-white, #fff);font-size:15px;font-family:var(--f-ui);font-weight:600;cursor:pointer;transition:opacity .1s; }
+.invite-join-btn:hover:not(:disabled) { opacity:.9; }
+.invite-join-btn:disabled { opacity:.5;cursor:default; }
+.invite-join-error { font-size:15px;color:var(--t2);margin:0; }
+.invite-join-btn-secondary { margin-top:8px;padding:8px 24px;border:1px solid var(--b1);border-radius:8px;background:var(--bg-3);color:var(--t1);font-size:14px;font-family:var(--f-ui);font-weight:500;cursor:pointer;transition:background .1s; }
+.invite-join-btn-secondary:hover { background:var(--bg-4); }
 
 /* ═══════════════════════════════════════
    SKELETON LOADING

@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
 
 function RegisterPage() {
@@ -20,6 +20,7 @@ function RegisterPage() {
   const error = useAuthStore((s) => s.error);
   const clearError = useAuthStore((s) => s.clearError);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -50,7 +51,9 @@ function RegisterPage() {
       email || undefined,
     );
     if (success) {
-      navigate("/channels");
+      // returnUrl varsa oraya yönlendir (davet linki gibi), yoksa /channels
+      const returnUrl = searchParams.get("returnUrl");
+      navigate(returnUrl ?? "/channels");
     }
   }
 
@@ -176,7 +179,7 @@ function RegisterPage() {
         {/* Footer Link */}
         <p className="auth-link">
           {t("alreadyHaveAccount")}{" "}
-          <Link to="/login">{t("loginLink")}</Link>
+          <Link to={searchParams.get("returnUrl") ? `/login?returnUrl=${searchParams.get("returnUrl")}` : "/login"}>{t("loginLink")}</Link>
         </p>
       </div>
     </div>

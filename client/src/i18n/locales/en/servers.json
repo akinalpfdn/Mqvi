@@ -73,5 +73,8 @@
   "invitesSent": "Invites sent to {{count}} friends",
   "inviteCreateFailed": "Could not create invite code",
   "joinInvite": "Join Server",
-  "inviteExpired": "This invite has expired or is invalid"
+  "inviteExpired": "This invite has expired or is invalid",
+  "memberCount": "{{count}} members",
+  "inviteJoinTitle": "You've been invited to join a server",
+  "backToApp": "Back to App"
 }

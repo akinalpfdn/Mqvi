@@ -94,3 +94,23 @@ func (h *InviteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "invite deleted"})
 }
+
+// Preview godoc
+// GET /api/invites/{code}/preview
+// Auth gerektirmez — invite kartında sunucu bilgisi göstermek için.
+// Sunucu adı, ikonu ve üye sayısını döner.
+func (h *InviteHandler) Preview(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	if code == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invite code is required")
+		return
+	}
+
+	preview, err := h.inviteService.GetPreview(r.Context(), code)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, preview)
+}

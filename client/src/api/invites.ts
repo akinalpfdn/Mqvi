@@ -34,3 +34,14 @@ export async function deleteInvite(serverId: string, code: string) {
     method: "DELETE",
   });
 }
+
+/** Davet kodu ön izlemesi — sunucu adı, ikon, üye sayısı (auth gerektirmez) */
+export type InvitePreview = {
+  server_name: string;
+  server_icon_url: string | null;
+  member_count: number;
+};
+
+export async function getInvitePreview(code: string) {
+  return apiClient<InvitePreview>(`/invites/${code}/preview`);
+}

@@ -35,6 +35,12 @@ type InviteService interface {
 
 	// IsInviteRequired, belirli bir sunucunun davet kodu gerektirip gerektirmediğini döner.
 	IsInviteRequired(ctx context.Context, serverID string) (bool, error)
+
+	// GetPreview, davet kodunun ön izleme bilgisini döner.
+	// Auth gerektirmez — invite kartında sunucu bilgisi göstermek için.
+	// Süresi dolmuş veya kullanım limiti aşılmış davetler için de preview döner
+	// (frontend join denemesinde hata alır ama sunucu adını/ikonunu görebilir).
+	GetPreview(ctx context.Context, code string) (*models.InvitePreview, error)
 }
 
 type inviteService struct {
@@ -149,4 +155,35 @@ func (s *inviteService) IsInviteRequired(ctx context.Context, serverID string) (
 		return false, fmt.Errorf("failed to get server: %w", err)
 	}
 	return server.InviteRequired, nil
+}
+
+// GetPreview, davet kodunun ön izleme bilgisini döner.
+//
+// Süresi dolmuş veya kullanım limiti aşılmış davetler dahil — preview döner.
+// Böylece kullanıcı sunucu adını/ikonunu görür ama join denemesinde hata alır.
+// Yalnızca davet kodu DB'de yoksa ErrNotFound döner.
+func (s *inviteService) GetPreview(ctx context.Context, code string) (*models.InvitePreview, error) {
+	// 1. Davet kodunu bul
+	invite, err := s.inviteRepo.GetByCode(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid invite code", pkg.ErrNotFound)
+	}
+
+	// 2. Sunucu bilgisini getir
+	server, err := s.serverRepo.GetByID(ctx, invite.ServerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server for invite preview: %w", err)
+	}
+
+	// 3. Üye sayısını getir
+	memberCount, err := s.serverRepo.GetMemberCount(ctx, invite.ServerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get member count for invite preview: %w", err)
+	}
+
+	return &models.InvitePreview{
+		ServerName:    server.Name,
+		ServerIconURL: server.IconURL,
+		MemberCount:   memberCount,
+	}, nil
 }

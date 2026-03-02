@@ -31,6 +31,14 @@ type InviteWithCreator struct {
 	CreatorDisplayName *string `json:"creator_display_name"`
 }
 
+// InvitePreview, davet kodunun ön izlemesi — mesajdaki invite kartında gösterilir.
+// Auth gerektirmez — sunucu adı, ikon ve üye sayısı döner.
+type InvitePreview struct {
+	ServerName    string  `json:"server_name"`
+	ServerIconURL *string `json:"server_icon_url"`
+	MemberCount   int     `json:"member_count"`
+}
+
 // CreateInviteRequest, yeni bir davet kodu oluşturma isteği.
 type CreateInviteRequest struct {
 	MaxUses   int `json:"max_uses"`    // 0 = sınırsız

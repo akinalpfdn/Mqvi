@@ -8,6 +8,7 @@ import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import AppLayout from "./components/layout/AppLayout";
 import LandingPage from "./components/landing/LandingPage";
+import InviteJoinPage from "./components/servers/InviteJoinPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { isElectron } from "./utils/constants";
@@ -93,6 +94,10 @@ function App() {
         path="/reset-password"
         element={user ? <Navigate to="/channels" replace /> : <ResetPasswordPage />}
       />
+
+      {/* Davet katılma sayfası — dış paylaşımlardan gelen linkler.
+          Auth kontrolü InviteJoinPage içinde yapılır (returnUrl ile login'e yönlendirir). */}
+      <Route path="/invite/:code" element={<InviteJoinPage />} />
 
       {/* Ana uygulama — sadece giriş yapmış kullanıcılar */}
       <Route

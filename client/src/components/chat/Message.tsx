@@ -256,12 +256,12 @@ function Message({ message, isCompact }: MessageProps) {
    *
    * Desteklenen kalıplar:
    * - @username → mention highlight
-   * - mqvi:invite/{hex16} → tıklanabilir davet kartı
+   * - https://domain/invite/{hex16} → tıklanabilir davet kartı
    */
   function renderContent(text: string | null): React.ReactNode {
     if (!text) return null;
 
-    const parts = text.split(/(@\w+|mqvi:invite\/[a-f0-9]{16})/gi);
+    const parts = text.split(/(@\w+|https?:\/\/[^\s/]+\/invite\/[a-f0-9]{16})/gi);
     return parts.map((part, i) => {
       // @mention
       if (/^@\w+$/.test(part)) {
@@ -271,8 +271,8 @@ function Message({ message, isCompact }: MessageProps) {
           </span>
         );
       }
-      // mqvi:invite/{code}
-      const inviteMatch = part.match(/^mqvi:invite\/([a-f0-9]{16})$/i);
+      // https://domain/invite/{code}
+      const inviteMatch = part.match(/^https?:\/\/[^\s/]+\/invite\/([a-f0-9]{16})$/i);
       if (inviteMatch) {
         return <InviteCard key={i} code={inviteMatch[1]} />;
       }

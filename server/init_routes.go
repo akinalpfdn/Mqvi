@@ -124,6 +124,10 @@ func initRoutes(
 	// Stats — public
 	mux.HandleFunc("GET /api/stats", h.Stats.GetPublicStats)
 
+	// Invite Preview — public (auth gerektirmez)
+	// Mesajdaki invite kartında sunucu adı/ikon/üye sayısı göstermek için.
+	mux.HandleFunc("GET /api/invites/{code}/preview", h.Invite.Preview)
+
 	// ╔══════════════════════════════════════════╗
 	// ║  SERVER-SCOPED ROUTES                     ║
 	// ╚══════════════════════════════════════════╝

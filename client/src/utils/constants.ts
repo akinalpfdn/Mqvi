@@ -51,6 +51,19 @@ export const SERVER_URL = resolveServerUrl();
 /** API base URL — e.g. "https://mqvi.net/api" or "/api" */
 export const API_BASE_URL = `${SERVER_URL}/api`;
 
+/**
+ * Generates a public invite URL for sharing outside the app (WhatsApp, Telegram, etc.).
+ *
+ * Web mode: uses window.location.origin (e.g. "https://mqvi.net")
+ * Electron mode: uses SERVER_URL (e.g. "https://mqvi.net")
+ *
+ * Result: "https://mqvi.net/invite/{code}" — a real clickable URL.
+ */
+export function getInviteUrl(code: string): string {
+  const base = SERVER_URL || window.location.origin;
+  return `${base}/invite/${code}`;
+}
+
 /** WebSocket endpoint — e.g. "wss://mqvi.net/ws" or "wss://localhost:9090/ws" */
 export const WS_URL = SERVER_URL
   ? `${SERVER_URL.replace(/^http/, "ws")}/ws`
