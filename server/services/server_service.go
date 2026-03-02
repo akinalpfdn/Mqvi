@@ -251,6 +251,7 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 			Color:       "#E74C3C",
 			Position:    100,
 			Permissions: models.PermAll,
+			IsOwner:     true,
 		}
 		if err := txRoleRepo.Create(ctx, ownerRole); err != nil {
 			return fmt.Errorf("failed to create owner role: %w", err)

@@ -50,16 +50,16 @@ func (p Permission) Has(perm Permission) bool {
 	return p&perm != 0
 }
 
-// OwnerRoleID, sunucu sahibinin rolünün sabit ID'sidir.
-// Bu rol seed migration'da oluşturulur ve kimlik bazlı koruma ile korunur:
-// - Silinemez, düzenlenemez, sıralanamaz
-// - Bu role sahip kullanıcı sunucudan atılamaz/yasaklanamaz
+// OwnerRoleID, default server'ın seed migration'dan gelen owner rol ID'si.
+// Geriye dönük uyumluluk için korunuyor. Yeni sunucularda owner rolü
+// farklı ID'ye sahip olabilir — tanıma için IsOwner field'ı kullanılır.
 const OwnerRoleID = "owner"
 
 // HasOwnerRole, verilen rol listesinde owner rolünün olup olmadığını kontrol eder.
+// is_owner field'ı ile tanır — ID'ye bağımlı değildir.
 func HasOwnerRole(roles []Role) bool {
 	for _, r := range roles {
-		if r.ID == OwnerRoleID {
+		if r.IsOwner {
 			return true
 		}
 	}
@@ -76,5 +76,6 @@ type Role struct {
 	Position    int        `json:"position"`
 	Permissions Permission `json:"permissions"`
 	IsDefault   bool       `json:"is_default"`
+	IsOwner     bool       `json:"is_owner"`
 	CreatedAt   time.Time  `json:"created_at"`
 }

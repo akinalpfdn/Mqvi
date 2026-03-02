@@ -92,7 +92,7 @@ function MembersSettings() {
   }, [selectedMember]);
 
   /** Seçili üye owner rolüne sahip mi? */
-  const isTargetOwner = selectedMember?.roles.some((r) => r.id === "owner") ?? false;
+  const isTargetOwner = selectedMember?.roles.some((r) => r.is_owner) ?? false;
 
   const canActOnTarget = !isTargetOwner && targetMaxPos < actorMaxPos;
 

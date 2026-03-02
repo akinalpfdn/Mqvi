@@ -294,23 +294,19 @@ func (s *livekitAdminService) MigrateServerInstance(ctx context.Context, serverI
 		return err
 	}
 
-	// 2. Sunucunun mevcut instance'ı platform-managed olmalı (self-hosted taşınamaz)
-	if server.LiveKitInstanceID == nil || *server.LiveKitInstanceID == "" {
-		return fmt.Errorf("%w: server has no LiveKit instance assigned", pkg.ErrBadRequest)
-	}
+	// 2. Mevcut instance kontrolü — orphan (silinmiş instance) veya self-hosted guard
+	if server.LiveKitInstanceID != nil && *server.LiveKitInstanceID != "" {
+		// Aynı instance'a taşıma yapma
+		if *server.LiveKitInstanceID == newInstanceID {
+			return fmt.Errorf("%w: server is already on this instance", pkg.ErrBadRequest)
+		}
 
-	currentInstance, err := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
-	if err != nil {
-		return fmt.Errorf("failed to get current instance: %w", err)
-	}
-
-	if !currentInstance.IsPlatformManaged {
-		return fmt.Errorf("%w: self-hosted servers cannot be migrated via admin API", pkg.ErrForbidden)
-	}
-
-	// 3. Aynı instance'a taşıma yapma
-	if *server.LiveKitInstanceID == newInstanceID {
-		return fmt.Errorf("%w: server is already on this instance", pkg.ErrBadRequest)
+		// Mevcut instance hâlâ varsa, self-hosted kontrolü yap
+		// Instance silinmişse (orphan) → kontrolü atla, taşımaya izin ver
+		currentInstance, currentErr := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
+		if currentErr == nil && !currentInstance.IsPlatformManaged {
+			return fmt.Errorf("%w: self-hosted servers cannot be migrated via admin API", pkg.ErrForbidden)
+		}
 	}
 
 	// 4. Hedef instance var mı, platform-managed mi

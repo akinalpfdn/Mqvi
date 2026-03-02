@@ -260,7 +260,10 @@ func (r *sqliteServerRepo) ListAllWithStats(ctx context.Context) ([]models.Admin
 			s.owner_id,
 			COALESCE(u.username, ''),
 			s.created_at,
-			COALESCE(li.is_platform_managed, 0),
+			CASE
+				WHEN s.livekit_instance_id IS NOT NULL AND li.id IS NULL THEN 1
+				ELSE COALESCE(li.is_platform_managed, 0)
+			END,
 			s.livekit_instance_id,
 			(SELECT COUNT(*) FROM server_members sm WHERE sm.server_id = s.id),
 			(SELECT COUNT(*) FROM channels c WHERE c.server_id = s.id),

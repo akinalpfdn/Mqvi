@@ -117,7 +117,7 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 
 	// Owner rolü özel işlem: sadece server owner isim ve renk değiştirebilir,
 	// permission ve position değişikliği YASAK.
-	if role.ID == models.OwnerRoleID {
+	if role.IsOwner {
 		actorRoles, roleErr := s.roleRepo.GetByUserIDAndServer(ctx, actorID, serverID)
 		if roleErr != nil {
 			return nil, fmt.Errorf("failed to get actor roles: %w", roleErr)
@@ -197,7 +197,7 @@ func (s *roleService) Delete(ctx context.Context, serverID, actorID, roleID stri
 		return err
 	}
 
-	if role.ID == models.OwnerRoleID {
+	if role.IsOwner {
 		return fmt.Errorf("%w: the Owner role cannot be deleted", pkg.ErrForbidden)
 	}
 
@@ -245,7 +245,7 @@ func (s *roleService) ReorderRoles(ctx context.Context, serverID, actorID string
 			return nil, err
 		}
 
-		if role.ID == models.OwnerRoleID {
+		if role.IsOwner {
 			return nil, fmt.Errorf("%w: the Owner role cannot be reordered", pkg.ErrForbidden)
 		}
 

@@ -88,12 +88,12 @@ function RoleSettings() {
   const [editPerms, setEditPerms] = useState(0);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const isOwnerRole = selectedRole?.id === "owner";
+  const isOwnerRole = selectedRole?.is_owner ?? false;
 
   // Actor server owner mı? (owner rolüne sahip mi)
   const isActorOwner = useMemo(() => {
     const me = members.find((m) => m.id === currentUser?.id);
-    return me?.roles.some((r) => r.id === "owner") ?? false;
+    return me?.roles.some((r) => r.is_owner) ?? false;
   }, [members, currentUser]);
 
   // Seçili rol actor'dan yüksek veya eşit mi?
@@ -116,8 +116,8 @@ function RoleSettings() {
   } | null>(null);
 
   /** Bir rolün sürüklenebilir olup olmadığını belirle */
-  function isDraggable(role: { id: string; is_default: boolean; position: number }): boolean {
-    if (role.id === "owner") return false; // Owner rolü her zaman en üstte sabit
+  function isDraggable(role: { id: string; is_default: boolean; is_owner: boolean; position: number }): boolean {
+    if (role.is_owner) return false; // Owner rolü her zaman en üstte sabit
     if (role.is_default) return false;
     if (role.position >= actorMaxPos) return false;
     return canManageRoles;

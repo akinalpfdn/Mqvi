@@ -156,6 +156,7 @@ export type Role = {
   position: number;
   permissions: number;
   is_default: boolean;
+  is_owner: boolean;
 };
 
 // ──────────────────────────────────
