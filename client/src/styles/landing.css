@@ -890,17 +890,6 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   font-size: 14px; color: var(--lp-text-muted); line-height: 1.6;
 }
 
-/* Responsive — guide */
-@media (max-width: 640px) {
-  .lp-guide::before { left: 15px; }
-  .lp-guide-step { gap: 16px; }
-  .lp-guide-step-num { width: 32px; height: 32px; font-size: 14px; }
-  .lp-guide-port-row { grid-template-columns: 120px 60px 1fr; padding: 8px 12px; font-size: 13px; }
-  .lp-guide-trouble-grid { grid-template-columns: 1fr; }
-  .lp-guide-spec { flex-direction: column; gap: 2px; align-items: flex-start; }
-  .lp-guide-spec-label { min-width: auto; }
-}
-
 /* ═══════════════════════════════════════
    CTA
    ═══════════════════════════════════════ */
@@ -987,3 +976,267 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   transition: color 0.2s;
 }
 .lp-footer-link:hover { color: var(--lp-accent); }
+
+/* ═══════════════════════════════════════
+   RESPONSIVE — Tablet (≤ 768px)
+   ═══════════════════════════════════════
+   Orta boy ekranlar: grid'ler 2 sütuna düşer,
+   padding'ler azalır, side-by-side layout'lar yığılır.
+*/
+@media (max-width: 768px) {
+  /* ── Nav ── */
+  .lp-nav {
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  .lp-nav-links {
+    display: none; /* Tablet'te section linklerini gizle — alan yetersiz */
+  }
+  .lp-nav-lang { margin-left: auto; }
+  .lp-nav-login {
+    padding: 7px 16px;
+    font-size: 13px;
+    margin-left: 8px;
+  }
+
+  /* ── Hero ── */
+  .lp-hero {
+    padding: 100px 20px 60px;
+    min-height: auto;
+  }
+  .lp-hero h1 {
+    max-width: 100%;
+  }
+  .lp-hero-actions {
+    flex-direction: column;
+    width: 100%;
+    max-width: 320px;
+  }
+  .lp-btn-primary,
+  .lp-btn-secondary {
+    width: 100%;
+    text-align: center;
+  }
+  .lp-download-link {
+    width: 100%;
+    max-width: 320px;
+    justify-content: center;
+    padding: 12px 24px;
+    font-size: 15px;
+  }
+  .lp-hero-scroll { display: none; }
+
+  /* ── Sections ── */
+  .lp-section {
+    padding: 80px 20px;
+  }
+
+  /* ── Problem ── */
+  .lp-problem {
+    flex-direction: column;
+    gap: 40px;
+  }
+  .lp-problem-left,
+  .lp-problem-right {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* ── Features Grid ── */
+  .lp-features-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .lp-feature-card {
+    padding: 24px 20px;
+  }
+
+  /* ── Comparison Table ── */
+  .lp-comp-cell {
+    padding: 12px 12px;
+    font-size: 13px;
+  }
+
+  /* ── Roadmap ── */
+  .lp-roadmap-grid {
+    flex-direction: column;
+  }
+
+  /* ── Self-Host ── */
+  .lp-selfhost {
+    flex-direction: column;
+    gap: 40px;
+  }
+  .lp-selfhost-left,
+  .lp-selfhost-right {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* ── Guide ── */
+  .lp-guide-os-tabs {
+    margin-top: 32px;
+  }
+  .lp-guide-os-tab {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+  .lp-guide::before { left: 15px; }
+  .lp-guide-step { gap: 16px; }
+  .lp-guide-step-num { width: 32px; height: 32px; font-size: 14px; }
+  .lp-guide-step-title { font-size: 18px; }
+  .lp-guide-step-desc { font-size: 14px; }
+  .lp-guide-trouble-grid { grid-template-columns: 1fr; }
+  .lp-guide-spec { flex-direction: column; gap: 2px; align-items: flex-start; }
+  .lp-guide-spec-label { min-width: auto; }
+  .lp-guide-port-row { grid-template-columns: 120px 60px 1fr; padding: 8px 12px; font-size: 13px; }
+
+  /* Terminal — uzun URL'ler taşmasın */
+  .lp-terminal-body {
+    overflow-x: auto;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  .lp-guide-field-val {
+    font-size: 11px;
+    word-break: break-all;
+  }
+
+  /* ── SSL Warning ── */
+  .lp-guide-ssl-warning {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  /* ── CTA ── */
+  .lp-cta {
+    padding: 100px 20px;
+  }
+  .lp-cta-actions {
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+  .lp-cta-actions .lp-btn-primary,
+  .lp-cta-actions .lp-btn-secondary {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* ── Footer ── */
+  .lp-footer {
+    padding: 32px 20px;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+}
+
+/* ═══════════════════════════════════════
+   RESPONSIVE — Telefon (≤ 480px)
+   ═══════════════════════════════════════
+   Küçük ekranlar: grid'ler tek sütuna düşer,
+   font boyutları azalır, tüm kartlar yığılır.
+*/
+@media (max-width: 480px) {
+  /* ── Nav ── */
+  .lp-nav-brand { font-size: 16px; }
+  .lp-nav-lang-btn { padding: 5px 10px; font-size: 11px; }
+
+  /* ── Hero ── */
+  .lp-hero {
+    padding: 88px 16px 48px;
+  }
+  .lp-hero-badge,
+  .lp-hero-user-count {
+    font-size: 11px;
+    padding: 5px 12px 5px 7px;
+  }
+  .lp-hero p {
+    margin-bottom: 32px;
+  }
+
+  /* ── Sections ── */
+  .lp-section {
+    padding: 60px 16px;
+  }
+  .lp-section-desc { font-size: 15px; }
+
+  /* ── Features Grid — tek sütun ── */
+  .lp-features-grid {
+    grid-template-columns: 1fr;
+  }
+  .lp-features-header {
+    margin-bottom: 40px;
+  }
+
+  /* ── ID Card ── */
+  .lp-id-card {
+    padding: 24px 20px;
+  }
+  .lp-id-card-stamp {
+    font-size: 20px;
+    padding: 6px 16px;
+    letter-spacing: 2px;
+  }
+  .lp-id-card-label {
+    min-width: 60px;
+    font-size: 10px;
+  }
+
+  /* ── Comparison Table ── */
+  .lp-comp-header,
+  .lp-comp-row {
+    grid-template-columns: 1.2fr 0.9fr 0.9fr;
+  }
+  .lp-comp-cell {
+    padding: 10px 8px;
+    font-size: 12px;
+  }
+  .lp-comp-cell--header { font-size: 11px; }
+
+  /* ── Roadmap ── */
+  .lp-roadmap-item {
+    font-size: 12px;
+    padding: 10px 12px;
+  }
+  .lp-roadmap-col-header { font-size: 11px; }
+
+  /* ── Guide ── */
+  .lp-guide-os-tabs {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .lp-guide-os-tab {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .lp-guide-providers {
+    gap: 6px;
+  }
+  .lp-guide-provider-tag {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .lp-guide-field {
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
+  }
+  .lp-guide-field-label { min-width: auto; }
+
+  /* ── CTA ── */
+  .lp-cta {
+    padding: 80px 16px;
+  }
+  .lp-cta p { font-size: 15px; }
+
+  /* ── Footer ── */
+  .lp-footer-links {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
