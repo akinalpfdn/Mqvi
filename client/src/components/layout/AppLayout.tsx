@@ -167,6 +167,33 @@ function AppLayout() {
     }
   }, [selectedChannelId]);
 
+  /**
+   * Voice kanal değişikliğinde kanal listesini yeniden fetch et.
+   *
+   * Neden? Bir kullanıcı sürükleme ile ViewChannel yetkisi olmadığı bir ses
+   * kanalına taşınırsa, backend artık o kanalı döner (voice-connected override).
+   * Ayrılınca da kanal tekrar gizlenmeli. Bu effect her iki senaryoyu da kapsar:
+   * - voice_force_move → yeni gizli kanal sidebar'da görünsün
+   * - voice leave / voice_force_disconnect → gizli kanal tekrar kaybolsun
+   *
+   * prevVoiceChannelRef ile ilk mount'ta gereksiz refetch engellenir —
+   * cascadeRefetch zaten kanalları çekiyor.
+   */
+  const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
+  const prevVoiceChannelRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    // İlk mount'ta skip — kanallar cascadeRefetch ile zaten yükleniyor
+    if (prevVoiceChannelRef.current === undefined) {
+      prevVoiceChannelRef.current = currentVoiceChannelId;
+      return;
+    }
+    // Gerçekten değiştiyse refetch
+    if (prevVoiceChannelRef.current !== currentVoiceChannelId) {
+      prevVoiceChannelRef.current = currentVoiceChannelId;
+      fetchChannels();
+    }
+  }, [currentVoiceChannelId, fetchChannels]);
+
   const { joinVoice, leaveVoice, toggleMute, toggleDeafen, toggleScreenShare } = useVoice({
     sendVoiceJoin,
     sendVoiceLeave,

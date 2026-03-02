@@ -102,6 +102,14 @@ type VoiceService interface {
 	// Atan kişinin hedef kullanıcının bulunduğu kanalda PermMoveMembers yetkisi olmalıdır.
 	// (Discord'da da Disconnect = Move Members yetkisine bağlıdır.)
 	AdminDisconnectUser(ctx context.Context, disconnecterUserID, targetUserID string) error
+
+	// GetUserVoiceChannelID, kullanıcının aktif ses kanalı ID'sini döner.
+	// Kullanıcı hiçbir ses kanalında değilse boş string döner.
+	//
+	// UserVoiceChannelProvider ISP interface'ini karşılar (Go duck typing).
+	// ChannelService.GetAllGrouped tarafından voice-connected kanalları
+	// force-include etmek için kullanılır.
+	GetUserVoiceChannelID(userID string) string
 }
 
 // ─── Implementasyon ───
@@ -465,6 +473,24 @@ func (s *voiceService) GetStreamCount(channelID string) int {
 		}
 	}
 	return count
+}
+
+// ─── Voice Channel Provider ───
+
+// GetUserVoiceChannelID, kullanıcının aktif ses kanalı ID'sini döner.
+// Kullanıcı hiçbir ses kanalında değilse boş string döner.
+//
+// UserVoiceChannelProvider ISP interface'ini karşılar:
+// ChannelService bu metodu kullanarak "ViewChannel yetkisi olmasa bile
+// kullanıcının seste olduğu kanalı sidebar'da göster" mantığını sağlar.
+func (s *voiceService) GetUserVoiceChannelID(userID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if state, ok := s.states[userID]; ok {
+		return state.ChannelID
+	}
+	return ""
 }
 
 // ─── Admin State Update ───

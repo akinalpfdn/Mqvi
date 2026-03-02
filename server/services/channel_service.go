@@ -16,6 +16,18 @@ type ChannelVisibilityChecker interface {
 	BuildVisibilityFilter(ctx context.Context, userID, serverID string) (*ChannelVisibilityFilter, error)
 }
 
+// UserVoiceChannelProvider, kullanıcının aktif ses kanalını sorgulayan ISP interface.
+//
+// Interface Segregation Principle: ChannelService sadece kullanıcının hangi
+// ses kanalında olduğunu bilmeye ihtiyaç duyar — tüm VoiceService'e değil.
+//
+// Kullanım amacı: Bir kullanıcı sürükleme ile ViewChannel yetkisi olmadığı
+// bir ses kanalına taşınırsa, o kanal sidebar'da görünür olmalı.
+// GetAllGrouped bu interface'i kullanarak voice-connected kanalları force-include eder.
+type UserVoiceChannelProvider interface {
+	GetUserVoiceChannelID(userID string) string
+}
+
 // ChannelVisibilityFilter, kullanıcı bazlı kanal görünürlük hesaplama sonucu.
 type ChannelVisibilityFilter struct {
 	IsAdmin         bool
@@ -48,23 +60,31 @@ type ChannelService interface {
 }
 
 type channelService struct {
-	channelRepo  repository.ChannelRepository
-	categoryRepo repository.CategoryRepository
-	hub          ws.Broadcaster
-	visChecker   ChannelVisibilityChecker
+	channelRepo   repository.ChannelRepository
+	categoryRepo  repository.CategoryRepository
+	hub           ws.Broadcaster
+	visChecker    ChannelVisibilityChecker
+	voiceProvider UserVoiceChannelProvider
 }
 
+// NewChannelService, ChannelService implementasyonunu oluşturur.
+//
+// voiceProvider: Kullanıcının aktif ses kanalını sorgular.
+// Sürükleme ile ViewChannel yetkisi olmayan bir ses kanalına taşınan
+// kullanıcının o kanalı sidebar'da görebilmesi için gereklidir.
 func NewChannelService(
 	channelRepo repository.ChannelRepository,
 	categoryRepo repository.CategoryRepository,
 	hub ws.Broadcaster,
 	visChecker ChannelVisibilityChecker,
+	voiceProvider UserVoiceChannelProvider,
 ) ChannelService {
 	return &channelService{
-		channelRepo:  channelRepo,
-		categoryRepo: categoryRepo,
-		hub:          hub,
-		visChecker:   visChecker,
+		channelRepo:   channelRepo,
+		categoryRepo:  categoryRepo,
+		hub:           hub,
+		visChecker:    visChecker,
+		voiceProvider: voiceProvider,
 	}
 }
 
@@ -84,9 +104,21 @@ func (s *channelService) GetAllGrouped(ctx context.Context, serverID, userID str
 		return nil, fmt.Errorf("failed to build visibility filter: %w", err)
 	}
 
+	// Kullanıcının aktif ses kanalını al — ViewChannel yetkisi olmasa bile
+	// seste olduğu kanal sidebar'da görünmeli.
+	//
+	// Senaryo: Admin, kullanıcıyı ViewChannel yetkisi olmadığı bir ses
+	// kanalına sürüklerse, kullanıcı o kanala voice bağlantısı kurar ama
+	// sidebar'da kanalı göremez. Bu kontrol ile voice-connected kanal
+	// force-include edilir.
+	voiceChannelID := ""
+	if s.voiceProvider != nil {
+		voiceChannelID = s.voiceProvider.GetUserVoiceChannelID(userID)
+	}
+
 	channelsByCategory := make(map[string][]models.Channel)
 	for _, ch := range channels {
-		if !filter.CanSee(ch.ID) {
+		if !filter.CanSee(ch.ID) && ch.ID != voiceChannelID {
 			continue
 		}
 		catID := ""

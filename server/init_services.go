@@ -91,7 +91,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		cfg.JWT.Secret, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry,
 	)
 
-	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService)
+	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService)
 	categoryService := services.NewCategoryService(repos.Category, hub)
 	messageService := services.NewMessageService(
 		repos.Message, repos.Attachment, repos.Channel, repos.User,
