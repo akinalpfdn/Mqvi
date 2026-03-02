@@ -58,4 +58,25 @@ type UserRepository interface {
 	// UpdateLastVoiceActivity, bir kullanıcının son ses aktivitesi zamanını günceller.
 	// Ses kanalına katılım olduğunda çağrılır (hub callback'ten).
 	UpdateLastVoiceActivity(ctx context.Context, userID string) error
+
+	// ─── Platform Ban ───
+
+	// PlatformBan, kullanıcıyı platform genelinde yasaklar.
+	// Login, WS connect ve aynı email ile yeni kayıt bloklanır.
+	PlatformBan(ctx context.Context, userID, reason, bannedBy string) error
+
+	// PlatformUnban, platform ban'ini kaldırır.
+	PlatformUnban(ctx context.Context, userID string) error
+
+	// IsEmailPlatformBanned, verilen email'in banlı bir kullanıcıya ait olup olmadığını kontrol eder.
+	// Yeni kayıt sırasında aynı email ile hesap açılmasını engellemek için kullanılır.
+	IsEmailPlatformBanned(ctx context.Context, email string) (bool, error)
+
+	// DeleteAllMessagesByUser, kullanıcının tüm mesajlarını (server + DM) ve eklerini siler.
+	// Platform ban'de opsiyonel olarak çağrılır.
+	DeleteAllMessagesByUser(ctx context.Context, userID string) error
+
+	// HardDeleteUser, kullanıcıyı ve CASCADE ile tüm ilişkili verileri kalıcı olarak siler.
+	// servers.owner_id CASCADE olmadığından, sahip olunan sunucular önceden temizlenmelidir.
+	HardDeleteUser(ctx context.Context, userID string) error
 }

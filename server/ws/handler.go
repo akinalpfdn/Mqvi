@@ -158,7 +158,33 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Ban kontrolü — banlı kullanıcı WS bağlantısı kuramaz
+	// 3. User bilgilerini DB'den çek (ban kontrolleri + hub cache için).
+	// WS upgrade'den ÖNCE yapılır — banlı kullanıcıya upgrade verilmez.
+	// display_name ve avatar_url JWT claims'te bulunmaz — DB lookup gerekir.
+	var displayName, avatarURL string
+	var dbStatus models.UserStatus
+	if h.userInfoProvider != nil {
+		user, err := h.userInfoProvider.GetByID(r.Context(), claims.UserID)
+		if err != nil {
+			log.Printf("[ws] user info fetch failed for %s: %v", claims.UserID, err)
+			http.Error(w, "user not found", http.StatusUnauthorized)
+			return
+		}
+		// Platform-level ban — tüm WS bağlantılarını bloklar
+		if user.IsPlatformBanned {
+			http.Error(w, "account suspended", http.StatusForbidden)
+			return
+		}
+		if user.DisplayName != nil {
+			displayName = *user.DisplayName
+		}
+		if user.AvatarURL != nil {
+			avatarURL = *user.AvatarURL
+		}
+		dbStatus = user.Status
+	}
+
+	// 4. Server-scoped ban kontrolü — banlı kullanıcı WS bağlantısı kuramaz
 	if h.banChecker != nil {
 		banned, err := h.banChecker.IsBanned(r.Context(), claims.UserID)
 		if err != nil {
@@ -172,37 +198,19 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. HTTP → WebSocket upgrade
+	// 5. HTTP → WebSocket upgrade
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[ws] upgrade failed for user %s: %v", claims.UserID, err)
 		return
 	}
 
-	// 5. Client oluştur
+	// 6. Client oluştur
 	client := &Client{
 		hub:    h.hub,
 		conn:   conn,
 		userID: claims.UserID,
 		send:   make(chan []byte, sendBufferSize),
-	}
-
-	// User bilgilerini DB'den çekip Hub cache'ine yaz.
-	// display_name ve avatar_url JWT claims'te bulunmaz — DB lookup gerekir.
-	// Bu bilgiler voice join gibi event'lerde tekrar DB'ye gitmeden kullanılır.
-	// Ayrıca kullanıcının DB'deki status tercihi okunur — invisible tracking için.
-	var displayName, avatarURL string
-	var dbStatus models.UserStatus
-	if h.userInfoProvider != nil {
-		if user, err := h.userInfoProvider.GetByID(r.Context(), claims.UserID); err == nil {
-			if user.DisplayName != nil {
-				displayName = *user.DisplayName
-			}
-			if user.AvatarURL != nil {
-				avatarURL = *user.AvatarURL
-			}
-			dbStatus = user.Status
-		}
 	}
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 

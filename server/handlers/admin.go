@@ -18,18 +18,21 @@ import (
 
 // AdminHandler, platform admin endpoint'lerini yönetir.
 type AdminHandler struct {
-	livekitAdminService    services.LiveKitAdminService
-	metricsHistoryService  services.MetricsHistoryService
+	livekitAdminService   services.LiveKitAdminService
+	metricsHistoryService services.MetricsHistoryService
+	adminUserService      services.AdminUserService
 }
 
 // NewAdminHandler, constructor.
 func NewAdminHandler(
 	livekitAdminService services.LiveKitAdminService,
 	metricsHistoryService services.MetricsHistoryService,
+	adminUserService services.AdminUserService,
 ) *AdminHandler {
 	return &AdminHandler{
 		livekitAdminService:   livekitAdminService,
 		metricsHistoryService: metricsHistoryService,
+		adminUserService:      adminUserService,
 	}
 }
 
@@ -218,4 +221,57 @@ func (h *AdminHandler) GetLiveKitInstanceMetricsHistory(w http.ResponseWriter, r
 	}
 
 	pkg.JSON(w, http.StatusOK, summary)
+}
+
+// PlatformBanUser — POST /api/admin/users/{id}/ban
+// Kullanıcıyı platform genelinde yasaklar.
+// Request body: { "reason": "...", "delete_messages": true/false }
+func (h *AdminHandler) PlatformBanUser(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	targetID := r.PathValue("id")
+	if targetID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+
+	var req models.PlatformBanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.adminUserService.PlatformBanUser(r.Context(), admin.ID, targetID, req.Reason, req.DeleteMessages); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user banned"})
+}
+
+// HardDeleteUser — DELETE /api/admin/users/{id}
+// Kullanıcıyı ve tüm verilerini kalıcı olarak siler.
+func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	targetID := r.PathValue("id")
+	if targetID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+
+	if err := h.adminUserService.HardDeleteUser(r.Context(), admin.ID, targetID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user deleted"})
 }

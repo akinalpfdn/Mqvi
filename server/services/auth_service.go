@@ -131,6 +131,16 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 	var email *string
 	if req.Email != "" {
 		email = &req.Email
+
+		// Aynı email ile banlı kullanıcı var mı kontrol et.
+		// Banlanan kullanıcı aynı email ile yeni hesap açamaz.
+		banned, banErr := s.userRepo.IsEmailPlatformBanned(ctx, req.Email)
+		if banErr != nil {
+			return nil, fmt.Errorf("failed to check email ban: %w", banErr)
+		}
+		if banned {
+			return nil, fmt.Errorf("%w: this email is not allowed", pkg.ErrForbidden)
+		}
 	}
 
 	user := &models.User{
@@ -156,8 +166,8 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 
 // Login, kullanıcı girişi yapar.
 //
-// Multi-server mimarisinde ban kontrolü kaldırıldı — ban sunucu bazlıdır.
-// Banlı bir kullanıcı diğer sunucularını kullanabilir.
+// Server-scoped ban kontrolü kaldırıldı — sunucu ban'leri WS connect sırasında kontrol edilir.
+// Platform-level ban burada kontrol edilir — banlı kullanıcı hiçbir şekilde giriş yapamaz.
 func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*AuthTokens, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
@@ -175,6 +185,11 @@ func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*Aut
 	// Bcrypt şifre karşılaştırması
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, fmt.Errorf("%w: invalid username or password", pkg.ErrUnauthorized)
+	}
+
+	// Platform-level ban kontrolü — banlı kullanıcı login yapamaz
+	if user.IsPlatformBanned {
+		return nil, fmt.Errorf("%w: account suspended", pkg.ErrForbidden)
 	}
 
 	// Status'u online yap
@@ -210,6 +225,11 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*A
 	user, err := s.userRepo.GetByID(ctx, session.UserID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Platform-level ban kontrolü — banlı kullanıcı token yenileyemez
+	if user.IsPlatformBanned {
+		return nil, fmt.Errorf("%w: account suspended", pkg.ErrForbidden)
 	}
 
 	return s.generateTokens(ctx, user)

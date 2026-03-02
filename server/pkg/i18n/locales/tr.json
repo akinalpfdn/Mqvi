@@ -23,7 +23,9 @@
     "resetNotConfigured": "Bu sunucuda şifre sıfırlama yapılandırılmamış",
     "invalidOrExpiredToken": "Geçersiz veya süresi dolmuş sıfırlama token'ı",
     "tokenExpired": "Sıfırlama token'ının süresi dolmuş",
-    "passwordResetSuccess": "Şifre başarıyla sıfırlandı"
+    "passwordResetSuccess": "Şifre başarıyla sıfırlandı",
+    "accountSuspended": "Hesabınız askıya alınmıştır",
+    "emailNotAllowed": "Bu e-posta adresine izin verilmiyor"
   },
   "user": {
     "notFound": "Kullanıcı bulunamadı"
@@ -58,6 +60,13 @@
     "cannotDeleteWithServers": "Aktif sunucuları olan bir instance, taşıma hedefi belirtilmeden silinemez",
     "migrationTargetNotFound": "Taşıma hedefi bulunamadı",
     "cannotMigrateToSelf": "Aynı sunucuya taşıma yapılamaz",
-    "onlyPlatformManaged": "Sadece platform tarafından yönetilen sunucular admin API ile değiştirilebilir"
+    "onlyPlatformManaged": "Sadece platform tarafından yönetilen sunucular admin API ile değiştirilebilir",
+    "cannotBanSelf": "Kendinizi yasaklayamazsınız",
+    "cannotBanAdmin": "Platform yöneticisi yasaklanamaz",
+    "userAlreadyBanned": "Kullanıcı zaten yasaklı",
+    "userBanned": "Kullanıcı yasaklandı",
+    "cannotDeleteSelf": "Kendinizi silemezsiniz",
+    "cannotDeleteAdmin": "Platform yöneticisi silinemez",
+    "userDeleted": "Kullanıcı silindi"
   }
 }

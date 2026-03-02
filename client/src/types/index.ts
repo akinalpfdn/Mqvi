@@ -536,6 +536,7 @@ export type AdminUserListItem = {
   owned_mqvi_servers: number;
   member_server_count: number;
   ban_count: number;
+  is_platform_banned: boolean;
 };
 
 // ──────────────────────────────────

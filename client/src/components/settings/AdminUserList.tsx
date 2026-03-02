@@ -13,8 +13,17 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
-import { listAdminUsers } from "../../api/admin";
+import { useAuthStore } from "../../stores/authStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { useDMStore } from "../../stores/dmStore";
+import { useUIStore } from "../../stores/uiStore";
+import { listAdminUsers, platformBanUser, hardDeleteUser } from "../../api/admin";
+import { useContextMenu } from "../../hooks/useContextMenu";
+import { useConfirm } from "../../hooks/useConfirm";
+import ContextMenu from "../shared/ContextMenu";
+import PlatformBanDialog from "./PlatformBanDialog";
 import type { AdminUserListItem } from "../../types";
+import type { ContextMenuItem } from "../../hooks/useContextMenu";
 
 // ─── Column Definition ───
 
@@ -143,10 +152,16 @@ function compareSortValue(
 function AdminUserList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const currentUser = useAuthStore((s) => s.user);
+  const confirm = useConfirm();
+  const { menuState, openMenu, closeMenu } = useContextMenu();
 
   // ─── Data state ───
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // ─── Ban dialog state ───
+  const [banTarget, setBanTarget] = useState<AdminUserListItem | null>(null);
 
   // ─── Table state ───
   const [searchQuery, setSearchQuery] = useState("");
@@ -206,6 +221,97 @@ function AdminUserList() {
     } else {
       setSortKey(key);
       setSortDir("asc");
+    }
+  }
+
+  // ─── Context Menu ───
+
+  /** Kullanıcı listesini yeniden yükle (ban/delete sonrası) */
+  const refetchUsers = useCallback(async () => {
+    const res = await listAdminUsers();
+    if (res.success && res.data) {
+      setUsers(res.data);
+    }
+  }, []);
+
+  /** Sağ tık menü öğelerini oluştur */
+  function buildContextItems(user: AdminUserListItem): ContextMenuItem[] {
+    const isMe = user.id === currentUser?.id;
+    const items: ContextMenuItem[] = [];
+
+    // Mesaj Gönder — kendi satırında gösterme
+    if (!isMe) {
+      items.push({
+        label: t("platformUserSendDM"),
+        onClick: () => handleSendDM(user),
+      });
+    }
+
+    // Kullanıcıyı Yasakla — kendi satırında ve zaten banlı ise gösterme
+    if (!isMe && !user.is_platform_banned) {
+      items.push({
+        label: t("platformUserBan"),
+        danger: true,
+        separator: items.length > 0,
+        onClick: () => setBanTarget(user),
+      });
+    }
+
+    // Kullanıcıyı Sil — kendi satırında gösterme
+    if (!isMe) {
+      items.push({
+        label: t("platformUserDelete"),
+        danger: true,
+        separator: items.length > 0 && !items[items.length - 1]?.separator,
+        onClick: () => handleDeleteUser(user),
+      });
+    }
+
+    return items;
+  }
+
+  /** DM kanalı aç — MemberCard pattern'i */
+  async function handleSendDM(user: AdminUserListItem) {
+    const channelId = await useDMStore.getState().createOrGetChannel(user.id);
+    if (channelId) {
+      const displayName = user.display_name ?? user.username;
+      useUIStore.getState().openTab(channelId, "dm", displayName);
+      useSettingsStore.getState().closeSettings();
+    }
+  }
+
+  /** Ban onayı — PlatformBanDialog'dan gelen callback */
+  async function handleBanConfirm(reason: string, deleteMessages: boolean) {
+    if (!banTarget) return;
+    const targetId = banTarget.id;
+    const targetName = banTarget.username;
+    setBanTarget(null);
+
+    const res = await platformBanUser(targetId, { reason, delete_messages: deleteMessages });
+    if (res.success) {
+      addToast("success", t("platformBanSuccess", { username: targetName }));
+      await refetchUsers();
+    } else {
+      addToast("error", res.error ?? t("platformBanError"));
+    }
+  }
+
+  /** Hard delete — useConfirm ile onay dialogu */
+  async function handleDeleteUser(user: AdminUserListItem) {
+    const ok = await confirm({
+      title: t("platformDeleteTitle"),
+      message: t("platformDeleteDescription", { username: user.username }),
+      confirmLabel: t("platformDeleteConfirm"),
+      danger: true,
+    });
+    if (!ok) return;
+
+    const res = await hardDeleteUser(user.id);
+    if (res.success) {
+      addToast("success", t("platformDeleteSuccess", { username: user.username }));
+      await refetchUsers();
+    } else {
+      addToast("error", res.error ?? t("platformDeleteError"));
     }
   }
 
@@ -335,6 +441,9 @@ function AdminUserList() {
               )}
             </div>
             <span title={user.username}>{user.username}</span>
+            {user.is_platform_banned && (
+              <span className="admin-user-banned-badge">{t("platformUserBannedBadge")}</span>
+            )}
           </div>
         );
 
@@ -461,7 +570,14 @@ function AdminUserList() {
             </thead>
             <tbody>
               {filteredUsers.map((user) => (
-                <tr key={user.id}>
+                <tr
+                  key={user.id}
+                  className={user.is_platform_banned ? "admin-user-row-banned" : ""}
+                  onContextMenu={(e) => {
+                    const items = buildContextItems(user);
+                    if (items.length > 0) openMenu(e, items);
+                  }}
+                >
                   {COLUMNS.map((col) => (
                     <td key={col.key} style={{ textAlign: col.align }}>
                       {renderCell(user, col.key)}
@@ -472,6 +588,17 @@ function AdminUserList() {
             </tbody>
           </table>
         </div>
+      )}
+      {/* Context Menu */}
+      <ContextMenu state={menuState} onClose={closeMenu} />
+
+      {/* Ban Dialog */}
+      {banTarget && (
+        <PlatformBanDialog
+          username={banTarget.username}
+          onConfirm={handleBanConfirm}
+          onCancel={() => setBanTarget(null)}
+        />
       )}
     </div>
   );

@@ -53,8 +53,12 @@ type User struct {
 	CustomStatus    *string    `json:"custom_status"`
 	Email           *string    `json:"email"`            // Opsiyonel — şifremi unuttum için kullanılır
 	Language        string     `json:"language"`          // Dil tercihi: "en", "tr"
-	IsPlatformAdmin bool       `json:"is_platform_admin"` // Platform yöneticisi — SQL ile manual atanır
-	CreatedAt       time.Time  `json:"created_at"`
+	IsPlatformAdmin   bool       `json:"is_platform_admin"`   // Platform yöneticisi — SQL ile manual atanır
+	IsPlatformBanned  bool       `json:"is_platform_banned"`  // Platform-level ban — login, WS, re-register bloklanır
+	PlatformBanReason string     `json:"-"`                   // Ban sebebi — sadece admin panelde görünür
+	PlatformBannedBy  string     `json:"-"`                   // Ban'i uygulayan admin ID — audit trail
+	PlatformBannedAt  *time.Time `json:"-"`                   // Ban tarihi
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 // CreateUserRequest, kayıt olurken frontend'den gelen veri.

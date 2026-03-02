@@ -88,6 +88,24 @@ export async function listAdminUsers() {
   return apiClient<AdminUserListItem[]>("/admin/users");
 }
 
+/** Kullanıcıyı platform genelinde yasaklar (admin). */
+export async function platformBanUser(
+  userId: string,
+  data: { reason: string; delete_messages: boolean }
+) {
+  return apiClient<{ message: string }>(`/admin/users/${userId}/ban`, {
+    method: "POST",
+    body: data,
+  });
+}
+
+/** Kullanıcıyı ve tüm verilerini kalıcı olarak siler (admin). */
+export async function hardDeleteUser(userId: string) {
+  return apiClient<{ message: string }>(`/admin/users/${userId}`, {
+    method: "DELETE",
+  });
+}
+
 /** Tek bir sunucunun LiveKit instance'ını değiştirir (admin). */
 export async function migrateServerInstance(
   serverId: string,

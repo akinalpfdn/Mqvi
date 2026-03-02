@@ -40,6 +40,15 @@ type AdminUserListItem struct {
 	OwnedMqviServers  int     `json:"owned_mqvi_servers"`
 	MemberServerCount int     `json:"member_server_count"`
 	BanCount          int     `json:"ban_count"`
+	IsPlatformBanned  bool    `json:"is_platform_banned"`
+}
+
+// PlatformBanRequest — Platform-level ban isteği.
+// Reason opsiyonel — admin sebebi kaydetmek istemeyebilir.
+// DeleteMessages true ise kullanıcının tüm mesajları (server + DM) silinir.
+type PlatformBanRequest struct {
+	Reason         string `json:"reason"`
+	DeleteMessages bool   `json:"delete_messages"`
 }
 
 // MigrateServerInstanceRequest — Tek bir sunucunun LiveKit instance'ını değiştirme isteği.

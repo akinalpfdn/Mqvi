@@ -1089,6 +1089,34 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   color:var(--t3);
 }
 
+/* ── Banned user row ── */
+.admin-user-row-banned td { opacity:0.55; }
+.admin-user-banned-badge {
+  display:inline-block;padding:2px 8px;border-radius:4px;font-size:13px;font-weight:500;
+  background:var(--red-s);color:var(--red);margin-left:6px;
+}
+
+/* ── Platform Ban Dialog ── */
+.platform-ban-dialog { max-width:440px; }
+.platform-ban-label {
+  display:block;font-size:13px;font-weight:600;color:var(--t1);
+  margin-bottom:6px;
+}
+.platform-ban-textarea {
+  width:100%;padding:8px 12px;border:1px solid var(--b2);border-radius:6px;
+  background:var(--bg-1);color:var(--t0);font-size:14px;font-family:var(--f-s);
+  resize:vertical;min-height:60px;
+}
+.platform-ban-textarea:focus { outline:none;border-color:var(--primary); }
+.platform-ban-textarea::placeholder { color:var(--t3); }
+.platform-ban-checkbox-label {
+  display:flex;align-items:center;gap:8px;margin:12px 0 16px;
+  font-size:14px;color:var(--t1);cursor:pointer;
+}
+.platform-ban-checkbox-label input[type="checkbox"] {
+  width:16px;height:16px;accent-color:var(--red);cursor:pointer;
+}
+
 /* Role drag & drop (HTML5 DnD — ChannelTree pattern) */
 .role-drag-wrap { position:relative;transition:opacity .15s; }
 .role-drag-wrap.dragging { opacity:0.4; }

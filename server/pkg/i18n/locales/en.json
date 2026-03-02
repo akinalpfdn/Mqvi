@@ -23,7 +23,9 @@
     "resetNotConfigured": "Password reset is not configured on this server",
     "invalidOrExpiredToken": "Invalid or expired reset token",
     "tokenExpired": "Reset token has expired",
-    "passwordResetSuccess": "Password has been reset successfully"
+    "passwordResetSuccess": "Password has been reset successfully",
+    "accountSuspended": "Your account has been suspended",
+    "emailNotAllowed": "This email is not allowed"
   },
   "user": {
     "notFound": "User not found"
@@ -58,6 +60,13 @@
     "cannotDeleteWithServers": "Cannot delete instance with active servers without specifying a migration target",
     "migrationTargetNotFound": "Migration target instance not found",
     "cannotMigrateToSelf": "Cannot migrate to the same instance",
-    "onlyPlatformManaged": "Only platform-managed instances can be modified via admin API"
+    "onlyPlatformManaged": "Only platform-managed instances can be modified via admin API",
+    "cannotBanSelf": "You cannot ban yourself",
+    "cannotBanAdmin": "Cannot ban a platform admin",
+    "userAlreadyBanned": "User is already banned",
+    "userBanned": "User has been banned",
+    "cannotDeleteSelf": "You cannot delete yourself",
+    "cannotDeleteAdmin": "Cannot delete a platform admin",
+    "userDeleted": "User has been deleted"
   }
 }

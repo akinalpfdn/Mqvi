@@ -66,13 +66,18 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 
 func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, is_platform_admin, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status,
+			email, language, is_platform_admin, is_platform_banned,
+			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE id = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
-		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.IsPlatformAdmin, &user.CreatedAt,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email,
+		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned,
+		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
+		&user.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -87,13 +92,18 @@ func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, 
 
 func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, is_platform_admin, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status,
+			email, language, is_platform_admin, is_platform_banned,
+			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE username = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
-		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.IsPlatformAdmin, &user.CreatedAt,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email,
+		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned,
+		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
+		&user.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -108,7 +118,9 @@ func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*m
 
 func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, is_platform_admin, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status,
+			email, language, is_platform_admin, is_platform_banned,
+			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users ORDER BY username`
 
 	// QueryContext: birden fazla satır dönen sorgu.
@@ -124,7 +136,10 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 		var u models.User
 		if err := rows.Scan(
 			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
-			&u.PasswordHash, &u.Status, &u.CustomStatus, &u.Email, &u.Language, &u.IsPlatformAdmin, &u.CreatedAt,
+			&u.PasswordHash, &u.Status, &u.CustomStatus, &u.Email,
+			&u.Language, &u.IsPlatformAdmin, &u.IsPlatformBanned,
+			&u.PlatformBanReason, &u.PlatformBannedBy, &u.PlatformBannedAt,
+			&u.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan user row: %w", err)
 		}
@@ -230,13 +245,18 @@ func (r *sqliteUserRepo) UpdateEmail(ctx context.Context, userID string, email *
 // İleride "şifremi unuttum" akışı için kullanılacak.
 func (r *sqliteUserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status, email, language, is_platform_admin, created_at
+		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status,
+			email, language, is_platform_admin, is_platform_banned,
+			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE email = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, email).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
-		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email, &user.Language, &user.IsPlatformAdmin, &user.CreatedAt,
+		&user.PasswordHash, &user.Status, &user.CustomStatus, &user.Email,
+		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned,
+		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
+		&user.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -307,6 +327,7 @@ func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.Ad
 			u.display_name,
 			u.avatar_url,
 			u.is_platform_admin,
+			u.is_platform_banned,
 			u.created_at,
 			u.status,
 			(SELECT MAX(val) FROM (
@@ -342,7 +363,7 @@ func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.Ad
 		var u models.AdminUserListItem
 		if err := rows.Scan(
 			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
-			&u.IsPlatformAdmin, &u.CreatedAt, &u.Status,
+			&u.IsPlatformAdmin, &u.IsPlatformBanned, &u.CreatedAt, &u.Status,
 			&u.LastActivity, &u.MessageCount, &u.StorageMB,
 			&u.OwnedSelfServers, &u.OwnedMqviServers,
 			&u.MemberServerCount, &u.BanCount,
@@ -368,5 +389,137 @@ func (r *sqliteUserRepo) UpdateLastVoiceActivity(ctx context.Context, userID str
 	if err != nil {
 		return fmt.Errorf("failed to update user voice activity: %w", err)
 	}
+	return nil
+}
+
+// ─── Platform Ban ───
+
+// PlatformBan, kullanıcıyı platform genelinde yasaklar.
+// is_platform_banned flag'i 1 yapılır, sebep ve admin bilgisi kaydedilir.
+func (r *sqliteUserRepo) PlatformBan(ctx context.Context, userID, reason, bannedBy string) error {
+	query := `
+		UPDATE users
+		SET is_platform_banned = 1,
+			platform_ban_reason = ?,
+			platform_banned_by = ?,
+			platform_banned_at = CURRENT_TIMESTAMP
+		WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, reason, bannedBy, userID)
+	if err != nil {
+		return fmt.Errorf("failed to platform ban user: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+
+	return nil
+}
+
+// PlatformUnban, platform ban'ini kaldırır.
+// Ban bilgileri (reason, banned_by, banned_at) temizlenir.
+func (r *sqliteUserRepo) PlatformUnban(ctx context.Context, userID string) error {
+	query := `
+		UPDATE users
+		SET is_platform_banned = 0,
+			platform_ban_reason = '',
+			platform_banned_by = '',
+			platform_banned_at = NULL
+		WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("failed to platform unban user: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+
+	return nil
+}
+
+// IsEmailPlatformBanned, verilen email'in banlı bir kullanıcıya ait olup olmadığını kontrol eder.
+// Kayıt sırasında aynı email ile yeni hesap açılmasını engellemek için kullanılır.
+func (r *sqliteUserRepo) IsEmailPlatformBanned(ctx context.Context, email string) (bool, error) {
+	query := `SELECT COUNT(*) FROM users WHERE email = ? AND is_platform_banned = 1`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, email).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check email platform ban: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+// DeleteAllMessagesByUser, kullanıcının tüm server mesajlarını ve DM mesajlarını siler.
+// Attachment'lar messages tablosuna CASCADE ile silinir.
+// Platform ban'de opsiyonel "mesajları da sil" seçeneği için kullanılır.
+func (r *sqliteUserRepo) DeleteAllMessagesByUser(ctx context.Context, userID string) error {
+	// Server mesajları — attachments tablosu messages'a CASCADE ile bağlı,
+	// dolayısıyla mesaj silinince ekler de otomatik silinir.
+	_, err := r.db.ExecContext(ctx, `DELETE FROM messages WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user messages: %w", err)
+	}
+
+	// DM mesajları
+	_, err = r.db.ExecContext(ctx, `DELETE FROM dm_messages WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user DM messages: %w", err)
+	}
+
+	return nil
+}
+
+// HardDeleteUser, kullanıcıyı ve CASCADE ile tüm ilişkili verileri kalıcı olarak siler.
+//
+// CASCADE ile otomatik silinen tablolar:
+// user_roles, messages, sessions, dm_channels, dm_messages,
+// message_mentions, reactions, friendships, server_members,
+// channel_reads, password_reset_tokens, server_mutes
+//
+// Manuel temizlik gerektiren tablolar:
+// - bans: FK yok, username text olarak saklanır — orphan kalır ama zararsız
+// - servers.owner_id: CASCADE yok — çağıran service sahip olunan sunucuları önceden temizlemeli
+func (r *sqliteUserRepo) HardDeleteUser(ctx context.Context, userID string) error {
+	// Bans tablosunda FK olmadığından manuel temizlik
+	_, err := r.db.ExecContext(ctx, `DELETE FROM bans WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to clean up bans for user: %w", err)
+	}
+
+	// servers.owner_id → users(id) CASCADE yok.
+	// Sahip olunan sunucuları sil — servers tablosunun kendi CASCADE'i
+	// channels, roles, messages vb. sunucu verilerini otomatik temizler.
+	_, err = r.db.ExecContext(ctx, `DELETE FROM servers WHERE owner_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete owned servers: %w", err)
+	}
+
+	// Ana silme — CASCADE ile tüm ilişkili veriler otomatik silinir
+	result, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to hard delete user: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+
 	return nil
 }
