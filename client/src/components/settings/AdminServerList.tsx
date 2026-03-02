@@ -67,6 +67,18 @@ function getDefaultWidths(): Record<string, number> {
   return widths;
 }
 
+/**
+ * parseUTC — Backend SQLite timestamp'lerini UTC olarak parse eder.
+ *
+ * SQLite CURRENT_TIMESTAMP UTC'dir ama timezone göstergesi ("Z") içermez.
+ * JavaScript'in Date constructor'ı timezone bilgisi olmayan string'leri
+ * LOCAL time olarak yorumlar → UTC+3 (Türkiye) kullanıcılarında 3 saat hatalı
+ * gösterime yol açar. "Z" ekleyerek UTC olarak parse etmeyi garanti ediyoruz.
+ */
+function parseUTC(iso: string): number {
+  return new Date(iso.endsWith("Z") ? iso : iso + "Z").getTime();
+}
+
 // ─── Sort comparator ───
 
 function compareSortValue(
@@ -103,8 +115,8 @@ function compareSortValue(
       result = a.storage_mb - b.storage_mb;
       break;
     case "last_activity": {
-      const aTime = a.last_activity ? new Date(a.last_activity).getTime() : 0;
-      const bTime = b.last_activity ? new Date(b.last_activity).getTime() : 0;
+      const aTime = a.last_activity ? parseUTC(a.last_activity) : 0;
+      const bTime = b.last_activity ? parseUTC(b.last_activity) : 0;
       result = aTime - bTime;
       break;
     }
@@ -307,7 +319,7 @@ function AdminServerList() {
   function formatRelativeTime(iso: string | null) {
     if (!iso) return t("platformServerNever");
     try {
-      const diff = Date.now() - new Date(iso).getTime();
+      const diff = Date.now() - parseUTC(iso);
       const mins = Math.floor(diff / 60000);
       if (mins < 1) return t("platformServerJustNow");
       if (mins < 60) return `${mins}m`;
