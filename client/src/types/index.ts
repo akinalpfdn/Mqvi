@@ -290,6 +290,7 @@ export type DMChannelWithUser = {
   id: string;
   other_user: User;
   created_at: string;
+  last_message_at: string | null; // Son mesaj aktivitesi — sıralama için
 };
 
 /**

@@ -28,10 +28,11 @@ func NewSQLiteDMRepo(db database.TxQuerier) DMRepository {
 // user1ID ve user2ID sıralı gelmeli (service katmanında sağlanır).
 func (r *sqliteDMRepo) GetChannelByUsers(ctx context.Context, user1ID, user2ID string) (*models.DMChannel, error) {
 	var ch models.DMChannel
+	var lastMsgAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id, user1_id, user2_id, created_at FROM dm_channels WHERE user1_id = ? AND user2_id = ?",
+		"SELECT id, user1_id, user2_id, created_at, last_message_at FROM dm_channels WHERE user1_id = ? AND user2_id = ?",
 		user1ID, user2ID,
-	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.CreatedAt)
+	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.CreatedAt, &lastMsgAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil // Kanal yok — nil döner (hata değil)
@@ -39,22 +40,29 @@ func (r *sqliteDMRepo) GetChannelByUsers(ctx context.Context, user1ID, user2ID s
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DM channel: %w", err)
 	}
+	if lastMsgAt.Valid {
+		ch.LastMessageAt = &lastMsgAt.Time
+	}
 	return &ch, nil
 }
 
 // GetChannelByID, ID ile DM kanalını döner.
 func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.DMChannel, error) {
 	var ch models.DMChannel
+	var lastMsgAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id, user1_id, user2_id, created_at FROM dm_channels WHERE id = ?",
+		"SELECT id, user1_id, user2_id, created_at, last_message_at FROM dm_channels WHERE id = ?",
 		id,
-	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.CreatedAt)
+	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.CreatedAt, &lastMsgAt)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("%w: DM channel not found", pkg.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DM channel: %w", err)
+	}
+	if lastMsgAt.Valid {
+		ch.LastMessageAt = &lastMsgAt.Time
 	}
 	return &ch, nil
 }
@@ -67,7 +75,7 @@ func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.D
 // Son mesaja göre sıralama: en son mesaj alan kanal üstte.
 func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error) {
 	query := `
-		SELECT dc.id, dc.created_at,
+		SELECT dc.id, dc.created_at, dc.last_message_at,
 			u.id, u.username, u.display_name, u.avatar_url, u.status
 		FROM dm_channels dc
 		JOIN users u ON u.id = CASE
@@ -75,7 +83,7 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 			ELSE dc.user1_id
 		END
 		WHERE dc.user1_id = ? OR dc.user2_id = ?
-		ORDER BY dc.created_at DESC`
+		ORDER BY COALESCE(dc.last_message_at, dc.created_at) DESC`
 
 	rows, err := r.db.QueryContext(ctx, query, userID, userID, userID)
 	if err != nil {
@@ -88,14 +96,18 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 		var ch models.DMChannelWithUser
 		var user models.User
 		var displayName, avatarURL sql.NullString
+		var lastMsgAt sql.NullTime
 
 		if err := rows.Scan(
-			&ch.ID, &ch.CreatedAt,
+			&ch.ID, &ch.CreatedAt, &lastMsgAt,
 			&user.ID, &user.Username, &displayName, &avatarURL, &user.Status,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan DM channel: %w", err)
 		}
 
+		if lastMsgAt.Valid {
+			ch.LastMessageAt = &lastMsgAt.Time
+		}
 		if displayName.Valid {
 			user.DisplayName = &displayName.String
 		}
@@ -119,13 +131,17 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 
 // CreateChannel, yeni bir DM kanalı oluşturur.
 func (r *sqliteDMRepo) CreateChannel(ctx context.Context, channel *models.DMChannel) error {
+	var lastMsgAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,
-		"INSERT INTO dm_channels (user1_id, user2_id) VALUES (?, ?) RETURNING id, created_at",
+		"INSERT INTO dm_channels (user1_id, user2_id) VALUES (?, ?) RETURNING id, created_at, last_message_at",
 		channel.User1ID, channel.User2ID,
-	).Scan(&channel.ID, &channel.CreatedAt)
+	).Scan(&channel.ID, &channel.CreatedAt, &lastMsgAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create DM channel: %w", err)
+	}
+	if lastMsgAt.Valid {
+		channel.LastMessageAt = &lastMsgAt.Time
 	}
 	return nil
 }

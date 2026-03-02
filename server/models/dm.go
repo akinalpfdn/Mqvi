@@ -13,19 +13,21 @@ import (
 // Bu sayede aynı iki kullanıcı arasında sadece tek bir kanal oluşabilir
 // (UNIQUE constraint user1_id, user2_id çifti üzerinde).
 type DMChannel struct {
-	ID        string    `json:"id"`
-	User1ID   string    `json:"user1_id"`
-	User2ID   string    `json:"user2_id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            string     `json:"id"`
+	User1ID       string     `json:"user1_id"`
+	User2ID       string     `json:"user2_id"`
+	CreatedAt     time.Time  `json:"created_at"`
+	LastMessageAt *time.Time `json:"last_message_at"` // Nullable — henüz mesaj yoksa nil
 }
 
 // DMChannelWithUser, DM kanal bilgisi + karşı taraf kullanıcı bilgisi.
 // Frontend'de DM listesi render etmek için kullanılır —
 // hangi kullanıcıyla konuştuğunu göstermek için karşı tarafın bilgisi gerekli.
 type DMChannelWithUser struct {
-	ID        string    `json:"id"`
-	OtherUser *User     `json:"other_user"` // Karşı taraf kullanıcı bilgisi
-	CreatedAt time.Time `json:"created_at"`
+	ID            string     `json:"id"`
+	OtherUser     *User      `json:"other_user"`      // Karşı taraf kullanıcı bilgisi
+	CreatedAt     time.Time  `json:"created_at"`
+	LastMessageAt *time.Time `json:"last_message_at"` // Son mesaj aktivitesi — sıralama için
 }
 
 // DMMessage, bir DM mesajını temsil eder.

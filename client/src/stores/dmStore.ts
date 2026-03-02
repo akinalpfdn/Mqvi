@@ -31,6 +31,18 @@ const EMPTY_CHANNELS: DMChannelWithUser[] = [];
 const EMPTY_MESSAGES: DMMessage[] = [];
 const EMPTY_STRINGS: string[] = [];
 
+/**
+ * sortChannelsByActivity — DM kanallarını son mesaj aktivitesine göre sıralar.
+ * last_message_at null ise created_at'e fallback edilir. En son aktivite en üstte.
+ */
+function sortChannelsByActivity(channels: DMChannelWithUser[]): DMChannelWithUser[] {
+  return [...channels].sort((a, b) => {
+    const aTime = a.last_message_at ?? a.created_at;
+    const bTime = b.last_message_at ?? b.created_at;
+    return bTime.localeCompare(aTime);
+  });
+}
+
 /** Typing indicator otomatik temizleme süresi (ms) */
 const TYPING_TIMEOUT = 5_000;
 
@@ -334,9 +346,13 @@ export const useDMStore = create<DMState>((set, get) => ({
 
   handleDMMessageCreate: (message) => {
     set((state) => {
-      const channelMessages = state.messagesByChannel[message.dm_channel_id];
-      if (!channelMessages) return state;
-      if (channelMessages.some((m) => m.id === message.id)) return state;
+      // Kanal sıralamasını güncelle — mesaj cache yüklü olmasa bile çalışır
+      const updatedChannels = state.channels.map((ch) =>
+        ch.id === message.dm_channel_id
+          ? { ...ch, last_message_at: message.created_at }
+          : ch
+      );
+      const sortedChannels = sortChannelsByActivity(updatedChannels);
 
       // Typing indicator'ı temizle (mesaj geldi = yazmayı bitirdi)
       const typingUsers = { ...state.typingUsers };
@@ -346,7 +362,19 @@ export const useDMStore = create<DMState>((set, get) => ({
         );
       }
 
+      // Mesaj cache'i yüklenmemişse sadece kanal sırasını güncelle
+      const channelMessages = state.messagesByChannel[message.dm_channel_id];
+      if (!channelMessages) {
+        return { channels: sortedChannels, typingUsers };
+      }
+
+      // Duplicate kontrolü
+      if (channelMessages.some((m) => m.id === message.id)) {
+        return { channels: sortedChannels, typingUsers };
+      }
+
       return {
+        channels: sortedChannels,
         messagesByChannel: {
           ...state.messagesByChannel,
           [message.dm_channel_id]: [...channelMessages, message],

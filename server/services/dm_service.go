@@ -187,9 +187,10 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		// Kanal zaten var
 		otherUser.PasswordHash = ""
 		return &models.DMChannelWithUser{
-			ID:        existing.ID,
-			OtherUser: otherUser,
-			CreatedAt: existing.CreatedAt,
+			ID:            existing.ID,
+			OtherUser:     otherUser,
+			CreatedAt:     existing.CreatedAt,
+			LastMessageAt: existing.LastMessageAt,
 		}, nil
 	}
 
@@ -203,9 +204,10 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 	}
 
 	result := &models.DMChannelWithUser{
-		ID:        channel.ID,
-		OtherUser: otherUser,
-		CreatedAt: channel.CreatedAt,
+		ID:            channel.ID,
+		OtherUser:     otherUser,
+		CreatedAt:     channel.CreatedAt,
+		LastMessageAt: channel.LastMessageAt,
 	}
 
 	// Her iki kullanıcıya da yeni kanal bilgisi gönder.
@@ -216,9 +218,10 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		s.hub.BroadcastToUser(otherUserID, ws.Event{
 			Op: ws.OpDMChannelCreate,
 			Data: models.DMChannelWithUser{
-				ID:        channel.ID,
-				OtherUser: currentUser,
-				CreatedAt: channel.CreatedAt,
+				ID:            channel.ID,
+				OtherUser:     currentUser,
+				CreatedAt:     channel.CreatedAt,
+				LastMessageAt: channel.LastMessageAt,
 			},
 		})
 	}
