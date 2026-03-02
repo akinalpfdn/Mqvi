@@ -239,12 +239,18 @@ func (db *DB) execStatements(filename, content string) error {
 }
 
 // splitStatements, SQL metnini statement'lara böler.
-// Noktalı virgül (;) ile ayırır ama string literal'lerin içindeki
-// noktalı virgülleri (tek tırnak ile çevrili) yoksayar.
+// Noktalı virgül (;) ile ayırır ama şu durumları yoksayar:
+// - String literal içindeki ; (tek tırnak ile çevrili)
+// - BEGIN...END blokları içindeki ; (SQLite trigger body'leri)
+//
+// BEGIN/END takibi: CREATE TRIGGER gibi ifadelerde BEGIN keyword'ü
+// blok başlatır, END keyword'ü (satır başında veya boşluktan sonra)
+// blok bitirir. Blok içindeki ; ayraç olarak sayılmaz.
 func splitStatements(sql string) []string {
 	var statements []string
 	var current strings.Builder
 	inString := false
+	beginDepth := 0
 
 	for i := 0; i < len(sql); i++ {
 		ch := sql[i]
@@ -260,7 +266,18 @@ func splitStatements(sql string) []string {
 			inString = !inString
 		}
 
-		if ch == ';' && !inString {
+		if !inString {
+			// BEGIN keyword tespiti — case-insensitive, kelime sınırı kontrolü
+			if matchKeyword(sql, i, "BEGIN") {
+				beginDepth++
+			}
+			// END keyword tespiti — case-insensitive, kelime sınırı kontrolü
+			if matchKeyword(sql, i, "END") && beginDepth > 0 {
+				beginDepth--
+			}
+		}
+
+		if ch == ';' && !inString && beginDepth == 0 {
 			s := strings.TrimSpace(current.String())
 			if s != "" {
 				statements = append(statements, s)
@@ -279,4 +296,39 @@ func splitStatements(sql string) []string {
 	}
 
 	return statements
+}
+
+// matchKeyword, sql[pos] konumundan başlayan keyword'ü case-insensitive kontrol eder.
+// Kelime sınırı kontrolü yapar: önceki ve sonraki karakter identifier parçası olmamalı.
+func matchKeyword(sql string, pos int, keyword string) bool {
+	if pos+len(keyword) > len(sql) {
+		return false
+	}
+	// Önceki karakter identifier parçası olmamalı
+	if pos > 0 && isIdentChar(sql[pos-1]) {
+		return false
+	}
+	// Keyword eşleşmesi (case-insensitive)
+	for j := 0; j < len(keyword); j++ {
+		c := sql[pos+j]
+		// uppercase'e çevir
+		if c >= 'a' && c <= 'z' {
+			c -= 32
+		}
+		if c != keyword[j] {
+			return false
+		}
+	}
+	// Sonraki karakter identifier parçası olmamalı
+	afterIdx := pos + len(keyword)
+	if afterIdx < len(sql) && isIdentChar(sql[afterIdx]) {
+		return false
+	}
+	return true
+}
+
+// isIdentChar, bir byte'ın SQL identifier parçası olup olmadığını kontrol eder.
+// BEGIN/END keyword tespitinde kelime sınırı kontrolü için kullanılır.
+func isIdentChar(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_'
 }
