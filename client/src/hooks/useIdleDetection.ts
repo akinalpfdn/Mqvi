@@ -22,6 +22,7 @@
 import { useEffect, useRef } from "react";
 import { IDLE_TIMEOUT, ACTIVITY_EVENTS } from "../utils/constants";
 import { useAuthStore } from "../stores/authStore";
+import { useVoiceStore } from "../stores/voiceStore";
 import type { UserStatus } from "../types";
 
 type UseIdleDetectionParams = {
@@ -72,12 +73,22 @@ export function useIdleDetection({ sendPresenceUpdate }: UseIdleDetectionParams)
       }
 
       // Yeni idle timer başlat
-      timerRef.current = setTimeout(() => {
+      timerRef.current = setTimeout(function idleCheck() {
         // Timer tetiklendiğinde tekrar kontrol et (arada değişmiş olabilir)
         const currentManual = useAuthStore.getState().manualStatus;
         if (currentManual !== "online") {
           return;
         }
+
+        // Sesli kanalda olan kullanıcı idle olmamalı.
+        // Voice bağlantısı aktifken idle geçişi engellenir — timer yeniden başlatılır
+        // ve voice'tan ayrılınca normal idle akışı devam eder.
+        const inVoice = useVoiceStore.getState().currentVoiceChannelId !== null;
+        if (inVoice) {
+          timerRef.current = setTimeout(idleCheck, IDLE_TIMEOUT);
+          return;
+        }
+
         isIdleRef.current = true;
         sendPresenceUpdate("idle");
       }, IDLE_TIMEOUT);

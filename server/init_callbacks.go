@@ -98,6 +98,17 @@ func registerHubCallbacks(
 	})
 
 	hub.OnPresenceManualUpdate(func(userID string, status string) {
+		// Sesli kanalda olan kullanıcı idle olmamalı.
+		// Client tarafında da engelleniyor ama savunma katmanı olarak
+		// server tarafında da kontrol ediyoruz — eski client sürümleri
+		// veya bug durumunda koruma sağlar.
+		if status == string(models.UserStatusIdle) {
+			if vs := voiceService.GetUserVoiceState(userID); vs != nil {
+				log.Printf("[presence] ignoring idle for user %s — currently in voice channel %s", userID, vs.ChannelID)
+				return
+			}
+		}
+
 		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatus(status)); err != nil {
 			log.Printf("[presence] failed to set %s for user %s: %v", status, userID, err)
 			return

@@ -387,6 +387,39 @@ mqvi/
 
 ---
 
+## GitHub Release Kuralları
+
+### Release Assets (KRİTİK — ASLA İHLAL ETME)
+Release'e **SADECE 3 dosya** yüklenir:
+1. `mqvi-setup.exe` — Electron desktop installer
+2. `latest.yml` — electron-updater auto-update manifest
+3. `mqvi-setup.exe.blockmap` — differential update (sadece değişen bloklar indirilir)
+
+**BAŞKA HİÇBİR ŞEY YÜKLEME.** Server binary (`mqvi-server`), `start.sh`, `livekit.yaml`, `.env` gibi dosyalar RELEASE'E KONMAZ.
+
+Upload komutu:
+```bash
+gh release create vX.Y.Z release/mqvi-setup.exe release/latest.yml release/mqvi-setup.exe.blockmap --title "vX.Y.Z"
+```
+
+### Blockmap (Differential Update)
+- `electron-builder` her build'de `mqvi-setup.exe.blockmap` oluşturur
+- Bu dosya release'e yüklendiğinde, sonraki güncellemelerde electron-updater eski ve yeni blockmap'i karşılaştırıp sadece **değişen blokları** indirir
+- 80MB yerine tipik olarak 5-15MB → çok daha hızlı güncelleme
+- **Blockmap yüklenmezse** her güncelleme tam dosya indirir
+
+### Release Notes
+- Release notes ASLA generic placeholder ("Bug fixes and improvements" gibi) OLMAZ
+- O versiyonda yapılan tüm değişiklikler detaylı yazılmalı
+- Release silip yeniden oluşturulurken ÖNCE mevcut notes kaydedilmeli, sonra `--notes` parametresine aynen aktarılmalı
+
+### artifactName
+- `artifactName: "mqvi-setup.${ext}"` — SABİT, `${version}` İÇERMEZ
+- Landing page download URL: `https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.exe`
+- Bu URL her zaman en son release'e yönlendirir — versiyon eklenirse bozulur
+
+---
+
 ## Yeni Özellik Ekleme Checklist
 
 ### Backend
