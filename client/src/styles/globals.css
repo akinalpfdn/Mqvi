@@ -1464,19 +1464,42 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ═══════════════════════════════════════
    INVITE JOIN PAGE — /invite/:code
    ═══════════════════════════════════════ */
-.invite-join-page { display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:var(--bg-0); }
-.invite-join-card { display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px 48px;background:var(--bg-2);border:1px solid var(--b1);border-radius:16px;min-width:320px;max-width:420px;text-align:center; }
-.invite-join-loading { padding:24px 0; }
-.invite-join-icon { margin-bottom:4px; }
-.invite-join-img { width:64px;height:64px;border-radius:14px;object-fit:cover; }
-.invite-join-name { font-size:22px;font-weight:700;color:var(--t0);margin:0; }
-.invite-join-meta { font-size:14px;color:var(--t3);margin:0; }
-.invite-join-btn { margin-top:8px;padding:10px 32px;border:none;border-radius:8px;background:var(--primary);color:var(--text-white, #fff);font-size:15px;font-family:var(--f-ui);font-weight:600;cursor:pointer;transition:opacity .1s; }
+.invite-join-page { display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;background:var(--bg-0);gap:24px; }
+
+/* Logo + başlık */
+.invite-join-header { display:flex;flex-direction:column;align-items:center;gap:12px; }
+.invite-join-logo { width:48px;height:48px;opacity:.8; }
+.invite-join-title { font-size:16px;font-weight:500;color:var(--t2);margin:0;letter-spacing:.02em; }
+
+/* Kart — inline preview tarzı */
+.invite-join-card { display:flex;flex-direction:column;gap:16px;padding:24px;background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;min-width:340px;max-width:420px; }
+
+/* Sunucu satırı — ikon + bilgi yan yana */
+.invite-join-server { display:flex;align-items:center;gap:14px; }
+.invite-join-icon { flex-shrink:0; }
+.invite-join-img { width:56px;height:56px;border-radius:12px;object-fit:cover; }
+.invite-join-info { display:flex;flex-direction:column;gap:4px;min-width:0; }
+.invite-join-name { font-size:20px;font-weight:700;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.invite-join-meta { display:flex;align-items:center;gap:6px;font-size:14px;color:var(--t3); }
+.invite-join-dot { width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0; }
+
+/* Katıl butonu — tam genişlik */
+.invite-join-btn { width:100%;padding:11px;border:none;border-radius:8px;background:var(--primary);color:var(--text-white, #fff);font-size:15px;font-family:var(--f-ui);font-weight:600;cursor:pointer;transition:opacity .1s;text-align:center; }
 .invite-join-btn:hover:not(:disabled) { opacity:.9; }
 .invite-join-btn:disabled { opacity:.5;cursor:default; }
+
+/* Geçersiz davet */
+.invite-join-invalid { display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0;text-align:center; }
+.invite-join-invalid-icon { width:40px;height:40px;color:var(--t3); }
 .invite-join-error { font-size:15px;color:var(--t2);margin:0; }
-.invite-join-btn-secondary { margin-top:8px;padding:8px 24px;border:1px solid var(--b1);border-radius:8px;background:var(--bg-3);color:var(--t1);font-size:14px;font-family:var(--f-ui);font-weight:500;cursor:pointer;transition:background .1s; }
+.invite-join-btn-secondary { width:100%;padding:9px;border:1px solid var(--b1);border-radius:8px;background:var(--bg-3);color:var(--t1);font-size:14px;font-family:var(--f-ui);font-weight:500;cursor:pointer;transition:background .1s;text-align:center; }
 .invite-join-btn-secondary:hover { background:var(--bg-4); }
+
+/* Loading skeleton */
+.invite-join-loading { display:flex;align-items:center;gap:14px;padding:4px 0; }
+.invite-join-skeleton-icon { width:56px;height:56px;border-radius:12px;background:linear-gradient(90deg,var(--bg-4) 25%,var(--bg-5) 50%,var(--bg-4) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;flex-shrink:0; }
+.invite-join-skeleton-line { height:14px;border-radius:4px;background:linear-gradient(90deg,var(--bg-4) 25%,var(--bg-5) 50%,var(--bg-4) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;width:140px; }
+.invite-join-skeleton-line.short { width:80px; }
 
 /* ═══════════════════════════════════════
    SKELETON LOADING

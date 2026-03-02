@@ -2,7 +2,17 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // https://vite.dev/config/
-export default defineConfig({
+// command: "serve" → dev server (vite dev), "build" → production build (vite build)
+//
+// base farkı neden gerekli?
+// - Dev (serve): base "/" → script src="/src/main.tsx" (absolute)
+//   SPA routing ile /invite/abc gibi nested path'lerde JS modülleri doğru yüklenir.
+//   Eğer "./" olursa → tarayıcı ./src/main.tsx'i /invite/src/main.tsx olarak çözer → 404.
+//
+// - Build: base "./" → script src="./assets/index-xxx.js" (relative)
+//   Electron file:// protokolünde absolute "/" → C:\ gibi yanlış path oluşturur.
+//   Relative "./" ile doğru çalışır.
+export default defineConfig(({ command }) => ({
   plugins: [react()],
   clearScreen: false,
   server: {
@@ -21,14 +31,11 @@ export default defineConfig({
     },
   },
   envPrefix: ["VITE_"],
-  // Electron production'da file:// protokolü kullanır.
-  // base: './' ile asset path'leri relative olur (./assets/...)
-  // Varsayılan '/' → '/assets/...' → file:// ile C:\assets\ gibi yanlış path oluşturur.
-  base: "./",
+  base: command === "serve" ? "/" : "./",
   build: {
     // Electron uses Chromium — target latest Chrome for full ES2020+ support
     target: "chrome120",
     minify: "esbuild",
     sourcemap: false,
   },
-});
+}));

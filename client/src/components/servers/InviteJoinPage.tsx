@@ -4,14 +4,14 @@
  * Akış:
  * 1. Kullanıcı giriş yapmamışsa → `/login?returnUrl=/invite/{code}` redirect
  * 2. Preview bilgisi çekilir (sunucu adı, ikon, üye sayısı)
- * 3. "Katıl" butonuna basılır → joinServer API çağrılır
- * 4. Başarılı → `/channels`'a yönlendirilir (sunucu otomatik seçilir)
+ * 3. Zengin preview kartı gösterilir (logo, başlık, sunucu bilgisi)
+ * 4. "Katıl" butonuna basılır → joinServer API çağrılır
+ * 5. Başarılı → `/channels`'a yönlendirilir (sunucu otomatik seçilir)
  *
  * Bu sayfa dış paylaşımlar için tasarlandı — WhatsApp, Telegram vb.
  * üzerinden paylaşılan davet linklerini karşılar.
  *
- * CSS class'ları: .invite-join-page, .invite-join-card, .invite-join-icon,
- * .invite-join-name, .invite-join-meta, .invite-join-btn
+ * CSS class'ları: .invite-join-page, .invite-join-card, .invite-join-*
  */
 
 import { useState, useEffect } from "react";
@@ -20,7 +20,7 @@ import { useParams, useNavigate, Navigate } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
 import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
-import { resolveAssetUrl } from "../../utils/constants";
+import { resolveAssetUrl, publicAsset } from "../../utils/constants";
 import { getInvitePreview, type InvitePreview } from "../../api/invites";
 import * as serversApi from "../../api/servers";
 import Avatar from "../shared/Avatar";
@@ -88,43 +88,50 @@ function InviteJoinPage() {
     setIsJoining(false);
   }
 
-  // Geçersiz kod
-  if (!code) {
-    return (
-      <div className="invite-join-page">
-        <div className="invite-join-card">
-          <p className="invite-join-error">{t("inviteExpired")}</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="invite-join-page">
+      {/* Logo + Başlık */}
+      <div className="invite-join-header">
+        <img
+          src={publicAsset("mqvi-icon.svg")}
+          alt="mqvi"
+          className="invite-join-logo"
+        />
+        <h1 className="invite-join-title">{t("inviteJoinTitle")}</h1>
+      </div>
+
+      {/* Preview Kartı */}
       <div className="invite-join-card">
         {!previewLoaded ? (
           /* Loading skeleton */
           <div className="invite-join-loading">
-            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-surface border-t-brand" />
+            <div className="invite-join-skeleton-icon" />
+            <div className="invite-join-skeleton-line" />
+            <div className="invite-join-skeleton-line short" />
           </div>
         ) : preview ? (
-          /* Sunucu bilgisi */
+          /* Sunucu bilgisi — inline card tarzı */
           <>
-            <div className="invite-join-icon">
-              {preview.server_icon_url ? (
-                <img
-                  src={resolveAssetUrl(preview.server_icon_url)}
-                  alt={preview.server_name}
-                  className="invite-join-img"
-                />
-              ) : (
-                <Avatar name={preview.server_name} size={64} />
-              )}
+            <div className="invite-join-server">
+              <div className="invite-join-icon">
+                {preview.server_icon_url ? (
+                  <img
+                    src={resolveAssetUrl(preview.server_icon_url)}
+                    alt={preview.server_name}
+                    className="invite-join-img"
+                  />
+                ) : (
+                  <Avatar name={preview.server_name} size={56} />
+                )}
+              </div>
+              <div className="invite-join-info">
+                <span className="invite-join-name">{preview.server_name}</span>
+                <span className="invite-join-meta">
+                  <span className="invite-join-dot" />
+                  {t("memberCount", { count: preview.member_count })}
+                </span>
+              </div>
             </div>
-            <h2 className="invite-join-name">{preview.server_name}</h2>
-            <p className="invite-join-meta">
-              {t("memberCount", { count: preview.member_count })}
-            </p>
             <button
               className="invite-join-btn"
               onClick={handleJoin}
@@ -135,7 +142,12 @@ function InviteJoinPage() {
           </>
         ) : (
           /* Geçersiz davet */
-          <>
+          <div className="invite-join-invalid">
+            <svg className="invite-join-invalid-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
             <p className="invite-join-error">{t("inviteExpired")}</p>
             <button
               className="invite-join-btn-secondary"
@@ -143,7 +155,7 @@ function InviteJoinPage() {
             >
               {t("backToApp")}
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>
