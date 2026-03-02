@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useFriendStore } from "../../stores/friendStore";
+import { useServerStore } from "../../stores/serverStore";
 import { useInviteStore } from "../../stores/inviteStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -30,6 +31,7 @@ type InviteFriendsModalProps = {
 function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModalProps) {
   const { t } = useTranslation("servers");
   const friends = useFriendStore((s) => s.friends);
+  const setActiveServer = useServerStore((s) => s.setActiveServer);
   const createInvite = useInviteStore((s) => s.createInvite);
   const createOrGetChannel = useDMStore((s) => s.createOrGetChannel);
   const sendMessage = useDMStore((s) => s.sendMessage);
@@ -92,6 +94,12 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
 
     setIsSending(true);
     setProgress({ sent: 0, total: selected.size });
+
+    // inviteStore activeServerId'ye bağlı — doğru sunucuda oluşturulmasını garantile
+    const currentActive = useServerStore.getState().activeServerId;
+    if (currentActive !== serverId) {
+      setActiveServer(serverId);
+    }
 
     // 1. Invite kodu oluştur — sınırsız kullanım, süresiz
     const invite = await createInvite(0, 0);

@@ -46,7 +46,7 @@ import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
 import MuteDurationPicker from "../servers/MuteDurationPicker";
 import InviteFriendsModal from "../servers/InviteFriendsModal";
 import AddServerModal from "../servers/AddServerModal";
-import { useContextMenu } from "../../hooks/useContextMenu";
+import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 type ChannelTreeProps = {
@@ -533,7 +533,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     // Owner kontrolu — activeServer (tam Server nesnesi) sadece aktif sunucu icin var
     const isOwner = activeServer?.owner_id === currentUser?.id && activeServer?.id === serverId;
 
-    const items = [
+    const items: ContextMenuItem[] = [
       {
         label: tServers("serverSettings"),
         onClick: () => {
@@ -555,7 +555,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           setInviteTarget({ serverId, serverName });
         },
       },
-      { separator: true } as const,
       isMuted
         ? {
             label: tServers("unmuteServer"),
@@ -587,7 +586,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       },
     ];
 
-    openServerMenu(e, items.filter((item): item is typeof items[0] => !!item));
+    openServerMenu(e, items);
   }
 
   // ─── Render helpers ───

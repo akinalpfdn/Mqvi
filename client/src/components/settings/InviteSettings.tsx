@@ -73,10 +73,10 @@ function InviteSettings() {
     const invite = await createInvite(maxUses, expiresIn);
     if (invite) {
       addToast("success", t("inviteCreated"));
-      // Kodu otomatik kopyala
+      // Link formatını otomatik kopyala — WhatsApp/DM paylaşımı için
       try {
-        await navigator.clipboard.writeText(invite.code);
-        addToast("success", t("inviteCopied"));
+        await navigator.clipboard.writeText(`mqvi:invite/${invite.code}`);
+        addToast("success", t("inviteLinkCopied"));
       } catch {
         // Clipboard API desteklenmiyorsa sessizce devam et
       }
@@ -87,11 +87,25 @@ function InviteSettings() {
     setIsCreating(false);
   }, [isCreating, createInvite, maxUses, expiresIn, addToast, t]);
 
-  const handleCopy = useCallback(
+  /** Ham kodu kopyalar — "Server Ekle" formuna yapıştırmak için */
+  const handleCopyCode = useCallback(
     async (code: string) => {
       try {
         await navigator.clipboard.writeText(code);
         addToast("success", t("inviteCopied"));
+      } catch {
+        addToast("error", t("inviteCopyError"));
+      }
+    },
+    [addToast, t]
+  );
+
+  /** mqvi:invite/{code} link formatını kopyalar — WhatsApp/DM paylaşımı için */
+  const handleCopyLink = useCallback(
+    async (code: string) => {
+      try {
+        await navigator.clipboard.writeText(`mqvi:invite/${code}`);
+        addToast("success", t("inviteLinkCopied"));
       } catch {
         addToast("error", t("inviteCopyError"));
       }
@@ -175,7 +189,8 @@ function InviteSettings() {
             <InviteItem
               key={invite.code}
               invite={invite}
-              onCopy={handleCopy}
+              onCopyCode={handleCopyCode}
+              onCopyLink={handleCopyLink}
               onDelete={handleDelete}
             />
           ))}
@@ -196,11 +211,12 @@ type InviteItemProps = {
     uses: number;
     expires_at: string | null;
   };
-  onCopy: (code: string) => void;
+  onCopyCode: (code: string) => void;
+  onCopyLink: (code: string) => void;
   onDelete: (code: string) => void;
 };
 
-function InviteItem({ invite, onCopy, onDelete }: InviteItemProps) {
+function InviteItem({ invite, onCopyCode, onCopyLink, onDelete }: InviteItemProps) {
   const { t } = useTranslation("settings");
 
   const isExpired =
@@ -276,19 +292,28 @@ function InviteItem({ invite, onCopy, onDelete }: InviteItemProps) {
         </div>
       </div>
 
-      {/* Sağ: Kopyala + Sil butonları */}
+      {/* Sağ: Kod Kopyala + Link Kopyala + Sil butonları */}
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <button
-          onClick={() => onCopy(invite.code)}
+          onClick={() => onCopyCode(invite.code)}
           className="settings-btn settings-btn-secondary"
-          style={{ height: 28, padding: "0 10px", fontSize: 11 }}
+          style={{ height: 28, padding: "0 10px", fontSize: 13 }}
+          title={invite.code}
         >
           {t("inviteCopy")}
         </button>
         <button
+          onClick={() => onCopyLink(invite.code)}
+          className="settings-btn settings-btn-secondary"
+          style={{ height: 28, padding: "0 10px", fontSize: 13 }}
+          title={`mqvi:invite/${invite.code}`}
+        >
+          {t("inviteCopyLink")}
+        </button>
+        <button
           onClick={() => onDelete(invite.code)}
           className="settings-btn settings-btn-danger"
-          style={{ height: 28, padding: "0 10px", fontSize: 11 }}
+          style={{ height: 28, padding: "0 10px", fontSize: 13 }}
         >
           {t("inviteDelete")}
         </button>
