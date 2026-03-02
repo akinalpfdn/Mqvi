@@ -192,20 +192,23 @@ Run the entire mqvi platform on your own infrastructure. Completely independent 
 ```bash
 mkdir -p ~/mqvi && cd ~/mqvi
 
-# Download the latest release
-curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-server -o mqvi-server
-curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/start.sh -o start.sh
-curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/livekit.yaml -o livekit.yaml
-curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/.env.example -o .env
+# Clone the deploy files
+git clone --depth 1 https://github.com/akinalpfdn/Mqvi.git /tmp/mqvi-src
+cp /tmp/mqvi-src/deploy/package/start.sh .
+cp /tmp/mqvi-src/deploy/livekit.yaml .
+cp /tmp/mqvi-src/deploy/.env.example .env
+rm -rf /tmp/mqvi-src
 
-chmod +x mqvi-server start.sh
+chmod +x start.sh
 ```
+
+You'll need to build the server binary from source (see [Building from Source](#building-from-source)) or get it from a release if available.
 
 The `mqvi-server` binary (~40 MB) is a single executable with the frontend, database migrations, and i18n files all embedded. No Go, Node.js, or any other runtime needed.
 
 ### Configure
 
-Edit `.env` and set at least these 3 secrets:
+Edit `.env` and set at least these 2 secrets:
 
 ```bash
 nano .env
@@ -214,10 +217,9 @@ nano .env
 | Variable | How to generate |
 |----------|----------------|
 | `JWT_SECRET` | `openssl rand -hex 32` |
-| `LIVEKIT_API_SECRET` | `openssl rand -hex 32` |
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` |
 
-Make sure `LIVEKIT_API_SECRET` in `.env` matches the `keys.devkey` value in `livekit.yaml`.
+LiveKit credentials are managed through the admin panel after first login — no need to set them in `.env`. If you want to auto-seed a LiveKit instance on first start, you can optionally uncomment the `LIVEKIT_*` variables in `.env` and set them to match your `livekit.yaml`.
 
 ### Start
 
@@ -277,13 +279,13 @@ See [`.env.example`](deploy/.env.example) for all options. Key settings:
 |----------|---------|-------------|
 | `SERVER_PORT` | `9090` | HTTP port |
 | `JWT_SECRET` | — | **Required.** Random string for token signing |
-| `LIVEKIT_URL` | `ws://localhost:7880` | LiveKit server URL (use `wss://` with Caddy) |
-| `LIVEKIT_API_KEY` | `devkey` | LiveKit API key (must match livekit.yaml) |
-| `LIVEKIT_API_SECRET` | — | **Required.** Must match livekit.yaml |
-| `ENCRYPTION_KEY` | — | **Required.** AES-256 key for encrypting stored credentials |
+| `ENCRYPTION_KEY` | — | **Required.** AES-256 key for encrypting stored LiveKit credentials |
 | `DATABASE_PATH` | `./data/mqvi.db` | SQLite database path |
 | `UPLOAD_DIR` | `./data/uploads` | File upload directory |
 | `UPLOAD_MAX_SIZE` | `26214400` | Max upload size in bytes (25 MB) |
+| `LIVEKIT_URL` | — | *Optional.* Only for auto-seeding a LiveKit instance on first start |
+| `LIVEKIT_API_KEY` | — | *Optional.* Must match livekit.yaml if set |
+| `LIVEKIT_API_SECRET` | — | *Optional.* Must match livekit.yaml if set |
 
 ---
 

@@ -24,11 +24,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"html"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -38,6 +40,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/i18n"
+	"github.com/akinalp/mqvi/services"
 	"github.com/akinalp/mqvi/static"
 	"github.com/akinalp/mqvi/ws"
 	"github.com/rs/cors"
@@ -129,6 +132,23 @@ func main() {
 	// ─── 14. SPA Frontend Serving ───
 	frontendFS, hasFrontend := initFrontendFS()
 
+	// Web serving için index.html — relative path'leri absolute'a çevir.
+	//
+	// Vite build'de base "./" kullanılır (Electron file:// uyumluluğu için).
+	// Ancak web'de /invite/abc gibi nested route'larda browser "./assets/index.js"'i
+	// "/invite/assets/index.js" olarak çözer → dosya bulunamaz → SPA fallback index.html döner
+	// → MIME type text/html hatası.
+	//
+	// Çözüm: Startup'ta bir kez "./" → "/" dönüşümü yapıp cache'le.
+	// Electron etkilenmez — dosyayı doğrudan diskten okur, Go backend kullanmaz.
+	var indexHTMLWeb []byte
+	if hasFrontend {
+		raw, readErr := fs.ReadFile(frontendFS, "index.html")
+		if readErr == nil {
+			indexHTMLWeb = []byte(strings.ReplaceAll(string(raw), `"./`, `"/`))
+		}
+	}
+
 	// ─── 15. CORS ───
 	corsHandler := initCORS(cfg)
 
@@ -146,6 +166,15 @@ func main() {
 			return
 		}
 
+		// OG meta tag — sosyal medya crawler'ları (WhatsApp, Telegram, Twitter, Facebook vb.)
+		// /invite/{code} path'ine gelen crawler'lara zengin preview HTML döner.
+		// Normal kullanıcılar SPA'ya yönlendirilir (aşağıdaki fallback).
+		if isCrawler(r.UserAgent()) {
+			if served := serveInviteOG(w, r, svcs.Invite, cfg.Email.AppURL); served {
+				return
+			}
+		}
+
 		// Static dosya var mı?
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
@@ -157,14 +186,13 @@ func main() {
 			return
 		}
 
-		// SPA fallback: bilinmeyen path → index.html
-		indexData, readErr := fs.ReadFile(frontendFS, "index.html")
-		if readErr != nil {
+		// SPA fallback: bilinmeyen path → index.html (absolute path'li versiyon)
+		if len(indexHTMLWeb) == 0 {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(indexData)
+		w.Write(indexHTMLWeb)
 	})
 
 	// ─── 17. HTTP Server ───
@@ -366,4 +394,132 @@ func initCORS(cfg *config.Config) *cors.Cors {
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
 	})
+}
+
+// ─── Social Media Crawler OG Meta Tags ───
+
+// invitePathRe, /invite/{hex16} formatını yakalar.
+// WhatsApp, Telegram gibi platformlar link paylaşıldığında bu path'e istek atar.
+var invitePathRe = regexp.MustCompile(`^/invite/([a-f0-9]{16})$`)
+
+// crawlerPatterns, sosyal medya ve mesajlaşma uygulamalarının bot user-agent'larını içerir.
+// Bu crawler'lar JavaScript çalıştırmaz — HTML'deki OG meta tag'lerinden preview oluşturur.
+var crawlerPatterns = []string{
+	"whatsapp",     // WhatsApp link preview crawler
+	"telegrambot",  // Telegram bot (link önizleme)
+	"twitterbot",   // Twitter/X card crawler
+	"facebookexternalhit", // Facebook Open Graph crawler
+	"facebot",      // Facebook bot (alternatif UA)
+	"linkedinbot",  // LinkedIn link preview
+	"slackbot",     // Slack unfurl bot
+	"discordbot",   // Discord embed bot
+	"googlebot",    // Google — SEO amaçlı (opsiyonel)
+	"bingbot",      // Bing — SEO amaçlı (opsiyonel)
+}
+
+// isCrawler, gelen isteğin bir sosyal medya crawler'ından gelip gelmediğini kontrol eder.
+// User-Agent header'ı case-insensitive olarak bilinen bot pattern'leriyle eşleştirilir.
+func isCrawler(ua string) bool {
+	lower := strings.ToLower(ua)
+	for _, pattern := range crawlerPatterns {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// serveInviteOG, /invite/{code} path'indeki crawler isteklerine OG meta tag'li HTML döner.
+//
+// WhatsApp, Telegram gibi platformlar bir URL paylaşıldığında o URL'ye GET isteği atar
+// ve dönen HTML'deki <meta property="og:*"> tag'lerinden zengin önizleme kartı oluşturur.
+// SPA (React) client-side rendering kullandığından crawler'lar JavaScript çalıştıramaz —
+// bu yüzden server-side olarak minimal HTML döneriz.
+//
+// Dönen HTML:
+//   - og:title  → sunucu adı
+//   - og:description → "X üye" bilgisi
+//   - og:image → sunucu ikonu (yoksa mqvi logosu)
+//   - og:url → davet linki
+//   - og:site_name → "mqvi"
+//
+// Fonksiyon true dönerse response yazılmıştır, false dönerse path /invite/ değildir.
+func serveInviteOG(w http.ResponseWriter, r *http.Request, inviteSvc services.InviteService, appURL string) bool {
+	matches := invitePathRe.FindStringSubmatch(r.URL.Path)
+	if matches == nil {
+		return false
+	}
+	code := matches[1]
+
+	// Preview bilgisini çek — auth gerektirmez
+	preview, err := inviteSvc.GetPreview(r.Context(), code)
+	if err != nil {
+		// Geçersiz/süresi dolmuş davet — crawler'a basit HTML dön
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, `<!DOCTYPE html><html><head>
+<meta property="og:title" content="mqvi — Invite">
+<meta property="og:description" content="This invite has expired or is invalid">
+<meta property="og:site_name" content="mqvi">
+</head><body></body></html>`)
+		return true
+	}
+
+	// OG değerlerini hazırla — XSS koruması için HTML escape
+	title := html.EscapeString(preview.ServerName)
+	description := fmt.Sprintf("%d members", preview.MemberCount)
+
+	// Sunucu ikonunun tam URL'si — yoksa mqvi logosu
+	var imageURL string
+	if preview.ServerIconURL != nil && *preview.ServerIconURL != "" {
+		if appURL != "" {
+			imageURL = appURL + *preview.ServerIconURL
+		} else {
+			// appURL yoksa relative path ile dene (bazı crawler'lar desteklemez ama en iyi effort)
+			imageURL = *preview.ServerIconURL
+		}
+	} else if appURL != "" {
+		imageURL = appURL + "/mqvi-icon-256.png"
+	}
+
+	inviteURL := r.URL.Path
+	if appURL != "" {
+		inviteURL = appURL + r.URL.Path
+	}
+
+	// Minimal HTML — sadece OG meta tag'leri
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="mqvi">
+<meta property="og:title" content="%s">
+<meta property="og:description" content="%s">
+<meta property="og:url" content="%s">`,
+		title, description, html.EscapeString(inviteURL))
+
+	if imageURL != "" {
+		fmt.Fprintf(w, `
+<meta property="og:image" content="%s">`, html.EscapeString(imageURL))
+	}
+
+	// Twitter Card meta tag'leri — Twitter/X için ayrı gerekir
+	fmt.Fprintf(w, `
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="%s">
+<meta name="twitter:description" content="%s">`,
+		title, description)
+
+	if imageURL != "" {
+		fmt.Fprintf(w, `
+<meta name="twitter:image" content="%s">`, html.EscapeString(imageURL))
+	}
+
+	fmt.Fprint(w, `
+</head>
+<body></body>
+</html>`)
+
+	return true
 }

@@ -101,11 +101,11 @@ function InviteSettings() {
     [addToast, t]
   );
 
-  /** mqvi:invite/{code} link formatını kopyalar — WhatsApp/DM paylaşımı için */
+  /** Tam invite URL'sini kopyalar — WhatsApp/DM paylaşımı için */
   const handleCopyLink = useCallback(
     async (code: string) => {
       try {
-        await navigator.clipboard.writeText(`mqvi:invite/${code}`);
+        await navigator.clipboard.writeText(getInviteUrl(code));
         addToast("success", t("inviteLinkCopied"));
       } catch {
         addToast("error", t("inviteCopyError"));
