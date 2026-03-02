@@ -36,7 +36,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
   const { t } = useTranslation("servers");
   const friends = useFriendStore((s) => s.friends);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
-  const createInvite = useInviteStore((s) => s.createInvite);
+  const getOrCreatePermanentInvite = useInviteStore((s) => s.getOrCreatePermanentInvite);
   const createOrGetChannel = useDMStore((s) => s.createOrGetChannel);
   const sendMessage = useDMStore((s) => s.sendMessage);
   const addToast = useToastStore((s) => s.addToast);
@@ -103,7 +103,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
       setActiveServer(serverId);
     }
 
-    const invite = await createInvite(0, 0);
+    const invite = await getOrCreatePermanentInvite();
     if (!invite) {
       addToast("error", t("inviteCreateFailed"));
       setIsCopying(false);
@@ -114,7 +114,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
       await copyToClipboard(getInviteUrl(invite.code));
       addToast("success", t("inviteLinkCopied"));
     } catch {
-      addToast("error", t("inviteCreateFailed"));
+      addToast("error", t("inviteCopyFailed"));
     }
     setIsCopying(false);
   }
@@ -137,8 +137,8 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
       setActiveServer(serverId);
     }
 
-    // 1. Invite kodu oluştur — sınırsız kullanım, süresiz
-    const invite = await createInvite(0, 0);
+    // 1. Mevcut permanent invite'ı kullan veya yeni oluştur
+    const invite = await getOrCreatePermanentInvite();
     if (!invite) {
       addToast("error", t("inviteCreateFailed"));
       setIsSending(false);

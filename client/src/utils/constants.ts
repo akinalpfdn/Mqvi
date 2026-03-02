@@ -97,16 +97,40 @@ export function publicAsset(filename: string): string {
 /**
  * Panoya kopyalama — Electron ve Web ortamı için.
  *
+ * Öncelik sırası:
+ * 1. Electron native clipboard (preload writeClipboard) — her zaman çalışır
+ * 2. navigator.clipboard API — sadece secure context'te (https/localhost)
+ * 3. execCommand("copy") fallback — eski/kısıtlı ortamlar için
+ *
  * Electron'da file:// context'inde navigator.clipboard çalışmaz,
- * bu yüzden native Electron clipboard API'si kullanılır.
- * Web'de standart navigator.clipboard.writeText() kullanılır.
+ * bu yüzden native clipboard veya execCommand fallback kullanılır.
  */
 export async function copyToClipboard(text: string): Promise<void> {
+  // 1. Electron main process clipboard (IPC) — en güvenilir yol
   if (isElectron() && window.electronAPI?.writeClipboard) {
-    window.electronAPI.writeClipboard(text);
+    await window.electronAPI.writeClipboard(text);
     return;
   }
-  await navigator.clipboard.writeText(text);
+
+  // 2. navigator.clipboard API (secure context gerektirir)
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Secure context yoksa (file://) fallback'e düş
+    }
+  }
+
+  // 3. execCommand fallback — file:// ve eski tarayıcılar için
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
 }
 
 /** WebSocket heartbeat interval (ms) */

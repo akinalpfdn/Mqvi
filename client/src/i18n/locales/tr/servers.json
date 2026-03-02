@@ -79,5 +79,6 @@
   "backToApp": "Uygulamaya Dön",
   "copyInviteLink": "Davet Linkini Kopyala",
   "copyInviteLinkHint": "WhatsApp, Telegram vb. ile paylaşın",
-  "inviteLinkCopied": "Davet linki panoya kopyalandı"
+  "inviteLinkCopied": "Davet linki panoya kopyalandı",
+  "inviteCopyFailed": "Panoya kopyalanamadı"
 }

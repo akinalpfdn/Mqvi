@@ -18,6 +18,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   session,
   Tray,
@@ -490,6 +491,16 @@ function setupIPC(): void {
       mainWindow.flashFrame(true);
     }
   });
+
+  // ─── Clipboard ───
+  // Main process'te clipboard.writeText her zaman çalışır.
+  // Preload'daki clipboard modülü sandboxed olduğu için yazma başarısız olabilir.
+  ipcMain.handle(
+    "write-clipboard",
+    (_e: Electron.IpcMainInvokeEvent, text: string) => {
+      clipboard.writeText(text);
+    }
+  );
 
   ipcMain.handle("stop-system-capture", () => {
     if (captureProcess) {

@@ -79,5 +79,6 @@
   "backToApp": "Back to App",
   "copyInviteLink": "Copy Invite Link",
   "copyInviteLinkHint": "Share this link via WhatsApp, Telegram, etc.",
-  "inviteLinkCopied": "Invite link copied to clipboard"
+  "inviteLinkCopied": "Invite link copied to clipboard",
+  "inviteCopyFailed": "Could not copy to clipboard"
 }

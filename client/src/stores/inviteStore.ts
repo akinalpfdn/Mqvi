@@ -30,6 +30,13 @@ type InviteState = {
   /** Yeni davet kodu oluştur, listeye ekle */
   createInvite: (maxUses: number, expiresIn: number) => Promise<Invite | null>;
 
+  /**
+   * Mevcut sınırsız/süresiz (permanent) invite'ı getir, yoksa oluştur.
+   * "Copy Invite Link" ve "Send Invites" gibi akışlarda kullanılır —
+   * her tıklamada yeni kod oluşturmak yerine var olanı yeniden kullanır.
+   */
+  getOrCreatePermanentInvite: () => Promise<Invite | null>;
+
   /** Davet kodunu sil, listeden çıkar */
   deleteInvite: (code: string) => Promise<boolean>;
 };
@@ -67,6 +74,25 @@ export const useInviteStore = create<InviteState>((set, get) => ({
     }
 
     return null;
+  },
+
+  getOrCreatePermanentInvite: async () => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return null;
+
+    // Store'da invite yoksa sunucudan çek
+    if (get().invites.length === 0) {
+      await get().fetchInvites();
+    }
+
+    // Mevcut permanent invite'ı bul (max_uses=0, expires_at=null, henüz süresi dolmamış)
+    const existing = get().invites.find(
+      (inv) => inv.max_uses === 0 && inv.expires_at === null,
+    );
+    if (existing) return existing;
+
+    // Yoksa yeni oluştur
+    return get().createInvite(0, 0);
   },
 
   deleteInvite: async (code) => {

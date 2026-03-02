@@ -103,8 +103,8 @@ interface ElectronAPI {
   /** Taskbar'da pencereyi flash et — mesaj/arama geldiğinde dikkat çeker */
   flashFrame: () => Promise<void>;
 
-  /** Metni panoya kopyala — file:// context'inde navigator.clipboard çalışmaz */
-  writeClipboard: (text: string) => void;
+  /** Metni panoya kopyala — main process IPC üzerinden, her zaman çalışır */
+  writeClipboard: (text: string) => Promise<void>;
 
   /** Güncelleme mevcut event'i dinle */
   onUpdateAvailable: (cb: (info: ElectronUpdateInfo) => void) => void;
