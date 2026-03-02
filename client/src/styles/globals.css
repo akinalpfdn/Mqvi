@@ -1421,6 +1421,14 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ─── Invite Friends Modal ─── */
 .invite-friends-modal { width:420px;max-width:90vw;max-height:85vh;display:flex;flex-direction:column; }
 .invite-friends-desc { color:var(--t2);font-size:13px;margin-top:4px; }
+.invite-friends-copy-section { display:flex;align-items:center;gap:12px;padding:12px 0; }
+.invite-friends-copy-btn { padding:8px 20px;border:none;border-radius:6px;background:var(--primary);color:var(--text-white, #fff);font-size:14px;font-family:var(--f-ui);font-weight:600;cursor:pointer;transition:opacity .1s;flex-shrink:0; }
+.invite-friends-copy-btn:hover:not(:disabled) { opacity:.9; }
+.invite-friends-copy-btn:disabled { opacity:.4;cursor:default; }
+.invite-friends-copy-hint { color:var(--t3);font-size:13px; }
+.invite-friends-separator { display:flex;align-items:center;gap:12px;padding:4px 0 8px; }
+.invite-friends-separator-line { flex:1;height:1px;background:var(--b1); }
+.invite-friends-separator-text { color:var(--t3);font-size:13px;text-transform:uppercase;letter-spacing:.05em; }
 .invite-friends-body { flex:1;overflow-y:auto;min-height:0; }
 .invite-friends-empty { padding:32px 16px;text-align:center;color:var(--t3); }
 .invite-friends-select-all { display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:none;background:transparent;color:var(--t2);font-size:13px;font-family:var(--f-ui);cursor:pointer;border-bottom:1px solid var(--b1); }

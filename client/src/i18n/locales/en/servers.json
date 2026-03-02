@@ -76,5 +76,8 @@
   "inviteExpired": "This invite has expired or is invalid",
   "memberCount": "{{count}} members",
   "inviteJoinTitle": "You've been invited to join a server",
-  "backToApp": "Back to App"
+  "backToApp": "Back to App",
+  "copyInviteLink": "Copy Invite Link",
+  "copyInviteLinkHint": "Share this link via WhatsApp, Telegram, etc.",
+  "inviteLinkCopied": "Invite link copied to clipboard"
 }

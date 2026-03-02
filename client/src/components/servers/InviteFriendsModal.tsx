@@ -6,8 +6,11 @@
  * 2. Kullanıcı arkadaşlarını seçer
  * 3. "Davet Gönder" butonuna basar
  * 4. Backend'de invite kodu oluşturulur (max_uses=0, expires_in=0 — sınırsız)
- * 5. Her seçili arkadaşa DM ile `mqvi:invite/{code}` mesajı gönderilir
+ * 5. Her seçili arkadaşa DM ile davet URL'si gönderilir
  * 6. Başarı toast'u gösterilir
+ *
+ * Ek olarak: Üstte "Link Kopyala" butonu — WhatsApp, Telegram vb.
+ * üzerinden paylaşmak için invite URL'sini panoya kopyalar.
  *
  * CSS class'ları: modal-backdrop, modal-card, .invite-friends-*
  */
@@ -44,6 +47,8 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
   const [isSending, setIsSending] = useState(false);
   /** Gönderim ilerlemesi */
   const [progress, setProgress] = useState({ sent: 0, total: 0 });
+  /** Link kopyalama durumu */
+  const [isCopying, setIsCopying] = useState(false);
 
   // Escape ile kapatma
   const handleKeyDown = useCallback(
@@ -85,10 +90,40 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
   }
 
   /**
+   * Link kopyalama — WhatsApp/Telegram paylaşımı için.
+   * Invite kodu oluşturur ve URL'yi panoya kopyalar.
+   */
+  async function handleCopyLink() {
+    if (isCopying) return;
+    setIsCopying(true);
+
+    // Doğru sunucu context'inde invite oluşturulmasını garantile
+    const currentActive = useServerStore.getState().activeServerId;
+    if (currentActive !== serverId) {
+      setActiveServer(serverId);
+    }
+
+    const invite = await createInvite(0, 0);
+    if (!invite) {
+      addToast("error", t("inviteCreateFailed"));
+      setIsCopying(false);
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(getInviteUrl(invite.code));
+      addToast("success", t("inviteLinkCopied"));
+    } catch {
+      addToast("error", t("inviteCreateFailed"));
+    }
+    setIsCopying(false);
+  }
+
+  /**
    * Davet gönderimi:
    * 1. Invite kodu oluştur (unlimited uses, no expiry)
    * 2. Her seçili arkadaş için DM kanalı aç/getir
-   * 3. DM mesajı gönder: mqvi:invite/{code}
+   * 3. DM mesajı gönder
    */
   async function handleSendInvites() {
     if (selected.size === 0 || isSending) return;
@@ -175,6 +210,25 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
           <button onClick={onClose} className="toast-close" disabled={isSending}>
             &#x2715;
           </button>
+        </div>
+
+        {/* Link Kopyala — dış paylaşım için */}
+        <div className="invite-friends-copy-section">
+          <button
+            className="invite-friends-copy-btn"
+            onClick={handleCopyLink}
+            disabled={isCopying || isSending}
+          >
+            {isCopying ? "..." : t("copyInviteLink")}
+          </button>
+          <span className="invite-friends-copy-hint">{t("copyInviteLinkHint")}</span>
+        </div>
+
+        {/* Separator */}
+        <div className="invite-friends-separator">
+          <span className="invite-friends-separator-line" />
+          <span className="invite-friends-separator-text">{t("orSeparator")}</span>
+          <span className="invite-friends-separator-line" />
         </div>
 
         {/* Friend list */}

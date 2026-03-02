@@ -147,6 +147,12 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     ? hasPermission(currentMember.effective_permissions, Permissions.MoveMembers)
     : false;
 
+  // Permission: MANAGE_INVITES yetkisi olan kullanıcılar davet kodu oluşturup
+  // arkadaşlarını sunucuya davet edebilir.
+  const canManageInvites = currentMember
+    ? hasPermission(currentMember.effective_permissions, Permissions.ManageInvites)
+    : false;
+
   // Voice user drag & drop için WS send
   const wsSend = useVoiceStore((s) => s._wsSend);
 
@@ -533,6 +539,10 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     // Owner kontrolu — activeServer (tam Server nesnesi) sadece aktif sunucu icin var
     const isOwner = activeServer?.owner_id === currentUser?.id && activeServer?.id === serverId;
 
+    // ManageInvites yetkisi sadece aktif sunucu icin kontrol edilebilir
+    // (memberStore aktif sunucuya ait). Diger sunucular icin goster, backend enforce eder.
+    const canInvite = serverId !== activeServerId || canManageInvites;
+
     const items: ContextMenuItem[] = [
       {
         label: tServers("serverSettings"),
@@ -549,12 +559,16 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           if (ok) addToast("success", tServers("allMarkedAsRead"));
         },
       },
-      {
-        label: tServers("inviteFriends"),
-        onClick: () => {
-          setInviteTarget({ serverId, serverName });
-        },
-      },
+      ...(canInvite
+        ? [
+            {
+              label: tServers("inviteFriends"),
+              onClick: () => {
+                setInviteTarget({ serverId, serverName });
+              },
+            },
+          ]
+        : []),
       isMuted
         ? {
             label: tServers("unmuteServer"),

@@ -76,5 +76,8 @@
   "inviteExpired": "Bu davet süresi dolmuş veya geçersiz",
   "memberCount": "{{count}} üye",
   "inviteJoinTitle": "Bir sunucuya davet edildiniz",
-  "backToApp": "Uygulamaya Dön"
+  "backToApp": "Uygulamaya Dön",
+  "copyInviteLink": "Davet Linkini Kopyala",
+  "copyInviteLinkHint": "WhatsApp, Telegram vb. ile paylaşın",
+  "inviteLinkCopied": "Davet linki panoya kopyalandı"
 }
