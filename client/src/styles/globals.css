@@ -639,6 +639,11 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .channel-settings-ch-icon { width:16px;text-align:center;font-size:13px;color:var(--t2);flex-shrink:0; }
 .channel-settings-right { padding:24px; }
 .channel-settings-right-title { margin-bottom:16px; }
+.channel-settings-rename-row { margin-bottom:16px; }
+.channel-settings-rename-row .settings-label { display:block;margin-bottom:6px;font-size:13px;color:var(--t2); }
+.channel-settings-rename-input-row { display:flex;gap:8px;align-items:center; }
+.channel-settings-rename-input-row .settings-input { flex:1; }
+.channel-settings-rename-input-row .settings-btn { flex-shrink:0; }
 
 /* Channel Permission Editor — single-column layout */
 .channel-perm-section { max-width:560px; }

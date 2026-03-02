@@ -18,5 +18,9 @@
   "channelCreateError": "Kanal oluşturulamadı",
   "channelDeleted": "Kanal silindi",
   "channelDeleteError": "Kanal silinemedi",
+  "channelUpdated": "Kanal güncellendi",
+  "channelUpdateError": "Kanal güncellenemedi",
+  "channelCategory": "Kategori",
+  "channelNoCategory": "Kategorisiz",
   "cancel": "İptal"
 }

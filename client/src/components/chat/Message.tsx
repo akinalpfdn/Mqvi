@@ -24,7 +24,7 @@ import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useChatContext, type ChatMessage } from "../../hooks/useChatContext";
-import { resolveAssetUrl } from "../../utils/constants";
+import { resolveAssetUrl, copyToClipboard } from "../../utils/constants";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useIsMobile } from "../../hooks/useMediaQuery";
@@ -198,7 +198,7 @@ function Message({ message, isCompact }: MessageProps) {
     items.push({
       label: t("copyMessage"),
       onClick: () => {
-        if (message.content) navigator.clipboard.writeText(message.content);
+        if (message.content) copyToClipboard(message.content);
       },
     });
 
@@ -235,7 +235,7 @@ function Message({ message, isCompact }: MessageProps) {
     // Copy ID — herkes (debug/gelişmiş kullanım)
     items.push({
       label: t("copyId"),
-      onClick: () => navigator.clipboard.writeText(message.id),
+      onClick: () => copyToClipboard(message.id),
       separator: true,
     });
 
@@ -560,7 +560,7 @@ function Message({ message, isCompact }: MessageProps) {
           onDelete={handleDelete}
           onReaction={handleReaction}
           onCopy={() => {
-            if (message.content) navigator.clipboard.writeText(message.content);
+            if (message.content) copyToClipboard(message.content);
           }}
           canManageMessages={canManageMessages}
           isPinned={isPinned}

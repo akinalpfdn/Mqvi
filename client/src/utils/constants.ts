@@ -94,6 +94,21 @@ export function publicAsset(filename: string): string {
   return `${import.meta.env.BASE_URL}${filename}`;
 }
 
+/**
+ * Panoya kopyalama — Electron ve Web ortamı için.
+ *
+ * Electron'da file:// context'inde navigator.clipboard çalışmaz,
+ * bu yüzden native Electron clipboard API'si kullanılır.
+ * Web'de standart navigator.clipboard.writeText() kullanılır.
+ */
+export async function copyToClipboard(text: string): Promise<void> {
+  if (isElectron() && window.electronAPI?.writeClipboard) {
+    window.electronAPI.writeClipboard(text);
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+}
+
 /** WebSocket heartbeat interval (ms) */
 export const WS_HEARTBEAT_INTERVAL = 30_000;
 

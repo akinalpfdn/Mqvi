@@ -3,15 +3,16 @@
  *
  * RoleSettings ile aynı layout pattern'ını kullanır:
  * - Sol panel: Kanal listesi (role-list pattern)
- * - Sağ panel: Seçili kanal için başlık + ChannelPermissionEditor
+ * - Sağ panel: Seçili kanal için isim düzenleme + ChannelPermissionEditor
  *
- * "+" butonu ile inline create form, "✕" ile kanal silme.
+ * "+" butonu ile inline create form (kategori seçimi + tip + isim).
+ * "✕" ile kanal silme. Sağ panelde kanal adı düzenlenebilir.
  * ManageChannels yetkisi gerektirir (SettingsNav zaten permission-gated).
  *
  * CSS class'ları: .channel-settings-*, .role-list, .role-list-item
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useChannelStore } from "../../stores/channelStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -36,11 +37,39 @@ function ChannelSettings() {
   // Seçili kanal
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
 
+  // selectedChannel store'daki güncel veriyle sync — rename sonrası
+  useEffect(() => {
+    if (!selectedChannel) return;
+    const updated = allChannels.find((ch) => ch.id === selectedChannel.id);
+    if (updated && updated.name !== selectedChannel.name) {
+      setSelectedChannel(updated);
+    }
+  }, [allChannels, selectedChannel]);
+
   // ─── Create Form State ───
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<"text" | "voice">("text");
+  const [newCategoryId, setNewCategoryId] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+
+  // ─── Rename State ───
+  const [editName, setEditName] = useState("");
+  const [isSavingName, setIsSavingName] = useState(false);
+
+  // selectedChannel değiştiğinde editName'i güncelle
+  useEffect(() => {
+    if (selectedChannel) {
+      setEditName(selectedChannel.name);
+    }
+  }, [selectedChannel]);
+
+  // İlk kategori seçili olsun (create form açılınca)
+  useEffect(() => {
+    if (showCreate && categories.length > 0 && !newCategoryId) {
+      setNewCategoryId(categories[0].category.id);
+    }
+  }, [showCreate, categories, newCategoryId]);
 
   async function handleCreate() {
     const trimmed = newName.trim();
@@ -52,6 +81,7 @@ function ChannelSettings() {
     const res = await channelApi.createChannel(serverId, {
       name: trimmed,
       type: newType,
+      category_id: newCategoryId || undefined,
     });
 
     if (res.success) {
@@ -82,6 +112,33 @@ function ChannelSettings() {
       addToast("error", t("channelDeleteError"));
     }
   }
+
+  async function handleRename() {
+    if (!selectedChannel) return;
+    const trimmed = editName.trim();
+    if (!trimmed || trimmed === selectedChannel.name) return;
+
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+
+    setIsSavingName(true);
+    const res = await channelApi.updateChannel(serverId, selectedChannel.id, {
+      name: trimmed,
+    });
+
+    if (res.success) {
+      addToast("success", t("channelUpdated"));
+    } else {
+      addToast("error", t("channelUpdateError"));
+      setEditName(selectedChannel.name);
+    }
+    setIsSavingName(false);
+  }
+
+  /** Kanal adı değişti mi? */
+  const nameChanged = selectedChannel
+    ? editName.trim() !== selectedChannel.name
+    : false;
 
   return (
     <div className="channel-settings-wrapper">
@@ -121,6 +178,18 @@ function ChannelSettings() {
             >
               <option value="text">{t("text")}</option>
               <option value="voice">{t("voice")}</option>
+            </select>
+            <select
+              className="settings-input"
+              value={newCategoryId}
+              onChange={(e) => setNewCategoryId(e.target.value)}
+            >
+              <option value="">{t("channelNoCategory")}</option>
+              {categories.map((cg) => (
+                <option key={cg.category.id} value={cg.category.id}>
+                  {cg.category.name}
+                </option>
+              ))}
             </select>
             <button
               className="settings-btn"
@@ -166,6 +235,34 @@ function ChannelSettings() {
             <h2 className="settings-section-title channel-settings-right-title">
               {selectedChannel.type === "voice" ? "\uD83D\uDD0A" : "#"} {selectedChannel.name}
             </h2>
+
+            {/* Kanal adı düzenleme */}
+            <div className="channel-settings-rename-row">
+              <label className="settings-label">{t("channelName")}</label>
+              <div className="channel-settings-rename-input-row">
+                <input
+                  className="settings-input"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && nameChanged) handleRename();
+                    if (e.key === "Escape") setEditName(selectedChannel.name);
+                  }}
+                  maxLength={100}
+                />
+                {nameChanged && (
+                  <button
+                    className="settings-btn"
+                    onClick={handleRename}
+                    disabled={isSavingName}
+                  >
+                    {isSavingName ? "..." : tSettings("save")}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Kanal izinleri */}
             <ChannelPermissionEditor channel={selectedChannel} />
           </div>
         ) : (

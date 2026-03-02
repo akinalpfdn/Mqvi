@@ -17,7 +17,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useInviteStore } from "../../stores/inviteStore";
 import { useToastStore } from "../../stores/toastStore";
-import { getInviteUrl } from "../../utils/constants";
+import { getInviteUrl, copyToClipboard } from "../../utils/constants";
 
 /**
  * Expiry seçenekleri — dakika cinsinden.
@@ -76,7 +76,7 @@ function InviteSettings() {
       addToast("success", t("inviteCreated"));
       // Link formatını otomatik kopyala — WhatsApp/DM paylaşımı için
       try {
-        await navigator.clipboard.writeText(getInviteUrl(invite.code));
+        await copyToClipboard(getInviteUrl(invite.code));
         addToast("success", t("inviteLinkCopied"));
       } catch {
         // Clipboard API desteklenmiyorsa sessizce devam et
@@ -92,7 +92,7 @@ function InviteSettings() {
   const handleCopyCode = useCallback(
     async (code: string) => {
       try {
-        await navigator.clipboard.writeText(code);
+        await copyToClipboard(code);
         addToast("success", t("inviteCopied"));
       } catch {
         addToast("error", t("inviteCopyError"));
@@ -105,7 +105,7 @@ function InviteSettings() {
   const handleCopyLink = useCallback(
     async (code: string) => {
       try {
-        await navigator.clipboard.writeText(getInviteUrl(code));
+        await copyToClipboard(getInviteUrl(code));
         addToast("success", t("inviteLinkCopied"));
       } catch {
         addToast("error", t("inviteCopyError"));

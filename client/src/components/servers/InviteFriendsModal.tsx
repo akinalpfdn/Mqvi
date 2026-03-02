@@ -22,7 +22,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { useInviteStore } from "../../stores/inviteStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useToastStore } from "../../stores/toastStore";
-import { getInviteUrl } from "../../utils/constants";
+import { getInviteUrl, copyToClipboard } from "../../utils/constants";
 import type { FriendshipWithUser } from "../../types";
 import Avatar from "../shared/Avatar";
 
@@ -111,7 +111,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     }
 
     try {
-      await navigator.clipboard.writeText(getInviteUrl(invite.code));
+      await copyToClipboard(getInviteUrl(invite.code));
       addToast("success", t("inviteLinkCopied"));
     } catch {
       addToast("error", t("inviteCreateFailed"));

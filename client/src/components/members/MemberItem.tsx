@@ -23,6 +23,7 @@ import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
+import { copyToClipboard } from "../../utils/constants";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
@@ -181,7 +182,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
       // ─── Copy ID ───
       items.push({
         label: "Copy ID",
-        onClick: () => navigator.clipboard.writeText(member.id),
+        onClick: () => copyToClipboard(member.id),
         separator: !isSelf,
       });
 

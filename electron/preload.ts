@@ -13,7 +13,7 @@
  * Tauri'deki @tauri-apps/api invoke() ve listen() fonksiyonlarının karşılığı.
  */
 
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, clipboard } from "electron";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   // ─── Invoke-style IPC (renderer → main → response) ───
@@ -124,6 +124,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Taskbar'da pencereyi flash et — mesaj/arama geldiğinde dikkat çeker */
   flashFrame: (): Promise<void> => ipcRenderer.invoke("flash-frame"),
+
+  // ─── Clipboard ───
+
+  /** Metni panoya kopyala — file:// context'inde navigator.clipboard çalışmaz */
+  writeClipboard: (text: string): void => {
+    clipboard.writeText(text);
+  },
 
   // ─── Event listeners (main → renderer) ───
 

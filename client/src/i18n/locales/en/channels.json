@@ -18,5 +18,9 @@
   "channelCreateError": "Failed to create channel",
   "channelDeleted": "Channel deleted",
   "channelDeleteError": "Failed to delete channel",
+  "channelUpdated": "Channel updated",
+  "channelUpdateError": "Failed to update channel",
+  "channelCategory": "Category",
+  "channelNoCategory": "No Category",
   "cancel": "Cancel"
 }
