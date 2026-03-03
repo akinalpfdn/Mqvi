@@ -137,13 +137,19 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 		return nil, fmt.Errorf("failed to update user profile: %w", err)
 	}
 
-	// Profile güncelleme global — tüm sunuculara broadcast
-	// serverID bilmiyoruz burada, global member update yap
+	// Profile güncelleme — kullanıcının üye olduğu tüm sunuculara broadcast.
+	// BroadcastToAll kullanmak, kullanıcının olmadığı sunuculardaki client'lara
+	// da göndererek member listesi karışmasına neden olur.
 	member := models.ToMemberWithRoles(user, nil)
-	s.hub.BroadcastToAll(ws.Event{
-		Op:   ws.OpMemberUpdate,
-		Data: &member,
-	})
+	servers, srvErr := s.serverRepo.GetUserServers(ctx, userID)
+	if srvErr == nil {
+		for _, srv := range servers {
+			s.hub.BroadcastToServer(srv.ID, ws.Event{
+				Op:   ws.OpMemberUpdate,
+				Data: &member,
+			})
+		}
+	}
 
 	return &member, nil
 }
@@ -232,7 +238,10 @@ func (s *memberService) ModifyRoles(ctx context.Context, serverID, actorID, targ
 		return nil, err
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	// Rol değişikliği server-scoped — sadece ilgili sunucuya broadcast et.
+	// BroadcastToAll kullanmak, Server A rollerini Server B'deki client'lara
+	// gönderir ve member listesi karışır.
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpMemberUpdate,
 		Data: member,
 	})

@@ -73,6 +73,10 @@ export const useMemberStore = create<MemberState>((set) => ({
    *
    * Multi-server: serverStore'dan activeServerId alır ve
    * GET /api/servers/{serverId}/members çağırır.
+   *
+   * Stale request guard: API response geldiğinde activeServerId hala aynıysa
+   * sonucu yazar, değilse (server switch olmuşsa) atar. Bu sayede hızlı
+   * server geçişlerinde eski server'ın üyeleri yeni server'ın listesine yazılmaz.
    */
   fetchMembers: async () => {
     const serverId = useServerStore.getState().activeServerId;
@@ -81,6 +85,12 @@ export const useMemberStore = create<MemberState>((set) => ({
     set({ isLoading: true });
 
     const res = await memberApi.getMembers(serverId);
+
+    // Stale request guard — response gelene kadar server değişmiş olabilir.
+    // Eğer activeServerId artık farklıysa bu response'u yoksay.
+    const currentServerId = useServerStore.getState().activeServerId;
+    if (currentServerId !== serverId) return;
+
     if (res.data) {
       // onlineUserIds'ı burada SET ETME — WS ready event'i ve
       // handlePresenceUpdate tek otorite. DB status'u stale olabilir
