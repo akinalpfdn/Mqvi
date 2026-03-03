@@ -152,6 +152,8 @@
   "outputDevice": "Output Device",
   "defaultDevice": "Default",
   "masterVolume": "Output Volume",
+  "noiseReduction": "Noise Reduction",
+  "noiseReductionDesc": "ML-based noise suppression (RNNoise). Removes background noise, fans, and keyboard clicks from your mic.",
   "joinLeaveSounds": "Join/Leave Sounds",
   "joinLeaveSoundsDesc": "Play a sound when someone joins or leaves voice",
   "screenShareAudio": "Screen Share Audio",

@@ -326,6 +326,18 @@ export function useWebSocket() {
         const myId = useAuthStore.getState().user?.id;
         if (data.user_id === myId) {
           useAuthStore.getState().updateUser({ status: data.status });
+
+          // Race condition koruması: Server'ın OnUserFirstConnect goroutine'i,
+          // client'ın safety net "offline" göndermesinden SONRA "online" broadcast
+          // edebilir (Go goroutine timing non-deterministic). Bu durumda server
+          // bizim manual status'ümüzü override eder ve "online" yayar.
+          // Kendi ID'miz için gelen status manualStatus'tan farklıysa anında düzelt.
+          const manualStatus = useAuthStore.getState().manualStatus;
+          if (data.status !== manualStatus && wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(
+              JSON.stringify({ op: "presence_update", d: { status: manualStatus } })
+            );
+          }
         }
         break;
       }

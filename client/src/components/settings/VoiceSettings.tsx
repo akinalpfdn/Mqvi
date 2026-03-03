@@ -100,6 +100,7 @@ function VoiceSettings() {
   const outputDevice = useVoiceStore((s) => s.outputDevice);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
   const soundsEnabled = useVoiceStore((s) => s.soundsEnabled);
+  const noiseReduction = useVoiceStore((s) => s.noiseReduction);
 
   const setInputMode = useVoiceStore((s) => s.setInputMode);
   const setPTTKey = useVoiceStore((s) => s.setPTTKey);
@@ -108,6 +109,7 @@ function VoiceSettings() {
   const setOutputDevice = useVoiceStore((s) => s.setOutputDevice);
   const setMasterVolume = useVoiceStore((s) => s.setMasterVolume);
   const setSoundsEnabled = useVoiceStore((s) => s.setSoundsEnabled);
+  const setNoiseReduction = useVoiceStore((s) => s.setNoiseReduction);
 
 
   // ─── Local state ───
@@ -303,6 +305,24 @@ function VoiceSettings() {
             style={sliderTrackStyle(masterVolume, 100)}
           />
           <span className="vs-slider-value">{masterVolume}%</span>
+        </div>
+      </div>
+
+      {/* ─── Noise Reduction ─── */}
+      <div className="vs-section">
+        <div className="vs-toggle-row">
+          <div>
+            <div className="vs-label">{t("noiseReduction")}</div>
+            <div className="vs-desc">{t("noiseReductionDesc")}</div>
+          </div>
+          <label className="vs-switch">
+            <input
+              type="checkbox"
+              checked={noiseReduction}
+              onChange={(e) => setNoiseReduction(e.target.checked)}
+            />
+            <span className="vs-switch-slider" />
+          </label>
         </div>
       </div>
 

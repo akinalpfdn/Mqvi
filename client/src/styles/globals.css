@@ -414,7 +414,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .emoji-picker-btn:hover { background:var(--bg-h); }
 
 /* ─── GIF Picker ─── */
-.gif-picker { position:absolute;bottom:100%;left:0;width:440px;background:var(--bg-3);border:1px solid var(--b2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:100;overflow:hidden;margin-bottom:6px;display:flex;flex-direction:column;max-height:480px; }
+.gif-picker { position:absolute;bottom:100%;left:0;width:500px;background:var(--bg-3);border:1px solid var(--b2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:100;overflow:hidden;margin-bottom:6px;display:flex;flex-direction:column;max-height:520px; }
 .gif-picker-flipped { bottom:auto;top:100%;margin-bottom:0;margin-top:6px; }
 .input-gif-picker-wrap .gif-picker { left:auto;right:0; }
 .gif-picker-header { padding:8px;border-bottom:1px solid var(--b1); }
@@ -422,10 +422,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .gif-picker-search::placeholder { color:var(--t3); }
 .gif-picker-search:focus { border-color:var(--primary); }
 .gif-picker-body { flex:1;overflow-y:auto;min-height:200px; }
-.gif-picker-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px; }
-.gif-picker-item { border:none;background:transparent;cursor:pointer;border-radius:6px;overflow:hidden;padding:0;transition:opacity .1s;aspect-ratio:4/3; }
+.gif-picker-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:10px; }
+.gif-picker-item { display:block;width:100%;border:none;background:var(--bg-4);cursor:pointer;border-radius:8px;overflow:hidden;padding:0;transition:opacity .1s;height:140px; }
 .gif-picker-item:hover { opacity:0.8; }
-.gif-picker-item img { width:100%;height:100%;display:block;border-radius:6px;object-fit:cover;background:var(--bg-4); }
+.gif-picker-item img { width:100%;height:100%;display:block;object-fit:cover; }
 .gif-picker-empty { display:flex;align-items:center;justify-content:center;height:200px;color:var(--t3);font-size:14px; }
 .gif-picker-footer { padding:4px 8px;border-top:1px solid var(--b1);text-align:right; }
 .gif-picker-powered { font-size:11px;color:var(--t3);opacity:0.7; }

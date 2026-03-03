@@ -154,7 +154,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
         ) : (
           <div className="gif-picker-grid">
             {results.map((gif) => (
-              <button
+              <div
                 key={gif.id}
                 className="gif-picker-item"
                 onClick={() => handleGifClick(gif)}
@@ -165,7 +165,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
                   alt={gif.title}
                   loading="lazy"
                 />
-              </button>
+              </div>
             ))}
           </div>
         )}
