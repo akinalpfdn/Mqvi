@@ -227,6 +227,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* Voice kontrol satırı — user adının ÜSTÜNDE ayrı row */
 .ub-voice-row { display:flex;flex-direction:column;padding:6px 0;border-bottom:1px solid var(--b1);gap:2px; }
 .ub-voice-info { display:flex;align-items:center;gap:6px;position:relative;padding:0 10px; }
+.ub-voice-channel { font-size:13px;color:var(--t2);padding:0 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .ub-voice-pulse { width:8px;height:8px;background:var(--green);border-radius:999px;animation:pulse 2s ease-in-out infinite;flex-shrink:0; }
 .ub-voice-label { font-size:13px;font-weight:600;color:var(--green);font-family:var(--f-d); }
 /* Ping tooltip — hover ile görünür, position:absolute voice-info'ya relative */

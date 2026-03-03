@@ -439,7 +439,7 @@ export function useWebSocket() {
       case "voice_force_move": {
         // Yetkili biri bizi başka voice kanala taşıdı.
         // Mevcut kanaldan ayrılıp yeni kanala otomatik join yapılır.
-        const forceMoveData = msg.d as { channel_id: string };
+        const forceMoveData = msg.d as { channel_id: string; channel_name?: string };
         const voiceStore = useVoiceStore.getState();
 
         // Önce mevcut voice bağlantısını temizle, sonra yeni kanala join et.
@@ -450,6 +450,21 @@ export function useWebSocket() {
             // WS voice_join event'i gönder — server tarafında zaten state güncellendi
             // ama LiveKit token alınması için voice_join gerekli.
             sendVoiceJoin(forceMoveData.channel_id);
+
+            // Yeni kanal için voice tab aç — drag-drop ile taşınan kullanıcının
+            // tab menüsünde aktif ses kanalı görünsün.
+            const channelName = forceMoveData.channel_name
+              ?? useChannelStore.getState().categories
+                  .flatMap((cg) => cg.channels)
+                  .find((ch) => ch.id === forceMoveData.channel_id)?.name
+              ?? "";
+            const srvState = useServerStore.getState();
+            const activeSrv = srvState.activeServer
+              ?? srvState.servers.find((s) => s.id === srvState.activeServerId);
+            const serverInfo = activeSrv
+              ? { serverId: activeSrv.id, serverName: activeSrv.name, serverIconUrl: activeSrv.icon_url }
+              : undefined;
+            useUIStore.getState().openTab(forceMoveData.channel_id, "voice", channelName, serverInfo);
           }
         });
         break;

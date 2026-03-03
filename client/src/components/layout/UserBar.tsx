@@ -20,6 +20,8 @@ import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useChannelStore } from "../../stores/channelStore";
+import { useServerStore } from "../../stores/serverStore";
 import Avatar from "../shared/Avatar";
 import type { UserStatus } from "../../types";
 
@@ -70,6 +72,13 @@ function UserBar({
   const setNoiseReduction = useVoiceStore((s) => s.setNoiseReduction);
   const rtt = useVoiceStore((s) => s.rtt);
   const isInVoice = !!currentVoiceChannelId;
+
+  // Voice bağlantı bilgisi — bağlı olunan server/kanal adı
+  const categories = useChannelStore((s) => s.categories);
+  const activeServer = useServerStore((s) => s.activeServer);
+  const voiceChannelName = isInVoice
+    ? categories.flatMap((cg) => cg.channels).find((ch) => ch.id === currentVoiceChannelId)?.name
+    : undefined;
 
   // Status picker popup state
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -154,6 +163,12 @@ function UserBar({
               </div>
             )}
           </div>
+          {/* Bağlı olunan server / kanal adı — Discord tarzı */}
+          {voiceChannelName && (
+            <div className="ub-voice-channel">
+              {activeServer ? `${activeServer.name} / ` : ""}{voiceChannelName}
+            </div>
+          )}
           {/* Noise Reduction toggle — ses kontrol butonlarının üstünde */}
           <div className="ub-nr-row">
             <div className="ub-nr-label">
