@@ -43,27 +43,51 @@ func registerHubCallbacks(
 ) {
 	// ─── Presence Callback'leri ───
 
-	hub.OnUserFirstConnect(func(userID string) {
-		user, err := userRepo.GetByID(context.Background(), userID)
-		if err != nil {
-			log.Printf("[presence] failed to get user %s: %v", userID, err)
-			return
-		}
+	hub.OnUserFirstConnect(func(userID, prefStatus string) {
+		// prefStatus: client'ın WS bağlanırken gönderdiği tercih edilen durum.
+		// Bu değer client'ın localStorage'ından gelir — DB'deki "offline" (disconnect
+		// sonrası set edilen) değerinden her zaman daha doğrudur.
+		//
+		// prefStatus geçerliyse: doğrudan kullan (reconnect sonrası "online" flash yok).
+		// prefStatus boşsa (eski client veya edge case): DB'ye bak ve DND koruma yap.
+		var targetStatus models.UserStatus
 
-		// DND tercihi sunucu restart'larında bile korunur.
-		if user.Status == models.UserStatusDND {
+		switch prefStatus {
+		case "online", "idle", "dnd":
+			targetStatus = models.UserStatus(prefStatus)
+		case "offline":
+			// Invisible mod — hub handler'da SetInvisible zaten çağrıldı.
+			// Broadcast "offline" (görünmez kullanıcı connect oldu, ama diğerleri görmemeli).
 			hub.BroadcastToAll(ws.Event{
 				Op: ws.OpPresence,
 				Data: ws.PresenceData{
 					UserID: userID,
-					Status: string(models.UserStatusDND),
+					Status: string(models.UserStatusOffline),
 				},
 			})
-			log.Printf("[presence] user %s is now dnd (restored preference)", userID)
+			log.Printf("[presence] user %s connected as invisible (prefStatus=offline)", userID)
 			return
+		default:
+			// Eski client veya pref_status gönderilmemiş — DB'ye bak.
+			user, err := userRepo.GetByID(context.Background(), userID)
+			if err != nil {
+				log.Printf("[presence] failed to get user %s: %v", userID, err)
+				return
+			}
+			// DND ve idle tercihleri sunucu restart sonrası DB'den restore edilir.
+			// Normal disconnect/reconnect'te DB "offline" olur ve aşağıdaki
+			// default branch "online" set eder (client 1sn içinde correction gönderir).
+			switch user.Status {
+			case models.UserStatusDND:
+				targetStatus = models.UserStatusDND
+			case models.UserStatusIdle:
+				targetStatus = models.UserStatusIdle
+			default:
+				targetStatus = models.UserStatusOnline
+			}
 		}
 
-		if updateErr := userRepo.UpdateStatus(context.Background(), userID, models.UserStatusOnline); updateErr != nil {
+		if updateErr := userRepo.UpdateStatus(context.Background(), userID, targetStatus); updateErr != nil {
 			log.Printf("[presence] failed to update status for user %s: %v", userID, updateErr)
 		}
 
@@ -71,13 +95,13 @@ func registerHubCallbacks(
 			Op: ws.OpPresence,
 			Data: ws.PresenceData{
 				UserID: userID,
-				Status: string(models.UserStatusOnline),
+				Status: string(targetStatus),
 			},
 		})
-		log.Printf("[presence] user %s is now online", userID)
+		log.Printf("[presence] user %s connected with status %s", userID, targetStatus)
 	})
 
-	hub.OnUserFullyDisconnected(func(userID string) {
+	hub.OnUserFullyDisconnected(func(userID, _ string) {
 		if updateErr := userRepo.UpdateStatus(context.Background(), userID, models.UserStatusOffline); updateErr != nil {
 			log.Printf("[presence] failed to set offline for user %s: %v", userID, updateErr)
 		}
@@ -98,16 +122,9 @@ func registerHubCallbacks(
 	})
 
 	hub.OnPresenceManualUpdate(func(userID string, status string) {
-		// Sesli kanalda olan kullanıcı idle olmamalı.
-		// Client tarafında da engelleniyor ama savunma katmanı olarak
-		// server tarafında da kontrol ediyoruz — eski client sürümleri
-		// veya bug durumunda koruma sağlar.
-		if status == string(models.UserStatusIdle) {
-			if vs := voiceService.GetUserVoiceState(userID); vs != nil {
-				log.Printf("[presence] ignoring idle for user %s — currently in voice channel %s", userID, vs.ChannelID)
-				return
-			}
-		}
+		// Not: Ses kanalındayken idle engeli KALDIRILDI.
+		// Otomatik idle zaten client'ta (useIdleDetection) engellenyor.
+		// Manuel idle seçimi kullanıcının bilinçli kararıdır — server bunu bloke etmemeli.
 
 		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatus(status)); err != nil {
 			log.Printf("[presence] failed to set %s for user %s: %v", status, userID, err)

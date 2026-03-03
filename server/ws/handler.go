@@ -218,19 +218,40 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 6. Client oluştur
+	// pref_status: Client'ın WS bağlanırken gönderdiği tercih edilen presence durumu.
+	// localStorage'daki manualStatus değeri (online/idle/dnd/offline).
+	// OnUserFirstConnect callback'ine geçirilerek reconnect sonrası doğru status
+	// anında broadcast edilir — "online" geçici flash'ı olmadan.
+	prefStatus := r.URL.Query().Get("pref_status")
+	switch prefStatus {
+	case "online", "idle", "dnd", "offline":
+		// geçerli
+	default:
+		// bilinmeyen değer — DB status'a göre belirle
+		prefStatus = ""
+	}
+
 	client := &Client{
-		hub:    h.hub,
-		conn:   conn,
-		userID: claims.UserID,
-		send:   make(chan []byte, sendBufferSize),
+		hub:        h.hub,
+		conn:       conn,
+		userID:     claims.UserID,
+		send:       make(chan []byte, sendBufferSize),
+		prefStatus: prefStatus,
 	}
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 
-	// Invisible tracking: Kullanıcının DB'deki tercih edilen status'u "offline" ise
-	// (invisible modu), Hub'a kayıt OLMADAN ÖNCE invisible olarak işaretle.
-	// Bu sayede register sonrası tetiklenen OnUserFirstConnect callback'i
-	// ve ready event'teki online listesi doğru çalışır.
-	if dbStatus == models.UserStatusOffline {
+	// Invisible tracking: Kullanıcı "offline" (invisible) modunda bağlanıyorsa
+	// Hub'a kayıt OLMADAN ÖNCE invisible olarak işaretle.
+	// Bu sayede ready event'teki GetVisibleOnlineUserIDs() doğru çalışır.
+	//
+	// Öncelik sırası: pref_status (client'ın en güncel tercihi) > DB status (eski)
+	// DB status "offline" kalabilir çünkü OnUserFullyDisconnected bunu set eder.
+	isInvisible := prefStatus == "offline"
+	if prefStatus == "" {
+		// pref_status gönderilmemişse (eski client veya edge case) DB'ye bak
+		isInvisible = dbStatus == models.UserStatusOffline
+	}
+	if isInvisible {
 		h.hub.SetInvisible(claims.UserID, true)
 	}
 

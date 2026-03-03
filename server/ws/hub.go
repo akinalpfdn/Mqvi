@@ -100,7 +100,12 @@ type EventPublisher interface {
 // Hub, bağlantı olaylarında (ilk bağlantı, tam kopuş) dış katmanlara
 // haber vermek için fonksiyon referansı tutar. main.go'da set edilir.
 // Böylece Hub doğrudan service'e bağımlı olmaz (Dependency Inversion).
-type UserConnectionCallback func(userID string)
+//
+// prefStatus: Client'ın WS bağlanırken gönderdiği tercih edilen presence durumu.
+// OnUserFirstConnect'te kullanılır — DB'deki "offline" durumundan bağımsız olarak
+// doğru status anında broadcast edilebilir (reconnect sonrası "online" flash yok).
+// OnUserFullyDisconnected callback'inde boş string gönderilir (kullanılmaz).
+type UserConnectionCallback func(userID, prefStatus string)
 
 // ─── Voice Callback Tipleri ───
 //
@@ -320,7 +325,8 @@ func (h *Hub) addClient(client *Client) {
 	// Callback'i Lock dışında, ayrı goroutine'de çağır (deadlock önleme).
 	if isFirstConnection && h.onUserFirstConnect != nil {
 		userID := client.userID
-		go h.onUserFirstConnect(userID)
+		prefStatus := client.prefStatus
+		go h.onUserFirstConnect(userID, prefStatus)
 	}
 }
 
@@ -353,7 +359,7 @@ func (h *Hub) removeClient(client *Client) {
 
 	// Callback'i Lock dışında, ayrı goroutine'de çağır (deadlock önleme).
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
-		go h.onUserFullyDisconnected(userID)
+		go h.onUserFullyDisconnected(userID, "")
 	}
 }
 

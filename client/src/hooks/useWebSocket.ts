@@ -317,28 +317,25 @@ export function useWebSocket() {
         // Engellenen kullanıcıları çek
         useBlockStore.getState().fetchBlocked();
 
-        // Status persistence: manualStatus'u ready'den 1sn sonra gönder.
+        // Status persistence: manualStatus'u ready'de anında gönder.
         //
-        // Neden gecikme?
-        // Server'da OnUserFirstConnect callback goroutine olarak çalışır (async).
-        // "ready" event'i gönderildikten SONRA bu goroutine "online" broadcast edebilir.
-        // Anında göndersek goroutine bizi override eder. 1sn gecikme goroutine'in
-        // tamamlanmasına yeterli zaman tanır, sonra bizim status'ümüz kazanır.
+        // Server'daki OnUserFirstConnect callback artık pref_status parametresini
+        // kullanarak doğru status'ü broadcast ediyor (WS URL'den geliyor).
+        // Bu kısım yedek güvenlik katmanı olarak kalır — pref_status gönderilmemişse
+        // veya edge case'lerde serverın yanlış status broadcast etmesi durumunda
+        // client doğru status'ünü hemen gönderir.
         //
         // Neden sadece "online" olmayanlara?
         // "online" için correction gerekmiyor — server zaten "online" yayar.
         {
           const storedStatus = useAuthStore.getState().manualStatus;
           if (storedStatus !== "online") {
-            const wsAtReady = wsRef.current;
-            setTimeout(() => {
-              const currentManual = useAuthStore.getState().manualStatus;
-              if (currentManual !== "online" && wsAtReady?.readyState === WebSocket.OPEN) {
-                wsAtReady.send(
-                  JSON.stringify({ op: "presence_update", d: { status: currentManual } })
-                );
-              }
-            }, 1000);
+            const ws = wsRef.current;
+            if (ws?.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({ op: "presence_update", d: { status: storedStatus } })
+              );
+            }
           }
         }
         break;
@@ -957,7 +954,11 @@ export function useWebSocket() {
         wsRef.current = null;
       }
 
-      const socket = new WebSocket(`${WS_URL}?token=${token}`);
+      // pref_status: manualStatus'u WS URL'ye ekle — server OnUserFirstConnect
+      // callback'inde bu değeri kullanarak reconnect sonrası doğru status'u anında
+      // broadcast eder (1-sn "online" flash'ı olmadan).
+      const prefStatus = useAuthStore.getState().manualStatus;
+      const socket = new WebSocket(`${WS_URL}?token=${token}&pref_status=${prefStatus}`);
       wsRef.current = socket;
 
       // ─── onopen ───

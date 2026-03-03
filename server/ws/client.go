@@ -59,6 +59,12 @@ type Client struct {
 	// BroadcastToServer bu listeyi kontrol ederek
 	// event'i sadece ilgili sunucunun üyelerine gönderir.
 	serverIDs []string
+
+	// prefStatus, bağlantı kurulurken client'ın tercih ettiği presence durumu.
+	// WS URL query parameter'ından okunur: ?pref_status=idle
+	// OnUserFirstConnect callback'ine geçirilir — DB "offline" durumundan
+	// bağımsız olarak doğru status anında broadcast edilir (1-sn ırk yok).
+	prefStatus string
 }
 
 // ReadPump, WebSocket bağlantısından gelen mesajları okur ve işler.
