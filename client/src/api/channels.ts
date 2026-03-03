@@ -99,3 +99,25 @@ export async function deleteCategory(serverId: string, id: string) {
     method: "DELETE",
   });
 }
+
+// ─── Channel Mute API ───
+
+/** Kanalı sessize alır */
+export async function muteChannel(serverId: string, channelId: string, duration: string) {
+  return apiClient<{ message: string }>(`/servers/${serverId}/channels/${channelId}/mute`, {
+    method: "POST",
+    body: { duration },
+  });
+}
+
+/** Kanal sessizliğini kaldırır */
+export async function unmuteChannel(serverId: string, channelId: string) {
+  return apiClient<{ message: string }>(`/servers/${serverId}/channels/${channelId}/mute`, {
+    method: "DELETE",
+  });
+}
+
+/** Kullanıcının sessize aldığı tüm kanal ID'lerini döner */
+export async function getMutedChannels() {
+  return apiClient<string[]>("/channels/mutes");
+}

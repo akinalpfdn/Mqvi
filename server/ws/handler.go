@@ -71,6 +71,14 @@ type MuteChecker interface {
 	GetMutedServerIDs(ctx context.Context, userID string) ([]string, error)
 }
 
+// ChannelMuteChecker, kullanıcının sessize aldığı kanalları sorgulayan interface (ISP).
+//
+// ChannelMuteService'in GetMutedChannelIDs metodunu karşılar (Go implicit interface).
+// WS bağlantısı kurulduğunda ready event'e muted kanal ID'leri eklenir.
+type ChannelMuteChecker interface {
+	GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error)
+}
+
 // upgrader, HTTP bağlantısını WebSocket bağlantısına yükseltir.
 //
 // WebSocket Upgrade nedir?
@@ -97,6 +105,7 @@ type Handler struct {
 	userInfoProvider    UserInfoProvider
 	serverListProvider  ServerListProvider
 	muteChecker         MuteChecker
+	channelMuteChecker  ChannelMuteChecker
 }
 
 // NewHandler, yeni bir WebSocket handler oluşturur.
@@ -107,6 +116,7 @@ type Handler struct {
 // userInfoProvider: Kullanıcı profil bilgileri (pratikte userRepo).
 // serverListProvider: Kullanıcının sunucu listesi (pratikte serverRepo).
 // muteChecker: Kullanıcının mute'lu sunucu ID'leri (pratikte serverMuteService).
+// channelMuteChecker: Kullanıcının mute'lu kanal ID'leri (pratikte channelMuteService).
 func NewHandler(
 	hub *Hub,
 	tokenValidator TokenValidator,
@@ -115,6 +125,7 @@ func NewHandler(
 	userInfoProvider UserInfoProvider,
 	serverListProvider ServerListProvider,
 	muteChecker MuteChecker,
+	channelMuteChecker ChannelMuteChecker,
 ) *Handler {
 	return &Handler{
 		hub:                 hub,
@@ -124,6 +135,7 @@ func NewHandler(
 		userInfoProvider:    userInfoProvider,
 		serverListProvider:  serverListProvider,
 		muteChecker:         muteChecker,
+		channelMuteChecker:  channelMuteChecker,
 	}
 }
 
@@ -262,6 +274,22 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		mutedServerIDs = []string{}
 	}
 
+	// 6.6. Kullanıcının mute'lu kanal ID'lerini al
+	//
+	// Ready event'e eklenir — frontend bu bilgiyle muted kanallardan
+	// gelen bildirimleri (unread badge, ses, flash) bastırır.
+	var mutedChannelIDs []string
+	if h.channelMuteChecker != nil {
+		if ids, err := h.channelMuteChecker.GetMutedChannelIDs(r.Context(), claims.UserID); err == nil {
+			mutedChannelIDs = ids
+		} else {
+			log.Printf("[ws] channel mute check failed for user %s: %v", claims.UserID, err)
+		}
+	}
+	if mutedChannelIDs == nil {
+		mutedChannelIDs = []string{}
+	}
+
 	// 7. Hub'a kaydet
 	h.hub.register <- client
 
@@ -275,9 +303,10 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	client.sendEvent(Event{
 		Op: OpReady,
 		Data: ReadyData{
-			OnlineUserIDs:  h.hub.GetVisibleOnlineUserIDs(),
-			Servers:        readyServers,
-			MutedServerIDs: mutedServerIDs,
+			OnlineUserIDs:   h.hub.GetVisibleOnlineUserIDs(),
+			Servers:         readyServers,
+			MutedServerIDs:  mutedServerIDs,
+			MutedChannelIDs: mutedChannelIDs,
 		},
 	})
 

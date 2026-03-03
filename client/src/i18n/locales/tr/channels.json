@@ -49,5 +49,15 @@
   "categoryDeleteError": "Kategori silinemedi",
   "selectCategoryToEdit": "Düzenlemek için bir kategori seçin",
   "moveToCategory": "Kategori",
-  "noCategoriesYet": "Henüz kategori yok"
+  "noCategoriesYet": "Henüz kategori yok",
+  "renameCategory": "Kategoriyi Yeniden Adlandır",
+  "renameChannel": "Kanalı Yeniden Adlandır",
+  "muteChannel": "Kanalı Sessize Al",
+  "unmuteChannel": "Sessizi Kaldır",
+  "channelMuted": "Kanal sessize alındı",
+  "channelUnmuted": "Sessiz mod kaldırıldı",
+  "mute1Hour": "1 Saat",
+  "mute8Hours": "8 Saat",
+  "mute1Week": "1 Hafta",
+  "muteForever": "Ben açana kadar"
 }

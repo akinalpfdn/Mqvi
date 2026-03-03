@@ -33,6 +33,7 @@ type Handlers struct {
 	Stats             *handlers.StatsHandler
 	Admin             *handlers.AdminHandler
 	ServerMute        *handlers.ServerMuteHandler
+	ChannelMute       *handlers.ChannelMuteHandler
 	DMSettings        *handlers.DMSettingsHandler
 	Block             *handlers.BlockHandler
 	Report            *handlers.ReportHandler
@@ -63,10 +64,11 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Stats:             handlers.NewStatsHandler(repos.User),
 		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer),
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
+		ChannelMute:       handlers.NewChannelMuteHandler(svcs.ChannelMute),
 		DMSettings:        handlers.NewDMSettingsHandler(svcs.DMSettings),
 		Block:             handlers.NewBlockHandler(svcs.Block),
 		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, cfg.Upload.MaxSize),
 		Gif:               handlers.NewGifHandler(cfg.Klipy.APIKey),
-		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute),
+		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute),
 	}
 }

@@ -40,6 +40,7 @@ type Repositories struct {
 	ResetToken        repository.PasswordResetRepository
 	MetricsHistory    repository.MetricsHistoryRepository
 	ServerMute        repository.ServerMuteRepository
+	ChannelMute       repository.ChannelMuteRepository
 	DMSettings        repository.DMSettingsRepository
 	Report            repository.ReportRepository
 }
@@ -72,6 +73,7 @@ func initRepositories(conn *sql.DB) *Repositories {
 		ResetToken:        repository.NewSQLiteResetTokenRepo(conn),
 		MetricsHistory:    repository.NewSQLiteMetricsHistoryRepo(conn),
 		ServerMute:        repository.NewSQLiteServerMuteRepo(conn),
+		ChannelMute:       repository.NewSQLiteChannelMuteRepo(conn),
 		DMSettings:        repository.NewSQLiteDMSettingsRepo(conn),
 		Report:            repository.NewSQLiteReportRepo(conn),
 	}

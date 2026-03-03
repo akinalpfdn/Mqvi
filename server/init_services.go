@@ -46,6 +46,7 @@ type Services struct {
 	P2PCall           services.P2PCallService
 	MetricsHistory    services.MetricsHistoryService
 	ServerMute        services.ServerMuteService
+	ChannelMute       services.ChannelMuteService
 	DMSettings        services.DMSettingsService
 	Block             services.BlockService
 	Report            services.ReportService
@@ -129,6 +130,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, hub)
 	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
+	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
 	reportService := services.NewReportService(repos.Report, repos.User)
 	reportUploadService := services.NewReportUploadService(repos.Report, cfg.Upload.Dir, cfg.Upload.MaxSize)
 
@@ -171,6 +173,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		P2PCall:           p2pCallService,
 		MetricsHistory:    metricsHistoryService,
 		ServerMute:        serverMuteService,
+		ChannelMute:       channelMuteService,
 		DMSettings:        dmSettingsService,
 		Block:             blockService,
 		Report:            reportService,

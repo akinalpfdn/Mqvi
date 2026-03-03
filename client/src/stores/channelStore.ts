@@ -26,10 +26,17 @@ type ChannelState = {
   selectedChannelId: string | null;
   /** Yüklenme durumu */
   isLoading: boolean;
+  /** Sessize alınan kanal ID'leri — Set olarak tutulur (hızlı lookup) */
+  mutedChannelIds: Set<string>;
 
   // ─── Actions ───
   fetchChannels: () => Promise<void>;
   selectChannel: (channelId: string) => void;
+
+  // ─── Channel Mute ───
+  setMutedChannelsFromReady: (ids: string[]) => void;
+  muteChannel: (channelId: string, duration: string) => Promise<boolean>;
+  unmuteChannel: (channelId: string) => Promise<boolean>;
 
   // ─── WS Event Handlers ───
   handleChannelCreate: (channel: Channel) => void;
@@ -54,6 +61,7 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   categories: [],
   selectedChannelId: null,
   isLoading: false,
+  mutedChannelIds: new Set<string>(),
 
   /**
    * fetchChannels — Backend'den aktif sunucunun kanallarını çeker.
@@ -284,6 +292,44 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
   handleChannelReorder: (categories) => {
     set({ categories });
+  },
+
+  // ─── Channel Mute ───
+
+  setMutedChannelsFromReady: (ids) => {
+    set({ mutedChannelIds: new Set(ids) });
+  },
+
+  muteChannel: async (channelId, duration) => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+
+    const res = await channelApi.muteChannel(serverId, channelId, duration);
+    if (res.success) {
+      set((state) => {
+        const next = new Set(state.mutedChannelIds);
+        next.add(channelId);
+        return { mutedChannelIds: next };
+      });
+      return true;
+    }
+    return false;
+  },
+
+  unmuteChannel: async (channelId) => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+
+    const res = await channelApi.unmuteChannel(serverId, channelId);
+    if (res.success) {
+      set((state) => {
+        const next = new Set(state.mutedChannelIds);
+        next.delete(channelId);
+        return { mutedChannelIds: next };
+      });
+      return true;
+    }
+    return false;
   },
 
   clearForServerSwitch: () => {

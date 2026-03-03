@@ -51,10 +51,14 @@ import ReportModal from "../shared/ReportModal";
 import InviteFriendsModal from "../servers/InviteFriendsModal";
 import AddServerModal from "../servers/AddServerModal";
 import CreateChannelModal from "../channels/CreateChannelModal";
+import ChannelMuteDurationPicker from "../channels/ChannelMuteDurationPicker";
+import ChannelPermissionEditor from "../settings/ChannelPermissionEditor";
+import Modal from "../shared/Modal";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useSettingsStore } from "../../stores/settingsStore";
-import type { DMChannelWithUser } from "../../types";
+import * as channelApi from "../../api/channels";
+import type { DMChannelWithUser, Channel } from "../../types";
 
 type ChannelTreeProps = {
   onJoinVoice: (channelId: string) => void;
@@ -108,6 +112,12 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   // DM context menu
   const { menuState: dmMenuState, openMenu: openDMMenu, closeMenu: closeDMMenu } = useContextMenu();
 
+  // Category context menu
+  const { menuState: catMenuState, openMenu: openCatMenu, closeMenu: closeCatMenu } = useContextMenu();
+
+  // Channel context menu
+  const { menuState: chMenuState, openMenu: openChMenu, closeMenu: closeChMenu } = useContextMenu();
+
   // DM mute duration picker state
   const [dmMutePicker, setDmMutePicker] = useState<{
     channelId: string;
@@ -140,6 +150,21 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     serverId: string;
     serverName: string;
   } | null>(null);
+
+  // Channel mute duration picker state
+  const [channelMutePicker, setChannelMutePicker] = useState<{
+    channelId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Inline rename state
+  const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
+  const [renamingChannelId, setRenamingChannelId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  // Channel permission modal state
+  const [permModalChannel, setPermModalChannel] = useState<Channel | null>(null);
 
   // Add Server modal state
   const [showAddServer, setShowAddServer] = useState(false);
@@ -180,6 +205,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const currentUser = useAuthStore((s) => s.user);
   const members = useMemberStore((s) => s.members);
   const addToast = useToastStore((s) => s.addToast);
+  const mutedChannelIds = useChannelStore((s) => s.mutedChannelIds);
+  const unmuteChannel = useChannelStore((s) => s.unmuteChannel);
   const { t: tCh } = useTranslation("channels");
 
   // Permission: MANAGE_CHANNELS yetkisi olan kullanıcılar kanal ekleyebilir
@@ -865,6 +892,145 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     openServerMenu(e, items);
   }
 
+  // ─── Category Context Menu ───
+
+  /**
+   * handleCategoryContextMenu — Kategori sağ tık context menu.
+   * Yeniden adlandır + sil. Sadece canManageChannels yetkisi varsa açılır.
+   */
+  function handleCategoryContextMenu(e: React.MouseEvent, categoryId: string, categoryName: string) {
+    if (!canManageChannels) return;
+
+    const items: ContextMenuItem[] = [
+      {
+        label: tCh("renameCategory"),
+        onClick: () => {
+          setRenamingCategoryId(categoryId);
+          setRenameValue(categoryName);
+        },
+      },
+      {
+        label: tCh("deleteCategory"),
+        danger: true,
+        separator: true,
+        onClick: async () => {
+          const ok = await confirmDialog({
+            title: tCh("deleteCategory"),
+            message: tCh("deleteCategoryConfirm", { name: categoryName }),
+            confirmLabel: tCh("deleteCategory"),
+            danger: true,
+          });
+          if (!ok) return;
+          const res = await channelApi.deleteCategory(activeServerId!, categoryId);
+          if (res.success) {
+            addToast("success", tCh("categoryDeleted"));
+          } else {
+            addToast("error", tCh("categoryDeleteError"));
+          }
+        },
+      },
+    ];
+
+    openCatMenu(e, items);
+  }
+
+  // ─── Channel Context Menu ───
+
+  /**
+   * handleChannelContextMenu — Kanal sağ tık context menu.
+   * Yeniden adlandır, kanal yetkileri, sil (canManageChannels),
+   * sessize al/kaldır (text kanallar, tüm kullanıcılar).
+   */
+  function handleChannelContextMenu(e: React.MouseEvent, ch: Channel) {
+    const items: ContextMenuItem[] = [];
+
+    if (canManageChannels) {
+      items.push({
+        label: tCh("renameChannel"),
+        onClick: () => {
+          setRenamingChannelId(ch.id);
+          setRenameValue(ch.name);
+        },
+      });
+      items.push({
+        label: tCh("channelPermissions"),
+        onClick: () => setPermModalChannel(ch),
+      });
+      items.push({
+        label: tCh("deleteChannel"),
+        danger: true,
+        separator: true,
+        onClick: async () => {
+          const ok = await confirmDialog({
+            title: tCh("deleteChannel"),
+            message: tCh("deleteConfirm", { name: ch.name }),
+            confirmLabel: tCh("deleteChannel"),
+            danger: true,
+          });
+          if (!ok) return;
+          const res = await channelApi.deleteChannel(activeServerId!, ch.id);
+          if (res.success) {
+            addToast("success", tCh("channelDeleted"));
+          } else {
+            addToast("error", tCh("channelDeleteError"));
+          }
+        },
+      });
+    }
+
+    // Sessize al/kaldır — text kanallar için, tüm kullanıcılara açık
+    if (ch.type === "text") {
+      const isMuted = mutedChannelIds.has(ch.id);
+      items.push({
+        label: isMuted ? tCh("unmuteChannel") : tCh("muteChannel"),
+        separator: items.length > 0,
+        onClick: async () => {
+          if (isMuted) {
+            const ok = await unmuteChannel(ch.id);
+            if (ok) addToast("success", tCh("channelUnmuted"));
+          } else {
+            setChannelMutePicker({ channelId: ch.id, x: e.clientX, y: e.clientY });
+          }
+        },
+      });
+    }
+
+    if (items.length === 0) return;
+    openChMenu(e, items);
+  }
+
+  // ─── Inline Rename Handlers ───
+
+  async function handleCategoryRenameSubmit() {
+    const id = renamingCategoryId;
+    const name = renameValue.trim();
+    setRenamingCategoryId(null);
+
+    if (!id || !name || !activeServerId) return;
+
+    const res = await channelApi.updateCategory(activeServerId, id, { name });
+    if (res.success) {
+      addToast("success", tCh("categoryUpdated"));
+    } else {
+      addToast("error", tCh("categoryUpdateError"));
+    }
+  }
+
+  async function handleChannelRenameSubmit() {
+    const id = renamingChannelId;
+    const name = renameValue.trim();
+    setRenamingChannelId(null);
+
+    if (!id || !name || !activeServerId) return;
+
+    const res = await channelApi.updateChannel(activeServerId, id, { name });
+    if (res.success) {
+      addToast("success", tCh("channelUpdated"));
+    } else {
+      addToast("error", tCh("channelUpdateError"));
+    }
+  }
+
   // ─── Render helpers ───
 
   /** Chevron ikonu — section açık/kapalı durumuna göre döner */
@@ -1126,9 +1292,26 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                             <button
                               className="ch-tree-cat-header"
                               onClick={() => toggleSection(catKey)}
+                              onContextMenu={(e) => handleCategoryContextMenu(e, cg.category.id, cg.category.name)}
                             >
                               <Chevron expanded={catExpanded} />
-                              <span>{cg.category.name}</span>
+                              {renamingCategoryId === cg.category.id ? (
+                                <input
+                                  className="ch-tree-inline-rename"
+                                  value={renameValue}
+                                  autoFocus
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => setRenameValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === "Enter") handleCategoryRenameSubmit();
+                                    if (e.key === "Escape") setRenamingCategoryId(null);
+                                  }}
+                                  onBlur={() => handleCategoryRenameSubmit()}
+                                />
+                              ) : (
+                                <span>{cg.category.name}</span>
+                              )}
                             </button>
                             {canManageChannels && (
                               <button
@@ -1157,6 +1340,15 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     const isDragging = dragChannelIdRef.current === ch.id;
                     const dropPos = dropIndicator?.channelId === ch.id ? dropIndicator.position : null;
 
+                    // Mute visual logic
+                    const isServerMuted = mutedServerIds.has(srv.id);
+                    const isChannelMuted = mutedChannelIds.has(ch.id);
+                    const isEffectivelyMuted = isServerMuted || isChannelMuted;
+                    // Muted + unread → hafifçe daha parlak (opacity .7)
+                    const mutedClass = isEffectivelyMuted
+                      ? (unread > 0 ? " muted-unread" : " muted")
+                      : "";
+
                     return (
                       <div
                         key={ch.id}
@@ -1170,12 +1362,13 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                       >
                         {/* Kanal satırı */}
                         <button
-                          className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${unread > 0 ? " has-unread" : ""}${voiceDropTargetId === ch.id ? " voice-drop-target" : ""}`}
+                          className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${unread > 0 && !isEffectivelyMuted ? " has-unread" : ""}${voiceDropTargetId === ch.id ? " voice-drop-target" : ""}${mutedClass}`}
                           onClick={() =>
                             isText
                               ? handleTextChannelClick(ch.id, ch.name)
                               : handleVoiceChannelClick(ch.id, ch.name)
                           }
+                          onContextMenu={(e) => handleChannelContextMenu(e, ch)}
                           title={
                             isText
                               ? `#${ch.name}`
@@ -1185,8 +1378,24 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                           <span className="ch-tree-icon">
                             {isText ? "#" : "\uD83D\uDD0A"}
                           </span>
-                          <span className="ch-tree-label">{ch.name}</span>
-                          {unread > 0 && !mutedServerIds.has(srv.id) && (
+                          {renamingChannelId === ch.id ? (
+                            <input
+                              className="ch-tree-inline-rename"
+                              value={renameValue}
+                              autoFocus
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                e.stopPropagation();
+                                if (e.key === "Enter") handleChannelRenameSubmit();
+                                if (e.key === "Escape") setRenamingChannelId(null);
+                              }}
+                              onBlur={() => handleChannelRenameSubmit()}
+                            />
+                          ) : (
+                            <span className="ch-tree-label">{ch.name}</span>
+                          )}
+                          {unread > 0 && !isEffectivelyMuted && (
                             <span className="ch-tree-unread-dot" title={`${unread}`} />
                           )}
                         </button>
@@ -1379,6 +1588,33 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           defaultMode={createModalMode}
           defaultCategoryId={createModalCategoryId}
         />
+      )}
+
+      {/* Category Context Menu */}
+      <ContextMenu state={catMenuState} onClose={closeCatMenu} />
+
+      {/* Channel Context Menu */}
+      <ContextMenu state={chMenuState} onClose={closeChMenu} />
+
+      {/* Channel Mute Duration Picker */}
+      {channelMutePicker && (
+        <ChannelMuteDurationPicker
+          channelId={channelMutePicker.channelId}
+          x={channelMutePicker.x}
+          y={channelMutePicker.y}
+          onClose={() => setChannelMutePicker(null)}
+        />
+      )}
+
+      {/* Channel Permission Modal */}
+      {permModalChannel && (
+        <Modal
+          isOpen
+          onClose={() => setPermModalChannel(null)}
+          title={tCh("channelPermissions")}
+        >
+          <ChannelPermissionEditor channel={permModalChannel} />
+        </Modal>
       )}
     </div>
   );

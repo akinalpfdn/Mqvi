@@ -119,7 +119,10 @@ func initRoutes(
 	// Report
 	mux.Handle("POST /api/users/{userId}/report", auth(h.Report.CreateReport))
 
-	// GIFs (Tenor proxy) — literal path, auth gerektiriri
+	// Channel Mutes — literal path, {serverId} wildcard'dan ÖNCE olmalı
+	mux.Handle("GET /api/channels/mutes", auth(h.ChannelMute.ListMuted))
+
+	// GIFs (Klipy proxy) — literal path, auth gerektirir
 	mux.Handle("GET /api/gifs/trending", auth(h.Gif.Trending))
 	mux.Handle("GET /api/gifs/search", auth(h.Gif.Search))
 
@@ -172,6 +175,10 @@ func initRoutes(
 	// Server Mute — sunucu sessize alma
 	mux.Handle("POST /api/servers/{serverId}/mute", authServer(h.ServerMute.Mute))
 	mux.Handle("DELETE /api/servers/{serverId}/mute", authServer(h.ServerMute.Unmute))
+
+	// Channel Mute — kanal sessize alma
+	mux.Handle("POST /api/servers/{serverId}/channels/{id}/mute", authServer(h.ChannelMute.Mute))
+	mux.Handle("DELETE /api/servers/{serverId}/channels/{id}/mute", authServer(h.ChannelMute.Unmute))
 
 	// LiveKit settings
 	mux.Handle("GET /api/servers/{serverId}/livekit", authServerPerm(models.PermAdmin, h.Server.GetLiveKitSettings))

@@ -49,5 +49,15 @@
   "categoryDeleteError": "Failed to delete category",
   "selectCategoryToEdit": "Select a category to edit",
   "moveToCategory": "Category",
-  "noCategoriesYet": "No categories yet"
+  "noCategoriesYet": "No categories yet",
+  "renameCategory": "Rename Category",
+  "renameChannel": "Rename Channel",
+  "muteChannel": "Mute Channel",
+  "unmuteChannel": "Unmute Channel",
+  "channelMuted": "Channel muted",
+  "channelUnmuted": "Channel unmuted",
+  "mute1Hour": "For 1 Hour",
+  "mute8Hours": "For 8 Hours",
+  "mute1Week": "For 1 Week",
+  "muteForever": "Until I turn it back on"
 }

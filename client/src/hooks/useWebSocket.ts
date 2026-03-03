@@ -283,6 +283,7 @@ export function useWebSocket() {
           online_user_ids: string[];
           servers: ServerListItem[];
           muted_server_ids: string[];
+          muted_channel_ids: string[];
         };
 
         // Multi-server: Ready event artık sunucu listesini de içerir.
@@ -295,6 +296,11 @@ export function useWebSocket() {
         // Muted server ID'lerini serverStore'a yaz — bildirim bastırma için
         if (data.muted_server_ids) {
           useServerStore.getState().setMutedServersFromReady(data.muted_server_ids);
+        }
+
+        // Muted channel ID'lerini channelStore'a yaz — kanal bazlı bildirim bastırma için
+        if (data.muted_channel_ids) {
+          useChannelStore.getState().setMutedChannelsFromReady(data.muted_channel_ids);
         }
 
         useMemberStore.getState().handleReady(data.online_user_ids);
