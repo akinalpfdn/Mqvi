@@ -364,7 +364,9 @@ function VoiceStateManager() {
         if (heldSpeakers.get(identity) && !holdTimers.has(identity)) {
           const timerId = window.setTimeout(() => {
             holdTimers.delete(identity);
-            heldSpeakers.set(identity, false);
+            // Entry'yi tamamen sil — false olarak bırakmak uzun oturumlarda
+            // Map'in stale entry'lerle büyümesine neden olur.
+            heldSpeakers.delete(identity);
             updateStore();
           }, HOLD_MS);
           holdTimers.set(identity, timerId);

@@ -97,6 +97,13 @@ function playTone(
 
     osc.start(now);
     osc.stop(now + duration);
+
+    // Node'ları AudioContext graph'ından temizle — disconnect olmadan
+    // birikir ve uzun oturumlarda (2+ saat) memory leak'e neden olur.
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
   } catch {
     // AudioContext desteklenmiyor veya hata — sessizce devam et
   }

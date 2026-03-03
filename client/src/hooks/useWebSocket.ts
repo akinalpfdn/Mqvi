@@ -431,7 +431,23 @@ export function useWebSocket() {
       }
       case "voice_states_sync": {
         const syncData = msg.d as { states: VoiceState[] };
-        useVoiceStore.getState().handleVoiceStatesSync(syncData.states);
+        const vs = useVoiceStore.getState();
+        vs.handleVoiceStatesSync(syncData.states);
+
+        // Self-recovery: WS reconnect sonrası voice_states_sync geldiğinde
+        // kendimiz listede yoksa ama LiveKit hala bağlıysa (currentVoiceChannelId set),
+        // backend'e voice_join tekrar gönder — aksi halde sidebar'dan düşeriz
+        // ama ses/video çalışmaya devam eder (phantom disconnect).
+        const myId = useAuthStore.getState().user?.id;
+        const myVoiceChannel = vs.currentVoiceChannelId;
+        if (myId && myVoiceChannel) {
+          const isSelfInSync = syncData.states.some(
+            (s) => s.user_id === myId && s.channel_id === myVoiceChannel,
+          );
+          if (!isSelfInSync) {
+            sendVoiceJoin(myVoiceChannel);
+          }
+        }
         break;
       }
 
