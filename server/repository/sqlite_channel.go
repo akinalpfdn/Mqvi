@@ -165,6 +165,8 @@ func (r *sqliteChannelRepo) Delete(ctx context.Context, id string) error {
 }
 
 // UpdatePositions, birden fazla kanalın position değerini atomik olarak günceller.
+// CategoryID set edilmişse kanalın kategorisi de değiştirilir (cross-category drag-and-drop).
+// CategoryID nil ise sadece position güncellenir (mevcut davranış korunur).
 func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
 	sqlDB, ok := r.db.(*sql.DB)
 	if !ok {
@@ -176,14 +178,35 @@ func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.PrepareContext(ctx, `UPDATE channels SET position = ? WHERE id = ?`)
+	// İki prepared statement: biri sadece position, diğeri position+category_id.
+	// Çoğu item sadece position güncelleyecek, category değişen item sayısı az olacak.
+	stmtPos, err := tx.PrepareContext(ctx, `UPDATE channels SET position = ? WHERE id = ?`)
 	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
+		return fmt.Errorf("failed to prepare position statement: %w", err)
 	}
-	defer stmt.Close()
+	defer stmtPos.Close()
+
+	stmtPosCat, err := tx.PrepareContext(ctx, `UPDATE channels SET position = ?, category_id = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare position+category statement: %w", err)
+	}
+	defer stmtPosCat.Close()
 
 	for _, item := range items {
-		result, err := stmt.ExecContext(ctx, item.Position, item.ID)
+		var result sql.Result
+		if item.CategoryID != nil {
+			// CategoryID set → hem position hem category güncelle.
+			// Boş string ("") → NULL (kategorisiz).
+			var catVal interface{}
+			if *item.CategoryID == "" {
+				catVal = nil
+			} else {
+				catVal = *item.CategoryID
+			}
+			result, err = stmtPosCat.ExecContext(ctx, item.Position, catVal, item.ID)
+		} else {
+			result, err = stmtPos.ExecContext(ctx, item.Position, item.ID)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to update position for channel %s: %w", item.ID, err)
 		}

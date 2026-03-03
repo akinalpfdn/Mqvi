@@ -155,9 +155,14 @@ func (r *UpdateCategoryRequest) Validate() error {
 
 // PositionUpdate, kanal sıralama güncellemesi için kullanılan tek bir item.
 // Batch reorder API'de kullanılır — her item bir kanalın yeni position değerini taşır.
+//
+// CategoryID opsiyoneldir (pointer). nil ise kategori değişmez, sadece position güncellenir.
+// Cross-category drag-and-drop sırasında kanalın hedef kategorisini belirtmek için kullanılır.
+// Roles ve server reorder'da kullanılmaz (nil kalır).
 type PositionUpdate struct {
-	ID       string `json:"id"`
-	Position int    `json:"position"`
+	ID         string  `json:"id"`
+	Position   int     `json:"position"`
+	CategoryID *string `json:"category_id,omitempty"`
 }
 
 // ReorderChannelsRequest, kanal sıralama güncelleme isteği.

@@ -40,8 +40,9 @@ type ChannelState = {
   handleCategoryDelete: (categoryId: string) => void;
 
   // ─── Reorder ───
-  /** Optimistic kanal sıralama — anında UI günceller, sonra API çağırır */
-  reorderChannels: (items: { id: string; position: number }[]) => Promise<boolean>;
+  /** Optimistic kanal sıralama — anında UI günceller, sonra API çağırır.
+   * category_id opsiyonel — cross-category drag-and-drop için. */
+  reorderChannels: (items: { id: string; position: number; category_id?: string }[]) => Promise<boolean>;
   /** WS channel_reorder event handler — store'u tam listeyle replace eder */
   handleChannelReorder: (categories: CategoryWithChannels[]) => void;
 
@@ -202,19 +203,75 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
     const prevCategories = get().categories;
 
+    // Cross-category taşıma var mı kontrol et
+    const categoryChangeMap = new Map<string, string>();
+    for (const item of items) {
+      if (item.category_id !== undefined) {
+        categoryChangeMap.set(item.id, item.category_id);
+      }
+    }
+    const hasCategoryChange = categoryChangeMap.size > 0;
+
     // Optimistic update
     const positionMap = new Map(items.map((item) => [item.id, item.position]));
-    set((state) => ({
-      categories: state.categories.map((cg) => ({
-        ...cg,
-        channels: cg.channels
-          .map((ch) => {
-            const newPos = positionMap.get(ch.id);
-            return newPos !== undefined ? { ...ch, position: newPos } : ch;
-          })
-          .sort((a, b) => a.position - b.position),
-      })),
-    }));
+
+    if (hasCategoryChange) {
+      // Cross-category: kanalı kaynak category'den çıkar, hedef category'ye ekle
+      set((state) => {
+        // Tüm kanalları flat topla (taşınan kanalın bilgisine ihtiyacımız var)
+        const allChannels = state.categories.flatMap((cg) => cg.channels);
+
+        // Her category'nin kanallarını yeniden hesapla
+        const newCategories = state.categories.map((cg) => {
+          const catId = cg.category.id;
+
+          // Bu category'ye ait olacak kanalları hesapla:
+          // 1. Mevcut kanallar (taşınanlar hariç)
+          // 2. Bu category'ye taşınan kanallar
+          let channels = cg.channels.filter(
+            (ch) => !categoryChangeMap.has(ch.id)
+          );
+
+          // Bu category'ye taşınan kanalları ekle
+          for (const [chId, targetCatId] of categoryChangeMap) {
+            if (targetCatId === catId) {
+              const ch = allChannels.find((c) => c.id === chId);
+              if (ch) {
+                channels.push({
+                  ...ch,
+                  category_id: targetCatId || undefined,
+                });
+              }
+            }
+          }
+
+          // Position güncelle ve sırala
+          channels = channels
+            .map((ch) => {
+              const newPos = positionMap.get(ch.id);
+              return newPos !== undefined ? { ...ch, position: newPos } : ch;
+            })
+            .sort((a, b) => a.position - b.position);
+
+          return { ...cg, channels };
+        });
+
+        return { categories: newCategories };
+      });
+    } else {
+      // Same-category: sadece position güncelle (mevcut davranış)
+      set((state) => ({
+        categories: state.categories.map((cg) => ({
+          ...cg,
+          channels: cg.channels
+            .map((ch) => {
+              const newPos = positionMap.get(ch.id);
+              return newPos !== undefined ? { ...ch, position: newPos } : ch;
+            })
+            .sort((a, b) => a.position - b.position),
+        })),
+      }));
+    }
 
     const res = await channelApi.reorderChannels(serverId, items);
     if (!res.success) {

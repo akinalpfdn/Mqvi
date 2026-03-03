@@ -289,9 +289,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     dragCategoryIdRef.current = categoryId;
   }
 
-  function handleDragOver(e: React.DragEvent, channelId: string, categoryId: string) {
-    // Farklı kategori ise drop'a izin verme
-    if (dragCategoryIdRef.current !== categoryId) return;
+  function handleDragOver(e: React.DragEvent, channelId: string, _categoryId: string) {
     // Kendi üzerine sürükleme ihmal
     if (dragChannelIdRef.current === channelId) {
       e.preventDefault();
@@ -313,6 +311,67 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     setDropIndicator(null);
   }
 
+  /**
+   * Kategori başlığına sürüklenen kanal — boş veya kapalı kategorilere
+   * kanal taşımak için kullanılır.
+   */
+  function handleCategoryHeaderDragOver(e: React.DragEvent) {
+    if (!dragChannelIdRef.current) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }
+
+  /**
+   * Kategori başlığına bırakılan kanal — kanalı bu kategorinin sonuna ekler.
+   */
+  function handleCategoryHeaderDrop(e: React.DragEvent, targetCategoryId: string) {
+    e.preventDefault();
+    setDropIndicator(null);
+
+    const dragId = dragChannelIdRef.current;
+    const dragCatId = dragCategoryIdRef.current;
+    dragChannelIdRef.current = null;
+    dragCategoryIdRef.current = null;
+
+    if (!dragId) return;
+    // Aynı kategoriye bırakıyorsa bir şey yapma
+    if (dragCatId === targetCategoryId) return;
+
+    // Kaynak kategoriyi bul ve kanalı çıkar
+    const sourceCat = categories.find((c) => c.category.id === dragCatId);
+    if (!sourceCat) return;
+
+    const draggedChannel = sourceCat.channels.find((ch) => ch.id === dragId);
+    if (!draggedChannel) return;
+
+    // Hedef kategoriyi bul
+    const targetCat = categories.find((c) => c.category.id === targetCategoryId);
+    if (!targetCat) return;
+
+    // items: kaynak kategorinin güncel sıralaması (taşınan hariç) + taşınan kanal hedef sona
+    const items: { id: string; position: number; category_id?: string }[] = [];
+
+    // Kaynak kategori: taşınan kanalı çıkar, kalanları yeniden sırala
+    const sourceRemaining = sourceCat.channels.filter((ch) => ch.id !== dragId);
+    sourceRemaining.forEach((ch, idx) => {
+      items.push({ id: ch.id, position: idx });
+    });
+
+    // Hedef kategori: mevcut kanallar + taşınan kanal sona
+    targetCat.channels.forEach((ch, idx) => {
+      items.push({ id: ch.id, position: idx });
+    });
+    items.push({
+      id: dragId,
+      position: targetCat.channels.length,
+      category_id: targetCategoryId,
+    });
+
+    reorderChannels(items).then((ok) => {
+      if (!ok) addToast("error", tCh("reorderError"));
+    });
+  }
+
   function handleDrop(e: React.DragEvent, targetChannelId: string, categoryId: string) {
     e.preventDefault();
     setDropIndicator(null);
@@ -322,37 +381,80 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     dragChannelIdRef.current = null;
     dragCategoryIdRef.current = null;
 
-    if (!dragId || dragCatId !== categoryId || dragId === targetChannelId) return;
+    if (!dragId || dragId === targetChannelId) return;
 
-    // Kategorideki kanalları bul
-    const cat = categories.find((c) => c.category.id === categoryId);
-    if (!cat) return;
+    const isCrossCategory = dragCatId !== categoryId;
 
-    // Mevcut sıralı listeyi kopyala
-    const ordered = [...cat.channels];
-    const dragIdx = ordered.findIndex((ch) => ch.id === dragId);
-    const targetIdx = ordered.findIndex((ch) => ch.id === targetChannelId);
-    if (dragIdx === -1 || targetIdx === -1) return;
+    if (isCrossCategory) {
+      // ─── Cross-category drag-and-drop ───
+      // Kaynak ve hedef kategori kanallarını al
+      const sourceCat = categories.find((c) => c.category.id === dragCatId);
+      const targetCat = categories.find((c) => c.category.id === categoryId);
+      if (!sourceCat || !targetCat) return;
 
-    // Sürüklenen kanalı listeden çıkar
-    const [dragged] = ordered.splice(dragIdx, 1);
+      const draggedChannel = sourceCat.channels.find((ch) => ch.id === dragId);
+      if (!draggedChannel) return;
 
-    // Hedefin yeni index'ini hesapla (splice sonrası index kayması)
-    let insertIdx = ordered.findIndex((ch) => ch.id === targetChannelId);
-    if (insertIdx === -1) insertIdx = ordered.length;
+      // Hedef kategorideki ekleme noktasını hesapla
+      const targetOrdered = [...targetCat.channels];
+      let insertIdx = targetOrdered.findIndex((ch) => ch.id === targetChannelId);
+      if (insertIdx === -1) insertIdx = targetOrdered.length;
 
-    // Mouse pozisyonuna göre üstte veya altta ekle
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    if (e.clientY >= midY) insertIdx += 1;
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (e.clientY >= midY) insertIdx += 1;
 
-    ordered.splice(insertIdx, 0, dragged);
+      // Taşınan kanalı hedef listeye ekle
+      targetOrdered.splice(insertIdx, 0, draggedChannel);
 
-    // Position değerlerini 0'dan başlayarak ata ve API'ye gönder
-    const items = ordered.map((ch, idx) => ({ id: ch.id, position: idx }));
-    reorderChannels(items).then((ok) => {
-      if (!ok) addToast("error", tCh("reorderError"));
-    });
+      // items: kaynak kategorinin güncel sıralaması + hedef kategorinin yeni sıralaması
+      const items: { id: string; position: number; category_id?: string }[] = [];
+
+      // Kaynak kategori: taşınan kanalı çıkar, kalanları yeniden sırala
+      const sourceRemaining = sourceCat.channels.filter((ch) => ch.id !== dragId);
+      sourceRemaining.forEach((ch, idx) => {
+        items.push({ id: ch.id, position: idx });
+      });
+
+      // Hedef kategori: tüm kanalları yeni sırayla gönder
+      targetOrdered.forEach((ch, idx) => {
+        if (ch.id === dragId) {
+          // Taşınan kanalın category_id'sini değiştir
+          items.push({ id: ch.id, position: idx, category_id: categoryId });
+        } else {
+          items.push({ id: ch.id, position: idx });
+        }
+      });
+
+      reorderChannels(items).then((ok) => {
+        if (!ok) addToast("error", tCh("reorderError"));
+      });
+    } else {
+      // ─── Same-category reorder (mevcut davranış) ───
+      const cat = categories.find((c) => c.category.id === categoryId);
+      if (!cat) return;
+
+      const ordered = [...cat.channels];
+      const dragIdx = ordered.findIndex((ch) => ch.id === dragId);
+      const targetIdx = ordered.findIndex((ch) => ch.id === targetChannelId);
+      if (dragIdx === -1 || targetIdx === -1) return;
+
+      const [dragged] = ordered.splice(dragIdx, 1);
+
+      let insertIdx = ordered.findIndex((ch) => ch.id === targetChannelId);
+      if (insertIdx === -1) insertIdx = ordered.length;
+
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (e.clientY >= midY) insertIdx += 1;
+
+      ordered.splice(insertIdx, 0, dragged);
+
+      const items = ordered.map((ch, idx) => ({ id: ch.id, position: idx }));
+      reorderChannels(items).then((ok) => {
+        if (!ok) addToast("error", tCh("reorderError"));
+      });
+    }
   }
 
   function handleDragEnd() {
@@ -786,7 +888,11 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                       <div key={cg.category.id || "__uncategorized__"} className="ch-tree-category">
                         {/* Kategori başlığı — kategorisiz kanallar için gizle */}
                         {!isUncategorized && (
-                          <div className="ch-tree-cat-row">
+                          <div
+                            className="ch-tree-cat-row"
+                            onDragOver={canManageChannels ? handleCategoryHeaderDragOver : undefined}
+                            onDrop={canManageChannels ? (e) => handleCategoryHeaderDrop(e, cg.category.id) : undefined}
+                          >
                             <button
                               className="ch-tree-cat-header"
                               onClick={() => toggleSection(catKey)}

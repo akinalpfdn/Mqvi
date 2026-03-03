@@ -60,8 +60,10 @@ export async function deleteChannel(serverId: string, id: string) {
   });
 }
 
-/** Kanal sıralamasını toplu günceller */
-export async function reorderChannels(serverId: string, items: { id: string; position: number }[]) {
+/** Kanal sıralamasını toplu günceller.
+ * category_id opsiyonel — set edilirse kanalın kategorisi de değişir (cross-category drag-and-drop).
+ * category_id verilmezse sadece position güncellenir. */
+export async function reorderChannels(serverId: string, items: { id: string; position: number; category_id?: string }[]) {
   return apiClient<CategoryWithChannels[]>(`/servers/${serverId}/channels/reorder`, {
     method: "PATCH",
     body: { items },
