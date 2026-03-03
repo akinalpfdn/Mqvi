@@ -53,8 +53,13 @@ func (r *sqliteLiveKitRepo) Create(ctx context.Context, instance *models.LiveKit
 }
 
 func (r *sqliteLiveKitRepo) GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error) {
+	// server_count'u stored değer yerine gerçek COUNT ile hesaplıyoruz.
+	// Denormalize edilmiş server_count sütunu increment/decrement bug'larında
+	// drift edebilir — COUNT(*) her zaman doğru sonuç verir.
 	query := `
-		SELECT id, url, api_key, api_secret, is_platform_managed, server_count, max_servers, created_at
+		SELECT id, url, api_key, api_secret, is_platform_managed,
+		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
+		       max_servers, created_at
 		FROM livekit_instances WHERE id = ?`
 
 	inst := &models.LiveKitInstance{}
@@ -75,7 +80,9 @@ func (r *sqliteLiveKitRepo) GetByID(ctx context.Context, id string) (*models.Liv
 
 func (r *sqliteLiveKitRepo) GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error) {
 	query := `
-		SELECT li.id, li.url, li.api_key, li.api_secret, li.is_platform_managed, li.server_count, li.max_servers, li.created_at
+		SELECT li.id, li.url, li.api_key, li.api_secret, li.is_platform_managed,
+		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = li.id) AS server_count,
+		       li.max_servers, li.created_at
 		FROM livekit_instances li
 		INNER JOIN servers s ON s.livekit_instance_id = li.id
 		WHERE s.id = ?`
@@ -101,11 +108,15 @@ func (r *sqliteLiveKitRepo) GetByServerID(ctx context.Context, serverID string) 
 // max_servers = 0 → sınırsız kapasite (her zaman uygun).
 // server_count ASC sıralı, ilk satır = en az yüklü.
 func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context) (*models.LiveKitInstance, error) {
+	// Gerçek sunucu sayısını COUNT ile hesapla — stored server_count drift edebilir.
+	// max_servers kapasitesini de computed count'a göre kontrol eder.
 	query := `
-		SELECT id, url, api_key, api_secret, is_platform_managed, server_count, max_servers, created_at
+		SELECT id, url, api_key, api_secret, is_platform_managed,
+		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
+		       max_servers, created_at
 		FROM livekit_instances
 		WHERE is_platform_managed = 1
-		  AND (max_servers = 0 OR server_count < max_servers)
+		  AND (max_servers = 0 OR (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) < max_servers)
 		ORDER BY server_count ASC
 		LIMIT 1`
 
@@ -205,7 +216,9 @@ func (r *sqliteLiveKitRepo) Delete(ctx context.Context, id string) error {
 // Admin panelde liste görünümü için kullanılır. created_at'e göre sıralanır.
 func (r *sqliteLiveKitRepo) ListPlatformInstances(ctx context.Context) ([]models.LiveKitInstance, error) {
 	query := `
-		SELECT id, url, api_key, api_secret, is_platform_managed, server_count, max_servers, created_at
+		SELECT id, url, api_key, api_secret, is_platform_managed,
+		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
+		       max_servers, created_at
 		FROM livekit_instances
 		WHERE is_platform_managed = 1
 		ORDER BY created_at ASC`
