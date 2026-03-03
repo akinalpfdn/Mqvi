@@ -20,7 +20,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
 import { validateFiles } from "../../utils/fileValidation";
+import { MAX_MESSAGE_LENGTH } from "../../utils/constants";
 import EmojiPicker from "../shared/EmojiPicker";
+import GifPicker from "../shared/GifPicker";
 import FilePreview from "./FilePreview";
 import MentionAutocomplete from "./MentionAutocomplete";
 import ReplyBar from "./ReplyBar";
@@ -45,6 +47,9 @@ function MessageInput() {
 
   /** Emoji picker state */
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  /** GIF picker state */
+  const [showGifPicker, setShowGifPicker] = useState(false);
 
   /** Mention autocomplete state */
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -217,6 +222,26 @@ function MessageInput() {
   }
 
   /**
+   * handleGifSelect — GifPicker'dan GIF seçildiğinde çağrılır.
+   * GIF URL'ini mesaj content'i olarak hemen gönderir (Discord davranışı).
+   */
+  async function handleGifSelect(url: string) {
+    if (!channelId || isSending) return;
+    setShowGifPicker(false);
+    setIsSending(true);
+    const success = await sendMessage(url, [], undefined);
+    if (success) {
+      setContent("");
+      setFiles([]);
+      setReplyingTo(null);
+    }
+    setIsSending(false);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }
+
+  /**
    * handlePaste — Clipboard'dan dosya/görsel yapıştırma desteği.
    * Ctrl+V ile clipboard'daki görseller FilePreview'a eklenir.
    * Sadece dosya varsa preventDefault yapılır — metin paste'i etkilenmez.
@@ -330,6 +355,7 @@ function MessageInput() {
           onPaste={handlePaste}
           placeholder={placeholder}
           rows={1}
+          maxLength={MAX_MESSAGE_LENGTH}
           disabled={isSending}
         />
 
@@ -338,7 +364,10 @@ function MessageInput() {
           <button
             className="input-action-btn"
             title={t("emoji")}
-            onClick={() => setShowEmojiPicker((prev) => !prev)}
+            onClick={() => {
+              setShowGifPicker(false);
+              setShowEmojiPicker((prev) => !prev);
+            }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
@@ -356,7 +385,40 @@ function MessageInput() {
             </div>
           )}
         </div>
+
+        {/* GIF button + picker */}
+        <div style={{ position: "relative" }}>
+          <button
+            className="input-action-btn input-gif-btn"
+            title={t("gif")}
+            onClick={() => {
+              setShowEmojiPicker(false);
+              setShowGifPicker((prev) => !prev);
+            }}
+          >
+            GIF
+          </button>
+          {showGifPicker && (
+            <div className="input-gif-picker-wrap">
+              <GifPicker
+                onSelect={handleGifSelect}
+                onClose={() => setShowGifPicker(false)}
+              />
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Karakter sayacı — sadece 100 karakter kala görünür */}
+      {content.length > MAX_MESSAGE_LENGTH - 100 && (
+        <span
+          className="char-counter"
+          data-warn={content.length > MAX_MESSAGE_LENGTH - 50}
+          data-danger={content.length > MAX_MESSAGE_LENGTH - 20}
+        >
+          {MAX_MESSAGE_LENGTH - content.length}
+        </span>
+      )}
     </div>
   );
 }

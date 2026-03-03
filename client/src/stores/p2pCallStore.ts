@@ -267,20 +267,27 @@ function createPeerConnection(
     }
   };
 
-  // onnegotiationneeded — addTrack veya removeTrack sonrası otomatik renegotiation.
+  // onnegotiationneeded — addTrack sonrası otomatik offer yaratımı ve renegotiation.
   //
   // Bu handler ne zaman tetiklenir?
-  // - İlk offer/answer'dan SONRA yeni track eklendiğinde (screen share, video toggle)
+  // - addTrack() çağrıldığında (yeni transceiver oluşur)
   // - replaceTrack() bunu TETİKLEMEZ (aynı transceiver kullanılır)
-  // - addTrack() bunu TETİKLER (yeni transceiver oluşur)
   //
-  // Ne yapar?
-  // 1. Yeni SDP offer oluşturur (güncel track listesiyle)
-  // 2. localDescription set eder
-  // 3. Offer'ı WS üzerinden karşı tarafa gönderir
-  // 4. Karşı taraf handleSignal("offer") ile renegotiation answer'ı döner
+  // Neden makingOffer flag'i ve signalingState guard'ı gerekli?
+  // addTrack() asenkron olarak onnegotiationneeded'i tetikler. Aynı zamanda
+  // karşı taraftan gelen bir offer işleniyorsa (signalingState = "have-remote-offer")
+  // veya zaten bir offer yaratılıyorsa (makingOffer=true), yeni offer yaratmak
+  // "glare" durumu (iki taraf aynı anda offer göndermeye çalışır) ve
+  // m-line sırası tutarsızlığına yol açar. Guard'lar bunu önler.
+  //
+  // startWebRTC'de explicit createOffer() çağrısı YOKTUR — bu handler her iki
+  // taraf için de (caller initial offer + mid-call renegotiation) tek yetkili
+  // offer yaratma noktasıdır.
+  let makingOffer = false;
   pc.onnegotiationneeded = async () => {
+    if (makingOffer || pc.signalingState !== "stable") return;
     try {
+      makingOffer = true;
       const call = get().activeCall;
       if (!call) return;
 
@@ -294,6 +301,8 @@ function createPeerConnection(
       });
     } catch (err) {
       console.error("[p2p] Renegotiation error:", err);
+    } finally {
+      makingOffer = false;
     }
   };
 
@@ -455,17 +464,32 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
             // Renegotiation'ın tamamlanmasını bekle — offer/answer exchange olmalı.
             // onnegotiationneeded handler otomatik offer gönderir, karşı taraf answer döner.
-            // signalingState "stable" olana kadar kısa bir bekleme yeterli.
+            //
+            // Neden iki aşamalı bekleme?
+            // addTransceiver çağrıldığında signalingState hâlâ "stable".
+            // onnegotiationneeded asenkron tetiklenir → state "have-local-offer" olur.
+            // Sadece "stable" beklesek, renegotiation başlamadan önce çözebilir.
+            // Bu yüzden önce "stable" olmayan state'i bekle (renegotiation başladı),
+            // sonra tekrar "stable" bekle (renegotiation tamamlandı).
             await new Promise<void>((resolve) => {
-              const check = () => {
-                if (pc.signalingState === "stable") {
-                  resolve();
+              // Aşama 1: Renegotiation başlayana kadar bekle (signalingState != "stable")
+              const waitForStart = () => {
+                if (pc.signalingState !== "stable") {
+                  // Renegotiation başladı → tamamlanmasını bekle
+                  const waitForEnd = () => {
+                    if (pc.signalingState === "stable") {
+                      resolve();
+                    } else {
+                      setTimeout(waitForEnd, 50);
+                    }
+                  };
+                  waitForEnd();
                 } else {
-                  setTimeout(check, 50);
+                  setTimeout(waitForStart, 20);
                 }
               };
-              // İlk kontrolü biraz geciktir — onnegotiationneeded async tetiklenir
-              setTimeout(check, 100);
+              // onnegotiationneeded async tetiklenir — kısa gecikme sonrası kontrol başlat
+              setTimeout(waitForStart, 20);
             });
           }
 
@@ -526,26 +550,15 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       const pc = createPeerConnection(activeCall, _sendWS, set, get);
 
       // 3. Lokal track'leri PeerConnection'a ekle
+      // addTrack() çağrıları onnegotiationneeded'i tetikler → handler otomatik
+      // olarak createOffer() → setLocalDescription() → WS relay yapar.
+      // Burada ayrıca explicit createOffer() çağırmıyoruz — çift offer yaratımı
+      // race condition'a ve m-line sırası tutarsızlığına yol açar.
       for (const track of stream.getTracks()) {
         pc.addTrack(track, stream);
       }
 
       set({ peerConnection: pc });
-
-      // 4. SDP offer oluştur ve relay et
-      //
-      // SDP Offer/Answer modeli:
-      // - Caller "offer" oluşturur (hangi codec'leri, formatları desteklediğini bildirir)
-      // - Receiver "answer" oluşturur (desteklediği codec'leri bildirir)
-      // - İki taraf ortak codec'te anlaşır → medya akmaya başlar
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      _sendWS("p2p_signal", {
-        call_id: activeCall.id,
-        type: "offer",
-        sdp: offer.sdp,
-      });
     } catch (err) {
       console.error("[p2p] WebRTC start error:", err);
       get().cleanup();

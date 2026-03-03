@@ -54,5 +54,13 @@
   "dmStart": "This is the beginning of your direct message history with {{user}}.",
   "dropFilesHere": "Drop files to upload",
   "longPressForActions": "Long press for message actions",
-  "tooManyMessages": "You're sending messages too fast. Please wait a moment."
+  "tooManyMessages": "You're sending messages too fast. Please wait a moment.",
+  "messageTooLong": "Message must be at most {{max}} characters",
+
+  "gif": "GIF",
+  "gifSearch": "Search GIFs",
+  "gifTrending": "Trending",
+  "gifNoResults": "No GIFs found",
+  "gifLoading": "Loading GIFs...",
+  "gifUnavailable": "GIF search is not available"
 }

@@ -23,6 +23,7 @@ type Config struct {
 	LiveKit       LiveKitConfig
 	Upload        UploadConfig
 	Email         EmailConfig
+	Klipy         KlipyConfig
 	EncryptionKey string // AES-256 key (64 hex char = 32 byte) — LiveKit credential şifreleme
 }
 
@@ -34,6 +35,15 @@ type EmailConfig struct {
 	ResendAPIKey string // Resend API key (re_xxxxxxxx formatında)
 	FromEmail    string // Gönderici adres (ör: noreply@mqvi.app)
 	AppURL       string // Uygulamanın public URL'i (ör: https://app.mqvi.app) — reset link'te kullanılır
+}
+
+// KlipyConfig, Klipy GIF API ayarları.
+//
+// Opsiyonel — KLIPY_API_KEY boşsa GIF arama özelliği devre dışı kalır.
+// Klipy API (Tenor'un halefi): https://docs.klipy.com/
+// API key: https://partner.klipy.com/api-keys
+type KlipyConfig struct {
+	APIKey string // Klipy API key
 }
 
 // ServerConfig, HTTP server ayarları.
@@ -134,6 +144,9 @@ func Load() (*Config, error) {
 			ResendAPIKey: getEnv("RESEND_API_KEY", ""),
 			FromEmail:    getEnv("RESEND_FROM", ""),
 			AppURL:       getEnv("APP_URL", ""),
+		},
+		Klipy: KlipyConfig{
+			APIKey: getEnv("KLIPY_API_KEY", ""),
 		},
 		EncryptionKey: encKey,
 	}

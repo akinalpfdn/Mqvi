@@ -119,6 +119,10 @@ func initRoutes(
 	// Report
 	mux.Handle("POST /api/users/{userId}/report", auth(h.Report.CreateReport))
 
+	// GIFs (Tenor proxy) — literal path, auth gerektiriri
+	mux.Handle("GET /api/gifs/trending", auth(h.Gif.Trending))
+	mux.Handle("GET /api/gifs/search", auth(h.Gif.Search))
+
 	// Friends
 	mux.Handle("GET /api/friends/requests", auth(h.Friendship.ListRequests))
 	mux.Handle("POST /api/friends/requests", auth(h.Friendship.SendRequest))

@@ -142,6 +142,9 @@ export const WS_HEARTBEAT_MAX_MISS = 3;
 /** Default message count (pagination) */
 export const DEFAULT_MESSAGE_LIMIT = 50;
 
+/** Max message length (characters) — backend ile senkron (models.MaxMessageLength) */
+export const MAX_MESSAGE_LENGTH = 999;
+
 /** Max file upload size (bytes) — 25MB */
 export const MAX_FILE_SIZE = 25 * 1024 * 1024;
 

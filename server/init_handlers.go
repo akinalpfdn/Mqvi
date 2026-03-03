@@ -36,6 +36,7 @@ type Handlers struct {
 	DMSettings        *handlers.DMSettingsHandler
 	Block             *handlers.BlockHandler
 	Report            *handlers.ReportHandler
+	Gif               *handlers.GifHandler
 	WS                *ws.Handler
 }
 
@@ -65,6 +66,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		DMSettings:        handlers.NewDMSettingsHandler(svcs.DMSettings),
 		Block:             handlers.NewBlockHandler(svcs.Block),
 		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, cfg.Upload.MaxSize),
+		Gif:               handlers.NewGifHandler(cfg.Klipy.APIKey),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute),
 	}
 }

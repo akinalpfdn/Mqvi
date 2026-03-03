@@ -93,8 +93,8 @@ func (r *CreateDMMessageRequest) Validate() error {
 	if contentLen < 1 {
 		return fmt.Errorf("message content is required")
 	}
-	if contentLen > 2000 {
-		return fmt.Errorf("message content must be at most 2000 characters")
+	if contentLen > MaxMessageLength {
+		return fmt.Errorf("message content must be at most %d characters", MaxMessageLength)
 	}
 	return nil
 }
@@ -111,8 +111,8 @@ func (r *UpdateDMMessageRequest) Validate() error {
 	if contentLen < 1 {
 		return fmt.Errorf("message content is required")
 	}
-	if contentLen > 2000 {
-		return fmt.Errorf("message content must be at most 2000 characters")
+	if contentLen > MaxMessageLength {
+		return fmt.Errorf("message content must be at most %d characters", MaxMessageLength)
 	}
 	return nil
 }

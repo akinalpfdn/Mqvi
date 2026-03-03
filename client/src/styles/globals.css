@@ -413,6 +413,29 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .emoji-picker-btn { width:100%;aspect-ratio:1;border:none;background:transparent;cursor:pointer;font-size:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:background .08s; }
 .emoji-picker-btn:hover { background:var(--bg-h); }
 
+/* ─── GIF Picker ─── */
+.gif-picker { position:absolute;bottom:100%;left:0;width:440px;background:var(--bg-3);border:1px solid var(--b2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:100;overflow:hidden;margin-bottom:6px;display:flex;flex-direction:column;max-height:480px; }
+.gif-picker-flipped { bottom:auto;top:100%;margin-bottom:0;margin-top:6px; }
+.input-gif-picker-wrap .gif-picker { left:auto;right:0; }
+.gif-picker-header { padding:8px;border-bottom:1px solid var(--b1); }
+.gif-picker-search { width:100%;padding:8px 12px;background:var(--bg-4);border:1px solid var(--b1);border-radius:6px;color:var(--t0);font-size:14px;font-family:var(--f-ui);outline:none;transition:border-color .15s; }
+.gif-picker-search::placeholder { color:var(--t3); }
+.gif-picker-search:focus { border-color:var(--primary); }
+.gif-picker-body { flex:1;overflow-y:auto;min-height:200px; }
+.gif-picker-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px; }
+.gif-picker-item { border:none;background:transparent;cursor:pointer;border-radius:6px;overflow:hidden;padding:0;transition:opacity .1s;aspect-ratio:4/3; }
+.gif-picker-item:hover { opacity:0.8; }
+.gif-picker-item img { width:100%;height:100%;display:block;border-radius:6px;object-fit:cover;background:var(--bg-4); }
+.gif-picker-empty { display:flex;align-items:center;justify-content:center;height:200px;color:var(--t3);font-size:14px; }
+.gif-picker-footer { padding:4px 8px;border-top:1px solid var(--b1);text-align:right; }
+.gif-picker-powered { font-size:11px;color:var(--t3);opacity:0.7; }
+
+/* GIF button — text badge stili (Discord tarzı) */
+.input-gif-btn { font-size:13px;font-weight:700;font-family:var(--f-ui);letter-spacing:0.02em; }
+
+/* GIF embed — mesajda inline GIF gösterimi */
+.msg-gif-embed { max-width:300px;max-height:300px;border-radius:8px;display:block;margin-top:4px;cursor:pointer; }
+
 /* Reply preview (mesaj içinde — referans mesajın ön izlemesi) */
 .msg-reply-preview { display:flex;align-items:center;gap:6px;padding:2px 0 4px;cursor:pointer;font-size:13px;max-width:400px; }
 .msg-reply-preview:hover { opacity:0.8; }
@@ -473,6 +496,11 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .input-box textarea::placeholder { color:var(--t3); }
 .input-box-disabled { justify-content:center;padding:10px;cursor:not-allowed;opacity:0.6; }
 .input-no-perm { font-size:13px;color:var(--t3);font-style:italic;user-select:none; }
+
+/* Character counter — Twitter tarzı kalan karakter sayacı */
+.char-counter { display:block;text-align:right;font-size:13px;color:var(--t3);padding:2px 8px 0;line-height:1; }
+.char-counter[data-warn="true"] { color:var(--warning); }
+.char-counter[data-danger="true"] { color:var(--danger); }
 
 /* Mention autocomplete popup */
 .mention-popup { position:absolute;bottom:100%;left:10px;right:10px;background:var(--bg-3);border:1px solid var(--b1);border-radius:8px;padding:4px;margin-bottom:4px;max-height:200px;overflow-y:auto;z-index:10;box-shadow:0 -4px 12px rgba(0,0,0,0.3); }
@@ -766,8 +794,8 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .settings-nav-logout { color:var(--red)!important; }
 .settings-nav-version { margin-top:8px;padding:0 8px;font-size:13px;color:var(--t3); }
 .settings-content { flex:1;overflow-y:auto;padding:32px 40px;max-width:740px; }
-.settings-close { position:fixed;top:16px;right:16px;width:36px;height:36px;border:1px solid var(--b1);border-radius:999px;background:var(--bg-3);color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;z-index:51;transition:background .1s; }
-.settings-close:hover { background:var(--bg-4);color:var(--t0); }
+.settings-close { position:fixed;top:16px;right:16px;width:36px;height:36px;border:none;border-radius:999px;background:var(--red);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;z-index:51;transition:background .15s,opacity .15s;opacity:0.85; }
+.settings-close:hover { background:var(--red);opacity:1; }
 
 /* Settings form elements */
 .settings-section { margin-bottom:32px; }
@@ -2249,8 +2277,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
     padding: 16px;
     max-width: 100%;
   }
-  /* Settings close butonu — mobilde daha büyük */
+  /* Settings close butonu — mobilde daha büyük + topbar altına */
   .settings-close {
+    top: 56px;
+    right: 12px;
     width: var(--mobile-touch-target);
     height: var(--mobile-touch-target);
   }

@@ -261,6 +261,16 @@ function Message({ message, isCompact }: MessageProps) {
   function renderContent(text: string | null): React.ReactNode {
     if (!text) return null;
 
+    // Tüm mesaj tek bir Klipy GIF URL'i ise → inline image olarak göster (Discord pattern)
+    const trimmed = text.trim();
+    if (/^https?:\/\/static\.klipy\.com\/[^\s]+$/.test(trimmed)) {
+      return (
+        <a href={trimmed} target="_blank" rel="noopener noreferrer">
+          <img src={trimmed} alt="GIF" className="msg-gif-embed" loading="lazy" />
+        </a>
+      );
+    }
+
     const parts = text.split(/(@\w+|https?:\/\/[^\s/]+\/invite\/[a-f0-9]{16})/gi);
     return parts.map((part, i) => {
       // @mention

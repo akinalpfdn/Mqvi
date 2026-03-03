@@ -7,6 +7,11 @@ import (
 	"unicode/utf8"
 )
 
+// MaxMessageLength, bir mesajın maksimum karakter sayısı.
+// Hem channel hem DM mesajlarında geçerlidir.
+// Frontend'de de aynı limit uygulanır (client/src/utils/constants.ts).
+const MaxMessageLength = 999
+
 // MessageReference, yanıt yapılan mesajın ön izleme bilgisi.
 //
 // Tam Message objesi yerine sadece preview için gereken alanlar taşınır:
@@ -81,8 +86,8 @@ func (r *CreateMessageRequest) Validate() error {
 	if contentLen < 1 {
 		return fmt.Errorf("message content is required")
 	}
-	if contentLen > 2000 {
-		return fmt.Errorf("message content must be at most 2000 characters")
+	if contentLen > MaxMessageLength {
+		return fmt.Errorf("message content must be at most %d characters", MaxMessageLength)
 	}
 	return nil
 }
@@ -99,8 +104,8 @@ func (r *UpdateMessageRequest) Validate() error {
 	if contentLen < 1 {
 		return fmt.Errorf("message content is required")
 	}
-	if contentLen > 2000 {
-		return fmt.Errorf("message content must be at most 2000 characters")
+	if contentLen > MaxMessageLength {
+		return fmt.Errorf("message content must be at most %d characters", MaxMessageLength)
 	}
 	return nil
 }
