@@ -230,14 +230,15 @@ export function useWebSocket() {
         } else {
           useReadStateStore.getState().incrementUnread(message.channel_id);
 
-          // Muted server kontrolü — sessize alınan sunucudan gelen mesajlar
-          // için bildirim sesi ve pencere flash'ı bastırılır.
+          // Muted server/channel kontrolü — sessize alınan sunucu veya kanaldan
+          // gelen mesajlar için bildirim sesi ve pencere flash'ı bastırılır.
           // Unread sayacı yine artırılır (backend tracking) — sadece göstergeler gizlenir.
           const activeServerId = useServerStore.getState().activeServerId;
-          const isMuted = activeServerId
+          const isServerMuted = activeServerId
             ? useServerStore.getState().isServerMuted(activeServerId)
             : false;
-          if (!isMuted) {
+          const isChannelMuted = useChannelStore.getState().mutedChannelIds.has(message.channel_id);
+          if (!isServerMuted && !isChannelMuted) {
             playNotificationSound();
             window.electronAPI?.flashFrame();
           }
@@ -316,12 +317,29 @@ export function useWebSocket() {
         // Engellenen kullanıcıları çek
         useBlockStore.getState().fetchBlocked();
 
-        // Status persistence safety net
-        const storedStatus = useAuthStore.getState().manualStatus;
-        if (storedStatus && storedStatus !== "online") {
-          wsRef.current?.send(
-            JSON.stringify({ op: "presence_update", d: { status: storedStatus } })
-          );
+        // Status persistence: manualStatus'u ready'den 1sn sonra gönder.
+        //
+        // Neden gecikme?
+        // Server'da OnUserFirstConnect callback goroutine olarak çalışır (async).
+        // "ready" event'i gönderildikten SONRA bu goroutine "online" broadcast edebilir.
+        // Anında göndersek goroutine bizi override eder. 1sn gecikme goroutine'in
+        // tamamlanmasına yeterli zaman tanır, sonra bizim status'ümüz kazanır.
+        //
+        // Neden sadece "online" olmayanlara?
+        // "online" için correction gerekmiyor — server zaten "online" yayar.
+        {
+          const storedStatus = useAuthStore.getState().manualStatus;
+          if (storedStatus !== "online") {
+            const wsAtReady = wsRef.current;
+            setTimeout(() => {
+              const currentManual = useAuthStore.getState().manualStatus;
+              if (currentManual !== "online" && wsAtReady?.readyState === WebSocket.OPEN) {
+                wsAtReady.send(
+                  JSON.stringify({ op: "presence_update", d: { status: currentManual } })
+                );
+              }
+            }, 1000);
+          }
         }
         break;
       }
@@ -332,18 +350,6 @@ export function useWebSocket() {
         const myId = useAuthStore.getState().user?.id;
         if (data.user_id === myId) {
           useAuthStore.getState().updateUser({ status: data.status });
-
-          // Race condition koruması: Server'ın OnUserFirstConnect goroutine'i,
-          // client'ın safety net "offline" göndermesinden SONRA "online" broadcast
-          // edebilir (Go goroutine timing non-deterministic). Bu durumda server
-          // bizim manual status'ümüzü override eder ve "online" yayar.
-          // Kendi ID'miz için gelen status manualStatus'tan farklıysa anında düzelt.
-          const manualStatus = useAuthStore.getState().manualStatus;
-          if (data.status !== manualStatus && wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(
-              JSON.stringify({ op: "presence_update", d: { status: manualStatus } })
-            );
-          }
         }
         break;
       }

@@ -1232,9 +1232,12 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         </span>
                       )}
                       <span className="ch-tree-server-name">{srv.name}</span>
-                      {/* Server-level unread badge — aktif + muted değilse göster */}
+                      {/* Server-level unread badge — aktif + muted değilse göster, muted kanallar hariç */}
                       {isActive && !mutedServerIds.has(srv.id) && (() => {
-                        const total = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
+                        const total = Object.entries(unreadCounts).reduce(
+                          (sum, [chId, c]) => mutedChannelIds.has(chId) ? sum : sum + c,
+                          0,
+                        );
                         return total > 0 ? (
                           <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
                         ) : null;

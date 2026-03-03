@@ -13,6 +13,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { useIsMobile } from "../../hooks/useMediaQuery";
+import { isElectron } from "../../utils/constants";
 import type { SettingsTab } from "../../stores/settingsStore";
 
 /** Tek bir navigation item tanımı */
@@ -43,6 +44,7 @@ const PLATFORM_ITEMS: NavItem[] = [
   { id: "platform", labelKey: "platformLiveKitInstances" },
   { id: "platform-servers", labelKey: "platformServersTab" },
   { id: "platform-users", labelKey: "platformUsersTab" },
+  { id: "platform-connections", labelKey: "platformConnections" },
 ];
 
 function SettingsNav() {
@@ -102,15 +104,17 @@ function SettingsNav() {
         <>
           {!isMobile && <div className="settings-nav-divider" />}
           <h3 className="settings-nav-label">{t("platformSettings")}</h3>
-          {PLATFORM_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
-              onClick={() => setActiveTab(item.id)}
-            >
-              {t(item.labelKey)}
-            </button>
-          ))}
+          {PLATFORM_ITEMS
+            .filter((item) => item.id !== "platform-connections" || isElectron())
+            .map((item) => (
+              <button
+                key={item.id}
+                className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
+                onClick={() => setActiveTab(item.id)}
+              >
+                {t(item.labelKey)}
+              </button>
+            ))}
         </>
       )}
 

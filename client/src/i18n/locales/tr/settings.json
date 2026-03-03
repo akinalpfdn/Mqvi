@@ -414,5 +414,25 @@
   "platformMetricsAvgBandwidthIn": "Ort. Gelen Bant Genişliği",
   "platformMetricsAvgBandwidthOut": "Ort. Giden Bant Genişliği",
   "platformMetricsSamples": "{{count}} örnek",
-  "platformMetricsHistoryLoadError": "Metrik geçmişi yüklenemedi"
+  "platformMetricsHistoryLoadError": "Metrik geçmişi yüklenemedi",
+
+  "platformConnections": "Bağlantılar",
+  "connectionsTitle": "Sunucu Bağlantıları",
+  "connectionsDescription": "Backend sunucu bağlantılarını yönet. Üretim ve test sunucuları arasında geçiş yap.",
+  "connectionsAddNew": "Bağlantı Ekle",
+  "connectionsName": "Bağlantı Adı",
+  "connectionsNamePlaceholder": "örn. Test Sunucusu",
+  "connectionsUrl": "Sunucu URL",
+  "connectionsUrlPlaceholder": "örn. http://192.168.1.50:9090",
+  "connectionsConnect": "Bağlan",
+  "connectionsConnected": "Bağlı",
+  "connectionsDelete": "Sil",
+  "connectionsEdit": "Düzenle",
+  "connectionsSave": "Kaydet",
+  "connectionsCancel": "İptal",
+  "connectionsDefault": "Varsayılan",
+  "connectionsDeleteConfirm": "\"{{name}}\" bağlantısını silmek istediğinize emin misiniz?",
+  "connectionsReloadWarning": "Bağlantı değiştirildiğinde uygulama yeniden yüklenecek ve tekrar giriş yapmanız gerekecek.",
+  "connectionsInvalidUrl": "Geçerli bir URL girin (http:// veya https://)",
+  "connectionsNameRequired": "Bağlantı adı gerekli"
 }

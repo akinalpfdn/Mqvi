@@ -828,6 +828,18 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .settings-hint { font-size:13px;color:var(--t2);margin-top:4px; }
 .settings-divider { height:1px;background:var(--b1);margin:24px 0; }
 
+/* Connections Settings */
+.conn-item { display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--b1);border-radius:10px;background:var(--bg-1);margin-bottom:8px; }
+.conn-item-info { flex:1;min-width:0; }
+.conn-item-name { font-size:14px;font-weight:600;color:var(--t0);display:flex;align-items:center;gap:8px; }
+.conn-item-url { font-size:13px;color:var(--t2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.conn-item-actions { display:flex;gap:6px;flex-shrink:0; }
+.conn-active-badge { font-size:13px;font-weight:500;color:var(--green);background:var(--green-s);padding:2px 8px;border-radius:999px; }
+.conn-form-inline { flex-direction:column;align-items:stretch;width:100%; }
+.conn-form-fields { display:flex;flex-direction:column;gap:8px;margin-bottom:12px; }
+.conn-form-fields .settings-input { max-width:none; }
+.conn-form-buttons { display:flex;gap:8px; }
+
 /* Danger Zone (Server delete) */
 .dz-separator { height:1px;background:var(--red-s);margin:32px 0 0; }
 .dz-section { margin-top:24px; }

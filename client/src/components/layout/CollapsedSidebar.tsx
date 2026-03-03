@@ -18,6 +18,7 @@ import { useSidebarStore } from "../../stores/sidebarStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useReadStateStore } from "../../stores/readStateStore";
+import { useChannelStore } from "../../stores/channelStore";
 import Avatar from "../shared/Avatar";
 import { publicAsset } from "../../utils/constants";
 
@@ -28,9 +29,13 @@ function CollapsedSidebar() {
 
   const totalDMUnread = useDMStore((s) => s.getTotalDMUnread());
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
+  const mutedChannelIds = useChannelStore((s) => s.mutedChannelIds);
 
-  // Toplam kanal okunmamış sayısı
-  const totalChannelUnread = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
+  // Toplam kanal okunmamış sayısı — muted kanallar hariç
+  const totalChannelUnread = Object.entries(unreadCounts).reduce(
+    (sum, [chId, c]) => mutedChannelIds.has(chId) ? sum : sum + c,
+    0,
+  );
 
   return (
     <div className="sb-collapsed">
