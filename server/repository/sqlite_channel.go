@@ -128,10 +128,10 @@ func (r *sqliteChannelRepo) GetByCategoryID(ctx context.Context, categoryID stri
 
 func (r *sqliteChannelRepo) Update(ctx context.Context, channel *models.Channel) error {
 	query := `
-		UPDATE channels SET name = ?, topic = ?
+		UPDATE channels SET name = ?, topic = ?, category_id = ?
 		WHERE id = ?`
 
-	result, err := r.db.ExecContext(ctx, query, channel.Name, channel.Topic, channel.ID)
+	result, err := r.db.ExecContext(ctx, query, channel.Name, channel.Topic, channel.CategoryID, channel.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update channel: %w", err)
 	}

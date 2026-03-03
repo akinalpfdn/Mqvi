@@ -1,12 +1,11 @@
 /**
- * ChannelSettings — Kanal yönetimi Settings paneli.
+ * ChannelSettings — Kanal ve Kategori yönetimi Settings paneli.
  *
- * RoleSettings ile aynı layout pattern'ını kullanır:
- * - Sol panel: Kanal listesi (role-list pattern)
- * - Sağ panel: Seçili kanal için isim düzenleme + ChannelPermissionEditor
+ * İki tab ile çalışır:
+ * 1. **Channels** tab: Kanal listesi, isim düzenleme, kategori değiştirme, permission override
+ * 2. **Categories** tab: Kategori listesi, isim düzenleme, silme
  *
- * "+" butonu ile inline create form (kategori seçimi + tip + isim).
- * "✕" ile kanal silme. Sağ panelde kanal adı düzenlenebilir.
+ * "+" butonu ile CreateChannelModal açılır (her iki tab'da da).
  * ManageChannels yetkisi gerektirir (SettingsNav zaten permission-gated).
  *
  * CSS class'ları: .channel-settings-*, .role-list, .role-list-item
@@ -20,7 +19,10 @@ import { useConfirm } from "../../hooks/useConfirm";
 import * as channelApi from "../../api/channels";
 import { useServerStore } from "../../stores/serverStore";
 import ChannelPermissionEditor from "./ChannelPermissionEditor";
-import type { Channel } from "../../types";
+import CreateChannelModal from "../channels/CreateChannelModal";
+import type { Channel, Category } from "../../types";
+
+type SettingsTab = "channels" | "categories";
 
 function ChannelSettings() {
   const { t } = useTranslation("channels");
@@ -29,72 +31,74 @@ function ChannelSettings() {
   const addToast = useToastStore((s) => s.addToast);
   const confirm = useConfirm();
 
+  // ─── Tab State ───
+  const [activeTab, setActiveTab] = useState<SettingsTab>("channels");
+
   // Tüm kanalları flat olarak al
   const allChannels = categories
     .flatMap((cg) => cg.channels)
     .sort((a, b) => a.position - b.position);
 
-  // Seçili kanal
+  // Gerçek kategoriler (uncategorized hariç)
+  const realCategories = categories
+    .filter((cg) => cg.category.id !== "")
+    .map((cg) => cg.category);
+
+  // ─── Channels Tab State ───
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
 
   // selectedChannel store'daki güncel veriyle sync — rename sonrası
   useEffect(() => {
     if (!selectedChannel) return;
     const updated = allChannels.find((ch) => ch.id === selectedChannel.id);
-    if (updated && updated.name !== selectedChannel.name) {
+    if (updated && (updated.name !== selectedChannel.name || updated.category_id !== selectedChannel.category_id)) {
       setSelectedChannel(updated);
     }
   }, [allChannels, selectedChannel]);
 
-  // ─── Create Form State ───
-  const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newType, setNewType] = useState<"text" | "voice">("text");
-  const [newCategoryId, setNewCategoryId] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
+  // ─── Create Modal State ───
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // ─── Rename State ───
+  // ─── Channel Rename State ───
   const [editName, setEditName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
 
-  // selectedChannel değiştiğinde editName'i güncelle
+  // ─── Channel Category State ───
+  const [editCategoryId, setEditCategoryId] = useState("");
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+
+  // selectedChannel değiştiğinde edit state'leri güncelle
   useEffect(() => {
     if (selectedChannel) {
       setEditName(selectedChannel.name);
+      setEditCategoryId(selectedChannel.category_id ?? "");
     }
   }, [selectedChannel]);
 
-  // İlk kategori seçili olsun (create form açılınca)
+  // ─── Categories Tab State ───
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [editCatName, setEditCatName] = useState("");
+  const [isSavingCatName, setIsSavingCatName] = useState(false);
+
+  // selectedCategory store'daki güncel veriyle sync
   useEffect(() => {
-    if (showCreate && categories.length > 0 && !newCategoryId) {
-      setNewCategoryId(categories[0].category.id);
+    if (!selectedCategory) return;
+    const updated = realCategories.find((c) => c.id === selectedCategory.id);
+    if (updated && updated.name !== selectedCategory.name) {
+      setSelectedCategory(updated);
+      setEditCatName(updated.name);
     }
-  }, [showCreate, categories, newCategoryId]);
+  }, [realCategories, selectedCategory]);
 
-  async function handleCreate() {
-    const trimmed = newName.trim();
-    if (!trimmed || isCreating) return;
-
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    setIsCreating(true);
-    const res = await channelApi.createChannel(serverId, {
-      name: trimmed,
-      type: newType,
-      category_id: newCategoryId || undefined,
-    });
-
-    if (res.success) {
-      addToast("success", t("channelCreated"));
-      setNewName("");
-      setShowCreate(false);
-    } else {
-      addToast("error", t("channelCreateError"));
+  useEffect(() => {
+    if (selectedCategory) {
+      setEditCatName(selectedCategory.name);
     }
-    setIsCreating(false);
-  }
+  }, [selectedCategory]);
 
-  async function handleDelete(channelId: string, channelName: string) {
+  // ─── Channel Handlers ───
+
+  async function handleDeleteChannel(channelId: string, channelName: string) {
     const ok = await confirm({
       message: t("deleteConfirm", { name: channelName }),
       confirmLabel: t("deleteChannel"),
@@ -113,7 +117,7 @@ function ChannelSettings() {
     }
   }
 
-  async function handleRename() {
+  async function handleRenameChannel() {
     if (!selectedChannel) return;
     const trimmed = editName.trim();
     if (!trimmed || trimmed === selectedChannel.name) return;
@@ -135,142 +139,284 @@ function ChannelSettings() {
     setIsSavingName(false);
   }
 
-  /** Kanal adı değişti mi? */
-  const nameChanged = selectedChannel
+  async function handleChangeCategory(newCategoryId: string) {
+    if (!selectedChannel) return;
+    const currentCatId = selectedChannel.category_id ?? "";
+    if (newCategoryId === currentCatId) return;
+
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+
+    setEditCategoryId(newCategoryId);
+    setIsSavingCategory(true);
+    const res = await channelApi.updateChannel(serverId, selectedChannel.id, {
+      category_id: newCategoryId,
+    });
+
+    if (res.success) {
+      addToast("success", t("channelUpdated"));
+    } else {
+      addToast("error", t("channelUpdateError"));
+      setEditCategoryId(currentCatId);
+    }
+    setIsSavingCategory(false);
+  }
+
+  const channelNameChanged = selectedChannel
     ? editName.trim() !== selectedChannel.name
+    : false;
+
+  // ─── Category Handlers ───
+
+  async function handleDeleteCategory(catId: string, catName: string) {
+    const ok = await confirm({
+      message: t("deleteCategoryConfirm", { name: catName }),
+      confirmLabel: t("deleteCategory"),
+      danger: true,
+    });
+    if (!ok) return;
+
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    const res = await channelApi.deleteCategory(serverId, catId);
+    if (res.success) {
+      addToast("success", t("categoryDeleted"));
+      if (selectedCategory?.id === catId) setSelectedCategory(null);
+    } else {
+      addToast("error", t("categoryDeleteError"));
+    }
+  }
+
+  async function handleRenameCategory() {
+    if (!selectedCategory) return;
+    const trimmed = editCatName.trim();
+    if (!trimmed || trimmed === selectedCategory.name) return;
+
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return;
+
+    setIsSavingCatName(true);
+    const res = await channelApi.updateCategory(serverId, selectedCategory.id, {
+      name: trimmed,
+    });
+
+    if (res.success) {
+      addToast("success", t("categoryUpdated"));
+    } else {
+      addToast("error", t("categoryUpdateError"));
+      setEditCatName(selectedCategory.name);
+    }
+    setIsSavingCatName(false);
+  }
+
+  const catNameChanged = selectedCategory
+    ? editCatName.trim() !== selectedCategory.name
     : false;
 
   return (
     <div className="channel-settings-wrapper">
-      {/* Sol Panel: Kanal Listesi — RoleSettings sol panel ile aynı pattern */}
+      {/* Sol Panel */}
       <div className="role-list">
-        {/* Header */}
+        {/* Tab toggle */}
+        <div className="channel-settings-tabs">
+          <button
+            className={`channel-settings-tab${activeTab === "channels" ? " active" : ""}`}
+            onClick={() => setActiveTab("channels")}
+          >
+            {t("tabChannels")}
+          </button>
+          <button
+            className={`channel-settings-tab${activeTab === "categories" ? " active" : ""}`}
+            onClick={() => setActiveTab("categories")}
+          >
+            {t("tabCategories")}
+          </button>
+        </div>
+
+        {/* Header with + button */}
         <div className="channel-settings-header">
           <span className="channel-settings-header-label">
-            {tSettings("channels")}
+            {activeTab === "channels" ? t("channelsTitle") : t("categoriesTitle")}
           </span>
           <button
-            onClick={() => setShowCreate(!showCreate)}
+            onClick={() => setShowCreateModal(true)}
             className="settings-btn channel-settings-header-btn"
           >
             +
           </button>
         </div>
 
-        {/* Create Form */}
-        {showCreate && (
-          <div className="channel-settings-create-inline">
-            <input
-              className="settings-input"
-              placeholder={t("channelName")}
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate();
-                if (e.key === "Escape") setShowCreate(false);
-              }}
-              autoFocus
-            />
-            <select
-              className="settings-input"
-              value={newType}
-              onChange={(e) => setNewType(e.target.value as "text" | "voice")}
-            >
-              <option value="text">{t("text")}</option>
-              <option value="voice">{t("voice")}</option>
-            </select>
-            <select
-              className="settings-input"
-              value={newCategoryId}
-              onChange={(e) => setNewCategoryId(e.target.value)}
-            >
-              <option value="">{t("channelNoCategory")}</option>
-              {categories.map((cg) => (
-                <option key={cg.category.id} value={cg.category.id}>
-                  {cg.category.name}
-                </option>
-              ))}
-            </select>
-            <button
-              className="settings-btn"
-              onClick={handleCreate}
-              disabled={!newName.trim() || isCreating}
-            >
-              {isCreating ? "..." : t("createChannel")}
-            </button>
+        {/* ═══ Channels Tab — left panel ═══ */}
+        {activeTab === "channels" && (
+          <div className="channel-settings-ch-list">
+            {allChannels.map((ch) => (
+              <div
+                key={ch.id}
+                className={`role-list-item channel-settings-ch-row${ch.id === selectedChannel?.id ? " active" : ""}`}
+                onClick={() => setSelectedChannel(ch)}
+              >
+                <span className="channel-settings-ch-icon">
+                  {ch.type === "voice" ? "\uD83D\uDD0A" : "#"}
+                </span>
+                <span className="role-list-name">{ch.name}</span>
+                <button
+                  className="channel-settings-delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteChannel(ch.id, ch.name);
+                  }}
+                  title={t("deleteChannel")}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* Kanal listesi */}
-        <div className="channel-settings-ch-list">
-          {allChannels.map((ch) => (
-            <div
-              key={ch.id}
-              className={`role-list-item channel-settings-ch-row${ch.id === selectedChannel?.id ? " active" : ""}`}
-              onClick={() => setSelectedChannel(ch)}
-            >
-              <span className="channel-settings-ch-icon">
-                {ch.type === "voice" ? "\uD83D\uDD0A" : "#"}
-              </span>
-              <span className="role-list-name">{ch.name}</span>
-              <button
-                className="channel-settings-delete"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDelete(ch.id, ch.name);
-                }}
-                title={t("deleteChannel")}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
+        {/* ═══ Categories Tab — left panel ═══ */}
+        {activeTab === "categories" && (
+          <div className="channel-settings-ch-list">
+            {realCategories.length === 0 ? (
+              <div className="no-channel" style={{ padding: "16px 8px" }}>
+                {t("noCategoriesYet")}
+              </div>
+            ) : (
+              realCategories.map((cat) => (
+                <div
+                  key={cat.id}
+                  className={`role-list-item channel-settings-ch-row${cat.id === selectedCategory?.id ? " active" : ""}`}
+                  onClick={() => setSelectedCategory(cat)}
+                >
+                  <span className="channel-settings-ch-icon">&#x25BC;</span>
+                  <span className="role-list-name">{cat.name}</span>
+                  <button
+                    className="channel-settings-delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteCategory(cat.id, cat.name);
+                    }}
+                    title={t("deleteCategory")}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Sağ Panel: settings-content — RoleSettings sağ panel ile aynı pattern */}
+      {/* Sağ Panel */}
       <div className="settings-content channel-settings-right">
-        {selectedChannel ? (
-          <div className="channel-perm-section">
-            <h2 className="settings-section-title channel-settings-right-title">
-              {selectedChannel.type === "voice" ? "\uD83D\uDD0A" : "#"} {selectedChannel.name}
-            </h2>
+        {/* ═══ Channels Tab — right panel ═══ */}
+        {activeTab === "channels" && (
+          selectedChannel ? (
+            <div className="channel-perm-section">
+              <h2 className="settings-section-title channel-settings-right-title">
+                {selectedChannel.type === "voice" ? "\uD83D\uDD0A" : "#"} {selectedChannel.name}
+              </h2>
 
-            {/* Kanal adı düzenleme */}
-            <div className="channel-settings-rename-row">
-              <label className="settings-label">{t("channelName")}</label>
-              <div className="channel-settings-rename-input-row">
-                <input
-                  className="settings-input"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && nameChanged) handleRename();
-                    if (e.key === "Escape") setEditName(selectedChannel.name);
-                  }}
-                  maxLength={100}
-                />
-                {nameChanged && (
-                  <button
-                    className="settings-btn"
-                    onClick={handleRename}
-                    disabled={isSavingName}
-                  >
-                    {isSavingName ? "..." : tSettings("save")}
-                  </button>
-                )}
+              {/* Kanal adı düzenleme */}
+              <div className="channel-settings-rename-row">
+                <label className="settings-label">{t("channelName")}</label>
+                <div className="channel-settings-rename-input-row">
+                  <input
+                    className="settings-input"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && channelNameChanged) handleRenameChannel();
+                      if (e.key === "Escape") setEditName(selectedChannel.name);
+                    }}
+                    maxLength={100}
+                  />
+                  {channelNameChanged && (
+                    <button
+                      className="settings-btn"
+                      onClick={handleRenameChannel}
+                      disabled={isSavingName}
+                    >
+                      {isSavingName ? "..." : tSettings("save")}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Kanal kategorisi değiştirme */}
+              <div className="channel-settings-cat-row">
+                <label className="settings-label">{t("moveToCategory")}</label>
+                <select
+                  className="channel-settings-cat-select"
+                  value={editCategoryId}
+                  onChange={(e) => handleChangeCategory(e.target.value)}
+                  disabled={isSavingCategory}
+                >
+                  <option value="">{t("channelNoCategory")}</option>
+                  {realCategories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Kanal izinleri */}
+              <ChannelPermissionEditor channel={selectedChannel} />
+            </div>
+          ) : (
+            <div className="no-channel">
+              {tSettings("selectChannelToEdit")}
+            </div>
+          )
+        )}
+
+        {/* ═══ Categories Tab — right panel ═══ */}
+        {activeTab === "categories" && (
+          selectedCategory ? (
+            <div className="channel-perm-section">
+              <h2 className="settings-section-title channel-settings-right-title">
+                {selectedCategory.name}
+              </h2>
+
+              {/* Kategori adı düzenleme */}
+              <div className="channel-settings-rename-row">
+                <label className="settings-label">{t("categoryName")}</label>
+                <div className="channel-settings-rename-input-row">
+                  <input
+                    className="settings-input"
+                    value={editCatName}
+                    onChange={(e) => setEditCatName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && catNameChanged) handleRenameCategory();
+                      if (e.key === "Escape") setEditCatName(selectedCategory.name);
+                    }}
+                    maxLength={100}
+                  />
+                  {catNameChanged && (
+                    <button
+                      className="settings-btn"
+                      onClick={handleRenameCategory}
+                      disabled={isSavingCatName}
+                    >
+                      {isSavingCatName ? "..." : tSettings("save")}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-
-            {/* Kanal izinleri */}
-            <ChannelPermissionEditor channel={selectedChannel} />
-          </div>
-        ) : (
-          <div className="no-channel">
-            {tSettings("selectChannelToEdit")}
-          </div>
+          ) : (
+            <div className="no-channel">
+              {t("selectCategoryToEdit")}
+            </div>
+          )
         )}
       </div>
+
+      {/* Create Channel/Category Modal */}
+      {showCreateModal && (
+        <CreateChannelModal onClose={() => setShowCreateModal(false)} />
+      )}
     </div>
   );
 }

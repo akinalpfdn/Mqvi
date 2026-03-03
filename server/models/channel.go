@@ -89,9 +89,11 @@ func (r *CreateChannelRequest) Validate() error {
 
 // UpdateChannelRequest, kanal güncelleme isteği.
 // Pointer (*string) kullanılır — nil ise o alan güncellenmez (partial update).
+// CategoryID: boş string ("") → kategorisiz yap, non-nil → belirtilen kategoriye taşı.
 type UpdateChannelRequest struct {
-	Name  *string `json:"name"`
-	Topic *string `json:"topic"`
+	Name       *string `json:"name"`
+	Topic      *string `json:"topic"`
+	CategoryID *string `json:"category_id"`
 }
 
 // Validate, UpdateChannelRequest'in geçerli olup olmadığını kontrol eder.
@@ -188,11 +190,11 @@ func (r *ReorderChannelsRequest) Validate() error {
 }
 
 // isValidChannelNameChar, kanal adında izin verilen karakterleri kontrol eder.
-// Unicode harf/rakam, boşluk, tire, alt çizgi kabul edilir.
+// Unicode harf/rakam, boşluk, tire, alt çizgi, eğik çizgi kabul edilir.
 // unicode.IsLetter: tüm dillerdeki harfleri kapsar (Türkçe ş/ç/ğ/ı/ö/ü dahil).
 // unicode.IsDigit: tüm Unicode rakamlarını kapsar.
 func isValidChannelNameChar(ch rune) bool {
 	return unicode.IsLetter(ch) ||
 		unicode.IsDigit(ch) ||
-		ch == '-' || ch == '_' || ch == ' '
+		ch == '-' || ch == '_' || ch == ' ' || ch == '/'
 }

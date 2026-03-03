@@ -24,7 +24,7 @@
  * .ch-tree-voice-user, .ch-tree-vu-dot
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useChannelStore } from "../../stores/channelStore";
@@ -39,13 +39,13 @@ import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { resolveAssetUrl } from "../../utils/constants";
-import * as channelApi from "../../api/channels";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
 import MuteDurationPicker from "../servers/MuteDurationPicker";
 import InviteFriendsModal from "../servers/InviteFriendsModal";
 import AddServerModal from "../servers/AddServerModal";
+import CreateChannelModal from "../channels/CreateChannelModal";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useSettingsStore } from "../../stores/settingsStore";
 
@@ -166,49 +166,10 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     y: number;
   } | null>(null);
 
-  // ─── Inline Create Channel State ───
-  // createTarget: hangi kategoriye kanal ekleniyor (category_id)
-  const [createTarget, setCreateTarget] = useState<string | null>(null);
-  const [createName, setCreateName] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-
-  /**
-   * Kategorideki kanalların türüne bakarak yeni kanal türünü otomatik belirle.
-   * Tüm kanallar voice ise → "voice", aksi halde → "text".
-   * Bu sayede kullanıcı text category'de + basınca text, voice category'de voice oluşturur.
-   */
-  function inferChannelType(categoryId: string): "text" | "voice" {
-    const cat = categories.find((c) => c.category.id === categoryId);
-    if (!cat || cat.channels.length === 0) return "text";
-    const allVoice = cat.channels.every((ch) => ch.type === "voice");
-    return allVoice ? "voice" : "text";
-  }
-
-  const handleCreateChannel = useCallback(async () => {
-    const trimmed = createName.trim();
-    if (!trimmed || isCreating || !createTarget) return;
-
-    const type = inferChannelType(createTarget);
-
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    setIsCreating(true);
-    const res = await channelApi.createChannel(serverId, {
-      name: trimmed,
-      type,
-      category_id: createTarget,
-    });
-
-    if (res.success) {
-      addToast("success", tCh("channelCreated"));
-      setCreateName("");
-      setCreateTarget(null);
-    } else {
-      addToast("error", tCh("channelCreateError"));
-    }
-    setIsCreating(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createName, createTarget, isCreating, addToast, tCh, categories]);
+  // ─── Create Channel/Category Modal State ───
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createModalMode, setCreateModalMode] = useState<"category" | "channel" | undefined>(undefined);
+  const [createModalCategoryId, setCreateModalCategoryId] = useState<string | undefined>(undefined);
 
   // ─── Drag & Drop State ───
   // Aynı kategori içinde kanal sıralamasını sürükleyerek değiştirme.
@@ -771,97 +732,82 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                   onDrop={(e) => handleServerDrop(e, srv.id)}
                   onDragEnd={handleServerDragEnd}
                 >
-                  {/* Sunucu başlığı — ikon + isim + unread badge */}
-                  <button
-                    className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
-                    onClick={handleSrvHeaderClick}
-                    onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
-                  >
-                    <Chevron expanded={srvExpanded && isActive} />
-                    {srv.icon_url ? (
-                      <img
-                        src={resolveAssetUrl(srv.icon_url)}
-                        alt={srv.name}
-                        className="ch-tree-server-icon"
-                      />
-                    ) : (
-                      <span className="ch-tree-server-icon-fallback">
-                        {srv.name.charAt(0).toUpperCase()}
-                      </span>
+                  {/* Sunucu başlığı — ikon + isim + unread badge + create butonu */}
+                  <div className="ch-tree-server-header-row">
+                    <button
+                      className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
+                      onClick={handleSrvHeaderClick}
+                      onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
+                    >
+                      <Chevron expanded={srvExpanded && isActive} />
+                      {srv.icon_url ? (
+                        <img
+                          src={resolveAssetUrl(srv.icon_url)}
+                          alt={srv.name}
+                          className="ch-tree-server-icon"
+                        />
+                      ) : (
+                        <span className="ch-tree-server-icon-fallback">
+                          {srv.name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                      <span className="ch-tree-server-name">{srv.name}</span>
+                      {/* Server-level unread badge — aktif + muted değilse göster */}
+                      {isActive && !mutedServerIds.has(srv.id) && (() => {
+                        const total = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
+                        return total > 0 ? (
+                          <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
+                        ) : null;
+                      })()}
+                    </button>
+                    {isActive && canManageChannels && (
+                      <button
+                        className="ch-tree-server-add"
+                        title={tCh("createChannelOrCategory")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCreateModalMode(undefined);
+                          setCreateModalCategoryId(undefined);
+                          setShowCreateModal(true);
+                        }}
+                      >
+                        +
+                      </button>
                     )}
-                    <span className="ch-tree-server-name">{srv.name}</span>
-                    {/* Server-level unread badge — aktif + muted değilse göster */}
-                    {isActive && !mutedServerIds.has(srv.id) && (() => {
-                      const total = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
-                      return total > 0 ? (
-                        <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
-                      ) : null;
-                    })()}
-                  </button>
+                  </div>
 
                   {/* Kategoriler + kanallar — sadece aktif sunucu expanded ise */}
                   {isActive && srvExpanded && categories.map((cg) => {
-                    const catKey = `cat:${cg.category.id}`;
-                    const catExpanded = isSectionExpanded(catKey);
+                    const isUncategorized = cg.category.id === "";
+                    const catKey = isUncategorized ? "cat:__uncategorized__" : `cat:${cg.category.id}`;
+                    const catExpanded = isUncategorized ? true : isSectionExpanded(catKey);
 
                     return (
-                      <div key={cg.category.id} className="ch-tree-category">
-                        {/* Kategori başlığı + kanal ekleme butonu */}
-                        <div className="ch-tree-cat-row">
-                          <button
-                            className="ch-tree-cat-header"
-                            onClick={() => toggleSection(catKey)}
-                          >
-                            <Chevron expanded={catExpanded} />
-                            <span>{cg.category.name}</span>
-                          </button>
-                          {canManageChannels && (
+                      <div key={cg.category.id || "__uncategorized__"} className="ch-tree-category">
+                        {/* Kategori başlığı — kategorisiz kanallar için gizle */}
+                        {!isUncategorized && (
+                          <div className="ch-tree-cat-row">
                             <button
-                              className="ch-tree-cat-add"
-                              title={tCh("createChannel")}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCreateTarget(
-                                  createTarget === cg.category.id ? null : cg.category.id
-                                );
-                                setCreateName("");
-                              }}
+                              className="ch-tree-cat-header"
+                              onClick={() => toggleSection(catKey)}
                             >
-                              +
+                              <Chevron expanded={catExpanded} />
+                              <span>{cg.category.name}</span>
                             </button>
-                          )}
-                        </div>
-
-                        {/* Inline kanal oluşturma formu */}
-                        {createTarget === cg.category.id && (
-                          <div className="ch-tree-create-form">
-                            <input
-                              className="ch-tree-create-input"
-                              type="text"
-                              placeholder={tCh("channelName")}
-                              value={createName}
-                              onChange={(e) => setCreateName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleCreateChannel();
-                                if (e.key === "Escape") setCreateTarget(null);
-                              }}
-                              autoFocus
-                            />
-                            <div className="ch-tree-create-actions">
+                            {canManageChannels && (
                               <button
-                                className="ch-tree-create-btn"
-                                onClick={handleCreateChannel}
-                                disabled={!createName.trim() || isCreating}
+                                className="ch-tree-cat-add"
+                                title={tCh("createChannel")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCreateModalMode("channel");
+                                  setCreateModalCategoryId(cg.category.id);
+                                  setShowCreateModal(true);
+                                }}
                               >
-                                {isCreating ? "..." : tCh("createChannel")}
+                                +
                               </button>
-                              <button
-                                className="ch-tree-create-cancel"
-                                onClick={() => setCreateTarget(null)}
-                              >
-                                {tCh("cancel")}
-                              </button>
-                            </div>
+                            )}
                           </div>
                         )}
 
@@ -1056,6 +1002,15 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           avatarUrl={voiceCtxMenu.avatarUrl}
           position={{ x: voiceCtxMenu.x, y: voiceCtxMenu.y }}
           onClose={() => setVoiceCtxMenu(null)}
+        />
+      )}
+
+      {/* Create Channel/Category Modal */}
+      {showCreateModal && (
+        <CreateChannelModal
+          onClose={() => setShowCreateModal(false)}
+          defaultMode={createModalMode}
+          defaultCategoryId={createModalCategoryId}
         />
       )}
     </div>

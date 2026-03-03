@@ -102,8 +102,12 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
   handleChannelCreate: (channel) => {
     set((state) => {
+      const targetCatId = channel.category_id ?? "";
+      let found = false;
+
       const categories = state.categories.map((cg) => {
-        if (cg.category.id === (channel.category_id ?? "")) {
+        if (cg.category.id === targetCatId) {
+          found = true;
           return {
             ...cg,
             channels: [...cg.channels, channel],
@@ -112,13 +116,21 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
         return cg;
       });
 
-      const found = categories.some((cg) =>
-        cg.channels.some((ch) => ch.id === channel.id)
-      );
-      if (!found && categories.length > 0) {
-        const first = { ...categories[0] };
-        first.channels = [...first.channels, channel];
-        categories[0] = first;
+      // Eğer hedef kategori bulunamadıysa (örn. kategorisiz kanal ve
+      // henüz uncategorized grubu yoksa), yeni bir sanal grup oluştur.
+      if (!found) {
+        if (targetCatId === "") {
+          // Kategorisiz: en başa uncategorized grup ekle
+          categories.unshift({
+            category: { id: "", name: "", position: -1 },
+            channels: [channel],
+          });
+        } else if (categories.length > 0) {
+          // Bilinmeyen kategori: ilk gruba fallback (eski davranış)
+          const first = { ...categories[0] };
+          first.channels = [...first.channels, channel];
+          categories[0] = first;
+        }
       }
 
       return { categories };

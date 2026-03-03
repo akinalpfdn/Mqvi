@@ -128,7 +128,22 @@ func (s *channelService) GetAllGrouped(ctx context.Context, serverID, userID str
 		channelsByCategory[catID] = append(channelsByCategory[catID], ch)
 	}
 
-	result := make([]models.CategoryWithChannels, 0, len(categories))
+	result := make([]models.CategoryWithChannels, 0, len(categories)+1)
+
+	// Kategorisiz kanalları en başa ekle — category_id NULL olanlar
+	// "" key'i ile map'te tutuluyor (line 124 yukarıda).
+	if uncategorized := channelsByCategory[""]; len(uncategorized) > 0 {
+		result = append(result, models.CategoryWithChannels{
+			Category: models.Category{
+				ID:       "",
+				ServerID: serverID,
+				Name:     "",
+				Position: -1,
+			},
+			Channels: uncategorized,
+		})
+	}
+
 	for _, cat := range categories {
 		chs := channelsByCategory[cat.ID]
 		if len(chs) == 0 && !filter.IsAdmin {
@@ -206,6 +221,18 @@ func (s *channelService) Update(ctx context.Context, id string, req *models.Upda
 	}
 	if req.Topic != nil {
 		channel.Topic = req.Topic
+	}
+	if req.CategoryID != nil {
+		if *req.CategoryID == "" {
+			// Boş string → kategorisiz yap (NULL)
+			channel.CategoryID = nil
+		} else {
+			// Kategori mevcut mu kontrol et
+			if _, err := s.categoryRepo.GetByID(ctx, *req.CategoryID); err != nil {
+				return nil, fmt.Errorf("%w: category not found", pkg.ErrBadRequest)
+			}
+			channel.CategoryID = req.CategoryID
+		}
 	}
 
 	if err := s.channelRepo.Update(ctx, channel); err != nil {
