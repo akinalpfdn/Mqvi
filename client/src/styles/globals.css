@@ -1509,6 +1509,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .report-btn-submit { background:var(--danger);color:var(--t0); }
 .report-btn-submit:hover { opacity:.9; }
 .report-btn-submit:disabled { opacity:.5;cursor:not-allowed; }
+.report-evidence-drop { width:100%;padding:14px;border:1.5px dashed var(--b2);border-radius:6px;background:transparent;color:var(--t2);cursor:pointer;transition:border-color .15s,background .15s;display:flex;align-items:center;justify-content:center; }
+.report-evidence-drop:hover { border-color:var(--primary);background:var(--primary-s); }
+.report-evidence-hint { font-size:13px;color:var(--t3); }
+.report-evidence-drop:hover .report-evidence-hint { color:var(--t1); }
 
 /* ─── DM Profile Card ─── */
 .dm-profile-backdrop { position:fixed;inset:0;z-index:80; }

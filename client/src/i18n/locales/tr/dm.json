@@ -50,5 +50,9 @@
   "blockConfirmMessage": "Engellenen kullanıcılar size mesaj gönderemez ve mesajlarını göremezsiniz. Emin misiniz?",
   "blockConfirmButton": "Engelle",
 
-  "alreadyReported": "Bu kullanıcı için zaten bekleyen bir raporunuz var"
+  "alreadyReported": "Bu kullanıcı için zaten bekleyen bir raporunuz var",
+
+  "reportEvidenceLabel": "Kanıt (İsteğe Bağlı)",
+  "reportEvidenceHint": "Ekran görüntülerini sürükleyin veya yapıştırın (max 4 resim)",
+  "reportMaxFiles": "En fazla 4 resim eklenebilir"
 }

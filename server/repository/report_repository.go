@@ -30,4 +30,10 @@ type ReportRepository interface {
 
 	// HasPendingReport, reporter→target çiftinde aktif (pending) rapor var mı kontrol eder.
 	HasPendingReport(ctx context.Context, reporterID, targetID string) (bool, error)
+
+	// CreateAttachment, rapora delil dosyası ekler (resim).
+	CreateAttachment(ctx context.Context, att *models.ReportAttachment) error
+
+	// GetAttachmentsByReportID, rapora ait tüm delil dosyalarını döner.
+	GetAttachmentsByReportID(ctx context.Context, reportID string) ([]models.ReportAttachment, error)
 }

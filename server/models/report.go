@@ -44,15 +44,28 @@ const (
 // Report, bir kullanıcı raporunu temsil eder.
 // Time field'ları string: SQLite TEXT olarak saklar, modernc.org/sqlite time.Time'a otomatik dönüştürmez.
 type Report struct {
-	ID             string       `json:"id"`
-	ReporterID     string       `json:"reporter_id"`
-	ReportedUserID string       `json:"reported_user_id"`
-	Reason         ReportReason `json:"reason"`
-	Description    string       `json:"description"`
-	Status         ReportStatus `json:"status"`
-	ResolvedBy     *string      `json:"resolved_by"`
-	ResolvedAt     *string      `json:"resolved_at"`
-	CreatedAt      string       `json:"created_at"`
+	ID             string             `json:"id"`
+	ReporterID     string             `json:"reporter_id"`
+	ReportedUserID string             `json:"reported_user_id"`
+	Reason         ReportReason       `json:"reason"`
+	Description    string             `json:"description"`
+	Status         ReportStatus       `json:"status"`
+	ResolvedBy     *string            `json:"resolved_by"`
+	ResolvedAt     *string            `json:"resolved_at"`
+	CreatedAt      string             `json:"created_at"`
+	Attachments    []ReportAttachment `json:"attachments"`
+}
+
+// ReportAttachment, rapor delili olarak eklenen dosya (sadece resimler).
+// Mevcut Attachment / DMAttachment ile paralel yapı.
+type ReportAttachment struct {
+	ID        string  `json:"id"`
+	ReportID  string  `json:"report_id"`
+	Filename  string  `json:"filename"`
+	FileURL   string  `json:"file_url"`
+	FileSize  *int64  `json:"file_size"`
+	MimeType  *string `json:"mime_type"`
+	CreatedAt string  `json:"created_at"`
 }
 
 // ReportWithUsers, rapor + raporlayan ve raporlanan kullanıcı bilgisi.

@@ -64,7 +64,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
 		DMSettings:        handlers.NewDMSettingsHandler(svcs.DMSettings),
 		Block:             handlers.NewBlockHandler(svcs.Block),
-		Report:            handlers.NewReportHandler(svcs.Report),
+		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, cfg.Upload.MaxSize),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute),
 	}
 }

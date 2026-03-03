@@ -234,3 +234,54 @@ func (r *sqliteReportRepo) HasPendingReport(ctx context.Context, reporterID, tar
 	}
 	return exists, nil
 }
+
+// CreateAttachment, rapora delil dosyası ekler.
+// ID otomatik atanır (RETURNING ile okunur).
+func (r *sqliteReportRepo) CreateAttachment(ctx context.Context, att *models.ReportAttachment) error {
+	query := `
+		INSERT INTO report_attachments (report_id, filename, file_url, file_size, mime_type)
+		VALUES (?, ?, ?, ?, ?)
+		RETURNING id, created_at`
+
+	err := r.db.QueryRowContext(ctx, query,
+		att.ReportID, att.Filename, att.FileURL, att.FileSize, att.MimeType,
+	).Scan(&att.ID, &att.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create report attachment: %w", err)
+	}
+	return nil
+}
+
+// GetAttachmentsByReportID, rapora ait tüm delil dosyalarını döner.
+func (r *sqliteReportRepo) GetAttachmentsByReportID(ctx context.Context, reportID string) ([]models.ReportAttachment, error) {
+	query := `
+		SELECT id, report_id, filename, file_url, file_size, mime_type, created_at
+		FROM report_attachments
+		WHERE report_id = ?
+		ORDER BY created_at`
+
+	rows, err := r.db.QueryContext(ctx, query, reportID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get report attachments: %w", err)
+	}
+	defer rows.Close()
+
+	var attachments []models.ReportAttachment
+	for rows.Next() {
+		var a models.ReportAttachment
+		if err := rows.Scan(&a.ID, &a.ReportID, &a.Filename, &a.FileURL, &a.FileSize, &a.MimeType, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan report attachment: %w", err)
+		}
+		attachments = append(attachments, a)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating report attachments: %w", err)
+	}
+
+	if attachments == nil {
+		attachments = []models.ReportAttachment{}
+	}
+	return attachments, nil
+}

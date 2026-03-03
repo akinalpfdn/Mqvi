@@ -49,6 +49,7 @@ type Services struct {
 	DMSettings        services.DMSettingsService
 	Block             services.BlockService
 	Report            services.ReportService
+	ReportUpload      services.ReportUploadService
 	AdminUser         services.AdminUserService
 	AdminServer       services.AdminServerService
 }
@@ -129,6 +130,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	reportService := services.NewReportService(repos.Report, repos.User)
+	reportUploadService := services.NewReportUploadService(repos.Report, cfg.Upload.Dir, cfg.Upload.MaxSize)
 
 	// ─── Platform Admin — User + Server Management ───
 	adminUserService := services.NewAdminUserService(repos.User, hub, voiceService, emailSender)
@@ -172,6 +174,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		DMSettings:        dmSettingsService,
 		Block:             blockService,
 		Report:            reportService,
+		ReportUpload:      reportUploadService,
 		AdminUser:         adminUserService,
 		AdminServer:       adminServerService,
 	}

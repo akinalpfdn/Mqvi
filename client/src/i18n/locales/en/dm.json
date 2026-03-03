@@ -50,5 +50,9 @@
   "blockConfirmMessage": "Blocked users cannot send you messages and you won't see their messages. Are you sure?",
   "blockConfirmButton": "Block",
 
-  "alreadyReported": "You already have a pending report for this user"
+  "alreadyReported": "You already have a pending report for this user",
+
+  "reportEvidenceLabel": "Evidence (Optional)",
+  "reportEvidenceHint": "Drag & drop or paste screenshots (max 4 images)",
+  "reportMaxFiles": "Maximum 4 images allowed"
 }
