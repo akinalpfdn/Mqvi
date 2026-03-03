@@ -10,6 +10,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -22,6 +23,7 @@ type AdminHandler struct {
 	metricsHistoryService services.MetricsHistoryService
 	adminUserService      services.AdminUserService
 	adminServerService    services.AdminServerService
+	reportService         services.ReportService
 }
 
 // NewAdminHandler, constructor.
@@ -30,12 +32,14 @@ func NewAdminHandler(
 	metricsHistoryService services.MetricsHistoryService,
 	adminUserService services.AdminUserService,
 	adminServerService services.AdminServerService,
+	reportService services.ReportService,
 ) *AdminHandler {
 	return &AdminHandler{
 		livekitAdminService:   livekitAdminService,
 		metricsHistoryService: metricsHistoryService,
 		adminUserService:      adminUserService,
 		adminServerService:    adminServerService,
+		reportService:         reportService,
 	}
 }
 
@@ -363,4 +367,76 @@ func (h *AdminHandler) AdminDeleteServer(w http.ResponseWriter, r *http.Request)
 	}
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server deleted"})
+}
+
+// ╔══════════════════════════════════════════╗
+// ║  Reports                                 ║
+// ╚══════════════════════════════════════════╝
+
+// ListReports — GET /api/admin/reports?status=pending&limit=50&offset=0
+// Raporları listeler (opsiyonel status filtresi).
+// Tüm raporlar attachment'ları ile birlikte döner.
+func (h *AdminHandler) ListReports(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	reports, total, err := h.reportService.ListReports(r.Context(), status, limit, offset)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	// Response: { reports: [...], total: N }
+	pkg.JSON(w, http.StatusOK, map[string]any{
+		"reports": reports,
+		"total":   total,
+	})
+}
+
+// UpdateReportStatus — PATCH /api/admin/reports/{id}/status
+// Rapor durumunu günceller.
+// Body: { "status": "reviewed" | "resolved" | "dismissed" | "pending" }
+func (h *AdminHandler) UpdateReportStatus(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	reportID := r.PathValue("id")
+	if reportID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "report id is required")
+		return
+	}
+
+	var req models.UpdateReportStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.reportService.UpdateReportStatus(r.Context(), reportID, models.ReportStatus(req.Status), admin.ID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "report status updated"})
 }

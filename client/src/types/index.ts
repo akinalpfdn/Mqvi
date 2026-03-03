@@ -544,6 +544,36 @@ export type AdminUserListItem = {
 };
 
 // ──────────────────────────────────
+// Admin Reports
+// ──────────────────────────────────
+export type ReportAttachment = {
+  id: string;
+  report_id: string;
+  filename: string;
+  file_url: string;
+  file_size: number | null;
+  mime_type: string | null;
+  created_at: string;
+};
+
+export type AdminReportListItem = {
+  id: string;
+  reporter_id: string;
+  reported_user_id: string;
+  reason: string;
+  description: string;
+  status: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  reporter_username: string;
+  reporter_display_name: string | null;
+  reported_username: string;
+  reported_display_name: string | null;
+  attachments: ReportAttachment[];
+};
+
+// ──────────────────────────────────
 // WebSocket
 // ──────────────────────────────────
 export type WSMessage = {

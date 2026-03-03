@@ -78,6 +78,30 @@ type ReportWithUsers struct {
 	ReportedDisplay  *string `json:"reported_display_name"`
 }
 
+// validReportStatuses, kabul edilen rapor durumları.
+// Admin panelinde status değiştirirken validation için kullanılır.
+var validReportStatuses = map[ReportStatus]bool{
+	ReportStatusPending:   true,
+	ReportStatusReviewed:  true,
+	ReportStatusResolved:  true,
+	ReportStatusDismissed: true,
+}
+
+// UpdateReportStatusRequest, admin panelden rapor durumu güncelleme isteği.
+type UpdateReportStatusRequest struct {
+	Status string `json:"status"`
+}
+
+// Validate, UpdateReportStatusRequest kontrolü.
+// Status predefined setlerden biri olmalı (pending, reviewed, resolved, dismissed).
+func (r *UpdateReportStatusRequest) Validate() error {
+	status := ReportStatus(r.Status)
+	if !validReportStatuses[status] {
+		return fmt.Errorf("invalid report status: %s", r.Status)
+	}
+	return nil
+}
+
 // CreateReportRequest, rapor oluşturma isteği.
 type CreateReportRequest struct {
 	Reason      string `json:"reason"`

@@ -24,6 +24,7 @@ import SecuritySettings from "./SecuritySettings";
 import PlatformSettings from "./PlatformSettings";
 import AdminServerList from "./AdminServerList";
 import AdminUserList from "./AdminUserList";
+import AdminReportList from "./AdminReportList";
 import ConnectionsSettings from "./ConnectionsSettings";
 
 function SettingsModal() {
@@ -122,6 +123,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "platform-users":
       return <AdminUserList />;
+
+    case "platform-reports":
+      return <AdminReportList />;
 
     case "platform-connections":
       return <ConnectionsSettings />;

@@ -14,6 +14,7 @@ import type {
   UpdateLiveKitInstanceRequest,
   AdminServerListItem,
   AdminUserListItem,
+  AdminReportListItem,
 } from "../types";
 
 /** Tüm platform-managed LiveKit instance'larını listeler. */
@@ -157,4 +158,20 @@ export async function migrateServerInstance(
       body: { livekit_instance_id: livekitInstanceId },
     }
   );
+}
+
+/** Platformdaki raporları listeler (admin). Opsiyonel status filtresi. */
+export async function listAdminReports(status?: string) {
+  const query = status ? `?status=${status}&limit=100` : "?limit=100";
+  return apiClient<{ reports: AdminReportListItem[]; total: number }>(
+    `/admin/reports${query}`
+  );
+}
+
+/** Rapor durumunu günceller (admin). */
+export async function updateReportStatus(reportId: string, status: string) {
+  return apiClient<{ message: string }>(`/admin/reports/${reportId}/status`, {
+    method: "PATCH",
+    body: { status },
+  });
 }

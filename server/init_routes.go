@@ -148,6 +148,10 @@ func initRoutes(
 	mux.Handle("PATCH /api/admin/servers/{serverId}/instance", authAdmin(h.Admin.MigrateServerInstance))
 	mux.Handle("DELETE /api/admin/servers/{serverId}", authAdmin(h.Admin.AdminDeleteServer))
 
+	// Platform Admin — Rapor yönetimi
+	mux.Handle("GET /api/admin/reports", authAdmin(h.Admin.ListReports))
+	mux.Handle("PATCH /api/admin/reports/{id}/status", authAdmin(h.Admin.UpdateReportStatus))
+
 	// Platform Admin — Kullanıcı yönetimi
 	mux.Handle("GET /api/admin/users", authAdmin(h.Admin.ListUsers))
 	mux.Handle("POST /api/admin/users/{id}/ban", authAdmin(h.Admin.PlatformBanUser))

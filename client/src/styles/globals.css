@@ -1163,6 +1163,136 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   background:var(--red-s);color:var(--red);margin-left:6px;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   Admin Report List Table — Platform admin rapor listesi
+   ═══════════════════════════════════════════════════════════════ */
+.settings-content:has(.admin-report-list) { max-width:none; }
+
+.admin-report-list {
+  display:flex;flex-direction:column;gap:16px;
+  padding:24px 32px;height:100%;overflow:hidden;
+}
+.admin-report-toolbar {
+  display:flex;align-items:center;gap:12px;flex-shrink:0;
+}
+.admin-report-search {
+  flex:1;background:var(--bg-3);border:1px solid var(--b1);border-radius:6px;
+  color:var(--t0);font-size:14px;padding:8px 12px;font-family:var(--f-ui);
+  outline:none;transition:border-color .15s;
+}
+.admin-report-search:focus { border-color:var(--primary); }
+.admin-report-status-filter {
+  background:var(--bg-3);border:1px solid var(--b1);border-radius:6px;
+  color:var(--t1);font-size:13px;padding:8px 10px;font-family:var(--f-ui);
+  outline:none;cursor:pointer;
+}
+.admin-report-count { color:var(--t3);font-size:13px;white-space:nowrap; }
+
+/* ── Table ── */
+.admin-report-table-wrap { flex:1;overflow:auto; }
+.admin-report-table {
+  width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px;
+}
+.admin-report-table th {
+  text-align:left;padding:8px 12px;font-weight:600;
+  color:var(--t2);border-bottom:2px solid var(--b1);white-space:nowrap;
+  position:sticky;top:0;background:var(--bg-2);z-index:1;user-select:none;
+}
+.admin-report-table th.sortable { cursor:pointer; }
+.admin-report-table th.sortable:hover { color:var(--t0); }
+
+.admin-report-th-content {
+  display:flex;align-items:center;gap:4px;padding-right:8px;
+}
+.admin-report-sort-icon { font-size:10px;color:var(--primary);flex-shrink:0; }
+
+/* ── Resize handle ── */
+.admin-report-resize-handle {
+  position:absolute;top:0;right:0;bottom:0;width:6px;
+  cursor:col-resize;z-index:2;
+}
+.admin-report-resize-handle:hover { background:var(--primary-s); }
+.admin-report-table th { position:relative; }
+
+/* ── Table body ── */
+.admin-report-table td {
+  padding:7px 12px;color:var(--t1);border-bottom:1px solid var(--b1);
+  white-space:nowrap;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;
+}
+.admin-report-table tbody tr { transition:background .08s; }
+.admin-report-table tbody tr:hover td { background:var(--bg-h); }
+
+/* ── Description cell — truncated with ellipsis ── */
+.admin-report-desc-cell {
+  display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+/* ── Reason badge ── */
+.admin-report-reason-badge {
+  display:inline-block;padding:2px 8px;border-radius:4px;font-size:13px;font-weight:500;
+}
+.admin-report-reason-badge.spam { background:var(--yellow-s);color:var(--yellow); }
+.admin-report-reason-badge.harassment { background:var(--red-s);color:var(--red); }
+.admin-report-reason-badge.inappropriate_content { background:var(--red-s);color:var(--red); }
+.admin-report-reason-badge.impersonation { background:var(--primary-s);color:var(--primary); }
+.admin-report-reason-badge.other { background:var(--bg-4);color:var(--t2); }
+
+/* ── Status inline edit cell ── */
+.admin-report-status-cell { display:flex;align-items:center;gap:4px; }
+.admin-report-status-select {
+  background:var(--bg-3);border:1px solid var(--b1);border-radius:4px;
+  color:var(--t1);font-size:13px;padding:4px 8px;font-family:var(--f-ui);
+  cursor:pointer;outline:none;
+}
+.admin-report-status-select:focus { border-color:var(--primary); }
+.admin-report-confirm-btn {
+  background:none;border:none;cursor:pointer;color:var(--green);
+  font-size:16px;padding:2px 6px;border-radius:4px;transition:background .1s;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.admin-report-confirm-btn:hover { background:var(--green-s); }
+.admin-report-confirm-btn:disabled { opacity:0.4;cursor:not-allowed; }
+.admin-report-cancel-btn {
+  background:none;border:none;cursor:pointer;color:var(--red);
+  font-size:14px;padding:2px 6px;border-radius:4px;transition:background .1s;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.admin-report-cancel-btn:hover { background:var(--red-s); }
+.admin-report-cancel-btn:disabled { opacity:0.4;cursor:not-allowed; }
+
+/* ── Attachment button ── */
+.admin-report-attach-btn {
+  background:var(--primary-s);color:var(--primary);
+  border:none;border-radius:4px;padding:2px 8px;font-size:13px;
+  cursor:pointer;transition:background .1s;font-family:var(--f-ui);
+}
+.admin-report-attach-btn:hover { background:var(--primary);color:var(--t-on-primary); }
+
+/* ── Muted text ── */
+.admin-report-text-muted { color:var(--t3); }
+
+/* ── Attachment modal ── */
+.admin-report-attach-modal {
+  display:flex;flex-direction:column;gap:16px;max-height:60vh;overflow-y:auto;
+  padding:8px 0;
+}
+.admin-report-attach-item {
+  display:flex;flex-direction:column;gap:6px;
+}
+.admin-report-attach-img {
+  max-width:100%;max-height:400px;object-fit:contain;border-radius:6px;
+  border:1px solid var(--b1);
+}
+.admin-report-attach-link {
+  color:var(--primary);text-decoration:underline;font-size:14px;
+}
+.admin-report-attach-info {
+  display:flex;gap:12px;font-size:13px;color:var(--t2);
+}
+.admin-report-no-attach {
+  color:var(--t3);font-size:14px;text-align:center;padding:24px 0;
+}
+
 /* ── Platform Ban Dialog ── */
 .platform-ban-dialog { max-width:440px; }
 .platform-ban-label {
