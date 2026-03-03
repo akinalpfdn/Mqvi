@@ -99,6 +99,13 @@ export async function platformBanUser(
   });
 }
 
+/** Kullanıcının platform yasağını kaldırır (admin). */
+export async function platformUnbanUser(userId: string) {
+  return apiClient<{ message: string }>(`/admin/users/${userId}/ban`, {
+    method: "DELETE",
+  });
+}
+
 /**
  * Kullanıcıyı ve tüm verilerini kalıcı olarak siler (admin).
  * Reason opsiyonel — doldurulursa kullanıcıya email bildirim gönderilir.

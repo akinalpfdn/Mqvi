@@ -370,6 +370,11 @@
   "platformAdminSuccess": "Admin durumu güncellendi",
   "platformAdminError": "Admin durumu güncellenirken hata oluştu",
 
+  "platformUserUnban": "Yasağı Kaldır",
+  "platformUnbanConfirm": "{{username}} kullanıcısının yasağını kaldırmak istediğinize emin misiniz? Tekrar giriş yapabilecek.",
+  "platformUnbanSuccess": "{{username}} kullanıcısının yasağı kaldırıldı",
+  "platformUnbanError": "Yasak kaldırılırken hata oluştu",
+
   "platformServerDelete": "Sunucuyu Sil",
   "platformServerSendDMOwner": "Sahibine Mesaj Gönder",
   "platformServerDeleteTitle": "Sunucuyu Sil",

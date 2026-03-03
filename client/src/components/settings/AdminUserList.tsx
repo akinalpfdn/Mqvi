@@ -17,13 +17,14 @@ import { useAuthStore } from "../../stores/authStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
-import { listAdminUsers, platformBanUser, hardDeleteUser, setUserPlatformAdmin } from "../../api/admin";
+import { listAdminUsers, platformBanUser, platformUnbanUser, hardDeleteUser, setUserPlatformAdmin } from "../../api/admin";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 import ContextMenu from "../shared/ContextMenu";
 import PlatformBanDialog from "./PlatformBanDialog";
 import PlatformActionDialog from "./PlatformActionDialog";
 import type { AdminUserListItem } from "../../types";
+import { resolveAssetUrl } from "../../utils/constants";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 
 // ─── Column Definition ───
@@ -272,6 +273,15 @@ function AdminUserList() {
       });
     }
 
+    // Yasağı Kaldır — sadece banlı kullanıcılarda göster
+    if (!isMe && user.is_platform_banned) {
+      items.push({
+        label: t("platformUserUnban"),
+        separator: items.length > 0,
+        onClick: () => handleUnban(user),
+      });
+    }
+
     // Kullanıcıyı Sil — kendi satırında gösterme
     if (!isMe) {
       items.push({
@@ -308,6 +318,22 @@ function AdminUserList() {
       await refetchUsers();
     } else {
       addToast("error", res.error ?? t("platformBanError"));
+    }
+  }
+
+  /** Unban — useConfirm ile basit onay dialogu */
+  async function handleUnban(user: AdminUserListItem) {
+    const ok = await confirm({
+      message: t("platformUnbanConfirm", { username: user.username }),
+    });
+    if (!ok) return;
+
+    const res = await platformUnbanUser(user.id);
+    if (res.success) {
+      addToast("success", t("platformUnbanSuccess", { username: user.username }));
+      await refetchUsers();
+    } else {
+      addToast("error", res.error ?? t("platformUnbanError"));
     }
   }
 
@@ -466,7 +492,7 @@ function AdminUserList() {
           <div className="admin-user-name-cell">
             <div className="admin-user-avatar">
               {user.avatar_url ? (
-                <img src={user.avatar_url} alt="" />
+                <img src={resolveAssetUrl(user.avatar_url)} alt="" />
               ) : (
                 user.username.charAt(0).toUpperCase()
               )}

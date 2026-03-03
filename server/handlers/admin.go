@@ -256,6 +256,29 @@ func (h *AdminHandler) PlatformBanUser(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user banned"})
 }
 
+// PlatformUnbanUser — DELETE /api/admin/users/{id}/ban
+// Kullanıcının platform yasağını kaldırır.
+func (h *AdminHandler) PlatformUnbanUser(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	targetID := r.PathValue("id")
+	if targetID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+
+	if err := h.adminUserService.PlatformUnbanUser(r.Context(), admin.ID, targetID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user unbanned"})
+}
+
 // HardDeleteUser — DELETE /api/admin/users/{id}
 // Kullanıcıyı ve tüm verilerini kalıcı olarak siler.
 // Opsiyonel request body: { "reason": "..." } — doldurulursa kullanıcıya email bildirim gönderilir.

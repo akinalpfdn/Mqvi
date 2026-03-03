@@ -370,6 +370,11 @@
   "platformAdminSuccess": "Admin status updated",
   "platformAdminError": "Failed to update admin status",
 
+  "platformUserUnban": "Unban User",
+  "platformUnbanConfirm": "Are you sure you want to unban {{username}}? They will be able to log in again.",
+  "platformUnbanSuccess": "{{username}} has been unbanned",
+  "platformUnbanError": "Failed to unban user",
+
   "platformServerDelete": "Delete Server",
   "platformServerSendDMOwner": "Send DM to Owner",
   "platformServerDeleteTitle": "Delete Server",

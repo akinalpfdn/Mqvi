@@ -31,6 +31,7 @@ import (
 // Reason doldurulmuşsa ve kullanıcının email'i varsa bildirim gönderilir.
 type AdminUserService interface {
 	PlatformBanUser(ctx context.Context, adminUserID, targetUserID, reason string, deleteMessages bool) error
+	PlatformUnbanUser(ctx context.Context, adminUserID, targetUserID string) error
 	HardDeleteUser(ctx context.Context, adminUserID, targetUserID, reason string) error
 	SetPlatformAdmin(ctx context.Context, adminUserID, targetUserID string, isAdmin bool) error
 }
@@ -120,6 +121,33 @@ func (s *adminUserService) PlatformBanUser(ctx context.Context, adminUserID, tar
 		if emailErr := s.emailSender.SendPlatformBanNotification(ctx, *target.Email, reason); emailErr != nil {
 			log.Printf("[admin] failed to send ban notification email to %s: %v", targetUserID, emailErr)
 		}
+	}
+
+	return nil
+}
+
+// PlatformUnbanUser, kullanıcının platform yasağını kaldırır.
+//
+// İşlem sırası:
+// 1. Self-unban koruması
+// 2. Hedef kullanıcı varlık + ban kontrolü
+// 3. DB'de is_platform_banned flag'ini temizle
+func (s *adminUserService) PlatformUnbanUser(ctx context.Context, adminUserID, targetUserID string) error {
+	if adminUserID == targetUserID {
+		return fmt.Errorf("%w: cannot unban yourself", pkg.ErrBadRequest)
+	}
+
+	target, err := s.userRepo.GetByID(ctx, targetUserID)
+	if err != nil {
+		return fmt.Errorf("target user not found: %w", err)
+	}
+
+	if !target.IsPlatformBanned {
+		return fmt.Errorf("%w: user is not banned", pkg.ErrBadRequest)
+	}
+
+	if err := s.userRepo.PlatformUnban(ctx, targetUserID); err != nil {
+		return fmt.Errorf("failed to unban user: %w", err)
 	}
 
 	return nil
