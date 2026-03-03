@@ -9,7 +9,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
@@ -54,7 +53,7 @@ func (r *sqliteReportRepo) GetByID(ctx context.Context, id string) (*models.Repo
 
 	var report models.Report
 	var resolvedBy sql.NullString
-	var resolvedAt sql.NullTime
+	var resolvedAt sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&report.ID, &report.ReporterID, &report.ReportedUserID,
@@ -73,7 +72,7 @@ func (r *sqliteReportRepo) GetByID(ctx context.Context, id string) (*models.Repo
 		report.ResolvedBy = &resolvedBy.String
 	}
 	if resolvedAt.Valid {
-		report.ResolvedAt = &resolvedAt.Time
+		report.ResolvedAt = &resolvedAt.String
 	}
 
 	return &report, nil
@@ -157,7 +156,7 @@ func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.Repor
 	for rows.Next() {
 		var rw models.ReportWithUsers
 		var resolvedBy sql.NullString
-		var resolvedAt sql.NullTime
+		var resolvedAt sql.NullString
 		var reporterDisplay, reportedDisplay sql.NullString
 
 		if err := rows.Scan(
@@ -173,7 +172,7 @@ func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.Repor
 			rw.ResolvedBy = &resolvedBy.String
 		}
 		if resolvedAt.Valid {
-			rw.ResolvedAt = &resolvedAt.Time
+			rw.ResolvedAt = &resolvedAt.String
 		}
 		if reporterDisplay.Valid {
 			rw.ReporterDisplay = &reporterDisplay.String
@@ -197,14 +196,14 @@ func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.Repor
 
 // UpdateStatus, rapor durumunu günceller (pending → reviewed/resolved/dismissed).
 // resolvedBy parametresi admin user ID'sidir.
+// resolved_at SQLite datetime string olarak kaydedilir (TEXT column).
 func (r *sqliteReportRepo) UpdateStatus(ctx context.Context, id string, status models.ReportStatus, resolvedBy string) error {
 	query := `
 		UPDATE reports
-		SET status = ?, resolved_by = ?, resolved_at = ?
+		SET status = ?, resolved_by = ?, resolved_at = datetime('now')
 		WHERE id = ?`
 
-	now := time.Now().UTC()
-	result, err := r.db.ExecContext(ctx, query, status, resolvedBy, now, id)
+	result, err := r.db.ExecContext(ctx, query, status, resolvedBy, id)
 	if err != nil {
 		return fmt.Errorf("failed to update report status: %w", err)
 	}

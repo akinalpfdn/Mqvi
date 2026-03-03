@@ -10,6 +10,10 @@ import (
 
 // DMSettingsRepository, kullanıcı DM ayarları veritabanı işlemleri.
 type DMSettingsRepository interface {
+	// IsHidden, DM'nin gizli olup olmadığını döner.
+	// Auto-unhide öncesi kontrol için kullanılır — gereksiz UPSERT + WS broadcast önlenir.
+	IsHidden(ctx context.Context, userID, dmChannelID string) (bool, error)
+
 	// SetHidden, DM'yi gizle veya göster.
 	// hidden=true ise sidebar'dan gizlenir, yeni mesaj gelince otomatik açılır.
 	SetHidden(ctx context.Context, userID, dmChannelID string, hidden bool) error

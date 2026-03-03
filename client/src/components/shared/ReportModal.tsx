@@ -43,19 +43,26 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
     if (!isValid || !selectedReason || isSubmitting) return;
 
     setIsSubmitting(true);
-    const res = await reportUser(userId, {
-      reason: selectedReason,
-      description: description.trim(),
-    });
+    try {
+      const res = await reportUser(userId, {
+        reason: selectedReason,
+        description: description.trim(),
+      });
 
-    if (res.success) {
-      addToast("success", t("reportSubmitted"));
-      onClose();
-    } else if (res.error?.includes("already")) {
-      addToast("warning", t("alreadyReported"));
-      onClose();
+      if (res.success) {
+        addToast("success", t("reportSubmitted"));
+        onClose();
+      } else if (res.error?.includes("already")) {
+        addToast("warning", t("alreadyReported"));
+        onClose();
+      } else {
+        addToast("error", res.error ?? "Failed to submit report");
+      }
+    } catch {
+      addToast("error", "Failed to submit report");
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   }
 
   // Overlay tıklaması ile kapatma (modal içine tıklamayı durdur)

@@ -679,19 +679,19 @@ export const useDMStore = create<DMState>((set, get) => ({
     const { dm_channel_id, action } = data;
 
     switch (action) {
-      case "hide":
+      case "hidden":
         set((state) => ({
           channels: state.channels.filter((ch) => ch.id !== dm_channel_id),
           selectedDMId: state.selectedDMId === dm_channel_id ? null : state.selectedDMId,
         }));
         break;
 
-      case "unhide":
+      case "unhidden":
         // Unhide geldiğinde channels listesini yeniden çek (yeni mesajla geri gelmiş olabilir)
         get().fetchChannels();
         break;
 
-      case "pin":
+      case "pinned":
         set((state) => ({
           channels: sortChannelsByActivity(
             state.channels.map((ch) =>
@@ -701,7 +701,7 @@ export const useDMStore = create<DMState>((set, get) => ({
         }));
         break;
 
-      case "unpin":
+      case "unpinned":
         set((state) => ({
           channels: sortChannelsByActivity(
             state.channels.map((ch) =>
@@ -711,7 +711,7 @@ export const useDMStore = create<DMState>((set, get) => ({
         }));
         break;
 
-      case "mute":
+      case "muted":
         set((state) => ({
           channels: state.channels.map((ch) =>
             ch.id === dm_channel_id ? { ...ch, is_muted: true } : ch
@@ -719,7 +719,7 @@ export const useDMStore = create<DMState>((set, get) => ({
         }));
         break;
 
-      case "unmute":
+      case "unmuted":
         set((state) => ({
           channels: state.channels.map((ch) =>
             ch.id === dm_channel_id ? { ...ch, is_muted: false } : ch

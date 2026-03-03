@@ -8,7 +8,6 @@ package models
 import (
 	"fmt"
 	"strings"
-	"time"
 	"unicode/utf8"
 )
 
@@ -43,6 +42,7 @@ const (
 )
 
 // Report, bir kullanıcı raporunu temsil eder.
+// Time field'ları string: SQLite TEXT olarak saklar, modernc.org/sqlite time.Time'a otomatik dönüştürmez.
 type Report struct {
 	ID             string       `json:"id"`
 	ReporterID     string       `json:"reporter_id"`
@@ -51,8 +51,8 @@ type Report struct {
 	Description    string       `json:"description"`
 	Status         ReportStatus `json:"status"`
 	ResolvedBy     *string      `json:"resolved_by"`
-	ResolvedAt     *time.Time   `json:"resolved_at"`
-	CreatedAt      time.Time    `json:"created_at"`
+	ResolvedAt     *string      `json:"resolved_at"`
+	CreatedAt      string       `json:"created_at"`
 }
 
 // ReportWithUsers, rapor + raporlayan ve raporlanan kullanıcı bilgisi.

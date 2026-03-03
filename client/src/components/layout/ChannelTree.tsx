@@ -391,9 +391,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     const draggedChannel = sourceCat.channels.find((ch) => ch.id === dragId);
     if (!draggedChannel) return;
 
-    // Hedef kategoriyi bul
+    // Hedef kategoriyi bul — kategorisiz (id="") ise listede olmayabilir
     const targetCat = categories.find((c) => c.category.id === targetCategoryId);
-    if (!targetCat) return;
 
     // items: kaynak kategorinin güncel sıralaması (taşınan hariç) + taşınan kanal hedef sona
     const items: { id: string; position: number; category_id?: string }[] = [];
@@ -405,12 +404,13 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     });
 
     // Hedef kategori: mevcut kanallar + taşınan kanal sona
-    targetCat.channels.forEach((ch, idx) => {
+    const targetChannels = targetCat?.channels ?? [];
+    targetChannels.forEach((ch, idx) => {
       items.push({ id: ch.id, position: idx });
     });
     items.push({
       id: dragId,
-      position: targetCat.channels.length,
+      position: targetChannels.length,
       category_id: targetCategoryId,
     });
 
@@ -977,8 +977,18 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     />
                     <span className="ch-tree-label">{name}</span>
                     <span className="ch-tree-dm-indicators">
-                      {dm.is_pinned && <span className="ch-tree-dm-pin-icon" title={tDM("pinConversation")}>📌</span>}
-                      {dm.is_muted && <span className="ch-tree-dm-mute-icon" title={tDM("muteDM")}>🔇</span>}
+                      {dm.is_pinned && (
+                        <svg className="ch-tree-dm-pin-icon" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" strokeWidth={2} aria-label={tDM("pinConversation")}>
+                          <title>{tDM("pinConversation")}</title>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
+                        </svg>
+                      )}
+                      {dm.is_muted && (
+                        <svg className="ch-tree-dm-mute-icon" viewBox="0 0 16 16" width="14" height="14" aria-label={tDM("muteDM")}>
+                          <title>{tDM("muteDM")}</title>
+                          <path fill="currentColor" d="M12 3.5L7.5 7H4v3h3.5L12 13.5V3.5zM13.5 1L2 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      )}
                       {unread > 0 && <span className="ch-tree-badge">{unread}</span>}
                     </span>
                   </button>
@@ -1080,6 +1090,16 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     )}
                   </div>
 
+                  {/* Kategorisiz drop zone — tüm kanallar kategorilere taşındığında görünür */}
+                  {isActive && srvExpanded && canManageChannels &&
+                    categories.length > 0 && !categories.some((c) => c.category.id === "") && (
+                    <div
+                      className="ch-tree-uncat-drop"
+                      onDragOver={handleCategoryHeaderDragOver}
+                      onDrop={(e) => handleCategoryHeaderDrop(e, "")}
+                    />
+                  )}
+
                   {/* Kategoriler + kanallar — sadece aktif sunucu expanded ise */}
                   {isActive && srvExpanded && categories.map((cg) => {
                     const isUncategorized = cg.category.id === "";
@@ -1088,8 +1108,16 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
                     return (
                       <div key={cg.category.id || "__uncategorized__"} className="ch-tree-category">
-                        {/* Kategori başlığı — kategorisiz kanallar için gizle */}
-                        {!isUncategorized && (
+                        {/* Kategori başlığı — kategorisiz kanallar için drop zone */}
+                        {isUncategorized ? (
+                          canManageChannels && (
+                            <div
+                              className="ch-tree-uncat-drop"
+                              onDragOver={handleCategoryHeaderDragOver}
+                              onDrop={(e) => handleCategoryHeaderDrop(e, "")}
+                            />
+                          )
+                        ) : (
                           <div
                             className="ch-tree-cat-row"
                             onDragOver={canManageChannels ? handleCategoryHeaderDragOver : undefined}

@@ -1467,11 +1467,18 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* Muted server header — bell-slash ikonu veya opacity ile belirtme */
 .ch-tree-server-header.muted .ch-tree-server-name { opacity:.5; }
 
+/* ─── Uncategorized Drop Zone ─── */
+/* Kanal drag-drop: kategorisiz alana taşıma hedefi. Diğer drop zone'lar ile aynı
+   2px primary-colored line pattern kullanılır. Hover sırasında görünür olur. */
+.ch-tree-uncat-drop { position:relative;height:6px; }
+.ch-tree-uncat-drop::after { content:"";position:absolute;left:20px;right:8px;top:50%;transform:translateY(-50%);height:0;background:var(--primary);border-radius:1px;transition:height .1s; }
+.ch-tree-uncat-drop:hover::after { height:2px; }
+
 /* ─── DM Sidebar Indicators ─── */
 .ch-tree-dm.muted .ch-tree-label { opacity:.5; }
 .ch-tree-dm-indicators { display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0; }
-.ch-tree-dm-pin-icon { color:var(--t3);font-size:13px;line-height:1; }
-.ch-tree-dm-mute-icon { color:var(--t3);font-size:13px;line-height:1; }
+.ch-tree-dm-pin-icon { color:var(--t3);flex-shrink:0; }
+.ch-tree-dm-mute-icon { color:var(--t3);flex-shrink:0; }
 
 /* ─── Report Modal ─── */
 .report-overlay { position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6); }

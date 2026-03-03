@@ -394,15 +394,18 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 	msg.Attachments = []models.DMAttachment{}
 	msg.Reactions = []models.ReactionGroup{}
 
-	// Auto-unhide: Alıcı bu DM'yi gizlemişse, yeni mesaj gelince otomatik göster.
+	// Auto-unhide: Gönderen veya alıcı bu DM'yi gizlemişse, yeni mesaj gelince otomatik göster.
 	// Best-effort — hata mesaj gönderimini engellemez.
+	// IsHidden kontrolü UnhideForNewMessage içinde yapılır — gizli değilse DB write + WS atlanır.
 	if s.unhider != nil {
 		otherUserID := channel.User1ID
 		if channel.User1ID == userID {
 			otherUserID = channel.User2ID
 		}
-		// Hata yutma — auto-unhide kritik değil, mesaj zaten gönderildi
+		// Alıcı unhide
 		_ = s.unhider.UnhideForNewMessage(ctx, otherUserID, channelID)
+		// Gönderen unhide — kullanıcı DM'yi gizleyip sonra direkt mesaj attığında sidebar'a geri gelir
+		_ = s.unhider.UnhideForNewMessage(ctx, userID, channelID)
 	}
 
 	return msg, nil

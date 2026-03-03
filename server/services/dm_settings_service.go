@@ -211,9 +211,18 @@ func (s *dmSettingsService) GetDMSettings(ctx context.Context, userID string) (*
 }
 
 // UnhideForNewMessage, hidden DM'e yeni mesaj geldiğinde otomatik unhide yapar.
-// is_hidden=false UPSERT — satır yoksa bir şey yapmaz (UPSERT'te ON CONFLICT DO UPDATE).
-// Hata loglama: mesaj gönderme akışını bloklamaz, sadece best-effort.
+// Önce IsHidden kontrolü — gizli değilse UPSERT + WS broadcast atlanır.
+// Bu sayede her mesajda gereksiz DB write + WS event önlenir.
 func (s *dmSettingsService) UnhideForNewMessage(ctx context.Context, userID, channelID string) error {
+	// Gizli değilse bir şey yapma — gereksiz UPSERT + broadcast önleme
+	isHidden, err := s.settingsRepo.IsHidden(ctx, userID, channelID)
+	if err != nil {
+		return fmt.Errorf("failed to check DM hidden status: %w", err)
+	}
+	if !isHidden {
+		return nil
+	}
+
 	if err := s.settingsRepo.SetHidden(ctx, userID, channelID, false); err != nil {
 		return fmt.Errorf("failed to auto-unhide DM: %w", err)
 	}

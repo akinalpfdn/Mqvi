@@ -25,6 +25,22 @@ func NewSQLiteDMSettingsRepo(db database.TxQuerier) DMSettingsRepository {
 	return &sqliteDMSettingsRepo{db: db}
 }
 
+// IsHidden, DM'nin gizli olup olmadığını döner.
+// Satır yoksa false (gizli değil). Auto-unhide öncesi kontrol — gereksiz broadcast önleme.
+func (r *sqliteDMSettingsRepo) IsHidden(ctx context.Context, userID, dmChannelID string) (bool, error) {
+	query := `
+		SELECT is_hidden FROM user_dm_settings
+		WHERE user_id = ? AND dm_channel_id = ?`
+
+	var isHidden bool
+	err := r.db.QueryRowContext(ctx, query, userID, dmChannelID).Scan(&isHidden)
+	if err != nil {
+		// Satır yoksa gizli değil
+		return false, nil
+	}
+	return isHidden, nil
+}
+
 // SetHidden, DM'yi gizle veya göster.
 func (r *sqliteDMSettingsRepo) SetHidden(ctx context.Context, userID, dmChannelID string, hidden bool) error {
 	hiddenInt := 0
