@@ -292,6 +292,8 @@ export type DMChannelWithUser = {
   other_user: User;
   created_at: string;
   last_message_at: string | null; // Son mesaj aktivitesi — sıralama için
+  is_pinned: boolean;  // Kullanıcı bu DM'yi sabitledi mi
+  is_muted: boolean;   // Kullanıcı bu DM'yi sessize aldı mı
 };
 
 /**
@@ -345,10 +347,11 @@ export type DMMessagePage = {
  * status:
  * - "pending": İstek gönderildi, henüz kabul edilmedi
  * - "accepted": Arkadaşlık aktif
+ * - "blocked": Kullanıcı engellendi
  */
 export type FriendshipWithUser = {
   id: string;
-  status: "pending" | "accepted";
+  status: "pending" | "accepted" | "blocked";
   created_at: string;
   user_id: string;
   username: string;

@@ -40,6 +40,8 @@ type Repositories struct {
 	ResetToken        repository.PasswordResetRepository
 	MetricsHistory    repository.MetricsHistoryRepository
 	ServerMute        repository.ServerMuteRepository
+	DMSettings        repository.DMSettingsRepository
+	Report            repository.ReportRepository
 }
 
 // initRepositories, veritabanı bağlantısından tüm repository'leri oluşturur.
@@ -70,5 +72,7 @@ func initRepositories(conn *sql.DB) *Repositories {
 		ResetToken:        repository.NewSQLiteResetTokenRepo(conn),
 		MetricsHistory:    repository.NewSQLiteMetricsHistoryRepo(conn),
 		ServerMute:        repository.NewSQLiteServerMuteRepo(conn),
+		DMSettings:        repository.NewSQLiteDMSettingsRepo(conn),
+		Report:            repository.NewSQLiteReportRepo(conn),
 	}
 }

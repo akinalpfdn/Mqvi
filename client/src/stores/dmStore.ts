@@ -32,11 +32,17 @@ const EMPTY_MESSAGES: DMMessage[] = [];
 const EMPTY_STRINGS: string[] = [];
 
 /**
- * sortChannelsByActivity — DM kanallarını son mesaj aktivitesine göre sıralar.
- * last_message_at null ise created_at'e fallback edilir. En son aktivite en üstte.
+ * sortChannelsByActivity — DM kanallarını sıralar.
+ * Pinned DM'ler en üstte, kendi aralarında activity sıralı.
+ * Sonra diğer DM'ler activity sıralı.
+ * last_message_at null ise created_at'e fallback edilir.
  */
 function sortChannelsByActivity(channels: DMChannelWithUser[]): DMChannelWithUser[] {
   return [...channels].sort((a, b) => {
+    // Pinned olanlar en üstte
+    if (a.is_pinned && !b.is_pinned) return -1;
+    if (!a.is_pinned && b.is_pinned) return 1;
+    // Aynı pin durumunda — activity sıralı
     const aTime = a.last_message_at ?? a.created_at;
     const bTime = b.last_message_at ?? b.created_at;
     return bTime.localeCompare(aTime);
@@ -74,6 +80,10 @@ type DMState = {
   /** Kanal bazlı typing kullanıcıları: channelId → username[] */
   typingUsers: Record<string, string[]>;
 
+  // ─── DM Settings State ───
+  /** Context menu "Mesajlarda Ara" → DM aç + search panel aktif */
+  pendingSearchChannelId: string | null;
+
   // ─── Actions ───
   fetchChannels: () => Promise<void>;
   selectDM: (channelId: string | null) => void;
@@ -109,6 +119,20 @@ type DMState = {
   /** Toplam DM okunmamış sayısı */
   getTotalDMUnread: () => number;
 
+  // ─── DM Settings Actions ───
+  /** Sidebar'dan gizle (backend + lokal state) */
+  hideDM: (channelId: string) => Promise<void>;
+  /** Sohbeti sabitle/kaldır */
+  pinDM: (channelId: string) => Promise<void>;
+  unpinDM: (channelId: string) => Promise<void>;
+  /** Sessize al (duration: "1h"/"8h"/"7d"/"forever") */
+  muteDM: (channelId: string, duration: string) => Promise<void>;
+  unmuteDM: (channelId: string) => Promise<void>;
+  /** Initial load: pinned + muted ID'leri çek → channels'a merge et */
+  fetchDMSettings: () => Promise<void>;
+  /** Context menu → arama paneli tetikleme */
+  setPendingSearchChannelId: (id: string | null) => void;
+
   // ─── WS Event Handlers ───
   handleDMChannelCreate: (channel: DMChannelWithUser) => void;
   handleDMMessageCreate: (message: DMMessage) => void;
@@ -118,6 +142,8 @@ type DMState = {
   handleDMTypingStart: (channelId: string, username: string) => void;
   handleDMMessagePin: (data: { dm_channel_id: string; message: DMMessage }) => void;
   handleDMMessageUnpin: (data: { dm_channel_id: string; message_id: string }) => void;
+  /** DM settings WS event: hide/pin/mute değişikliği */
+  handleDMSettingsUpdate: (data: { dm_channel_id: string; action: string }) => void;
 
   // ─── Helpers ───
   getMessagesForChannel: (channelId: string) => DMMessage[];
@@ -135,6 +161,7 @@ export const useDMStore = create<DMState>((set, get) => ({
   replyingTo: null,
   scrollToMessageId: null,
   typingUsers: {},
+  pendingSearchChannelId: null,
 
   fetchChannels: async () => {
     set({ isLoading: true });
@@ -288,6 +315,109 @@ export const useDMStore = create<DMState>((set, get) => ({
     }
     return { messages: [], total_count: 0 };
   },
+
+  // ─── DM Settings Actions ───
+
+  /**
+   * hideDM — DM kanalını sidebar'dan gizler.
+   * Backend'e POST gönderir, başarılıysa lokal channels'dan çıkarır.
+   * Yeni mesaj gelince backend otomatik unhide yapar → WS ile geri gelir.
+   */
+  hideDM: async (channelId) => {
+    const res = await dmApi.hideDM(channelId);
+    if (res.success) {
+      set((state) => ({
+        channels: state.channels.filter((ch) => ch.id !== channelId),
+        // Eğer gizlenen kanal seçiliyse seçimi temizle
+        selectedDMId: state.selectedDMId === channelId ? null : state.selectedDMId,
+      }));
+      useToastStore.getState().addToast("success", i18n.t("dm:dmClosed"));
+    }
+  },
+
+  /**
+   * pinDM — DM sohbetini sabitler.
+   * Backend'e POST gönderir, başarılıysa lokal is_pinned güncelle + sırala.
+   */
+  pinDM: async (channelId) => {
+    const res = await dmApi.pinDMConversation(channelId);
+    if (res.success) {
+      set((state) => ({
+        channels: sortChannelsByActivity(
+          state.channels.map((ch) =>
+            ch.id === channelId ? { ...ch, is_pinned: true } : ch
+          )
+        ),
+      }));
+      useToastStore.getState().addToast("success", i18n.t("dm:dmPinned"));
+    }
+  },
+
+  unpinDM: async (channelId) => {
+    const res = await dmApi.unpinDMConversation(channelId);
+    if (res.success) {
+      set((state) => ({
+        channels: sortChannelsByActivity(
+          state.channels.map((ch) =>
+            ch.id === channelId ? { ...ch, is_pinned: false } : ch
+          )
+        ),
+      }));
+      useToastStore.getState().addToast("success", i18n.t("dm:dmUnpinned"));
+    }
+  },
+
+  /**
+   * muteDM — DM sohbetini sessize alır.
+   * Duration: "1h" / "8h" / "7d" / "forever"
+   */
+  muteDM: async (channelId, duration) => {
+    const res = await dmApi.muteDM(channelId, duration);
+    if (res.success) {
+      set((state) => ({
+        channels: state.channels.map((ch) =>
+          ch.id === channelId ? { ...ch, is_muted: true } : ch
+        ),
+      }));
+      useToastStore.getState().addToast("success", i18n.t("dm:dmMuted"));
+    }
+  },
+
+  unmuteDM: async (channelId) => {
+    const res = await dmApi.unmuteDM(channelId);
+    if (res.success) {
+      set((state) => ({
+        channels: state.channels.map((ch) =>
+          ch.id === channelId ? { ...ch, is_muted: false } : ch
+        ),
+      }));
+      useToastStore.getState().addToast("success", i18n.t("dm:dmUnmuted"));
+    }
+  },
+
+  /**
+   * fetchDMSettings — Pinned + muted DM ID'lerini çeker.
+   * Initial load'da channels listesi ile birlikte çağrılır.
+   * Backend'den gelen ID'ler ile lokal channels'ın is_pinned/is_muted'ını senkronize eder.
+   */
+  fetchDMSettings: async () => {
+    const res = await dmApi.getDMSettings();
+    if (res.success && res.data) {
+      const pinnedSet = new Set(res.data.pinned_channel_ids ?? []);
+      const mutedSet = new Set(res.data.muted_channel_ids ?? []);
+      set((state) => ({
+        channels: sortChannelsByActivity(
+          state.channels.map((ch) => ({
+            ...ch,
+            is_pinned: pinnedSet.has(ch.id),
+            is_muted: mutedSet.has(ch.id),
+          }))
+        ),
+      }));
+    }
+  },
+
+  setPendingSearchChannelId: (id) => set({ pendingSearchChannelId: id }),
 
   // ─── Unread ───
 
@@ -535,6 +665,68 @@ export const useDMStore = create<DMState>((set, get) => ({
         },
       };
     });
+  },
+
+  /**
+   * handleDMSettingsUpdate — WS dm_settings_update event'i geldiğinde çağrılır.
+   *
+   * Backend aksiyona göre payload gönderir:
+   * - hide/unhide: kanalı listeden çıkar/ekle
+   * - pin/unpin: is_pinned güncelle + sırala
+   * - mute/unmute: is_muted güncelle
+   */
+  handleDMSettingsUpdate: (data) => {
+    const { dm_channel_id, action } = data;
+
+    switch (action) {
+      case "hide":
+        set((state) => ({
+          channels: state.channels.filter((ch) => ch.id !== dm_channel_id),
+          selectedDMId: state.selectedDMId === dm_channel_id ? null : state.selectedDMId,
+        }));
+        break;
+
+      case "unhide":
+        // Unhide geldiğinde channels listesini yeniden çek (yeni mesajla geri gelmiş olabilir)
+        get().fetchChannels();
+        break;
+
+      case "pin":
+        set((state) => ({
+          channels: sortChannelsByActivity(
+            state.channels.map((ch) =>
+              ch.id === dm_channel_id ? { ...ch, is_pinned: true } : ch
+            )
+          ),
+        }));
+        break;
+
+      case "unpin":
+        set((state) => ({
+          channels: sortChannelsByActivity(
+            state.channels.map((ch) =>
+              ch.id === dm_channel_id ? { ...ch, is_pinned: false } : ch
+            )
+          ),
+        }));
+        break;
+
+      case "mute":
+        set((state) => ({
+          channels: state.channels.map((ch) =>
+            ch.id === dm_channel_id ? { ...ch, is_muted: true } : ch
+          ),
+        }));
+        break;
+
+      case "unmute":
+        set((state) => ({
+          channels: state.channels.map((ch) =>
+            ch.id === dm_channel_id ? { ...ch, is_muted: false } : ch
+          ),
+        }));
+        break;
+    }
   },
 
   // ─── Helpers ───

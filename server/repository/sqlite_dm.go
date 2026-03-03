@@ -72,20 +72,32 @@ func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.D
 // JOIN mantığı:
 // dm_channels.user1_id veya user2_id eşleşen kanalları bul,
 // karşı tarafı (eşleşmeyen user) users tablosuyla JOIN et.
-// Son mesaja göre sıralama: en son mesaj alan kanal üstte.
+//
+// LEFT JOIN user_dm_settings ile kullanıcının kişisel DM ayarları dahil edilir:
+// - is_hidden = 1 olanlar filtrelenir (gizlenmiş DM'ler sidebar'da gösterilmez)
+// - is_pinned → DMChannelWithUser.IsPinned
+// - muted_until > datetime('now') → DMChannelWithUser.IsMuted
+//
+// Sıralama: Pinned DM'ler en üstte, kendi aralarında activity sıralı.
+// Sonra diğer DM'ler activity sıralı.
 func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error) {
 	query := `
 		SELECT dc.id, dc.created_at, dc.last_message_at,
-			u.id, u.username, u.display_name, u.avatar_url, u.status
+			u.id, u.username, u.display_name, u.avatar_url, u.status,
+			COALESCE(ds.is_pinned, 0),
+			CASE WHEN ds.muted_until IS NOT NULL AND ds.muted_until > datetime('now') THEN 1 ELSE 0 END
 		FROM dm_channels dc
 		JOIN users u ON u.id = CASE
 			WHEN dc.user1_id = ? THEN dc.user2_id
 			ELSE dc.user1_id
 		END
-		WHERE dc.user1_id = ? OR dc.user2_id = ?
-		ORDER BY COALESCE(dc.last_message_at, dc.created_at) DESC`
+		LEFT JOIN user_dm_settings ds ON ds.user_id = ? AND ds.dm_channel_id = dc.id
+		WHERE (dc.user1_id = ? OR dc.user2_id = ?)
+		  AND COALESCE(ds.is_hidden, 0) = 0
+		ORDER BY COALESCE(ds.is_pinned, 0) DESC,
+		         COALESCE(dc.last_message_at, dc.created_at) DESC`
 
-	rows, err := r.db.QueryContext(ctx, query, userID, userID, userID)
+	rows, err := r.db.QueryContext(ctx, query, userID, userID, userID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list DM channels: %w", err)
 	}
@@ -97,10 +109,12 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 		var user models.User
 		var displayName, avatarURL sql.NullString
 		var lastMsgAt sql.NullTime
+		var isPinned, isMuted int
 
 		if err := rows.Scan(
 			&ch.ID, &ch.CreatedAt, &lastMsgAt,
 			&user.ID, &user.Username, &displayName, &avatarURL, &user.Status,
+			&isPinned, &isMuted,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan DM channel: %w", err)
 		}
@@ -116,6 +130,8 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 		}
 
 		ch.OtherUser = &user
+		ch.IsPinned = isPinned == 1
+		ch.IsMuted = isMuted == 1
 		channels = append(channels, ch)
 	}
 

@@ -86,6 +86,11 @@ const (
 	OpDMTypingStart    = "dm_typing_start"     // DM kanalında kullanıcı yazıyor
 	OpDMMessagePin     = "dm_message_pin"      // DM mesajı sabitlendi
 	OpDMMessageUnpin   = "dm_message_unpin"    // DM mesajı pin'den çıkarıldı
+	OpDMSettingsUpdate = "dm_settings_update"  // DM ayarı değişti (pin/mute/hide)
+
+	// Block (kullanıcı engelleme) operasyonları
+	OpUserBlock   = "user_block"   // Kullanıcı engellendi
+	OpUserUnblock = "user_unblock" // Kullanıcı engeli kaldırıldı
 
 	// Voice (ses kanalı) operasyonları
 	OpVoiceStateUpdate = "voice_state_update"  // Bir kullanıcının ses durumu değişti (join/leave/mute/deafen/stream)

@@ -41,6 +41,7 @@ import { useUIStore } from "../stores/uiStore";
 import { useDMStore } from "../stores/dmStore";
 import { useChannelPermissionStore } from "../stores/channelPermissionStore";
 import { useFriendStore } from "../stores/friendStore";
+import { useBlockStore } from "../stores/blockStore";
 import { useP2PCallStore } from "../stores/p2pCallStore";
 import {
   WS_URL,
@@ -301,9 +302,13 @@ export function useWebSocket() {
         useReadStateStore.getState().fetchUnreadCounts();
         // DM kanallarını çek — DM listesinin hemen hazır olması için
         useDMStore.getState().fetchChannels();
+        // DM settings (pinned + muted) — channels fetch'ten sonra merge eder
+        useDMStore.getState().fetchDMSettings();
         // Arkadaş listesi ve istekleri çek
         useFriendStore.getState().fetchFriends();
         useFriendStore.getState().fetchRequests();
+        // Engellenen kullanıcıları çek
+        useBlockStore.getState().fetchBlocked();
 
         // Status persistence safety net
         const storedStatus = useAuthStore.getState().manualStatus;
@@ -602,6 +607,25 @@ export function useWebSocket() {
       case "friend_remove":
         useFriendStore.getState().handleFriendRemove(
           msg.d as { user_id: string }
+        );
+        break;
+
+      // ─── DM Settings Events ───
+      case "dm_settings_update":
+        useDMStore.getState().handleDMSettingsUpdate(
+          msg.d as { dm_channel_id: string; action: string }
+        );
+        break;
+
+      // ─── Block Events ───
+      case "user_block":
+        useBlockStore.getState().handleUserBlock(
+          msg.d as { user_id: string; blocked_user_id: string }
+        );
+        break;
+      case "user_unblock":
+        useBlockStore.getState().handleUserUnblock(
+          msg.d as { user_id: string; unblocked_user_id: string }
         );
         break;
 

@@ -28,6 +28,8 @@ type DMChannelWithUser struct {
 	OtherUser     *User      `json:"other_user"`      // Karşı taraf kullanıcı bilgisi
 	CreatedAt     time.Time  `json:"created_at"`
 	LastMessageAt *time.Time `json:"last_message_at"` // Son mesaj aktivitesi — sıralama için
+	IsPinned      bool       `json:"is_pinned"`       // Kullanıcı bu DM'yi sabitledi mi
+	IsMuted       bool       `json:"is_muted"`        // Kullanıcı bu DM'yi sessize aldı mı
 }
 
 // DMMessage, bir DM mesajını temsil eder.

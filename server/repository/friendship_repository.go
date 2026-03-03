@@ -50,4 +50,13 @@ type FriendshipRepository interface {
 
 	// DeleteByPair, iki kullanıcı arasındaki kaydı siler (yön fark etmez).
 	DeleteByPair(ctx context.Context, userID, friendID string) error
+
+	// ListBlocked, kullanıcının engellediği kullanıcıları döner.
+	// user_id = me AND status = 'blocked' — hedef kullanıcı bilgileriyle.
+	ListBlocked(ctx context.Context, userID string) ([]models.FriendshipWithUser, error)
+
+	// IsBlocked, iki kullanıcı arasında herhangi bir yönde engel var mı kontrol eder.
+	// Bidirectional: A→B veya B→A yönünde "blocked" kaydı varsa true döner.
+	// DM mesaj gönderimi ve diğer etkileşimlerde kontrol için kullanılır.
+	IsBlocked(ctx context.Context, userA, userB string) (bool, error)
 }

@@ -239,7 +239,7 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
               if (ch) {
                 channels.push({
                   ...ch,
-                  category_id: targetCatId || undefined,
+                  category_id: targetCatId || null,
                 });
               }
             }

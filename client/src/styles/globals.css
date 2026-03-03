@@ -1467,6 +1467,72 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* Muted server header — bell-slash ikonu veya opacity ile belirtme */
 .ch-tree-server-header.muted .ch-tree-server-name { opacity:.5; }
 
+/* ─── DM Sidebar Indicators ─── */
+.ch-tree-dm.muted .ch-tree-label { opacity:.5; }
+.ch-tree-dm-indicators { display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0; }
+.ch-tree-dm-pin-icon { color:var(--t3);font-size:13px;line-height:1; }
+.ch-tree-dm-mute-icon { color:var(--t3);font-size:13px;line-height:1; }
+
+/* ─── Report Modal ─── */
+.report-overlay { position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6); }
+.report-modal { width:440px;max-width:90vw;max-height:85vh;background:var(--bg-2);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;animation:vpIn .15s ease-out; }
+.report-header { padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between; }
+.report-title { font-family:var(--f-display);font-size:20px;font-weight:700;color:var(--t0); }
+.report-close { width:28px;height:28px;border:none;background:transparent;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:4px;font-size:18px; }
+.report-close:hover { background:var(--bg-h);color:var(--t0); }
+.report-body { padding:16px 24px 24px;overflow-y:auto; }
+.report-field { margin-bottom:16px; }
+.report-label { display:block;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--t2);margin-bottom:8px; }
+.report-reasons { display:flex;flex-direction:column;gap:6px; }
+.report-reason-item { display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--b2);border-radius:6px;background:transparent;cursor:pointer;transition:border-color .1s,background .1s; }
+.report-reason-item:hover { background:var(--bg-h); }
+.report-reason-item.selected { border-color:var(--primary);background:var(--primary-s); }
+.report-reason-radio { width:16px;height:16px;border:2px solid var(--b1);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:border-color .1s; }
+.report-reason-item.selected .report-reason-radio { border-color:var(--primary); }
+.report-reason-radio-dot { width:8px;height:8px;border-radius:50%;background:var(--primary);transform:scale(0);transition:transform .1s; }
+.report-reason-item.selected .report-reason-radio-dot { transform:scale(1); }
+.report-reason-label { font-size:14px;color:var(--t1); }
+.report-textarea { width:100%;min-height:80px;padding:10px 12px;background:var(--bg-3);border:1px solid var(--b2);border-radius:6px;color:var(--t0);font-size:14px;font-family:var(--f-ui);resize:vertical;outline:none;transition:border-color .15s; }
+.report-textarea::placeholder { color:var(--t3); }
+.report-textarea:focus { border-color:var(--primary); }
+.report-actions { display:flex;gap:8px;justify-content:flex-end;margin-top:8px; }
+.report-btn { padding:8px 20px;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:background .12s,opacity .12s; }
+.report-btn-cancel { background:transparent;color:var(--t1);border:1px solid var(--b2); }
+.report-btn-cancel:hover { background:var(--bg-h); }
+.report-btn-submit { background:var(--danger);color:var(--t0); }
+.report-btn-submit:hover { opacity:.9; }
+.report-btn-submit:disabled { opacity:.5;cursor:not-allowed; }
+
+/* ─── DM Profile Card ─── */
+.dm-profile-backdrop { position:fixed;inset:0;z-index:80; }
+.dm-profile-card { position:fixed;z-index:81;width:288px;background:var(--bg-2);border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.5);animation:vpIn .12s ease-out; }
+.dm-profile-banner { height:60px;background:var(--primary-s); }
+.dm-profile-avatar { position:relative;margin-top:-32px;margin-left:16px;margin-bottom:8px; }
+.dm-profile-body { padding:0 16px 16px; }
+.dm-profile-name { font-size:18px;font-weight:700;color:var(--t0); }
+.dm-profile-username { font-size:13px;color:var(--t2);margin-top:2px; }
+.dm-profile-status { font-size:13px;color:var(--t3);margin-top:4px; }
+.dm-profile-divider { height:1px;background:var(--b2);margin:12px 0; }
+.dm-profile-actions { display:flex;gap:8px;flex-wrap:wrap; }
+.dm-profile-btn { flex:1;min-width:0;padding:7px 0;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;text-align:center;transition:opacity .12s; }
+.dm-profile-btn-primary { background:var(--primary);color:var(--t0); }
+.dm-profile-btn-primary:hover { opacity:.9; }
+.dm-profile-btn-secondary { background:var(--bg-3);color:var(--t1);border:1px solid var(--b2); }
+.dm-profile-btn-secondary:hover { background:var(--bg-h); }
+.dm-profile-btn-danger { background:var(--danger);color:var(--t0); }
+.dm-profile-btn-danger:hover { opacity:.9; }
+
+/* ─── Block Confirm Dialog (ContextMenu inline) ─── */
+.block-confirm-overlay { position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6); }
+.block-confirm-modal { width:380px;max-width:90vw;background:var(--bg-2);border-radius:12px;padding:24px;animation:vpIn .15s ease-out; }
+.block-confirm-title { font-family:var(--f-display);font-size:18px;font-weight:700;color:var(--t0);margin-bottom:8px; }
+.block-confirm-msg { font-size:14px;color:var(--t2);line-height:1.5;margin-bottom:20px; }
+.block-confirm-actions { display:flex;gap:8px;justify-content:flex-end; }
+.block-confirm-btn-cancel { padding:8px 20px;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;background:transparent;color:var(--t1);border:1px solid var(--b2); }
+.block-confirm-btn-cancel:hover { background:var(--bg-h); }
+.block-confirm-btn-block { padding:8px 20px;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;background:var(--danger);color:var(--t0);border:none; }
+.block-confirm-btn-block:hover { opacity:.9; }
+
 /* ─── Invite Friends Modal ─── */
 .invite-friends-modal { width:420px;max-width:90vw;max-height:85vh;display:flex;flex-direction:column; }
 .invite-friends-desc { color:var(--t2);font-size:13px;margin-top:4px; }

@@ -89,6 +89,8 @@ function DMChatContent({
 
   const [showPins, setShowPins] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const pendingSearchChannelId = useDMStore((s) => s.pendingSearchChannelId);
+  const setPendingSearchChannelId = useDMStore((s) => s.setPendingSearchChannelId);
 
   // DM tab açıldığında: selectedDMId güncelle + unread sıfırla
   useEffect(() => {
@@ -98,6 +100,14 @@ function DMChatContent({
       selectDM(null);
     };
   }, [channelId, selectDM, clearDMUnread]);
+
+  // Context menu "Mesajlarda Ara" → DM açıldığında search paneli otomatik aç
+  useEffect(() => {
+    if (pendingSearchChannelId === channelId) {
+      setShowSearch(true);
+      setPendingSearchChannelId(null);
+    }
+  }, [pendingSearchChannelId, channelId, setPendingSearchChannelId]);
 
   /** Pin paneli aç/kapa toggle */
   const handleTogglePins = useCallback(() => {

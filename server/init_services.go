@@ -46,6 +46,9 @@ type Services struct {
 	P2PCall           services.P2PCallService
 	MetricsHistory    services.MetricsHistoryService
 	ServerMute        services.ServerMuteService
+	DMSettings        services.DMSettingsService
+	Block             services.BlockService
+	Report            services.ReportService
 	AdminUser         services.AdminUserService
 	AdminServer       services.AdminServerService
 }
@@ -113,11 +116,19 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	pinService := services.NewPinService(repos.Pin, repos.Message, hub)
 	searchService := services.NewSearchService(repos.Search)
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)
-	dmService := services.NewDMService(repos.DM, repos.User, hub)
+	// BlockService — DMService'den ÖNCE (DMService block checker olarak kullanır)
+	blockService := services.NewBlockService(repos.Friendship, repos.User, hub)
+
+	// DMSettingsService — DMService'den ÖNCE (DMService auto-unhide için kullanır)
+	dmSettingsService := services.NewDMSettingsService(repos.DMSettings, repos.DM, hub)
+
+	// DMService — blockService (BlockChecker ISP) ve dmSettingsService (DMSettingsUnhider ISP) alır
+	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, dmSettingsService)
 	dmUploadService := services.NewDMUploadService(repos.DM, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, hub)
 	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
+	reportService := services.NewReportService(repos.Report, repos.User)
 
 	// ─── Platform Admin — User + Server Management ───
 	adminUserService := services.NewAdminUserService(repos.User, hub, voiceService, emailSender)
@@ -158,6 +169,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		P2PCall:           p2pCallService,
 		MetricsHistory:    metricsHistoryService,
 		ServerMute:        serverMuteService,
+		DMSettings:        dmSettingsService,
+		Block:             blockService,
+		Report:            reportService,
 		AdminUser:         adminUserService,
 		AdminServer:       adminServerService,
 	}

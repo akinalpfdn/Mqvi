@@ -84,9 +84,23 @@ func initRoutes(
 	// Upload
 	mux.Handle("POST /api/upload", auth(h.Message.Upload))
 
-	// DMs
+	// DMs — literal path'ler parametric'lerden ÖNCE
+	mux.Handle("GET /api/dms/settings", auth(h.DMSettings.GetSettings))
 	mux.Handle("GET /api/dms", auth(h.DM.ListChannels))
 	mux.Handle("POST /api/dms", auth(h.DM.CreateOrGetChannel))
+
+	// DM Settings — /api/dms/channels/ prefix ile route conflict önlenir.
+	// Go 1.22 ServeMux'ta "DELETE /api/dms/{channelId}/hide" ve
+	// "DELETE /api/dms/messages/{id}" çakışır (her ikisi de /api/dms/messages/hide
+	// eşleşir). "channels" literal segment ekleyerek ambiguity giderilir.
+	mux.Handle("POST /api/dms/channels/{channelId}/hide", auth(h.DMSettings.HideDM))
+	mux.Handle("DELETE /api/dms/channels/{channelId}/hide", auth(h.DMSettings.UnhideDM))
+	mux.Handle("POST /api/dms/channels/{channelId}/pin-conversation", auth(h.DMSettings.PinConversation))
+	mux.Handle("DELETE /api/dms/channels/{channelId}/pin-conversation", auth(h.DMSettings.UnpinConversation))
+	mux.Handle("POST /api/dms/channels/{channelId}/mute", auth(h.DMSettings.MuteDM))
+	mux.Handle("DELETE /api/dms/channels/{channelId}/mute", auth(h.DMSettings.UnmuteDM))
+
+	// DM Messages
 	mux.Handle("GET /api/dms/{channelId}/messages", auth(h.DM.GetMessages))
 	mux.Handle("POST /api/dms/{channelId}/messages", auth(h.DM.SendMessage))
 	mux.Handle("PATCH /api/dms/messages/{id}", auth(h.DM.EditMessage))
@@ -96,6 +110,14 @@ func initRoutes(
 	mux.Handle("DELETE /api/dms/messages/{id}/pin", auth(h.DM.UnpinMessage))
 	mux.Handle("GET /api/dms/{channelId}/pinned", auth(h.DM.GetPinnedMessages))
 	mux.Handle("GET /api/dms/{channelId}/search", auth(h.DM.SearchMessages))
+
+	// Block — literal "blocked" ÖNCE, sonra parametric {userId}
+	mux.Handle("GET /api/users/blocked", auth(h.Block.ListBlocked))
+	mux.Handle("POST /api/users/{userId}/block", auth(h.Block.BlockUser))
+	mux.Handle("DELETE /api/users/{userId}/block", auth(h.Block.UnblockUser))
+
+	// Report
+	mux.Handle("POST /api/users/{userId}/report", auth(h.Report.CreateReport))
 
 	// Friends
 	mux.Handle("GET /api/friends/requests", auth(h.Friendship.ListRequests))

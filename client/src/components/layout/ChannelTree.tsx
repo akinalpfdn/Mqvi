@@ -34,20 +34,27 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useFriendStore } from "../../stores/friendStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
+import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import { resolveAssetUrl } from "../../utils/constants";
+import { resolveAssetUrl, copyToClipboard } from "../../utils/constants";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
 import MuteDurationPicker from "../servers/MuteDurationPicker";
+import DMMuteDurationPicker from "../dm/DMMuteDurationPicker";
+import DMProfileCard from "../dm/DMProfileCard";
+import ReportModal from "../shared/ReportModal";
 import InviteFriendsModal from "../servers/InviteFriendsModal";
 import AddServerModal from "../servers/AddServerModal";
 import CreateChannelModal from "../channels/CreateChannelModal";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useSettingsStore } from "../../stores/settingsStore";
+import type { DMChannelWithUser } from "../../types";
 
 type ChannelTreeProps = {
   onJoinVoice: (channelId: string) => void;
@@ -57,6 +64,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const { t } = useTranslation("common");
   const { t: tVoice } = useTranslation("voice");
   const { t: tServers } = useTranslation("servers");
+  const { t: tDM } = useTranslation("dm");
 
   const toggleSection = useSidebarStore((s) => s.toggleSection);
   const expandSection = useSidebarStore((s) => s.expandSection);
@@ -92,8 +100,33 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const markAllAsRead = useReadStateStore((s) => s.markAllAsRead);
   const openSettings = useSettingsStore((s) => s.openSettings);
 
+  const confirmDialog = useConfirm();
+
   // Server context menu
   const { menuState: serverMenuState, openMenu: openServerMenu, closeMenu: closeServerMenu } = useContextMenu();
+
+  // DM context menu
+  const { menuState: dmMenuState, openMenu: openDMMenu, closeMenu: closeDMMenu } = useContextMenu();
+
+  // DM mute duration picker state
+  const [dmMutePicker, setDmMutePicker] = useState<{
+    channelId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // DM report modal state
+  const [dmReportTarget, setDmReportTarget] = useState<{
+    userId: string;
+    username: string;
+  } | null>(null);
+
+  // DM profile card state
+  const [dmProfileTarget, setDmProfileTarget] = useState<{
+    dm: DMChannelWithUser;
+    top: number;
+    left: number;
+  } | null>(null);
 
   // Mute duration picker state
   const [mutePicker, setMutePicker] = useState<{
@@ -126,9 +159,23 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const dmUnreadCounts = useDMStore((s) => s.dmUnreadCounts);
   const clearDMUnread = useDMStore((s) => s.clearDMUnread);
   const fetchMessages = useDMStore((s) => s.fetchMessages);
+  const hideDM = useDMStore((s) => s.hideDM);
+  const pinDM = useDMStore((s) => s.pinDM);
+  const unpinDM = useDMStore((s) => s.unpinDM);
+  const unmuteDM = useDMStore((s) => s.unmuteDM);
+  const setPendingSearchChannelId = useDMStore((s) => s.setPendingSearchChannelId);
 
   const friends = useFriendStore((s) => s.friends);
   const incoming = useFriendStore((s) => s.incoming);
+  const outgoing = useFriendStore((s) => s.outgoing);
+  const sendFriendRequest = useFriendStore((s) => s.sendRequest);
+  const removeFriend = useFriendStore((s) => s.removeFriend);
+  const acceptFriendRequest = useFriendStore((s) => s.acceptRequest);
+  const declineFriendRequest = useFriendStore((s) => s.declineRequest);
+  const isBlocked = useBlockStore((s) => s.isBlocked);
+  const blockUser = useBlockStore((s) => s.blockUser);
+  const unblockUser = useBlockStore((s) => s.unblockUser);
+  const initiateCall = useP2PCallStore((s) => s.initiateCall);
 
   const currentUser = useAuthStore((s) => s.user);
   const members = useMemberStore((s) => s.members);
@@ -578,6 +625,158 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     fetchMessages(dmId);
   }
 
+  /**
+   * handleDMContextMenu — DM sağ tık context menu.
+   *
+   * 11 özellik: Profil, Kapat, Okundu İşaretle, Engelle/Kaldır,
+   * Sabitle/Kaldır, Mesajlarda Ara, Sessize Al/Kaldır,
+   * Arkadaş Ekle/Çıkar, Rapor Et, Sesli Arama, ID Kopyala.
+   */
+  function handleDMContextMenu(e: React.MouseEvent, dm: DMChannelWithUser) {
+    const user = dm.other_user;
+    const name = user.display_name || user.username;
+    const unread = dmUnreadCounts[dm.id] ?? 0;
+    const blocked = isBlocked(user.id);
+    const isFriend = friends.some((f) => f.user_id === user.id);
+    const outReq = outgoing.find((r) => r.user_id === user.id);
+    const inReq = incoming.find((r) => r.user_id === user.id);
+
+    const items: ContextMenuItem[] = [
+      // 1. Profili Görüntüle
+      {
+        label: tDM("viewProfile"),
+        onClick: () => {
+          const rect = (e.target as HTMLElement).getBoundingClientRect();
+          setDmProfileTarget({ dm, top: rect.top, left: rect.right + 8 });
+        },
+      },
+      // 2. Sesli Arama
+      {
+        label: tDM("voiceCall"),
+        onClick: () => {
+          initiateCall(user.id, "voice");
+        },
+      },
+      // 3. Mesajlarda Ara
+      {
+        label: tDM("searchInMessages"),
+        onClick: () => {
+          // DM'i aç + search panel tetikle
+          handleDMClick(dm.id, name);
+          setPendingSearchChannelId(dm.id);
+        },
+        separator: true,
+      },
+      // 4. Okundu İşaretle
+      {
+        label: tDM("markAsRead"),
+        onClick: () => clearDMUnread(dm.id),
+        disabled: unread === 0,
+      },
+      // 5. Sohbeti Sabitle / Kaldır
+      {
+        label: dm.is_pinned ? tDM("unpinConversation") : tDM("pinConversation"),
+        onClick: () => {
+          if (dm.is_pinned) {
+            unpinDM(dm.id);
+          } else {
+            pinDM(dm.id);
+          }
+        },
+      },
+      // 6. Sessize Al / Kaldır
+      {
+        label: dm.is_muted ? tDM("unmuteDM") : tDM("muteDM"),
+        onClick: () => {
+          if (dm.is_muted) {
+            unmuteDM(dm.id);
+          } else {
+            // Duration picker göster
+            setDmMutePicker({ channelId: dm.id, x: e.clientX, y: e.clientY });
+          }
+        },
+      },
+      // 7. DM'yi Kapat
+      {
+        label: tDM("closeDM"),
+        onClick: () => hideDM(dm.id),
+        separator: true,
+      },
+    ];
+
+    // 8. Arkadaş durumuna göre aksiyon
+    if (isFriend) {
+      items.push({
+        label: tDM("removeFriend"),
+        onClick: () => removeFriend(user.id),
+        danger: true,
+        separator: true,
+      });
+    } else if (inReq) {
+      items.push({
+        label: tDM("acceptRequest"),
+        onClick: () => acceptFriendRequest(inReq.id),
+        separator: true,
+      });
+    } else if (outReq) {
+      items.push({
+        label: tDM("cancelRequest"),
+        onClick: () => declineFriendRequest(outReq.id),
+        separator: true,
+      });
+    } else {
+      items.push({
+        label: tDM("addFriend"),
+        onClick: () => {
+          sendFriendRequest(user.username);
+          addToast("success", tDM("friendRequestSent"));
+        },
+        separator: true,
+      });
+    }
+
+    // 9. Engelle / Engeli Kaldır
+    if (blocked) {
+      items.push({
+        label: tDM("unblockUser"),
+        onClick: () => unblockUser(user.id),
+      });
+    } else {
+      items.push({
+        label: tDM("blockUser"),
+        onClick: async () => {
+          const ok = await confirmDialog({
+            title: tDM("blockConfirmTitle", { username: name }),
+            message: tDM("blockConfirmMessage"),
+            confirmLabel: tDM("blockConfirmButton"),
+            danger: true,
+          });
+          if (ok) blockUser(user.id);
+        },
+        danger: true,
+      });
+    }
+
+    // 10. Rapor Et
+    items.push({
+      label: tDM("reportUser"),
+      onClick: () => setDmReportTarget({ userId: user.id, username: name }),
+      danger: true,
+    });
+
+    // 11. Kullanıcı ID'sini Kopyala
+    items.push({
+      label: tDM("copyUserId"),
+      onClick: async () => {
+        await copyToClipboard(user.id);
+        addToast("success", tDM("userIdCopied"));
+      },
+      separator: true,
+    });
+
+    openDMMenu(e, items);
+  }
+
   function handleFriendsClick() {
     openTab("friends", "friends", t("friends"));
   }
@@ -766,8 +965,9 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                 return (
                   <button
                     key={dm.id}
-                    className={`ch-tree-item ch-tree-dm${isActive ? " active" : ""}${unread > 0 ? " has-unread" : ""}`}
+                    className={`ch-tree-item ch-tree-dm${isActive ? " active" : ""}${unread > 0 ? " has-unread" : ""}${dm.is_muted ? " muted" : ""}`}
                     onClick={() => handleDMClick(dm.id, name)}
+                    onContextMenu={(e) => handleDMContextMenu(e, dm)}
                   >
                     <Avatar
                       name={name}
@@ -776,9 +976,11 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                       isCircle
                     />
                     <span className="ch-tree-label">{name}</span>
-                    {unread > 0 && (
-                      <span className="ch-tree-badge">{unread}</span>
-                    )}
+                    <span className="ch-tree-dm-indicators">
+                      {dm.is_pinned && <span className="ch-tree-dm-pin-icon" title={tDM("pinConversation")}>📌</span>}
+                      {dm.is_muted && <span className="ch-tree-dm-mute-icon" title={tDM("muteDM")}>🔇</span>}
+                      {unread > 0 && <span className="ch-tree-badge">{unread}</span>}
+                    </span>
                   </button>
                 );
               })
@@ -1074,6 +1276,37 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       {showAddServer && (
         <AddServerModal
           onClose={() => setShowAddServer(false)}
+        />
+      )}
+
+      {/* DM Context Menu — sağ tık menüsü */}
+      <ContextMenu state={dmMenuState} onClose={closeDMMenu} />
+
+      {/* DM Mute Duration Picker */}
+      {dmMutePicker && (
+        <DMMuteDurationPicker
+          channelId={dmMutePicker.channelId}
+          x={dmMutePicker.x}
+          y={dmMutePicker.y}
+          onClose={() => setDmMutePicker(null)}
+        />
+      )}
+
+      {/* DM Report Modal */}
+      {dmReportTarget && (
+        <ReportModal
+          userId={dmReportTarget.userId}
+          username={dmReportTarget.username}
+          onClose={() => setDmReportTarget(null)}
+        />
+      )}
+
+      {/* DM Profile Card */}
+      {dmProfileTarget && (
+        <DMProfileCard
+          dm={dmProfileTarget.dm}
+          position={{ top: dmProfileTarget.top, left: dmProfileTarget.left }}
+          onClose={() => setDmProfileTarget(null)}
         />
       )}
 

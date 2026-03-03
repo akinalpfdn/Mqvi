@@ -232,6 +232,41 @@ func (r *sqliteFriendshipRepo) DeleteByPair(ctx context.Context, userID, friendI
 	return nil
 }
 
+// ListBlocked, kullanıcının engellediği kullanıcıları döner.
+// user_id = me AND status = 'blocked' — hedef kullanıcının bilgileri JOIN ile gelir.
+func (r *sqliteFriendshipRepo) ListBlocked(ctx context.Context, userID string) ([]models.FriendshipWithUser, error) {
+	query := `
+		SELECT f.id, f.status, f.created_at,
+		       u.id, u.username, COALESCE(u.display_name, ''), u.avatar_url, u.status, u.custom_status
+		FROM friendships f
+		JOIN users u ON u.id = f.friend_id
+		WHERE f.user_id = ? AND f.status = 'blocked'
+		ORDER BY f.created_at DESC
+	`
+
+	return r.scanFriendshipList(ctx, query, userID)
+}
+
+// IsBlocked, iki kullanıcı arasında herhangi bir yönde engel var mı kontrol eder.
+// Bidirectional: A→B veya B→A yönünde "blocked" kaydı varsa true döner.
+//
+// DM mesaj gönderimi sırasında çağrılır — A bloklamışsa B'nin mesaj göndermesi de engellenir.
+func (r *sqliteFriendshipRepo) IsBlocked(ctx context.Context, userA, userB string) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM friendships
+			WHERE status = 'blocked'
+			  AND ((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?))
+		)`
+
+	var exists bool
+	err := r.db.QueryRowContext(ctx, query, userA, userB, userB, userA).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("friendship is blocked check: %w", err)
+	}
+	return exists, nil
+}
+
 // scanFriendshipList, ortak scan mantığını paylaşan yardımcı metod.
 // ListIncoming ve ListOutgoing aynı column set'ini döner — DRY prensibi.
 func (r *sqliteFriendshipRepo) scanFriendshipList(ctx context.Context, query string, userID string) ([]models.FriendshipWithUser, error) {

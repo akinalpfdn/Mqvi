@@ -51,21 +51,29 @@ type DMService interface {
 }
 
 type dmService struct {
-	dmRepo   repository.DMRepository
-	userRepo repository.UserRepository
-	hub      ws.Broadcaster
+	dmRepo       repository.DMRepository
+	userRepo     repository.UserRepository
+	hub          ws.Broadcaster
+	blockChecker BlockChecker      // ISP — block kontrolü için minimal interface
+	unhider      DMSettingsUnhider // ISP — auto-unhide için minimal interface
 }
 
 // NewDMService, constructor.
+// blockChecker: DM mesaj gönderiminde block kontrolü (bidirectional).
+// unhider: Yeni mesaj geldiğinde hidden DM'yi otomatik gösterir.
 func NewDMService(
 	dmRepo repository.DMRepository,
 	userRepo repository.UserRepository,
 	hub ws.Broadcaster,
+	blockChecker BlockChecker,
+	unhider DMSettingsUnhider,
 ) DMService {
 	return &dmService{
-		dmRepo:   dmRepo,
-		userRepo: userRepo,
-		hub:      hub,
+		dmRepo:       dmRepo,
+		userRepo:     userRepo,
+		hub:          hub,
+		blockChecker: blockChecker,
+		unhider:      unhider,
 	}
 }
 
@@ -309,8 +317,24 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 	}
 
 	// Yetki kontrolü
-	if _, err := s.verifyChannelMembership(ctx, userID, channelID); err != nil {
+	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
+	if err != nil {
 		return nil, err
+	}
+
+	// Block kontrolü — bidirectional: A→B veya B→A yönünde engel varsa mesaj engelle
+	if s.blockChecker != nil {
+		otherUserID := channel.User1ID
+		if channel.User1ID == userID {
+			otherUserID = channel.User2ID
+		}
+		blocked, err := s.blockChecker.IsBlocked(ctx, userID, otherUserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check block status: %w", err)
+		}
+		if blocked {
+			return nil, fmt.Errorf("%w: cannot send message to blocked user", pkg.ErrForbidden)
+		}
 	}
 
 	// Reply validasyonu — referans mesaj aynı DM kanalında mı?
@@ -369,6 +393,17 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 	// Null protection — JSON'da null yerine [] döner
 	msg.Attachments = []models.DMAttachment{}
 	msg.Reactions = []models.ReactionGroup{}
+
+	// Auto-unhide: Alıcı bu DM'yi gizlemişse, yeni mesaj gelince otomatik göster.
+	// Best-effort — hata mesaj gönderimini engellemez.
+	if s.unhider != nil {
+		otherUserID := channel.User1ID
+		if channel.User1ID == userID {
+			otherUserID = channel.User2ID
+		}
+		// Hata yutma — auto-unhide kritik değil, mesaj zaten gönderildi
+		_ = s.unhider.UnhideForNewMessage(ctx, otherUserID, channelID)
+	}
 
 	return msg, nil
 }

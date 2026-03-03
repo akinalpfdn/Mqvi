@@ -33,6 +33,7 @@ import enSettings from "./locales/en/settings.json";
 import enVoice from "./locales/en/voice.json";
 import enLanding from "./locales/en/landing.json";
 import enServers from "./locales/en/servers.json";
+import enDM from "./locales/en/dm.json";
 
 // ─── TR Translation Files ───
 import trCommon from "./locales/tr/common.json";
@@ -43,6 +44,7 @@ import trSettings from "./locales/tr/settings.json";
 import trVoice from "./locales/tr/voice.json";
 import trLanding from "./locales/tr/landing.json";
 import trServers from "./locales/tr/servers.json";
+import trDM from "./locales/tr/dm.json";
 
 /** Desteklenen diller */
 export const SUPPORTED_LANGUAGES = {
@@ -70,6 +72,7 @@ i18n
         voice: enVoice,
         landing: enLanding,
         servers: enServers,
+        dm: enDM,
       },
       tr: {
         common: trCommon,
@@ -80,6 +83,7 @@ i18n
         voice: trVoice,
         landing: trLanding,
         servers: trServers,
+        dm: trDM,
       },
     },
 
@@ -88,7 +92,7 @@ i18n
 
     // Varsayılan namespace — t("save") → common namespace'inden arar
     defaultNS: "common",
-    ns: ["common", "auth", "channels", "chat", "settings", "voice", "landing", "servers"],
+    ns: ["common", "auth", "channels", "chat", "settings", "voice", "landing", "servers", "dm"],
 
     interpolation: {
       // React zaten XSS koruması sağlıyor, çift escape'e gerek yok

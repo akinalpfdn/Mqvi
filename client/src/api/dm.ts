@@ -127,6 +127,45 @@ export function getDMPinnedMessages(channelId: string) {
   return apiClient<DMMessage[]>(`/dms/${channelId}/pinned`);
 }
 
+// ─── DM Settings ───
+
+/** Pinned + muted DM ID'leri (initial load). */
+export type DMSettingsResponse = {
+  pinned_channel_ids: string[];
+  muted_channel_ids: string[];
+};
+
+export function getDMSettings() {
+  return apiClient<DMSettingsResponse>("/dms/settings");
+}
+
+export function hideDM(channelId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/hide`, { method: "POST" });
+}
+
+export function unhideDM(channelId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/hide`, { method: "DELETE" });
+}
+
+export function pinDMConversation(channelId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/pin-conversation`, { method: "POST" });
+}
+
+export function unpinDMConversation(channelId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/pin-conversation`, { method: "DELETE" });
+}
+
+export function muteDM(channelId: string, duration: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/mute`, {
+    method: "POST",
+    body: { duration },
+  });
+}
+
+export function unmuteDM(channelId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/mute`, { method: "DELETE" });
+}
+
 // ─── Search ───
 
 /** DM arama sonucu tipi — mesajlar + toplam sayı (pagination için). */

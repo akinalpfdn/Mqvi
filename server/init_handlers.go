@@ -33,6 +33,9 @@ type Handlers struct {
 	Stats             *handlers.StatsHandler
 	Admin             *handlers.AdminHandler
 	ServerMute        *handlers.ServerMuteHandler
+	DMSettings        *handlers.DMSettingsHandler
+	Block             *handlers.BlockHandler
+	Report            *handlers.ReportHandler
 	WS                *ws.Handler
 }
 
@@ -59,6 +62,9 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Stats:             handlers.NewStatsHandler(repos.User),
 		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer),
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
+		DMSettings:        handlers.NewDMSettingsHandler(svcs.DMSettings),
+		Block:             handlers.NewBlockHandler(svcs.Block),
+		Report:            handlers.NewReportHandler(svcs.Report),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute),
 	}
 }
