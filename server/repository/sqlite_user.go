@@ -523,3 +523,24 @@ func (r *sqliteUserRepo) HardDeleteUser(ctx context.Context, userID string) erro
 
 	return nil
 }
+
+// SetPlatformAdmin, kullanıcının platform admin durumunu günceller.
+func (r *sqliteUserRepo) SetPlatformAdmin(ctx context.Context, userID string, isAdmin bool) error {
+	result, err := r.db.ExecContext(ctx,
+		"UPDATE users SET is_platform_admin = ? WHERE id = ?",
+		isAdmin, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set platform admin: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+
+	return nil
+}

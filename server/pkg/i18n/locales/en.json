@@ -69,6 +69,8 @@
     "cannotDeleteAdmin": "Cannot delete a platform admin",
     "userDeleted": "User has been deleted",
     "serverDeletedByAdmin": "Server has been deleted by admin",
-    "serverNotFound": "Server not found"
+    "serverNotFound": "Server not found",
+    "cannotModifyOwnAdmin": "Cannot modify your own admin status",
+    "adminStatusUpdated": "Admin status updated"
   }
 }

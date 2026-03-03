@@ -361,6 +361,12 @@
   "platformDeleteConfirm": "Kullanıcıyı Sil",
   "platformDeleteSuccess": "{{username}} silindi",
   "platformDeleteError": "Kullanıcı silinirken hata oluştu",
+  "platformUserMakeAdmin": "Platform Admini Yap",
+  "platformUserRemoveAdmin": "Admin Yetkisini Kaldır",
+  "platformMakeAdminConfirm": "{{username}} kullanıcısını platform admini yapmak istediğinizden emin misiniz? Tam platform yönetim yetkisine sahip olacak.",
+  "platformRemoveAdminConfirm": "{{username}} kullanıcısının platform admin yetkisini kaldırmak istediğinizden emin misiniz?",
+  "platformAdminSuccess": "Admin durumu güncellendi",
+  "platformAdminError": "Admin durumu güncellenirken hata oluştu",
 
   "platformServerDelete": "Sunucuyu Sil",
   "platformServerSendDMOwner": "Sahibine Mesaj Gönder",

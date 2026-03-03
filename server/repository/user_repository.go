@@ -79,4 +79,9 @@ type UserRepository interface {
 	// HardDeleteUser, kullanıcıyı ve CASCADE ile tüm ilişkili verileri kalıcı olarak siler.
 	// servers.owner_id CASCADE olmadığından, sahip olunan sunucular önceden temizlenmelidir.
 	HardDeleteUser(ctx context.Context, userID string) error
+
+	// ─── Platform Admin ───
+
+	// SetPlatformAdmin, kullanıcının platform admin durumunu günceller.
+	SetPlatformAdmin(ctx context.Context, userID string, isAdmin bool) error
 }

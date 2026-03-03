@@ -17,8 +17,9 @@ import { useAuthStore } from "../../stores/authStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
-import { listAdminUsers, platformBanUser, hardDeleteUser } from "../../api/admin";
+import { listAdminUsers, platformBanUser, hardDeleteUser, setUserPlatformAdmin } from "../../api/admin";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { useConfirm } from "../../hooks/useConfirm";
 import ContextMenu from "../shared/ContextMenu";
 import PlatformBanDialog from "./PlatformBanDialog";
 import PlatformActionDialog from "./PlatformActionDialog";
@@ -154,6 +155,7 @@ function AdminUserList() {
   const addToast = useToastStore((s) => s.addToast);
   const currentUser = useAuthStore((s) => s.user);
   const { menuState, openMenu, closeMenu } = useContextMenu();
+  const confirm = useConfirm();
 
   // ─── Data state ───
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
@@ -249,6 +251,17 @@ function AdminUserList() {
       });
     }
 
+    // Admin toggle — kendinde gösterme (adminsiz kalma riski)
+    if (!isMe) {
+      items.push({
+        label: user.is_platform_admin
+          ? t("platformUserRemoveAdmin")
+          : t("platformUserMakeAdmin"),
+        separator: items.length > 0,
+        onClick: () => handleAdminToggle(user),
+      });
+    }
+
     // Kullanıcıyı Yasakla — kendi satırında ve zaten banlı ise gösterme
     if (!isMe && !user.is_platform_banned) {
       items.push({
@@ -295,6 +308,25 @@ function AdminUserList() {
       await refetchUsers();
     } else {
       addToast("error", res.error ?? t("platformBanError"));
+    }
+  }
+
+  /** Admin toggle — useConfirm ile basit onay dialogu */
+  async function handleAdminToggle(user: AdminUserListItem) {
+    const willBeAdmin = !user.is_platform_admin;
+    const message = willBeAdmin
+      ? t("platformMakeAdminConfirm", { username: user.username })
+      : t("platformRemoveAdminConfirm", { username: user.username });
+
+    const ok = await confirm({ message, danger: !willBeAdmin });
+    if (!ok) return;
+
+    const res = await setUserPlatformAdmin(user.id, { is_admin: willBeAdmin });
+    if (res.success) {
+      addToast("success", t("platformAdminSuccess"));
+      await refetchUsers();
+    } else {
+      addToast("error", res.error ?? t("platformAdminError"));
     }
   }
 

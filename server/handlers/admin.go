@@ -284,6 +284,36 @@ func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user deleted"})
 }
 
+// SetUserPlatformAdmin — PATCH /api/admin/users/{id}/platform-admin
+// Kullanıcının platform admin durumunu günceller.
+// Body: { "is_admin": true/false }
+func (h *AdminHandler) SetUserPlatformAdmin(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	targetID := r.PathValue("id")
+	if targetID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+
+	var req models.SetPlatformAdminRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.adminUserService.SetPlatformAdmin(r.Context(), admin.ID, targetID, req.IsAdmin); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "admin status updated"})
+}
+
 // AdminDeleteServer — DELETE /api/admin/servers/{serverId}
 // Sunucuyu platform admin yetkisiyle kalıcı olarak siler.
 // Opsiyonel request body: { "reason": "..." } — doldurulursa sunucu sahibine email bildirim gönderilir.

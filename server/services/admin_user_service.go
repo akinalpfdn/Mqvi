@@ -32,6 +32,7 @@ import (
 type AdminUserService interface {
 	PlatformBanUser(ctx context.Context, adminUserID, targetUserID, reason string, deleteMessages bool) error
 	HardDeleteUser(ctx context.Context, adminUserID, targetUserID, reason string) error
+	SetPlatformAdmin(ctx context.Context, adminUserID, targetUserID string, isAdmin bool) error
 }
 
 type adminUserService struct {
@@ -172,6 +173,27 @@ func (s *adminUserService) HardDeleteUser(ctx context.Context, adminUserID, targ
 	// DB'den kalıcı silme
 	if err := s.userRepo.HardDeleteUser(ctx, targetUserID); err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
+	}
+
+	return nil
+}
+
+// SetPlatformAdmin, hedef kullanıcının platform admin durumunu günceller.
+//
+// Güvenlik kontrolleri:
+//   - Admin kendini değiştiremez (adminsiz kalma riski)
+//   - Hedef kullanıcı mevcut olmalı
+func (s *adminUserService) SetPlatformAdmin(ctx context.Context, adminUserID, targetUserID string, isAdmin bool) error {
+	if adminUserID == targetUserID {
+		return fmt.Errorf("%w: cannot modify your own admin status", pkg.ErrBadRequest)
+	}
+
+	if _, err := s.userRepo.GetByID(ctx, targetUserID); err != nil {
+		return fmt.Errorf("target user not found: %w", err)
+	}
+
+	if err := s.userRepo.SetPlatformAdmin(ctx, targetUserID, isAdmin); err != nil {
+		return fmt.Errorf("failed to update admin status: %w", err)
 	}
 
 	return nil

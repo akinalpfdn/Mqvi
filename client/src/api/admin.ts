@@ -127,6 +127,17 @@ export async function adminDeleteServer(
   });
 }
 
+/** Kullanıcının platform admin durumunu günceller (admin). */
+export async function setUserPlatformAdmin(
+  userId: string,
+  data: { is_admin: boolean }
+) {
+  return apiClient<{ message: string }>(`/admin/users/${userId}/platform-admin`, {
+    method: "PATCH",
+    body: data,
+  });
+}
+
 /** Tek bir sunucunun LiveKit instance'ını değiştirir (admin). */
 export async function migrateServerInstance(
   serverId: string,

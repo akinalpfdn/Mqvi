@@ -63,6 +63,11 @@ type AdminDeleteServerRequest struct {
 	Reason string `json:"reason"`
 }
 
+// SetPlatformAdminRequest — Platform admin durumunu güncelleme isteği.
+type SetPlatformAdminRequest struct {
+	IsAdmin bool `json:"is_admin"`
+}
+
 // MigrateServerInstanceRequest — Tek bir sunucunun LiveKit instance'ını değiştirme isteği.
 type MigrateServerInstanceRequest struct {
 	LiveKitInstanceID string `json:"livekit_instance_id"`

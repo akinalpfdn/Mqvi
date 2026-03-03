@@ -69,6 +69,8 @@
     "cannotDeleteAdmin": "Platform yöneticisi silinemez",
     "userDeleted": "Kullanıcı silindi",
     "serverDeletedByAdmin": "Sunucu admin tarafından silindi",
-    "serverNotFound": "Sunucu bulunamadı"
+    "serverNotFound": "Sunucu bulunamadı",
+    "cannotModifyOwnAdmin": "Kendi admin durumunuzu değiştiremezsiniz",
+    "adminStatusUpdated": "Admin durumu güncellendi"
   }
 }

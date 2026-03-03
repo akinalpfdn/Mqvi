@@ -361,6 +361,12 @@
   "platformDeleteConfirm": "Delete User",
   "platformDeleteSuccess": "{{username}} has been deleted",
   "platformDeleteError": "Failed to delete user",
+  "platformUserMakeAdmin": "Make Platform Admin",
+  "platformUserRemoveAdmin": "Remove Platform Admin",
+  "platformMakeAdminConfirm": "Make {{username}} a platform admin? They will have full platform management access.",
+  "platformRemoveAdminConfirm": "Remove {{username}}'s platform admin status?",
+  "platformAdminSuccess": "Admin status updated",
+  "platformAdminError": "Failed to update admin status",
 
   "platformServerDelete": "Delete Server",
   "platformServerSendDMOwner": "Send DM to Owner",
