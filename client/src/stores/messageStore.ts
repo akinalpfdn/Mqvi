@@ -15,6 +15,7 @@ import i18n from "../i18n";
 import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
 import { useServerStore } from "./serverStore";
+import { useReadStateStore } from "./readStateStore";
 import { useToastStore } from "./toastStore";
 import type { Message, ReactionGroup } from "../types";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
@@ -108,11 +109,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     if (res.success && res.data) {
       fetchedChannels.add(channelId);
 
-      set((state) => {
-        // Backend boş kanalda messages: null dönebilir (Go nil slice → JSON null).
-        // Null üzerinde .map() crash eder — boş array'e fallback.
-        const apiMessages = res.data!.messages ?? [];
+      // Backend boş kanalda messages: null dönebilir (Go nil slice → JSON null).
+      // Null üzerinde .map() crash eder — boş array'e fallback.
+      const apiMessages = res.data.messages ?? [];
 
+      set((state) => {
         // Fetch sırasında WS'den buffer'lanmış mesajları al.
         // API response'ta olmayan WS mesajlarını sonuna ekle (daha yeni oldukları için).
         const buffered = state.messagesByChannel[channelId] ?? [];
@@ -131,6 +132,16 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           isLoading: false,
         };
       });
+
+      // Mesajlar yüklendikten sonra auto-mark-read:
+      // Tüm mesajların (API + WS buffer) en sonuncusu ile backend'e bildir.
+      // AppLayout'taki useEffect mesajlar yüklenmeden çalışabilir, bu yüzden
+      // burada tekrar kontrol ediyoruz.
+      const allMessages = get().messagesByChannel[channelId];
+      if (allMessages && allMessages.length > 0) {
+        const lastMsg = allMessages[allMessages.length - 1];
+        useReadStateStore.getState().markAsRead(channelId, lastMsg.id);
+      }
     } else {
       set({ isLoading: false });
     }

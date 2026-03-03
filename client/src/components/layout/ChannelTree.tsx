@@ -1343,14 +1343,11 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     const isDragging = dragChannelIdRef.current === ch.id;
                     const dropPos = dropIndicator?.channelId === ch.id ? dropIndicator.position : null;
 
-                    // Mute visual logic
+                    // Mute visual logic — muted kanallar soluk gösterilir
                     const isServerMuted = mutedServerIds.has(srv.id);
                     const isChannelMuted = mutedChannelIds.has(ch.id);
                     const isEffectivelyMuted = isServerMuted || isChannelMuted;
-                    // Muted + unread → hafifçe daha parlak (opacity .7)
-                    const mutedClass = isEffectivelyMuted
-                      ? (unread > 0 ? " muted-unread" : " muted")
-                      : "";
+                    const mutedClass = isEffectivelyMuted ? " muted" : "";
 
                     return (
                       <div

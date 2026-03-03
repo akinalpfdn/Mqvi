@@ -173,9 +173,6 @@ button { font-family:inherit; }
 /* Muted channel — server muted veya channel muted */
 .ch-tree-item.muted .ch-tree-label,
 .ch-tree-item.muted .ch-tree-icon { opacity:.5; }
-/* Muted channel with unread — hafifçe daha parlak */
-.ch-tree-item.muted-unread .ch-tree-label,
-.ch-tree-item.muted-unread .ch-tree-icon { opacity:.7; }
 /* Inline rename input — category ve channel adı düzenleme */
 .ch-tree-inline-rename { flex:1;background:var(--bg-1);border:1px solid var(--primary);border-radius:3px;color:var(--t0);font-size:14px;padding:2px 6px;outline:none;min-width:0; }
 .ch-tree-dm { padding-left:16px; }

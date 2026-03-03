@@ -228,17 +228,17 @@ export function useWebSocket() {
           // Aktif text kanalına gelen mesaj — watermark'ı güncelle (fire-and-forget)
           useReadStateStore.getState().markAsRead(message.channel_id, message.id);
         } else {
-          useReadStateStore.getState().incrementUnread(message.channel_id);
-
-          // Muted server/channel kontrolü — sessize alınan sunucu veya kanaldan
-          // gelen mesajlar için bildirim sesi ve pencere flash'ı bastırılır.
-          // Unread sayacı yine artırılır (backend tracking) — sadece göstergeler gizlenir.
+          // Muted server/channel kontrolü — muted ise hiçbir şey yapma:
+          // unread artırma, ses çalma, pencere flash yok.
           const activeServerId = useServerStore.getState().activeServerId;
           const isServerMuted = activeServerId
             ? useServerStore.getState().isServerMuted(activeServerId)
             : false;
           const isChannelMuted = useChannelStore.getState().mutedChannelIds.has(message.channel_id);
-          if (!isServerMuted && !isChannelMuted) {
+          const isEffectivelyMuted = isServerMuted || isChannelMuted;
+
+          if (!isEffectivelyMuted) {
+            useReadStateStore.getState().incrementUnread(message.channel_id);
             playNotificationSound();
             window.electronAPI?.flashFrame();
           }

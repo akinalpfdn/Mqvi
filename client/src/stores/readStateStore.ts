@@ -14,6 +14,7 @@
 import { create } from "zustand";
 import * as readStateApi from "../api/readState";
 import { useServerStore } from "./serverStore";
+import { useChannelStore } from "./channelStore";
 
 type ReadStateState = {
   /** Kanal bazlı okunmamış mesaj sayıları: channelId → count */
@@ -58,8 +59,18 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
       // backend zaten o mesajı saydı (count'a dahil), veya mesaj
       // fetchUnreadCounts'un backend'e gittiği andan sonra geldi ki bu
       // durumda WS event'i ile incrementUnread zaten çalışacak.
+      // Muted kanalları filtrele — sessiz kanallarda unread gösterilmez.
+      const mutedChannelIds = useChannelStore.getState().mutedChannelIds;
+      const mutedServerIds = useServerStore.getState().mutedServerIds;
+      const activeServerId = useServerStore.getState().activeServerId;
+      const isServerMuted = activeServerId ? mutedServerIds.has(activeServerId) : false;
+
       const counts: Record<string, number> = {};
       for (const info of res.data) {
+        // Server muted ise tüm kanallar muted — hiçbir unread gösterme
+        if (isServerMuted) continue;
+        // Kanal muted ise o kanalın unread'ini atla
+        if (mutedChannelIds.has(info.channel_id)) continue;
         counts[info.channel_id] = info.unread_count;
       }
       set({ unreadCounts: counts });
