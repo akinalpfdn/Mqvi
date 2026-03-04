@@ -51,6 +51,7 @@ import {
 import { playJoinSound, playLeaveSound, playNotificationSound } from "../utils/sounds";
 import { useE2EEStore } from "../stores/e2eeStore";
 import { decryptDMMessage } from "../crypto/dmEncryption";
+import { decryptChannelMessage } from "../crypto/channelEncryption";
 import type {
   WSMessage,
   Channel,
@@ -208,7 +209,29 @@ export function useWebSocket() {
 
       // ─── Message Events ───
       case "message_create": {
-        const message = msg.d as Message;
+        let message = msg.d as Message;
+
+        // E2EE decryption — sifreli mesajlari coz
+        if (message.encryption_version === 1 && message.ciphertext && message.sender_device_id) {
+          try {
+            const plaintext = await decryptChannelMessage(
+              message.user_id,
+              message.channel_id,
+              message.ciphertext,
+              message.sender_device_id
+            );
+            message = { ...message, content: plaintext };
+          } catch (err) {
+            console.error("[useWebSocket] Channel message decryption failed:", err);
+            message = { ...message, content: null };
+            useE2EEStore.getState().addDecryptionError({
+              messageId: message.id,
+              channelId: message.channel_id,
+              error: err instanceof Error ? err.message : "Decryption failed",
+              timestamp: Date.now(),
+            });
+          }
+        }
 
         // Görme yetkisi kontrolü: channelStore sadece ViewChannel yetkisi olan
         // kanalları içerir (backend filtreler). Mesajın geldiği kanal store'da
@@ -262,9 +285,28 @@ export function useWebSocket() {
         }
         break;
       }
-      case "message_update":
-        useMessageStore.getState().handleMessageUpdate(msg.d as Message);
+      case "message_update": {
+        let updatedMsg = msg.d as Message;
+
+        // E2EE decryption — sifreli mesaj guncellemesini coz
+        if (updatedMsg.encryption_version === 1 && updatedMsg.ciphertext && updatedMsg.sender_device_id) {
+          try {
+            const plaintext = await decryptChannelMessage(
+              updatedMsg.user_id,
+              updatedMsg.channel_id,
+              updatedMsg.ciphertext,
+              updatedMsg.sender_device_id
+            );
+            updatedMsg = { ...updatedMsg, content: plaintext };
+          } catch (err) {
+            console.error("[useWebSocket] Channel message update decryption failed:", err);
+            updatedMsg = { ...updatedMsg, content: null };
+          }
+        }
+
+        useMessageStore.getState().handleMessageUpdate(updatedMsg);
         break;
+      }
       case "message_delete": {
         const delData = msg.d as { id: string; channel_id: string };
 

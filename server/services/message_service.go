@@ -187,9 +187,18 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	}
 
 	message := &models.Message{
-		ChannelID: channelID,
-		UserID:    userID,
-		Content:   &req.Content,
+		ChannelID:         channelID,
+		UserID:            userID,
+		EncryptionVersion: req.EncryptionVersion,
+		Ciphertext:        req.Ciphertext,
+		SenderDeviceID:    req.SenderDeviceID,
+		E2EEMetadata:      req.E2EEMetadata,
+	}
+
+	// E2EE mesajlarda Content nil kalır — içerik Ciphertext alanında taşınır.
+	// Plaintext mesajlarda Content req.Content'den set edilir.
+	if req.EncryptionVersion == 0 {
+		message.Content = &req.Content
 	}
 
 	// Reply validation — yanıt yapılan mesajın aynı kanalda var olduğunu doğrula
@@ -231,15 +240,21 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		// err durumunda (mesaj silinmiş olabilir) ReferencedMessage nil kalır
 	}
 
-	// Mention'ları parse et ve kaydet
-	mentionedIDs := s.extractMentions(ctx, req.Content)
-	if len(mentionedIDs) > 0 {
-		if err := s.mentionRepo.SaveMentions(ctx, message.ID, mentionedIDs); err != nil {
-			// Mention kaydetme hatası mesaj oluşturmayı engellemez — log yeterli
-			fmt.Printf("[mention] failed to save mentions for message %s: %v\n", message.ID, err)
+	// Mention'ları parse et ve kaydet.
+	// E2EE mesajlarda sunucu mesaj içeriğini okuyamaz → mention extraction yapılamaz.
+	// E2EE mention'lar client tarafında parse edilir ve ayrıca gönderilir (gelecekte).
+	if req.EncryptionVersion == 0 {
+		mentionedIDs := s.extractMentions(ctx, req.Content)
+		if len(mentionedIDs) > 0 {
+			if err := s.mentionRepo.SaveMentions(ctx, message.ID, mentionedIDs); err != nil {
+				// Mention kaydetme hatası mesaj oluşturmayı engellemez — log yeterli
+				fmt.Printf("[mention] failed to save mentions for message %s: %v\n", message.ID, err)
+			}
 		}
+		message.Mentions = mentionedIDs
+	} else {
+		message.Mentions = []string{}
 	}
-	message.Mentions = mentionedIDs
 
 	// NOT: WS broadcast burada yapılmıyor.
 	// Multipart mesajlarda dosyalar handler'da yüklenir.
@@ -303,7 +318,16 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
 	}
 
-	message.Content = &req.Content
+	// E2EE mesaj düzenleme — Ciphertext güncellenir, Content nil kalır
+	if req.EncryptionVersion == 1 {
+		message.Ciphertext = req.Ciphertext
+		message.SenderDeviceID = req.SenderDeviceID
+		message.E2EEMetadata = req.E2EEMetadata
+		message.Content = nil
+	} else {
+		message.Content = &req.Content
+	}
+
 	if err := s.messageRepo.Update(ctx, message); err != nil {
 		return nil, err
 	}
@@ -318,18 +342,21 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		message.Attachments = []models.Attachment{}
 	}
 
-	// Mention'ları yeniden parse et (mesaj düzenlendiğinde mention'lar değişmiş olabilir)
-	// Önce mevcut mention'ları sil, sonra yenilerini kaydet
-	if err := s.mentionRepo.DeleteByMessageID(ctx, id); err != nil {
-		fmt.Printf("[mention] failed to delete old mentions for message %s: %v\n", id, err)
-	}
-	mentionedIDs := s.extractMentions(ctx, req.Content)
-	if len(mentionedIDs) > 0 {
-		if err := s.mentionRepo.SaveMentions(ctx, id, mentionedIDs); err != nil {
-			fmt.Printf("[mention] failed to save mentions for message %s: %v\n", id, err)
+	// Mention'ları yeniden parse et — E2EE mesajlarda sunucu içeriği okuyamaz
+	if req.EncryptionVersion == 0 {
+		if err := s.mentionRepo.DeleteByMessageID(ctx, id); err != nil {
+			fmt.Printf("[mention] failed to delete old mentions for message %s: %v\n", id, err)
 		}
+		mentionedIDs := s.extractMentions(ctx, req.Content)
+		if len(mentionedIDs) > 0 {
+			if err := s.mentionRepo.SaveMentions(ctx, id, mentionedIDs); err != nil {
+				fmt.Printf("[mention] failed to save mentions for message %s: %v\n", id, err)
+			}
+		}
+		message.Mentions = mentionedIDs
+	} else {
+		message.Mentions = []string{}
 	}
-	message.Mentions = mentionedIDs
 
 	s.hub.BroadcastToAll(ws.Event{
 		Op:   ws.OpMessageUpdate,

@@ -121,6 +121,25 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		if replyTo := r.FormValue("reply_to_id"); replyTo != "" {
 			req.ReplyToID = &replyTo
 		}
+
+		// E2EE alanları — multipart'tan parse
+		if ev := r.FormValue("encryption_version"); ev == "1" {
+			req.EncryptionVersion = 1
+			if ct := r.FormValue("ciphertext"); ct != "" {
+				req.Ciphertext = &ct
+			}
+			if sd := r.FormValue("sender_device_id"); sd != "" {
+				req.SenderDeviceID = &sd
+			}
+			if em := r.FormValue("e2ee_metadata"); em != "" {
+				req.E2EEMetadata = &em
+			}
+		}
+
+		// Dosya var mı kontrol — HasFiles service'e iletilir (boş content kontrolü için)
+		if r.MultipartForm != nil && len(r.MultipartForm.File["files"]) > 0 {
+			req.HasFiles = true
+		}
 	} else {
 		// JSON: sadece metin mesaj
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

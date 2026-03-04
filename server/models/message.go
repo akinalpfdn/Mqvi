@@ -80,17 +80,53 @@ type MessagePage struct {
 }
 
 // CreateMessageRequest, yeni mesaj gönderme isteği.
+//
+// ReplyToID opsiyonel — yanıt mesajı gönderilecekse doldurulur.
+// HasFiles service katmanında set edilir — multipart form-data'dan dosya
+// varsa true olur, bu durumda Content boş olabilir (sadece dosya mesajı).
+//
+// E2EE alanları:
+// EncryptionVersion = 1 ise mesaj şifrelidir → Ciphertext zorunlu, Content boş olabilir.
+// EncryptionVersion = 0 veya nil ise eski plaintext akışı çalışır.
 type CreateMessageRequest struct {
 	Content   string  `json:"content"`
 	ReplyToID *string `json:"reply_to_id,omitempty"` // Opsiyonel — yanıt yapılacak mesajın ID'si
+	HasFiles  bool    `json:"-"`                     // Service katmanı tarafından set edilir, JSON'a dahil değil
+
+	// E2EE alanları — frontend şifreli mesaj gönderirken set eder.
+	// Sunucu bu alanları olduğu gibi saklar, içerikle ilgilenmez.
+	EncryptionVersion int     `json:"encryption_version"` // 0=plaintext (default), 1=E2EE
+	Ciphertext        *string `json:"ciphertext,omitempty"`
+	SenderDeviceID    *string `json:"sender_device_id,omitempty"`
+	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`
 }
 
 // Validate, CreateMessageRequest'in geçerli olup olmadığını kontrol eder.
-// İçerik 1-2000 karakter arası olmalı.
-// Not: Sadece dosya içeren mesajlarda content boş olabilir — bu kontrol service katmanında yapılır.
+//
+// Üç durum geçerlidir:
+// 1. Plaintext (encryption_version=0): content zorunlu (dosya varsa boş olabilir)
+// 2. E2EE (encryption_version=1): ciphertext zorunlu, content boş olabilir
+// 3. Dosya ekli: content boş olabilir (hem plaintext hem E2EE)
 func (r *CreateMessageRequest) Validate() error {
 	r.Content = strings.TrimSpace(r.Content)
 	contentLen := utf8.RuneCountInString(r.Content)
+
+	// E2EE mesaj — Ciphertext zorunlu, Content boş olabilir
+	if r.EncryptionVersion == 1 {
+		if r.Ciphertext == nil || *r.Ciphertext == "" {
+			return fmt.Errorf("ciphertext is required for encrypted messages")
+		}
+		if r.SenderDeviceID == nil || *r.SenderDeviceID == "" {
+			return fmt.Errorf("sender_device_id is required for encrypted messages")
+		}
+		return nil
+	}
+
+	// Plaintext — dosya varsa ve content boşsa → geçerli (sadece dosya mesajı)
+	if r.HasFiles && contentLen == 0 {
+		return nil
+	}
+
 	if contentLen < 1 {
 		return fmt.Errorf("message content is required")
 	}
@@ -101,12 +137,32 @@ func (r *CreateMessageRequest) Validate() error {
 }
 
 // UpdateMessageRequest, mesaj düzenleme isteği.
+//
+// E2EE mesajlarda: Content yerine Ciphertext güncellenir.
+// encryption_version alanı mesajın mevcut durumundan alınır (değiştirilemez).
 type UpdateMessageRequest struct {
 	Content string `json:"content"`
+
+	// E2EE alanları — şifreli mesaj düzenlenirken set edilir.
+	EncryptionVersion int     `json:"encryption_version"`
+	Ciphertext        *string `json:"ciphertext,omitempty"`
+	SenderDeviceID    *string `json:"sender_device_id,omitempty"`
+	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`
 }
 
 // Validate, UpdateMessageRequest'in geçerli olup olmadığını kontrol eder.
+//
+// E2EE mesajlarda ciphertext zorunlu, plaintext mesajlarda content zorunlu.
 func (r *UpdateMessageRequest) Validate() error {
+	// E2EE edit
+	if r.EncryptionVersion == 1 {
+		if r.Ciphertext == nil || *r.Ciphertext == "" {
+			return fmt.Errorf("ciphertext is required for encrypted messages")
+		}
+		return nil
+	}
+
+	// Plaintext edit
 	r.Content = strings.TrimSpace(r.Content)
 	contentLen := utf8.RuneCountInString(r.Content)
 	if contentLen < 1 {

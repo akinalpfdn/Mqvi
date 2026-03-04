@@ -15,8 +15,11 @@ import i18n from "../i18n";
 import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
 import { useServerStore } from "./serverStore";
+import { useE2EEStore } from "./e2eeStore";
+import { useAuthStore } from "./authStore";
 import { useReadStateStore } from "./readStateStore";
 import { useToastStore } from "./toastStore";
+import { encryptChannelMessage, decryptChannelMessages } from "../crypto/channelEncryption";
 import type { Message, ReactionGroup } from "../types";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
 
@@ -111,7 +114,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       // Backend boş kanalda messages: null dönebilir (Go nil slice → JSON null).
       // Null üzerinde .map() crash eder — boş array'e fallback.
-      const apiMessages = res.data.messages ?? [];
+      // E2EE mesajlari bulk decrypt et — plaintext mesajlar oldugu gibi kalir.
+      const apiMessages = await decryptChannelMessages(res.data.messages ?? []);
 
       set((state) => {
         // Fetch sırasında WS'den buffer'lanmış mesajları al.
@@ -166,10 +170,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const res = await messageApi.getMessages(serverId, channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
 
     if (res.success && res.data) {
+      // E2EE mesajlari bulk decrypt et
+      const decrypted = await decryptChannelMessages(res.data.messages ?? []);
+
       set((state) => ({
         messagesByChannel: {
           ...state.messagesByChannel,
-          [channelId]: [...res.data!.messages, ...state.messagesByChannel[channelId]],
+          [channelId]: [...decrypted, ...state.messagesByChannel[channelId]],
         },
         hasMoreByChannel: {
           ...state.hasMoreByChannel,
@@ -185,8 +192,49 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   sendMessage: async (channelId, content, files, replyToId) => {
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return false;
+
+    // E2EE aktifse Sender Key ile sifrele
+    const e2eeState = useE2EEStore.getState();
+    if (e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (currentUserId) {
+        try {
+          const senderKeyMsg = await encryptChannelMessage(
+            channelId,
+            currentUserId,
+            e2eeState.localDeviceId,
+            content
+          );
+          const ciphertext = JSON.stringify(senderKeyMsg);
+          const metadata = JSON.stringify({
+            distribution_id: senderKeyMsg.distributionId,
+          });
+
+          const res = await messageApi.sendEncryptedMessage(
+            serverId,
+            channelId,
+            ciphertext,
+            e2eeState.localDeviceId,
+            metadata,
+            files,
+            replyToId
+          );
+
+          if (!res.success && res.error?.includes("too many")) {
+            useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
+          }
+
+          return res.success;
+        } catch (err) {
+          console.error("[messageStore] E2EE encryption failed:", err);
+          useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
+          return false;
+        }
+      }
+    }
+
+    // Plaintext fallback
     const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId);
-    // Mesaj WS üzerinden gelecek (handleMessageCreate), HTTP response'u beklemeye gerek yok
 
     // Rate limit aşıldıysa kullanıcıya toast ile bildir
     if (!res.success && res.error?.includes("too many")) {
@@ -199,6 +247,51 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   editMessage: async (messageId, content) => {
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return false;
+
+    // E2EE aktifse sifreli edit
+    const e2eeState = useE2EEStore.getState();
+    if (e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+      const currentUserId = useAuthStore.getState().user?.id;
+      // Mesajin kanalini bul
+      const allChannels = get().messagesByChannel;
+      let channelId: string | null = null;
+      for (const [chId, msgs] of Object.entries(allChannels)) {
+        if (msgs.some((m) => m.id === messageId)) {
+          channelId = chId;
+          break;
+        }
+      }
+
+      if (currentUserId && channelId) {
+        try {
+          const senderKeyMsg = await encryptChannelMessage(
+            channelId,
+            currentUserId,
+            e2eeState.localDeviceId,
+            content
+          );
+          const ciphertext = JSON.stringify(senderKeyMsg);
+          const metadata = JSON.stringify({
+            distribution_id: senderKeyMsg.distributionId,
+          });
+
+          const res = await messageApi.editEncryptedMessage(
+            serverId,
+            messageId,
+            ciphertext,
+            e2eeState.localDeviceId,
+            metadata
+          );
+          return res.success;
+        } catch (err) {
+          console.error("[messageStore] E2EE edit encryption failed:", err);
+          useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
+          return false;
+        }
+      }
+    }
+
+    // Plaintext fallback
     const res = await messageApi.editMessage(serverId, messageId, content);
     return res.success;
   },

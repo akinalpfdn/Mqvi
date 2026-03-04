@@ -75,6 +75,75 @@ export async function sendMessage(
   });
 }
 
+/**
+ * Şifreli kanal mesajı gönderir. E2EE aktifken sendMessage yerine kullanılır.
+ *
+ * Ciphertext, SenderKeyMessage JSON string'idir (Sender Key ile tek ciphertext).
+ * Dosya ekli şifreli mesajlarda multipart kullanılır.
+ */
+export async function sendEncryptedMessage(
+  serverId: string,
+  channelId: string,
+  ciphertext: string,
+  senderDeviceId: string,
+  metadata: string,
+  files?: File[],
+  replyToId?: string
+) {
+  if (files && files.length > 0) {
+    // Multipart: şifreli dosya + metadata
+    const formData = new FormData();
+    formData.append("encryption_version", "1");
+    formData.append("ciphertext", ciphertext);
+    formData.append("sender_device_id", senderDeviceId);
+    formData.append("e2ee_metadata", metadata);
+    if (replyToId) {
+      formData.append("reply_to_id", replyToId);
+    }
+    for (const file of files) {
+      formData.append("files", file);
+    }
+
+    return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+  // JSON: şifreli metin
+  return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
+    method: "POST",
+    body: {
+      encryption_version: 1,
+      ciphertext,
+      sender_device_id: senderDeviceId,
+      e2ee_metadata: metadata,
+      ...(replyToId ? { reply_to_id: replyToId } : {}),
+    },
+  });
+}
+
+/**
+ * Şifreli kanal mesajını düzenler. E2EE mesajlarda editMessage yerine kullanılır.
+ */
+export function editEncryptedMessage(
+  serverId: string,
+  messageId: string,
+  ciphertext: string,
+  senderDeviceId: string,
+  metadata: string
+) {
+  return apiClient<Message>(`/servers/${serverId}/messages/${messageId}`, {
+    method: "PATCH",
+    body: {
+      encryption_version: 1,
+      ciphertext,
+      sender_device_id: senderDeviceId,
+      e2ee_metadata: metadata,
+    },
+  });
+}
+
 /** Mesajı düzenler (sadece mesaj sahibi) */
 export async function editMessage(serverId: string, messageId: string, content: string) {
   return apiClient<Message>(`/servers/${serverId}/messages/${messageId}`, {
