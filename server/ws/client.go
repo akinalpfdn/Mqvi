@@ -65,6 +65,17 @@ type Client struct {
 	// OnUserFirstConnect callback'ine geçirilir — DB "offline" durumundan
 	// bağımsız olarak doğru status anında broadcast edilir (1-sn ırk yok).
 	prefStatus string
+
+	// status, bu bağlantının mevcut presence durumunu tutar.
+	//
+	// Neden per-connection status?
+	// Bir kullanıcının birden fazla tab'ı/cihazı olabilir.
+	// Tab 1 idle olursa ama Tab 2 hâlâ online ise → kullanıcı "online" gözükmeli.
+	// Hub, tüm bağlantıların status'larını aggregate ederek
+	// en "aktif" durumu broadcast eder.
+	//
+	// Erişim: Hub.mu altında okunur/yazılır (hub.clients map'i ile aynı lock).
+	status string
 }
 
 // ReadPump, WebSocket bağlantısından gelen mesajları okur ve işler.
@@ -176,12 +187,14 @@ func (c *Client) handleEvent(event Event) {
 
 // handlePresenceUpdate, client'dan gelen presence değişikliğini işler.
 //
-// Client { op: "presence_update", d: { status: "idle" } } gönderdiğinde
-// bu fonksiyon çağrılır. DB güncelleme ve broadcast işlemi main.go'daki
-// OnPresenceManualUpdate callback'inde yapılır (Dependency Inversion).
+// Client { op: "presence_update", d: { status: "idle" } } gönderdiğinde çağrılır.
 //
-// Bu pattern voice callback'lerle aynıdır:
-// Client WS event gönderir → handleEvent → callback → main.go → Service/Repo
+// Per-connection aggregate logic:
+// Bu bağlantının status'unu günceller, sonra kullanıcının TÜM bağlantılarının
+// aggregate'ini hesaplar. Böylece Tab 1 idle olsa bile Tab 2 online ise
+// kullanıcı "online" olarak broadcast edilir.
+//
+// DB güncelleme ve broadcast işlemi main.go'daki callback'te yapılır (DI).
 func (c *Client) handlePresenceUpdate(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -202,10 +215,18 @@ func (c *Client) handlePresenceUpdate(event Event) {
 		return
 	}
 
+	// Per-connection status'u güncelle ve aggregate hesapla.
+	// Hub.mu altında yapılır — client.status ve clients map atomik okunur/yazılır.
+	c.hub.mu.Lock()
+	c.status = data.Status
+	aggregate := c.hub.computeAggregateStatusLocked(c.userID)
+	c.hub.mu.Unlock()
+
 	// Callback pattern: DB persist + broadcast sorumluluğu main.go'daki callback'e ait.
-	// go func() ile çağrılır — Hub mutex'i ile deadlock önlenir.
+	// Aggregate status kullanılır — tek bağlantının durumu değil, tüm bağlantıların
+	// en aktif olanı broadcast edilir.
 	if c.hub.onPresenceManualUpdate != nil {
-		go c.hub.onPresenceManualUpdate(c.userID, data.Status)
+		go c.hub.onPresenceManualUpdate(c.userID, aggregate)
 	}
 }
 

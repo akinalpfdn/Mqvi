@@ -308,17 +308,40 @@ func (h *Hub) Run() {
 
 // addClient, yeni bir client'ı Hub'a ekler.
 // Kullanıcının ilk bağlantısıysa onUserFirstConnect callback'ini tetikler.
+// Sonraki bağlantılarda aggregate status hesaplanır — eğer yeni bağlantı
+// daha "aktif" bir duruma sahipse (ör. mevcut "idle" iken yeni tab "online"),
+// presence güncellenir.
 func (h *Hub) addClient(client *Client) {
 	h.mu.Lock()
 
 	isFirstConnection := len(h.clients[client.userID]) == 0
+
+	// Per-connection status başlangıç değeri:
+	// prefStatus varsa (client WS URL'den gönderdi) onu kullan,
+	// yoksa varsayılan "online" — yeni tab açan kullanıcı aktiftir.
+	if client.prefStatus != "" && client.prefStatus != "offline" {
+		client.status = client.prefStatus
+	} else if client.prefStatus == "offline" {
+		// Invisible mod — bu bağlantı "offline" olarak takip edilir
+		client.status = "offline"
+	} else {
+		client.status = "online"
+	}
+
 	if _, ok := h.clients[client.userID]; !ok {
 		h.clients[client.userID] = make(map[*Client]bool)
 	}
 	h.clients[client.userID][client] = true
 
-	log.Printf("[ws] client connected: user=%s (total connections for user: %d)",
-		client.userID, len(h.clients[client.userID]))
+	// İlk bağlantı değilse: yeni bağlantı aggregate'i değiştirebilir.
+	// Örneğin: Tab 1 idle iken yeni Tab 2 "online" açılırsa → aggregate "online" olur.
+	var aggregateForExisting string
+	if !isFirstConnection {
+		aggregateForExisting = h.computeAggregateStatusLocked(client.userID)
+	}
+
+	log.Printf("[ws] client connected: user=%s status=%s (total connections for user: %d)",
+		client.userID, client.status, len(h.clients[client.userID]))
 
 	h.mu.Unlock()
 
@@ -327,16 +350,24 @@ func (h *Hub) addClient(client *Client) {
 		userID := client.userID
 		prefStatus := client.prefStatus
 		go h.onUserFirstConnect(userID, prefStatus)
+	} else if !isFirstConnection && h.onPresenceManualUpdate != nil {
+		// Sonraki bağlantı: aggregate status'u broadcast et.
+		// Eğer değişmemişse bile zararsız — DB update idempotent, broadcast aynı durumu gönderir.
+		go h.onPresenceManualUpdate(client.userID, aggregateForExisting)
 	}
 }
 
 // removeClient, bir client'ı Hub'dan çıkarır ve send channel'ını kapatır.
 // Kullanıcının son bağlantısı kapandıysa onUserFullyDisconnected callback'ini tetikler.
+// Kalan bağlantılar varsa aggregate status yeniden hesaplanır — örneğin
+// "online" tab kapandığında kalan "idle" tab'ın durumu broadcast edilir.
 func (h *Hub) removeClient(client *Client) {
 	h.mu.Lock()
 
 	var fullyDisconnected bool
+	var partialDisconnect bool
 	var userID string
+	var newAggregate string
 
 	if clients, ok := h.clients[client.userID]; ok {
 		if _, exists := clients[client]; exists {
@@ -349,8 +380,13 @@ func (h *Hub) removeClient(client *Client) {
 				userID = client.userID
 				log.Printf("[ws] user fully disconnected: %s", client.userID)
 			} else {
-				log.Printf("[ws] client disconnected: user=%s (remaining: %d)",
-					client.userID, len(clients))
+				// Kalan bağlantılarla aggregate yeniden hesapla.
+				// Kapanan tab "online" idi ve kalan sadece "idle" ise → "idle" broadcast edilmeli.
+				partialDisconnect = true
+				userID = client.userID
+				newAggregate = h.computeAggregateStatusLocked(client.userID)
+				log.Printf("[ws] client disconnected: user=%s (remaining: %d, aggregate=%s)",
+					client.userID, len(clients), newAggregate)
 			}
 		}
 	}
@@ -360,7 +396,54 @@ func (h *Hub) removeClient(client *Client) {
 	// Callback'i Lock dışında, ayrı goroutine'de çağır (deadlock önleme).
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
 		go h.onUserFullyDisconnected(userID, "")
+	} else if partialDisconnect && h.onPresenceManualUpdate != nil {
+		// Kalan bağlantıların aggregate'ini broadcast et.
+		go h.onPresenceManualUpdate(userID, newAggregate)
 	}
+}
+
+// statusPriority, presence durumlarının öncelik sıralamasını tanımlar.
+// Yüksek değer = daha "aktif" → aggregate'te kazanır.
+//
+// Neden bu sıralama?
+// Kullanıcının birden fazla cihazı/tab'ı olabilir.
+// Herhangi bir bağlantı "online" ise → kullanıcı "online" gözükmeli.
+// Tüm bağlantılar "idle" ise → "idle".
+// DND ve invisible manuel tercih — idle'dan düşük (kullanıcı bir tab'da
+// aktif çalışıyorsa, diğer tab'daki DND/invisible geçersiz sayılır).
+var statusPriority = map[string]int{
+	"online":  4,
+	"idle":    3,
+	"dnd":     2,
+	"offline": 1,
+}
+
+// computeAggregateStatusLocked, bir kullanıcının tüm bağlantılarının
+// status değerlerini tarayıp en yüksek öncelikli olanı döner.
+//
+// MUTLAKA h.mu Lock/RLock altında çağrılmalıdır.
+//
+// Örnek senaryolar:
+// - Tab1="online", Tab2="idle"  → "online" (aktif tab kazanır)
+// - Tab1="idle",   Tab2="idle"  → "idle"   (hepsi idle)
+// - Tab1="dnd",    Tab2="online"→ "online" (aktif çalışma DND'yi geçer)
+// - Bağlantı yok                → "offline"
+func (h *Hub) computeAggregateStatusLocked(userID string) string {
+	clients := h.clients[userID]
+	if len(clients) == 0 {
+		return "offline"
+	}
+
+	bestPriority := 0
+	bestStatus := "offline"
+	for client := range clients {
+		p := statusPriority[client.status]
+		if p > bestPriority {
+			bestPriority = p
+			bestStatus = client.status
+		}
+	}
+	return bestStatus
 }
 
 // BroadcastToAll, tüm bağlı client'lara event gönderir.
