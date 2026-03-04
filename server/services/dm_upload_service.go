@@ -21,7 +21,9 @@ import (
 // Channel UploadService ile paralel yapı — aynı dosya doğrulama ve
 // disk kaydetme mantığı, ancak DMAttachment modeli ve DMRepository kullanır.
 type DMUploadService interface {
-	Upload(ctx context.Context, dmMessageID string, file multipart.File, header *multipart.FileHeader) (*models.DMAttachment, error)
+	// Upload, DM dosyasını doğrular, diske kaydeder ve DB'ye DMAttachment kaydı oluşturur.
+	// isEncrypted: E2EE mesajlarda MIME whitelist atlanır.
+	Upload(ctx context.Context, dmMessageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.DMAttachment, error)
 }
 
 type dmUploadService struct {
@@ -51,7 +53,7 @@ func NewDMUploadService(
 // 3. Unique dosya adı oluşturma (randomhex_originalname)
 // 4. Diske kaydetme
 // 5. DB'ye DMAttachment kaydı oluşturma
-func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file multipart.File, header *multipart.FileHeader) (*models.DMAttachment, error) {
+func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.DMAttachment, error) {
 	// Boyut kontrolü
 	if header.Size > s.maxSize {
 		return nil, fmt.Errorf("%w: file too large (max %dMB)", pkg.ErrBadRequest, s.maxSize/(1024*1024))
@@ -65,7 +67,8 @@ func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file m
 	mimeBase := strings.Split(contentType, ";")[0]
 	mimeBase = strings.TrimSpace(mimeBase)
 
-	if !allowedMimeTypes[mimeBase] {
+	// E2EE dosyalar application/octet-stream olarak gelir — MIME whitelist atla
+	if !isEncrypted && !allowedMimeTypes[mimeBase] {
 		return nil, fmt.Errorf("%w: file type not allowed: %s", pkg.ErrBadRequest, mimeBase)
 	}
 

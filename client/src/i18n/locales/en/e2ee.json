@@ -47,5 +47,9 @@
   "e2eeIndicator": "End-to-end encrypted",
 
   "initError": "Failed to initialize encryption",
-  "retryInit": "Retry"
+  "retryInit": "Retry",
+
+  "decryptingFile": "Decrypting file...",
+  "fileDecryptFailed": "Failed to decrypt file",
+  "clientSearchNote": "Searching locally (E2EE)"
 }

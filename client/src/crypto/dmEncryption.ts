@@ -18,6 +18,8 @@
 
 import * as signalProtocol from "./signalProtocol";
 import * as e2eeApi from "../api/e2ee";
+import * as keyStorage from "./keyStorage";
+import { decodePayload, type E2EEPayload } from "./e2eePayload";
 import { useE2EEStore } from "../stores/e2eeStore";
 import type { EncryptedEnvelope, PreKeyBundleResponse, DMMessage } from "../types";
 import type { SignalWireMessage } from "./types";
@@ -141,21 +143,22 @@ async function encryptForDevice(
 // ──────────────────────────────────
 
 /**
- * Alinan E2EE DM mesajini cozer.
+ * Alinan E2EE DM mesajini cozer ve structured payload'i parse eder.
  *
  * Ciphertext alani JSON-serialized EncryptedEnvelope[] icerir.
  * Bu cihazin device_id'sine ait envelope bulunur ve decrypt edilir.
+ * Decrypt sonrasi decodePayload ile content + file_keys ayristirilir.
  *
  * @param senderUserId - Gonderici kullanici ID (mesajin user_id alani)
  * @param ciphertext - JSON string EncryptedEnvelope[]
  * @param senderDeviceId - Gonderici cihaz ID (mesajin sender_device_id alani)
- * @returns Cozulmus plaintext veya null (bu cihaz icin envelope yoksa)
+ * @returns Cozulmus payload (content + file_keys) veya null
  */
 export async function decryptDMMessage(
   senderUserId: string,
   ciphertext: string,
   senderDeviceId: string
-): Promise<string | null> {
+): Promise<E2EEPayload | null> {
   const localDeviceId = useE2EEStore.getState().localDeviceId;
   if (!localDeviceId) return null;
 
@@ -188,12 +191,16 @@ export async function decryptDMMessage(
   }
 
   // Signal Protocol ile decrypt
-  // senderDeviceId: mesajin sender_device_id alani — gondericinin hangi cihazdan gonderdigini belirtir
-  return signalProtocol.decryptMessage(
+  const plaintext = await signalProtocol.decryptMessage(
     senderUserId,
     senderDeviceId,
     wireMessage
   );
+
+  if (plaintext === null) return null;
+
+  // Structured payload parse — content + file_keys ayristir
+  return decodePayload(plaintext);
 }
 
 /**
@@ -203,6 +210,10 @@ export async function decryptDMMessage(
  * Plaintext mesajlar (encryption_version=0) olduklari gibi birakilir.
  * Decrypt edilemeyen mesajlar content=null olarak isaretlenir.
  *
+ * Basarili decrypt sonrasi:
+ * - content + e2ee_file_keys mesaja set edilir
+ * - Mesaj IndexedDB cache'e yazilir (client-side search icin)
+ *
  * @param messages - Backend'den gelen ham mesaj dizisi
  * @returns Decrypt edilmis mesaj dizisi (ayni sira)
  */
@@ -210,6 +221,7 @@ export async function decryptDMMessages(
   messages: DMMessage[]
 ): Promise<DMMessage[]> {
   const result: DMMessage[] = [];
+  const toCache: import("./types").CachedDecryptedMessage[] = [];
 
   for (const msg of messages) {
     if (
@@ -218,7 +230,7 @@ export async function decryptDMMessages(
       msg.sender_device_id
     ) {
       try {
-        const plaintext = await decryptDMMessage(
+        const payload = await decryptDMMessage(
           msg.user_id,
           msg.ciphertext,
           msg.sender_device_id
@@ -226,8 +238,20 @@ export async function decryptDMMessages(
 
         result.push({
           ...msg,
-          content: plaintext,
+          content: payload?.content ?? null,
+          e2ee_file_keys: payload?.file_keys,
         });
+
+        // Basarili decrypt → IndexedDB cache'e yaz (search icin)
+        if (payload?.content) {
+          toCache.push({
+            messageId: msg.id,
+            channelId: "",
+            dmChannelId: msg.dm_channel_id,
+            content: payload.content,
+            timestamp: new Date(msg.created_at).getTime(),
+          });
+        }
       } catch (err) {
         console.error(
           `[dmEncryption] Failed to decrypt msg ${msg.id}:`,
@@ -246,6 +270,13 @@ export async function decryptDMMessages(
       // Plaintext mesaj — olduğu gibi birak
       result.push(msg);
     }
+  }
+
+  // Toplu cache yazimi — tek transaction ile performansli
+  if (toCache.length > 0) {
+    keyStorage.cacheDecryptedMessages(toCache).catch((err) => {
+      console.error("[dmEncryption] Failed to cache messages:", err);
+    });
   }
 
   return result;

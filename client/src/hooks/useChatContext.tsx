@@ -23,6 +23,7 @@
 
 import { createContext, useContext, type RefObject } from "react";
 import type { User, ReactionGroup, MessageReference, MemberWithRoles } from "../types";
+import type { EncryptedFileMeta } from "../crypto/fileEncryption";
 
 // ─── ChatMessage — Ortak mesaj tipi ───
 // Message ve DMMessage'ın display-relevant kesişimi.
@@ -49,6 +50,10 @@ export type ChatMessage = {
   attachments: ChatAttachment[];
   reactions: ReactionGroup[];
   referenced_message: MessageReference | null;
+  /** E2EE: 0 = plaintext, 1 = encrypted */
+  encryption_version?: number;
+  /** E2EE: Dosya sifreleme anahtarlari (index sirasina gore attachment'lara eslenir) */
+  e2ee_file_keys?: EncryptedFileMeta[];
 };
 
 // ─── Context Value ───

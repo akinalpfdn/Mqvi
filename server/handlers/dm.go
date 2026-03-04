@@ -208,6 +208,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Multipart ise dosyaları yükle
 	if isMultipart(contentType) && r.MultipartForm != nil {
+		isEncrypted := req.EncryptionVersion == 1
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
@@ -215,7 +216,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 				continue // Açılamayan dosyayı atla
 			}
 
-			attachment, err := h.dmUploadService.Upload(r.Context(), msg.ID, file, fileHeader)
+			attachment, err := h.dmUploadService.Upload(r.Context(), msg.ID, file, fileHeader, isEncrypted)
 			file.Close()
 			if err != nil {
 				continue // Yüklenemeyen dosyayı atla

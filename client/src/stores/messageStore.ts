@@ -20,7 +20,10 @@ import { useAuthStore } from "./authStore";
 import { useReadStateStore } from "./readStateStore";
 import { useToastStore } from "./toastStore";
 import { encryptChannelMessage, decryptChannelMessages } from "../crypto/channelEncryption";
+import { encryptFile } from "../crypto/fileEncryption";
+import { encodePayload } from "../crypto/e2eePayload";
 import type { Message, ReactionGroup } from "../types";
+import type { EncryptedFileMeta } from "../crypto/fileEncryption";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
 
 type MessageState = {
@@ -199,11 +202,36 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const currentUserId = useAuthStore.getState().user?.id;
       if (currentUserId) {
         try {
+          // Dosyalar varsa her birini AES-256-GCM ile sifrele
+          let encryptedFiles: File[] | undefined;
+          let fileMetas: EncryptedFileMeta[] | undefined;
+
+          if (files && files.length > 0) {
+            encryptedFiles = [];
+            fileMetas = [];
+
+            for (let i = 0; i < files.length; i++) {
+              const result = await encryptFile(files[i]);
+              // Sifreli blob'u File nesnesine cevir (FormData icin)
+              encryptedFiles.push(
+                new File(
+                  [result.encryptedBlob],
+                  `encrypted_${i}.bin`,
+                  { type: "application/octet-stream" }
+                )
+              );
+              fileMetas.push(result.meta);
+            }
+          }
+
+          // Structured payload: content + file_keys (varsa) → JSON string
+          const plaintext = encodePayload(content, fileMetas);
+
           const senderKeyMsg = await encryptChannelMessage(
             channelId,
             currentUserId,
             e2eeState.localDeviceId,
-            content
+            plaintext
           );
           const ciphertext = JSON.stringify(senderKeyMsg);
           const metadata = JSON.stringify({
@@ -216,7 +244,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             ciphertext,
             e2eeState.localDeviceId,
             metadata,
-            files,
+            encryptedFiles,
             replyToId
           );
 

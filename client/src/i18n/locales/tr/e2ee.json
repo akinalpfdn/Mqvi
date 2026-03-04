@@ -47,5 +47,9 @@
   "e2eeIndicator": "Uçtan uca şifreli",
 
   "initError": "Şifreleme başlatılamadı",
-  "retryInit": "Tekrar Dene"
+  "retryInit": "Tekrar Dene",
+
+  "decryptingFile": "Dosya çözülüyor...",
+  "fileDecryptFailed": "Dosya çözülemedi",
+  "clientSearchNote": "Yerel arama (E2EE)"
 }

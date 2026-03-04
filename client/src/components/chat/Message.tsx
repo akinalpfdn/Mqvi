@@ -33,6 +33,7 @@ import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import EmojiPicker from "../shared/EmojiPicker";
+import EncryptedAttachment from "./EncryptedAttachment";
 import InviteCard from "./InviteCard";
 import MobileMessageActions from "./MobileMessageActions";
 import type { MemberWithRoles } from "../../types";
@@ -391,7 +392,23 @@ function Message({ message, isCompact }: MessageProps) {
           {/* Attachments */}
           {message.attachments && message.attachments.length > 0 && (
             <div className="msg-attachments">
-              {message.attachments.map((attachment) => {
+              {message.attachments.map((attachment, idx) => {
+                // E2EE sifreli dosya — EncryptedAttachment ile coz + goster
+                const fileMeta = message.encryption_version === 1
+                  ? message.e2ee_file_keys?.[idx]
+                  : undefined;
+
+                if (fileMeta) {
+                  return (
+                    <EncryptedAttachment
+                      key={attachment.id}
+                      attachment={attachment}
+                      fileMeta={fileMeta}
+                    />
+                  );
+                }
+
+                // Plaintext dosya — dogrudan goster
                 const isImage = attachment.mime_type?.startsWith("image/");
 
                 if (isImage) {

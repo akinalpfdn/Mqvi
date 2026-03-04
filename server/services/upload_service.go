@@ -18,7 +18,10 @@ import (
 
 // UploadService, dosya yükleme iş mantığı interface'i.
 type UploadService interface {
-	Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader) (*models.Attachment, error)
+	// Upload, dosyayı doğrular, diske kaydeder ve DB'ye attachment kaydı oluşturur.
+	// isEncrypted: E2EE mesajlarda dosyalar client tarafında AES-256-GCM ile şifrelenir
+	// ve application/octet-stream olarak gönderilir. Bu durumda MIME whitelist atlanır.
+	Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.Attachment, error)
 }
 
 type uploadService struct {
@@ -55,7 +58,7 @@ var allowedMimeTypes = map[string]bool{
 }
 
 // Upload, dosyayı doğrular, diske kaydeder ve DB'ye attachment kaydı oluşturur.
-func (s *uploadService) Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader) (*models.Attachment, error) {
+func (s *uploadService) Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.Attachment, error) {
 	// Boyut kontrolü
 	if header.Size > s.maxSize {
 		return nil, fmt.Errorf("%w: file too large (max %dMB)", pkg.ErrBadRequest, s.maxSize/(1024*1024))
@@ -70,7 +73,10 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 	mimeBase := strings.Split(contentType, ";")[0]
 	mimeBase = strings.TrimSpace(mimeBase)
 
-	if !allowedMimeTypes[mimeBase] {
+	// E2EE dosyalar client tarafında AES-256-GCM ile şifrelenir ve
+	// application/octet-stream olarak gönderilir. Bu durumda MIME
+	// whitelist kontrolünü atla — dosya sunucuda opak blob olarak saklanır.
+	if !isEncrypted && !allowedMimeTypes[mimeBase] {
 		return nil, fmt.Errorf("%w: file type not allowed: %s", pkg.ErrBadRequest, mimeBase)
 	}
 

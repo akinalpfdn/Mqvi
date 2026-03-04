@@ -130,6 +130,7 @@ export type Message = {
   ciphertext?: string | null;            // E2EE sifreli icerik (encryption_version=1)
   sender_device_id?: string | null;      // Gonderici cihaz ID'si
   e2ee_metadata?: string | null;         // Ek E2EE metadata (JSON string)
+  e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];  // Client-only: decrypt edilmis dosya anahtarlari
 };
 
 export type Attachment = {
@@ -321,6 +322,7 @@ export type DMMessage = {
   ciphertext?: string | null;
   sender_device_id?: string | null;
   e2ee_metadata?: string | null;
+  e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];  // Client-only: decrypt edilmis dosya anahtarlari
 };
 
 /**

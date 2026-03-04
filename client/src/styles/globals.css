@@ -1604,6 +1604,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .search-input-icon { color:var(--t3);flex-shrink:0; }
 .search-input { flex:1;background:transparent;border:none;outline:none;color:var(--t0);font-size:13px;font-family:var(--f-ui); }
 .search-input::placeholder { color:var(--t3); }
+.search-e2ee-note { font-size:13px;color:var(--t3);padding:4px 12px;font-style:italic; }
 .search-results { flex:1;overflow-y:auto;padding:8px; }
 .search-empty { text-align:center;font-size:13px;color:var(--t2);padding:24px 12px; }
 .search-count { font-size:13px;color:var(--t2);padding:0 4px 6px;border-bottom:1px solid var(--b1);margin-bottom:6px; }

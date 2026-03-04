@@ -24,6 +24,8 @@
 
 import * as senderKeyProtocol from "./senderKeyProtocol.js";
 import * as e2eeApi from "../api/e2ee.js";
+import * as keyStorage from "./keyStorage.js";
+import { decodePayload, type E2EEPayload } from "./e2eePayload.js";
 import { useE2EEStore } from "../stores/e2eeStore.js";
 import { useServerStore } from "../stores/serverStore.js";
 import type { SenderKeyMessage, SenderKeyDistributionData } from "./types.js";
@@ -105,23 +107,24 @@ async function createAndUploadDistribution(
 // ──────────────────────────────────
 
 /**
- * Alinan E2EE kanal mesajini cozer.
+ * Alinan E2EE kanal mesajini cozer ve structured payload'i parse eder.
  *
  * Ciphertext alani JSON-serialized SenderKeyMessage icerir.
  * Gondericinin sender key'i ile decrypt edilir.
+ * Decrypt sonrasi decodePayload ile content + file_keys ayristirilir.
  *
  * @param senderUserId - Gonderici kullanici ID
  * @param channelId - Kanal ID'si
  * @param ciphertext - JSON string SenderKeyMessage
  * @param senderDeviceId - Gonderici cihaz ID'si
- * @returns Cozulmus plaintext veya null
+ * @returns Cozulmus payload (content + file_keys) veya null
  */
 export async function decryptChannelMessage(
   senderUserId: string,
   channelId: string,
   ciphertext: string,
   senderDeviceId: string
-): Promise<string | null> {
+): Promise<E2EEPayload | null> {
   // Sender Key message parse et
   let senderKeyMsg: SenderKeyMessage;
   try {
@@ -148,12 +151,17 @@ export async function decryptChannelMessage(
   }
 
   // Sender Key ile decrypt
-  return senderKeyProtocol.decryptGroupMessage(
+  const plaintext = await senderKeyProtocol.decryptGroupMessage(
     channelId,
     senderUserId,
     senderDeviceId,
     senderKeyMsg
   );
+
+  if (plaintext === null) return null;
+
+  // Structured payload parse — content + file_keys ayristir
+  return decodePayload(plaintext);
 }
 
 /**
@@ -218,6 +226,10 @@ async function ensureSenderKeyForDecryption(
  * Plaintext mesajlar (encryption_version=0) olduklari gibi birakilir.
  * Decrypt edilemeyen mesajlar content=null olarak isaretlenir.
  *
+ * Basarili decrypt sonrasi:
+ * - content + e2ee_file_keys mesaja set edilir
+ * - Mesaj IndexedDB cache'e yazilir (client-side search icin)
+ *
  * @param messages - Backend'den gelen ham mesaj dizisi
  * @returns Decrypt edilmis mesaj dizisi (ayni sira)
  */
@@ -225,6 +237,7 @@ export async function decryptChannelMessages(
   messages: Message[]
 ): Promise<Message[]> {
   const result: Message[] = [];
+  const toCache: import("./types").CachedDecryptedMessage[] = [];
 
   for (const msg of messages) {
     if (
@@ -233,7 +246,7 @@ export async function decryptChannelMessages(
       msg.sender_device_id
     ) {
       try {
-        const plaintext = await decryptChannelMessage(
+        const payload = await decryptChannelMessage(
           msg.user_id,
           msg.channel_id,
           msg.ciphertext,
@@ -242,8 +255,20 @@ export async function decryptChannelMessages(
 
         result.push({
           ...msg,
-          content: plaintext,
+          content: payload?.content ?? null,
+          e2ee_file_keys: payload?.file_keys,
         });
+
+        // Basarili decrypt → IndexedDB cache'e yaz (search icin)
+        if (payload?.content) {
+          toCache.push({
+            messageId: msg.id,
+            channelId: msg.channel_id,
+            dmChannelId: null,
+            content: payload.content,
+            timestamp: new Date(msg.created_at).getTime(),
+          });
+        }
       } catch (err) {
         console.error(
           `[channelEncryption] Failed to decrypt msg ${msg.id}:`,
@@ -262,6 +287,13 @@ export async function decryptChannelMessages(
       // Plaintext mesaj — oldugu gibi birak
       result.push(msg);
     }
+  }
+
+  // Toplu cache yazimi — tek transaction ile performansli
+  if (toCache.length > 0) {
+    keyStorage.cacheDecryptedMessages(toCache).catch((err) => {
+      console.error("[channelEncryption] Failed to cache messages:", err);
+    });
   }
 
   return result;

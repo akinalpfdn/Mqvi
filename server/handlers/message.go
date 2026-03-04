@@ -157,6 +157,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Multipart ise dosyaları yükle
 	if isMultipart(contentType) && r.MultipartForm != nil {
+		isEncrypted := req.EncryptionVersion == 1
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
@@ -164,7 +165,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 				continue // Açılamayan dosyayı atla
 			}
 
-			attachment, err := h.uploadService.Upload(r.Context(), message.ID, file, fileHeader)
+			attachment, err := h.uploadService.Upload(r.Context(), message.ID, file, fileHeader, isEncrypted)
 			file.Close()
 			if err != nil {
 				continue // Yüklenemeyen dosyayı atla
@@ -250,7 +251,9 @@ func (h *MessageHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	messageID := r.FormValue("message_id")
 
-	attachment, err := h.uploadService.Upload(r.Context(), messageID, file, header)
+	// Standalone upload: encryption_version form field'ı ile kontrol
+	isEncrypted := r.FormValue("encryption_version") == "1"
+	attachment, err := h.uploadService.Upload(r.Context(), messageID, file, header, isEncrypted)
 	if err != nil {
 		pkg.Error(w, err)
 		return

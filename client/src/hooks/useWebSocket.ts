@@ -52,6 +52,7 @@ import { playJoinSound, playLeaveSound, playNotificationSound } from "../utils/s
 import { useE2EEStore } from "../stores/e2eeStore";
 import { decryptDMMessage } from "../crypto/dmEncryption";
 import { decryptChannelMessage } from "../crypto/channelEncryption";
+import * as keyStorage from "../crypto/keyStorage";
 import type {
   WSMessage,
   Channel,
@@ -214,13 +215,28 @@ export function useWebSocket() {
         // E2EE decryption — sifreli mesajlari coz
         if (message.encryption_version === 1 && message.ciphertext && message.sender_device_id) {
           try {
-            const plaintext = await decryptChannelMessage(
+            const payload = await decryptChannelMessage(
               message.user_id,
               message.channel_id,
               message.ciphertext,
               message.sender_device_id
             );
-            message = { ...message, content: plaintext };
+            message = {
+              ...message,
+              content: payload?.content ?? null,
+              e2ee_file_keys: payload?.file_keys,
+            };
+
+            // Basarili decrypt → IndexedDB cache (client-side search)
+            if (payload?.content) {
+              keyStorage.cacheDecryptedMessage({
+                messageId: message.id,
+                channelId: message.channel_id,
+                dmChannelId: null,
+                content: payload.content,
+                timestamp: new Date(message.created_at).getTime(),
+              }).catch(() => {});
+            }
           } catch (err) {
             console.error("[useWebSocket] Channel message decryption failed:", err);
             message = { ...message, content: null };
@@ -291,13 +307,28 @@ export function useWebSocket() {
         // E2EE decryption — sifreli mesaj guncellemesini coz
         if (updatedMsg.encryption_version === 1 && updatedMsg.ciphertext && updatedMsg.sender_device_id) {
           try {
-            const plaintext = await decryptChannelMessage(
+            const payload = await decryptChannelMessage(
               updatedMsg.user_id,
               updatedMsg.channel_id,
               updatedMsg.ciphertext,
               updatedMsg.sender_device_id
             );
-            updatedMsg = { ...updatedMsg, content: plaintext };
+            updatedMsg = {
+              ...updatedMsg,
+              content: payload?.content ?? null,
+              e2ee_file_keys: payload?.file_keys,
+            };
+
+            // Cache guncelle
+            if (payload?.content) {
+              keyStorage.cacheDecryptedMessage({
+                messageId: updatedMsg.id,
+                channelId: updatedMsg.channel_id,
+                dmChannelId: null,
+                content: payload.content,
+                timestamp: new Date(updatedMsg.created_at).getTime(),
+              }).catch(() => {});
+            }
           } catch (err) {
             console.error("[useWebSocket] Channel message update decryption failed:", err);
             updatedMsg = { ...updatedMsg, content: null };
@@ -610,12 +641,27 @@ export function useWebSocket() {
         // E2EE mesajı ise decrypt et
         if (dmMsg.encryption_version === 1 && dmMsg.ciphertext && dmMsg.sender_device_id) {
           try {
-            const plaintext = await decryptDMMessage(
+            const payload = await decryptDMMessage(
               dmMsg.user_id,
               dmMsg.ciphertext,
               dmMsg.sender_device_id
             );
-            dmMsg = { ...dmMsg, content: plaintext };
+            dmMsg = {
+              ...dmMsg,
+              content: payload?.content ?? null,
+              e2ee_file_keys: payload?.file_keys,
+            };
+
+            // Basarili decrypt → IndexedDB cache (client-side search)
+            if (payload?.content) {
+              keyStorage.cacheDecryptedMessage({
+                messageId: dmMsg.id,
+                channelId: "",
+                dmChannelId: dmMsg.dm_channel_id,
+                content: payload.content,
+                timestamp: new Date(dmMsg.created_at).getTime(),
+              }).catch(() => {});
+            }
           } catch (err) {
             console.error("[ws] DM decrypt failed:", err);
             dmMsg = { ...dmMsg, content: null };
@@ -651,12 +697,27 @@ export function useWebSocket() {
         // E2EE edit ise decrypt et
         if (dmUpdateMsg.encryption_version === 1 && dmUpdateMsg.ciphertext && dmUpdateMsg.sender_device_id) {
           try {
-            const plaintext = await decryptDMMessage(
+            const payload = await decryptDMMessage(
               dmUpdateMsg.user_id,
               dmUpdateMsg.ciphertext,
               dmUpdateMsg.sender_device_id
             );
-            dmUpdateMsg = { ...dmUpdateMsg, content: plaintext };
+            dmUpdateMsg = {
+              ...dmUpdateMsg,
+              content: payload?.content ?? null,
+              e2ee_file_keys: payload?.file_keys,
+            };
+
+            // Cache guncelle
+            if (payload?.content) {
+              keyStorage.cacheDecryptedMessage({
+                messageId: dmUpdateMsg.id,
+                channelId: "",
+                dmChannelId: dmUpdateMsg.dm_channel_id,
+                content: payload.content,
+                timestamp: new Date(dmUpdateMsg.created_at).getTime(),
+              }).catch(() => {});
+            }
           } catch (err) {
             console.error("[ws] DM edit decrypt failed:", err);
             dmUpdateMsg = { ...dmUpdateMsg, content: null };

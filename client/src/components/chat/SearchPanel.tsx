@@ -13,7 +13,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { searchMessages } from "../../api/search";
+import { searchCachedMessages } from "../../crypto/keyStorage";
 import { useServerStore } from "../../stores/serverStore";
+import { useE2EEStore } from "../../stores/e2eeStore";
 import type { SearchResult } from "../../api/search";
 import type { Message } from "../../types";
 import Avatar from "../shared/Avatar";
@@ -30,6 +32,8 @@ type SearchPanelProps = {
 
 function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
   const { t } = useTranslation("chat");
+  const { t: tE2ee } = useTranslation("e2ee");
+  const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -52,6 +56,44 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
       }
 
       setIsSearching(true);
+
+      // E2EE aktifse client-side IndexedDB arama
+      // (sunucuda content=NULL oldugundan FTS5 calismaz)
+      if (isE2EEReady && channelId) {
+        try {
+          const cached = await searchCachedMessages(channelId, searchQuery.trim());
+          // Pagination simule et (IndexedDB tum sonuclari doner)
+          const total = cached.length;
+          const paged = cached
+            .sort((a, b) => b.timestamp - a.timestamp) // en yeni once
+            .slice(searchOffset, searchOffset + limit);
+
+          // CachedDecryptedMessage → Message minimal format (render icin)
+          const messages: Message[] = paged.map((c) => ({
+            id: c.messageId,
+            channel_id: c.channelId,
+            user_id: "",
+            content: c.content,
+            created_at: new Date(c.timestamp).toISOString(),
+            edited_at: null,
+            is_pinned: false,
+            attachments: [],
+            reactions: [],
+            reply_to_id: null,
+            referenced_message: null,
+            author: { id: "", username: "", display_name: null, avatar_url: null, status: "offline" },
+            encryption_version: 1,
+          }));
+
+          setResults({ messages, total_count: total });
+        } catch {
+          setResults({ messages: [], total_count: 0 });
+        }
+        setIsSearching(false);
+        return;
+      }
+
+      // Plaintext — server-side FTS5 arama
       const serverId = useServerStore.getState().activeServerId;
       if (!serverId) return;
       const res = await searchMessages(serverId, searchQuery.trim(), channelId, limit, searchOffset);
@@ -62,7 +104,7 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
       }
       setIsSearching(false);
     },
-    [channelId]
+    [channelId, isE2EEReady]
   );
 
   /** Input değiştiğinde debounce ile arama */
@@ -132,6 +174,11 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
           className="search-input"
         />
       </div>
+
+      {/* E2EE client-side search note */}
+      {isE2EEReady && (
+        <p className="search-e2ee-note">{tE2ee("clientSearchNote")}</p>
+      )}
 
       {/* Results */}
       <div className="search-results">
