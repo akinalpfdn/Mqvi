@@ -126,6 +126,10 @@ export type Message = {
   attachments: Attachment[];
   mentions: string[];  // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
   reactions: ReactionGroup[];  // Emoji tepkileri (gruplanmış)
+  encryption_version: EncryptionVersion;  // 0=plaintext, 1=E2EE
+  ciphertext?: string | null;            // E2EE sifreli icerik (encryption_version=1)
+  sender_device_id?: string | null;      // Gonderici cihaz ID'si
+  e2ee_metadata?: string | null;         // Ek E2EE metadata (JSON string)
 };
 
 export type Attachment = {
@@ -313,6 +317,10 @@ export type DMMessage = {
   attachments: DMAttachment[];
   reactions: ReactionGroup[];
   referenced_message: MessageReference | null;
+  encryption_version: EncryptionVersion;  // 0=plaintext, 1=E2EE
+  ciphertext?: string | null;
+  sender_device_id?: string | null;
+  e2ee_metadata?: string | null;
 };
 
 /**
@@ -663,4 +671,144 @@ export type CreateServerRequest = {
  */
 export type JoinServerRequest = {
   invite_code: string;
+};
+
+// ──────────────────────────────────
+// E2EE (End-to-End Encryption)
+// ──────────────────────────────────
+
+/**
+ * Mesaj sifreleme versiyonu.
+ * 0 = plaintext (legacy, sifrelenmemis)
+ * 1 = E2EE (Signal Protocol / Sender Key ile sifreli)
+ */
+export type EncryptionVersion = 0 | 1;
+
+/**
+ * DeviceInfo — Kullanicinin kendi cihaz bilgisi (tam detay).
+ * GET /api/devices endpoint'inden doner.
+ */
+export type DeviceInfo = {
+  id: string;
+  user_id: string;
+  device_id: string;
+  display_name: string | null;
+  identity_key: string;
+  signed_prekey: string;
+  signed_prekey_id: number;
+  signed_prekey_signature: string;
+  registration_id: number;
+  last_seen_at: string;
+  created_at: string;
+};
+
+/**
+ * DevicePublicInfo — Baska kullanicilarin gorebilecegi cihaz bilgisi.
+ * GET /api/users/{userId}/devices endpoint'inden doner.
+ * Hassas bilgiler (private key, signature vb.) icerilmez.
+ */
+export type DevicePublicInfo = {
+  device_id: string;
+  display_name: string | null;
+  identity_key: string;
+  created_at: string;
+  last_seen_at: string;
+};
+
+/**
+ * PreKeyBundleResponse — X3DH key agreement icin prekey bundle.
+ * GET /api/users/{userId}/prekey-bundles endpoint'inden doner.
+ *
+ * Her cihaz icin bir bundle doner. Bundle'lar ile ilk mesaj
+ * gondermeden once shared secret hesaplanir.
+ *
+ * one_time_prekey_id ve one_time_prekey null olabilir —
+ * havuz tukenmisse X3DH 3-DH ile calisir (4-DH yerine).
+ */
+export type PreKeyBundleResponse = {
+  device_id: string;
+  registration_id: number;
+  identity_key: string;
+  signed_prekey_id: number;
+  signed_prekey: string;
+  signed_prekey_signature: string;
+  one_time_prekey_id: number | null;
+  one_time_prekey: string | null;
+};
+
+/**
+ * KeyBackupResponse — Sunucuda saklanan sifreli anahtar yedegi.
+ * GET /api/e2ee/key-backup endpoint'inden doner.
+ */
+export type KeyBackupResponse = {
+  id: string;
+  user_id: string;
+  version: number;
+  algorithm: string;
+  encrypted_data: string;
+  nonce: string;
+  salt: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * ChannelGroupSessionResponse — Kanaldaki Sender Key grup oturumu.
+ * GET /api/servers/{sId}/channels/{cId}/group-sessions endpoint'inden doner.
+ */
+export type ChannelGroupSessionResponse = {
+  id: string;
+  channel_id: string;
+  sender_user_id: string;
+  sender_device_id: string;
+  session_id: string;
+  session_data: string;
+  message_index: number;
+  created_at: string;
+};
+
+/**
+ * EncryptedEnvelope — DM mesajlarinda per-device sifreli zarf.
+ * Signal Protocol ile sifreli mesaj gondermek icin kullanilir.
+ */
+export type EncryptedEnvelope = {
+  sender_device_id: string;
+  recipient_device_id?: string;
+  message_type: number;   // 2=Whisper, 3=PreKey
+  ciphertext: string;     // base64 encoded
+};
+
+/**
+ * SenderKeyEnvelope — Grup mesajlarinda Sender Key ile sifreli zarf.
+ * Tek ciphertext — tum kanal uyeleri ayni ciphertext'i cozer.
+ */
+export type SenderKeyEnvelope = {
+  sender_device_id: string;
+  distribution_id: string;
+  ciphertext: string;     // base64 encoded
+};
+
+/**
+ * EncryptedMessagePayload — E2EE mesaj gondermek icin tam payload.
+ * Handler katmaninda JSON body'den parse edilir.
+ */
+export type EncryptedMessagePayload = {
+  encryption_version: 1;
+  sender_device_id: string;
+  encrypted_content: EncryptedEnvelope[] | SenderKeyEnvelope;
+  mentions: string[];
+  reply_to_id?: string;
+};
+
+/**
+ * EncryptedAttachmentMeta — Sifreli dosya meta verisi.
+ * Mesajin sifreli payload'ina dahil edilir — sunucu goremez.
+ */
+export type EncryptedAttachmentMeta = {
+  key: string;           // AES-256-GCM key (base64)
+  iv: string;            // Initialization vector (base64)
+  filename: string;
+  mime_type: string;
+  original_size: number;
+  digest: string;        // SHA-256 hash (hex)
 };
