@@ -229,6 +229,7 @@
   "updateError": "Güncelleme başarısız",
 
   "security": "Güvenlik",
+  "encryption": "Şifreleme",
   "emailSection": "E-posta Adresi",
   "currentEmail": "Mevcut E-posta",
   "newEmail": "Yeni E-posta",

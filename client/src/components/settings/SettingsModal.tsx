@@ -26,6 +26,7 @@ import AdminServerList from "./AdminServerList";
 import AdminUserList from "./AdminUserList";
 import AdminReportList from "./AdminReportList";
 import ConnectionsSettings from "./ConnectionsSettings";
+import EncryptionSettings from "./EncryptionSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -114,6 +115,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "security":
       return <SecuritySettings />;
+
+    case "encryption":
+      return <EncryptionSettings />;
 
     case "platform":
       return <PlatformSettings />;

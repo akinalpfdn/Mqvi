@@ -263,6 +263,8 @@ export type VoiceTokenResponse = {
   token: string;
   url: string;
   channel_id: string;
+  /** Room bazlı E2EE passphrase (SFrame). Server tarafından üretilir. */
+  e2ee_passphrase?: string;
 };
 
 /**

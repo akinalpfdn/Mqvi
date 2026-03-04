@@ -20,6 +20,8 @@ package services
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"sync"
@@ -122,6 +124,13 @@ type voiceService struct {
 	// Neden userID key? Bir kullanıcı aynı anda tek bir ses kanalında olabilir.
 	states map[string]*models.VoiceState
 
+	// roomPassphrases: roomName → passphrase
+	// Voice E2EE için room bazlı SFrame passphrase.
+	// İlk participant katıldığında oluşturulur, room boşaldığında silinir.
+	// 32 byte crypto/rand → base64 encoded string.
+	// Tüm participant'lar aynı passphrase'i alır → ExternalE2EEKeyProvider.setKey().
+	roomPassphrases map[string]string
+
 	// sync.RWMutex: Concurrent erişim koruması.
 	// RLock: Birden fazla okuyucu aynı anda erişebilir (GetChannelParticipants gibi).
 	// Lock: Yazma sırasında tüm erişim bloklanır (JoinChannel, LeaveChannel gibi).
@@ -155,12 +164,13 @@ func NewVoiceService(
 	encryptionKey []byte,
 ) VoiceService {
 	return &voiceService{
-		states:        make(map[string]*models.VoiceState),
-		channelGetter: channelGetter,
-		livekitGetter: livekitGetter,
-		permResolver:  permResolver,
-		hub:           hub,
-		encryptionKey: encryptionKey,
+		states:          make(map[string]*models.VoiceState),
+		roomPassphrases: make(map[string]string),
+		channelGetter:   channelGetter,
+		livekitGetter:   livekitGetter,
+		permResolver:    permResolver,
+		hub:             hub,
+		encryptionKey:   encryptionKey,
 	}
 }
 
@@ -267,10 +277,19 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("failed to generate livekit token: %w", err)
 	}
 
+	// 9. Voice E2EE — room bazlı SFrame passphrase
+	//
+	// İlk participant katıldığında 32 byte random passphrase oluşturulur.
+	// Sonraki participant'lar aynı passphrase'i alır.
+	// Client tarafında ExternalE2EEKeyProvider.setKey(passphrase) ile set edilir.
+	// LiveKit SFrame bu passphrase'ten PBKDF2 ile crypto key türetir.
+	passphrase := s.getOrCreateRoomPassphrase(roomName)
+
 	return &models.VoiceTokenResponse{
-		Token:     token,
-		URL:       lkInstance.URL,
-		ChannelID: channelID,
+		Token:          token,
+		URL:            lkInstance.URL,
+		ChannelID:      channelID,
+		E2EEPassphrase: passphrase,
 	}, nil
 }
 
@@ -357,6 +376,10 @@ func (s *voiceService) LeaveChannel(userID string) error {
 			Action:      "leave",
 		},
 	})
+
+	// Room boşaldıysa E2EE passphrase'i temizle.
+	// Yeni bir oturum yeni passphrase üretecek — forward secrecy.
+	s.cleanupRoomPassphraseIfEmpty(channelID)
 
 	log.Printf("[voice] user %s left channel %s", userID, channelID)
 	return nil
@@ -709,7 +732,10 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 		},
 	})
 
-	// 5. Hedef kullanıcıya voice_force_disconnect gönder — client LiveKit'ten çıksın
+	// 5. Room boşaldıysa E2EE passphrase'i temizle
+	s.cleanupRoomPassphraseIfEmpty(channelID)
+
+	// 6. Hedef kullanıcıya voice_force_disconnect gönder — client LiveKit'ten çıksın
 	s.hub.BroadcastToUser(targetUserID, ws.Event{
 		Op: ws.OpVoiceForceDisconnect,
 	})
@@ -717,4 +743,58 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 	log.Printf("[voice] admin %s disconnected user %s from channel %s",
 		disconnecterUserID, targetUserID, channelID)
 	return nil
+}
+
+// ─── E2EE Passphrase Helpers ───
+
+// getOrCreateRoomPassphrase, room için E2EE passphrase döner.
+// Room'a ilk katılımda 32 byte crypto/rand → base64 ile passphrase oluşturulur.
+// Sonraki katılımlarda aynı passphrase döner.
+//
+// NOT: Bu metot mu.Lock altında çağrılmamalı — kendi lock'unu almaz.
+// GenerateToken'dan çağrılır, GenerateToken'da lock yok (read-only states erişimi yok).
+func (s *voiceService) getOrCreateRoomPassphrase(roomName string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if passphrase, ok := s.roomPassphrases[roomName]; ok {
+		return passphrase
+	}
+
+	// 32 byte random → base64 encoded passphrase
+	raw := make([]byte, 32)
+	if _, err := cryptorand.Read(raw); err != nil {
+		// crypto/rand başarısız olursa fallback — pratikte asla olmaz
+		log.Printf("[voice] WARN: crypto/rand failed, using timestamp fallback: %v", err)
+		raw = []byte(fmt.Sprintf("fallback-%d", time.Now().UnixNano()))
+	}
+	passphrase := base64.RawURLEncoding.EncodeToString(raw)
+
+	s.roomPassphrases[roomName] = passphrase
+	log.Printf("[voice] created E2EE passphrase for room %s", roomName)
+	return passphrase
+}
+
+// cleanupRoomPassphraseIfEmpty, channelID'ye ait room'da participant kalmadıysa
+// passphrase'i siler. Forward secrecy: her yeni oturum yeni passphrase alır.
+//
+// NOT: Bu metot mu.Lock altında çağrılır (LeaveChannel, AdminDisconnectUser içinden).
+// Kendi lock almaz — caller lock tutar.
+func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
+	// Kanalda hâlâ participant var mı?
+	for _, state := range s.states {
+		if state.ChannelID == channelID {
+			return // Hâlâ biri var — temizleme
+		}
+	}
+
+	// Room boş — tüm olası room name formatlarını temizle
+	// Room name formatı: "{serverID}:{channelID}" — tüm server'larda ara
+	for roomName := range s.roomPassphrases {
+		// roomName = "serverID:channelID" — channelID suffix kontrolü
+		if len(roomName) > len(channelID) && roomName[len(roomName)-len(channelID):] == channelID {
+			delete(s.roomPassphrases, roomName)
+			log.Printf("[voice] cleaned up E2EE passphrase for room %s", roomName)
+		}
+	}
 }

@@ -28,6 +28,7 @@ const USER_ITEMS: NavItem[] = [
   { id: "appearance", labelKey: "appearance" },
   { id: "voice", labelKey: "voiceSettings" },
   { id: "security", labelKey: "security" },
+  { id: "encryption", labelKey: "encryption" },
 ];
 
 /** Server Settings kategorisi — permission-gated */

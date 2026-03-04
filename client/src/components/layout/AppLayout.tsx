@@ -38,6 +38,8 @@ import { useIdleDetection } from "../../hooks/useIdleDetection";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useP2PCall } from "../../hooks/useP2PCall";
 import { useE2EE } from "../../hooks/useE2EE";
+import { useE2EEStore } from "../../stores/e2eeStore";
+import NewDeviceSetup from "../shared/NewDeviceSetup";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
 import QuickSwitcher from "../shared/QuickSwitcher";
 import ScreenPicker from "../voice/ScreenPicker";
@@ -66,6 +68,7 @@ function AppLayout() {
 
   // E2EE — cihaz kimliği kontrolü + anahtar başlatma
   useE2EE();
+  const e2eeInitStatus = useE2EEStore((s) => s.initStatus);
 
   const activeServerId = useServerStore((s) => s.activeServerId);
   const servers = useServerStore((s) => s.servers);
@@ -297,6 +300,9 @@ function AppLayout() {
 
       {/* Electron screen picker — getDisplayMedia tetiklendiğinde açılır (z-150) */}
       <ScreenPicker />
+
+      {/* E2EE yeni cihaz kurulum modal'ı — blocking overlay (z-300) */}
+      {e2eeInitStatus === "needs_setup" && <NewDeviceSetup />}
     </>
   );
 

@@ -229,6 +229,7 @@
   "updateError": "Update failed",
 
   "security": "Security",
+  "encryption": "Encryption",
   "emailSection": "Email Address",
   "currentEmail": "Current Email",
   "newEmail": "New Email",

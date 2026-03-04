@@ -16,14 +16,18 @@
  * - RoomAudioRenderer: Remote audio track'leri otomatik attach (ses çalmaya devam)
  * - VoiceStateManager: Store ↔ LiveKit senkronizasyonu (mute/deafen/PTT/volume)
  *
+ * E2EE: Server her voice room için random passphrase üretir.
+ * ExternalE2EEKeyProvider.setKey(passphrase) ile SFrame frame-level encryption aktif.
+ * LiveKit'in built-in e2ee-worker'ı kullanılır.
+ *
  * CSS: `display:contents` → LiveKitRoom'un div'i layout'ta görünmez,
  * children doğrudan parent'ın flex/grid'ine katılır.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
-import { DisconnectReason, VideoPreset } from "livekit-client";
-import type { AudioCaptureOptions } from "livekit-client";
+import { DisconnectReason, ExternalE2EEKeyProvider, VideoPreset } from "livekit-client";
+import type { AudioCaptureOptions, RoomOptions } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
@@ -35,13 +39,61 @@ type VoiceProviderProps = {
 
 function VoiceProvider({ children }: VoiceProviderProps) {
   const { t } = useTranslation("voice");
+  const { t: tE2ee } = useTranslation("e2ee");
   const livekitUrl = useVoiceStore((s) => s.livekitUrl);
   const livekitToken = useVoiceStore((s) => s.livekitToken);
+  const e2eePassphrase = useVoiceStore((s) => s.e2eePassphrase);
   const leaveVoiceChannel = useVoiceStore((s) => s.leaveVoiceChannel);
   const inputDevice = useVoiceStore((s) => s.inputDevice);
 
   /** Voice aktif mi? URL ve token varsa bağlantı kurulur. */
   const isConnected = !!livekitUrl && !!livekitToken;
+
+  // ─── E2EE Key Provider ───
+
+  /**
+   * ExternalE2EEKeyProvider — LiveKit SFrame E2EE için key sağlayıcı.
+   *
+   * Stable instance: useMemo ile tek sefer oluşturulur.
+   * setKey(passphrase) ile passphrase set edilir — LiveKit PBKDF2 ile
+   * crypto key türetir ve SFrame ile her audio/video frame'i şifreler.
+   */
+  const keyProvider = useMemo(() => new ExternalE2EEKeyProvider(), []);
+
+  /**
+   * e2ee-worker — LiveKit'in built-in SFrame encryption worker'ı.
+   *
+   * Web Worker olarak çalışır — main thread bloklanmaz.
+   * livekit-client package'ından export edilir.
+   * Vite import.meta.url ile doğru path resolve edilir.
+   *
+   * Worker sadece E2EE aktif olduğunda oluşturulur. Passphrase yoksa undefined.
+   * Ref ile saklanır — re-render'da yeni Worker oluşturulmaz.
+   */
+  const workerRef = useRef<Worker | null>(null);
+
+  // E2EE aktifse worker oluştur, değilse terminate et
+  useEffect(() => {
+    if (e2eePassphrase && !workerRef.current) {
+      workerRef.current = new Worker(
+        new URL("livekit-client/e2ee-worker", import.meta.url)
+      );
+    }
+
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+    };
+  }, [!!e2eePassphrase]);
+
+  // Passphrase değiştiğinde key set et
+  useEffect(() => {
+    if (e2eePassphrase) {
+      keyProvider.setKey(e2eePassphrase);
+    }
+  }, [e2eePassphrase, keyProvider]);
 
   /**
    * onDisconnected — LiveKit bağlantısı koptuğunda çağrılır.
@@ -109,6 +161,22 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   );
 
   /**
+   * onEncryptionError — SFrame E2EE hatası.
+   * Passphrase uyuşmazlığı, worker hatası vb. durumlarda tetiklenir.
+   */
+  const handleEncryptionError = useCallback(
+    (err: Error) => {
+      console.error("[VoiceProvider] E2EE encryption error:", err);
+      useToastStore.getState().addToast(
+        "error",
+        tE2ee("voiceE2eeError"),
+        8000
+      );
+    },
+    [tE2ee]
+  );
+
+  /**
    * audioCaptureDefaults — LiveKit'e mikrofon yakalama ayarlarını iletir.
    *
    * useMemo ile sarılır — re-render'da gereksiz yeni obje oluşmasını önler.
@@ -160,6 +228,33 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   );
 
   /**
+   * roomOptions — LiveKitRoom options.
+   *
+   * E2EE aktifse (passphrase + worker varsa) e2ee config eklenir.
+   * ExternalE2EEKeyProvider.setKey() ile set edilen passphrase'ten
+   * LiveKit PBKDF2 ile CryptoKey türetir ve SFrame ile şifreler.
+   */
+  const roomOptions: RoomOptions | undefined = useMemo(() => {
+    if (!isConnected) return undefined;
+
+    const base: RoomOptions = {
+      audioCaptureDefaults,
+      publishDefaults,
+      webAudioMix: true,
+    };
+
+    // E2EE: passphrase ve worker varsa SFrame encryption aktif
+    if (e2eePassphrase && workerRef.current) {
+      base.e2ee = {
+        keyProvider,
+        worker: workerRef.current,
+      };
+    }
+
+    return base;
+  }, [isConnected, audioCaptureDefaults, publishDefaults, e2eePassphrase, keyProvider]);
+
+  /**
    * LiveKitRoom her zaman render edilir:
    * - connect={false} → Room obje oluşturulur ama bağlanmaz
    * - connect={true}  → Bağlanır, audio/video pipeline aktif
@@ -177,9 +272,10 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       connect={isConnected}
       audio={isConnected}
       video={false}
-      options={isConnected ? { audioCaptureDefaults, publishDefaults, webAudioMix: true } : undefined}
+      options={roomOptions}
       onDisconnected={handleDisconnected}
       onError={handleError}
+      onEncryptionError={handleEncryptionError}
       style={{ display: "contents" }}
     >
       {/* Audio rendering + state sync — sadece voice aktifken */}

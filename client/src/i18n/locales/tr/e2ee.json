@@ -51,5 +51,17 @@
 
   "decryptingFile": "Dosya çözülüyor...",
   "fileDecryptFailed": "Dosya çözülemedi",
-  "clientSearchNote": "Yerel arama (E2EE)"
+  "clientSearchNote": "Yerel arama (E2EE)",
+
+  "voiceE2eeEnabled": "Sesli aramalar uçtan uca şifreli",
+  "voiceE2eeError": "Ses şifreleme hatası",
+  "encryptionActive": "Şifreleme aktif",
+  "encryptionNotSetup": "Şifreleme kurulmadı",
+  "fingerprintLabel": "Anahtar parmak iziniz",
+  "fingerprintCopied": "Parmak izi panoya kopyalandı",
+  "removeDeviceSuccess": "Cihaz başarıyla kaldırıldı",
+  "removeDeviceError": "Cihaz kaldırılamadı",
+  "noRecoveryWarning": "Kurtarma parolası belirlenmedi. Tüm cihazlarınıza erişiminizi kaybederseniz şifreleme anahtarlarınızı kurtaramazsınız.",
+  "setupRequired": "Şifreli mesaj göndermek için şifreleme kurulumunu tamamlayın.",
+  "setupBackToChoice": "Geri"
 }

@@ -164,6 +164,9 @@ type VoiceStore = {
   /** LiveKit JWT token'ı */
   livekitToken: string | null;
 
+  /** Room bazlı E2EE passphrase (SFrame). Server tarafından üretilir. */
+  e2eePassphrase: string | null;
+
   // ─── Voice Settings (persisted) ───
 
   /**
@@ -432,6 +435,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   isStreaming: false,
   livekitUrl: null,
   livekitToken: null,
+  e2eePassphrase: null,
 
   // ─── Voice Settings (localStorage'dan yüklenir) ───
   inputMode: initialSettings.inputMode,
@@ -480,6 +484,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         currentVoiceChannelId: channelId,
         livekitUrl: response.data.url,
         livekitToken: response.data.token,
+        e2eePassphrase: response.data.e2ee_passphrase ?? null,
         isMuted: startMuted,
         isDeafened: false,
         isStreaming: false,
@@ -497,6 +502,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       currentVoiceChannelId: null,
       livekitUrl: null,
       livekitToken: null,
+      e2eePassphrase: null,
       isMuted: false,
       isDeafened: false,
       isStreaming: false,
@@ -967,6 +973,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       currentVoiceChannelId: null,
       livekitUrl: null,
       livekitToken: null,
+      e2eePassphrase: null,
       isMuted: false,
       isDeafened: false,
       isStreaming: false,

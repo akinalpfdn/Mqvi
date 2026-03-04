@@ -48,6 +48,7 @@ type SettingsTab =
   | "appearance"
   | "voice"
   | "security"
+  | "encryption"
   | "server-general"
   | "channels"
   | "roles"

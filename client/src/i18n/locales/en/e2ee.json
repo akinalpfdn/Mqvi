@@ -51,5 +51,17 @@
 
   "decryptingFile": "Decrypting file...",
   "fileDecryptFailed": "Failed to decrypt file",
-  "clientSearchNote": "Searching locally (E2EE)"
+  "clientSearchNote": "Searching locally (E2EE)",
+
+  "voiceE2eeEnabled": "Voice calls are end-to-end encrypted",
+  "voiceE2eeError": "Voice encryption error",
+  "encryptionActive": "Encryption is active",
+  "encryptionNotSetup": "Encryption not set up",
+  "fingerprintLabel": "Your key fingerprint",
+  "fingerprintCopied": "Fingerprint copied to clipboard",
+  "removeDeviceSuccess": "Device removed successfully",
+  "removeDeviceError": "Failed to remove device",
+  "noRecoveryWarning": "No recovery password set. If you lose access to all devices, you will not be able to recover your encryption keys.",
+  "setupRequired": "Set up encryption to start sending encrypted messages.",
+  "setupBackToChoice": "Back"
 }

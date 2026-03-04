@@ -33,7 +33,8 @@ type VoiceTokenRequest struct {
 // VoiceTokenResponse, LiveKit token generation yanıtı.
 // Client bu bilgilerle doğrudan LiveKit sunucusuna bağlanır.
 type VoiceTokenResponse struct {
-	Token     string `json:"token"`      // LiveKit JWT — oturum bilgilerini içerir
-	URL       string `json:"url"`        // LiveKit WebSocket URL (ws://localhost:7880)
-	ChannelID string `json:"channel_id"` // LiveKit room name = channel ID
+	Token          string `json:"token"`                     // LiveKit JWT — oturum bilgilerini içerir
+	URL            string `json:"url"`                       // LiveKit WebSocket URL (ws://localhost:7880)
+	ChannelID      string `json:"channel_id"`                // LiveKit room name = channel ID
+	E2EEPassphrase string `json:"e2ee_passphrase,omitempty"` // Room bazlı E2EE passphrase (SFrame)
 }

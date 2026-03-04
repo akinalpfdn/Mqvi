@@ -2692,3 +2692,43 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .create-ch-select { width:100%;padding:10px 12px;border:1px solid var(--b2);border-radius:6px;background:var(--bg-0);color:var(--t0);font-size:14px;font-family:var(--f-ui);outline:none;transition:border-color .15s;appearance:auto; }
 .create-ch-select:focus { border-color:var(--primary); }
 .create-ch-perm-desc { font-size:13px;color:var(--t2);margin-bottom:16px;line-height:1.4; }
+
+/* ═══════════════════════════════════════
+   E2EE — NewDeviceSetup + EncryptionSettings
+   ═══════════════════════════════════════ */
+
+/* ─── NewDeviceSetup modal ─── */
+.e2ee-setup-description { font-size:14px;color:var(--t1);line-height:1.5;margin-bottom:16px; }
+.e2ee-setup-error { font-size:13px;color:var(--red);margin-bottom:12px;padding:8px 12px;background:var(--red-s);border-radius:6px; }
+.e2ee-setup-actions { display:flex;flex-direction:column;gap:10px;margin-top:16px; }
+.e2ee-setup-btn-primary { width:100%;justify-content:center; }
+.e2ee-setup-btn-secondary { width:100%;background:var(--bg-4);color:var(--t1);justify-content:center; }
+.e2ee-setup-btn-secondary:hover { background:var(--bg-5);color:var(--t0); }
+.e2ee-setup-field { margin-bottom:8px; }
+.e2ee-setup-field .settings-input { max-width:none; }
+
+/* ─── EncryptionSettings — status badge ─── */
+.e2ee-status-badge-wrap { margin:12px 0 8px; }
+.e2ee-status-badge { display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;font-family:var(--f-ui); }
+.e2ee-status-badge::before { content:"";width:8px;height:8px;border-radius:50%; }
+.e2ee-status-badge.active { background:var(--green-s);color:var(--green); }
+.e2ee-status-badge.active::before { background:var(--green); }
+.e2ee-status-badge.inactive { background:var(--red-s);color:var(--red); }
+.e2ee-status-badge.inactive::before { background:var(--red); }
+
+/* ─── EncryptionSettings — setup warning ─── */
+.e2ee-setup-warning { font-size:13px;color:var(--yellow);background:rgba(250,176,5,0.08);padding:8px 12px;border-radius:6px;margin:8px 0;line-height:1.4; }
+
+/* ─── EncryptionSettings — key fingerprint ─── */
+.e2ee-fingerprint-wrap { margin:10px 0; }
+.e2ee-fingerprint { display:inline-block;font-family:var(--f-mono);font-size:14px;color:var(--t0);background:var(--bg-0);padding:10px 16px;border-radius:8px;letter-spacing:.08em;cursor:pointer;transition:background .15s;user-select:all; }
+.e2ee-fingerprint:hover { background:var(--bg-1); }
+
+/* ─── EncryptionSettings — device list ─── */
+.e2ee-device-list { display:flex;flex-direction:column;gap:8px;margin-top:12px; }
+.e2ee-device-item { display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--bg-0);border-radius:8px;border:1px solid var(--b1); }
+.e2ee-device-info { display:flex;flex-direction:column;gap:2px;min-width:0; }
+.e2ee-device-name { font-size:14px;font-weight:600;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.e2ee-device-this { font-weight:400;color:var(--green);font-size:13px; }
+.e2ee-device-meta { font-size:13px;color:var(--t3); }
+.e2ee-device-remove { flex-shrink:0;margin-left:12px; }
