@@ -24,7 +24,7 @@
  * children doğrudan parent'ın flex/grid'ine katılır.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
 import { DisconnectReason, ExternalE2EEKeyProvider, VideoPreset } from "livekit-client";
 import type { AudioCaptureOptions, RoomOptions } from "livekit-client";
@@ -67,33 +67,37 @@ function VoiceProvider({ children }: VoiceProviderProps) {
    * livekit-client package'ından export edilir.
    * Vite import.meta.url ile doğru path resolve edilir.
    *
-   * Worker sadece E2EE aktif olduğunda oluşturulur. Passphrase yoksa undefined.
-   * Ref ile saklanır — re-render'da yeni Worker oluşturulmaz.
+   * useMemo ile oluşturulur — aynı render pass'ta roomOptions'ta kullanılabilir.
+   * (useRef+useEffect ile olsaydı, effect render'dan sonra çalışır ve
+   * roomOptions hesaplandığında worker henüz null olurdu → E2EE sessizce devre dışı.)
+   *
+   * Passphrase truthy/falsy geçişinde yeni Worker oluşturulur/terminate edilir.
    */
-  const workerRef = useRef<Worker | null>(null);
-
-  // E2EE aktifse worker oluştur, değilse terminate et
-  useEffect(() => {
-    if (e2eePassphrase && !workerRef.current) {
-      workerRef.current = new Worker(
+  const e2eeWorker = useMemo(() => {
+    if (e2eePassphrase) {
+      return new Worker(
         new URL("livekit-client/e2ee-worker", import.meta.url)
       );
     }
-
-    return () => {
-      if (workerRef.current) {
-        workerRef.current.terminate();
-        workerRef.current = null;
-      }
-    };
+    return null;
   }, [!!e2eePassphrase]);
 
-  // Passphrase değiştiğinde key set et
+  // Worker terminate — önceki worker'ı temizle (passphrase null olunca veya unmount)
+  useEffect(() => {
+    return () => {
+      e2eeWorker?.terminate();
+    };
+  }, [e2eeWorker]);
+
+  // Passphrase değiştiğinde key set et (async — PBKDF2 key derivation)
   useEffect(() => {
     if (e2eePassphrase) {
-      keyProvider.setKey(e2eePassphrase);
+      keyProvider.setKey(e2eePassphrase).catch((err: unknown) => {
+        console.error("[VoiceProvider] Failed to set E2EE key:", err);
+        useToastStore.getState().addToast("error", tE2ee("voiceE2eeError"), 8000);
+      });
     }
-  }, [e2eePassphrase, keyProvider]);
+  }, [e2eePassphrase, keyProvider, tE2ee]);
 
   /**
    * onDisconnected — LiveKit bağlantısı koptuğunda çağrılır.
@@ -244,15 +248,15 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     };
 
     // E2EE: passphrase ve worker varsa SFrame encryption aktif
-    if (e2eePassphrase && workerRef.current) {
+    if (e2eePassphrase && e2eeWorker) {
       base.e2ee = {
         keyProvider,
-        worker: workerRef.current,
+        worker: e2eeWorker,
       };
     }
 
     return base;
-  }, [isConnected, audioCaptureDefaults, publishDefaults, e2eePassphrase, keyProvider]);
+  }, [isConnected, audioCaptureDefaults, publishDefaults, e2eePassphrase, keyProvider, e2eeWorker]);
 
   /**
    * LiveKitRoom her zaman render edilir:

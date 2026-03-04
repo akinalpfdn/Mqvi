@@ -413,13 +413,6 @@ type VoiceStore = {
   handleVoiceStatesSync: (states: VoiceState[]) => void;
 
   /**
-   * handleForceMove — voice_force_move WS event handler.
-   * Yetkili biri bizi başka voice kanala taşıdığında tetiklenir.
-   * Mevcut kanaldan ayrılıp yeni kanala otomatik join yapılır.
-   */
-  handleForceMove: (channelId: string) => void;
-
-  /**
    * handleForceDisconnect — voice_force_disconnect WS event handler.
    * Yetkili biri bizi voice'tan attığında tetiklenir.
    * Voice bağlantısı temizlenir.
@@ -436,6 +429,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   livekitUrl: null,
   livekitToken: null,
   e2eePassphrase: null,
+  /** Monotonically increasing join generation — stale API response'ları discard eder */
+  _joinGeneration: 0,
 
   // ─── Voice Settings (localStorage'dan yüklenir) ───
   inputMode: initialSettings.inputMode,
@@ -467,7 +462,20 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     try {
       const serverId = useServerStore.getState().activeServerId;
       if (!serverId) return null;
+
+      // Generation counter — stale API response'ları discard etmek için.
+      // leave() araya girerse generation artmış olur ve set() atlanır.
+      const gen = get()._joinGeneration + 1;
+      set({ _joinGeneration: gen });
+
       const response = await voiceApi.getVoiceToken(serverId, channelId);
+
+      // API response geldiğinde generation hâlâ aynı mı? Değilse araya
+      // leave veya başka join girmiş → bu response'ı discard et.
+      if (get()._joinGeneration !== gen) {
+        console.log("[voiceStore] Stale join response discarded (gen mismatch)");
+        return null;
+      }
 
       if (!response.success || !response.data) {
         console.error("[voiceStore] Failed to get voice token:", response.error);
@@ -509,6 +517,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       activeSpeakers: {},
       watchingScreenShares: {},
       rtt: 0,
+      // Generation artır — in-flight join response'ları discard edilsin
+      _joinGeneration: get()._joinGeneration + 1,
     });
   },
 
@@ -947,22 +957,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     }
 
     set({ voiceStates: grouped });
-  },
-
-  handleForceMove: (channelId: string) => {
-    // Yetkili biri bizi başka voice kanala taşıdı.
-    // currentVoiceChannelId'yi güncelle — LiveKit bağlantısı VoiceStateManager
-    // tarafından bu state değişikliğine tepki olarak yeniden kurulacak.
-    //
-    // Neden sadece channelId set ediyoruz?
-    // LiveKit token yeni kanal için geçerli değil — joinVoiceChannel API'den
-    // yeni token alır. Bu yüzden önce leaveVoiceChannel() sonra joinVoiceChannel()
-    // akışı gerekir. Ancak bunu burada yapamayız — joinVoiceChannel async API call
-    // yapar ve store action'ından side effect tetiklemek Zustand anti-pattern.
-    //
-    // Çözüm: useWebSocket'teki voice_force_move handler'ı bu akışı yönetir.
-    // Store sadece state'i günceller.
-    set({ currentVoiceChannelId: channelId });
   },
 
   handleForceDisconnect: () => {

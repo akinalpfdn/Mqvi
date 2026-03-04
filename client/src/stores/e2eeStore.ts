@@ -367,9 +367,11 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
   },
 
   addDecryptionError: (error: DecryptionError) => {
-    set((state) => ({
-      decryptionErrors: [...state.decryptionErrors, error],
-    }));
+    set((state) => {
+      const updated = [...state.decryptionErrors, error];
+      // Bellek sızıntısını önle — max 500 hata tut, eski girişleri sil
+      return { decryptionErrors: updated.length > 500 ? updated.slice(-500) : updated };
+    });
   },
 
   clearDecryptionErrors: (channelId: string) => {

@@ -310,6 +310,11 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
     createdAt: Date.now(),
   });
 
+  // deviceId'yi metadata store'a da yaz — getLocalDeviceId() buradan okur.
+  // registerNewDevice() bunu yapar ama importBackupContents yazmazsa
+  // restore sonrası localDeviceId null kalır → device management bozulur.
+  await keyStorage.setMetadata("deviceId", contents.registration.deviceId);
+
   // Signed prekeys
   for (const spk of contents.signedPreKeys) {
     await keyStorage.saveSignedPreKey({

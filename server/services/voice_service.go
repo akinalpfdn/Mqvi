@@ -24,6 +24,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -283,7 +284,10 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	// Sonraki participant'lar aynı passphrase'i alır.
 	// Client tarafında ExternalE2EEKeyProvider.setKey(passphrase) ile set edilir.
 	// LiveKit SFrame bu passphrase'ten PBKDF2 ile crypto key türetir.
-	passphrase := s.getOrCreateRoomPassphrase(roomName)
+	passphrase, err := s.getOrCreateRoomPassphrase(roomName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create E2EE passphrase: %w", err)
+	}
 
 	return &models.VoiceTokenResponse{
 		Token:          token,
@@ -318,6 +322,9 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 				Action:           "leave",
 			},
 		})
+
+		// Eski kanal boşaldıysa E2EE passphrase'i temizle (forward secrecy)
+		s.cleanupRoomPassphraseIfEmpty(oldChannelID)
 	}
 
 	// Yeni kanala katıl
@@ -646,6 +653,9 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	// 5. State güncelle — eski kanaldan çık, yeni kanala geç
 	state.ChannelID = targetChannelID
 
+	// Kaynak kanal boşaldıysa E2EE passphrase'i temizle (forward secrecy)
+	s.cleanupRoomPassphraseIfEmpty(sourceChannelID)
+
 	// 6. Broadcast: leave(eski kanal) + join(yeni kanal)
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
@@ -753,26 +763,24 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 //
 // NOT: Bu metot mu.Lock altında çağrılmamalı — kendi lock'unu almaz.
 // GenerateToken'dan çağrılır, GenerateToken'da lock yok (read-only states erişimi yok).
-func (s *voiceService) getOrCreateRoomPassphrase(roomName string) string {
+func (s *voiceService) getOrCreateRoomPassphrase(roomName string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if passphrase, ok := s.roomPassphrases[roomName]; ok {
-		return passphrase
+		return passphrase, nil
 	}
 
 	// 32 byte random → base64 encoded passphrase
 	raw := make([]byte, 32)
 	if _, err := cryptorand.Read(raw); err != nil {
-		// crypto/rand başarısız olursa fallback — pratikte asla olmaz
-		log.Printf("[voice] WARN: crypto/rand failed, using timestamp fallback: %v", err)
-		raw = []byte(fmt.Sprintf("fallback-%d", time.Now().UnixNano()))
+		return "", fmt.Errorf("crypto/rand failed: %w", err)
 	}
 	passphrase := base64.RawURLEncoding.EncodeToString(raw)
 
 	s.roomPassphrases[roomName] = passphrase
 	log.Printf("[voice] created E2EE passphrase for room %s", roomName)
-	return passphrase
+	return passphrase, nil
 }
 
 // cleanupRoomPassphraseIfEmpty, channelID'ye ait room'da participant kalmadıysa
@@ -789,10 +797,10 @@ func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
 	}
 
 	// Room boş — tüm olası room name formatlarını temizle
-	// Room name formatı: "{serverID}:{channelID}" — tüm server'larda ara
+	// Room name formatı: "{serverID}:{channelID}" — separator ile eşleştir
+	suffix := ":" + channelID
 	for roomName := range s.roomPassphrases {
-		// roomName = "serverID:channelID" — channelID suffix kontrolü
-		if len(roomName) > len(channelID) && roomName[len(roomName)-len(channelID):] == channelID {
+		if strings.HasSuffix(roomName, suffix) {
 			delete(s.roomPassphrases, roomName)
 			log.Printf("[voice] cleaned up E2EE passphrase for room %s", roomName)
 		}

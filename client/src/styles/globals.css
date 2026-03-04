@@ -2706,6 +2706,9 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .e2ee-setup-btn-secondary:hover { background:var(--bg-5);color:var(--t0); }
 .e2ee-setup-field { margin-bottom:8px; }
 .e2ee-setup-field .settings-input { max-width:none; }
+.e2ee-setup-logout { display:block;margin:16px auto 0;background:none;border:none;color:var(--t3);font-size:13px;cursor:pointer;font-family:var(--f-ui);padding:4px 8px;transition:color .15s; }
+.e2ee-setup-logout:hover { color:var(--red); }
+.e2ee-setup-logout:disabled { opacity:.5;cursor:not-allowed; }
 
 /* ─── EncryptionSettings — status badge ─── */
 .e2ee-status-badge-wrap { margin:12px 0 8px; }

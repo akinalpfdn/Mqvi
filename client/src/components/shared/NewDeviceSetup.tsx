@@ -28,7 +28,9 @@ type SetupView = "choice" | "restore";
 
 function NewDeviceSetup() {
   const { t } = useTranslation("e2ee");
+  const { t: tSettings } = useTranslation("settings");
   const userId = useAuthStore((s) => s.user?.id);
+  const logout = useAuthStore((s) => s.logout);
   const setupNewDevice = useE2EEStore((s) => s.setupNewDevice);
   const restoreFromRecovery = useE2EEStore((s) => s.restoreFromRecovery);
   const isGeneratingKeys = useE2EEStore((s) => s.isGeneratingKeys);
@@ -144,6 +146,15 @@ function NewDeviceSetup() {
             </div>
           </>
         )}
+
+        {/* Çıkış butonu — sunucu erişilemezse kullanıcı takılmasın */}
+        <button
+          onClick={logout}
+          disabled={isLoading}
+          className="e2ee-setup-logout"
+        >
+          {tSettings("logOut")}
+        </button>
       </div>
     </div>
   );

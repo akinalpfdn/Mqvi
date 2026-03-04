@@ -91,7 +91,7 @@ function EncryptionSettings() {
       setPassword("");
       setConfirmPassword("");
     } catch {
-      addToast("error", t("removeDeviceError"));
+      addToast("error", t("recoveryPasswordSaveError"));
     }
     setIsSavingPassword(false);
   }, [password, confirmPassword, setRecoveryPassword, addToast, t]);
@@ -109,9 +109,10 @@ function EncryptionSettings() {
   /** Fingerprint'i panoya kopyala */
   function handleCopyFingerprint() {
     if (!fingerprint) return;
-    navigator.clipboard.writeText(fingerprint).then(() => {
-      addToast("success", t("fingerprintCopied"));
-    });
+    navigator.clipboard.writeText(fingerprint).then(
+      () => addToast("success", t("fingerprintCopied")),
+      () => addToast("error", t("fingerprintCopyFailed")),
+    );
   }
 
   /** Tarih formatlama */
@@ -203,7 +204,7 @@ function EncryptionSettings() {
             />
           </div>
 
-          <div style={{ marginTop: 12 }}>
+          <div className="mt-3">
             <button
               onClick={handleSaveRecoveryPassword}
               disabled={!password.trim() || isSavingPassword}
