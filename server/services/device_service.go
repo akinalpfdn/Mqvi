@@ -75,7 +75,7 @@ func (s *deviceService) RegisterDevice(ctx context.Context, userID string, req *
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// Device struct oluştur — displayName opsiyonel
+	// Device struct oluştur — displayName ve signingKey opsiyonel
 	device := &models.Device{
 		UserID:         userID,
 		DeviceID:       req.DeviceID,
@@ -87,6 +87,9 @@ func (s *deviceService) RegisterDevice(ctx context.Context, userID string, req *
 	}
 	if req.DisplayName != "" {
 		device.DisplayName = &req.DisplayName
+	}
+	if req.SigningKey != "" {
+		device.SigningKey = &req.SigningKey
 	}
 
 	// UPSERT — aynı device_id varsa güncellenir

@@ -83,6 +83,74 @@ export async function sendDMMessage(
   });
 }
 
+/**
+ * Şifreli DM mesajı gönderir. E2EE aktifken sendDMMessage yerine kullanılır.
+ *
+ * Ciphertext, JSON-serialized EncryptedEnvelope[] dizisidir.
+ * Her envelope bir alıcı cihaz için ayrı ayrı şifrelenmiş mesajı içerir.
+ * Dosya ekli şifreli mesajlarda multipart kullanılır.
+ */
+export async function sendEncryptedDMMessage(
+  channelId: string,
+  ciphertext: string,
+  senderDeviceId: string,
+  metadata: string,
+  files?: File[],
+  replyToId?: string
+) {
+  if (files && files.length > 0) {
+    // Multipart: şifreli dosya + metadata
+    const formData = new FormData();
+    formData.append("encryption_version", "1");
+    formData.append("ciphertext", ciphertext);
+    formData.append("sender_device_id", senderDeviceId);
+    formData.append("e2ee_metadata", metadata);
+    if (replyToId) {
+      formData.append("reply_to_id", replyToId);
+    }
+    for (const file of files) {
+      formData.append("files", file);
+    }
+
+    return apiClient<DMMessage>(`/dms/${channelId}/messages`, {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+  // JSON: şifreli metin
+  return apiClient<DMMessage>(`/dms/${channelId}/messages`, {
+    method: "POST",
+    body: {
+      encryption_version: 1,
+      ciphertext,
+      sender_device_id: senderDeviceId,
+      e2ee_metadata: metadata,
+      ...(replyToId ? { reply_to_id: replyToId } : {}),
+    },
+  });
+}
+
+/**
+ * Şifreli DM mesajını düzenler. E2EE mesajlarda editDMMessage yerine kullanılır.
+ */
+export function editEncryptedDMMessage(
+  messageId: string,
+  ciphertext: string,
+  senderDeviceId: string,
+  metadata: string
+) {
+  return apiClient<DMMessage>(`/dms/messages/${messageId}`, {
+    method: "PATCH",
+    body: {
+      encryption_version: 1,
+      ciphertext,
+      sender_device_id: senderDeviceId,
+      e2ee_metadata: metadata,
+    },
+  });
+}
+
 export function editDMMessage(messageId: string, content: string) {
   return apiClient<DMMessage>(`/dms/messages/${messageId}`, {
     method: "PATCH",

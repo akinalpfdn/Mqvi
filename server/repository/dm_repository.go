@@ -48,7 +48,7 @@ type DMRepository interface {
 	GetMessages(ctx context.Context, channelID string, beforeID string, limit int) ([]models.DMMessage, error)
 	GetMessageByID(ctx context.Context, id string) (*models.DMMessage, error)
 	CreateMessage(ctx context.Context, msg *models.DMMessage) error
-	UpdateMessage(ctx context.Context, id string, content string) error
+	UpdateMessage(ctx context.Context, id string, req *models.UpdateDMMessageRequest) error
 	DeleteMessage(ctx context.Context, id string) error
 
 	// Reaction operations

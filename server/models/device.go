@@ -22,6 +22,7 @@ type Device struct {
 	DeviceID             string    `json:"device_id"`
 	DisplayName          *string   `json:"display_name,omitempty"`
 	IdentityKey          string    `json:"identity_key"`
+	SigningKey           *string   `json:"signing_key,omitempty"` // Ed25519 public — signed prekey doğrulama
 	SignedPrekey         string    `json:"signed_prekey"`
 	SignedPrekeyID       int       `json:"signed_prekey_id"`
 	SignedPrekeySig      string    `json:"signed_prekey_signature"`
@@ -50,6 +51,7 @@ type PrekeyBundle struct {
 	DeviceID             string  `json:"device_id"`
 	RegistrationID       int     `json:"registration_id"`
 	IdentityKey          string  `json:"identity_key"`
+	SigningKey           *string `json:"signing_key,omitempty"` // Ed25519 public — signed prekey doğrulama
 	SignedPrekeyID       int     `json:"signed_prekey_id"`
 	SignedPrekey         string  `json:"signed_prekey"`
 	SignedPrekeySig      string  `json:"signed_prekey_signature"`
@@ -79,6 +81,7 @@ type RegisterDeviceRequest struct {
 	DeviceID             string   `json:"device_id"`
 	DisplayName          string   `json:"display_name"`
 	IdentityKey          string   `json:"identity_key"`
+	SigningKey           string   `json:"signing_key"` // Ed25519 public — signed prekey doğrulama
 	SignedPrekey         string   `json:"signed_prekey"`
 	SignedPrekeyID       int      `json:"signed_prekey_id"`
 	SignedPrekeySig      string   `json:"signed_prekey_signature"`

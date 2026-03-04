@@ -49,6 +49,8 @@ import {
   WS_HEARTBEAT_MAX_MISS,
 } from "../utils/constants";
 import { playJoinSound, playLeaveSound, playNotificationSound } from "../utils/sounds";
+import { useE2EEStore } from "../stores/e2eeStore";
+import { decryptDMMessage } from "../crypto/dmEncryption";
 import type {
   WSMessage,
   Channel,
@@ -165,8 +167,11 @@ export function useWebSocket() {
    *
    * Store'lara doğrudan getState() ile erişiyoruz (Zustand).
    * Bu, React render cycle'ından bağımsız çalışmamızı sağlar.
+   *
+   * async: E2EE mesaj decryption'ı için async yapıldı.
+   * Caller (onmessage) promise'i await etmez — fire-and-forget.
    */
-  function routeEvent(msg: WSMessage) {
+  async function routeEvent(msg: WSMessage) {
     switch (msg.op) {
       // ─── Heartbeat ───
       case "heartbeat_ack":
@@ -558,7 +563,29 @@ export function useWebSocket() {
         useDMStore.getState().handleDMChannelCreate(msg.d as DMChannelWithUser);
         break;
       case "dm_message_create": {
-        const dmMsg = msg.d as DMMessage;
+        let dmMsg = msg.d as DMMessage;
+
+        // E2EE mesajı ise decrypt et
+        if (dmMsg.encryption_version === 1 && dmMsg.ciphertext && dmMsg.sender_device_id) {
+          try {
+            const plaintext = await decryptDMMessage(
+              dmMsg.user_id,
+              dmMsg.ciphertext,
+              dmMsg.sender_device_id
+            );
+            dmMsg = { ...dmMsg, content: plaintext };
+          } catch (err) {
+            console.error("[ws] DM decrypt failed:", err);
+            dmMsg = { ...dmMsg, content: null };
+            useE2EEStore.getState().addDecryptionError({
+              messageId: dmMsg.id,
+              channelId: dmMsg.dm_channel_id,
+              error: err instanceof Error ? err.message : "Decryption failed",
+              timestamp: Date.now(),
+            });
+          }
+        }
+
         useDMStore.getState().handleDMMessageCreate(dmMsg);
 
         // Kendi gönderdiğimiz mesajlar için unread artırma (server echo).
@@ -576,9 +603,27 @@ export function useWebSocket() {
         }
         break;
       }
-      case "dm_message_update":
-        useDMStore.getState().handleDMMessageUpdate(msg.d as DMMessage);
+      case "dm_message_update": {
+        let dmUpdateMsg = msg.d as DMMessage;
+
+        // E2EE edit ise decrypt et
+        if (dmUpdateMsg.encryption_version === 1 && dmUpdateMsg.ciphertext && dmUpdateMsg.sender_device_id) {
+          try {
+            const plaintext = await decryptDMMessage(
+              dmUpdateMsg.user_id,
+              dmUpdateMsg.ciphertext,
+              dmUpdateMsg.sender_device_id
+            );
+            dmUpdateMsg = { ...dmUpdateMsg, content: plaintext };
+          } catch (err) {
+            console.error("[ws] DM edit decrypt failed:", err);
+            dmUpdateMsg = { ...dmUpdateMsg, content: null };
+          }
+        }
+
+        useDMStore.getState().handleDMMessageUpdate(dmUpdateMsg);
         break;
+      }
       case "dm_message_delete": {
         const dmDelData = msg.d as { id: string; dm_channel_id: string };
 
@@ -741,6 +786,25 @@ export function useWebSocket() {
         useServerStore.getState().handleServerDelete(deletedId);
         break;
       }
+
+      // ─── E2EE Events ───
+
+      // prekey_low: Cihazın prekey havuzu azaldı — yeni batch yükle
+      case "prekey_low":
+        useE2EEStore.getState().handlePrekeyLow();
+        break;
+
+      // device_list_update: Kullanıcının cihaz listesi değişti
+      case "device_list_update":
+        useE2EEStore.getState().fetchDevices();
+        break;
+
+      // device_key_change: Bir cihazın signed prekey'i döndü
+      case "device_key_change":
+        // Session cache'ini invalidate etmek gerekebilir —
+        // şimdilik sadece cihaz listesini yenile
+        useE2EEStore.getState().fetchDevices();
+        break;
     }
   }
 

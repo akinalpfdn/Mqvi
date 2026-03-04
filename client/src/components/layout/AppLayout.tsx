@@ -37,6 +37,7 @@ import { useVoice } from "../../hooks/useVoice";
 import { useIdleDetection } from "../../hooks/useIdleDetection";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useP2PCall } from "../../hooks/useP2PCall";
+import { useE2EE } from "../../hooks/useE2EE";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
 import QuickSwitcher from "../shared/QuickSwitcher";
 import ScreenPicker from "../voice/ScreenPicker";
@@ -62,6 +63,9 @@ function AppLayout() {
 
   // Electron taskbar badge — okunmamış mesaj sayısını taskbar ikonunda gösterir
   useNotificationBadge();
+
+  // E2EE — cihaz kimliği kontrolü + anahtar başlatma
+  useE2EE();
 
   const activeServerId = useServerStore((s) => s.activeServerId);
   const servers = useServerStore((s) => s.servers);

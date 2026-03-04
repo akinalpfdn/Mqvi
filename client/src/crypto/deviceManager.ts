@@ -77,6 +77,7 @@ export async function registerNewDevice(
     device_id: deviceId,
     display_name: displayName ?? getDefaultDeviceName(),
     identity_key: keys.identityPublicKey,
+    signing_key: keys.signingPublicKey,
     signed_prekey: keys.signedPreKey.publicKey,
     signed_prekey_id: keys.signedPreKey.id,
     signed_prekey_signature: keys.signedPreKey.signature,

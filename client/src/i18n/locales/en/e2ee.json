@@ -1,0 +1,51 @@
+{
+  "title": "Encryption",
+  "description": "End-to-end encryption protects your messages so that only you and the recipient can read them.",
+
+  "setupTitle": "Set Up Encryption",
+  "setupDescription": "This device needs to be set up for end-to-end encryption. You can generate new keys or restore from a recovery password.",
+  "generateNewKeys": "Generate New Keys",
+  "restoreFromRecovery": "Restore from Recovery Password",
+  "generatingKeys": "Generating encryption keys...",
+
+  "recoveryPasswordTitle": "Recovery Password",
+  "recoveryPasswordDescription": "Set a recovery password to back up your encryption keys. If you lose access to all your devices, you can restore your keys with this password.",
+  "recoveryPasswordPlaceholder": "Enter recovery password",
+  "recoveryPasswordConfirmPlaceholder": "Confirm recovery password",
+  "recoveryPasswordSet": "Recovery password set successfully",
+  "recoveryPasswordMismatch": "Passwords do not match",
+  "recoveryPasswordRequired": "Recovery password is required",
+  "recoveryPasswordSaved": "Recovery password backup saved",
+  "recoveryPasswordNotSet": "Not set",
+  "setRecoveryPassword": "Set Recovery Password",
+  "changeRecoveryPassword": "Change Recovery Password",
+
+  "restoreTitle": "Restore Encryption Keys",
+  "restoreDescription": "Enter your recovery password to restore your encryption keys from backup.",
+  "restoreButton": "Restore Keys",
+  "restoring": "Restoring...",
+  "restoreSuccess": "Keys restored successfully",
+  "restoreInvalidPassword": "Invalid recovery password. Please try again.",
+  "restoreNoBackup": "No backup found on server",
+
+  "devicesTitle": "Your Devices",
+  "devicesDescription": "Manage devices that have access to your encryption keys.",
+  "thisDevice": "This device",
+  "lastSeen": "Last seen {{time}}",
+  "removeDevice": "Remove Device",
+  "removeDeviceConfirm": "Are you sure you want to remove this device? It will no longer be able to decrypt messages.",
+  "noDevices": "No other devices registered",
+
+  "keyFingerprint": "Key Fingerprint",
+  "keyFingerprintDescription": "Compare this fingerprint with the other person to verify their identity.",
+  "verified": "Verified",
+  "unverified": "Unverified",
+
+  "decryptionError": "Unable to decrypt this message",
+  "encryptionFailed": "Failed to encrypt message",
+  "encryptedMessage": "Encrypted message",
+  "e2eeIndicator": "End-to-end encrypted",
+
+  "initError": "Failed to initialize encryption",
+  "retryInit": "Retry"
+}

@@ -21,11 +21,10 @@
  * - Double Ratchet: https://signal.org/docs/specifications/doubleratchet/
  */
 
-import { x25519 } from "@noble/curves/ed25519";
-import { ed25519 } from "@noble/curves/ed25519";
-import { hkdf } from "@noble/hashes/hkdf";
-import { sha256 } from "@noble/hashes/sha256";
-import { hmac } from "@noble/hashes/hmac";
+import { x25519, ed25519 } from "@noble/curves/ed25519.js";
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { hmac } from "@noble/hashes/hmac.js";
 import * as keyStorage from "./keyStorage";
 import {
   type StoredIdentityKeyPair,

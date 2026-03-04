@@ -330,12 +330,29 @@ func (r *sqliteDMRepo) CreateMessage(ctx context.Context, msg *models.DMMessage)
 }
 
 // UpdateMessage, bir DM mesajını düzenler.
-func (r *sqliteDMRepo) UpdateMessage(ctx context.Context, id string, content string) error {
+//
+// E2EE mesajlarda content yerine ciphertext güncellenir.
+// Plaintext mesajlarda mevcut davranış korunur.
+func (r *sqliteDMRepo) UpdateMessage(ctx context.Context, id string, req *models.UpdateDMMessageRequest) error {
 	now := time.Now().UTC()
-	result, err := r.db.ExecContext(ctx,
-		"UPDATE dm_messages SET content = ?, edited_at = ? WHERE id = ?",
-		content, now, id,
-	)
+
+	var result sql.Result
+	var err error
+
+	if req.EncryptionVersion == 1 {
+		// E2EE düzenleme — ciphertext güncelle, content null bırak
+		result, err = r.db.ExecContext(ctx,
+			`UPDATE dm_messages SET ciphertext = ?, sender_device_id = ?, e2ee_metadata = ?, edited_at = ? WHERE id = ?`,
+			req.Ciphertext, req.SenderDeviceID, req.E2EEMetadata, now, id,
+		)
+	} else {
+		// Plaintext düzenleme — mevcut davranış
+		result, err = r.db.ExecContext(ctx,
+			"UPDATE dm_messages SET content = ?, edited_at = ? WHERE id = ?",
+			req.Content, now, id,
+		)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to update DM message: %w", err)
 	}

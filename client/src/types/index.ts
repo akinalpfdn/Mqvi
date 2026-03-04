@@ -729,6 +729,7 @@ export type PreKeyBundleResponse = {
   device_id: string;
   registration_id: number;
   identity_key: string;
+  signing_key: string | null;       // Ed25519 public — signed prekey doğrulama
   signed_prekey_id: number;
   signed_prekey: string;
   signed_prekey_signature: string;

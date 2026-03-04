@@ -348,17 +348,21 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		}
 	}
 
-	// Content boş string ise nil yap (sadece dosya mesajı durumu)
+	// Content boş string ise nil yap (sadece dosya mesajı veya E2EE mesajı durumu)
 	var contentPtr *string
 	if req.Content != "" {
 		contentPtr = &req.Content
 	}
 
 	msg := &models.DMMessage{
-		DMChannelID: channelID,
-		UserID:      userID,
-		Content:     contentPtr,
-		ReplyToID:   req.ReplyToID,
+		DMChannelID:       channelID,
+		UserID:            userID,
+		Content:           contentPtr,
+		ReplyToID:         req.ReplyToID,
+		EncryptionVersion: req.EncryptionVersion,
+		Ciphertext:        req.Ciphertext,
+		SenderDeviceID:    req.SenderDeviceID,
+		E2EEMetadata:      req.E2EEMetadata,
 	}
 
 	if err := s.dmRepo.CreateMessage(ctx, msg); err != nil {
@@ -445,7 +449,7 @@ func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, r
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
 	}
 
-	if err := s.dmRepo.UpdateMessage(ctx, messageID, req.Content); err != nil {
+	if err := s.dmRepo.UpdateMessage(ctx, messageID, req); err != nil {
 		return nil, err
 	}
 

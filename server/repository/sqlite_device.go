@@ -31,13 +31,14 @@ func NewSQLiteDeviceRepo(db database.TxQuerier) DeviceRepository {
 // Bu, kullanıcının tarayıcı verilerini temizleyip yeniden giriş yapmasında olur.
 func (r *sqliteDeviceRepo) Register(ctx context.Context, device *models.Device) error {
 	query := `
-		INSERT INTO user_devices (user_id, device_id, display_name, identity_key,
+		INSERT INTO user_devices (user_id, device_id, display_name, identity_key, signing_key,
 			signed_prekey, signed_prekey_id, signed_prekey_signature, registration_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, device_id)
 		DO UPDATE SET
 			display_name = excluded.display_name,
 			identity_key = excluded.identity_key,
+			signing_key = excluded.signing_key,
 			signed_prekey = excluded.signed_prekey,
 			signed_prekey_id = excluded.signed_prekey_id,
 			signed_prekey_signature = excluded.signed_prekey_signature,
@@ -46,7 +47,7 @@ func (r *sqliteDeviceRepo) Register(ctx context.Context, device *models.Device) 
 		RETURNING id, last_seen_at, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
-		device.UserID, device.DeviceID, device.DisplayName, device.IdentityKey,
+		device.UserID, device.DeviceID, device.DisplayName, device.IdentityKey, device.SigningKey,
 		device.SignedPrekey, device.SignedPrekeyID, device.SignedPrekeySig,
 		device.RegistrationID,
 	).Scan(&device.ID, &device.LastSeenAt, &device.CreatedAt)
@@ -59,7 +60,7 @@ func (r *sqliteDeviceRepo) Register(ctx context.Context, device *models.Device) 
 // GetByUserAndDevice, belirli bir kullanıcının belirli cihazını döner.
 func (r *sqliteDeviceRepo) GetByUserAndDevice(ctx context.Context, userID, deviceID string) (*models.Device, error) {
 	query := `
-		SELECT id, user_id, device_id, display_name, identity_key,
+		SELECT id, user_id, device_id, display_name, identity_key, signing_key,
 			signed_prekey, signed_prekey_id, signed_prekey_signature,
 			registration_id, last_seen_at, created_at
 		FROM user_devices
@@ -67,7 +68,7 @@ func (r *sqliteDeviceRepo) GetByUserAndDevice(ctx context.Context, userID, devic
 
 	d := &models.Device{}
 	err := r.db.QueryRowContext(ctx, query, userID, deviceID).Scan(
-		&d.ID, &d.UserID, &d.DeviceID, &d.DisplayName, &d.IdentityKey,
+		&d.ID, &d.UserID, &d.DeviceID, &d.DisplayName, &d.IdentityKey, &d.SigningKey,
 		&d.SignedPrekey, &d.SignedPrekeyID, &d.SignedPrekeySig,
 		&d.RegistrationID, &d.LastSeenAt, &d.CreatedAt,
 	)
@@ -83,7 +84,7 @@ func (r *sqliteDeviceRepo) GetByUserAndDevice(ctx context.Context, userID, devic
 // ListByUser, kullanıcının tüm kayıtlı cihazlarını döner.
 func (r *sqliteDeviceRepo) ListByUser(ctx context.Context, userID string) ([]models.Device, error) {
 	query := `
-		SELECT id, user_id, device_id, display_name, identity_key,
+		SELECT id, user_id, device_id, display_name, identity_key, signing_key,
 			signed_prekey, signed_prekey_id, signed_prekey_signature,
 			registration_id, last_seen_at, created_at
 		FROM user_devices
@@ -100,7 +101,7 @@ func (r *sqliteDeviceRepo) ListByUser(ctx context.Context, userID string) ([]mod
 	for rows.Next() {
 		var d models.Device
 		if err := rows.Scan(
-			&d.ID, &d.UserID, &d.DeviceID, &d.DisplayName, &d.IdentityKey,
+			&d.ID, &d.UserID, &d.DeviceID, &d.DisplayName, &d.IdentityKey, &d.SigningKey,
 			&d.SignedPrekey, &d.SignedPrekeyID, &d.SignedPrekeySig,
 			&d.RegistrationID, &d.LastSeenAt, &d.CreatedAt,
 		); err != nil {
@@ -266,14 +267,14 @@ func (r *sqliteDeviceRepo) CountPrekeys(ctx context.Context, userID, deviceID st
 func (r *sqliteDeviceRepo) GetPrekeyBundle(ctx context.Context, userID, deviceID string) (*models.PrekeyBundle, error) {
 	// Önce cihaz bilgilerini çek
 	query := `
-		SELECT device_id, registration_id, identity_key,
+		SELECT device_id, registration_id, identity_key, signing_key,
 			signed_prekey_id, signed_prekey, signed_prekey_signature
 		FROM user_devices
 		WHERE user_id = ? AND device_id = ?`
 
 	bundle := &models.PrekeyBundle{}
 	err := r.db.QueryRowContext(ctx, query, userID, deviceID).Scan(
-		&bundle.DeviceID, &bundle.RegistrationID, &bundle.IdentityKey,
+		&bundle.DeviceID, &bundle.RegistrationID, &bundle.IdentityKey, &bundle.SigningKey,
 		&bundle.SignedPrekeyID, &bundle.SignedPrekey, &bundle.SignedPrekeySig,
 	)
 	if err != nil {
@@ -303,7 +304,7 @@ func (r *sqliteDeviceRepo) GetPrekeyBundle(ctx context.Context, userID, deviceID
 // one-time prekey tüketir.
 func (r *sqliteDeviceRepo) GetPrekeyBundles(ctx context.Context, userID string) ([]models.PrekeyBundle, error) {
 	query := `
-		SELECT device_id, registration_id, identity_key,
+		SELECT device_id, registration_id, identity_key, signing_key,
 			signed_prekey_id, signed_prekey, signed_prekey_signature
 		FROM user_devices
 		WHERE user_id = ?
@@ -319,7 +320,7 @@ func (r *sqliteDeviceRepo) GetPrekeyBundles(ctx context.Context, userID string) 
 	for rows.Next() {
 		var b models.PrekeyBundle
 		if err := rows.Scan(
-			&b.DeviceID, &b.RegistrationID, &b.IdentityKey,
+			&b.DeviceID, &b.RegistrationID, &b.IdentityKey, &b.SigningKey,
 			&b.SignedPrekeyID, &b.SignedPrekey, &b.SignedPrekeySig,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan device for bundle: %w", err)

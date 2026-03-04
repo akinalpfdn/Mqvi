@@ -49,6 +49,7 @@ export function registerDevice(req: {
   device_id: string;
   display_name: string;
   identity_key: string;
+  signing_key: string;
   signed_prekey: string;
   signed_prekey_id: number;
   signed_prekey_signature: string;

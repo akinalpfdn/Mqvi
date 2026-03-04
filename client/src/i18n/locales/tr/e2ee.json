@@ -1,0 +1,51 @@
+{
+  "title": "Şifreleme",
+  "description": "Uçtan uca şifreleme, mesajlarınızı korur. Sadece siz ve alıcı okuyabilir.",
+
+  "setupTitle": "Şifreleme Kurulumu",
+  "setupDescription": "Bu cihazın uçtan uca şifreleme için kurulması gerekiyor. Yeni anahtarlar oluşturabilir veya kurtarma parolasıyla geri yükleyebilirsiniz.",
+  "generateNewKeys": "Yeni Anahtarlar Oluştur",
+  "restoreFromRecovery": "Kurtarma Parolasıyla Geri Yükle",
+  "generatingKeys": "Şifreleme anahtarları oluşturuluyor...",
+
+  "recoveryPasswordTitle": "Kurtarma Parolası",
+  "recoveryPasswordDescription": "Şifreleme anahtarlarınızı yedeklemek için kurtarma parolası belirleyin. Tüm cihazlarınıza erişiminizi kaybederseniz bu parola ile anahtarlarınızı geri yükleyebilirsiniz.",
+  "recoveryPasswordPlaceholder": "Kurtarma parolası girin",
+  "recoveryPasswordConfirmPlaceholder": "Kurtarma parolasını onaylayın",
+  "recoveryPasswordSet": "Kurtarma parolası başarıyla ayarlandı",
+  "recoveryPasswordMismatch": "Parolalar eşleşmiyor",
+  "recoveryPasswordRequired": "Kurtarma parolası gerekli",
+  "recoveryPasswordSaved": "Kurtarma parolası yedeği kaydedildi",
+  "recoveryPasswordNotSet": "Ayarlanmadı",
+  "setRecoveryPassword": "Kurtarma Parolası Belirle",
+  "changeRecoveryPassword": "Kurtarma Parolasını Değiştir",
+
+  "restoreTitle": "Şifreleme Anahtarlarını Geri Yükle",
+  "restoreDescription": "Şifreleme anahtarlarınızı yedekten geri yüklemek için kurtarma parolanızı girin.",
+  "restoreButton": "Anahtarları Geri Yükle",
+  "restoring": "Geri yükleniyor...",
+  "restoreSuccess": "Anahtarlar başarıyla geri yüklendi",
+  "restoreInvalidPassword": "Geçersiz kurtarma parolası. Lütfen tekrar deneyin.",
+  "restoreNoBackup": "Sunucuda yedek bulunamadı",
+
+  "devicesTitle": "Cihazlarınız",
+  "devicesDescription": "Şifreleme anahtarlarınıza erişimi olan cihazları yönetin.",
+  "thisDevice": "Bu cihaz",
+  "lastSeen": "Son görülme: {{time}}",
+  "removeDevice": "Cihazı Kaldır",
+  "removeDeviceConfirm": "Bu cihazı kaldırmak istediğinizden emin misiniz? Artık mesajları çözemeyecek.",
+  "noDevices": "Kayıtlı başka cihaz yok",
+
+  "keyFingerprint": "Anahtar Parmak İzi",
+  "keyFingerprintDescription": "Kimliğini doğrulamak için bu parmak izini karşı tarafla karşılaştırın.",
+  "verified": "Doğrulanmış",
+  "unverified": "Doğrulanmamış",
+
+  "decryptionError": "Bu mesaj çözülemedi",
+  "encryptionFailed": "Mesaj şifrelenemedi",
+  "encryptedMessage": "Şifreli mesaj",
+  "e2eeIndicator": "Uçtan uca şifreli",
+
+  "initError": "Şifreleme başlatılamadı",
+  "retryInit": "Tekrar Dene"
+}
