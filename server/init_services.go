@@ -53,6 +53,8 @@ type Services struct {
 	ReportUpload      services.ReportUploadService
 	AdminUser         services.AdminUserService
 	AdminServer       services.AdminServerService
+	Device            services.DeviceService
+	E2EE              services.E2EEService
 }
 
 // RateLimiters, tüm rate limiter instance'larını tutan container.
@@ -134,6 +136,10 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reportService := services.NewReportService(repos.Report, repos.User)
 	reportUploadService := services.NewReportUploadService(repos.Report, cfg.Upload.Dir, cfg.Upload.MaxSize)
 
+	// ─── E2EE — Device + Key Backup + Group Session ───
+	deviceService := services.NewDeviceService(repos.Device, hub)
+	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, hub)
+
 	// ─── Platform Admin — User + Server Management ───
 	adminUserService := services.NewAdminUserService(repos.User, hub, voiceService, emailSender)
 	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, emailSender)
@@ -180,6 +186,8 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		ReportUpload:      reportUploadService,
 		AdminUser:         adminUserService,
 		AdminServer:       adminServerService,
+		Device:            deviceService,
+		E2EE:              e2eeService,
 	}
 
 	limiters := &RateLimiters{

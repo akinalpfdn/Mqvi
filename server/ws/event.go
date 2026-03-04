@@ -135,6 +135,14 @@ const (
 	OpP2PCallBusy     = "p2p_call_busy"     // Karşı taraf başka bir aramada (meşgul)
 )
 
+// E2EE (End-to-End Encryption) operasyonları
+const (
+	OpDeviceKeyChange  = "device_key_change"   // Bir cihazın identity/signed key'i değişti
+	OpPrekeyLow        = "prekey_low"          // Cihazın prekey havuzu düşük (<10), client yeni prekey yüklemeli
+	OpGroupSessionNew  = "group_session_new"   // Kanala yeni Sender Key oturumu eklendi
+	OpDeviceListUpdate = "device_list_update"  // Kullanıcı cihaz ekledi/kaldırdı
+)
+
 // ReadyData, bağlantı kurulduğunda client'a gönderilen ilk event'in payload'ı.
 //
 // Multi-server mimaride ready event kullanıcının sunucu listesini de içerir.

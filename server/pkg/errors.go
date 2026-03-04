@@ -22,4 +22,9 @@ var (
 	ErrAlreadyExists = errors.New("already exists")
 	ErrBadRequest    = errors.New("bad request")
 	ErrInternal      = errors.New("internal error")
+
+	// E2EE (End-to-End Encryption) error'ları
+	ErrDeviceNotFound   = errors.New("device not found")
+	ErrPrekeyExhausted  = errors.New("prekey pool exhausted")
+	ErrInvalidKey       = errors.New("invalid cryptographic key")
 )

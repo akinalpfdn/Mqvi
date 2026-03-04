@@ -38,6 +38,8 @@ type Handlers struct {
 	Block             *handlers.BlockHandler
 	Report            *handlers.ReportHandler
 	Gif               *handlers.GifHandler
+	Device            *handlers.DeviceHandler
+	E2EE              *handlers.E2EEHandler
 	WS                *ws.Handler
 }
 
@@ -69,6 +71,8 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Block:             handlers.NewBlockHandler(svcs.Block),
 		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, cfg.Upload.MaxSize),
 		Gif:               handlers.NewGifHandler(cfg.Klipy.APIKey),
+		Device:            handlers.NewDeviceHandler(svcs.Device),
+		E2EE:              handlers.NewE2EEHandler(svcs.E2EE),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute),
 	}
 }

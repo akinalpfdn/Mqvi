@@ -46,6 +46,14 @@ type Message struct {
 	Mentions    []string        `json:"mentions"`               // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
 	Reactions   []ReactionGroup `json:"reactions"`              // Emoji tepkileri (batch load ile doldurulur)
 	ReferencedMessage *MessageReference `json:"referenced_message,omitempty"` // LEFT JOIN ile gelen yanıt ön izlemesi
+
+	// E2EE alanları — encryption_version > 0 ise mesaj şifrelidir.
+	// Bu durumda Content nil olur, içerik Ciphertext alanında taşınır.
+	// Sunucu Ciphertext'i OKUYAMAZ — opak base64 blob olarak saklar/iletir.
+	EncryptionVersion int     `json:"encryption_version"`            // 0=plaintext, 1=E2EE
+	Ciphertext        *string `json:"ciphertext,omitempty"`          // Base64 şifreli içerik
+	SenderDeviceID    *string `json:"sender_device_id,omitempty"`    // Gönderen cihazın ID'si
+	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`       // JSON: session_id, distribution_id vb.
 }
 
 // Attachment, bir mesaja eklenmiş dosyayı temsil eder.

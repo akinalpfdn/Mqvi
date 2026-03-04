@@ -14,7 +14,8 @@ import "time"
 type Session struct {
 	ID           string    `json:"id"`
 	UserID       string    `json:"user_id"`
-	RefreshToken string    `json:"-"` // API'ye gönderilmez
+	RefreshToken string    `json:"-"`                          // API'ye gönderilmez
+	DeviceID     *string   `json:"device_id,omitempty"`        // E2EE cihaz bağlantısı — login session'ı hangi cihaza ait
 	ExpiresAt    time.Time `json:"expires_at"`
 	CreatedAt    time.Time `json:"created_at"`
 }

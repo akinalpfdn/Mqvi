@@ -50,6 +50,14 @@ type DMMessage struct {
 	ReplyToID   *string    `json:"reply_to_id"`            // Nullable — yanıt yapılan DM mesajının ID'si
 	IsPinned    bool       `json:"is_pinned"`              // Sabitlenmiş mesaj mı
 
+	// E2EE alanları — encryption_version > 0 ise mesaj şifrelidir.
+	// Channel Message struct'ı ile aynı pattern: Content nil olur,
+	// içerik Ciphertext alanında taşınır. Sunucu Ciphertext'i OKUYAMAZ.
+	EncryptionVersion int     `json:"encryption_version"`            // 0=plaintext, 1=E2EE
+	Ciphertext        *string `json:"ciphertext,omitempty"`          // Base64 şifreli içerik
+	SenderDeviceID    *string `json:"sender_device_id,omitempty"`    // Gönderen cihazın ID'si
+	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`       // JSON: session_id vb.
+
 	// JOIN/aggregate ile doldurulan alanlar
 	Author            *User             `json:"author,omitempty"`
 	Attachments       []DMAttachment    `json:"attachments"`

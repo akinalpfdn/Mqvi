@@ -24,8 +24,9 @@ func NewSQLiteMessageRepo(db database.TxQuerier) MessageRepository {
 
 func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message) error {
 	query := `
-		INSERT INTO messages (id, channel_id, user_id, content, reply_to_id)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?)
+		INSERT INTO messages (id, channel_id, user_id, content, reply_to_id,
+			encryption_version, ciphertext, sender_device_id, e2ee_metadata)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -33,6 +34,10 @@ func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message)
 		message.UserID,
 		message.Content,
 		message.ReplyToID,
+		message.EncryptionVersion,
+		message.Ciphertext,
+		message.SenderDeviceID,
+		message.E2EEMetadata,
 	).Scan(&message.ID, &message.CreatedAt)
 
 	if err != nil {
@@ -50,6 +55,7 @@ func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Mes
 	//   - ru: yanıt yapılan mesajın yazarı
 	query := `
 		SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
+		       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
 		       u.id, u.username, u.display_name, u.avatar_url, u.status,
 		       rm.id, rm.content,
 		       ru.id, ru.username, ru.display_name, ru.avatar_url
@@ -69,6 +75,7 @@ func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Mes
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.EditedAt, &msg.CreatedAt, &msg.ReplyToID,
+		&msg.EncryptionVersion, &msg.Ciphertext, &msg.SenderDeviceID, &msg.E2EEMetadata,
 		&authorID, &author.Username, &author.DisplayName, &author.AvatarURL, &author.Status,
 		&refMsgID, &refMsgContent,
 		&refAuthorID, &refAuthorUsername, &refAuthorDisplayName, &refAuthorAvatarURL,
@@ -112,6 +119,7 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 		// İlk yükleme — en yeni mesajlardan başla
 		query = `
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
+			       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
 			       u.id, u.username, u.display_name, u.avatar_url, u.status,
 			       rm.id, rm.content,
 			       ru.id, ru.username, ru.display_name, ru.avatar_url
@@ -132,6 +140,7 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 		// Bu pattern, cursor-based pagination'ın temelidir.
 		query = `
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
+			       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
 			       u.id, u.username, u.display_name, u.avatar_url, u.status,
 			       rm.id, rm.content,
 			       ru.id, ru.username, ru.display_name, ru.avatar_url
@@ -164,6 +173,7 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 
 		if err := rows.Scan(
 			&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.EditedAt, &msg.CreatedAt, &msg.ReplyToID,
+			&msg.EncryptionVersion, &msg.Ciphertext, &msg.SenderDeviceID, &msg.E2EEMetadata,
 			&authorID, &author.Username, &author.DisplayName, &author.AvatarURL, &author.Status,
 			&refMsgID, &refMsgContent,
 			&refAuthorID, &refAuthorUsername, &refAuthorDisplayName, &refAuthorAvatarURL,

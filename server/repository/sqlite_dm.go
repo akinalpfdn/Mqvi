@@ -238,6 +238,7 @@ func (r *sqliteDMRepo) GetMessageByID(ctx context.Context, id string) (*models.D
 	query := `
 		SELECT m.id, m.dm_channel_id, m.user_id, m.content, m.edited_at, m.created_at,
 		       m.reply_to_id, m.is_pinned,
+		       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
 		       u.id, u.username, u.display_name, u.avatar_url, u.status,
 		       rm.id, rm.content,
 		       ru.id, ru.username, ru.display_name, ru.avatar_url
@@ -262,6 +263,7 @@ func (r *sqliteDMRepo) GetMessageByID(ctx context.Context, id string) (*models.D
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&msg.ID, &msg.DMChannelID, &msg.UserID, &content, &editedAt, &msg.CreatedAt,
 		&msg.ReplyToID, &isPinned,
+		&msg.EncryptionVersion, &msg.Ciphertext, &msg.SenderDeviceID, &msg.E2EEMetadata,
 		&authorID, &author.Username, &displayName, &avatarURL, &author.Status,
 		&refMsgID, &refMsgContent,
 		&refAuthorID, &refAuthorUsername, &refAuthorDisplayName, &refAuthorAvatarURL,
@@ -312,8 +314,11 @@ func (r *sqliteDMRepo) CreateMessage(ctx context.Context, msg *models.DMMessage)
 	}
 
 	err := r.db.QueryRowContext(ctx,
-		"INSERT INTO dm_messages (dm_channel_id, user_id, content, reply_to_id) VALUES (?, ?, ?, ?) RETURNING id, created_at",
+		`INSERT INTO dm_messages (dm_channel_id, user_id, content, reply_to_id,
+			encryption_version, ciphertext, sender_device_id, e2ee_metadata)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at`,
 		msg.DMChannelID, msg.UserID, contentPtr, msg.ReplyToID,
+		msg.EncryptionVersion, msg.Ciphertext, msg.SenderDeviceID, msg.E2EEMetadata,
 	).Scan(&msg.ID, &msg.CreatedAt)
 
 	if err != nil {
@@ -516,6 +521,7 @@ func (r *sqliteDMRepo) GetPinnedMessages(ctx context.Context, channelID string) 
 	query := `
 		SELECT m.id, m.dm_channel_id, m.user_id, m.content, m.edited_at, m.created_at,
 		       m.reply_to_id, m.is_pinned,
+		       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
 		       u.id, u.username, u.display_name, u.avatar_url, u.status,
 		       rm.id, rm.content,
 		       ru.id, ru.username, ru.display_name, ru.avatar_url
@@ -664,6 +670,7 @@ func (r *sqliteDMRepo) SearchMessages(ctx context.Context, channelID string, sea
 	dataQuery := `
 		SELECT m.id, m.dm_channel_id, m.user_id, m.content, m.edited_at, m.created_at,
 		       m.reply_to_id, m.is_pinned,
+		       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
 		       u.id, u.username, u.display_name, u.avatar_url, u.status,
 		       rm.id, rm.content,
 		       ru.id, ru.username, ru.display_name, ru.avatar_url
@@ -708,6 +715,7 @@ func (r *sqliteDMRepo) SearchMessages(ctx context.Context, channelID string, sea
 // Beklenen sütun sırası:
 // m.id, m.dm_channel_id, m.user_id, m.content, m.edited_at, m.created_at,
 // m.reply_to_id, m.is_pinned,
+// m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
 // u.id, u.username, u.display_name, u.avatar_url, u.status,
 // rm.id, rm.content,
 // ru.id, ru.username, ru.display_name, ru.avatar_url
@@ -729,6 +737,7 @@ func scanDMMessageRow(rows *sql.Rows) (*models.DMMessage, error) {
 	if err := rows.Scan(
 		&msg.ID, &msg.DMChannelID, &msg.UserID, &content, &editedAt, &msg.CreatedAt,
 		&msg.ReplyToID, &isPinned,
+		&msg.EncryptionVersion, &msg.Ciphertext, &msg.SenderDeviceID, &msg.E2EEMetadata,
 		&authorID, &author.Username, &displayName, &avatarURL, &author.Status,
 		&refMsgID, &refMsgContent,
 		&refAuthorID, &refAuthorUsername, &refAuthorDisplayName, &refAuthorAvatarURL,

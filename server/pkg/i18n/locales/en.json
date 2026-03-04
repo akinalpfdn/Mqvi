@@ -72,5 +72,24 @@
     "serverNotFound": "Server not found",
     "cannotModifyOwnAdmin": "Cannot modify your own admin status",
     "adminStatusUpdated": "Admin status updated"
+  },
+  "e2ee": {
+    "deviceIdRequired": "Device ID is required",
+    "identityKeyRequired": "Identity key is required",
+    "signedPrekeyRequired": "Signed prekey is required",
+    "signedPrekeySigRequired": "Signed prekey signature is required",
+    "deviceNotFound": "Device not found",
+    "deviceRegistered": "Device registered successfully",
+    "deviceDeleted": "Device deleted successfully",
+    "prekeyLow": "Prekey pool is running low, please upload more prekeys",
+    "prekeyExhausted": "Prekey pool exhausted",
+    "invalidKey": "Invalid cryptographic key",
+    "backupUploaded": "Key backup uploaded successfully",
+    "backupDeleted": "Key backup deleted successfully",
+    "sessionIdRequired": "Session ID is required",
+    "sessionDataRequired": "Session data is required",
+    "encryptedDataRequired": "Encrypted data is required",
+    "nonceRequired": "Nonce is required",
+    "saltRequired": "Salt is required"
   }
 }

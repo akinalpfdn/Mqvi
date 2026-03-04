@@ -43,6 +43,9 @@ type Repositories struct {
 	ChannelMute       repository.ChannelMuteRepository
 	DMSettings        repository.DMSettingsRepository
 	Report            repository.ReportRepository
+	Device            repository.DeviceRepository
+	E2EEBackup        repository.E2EEKeyBackupRepository
+	GroupSession      repository.GroupSessionRepository
 }
 
 // initRepositories, veritabanı bağlantısından tüm repository'leri oluşturur.
@@ -76,5 +79,8 @@ func initRepositories(conn *sql.DB) *Repositories {
 		ChannelMute:       repository.NewSQLiteChannelMuteRepo(conn),
 		DMSettings:        repository.NewSQLiteDMSettingsRepo(conn),
 		Report:            repository.NewSQLiteReportRepo(conn),
+		Device:            repository.NewSQLiteDeviceRepo(conn),
+		E2EEBackup:        repository.NewSQLiteE2EEBackupRepo(conn),
+		GroupSession:      repository.NewSQLiteGroupSessionRepo(conn),
 	}
 }

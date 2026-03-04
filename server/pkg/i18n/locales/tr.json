@@ -72,5 +72,24 @@
     "serverNotFound": "Sunucu bulunamadı",
     "cannotModifyOwnAdmin": "Kendi admin durumunuzu değiştiremezsiniz",
     "adminStatusUpdated": "Admin durumu güncellendi"
+  },
+  "e2ee": {
+    "deviceIdRequired": "Cihaz kimliği gerekli",
+    "identityKeyRequired": "Kimlik anahtarı gerekli",
+    "signedPrekeyRequired": "İmzalı ön anahtar gerekli",
+    "signedPrekeySigRequired": "İmzalı ön anahtar imzası gerekli",
+    "deviceNotFound": "Cihaz bulunamadı",
+    "deviceRegistered": "Cihaz başarıyla kaydedildi",
+    "deviceDeleted": "Cihaz başarıyla silindi",
+    "prekeyLow": "Ön anahtar havuzu azalıyor, lütfen yeni anahtarlar yükleyin",
+    "prekeyExhausted": "Ön anahtar havuzu tükendi",
+    "invalidKey": "Geçersiz kriptografik anahtar",
+    "backupUploaded": "Anahtar yedeği başarıyla yüklendi",
+    "backupDeleted": "Anahtar yedeği başarıyla silindi",
+    "sessionIdRequired": "Oturum kimliği gerekli",
+    "sessionDataRequired": "Oturum verisi gerekli",
+    "encryptedDataRequired": "Şifrelenmiş veri gerekli",
+    "nonceRequired": "Nonce değeri gerekli",
+    "saltRequired": "Salt değeri gerekli"
   }
 }

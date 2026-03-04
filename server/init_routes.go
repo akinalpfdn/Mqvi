@@ -119,6 +119,25 @@ func initRoutes(
 	// Report
 	mux.Handle("POST /api/users/{userId}/report", auth(h.Report.CreateReport))
 
+	// E2EE Devices — cihaz kaydı ve prekey yönetimi
+	mux.Handle("GET /api/devices", auth(h.Device.List))
+	mux.Handle("POST /api/devices", auth(h.Device.Register))
+	mux.Handle("DELETE /api/devices/{deviceId}", auth(h.Device.Delete))
+	mux.Handle("POST /api/devices/{deviceId}/prekeys", auth(h.Device.UploadPrekeys))
+	mux.Handle("PUT /api/devices/{deviceId}/signed-prekey", auth(h.Device.UpdateSignedPrekey))
+	mux.Handle("GET /api/devices/{deviceId}/prekey-count", auth(h.Device.GetPrekeyCount))
+
+	// E2EE Key Backup — şifreli anahtar yedekleme
+	mux.Handle("PUT /api/e2ee/key-backup", auth(h.E2EE.UpsertKeyBackup))
+	mux.Handle("GET /api/e2ee/key-backup", auth(h.E2EE.GetKeyBackup))
+	mux.Handle("DELETE /api/e2ee/key-backup", auth(h.E2EE.DeleteKeyBackup))
+
+	// E2EE User Devices / Prekey Bundles — başka kullanıcının public bilgileri
+	// Literal "blocked" path Users altında daha önce tanımlı, buradaki user-scoped
+	// device/prekey route'ları çakışma oluşturmaz çünkü farklı sub-path'ler.
+	mux.Handle("GET /api/users/{userId}/devices", auth(h.Device.ListPublicDevices))
+	mux.Handle("GET /api/users/{userId}/prekey-bundles", auth(h.Device.GetPrekeyBundles))
+
 	// Channel Mutes — literal path, {serverId} wildcard'dan ÖNCE olmalı
 	mux.Handle("GET /api/channels/mutes", auth(h.ChannelMute.ListMuted))
 
@@ -247,6 +266,10 @@ func initRoutes(
 	mux.Handle("GET /api/servers/{serverId}/invites", authServerPerm(models.PermManageInvites, h.Invite.List))
 	mux.Handle("POST /api/servers/{serverId}/invites", authServerPerm(models.PermManageInvites, h.Invite.Create))
 	mux.Handle("DELETE /api/servers/{serverId}/invites/{code}", authServerPerm(models.PermManageInvites, h.Invite.Delete))
+
+	// E2EE Group Sessions — Sender Key oturum yönetimi (kanal bazında)
+	mux.Handle("POST /api/servers/{serverId}/channels/{channelId}/group-sessions", authServer(h.E2EE.CreateGroupSession))
+	mux.Handle("GET /api/servers/{serverId}/channels/{channelId}/group-sessions", authServer(h.E2EE.GetGroupSessions))
 
 	// Search
 	mux.Handle("GET /api/servers/{serverId}/search", authServer(h.Search.Search))
