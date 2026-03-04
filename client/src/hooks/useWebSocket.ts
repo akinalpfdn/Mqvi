@@ -26,7 +26,7 @@
  * Unmount'ta ID sıfırlanmaz, artırılır — böylece ID çakışması imkansız olur.
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { ensureFreshToken } from "../api/client";
 import { useChannelStore } from "../stores/channelStore";
 import { useMessageStore } from "../stores/messageStore";
@@ -121,6 +121,18 @@ export function useWebSocket() {
    * tetikler. Artırma ile ID'ler her zaman benzersiz kalır.
    */
   const activeConnectionIdRef = useRef<number>(0);
+
+  /**
+   * connectionStatus — WebSocket bağlantı durumu.
+   * "connecting": bağlantı kuruluyor (ilk yükleme veya reconnect)
+   * "connected": bağlantı aktif, ready event alındı
+   * "disconnected": bağlantı koptu, reconnect denenecek
+   *
+   * AppLayout bu değeri ConnectionBanner component'ine geçirir.
+   */
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connected" | "connecting" | "disconnected"
+  >("connecting");
 
   /** Son typing gönderme zamanı: channelId → timestamp */
   const lastTypingRef = useRef<Map<string, number>>(new Map());
@@ -316,6 +328,9 @@ export function useWebSocket() {
         useFriendStore.getState().fetchRequests();
         // Engellenen kullanıcıları çek
         useBlockStore.getState().fetchBlocked();
+
+        // WS bağlantısı başarılı — banner'ı kaldır
+        setConnectionStatus("connected");
 
         // Status persistence: manualStatus'u ready'de anında gönder.
         //
@@ -959,6 +974,8 @@ export function useWebSocket() {
     async function doConnect() {
       if (activeConnectionIdRef.current !== myId) return;
 
+      setConnectionStatus("connecting");
+
       // Token expire olduysa refresh yap, taze token al.
       // ensureFreshToken: expire değilse mevcut token'ı döner (sıfır maliyet),
       // expire olduysa refreshAccessToken() çağırır (race-safe, promise lock'lu).
@@ -1074,6 +1091,7 @@ export function useWebSocket() {
          */
         if (activeConnectionIdRef.current !== myId) return;
 
+        setConnectionStatus("disconnected");
         cleanupTimers();
 
         // Otomatik reconnect — exponential backoff ile
@@ -1111,5 +1129,5 @@ export function useWebSocket() {
     };
   }, []);
 
-  return { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS };
+  return { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS, connectionStatus };
 }

@@ -74,8 +74,33 @@ button { font-family:inherit; }
 /* ═══════════════════════════════════════
    APP SHELL
    ═══════════════════════════════════════ */
+/* Electron custom titlebar wrapper — frame:false nedeniyle OS titlebar yok,
+   custom titlebar + app content column layout ile dizilir */
+.electron-app-wrapper { display:flex;flex-direction:column;height:100vh;overflow:hidden; }
+.electron-app-wrapper .mqvi-app { height:auto;flex:1;min-height:0; }
+
 .mqvi-app { display:flex;flex-direction:row;height:100vh;background:var(--bg-0);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden; }
 .app-body { display:flex;flex-direction:column;flex:1;min-width:0;min-height:0; }
+
+/* ── Custom Titlebar (Electron) ── */
+.custom-titlebar {
+  height:32px;flex-shrink:0;
+  background:var(--bg-0);
+  display:flex;align-items:center;
+  -webkit-app-region:drag;
+  user-select:none;
+}
+.titlebar-drag-region { flex:1;height:100%; }
+.titlebar-controls { display:flex;-webkit-app-region:no-drag; }
+.titlebar-btn {
+  width:46px;height:32px;
+  display:flex;align-items:center;justify-content:center;
+  background:transparent;border:none;
+  color:var(--t2);cursor:pointer;
+  transition:background 0.1s,color 0.1s;
+}
+.titlebar-btn:hover { background:var(--bg-h);color:var(--t0); }
+.titlebar-btn.close:hover { background:var(--red);color:#fff; }
 
 /* Mobil app shell — column layout, sidebar drawer'da */
 .mqvi-app.mobile { flex-direction:column; }
@@ -1372,6 +1397,27 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   font-size:14px;color:var(--t1);background:var(--bg-1);
   padding:8px 12px;border-radius:6px;word-break:break-word;
 }
+
+/* ═══════════════════════════════════════
+   CONNECTION BANNER
+   ═══════════════════════════════════════ */
+.connection-banner {
+  position:fixed;top:0;left:0;right:0;z-index:200;
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  padding:8px 16px;font-size:13px;font-weight:600;
+  animation:conn-banner-in 0.2s ease-out;
+}
+@keyframes conn-banner-in { from { transform:translateY(-100%); } to { transform:translateY(0); } }
+.connection-banner.connecting { background:var(--yellow);color:#000; }
+.connection-banner.disconnected { background:var(--red);color:#fff; }
+.connection-banner-text { white-space:nowrap; }
+.connection-banner-btn {
+  padding:4px 12px;border-radius:4px;border:none;cursor:pointer;
+  font-size:13px;font-weight:600;
+  background:rgba(255,255,255,0.2);color:inherit;
+  transition:background 0.15s;
+}
+.connection-banner-btn:hover { background:rgba(255,255,255,0.35); }
 
 /* ═══════════════════════════════════════
    TOAST NOTIFICATIONS

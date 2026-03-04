@@ -102,5 +102,8 @@
   "removeFriend": "Arkadaşlıktan Çıkar",
   "editRoles": "Rolleri Düzenle",
   "requestPending": "İstek Bekliyor",
-  "confirmRemoveFriend": "{{username}} adlı kullanıcıyı arkadaş listenizden çıkarmak istiyor musunuz?"
+  "confirmRemoveFriend": "{{username}} adlı kullanıcıyı arkadaş listenizden çıkarmak istiyor musunuz?",
+  "connectionConnecting": "Sunucuya bağlanılıyor...",
+  "connectionLost": "Bağlantı koptu",
+  "connectionRefresh": "Yenile"
 }

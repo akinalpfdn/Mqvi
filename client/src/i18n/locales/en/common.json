@@ -102,5 +102,8 @@
   "removeFriend": "Remove Friend",
   "editRoles": "Edit Roles",
   "requestPending": "Request Pending",
-  "confirmRemoveFriend": "Remove {{username}} from your friends?"
+  "confirmRemoveFriend": "Remove {{username}} from your friends?",
+  "connectionConnecting": "Connecting to server...",
+  "connectionLost": "Connection lost",
+  "connectionRefresh": "Refresh"
 }

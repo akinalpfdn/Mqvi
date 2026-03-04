@@ -106,6 +106,9 @@ function createWindow(): void {
     // Pencere oluşturulduğu an koyu arka plan — HTML/CSS yüklenmeden önce
     // beyaz flash'ı önler. Midnight temasının --bg-0 değeri.
     backgroundColor: "#111111",
+    // OS titlebar'ı kaldır — custom titlebar kullanılacak (Discord pattern).
+    // Renderer'da -webkit-app-region: drag ile sürükleme alanı tanımlanır.
+    frame: false,
     // Pencereyi hazır olana kadar gizle (show: false), sonra ready-to-show
     // event'inde göster — bu sayede kullanıcı yarım yüklenmiş sayfa görmez
     show: false,
@@ -120,6 +123,15 @@ function createWindow(): void {
   // Pencere hazır olduğunda göster — yarım yüklenmiş sayfa göstermeyi önler
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
+  });
+
+  // Maximize/unmaximize olaylarını renderer'a bildir.
+  // CustomTitleBar component'i bu event ile maximize↔restore ikonunu toggle eder.
+  mainWindow.on("maximize", () => {
+    mainWindow?.webContents.send("window-maximized-change", true);
+  });
+  mainWindow.on("unmaximize", () => {
+    mainWindow?.webContents.send("window-maximized-change", false);
   });
 
   // Varsayılan Electron menü çubuğunu (File/Edit/View/Window/Help) kaldır.
@@ -490,6 +502,24 @@ function setupIPC(): void {
     if (mainWindow && !mainWindow.isFocused()) {
       mainWindow.flashFrame(true);
     }
+  });
+
+  // ─── Window Controls (Custom Titlebar) ───
+  // frame:false ile OS titlebar kaldırıldı, butonlar React component'inden
+  // IPC ile main process'e yönlendirilir.
+  ipcMain.handle("minimize-window", () => {
+    mainWindow?.minimize();
+  });
+  ipcMain.handle("maximize-window", () => {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow?.maximize();
+    }
+  });
+  ipcMain.handle("close-window", () => {
+    // close-to-tray davranışı korunur (isQuitting=false → hide)
+    mainWindow?.close();
   });
 
   // ─── Clipboard ───

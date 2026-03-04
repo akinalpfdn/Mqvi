@@ -97,6 +97,21 @@ interface ElectronAPI {
   /** Kayıtlı credential'ları sil */
   clearCredentials: () => Promise<void>;
 
+  /** Pencereyi küçült (custom titlebar) */
+  minimizeWindow: () => Promise<void>;
+
+  /** Pencereyi maximize ↔ restore toggle (custom titlebar) */
+  maximizeWindow: () => Promise<void>;
+
+  /** Pencereyi kapat — close-to-tray (custom titlebar) */
+  closeWindow: () => Promise<void>;
+
+  /** Maximize/unmaximize event listener (ikon toggle için) */
+  onMaximizedChange: (cb: (isMaximized: boolean) => void) => void;
+
+  /** Maximize listener'ı temizle (unmount cleanup) */
+  removeMaximizedListener: () => void;
+
   /** Taskbar overlay badge icon ayarla (Windows). count=0 → badge kaldır. */
   setBadgeCount: (count: number, iconDataURL: string | null) => Promise<void>;
 

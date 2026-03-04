@@ -40,6 +40,9 @@ import { useP2PCall } from "../../hooks/useP2PCall";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
 import QuickSwitcher from "../shared/QuickSwitcher";
 import ScreenPicker from "../voice/ScreenPicker";
+import ConnectionBanner from "../shared/ConnectionBanner";
+import CustomTitleBar from "./CustomTitleBar";
+import { isElectron } from "../../utils/constants";
 import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
@@ -51,7 +54,7 @@ import { useReadStateStore } from "../../stores/readStateStore";
 import { useNotificationBadge } from "../../hooks/useNotificationBadge";
 
 function AppLayout() {
-  const { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS } =
+  const { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS, connectionStatus } =
     useWebSocket();
 
   // Idle detection — 5dk inaktiflik → "idle", aktivite geri gelince → "online"
@@ -270,6 +273,9 @@ function AppLayout() {
    */
   const overlays = (
     <>
+      {/* Connection status banner — bağlantı kopunca üstte kırmızı banner (z-200) */}
+      <ConnectionBanner status={connectionStatus} />
+
       {/* Settings modal — tam ekran overlay (z-50) */}
       <SettingsModal />
 
@@ -305,7 +311,7 @@ function AppLayout() {
   }
 
   // ─── Desktop layout ───
-  return (
+  const desktopContent = (
     <div className="mqvi-app">
       {/* Sol sidebar — kanal ağacı + voice kontrolleri */}
       <Sidebar {...sidebarProps} />
@@ -330,6 +336,18 @@ function AppLayout() {
       {overlays}
     </div>
   );
+
+  // Electron: custom titlebar + wrapper (frame:false nedeniyle OS titlebar yok)
+  if (isElectron()) {
+    return (
+      <div className="electron-app-wrapper">
+        <CustomTitleBar />
+        {desktopContent}
+      </div>
+    );
+  }
+
+  return desktopContent;
 }
 
 export default AppLayout;

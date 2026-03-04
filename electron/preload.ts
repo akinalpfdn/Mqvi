@@ -116,6 +116,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
   clearCredentials: (): Promise<void> =>
     ipcRenderer.invoke("clear-credentials"),
 
+  // ─── Window Controls (Custom Titlebar) ───
+  // frame:false ile OS titlebar kaldırıldı. Bu API'ler React CustomTitleBar
+  // component'inin minimize/maximize/close butonlarını çalıştırır.
+
+  /** Pencereyi küçült */
+  minimizeWindow: (): Promise<void> => ipcRenderer.invoke("minimize-window"),
+
+  /** Pencereyi maximize ↔ restore toggle et */
+  maximizeWindow: (): Promise<void> => ipcRenderer.invoke("maximize-window"),
+
+  /** Pencereyi kapat (close-to-tray) */
+  closeWindow: (): Promise<void> => ipcRenderer.invoke("close-window"),
+
+  /** Maximize/unmaximize olayını dinle (ikon toggle için) */
+  onMaximizedChange: (cb: (isMaximized: boolean) => void): void => {
+    ipcRenderer.on("window-maximized-change", (_e, val) => cb(val));
+  },
+
+  /** Maximize listener'ı temizle (component unmount'ta) */
+  removeMaximizedListener: (): void => {
+    ipcRenderer.removeAllListeners("window-maximized-change");
+  },
+
   // ─── Taskbar Badge + Flash ───
 
   /** Taskbar overlay badge icon ayarla (Windows). count=0 → badge kaldır. */
