@@ -82,6 +82,13 @@ type BackupContents = {
     iteration: number;
     createdAt: number;
   }>;
+  /** One-time prekey'ler — X3DH icin kritik. Backup'ta olmalidir yoksa
+   *  restore sonrasi PreKey mesajlari decrypt edilemez (3-DH vs 4-DH uyumsuzlugu). */
+  preKeys: Array<{
+    id: number;
+    publicKey: string;
+    privateKey: string;
+  }>;
   trustedIdentities: Array<{
     userId: string;
     deviceId: string;
@@ -89,6 +96,8 @@ type BackupContents = {
     firstSeen: number;
     verified: boolean;
   }>;
+  /** Prekey ID counter — restore sonrasi yeni prekey'lerin eski ID'lere denk gelmemesi icin */
+  nextPrekeyId?: number;
   /** Decrypt edilmis mesaj cache'i — restore sonrasi eski mesajlar okunabilir */
   messageCache?: Array<{
     messageId: string;
@@ -239,10 +248,12 @@ async function collectBackupContents(): Promise<BackupContents> {
   }
 
   const signedPreKeys = await keyStorage.getAllSignedPreKeys();
+  const preKeys = await keyStorage.getAllPreKeys();
   const sessions = await keyStorage.getAllSessions();
   const senderKeys = await keyStorage.getAllSenderKeys();
   const trustedIdentities = await keyStorage.getAllTrustedIdentities();
   const cachedMessages = await keyStorage.getAllCachedMessages();
+  const nextPrekeyId = await keyStorage.getMetadata<number>("nextPrekeyId");
 
   return {
     version: BACKUP_VERSION,
@@ -265,6 +276,11 @@ async function collectBackupContents(): Promise<BackupContents> {
       privateKey: toBase64(spk.privateKey),
       signature: toBase64(spk.signature),
       createdAt: spk.createdAt,
+    })),
+    preKeys: preKeys.map((pk) => ({
+      id: pk.id,
+      publicKey: toBase64(pk.publicKey),
+      privateKey: toBase64(pk.privateKey),
     })),
     sessions: sessions.map((s) => ({
       userId: s.userId,
@@ -291,6 +307,7 @@ async function collectBackupContents(): Promise<BackupContents> {
       firstSeen: ti.firstSeen,
       verified: ti.verified,
     })),
+    nextPrekeyId: nextPrekeyId ?? undefined,
     messageCache: cachedMessages.map((m) => ({
       messageId: m.messageId,
       channelId: m.channelId,
@@ -339,6 +356,12 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
   // restore sonrası localDeviceId null kalır → device management bozulur.
   await keyStorage.setMetadata("deviceId", contents.registration.deviceId);
 
+  // nextPrekeyId'yi restore et — yeni prekey uretiminin eski ID'lere denk
+  // gelmemesi icin (eski prekey private key'lerinin ezilmesini onler).
+  if (contents.nextPrekeyId) {
+    await keyStorage.setMetadata("nextPrekeyId", contents.nextPrekeyId);
+  }
+
   // Signed prekeys
   for (const spk of contents.signedPreKeys) {
     await keyStorage.saveSignedPreKey({
@@ -348,6 +371,17 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
       signature: fromBase64(spk.signature),
       createdAt: spk.createdAt,
     });
+  }
+
+  // One-time prekeys — X3DH icin kritik
+  if (contents.preKeys && contents.preKeys.length > 0) {
+    await keyStorage.savePreKeys(
+      contents.preKeys.map((pk) => ({
+        id: pk.id,
+        publicKey: fromBase64(pk.publicKey),
+        privateKey: fromBase64(pk.privateKey),
+      }))
+    );
   }
 
   // Sessions

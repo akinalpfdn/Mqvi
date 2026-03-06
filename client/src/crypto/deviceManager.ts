@@ -216,8 +216,15 @@ export async function registerRestoredDevice(): Promise<string> {
   // Sunucuya kaydet
   await registerExistingKeys(newDeviceId);
 
-  // Prekey havuzunu doldur
-  await keyStorage.setMetadata("nextPrekeyId", PREKEY_BATCH_SIZE + 1);
+  // Prekey ID counter: backup'tan gelen deger korunmali.
+  // Backup metadata "nextPrekeyId" zaten dogru degeri iceriyor.
+  // Eger PREKEY_BATCH_SIZE + 1 ile ezersek, refreshPreKeys yeni prekey'ler
+  // uretirken eski ID'lere denk gelir ve backup'taki private key'leri
+  // uzerine yazar → X3DH shared secret uyumsuzlugu → OperationError.
+  const restoredNextId = await keyStorage.getMetadata<number>("nextPrekeyId");
+  if (!restoredNextId || restoredNextId < PREKEY_BATCH_SIZE + 1) {
+    await keyStorage.setMetadata("nextPrekeyId", PREKEY_BATCH_SIZE + 1);
+  }
 
   return newDeviceId;
 }
