@@ -77,6 +77,7 @@ type BackupContents = {
     senderDeviceId: string;
     distributionId: string;
     chainKey: string;
+    initialChainKey: string;
     publicSigningKey: string;
     iteration: number;
     createdAt: number;
@@ -87,6 +88,14 @@ type BackupContents = {
     identityKey: string;
     firstSeen: number;
     verified: boolean;
+  }>;
+  /** Decrypt edilmis mesaj cache'i — restore sonrasi eski mesajlar okunabilir */
+  messageCache?: Array<{
+    messageId: string;
+    channelId: string;
+    dmChannelId: string | null;
+    content: string;
+    timestamp: number;
   }>;
 };
 
@@ -128,7 +137,7 @@ export async function createBackup(recoveryPassword: string): Promise<{
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    derivedKey,
+    derivedKey as BufferSource,
     "AES-GCM",
     false,
     ["encrypt"]
@@ -137,7 +146,7 @@ export async function createBackup(recoveryPassword: string): Promise<{
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv: nonce },
     cryptoKey,
-    plaintext
+    plaintext as BufferSource
   );
 
   return {
@@ -186,16 +195,16 @@ export async function restoreFromBackup(
 
     const cryptoKey = await crypto.subtle.importKey(
       "raw",
-      derivedKey,
+      derivedKey as BufferSource,
       "AES-GCM",
       false,
       ["decrypt"]
     );
 
     const decrypted = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: nonce },
+      { name: "AES-GCM", iv: nonce as BufferSource },
       cryptoKey,
-      encryptedData
+      encryptedData as BufferSource
     );
 
     // 3. JSON parse
@@ -233,6 +242,7 @@ async function collectBackupContents(): Promise<BackupContents> {
   const sessions = await keyStorage.getAllSessions();
   const senderKeys = await keyStorage.getAllSenderKeys();
   const trustedIdentities = await keyStorage.getAllTrustedIdentities();
+  const cachedMessages = await keyStorage.getAllCachedMessages();
 
   return {
     version: BACKUP_VERSION,
@@ -269,6 +279,7 @@ async function collectBackupContents(): Promise<BackupContents> {
       senderDeviceId: sk.senderDeviceId,
       distributionId: sk.distributionId,
       chainKey: toBase64(sk.chainKey),
+      initialChainKey: sk.initialChainKey ? toBase64(sk.initialChainKey) : "",
       publicSigningKey: toBase64(sk.publicSigningKey),
       iteration: sk.iteration,
       createdAt: sk.createdAt,
@@ -280,6 +291,13 @@ async function collectBackupContents(): Promise<BackupContents> {
       firstSeen: ti.firstSeen,
       verified: ti.verified,
     })),
+    messageCache: cachedMessages.map((m) => ({
+      messageId: m.messageId,
+      channelId: m.channelId,
+      dmChannelId: m.dmChannelId,
+      content: m.content,
+      timestamp: m.timestamp,
+    })),
   };
 }
 
@@ -287,7 +305,13 @@ async function collectBackupContents(): Promise<BackupContents> {
  * Backup icerigini IndexedDB'ye import eder.
  */
 async function importBackupContents(contents: BackupContents): Promise<void> {
-  // Mevcut verileri temizle
+  // Mevcut message cache'i koru — restore crypto key'leri degistirir
+  // ama daha once decrypt edilmis mesajlarin plaintext'i korunmali.
+  // Ozellikle ayni tarayicida restore yapildiginda: mevcut cache silinirse
+  // eski mesajlar bir daha okunamaz (ratchet state degismis olabilir).
+  const existingCache = await keyStorage.getAllCachedMessages();
+
+  // Crypto key'leri temizle (messageCache dahil — sonra geri yazacagiz)
   await keyStorage.clearAllE2EEData();
 
   // Identity key pair
@@ -346,6 +370,7 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
       senderDeviceId: sk.senderDeviceId,
       distributionId: sk.distributionId,
       chainKey: fromBase64(sk.chainKey),
+      initialChainKey: sk.initialChainKey ? fromBase64(sk.initialChainKey) : fromBase64(sk.chainKey),
       publicSigningKey: fromBase64(sk.publicSigningKey),
       iteration: sk.iteration,
       createdAt: sk.createdAt,
@@ -361,6 +386,30 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
       firstSeen: ti.firstSeen,
       verified: ti.verified,
     });
+  }
+
+  // Message cache — mevcut cache + backup cache'i birlestir.
+  // Mevcut cache oncelikli (ayni tarayicida restore → eski cache korunur).
+  // Backup'taki cache sadece mevcut cache'te olmayan mesajlar icin eklenir.
+  const existingIds = new Set(existingCache.map((m) => m.messageId));
+  const mergedCache = [...existingCache];
+
+  if (contents.messageCache) {
+    for (const m of contents.messageCache) {
+      if (!existingIds.has(m.messageId)) {
+        mergedCache.push({
+          messageId: m.messageId,
+          channelId: m.channelId,
+          dmChannelId: m.dmChannelId,
+          content: m.content,
+          timestamp: m.timestamp,
+        });
+      }
+    }
+  }
+
+  if (mergedCache.length > 0) {
+    await keyStorage.cacheDecryptedMessages(mergedCache);
   }
 }
 
@@ -434,7 +483,7 @@ async function deriveKeyFromPassword(
 
   const baseKey = await crypto.subtle.importKey(
     "raw",
-    passwordBytes,
+    passwordBytes as BufferSource,
     "PBKDF2",
     false,
     ["deriveBits"]
@@ -443,7 +492,7 @@ async function deriveKeyFromPassword(
   const derivedBits = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
-      salt,
+      salt: salt as BufferSource,
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },

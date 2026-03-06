@@ -58,7 +58,7 @@ export async function createDistribution(
 ): Promise<SenderKeyDistributionData> {
   // Rastgele chain key ve distribution ID uret
   const chainKey = crypto.getRandomValues(new Uint8Array(32));
-  const signingPrivateKey = ed25519.utils.randomPrivateKey();
+  const signingPrivateKey = ed25519.utils.randomSecretKey();
   const signingPublicKey = ed25519.getPublicKey(signingPrivateKey);
   const distributionId = generateDistributionId();
 
@@ -69,6 +69,7 @@ export async function createDistribution(
     senderDeviceId: deviceId,
     distributionId,
     chainKey,
+    initialChainKey: new Uint8Array(chainKey),
     publicSigningKey: signingPublicKey,
     iteration: 0,
     createdAt: Date.now(),
@@ -109,12 +110,14 @@ export async function processDistribution(
   senderDeviceId: string,
   distribution: SenderKeyDistributionData
 ): Promise<void> {
+  const chainKey = fromBase64(distribution.chainKey);
   const senderKey: StoredSenderKey = {
     channelId,
     senderUserId,
     senderDeviceId,
     distributionId: distribution.distributionId,
-    chainKey: fromBase64(distribution.chainKey),
+    chainKey,
+    initialChainKey: new Uint8Array(chainKey),
     publicSigningKey: fromBase64(distribution.publicSigningKey),
     iteration: distribution.iteration,
     createdAt: Date.now(),
@@ -280,13 +283,49 @@ export async function decryptGroupMessage(
   let currentChainKey = senderKey.chainKey;
   let currentIteration = senderKey.iteration;
 
-  if (message.iteration < currentIteration) {
-    throw new Error(
-      `Message iteration ${message.iteration} is behind current ` +
-        `iteration ${currentIteration}. Possible replay attack.`
+  /**
+   * Out-of-order mesaj destegi:
+   *
+   * Mesajin iterasyonu mevcut iterasyonun gerisindeyse, iki durum var:
+   * 1. Tarihsel mesaj — fetchMessages ile gelen eski mesaj (en yaygin)
+   * 2. Replay attack — ayni mesajin tekrar gonderilmesi
+   *
+   * initialChainKey varsa, orijinal chain key'den bastan tureterek
+   * eski iterasyonun message key'ini elde edebiliriz. Bu durumda
+   * stored state GUNCELLENMEZ — sadece decrypt yapilir.
+   *
+   * initialChainKey yoksa (eski format sender key), decrypt yapilamaz.
+   */
+  const isOutOfOrder = message.iteration < currentIteration;
+
+  if (isOutOfOrder) {
+    if (!senderKey.initialChainKey) {
+      throw new Error(
+        `Message iteration ${message.iteration} is behind current ` +
+          `iteration ${currentIteration}. No initial chain key for re-derivation.`
+      );
+    }
+
+    // Bastan tureterek eski iterasyonun chain key'ine ulas
+    let rewindChainKey = senderKey.initialChainKey;
+    for (let i = 0; i < message.iteration; i++) {
+      rewindChainKey = advanceChainKey(rewindChainKey);
+    }
+
+    const messageKey = deriveGroupMessageKey(rewindChainKey);
+
+    // Decrypt — stored state GUNCELLENMEZ (tarihsel mesaj)
+    const plaintext = await groupAesGcmDecrypt(
+      messageKey,
+      ciphertext,
+      message.distributionId,
+      message.iteration
     );
+
+    return new TextDecoder().decode(plaintext);
   }
 
+  // Normal akis: mesaj iterasyonu >= mevcut iterasyon
   while (currentIteration < message.iteration) {
     currentChainKey = advanceChainKey(currentChainKey);
     currentIteration++;
@@ -324,7 +363,14 @@ export async function decryptGroupMessage(
  * Rotation kosullari:
  * 1. Mesaj sayisi SENDER_KEY_ROTATION_MESSAGES'i asmis
  * 2. Yas SENDER_KEY_ROTATION_DAYS'i asmis
+ *
+ * Public versiyon (needsRotationCheck) channelEncryption tarafindan
+ * kullanilir — ensureSenderKeyForDecryption icinde key durumu kontrol edilir.
  */
+export function needsRotationCheck(senderKey: StoredSenderKey): boolean {
+  return needsRotation(senderKey);
+}
+
 function needsRotation(senderKey: StoredSenderKey): boolean {
   // Mesaj sayisi kontrolu
   if (senderKey.iteration >= SENDER_KEY_ROTATION_MESSAGES) {
@@ -409,7 +455,7 @@ async function groupAesGcmEncrypt(
 
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as BufferSource,
     "AES-GCM",
     false,
     ["encrypt"]
@@ -418,7 +464,7 @@ async function groupAesGcmEncrypt(
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv, additionalData: ad },
     cryptoKey,
-    plaintext
+    plaintext as BufferSource
   );
 
   // iv (12) + encrypted (includes 16-byte auth tag)
@@ -443,7 +489,7 @@ async function groupAesGcmDecrypt(
 
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as BufferSource,
     "AES-GCM",
     false,
     ["decrypt"]
@@ -452,7 +498,7 @@ async function groupAesGcmDecrypt(
   return crypto.subtle.decrypt(
     { name: "AES-GCM", iv, additionalData: ad },
     cryptoKey,
-    ciphertext
+    ciphertext as BufferSource
   );
 }
 

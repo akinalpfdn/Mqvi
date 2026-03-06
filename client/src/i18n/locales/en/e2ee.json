@@ -4,7 +4,10 @@
 
   "setupTitle": "Set Up Encryption",
   "setupDescription": "This device needs to be set up for end-to-end encryption. You can generate new keys or restore from a recovery password.",
+  "setupDescriptionHasBackup": "A backup of your encryption keys was found. Restore with your recovery password to access your previous messages.",
   "generateNewKeys": "Generate New Keys",
+  "generateNewKeysWarning": "This will create new encryption keys. You will not be able to read your previous encrypted messages.",
+  "generateNewKeysConfirm": "I understand, generate new keys",
   "restoreFromRecovery": "Restore from Recovery Password",
   "generatingKeys": "Generating encryption keys...",
 
@@ -65,5 +68,6 @@
   "removeDeviceError": "Failed to remove device",
   "noRecoveryWarning": "No recovery password set. If you lose access to all devices, you will not be able to recover your encryption keys.",
   "setupRequired": "Set up encryption to start sending encrypted messages.",
-  "setupBackToChoice": "Back"
+  "setupBackToChoice": "Back",
+  "recipientNoKeys": "This user hasn't set up encryption yet. They need to log in first."
 }

@@ -180,6 +180,23 @@ export type StoredSenderKey = {
   distributionId: string;
   /** 32-byte chain key — HMAC ratchet ile ilerletilir */
   chainKey: Uint8Array;
+  /**
+   * 32-byte baslangic chain key — ilk distribution'daki orijinal key.
+   *
+   * Chain key ratchet tek yonludur (HMAC ile ileri gider, geri gelemez).
+   * Tarihsel mesajlari decrypt edebilmek icin (fetchMessages ile gelen
+   * eski iterasyonlar), orijinal chain key saklanir ve gerektiginde
+   * bastan itibaren ileri tureterek eski message key'ler elde edilir.
+   *
+   * Bu, Signal'in "message key cache" yaklasiminin daha verimli versiyonudur:
+   * N adet message key saklamak yerine, tek bir initial key'den herhangi
+   * bir iterasyonun key'i O(iteration) ile turetilir.
+   *
+   * Guvenlik: initialChainKey ile TUM gecmis message key'ler turetilebildigi
+   * icin forward secrecy yoktur. Ancak Sender Key protokolunde forward secrecy
+   * zaten sinirlidir — gercek forward secrecy icin key rotation kullanilir.
+   */
+  initialChainKey?: Uint8Array;
   /** 32-byte signing public key (Ed25519) */
   publicSigningKey: Uint8Array;
   /** Mevcut iterasyon sayisi */

@@ -25,9 +25,10 @@
  * CSS class'ları: Server ChatArea'dan miras — .chat-area, .dm-header, vb.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
+import { useE2EEStore } from "../../stores/e2eeStore";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import DMChatProvider from "./DMChatProvider";
@@ -86,6 +87,9 @@ function DMChatContent({
   const { addFilesRef } = useChatContext();
   const selectDM = useDMStore((s) => s.selectDM);
   const clearDMUnread = useDMStore((s) => s.clearDMUnread);
+  const invalidateMessages = useDMStore((s) => s.invalidateMessages);
+  const fetchMessages = useDMStore((s) => s.fetchMessages);
+  const e2eeInitStatus = useE2EEStore((s) => s.initStatus);
 
   const [showPins, setShowPins] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -100,6 +104,23 @@ function DMChatContent({
       selectDM(null);
     };
   }, [channelId, selectDM, clearDMUnread]);
+
+  // E2EE hazir oldugunda mesaj cache'ini temizle ve yeniden fetch et.
+  // Race condition: fetchMessages, e2eeStore.initialize() tamamlanmadan once
+  // calisirsa localDeviceId null olur → tum mesajlar null content ile cache'lenir.
+  // Bu effect, SADECE status "ready"'ye GECIS yaptiginda tetiklenir.
+  // Mount aninda zaten "ready" ise MessageList'in kendi fetch'i yeterlidir.
+  const prevE2eeStatusRef = useRef(e2eeInitStatus);
+  useEffect(() => {
+    const prevStatus = prevE2eeStatusRef.current;
+    prevE2eeStatusRef.current = e2eeInitStatus;
+
+    // Sadece non-ready → ready gecisinde invalidate + re-fetch
+    if (e2eeInitStatus === "ready" && prevStatus !== "ready") {
+      invalidateMessages(channelId);
+      fetchMessages(channelId);
+    }
+  }, [e2eeInitStatus, channelId, invalidateMessages, fetchMessages]);
 
   // Context menu "Mesajlarda Ara" → DM açıldığında search paneli otomatik aç
   useEffect(() => {

@@ -202,6 +202,25 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
           return;
         }
 
+        // Sunucuda cihaz hala var mi kontrol et — yoksa yeniden kaydet.
+        // Sunucu DB sifirlanmissa veya cihaz silinmisse bu gereklidir.
+        // Olmadan: prekey upload FK hatasi + diger cihazlar bu cihaz icin
+        // envelope olusturamaz.
+        if (deviceId) {
+          try {
+            const devicesRes = await e2eeApi.listMyDevices();
+            const existsOnServer = devicesRes.success && devicesRes.data?.some(
+              (d) => d.device_id === deviceId
+            );
+            if (!existsOnServer) {
+              // Sunucu cihazi tanimiyor — mevcut anahtarlarla yeniden kaydet
+              await deviceManager.reRegisterDevice(deviceId);
+            }
+          } catch {
+            // Network hatasi — devam et, prekey refresh'te tekrar denenecek
+          }
+        }
+
         set({
           initStatus: "ready",
           localDeviceId: deviceId,
@@ -212,11 +231,24 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
         get().fetchDevices();
         checkRecoveryBackup(set);
       } else {
-        // Anahtarlar yok — yeni cihaz kurulumu gerekli
-        set({
-          initStatus: "needs_setup",
-          localDeviceId: null,
-        });
+        // Anahtarlar yok — sunucuda backup var mi kontrol et
+        try {
+          const backupRes = await e2eeApi.downloadKeyBackup();
+          if (backupRes.success && backupRes.data) {
+            // Backup mevcut — kullaniciya restore secenegi sun
+            set({
+              initStatus: "needs_setup",
+              localDeviceId: null,
+              hasRecoveryBackup: true,
+            });
+            return;
+          }
+        } catch {
+          // Backup kontrol basarisiz — devam et, otomatik key olustur
+        }
+
+        // Backup yok — otomatik key olustur (ilk kez kullanan kullanici)
+        await get().setupNewDevice(userId);
       }
     } catch (err) {
       const message =
@@ -289,16 +321,21 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
         return false;
       }
 
-      // Basarili — device ID'yi oku
-      const deviceId = await deviceManager.getLocalDeviceId();
+      // Yeni device ID uret + eski ID'yi legacy olarak sakla.
+      // Yeni ID: self-fanout calisir (her cihaz farkli ID).
+      // Legacy ID: eski mesajlardaki envelope'lar eslesir.
+      // messageCache: backup'tan gelen + mevcut cache korunur.
+      const newDeviceId = await deviceManager.registerRestoredDevice();
 
       set({
         initStatus: "ready",
-        localDeviceId: deviceId,
+        localDeviceId: newDeviceId,
         hasRecoveryBackup: true,
         isGeneratingKeys: false,
       });
 
+      // Prekey havuzunu doldur + cihaz listesi
+      get().handlePrekeyLow();
       get().fetchDevices();
       return true;
     } catch (err) {

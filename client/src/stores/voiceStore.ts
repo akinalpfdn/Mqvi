@@ -167,6 +167,9 @@ type VoiceStore = {
   /** Room bazlı E2EE passphrase (SFrame). Server tarafından üretilir. */
   e2eePassphrase: string | null;
 
+  /** Monotonically increasing join generation — stale API response'ları discard eder */
+  _joinGeneration: number;
+
   // ─── Voice Settings (persisted) ───
 
   /**

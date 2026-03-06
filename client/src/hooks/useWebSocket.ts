@@ -50,7 +50,11 @@ import {
 } from "../utils/constants";
 import { playJoinSound, playLeaveSound, playNotificationSound } from "../utils/sounds";
 import { useE2EEStore } from "../stores/e2eeStore";
-import { decryptDMMessage } from "../crypto/dmEncryption";
+import {
+  decryptDMMessage,
+  popSentPlaintext,
+  popEditPlaintext,
+} from "../crypto/dmEncryption";
 import { decryptChannelMessage } from "../crypto/channelEncryption";
 import * as keyStorage from "../crypto/keyStorage";
 import type {
@@ -637,40 +641,88 @@ export function useWebSocket() {
         break;
       case "dm_message_create": {
         let dmMsg = msg.d as DMMessage;
+        const dmCurrentUserId = useAuthStore.getState().user?.id;
 
         // E2EE mesajı ise decrypt et
         if (dmMsg.encryption_version === 1 && dmMsg.ciphertext && dmMsg.sender_device_id) {
-          try {
-            const payload = await decryptDMMessage(
-              dmMsg.user_id,
-              dmMsg.ciphertext,
-              dmMsg.sender_device_id
-            );
-            dmMsg = {
-              ...dmMsg,
-              content: payload?.content ?? null,
-              e2ee_file_keys: payload?.file_keys,
-            };
+          // Kendi mesajımız mı kontrol et
+          const isOwnMessage = dmMsg.user_id === dmCurrentUserId;
 
-            // Basarili decrypt → IndexedDB cache (client-side search)
-            if (payload?.content) {
-              keyStorage.cacheDecryptedMessage({
-                messageId: dmMsg.id,
-                channelId: "",
-                dmChannelId: dmMsg.dm_channel_id,
-                content: payload.content,
-                timestamp: new Date(dmMsg.created_at).getTime(),
-              }).catch(() => {});
+          // Kendi mesajımızsa önce cache'den dene (bu cihazdan gönderilmişse cache'te olur)
+          let decrypted = false;
+          if (isOwnMessage) {
+            try {
+              const cached = popSentPlaintext(dmMsg.dm_channel_id);
+              if (cached) {
+                dmMsg = {
+                  ...dmMsg,
+                  content: cached.content,
+                  e2ee_file_keys: cached.file_keys,
+                };
+                decrypted = true;
+
+                // IndexedDB'ye de kaydet (search + tarihsel fetch için)
+                keyStorage.cacheDecryptedMessage({
+                  messageId: dmMsg.id,
+                  channelId: "",
+                  dmChannelId: dmMsg.dm_channel_id,
+                  content: cached.content,
+                  timestamp: new Date(dmMsg.created_at).getTime(),
+                }).catch(() => {});
+              } else {
+                // Pre-send cache miss — IndexedDB'de persist edilmiş olmalı.
+                const idbCached = await keyStorage.getCachedDecryptedMessage(dmMsg.id);
+                if (idbCached) {
+                  dmMsg = { ...dmMsg, content: idbCached.content };
+                  decrypted = true;
+                }
+              }
+            } catch (cacheErr) {
+              console.error("[ws] DM own message cache lookup failed:", cacheErr);
             }
-          } catch (err) {
-            console.error("[ws] DM decrypt failed:", err);
-            dmMsg = { ...dmMsg, content: null };
-            useE2EEStore.getState().addDecryptionError({
-              messageId: dmMsg.id,
-              channelId: dmMsg.dm_channel_id,
-              error: err instanceof Error ? err.message : "Decryption failed",
-              timestamp: Date.now(),
-            });
+          }
+
+          // Cache'te bulunamadıysa Signal Protocol ile decrypt et.
+          // Başkasının mesajı: her zaman bu yola girer.
+          // Kendi mesajımız ama farklı cihazdan: self-fanout envelope ile decrypt.
+          if (!decrypted) {
+            try {
+              const payload = await decryptDMMessage(
+                dmMsg.user_id,
+                dmMsg.ciphertext!,
+                dmMsg.sender_device_id!
+              );
+              if (payload) {
+                dmMsg = {
+                  ...dmMsg,
+                  content: payload.content,
+                  e2ee_file_keys: payload.file_keys,
+                };
+
+                // Başarılı decrypt → IndexedDB cache (client-side search)
+                if (payload.content) {
+                  keyStorage.cacheDecryptedMessage({
+                    messageId: dmMsg.id,
+                    channelId: "",
+                    dmChannelId: dmMsg.dm_channel_id,
+                    content: payload.content,
+                    timestamp: new Date(dmMsg.created_at).getTime(),
+                  }).catch(() => {});
+                }
+              } else {
+                // Envelope bulunamadı — bu cihaz kaydedilmeden önce gönderilmiş olabilir
+                dmMsg = { ...dmMsg, content: null };
+              }
+            } catch (err) {
+              console.error("[ws] DM decrypt failed:", err);
+              dmMsg = { ...dmMsg, content: null };
+              useE2EEStore.getState().addDecryptionError({
+                messageId: dmMsg.id,
+                channelId: dmMsg.dm_channel_id,
+                error: err instanceof Error ? err.message : "Decryption failed",
+                timestamp: Date.now(),
+              });
+            }
           }
         }
 
@@ -678,8 +730,7 @@ export function useWebSocket() {
 
         // Kendi gönderdiğimiz mesajlar için unread artırma (server echo).
         // Server dm_message_create'i hem gönderene hem alıcıya broadcast eder.
-        const currentUserId = useAuthStore.getState().user?.id;
-        if (dmMsg.user_id === currentUserId) break;
+        if (dmMsg.user_id === dmCurrentUserId) break;
 
         // DM okunmamış sayacı: mesaj aktif DM tab'ına ait değilse artır.
         const dmState = useDMStore.getState();
@@ -693,34 +744,63 @@ export function useWebSocket() {
       }
       case "dm_message_update": {
         let dmUpdateMsg = msg.d as DMMessage;
+        const dmEditCurrentUserId = useAuthStore.getState().user?.id;
 
         // E2EE edit ise decrypt et
         if (dmUpdateMsg.encryption_version === 1 && dmUpdateMsg.ciphertext && dmUpdateMsg.sender_device_id) {
-          try {
-            const payload = await decryptDMMessage(
-              dmUpdateMsg.user_id,
-              dmUpdateMsg.ciphertext,
-              dmUpdateMsg.sender_device_id
-            );
-            dmUpdateMsg = {
-              ...dmUpdateMsg,
-              content: payload?.content ?? null,
-              e2ee_file_keys: payload?.file_keys,
-            };
+          const isOwnEdit = dmUpdateMsg.user_id === dmEditCurrentUserId;
+          let editDecrypted = false;
 
-            // Cache guncelle
-            if (payload?.content) {
-              keyStorage.cacheDecryptedMessage({
-                messageId: dmUpdateMsg.id,
-                channelId: "",
-                dmChannelId: dmUpdateMsg.dm_channel_id,
-                content: payload.content,
-                timestamp: new Date(dmUpdateMsg.created_at).getTime(),
-              }).catch(() => {});
+          // Kendi edit'imizse önce cache'den dene
+          if (isOwnEdit) {
+            try {
+              const cached = popEditPlaintext(dmUpdateMsg.id);
+              if (cached) {
+                dmUpdateMsg = {
+                  ...dmUpdateMsg,
+                  content: cached.content,
+                  e2ee_file_keys: cached.file_keys,
+                };
+                editDecrypted = true;
+              } else {
+                const idbCached = await keyStorage.getCachedDecryptedMessage(dmUpdateMsg.id);
+                if (idbCached) {
+                  dmUpdateMsg = { ...dmUpdateMsg, content: idbCached.content };
+                  editDecrypted = true;
+                }
+              }
+            } catch (cacheErr) {
+              console.error("[ws] DM own edit cache lookup failed:", cacheErr);
             }
-          } catch (err) {
-            console.error("[ws] DM edit decrypt failed:", err);
-            dmUpdateMsg = { ...dmUpdateMsg, content: null };
+          }
+
+          // Cache'te bulunamadıysa Signal Protocol ile decrypt
+          if (!editDecrypted) {
+            try {
+              const payload = await decryptDMMessage(
+                dmUpdateMsg.user_id,
+                dmUpdateMsg.ciphertext!,
+                dmUpdateMsg.sender_device_id!
+              );
+              dmUpdateMsg = {
+                ...dmUpdateMsg,
+                content: payload?.content ?? null,
+                e2ee_file_keys: payload?.file_keys,
+              };
+
+              if (payload?.content) {
+                keyStorage.cacheDecryptedMessage({
+                  messageId: dmUpdateMsg.id,
+                  channelId: "",
+                  dmChannelId: dmUpdateMsg.dm_channel_id,
+                  content: payload.content,
+                  timestamp: new Date(dmUpdateMsg.created_at).getTime(),
+                }).catch(() => {});
+              }
+            } catch (err) {
+              console.error("[ws] DM edit decrypt failed:", err);
+              dmUpdateMsg = { ...dmUpdateMsg, content: null };
+            }
           }
         }
 

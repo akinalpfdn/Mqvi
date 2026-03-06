@@ -5,9 +5,20 @@
  * Kullanıcı E2EE anahtarlarını oluşturana veya kurtarma parolasıyla
  * geri yükleyene kadar uygulama kullanılamaz.
  *
- * İki seçenek:
- * 1. "Yeni Anahtarlar Oluştur" → setupNewDevice()
- * 2. "Kurtarma Parolasıyla Geri Yükle" → restoreFromRecovery(password)
+ * Akış (hasRecoveryBackup durumuna göre):
+ *
+ * A) Yedek VAR (hasRecoveryBackup = true):
+ *    - Birincil: "Kurtarma Parolasıyla Geri Yükle" (eski mesajlara erişim)
+ *    - İkincil: "Yeni Anahtarlar Oluştur" (uyarı ile — eski mesajlar kaybolur)
+ *    → Yeni anahtarlar seçilirse onay adımı gösterilir
+ *
+ * B) Yedek YOK (ilk cihaz / ilk kurulum):
+ *    - Sadece "Yeni Anahtarlar Oluştur" (normal akış, uyarı yok)
+ *
+ * View state machine:
+ * - "choice": İlk ekran — seçenekler
+ * - "restore": Kurtarma parolası giriş ekranı
+ * - "confirmNewKeys": Yeni anahtar oluşturma onay ekranı (yedek varsa)
  *
  * CSS class'ları: .modal-backdrop, .modal-card, .modal-title
  * + e2ee-specific: .e2ee-setup-*
@@ -19,12 +30,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { useToastStore } from "../../stores/toastStore";
 
-/**
- * View state machine:
- * - "choice": İlk ekran — iki seçenek gösterilir
- * - "restore": Kurtarma parolası giriş ekranı
- */
-type SetupView = "choice" | "restore";
+type SetupView = "choice" | "restore" | "confirmNewKeys";
 
 function NewDeviceSetup() {
   const { t } = useTranslation("e2ee");
@@ -34,6 +40,7 @@ function NewDeviceSetup() {
   const setupNewDevice = useE2EEStore((s) => s.setupNewDevice);
   const restoreFromRecovery = useE2EEStore((s) => s.restoreFromRecovery);
   const isGeneratingKeys = useE2EEStore((s) => s.isGeneratingKeys);
+  const hasRecoveryBackup = useE2EEStore((s) => s.hasRecoveryBackup);
   const initError = useE2EEStore((s) => s.initError);
   const addToast = useToastStore((s) => s.addToast);
 
@@ -58,7 +65,6 @@ function NewDeviceSetup() {
     if (success) {
       addToast("success", t("restoreSuccess"));
     }
-    // Hata durumunda initError store'dan okunur ve gösterilir
   }
 
   const isLoading = isGeneratingKeys || isRestoring;
@@ -66,40 +72,60 @@ function NewDeviceSetup() {
   return (
     <div className="modal-backdrop">
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        {view === "choice" ? (
+        {view === "choice" && (
           <>
-            {/* Choice view — iki seçenek */}
             <div className="modal-header">
               <h2 className="modal-title">{t("setupTitle")}</h2>
             </div>
 
-            <p className="e2ee-setup-description">{t("setupDescription")}</p>
+            <p className="e2ee-setup-description">
+              {hasRecoveryBackup
+                ? t("setupDescriptionHasBackup")
+                : t("setupDescription")}
+            </p>
 
             {initError && (
               <p className="e2ee-setup-error">{initError}</p>
             )}
 
             <div className="e2ee-setup-actions">
-              <button
-                onClick={handleGenerateKeys}
-                disabled={isLoading}
-                className="settings-btn e2ee-setup-btn-primary"
-              >
-                {isGeneratingKeys ? t("generatingKeys") : t("generateNewKeys")}
-              </button>
+              {hasRecoveryBackup ? (
+                <>
+                  {/* Yedek var — kurtarma birincil, yeni anahtar ikincil */}
+                  <button
+                    onClick={() => setView("restore")}
+                    disabled={isLoading}
+                    className="settings-btn e2ee-setup-btn-primary"
+                  >
+                    {t("restoreFromRecovery")}
+                  </button>
 
-              <button
-                onClick={() => setView("restore")}
-                disabled={isLoading}
-                className="settings-btn e2ee-setup-btn-secondary"
-              >
-                {t("restoreFromRecovery")}
-              </button>
+                  <button
+                    onClick={() => setView("confirmNewKeys")}
+                    disabled={isLoading}
+                    className="settings-btn e2ee-setup-btn-secondary"
+                  >
+                    {t("generateNewKeys")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Yedek yok — ilk kurulum, sadece yeni anahtar */}
+                  <button
+                    onClick={handleGenerateKeys}
+                    disabled={isLoading}
+                    className="settings-btn e2ee-setup-btn-primary"
+                  >
+                    {isGeneratingKeys ? t("generatingKeys") : t("generateNewKeys")}
+                  </button>
+                </>
+              )}
             </div>
           </>
-        ) : (
+        )}
+
+        {view === "restore" && (
           <>
-            {/* Restore view — kurtarma parolası girişi */}
             <div className="modal-header">
               <h2 className="modal-title">{t("restoreTitle")}</h2>
             </div>
@@ -138,6 +164,39 @@ function NewDeviceSetup() {
                   setView("choice");
                   setRecoveryPassword("");
                 }}
+                disabled={isLoading}
+                className="settings-btn e2ee-setup-btn-secondary"
+              >
+                {t("setupBackToChoice")}
+              </button>
+            </div>
+          </>
+        )}
+
+        {view === "confirmNewKeys" && (
+          <>
+            {/* Onay ekranı — yedek varken yeni anahtar oluşturma uyarısı */}
+            <div className="modal-header">
+              <h2 className="modal-title">{t("generateNewKeys")}</h2>
+            </div>
+
+            <p className="e2ee-setup-warning">{t("generateNewKeysWarning")}</p>
+
+            {initError && (
+              <p className="e2ee-setup-error">{initError}</p>
+            )}
+
+            <div className="e2ee-setup-actions">
+              <button
+                onClick={handleGenerateKeys}
+                disabled={isLoading}
+                className="settings-btn e2ee-setup-btn-danger"
+              >
+                {isGeneratingKeys ? t("generatingKeys") : t("generateNewKeysConfirm")}
+              </button>
+
+              <button
+                onClick={() => setView("choice")}
                 disabled={isLoading}
                 className="settings-btn e2ee-setup-btn-secondary"
               >

@@ -28,7 +28,14 @@ import type { DMChannelWithUser, DMMessage, ReactionGroup } from "../types";
 import { useToastStore } from "./toastStore";
 import { useE2EEStore } from "./e2eeStore";
 import { useAuthStore } from "./authStore";
-import { encryptDMMessage, decryptDMMessages } from "../crypto/dmEncryption";
+import {
+  encryptDMMessage,
+  decryptDMMessages,
+  pushSentPlaintext,
+  discardLastSentPlaintext,
+  persistSentPlaintext,
+  cacheEditPlaintext,
+} from "../crypto/dmEncryption";
 import { encryptFile } from "../crypto/fileEncryption";
 import { encodePayload } from "../crypto/e2eePayload";
 import type { EncryptedFileMeta } from "../crypto/fileEncryption";
@@ -154,6 +161,8 @@ type DMState = {
   // ─── Helpers ───
   getMessagesForChannel: (channelId: string) => DMMessage[];
   getTypingUsers: (channelId: string) => string[];
+  /** Mesaj cache'ini temizle — E2EE init sonrasi yeniden fetch icin */
+  invalidateMessages: (channelId: string) => void;
 };
 
 export const useDMStore = create<DMState>((set, get) => ({
@@ -199,6 +208,13 @@ export const useDMStore = create<DMState>((set, get) => ({
 
   fetchMessages: async (channelId) => {
     if (get().messagesByChannel[channelId]) return;
+
+    // E2EE hazir degilse fetch yapma — mesajlar null content ile cache'lenir
+    // ve bir daha decrypt edilemez. DMChatContent, initStatus "ready" oldugunda
+    // invalidateMessages + fetchMessages cagirarak tekrar dener.
+    const e2eeStatus = useE2EEStore.getState().initStatus;
+    if (e2eeStatus !== "ready") return;
+
     set({ isLoadingMessages: true });
 
     const res = await dmApi.getDMMessages(channelId, undefined, 50);
@@ -303,6 +319,11 @@ export const useDMStore = create<DMState>((set, get) => ({
           // (şu an boş — mentions DM'de sunucu tarafında işlenmiyor)
           const metadata = JSON.stringify({});
 
+          // Plaintext'i in-memory FIFO cache'e ekle (WS echo'da kullanılacak).
+          // API call'dan ÖNCE yapılır — WS event ancak sunucu işledikten sonra gelir,
+          // dolayısıyla cache her zaman hazır olur.
+          pushSentPlaintext(channelId, { content, file_keys: fileMetas });
+
           const res = await dmApi.sendEncryptedDMMessage(
             channelId,
             ciphertext,
@@ -312,14 +333,39 @@ export const useDMStore = create<DMState>((set, get) => ({
             replyToId
           );
 
-          if (!res.success && res.error?.includes("too many")) {
-            useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
+          if (res.success && res.data) {
+            // API başarılı → IndexedDB'ye kalıcı cache yaz.
+            // Fetch (tarihsel yükleme) sırasında da erişilebilir olur.
+            // await ile bekle — WS echo gelmeden önce IndexedDB'ye yazılmış olmalı
+            // (in-memory cache'in HMR sonrası boş olma ihtimaline karşı fallback)
+            try {
+              await persistSentPlaintext(res.data.id, channelId, content);
+            } catch {
+              // IndexedDB hatası — mesaj yine de gönderildi, cache opsiyonel
+            }
+          }
+
+          if (!res.success) {
+            // API başarısız → pre-send cache'den kaldır (LIFO — son eklenen)
+            discardLastSentPlaintext(channelId);
+            if (res.error?.includes("too many")) {
+              useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
+            }
           }
 
           return res.success;
         } catch (err) {
+          // Encrypt/send hatası → pre-send cache temizle
+          discardLastSentPlaintext(channelId);
           console.error("[dmStore] E2EE encrypt failed:", err);
-          useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
+
+          // Alıcının E2EE anahtarı yoksa spesifik hata mesajı göster
+          const errMsg = err instanceof Error ? err.message : "";
+          if (errMsg === "RECIPIENT_NO_KEYS") {
+            useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
+          } else {
+            useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
+          }
           return false;
         }
       }
@@ -365,12 +411,21 @@ export const useDMStore = create<DMState>((set, get) => ({
           const ciphertext = JSON.stringify(envelopes);
           const metadata = JSON.stringify({});
 
+          // Edit plaintext'i in-memory cache'e yaz (WS echo'da kullanılacak)
+          cacheEditPlaintext(messageId, { content });
+
           const res = await dmApi.editEncryptedDMMessage(
             messageId,
             ciphertext,
             e2eeState.localDeviceId,
             metadata
           );
+
+          if (res.success) {
+            // IndexedDB cache güncelle (search + fetch için)
+            persistSentPlaintext(messageId, "", content).catch(() => {});
+          }
+
           return res.success;
         } catch (err) {
           console.error("[dmStore] E2EE edit encrypt failed:", err);
@@ -864,5 +919,13 @@ export const useDMStore = create<DMState>((set, get) => ({
 
   getTypingUsers: (channelId) => {
     return get().typingUsers[channelId] ?? EMPTY_STRINGS;
+  },
+
+  invalidateMessages: (channelId) => {
+    set((state) => {
+      const { [channelId]: _, ...rest } = state.messagesByChannel;
+      const { [channelId]: __, ...restMore } = state.hasMoreByChannel;
+      return { messagesByChannel: rest, hasMoreByChannel: restMore };
+    });
   },
 }));

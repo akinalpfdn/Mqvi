@@ -25,11 +25,12 @@
 import * as senderKeyProtocol from "./senderKeyProtocol.js";
 import * as e2eeApi from "../api/e2ee.js";
 import * as keyStorage from "./keyStorage.js";
+import { fromBase64 } from "./signalProtocol.js";
 import { decodePayload, type E2EEPayload } from "./e2eePayload.js";
 import { useE2EEStore } from "../stores/e2eeStore.js";
 import { useServerStore } from "../stores/serverStore.js";
 import type { SenderKeyMessage, SenderKeyDistributionData } from "./types.js";
-import type { Message, ChannelGroupSessionResponse } from "../types/index.js";
+import type { Message } from "../types/index.js";
 
 // ──────────────────────────────────
 // Encryption (Sender Side)
@@ -167,6 +168,11 @@ export async function decryptChannelMessage(
 /**
  * Gondericinin sender key'inin mevcut oldugundan emin olur.
  * Yoksa sunucudan distribution'i ceker ve isle.
+ *
+ * Ayrica initialChainKey migration'i yapar: Eski format sender key'lerde
+ * (initialChainKey yok) distribution'dan orijinal chainKey alinip
+ * initialChainKey olarak set edilir. Bu sayede out-of-order mesajlar
+ * (fetchMessages ile gelen eski iterasyonlar) decrypt edilebilir.
  */
 async function ensureSenderKeyForDecryption(
   channelId: string,
@@ -175,13 +181,21 @@ async function ensureSenderKeyForDecryption(
   distributionId: string
 ): Promise<void> {
   // Mevcut sender key var mi ve dogru distribution mi kontrol et
-  const needsKey = await senderKeyProtocol.needsSenderKeyRotation(
+  const existingKey = await keyStorage.getSenderKey(
     channelId,
     senderUserId,
     senderDeviceId
   );
 
-  if (!needsKey) return;
+  const needsKey = !existingKey || senderKeyProtocol.needsRotationCheck(existingKey);
+
+  // initialChainKey yoksa migration gerekli — distribution'dan alinacak
+  const needsInitialKeyMigration =
+    existingKey &&
+    !existingKey.initialChainKey &&
+    existingKey.distributionId === distributionId;
+
+  if (!needsKey && !needsInitialKeyMigration) return;
 
   // Sunucudan distribution'lari cek
   const serverId = useServerStore.getState().activeServerId;
@@ -202,12 +216,18 @@ async function ensureSenderKeyForDecryption(
         );
 
         if (distribution.distributionId === distributionId) {
-          await senderKeyProtocol.processDistribution(
-            channelId,
-            senderUserId,
-            senderDeviceId,
-            distribution
-          );
+          if (needsInitialKeyMigration && existingKey) {
+            // Migration: Mevcut key'e initialChainKey ekle (iteration/chainKey koru)
+            existingKey.initialChainKey = fromBase64(distribution.chainKey);
+            await keyStorage.saveSenderKey(existingKey);
+          } else if (needsKey) {
+            await senderKeyProtocol.processDistribution(
+              channelId,
+              senderUserId,
+              senderDeviceId,
+              distribution
+            );
+          }
           return;
         }
       } catch {

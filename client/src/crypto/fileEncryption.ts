@@ -90,7 +90,7 @@ export async function encryptFile(file: File): Promise<EncryptedFileResult> {
   const plaintext = new Uint8Array(await file.arrayBuffer());
 
   // SHA-256 hash hesapla (integrity check icin)
-  const hashBuffer = await crypto.subtle.digest("SHA-256", plaintext);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", plaintext as BufferSource);
   const hashHex = Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -98,7 +98,7 @@ export async function encryptFile(file: File): Promise<EncryptedFileResult> {
   // AES-256-GCM ile sifrele
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    fileKey,
+    fileKey as BufferSource,
     "AES-GCM",
     false,
     ["encrypt"]
@@ -107,7 +107,7 @@ export async function encryptFile(file: File): Promise<EncryptedFileResult> {
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv: fileIV },
     cryptoKey,
-    plaintext
+    plaintext as BufferSource
   );
 
   return {
@@ -153,14 +153,14 @@ export async function decryptFile(
 
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    fileKey,
+    fileKey as BufferSource,
     "AES-GCM",
     false,
     ["decrypt"]
   );
 
   const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: fileIV },
+    { name: "AES-GCM", iv: fileIV as BufferSource },
     cryptoKey,
     encryptedData
   );
@@ -239,7 +239,7 @@ export async function encryptThumbnail(
 
     const cryptoKey = await crypto.subtle.importKey(
       "raw",
-      key,
+      key as BufferSource,
       "AES-GCM",
       false,
       ["encrypt"]
@@ -248,7 +248,7 @@ export async function encryptThumbnail(
     const encrypted = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv: thumbnailIV },
       cryptoKey,
-      thumbnailData
+      thumbnailData as BufferSource
     );
 
     return {
@@ -289,14 +289,14 @@ export async function decryptThumbnail(
 
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as BufferSource,
     "AES-GCM",
     false,
     ["decrypt"]
   );
 
   const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: iv as BufferSource },
     cryptoKey,
     encryptedData
   );

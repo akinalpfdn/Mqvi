@@ -17,6 +17,7 @@
 
 import * as keyStorage from "./keyStorage";
 import * as signalProtocol from "./signalProtocol";
+import { toBase64 } from "./signalProtocol";
 import * as e2eeApi from "../api/e2ee";
 import { PREKEY_BATCH_SIZE, PREKEY_LOW_THRESHOLD } from "./types";
 
@@ -110,6 +111,124 @@ export async function registerNewDevice(
   );
 
   return deviceId;
+}
+
+// ──────────────────────────────────
+// Device Re-registration
+// ──────────────────────────────────
+
+/**
+ * IndexedDB'deki mevcut anahtarlarla sunucuya cihaz kaydeder.
+ *
+ * reRegisterDevice tarafindan kullanilir:
+ * Ayni device ID ile yeniden kayit (sunucu DB kaybi veya recovery restore)
+ *
+ * @param deviceId - Kaydedilecek device ID
+ */
+async function registerExistingKeys(deviceId: string): Promise<void> {
+  const identityKeyPair = await keyStorage.getIdentityKeyPair();
+  if (!identityKeyPair) throw new Error("Identity key pair not found in IndexedDB");
+
+  const signingKeyPair = await keyStorage.getSigningKeyPair();
+  if (!signingKeyPair) throw new Error("Signing key pair not found in IndexedDB");
+
+  const registration = await keyStorage.getRegistrationData();
+  if (!registration) throw new Error("Registration data not found in IndexedDB");
+
+  const signedPreKeys = await keyStorage.getAllSignedPreKeys();
+  if (signedPreKeys.length === 0) throw new Error("No signed prekey found in IndexedDB");
+
+  const latestSignedPreKey = signedPreKeys.sort((a, b) => b.id - a.id)[0];
+
+  const response = await e2eeApi.registerDevice({
+    device_id: deviceId,
+    display_name: getDefaultDeviceName(),
+    identity_key: toBase64(identityKeyPair.publicKey),
+    signing_key: toBase64(signingKeyPair.publicKey),
+    signed_prekey: toBase64(latestSignedPreKey.publicKey),
+    signed_prekey_id: latestSignedPreKey.id,
+    signed_prekey_signature: toBase64(latestSignedPreKey.signature),
+    registration_id: registration.registrationId,
+    one_time_prekeys: [],
+  });
+
+  if (!response.success) {
+    throw new Error(`Device registration failed: ${response.error ?? "unknown error"}`);
+  }
+}
+
+/**
+ * Mevcut anahtarlarla cihazi sunucuya yeniden kaydeder.
+ *
+ * IndexedDB'de cihaz kayitli ama sunucu tanimiyor durumunda cagrilir.
+ * Mevcut identity + signed prekey anahtarlari IndexedDB'den okunur ve
+ * sunucuya tekrar yuklenir (UPSERT — ayni device_id varsa gunceller).
+ *
+ * @param deviceId - Lokal cihaz ID'si (IndexedDB'den)
+ */
+export async function reRegisterDevice(deviceId: string): Promise<void> {
+  await registerExistingKeys(deviceId);
+}
+
+/**
+ * Recovery restore sonrasi yeni device ID ile sunucuya kaydeder.
+ *
+ * Neden yeni device ID:
+ * Ayni device ID'yi paylasan iki cihaz self-fanout yapaMAZ
+ * (gonderici kendi device ID'sini atlar → diger cihaz envelope alamaz).
+ * Yeni device ID ile her cihaz bagimsiz calisir.
+ *
+ * Eski mesajlar icin legacy device ID:
+ * Backup'taki (eski) device ID "legacyDeviceIds" listesine eklenir.
+ * Envelope matching sirasinda hem current hem legacy ID'ler denenir.
+ * Boylece eski mesajlar da okunabilir (+ messageCache backup'tan gelir).
+ *
+ * @returns Yeni device ID
+ */
+export async function registerRestoredDevice(): Promise<string> {
+  // Backup'tan gelen eski device ID'yi legacy olarak sakla
+  const oldDeviceId = await keyStorage.getMetadata<string>("deviceId");
+  if (oldDeviceId) {
+    const existing = await keyStorage.getMetadata<string[]>("legacyDeviceIds") ?? [];
+    if (!existing.includes(oldDeviceId)) {
+      await keyStorage.setMetadata("legacyDeviceIds", [...existing, oldDeviceId]);
+    }
+  }
+
+  const newDeviceId = generateDeviceId();
+
+  // IndexedDB'deki device ID'yi guncelle
+  await keyStorage.setMetadata("deviceId", newDeviceId);
+
+  const registration = await keyStorage.getRegistrationData();
+  if (registration) {
+    await keyStorage.saveRegistrationData({
+      ...registration,
+      deviceId: newDeviceId,
+      createdAt: Date.now(),
+    });
+  }
+
+  // Eski session'lari temizle — farkli device ID ile gecersiz.
+  // Yeni cihaz, diger cihazlarla PreKey mesaji ile yeni session kuracak.
+  await keyStorage.clearAllSessions();
+
+  // Sunucuya kaydet
+  await registerExistingKeys(newDeviceId);
+
+  // Prekey havuzunu doldur
+  await keyStorage.setMetadata("nextPrekeyId", PREKEY_BATCH_SIZE + 1);
+
+  return newDeviceId;
+}
+
+/**
+ * Legacy device ID'lerini doner.
+ * Recovery restore sonrasi eski device ID'ler burada saklanir.
+ * Envelope matching'te current + legacy ID'ler birlikte denenir.
+ */
+export async function getLegacyDeviceIds(): Promise<string[]> {
+  return (await keyStorage.getMetadata<string[]>("legacyDeviceIds")) ?? [];
 }
 
 // ──────────────────────────────────

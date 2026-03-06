@@ -393,6 +393,15 @@ export async function getAllSessions(): Promise<StoredSession[]> {
   return (await db.getAll("sessions")) as StoredSession[];
 }
 
+/**
+ * Tum Signal Protocol session'larini siler.
+ * Recovery restore sonrasi cagrilir — eski session'lar yeni device ID ile gecersiz.
+ */
+export async function clearAllSessions(): Promise<void> {
+  const db = await getDB();
+  await db.clear("sessions");
+}
+
 // ──────────────────────────────────
 // Sender Key Operations
 // ──────────────────────────────────
@@ -507,6 +516,21 @@ export async function cacheDecryptedMessage(
 }
 
 /**
+ * Tek bir decrypt edilmis mesaji ID ile okur.
+ *
+ * DM self-decrypt icin kullanilir: Signal Protocol, gondericinin
+ * kendi cihazina envelope olusturmaz. Gonderi aninda plaintext
+ * IndexedDB'ye yazilir ve sonradan bu fonksiyonla okunur.
+ */
+export async function getCachedDecryptedMessage(
+  messageId: string
+): Promise<CachedDecryptedMessage | null> {
+  const db = await getDB();
+  const result = await db.get("messageCache", messageId);
+  return (result as CachedDecryptedMessage) ?? null;
+}
+
+/**
  * Birden fazla decrypt edilmis mesaji cache'e yazar.
  */
 export async function cacheDecryptedMessages(
@@ -551,6 +575,16 @@ export async function searchCachedMessages(
   }
 
   return results;
+}
+
+/**
+ * Tum decrypt edilmis mesaj cache'ini doner.
+ * Backup'a dahil etmek icin kullanilir — restore sonrasi
+ * eski mesajlar cache'den okunabilir.
+ */
+export async function getAllCachedMessages(): Promise<CachedDecryptedMessage[]> {
+  const db = await getDB();
+  return (await db.getAll("messageCache")) as CachedDecryptedMessage[];
 }
 
 /**

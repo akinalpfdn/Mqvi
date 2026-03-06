@@ -4,7 +4,10 @@
 
   "setupTitle": "Şifreleme Kurulumu",
   "setupDescription": "Bu cihazın uçtan uca şifreleme için kurulması gerekiyor. Yeni anahtarlar oluşturabilir veya kurtarma parolasıyla geri yükleyebilirsiniz.",
+  "setupDescriptionHasBackup": "Şifreleme anahtarlarınızın bir yedeği bulundu. Önceki mesajlarınıza erişmek için kurtarma parolanızla geri yükleyin.",
   "generateNewKeys": "Yeni Anahtarlar Oluştur",
+  "generateNewKeysWarning": "Bu işlem yeni şifreleme anahtarları oluşturur. Önceki şifreli mesajlarınızı okuyamayacaksınız.",
+  "generateNewKeysConfirm": "Anlıyorum, yeni anahtarlar oluştur",
   "restoreFromRecovery": "Kurtarma Parolasıyla Geri Yükle",
   "generatingKeys": "Şifreleme anahtarları oluşturuluyor...",
 
@@ -65,5 +68,6 @@
   "removeDeviceError": "Cihaz kaldırılamadı",
   "noRecoveryWarning": "Kurtarma parolası belirlenmedi. Tüm cihazlarınıza erişiminizi kaybederseniz şifreleme anahtarlarınızı kurtaramazsınız.",
   "setupRequired": "Şifreli mesaj göndermek için şifreleme kurulumunu tamamlayın.",
-  "setupBackToChoice": "Geri"
+  "setupBackToChoice": "Geri",
+  "recipientNoKeys": "Bu kullanıcı henüz şifreleme kurulumunu yapmamış. Önce giriş yapması gerekiyor."
 }

@@ -76,12 +76,12 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
             content: c.content,
             created_at: new Date(c.timestamp).toISOString(),
             edited_at: null,
-            is_pinned: false,
             attachments: [],
+            mentions: [],
             reactions: [],
             reply_to_id: null,
             referenced_message: null,
-            author: { id: "", username: "", display_name: null, avatar_url: null, status: "offline" },
+            author: { id: "", username: "", display_name: null, avatar_url: null, status: "offline" as const, custom_status: null, email: null, language: "en", is_platform_admin: false, created_at: "" },
             encryption_version: 1,
           }));
 

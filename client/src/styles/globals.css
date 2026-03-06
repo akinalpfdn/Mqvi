@@ -27,6 +27,7 @@
   --green:#22c55e;
   --green-s:rgba(34,197,94,0.10);
   --red:#ef4444;
+  --red-hover:#dc2626;
   --red-s:rgba(239,68,68,0.10);
   --yellow:#f0b232;
   --yellow-s:rgba(240,178,50,0.10);
@@ -2706,6 +2707,9 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .e2ee-setup-btn-secondary:hover { background:var(--bg-5);color:var(--t0); }
 .e2ee-setup-field { margin-bottom:8px; }
 .e2ee-setup-field .settings-input { max-width:none; }
+.e2ee-setup-btn-danger { width:100%;justify-content:center;background:var(--red);color:#fff; }
+.e2ee-setup-btn-danger:hover { background:var(--red-hover); }
+.e2ee-setup-btn-danger:disabled { opacity:.5;cursor:not-allowed; }
 .e2ee-setup-logout { display:block;margin:16px auto 0;background:none;border:none;color:var(--t3);font-size:13px;cursor:pointer;font-family:var(--f-ui);padding:4px 8px;transition:color .15s; }
 .e2ee-setup-logout:hover { color:var(--red); }
 .e2ee-setup-logout:disabled { opacity:.5;cursor:not-allowed; }

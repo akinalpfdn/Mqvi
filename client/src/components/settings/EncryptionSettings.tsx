@@ -54,7 +54,7 @@ function EncryptionSettings() {
         if (!identity) return;
 
         // SHA-256 hash → hex → 4'lü gruplar
-        const hashBuffer = await crypto.subtle.digest("SHA-256", identity.publicKey);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", identity.publicKey as BufferSource);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
         const hex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
         // İlk 32 karakter (16 byte), 4'lü gruplarla

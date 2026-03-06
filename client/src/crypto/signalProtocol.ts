@@ -82,7 +82,7 @@ export function fromBase64(b64: string): Uint8Array {
  * - Diffie-Hellman key agreement icin kullanilir
  */
 function generateX25519KeyPair(): StoredIdentityKeyPair {
-  const privateKey = x25519.utils.randomPrivateKey();
+  const privateKey = x25519.utils.randomSecretKey();
   const publicKey = x25519.getPublicKey(privateKey);
   return { publicKey, privateKey };
 }
@@ -871,7 +871,7 @@ async function aesGcmEncrypt(
 
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as BufferSource,
     "AES-GCM",
     false,
     ["encrypt"]
@@ -880,7 +880,7 @@ async function aesGcmEncrypt(
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv, additionalData: ad },
     cryptoKey,
-    plaintext
+    plaintext as BufferSource
   );
 
   // iv (12) + ciphertext + tag (16)
@@ -909,7 +909,7 @@ async function aesGcmDecrypt(
 
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as BufferSource,
     "AES-GCM",
     false,
     ["decrypt"]
@@ -918,7 +918,7 @@ async function aesGcmDecrypt(
   return crypto.subtle.decrypt(
     { name: "AES-GCM", iv, additionalData: ad },
     cryptoKey,
-    ciphertext
+    ciphertext as BufferSource
   );
 }
 

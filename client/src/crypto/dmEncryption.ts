@@ -19,10 +19,147 @@
 import * as signalProtocol from "./signalProtocol";
 import * as e2eeApi from "../api/e2ee";
 import * as keyStorage from "./keyStorage";
+import * as deviceManager from "./deviceManager";
 import { decodePayload, type E2EEPayload } from "./e2eePayload";
 import { useE2EEStore } from "../stores/e2eeStore";
 import type { EncryptedEnvelope, PreKeyBundleResponse, DMMessage } from "../types";
 import type { SignalWireMessage } from "./types";
+
+// ──────────────────────────────────
+// Sent Message Plaintext Cache
+// ──────────────────────────────────
+
+/**
+ * Gönderilen DM mesajlarının plaintext FIFO cache'i.
+ *
+ * Signal Protocol, göndericinin kendi cihazına envelope oluşturamaz
+ * (kendi cihazınıza Double Ratchet session kuramazsınız). Bu nedenle
+ * WS echo geldiğinde gönderici kendi mesajını decrypt edemez.
+ *
+ * Çözüm (Signal Desktop / WhatsApp modeli):
+ * Plaintext'i göndermeden ÖNCE in-memory FIFO queue'ya yazarız.
+ * WS event geldiğinde pop ederek content'i alırız.
+ * API response sonrası IndexedDB'ye kalıcı olarak kaydederiz.
+ *
+ * İki aşamalı cache:
+ * 1. preSendQueue: channelId → E2EEPayload[] (FIFO) — API call öncesi push
+ * 2. IndexedDB messageCache: messageId → content — API response sonrası persist
+ *
+ * Race condition handling:
+ * - Normal akış: API response → IndexedDB cache → WS event → IndexedDB hit
+ * - Nadir durum: WS event → preSendQueue pop → API response → IndexedDB persist
+ * preSendQueue SYNC olarak API call öncesinde set edildiği için,
+ * WS event her zaman cache'i bulabilir (WS ancak sunucu mesajı işledikten
+ * sonra gelir — ki bu API call'dan sonradır).
+ */
+const preSendQueue = new Map<string, E2EEPayload[]>();
+
+/**
+ * Edit işlemleri için in-memory cache.
+ *
+ * Edit'te messageId zaten bilinir, bu yüzden direkt Map<messageId, payload>
+ * kullanılır (FIFO queue gerekmez).
+ */
+const editCache = new Map<string, E2EEPayload>();
+
+/**
+ * Gönderim öncesi plaintext'i FIFO queue'ya ekler.
+ *
+ * sendMessage çağrısında, API call'dan ÖNCE çağrılır.
+ * Bu sayede WS echo geldiğinde (API call'dan sonra) cache'te bulunur.
+ *
+ * @param dmChannelId - DM kanalı ID'si
+ * @param payload - Şifrelenmemiş mesaj içeriği + dosya anahtarları
+ */
+export function pushSentPlaintext(dmChannelId: string, payload: E2EEPayload): void {
+  const queue = preSendQueue.get(dmChannelId);
+  if (queue) {
+    queue.push(payload);
+  } else {
+    preSendQueue.set(dmChannelId, [payload]);
+  }
+}
+
+/**
+ * WS event geldiğinde kendi mesajımızın plaintext'ini FIFO'dan çeker.
+ *
+ * FIFO sırası doğrudur çünkü aynı kanala gönderilen mesajlar
+ * sunucuda sıralı işlenir ve WS broadcast'i sıralı gelir.
+ *
+ * @param dmChannelId - DM kanalı ID'si
+ * @returns Plaintext payload veya null (cache miss)
+ */
+export function popSentPlaintext(dmChannelId: string): E2EEPayload | null {
+  const queue = preSendQueue.get(dmChannelId);
+  if (!queue || queue.length === 0) return null;
+
+  const payload = queue.shift()!;
+  if (queue.length === 0) preSendQueue.delete(dmChannelId);
+  return payload;
+}
+
+/**
+ * Gönderim başarısız olduğunda pre-send cache'i temizler.
+ *
+ * API call hata verirse queue'daki son eklenen entry kaldırılır.
+ * LIFO (son eklenen, ilk çıkar) — çünkü hata veren send'in push'u en sondadır.
+ */
+export function discardLastSentPlaintext(dmChannelId: string): void {
+  const queue = preSendQueue.get(dmChannelId);
+  if (!queue || queue.length === 0) return;
+
+  queue.pop();
+  if (queue.length === 0) preSendQueue.delete(dmChannelId);
+}
+
+/**
+ * Edit öncesi plaintext'i cache'e yazar.
+ *
+ * Edit'te messageId zaten bilinir — direkt Map'e yaz.
+ *
+ * @param messageId - Düzenlenen mesajın ID'si
+ * @param payload - Yeni plaintext payload
+ */
+export function cacheEditPlaintext(messageId: string, payload: E2EEPayload): void {
+  editCache.set(messageId, payload);
+}
+
+/**
+ * Edit cache'inden plaintext okur ve siler.
+ *
+ * @param messageId - Mesaj ID'si
+ * @returns Plaintext payload veya null
+ */
+export function popEditPlaintext(messageId: string): E2EEPayload | null {
+  const payload = editCache.get(messageId) ?? null;
+  if (payload) editCache.delete(messageId);
+  return payload;
+}
+
+/**
+ * API response sonrası plaintext'i IndexedDB'ye kalıcı olarak yazar.
+ *
+ * In-memory cache geçicidir — sayfa yenilenince kaybolur.
+ * IndexedDB persist ile fetch (tarihsel yükleme) sırasında da
+ * kendi mesajlarımızın content'ine erişilebilir.
+ *
+ * @param messageId - Sunucunun atadığı mesaj ID'si
+ * @param dmChannelId - DM kanalı ID'si
+ * @param content - Plaintext mesaj metni
+ */
+export async function persistSentPlaintext(
+  messageId: string,
+  dmChannelId: string,
+  content: string
+): Promise<void> {
+  await keyStorage.cacheDecryptedMessage({
+    messageId,
+    channelId: "",
+    dmChannelId,
+    content,
+    timestamp: Date.now(),
+  });
+}
 
 // ──────────────────────────────────
 // Encryption (Sender Side)
@@ -54,6 +191,13 @@ export async function encryptDMMessage(
   const recipientBundles = await e2eeApi.fetchPreKeyBundles(recipientUserId);
   if (!recipientBundles.success || !recipientBundles.data) {
     throw new Error("Failed to fetch recipient prekey bundles");
+  }
+
+  // Alicinin hic cihazi/anahtari yoksa sifreli mesaj gonderilemez.
+  // Bu durum, alici henuz E2EE kurulumu yapmamissa olusur.
+  // Auto key generation aktif oldugundan nadir gorulen bir edge case.
+  if (recipientBundles.data.length === 0) {
+    throw new Error("RECIPIENT_NO_KEYS");
   }
 
   // Her alici cihaz icin sifrele
@@ -171,10 +315,23 @@ export async function decryptDMMessage(
     return null;
   }
 
-  // Bu cihaz icin envelope bul
-  const myEnvelope = envelopes.find(
+  // Bu cihaz icin envelope bul — once current device ID, sonra legacy ID'leri dene.
+  // Recovery restore sonrasi yeni device ID alinir ama eski mesajlardaki
+  // envelope'lar eski device ID'ye sifrelenmistir. Legacy ID'ler bu durumu cozer.
+  let myEnvelope = envelopes.find(
     (env) => env.recipient_device_id === localDeviceId
   );
+
+  if (!myEnvelope) {
+    // Legacy device ID'leri kontrol et (recovery restore sonrasi eski ID'ler)
+    const legacyIds = await deviceManager.getLegacyDeviceIds();
+    for (const legacyId of legacyIds) {
+      myEnvelope = envelopes.find(
+        (env) => env.recipient_device_id === legacyId
+      );
+      if (myEnvelope) break;
+    }
+  }
 
   if (!myEnvelope) {
     // Bu cihaz icin envelope yok — mesaj bu cihaz kaydedilmeden once gonderilmis olabilir
@@ -229,6 +386,20 @@ export async function decryptDMMessages(
       msg.ciphertext &&
       msg.sender_device_id
     ) {
+      // 1) IndexedDB cache kontrol — daha once decrypt edilmis mesaji
+      // tekrar decrypt etme (Double Ratchet stateful — tekrar decrypt
+      // ratchet state'i bozar ve OperationError verir).
+      try {
+        const cached = await keyStorage.getCachedDecryptedMessage(msg.id);
+        if (cached) {
+          result.push({ ...msg, content: cached.content });
+          continue;
+        }
+      } catch {
+        // Cache read hatasi — devam et, decrypt dene
+      }
+
+      // 2) Signal Protocol ile decrypt
       try {
         const payload = await decryptDMMessage(
           msg.user_id,
@@ -236,28 +407,31 @@ export async function decryptDMMessages(
           msg.sender_device_id
         );
 
-        result.push({
-          ...msg,
-          content: payload?.content ?? null,
-          e2ee_file_keys: payload?.file_keys,
-        });
-
-        // Basarili decrypt → IndexedDB cache'e yaz (search icin)
-        if (payload?.content) {
-          toCache.push({
-            messageId: msg.id,
-            channelId: "",
-            dmChannelId: msg.dm_channel_id,
+        if (payload) {
+          result.push({
+            ...msg,
             content: payload.content,
-            timestamp: new Date(msg.created_at).getTime(),
+            e2ee_file_keys: payload.file_keys,
           });
+
+          if (payload.content) {
+            toCache.push({
+              messageId: msg.id,
+              channelId: "",
+              dmChannelId: msg.dm_channel_id,
+              content: payload.content,
+              timestamp: new Date(msg.created_at).getTime(),
+            });
+          }
+        } else {
+          // Envelope bulunamadi — bu cihaz icin sifrelenmemis
+          result.push({ ...msg, content: null });
         }
       } catch (err) {
         console.error(
           `[dmEncryption] Failed to decrypt msg ${msg.id}:`,
           err
         );
-        // Decrypt basarisiz — decryption error olarak kaydet
         useE2EEStore.getState().addDecryptionError({
           messageId: msg.id,
           channelId: msg.dm_channel_id,
