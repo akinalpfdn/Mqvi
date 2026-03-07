@@ -19,6 +19,7 @@ import * as authApi from "../api/auth";
 import { setTokens, clearTokens } from "../api/client";
 import { changeLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
+import { useVoiceStore } from "./voiceStore";
 import type { User, UserStatus } from "../types";
 
 /** localStorage key — kullanıcının manuel seçtiği presence durumu */
@@ -138,7 +139,19 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
-    // E2EE verisini temizle — cihazi sunucudan sil + IndexedDB temizle
+    // Voice kanalindaysa once cik — yeni kullaniciya tasinmasin
+    const voiceState = useVoiceStore.getState();
+    if (voiceState.currentVoiceChannelId) {
+      // _onLeaveCallback varsa WS event + store temizlik yapar
+      // Yoksa sadece local state temizle
+      if (voiceState._onLeaveCallback) {
+        voiceState._onLeaveCallback();
+      } else {
+        voiceState.leaveVoiceChannel();
+      }
+    }
+
+    // E2EE state'ini sifirla (IndexedDB korunur)
     await useE2EEStore.getState().reset();
 
     const refreshToken = localStorage.getItem("refresh_token");

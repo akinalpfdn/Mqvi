@@ -198,23 +198,21 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
 
     try {
       // IndexedDB'de lokal anahtarlar var mi kontrol et
-      const hasKeys = await keyStorage.hasLocalKeys();
+      let hasKeys = await keyStorage.hasLocalKeys();
+
+      // Farkli kullanici ile giris yapilmissa eski anahtarlari temizle
+      // ki asagidaki "anahtarlar yok" akisi calissin
+      if (hasKeys) {
+        const registration = await keyStorage.getRegistrationData();
+        if (registration && registration.userId !== userId) {
+          await keyStorage.clearAllE2EEData();
+          hasKeys = false;
+        }
+      }
 
       if (hasKeys) {
         // Anahtarlar mevcut — device ID'yi oku
         const deviceId = await deviceManager.getLocalDeviceId();
-        const registration = await keyStorage.getRegistrationData();
-
-        // Registration'daki userId mevcut kullanici ile eslesiyor mu?
-        // Farkli kullanici ile giris yapilmissa anahtarlari temizle
-        if (registration && registration.userId !== userId) {
-          await keyStorage.clearAllE2EEData();
-          set({
-            initStatus: "needs_setup",
-            localDeviceId: null,
-          });
-          return;
-        }
 
         // Sunucuda cihaz hala var mi kontrol et — yoksa yeniden kaydet.
         // Sunucu DB sifirlanmissa veya cihaz silinmisse bu gereklidir.
