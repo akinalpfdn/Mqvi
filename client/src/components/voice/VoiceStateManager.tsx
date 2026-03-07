@@ -46,8 +46,12 @@ import type {
 import { useVoiceStore } from "../../stores/voiceStore";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
+import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
 import { isElectron } from "../../utils/constants";
+
+/** Union type — her iki processor da aynı setMicSensitivity API'sini sunar */
+type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
 
 function VoiceStateManager() {
   const room = useRoomContext();
@@ -62,6 +66,7 @@ function VoiceStateManager() {
   const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
+  const micSensitivity = useVoiceStore((s) => s.micSensitivity);
 
   // İlk mount tracking — ilk render'da gereksiz toggle'ları önlemek için.
   // useRef ile tutulur çünkü state değişikliği re-render tetikler ama
@@ -552,21 +557,39 @@ function VoiceStateManager() {
     };
   }, [room, applyVolumeToParticipant]);
 
-  // ─── Noise Reduction (RNNoise) senkronizasyonu ───
-  // noiseReduction store state'i değiştiğinde processor'ı uygula/kaldır.
+  // ─── Audio Processor yönetimi (Noise Reduction + VAD Gate) ───
   //
-  // RNNoiseProcessor LiveKit'in TrackProcessor interface'ini implement eder.
-  // setProcessor() çağrılınca LiveKit, mic track'ini processor'ın
-  // processedTrack'i ile değiştirir (orijinal yerine denoised track publish edilir).
+  // Discord'daki gibi mic sensitivity noise reduction'dan bağımsız çalışır:
+  // - NR ON                    → RNNoiseProcessor (ML denoising + VAD gate)
+  // - NR OFF + sensitivity<100 → VadGateProcessor (sadece enerji tabanlı gate)
+  // - NR OFF + sensitivity=100 → processor yok (her şey geçer)
   //
-  // processorRef: Aktif processor instance'ını tutar — tekrar oluşturma ve
-  // cleanup için gerekli. noiseReductionRef: Event handler'lardan güncel
-  // noiseReduction state'ine erişim (stale closure önlemi).
-  const processorRef = useRef<RNNoiseProcessor | null>(null);
+  // Tek bir effect her iki ayarı da dinler ve doğru processor'ı seçer.
+  // Processor değişimi: mevcut processor stop → yeni processor apply.
+  const processorRef = useRef<AudioProcessor | null>(null);
   const noiseReductionRef = useRef(noiseReduction);
   noiseReductionRef.current = noiseReduction;
+  const micSensitivityRef = useRef(micSensitivity);
+  micSensitivityRef.current = micSensitivity;
 
-  // noiseReduction toggle edildiğinde processor uygula/kaldır
+  /**
+   * Hangi processor türünün gerektiğini belirler.
+   * "rnnoise" → RNNoiseProcessor, "vadgate" → VadGateProcessor, "none" → yok
+   */
+  function getDesiredProcessor(nr: boolean, sens: number): "rnnoise" | "vadgate" | "none" {
+    if (nr) return "rnnoise";
+    if (sens < 100) return "vadgate";
+    return "none";
+  }
+
+  /** Aktif processor'ın türünü döndürür */
+  function getCurrentProcessorType(): "rnnoise" | "vadgate" | "none" {
+    if (!processorRef.current) return "none";
+    if (processorRef.current instanceof RNNoiseProcessor) return "rnnoise";
+    return "vadgate";
+  }
+
+  // noiseReduction veya micSensitivity değiştiğinde doğru processor'ı seç
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
@@ -574,54 +597,81 @@ function VoiceStateManager() {
     const audioTrack = pub?.track as LocalAudioTrack | undefined;
     if (!audioTrack) return;
 
-    let cancelled = false;
+    const desired = getDesiredProcessor(noiseReduction, micSensitivity);
+    const current = getCurrentProcessorType();
 
-    async function toggle() {
-      if (cancelled) return;
-
-      if (noiseReduction) {
-        // Processor yoksa oluştur ve uygula
-        if (!processorRef.current) {
-          const processor = new RNNoiseProcessor();
-          processorRef.current = processor;
-          await audioTrack!.setProcessor(processor);
-          console.log("[VoiceStateManager] RNNoise processor applied");
-        }
-      } else {
-        // Processor varsa kaldır
-        if (processorRef.current) {
-          await audioTrack!.stopProcessor();
-          processorRef.current = null;
-          console.log("[VoiceStateManager] RNNoise processor removed");
-        }
+    // Aynı tür zaten aktifse sadece sensitivity güncelle
+    if (desired === current) {
+      if (processorRef.current && desired !== "none") {
+        processorRef.current.setMicSensitivity(micSensitivity);
       }
+      return;
     }
 
-    toggle().catch((err) => {
+    let cancelled = false;
+
+    async function switchProcessor() {
+      if (cancelled) return;
+
+      // Mevcut processor'ı kaldır
+      if (processorRef.current) {
+        await audioTrack!.stopProcessor();
+        processorRef.current = null;
+        console.log("[VoiceStateManager] Previous audio processor removed");
+      }
+
+      if (cancelled) return;
+
+      // Yeni processor oluştur ve uygula
+      if (desired === "rnnoise") {
+        const processor = new RNNoiseProcessor(micSensitivity);
+        processorRef.current = processor;
+        await audioTrack!.setProcessor(processor);
+        console.log("[VoiceStateManager] RNNoise + VAD gate processor applied");
+      } else if (desired === "vadgate") {
+        const processor = new VadGateProcessor(micSensitivity);
+        processorRef.current = processor;
+        await audioTrack!.setProcessor(processor);
+        console.log("[VoiceStateManager] Standalone VAD gate processor applied");
+      }
+      // desired === "none" → processor yok, her şey geçer
+    }
+
+    switchProcessor().catch((err) => {
       if (!cancelled) {
-        console.error("[VoiceStateManager] Failed to toggle noise processor:", err);
+        console.error("[VoiceStateManager] Failed to switch audio processor:", err);
       }
     });
 
     return () => { cancelled = true; };
-  }, [noiseReduction, localParticipant]);
+  }, [noiseReduction, micSensitivity, localParticipant]);
 
-  // Mic track publish olduğunda: noiseReduction zaten ON ise processor uygula.
-  // Voice'a katılırken noiseReduction açıksa, mic track ilk publish edildiğinde
-  // processor otomatik uygulanır. Yukarıdaki toggle effect bu durumu yakalayamaz
-  // çünkü noiseReduction değeri değişmemiştir (zaten true'ydu).
+  // Mic track publish olduğunda: gerekli processor'ı uygula.
+  // Voice'a katılırken ayarlar zaten aktifse, mic track ilk publish edildiğinde
+  // processor otomatik uygulanır. Yukarıdaki effect bu durumu yakalayamaz
+  // çünkü noiseReduction/micSensitivity değeri değişmemiştir.
   useEffect(() => {
     function handleLocalTrackPublished(pub: LocalTrackPublication) {
       if (pub.source !== Track.Source.Microphone) return;
-      if (!noiseReductionRef.current) return;
       if (processorRef.current) return; // Zaten uygulanmış
 
-      const processor = new RNNoiseProcessor();
-      processorRef.current = processor;
+      const desired = getDesiredProcessor(noiseReductionRef.current, micSensitivityRef.current);
+      if (desired === "none") return;
+
       const audioTrack = pub.track as LocalAudioTrack | undefined;
-      audioTrack?.setProcessor(processor)
-        .then(() => console.log("[VoiceStateManager] RNNoise processor applied on track publish"))
-        .catch((err) => console.error("[VoiceStateManager] Failed to apply noise processor on publish:", err));
+      if (!audioTrack) return;
+
+      let processor: AudioProcessor;
+      if (desired === "rnnoise") {
+        processor = new RNNoiseProcessor(micSensitivityRef.current);
+      } else {
+        processor = new VadGateProcessor(micSensitivityRef.current);
+      }
+
+      processorRef.current = processor;
+      audioTrack.setProcessor(processor)
+        .then(() => console.log(`[VoiceStateManager] ${desired} processor applied on track publish`))
+        .catch((err) => console.error("[VoiceStateManager] Failed to apply processor on publish:", err));
     }
 
     room.on(RoomEvent.LocalTrackPublished, handleLocalTrackPublished);
