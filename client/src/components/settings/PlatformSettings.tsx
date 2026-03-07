@@ -769,6 +769,39 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
             </p>
 
             <div className="metrics-grid">
+              {/* Hetzner CPU */}
+              {metrics.hetzner_avail && (
+                <div className="metrics-card">
+                  <span className="metrics-card-label">{t("platformMetricsCPU")}</span>
+                  <span className="metrics-card-value">
+                    {metrics.cpu_pct.toFixed(1)}%
+                  </span>
+                  <span className="metrics-card-sub">Hetzner</span>
+                </div>
+              )}
+
+              {/* Hetzner Bandwidth In */}
+              {metrics.hetzner_avail && (
+                <div className="metrics-card">
+                  <span className="metrics-card-label">{t("platformMetricsBwIn")}</span>
+                  <span className="metrics-card-value">
+                    {formatBps(metrics.bw_in_bps)}
+                  </span>
+                  <span className="metrics-card-sub">Hetzner</span>
+                </div>
+              )}
+
+              {/* Hetzner Bandwidth Out */}
+              {metrics.hetzner_avail && (
+                <div className="metrics-card">
+                  <span className="metrics-card-label">{t("platformMetricsBwOut")}</span>
+                  <span className="metrics-card-value">
+                    {formatBps(metrics.bw_out_bps)}
+                  </span>
+                  <span className="metrics-card-sub">Hetzner</span>
+                </div>
+              )}
+
               {/* Goroutines */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsGoroutines")}</span>

@@ -179,65 +179,61 @@ func (c *metricsCollector) collectAll() {
 }
 
 // collectOne, tek bir instance'dan metrik çeker ve DB'ye yazar.
+//
+// İki bağımsız veri kaynağı vardır:
+//   1. LiveKit /metrics (Prometheus) → room_count, participant_count, memory, goroutines
+//   2. Hetzner Cloud API → CPU %, network bandwidth
+//
+// Her ikisi de opsiyoneldir — biri başarısız olursa diğeri yine de kaydedilir.
+// Her iki kaynak da başarısız olursa available=false yazılır.
 func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitInstance, now time.Time) {
+	var roomCount, participantCount, goroutines int
+	var memoryBytes, bytesIn, bytesOut uint64
+	var cpuSeconds float64
+	livekitOK := false
+
+	// 1. LiveKit /metrics — room/participant/memory/goroutines için
 	metricsURL := LiveKitURLToMetrics(inst.URL)
-
-	// HTTP GET /metrics
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
-	if err != nil {
-		c.insertUnavailable(ctx, inst.ID)
-		return
+	if err == nil {
+		resp, httpErr := c.httpClient.Do(req)
+		if httpErr == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				body, readErr := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+				if readErr == nil {
+					m := promparse.Parse(string(body))
+					roomCount = m.Int("livekit_room_total")
+					participantCount = m.Int("livekit_participant_total")
+					memoryBytes = m.Uint64("process_resident_memory_bytes")
+					goroutines = m.Int("go_goroutines")
+					bytesIn = m.Uint64WithLabel("livekit_packet_bytes", "direction", "incoming")
+					bytesOut = m.Uint64WithLabel("livekit_packet_bytes", "direction", "outgoing")
+					cpuSeconds = m.Float64("process_cpu_seconds_total")
+					livekitOK = true
+				}
+			}
+		}
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		c.insertUnavailable(ctx, inst.ID)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.insertUnavailable(ctx, inst.ID)
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
-	if err != nil {
-		c.insertUnavailable(ctx, inst.ID)
-		return
-	}
-
-	// Prometheus parse
-	m := promparse.Parse(string(body))
-
-	// Raw değerler — LiveKit /metrics'ten her zaman çekiyoruz
-	roomCount := m.Int("livekit_room_total")
-	participantCount := m.Int("livekit_participant_total")
-	memoryBytes := m.Uint64("process_resident_memory_bytes")
-	goroutines := m.Int("go_goroutines")
-	bytesIn := m.Uint64WithLabel("livekit_packet_bytes", "direction", "incoming")
-	bytesOut := m.Uint64WithLabel("livekit_packet_bytes", "direction", "outgoing")
-	cpuSeconds := m.Float64("process_cpu_seconds_total")
-
-	// Derived metrikler — Hetzner varsa API'den, yoksa LiveKit delta'larından
+	// 2. CPU & bandwidth — Hetzner varsa API'den, yoksa LiveKit delta'larından
 	var cpuPct, bwInBps, bwOutBps float64
+	hetznerOK := false
 
-	hetznerUsed := false
 	if inst.HetznerServerID != "" && c.hetznerClient != nil {
 		hCPU, hBwIn, hBwOut, hErr := c.fetchHetznerMetrics(ctx, inst.HetznerServerID, now)
 		if hErr != nil {
 			log.Printf("[metrics-collector] hetzner API error for %s (server %s): %v", inst.ID, inst.HetznerServerID, hErr)
-			// Hetzner başarısız → LiveKit fallback
 		} else {
 			cpuPct = hCPU
 			bwInBps = hBwIn
 			bwOutBps = hBwOut
-			hetznerUsed = true
+			hetznerOK = true
 		}
 	}
 
-	// Hetzner kullanılmadıysa → LiveKit process delta hesaplaması (eski davranış)
-	if !hetznerUsed {
+	// Hetzner başarısız + LiveKit başarılı → LiveKit process delta fallback
+	if !hetznerOK && livekitOK {
 		prev := c.prevSamples[inst.ID]
 		if prev != nil {
 			elapsed := now.Sub(prev.timestamp).Seconds()
@@ -257,12 +253,20 @@ func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitI
 		}
 	}
 
-	// Mevcut sample'ı sakla (sonraki tick için delta referansı — Hetzner olmasa da)
-	c.prevSamples[inst.ID] = &previousSample{
-		cpuSeconds: cpuSeconds,
-		bytesIn:    bytesIn,
-		bytesOut:   bytesOut,
-		timestamp:  now,
+	// Her iki kaynak da başarısızsa → unavailable
+	if !livekitOK && !hetznerOK {
+		c.insertUnavailable(ctx, inst.ID)
+		return
+	}
+
+	// LiveKit delta referansını güncelle (LiveKit başarılıysa)
+	if livekitOK {
+		c.prevSamples[inst.ID] = &previousSample{
+			cpuSeconds: cpuSeconds,
+			bytesIn:    bytesIn,
+			bytesOut:   bytesOut,
+			timestamp:  now,
+		}
 	}
 
 	// DB'ye yaz

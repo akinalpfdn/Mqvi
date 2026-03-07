@@ -425,6 +425,10 @@
   "platformMetricsChartCPU": "CPU Usage (%)",
   "platformMetricsChartBandwidth": "Network Bandwidth",
 
+  "platformMetricsCPU": "Server CPU",
+  "platformMetricsBwIn": "Bandwidth In",
+  "platformMetricsBwOut": "Bandwidth Out",
+
   "platformHetznerServerId": "Hetzner Server ID",
   "platformHetznerServerIdPlaceholder": "12345678",
   "platformHetznerServerIdHint": "Numeric ID from Hetzner Cloud Console. Leave empty to disable Hetzner metrics.",

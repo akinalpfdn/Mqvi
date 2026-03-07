@@ -490,6 +490,10 @@ export type LiveKitInstanceMetrics = {
   packets_in: number;
   packets_out: number;
   nack_total: number;
+  cpu_pct: number;
+  bw_in_bps: number;
+  bw_out_bps: number;
+  hetzner_avail: boolean;
   fetched_at: string;
   available: boolean;
 };

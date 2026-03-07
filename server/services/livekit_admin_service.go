@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/promparse"
 	"github.com/akinalp/mqvi/repository"
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 )
 
 // ActiveVoiceProvider — admin service'in in-memory voice state'e erişmesi için ISP interface.
@@ -80,6 +82,10 @@ type livekitAdminService struct {
 	voiceProvider ActiveVoiceProvider
 	encryptionKey []byte
 	httpClient    *http.Client // Prometheus /metrics fetch için
+
+	// Hetzner Cloud API — opsiyonel (nil ise devre dışı)
+	hetznerClient *hcloud.Client
+	vcpuCache     map[int64]int
 }
 
 // NewLiveKitAdminService, constructor — interface döner.
@@ -94,14 +100,16 @@ func NewLiveKitAdminService(
 	channelRepo repository.ChannelRepository,
 	voiceProvider ActiveVoiceProvider,
 	encryptionKey []byte,
+	hetznerToken string,
 ) LiveKitAdminService {
-	return &livekitAdminService{
+	svc := &livekitAdminService{
 		livekitRepo:   livekitRepo,
 		serverRepo:    serverRepo,
 		userRepo:      userRepo,
 		channelRepo:   channelRepo,
 		voiceProvider: voiceProvider,
 		encryptionKey: encryptionKey,
+		vcpuCache:     make(map[int64]int),
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 			// Self-signed sertifika kullanan LiveKit instance'lar için TLS skip.
@@ -111,6 +119,12 @@ func NewLiveKitAdminService(
 			},
 		},
 	}
+
+	if hetznerToken != "" {
+		svc.hetznerClient = hcloud.NewClient(hcloud.WithToken(hetznerToken))
+	}
+
+	return svc
 }
 
 func (s *livekitAdminService) ListInstances(ctx context.Context) ([]models.LiveKitInstanceAdminView, error) {
@@ -408,71 +422,51 @@ func (s *livekitAdminService) GetInstanceMetrics(ctx context.Context, instanceID
 		return nil, err
 	}
 
-	// 2. URL'yi /metrics endpoint'ine çevir
-	// wss://livekit.example.com → https://livekit.example.com/metrics
-	// ws://localhost:7880 → http://localhost:7880/metrics
+	result := &models.LiveKitInstanceMetrics{
+		FetchedAt: time.Now().UTC(),
+	}
+
+	// 2. LiveKit /metrics — room/participant/memory/goroutines
 	metricsURL := LiveKitURLToMetrics(inst.URL)
-
-	// 3. /metrics endpoint'ini çağır
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
-	if err != nil {
-		// URL parse hatası — available=false dön
-		return &models.LiveKitInstanceMetrics{
-			FetchedAt: time.Now().UTC(),
-			Available: false,
-		}, nil
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
+	if reqErr == nil {
+		resp, httpErr := s.httpClient.Do(req)
+		if httpErr == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				body, readErr := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+				if readErr == nil {
+					m := promparse.Parse(string(body))
+					result.Goroutines = m.Int("go_goroutines")
+					result.MemoryUsed = m.Uint64("process_resident_memory_bytes")
+					result.RoomCount = m.Int("livekit_room_total")
+					result.ParticipantCount = m.Int("livekit_participant_total")
+					result.TrackPublishCount = m.SumInt("livekit_track_published_total")
+					result.TrackSubscribeCount = m.SumInt("livekit_track_subscribed_total")
+					result.BytesIn = m.Uint64WithLabel("livekit_packet_bytes", "direction", "incoming")
+					result.BytesOut = m.Uint64WithLabel("livekit_packet_bytes", "direction", "outgoing")
+					result.PacketsIn = m.Uint64WithLabel("livekit_packet_total", "direction", "incoming")
+					result.PacketsOut = m.Uint64WithLabel("livekit_packet_total", "direction", "outgoing")
+					result.NackTotal = m.SumUint64("livekit_nack_total")
+					result.Available = true
+				}
+			}
+		}
 	}
 
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		// Bağlantı hatası — available=false dön, hata dönme
-		return &models.LiveKitInstanceMetrics{
-			FetchedAt: time.Now().UTC(),
-			Available: false,
-		}, nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return &models.LiveKitInstanceMetrics{
-			FetchedAt: time.Now().UTC(),
-			Available: false,
-		}, nil
+	// 3. Hetzner Cloud API — CPU ve bandwidth (bağımsız kaynak)
+	if inst.HetznerServerID != "" && s.hetznerClient != nil {
+		cpuPct, bwIn, bwOut, hErr := s.fetchHetznerMetricsRT(ctx, inst.HetznerServerID)
+		if hErr == nil {
+			result.CPUPercent = cpuPct
+			result.BandwidthInBps = bwIn
+			result.BandwidthOutBps = bwOut
+			result.HetznerAvail = true
+			result.Available = true // Hetzner yalnız başına da "available" sayılır
+		}
 	}
 
-	// 4. Response body'yi oku (max 5MB — Prometheus metrics genelde küçüktür)
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
-	if err != nil {
-		return &models.LiveKitInstanceMetrics{
-			FetchedAt: time.Now().UTC(),
-			Available: false,
-		}, nil
-	}
-
-	// 5. Prometheus formatını parse et
-	m := promparse.Parse(string(body))
-
-	// LiveKit metric isimleri (kaynak: github.com/livekit/livekit/pkg/telemetry/prometheus):
-	//   rooms.go:   livekit_room_total, livekit_participant_total,
-	//               livekit_track_published_total{kind}, livekit_track_subscribed_total{kind}
-	//   packets.go: livekit_packet_bytes{direction}, livekit_packet_total{direction}
-	//               livekit_nack_total
-	// Go standard: process_resident_memory_bytes, go_goroutines
-	return &models.LiveKitInstanceMetrics{
-		Goroutines:          m.Int("go_goroutines"),
-		MemoryUsed:          m.Uint64("process_resident_memory_bytes"),
-		RoomCount:           m.Int("livekit_room_total"),
-		ParticipantCount:    m.Int("livekit_participant_total"),
-		TrackPublishCount:   m.SumInt("livekit_track_published_total"),   // sum audio+video
-		TrackSubscribeCount: m.SumInt("livekit_track_subscribed_total"),  // sum audio+video
-		BytesIn:             m.Uint64WithLabel("livekit_packet_bytes", "direction", "incoming"),
-		BytesOut:            m.Uint64WithLabel("livekit_packet_bytes", "direction", "outgoing"),
-		PacketsIn:           m.Uint64WithLabel("livekit_packet_total", "direction", "incoming"),
-		PacketsOut:          m.Uint64WithLabel("livekit_packet_total", "direction", "outgoing"),
-		NackTotal:           m.SumUint64("livekit_nack_total"),
-		FetchedAt:           time.Now().UTC(),
-		Available:           true,
-	}, nil
+	return result, nil
 }
 
 // LiveKitURLToMetrics, LiveKit WebSocket URL'sini Prometheus /metrics HTTP URL'sine
@@ -495,6 +489,66 @@ func LiveKitURLToMetrics(rawURL string) string {
 	u = strings.TrimRight(u, "/")
 
 	return u + "/metrics"
+}
+
+// fetchHetznerMetricsRT, anlık (real-time) Hetzner metriklerini çeker.
+// MetricsCollector'daki fetchHetznerMetrics ile benzer, ama anlık panel için.
+func (s *livekitAdminService) fetchHetznerMetricsRT(ctx context.Context, hetznerServerIDStr string) (cpuPct, bwIn, bwOut float64, err error) {
+	serverID, err := strconv.ParseInt(hetznerServerIDStr, 10, 64)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	// vCPU count — cache'den al veya API'den çek
+	vcpuCount := 1
+	if cached, ok := s.vcpuCache[serverID]; ok {
+		vcpuCount = cached
+	} else {
+		server, _, srvErr := s.hetznerClient.Server.GetByID(ctx, serverID)
+		if srvErr != nil {
+			return 0, 0, 0, srvErr
+		}
+		if server != nil && server.ServerType != nil && server.ServerType.Cores > 0 {
+			vcpuCount = server.ServerType.Cores
+		}
+		s.vcpuCache[serverID] = vcpuCount
+	}
+
+	// Son 5 dakikalık pencere
+	now := time.Now().UTC()
+	start := now.Add(-5 * time.Minute)
+	result, _, apiErr := s.hetznerClient.Server.GetMetrics(ctx, &hcloud.Server{ID: serverID}, hcloud.ServerGetMetricsOpts{
+		Types: []hcloud.ServerMetricType{
+			hcloud.ServerMetricCPU,
+			hcloud.ServerMetricNetwork,
+		},
+		Start: start,
+		End:   now,
+	})
+	if apiErr != nil {
+		return 0, 0, 0, apiErr
+	}
+
+	if cpuValues, ok := result.TimeSeries["cpu"]; ok && len(cpuValues) > 0 {
+		rawCPU, parseErr := strconv.ParseFloat(cpuValues[len(cpuValues)-1].Value, 64)
+		if parseErr == nil && vcpuCount > 0 {
+			cpuPct = rawCPU / float64(vcpuCount)
+		}
+	}
+	if inValues, ok := result.TimeSeries["network.0.bandwidth.in"]; ok && len(inValues) > 0 {
+		parsed, parseErr := strconv.ParseFloat(inValues[len(inValues)-1].Value, 64)
+		if parseErr == nil {
+			bwIn = parsed
+		}
+	}
+	if outValues, ok := result.TimeSeries["network.0.bandwidth.out"]; ok && len(outValues) > 0 {
+		parsed, parseErr := strconv.ParseFloat(outValues[len(outValues)-1].Value, 64)
+		if parseErr == nil {
+			bwOut = parsed
+		}
+	}
+
+	return cpuPct, bwIn, bwOut, nil
 }
 
 // toAdminView, LiveKitInstance'ı credential'sız admin view'a dönüştürür.

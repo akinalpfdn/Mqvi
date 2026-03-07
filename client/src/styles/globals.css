@@ -381,7 +381,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .msg-row { display:flex;gap:9px;align-items:flex-start; }
 .msg.grouped .msg-avatar { visibility:hidden; }
 .msg.grouped .msg-meta { display:none; }
-.msg-gtime { position:absolute;left:14px;width:38px;text-align:center;font-size:13px;color:var(--t3);font-family:var(--f-m);opacity:0;top:50%;transform:translateY(-50%); }
+.msg-gtime { font-size:13px;color:var(--t3);font-family:var(--f-m);opacity:0;margin-left:6px;white-space:nowrap;transition:opacity .1s; }
 .msg.grouped:hover .msg-gtime { opacity:1; }
 .msg-avatar { flex-shrink:0; }
 .msg-body { min-width:0;flex:1; }

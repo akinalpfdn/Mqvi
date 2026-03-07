@@ -20,8 +20,9 @@
  * hem DM'de aynı component çalışıyor.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { formatMessageTime, formatFullDateTime } from "../../utils/dateFormat";
 import { useAuthStore } from "../../stores/authStore";
 import { useChatContext, type ChatMessage } from "../../hooks/useChatContext";
 import { resolveAssetUrl, copyToClipboard } from "../../utils/constants";
@@ -75,7 +76,7 @@ function getHighestRoleColor(member: MemberWithRoles | undefined): string | unde
 }
 
 function Message({ message, isCompact }: MessageProps) {
-  const { t } = useTranslation("chat");
+  const { t, i18n } = useTranslation("chat");
   const currentUser = useAuthStore((s) => s.user);
 
   // ChatContext — store farkını soyutlar (channel vs DM)
@@ -110,23 +111,16 @@ function Message({ message, isCompact }: MessageProps) {
 
   const isPinned = isMessagePinned(message.id);
 
-  /** Timestamp formatı: HH:MM */
-  const formatTime = useCallback((dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }, []);
+  /** Akıllı timestamp: bugün→saat, dün→"Dün 22:15", bu hafta→"Cuma 22:15", eski→tarih */
+  const locale = i18n.language ?? "en";
+  const yesterdayLabel = t("yesterday");
+  const timeLabels = useMemo(() => ({ yesterday: yesterdayLabel }), [yesterdayLabel]);
 
-  /** Tam tarih formatı: DD/MM/YYYY HH:MM */
-  const formatFullDate = useCallback((dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString([], {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, []);
+  const formatTime = (dateStr: string) =>
+    formatMessageTime(dateStr, locale, timeLabels);
+
+  const formatFullDate = (dateStr: string) =>
+    formatFullDateTime(dateStr, locale);
 
   /** Edit kaydetme — Enter ile */
   async function handleEditSave() {
@@ -299,8 +293,6 @@ function Message({ message, isCompact }: MessageProps) {
       {...(isMobile ? longPressHandlers : {})}
       onContextMenu={isMobile ? longPressHandlers.onContextMenu : handleContextMenu}
     >
-      <span className="msg-gtime">{formatTime(message.created_at)}</span>
-
       <div className="msg-row">
         <div className="msg-avatar">
           <Avatar
@@ -384,6 +376,11 @@ function Message({ message, isCompact }: MessageProps) {
               {message.edited_at && (
                 <span className="msg-edited">
                   {t("edited")}
+                </span>
+              )}
+              {isCompact && (
+                <span className="msg-gtime" title={formatFullDate(message.created_at)}>
+                  {formatTime(message.created_at)}
                 </span>
               )}
             </div>

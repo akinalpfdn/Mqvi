@@ -425,6 +425,10 @@
   "platformMetricsChartCPU": "CPU Kullanımı (%)",
   "platformMetricsChartBandwidth": "Ağ Bant Genişliği",
 
+  "platformMetricsCPU": "Sunucu CPU",
+  "platformMetricsBwIn": "Gelen Bant Genişliği",
+  "platformMetricsBwOut": "Giden Bant Genişliği",
+
   "platformHetznerServerId": "Hetzner Sunucu ID",
   "platformHetznerServerIdPlaceholder": "12345678",
   "platformHetznerServerIdHint": "Hetzner Cloud Console'daki sayısal ID. Boş bırakılırsa Hetzner metrikleri devre dışı kalır.",

@@ -28,16 +28,22 @@ type LiveKitInstanceMetrics struct {
 	TrackPublishCount   int `json:"track_publish_count"`   // livekit_track_published_total (sum of all kinds)
 	TrackSubscribeCount int `json:"track_subscribe_count"` // livekit_track_subscribed_total (sum of all kinds)
 
-	// Bandwidth (sunucu başlangıcından itibaren toplam)
+	// Bandwidth (sunucu başlangıcından itibaren toplam — LiveKit counter)
 	BytesIn    uint64 `json:"bytes_in"`    // livekit_packet_bytes{direction="incoming"}
 	BytesOut   uint64 `json:"bytes_out"`   // livekit_packet_bytes{direction="outgoing"}
 	PacketsIn  uint64 `json:"packets_in"`  // livekit_packet_total{direction="incoming"}
 	PacketsOut uint64 `json:"packets_out"` // livekit_packet_total{direction="outgoing"}
 	NackTotal  uint64 `json:"nack_total"`  // livekit_nack_total
 
+	// Hetzner Cloud API metrikleri (opsiyonel — Hetzner yapılandırılmışsa dolu gelir)
+	CPUPercent      float64 `json:"cpu_pct"`       // Sunucu CPU % (0-100, vCPU normalize)
+	BandwidthInBps  float64 `json:"bw_in_bps"`     // Network in (bytes/sec)
+	BandwidthOutBps float64 `json:"bw_out_bps"`    // Network out (bytes/sec)
+	HetznerAvail    bool    `json:"hetzner_avail"` // Hetzner metrikleri mevcut mu
+
 	// Fetch zamanı — client'ın ne kadar taze olduğunu bilmesi için
 	FetchedAt time.Time `json:"fetched_at"`
 
-	// Bağlantı durumu — /metrics erişilemezse false
+	// Bağlantı durumu — en az bir kaynak erişilebilirse true
 	Available bool `json:"available"`
 }
