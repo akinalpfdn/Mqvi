@@ -421,6 +421,13 @@
   "platformMetricsAvgBandwidthOut": "Avg Bandwidth Out",
   "platformMetricsSamples": "{{count}} samples",
   "platformMetricsHistoryLoadError": "Failed to load metrics history",
+  "platformMetricsChartNoData": "No chart data available yet",
+  "platformMetricsChartCPU": "CPU Usage (%)",
+  "platformMetricsChartBandwidth": "Network Bandwidth",
+
+  "platformHetznerServerId": "Hetzner Server ID",
+  "platformHetznerServerIdPlaceholder": "12345678",
+  "platformHetznerServerIdHint": "Numeric ID from Hetzner Cloud Console. Leave empty to disable Hetzner metrics.",
 
   "platformReportsTab": "Reports",
   "platformReportReporter": "Reporter",

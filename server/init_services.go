@@ -150,6 +150,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.LiveKit, repos.MetricsHistory,
 		5*time.Minute, // collection interval
 		30,            // retention days
+		cfg.HetznerAPIToken,
 	)
 
 	// ─── Rate Limiters ───

@@ -14,17 +14,28 @@ import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import {
   listLiveKitInstances,
   createLiveKitInstance,
   updateLiveKitInstance,
   deleteLiveKitInstance,
   getLiveKitInstanceMetrics,
   getLiveKitMetricsHistory,
+  getLiveKitMetricsTimeSeries,
 } from "../../api/admin";
 import type {
   LiveKitInstanceAdmin,
   LiveKitInstanceMetrics,
   MetricsHistorySummary,
+  MetricsTimeSeriesPoint,
 } from "../../types";
 
 function PlatformSettings() {
@@ -55,6 +66,7 @@ function LiveKitTab() {
   const [formApiKey, setFormApiKey] = useState("");
   const [formApiSecret, setFormApiSecret] = useState("");
   const [formMaxServers, setFormMaxServers] = useState(0);
+  const [formHetznerServerID, setFormHetznerServerID] = useState("");
 
   // Delete migration target
   const [migrateTargetId, setMigrateTargetId] = useState("");
@@ -91,6 +103,7 @@ function LiveKitTab() {
       setFormApiKey("");
       setFormApiSecret("");
       setFormMaxServers(0);
+      setFormHetznerServerID("");
     } else {
       const inst = instances.find((i) => i.id === selectedId);
       if (inst) {
@@ -98,6 +111,7 @@ function LiveKitTab() {
         setFormApiKey("");
         setFormApiSecret("");
         setFormMaxServers(inst.max_servers);
+        setFormHetznerServerID(inst.hetzner_server_id ?? "");
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,6 +127,7 @@ function LiveKitTab() {
         api_key: formApiKey,
         api_secret: formApiSecret,
         max_servers: formMaxServers,
+        hetzner_server_id: formHetznerServerID || undefined,
       });
       if (res.success && res.data) {
         setInstances((prev) => [...prev, res.data!]);
@@ -148,6 +163,8 @@ function LiveKitTab() {
     if (formApiSecret) body.api_secret = formApiSecret;
     if (formMaxServers !== current.max_servers)
       body.max_servers = formMaxServers;
+    if (formHetznerServerID !== (current.hetzner_server_id ?? ""))
+      body.hetzner_server_id = formHetznerServerID;
 
     if (Object.keys(body).length === 0) {
       addToast("info", t("platformNoChanges"));
@@ -282,6 +299,8 @@ function LiveKitTab() {
             setFormApiSecret={setFormApiSecret}
             formMaxServers={formMaxServers}
             setFormMaxServers={setFormMaxServers}
+            formHetznerServerID={formHetznerServerID}
+            setFormHetznerServerID={setFormHetznerServerID}
             isSaving={isSaving}
             onSave={handleCreate}
             onCancel={() => setIsCreating(false)}
@@ -298,6 +317,8 @@ function LiveKitTab() {
             setFormApiSecret={setFormApiSecret}
             formMaxServers={formMaxServers}
             setFormMaxServers={setFormMaxServers}
+            formHetznerServerID={formHetznerServerID}
+            setFormHetznerServerID={setFormHetznerServerID}
             isSaving={isSaving}
             onSave={handleUpdate}
             onDelete={handleDelete}
@@ -331,6 +352,8 @@ type CreateFormProps = {
   setFormApiSecret: (v: string) => void;
   formMaxServers: number;
   setFormMaxServers: (v: number) => void;
+  formHetznerServerID: string;
+  setFormHetznerServerID: (v: string) => void;
   isSaving: boolean;
   onSave: () => void;
   onCancel: () => void;
@@ -346,6 +369,8 @@ function CreateForm({
   setFormApiSecret,
   formMaxServers,
   setFormMaxServers,
+  formHetznerServerID,
+  setFormHetznerServerID,
   isSaving,
   onSave,
   onCancel,
@@ -413,6 +438,21 @@ function CreateForm({
         </span>
       </div>
 
+      <div className="settings-field">
+        <label className="settings-label">
+          {t("platformHetznerServerId")}
+        </label>
+        <input
+          className="settings-input"
+          value={formHetznerServerID}
+          onChange={(e) => setFormHetznerServerID(e.target.value)}
+          placeholder={t("platformHetznerServerIdPlaceholder")}
+        />
+        <span className="settings-hint">
+          {t("platformHetznerServerIdHint")}
+        </span>
+      </div>
+
       <div className="settings-btn-row">
         <button
           className="settings-btn"
@@ -444,6 +484,8 @@ type EditFormProps = {
   setFormApiSecret: (v: string) => void;
   formMaxServers: number;
   setFormMaxServers: (v: number) => void;
+  formHetznerServerID: string;
+  setFormHetznerServerID: (v: string) => void;
   isSaving: boolean;
   onSave: () => void;
   onDelete: () => void;
@@ -463,6 +505,8 @@ function EditForm({
   setFormApiSecret,
   formMaxServers,
   setFormMaxServers,
+  formHetznerServerID,
+  setFormHetznerServerID,
   isSaving,
   onSave,
   onDelete,
@@ -474,7 +518,8 @@ function EditForm({
     formUrl !== instance.url ||
     formApiKey !== "" ||
     formApiSecret !== "" ||
-    formMaxServers !== instance.max_servers;
+    formMaxServers !== instance.max_servers ||
+    formHetznerServerID !== (instance.hetzner_server_id ?? "");
 
   return (
     <div className="channel-perm-section">
@@ -535,6 +580,21 @@ function EditForm({
         />
         <span className="settings-hint">
           {t("platformInstanceMaxServersHint")}
+        </span>
+      </div>
+
+      <div className="settings-field">
+        <label className="settings-label">
+          {t("platformHetznerServerId")}
+        </label>
+        <input
+          className="settings-input"
+          value={formHetznerServerID}
+          onChange={(e) => setFormHetznerServerID(e.target.value)}
+          placeholder={t("platformHetznerServerIdPlaceholder")}
+        />
+        <span className="settings-hint">
+          {t("platformHetznerServerIdHint")}
         </span>
       </div>
 
@@ -614,6 +674,10 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
   const [historySummary, setHistorySummary] = useState<MetricsHistorySummary | null>(null);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
+  // ─── Time-series chart state ───
+  const [timeSeries, setTimeSeries] = useState<MetricsTimeSeriesPoint[]>([]);
+  const [isChartLoading, setIsChartLoading] = useState(false);
+
   const fetchMetrics = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -646,15 +710,30 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
     }
   }, [instanceId, addToast, t]);
 
+  const fetchTimeSeries = useCallback(async (period: "24h" | "7d" | "30d") => {
+    try {
+      setIsChartLoading(true);
+      const res = await getLiveKitMetricsTimeSeries(instanceId, period);
+      if (res.success && res.data) {
+        setTimeSeries(res.data);
+      }
+    } catch {
+      // chart verisi opsiyonel — sessizce devam et
+    } finally {
+      setIsChartLoading(false);
+    }
+  }, [instanceId]);
+
   // Instance değiştiğinde otomatik fetch
   useEffect(() => {
     fetchMetrics();
   }, [fetchMetrics]);
 
-  // Period veya instance değiştiğinde history fetch
+  // Period veya instance değiştiğinde history + timeseries fetch
   useEffect(() => {
     fetchHistory(selectedPeriod);
-  }, [fetchHistory, selectedPeriod]);
+    fetchTimeSeries(selectedPeriod);
+  }, [fetchHistory, fetchTimeSeries, selectedPeriod]);
 
   const handlePeriodChange = useCallback((period: "24h" | "7d" | "30d") => {
     setSelectedPeriod(period);
@@ -776,6 +855,14 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
           </div>
         </div>
 
+        {/* ─── Time-Series Charts ─── */}
+        <MetricsChart
+          data={timeSeries}
+          period={selectedPeriod}
+          isLoading={isChartLoading}
+          t={t}
+        />
+
         {isHistoryLoading && !historySummary && (
           <p className="metrics-timestamp">{t("platformMetricsRefreshing")}</p>
         )}
@@ -859,6 +946,186 @@ function formatBps(bytesPerSec: number): string {
   const i = Math.floor(Math.log(bps) / Math.log(1000));
   const val = bps / Math.pow(1000, i);
   return `${val.toFixed(1)} ${units[Math.min(i, units.length - 1)]}`;
+}
+
+// ═══════════════════════════════════════════════════════
+// MetricsChart — Recharts area chart (CPU + Bandwidth)
+// ═══════════════════════════════════════════════════════
+
+type MetricsChartProps = {
+  data: MetricsTimeSeriesPoint[];
+  period: "24h" | "7d" | "30d";
+  isLoading: boolean;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+};
+
+function MetricsChart({ data, period, isLoading, t }: MetricsChartProps) {
+  if (isLoading && data.length === 0) {
+    return (
+      <div className="metrics-chart-loading">
+        <div className="metrics-chart-skeleton" />
+        <div className="metrics-chart-skeleton" />
+      </div>
+    );
+  }
+
+  if (data.length === 0) {
+    return (
+      <p className="metrics-unavailable">{t("platformMetricsChartNoData")}</p>
+    );
+  }
+
+  return (
+    <div className="metrics-chart-container">
+      {/* CPU Chart */}
+      <div className="metrics-chart-block">
+        <span className="metrics-chart-title">{t("platformMetricsChartCPU")}</span>
+        <ResponsiveContainer width="100%" height={160}>
+          <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#e53e3e" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="#e53e3e" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+            <XAxis
+              dataKey="ts"
+              tickFormatter={(v: string) => formatXAxis(v, period)}
+              tick={{ fill: "var(--color-text-muted)", fontSize: 13 }}
+              axisLine={false}
+              tickLine={false}
+              minTickGap={40}
+            />
+            <YAxis
+              tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+              tick={{ fill: "var(--color-text-muted)", fontSize: 13 }}
+              axisLine={false}
+              tickLine={false}
+              width={45}
+              domain={[0, "auto"]}
+            />
+            <Tooltip content={<ChartTooltip period={period} valueFormatter={(v) => `${v.toFixed(1)}%`} />} />
+            <Area
+              type="monotone"
+              dataKey="cpu_pct"
+              stroke="#e53e3e"
+              fill="url(#cpuGrad)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 3, fill: "#e53e3e" }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Bandwidth Chart */}
+      <div className="metrics-chart-block">
+        <span className="metrics-chart-title">{t("platformMetricsChartBandwidth")}</span>
+        <ResponsiveContainer width="100%" height={160}>
+          <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="bwInGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#d4a017" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="#d4a017" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="bwOutGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#e53e3e" stopOpacity={0.15} />
+                <stop offset="95%" stopColor="#e53e3e" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+            <XAxis
+              dataKey="ts"
+              tickFormatter={(v: string) => formatXAxis(v, period)}
+              tick={{ fill: "var(--color-text-muted)", fontSize: 13 }}
+              axisLine={false}
+              tickLine={false}
+              minTickGap={40}
+            />
+            <YAxis
+              tickFormatter={(v: number) => formatBps(v)}
+              tick={{ fill: "var(--color-text-muted)", fontSize: 13 }}
+              axisLine={false}
+              tickLine={false}
+              width={55}
+              domain={[0, "auto"]}
+            />
+            <Tooltip
+              content={
+                <ChartTooltip
+                  period={period}
+                  valueFormatter={(v) => formatBps(v)}
+                  labelMap={{ bw_in: "In", bw_out: "Out" }}
+                />
+              }
+            />
+            <Area
+              type="monotone"
+              dataKey="bw_in"
+              stroke="#d4a017"
+              fill="url(#bwInGrad)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 3, fill: "#d4a017" }}
+            />
+            <Area
+              type="monotone"
+              dataKey="bw_out"
+              stroke="#e53e3e"
+              fill="url(#bwOutGrad)"
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 3, fill: "#e53e3e" }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// Chart Tooltip — dark themed custom tooltip
+// ═══════════════════════════════════════════════════════
+
+type ChartTooltipProps = {
+  active?: boolean;
+  payload?: Array<{ dataKey: string; value: number; color: string }>;
+  label?: string;
+  period: "24h" | "7d" | "30d";
+  valueFormatter: (v: number) => string;
+  labelMap?: Record<string, string>;
+};
+
+function ChartTooltip({ active, payload, label, period, valueFormatter, labelMap }: ChartTooltipProps) {
+  if (!active || !payload || !label) return null;
+
+  return (
+    <div className="metrics-chart-tooltip">
+      <span className="metrics-chart-tooltip-time">{formatXAxis(label, period)}</span>
+      {payload.map((entry) => (
+        <div key={entry.dataKey} className="metrics-chart-tooltip-row">
+          <span className="metrics-chart-tooltip-dot" style={{ background: entry.color }} />
+          <span>{labelMap?.[entry.dataKey] ?? entry.dataKey}: {valueFormatter(entry.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** X ekseni timestamp formatı — period'a göre değişir */
+function formatXAxis(ts: string, period: "24h" | "7d" | "30d"): string {
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  if (period === "24h") {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return (
+    d.toLocaleDateString([], { month: "2-digit", day: "2-digit" }) +
+    " " +
+    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  );
 }
 
 export default PlatformSettings;

@@ -109,6 +109,84 @@ func (r *sqliteMetricsHistoryRepo) GetSummary(ctx context.Context, instanceID st
 	return summary, nil
 }
 
+// GetTimeSeries, chart için zaman serisi verisi döner.
+// Period'a göre aggregation uygulanır:
+//   - 24h: ham veri (5dk interval → ~288 nokta)
+//   - 7d:  saatlik ortalama
+//   - 30d: 6 saatlik ortalama
+func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID string, period string) ([]models.MetricsTimeSeriesPoint, error) {
+	modifier, err := periodToModifier(period)
+	if err != nil {
+		return nil, err
+	}
+
+	var query string
+	switch period {
+	case "24h":
+		// Ham veri — aggregation yok
+		query = `
+			SELECT collected_at, cpu_pct, bandwidth_in_bps, bandwidth_out_bps, participant_count
+			FROM livekit_metrics_history
+			WHERE instance_id = ? AND available = 1 AND collected_at >= datetime('now', ?)
+			ORDER BY collected_at ASC`
+	case "7d":
+		// Saatlik ortalama
+		query = `
+			SELECT
+				strftime('%Y-%m-%dT%H:00:00', collected_at) AS ts,
+				AVG(cpu_pct), AVG(bandwidth_in_bps), AVG(bandwidth_out_bps),
+				CAST(AVG(participant_count) AS INTEGER)
+			FROM livekit_metrics_history
+			WHERE instance_id = ? AND available = 1 AND collected_at >= datetime('now', ?)
+			GROUP BY strftime('%Y-%m-%dT%H:00:00', collected_at)
+			ORDER BY ts ASC`
+	case "30d":
+		// 6 saatlik ortalama
+		query = `
+			SELECT
+				strftime('%Y-%m-%dT', collected_at) ||
+				printf('%02d', (CAST(strftime('%H', collected_at) AS INTEGER) / 6) * 6) ||
+				':00:00' AS ts,
+				AVG(cpu_pct), AVG(bandwidth_in_bps), AVG(bandwidth_out_bps),
+				CAST(AVG(participant_count) AS INTEGER)
+			FROM livekit_metrics_history
+			WHERE instance_id = ? AND available = 1 AND collected_at >= datetime('now', ?)
+			GROUP BY ts
+			ORDER BY ts ASC`
+	}
+
+	rows, qErr := r.db.QueryContext(ctx, query, instanceID, modifier)
+	if qErr != nil {
+		return nil, fmt.Errorf("failed to get metrics time series: %w", qErr)
+	}
+	defer rows.Close()
+
+	var points []models.MetricsTimeSeriesPoint
+	for rows.Next() {
+		var p models.MetricsTimeSeriesPoint
+		var tsStr string
+		if scanErr := rows.Scan(&tsStr, &p.CPUPercent, &p.BandwidthInBps, &p.BandwidthOutBps, &p.Participants); scanErr != nil {
+			return nil, fmt.Errorf("failed to scan time series row: %w", scanErr)
+		}
+		parsed, parseErr := time.Parse("2006-01-02T15:04:05", tsStr)
+		if parseErr != nil {
+			// collected_at formatı farklı olabilir — fallback dene
+			parsed, parseErr = time.Parse("2006-01-02 15:04:05", tsStr)
+			if parseErr != nil {
+				continue
+			}
+		}
+		p.Timestamp = parsed
+		points = append(points, p)
+	}
+
+	if rowErr := rows.Err(); rowErr != nil {
+		return nil, fmt.Errorf("error iterating time series rows: %w", rowErr)
+	}
+
+	return points, nil
+}
+
 // PurgeOlderThan, eski metrik kayıtlarını siler.
 func (r *sqliteMetricsHistoryRepo) PurgeOlderThan(ctx context.Context, before time.Time) (int64, error) {
 	query := `DELETE FROM livekit_metrics_history WHERE collected_at < ?`

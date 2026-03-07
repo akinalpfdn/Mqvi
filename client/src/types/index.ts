@@ -454,6 +454,7 @@ export type LiveKitInstanceAdmin = {
   is_platform_managed: boolean;
   server_count: number;
   max_servers: number;
+  hetzner_server_id: string;
   created_at: string;
 };
 
@@ -462,6 +463,7 @@ export type CreateLiveKitInstanceRequest = {
   api_key: string;
   api_secret: string;
   max_servers: number;
+  hetzner_server_id?: string;
 };
 
 export type UpdateLiveKitInstanceRequest = {
@@ -469,6 +471,7 @@ export type UpdateLiveKitInstanceRequest = {
   api_key?: string;
   api_secret?: string;
   max_servers?: number;
+  hetzner_server_id?: string;
 };
 
 /**
@@ -512,6 +515,18 @@ export type MetricsHistorySummary = {
   avg_bandwidth_out_bps: number;
   peak_goroutines: number;
   avg_goroutines: number;
+};
+
+/**
+ * MetricsTimeSeriesPoint — Chart için tek bir zaman noktası.
+ * Backend GetTimeSeries endpoint'inden döner.
+ */
+export type MetricsTimeSeriesPoint = {
+  ts: string;
+  cpu_pct: number;
+  bw_in: number;
+  bw_out: number;
+  participants: number;
 };
 
 /**

@@ -10,6 +10,7 @@ import type {
   LiveKitInstanceAdmin,
   LiveKitInstanceMetrics,
   MetricsHistorySummary,
+  MetricsTimeSeriesPoint,
   CreateLiveKitInstanceRequest,
   UpdateLiveKitInstanceRequest,
   AdminServerListItem,
@@ -76,6 +77,16 @@ export async function getLiveKitMetricsHistory(
 ) {
   return apiClient<MetricsHistorySummary>(
     `/admin/livekit-instances/${id}/metrics/history?period=${period}`
+  );
+}
+
+/** Bir LiveKit instance'ın time-series metrik verisini getirir (chart için). */
+export async function getLiveKitMetricsTimeSeries(
+  id: string,
+  period: "24h" | "7d" | "30d" = "24h"
+) {
+  return apiClient<MetricsTimeSeriesPoint[]>(
+    `/admin/livekit-instances/${id}/metrics/timeseries?period=${period}`
   );
 }
 

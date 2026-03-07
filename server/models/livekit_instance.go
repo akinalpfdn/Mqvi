@@ -24,6 +24,7 @@ type LiveKitInstance struct {
 	IsPlatformManaged bool      `json:"is_platform_managed"`
 	ServerCount       int       `json:"server_count"`
 	MaxServers        int       `json:"max_servers"` // 0 = sınırsız
+	HetznerServerID   string    `json:"hetzner_server_id"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
@@ -35,15 +36,17 @@ type LiveKitInstanceAdminView struct {
 	IsPlatformManaged bool      `json:"is_platform_managed"`
 	ServerCount       int       `json:"server_count"`
 	MaxServers        int       `json:"max_servers"`
+	HetznerServerID   string    `json:"hetzner_server_id"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
 // CreateLiveKitInstanceRequest, admin panelden yeni LiveKit instance oluşturma isteği.
 type CreateLiveKitInstanceRequest struct {
-	URL        string `json:"url"`
-	APIKey     string `json:"api_key"`
-	APISecret  string `json:"api_secret"`
-	MaxServers int    `json:"max_servers"` // 0 = sınırsız
+	URL             string `json:"url"`
+	APIKey          string `json:"api_key"`
+	APISecret       string `json:"api_secret"`
+	MaxServers      int    `json:"max_servers"` // 0 = sınırsız
+	HetznerServerID string `json:"hetzner_server_id"`
 }
 
 // Validate, CreateLiveKitInstanceRequest'in geçerli olup olmadığını kontrol eder.
@@ -70,10 +73,11 @@ func (r *CreateLiveKitInstanceRequest) Validate() error {
 // Tüm alanlar optional — sadece gönderilen alanlar güncellenir.
 // Credential'lar boş bırakılırsa mevcut değerler korunur.
 type UpdateLiveKitInstanceRequest struct {
-	URL        *string `json:"url"`
-	APIKey     *string `json:"api_key"`
-	APISecret  *string `json:"api_secret"`
-	MaxServers *int    `json:"max_servers"`
+	URL             *string `json:"url"`
+	APIKey          *string `json:"api_key"`
+	APISecret       *string `json:"api_secret"`
+	MaxServers      *int    `json:"max_servers"`
+	HetznerServerID *string `json:"hetzner_server_id"`
 }
 
 // Validate, UpdateLiveKitInstanceRequest'in geçerli olup olmadığını kontrol eder.

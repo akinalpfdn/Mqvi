@@ -421,6 +421,13 @@
   "platformMetricsAvgBandwidthOut": "Ort. Giden Bant Genişliği",
   "platformMetricsSamples": "{{count}} örnek",
   "platformMetricsHistoryLoadError": "Metrik geçmişi yüklenemedi",
+  "platformMetricsChartNoData": "Henüz grafik verisi yok",
+  "platformMetricsChartCPU": "CPU Kullanımı (%)",
+  "platformMetricsChartBandwidth": "Ağ Bant Genişliği",
+
+  "platformHetznerServerId": "Hetzner Sunucu ID",
+  "platformHetznerServerIdPlaceholder": "12345678",
+  "platformHetznerServerIdHint": "Hetzner Cloud Console'daki sayısal ID. Boş bırakılırsa Hetzner metrikleri devre dışı kalır.",
 
   "platformReportsTab": "Raporlar",
   "platformReportReporter": "Raporlayan",

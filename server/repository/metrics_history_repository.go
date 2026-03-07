@@ -24,6 +24,14 @@ type MetricsHistoryRepository interface {
 	// period: "24h", "7d", "30d" — caller tarafından validate edilmiş olmalı.
 	GetSummary(ctx context.Context, instanceID string, period string) (*models.MetricsHistorySummary, error)
 
+	// GetTimeSeries, ham snapshot noktalarını döner (chart için).
+	// period: "24h", "7d", "30d"
+	// Period'a göre aggregation:
+	//   24h → ham veri (5dk interval → ~288 nokta)
+	//   7d  → saatlik avg
+	//   30d → 6 saatlik avg
+	GetTimeSeries(ctx context.Context, instanceID string, period string) ([]models.MetricsTimeSeriesPoint, error)
+
 	// PurgeOlderThan, belirtilen tarihten eski kayıtları siler.
 	// MetricsCollector tarafından her tick'te çağrılır (30 gün retention).
 	// Silinen satır sayısını döner.

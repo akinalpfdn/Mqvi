@@ -230,6 +230,30 @@ func (h *AdminHandler) GetLiveKitInstanceMetricsHistory(w http.ResponseWriter, r
 	pkg.JSON(w, http.StatusOK, summary)
 }
 
+// GetLiveKitInstanceMetricsTimeSeries — GET /api/admin/livekit-instances/{id}/metrics/timeseries?period=24h
+// Chart için ham time-series veri döner.
+// period: "24h" (default), "7d", "30d"
+func (h *AdminHandler) GetLiveKitInstanceMetricsTimeSeries(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "instance id is required")
+		return
+	}
+
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "24h"
+	}
+
+	points, err := h.metricsHistoryService.GetTimeSeries(r.Context(), id, period)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, points)
+}
+
 // PlatformBanUser — POST /api/admin/users/{id}/ban
 // Kullanıcıyı platform genelinde yasaklar.
 // Request body: { "reason": "...", "delete_messages": true/false }

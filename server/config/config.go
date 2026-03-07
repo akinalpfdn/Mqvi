@@ -17,14 +17,15 @@ import (
 // Config, uygulamanın tüm konfigürasyon değerlerini taşır.
 // Her alt bölüm ayrı bir struct — Single Responsibility: her struct tek bir concern'ü temsil eder.
 type Config struct {
-	Server        ServerConfig
-	Database      DatabaseConfig
-	JWT           JWTConfig
-	LiveKit       LiveKitConfig
-	Upload        UploadConfig
-	Email         EmailConfig
-	Klipy         KlipyConfig
-	EncryptionKey string // AES-256 key (64 hex char = 32 byte) — LiveKit credential şifreleme
+	Server          ServerConfig
+	Database        DatabaseConfig
+	JWT             JWTConfig
+	LiveKit         LiveKitConfig
+	Upload          UploadConfig
+	Email           EmailConfig
+	Klipy           KlipyConfig
+	EncryptionKey   string // AES-256 key (64 hex char = 32 byte) — LiveKit credential şifreleme
+	HetznerAPIToken string // Hetzner Cloud API token (read-only yeterli) — boş olabilir
 }
 
 // EmailConfig, email gönderim ayarları (Resend API).
@@ -148,7 +149,8 @@ func Load() (*Config, error) {
 		Klipy: KlipyConfig{
 			APIKey: getEnv("KLIPY_API_KEY", ""),
 		},
-		EncryptionKey: encKey,
+		EncryptionKey:   encKey,
+		HetznerAPIToken: getEnv("HETZNER_API_TOKEN", ""),
 	}
 
 	return cfg, nil

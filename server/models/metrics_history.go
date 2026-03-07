@@ -62,3 +62,13 @@ type MetricsHistorySummary struct {
 	PeakGoroutines int     `json:"peak_goroutines"`
 	AvgGoroutines  float64 `json:"avg_goroutines"`
 }
+
+// MetricsTimeSeriesPoint, chart için tek bir zaman noktası.
+// Frontend'de Recharts AreaChart ile CPU ve bandwidth grafikleri çizmek için kullanılır.
+type MetricsTimeSeriesPoint struct {
+	Timestamp       time.Time `json:"ts"`
+	CPUPercent      float64   `json:"cpu_pct"`
+	BandwidthInBps  float64   `json:"bw_in"`
+	BandwidthOutBps float64   `json:"bw_out"`
+	Participants    int       `json:"participants"`
+}

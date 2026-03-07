@@ -194,7 +194,7 @@ function createWindow(): void {
 function setupPermissions(): void {
   session.defaultSession.setPermissionRequestHandler(
     (_webContents, permission, callback) => {
-      const allowed = ["media", "display-capture", "mediaKeySystem"];
+      const allowed = ["media", "display-capture", "mediaKeySystem", "fullscreen"];
       callback(allowed.includes(permission));
     }
   );

@@ -19,6 +19,10 @@ type MetricsHistoryService interface {
 	// peak/average metrik özeti döner.
 	// period: "24h", "7d", "30d"
 	GetSummary(ctx context.Context, instanceID string, period string) (*models.MetricsHistorySummary, error)
+
+	// GetTimeSeries, chart için zaman serisi verisi döner.
+	// period: "24h", "7d", "30d"
+	GetTimeSeries(ctx context.Context, instanceID string, period string) ([]models.MetricsTimeSeriesPoint, error)
 }
 
 type metricsHistoryService struct {
@@ -56,6 +60,24 @@ func (s *metricsHistoryService) GetSummary(ctx context.Context, instanceID strin
 	}
 
 	return summary, nil
+}
+
+func (s *metricsHistoryService) GetTimeSeries(ctx context.Context, instanceID string, period string) ([]models.MetricsTimeSeriesPoint, error) {
+	if !isValidPeriod(period) {
+		return nil, fmt.Errorf("%w: invalid period %q (expected 24h, 7d, or 30d)", pkg.ErrBadRequest, period)
+	}
+
+	_, err := s.livekitRepo.GetByID(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	points, err := s.historyRepo.GetTimeSeries(ctx, instanceID, period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metrics time series: %w", err)
+	}
+
+	return points, nil
 }
 
 // isValidPeriod, period string'inin geçerli olup olmadığını kontrol eder.
