@@ -213,11 +213,21 @@ export async function encryptDMMessage(
 
   // 2. Self-fanout: kendi diger cihazlari icin de sifrele
   // (Alice Device A → Alice Device B, Alice Device C, ...)
+  //
+  // ONEMLI: Self-fanout her zaman PreKey mesaj olmali.
+  // Recovery restore sonrasi sadece key material var, session state yok.
+  // Regular (non-PreKey) mesajlar session state gerektirir — decrypt edilemez.
+  // Her mesajda session silip yeniden kurarak PreKey zorluyoruz.
   const selfBundles = await e2eeApi.fetchPreKeyBundles(currentUserId);
   if (selfBundles.success && selfBundles.data) {
     for (const bundle of selfBundles.data) {
       // Kendi device'imizi atla — kendimize sifrelemeye gerek yok
       if (bundle.device_id === localDeviceId) continue;
+
+      // Mevcut session'i sil — encryptForDevice PreKey mesaj olusturmaya zorla.
+      // Bu sayede recovery restore eden cihaz, sadece key material ile
+      // (session state olmadan) bu mesaji decrypt edebilir.
+      await keyStorage.deleteSession(currentUserId, bundle.device_id);
 
       const envelope = await encryptForDevice(
         currentUserId,
@@ -334,7 +344,6 @@ export async function decryptDMMessage(
   }
 
   if (!myEnvelope) {
-    // Bu cihaz icin envelope yok — mesaj bu cihaz kaydedilmeden once gonderilmis olabilir
     return null;
   }
 
@@ -348,16 +357,21 @@ export async function decryptDMMessage(
   }
 
   // Signal Protocol ile decrypt
-  const plaintext = await signalProtocol.decryptMessage(
-    senderUserId,
-    senderDeviceId,
-    wireMessage
-  );
+  try {
+    const plaintext = await signalProtocol.decryptMessage(
+      senderUserId,
+      senderDeviceId,
+      wireMessage
+    );
 
-  if (plaintext === null) return null;
+    if (plaintext === null) return null;
 
-  // Structured payload parse — content + file_keys ayristir
-  return decodePayload(plaintext);
+    // Structured payload parse — content + file_keys ayristir
+    return decodePayload(plaintext);
+  } catch (err) {
+    console.error("[dmEncryption] decrypt failed:", err);
+    throw err;
+  }
 }
 
 /**

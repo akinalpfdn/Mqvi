@@ -465,10 +465,11 @@ export async function processPreKeyMessage(
         senderEphemeralKey
       );
       dhConcat = concatBytes(dh1, dh2, dh3, dh4);
-      // One-time prekey tuketildi — sil
-      await keyStorage.deletePreKey(preKeyInfo.oneTimePrekeyId);
+      // One-time prekey'i SILME — recovery backup mekanizmasi varken
+      // silmek anlamsiz: backup zaten tum prekey'leri iceriyor, yeni
+      // cihazlar ayni prekey'i tekrar kullanmak zorunda. Forward secrecy
+      // zaten backup ile compromised.
     } else {
-      // OTP key bulunamazsa 3-DH ile devam et (guvenlik biraz azalir)
       dhConcat = concatBytes(dh1, dh2, dh3);
     }
   } else {
@@ -634,20 +635,16 @@ export async function decryptMessage(
     wireMessage.type === SignalMessageType.PreKey &&
     wireMessage.preKeyInfo
   ) {
-    // Session yoksa veya yeni X3DH gerekiyorsa
-    const existingSession = await keyStorage.getSession(
+    // Her PreKey mesajinda session'i yeniden kur.
+    // Self-fanout mesajlari her zaman PreKey olarak gonderilir
+    // (recovery restore uyumlulugu icin). Mevcut session varsa
+    // da yeni PreKey ile guncellenmelidir — gondericinin session
+    // state'i her mesajda sifirlanir.
+    await processPreKeyMessage(
       senderUserId,
-      senderDeviceId
+      senderDeviceId,
+      wireMessage.preKeyInfo
     );
-
-    if (!existingSession) {
-      // X3DH ile yeni session kur
-      await processPreKeyMessage(
-        senderUserId,
-        senderDeviceId,
-        wireMessage.preKeyInfo
-      );
-    }
   }
 
   const session = await keyStorage.getSession(senderUserId, senderDeviceId);
