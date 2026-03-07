@@ -302,7 +302,7 @@ function AppLayout() {
       <ScreenPicker />
 
       {/* E2EE yeni cihaz kurulum modal'ı — blocking overlay (z-300) */}
-      {e2eeInitStatus === "needs_setup" && <NewDeviceSetup />}
+      {(e2eeInitStatus === "needs_setup" || e2eeInitStatus === "needs_recovery_password") && <NewDeviceSetup />}
     </>
   );
 

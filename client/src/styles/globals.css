@@ -2701,20 +2701,20 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    ═══════════════════════════════════════ */
 
 /* ─── NewDeviceSetup modal ─── */
-.e2ee-setup-description { font-size:14px;color:var(--t1);line-height:1.5;margin-bottom:16px; }
-.e2ee-setup-error { font-size:13px;color:var(--red);margin-bottom:12px;padding:8px 12px;background:var(--red-s);border-radius:6px; }
-.e2ee-setup-actions { display:flex;flex-direction:column;gap:10px;margin-top:16px; }
+.e2ee-setup-description { font-size:14px;color:var(--t1);line-height:1.6;margin-bottom:16px; }
+.e2ee-setup-error { font-size:13px;color:var(--red);margin-bottom:12px;padding:10px 14px;background:var(--red-s);border-radius:8px;line-height:1.4; }
+.e2ee-setup-actions { display:flex;flex-direction:column;gap:10px;margin-top:20px; }
 .e2ee-setup-btn-primary { width:100%;justify-content:center; }
 .e2ee-setup-btn-secondary { width:100%;background:var(--bg-4);color:var(--t1);justify-content:center; }
 .e2ee-setup-btn-secondary:hover { background:var(--bg-5);color:var(--t0); }
-.e2ee-setup-field { margin-bottom:8px; }
+.e2ee-setup-field { margin-bottom:12px; }
 .e2ee-setup-field .settings-input { max-width:none; }
 .e2ee-setup-btn-danger { width:100%;justify-content:center;background:var(--red);color:#fff; }
 .e2ee-setup-btn-danger:hover { background:var(--red-hover); }
 .e2ee-setup-btn-danger:disabled { opacity:.5;cursor:not-allowed; }
-.e2ee-setup-logout { display:block;margin:16px auto 0;background:none;border:none;color:var(--t3);font-size:13px;cursor:pointer;font-family:var(--f-ui);padding:4px 8px;transition:color .15s; }
-.e2ee-setup-logout:hover { color:var(--red); }
-.e2ee-setup-logout:disabled { opacity:.5;cursor:not-allowed; }
+.e2ee-setup-icon { display:flex;justify-content:center;margin-bottom:8px;color:var(--primary); }
+.e2ee-setup-hint { font-size:13px;color:var(--yellow);background:var(--yellow-s);padding:10px 14px;border-radius:8px;line-height:1.5;margin-bottom:20px;border-left:3px solid var(--yellow); }
+.e2ee-setup-fields { display:flex;flex-direction:column;gap:12px;margin-bottom:4px; }
 
 /* ─── EncryptionSettings — status badge ─── */
 .e2ee-status-badge-wrap { margin:12px 0 8px; }

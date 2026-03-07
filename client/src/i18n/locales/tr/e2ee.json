@@ -82,5 +82,8 @@
   "enableE2EEConfirmServer": "Bu sunucudaki tüm yeni mesajlar uçtan uca şifrelenecek. Sadece şifreleme anahtarları kurulu olan üyeler mesajları okuyabilecek. Anahtarı olmayan üyeler şifreli mesajları çözemeyecek.",
   "disableE2EEConfirmServer": "Yeni mesajlar artık şifrelenmeyecek. Daha önce şifrelenmiş mesajlar şifreli kalır ancak yeni mesajlar düz metin olarak gönderilir. Bu sunucudaki tüm kanalları etkiler.",
 
+  "mandatoryRecoveryDescription": "Şifreleme anahtarlarınız oluşturuldu. Onları korumak için bir kurtarma parolası belirleyin. Tüm cihazlarınıza erişiminizi kaybederseniz, şifreli mesajlarınızı kurtarmanın tek yolu bu parola olacaktır.",
+  "mandatoryRecoveryHint": "Bu parolayı istediğiniz zaman Ayarlar > Şifreleme bölümünden değiştirebilirsiniz.",
+
   "recipientNoKeysBanner": "Bu kullanıcı henüz şifreleme kurulumu yapmamış. Şifreleme anahtarlarını kurana kadar mesajlar şifrelenmeden gönderilecek."
 }

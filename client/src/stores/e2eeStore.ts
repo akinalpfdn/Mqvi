@@ -47,6 +47,7 @@ export type E2EEInitStatus =
   | "initializing"
   | "ready"
   | "needs_setup"
+  | "needs_recovery_password"
   | "error";
 
 /**
@@ -128,6 +129,16 @@ type E2EEState = {
   setRecoveryPassword: (password: string) => Promise<void>;
 
   /**
+   * completeRecoverySetup — Ilk kurulumda zorunlu recovery password belirler.
+   *
+   * initStatus === "needs_recovery_password" iken NewDeviceSetup modal'indan cagrilir.
+   * Recovery password'u kaydeder ve initStatus'u "ready" yapar.
+   *
+   * @param password - Recovery password
+   */
+  completeRecoverySetup: (password: string) => Promise<void>;
+
+  /**
    * fetchDevices — Kullanicinin cihaz listesini sunucudan ceker.
    */
   fetchDevices: () => Promise<void>;
@@ -181,7 +192,7 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
   initialize: async (userId: string) => {
     // Tekrar initialize etme — zaten baslatildiysa skip
     const current = get().initStatus;
-    if (current === "initializing" || current === "ready") return;
+    if (current === "initializing" || current === "ready" || current === "needs_recovery_password") return;
 
     set({ initStatus: "initializing", initError: null });
 
@@ -276,7 +287,11 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
         }
 
         // Hic cihaz yok — ilk kez kullanan kullanici, otomatik key olustur
+        // Anahtarlar arkaplanda olusturulur, sonra kullanici zorunlu
+        // recovery password belirleyene kadar uygulama engellenir.
         await get().setupNewDevice(userId);
+        // setupNewDevice initStatus'u "ready" yapar — biz uzerine yaziyoruz
+        set({ initStatus: "needs_recovery_password" });
       }
     } catch (err) {
       const message =
@@ -423,6 +438,16 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
         err instanceof Error ? err.message : "Failed to set recovery password";
       console.error("[e2eeStore] setRecoveryPassword error:", message);
       throw err; // UI'da toast gosterilsin
+    }
+  },
+
+  completeRecoverySetup: async (password: string) => {
+    try {
+      await get().setRecoveryPassword(password);
+      set({ initStatus: "ready" });
+    } catch (err) {
+      // setRecoveryPassword zaten throw ediyor — tekrar throw et
+      throw err;
     }
   },
 

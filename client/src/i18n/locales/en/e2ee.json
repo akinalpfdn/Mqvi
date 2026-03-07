@@ -82,5 +82,8 @@
   "enableE2EEConfirmServer": "All new messages in this server will be encrypted end-to-end. Only members with encryption keys set up will be able to read them. Members without keys will see encrypted messages they cannot decrypt.",
   "disableE2EEConfirmServer": "New messages will no longer be encrypted. Previously encrypted messages will remain encrypted but new messages will be sent as plain text. This affects all channels in this server.",
 
+  "mandatoryRecoveryDescription": "Your encryption keys have been generated. Set a recovery password to protect them. If you lose access to all your devices, this password will be the only way to recover your encrypted messages.",
+  "mandatoryRecoveryHint": "You can change this password anytime from Settings > Encryption.",
+
   "recipientNoKeysBanner": "This user hasn't set up encryption yet. Messages will be sent unencrypted until they set up their encryption keys."
 }
