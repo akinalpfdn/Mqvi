@@ -1629,6 +1629,8 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .dm-header { display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--b1);background:var(--bg-3);flex-shrink:0;height:33px; }
 .dm-header-name { font-size:13px;font-weight:600;color:var(--t0); }
 .dm-loading { flex:1;display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:13px; }
+.e2ee-warning-banner { display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--yellow-s);border-bottom:1px solid var(--b1);color:var(--yellow);font-size:13px;flex-shrink:0; }
+.e2ee-warning-banner svg { color:var(--yellow); }
 
 /* DM unread badge — per-channel */
 .dm-unread-badge {

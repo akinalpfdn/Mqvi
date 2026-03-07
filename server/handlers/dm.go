@@ -416,3 +416,31 @@ func (h *DMHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
 
 	pkg.JSON(w, http.StatusOK, result)
 }
+
+// PATCH /api/dms/{channelId}/e2ee
+// DM kanalında E2EE'yi açar veya kapatır.
+// Her iki kullanıcı da toggle yapabilir.
+func (h *DMHandler) ToggleE2EE(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("channelId")
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	channel, err := h.dmService.ToggleE2EE(r.Context(), user.ID, channelID, req.Enabled)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, channel)
+}

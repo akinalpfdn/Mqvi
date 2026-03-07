@@ -110,13 +110,22 @@ function NewDeviceSetup() {
                 </>
               ) : (
                 <>
-                  {/* Yedek yok — ilk kurulum, sadece yeni anahtar */}
+                  {/* Yedek yok — yeni anahtar birincil, kurtarma ikincil
+                      (kullanıcı sonradan backup oluşturmuş olabilir — deneme hakkı ver) */}
                   <button
                     onClick={handleGenerateKeys}
                     disabled={isLoading}
                     className="settings-btn e2ee-setup-btn-primary"
                   >
                     {isGeneratingKeys ? t("generatingKeys") : t("generateNewKeys")}
+                  </button>
+
+                  <button
+                    onClick={() => setView("restore")}
+                    disabled={isLoading}
+                    className="settings-btn e2ee-setup-btn-secondary"
+                  >
+                    {t("restoreFromRecovery")}
                   </button>
                 </>
               )}

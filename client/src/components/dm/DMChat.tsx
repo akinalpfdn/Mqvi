@@ -29,7 +29,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
+import { useToastStore } from "../../stores/toastStore";
 import { useChatContext } from "../../hooks/useChatContext";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import DMChatProvider from "./DMChatProvider";
 import MessageList from "../chat/MessageList";
@@ -39,6 +41,7 @@ import DMPinnedMessages from "./DMPinnedMessages";
 import DMSearchPanel from "./DMSearchPanel";
 import FileDropOverlay from "../shared/FileDropOverlay";
 import Avatar from "../shared/Avatar";
+import * as e2eeApi from "../../api/e2ee";
 import type { User } from "../../types";
 
 type DMChatProps = {
@@ -84,15 +87,22 @@ function DMChatContent({
   otherUser: User | null;
 }) {
   const { t } = useTranslation("chat");
+  const { t: tE2EE } = useTranslation("e2ee");
   const { addFilesRef } = useChatContext();
+  const confirm = useConfirm();
   const selectDM = useDMStore((s) => s.selectDM);
   const clearDMUnread = useDMStore((s) => s.clearDMUnread);
   const invalidateMessages = useDMStore((s) => s.invalidateMessages);
   const fetchMessages = useDMStore((s) => s.fetchMessages);
+  const toggleE2EE = useDMStore((s) => s.toggleE2EE);
   const e2eeInitStatus = useE2EEStore((s) => s.initStatus);
+  const channels = useDMStore((s) => s.channels);
+  const dmE2EEEnabled = channels.find((ch) => ch.id === channelId)?.e2ee_enabled ?? false;
+  const addToast = useToastStore((s) => s.addToast);
 
   const [showPins, setShowPins] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [recipientHasKeys, setRecipientHasKeys] = useState(true); // default true — assume ok until checked
   const pendingSearchChannelId = useDMStore((s) => s.pendingSearchChannelId);
   const setPendingSearchChannelId = useDMStore((s) => s.setPendingSearchChannelId);
 
@@ -130,6 +140,22 @@ function DMChatContent({
     }
   }, [pendingSearchChannelId, channelId, setPendingSearchChannelId]);
 
+  // E2EE aktifken alıcının anahtar durumunu kontrol et (banner için)
+  useEffect(() => {
+    if (!dmE2EEEnabled || !otherUser) {
+      setRecipientHasKeys(true);
+      return;
+    }
+    let cancelled = false;
+    e2eeApi.listUserDevices(otherUser.id).then((res) => {
+      if (cancelled) return;
+      setRecipientHasKeys(res.success && !!res.data && res.data.length > 0);
+    }).catch(() => {
+      if (!cancelled) setRecipientHasKeys(true); // hata durumunda banner gösterme
+    });
+    return () => { cancelled = true; };
+  }, [dmE2EEEnabled, otherUser]);
+
   /** Pin paneli aç/kapa toggle */
   const handleTogglePins = useCallback(() => {
     setShowPins((prev) => !prev);
@@ -163,8 +189,41 @@ function DMChatContent({
         />
         <span className="dm-header-name">{channelName}</span>
 
-        {/* Header actions — pin, search */}
+        {/* Header actions — e2ee, pin, search */}
         <div className="ch-actions">
+          {/* E2EE toggle ikonu */}
+          <button
+            className={dmE2EEEnabled ? "active" : ""}
+            onClick={async () => {
+              const newState = !dmE2EEEnabled;
+              const confirmed = await confirm({
+                title: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
+                message: newState ? tE2EE("enableE2EEConfirmDM") : tE2EE("disableE2EEConfirmDM"),
+                confirmLabel: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
+                danger: !newState,
+              });
+              if (!confirmed) return;
+              const ok = await toggleE2EE(channelId, newState);
+              if (ok) {
+                addToast("success", newState ? tE2EE("e2eeEnabled") : tE2EE("e2eeDisabled"));
+              } else {
+                addToast("error", tE2EE("e2eeToggleFailed"));
+              }
+            }}
+            title={dmE2EEEnabled ? tE2EE("disableE2EE") : tE2EE("enableE2EE")}
+          >
+            {dmE2EEEnabled ? (
+              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0110 0v4" />
+              </svg>
+            ) : (
+              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 019.9-1" />
+              </svg>
+            )}
+          </button>
           {/* Pin ikonu */}
           <button
             className={showPins ? "active" : ""}
@@ -187,6 +246,16 @@ function DMChatContent({
           </button>
         </div>
       </div>
+
+      {/* ─── E2EE Recipient No Keys Banner ─── */}
+      {dmE2EEEnabled && !recipientHasKeys && (
+        <div className="e2ee-warning-banner">
+          <svg style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>{tE2EE("recipientNoKeysBanner")}</span>
+        </div>
+      )}
 
       {/* ─── DM Pinned Messages Panel ─── */}
       {showPins && (

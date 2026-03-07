@@ -234,6 +234,16 @@ export function unmuteDM(channelId: string) {
   return apiClient<void>(`/dms/channels/${channelId}/mute`, { method: "DELETE" });
 }
 
+// ─── E2EE Toggle ───
+
+/** DM kanalında E2EE'yi aç/kapat. Her iki taraf da değiştirebilir. */
+export function toggleDME2EE(channelId: string, enabled: boolean) {
+  return apiClient<{ id: string; e2ee_enabled: boolean }>(`/dms/channels/${channelId}/e2ee`, {
+    method: "PATCH",
+    body: { enabled },
+  });
+}
+
 // ─── Search ───
 
 /** DM arama sonucu tipi — mesajlar + toplam sayı (pagination için). */

@@ -69,5 +69,18 @@
   "noRecoveryWarning": "Kurtarma parolası belirlenmedi. Tüm cihazlarınıza erişiminizi kaybederseniz şifreleme anahtarlarınızı kurtaramazsınız.",
   "setupRequired": "Şifreli mesaj göndermek için şifreleme kurulumunu tamamlayın.",
   "setupBackToChoice": "Geri",
-  "recipientNoKeys": "Bu kullanıcı henüz şifreleme kurulumunu yapmamış. Önce giriş yapması gerekiyor."
+  "recipientNoKeys": "Bu kullanıcı henüz şifreleme kurulumunu yapmamış. Önce giriş yapması gerekiyor.",
+
+  "enableE2EE": "Uçtan Uca Şifrelemeyi Aç",
+  "disableE2EE": "Uçtan Uca Şifrelemeyi Kapat",
+  "e2eeEnabled": "Uçtan uca şifreleme açıldı",
+  "e2eeDisabled": "Uçtan uca şifreleme kapatıldı",
+  "e2eeToggleFailed": "Şifreleme ayarı değiştirilemedi",
+
+  "enableE2EEConfirmDM": "Mesajlar uçtan uca şifrelenecek. Sadece siz ve karşı taraf okuyabilecek. Bunun çalışması için her iki kullanıcının da şifreleme anahtarları kurulu olmalıdır.",
+  "disableE2EEConfirmDM": "Yeni mesajlar artık şifrelenmeyecek. Daha önce şifrelenmiş mesajlar şifreli kalır ancak yeni mesajlar düz metin olarak gönderilir.",
+  "enableE2EEConfirmServer": "Bu sunucudaki tüm yeni mesajlar uçtan uca şifrelenecek. Sadece şifreleme anahtarları kurulu olan üyeler mesajları okuyabilecek. Anahtarı olmayan üyeler şifreli mesajları çözemeyecek.",
+  "disableE2EEConfirmServer": "Yeni mesajlar artık şifrelenmeyecek. Daha önce şifrelenmiş mesajlar şifreli kalır ancak yeni mesajlar düz metin olarak gönderilir. Bu sunucudaki tüm kanalları etkiler.",
+
+  "recipientNoKeysBanner": "Bu kullanıcı henüz şifreleme kurulumu yapmamış. Şifreleme anahtarlarını kurana kadar mesajlar şifrelenmeden gönderilecek."
 }

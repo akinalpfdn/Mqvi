@@ -16,6 +16,7 @@ type DMChannel struct {
 	ID            string     `json:"id"`
 	User1ID       string     `json:"user1_id"`
 	User2ID       string     `json:"user2_id"`
+	E2EEEnabled   bool       `json:"e2ee_enabled"`    // true = E2EE aktif
 	CreatedAt     time.Time  `json:"created_at"`
 	LastMessageAt *time.Time `json:"last_message_at"` // Nullable — henüz mesaj yoksa nil
 }
@@ -26,6 +27,7 @@ type DMChannel struct {
 type DMChannelWithUser struct {
 	ID            string     `json:"id"`
 	OtherUser     *User      `json:"other_user"`      // Karşı taraf kullanıcı bilgisi
+	E2EEEnabled   bool       `json:"e2ee_enabled"`    // true = E2EE aktif
 	CreatedAt     time.Time  `json:"created_at"`
 	LastMessageAt *time.Time `json:"last_message_at"` // Son mesaj aktivitesi — sıralama için
 	IsPinned      bool       `json:"is_pinned"`       // Kullanıcı bu DM'yi sabitledi mi

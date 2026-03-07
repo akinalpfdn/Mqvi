@@ -69,5 +69,18 @@
   "noRecoveryWarning": "No recovery password set. If you lose access to all devices, you will not be able to recover your encryption keys.",
   "setupRequired": "Set up encryption to start sending encrypted messages.",
   "setupBackToChoice": "Back",
-  "recipientNoKeys": "This user hasn't set up encryption yet. They need to log in first."
+  "recipientNoKeys": "This user hasn't set up encryption yet. They need to log in first.",
+
+  "enableE2EE": "Enable End-to-End Encryption",
+  "disableE2EE": "Disable End-to-End Encryption",
+  "e2eeEnabled": "End-to-end encryption enabled",
+  "e2eeDisabled": "End-to-end encryption disabled",
+  "e2eeToggleFailed": "Failed to change encryption setting",
+
+  "enableE2EEConfirmDM": "Messages will be encrypted end-to-end. Only you and the other person will be able to read them. Both users need to have encryption keys set up for this to work.",
+  "disableE2EEConfirmDM": "New messages will no longer be encrypted. Previously encrypted messages will remain encrypted but new messages will be sent as plain text.",
+  "enableE2EEConfirmServer": "All new messages in this server will be encrypted end-to-end. Only members with encryption keys set up will be able to read them. Members without keys will see encrypted messages they cannot decrypt.",
+  "disableE2EEConfirmServer": "New messages will no longer be encrypted. Previously encrypted messages will remain encrypted but new messages will be sent as plain text. This affects all channels in this server.",
+
+  "recipientNoKeysBanner": "This user hasn't set up encryption yet. Messages will be sent unencrypted until they set up their encryption keys."
 }

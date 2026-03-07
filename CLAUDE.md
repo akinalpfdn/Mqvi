@@ -35,7 +35,7 @@ Build komutları bu yolları kullanmalı. Örnek:
 
 ## Kullanıcı Profili
 
-- Kullanıcı Go ve Tauri'ye yeni, React/TypeScript tecrübesi az.
+- Kullanıcı Go ve electron'ye yeni, React/TypeScript tecrübesi az.
 - Açıklamalar öğretici olmalı: "neden bu pattern", "bu Go'da ne işe yarıyor" anlatılmalı.
 - Yeni bir Go konsepti (goroutine, channel, interface, middleware, vb.) ilk kez kullanıldığında kısa açıklama ekle.
 - Teknik kararlarda seçeneklerin artılarını/eksilerini göster.
@@ -47,8 +47,8 @@ Build komutları bu yolları kullanmalı. Örnek:
 | Katman | Teknoloji |
 |--------|-----------|
 | Backend | Go (net/http + gorilla/websocket) |
-| Frontend | React + TypeScript + Vite + Tailwind |
-| Desktop | Tauri v2 |
+| Frontend | React + TypeScript + Vite  |
+| Desktop | electron  |
 | State | Zustand |
 | Voice/Video | LiveKit (self-hosted SFU) |
 | Database | SQLite (modernc.org/sqlite — pure Go) |
@@ -236,15 +236,6 @@ Tüm renkler, fontlar ve layout boyutları `client/src/styles/globals.css` için
 
 ---
 
-## LiveKit Entegrasyonu
-
-- Token generation server-side (Go SDK).
-- Client tarafında `@livekit/components-react` kullanılır.
-- Screen share config: 1080p/30fps, VP9 codec, simulcast aktif.
-- Aynı anda max 2 screen share (server-side track kontrolü).
-- Voice: Opus codec, noise suppression aktif, adaptive bitrate.
-
----
 
 ## Güvenlik
 
@@ -360,7 +351,7 @@ mqvi/
 │       ├── styles/
 │       ├── types/
 │       └── utils/
-├── src-tauri/            # Tauri desktop wrapper
+├── src-electron/            # electron desktop wrapper
 ├── docker-compose.yml
 └── docs/
 ```

@@ -99,6 +99,11 @@ type ServerState = {
 
   /** Sunucunun muted olup olmadığını kontrol eder */
   isServerMuted: (serverId: string) => boolean;
+
+  // ─── E2EE Toggle ───
+
+  /** Sunucu E2EE durumunu değiştirir (sadece owner) */
+  toggleE2EE: (serverId: string, enabled: boolean) => Promise<boolean>;
 };
 
 export const useServerStore = create<ServerState>((set, get) => ({
@@ -344,5 +349,11 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   isServerMuted: (serverId) => {
     return get().mutedServerIds.has(serverId);
+  },
+
+  toggleE2EE: async (serverId, enabled) => {
+    const res = await serversApi.updateServer(serverId, { e2ee_enabled: enabled });
+    // server_update WS event'i handleServerUpdate ile otomatik gelir
+    return res.success;
   },
 }));

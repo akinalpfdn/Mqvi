@@ -357,6 +357,9 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 	if req.InviteRequired != nil {
 		server.InviteRequired = *req.InviteRequired
 	}
+	if req.E2EEEnabled != nil {
+		server.E2EEEnabled = *req.E2EEEnabled
+	}
 
 	if err := s.serverRepo.Update(ctx, server); err != nil {
 		return nil, fmt.Errorf("failed to update server: %w", err)

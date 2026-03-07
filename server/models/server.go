@@ -19,6 +19,7 @@ type Server struct {
 	IconURL           *string   `json:"icon_url"`
 	OwnerID           string    `json:"owner_id"`
 	InviteRequired    bool      `json:"invite_required"`
+	E2EEEnabled       bool      `json:"e2ee_enabled"`                 // true = E2EE aktif, mesajlar sifreli
 	LiveKitInstanceID *string   `json:"livekit_instance_id,omitempty"` // nil = voice yok
 	CreatedAt         time.Time `json:"created_at"`
 }
@@ -81,6 +82,7 @@ func (r *CreateServerRequest) Validate() error {
 type UpdateServerRequest struct {
 	Name           *string `json:"name"`
 	InviteRequired *bool   `json:"invite_required"`
+	E2EEEnabled    *bool   `json:"e2ee_enabled"`
 	// LiveKit credential güncelleme (sadece self-hosted sunucular için)
 	LiveKitURL    *string `json:"livekit_url,omitempty"`
 	LiveKitKey    *string `json:"livekit_key,omitempty"`

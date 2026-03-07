@@ -43,6 +43,7 @@ type DMRepository interface {
 	GetChannelByID(ctx context.Context, id string) (*models.DMChannel, error)
 	ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error)
 	CreateChannel(ctx context.Context, channel *models.DMChannel) error
+	SetE2EEEnabled(ctx context.Context, channelID string, enabled bool) error
 
 	// Message operations
 	GetMessages(ctx context.Context, channelID string, beforeID string, limit int) ([]models.DMMessage, error)

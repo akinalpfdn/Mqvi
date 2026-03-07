@@ -30,9 +30,9 @@ func (r *sqliteDMRepo) GetChannelByUsers(ctx context.Context, user1ID, user2ID s
 	var ch models.DMChannel
 	var lastMsgAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id, user1_id, user2_id, created_at, last_message_at FROM dm_channels WHERE user1_id = ? AND user2_id = ?",
+		"SELECT id, user1_id, user2_id, e2ee_enabled, created_at, last_message_at FROM dm_channels WHERE user1_id = ? AND user2_id = ?",
 		user1ID, user2ID,
-	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.CreatedAt, &lastMsgAt)
+	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.E2EEEnabled, &ch.CreatedAt, &lastMsgAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil // Kanal yok — nil döner (hata değil)
@@ -51,9 +51,9 @@ func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.D
 	var ch models.DMChannel
 	var lastMsgAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id, user1_id, user2_id, created_at, last_message_at FROM dm_channels WHERE id = ?",
+		"SELECT id, user1_id, user2_id, e2ee_enabled, created_at, last_message_at FROM dm_channels WHERE id = ?",
 		id,
-	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.CreatedAt, &lastMsgAt)
+	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.E2EEEnabled, &ch.CreatedAt, &lastMsgAt)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("%w: DM channel not found", pkg.ErrNotFound)
@@ -82,7 +82,7 @@ func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.D
 // Sonra diğer DM'ler activity sıralı.
 func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error) {
 	query := `
-		SELECT dc.id, dc.created_at, dc.last_message_at,
+		SELECT dc.id, dc.e2ee_enabled, dc.created_at, dc.last_message_at,
 			u.id, u.username, u.display_name, u.avatar_url, u.status,
 			COALESCE(ds.is_pinned, 0),
 			CASE WHEN ds.muted_until IS NOT NULL AND ds.muted_until > datetime('now') THEN 1 ELSE 0 END
@@ -112,7 +112,7 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 		var isPinned, isMuted int
 
 		if err := rows.Scan(
-			&ch.ID, &ch.CreatedAt, &lastMsgAt,
+			&ch.ID, &ch.E2EEEnabled, &ch.CreatedAt, &lastMsgAt,
 			&user.ID, &user.Username, &displayName, &avatarURL, &user.Status,
 			&isPinned, &isMuted,
 		); err != nil {
@@ -158,6 +158,25 @@ func (r *sqliteDMRepo) CreateChannel(ctx context.Context, channel *models.DMChan
 	}
 	if lastMsgAt.Valid {
 		channel.LastMessageAt = &lastMsgAt.Time
+	}
+	return nil
+}
+
+// SetE2EEEnabled, DM kanalının E2EE durumunu günceller.
+func (r *sqliteDMRepo) SetE2EEEnabled(ctx context.Context, channelID string, enabled bool) error {
+	result, err := r.db.ExecContext(ctx,
+		"UPDATE dm_channels SET e2ee_enabled = ? WHERE id = ?",
+		enabled, channelID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update DM E2EE: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
 	}
 	return nil
 }

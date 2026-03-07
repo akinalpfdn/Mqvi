@@ -27,13 +27,13 @@ func NewSQLiteServerRepo(db database.TxQuerier) ServerRepository {
 
 func (r *sqliteServerRepo) Create(ctx context.Context, server *models.Server) error {
 	query := `
-		INSERT INTO servers (id, name, icon_url, owner_id, invite_required, livekit_instance_id)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?)
+		INSERT INTO servers (id, name, icon_url, owner_id, invite_required, e2ee_enabled, livekit_instance_id)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
 		server.Name, server.IconURL, server.OwnerID,
-		server.InviteRequired, server.LiveKitInstanceID,
+		server.InviteRequired, server.E2EEEnabled, server.LiveKitInstanceID,
 	).Scan(&server.ID, &server.CreatedAt)
 
 	if err != nil {
@@ -45,13 +45,13 @@ func (r *sqliteServerRepo) Create(ctx context.Context, server *models.Server) er
 
 func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*models.Server, error) {
 	query := `
-		SELECT id, name, icon_url, owner_id, invite_required, livekit_instance_id, created_at
+		SELECT id, name, icon_url, owner_id, invite_required, e2ee_enabled, livekit_instance_id, created_at
 		FROM servers WHERE id = ?`
 
 	s := &models.Server{}
 	err := r.db.QueryRowContext(ctx, query, serverID).Scan(
 		&s.ID, &s.Name, &s.IconURL, &s.OwnerID,
-		&s.InviteRequired, &s.LiveKitInstanceID, &s.CreatedAt,
+		&s.InviteRequired, &s.E2EEEnabled, &s.LiveKitInstanceID, &s.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -66,12 +66,12 @@ func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*model
 
 func (r *sqliteServerRepo) Update(ctx context.Context, server *models.Server) error {
 	query := `
-		UPDATE servers SET name = ?, icon_url = ?, invite_required = ?, livekit_instance_id = ?
+		UPDATE servers SET name = ?, icon_url = ?, invite_required = ?, e2ee_enabled = ?, livekit_instance_id = ?
 		WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query,
 		server.Name, server.IconURL, server.InviteRequired,
-		server.LiveKitInstanceID, server.ID,
+		server.E2EEEnabled, server.LiveKitInstanceID, server.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update server: %w", err)

@@ -52,6 +52,7 @@ export async function updateServer(
   data: {
     name?: string;
     invite_required?: boolean;
+    e2ee_enabled?: boolean;
     livekit_url?: string;
     livekit_key?: string;
     livekit_secret?: string;

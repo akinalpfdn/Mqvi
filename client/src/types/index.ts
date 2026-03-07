@@ -297,6 +297,7 @@ export type VoiceStateUpdateData = {
 export type DMChannelWithUser = {
   id: string;
   other_user: User;
+  e2ee_enabled: boolean; // true = E2EE aktif
   created_at: string;
   last_message_at: string | null; // Son mesaj aktivitesi — sıralama için
   is_pinned: boolean;  // Kullanıcı bu DM'yi sabitledi mi
@@ -639,6 +640,7 @@ export type Server = {
   icon_url: string | null;
   owner_id: string;
   invite_required: boolean;
+  e2ee_enabled: boolean;
   livekit_instance_id: string | null;
   member_count: number;
   created_at: string;

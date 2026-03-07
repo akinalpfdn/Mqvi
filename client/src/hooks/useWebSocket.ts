@@ -641,6 +641,9 @@ export function useWebSocket() {
       case "dm_channel_create":
         useDMStore.getState().handleDMChannelCreate(msg.d as DMChannelWithUser);
         break;
+      case "dm_channel_update":
+        useDMStore.getState().handleDMChannelUpdate(msg.d as DMChannelWithUser);
+        break;
       case "dm_message_create": {
         let dmMsg = msg.d as DMMessage;
         const dmCurrentUserId = useAuthStore.getState().user?.id;

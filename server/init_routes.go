@@ -110,6 +110,7 @@ func initRoutes(
 	mux.Handle("DELETE /api/dms/messages/{id}/pin", auth(h.DM.UnpinMessage))
 	mux.Handle("GET /api/dms/{channelId}/pinned", auth(h.DM.GetPinnedMessages))
 	mux.Handle("GET /api/dms/{channelId}/search", auth(h.DM.SearchMessages))
+	mux.Handle("PATCH /api/dms/channels/{channelId}/e2ee", auth(h.DM.ToggleE2EE))
 
 	// Block — literal "blocked" ÖNCE, sonra parametric {userId}
 	mux.Handle("GET /api/users/blocked", auth(h.Block.ListBlocked))

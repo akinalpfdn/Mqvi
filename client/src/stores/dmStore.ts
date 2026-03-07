@@ -157,6 +157,12 @@ type DMState = {
   handleDMMessageUnpin: (data: { dm_channel_id: string; message_id: string }) => void;
   /** DM settings WS event: hide/pin/mute değişikliği */
   handleDMSettingsUpdate: (data: { dm_channel_id: string; action: string }) => void;
+  /** DM kanalı güncellendi (WS: dm_channel_update — e2ee toggle vb.) */
+  handleDMChannelUpdate: (channel: DMChannelWithUser) => void;
+
+  // ─── E2EE Toggle ───
+  /** DM kanalında E2EE'yi aç/kapat */
+  toggleE2EE: (channelId: string, enabled: boolean) => Promise<boolean>;
 
   // ─── Helpers ───
   getMessagesForChannel: (channelId: string) => DMMessage[];
@@ -278,9 +284,10 @@ export const useDMStore = create<DMState>((set, get) => ({
   sendMessage: async (channelId, content, files, replyToId) => {
     const e2eeState = useE2EEStore.getState();
 
-    // E2EE aktif — şifreli gönder
-    if (e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
-      const channel = get().channels.find((ch) => ch.id === channelId);
+    // E2EE aktif — şifreli gönder (kanal e2ee_enabled + cihaz hazır)
+    const dmChannel = get().channels.find((ch) => ch.id === channelId);
+    if (dmChannel?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+      const channel = dmChannel;
       const currentUserId = useAuthStore.getState().user?.id;
 
       if (channel && currentUserId) {
@@ -361,13 +368,16 @@ export const useDMStore = create<DMState>((set, get) => ({
           discardLastSentPlaintext(channelId);
           console.error("[dmStore] E2EE encrypt failed:", err);
 
-          // Alıcının E2EE anahtarı yoksa spesifik hata mesajı göster
+          // Alıcının E2EE anahtarı yoksa plaintext fallback — mesaj engellenmez
           const errMsg = err instanceof Error ? err.message : "";
           if (errMsg === "RECIPIENT_NO_KEYS") {
-            useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
-          } else {
-            useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
+            const fallbackRes = await dmApi.sendDMMessage(channelId, content, files, replyToId);
+            if (!fallbackRes.success && fallbackRes.error?.includes("too many")) {
+              useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
+            }
+            return fallbackRes.success;
           }
+          useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
           return false;
         }
       }
@@ -386,18 +396,23 @@ export const useDMStore = create<DMState>((set, get) => ({
   editMessage: async (messageId, content) => {
     const e2eeState = useE2EEStore.getState();
 
-    // E2EE aktifse şifreli edit gönder
-    if (e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
-      // Düzenlenen mesajı bul — hangi kanala ait olduğunu ve alıcıyı belirle
-      const state = get();
-      let recipientUserId: string | null = null;
-      for (const [chId, msgs] of Object.entries(state.messagesByChannel)) {
-        if (msgs.some((m) => m.id === messageId)) {
-          const channel = state.channels.find((ch) => ch.id === chId);
-          if (channel) recipientUserId = channel.other_user.id;
-          break;
+    // E2EE aktifse şifreli edit gönder — kanal e2ee_enabled kontrolü
+    // Düzenlenen mesajı bul — hangi kanala ait olduğunu ve alıcıyı belirle
+    const editState = get();
+    let recipientUserId: string | null = null;
+    let editChannelE2EE = false;
+    for (const [chId, msgs] of Object.entries(editState.messagesByChannel)) {
+      if (msgs.some((m) => m.id === messageId)) {
+        const ch = editState.channels.find((c) => c.id === chId);
+        if (ch) {
+          recipientUserId = ch.other_user.id;
+          editChannelE2EE = ch.e2ee_enabled;
         }
+        break;
       }
+    }
+
+    if (editChannelE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
 
       const currentUserId = useAuthStore.getState().user?.id;
 
@@ -431,6 +446,12 @@ export const useDMStore = create<DMState>((set, get) => ({
           return res.success;
         } catch (err) {
           console.error("[dmStore] E2EE edit encrypt failed:", err);
+          const editErrMsg = err instanceof Error ? err.message : "";
+          if (editErrMsg === "RECIPIENT_NO_KEYS") {
+            // Alıcının anahtarı yok — plaintext fallback
+            const fallbackRes = await dmApi.editDMMessage(messageId, content);
+            return fallbackRes.success;
+          }
           useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
           return false;
         }
@@ -911,6 +932,26 @@ export const useDMStore = create<DMState>((set, get) => ({
         }));
         break;
     }
+  },
+
+  handleDMChannelUpdate: (channel) => {
+    set((state) => ({
+      channels: state.channels.map((ch) =>
+        ch.id === channel.id ? { ...ch, ...channel } : ch
+      ),
+    }));
+  },
+
+  toggleE2EE: async (channelId, enabled) => {
+    const res = await dmApi.toggleDME2EE(channelId, enabled);
+    if (res.success && res.data) {
+      set((state) => ({
+        channels: state.channels.map((ch) =>
+          ch.id === channelId ? { ...ch, e2ee_enabled: enabled } : ch
+        ),
+      }));
+    }
+    return res.success;
   },
 
   // ─── Helpers ───

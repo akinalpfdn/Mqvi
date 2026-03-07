@@ -48,6 +48,7 @@ type DMService interface {
 	UnpinMessage(ctx context.Context, userID, messageID string) error
 	GetPinnedMessages(ctx context.Context, userID, channelID string) ([]models.DMMessage, error)
 	SearchMessages(ctx context.Context, userID, channelID, query string, limit, offset int) (*models.DMSearchResult, error)
+	ToggleE2EE(ctx context.Context, userID, channelID string, enabled bool) (*models.DMChannel, error)
 }
 
 type dmService struct {
@@ -647,4 +648,28 @@ func (s *dmService) SearchMessages(ctx context.Context, userID, channelID, query
 	}
 
 	return &models.DMSearchResult{Messages: messages, TotalCount: totalCount}, nil
+}
+
+// ToggleE2EE, DM kanalının E2EE durumunu değiştirir.
+// Her iki kullanıcı da toggle yapabilir — kanal bazlı ayar.
+// Toggle sonrası her iki kullanıcıya WS broadcast yapılır.
+func (s *dmService) ToggleE2EE(ctx context.Context, userID, channelID string, enabled bool) (*models.DMChannel, error) {
+	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.dmRepo.SetE2EEEnabled(ctx, channelID, enabled); err != nil {
+		return nil, fmt.Errorf("failed to toggle DM E2EE: %w", err)
+	}
+
+	channel.E2EEEnabled = enabled
+
+	// Her iki kullanıcıya bildir
+	s.broadcastToBothUsers(channel, ws.Event{
+		Op:   "dm_channel_update",
+		Data: channel,
+	})
+
+	return channel, nil
 }

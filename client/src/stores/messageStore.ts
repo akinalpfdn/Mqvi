@@ -205,7 +205,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     // E2EE aktifse Sender Key ile sifrele
     const e2eeState = useE2EEStore.getState();
-    if (e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+    const activeServer = useServerStore.getState().activeServer;
+    if (activeServer?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
       if (currentUserId) {
         try {
@@ -285,7 +286,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     // E2EE aktifse sifreli edit
     const e2eeState = useE2EEStore.getState();
-    if (e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+    const activeServerForEdit = useServerStore.getState().activeServer;
+    if (activeServerForEdit?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
       // Mesajin kanalini bul
       const allChannels = get().messagesByChannel;

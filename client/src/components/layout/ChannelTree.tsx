@@ -69,6 +69,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const { t: tVoice } = useTranslation("voice");
   const { t: tServers } = useTranslation("servers");
   const { t: tDM } = useTranslation("dm");
+  const { t: tE2EE } = useTranslation("e2ee");
 
   const toggleSection = useSidebarStore((s) => s.toggleSection);
   const expandSection = useSidebarStore((s) => s.expandSection);
@@ -101,6 +102,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const unmuteServer = useServerStore((s) => s.unmuteServer);
   const activeServer = useServerStore((s) => s.activeServer);
   const leaveServer = useServerStore((s) => s.leaveServer);
+  const toggleServerE2EE = useServerStore((s) => s.toggleE2EE);
   const markAllAsRead = useReadStateStore((s) => s.markAllAsRead);
   const openSettings = useSettingsStore((s) => s.openSettings);
 
@@ -854,6 +856,29 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
               label: tServers("inviteFriends"),
               onClick: () => {
                 setInviteTarget({ serverId, serverName });
+              },
+            },
+          ]
+        : []),
+      ...(isOwner
+        ? [
+            {
+              label: activeServer?.e2ee_enabled ? tE2EE("disableE2EE") : tE2EE("enableE2EE"),
+              onClick: async () => {
+                const newState = !activeServer?.e2ee_enabled;
+                const confirmed = await confirmDialog({
+                  title: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
+                  message: newState ? tE2EE("enableE2EEConfirmServer") : tE2EE("disableE2EEConfirmServer"),
+                  confirmLabel: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
+                  danger: !newState,
+                });
+                if (!confirmed) return;
+                const ok = await toggleServerE2EE(serverId, newState);
+                if (ok) {
+                  addToast("success", newState ? tE2EE("e2eeEnabled") : tE2EE("e2eeDisabled"));
+                } else {
+                  addToast("error", tE2EE("e2eeToggleFailed"));
+                }
               },
             },
           ]
