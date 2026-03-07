@@ -163,6 +163,8 @@ type DMState = {
   getTypingUsers: (channelId: string) => string[];
   /** Mesaj cache'ini temizle — E2EE init sonrasi yeniden fetch icin */
   invalidateMessages: (channelId: string) => void;
+  /** Tum DM mesaj cache'ini temizle — E2EE restore sonrasi */
+  invalidateFetchCache: () => void;
 };
 
 export const useDMStore = create<DMState>((set, get) => ({
@@ -927,5 +929,9 @@ export const useDMStore = create<DMState>((set, get) => ({
       const { [channelId]: __, ...restMore } = state.hasMoreByChannel;
       return { messagesByChannel: rest, hasMoreByChannel: restMore };
     });
+  },
+
+  invalidateFetchCache: () => {
+    set({ messagesByChannel: {}, hasMoreByChannel: {} });
   },
 }));

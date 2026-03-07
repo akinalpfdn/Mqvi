@@ -25,6 +25,9 @@ import * as keyBackup from "../crypto/keyBackup";
 import * as keyStorage from "../crypto/keyStorage";
 import * as e2eeApi from "../api/e2ee";
 import type { DeviceInfo } from "../types";
+import { useMessageStore } from "./messageStore";
+import { useDMStore } from "./dmStore";
+import { useChannelStore } from "./channelStore";
 
 // ──────────────────────────────────
 // Types
@@ -247,7 +250,32 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
           // Backup kontrol basarisiz — devam et, otomatik key olustur
         }
 
-        // Backup yok — otomatik key olustur (ilk kez kullanan kullanici)
+        // Backup yok — kullanicinin baska cihazi var mi kontrol et.
+        // Baska cihaz varsa otomatik key olusturma — kullanici once
+        // diger cihazda recovery password belirlemeli.
+        // Baska cihaz yoksa ilk kez kullanan kullanici → otomatik setup.
+        try {
+          const devicesRes = await e2eeApi.listMyDevices();
+          if (devicesRes.success && devicesRes.data && devicesRes.data.length > 0) {
+            // Baska cihaz mevcut ama backup yok — setup gerekli
+            set({
+              initStatus: "needs_setup",
+              localDeviceId: null,
+              hasRecoveryBackup: false,
+            });
+            return;
+          }
+        } catch {
+          // Device kontrol basarisiz — guvenli tarafta kal, setup iste
+          set({
+            initStatus: "needs_setup",
+            localDeviceId: null,
+            hasRecoveryBackup: false,
+          });
+          return;
+        }
+
+        // Hic cihaz yok — ilk kez kullanan kullanici, otomatik key olustur
         await get().setupNewDevice(userId);
       }
     } catch (err) {
@@ -278,6 +306,15 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
 
       // Arka planda cihaz listesini cek
       get().fetchDevices();
+
+      // Mesaj cache'ini temizle ve aktif kanali yeniden fetch et
+      useMessageStore.getState().invalidateFetchCache();
+      useDMStore.getState().invalidateFetchCache();
+
+      const activeChannelId = useChannelStore.getState().selectedChannelId;
+      if (activeChannelId) {
+        useMessageStore.getState().fetchMessages(activeChannelId);
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Device setup failed";
@@ -337,6 +374,18 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
       // Prekey havuzunu doldur + cihaz listesi
       get().handlePrekeyLow();
       get().fetchDevices();
+
+      // Mesaj cache'ini temizle ve aktif kanali yeniden fetch et.
+      // initStatus artik "ready" — mesajlar decrypt edilecek.
+      useMessageStore.getState().invalidateFetchCache();
+      useDMStore.getState().invalidateFetchCache();
+
+      // Aktif kanali yeniden fetch et — kullanici beklemek zorunda kalmasin
+      const activeChannelId = useChannelStore.getState().selectedChannelId;
+      if (activeChannelId) {
+        useMessageStore.getState().fetchMessages(activeChannelId);
+      }
+
       return true;
     } catch (err) {
       const message =

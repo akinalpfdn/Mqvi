@@ -108,3 +108,11 @@ server/static/dist/
 *.tmp
 coverage/
 deploy.md
+
+
+# ========================
+# claude
+# ========================
+*.claude
+CLAUDE.md
+DECISIONS.md

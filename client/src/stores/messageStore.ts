@@ -47,6 +47,8 @@ type MessageState = {
   // ─── Actions ───
   fetchMessages: (channelId: string) => Promise<void>;
   fetchOlderMessages: (channelId: string) => Promise<void>;
+  /** fetchedChannels cache'ini temizler — E2EE restore sonrasi mesajlarin yeniden decrypt edilmesi icin */
+  invalidateFetchCache: () => void;
   sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string) => Promise<boolean>;
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   deleteMessage: (messageId: string) => Promise<boolean>;
@@ -91,6 +93,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   typingUsers: {},
   replyingTo: null,
   scrollToMessageId: null,
+
+  invalidateFetchCache: () => {
+    fetchedChannels.clear();
+    set({ messagesByChannel: {}, hasMoreByChannel: {} });
+  },
 
   /**
    * fetchMessages — Bir kanalın mesajlarını ilk kez yükler.

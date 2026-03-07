@@ -256,6 +256,17 @@ async function ensureSenderKeyForDecryption(
 export async function decryptChannelMessages(
   messages: Message[]
 ): Promise<Message[]> {
+  // E2EE kurulumu tamamlanmamissa sifreli mesajlari decrypt etme.
+  // needs_setup durumunda sender key distribution sunucudan cekilebilir ama
+  // kullanici henuz recovery password girmemis veya yeni key olusturmamis —
+  // mesajlar kilitli kalmali.
+  const e2eeStatus = useE2EEStore.getState().initStatus;
+  if (e2eeStatus !== "ready") {
+    return messages.map((msg) =>
+      msg.encryption_version === 1 ? { ...msg, content: null } : msg
+    );
+  }
+
   const result: Message[] = [];
   const toCache: import("./types").CachedDecryptedMessage[] = [];
 

@@ -216,8 +216,9 @@ export function useWebSocket() {
       case "message_create": {
         let message = msg.d as Message;
 
-        // E2EE decryption — sifreli mesajlari coz
-        if (message.encryption_version === 1 && message.ciphertext && message.sender_device_id) {
+        // E2EE decryption — sifreli mesajlari coz (sadece E2EE hazirsa)
+        const e2eeReady = useE2EEStore.getState().initStatus === "ready";
+        if (e2eeReady && message.encryption_version === 1 && message.ciphertext && message.sender_device_id) {
           try {
             const payload = await decryptChannelMessage(
               message.user_id,
@@ -308,8 +309,9 @@ export function useWebSocket() {
       case "message_update": {
         let updatedMsg = msg.d as Message;
 
-        // E2EE decryption — sifreli mesaj guncellemesini coz
-        if (updatedMsg.encryption_version === 1 && updatedMsg.ciphertext && updatedMsg.sender_device_id) {
+        // E2EE decryption — sifreli mesaj guncellemesini coz (sadece E2EE hazirsa)
+        const e2eeReadyForUpdate = useE2EEStore.getState().initStatus === "ready";
+        if (e2eeReadyForUpdate && updatedMsg.encryption_version === 1 && updatedMsg.ciphertext && updatedMsg.sender_device_id) {
           try {
             const payload = await decryptChannelMessage(
               updatedMsg.user_id,
