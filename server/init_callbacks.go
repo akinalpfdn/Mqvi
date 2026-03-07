@@ -117,7 +117,12 @@ func registerHubCallbacks(
 		})
 		log.Printf("[presence] user %s disconnected (DB set to offline)", userID)
 
-		voiceService.DisconnectUser(userID)
+		// Voice state burada TEMİZLENMEZ — voice state explicit bir kaynaktır.
+		// Kullanıcı voice_leave gönderdiğinde veya orphan cleanup sweep'inde silinir.
+		// WS kopması = voice leave DEĞİLDİR (LiveKit bağlantısı ayrı, WS reconnect olabilir).
+		// Bu yaklaşım kısa WS kesintilerinde sidebar flicker'ını ve
+		// yanlış join/leave seslerini önler.
+
 		p2pCallService.HandleDisconnect(userID)
 	})
 

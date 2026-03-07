@@ -34,7 +34,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
-import { RoomEvent, ConnectionState, Track, LocalAudioTrack as LKLocalAudioTrack } from "livekit-client";
+import { RoomEvent, ParticipantEvent, ConnectionState, Track, LocalAudioTrack as LKLocalAudioTrack } from "livekit-client";
 import type {
   LocalAudioTrack,
   LocalTrackPublication,
@@ -397,14 +397,17 @@ function VoiceStateManager() {
 
     room.on(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakers);
 
-    // Local speaker: basit polling — participant.isSpeaking property'sini oku
-    const pollId = setInterval(() => {
-      setSpeakerRaw(localParticipant.identity, localParticipant.isSpeaking);
-    }, 150);
+    // Local speaker: event-driven — IsSpeakingChanged event'ini dinle.
+    // 150ms polling yerine event kullanmak ~250ms gecikmeyi ~100ms'e düşürür
+    // ve gereksiz CPU kullanımını önler (saniyede 6-7 poll → 0).
+    function handleLocalSpeaking(speaking: boolean) {
+      setSpeakerRaw(localParticipant.identity, speaking);
+    }
+    localParticipant.on(ParticipantEvent.IsSpeakingChanged, handleLocalSpeaking);
 
     return () => {
       room.off(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakers);
-      clearInterval(pollId);
+      localParticipant.off(ParticipantEvent.IsSpeakingChanged, handleLocalSpeaking);
       // Tüm hold timer'ları temizle
       holdTimers.forEach((timerId) => clearTimeout(timerId));
       holdTimers.clear();

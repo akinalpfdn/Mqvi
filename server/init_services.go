@@ -77,7 +77,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	// VoiceService — Hub callback'lerinden ÖNCE (closure scoping)
 	voiceService := services.NewVoiceService(
-		repos.Channel, repos.LiveKit, channelPermService, hub, encryptionKey,
+		repos.Channel, repos.LiveKit, channelPermService, hub, hub, encryptionKey,
 	)
 
 	// P2PCallService — Hub callback'lerinden ÖNCE

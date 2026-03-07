@@ -57,6 +57,13 @@ type LiveKitInstanceGetter interface {
 	GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error)
 }
 
+// OnlineUserChecker, bağlı kullanıcı kontrolü için minimal ISP interface.
+// Hub.GetOnlineUserIDs() bu interface'i Go duck typing ile karşılar.
+// Orphan voice state cleanup sweep'inde kullanılır.
+type OnlineUserChecker interface {
+	GetOnlineUserIDs() []string
+}
+
 // ─── VoiceService Interface ───
 
 // VoiceService, ses kanalı operasyonları için iş mantığı interface'i.
@@ -113,6 +120,10 @@ type VoiceService interface {
 	// ChannelService.GetAllGrouped tarafından voice-connected kanalları
 	// force-include etmek için kullanılır.
 	GetUserVoiceChannelID(userID string) string
+
+	// StartOrphanCleanup, periyodik orphan voice state temizleme goroutine'ini başlatır.
+	// main.go'da server başlangıcında çağrılır.
+	StartOrphanCleanup()
 }
 
 // ─── Implementasyon ───
@@ -142,7 +153,8 @@ type voiceService struct {
 	livekitGetter  LiveKitInstanceGetter // sunucu → LiveKit instance lookup
 	permResolver   ChannelPermResolver   // Kanal bazlı permission override çözümleme (rol + channel override)
 	hub            ws.Broadcaster
-	encryptionKey  []byte // AES-256-GCM key — LiveKit credential'ları decrypt etmek için
+	onlineChecker  OnlineUserChecker // Orphan voice state cleanup için
+	encryptionKey  []byte            // AES-256-GCM key — LiveKit credential'ları decrypt etmek için
 }
 
 // maxScreenShares — bir ses kanalında aynı anda izin verilen
@@ -162,6 +174,7 @@ func NewVoiceService(
 	livekitGetter LiveKitInstanceGetter,
 	permResolver ChannelPermResolver,
 	hub ws.Broadcaster,
+	onlineChecker OnlineUserChecker,
 	encryptionKey []byte,
 ) VoiceService {
 	return &voiceService{
@@ -171,6 +184,7 @@ func NewVoiceService(
 		livekitGetter:   livekitGetter,
 		permResolver:    permResolver,
 		hub:             hub,
+		onlineChecker:   onlineChecker,
 		encryptionKey:   encryptionKey,
 	}
 }
@@ -788,6 +802,63 @@ func (s *voiceService) getOrCreateRoomPassphrase(roomName string) (string, error
 //
 // NOT: Bu metot mu.Lock altında çağrılır (LeaveChannel, AdminDisconnectUser içinden).
 // Kendi lock almaz — caller lock tutar.
+// StartOrphanCleanup, periyodik olarak orphan voice state'leri temizler.
+//
+// Voice state artık WS disconnect'te silinmiyor (voice state = explicit resource).
+// Kullanıcı tarayıcıyı kapatırsa hem WS hem LiveKit kopar — ama voice state
+// in-memory kalır çünkü explicit voice_leave gelmedi.
+//
+// Bu sweep, Hub'a bağlı olmayan kullanıcıların voice state'lerini temizler.
+// 30 saniye aralıklarla çalışır — WS reconnect için yeterli süre bırakır.
+// Kısa WS kesintilerinde (1-5sn) kullanıcı reconnect eder ve state korunur.
+func (s *voiceService) StartOrphanCleanup() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			s.sweepOrphanStates()
+		}
+	}()
+}
+
+// sweepOrphanStates, Hub'a bağlı olmayan kullanıcıların voice state'lerini temizler.
+func (s *voiceService) sweepOrphanStates() {
+	onlineIDs := s.onlineChecker.GetOnlineUserIDs()
+	onlineSet := make(map[string]bool, len(onlineIDs))
+	for _, id := range onlineIDs {
+		onlineSet[id] = true
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for userID, state := range s.states {
+		if !onlineSet[userID] {
+			channelID := state.ChannelID
+			username := state.Username
+			displayName := state.DisplayName
+			avatarURL := state.AvatarURL
+			delete(s.states, userID)
+
+			s.hub.BroadcastToAll(ws.Event{
+				Op: ws.OpVoiceStateUpdate,
+				Data: ws.VoiceStateUpdateBroadcast{
+					UserID:      userID,
+					ChannelID:   channelID,
+					Username:    username,
+					DisplayName: displayName,
+					AvatarURL:   avatarURL,
+					Action:      "leave",
+				},
+			})
+
+			s.cleanupRoomPassphraseIfEmpty(channelID)
+			log.Printf("[voice] orphan cleanup: removed user %s from channel %s", userID, channelID)
+		}
+	}
+}
+
 func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
 	// Kanalda hâlâ participant var mı?
 	for _, state := range s.states {

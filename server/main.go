@@ -112,6 +112,10 @@ func main() {
 
 	go hub.Run()
 
+	// Voice orphan state cleanup — WS kopup reconnect olmayan kullanıcıların
+	// voice state'lerini periyodik olarak temizler (30sn aralık).
+	svcs.Voice.StartOrphanCleanup()
+
 	// ─── 10b. Metrics Collector ───
 	//
 	// Arka plan goroutine'i: her 5 dakikada tüm platform-managed LiveKit

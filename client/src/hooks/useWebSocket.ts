@@ -514,12 +514,19 @@ export function useWebSocket() {
         // 2. Kendimizin giriş/çıkışı → her zaman duyarız
         // Not: Leave'de currentVoiceChannelId zaten null olur (hemen set edilir),
         // bu yüzden kendi leave'imiz için ayrıca isMe kontrolü gerekir.
+        //
+        // Self-recovery rejoin: WS reconnect sonrası backend'e tekrar voice_join
+        // gönderildiğinde, bu "join" broadcast'i geri gelir. Kullanıcı zaten
+        // voice'tayken sahte join sesi çalmasın diye bu durumu filtreleriz.
         const myUserId = useAuthStore.getState().user?.id;
         const myChannelId = voiceState.currentVoiceChannelId;
         const isMe = voiceData.user_id === myUserId;
         const isSameChannel = myChannelId && myChannelId === voiceData.channel_id;
 
-        if (isSameChannel || isMe) {
+        // Kendi rejoin'imizi sessize al — zaten voice'tayız, ses yanıltıcı olur
+        const isSelfRejoin = isMe && voiceData.action === "join" && myChannelId === voiceData.channel_id;
+
+        if ((isSameChannel || isMe) && !isSelfRejoin) {
           if (voiceData.action === "join") {
             playJoinSound();
           } else if (voiceData.action === "leave") {
