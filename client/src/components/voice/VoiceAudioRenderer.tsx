@@ -288,6 +288,11 @@ function VoiceAudioRenderer() {
         if (pipeline.source) pipeline.source.disconnect();
         if (pipeline.gain) pipeline.gain.disconnect();
         pipeline.track.detach(pipeline.audioEl);
+        // Audio element'i DOM'dan kaldır ve MediaStream referansını serbest bırak.
+        // detach() element'i DOM'dan kaldırmaz — srcObject referansı kalır
+        // ve Chromium renderer process'i MediaStreamTrack buffer'larını tutmaya devam eder.
+        pipeline.audioEl.srcObject = null;
+        pipeline.audioEl.remove();
       } catch {
         // Zaten temizlenmiş
       }
@@ -330,6 +335,8 @@ function VoiceAudioRenderer() {
           if (pipeline.source) pipeline.source.disconnect();
           if (pipeline.gain) pipeline.gain.disconnect();
           pipeline.track.detach(pipeline.audioEl);
+          pipeline.audioEl.srcObject = null;
+          pipeline.audioEl.remove();
         } catch {
           // Zaten temizlenmiş
         }

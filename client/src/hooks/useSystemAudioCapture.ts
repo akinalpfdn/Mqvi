@@ -206,6 +206,7 @@ export function useSystemAudioCapture(): SystemAudioCapture {
     }
 
     if (destRef.current) {
+      destRef.current.disconnect();
       destRef.current = null;
     }
 

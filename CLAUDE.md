@@ -433,3 +433,21 @@ gh release create vX.Y.Z release/mqvi-setup.exe release/latest.yml release/mqvi-
 5. [ ] Hook gerekiyorsa oluştur (hooks/)
 6. [ ] WebSocket event handler'ı ekle
 7. [ ] i18n: Tüm UI string'leri ilgili namespace JSON'larına ekle (EN + TR)
+
+
+## Rules
+
+### Always active
+@rules/common/core.md
+@rules/common/decisions.md
+@rules/common/git.md
+@rules/common/testing.md
+@rules/common/debug.md
+@rules/common/existing-code.md
+
+### UI projects only (remove if backend-only)
+@rules/common/frontend.md
+
+### Language rules (uncomment what applies)
+@rules/go/go.md
+@rules/typescript/typescript.md

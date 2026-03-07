@@ -41,10 +41,24 @@ import { useAuthStore } from "../stores/authStore";
 let audioCtx: AudioContext | null = null;
 
 function getAudioContext(): AudioContext {
-  if (!audioCtx) {
+  if (!audioCtx || audioCtx.state === "closed") {
     audioCtx = new AudioContext();
   }
   return audioCtx;
+}
+
+/**
+ * closeAudioContext — Ses efektleri AudioContext'ini kapatır.
+ *
+ * Voice kanalından çıkıldığında çağrılmalı. AudioContext kapatılmadan
+ * bellekte kalır (2-5MB + birikmiş OscillatorNode referansları).
+ * Sonraki ses çalımında getAudioContext() yeni context oluşturur.
+ */
+export function closeAudioContext(): void {
+  if (audioCtx) {
+    audioCtx.close().catch(() => {});
+    audioCtx = null;
+  }
 }
 
 /**

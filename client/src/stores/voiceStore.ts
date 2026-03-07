@@ -22,7 +22,7 @@ import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
 import { useServerStore } from "./serverStore";
-import { playWatchStartSound, playWatchStopSound } from "../utils/sounds";
+import { playWatchStartSound, playWatchStopSound, closeAudioContext } from "../utils/sounds";
 
 // ─── localStorage Persistence ───
 
@@ -523,6 +523,11 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       // Generation artır — in-flight join response'ları discard edilsin
       _joinGeneration: get()._joinGeneration + 1,
     });
+
+    // Ses efektleri AudioContext'ini kapat — voice'dan çıkınca
+    // bellekte kalmasını önle (2-5MB + birikmiş node referansları).
+    // Sonraki ses çalımında otomatik yeni context oluşturulur.
+    closeAudioContext();
   },
 
   toggleMute: () => {

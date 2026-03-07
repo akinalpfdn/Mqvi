@@ -156,6 +156,12 @@ class RNNoiseProcessor
       // Worklet zaten kapatılmış olabilir
     }
 
+    try {
+      this.destinationNode?.disconnect();
+    } catch {
+      // Zaten disconnect olmuş olabilir
+    }
+
     this.sourceNode = null;
     this.rnnoiseNode = null;
     this.destinationNode = null;
