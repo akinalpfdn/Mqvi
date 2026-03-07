@@ -166,6 +166,14 @@ function createWindow(): void {
       mainWindow?.hide();
     }
   });
+
+  // Pencere destroy olduktan sonra referansı null'a çek.
+  // Bu olmadan, quit sırasında captureProcess veya autoUpdater callback'ları
+  // mainWindow?.webContents.send() yapmaya çalışır — optional chaining null
+  // kontrolünü geçer ama webContents zaten destroyed → "Object has been destroyed" crash.
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
 }
 
 // ─── Permission Auto-Grant ───
@@ -830,7 +838,16 @@ app.on("activate", () => {
   }
 });
 
-// Quit öncesi flag'i set et — close-to-tray'i bypass etmek için
+// Quit öncesi:
+// 1. isQuitting flag'i set et — close-to-tray'i bypass etmek için
+// 2. captureProcess'i temizle — aksi halde stdout callback'ı destroy olmuş
+//    window'a event göndermeye çalışır → "Object has been destroyed" crash
 app.on("before-quit", () => {
   isQuitting = true;
+
+  if (captureProcess) {
+    captureGeneration++;
+    captureProcess.kill();
+    captureProcess = null;
+  }
 });
