@@ -9,17 +9,19 @@
  * 2. Kompakt mod (screen share aktif): shrink-0 ile altta sabit
  *    yükseklikte strip, ekran paylaşımına alan bırakır.
  *
- * Mod algılama: useTracks ile aktif screen share track'lerini kontrol eder.
- * Track varsa kompakt mod, yoksa tam mod.
+ * Mod algılama: voiceStore.watchingScreenShares ile aktif screen share
+ * izlenip izlenmediğini kontrol eder. useTracks kullanmıyoruz çünkü
+ * her useTracks çağrısı LiveKit Room objesine ~6 internal listener ekler —
+ * gereksiz listener yükünü azaltmak için store'dan okuyoruz.
  *
  * useParticipants nedir?
  * LiveKit React SDK hook'u — odadaki tüm participant'ları (lokal + remote)
  * bir array olarak döner ve katılımcı ekleme/çıkarma olaylarında otomatik günceller.
  */
 
-import { useParticipants, useTracks } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { useParticipants } from "@livekit/components-react";
 import { useTranslation } from "react-i18next";
+import { useVoiceStore } from "../../stores/voiceStore";
 import VoiceParticipant from "./VoiceParticipant";
 
 function VoiceParticipantGrid() {
@@ -27,11 +29,9 @@ function VoiceParticipantGrid() {
   const participants = useParticipants();
 
   // Screen share aktif mi? Layout modunu belirler.
-  const screenShareTracks = useTracks(
-    [{ source: Track.Source.ScreenShare, withPlaceholder: false }],
-    { onlySubscribed: true }
-  );
-  const hasScreenShare = screenShareTracks.length > 0;
+  // useTracks yerine store kullanılır — her useTracks ~6 internal listener ekler.
+  const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
+  const hasScreenShare = Object.values(watchingScreenShares).some(Boolean);
 
   if (participants.length === 0) {
     // Screen share aktifken boş mesaj gösterme — alan screen share'e bırakılsın

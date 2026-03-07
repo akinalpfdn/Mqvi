@@ -207,6 +207,22 @@ function VoiceStateManager() {
     return () => { cancelled = true; };
   }, [isStreaming, screenShareAudio, localParticipant]);
 
+  // ─── Room EventEmitter listener limit'ini artır ───
+  // VoiceStateManager birden fazla effect'te room.on() ile listener ekler.
+  // LiveKit SDK kendi internal listener'larını da ekler (~6 per useTracks gibi hook'lar).
+  // Default limit (10) aşıldığında MaxListenersExceededWarning oluşur.
+  // Bu uyarı bellek sızıntısı değil — bilinen listener sayımızdır.
+  useEffect(() => {
+    if (typeof room.setMaxListeners === "function") {
+      room.setMaxListeners(20);
+    }
+    return () => {
+      if (typeof room.setMaxListeners === "function") {
+        room.setMaxListeners(10); // Default'a geri dön
+      }
+    };
+  }, [room]);
+
   // ─── Bağlantı kurulduğunda ilk senkronizasyon ───
   // Room'a bağlandığımızda store'daki state'i LiveKit'e uygula.
   //
