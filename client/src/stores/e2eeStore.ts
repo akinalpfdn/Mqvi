@@ -505,21 +505,12 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
   },
 
   reset: async () => {
-    const deviceId = get().localDeviceId;
-
-    // Sunucudan cihazi sil (best-effort — network hatasi olabilir)
-    if (deviceId) {
-      try {
-        await deviceManager.removeDeviceFromServer(deviceId);
-      } catch {
-        // Logout'ta network hatasi olabilir — sessizce devam et
-      }
-    }
-
-    // Lokal E2EE verisini temizle
-    await deviceManager.clearDevice();
-
-    // State'i sifirla
+    // Logout'ta sadece Zustand state sifirlanir.
+    // IndexedDB'deki anahtarlar ve sunucudaki cihaz KORUNUR.
+    // Neden: Ayni cihazdaki tekrar giriste kullanici anahtarlarini
+    // yeniden restore etmek zorunda kalmaz. Ayrica baglanti kopusu
+    // gibi senaryolarda anahtarlar kaybolmaz.
+    // Cihaz silme islemi sadece Settings > Encryption > Remove Device'tan yapilir.
     set({
       initStatus: "uninitialized",
       localDeviceId: null,
