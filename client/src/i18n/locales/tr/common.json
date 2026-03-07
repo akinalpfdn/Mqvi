@@ -104,6 +104,8 @@
   "requestPending": "İstek Bekliyor",
   "confirmRemoveFriend": "{{username}} adlı kullanıcıyı arkadaş listenizden çıkarmak istiyor musunuz?",
   "connectionConnecting": "Sunucuya bağlanılıyor...",
+  "connectionRetrying": "Sunucuya bağlanılıyor... (deneme {{attempt}}/{{max}})",
+  "connectionFailed": "Sunucuya bağlanılamadı",
   "connectionLost": "Bağlantı koptu",
   "connectionRefresh": "Yenile"
 }

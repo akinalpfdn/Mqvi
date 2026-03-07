@@ -79,9 +79,11 @@ import type {
   P2PSignalPayload,
 } from "../types";
 
-/** Reconnect bekleme süreleri (ms) — exponential backoff */
-const RECONNECT_DELAY_BASE = 3_000;
-const RECONNECT_DELAY_MAX = 30_000;
+/** Reconnect bekleme süresi (ms) — sabit 10 saniye */
+const RECONNECT_DELAY = 10_000;
+
+/** Maksimum reconnect deneme sayısı — bu kadar deneme başarısızsa "disconnected" gösterilir */
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 /** Typing throttle süresi (ms) — aynı kanala bu süreden sık typing gönderilmez */
 const TYPING_THROTTLE = 3_000;
@@ -141,6 +143,9 @@ export function useWebSocket() {
   const [connectionStatus, setConnectionStatus] = useState<
     "connected" | "connecting" | "disconnected"
   >("connecting");
+
+  /** Kaçıncı reconnect denemesinde olduğumuz — banner'da "Deneme 2/5" göstermek için */
+  const [reconnectAttempt, setReconnectAttempt] = useState<number>(0);
 
   /** Son typing gönderme zamanı: channelId → timestamp */
   const lastTypingRef = useRef<Map<string, number>>(new Map());
@@ -1025,19 +1030,14 @@ export function useWebSocket() {
   }
 
   /**
-   * getReconnectDelay — Exponential backoff ile reconnect bekleme süresi hesaplar.
+   * getReconnectDelay — Sabit 10 saniye reconnect bekleme süresi.
    *
-   * Formül: min(base * 2^attempt, max)
-   * attempt=0 → 3s, attempt=1 → 6s, attempt=2 → 12s, attempt=3 → 24s, attempt=4+ → 30s
-   *
-   * Neden exponential backoff?
-   * Server kapanıp yeniden başlatılırken sabit 3sn retry çok agresif.
-   * Backoff ile server'a nefes aldırılır, network kaynağı israf edilmez.
-   * Server geldiğinde bağlantı en geç 30sn içinde kurulur.
+   * Server restart senaryosunda 5 deneme × 10sn = 50sn içinde bağlantı kurulur.
+   * 5 deneme başarısızsa "disconnected" banner'ı gösterilir ve kullanıcıya
+   * manuel yenileme butonu sunulur.
    */
   function getReconnectDelay(): number {
-    const delay = RECONNECT_DELAY_BASE * Math.pow(2, reconnectAttemptRef.current);
-    return Math.min(delay, RECONNECT_DELAY_MAX);
+    return RECONNECT_DELAY;
   }
 
   // scheduleReconnect, doConnect scope'unda tanımlanır (myId closure'dan gelir)
@@ -1220,8 +1220,15 @@ export function useWebSocket() {
     function scheduleReconnect() {
       if (activeConnectionIdRef.current !== myId) return;
 
+      // Maksimum deneme sayısına ulaşıldıysa artık deneme — "disconnected" göster
+      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        setConnectionStatus("disconnected");
+        return;
+      }
+
       const delay = getReconnectDelay();
       reconnectAttemptRef.current++;
+      setReconnectAttempt(reconnectAttemptRef.current);
 
       reconnectTimeoutRef.current = setTimeout(() => {
         if (activeConnectionIdRef.current === myId) {
@@ -1273,8 +1280,9 @@ export function useWebSocket() {
         // Stale socket kontrolü
         if (activeConnectionIdRef.current !== myId) return;
 
-        // Bağlantı başarılı — backoff sayacını sıfırla
+        // Bağlantı başarılı — sayaçları sıfırla
         reconnectAttemptRef.current = 0;
+        setReconnectAttempt(0);
         missedHeartbeatsRef.current = 0;
 
         // Heartbeat interval başlat
@@ -1388,5 +1396,5 @@ export function useWebSocket() {
     };
   }, []);
 
-  return { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS, connectionStatus };
+  return { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS, connectionStatus, reconnectAttempt };
 }

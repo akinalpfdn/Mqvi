@@ -57,7 +57,7 @@ import { useReadStateStore } from "../../stores/readStateStore";
 import { useNotificationBadge } from "../../hooks/useNotificationBadge";
 
 function AppLayout() {
-  const { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS, connectionStatus } =
+  const { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS, connectionStatus, reconnectAttempt } =
     useWebSocket();
 
   // Idle detection — 5dk inaktiflik → "idle", aktivite geri gelince → "online"
@@ -281,7 +281,7 @@ function AppLayout() {
   const overlays = (
     <>
       {/* Connection status banner — bağlantı kopunca üstte kırmızı banner (z-200) */}
-      <ConnectionBanner status={connectionStatus} />
+      <ConnectionBanner status={connectionStatus} reconnectAttempt={reconnectAttempt} />
 
       {/* Settings modal — tam ekran overlay (z-50) */}
       <SettingsModal />

@@ -104,6 +104,8 @@
   "requestPending": "Request Pending",
   "confirmRemoveFriend": "Remove {{username}} from your friends?",
   "connectionConnecting": "Connecting to server...",
+  "connectionRetrying": "Connecting to server... (attempt {{attempt}}/{{max}})",
+  "connectionFailed": "Could not connect to server",
   "connectionLost": "Connection lost",
   "connectionRefresh": "Refresh"
 }
