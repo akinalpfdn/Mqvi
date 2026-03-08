@@ -19,7 +19,8 @@ import { useMemberStore } from "../../stores/memberStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
-import { hasPermission, Permissions } from "../../utils/permissions";
+import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
+import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { resolveAssetUrl, copyToClipboard } from "../../utils/constants";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
@@ -221,6 +222,36 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const canManageInvites = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.ManageInvites)
     : false;
+
+  // Channel permission overrides for ConnectVoice check
+  const overridesByChannel = useChannelPermissionStore((s) => s.overridesByChannel);
+  const fetchOverridesForChannels = useChannelPermissionStore((s) => s.fetchOverridesForChannels);
+
+  // Fetch overrides for all voice channels when categories change
+  useEffect(() => {
+    const voiceChannelIds: string[] = [];
+    for (const cg of categories) {
+      for (const ch of cg.channels) {
+        if (ch.type === "voice") voiceChannelIds.push(ch.id);
+      }
+    }
+    if (voiceChannelIds.length > 0) {
+      fetchOverridesForChannels(voiceChannelIds);
+    }
+  }, [categories, fetchOverridesForChannels]);
+
+  /** Check if current user can connect to a voice channel (considering overrides) */
+  const canConnectVoice = useCallback(
+    (channelId: string): boolean => {
+      if (!currentMember) return false;
+      const basePerms = currentMember.effective_permissions;
+      const roleIds = currentMember.roles.map((r) => r.id);
+      const overrides = overridesByChannel[channelId] ?? [];
+      const effective = resolveChannelPermissions(basePerms, roleIds, overrides);
+      return (effective & Permissions.ConnectVoice) !== 0;
+    },
+    [currentMember, overridesByChannel]
+  );
 
   // WS send for voice user drag & drop
   const wsSend = useVoiceStore((s) => s._wsSend);
@@ -540,7 +571,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     categoryId: string
   ) {
     if (dragVoiceUserIdRef.current) {
-      if (channelType !== "voice" || dragVoiceSourceChannelRef.current === channelId) return;
+      // Block drop on non-voice, same channel, or channel where mover lacks ConnectVoice
+      if (channelType !== "voice" || dragVoiceSourceChannelRef.current === channelId || !canConnectVoice(channelId)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       setVoiceDropTargetId(channelId);
@@ -1312,6 +1344,9 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     const isEffectivelyMuted = isServerMuted || isChannelMuted;
                     const mutedClass = isEffectivelyMuted ? " muted" : "";
 
+                    // Voice channel locked check (no ConnectVoice permission)
+                    const isVoiceLocked = !isText && !canConnectVoice(ch.id);
+
                     return (
                       <div
                         key={ch.id}
@@ -1324,21 +1359,28 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         onDragEnd={handleDragEnd}
                       >
                         <button
-                          className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${unread > 0 && !isEffectivelyMuted ? " has-unread" : ""}${voiceDropTargetId === ch.id ? " voice-drop-target" : ""}${mutedClass}`}
-                          onClick={() =>
+                          className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${isVoiceLocked ? " locked" : ""}${unread > 0 && !isEffectivelyMuted ? " has-unread" : ""}${voiceDropTargetId === ch.id ? " voice-drop-target" : ""}${mutedClass}`}
+                          onClick={() => {
+                            if (isVoiceLocked) return;
                             isText
                               ? handleTextChannelClick(ch.id, ch.name)
-                              : handleVoiceChannelClick(ch.id, ch.name)
-                          }
+                              : handleVoiceChannelClick(ch.id, ch.name);
+                          }}
                           onContextMenu={(e) => handleChannelContextMenu(e, ch)}
                           title={
-                            isText
-                              ? `#${ch.name}`
-                              : `${ch.name} — ${tVoice("joinVoice")}`
+                            isVoiceLocked
+                              ? `${ch.name} — ${tVoice("voiceChannelLocked")}`
+                              : isText
+                                ? `#${ch.name}`
+                                : `${ch.name} — ${tVoice("joinVoice")}`
                           }
                         >
                           <span className="ch-tree-icon">
-                            {isText ? "#" : "\uD83D\uDD0A"}
+                            {isText ? "#" : isVoiceLocked ? (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>
+                              </svg>
+                            ) : "\uD83D\uDD0A"}
                           </span>
                           {renamingChannelId === ch.id ? (
                             <div className="ch-tree-rename-wrap" onClick={(e) => e.stopPropagation()}>

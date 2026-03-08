@@ -196,7 +196,12 @@ button { font-family:inherit; }
 .ch-tree-item.voice { color:var(--t2); }
 .ch-tree-item.voice.active { background:var(--green-s);color:var(--green); }
 .ch-tree-item.has-unread { color:var(--t0);font-weight:600; }
-/* Muted channel — server muted veya channel muted */
+/* Locked voice channel — no ConnectVoice permission */
+.ch-tree-item.voice.locked { cursor:not-allowed;opacity:.5; }
+.ch-tree-item.voice.locked:hover { background:transparent;color:var(--t2); }
+.ch-tree-item.voice.locked .ch-tree-icon { color:var(--t3); }
+.ch-tree-item.voice.locked .ch-tree-icon svg { width:14px;height:14px; }
+/* Muted channel */
 .ch-tree-item.muted .ch-tree-label,
 .ch-tree-item.muted .ch-tree-icon { opacity:.5; }
 /* Inline rename input — category ve channel adı düzenleme */

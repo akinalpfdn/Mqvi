@@ -24,6 +24,9 @@ type ChannelPermissionState = {
   deleteOverride: (channelID: string, roleID: string) => Promise<boolean>;
   getOverrides: (channelID: string) => ChannelPermissionOverride[];
 
+  /** Batch-fetch overrides for multiple channels (skips already-fetched) */
+  fetchOverridesForChannels: (channelIDs: string[]) => void;
+
   // ─── WS Event Handlers ───
   handleOverrideUpdate: (override: ChannelPermissionOverride) => void;
   handleOverrideDelete: (channelID: string, roleID: string) => void;
@@ -75,6 +78,15 @@ export const useChannelPermissionStore = create<ChannelPermissionState>(
 
     getOverrides: (channelID) => {
       return get().overridesByChannel[channelID] ?? EMPTY_OVERRIDES;
+    },
+
+    fetchOverridesForChannels: (channelIDs) => {
+      const { fetchedChannels, fetchOverrides } = get();
+      for (const id of channelIDs) {
+        if (!fetchedChannels.has(id)) {
+          fetchOverrides(id);
+        }
+      }
     },
 
     // ─── WS Event Handlers ───

@@ -55,5 +55,6 @@
   "disconnectFromVoice": "Ses Bağlantısını Kes",
   "youWereMoved": "Başka bir kanala taşındınız",
   "youWereDisconnected": "Ses bağlantınız kesildi",
-  "dragToMove": "Başka kanala taşımak için sürükle"
+  "dragToMove": "Başka kanala taşımak için sürükle",
+  "voiceChannelLocked": "Bu kanala bağlanma izniniz yok"
 }

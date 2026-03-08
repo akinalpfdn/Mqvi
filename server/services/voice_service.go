@@ -511,6 +511,11 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		s.mu.Unlock()
 		return fmt.Errorf("%w: move members permission required in target channel", pkg.ErrForbidden)
 	}
+	// Mover must also have ConnectVoice in target channel
+	if !targetPerms.Has(models.PermConnectVoice) {
+		s.mu.Unlock()
+		return fmt.Errorf("%w: connect voice permission required in target channel", pkg.ErrForbidden)
+	}
 
 	state.ChannelID = targetChannelID
 

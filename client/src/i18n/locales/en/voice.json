@@ -55,5 +55,6 @@
   "disconnectFromVoice": "Disconnect from Voice",
   "youWereMoved": "You were moved to another channel",
   "youWereDisconnected": "You were disconnected from voice",
-  "dragToMove": "Drag to move to another channel"
+  "dragToMove": "Drag to move to another channel",
+  "voiceChannelLocked": "You do not have permission to connect to this channel"
 }
