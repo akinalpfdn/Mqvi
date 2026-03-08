@@ -1,7 +1,3 @@
-// Package repository — PasswordResetRepository'nin SQLite implementasyonu.
-//
-// password_reset_tokens tablosuna CRUD işlemleri yapar.
-// Token plaintext olarak SAKLANMAZ — sadece SHA256 hash saklanır.
 package repository
 
 import (
@@ -15,12 +11,10 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteResetTokenRepo, PasswordResetRepository'nin SQLite implementasyonu.
 type sqliteResetTokenRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteResetTokenRepo, constructor.
 func NewSQLiteResetTokenRepo(db database.TxQuerier) PasswordResetRepository {
 	return &sqliteResetTokenRepo{db: db}
 }

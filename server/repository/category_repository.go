@@ -6,8 +6,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// CategoryRepository, kategori veritabanı işlemleri için interface.
-// Tüm list operasyonları server-scoped: serverID parametresi zorunlu.
+// CategoryRepository defines data access for categories. All list operations are server-scoped.
 type CategoryRepository interface {
 	Create(ctx context.Context, category *models.Category) error
 	GetByID(ctx context.Context, id string) (*models.Category, error)

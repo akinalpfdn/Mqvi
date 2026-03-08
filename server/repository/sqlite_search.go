@@ -10,27 +10,16 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// sqliteSearchRepo, SearchRepository interface'inin SQLite FTS5 implementasyonu.
 type sqliteSearchRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteSearchRepo, constructor — interface döner.
 func NewSQLiteSearchRepo(db database.TxQuerier) SearchRepository {
 	return &sqliteSearchRepo{db: db}
 }
 
-// Search, FTS5 ile tam metin araması yapar.
-//
-// FTS5 sorgu mantığı:
-// 1. messages_fts tablosunda MATCH ile arama yap
-// 2. Bulunan rowid'ler ile messages tablosunu JOIN et
-// 3. channels tablosuyla JOIN ederek server_id filtresi uygula
-// 4. Opsiyonel kanal filtresi uygula
-// 5. Yazar bilgisini JOIN ile çek
-// 6. BM25 ranking ile sırala (en alakalı üstte)
+// Search performs FTS5 full-text search with BM25 ranking.
 func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID string, channelID *string, limit, offset int) (*SearchResult, error) {
-	// Limit koruma
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}
@@ -38,13 +27,11 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID st
 		offset = 0
 	}
 
-	// FTS5 query sanitize — kullanıcı girdisini güvenli hale getir.
 	safeQuery := sanitizeFTSQuery(query)
 	if safeQuery == "" {
 		return &SearchResult{Messages: []models.Message{}, TotalCount: 0}, nil
 	}
 
-	// 1. Toplam sonuç sayısı
 	var countQuery string
 	var countArgs []any
 
@@ -75,7 +62,6 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID st
 		return &SearchResult{Messages: []models.Message{}, TotalCount: 0}, nil
 	}
 
-	// 2. Sayfalanmış sonuçlar
 	var dataQuery string
 	var dataArgs []any
 
@@ -148,11 +134,7 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID st
 	}, nil
 }
 
-// sanitizeFTSQuery, kullanıcı girdisini FTS5-safe formata dönüştürür.
-//
-// FTS5 özel operatörleri (AND, OR, NOT, NEAR, *, ^) kötüye kullanılabilir.
-// Bu fonksiyon her kelimeyi çift tırnak içine alıp sonuna * ekleyerek prefix arama yapar.
-// Böylece "tes" sorgusu "test", "testing" gibi kelimeleri de bulur.
+// sanitizeFTSQuery wraps each word in quotes with prefix match to prevent FTS5 injection.
 func sanitizeFTSQuery(query string) string {
 	words := strings.Fields(query)
 	if len(words) == 0 {
@@ -161,14 +143,11 @@ func sanitizeFTSQuery(query string) string {
 
 	var safe []string
 	for _, w := range words {
-		// Çift tırnak içindeki tırnakları kaldır (injection önleme)
 		cleaned := strings.ReplaceAll(w, "\"", "")
-		// Yıldız karakterini de kaldır (injection önleme)
 		cleaned = strings.ReplaceAll(cleaned, "*", "")
 		if len(cleaned) < 1 {
 			continue
 		}
-		// Prefix match: "kelime"* — alt-dize araması sağlar
 		safe = append(safe, "\""+cleaned+"\"*")
 	}
 
@@ -176,6 +155,5 @@ func sanitizeFTSQuery(query string) string {
 		return ""
 	}
 
-	// Kelimeler arasında implicit AND (FTS5 varsayılanı)
 	return strings.Join(safe, " ")
 }

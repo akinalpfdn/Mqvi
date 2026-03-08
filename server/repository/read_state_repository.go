@@ -6,16 +6,10 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// ReadStateRepository, okuma durumu veritabanı işlemleri için interface.
-//
-// Upsert: Son okunan mesajı günceller (yoksa oluşturur).
-// GetUnreadCounts: Bir kullanıcının belirli bir sunucudaki okunmamış mesaj sayılarını döner.
+// ReadStateRepository defines data access for channel read states.
 type ReadStateRepository interface {
 	Upsert(ctx context.Context, userID, channelID, messageID string) error
 	GetUnreadCounts(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error)
-
-	// MarkAllRead, sunucudaki tüm text kanallarının son mesajını okunmuş olarak işaretler.
-	// Her kanalın son mesajı bulunur ve read_states'e upsert edilir.
-	// Mesajı olmayan kanallar atlanır.
+	// MarkAllRead marks all text channels in a server as read (upserts each channel's latest message).
 	MarkAllRead(ctx context.Context, userID, serverID string) error
 }

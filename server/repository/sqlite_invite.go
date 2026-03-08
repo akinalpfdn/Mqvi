@@ -1,7 +1,3 @@
-// Package repository — InviteRepository'nin SQLite implementasyonu.
-//
-// Davet kodları CRUD işlemleri.
-// invites tablosu 001_init.sql'de oluşturuldu, 018_multi_server.sql ile server_id eklendi.
 package repository
 
 import (
@@ -18,12 +14,10 @@ type sqliteInviteRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteInviteRepo, constructor.
 func NewSQLiteInviteRepo(db database.TxQuerier) InviteRepository {
 	return &sqliteInviteRepo{db: db}
 }
 
-// GetByCode, belirli bir davet kodunu döner (server_id bilgisi dahil).
 func (r *sqliteInviteRepo) GetByCode(ctx context.Context, code string) (*models.Invite, error) {
 	query := `
 		SELECT code, server_id, created_by, max_uses, uses, expires_at, created_at
@@ -45,8 +39,7 @@ func (r *sqliteInviteRepo) GetByCode(ctx context.Context, code string) (*models.
 	return invite, nil
 }
 
-// ListByServer, belirli bir sunucunun davet kodlarını oluşturan kullanıcı bilgisiyle döner.
-// LEFT JOIN ile oluşturanın username/display_name'i alınır.
+// ListByServer returns a server's invites with creator info via LEFT JOIN.
 func (r *sqliteInviteRepo) ListByServer(ctx context.Context, serverID string) ([]models.InviteWithCreator, error) {
 	query := `
 		SELECT i.code, i.server_id, i.created_by, i.max_uses, i.uses, i.expires_at, i.created_at,
@@ -82,7 +75,6 @@ func (r *sqliteInviteRepo) ListByServer(ctx context.Context, serverID string) ([
 	return invites, nil
 }
 
-// Create, yeni bir davet kodu oluşturur (server_id dahil).
 func (r *sqliteInviteRepo) Create(ctx context.Context, invite *models.Invite) error {
 	query := `
 		INSERT INTO invites (code, server_id, created_by, max_uses, uses, expires_at)
@@ -98,7 +90,6 @@ func (r *sqliteInviteRepo) Create(ctx context.Context, invite *models.Invite) er
 	return nil
 }
 
-// Delete, bir davet kodunu siler.
 func (r *sqliteInviteRepo) Delete(ctx context.Context, code string) error {
 	query := `DELETE FROM invites WHERE code = ?`
 
@@ -118,7 +109,6 @@ func (r *sqliteInviteRepo) Delete(ctx context.Context, code string) error {
 	return nil
 }
 
-// IncrementUses, davet kodunun kullanım sayısını 1 artırır.
 func (r *sqliteInviteRepo) IncrementUses(ctx context.Context, code string) error {
 	query := `UPDATE invites SET uses = uses + 1 WHERE code = ?`
 

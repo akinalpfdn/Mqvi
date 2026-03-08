@@ -11,12 +11,10 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteSessionRepo, SessionRepository interface'inin SQLite implementasyonu.
 type sqliteSessionRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteSessionRepo, constructor.
 func NewSQLiteSessionRepo(db database.TxQuerier) SessionRepository {
 	return &sqliteSessionRepo{db: db}
 }

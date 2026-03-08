@@ -1,4 +1,3 @@
-// Package repository — LiveKitRepository'nin SQLite implementasyonu.
 package repository
 
 import (
@@ -16,15 +15,12 @@ type sqliteLiveKitRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteLiveKitRepo, constructor — interface döner.
 func NewSQLiteLiveKitRepo(db database.TxQuerier) LiveKitRepository {
 	return &sqliteLiveKitRepo{db: db}
 }
 
 func (r *sqliteLiveKitRepo) Create(ctx context.Context, instance *models.LiveKitInstance) error {
-	// ID'yi Go tarafında üretiyoruz — RETURNING clause'una bağımlı olmamak için.
-	// Bazı SQLite driver'larında (modernc.org/sqlite) RETURNING desteklenmeyebilir
-	// veya beklenmedik davranış gösterebilir. ID'yi önceden üretmek daha güvenli.
+	// Generate ID in Go rather than relying on RETURNING for safer cross-driver compat.
 	var generatedID string
 	if err := r.db.QueryRowContext(ctx,
 		`SELECT lower(hex(randomblob(8)))`,
@@ -44,8 +40,7 @@ func (r *sqliteLiveKitRepo) Create(ctx context.Context, instance *models.LiveKit
 		return fmt.Errorf("failed to create livekit instance: %w", err)
 	}
 
-	// created_at DB tarafında DEFAULT CURRENT_TIMESTAMP ile atanıyor,
-	// geri okuyarak Go struct'ını güncelliyoruz.
+	// Read back created_at (DB default)
 	instance.ID = generatedID
 	return r.db.QueryRowContext(ctx,
 		`SELECT created_at FROM livekit_instances WHERE id = ?`, generatedID,
@@ -53,9 +48,7 @@ func (r *sqliteLiveKitRepo) Create(ctx context.Context, instance *models.LiveKit
 }
 
 func (r *sqliteLiveKitRepo) GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error) {
-	// server_count'u stored değer yerine gerçek COUNT ile hesaplıyoruz.
-	// Denormalize edilmiş server_count sütunu increment/decrement bug'larında
-	// drift edebilir — COUNT(*) her zaman doğru sonuç verir.
+	// Use COUNT(*) instead of stored server_count to avoid drift from increment/decrement bugs.
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
 		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
@@ -103,13 +96,9 @@ func (r *sqliteLiveKitRepo) GetByServerID(ctx context.Context, serverID string) 
 	return inst, nil
 }
 
-// GetLeastLoadedPlatformInstance, en az sunucu bağlı ve kapasitesi dolmamış
-// platform-managed instance'ı döner.
-// max_servers = 0 → sınırsız kapasite (her zaman uygun).
-// server_count ASC sıralı, ilk satır = en az yüklü.
+// GetLeastLoadedPlatformInstance returns the platform-managed instance with fewest servers
+// that still has capacity. max_servers = 0 means unlimited.
 func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context) (*models.LiveKitInstance, error) {
-	// Gerçek sunucu sayısını COUNT ile hesapla — stored server_count drift edebilir.
-	// max_servers kapasitesini de computed count'a göre kontrol eder.
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
 		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
@@ -212,8 +201,7 @@ func (r *sqliteLiveKitRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListPlatformInstances, tüm platform-managed LiveKit instance'larını döner.
-// Admin panelde liste görünümü için kullanılır. created_at'e göre sıralanır.
+// ListPlatformInstances returns all platform-managed LiveKit instances for admin panel.
 func (r *sqliteLiveKitRepo) ListPlatformInstances(ctx context.Context) ([]models.LiveKitInstance, error) {
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
@@ -248,12 +236,7 @@ func (r *sqliteLiveKitRepo) ListPlatformInstances(ctx context.Context) ([]models
 	return instances, nil
 }
 
-// MigrateServers, bir instance'daki tüm sunucuları başka bir instance'a taşır.
-// Transaction içinde çalışır:
-//  1. Taşınacak sunucu sayısını sayar
-//  2. servers.livekit_instance_id günceller
-//  3. Kaynak instance'ın server_count'unu 0 yapar
-//  4. Hedef instance'ın server_count'unu artırır
+// MigrateServers moves all servers from one instance to another within a transaction.
 func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, toInstanceID string) (int64, error) {
 	sqlDB, ok := r.db.(*sql.DB)
 	if !ok {
@@ -265,7 +248,6 @@ func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, 
 	}
 	defer tx.Rollback()
 
-	// 1. Taşınacak sunucu sayısını say
 	var count int64
 	err = tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM servers WHERE livekit_instance_id = ?`, fromInstanceID,
@@ -278,7 +260,6 @@ func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, 
 		return 0, nil
 	}
 
-	// 2. Sunucuları hedef instance'a taşı
 	_, err = tx.ExecContext(ctx,
 		`UPDATE servers SET livekit_instance_id = ? WHERE livekit_instance_id = ?`,
 		toInstanceID, fromInstanceID,
@@ -287,7 +268,6 @@ func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, 
 		return 0, fmt.Errorf("failed to migrate servers: %w", err)
 	}
 
-	// 3. Kaynak instance'ın server_count'unu 0 yap
 	_, err = tx.ExecContext(ctx,
 		`UPDATE livekit_instances SET server_count = 0 WHERE id = ?`, fromInstanceID,
 	)
@@ -295,7 +275,6 @@ func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, 
 		return 0, fmt.Errorf("failed to reset source server count: %w", err)
 	}
 
-	// 4. Hedef instance'ın server_count'unu artır
 	_, err = tx.ExecContext(ctx,
 		`UPDATE livekit_instances SET server_count = server_count + ? WHERE id = ?`,
 		count, toInstanceID,
@@ -311,12 +290,7 @@ func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, 
 	return count, nil
 }
 
-// MigrateOneServer, tek bir sunucunun LiveKit instance'ını değiştirir.
-// Transaction içinde:
-//  1. Sunucunun mevcut livekit_instance_id'sini oku
-//  2. servers.livekit_instance_id = newInstanceID güncelle
-//  3. Eski instance'ın server_count'unu 1 azalt (varsa)
-//  4. Yeni instance'ın server_count'unu 1 artır
+// MigrateOneServer moves a single server to a different LiveKit instance within a transaction.
 func (r *sqliteLiveKitRepo) MigrateOneServer(ctx context.Context, serverID, newInstanceID string) error {
 	sqlDB, ok := r.db.(*sql.DB)
 	if !ok {
@@ -328,7 +302,6 @@ func (r *sqliteLiveKitRepo) MigrateOneServer(ctx context.Context, serverID, newI
 	}
 	defer tx.Rollback()
 
-	// 1. Mevcut instance ID'yi al
 	var oldInstanceID sql.NullString
 	err = tx.QueryRowContext(ctx,
 		`SELECT livekit_instance_id FROM servers WHERE id = ?`, serverID,
@@ -340,7 +313,6 @@ func (r *sqliteLiveKitRepo) MigrateOneServer(ctx context.Context, serverID, newI
 		return fmt.Errorf("failed to get server current instance: %w", err)
 	}
 
-	// 2. Sunucunun instance'ını güncelle
 	_, err = tx.ExecContext(ctx,
 		`UPDATE servers SET livekit_instance_id = ? WHERE id = ?`,
 		newInstanceID, serverID,
@@ -349,7 +321,7 @@ func (r *sqliteLiveKitRepo) MigrateOneServer(ctx context.Context, serverID, newI
 		return fmt.Errorf("failed to update server instance: %w", err)
 	}
 
-	// 3. Eski instance'ın server_count'unu azalt (varsa ve değişmişse)
+	// Decrement old instance count if it changed
 	if oldInstanceID.Valid && oldInstanceID.String != "" && oldInstanceID.String != newInstanceID {
 		_, err = tx.ExecContext(ctx,
 			`UPDATE livekit_instances SET server_count = MAX(server_count - 1, 0) WHERE id = ?`,
@@ -360,7 +332,6 @@ func (r *sqliteLiveKitRepo) MigrateOneServer(ctx context.Context, serverID, newI
 		}
 	}
 
-	// 4. Yeni instance'ın server_count'unu artır
 	_, err = tx.ExecContext(ctx,
 		`UPDATE livekit_instances SET server_count = server_count + 1 WHERE id = ?`,
 		newInstanceID,

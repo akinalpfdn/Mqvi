@@ -12,12 +12,10 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteMessageRepo, MessageRepository interface'inin SQLite implementasyonu.
 type sqliteMessageRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteMessageRepo, constructor — interface döner.
 func NewSQLiteMessageRepo(db database.TxQuerier) MessageRepository {
 	return &sqliteMessageRepo{db: db}
 }
@@ -48,11 +46,8 @@ func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message)
 }
 
 func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Message, error) {
-	// Mesajı yazar bilgisiyle birlikte getir (JOIN).
-	// LEFT JOIN kullanıyoruz — kullanıcı silinmiş olsa bile mesaj görünür.
-	// Referans mesaj (reply) bilgisi de LEFT JOIN ile yüklenir:
-	//   - rm: yanıt yapılan mesaj
-	//   - ru: yanıt yapılan mesajın yazarı
+	// LEFT JOIN: message stays visible even if author is deleted.
+	// Reply reference (rm/ru) loaded via LEFT JOIN.
 	query := `
 		SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
 		       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
@@ -69,7 +64,6 @@ func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Mes
 	var author models.User
 	var authorID sql.NullString
 
-	// Referans mesaj nullable alanları
 	var refMsgID, refMsgContent sql.NullString
 	var refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL sql.NullString
 
@@ -90,7 +84,7 @@ func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Mes
 
 	if authorID.Valid {
 		author.ID = authorID.String
-		author.PasswordHash = "" // Güvenlik: API'ye asla şifre hash'i gönderme
+		author.PasswordHash = "" // never expose password hash
 		msg.Author = &author
 	}
 
@@ -99,24 +93,14 @@ func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Mes
 	return msg, nil
 }
 
-// GetByChannelID, cursor-based pagination ile mesajları getirir.
-//
-// Sorgu mantığı:
-// 1. beforeID boşsa → en yeni mesajlardan başla
-// 2. beforeID doluysa → o mesajın created_at değerinden öncekileri getir
-// 3. ORDER BY created_at DESC → en yeniden eskiye sırala
-// 4. LIMIT ile sayı kısıtla
-//
-// Frontend'de mesajlar ters çevrilir (en eski üstte, en yeni altta).
-//
-// Referans mesaj (reply) bilgisi LEFT JOIN ile her mesajla birlikte yüklenir.
-// Her mesajın en fazla 1 referansı olduğundan batch load yerine JOIN tercih edildi.
+// GetByChannelID returns messages with cursor-based pagination.
+// Reply references are loaded via LEFT JOIN (max 1 per message, so JOIN is preferred over batch).
+// Results are DESC-ordered (frontend reverses for display).
 func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string, beforeID string, limit int) ([]models.Message, error) {
 	var query string
 	var args []any
 
 	if beforeID == "" {
-		// İlk yükleme — en yeni mesajlardan başla
 		query = `
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
 			       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
@@ -132,12 +116,7 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 			LIMIT ?`
 		args = []any{channelID, limit}
 	} else {
-		// Eski mesajları yükle — cursor'dan önceki mesajlar
-		//
-		// Subquery nedir?
-		// "(SELECT created_at FROM messages WHERE id = ?)" — beforeID'nin created_at değerini bulur.
-		// Ana sorgu bu tarihten önceki mesajları getirir.
-		// Bu pattern, cursor-based pagination'ın temelidir.
+		// Cursor pagination: fetch messages older than beforeID's created_at
 		query = `
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
 			       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
@@ -167,7 +146,6 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 		var author models.User
 		var authorID sql.NullString
 
-		// Referans mesaj nullable alanları
 		var refMsgID, refMsgContent sql.NullString
 		var refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL sql.NullString
 
@@ -200,7 +178,6 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 }
 
 func (r *sqliteMessageRepo) Update(ctx context.Context, message *models.Message) error {
-	// Düzenleme: content güncelle + edited_at zaman damgası ekle.
 	now := time.Now()
 	query := `UPDATE messages SET content = ?, edited_at = ? WHERE id = ?`
 
@@ -222,9 +199,8 @@ func (r *sqliteMessageRepo) Update(ctx context.Context, message *models.Message)
 }
 
 func (r *sqliteMessageRepo) Delete(ctx context.Context, id string) error {
-	// ON DELETE CASCADE: mesaj silindiğinde attachment'lar da silinir (DB tarafında).
-	// Reply referansları korunur (FK yok): yanıt yapılan mesaj silinince
-	// reply_to_id aynı kalır, LEFT JOIN NULL döner → "silindi" gösterilir.
+	// Attachments CASCADE-deleted. Reply references preserved (no FK):
+	// reply_to_id stays, LEFT JOIN returns NULL -> frontend shows "deleted message".
 	result, err := r.db.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete message: %w", err)
@@ -241,12 +217,12 @@ func (r *sqliteMessageRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// buildMessageReference, LEFT JOIN sonuçlarından MessageReference oluşturur.
+// buildMessageReference builds a MessageReference from LEFT JOIN results.
 //
-// Üç durum:
-// 1. replyToID nil → yanıt değil → nil döner
-// 2. replyToID NOT NULL, refMsgID NULL → referans mesaj silinmiş → sadece ID'li boş referans
-// 3. replyToID NOT NULL, refMsgID NOT NULL → tam referans (yazar + içerik)
+// Three cases:
+// 1. replyToID nil -> not a reply -> nil
+// 2. replyToID set, refMsgID NULL -> referenced message deleted -> empty ref with ID only
+// 3. replyToID set, refMsgID set -> full reference with author + content
 func buildMessageReference(
 	replyToID *string,
 	refMsgID, refMsgContent sql.NullString,
@@ -260,7 +236,6 @@ func buildMessageReference(
 		ID: *replyToID,
 	}
 
-	// Referans mesaj hâlâ mevcut — yazar + içerik doldur
 	if refMsgID.Valid {
 		if refMsgContent.Valid {
 			ref.Content = &refMsgContent.String
@@ -280,8 +255,7 @@ func buildMessageReference(
 			ref.Author = refAuthor
 		}
 	}
-	// refMsgID.Valid == false → referans mesaj silinmiş
-	// Author ve Content nil kalır → frontend "Orijinal mesaj silindi" gösterir
+	// refMsgID invalid -> referenced message deleted, Author and Content stay nil
 
 	return ref
 }

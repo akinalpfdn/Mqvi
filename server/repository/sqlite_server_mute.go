@@ -7,20 +7,15 @@ import (
 	"github.com/akinalp/mqvi/database"
 )
 
-// sqliteServerMuteRepo, ServerMuteRepository interface'inin SQLite implementasyonu.
 type sqliteServerMuteRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteServerMuteRepo, constructor — interface döner.
 func NewSQLiteServerMuteRepo(db database.TxQuerier) ServerMuteRepository {
 	return &sqliteServerMuteRepo{db: db}
 }
 
-// Upsert, sunucu mute'unu ekler veya günceller.
-//
-// INSERT OR REPLACE pattern — PK (user_id, server_id) çakışırsa güncellenir.
-// mutedUntil nil ise sonsuza kadar sessiz (DATETIME kolonu NULL olur).
+// Upsert creates or updates a server mute. nil mutedUntil = indefinite.
 func (r *sqliteServerMuteRepo) Upsert(ctx context.Context, userID, serverID string, mutedUntil *string) error {
 	query := `
 		INSERT INTO server_mutes (user_id, server_id, muted_until)
@@ -36,7 +31,6 @@ func (r *sqliteServerMuteRepo) Upsert(ctx context.Context, userID, serverID stri
 	return nil
 }
 
-// Delete, sunucu mute'unu kaldırır (unmute).
 func (r *sqliteServerMuteRepo) Delete(ctx context.Context, userID, serverID string) error {
 	query := `DELETE FROM server_mutes WHERE user_id = ? AND server_id = ?`
 	_, err := r.db.ExecContext(ctx, query, userID, serverID)
@@ -46,12 +40,7 @@ func (r *sqliteServerMuteRepo) Delete(ctx context.Context, userID, serverID stri
 	return nil
 }
 
-// GetMutedServerIDs, kullanıcının aktif mute'lu sunucu ID'lerini döner.
-//
-// Lazy expiry: WHERE koşuluyla süresi dolmuş mute'lar hariç tutulur.
-// muted_until IS NULL → sonsuza kadar muted (dahil et).
-// muted_until > datetime('now') → henüz süresi dolmamış (dahil et).
-// Diğer durumlar → süresi dolmuş (hariç tut).
+// GetMutedServerIDs returns active muted server IDs (lazy expiry via WHERE).
 func (r *sqliteServerMuteRepo) GetMutedServerIDs(ctx context.Context, userID string) ([]string, error) {
 	query := `
 		SELECT server_id FROM server_mutes

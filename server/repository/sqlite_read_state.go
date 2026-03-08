@@ -8,20 +8,14 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// sqliteReadStateRepo, ReadStateRepository interface'inin SQLite implementasyonu.
 type sqliteReadStateRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteReadStateRepo, constructor — interface döner.
 func NewSQLiteReadStateRepo(db database.TxQuerier) ReadStateRepository {
 	return &sqliteReadStateRepo{db: db}
 }
 
-// Upsert, bir kullanıcının belirli bir kanaldaki son okunan mesajını günceller.
-//
-// INSERT OR REPLACE kullanıyoruz (SQLite "upsert" pattern).
-// PRIMARY KEY (user_id, channel_id) çakışırsa satır güncellenir.
 func (r *sqliteReadStateRepo) Upsert(ctx context.Context, userID, channelID, messageID string) error {
 	query := `
 		INSERT INTO channel_reads (user_id, channel_id, last_read_message_id, last_read_at)
@@ -37,19 +31,9 @@ func (r *sqliteReadStateRepo) Upsert(ctx context.Context, userID, channelID, mes
 	return nil
 }
 
-// GetUnreadCounts, bir kullanıcının belirli bir sunucudaki okunmamış mesaj sayılarını döner.
-//
-// Sorgu mantığı:
-// 1. channels tablosundan sunucuya ait text kanallarını al (voice kanalları hariç)
-// 2. channel_reads ile LEFT JOIN — kullanıcının okuma durumunu bul
-// 3. Okunmamış mesaj sayısı = last_read_message_id'den sonraki mesaj sayısı
-// 4. Hiç okuma kaydı yoksa (yeni kanal) tüm mesajlar okunmamış sayılır
-// 5. Sadece okunmamış > 0 olan kanalları döner
+// GetUnreadCounts returns per-channel unread counts for a user in a server.
+// Excludes the user's own messages from the count.
 func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error) {
-	// Okunmamış mesaj sayısını hesaplarken kullanıcının KENDİ mesajlarını hariç tut.
-	// Kendi yazdığımız mesajlar "okunmamış" sayılmamalı — Discord da böyle çalışır.
-	// m.user_id != ? filtresi olmazsa, fetchUnreadCounts kendi mesajlarımızı da sayar
-	// ve server switch sonrası "tekrar unread" görünür.
 	query := `
 		SELECT id, unread_count FROM (
 			SELECT c.id,
@@ -90,12 +74,8 @@ func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serve
 	return unreads, nil
 }
 
-// MarkAllRead, sunucudaki tüm text kanallarının son mesajını okunmuş olarak işaretler.
-//
-// Tek bir SQL ile tüm kanalları topluca upsert eder:
-// 1. Sunucudaki her text kanalının en son mesajını bul (sub-query)
-// 2. INSERT OR REPLACE ile read_states'e yaz
-// Mesajı olmayan kanallar otomatik olarak hariç tutulur (INNER JOIN).
+// MarkAllRead marks all text channels in a server as read for the user.
+// Channels with no messages are skipped (INNER JOIN).
 func (r *sqliteReadStateRepo) MarkAllRead(ctx context.Context, userID, serverID string) error {
 	query := `
 		INSERT INTO channel_reads (user_id, channel_id, last_read_message_id, last_read_at)

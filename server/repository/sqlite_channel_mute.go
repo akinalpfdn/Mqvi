@@ -7,20 +7,15 @@ import (
 	"github.com/akinalp/mqvi/database"
 )
 
-// sqliteChannelMuteRepo, ChannelMuteRepository interface'inin SQLite implementasyonu.
 type sqliteChannelMuteRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteChannelMuteRepo, constructor — interface döner.
 func NewSQLiteChannelMuteRepo(db database.TxQuerier) ChannelMuteRepository {
 	return &sqliteChannelMuteRepo{db: db}
 }
 
-// Upsert, kanal mute'unu ekler veya günceller.
-//
-// INSERT OR REPLACE pattern — PK (user_id, channel_id) çakışırsa güncellenir.
-// mutedUntil nil ise sonsuza kadar sessiz (DATETIME kolonu NULL olur).
+// Upsert creates or updates a channel mute. nil mutedUntil = indefinite.
 func (r *sqliteChannelMuteRepo) Upsert(ctx context.Context, userID, channelID, serverID string, mutedUntil *string) error {
 	query := `
 		INSERT INTO channel_mutes (user_id, channel_id, server_id, muted_until)
@@ -36,7 +31,6 @@ func (r *sqliteChannelMuteRepo) Upsert(ctx context.Context, userID, channelID, s
 	return nil
 }
 
-// Delete, kanal mute'unu kaldırır (unmute).
 func (r *sqliteChannelMuteRepo) Delete(ctx context.Context, userID, channelID string) error {
 	query := `DELETE FROM channel_mutes WHERE user_id = ? AND channel_id = ?`
 	_, err := r.db.ExecContext(ctx, query, userID, channelID)
@@ -46,12 +40,7 @@ func (r *sqliteChannelMuteRepo) Delete(ctx context.Context, userID, channelID st
 	return nil
 }
 
-// GetMutedChannelIDs, kullanıcının aktif mute'lu kanal ID'lerini döner.
-//
-// Lazy expiry: WHERE koşuluyla süresi dolmuş mute'lar hariç tutulur.
-// muted_until IS NULL → sonsuza kadar muted (dahil et).
-// muted_until > datetime('now') → henüz süresi dolmamış (dahil et).
-// Diğer durumlar → süresi dolmuş (hariç tut).
+// GetMutedChannelIDs returns active muted channel IDs (lazy expiry via WHERE).
 func (r *sqliteChannelMuteRepo) GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error) {
 	query := `
 		SELECT channel_id FROM channel_mutes

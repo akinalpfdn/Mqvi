@@ -1,8 +1,3 @@
-// Package repository — ReportRepository SQLite implementasyonu.
-//
-// reports tablosu CRUD işlemleri.
-// Admin panelinden listeleme: JOIN ile raporlayan/raporlanan kullanıcı bilgileri dahil edilir.
-// HasPendingReport: aynı reporter→target çiftinde mükerrer rapor önleme.
 package repository
 
 import (
@@ -15,18 +10,14 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteReportRepo, ReportRepository interface'inin SQLite implementasyonu.
 type sqliteReportRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteReportRepo, constructor — interface döner.
 func NewSQLiteReportRepo(db database.TxQuerier) ReportRepository {
 	return &sqliteReportRepo{db: db}
 }
 
-// Create, yeni rapor oluşturur.
-// ID ve CreatedAt SQLite tarafından otomatik atanır (RETURNING ile okunur).
 func (r *sqliteReportRepo) Create(ctx context.Context, report *models.Report) error {
 	query := `
 		INSERT INTO reports (id, reporter_id, reported_user_id, reason, description)
@@ -44,7 +35,6 @@ func (r *sqliteReportRepo) Create(ctx context.Context, report *models.Report) er
 	return nil
 }
 
-// GetByID, ID ile rapor döner.
 func (r *sqliteReportRepo) GetByID(ctx context.Context, id string) (*models.Report, error) {
 	query := `
 		SELECT id, reporter_id, reported_user_id, reason, description,
@@ -78,21 +68,15 @@ func (r *sqliteReportRepo) GetByID(ctx context.Context, id string) (*models.Repo
 	return &report, nil
 }
 
-// ListPending, bekleyen raporları sayfalanmış döner.
-// JOIN ile raporlayan ve raporlanan kullanıcı bilgileri dahil edilir.
-// İkinci return değeri toplam kayıt sayısıdır (pagination hesaplaması için).
 func (r *sqliteReportRepo) ListPending(ctx context.Context, limit, offset int) ([]models.ReportWithUsers, int, error) {
 	return r.listByStatus(ctx, models.ReportStatusPending, limit, offset)
 }
 
-// ListAll, tüm raporları sayfalanmış döner.
 func (r *sqliteReportRepo) ListAll(ctx context.Context, limit, offset int) ([]models.ReportWithUsers, int, error) {
 	return r.listByStatus(ctx, "", limit, offset)
 }
 
-// listByStatus, ortak listeleme mantığı. status boş string ise tüm raporlar döner.
 func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.ReportStatus, limit, offset int) ([]models.ReportWithUsers, int, error) {
-	// Limit/offset koruma
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}
@@ -100,7 +84,6 @@ func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.Repor
 		offset = 0
 	}
 
-	// 1. Toplam kayıt sayısı
 	var countQuery string
 	var countArgs []any
 
@@ -120,7 +103,6 @@ func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.Repor
 		return []models.ReportWithUsers{}, 0, nil
 	}
 
-	// 2. Sayfalanmış sonuçlar
 	baseQuery := `
 		SELECT r.id, r.reporter_id, r.reported_user_id, r.reason, r.description,
 		       r.status, r.resolved_by, r.resolved_at, r.created_at,
@@ -194,9 +176,6 @@ func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.Repor
 	return reports, totalCount, nil
 }
 
-// UpdateStatus, rapor durumunu günceller (pending → reviewed/resolved/dismissed).
-// resolvedBy parametresi admin user ID'sidir.
-// resolved_at SQLite datetime string olarak kaydedilir (TEXT column).
 func (r *sqliteReportRepo) UpdateStatus(ctx context.Context, id string, status models.ReportStatus, resolvedBy string) error {
 	query := `
 		UPDATE reports
@@ -218,9 +197,7 @@ func (r *sqliteReportRepo) UpdateStatus(ctx context.Context, id string, status m
 	return nil
 }
 
-// HasPendingReport, reporter→target çiftinde aktif (pending) rapor var mı kontrol eder.
-// Mükerrer rapor önleme için kullanılır — aynı kullanıcı aynı kişiyi
-// zaten pending raporlamışsa yeni rapor oluşturulmaz.
+// HasPendingReport checks for duplicate pending reports between same reporter and target.
 func (r *sqliteReportRepo) HasPendingReport(ctx context.Context, reporterID, targetID string) (bool, error) {
 	query := `
 		SELECT EXISTS(
@@ -235,8 +212,6 @@ func (r *sqliteReportRepo) HasPendingReport(ctx context.Context, reporterID, tar
 	return exists, nil
 }
 
-// CreateAttachment, rapora delil dosyası ekler.
-// ID otomatik atanır (RETURNING ile okunur).
 func (r *sqliteReportRepo) CreateAttachment(ctx context.Context, att *models.ReportAttachment) error {
 	query := `
 		INSERT INTO report_attachments (report_id, filename, file_url, file_size, mime_type)
@@ -253,7 +228,6 @@ func (r *sqliteReportRepo) CreateAttachment(ctx context.Context, att *models.Rep
 	return nil
 }
 
-// GetAttachmentsByReportID, rapora ait tüm delil dosyalarını döner.
 func (r *sqliteReportRepo) GetAttachmentsByReportID(ctx context.Context, reportID string) ([]models.ReportAttachment, error) {
 	query := `
 		SELECT id, report_id, filename, file_url, file_size, mime_type, created_at

@@ -1,11 +1,9 @@
-// Package repository — DMSettingsRepository SQLite implementasyonu.
+// Package repository — DMSettingsRepository SQLite implementation.
 //
-// UPSERT pattern: INSERT ... ON CONFLICT DO UPDATE.
-//
-// Mute sentinel: Forever mute'ta muted_until = '9999-12-31T23:59:59Z' kullanılır.
-// Bu dm_settings tablosu pin/hide için de satır oluşturabildiğinden, NULL "muted değil"
-// anlamına gelir, sentinel ise "sonsuz mute" anlamına gelir. Süreli mute'lar normal
-// datetime string'i tutar. Lazy expiry: WHERE muted_until > datetime('now').
+// Uses UPSERT pattern: INSERT ... ON CONFLICT DO UPDATE.
+// Mute sentinel: forever mute uses muted_until = '9999-12-31T23:59:59Z'.
+// NULL means "not muted", sentinel means "forever muted".
+// Lazy expiry: WHERE muted_until > datetime('now').
 package repository
 
 import (
@@ -15,18 +13,15 @@ import (
 	"github.com/akinalp/mqvi/database"
 )
 
-// sqliteDMSettingsRepo, DMSettingsRepository interface'inin SQLite implementasyonu.
 type sqliteDMSettingsRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteDMSettingsRepo, constructor — interface döner.
 func NewSQLiteDMSettingsRepo(db database.TxQuerier) DMSettingsRepository {
 	return &sqliteDMSettingsRepo{db: db}
 }
 
-// IsHidden, DM'nin gizli olup olmadığını döner.
-// Satır yoksa false (gizli değil). Auto-unhide öncesi kontrol — gereksiz broadcast önleme.
+// IsHidden returns whether the DM is hidden. No row = not hidden.
 func (r *sqliteDMSettingsRepo) IsHidden(ctx context.Context, userID, dmChannelID string) (bool, error) {
 	query := `
 		SELECT is_hidden FROM user_dm_settings
@@ -35,13 +30,11 @@ func (r *sqliteDMSettingsRepo) IsHidden(ctx context.Context, userID, dmChannelID
 	var isHidden bool
 	err := r.db.QueryRowContext(ctx, query, userID, dmChannelID).Scan(&isHidden)
 	if err != nil {
-		// Satır yoksa gizli değil
-		return false, nil
+		return false, nil // no row = not hidden
 	}
 	return isHidden, nil
 }
 
-// SetHidden, DM'yi gizle veya göster.
 func (r *sqliteDMSettingsRepo) SetHidden(ctx context.Context, userID, dmChannelID string, hidden bool) error {
 	hiddenInt := 0
 	if hidden {
@@ -60,7 +53,6 @@ func (r *sqliteDMSettingsRepo) SetHidden(ctx context.Context, userID, dmChannelI
 	return nil
 }
 
-// SetPinned, DM'yi sabitle veya sabitlemeyi kaldır.
 func (r *sqliteDMSettingsRepo) SetPinned(ctx context.Context, userID, dmChannelID string, pinned bool) error {
 	pinnedInt := 0
 	if pinned {
@@ -79,8 +71,7 @@ func (r *sqliteDMSettingsRepo) SetPinned(ctx context.Context, userID, dmChannelI
 	return nil
 }
 
-// SetMutedUntil, DM'yi sessize al.
-// mutedUntil: datetime string (süreli) veya '9999-12-31T23:59:59Z' (forever).
+// SetMutedUntil mutes a DM. mutedUntil is a datetime string or '9999-12-31T23:59:59Z' for forever.
 func (r *sqliteDMSettingsRepo) SetMutedUntil(ctx context.Context, userID, dmChannelID string, mutedUntil *string) error {
 	query := `
 		INSERT INTO user_dm_settings (user_id, dm_channel_id, muted_until)
@@ -95,7 +86,6 @@ func (r *sqliteDMSettingsRepo) SetMutedUntil(ctx context.Context, userID, dmChan
 	return nil
 }
 
-// DeleteMute, DM mute'u kaldır (muted_until = NULL).
 func (r *sqliteDMSettingsRepo) DeleteMute(ctx context.Context, userID, dmChannelID string) error {
 	query := `
 		UPDATE user_dm_settings
@@ -109,7 +99,6 @@ func (r *sqliteDMSettingsRepo) DeleteMute(ctx context.Context, userID, dmChannel
 	return nil
 }
 
-// GetPinnedChannelIDs, kullanıcının sabitlediği DM kanal ID'lerini döner.
 func (r *sqliteDMSettingsRepo) GetPinnedChannelIDs(ctx context.Context, userID string) ([]string, error) {
 	query := `
 		SELECT dm_channel_id FROM user_dm_settings
@@ -132,9 +121,8 @@ func (r *sqliteDMSettingsRepo) GetPinnedChannelIDs(ctx context.Context, userID s
 	return ids, rows.Err()
 }
 
-// GetMutedChannelIDs, kullanıcının sessize aldığı DM kanal ID'lerini döner.
-// Lazy expiry: muted_until > datetime('now') koşulu ile süresi dolmuş mute'lar hariç tutulur.
-// Forever mute sentinel '9999-12-31T23:59:59Z' her zaman > now olacağı için dahil edilir.
+// GetMutedChannelIDs returns muted DM channel IDs with lazy expiry.
+// Forever mute sentinel '9999-12-31T23:59:59Z' always passes the > now check.
 func (r *sqliteDMSettingsRepo) GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error) {
 	query := `
 		SELECT dm_channel_id FROM user_dm_settings

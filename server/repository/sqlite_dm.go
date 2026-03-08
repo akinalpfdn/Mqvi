@@ -12,20 +12,18 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteDMRepo, DMRepository interface'inin SQLite implementasyonu.
 type sqliteDMRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteDMRepo, constructor — interface döner.
 func NewSQLiteDMRepo(db database.TxQuerier) DMRepository {
 	return &sqliteDMRepo{db: db}
 }
 
 // ─── Channel Operations ───
 
-// GetChannelByUsers, iki kullanıcı arasındaki DM kanalını döner.
-// user1ID ve user2ID sıralı gelmeli (service katmanında sağlanır).
+// GetChannelByUsers returns the DM channel between two users.
+// user1ID and user2ID must be pre-sorted (enforced by service layer).
 func (r *sqliteDMRepo) GetChannelByUsers(ctx context.Context, user1ID, user2ID string) (*models.DMChannel, error) {
 	var ch models.DMChannel
 	var lastMsgAt sql.NullTime
@@ -35,7 +33,7 @@ func (r *sqliteDMRepo) GetChannelByUsers(ctx context.Context, user1ID, user2ID s
 	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.E2EEEnabled, &ch.CreatedAt, &lastMsgAt)
 
 	if err == sql.ErrNoRows {
-		return nil, nil // Kanal yok — nil döner (hata değil)
+		return nil, nil // no channel exists
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DM channel: %w", err)
@@ -46,7 +44,6 @@ func (r *sqliteDMRepo) GetChannelByUsers(ctx context.Context, user1ID, user2ID s
 	return &ch, nil
 }
 
-// GetChannelByID, ID ile DM kanalını döner.
 func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.DMChannel, error) {
 	var ch models.DMChannel
 	var lastMsgAt sql.NullTime
@@ -67,19 +64,9 @@ func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.D
 	return &ch, nil
 }
 
-// ListChannels, bir kullanıcının tüm DM kanallarını karşı taraf bilgisiyle döner.
-//
-// JOIN mantığı:
-// dm_channels.user1_id veya user2_id eşleşen kanalları bul,
-// karşı tarafı (eşleşmeyen user) users tablosuyla JOIN et.
-//
-// LEFT JOIN user_dm_settings ile kullanıcının kişisel DM ayarları dahil edilir:
-// - is_hidden = 1 olanlar filtrelenir (gizlenmiş DM'ler sidebar'da gösterilmez)
-// - is_pinned → DMChannelWithUser.IsPinned
-// - muted_until > datetime('now') → DMChannelWithUser.IsMuted
-//
-// Sıralama: Pinned DM'ler en üstte, kendi aralarında activity sıralı.
-// Sonra diğer DM'ler activity sıralı.
+// ListChannels returns a user's DM channels with the other user's info.
+// Joins user_dm_settings to filter hidden channels and include pin/mute state.
+// Sorted: pinned first (by activity), then unpinned by activity.
 func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error) {
 	query := `
 		SELECT dc.id, dc.e2ee_enabled, dc.created_at, dc.last_message_at,
@@ -145,7 +132,6 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 	return channels, nil
 }
 
-// CreateChannel, yeni bir DM kanalı oluşturur.
 func (r *sqliteDMRepo) CreateChannel(ctx context.Context, channel *models.DMChannel) error {
 	var lastMsgAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,
@@ -162,7 +148,6 @@ func (r *sqliteDMRepo) CreateChannel(ctx context.Context, channel *models.DMChan
 	return nil
 }
 
-// SetE2EEEnabled, DM kanalının E2EE durumunu günceller.
 func (r *sqliteDMRepo) SetE2EEEnabled(ctx context.Context, channelID string, enabled bool) error {
 	result, err := r.db.ExecContext(ctx,
 		"UPDATE dm_channels SET e2ee_enabled = ? WHERE id = ?",
@@ -183,13 +168,8 @@ func (r *sqliteDMRepo) SetE2EEEnabled(ctx context.Context, channelID string, ena
 
 // ─── Message Operations ───
 
-// GetMessages, cursor-based pagination ile DM mesajlarını döner.
-// Mesajlar created_at DESC sıralı döner (service katmanında ters çevrilir).
-//
-// Channel GetByChannelID ile aynı pattern:
-// - LEFT JOIN ile referans mesaj (reply preview) yüklenir
-// - reply_to_id ve is_pinned alanları dahil
-// - Attachments ve reactions service katmanında batch load edilir
+// GetMessages returns DM messages with cursor-based pagination (DESC order).
+// Reply references loaded via LEFT JOIN, same pattern as channel messages.
 func (r *sqliteDMRepo) GetMessages(ctx context.Context, channelID string, beforeID string, limit int) ([]models.DMMessage, error) {
 	var query string
 	var args []any
@@ -254,7 +234,6 @@ func (r *sqliteDMRepo) GetMessages(ctx context.Context, channelID string, before
 	return messages, nil
 }
 
-// GetMessageByID, tek bir DM mesajını döner (yazar + reply bilgisiyle).
 func (r *sqliteDMRepo) GetMessageByID(ctx context.Context, id string) (*models.DMMessage, error) {
 	query := `
 		SELECT m.id, m.dm_channel_id, m.user_id, m.content, m.edited_at, m.created_at,
@@ -277,7 +256,6 @@ func (r *sqliteDMRepo) GetMessageByID(ctx context.Context, id string) (*models.D
 	var displayName, avatarURL sql.NullString
 	var isPinned int
 
-	// Referans mesaj nullable alanları
 	var refMsgID, refMsgContent sql.NullString
 	var refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL sql.NullString
 
@@ -315,8 +293,6 @@ func (r *sqliteDMRepo) GetMessageByID(ctx context.Context, id string) (*models.D
 		msg.Author = &author
 	}
 
-	// Referans mesaj (reply preview) — buildMessageReference channel'da tanımlı,
-	// DM için aynı pattern'ı kullanıyoruz.
 	msg.ReferencedMessage = buildMessageReference(
 		msg.ReplyToID, refMsgID, refMsgContent,
 		refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL,
@@ -325,10 +301,8 @@ func (r *sqliteDMRepo) GetMessageByID(ctx context.Context, id string) (*models.D
 	return &msg, nil
 }
 
-// CreateMessage, yeni bir DM mesajı oluşturur.
-// reply_to_id desteği dahil — yanıt mesajları için kullanılır.
 func (r *sqliteDMRepo) CreateMessage(ctx context.Context, msg *models.DMMessage) error {
-	// Content boş olabilir (sadece dosya mesajı) — nullable olarak ekle
+	// Content can be nil (file-only message)
 	var contentPtr *string
 	if msg.Content != nil && *msg.Content != "" {
 		contentPtr = msg.Content
@@ -345,15 +319,12 @@ func (r *sqliteDMRepo) CreateMessage(ctx context.Context, msg *models.DMMessage)
 	if err != nil {
 		return fmt.Errorf("failed to create DM message: %w", err)
 	}
-	// created_at SQLite default — timezone issue fix
 	msg.CreatedAt = msg.CreatedAt.UTC()
 	return nil
 }
 
-// UpdateMessage, bir DM mesajını düzenler.
-//
-// E2EE mesajlarda content yerine ciphertext güncellenir.
-// Plaintext mesajlarda mevcut davranış korunur.
+// UpdateMessage edits a DM message.
+// E2EE messages update ciphertext; plaintext messages update content.
 func (r *sqliteDMRepo) UpdateMessage(ctx context.Context, id string, req *models.UpdateDMMessageRequest) error {
 	now := time.Now().UTC()
 
@@ -361,13 +332,11 @@ func (r *sqliteDMRepo) UpdateMessage(ctx context.Context, id string, req *models
 	var err error
 
 	if req.EncryptionVersion == 1 {
-		// E2EE düzenleme — ciphertext güncelle, content null bırak
 		result, err = r.db.ExecContext(ctx,
 			`UPDATE dm_messages SET ciphertext = ?, sender_device_id = ?, e2ee_metadata = ?, edited_at = ? WHERE id = ?`,
 			req.Ciphertext, req.SenderDeviceID, req.E2EEMetadata, now, id,
 		)
 	} else {
-		// Plaintext düzenleme — mevcut davranış
 		result, err = r.db.ExecContext(ctx,
 			"UPDATE dm_messages SET content = ?, edited_at = ? WHERE id = ?",
 			req.Content, now, id,
@@ -388,7 +357,6 @@ func (r *sqliteDMRepo) UpdateMessage(ctx context.Context, id string, req *models
 	return nil
 }
 
-// DeleteMessage, bir DM mesajını siler.
 func (r *sqliteDMRepo) DeleteMessage(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, "DELETE FROM dm_messages WHERE id = ?", id)
 	if err != nil {
@@ -407,11 +375,8 @@ func (r *sqliteDMRepo) DeleteMessage(ctx context.Context, id string) error {
 
 // ─── Reaction Operations ───
 
-// ToggleReaction, bir DM reaction'ı ekler veya kaldırır.
-//
-// Channel reaction toggle pattern ile aynı:
-// INSERT OR IGNORE → rowsAffected == 0 → UNIQUE constraint → zaten var → DELETE.
-// Atomik toggle, race condition riski yok (UNIQUE constraint DB seviyesinde).
+// ToggleReaction adds or removes a DM reaction.
+// INSERT OR IGNORE -> if rowsAffected == 0 (UNIQUE hit) -> DELETE. Atomic toggle.
 func (r *sqliteDMRepo) ToggleReaction(ctx context.Context, messageID, userID, emoji string) (bool, error) {
 	insertQuery := `
 		INSERT OR IGNORE INTO dm_reactions (id, dm_message_id, user_id, emoji)
@@ -427,12 +392,11 @@ func (r *sqliteDMRepo) ToggleReaction(ctx context.Context, messageID, userID, em
 		return false, fmt.Errorf("toggle DM reaction rows affected: %w", err)
 	}
 
-	// INSERT başarılı — yeni reaction eklendi
 	if rowsAffected > 0 {
-		return true, nil
+		return true, nil // added
 	}
 
-	// INSERT başarısız (UNIQUE constraint) — reaction zaten var, sil
+	// Already exists -> remove
 	deleteQuery := `DELETE FROM dm_reactions WHERE dm_message_id = ? AND user_id = ? AND emoji = ?`
 	_, err = r.db.ExecContext(ctx, deleteQuery, messageID, userID, emoji)
 	if err != nil {
@@ -442,7 +406,6 @@ func (r *sqliteDMRepo) ToggleReaction(ctx context.Context, messageID, userID, em
 	return false, nil
 }
 
-// GetReactionsByMessageID, tek bir DM mesajının reaction'larını gruplanmış döner.
 func (r *sqliteDMRepo) GetReactionsByMessageID(ctx context.Context, messageID string) ([]models.ReactionGroup, error) {
 	query := `
 		SELECT emoji, COUNT(*) as count, GROUP_CONCAT(user_id) as users
@@ -460,10 +423,7 @@ func (r *sqliteDMRepo) GetReactionsByMessageID(ctx context.Context, messageID st
 	return scanReactionGroups(rows)
 }
 
-// GetReactionsByMessageIDs, birden fazla DM mesajının reaction'larını batch yükler.
-// N+1 problemi çözümü — tek sorgu ile tüm mesajların reaction'ları alınır.
-//
-// Return: map[messageID] → []ReactionGroup
+// GetReactionsByMessageIDs batch-loads reactions for multiple DM messages (avoids N+1).
 func (r *sqliteDMRepo) GetReactionsByMessageIDs(ctx context.Context, messageIDs []string) (map[string][]models.ReactionGroup, error) {
 	if len(messageIDs) == 0 {
 		return make(map[string][]models.ReactionGroup), nil
@@ -515,7 +475,6 @@ func (r *sqliteDMRepo) GetReactionsByMessageIDs(ctx context.Context, messageIDs 
 
 // ─── Pin Operations ───
 
-// PinMessage, bir DM mesajını sabitler.
 func (r *sqliteDMRepo) PinMessage(ctx context.Context, messageID string) error {
 	result, err := r.db.ExecContext(ctx,
 		"UPDATE dm_messages SET is_pinned = 1 WHERE id = ?", messageID,
@@ -534,7 +493,6 @@ func (r *sqliteDMRepo) PinMessage(ctx context.Context, messageID string) error {
 	return nil
 }
 
-// UnpinMessage, bir DM mesajının sabitlemesini kaldırır.
 func (r *sqliteDMRepo) UnpinMessage(ctx context.Context, messageID string) error {
 	result, err := r.db.ExecContext(ctx,
 		"UPDATE dm_messages SET is_pinned = 0 WHERE id = ?", messageID,
@@ -553,8 +511,6 @@ func (r *sqliteDMRepo) UnpinMessage(ctx context.Context, messageID string) error
 	return nil
 }
 
-// GetPinnedMessages, bir DM kanalının sabitlenmiş mesajlarını döner.
-// Sabitlenme zamanına göre en yeni üstte sıralanır.
 func (r *sqliteDMRepo) GetPinnedMessages(ctx context.Context, channelID string) ([]models.DMMessage, error) {
 	query := `
 		SELECT m.id, m.dm_channel_id, m.user_id, m.content, m.edited_at, m.created_at,
@@ -597,7 +553,6 @@ func (r *sqliteDMRepo) GetPinnedMessages(ctx context.Context, channelID string) 
 
 // ─── Attachment Operations ───
 
-// CreateAttachment, yeni bir DM dosya eki kaydeder.
 func (r *sqliteDMRepo) CreateAttachment(ctx context.Context, attachment *models.DMAttachment) error {
 	err := r.db.QueryRowContext(ctx,
 		`INSERT INTO dm_attachments (dm_message_id, filename, file_url, file_size, mime_type)
@@ -611,17 +566,14 @@ func (r *sqliteDMRepo) CreateAttachment(ctx context.Context, attachment *models.
 	return nil
 }
 
-// GetAttachmentsByMessageIDs, birden fazla DM mesajının dosya eklerini batch yükler.
-// N+1 problemi çözümü — tek sorgu ile tüm mesajların attachment'ları alınır.
-//
-// Return: map[messageID] → []DMAttachment
+// GetAttachmentsByMessageIDs batch-loads attachments for multiple DM messages (avoids N+1).
 func (r *sqliteDMRepo) GetAttachmentsByMessageIDs(ctx context.Context, messageIDs []string) (map[string][]models.DMAttachment, error) {
 	if len(messageIDs) == 0 {
 		return make(map[string][]models.DMAttachment), nil
 	}
 
 	placeholders := strings.Repeat("?,", len(messageIDs))
-	placeholders = placeholders[:len(placeholders)-1] // Son virgülü kaldır
+	placeholders = placeholders[:len(placeholders)-1]
 
 	query := fmt.Sprintf(`
 		SELECT id, dm_message_id, filename, file_url, file_size, mime_type, created_at
@@ -660,21 +612,9 @@ func (r *sqliteDMRepo) GetAttachmentsByMessageIDs(ctx context.Context, messageID
 
 // ─── Search Operations ───
 
-// SearchMessages, FTS5 tam metin araması ile DM mesajlarını döner.
-//
-// FTS5 (Full-Text Search) SQLite'ın yerleşik arama motoru.
-// dm_messages_fts virtual tablosu triggerlar ile senkronize kalır.
-// MATCH operatörü ile fulltext arama yapılır.
-//
-// Channel search ile aynı pattern:
-// 1. sanitizeFTSQuery ile güvenli FTS5 sorgusu oluştur
-// 2. COUNT(*) ile toplam sonuç sayısını al
-// 3. LIMIT/OFFSET ile sayfalanmış sonuçları getir
-//
-// Sonuçlar yazar bilgisiyle birlikte döner, BM25 ranking ile sıralanır.
-// Üçüncü return değeri toplam sonuç sayısıdır (pagination hesaplaması için).
+// SearchMessages performs FTS5 full-text search on DM messages.
+// Returns paginated results ranked by BM25, plus total count for pagination.
 func (r *sqliteDMRepo) SearchMessages(ctx context.Context, channelID string, searchQuery string, limit, offset int) ([]models.DMMessage, int, error) {
-	// Limit/offset koruma — channel search ile aynı validation
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}
@@ -682,13 +622,12 @@ func (r *sqliteDMRepo) SearchMessages(ctx context.Context, channelID string, sea
 		offset = 0
 	}
 
-	// FTS5 query sanitize — channel search'teki sanitizeFTSQuery ile aynı
 	safeQuery := sanitizeFTSQuery(searchQuery)
 	if safeQuery == "" {
 		return []models.DMMessage{}, 0, nil
 	}
 
-	// 1. Toplam sonuç sayısı
+	// Total count
 	countQuery := `
 		SELECT COUNT(*)
 		FROM dm_messages_fts fts
@@ -704,7 +643,7 @@ func (r *sqliteDMRepo) SearchMessages(ctx context.Context, channelID string, sea
 		return []models.DMMessage{}, 0, nil
 	}
 
-	// 2. Sayfalanmış sonuçlar — BM25 ranking ile sıralanır
+	// Paginated results ranked by BM25
 	dataQuery := `
 		SELECT m.id, m.dm_channel_id, m.user_id, m.content, m.edited_at, m.created_at,
 		       m.reply_to_id, m.is_pinned,
@@ -748,17 +687,7 @@ func (r *sqliteDMRepo) SearchMessages(ctx context.Context, channelID string, sea
 
 // ─── Scan Helpers ───
 
-// scanDMMessageRow, standart DM mesaj sorgusunun bir satırını parse eder.
-//
-// Beklenen sütun sırası:
-// m.id, m.dm_channel_id, m.user_id, m.content, m.edited_at, m.created_at,
-// m.reply_to_id, m.is_pinned,
-// m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
-// u.id, u.username, u.display_name, u.avatar_url, u.status,
-// rm.id, rm.content,
-// ru.id, ru.username, ru.display_name, ru.avatar_url
-//
-// Channel sqlite_message.go'daki scan pattern ile aynı yapı.
+// scanDMMessageRow parses a standard DM message query row including author and reply reference.
 func scanDMMessageRow(rows *sql.Rows) (*models.DMMessage, error) {
 	var msg models.DMMessage
 	var author models.User
@@ -768,7 +697,6 @@ func scanDMMessageRow(rows *sql.Rows) (*models.DMMessage, error) {
 	var displayName, avatarURL sql.NullString
 	var isPinned int
 
-	// Referans mesaj nullable alanları
 	var refMsgID, refMsgContent sql.NullString
 	var refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL sql.NullString
 
@@ -801,7 +729,6 @@ func scanDMMessageRow(rows *sql.Rows) (*models.DMMessage, error) {
 		msg.Author = &author
 	}
 
-	// Referans mesaj (reply preview) — channel'daki buildMessageReference ile aynı
 	msg.ReferencedMessage = buildMessageReference(
 		msg.ReplyToID, refMsgID, refMsgContent,
 		refAuthorID, refAuthorUsername, refAuthorDisplayName, refAuthorAvatarURL,

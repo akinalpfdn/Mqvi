@@ -1,20 +1,14 @@
 // Package repository — ServerMuteRepository interface.
-//
-// Kullanıcı bazlı sunucu sessize alma veritabanı işlemleri.
-// Expired mute'lar okuma sırasında lazy olarak filtrelenir.
+// Per-user server mute settings. Expired mutes are lazily filtered on read.
 package repository
 
 import "context"
 
-// ServerMuteRepository, server mute veritabanı işlemleri için interface.
+// ServerMuteRepository defines data access for server mutes.
 type ServerMuteRepository interface {
-	// Upsert, sunucu mute'unu ekler veya günceller.
-	// mutedUntil nil ise sonsuza kadar sessiz.
+	// Upsert adds or updates a server mute. nil mutedUntil means indefinite.
 	Upsert(ctx context.Context, userID, serverID string, mutedUntil *string) error
-
-	// Delete, sunucu mute'unu kaldırır (unmute).
 	Delete(ctx context.Context, userID, serverID string) error
-
-	// GetMutedServerIDs, kullanıcının aktif (expired olmamış) mute'lu sunucu ID'lerini döner.
+	// GetMutedServerIDs returns active (non-expired) muted server IDs.
 	GetMutedServerIDs(ctx context.Context, userID string) ([]string, error)
 }

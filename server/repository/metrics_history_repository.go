@@ -1,9 +1,3 @@
-// Package repository — MetricsHistoryRepository, tarihsel LiveKit metrik
-// verilerinin data access interface'i.
-//
-// LiveKitRepository'den Interface Segregation ile ayrı tutulur —
-// farklı consumer'lar (MetricsCollector yazma, MetricsHistoryService okuma)
-// farklı ihtiyaçlara sahiptir.
 package repository
 
 import (
@@ -13,27 +7,19 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// MetricsHistoryRepository, tarihsel metrik verisi için data access interface.
+// MetricsHistoryRepository defines data access for historical LiveKit metrics.
+// Separated from LiveKitRepository via ISP — different consumers have different needs.
 type MetricsHistoryRepository interface {
-	// Insert, yeni bir metrik snapshot'ı kaydeder.
-	// MetricsCollector tarafından her 5 dakikada çağrılır.
+	// Insert saves a metrics snapshot. Called every 5 minutes by MetricsCollector.
 	Insert(ctx context.Context, snapshot *models.MetricsSnapshot) error
 
-	// GetSummary, belirli bir instance ve zaman aralığı için
-	// SQL aggregate (MAX, AVG) ile özet döner.
-	// period: "24h", "7d", "30d" — caller tarafından validate edilmiş olmalı.
+	// GetSummary returns SQL aggregates (MAX, AVG) for a given instance and period ("24h", "7d", "30d").
 	GetSummary(ctx context.Context, instanceID string, period string) (*models.MetricsHistorySummary, error)
 
-	// GetTimeSeries, ham snapshot noktalarını döner (chart için).
-	// period: "24h", "7d", "30d"
-	// Period'a göre aggregation:
-	//   24h → ham veri (5dk interval → ~288 nokta)
-	//   7d  → saatlik avg
-	//   30d → 6 saatlik avg
+	// GetTimeSeries returns raw or aggregated data points for charting.
+	// 24h: raw (5min intervals), 7d: hourly avg, 30d: 6-hour avg.
 	GetTimeSeries(ctx context.Context, instanceID string, period string) ([]models.MetricsTimeSeriesPoint, error)
 
-	// PurgeOlderThan, belirtilen tarihten eski kayıtları siler.
-	// MetricsCollector tarafından her tick'te çağrılır (30 gün retention).
-	// Silinen satır sayısını döner.
+	// PurgeOlderThan deletes records older than the given time. Returns deleted row count.
 	PurgeOlderThan(ctx context.Context, before time.Time) (int64, error)
 }

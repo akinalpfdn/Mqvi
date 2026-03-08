@@ -8,24 +8,14 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// sqliteGroupSessionRepo, GroupSessionRepository interface'inin SQLite implementasyonu.
-//
-// channel_group_sessions tablosunu yönetir. Sender Key oturum verileri
-// opak blob olarak saklanır — sunucu içeriğini bilmez.
 type sqliteGroupSessionRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteGroupSessionRepo, constructor — interface döner.
 func NewSQLiteGroupSessionRepo(db database.TxQuerier) GroupSessionRepository {
 	return &sqliteGroupSessionRepo{db: db}
 }
 
-// Upsert, grup oturumunu oluşturur veya günceller.
-//
-// UNIQUE(channel_id, sender_user_id, sender_device_id, session_id) constraint'i
-// aynı gönderici + kanal + oturum için tek kayıt sağlar.
-// Oturum güncellendiğinde (ör. message_index ilerlemesi) güncellenir.
 func (r *sqliteGroupSessionRepo) Upsert(ctx context.Context, channelID, senderUserID, senderDeviceID string, req *models.CreateGroupSessionRequest) error {
 	query := `
 		INSERT INTO channel_group_sessions (channel_id, sender_user_id, sender_device_id, session_id, session_data)
@@ -44,7 +34,6 @@ func (r *sqliteGroupSessionRepo) Upsert(ctx context.Context, channelID, senderUs
 	return nil
 }
 
-// GetByChannel, kanaldaki tüm aktif grup oturumlarını döner.
 func (r *sqliteGroupSessionRepo) GetByChannel(ctx context.Context, channelID string) ([]models.ChannelGroupSession, error) {
 	query := `
 		SELECT id, channel_id, sender_user_id, sender_device_id,
@@ -73,9 +62,7 @@ func (r *sqliteGroupSessionRepo) GetByChannel(ctx context.Context, channelID str
 	return sessions, rows.Err()
 }
 
-// DeleteByChannel, kanaldaki tüm grup oturumlarını siler.
-// Key rotation sırasında çağrılır — eski oturumlar temizlenir,
-// ardından yeni oturum oluşturulur ve dağıtılır.
+// DeleteByChannel removes all group sessions for a channel (used during key rotation).
 func (r *sqliteGroupSessionRepo) DeleteByChannel(ctx context.Context, channelID string) error {
 	query := `DELETE FROM channel_group_sessions WHERE channel_id = ?`
 	_, err := r.db.ExecContext(ctx, query, channelID)
@@ -85,9 +72,7 @@ func (r *sqliteGroupSessionRepo) DeleteByChannel(ctx context.Context, channelID 
 	return nil
 }
 
-// DeleteByUser, belirli bir kullanıcının kanaldaki oturumlarını siler.
-// Kullanıcı kanaldan çıkarıldığında veya ban'landığında çağrılır.
-// Bu, çıkarılan kullanıcının eski anahtarıyla mesaj gönderememesini sağlar.
+// DeleteByUser removes a user's sessions from a channel (kick/ban invalidation).
 func (r *sqliteGroupSessionRepo) DeleteByUser(ctx context.Context, channelID, userID string) error {
 	query := `DELETE FROM channel_group_sessions WHERE channel_id = ? AND sender_user_id = ?`
 	_, err := r.db.ExecContext(ctx, query, channelID, userID)
@@ -97,5 +82,4 @@ func (r *sqliteGroupSessionRepo) DeleteByUser(ctx context.Context, channelID, us
 	return nil
 }
 
-// Compile-time interface check.
 var _ GroupSessionRepository = (*sqliteGroupSessionRepo)(nil)

@@ -1,4 +1,3 @@
-// Package repository — MetricsHistoryRepository'nin SQLite implementasyonu.
 package repository
 
 import (
@@ -14,12 +13,10 @@ type sqliteMetricsHistoryRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteMetricsHistoryRepo, constructor — interface döner.
 func NewSQLiteMetricsHistoryRepo(db database.TxQuerier) MetricsHistoryRepository {
 	return &sqliteMetricsHistoryRepo{db: db}
 }
 
-// Insert, yeni bir metrik snapshot'ı kaydeder.
 func (r *sqliteMetricsHistoryRepo) Insert(ctx context.Context, snapshot *models.MetricsSnapshot) error {
 	query := `
 		INSERT INTO livekit_metrics_history (
@@ -48,11 +45,9 @@ func (r *sqliteMetricsHistoryRepo) Insert(ctx context.Context, snapshot *models.
 	return nil
 }
 
-// GetSummary, SQL aggregate ile belirli zaman aralığı için peak/average hesaplar.
-// Sadece available=1 kayıtlar dahil edilir (erişilemeyen snapshot'lar hariç).
+// GetSummary returns peak/average aggregates for a time period.
+// Only available=1 records are included (unreachable snapshots excluded).
 func (r *sqliteMetricsHistoryRepo) GetSummary(ctx context.Context, instanceID string, period string) (*models.MetricsHistorySummary, error) {
-	// Period → SQLite datetime modifier dönüşümü.
-	// Raw user input SQL'e gitmez — switch ile whitelist.
 	modifier, err := periodToModifier(period)
 	if err != nil {
 		return nil, err
@@ -109,11 +104,8 @@ func (r *sqliteMetricsHistoryRepo) GetSummary(ctx context.Context, instanceID st
 	return summary, nil
 }
 
-// GetTimeSeries, chart için zaman serisi verisi döner.
-// Period'a göre aggregation uygulanır:
-//   - 24h: ham veri (5dk interval → ~288 nokta)
-//   - 7d:  saatlik ortalama
-//   - 30d: 6 saatlik ortalama
+// GetTimeSeries returns time series data for charts.
+// Aggregation depends on period: 24h = raw, 7d = hourly avg, 30d = 6-hour avg.
 func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID string, period string) ([]models.MetricsTimeSeriesPoint, error) {
 	modifier, err := periodToModifier(period)
 	if err != nil {
@@ -123,14 +115,12 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 	var query string
 	switch period {
 	case "24h":
-		// Ham veri — aggregation yok
 		query = `
 			SELECT collected_at, cpu_pct, bandwidth_in_bps, bandwidth_out_bps, participant_count
 			FROM livekit_metrics_history
 			WHERE instance_id = ? AND available = 1 AND collected_at >= datetime('now', ?)
 			ORDER BY collected_at ASC`
 	case "7d":
-		// Saatlik ortalama
 		query = `
 			SELECT
 				strftime('%Y-%m-%dT%H:00:00', collected_at) AS ts,
@@ -141,7 +131,6 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 			GROUP BY strftime('%Y-%m-%dT%H:00:00', collected_at)
 			ORDER BY ts ASC`
 	case "30d":
-		// 6 saatlik ortalama
 		query = `
 			SELECT
 				strftime('%Y-%m-%dT', collected_at) ||
@@ -170,7 +159,6 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 		}
 		parsed, parseErr := time.Parse("2006-01-02T15:04:05", tsStr)
 		if parseErr != nil {
-			// collected_at formatı farklı olabilir — fallback dene
 			parsed, parseErr = time.Parse("2006-01-02 15:04:05", tsStr)
 			if parseErr != nil {
 				continue
@@ -187,7 +175,6 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 	return points, nil
 }
 
-// PurgeOlderThan, eski metrik kayıtlarını siler.
 func (r *sqliteMetricsHistoryRepo) PurgeOlderThan(ctx context.Context, before time.Time) (int64, error) {
 	query := `DELETE FROM livekit_metrics_history WHERE collected_at < ?`
 
@@ -204,8 +191,8 @@ func (r *sqliteMetricsHistoryRepo) PurgeOlderThan(ctx context.Context, before ti
 	return count, nil
 }
 
-// periodToModifier, period string'ini SQLite datetime modifier'a çevirir.
-// Sadece bilinen değerler kabul edilir — SQL injection koruması.
+// periodToModifier converts a period string to a SQLite datetime modifier.
+// Only whitelisted values accepted (SQL injection protection).
 func periodToModifier(period string) (string, error) {
 	switch period {
 	case "24h":

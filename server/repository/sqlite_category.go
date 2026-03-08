@@ -11,12 +11,10 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteCategoryRepo, CategoryRepository interface'inin SQLite implementasyonu.
 type sqliteCategoryRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteCategoryRepo, constructor — interface döner.
 func NewSQLiteCategoryRepo(db database.TxQuerier) CategoryRepository {
 	return &sqliteCategoryRepo{db: db}
 }
@@ -105,7 +103,7 @@ func (r *sqliteCategoryRepo) Update(ctx context.Context, category *models.Catego
 }
 
 func (r *sqliteCategoryRepo) Delete(ctx context.Context, id string) error {
-	// Kategori silindiğinde kanalların category_id'si NULL olur (ON DELETE SET NULL).
+	// ON DELETE SET NULL nullifies channel category_id references.
 	result, err := r.db.ExecContext(ctx, `DELETE FROM categories WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete category: %w", err)
@@ -122,7 +120,6 @@ func (r *sqliteCategoryRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetMaxPosition, belirli bir sunucudaki en yüksek kategori position değerini döner.
 func (r *sqliteCategoryRepo) GetMaxPosition(ctx context.Context, serverID string) (int, error) {
 	var maxPos int
 	err := r.db.QueryRowContext(ctx,

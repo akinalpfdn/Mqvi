@@ -1,10 +1,7 @@
-// Package repository — FriendshipRepository SQLite implementasyonu.
+// Package repository — FriendshipRepository SQLite implementation.
 //
-// Arkadaşlık tablosu tek yönlü kayıt tutar (user_id → friend_id).
-// Accepted arkadaşlar için çift yönlü UNION sorgusu kullanılır.
-//
-// LEFT JOIN ile kullanıcı bilgileri (username, display_name, avatar, status)
-// eklenip FriendshipWithUser DTO'su oluşturulur.
+// Friendships are stored as one-directional rows (user_id -> friend_id).
+// Accepted friends use a bidirectional UNION query.
 package repository
 
 import (
@@ -18,18 +15,14 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteFriendshipRepo, FriendshipRepository'nin SQLite implementasyonu.
-// Private struct — dışarıdan sadece interface üzerinden erişilir.
 type sqliteFriendshipRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteFriendshipRepo, constructor. Dependency injection ile DB bağlantısı alır.
 func NewSQLiteFriendshipRepo(db database.TxQuerier) FriendshipRepository {
 	return &sqliteFriendshipRepo{db: db}
 }
 
-// Create, yeni bir arkadaşlık kaydı oluşturur.
 func (r *sqliteFriendshipRepo) Create(ctx context.Context, f *models.Friendship) error {
 	query := `INSERT INTO friendships (id, user_id, friend_id, status, created_at, updated_at)
 	          VALUES (?, ?, ?, ?, ?, ?)`
@@ -41,7 +34,6 @@ func (r *sqliteFriendshipRepo) Create(ctx context.Context, f *models.Friendship)
 	return nil
 }
 
-// GetByID, ID ile bir arkadaşlık kaydı döner.
 func (r *sqliteFriendshipRepo) GetByID(ctx context.Context, id string) (*models.Friendship, error) {
 	query := `SELECT id, user_id, friend_id, status, created_at, updated_at
 	          FROM friendships WHERE id = ?`
@@ -59,8 +51,7 @@ func (r *sqliteFriendshipRepo) GetByID(ctx context.Context, id string) (*models.
 	return &f, nil
 }
 
-// GetByPair, iki kullanıcı arasındaki kaydı döner (yön fark etmez).
-// A→B veya B→A kaydı varsa onu döner.
+// GetByPair returns the friendship between two users (direction-agnostic).
 func (r *sqliteFriendshipRepo) GetByPair(ctx context.Context, userID, friendID string) (*models.Friendship, error) {
 	query := `SELECT id, user_id, friend_id, status, created_at, updated_at
 	          FROM friendships
@@ -79,14 +70,8 @@ func (r *sqliteFriendshipRepo) GetByPair(ctx context.Context, userID, friendID s
 	return &f, nil
 }
 
-// ListFriends, kullanıcının kabul edilmiş arkadaşlarını kullanıcı bilgisiyle döner.
-//
-// UNION sorgusu:
-// 1) user_id = me → friend bilgileri (ben gönderdim, karşı taraf kabul etti)
-// 2) friend_id = me → user bilgileri (karşı taraf gönderdi, ben kabul ettim)
-//
-// UNION ALL yerine UNION kullanılır — duplicate olmaması garanti
-// (UNIQUE constraint bunu zaten engelliyor ama defense-in-depth).
+// ListFriends returns accepted friends with user info.
+// UNION covers both directions (I sent + they accepted, they sent + I accepted).
 func (r *sqliteFriendshipRepo) ListFriends(ctx context.Context, userID string) ([]models.FriendshipWithUser, error) {
 	query := `
 		SELECT f.id, f.status, f.created_at AS created_at,
@@ -141,8 +126,6 @@ func (r *sqliteFriendshipRepo) ListFriends(ctx context.Context, userID string) (
 	return friends, rows.Err()
 }
 
-// ListIncoming, kullanıcıya gelen bekleyen istekleri döner.
-// friend_id = me AND status = 'pending' — karşı tarafın bilgileri JOIN ile gelir.
 func (r *sqliteFriendshipRepo) ListIncoming(ctx context.Context, userID string) ([]models.FriendshipWithUser, error) {
 	query := `
 		SELECT f.id, f.status, f.created_at,
@@ -156,8 +139,6 @@ func (r *sqliteFriendshipRepo) ListIncoming(ctx context.Context, userID string) 
 	return r.scanFriendshipList(ctx, query, userID)
 }
 
-// ListOutgoing, kullanıcının gönderdiği bekleyen istekleri döner.
-// user_id = me AND status = 'pending' — hedef kullanıcının bilgileri JOIN ile gelir.
 func (r *sqliteFriendshipRepo) ListOutgoing(ctx context.Context, userID string) ([]models.FriendshipWithUser, error) {
 	query := `
 		SELECT f.id, f.status, f.created_at,
@@ -171,7 +152,6 @@ func (r *sqliteFriendshipRepo) ListOutgoing(ctx context.Context, userID string) 
 	return r.scanFriendshipList(ctx, query, userID)
 }
 
-// UpdateStatus, bir arkadaşlık kaydının durumunu günceller.
 func (r *sqliteFriendshipRepo) UpdateStatus(ctx context.Context, id string, status models.FriendshipStatus) error {
 	query := `UPDATE friendships SET status = ?, updated_at = ? WHERE id = ?`
 
@@ -191,7 +171,6 @@ func (r *sqliteFriendshipRepo) UpdateStatus(ctx context.Context, id string, stat
 	return nil
 }
 
-// Delete, bir arkadaşlık kaydını ID ile siler.
 func (r *sqliteFriendshipRepo) Delete(ctx context.Context, id string) error {
 	query := `DELETE FROM friendships WHERE id = ?`
 
@@ -211,7 +190,7 @@ func (r *sqliteFriendshipRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// DeleteByPair, iki kullanıcı arasındaki kaydı siler (yön fark etmez).
+// DeleteByPair deletes the friendship between two users (direction-agnostic).
 func (r *sqliteFriendshipRepo) DeleteByPair(ctx context.Context, userID, friendID string) error {
 	query := `DELETE FROM friendships
 	          WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)`
@@ -232,8 +211,6 @@ func (r *sqliteFriendshipRepo) DeleteByPair(ctx context.Context, userID, friendI
 	return nil
 }
 
-// ListBlocked, kullanıcının engellediği kullanıcıları döner.
-// user_id = me AND status = 'blocked' — hedef kullanıcının bilgileri JOIN ile gelir.
 func (r *sqliteFriendshipRepo) ListBlocked(ctx context.Context, userID string) ([]models.FriendshipWithUser, error) {
 	query := `
 		SELECT f.id, f.status, f.created_at,
@@ -247,10 +224,8 @@ func (r *sqliteFriendshipRepo) ListBlocked(ctx context.Context, userID string) (
 	return r.scanFriendshipList(ctx, query, userID)
 }
 
-// IsBlocked, iki kullanıcı arasında herhangi bir yönde engel var mı kontrol eder.
-// Bidirectional: A→B veya B→A yönünde "blocked" kaydı varsa true döner.
-//
-// DM mesaj gönderimi sırasında çağrılır — A bloklamışsa B'nin mesaj göndermesi de engellenir.
+// IsBlocked checks if either user has blocked the other (bidirectional).
+// Used to prevent DM messages when a block exists in either direction.
 func (r *sqliteFriendshipRepo) IsBlocked(ctx context.Context, userA, userB string) (bool, error) {
 	query := `
 		SELECT EXISTS(
@@ -267,8 +242,7 @@ func (r *sqliteFriendshipRepo) IsBlocked(ctx context.Context, userA, userB strin
 	return exists, nil
 }
 
-// scanFriendshipList, ortak scan mantığını paylaşan yardımcı metod.
-// ListIncoming ve ListOutgoing aynı column set'ini döner — DRY prensibi.
+// scanFriendshipList is a shared scan helper for ListIncoming, ListOutgoing, and ListBlocked.
 func (r *sqliteFriendshipRepo) scanFriendshipList(ctx context.Context, query string, userID string) ([]models.FriendshipWithUser, error) {
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {

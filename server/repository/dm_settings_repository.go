@@ -1,37 +1,28 @@
 // Package repository — DMSettingsRepository interface.
-//
-// Kullanıcı bazlı DM kanalı ayarları: gizleme, sabitleme, sessize alma.
-// UPSERT pattern: İlk etkileşimde satır oluşturulur, sonrakilerde güncellenir.
+// Per-user DM channel settings: hide, pin, mute. Uses UPSERT pattern.
 package repository
 
 import (
 	"context"
 )
 
-// DMSettingsRepository, kullanıcı DM ayarları veritabanı işlemleri.
+// DMSettingsRepository defines data access for per-user DM settings.
 type DMSettingsRepository interface {
-	// IsHidden, DM'nin gizli olup olmadığını döner.
-	// Auto-unhide öncesi kontrol için kullanılır — gereksiz UPSERT + WS broadcast önlenir.
+	// IsHidden checks if the DM is hidden. Used before auto-unhide to avoid unnecessary UPSERT + WS broadcast.
 	IsHidden(ctx context.Context, userID, dmChannelID string) (bool, error)
 
-	// SetHidden, DM'yi gizle veya göster.
-	// hidden=true ise sidebar'dan gizlenir, yeni mesaj gelince otomatik açılır.
+	// SetHidden hides or shows a DM. Hidden DMs auto-unhide on new messages.
 	SetHidden(ctx context.Context, userID, dmChannelID string, hidden bool) error
 
-	// SetPinned, DM'yi sabitle veya sabitlemeyi kaldır.
 	SetPinned(ctx context.Context, userID, dmChannelID string, pinned bool) error
 
-	// SetMutedUntil, DM'yi sessize al (muted_until set et).
-	// mutedUntil nil ise sonsuz mute.
+	// SetMutedUntil mutes a DM. nil mutedUntil means indefinite mute.
 	SetMutedUntil(ctx context.Context, userID, dmChannelID string, mutedUntil *string) error
 
-	// DeleteMute, DM mute'u kaldır (muted_until = NULL + row silme gerekli değil).
 	DeleteMute(ctx context.Context, userID, dmChannelID string) error
 
-	// GetPinnedChannelIDs, kullanıcının sabitlediği DM kanal ID'lerini döner.
 	GetPinnedChannelIDs(ctx context.Context, userID string) ([]string, error)
 
-	// GetMutedChannelIDs, kullanıcının sessize aldığı DM kanal ID'lerini döner.
-	// Expired mute'lar (muted_until < now) filtrelenir.
+	// GetMutedChannelIDs returns muted DM channel IDs, filtering out expired mutes.
 	GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error)
 }

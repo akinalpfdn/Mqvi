@@ -11,12 +11,10 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteChannelRepo, ChannelRepository interface'inin SQLite implementasyonu.
 type sqliteChannelRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteChannelRepo, constructor — interface döner (Dependency Inversion).
 func NewSQLiteChannelRepo(db database.TxQuerier) ChannelRepository {
 	return &sqliteChannelRepo{db: db}
 }
@@ -164,9 +162,8 @@ func (r *sqliteChannelRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// UpdatePositions, birden fazla kanalın position değerini atomik olarak günceller.
-// CategoryID set edilmişse kanalın kategorisi de değiştirilir (cross-category drag-and-drop).
-// CategoryID nil ise sadece position güncellenir (mevcut davranış korunur).
+// UpdatePositions atomically updates positions for multiple channels.
+// If CategoryID is set, the channel's category is also updated (cross-category drag-and-drop).
 func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
 	sqlDB, ok := r.db.(*sql.DB)
 	if !ok {
@@ -178,8 +175,6 @@ func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.
 	}
 	defer tx.Rollback()
 
-	// İki prepared statement: biri sadece position, diğeri position+category_id.
-	// Çoğu item sadece position güncelleyecek, category değişen item sayısı az olacak.
 	stmtPos, err := tx.PrepareContext(ctx, `UPDATE channels SET position = ? WHERE id = ?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare position statement: %w", err)
@@ -195,8 +190,7 @@ func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.
 	for _, item := range items {
 		var result sql.Result
 		if item.CategoryID != nil {
-			// CategoryID set → hem position hem category güncelle.
-			// Boş string ("") → NULL (kategorisiz).
+			// Empty string -> NULL (uncategorized)
 			var catVal interface{}
 			if *item.CategoryID == "" {
 				catVal = nil
@@ -226,7 +220,6 @@ func (r *sqliteChannelRepo) UpdatePositions(ctx context.Context, items []models.
 	return nil
 }
 
-// GetMaxPosition, belirli bir kategorideki en yüksek position değerini döner.
 func (r *sqliteChannelRepo) GetMaxPosition(ctx context.Context, categoryID string) (int, error) {
 	query := `SELECT COALESCE(MAX(position), -1) FROM channels WHERE category_id = ?`
 

@@ -6,8 +6,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// ChannelRepository, kanal veritabanı işlemleri için interface.
-// Tüm list operasyonları server-scoped: serverID parametresi zorunlu.
+// ChannelRepository defines data access for channels. All list operations are server-scoped.
 type ChannelRepository interface {
 	Create(ctx context.Context, channel *models.Channel) error
 	GetByID(ctx context.Context, id string) (*models.Channel, error)
@@ -16,6 +15,6 @@ type ChannelRepository interface {
 	Update(ctx context.Context, channel *models.Channel) error
 	Delete(ctx context.Context, id string) error
 	GetMaxPosition(ctx context.Context, categoryID string) (int, error)
-	// UpdatePositions, birden fazla kanalın position değerini atomik olarak günceller.
+	// UpdatePositions atomically updates position values for multiple channels.
 	UpdatePositions(ctx context.Context, items []models.PositionUpdate) error
 }

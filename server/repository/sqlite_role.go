@@ -19,7 +19,7 @@ func NewSQLiteRoleRepo(db database.TxQuerier) RoleRepository {
 	return &sqliteRoleRepo{db: db}
 }
 
-// ─── Read operasyonları ───
+// ─── Read ───
 
 func (r *sqliteRoleRepo) GetByID(ctx context.Context, id string) (*models.Role, error) {
 	query := `
@@ -138,7 +138,7 @@ func (r *sqliteRoleRepo) GetMaxPosition(ctx context.Context, serverID string) (i
 	return maxPos, nil
 }
 
-// ─── Write operasyonları ───
+// ─── Write ───
 
 func (r *sqliteRoleRepo) Create(ctx context.Context, role *models.Role) error {
 	query := `
@@ -188,7 +188,7 @@ func (r *sqliteRoleRepo) Update(ctx context.Context, role *models.Role) error {
 }
 
 func (r *sqliteRoleRepo) Delete(ctx context.Context, id string) error {
-	// is_default = 0 koşulu: default rol silinemez (DB seviyesinde koruma).
+	// is_default = 0 guard: default role cannot be deleted
 	query := `DELETE FROM roles WHERE id = ? AND is_default = 0`
 
 	result, err := r.db.ExecContext(ctx, query, id)
@@ -207,8 +207,7 @@ func (r *sqliteRoleRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// UpdatePositions, birden fazla rolün position değerini atomik olarak günceller.
-// Transaction kullanılır — bir hata olursa tüm değişiklikler geri alınır.
+// UpdatePositions atomically updates role positions within a transaction.
 func (r *sqliteRoleRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
 	sqlDB, ok := r.db.(*sql.DB)
 	if !ok {

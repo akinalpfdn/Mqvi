@@ -6,12 +6,8 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// AttachmentRepository, dosya eki veritabanı işlemleri için interface.
-//
-// GetByMessageIDs — batch loading:
-// N+1 sorgu problemini önler. 50 mesaj yüklendiğinde her biri için
-// ayrı ayrı "SELECT * FROM attachments WHERE message_id = ?" yapmak yerine
-// tek sorguda "WHERE message_id IN (?, ?, ...)" ile hepsini alır.
+// AttachmentRepository defines data access for file attachments.
+// GetByMessageIDs batch-loads attachments for multiple messages (avoids N+1).
 type AttachmentRepository interface {
 	Create(ctx context.Context, attachment *models.Attachment) error
 	GetByMessageID(ctx context.Context, messageID string) ([]models.Attachment, error)

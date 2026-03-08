@@ -8,31 +8,21 @@ import (
 	"github.com/akinalp/mqvi/database"
 )
 
-// sqliteMentionRepo, MentionRepository interface'inin SQLite implementasyonu.
 type sqliteMentionRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteMentionRepo, constructor — interface döner.
 func NewSQLiteMentionRepo(db database.TxQuerier) MentionRepository {
 	return &sqliteMentionRepo{db: db}
 }
 
-// SaveMentions, bir mesajdaki tüm mention'ları batch INSERT ile kaydeder.
-//
-// INSERT OR IGNORE kullanır — aynı (message_id, user_id) çifti zaten varsa skip eder.
-// Bu, aynı kullanıcı birden fazla kez bahsedildiğinde duplicate hatasını önler.
-//
-// Neden batch INSERT?
-// Her mention için ayrı INSERT yapmak yerine tek sorguda hepsini eklemek çok daha verimli.
-// SQLite'ın multi-row INSERT desteğini kullanıyoruz:
-// INSERT INTO ... VALUES (?, ?), (?, ?), (?, ?)
+// SaveMentions batch-inserts mentions for a message.
+// INSERT OR IGNORE skips duplicates if the same user is mentioned multiple times.
 func (r *sqliteMentionRepo) SaveMentions(ctx context.Context, messageID string, userIDs []string) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
 
-	// Multi-row INSERT oluştur
 	placeholders := make([]string, len(userIDs))
 	args := make([]interface{}, 0, len(userIDs)*2)
 	for i, uid := range userIDs {
@@ -52,8 +42,7 @@ func (r *sqliteMentionRepo) SaveMentions(ctx context.Context, messageID string, 
 	return nil
 }
 
-// DeleteByMessageID, bir mesajın tüm mention kayıtlarını siler.
-// Mesaj düzenlendiğinde mevcut mention'lar silinip yenileri eklenir.
+// DeleteByMessageID removes all mentions for a message. Used before re-inserting on edit.
 func (r *sqliteMentionRepo) DeleteByMessageID(ctx context.Context, messageID string) error {
 	_, err := r.db.ExecContext(ctx, "DELETE FROM message_mentions WHERE message_id = ?", messageID)
 	if err != nil {
@@ -62,7 +51,6 @@ func (r *sqliteMentionRepo) DeleteByMessageID(ctx context.Context, messageID str
 	return nil
 }
 
-// GetMentionedUserIDs, bir mesajda bahsedilen kullanıcı ID'lerini döner.
 func (r *sqliteMentionRepo) GetMentionedUserIDs(ctx context.Context, messageID string) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT user_id FROM message_mentions WHERE message_id = ?", messageID)
 	if err != nil {
@@ -89,11 +77,8 @@ func (r *sqliteMentionRepo) GetMentionedUserIDs(ctx context.Context, messageID s
 	return userIDs, nil
 }
 
-// GetByMessageIDs, birden fazla mesajın mention'larını batch olarak döner.
-//
-// N+1 problemi önleme:
-// Her mesaj için ayrı sorgu yapmak yerine tek sorguda tüm mention'ları çeker.
-// Sonuç: map[messageID][]userID formatında döner.
+// GetByMessageIDs batch-loads mentions for multiple messages (avoids N+1).
+// Returns map[messageID][]userID.
 func (r *sqliteMentionRepo) GetByMessageIDs(ctx context.Context, messageIDs []string) (map[string][]string, error) {
 	if len(messageIDs) == 0 {
 		return make(map[string][]string), nil

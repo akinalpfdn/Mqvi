@@ -11,22 +11,16 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqlitePinRepo, PinRepository interface'inin SQLite implementasyonu.
 type sqlitePinRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLitePinRepo, constructor — interface döner.
 func NewSQLitePinRepo(db database.TxQuerier) PinRepository {
 	return &sqlitePinRepo{db: db}
 }
 
-// GetByChannelID, bir kanalın tüm pinlenmiş mesajlarını mesaj ve yazar bilgileriyle
-// birlikte döner. En yeni pin üstte (created_at DESC).
-//
-// 3-way JOIN:
-// pinned_messages → messages → users
-// Pinlenen mesajı ve mesajın yazarını tek sorguda getirir.
+// GetByChannelID returns all pinned messages with message and author details.
+// 3-way JOIN: pinned_messages -> messages -> users.
 func (r *sqlitePinRepo) GetByChannelID(ctx context.Context, channelID string) ([]models.PinnedMessageWithDetails, error) {
 	query := `
 		SELECT p.id, p.message_id, p.channel_id, p.pinned_by, p.created_at,
@@ -69,7 +63,7 @@ func (r *sqlitePinRepo) GetByChannelID(ctx context.Context, channelID string) ([
 			author.PasswordHash = ""
 			msg.Author = &author
 		}
-		msg.Attachments = []models.Attachment{} // Boş dizi (null değil)
+		msg.Attachments = []models.Attachment{} // empty slice, not null
 		pin.Message = &msg
 
 		if pinnedByID.Valid {
@@ -92,8 +86,7 @@ func (r *sqlitePinRepo) GetByChannelID(ctx context.Context, channelID string) ([
 	return pins, nil
 }
 
-// Pin, bir mesajı sabitler.
-// Aynı mesaj zaten pinliyse UNIQUE constraint hatası → ErrAlreadyExists.
+// Pin pins a message. Returns ErrAlreadyExists if already pinned (UNIQUE constraint).
 func (r *sqlitePinRepo) Pin(ctx context.Context, pin *models.PinnedMessage) error {
 	query := `
 		INSERT INTO pinned_messages (id, message_id, channel_id, pinned_by)
@@ -107,7 +100,6 @@ func (r *sqlitePinRepo) Pin(ctx context.Context, pin *models.PinnedMessage) erro
 	).Scan(&pin.ID, &pin.CreatedAt)
 
 	if err != nil {
-		// UNIQUE constraint violation — mesaj zaten pinli
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
 			return fmt.Errorf("%w: message is already pinned", pkg.ErrAlreadyExists)
 		}
@@ -117,7 +109,6 @@ func (r *sqlitePinRepo) Pin(ctx context.Context, pin *models.PinnedMessage) erro
 	return nil
 }
 
-// Unpin, bir mesajın pin'ini kaldırır.
 func (r *sqlitePinRepo) Unpin(ctx context.Context, messageID string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM pinned_messages WHERE message_id = ?`, messageID)
 	if err != nil {
@@ -135,7 +126,6 @@ func (r *sqlitePinRepo) Unpin(ctx context.Context, messageID string) error {
 	return nil
 }
 
-// IsPinned, bir mesajın pinli olup olmadığını kontrol eder.
 func (r *sqlitePinRepo) IsPinned(ctx context.Context, messageID string) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
@@ -147,8 +137,7 @@ func (r *sqlitePinRepo) IsPinned(ctx context.Context, messageID string) (bool, e
 	return count > 0, nil
 }
 
-// CountByChannelID, bir kanaldaki pin sayısını döner.
-// Discord gibi kanal başına pin limiti uygulamak için kullanılır.
+// CountByChannelID returns the pin count for a channel. Used to enforce per-channel pin limits.
 func (r *sqlitePinRepo) CountByChannelID(ctx context.Context, channelID string) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,

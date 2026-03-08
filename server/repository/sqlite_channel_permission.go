@@ -9,18 +9,10 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// sqliteChannelPermRepo, ChannelPermissionRepository'nin SQLite implementasyonu.
-//
-// channel_permissions tablosu 001_init.sql'de tanımlı:
-//
-//	PRIMARY KEY (channel_id, role_id) → her kanal-rol çifti için tek override
-//	allow INTEGER → izin verilen permission bit'leri
-//	deny INTEGER  → engellenen permission bit'leri
 type sqliteChannelPermRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteChannelPermRepo, SQLite tabanlı ChannelPermissionRepository oluşturur.
 func NewSQLiteChannelPermRepo(db database.TxQuerier) ChannelPermissionRepository {
 	return &sqliteChannelPermRepo{db: db}
 }
@@ -55,9 +47,6 @@ func (r *sqliteChannelPermRepo) GetByChannelAndRoles(ctx context.Context, channe
 		return nil, nil
 	}
 
-	// Dinamik placeholder oluşturma: IN (?, ?, ?)
-	// SQLite'da parametre sayısı değişken olduğunda placeholder'ları
-	// programatik oluşturmamız gerekir.
 	placeholders := make([]string, len(roleIDs))
 	args := make([]any, 0, len(roleIDs)+1)
 	args = append(args, channelID)
@@ -93,11 +82,7 @@ func (r *sqliteChannelPermRepo) GetByChannelAndRoles(ctx context.Context, channe
 	return overrides, nil
 }
 
-// GetByRoles, verilen rollere ait TÜM kanallardaki override'ları döner.
-//
-// GetByChannelAndRoles ile aynı pattern — tek fark channel_id filtresi yok.
-// Kanal listesi görünürlük filtrelemesinde kullanılır: tek sorguda tüm
-// override'ları çekerek kanal başına N+1 query sorununu önler.
+// GetByRoles returns all channel overrides for the given roles (used for visibility filtering).
 func (r *sqliteChannelPermRepo) GetByRoles(ctx context.Context, roleIDs []string) ([]models.ChannelPermissionOverride, error) {
 	if len(roleIDs) == 0 {
 		return nil, nil
@@ -138,12 +123,6 @@ func (r *sqliteChannelPermRepo) GetByRoles(ctx context.Context, roleIDs []string
 }
 
 func (r *sqliteChannelPermRepo) Set(ctx context.Context, override *models.ChannelPermissionOverride) error {
-	// UPSERT: SQLite'ın INSERT OR REPLACE ifadesi.
-	// PRIMARY KEY (channel_id, role_id) zaten varsa günceller, yoksa oluşturur.
-	//
-	// ON CONFLICT ... DO UPDATE SET kullanıyoruz çünkü:
-	// - INSERT OR REPLACE, satırı silip yeniden oluşturur (FK cascade tetikleyebilir)
-	// - ON CONFLICT ... DO UPDATE sadece belirtilen sütunları günceller (daha güvenli)
 	query := `
 		INSERT INTO channel_permissions (channel_id, role_id, allow, deny)
 		VALUES (?, ?, ?, ?)
@@ -174,8 +153,6 @@ func (r *sqliteChannelPermRepo) Delete(ctx context.Context, channelID, roleID st
 		return fmt.Errorf("failed to check rows affected: %w", err)
 	}
 	if affected == 0 {
-		// Override yoksa sessizce geçmek yerine hata dönüyoruz,
-		// böylece handler 404 dönebilir (REST semantiği).
 		return fmt.Errorf("channel permission override not found")
 	}
 
@@ -190,7 +167,6 @@ func (r *sqliteChannelPermRepo) DeleteAllByChannel(ctx context.Context, channelI
 		return fmt.Errorf("failed to delete all channel permissions: %w", err)
 	}
 
-	// affected == 0 kontrolü yapmıyoruz:
-	// Kanal silinirken override olmayabilir, bu normal.
+	// No affected check — channel may have no overrides, that's fine.
 	return nil
 }

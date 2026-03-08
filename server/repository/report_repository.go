@@ -1,7 +1,3 @@
-// Package repository — ReportRepository interface.
-//
-// Kullanıcı raporlama sistemi CRUD soyutlaması.
-// Admin panelinden raporlar listelenip yönetilir.
 package repository
 
 import (
@@ -10,30 +6,18 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// ReportRepository, rapor veritabanı işlemleri.
+// ReportRepository defines data access for user reports.
 type ReportRepository interface {
-	// Create, yeni rapor oluşturur.
 	Create(ctx context.Context, report *models.Report) error
-
-	// GetByID, ID ile rapor döner.
 	GetByID(ctx context.Context, id string) (*models.Report, error)
-
-	// ListPending, bekleyen raporları sayfalanmış döner.
-	// Admin paneli kullanır. totalCount ile toplam kayıt sayısı da döner.
+	// ListPending returns pending reports with pagination. Also returns totalCount.
 	ListPending(ctx context.Context, limit, offset int) ([]models.ReportWithUsers, int, error)
-
-	// ListAll, tüm raporları (tüm status) sayfalanmış döner.
+	// ListAll returns all reports (any status) with pagination. Also returns totalCount.
 	ListAll(ctx context.Context, limit, offset int) ([]models.ReportWithUsers, int, error)
-
-	// UpdateStatus, rapor durumunu günceller (pending → reviewed/resolved/dismissed).
 	UpdateStatus(ctx context.Context, id string, status models.ReportStatus, resolvedBy string) error
-
-	// HasPendingReport, reporter→target çiftinde aktif (pending) rapor var mı kontrol eder.
+	// HasPendingReport checks if an active (pending) report exists for this reporter->target pair.
 	HasPendingReport(ctx context.Context, reporterID, targetID string) (bool, error)
-
-	// CreateAttachment, rapora delil dosyası ekler (resim).
+	// CreateAttachment adds an evidence file to a report.
 	CreateAttachment(ctx context.Context, att *models.ReportAttachment) error
-
-	// GetAttachmentsByReportID, rapora ait tüm delil dosyalarını döner.
 	GetAttachmentsByReportID(ctx context.Context, reportID string) ([]models.ReportAttachment, error)
 }

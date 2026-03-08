@@ -10,25 +10,15 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteDeviceRepo, DeviceRepository interface'inin SQLite implementasyonu.
-//
-// user_devices ve device_one_time_prekeys tablolarını yönetir.
-// Signal Protocol X3DH key agreement için prekey bundle çekme ve
-// tek kullanımlık prekey tüketimi bu katmanda gerçekleşir.
 type sqliteDeviceRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteDeviceRepo, constructor — interface döner.
 func NewSQLiteDeviceRepo(db database.TxQuerier) DeviceRepository {
 	return &sqliteDeviceRepo{db: db}
 }
 
-// Register, yeni bir cihaz kaydı oluşturur veya mevcut kaydı günceller.
-//
-// UPSERT pattern: (user_id, device_id) çifti UNIQUE constraint'e sahip.
-// Aynı cihaz yeniden kaydolursa identity_key ve prekey bilgileri güncellenir.
-// Bu, kullanıcının tarayıcı verilerini temizleyip yeniden giriş yapmasında olur.
+// Register creates or re-registers a device (upsert on user_id + device_id).
 func (r *sqliteDeviceRepo) Register(ctx context.Context, device *models.Device) error {
 	query := `
 		INSERT INTO user_devices (user_id, device_id, display_name, identity_key, signing_key,
@@ -57,7 +47,6 @@ func (r *sqliteDeviceRepo) Register(ctx context.Context, device *models.Device) 
 	return nil
 }
 
-// GetByUserAndDevice, belirli bir kullanıcının belirli cihazını döner.
 func (r *sqliteDeviceRepo) GetByUserAndDevice(ctx context.Context, userID, deviceID string) (*models.Device, error) {
 	query := `
 		SELECT id, user_id, device_id, display_name, identity_key, signing_key,
@@ -81,7 +70,6 @@ func (r *sqliteDeviceRepo) GetByUserAndDevice(ctx context.Context, userID, devic
 	return d, nil
 }
 
-// ListByUser, kullanıcının tüm kayıtlı cihazlarını döner.
 func (r *sqliteDeviceRepo) ListByUser(ctx context.Context, userID string) ([]models.Device, error) {
 	query := `
 		SELECT id, user_id, device_id, display_name, identity_key, signing_key,
@@ -112,8 +100,6 @@ func (r *sqliteDeviceRepo) ListByUser(ctx context.Context, userID string) ([]mod
 	return devices, rows.Err()
 }
 
-// ListPublicByUser, başka kullanıcıların görebileceği cihaz bilgilerini döner.
-// Sadece device_id, display_name, identity_key ve zaman damgaları döner.
 func (r *sqliteDeviceRepo) ListPublicByUser(ctx context.Context, userID string) ([]models.DevicePublicInfo, error) {
 	query := `
 		SELECT device_id, display_name, identity_key, created_at, last_seen_at
@@ -138,8 +124,7 @@ func (r *sqliteDeviceRepo) ListPublicByUser(ctx context.Context, userID string) 
 	return devices, rows.Err()
 }
 
-// Delete, bir cihaz kaydını siler.
-// CASCADE sayesinde device_one_time_prekeys'teki ilişkili kayıtlar da silinir.
+// Delete removes a device. Prekeys are cascade-deleted.
 func (r *sqliteDeviceRepo) Delete(ctx context.Context, userID, deviceID string) error {
 	query := `DELETE FROM user_devices WHERE user_id = ? AND device_id = ?`
 	result, err := r.db.ExecContext(ctx, query, userID, deviceID)
@@ -156,11 +141,6 @@ func (r *sqliteDeviceRepo) Delete(ctx context.Context, userID, deviceID string) 
 	return nil
 }
 
-// UpdateSignedPrekey, cihazın signed prekey'ini günceller (rotasyon).
-//
-// Signal Protocol periyodik signed prekey rotasyonu önerir (ör. haftada bir).
-// Bu, eski signed prekey'in ele geçirilmesi durumunda ileriye dönük
-// güvenliği (forward secrecy) sağlar.
 func (r *sqliteDeviceRepo) UpdateSignedPrekey(ctx context.Context, userID, deviceID string, req *models.UpdateSignedPrekeyRequest) error {
 	query := `
 		UPDATE user_devices
@@ -185,8 +165,6 @@ func (r *sqliteDeviceRepo) UpdateSignedPrekey(ctx context.Context, userID, devic
 	return nil
 }
 
-// UpdateLastSeen, cihazın son görülme zamanını günceller.
-// WS bağlantısında veya API call'larında çağrılır.
 func (r *sqliteDeviceRepo) UpdateLastSeen(ctx context.Context, userID, deviceID string) error {
 	query := `UPDATE user_devices SET last_seen_at = CURRENT_TIMESTAMP WHERE user_id = ? AND device_id = ?`
 	_, err := r.db.ExecContext(ctx, query, userID, deviceID)
@@ -196,11 +174,7 @@ func (r *sqliteDeviceRepo) UpdateLastSeen(ctx context.Context, userID, deviceID 
 	return nil
 }
 
-// UploadPrekeys, cihaz için yeni one-time prekey'ler yükler.
-//
-// INSERT OR IGNORE: Zaten mevcut prekey_id'ler sessizce görmezden gelinir.
-// Bu, client'ın "havuz azaldı" bildiriminden sonra batch upload yapmasında
-// duplicate sorununu önler.
+// UploadPrekeys batch-inserts one-time prekeys. Duplicates are silently ignored.
 func (r *sqliteDeviceRepo) UploadPrekeys(ctx context.Context, userID, deviceID string, prekeys []models.OTPKey) error {
 	query := `
 		INSERT OR IGNORE INTO device_one_time_prekeys (user_id, device_id, prekey_id, public_key)
@@ -215,11 +189,8 @@ func (r *sqliteDeviceRepo) UploadPrekeys(ctx context.Context, userID, deviceID s
 	return nil
 }
 
-// ConsumePrekey, cihazın en eski one-time prekey'ini atomik olarak tüketir.
-//
-// DELETE ... RETURNING pattern: Tek bir SQL ifadesinde prekey silinir ve değeri döner.
-// Bu, race condition'ı önler — iki eşzamanlı X3DH isteği aynı prekey'i alamaz.
-// Havuz boşsa nil döner (X3DH yine de çalışır, sadece 4-DH yerine 3-DH olur).
+// ConsumePrekey atomically deletes and returns the oldest prekey.
+// Returns nil if pool is empty (X3DH falls back to 3-DH).
 func (r *sqliteDeviceRepo) ConsumePrekey(ctx context.Context, userID, deviceID string) (*models.OneTimePrekey, error) {
 	query := `
 		DELETE FROM device_one_time_prekeys
@@ -237,14 +208,13 @@ func (r *sqliteDeviceRepo) ConsumePrekey(ctx context.Context, userID, deviceID s
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil // Havuz boş — X3DH 3-DH ile devam eder
+			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to consume prekey: %w", err)
 	}
 	return &pk, nil
 }
 
-// CountPrekeys, cihazın kalan one-time prekey sayısını döner.
 func (r *sqliteDeviceRepo) CountPrekeys(ctx context.Context, userID, deviceID string) (int, error) {
 	query := `SELECT COUNT(*) FROM device_one_time_prekeys WHERE user_id = ? AND device_id = ?`
 	var count int
@@ -255,17 +225,8 @@ func (r *sqliteDeviceRepo) CountPrekeys(ctx context.Context, userID, deviceID st
 	return count, nil
 }
 
-// GetPrekeyBundle, X3DH key agreement için tam prekey bundle'ı döner.
-//
-// Bundle şunları içerir:
-// - identity_key: Cihazın uzun ömürlü kimliği
-// - signed_prekey + signature: Orta vadeli, kimlik doğrulamalı
-// - registration_id: Signal session tanımlayıcısı
-// - one_time_prekey (opsiyonel): Varsa tüketilir, yoksa nil
-//
-// one_time_prekey tüketimi ConsumePrekey ile yapılır — atomik DELETE.
+// GetPrekeyBundle returns a full X3DH prekey bundle, consuming one OTP if available.
 func (r *sqliteDeviceRepo) GetPrekeyBundle(ctx context.Context, userID, deviceID string) (*models.PrekeyBundle, error) {
-	// Önce cihaz bilgilerini çek
 	query := `
 		SELECT device_id, registration_id, identity_key, signing_key,
 			signed_prekey_id, signed_prekey, signed_prekey_signature
@@ -284,7 +245,6 @@ func (r *sqliteDeviceRepo) GetPrekeyBundle(ctx context.Context, userID, deviceID
 		return nil, fmt.Errorf("failed to get prekey bundle: %w", err)
 	}
 
-	// One-time prekey varsa tüket
 	otp, err := r.ConsumePrekey(ctx, userID, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to consume prekey for bundle: %w", err)
@@ -297,11 +257,7 @@ func (r *sqliteDeviceRepo) GetPrekeyBundle(ctx context.Context, userID, deviceID
 	return bundle, nil
 }
 
-// GetPrekeyBundles, kullanıcının TÜM cihazlarının prekey bundle'larını döner.
-//
-// İlk mesaj gönderilirken alıcının her cihazı için ayrı şifreleme yapılır.
-// Bu metod tüm cihazları tek sorguda çeker, sonra her biri için
-// one-time prekey tüketir.
+// GetPrekeyBundles returns prekey bundles for all of a user's devices.
 func (r *sqliteDeviceRepo) GetPrekeyBundles(ctx context.Context, userID string) ([]models.PrekeyBundle, error) {
 	query := `
 		SELECT device_id, registration_id, identity_key, signing_key,
@@ -331,7 +287,6 @@ func (r *sqliteDeviceRepo) GetPrekeyBundles(ctx context.Context, userID string) 
 		return nil, err
 	}
 
-	// Her cihaz için one-time prekey tüket
 	for i := range bundles {
 		otp, err := r.ConsumePrekey(ctx, userID, bundles[i].DeviceID)
 		if err != nil {
@@ -343,7 +298,6 @@ func (r *sqliteDeviceRepo) GetPrekeyBundles(ctx context.Context, userID string) 
 		}
 	}
 
-	// Cihaz yoksa — zaman aşımı durumu, cihaz silinmiş olabilir
 	if len(bundles) == 0 {
 		return nil, nil
 	}
@@ -351,6 +305,4 @@ func (r *sqliteDeviceRepo) GetPrekeyBundles(ctx context.Context, userID string) 
 	return bundles, nil
 }
 
-// Compile-time interface check — derleme zamanında tüm metodların
-// implement edildiğini doğrular.
 var _ DeviceRepository = (*sqliteDeviceRepo)(nil)

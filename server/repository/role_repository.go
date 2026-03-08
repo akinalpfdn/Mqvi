@@ -6,8 +6,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// RoleRepository, rol veritabanı işlemleri için interface.
-// Tüm list operasyonları server-scoped: serverID parametresi zorunlu.
+// RoleRepository defines data access for roles. All list operations are server-scoped.
 type RoleRepository interface {
 	// ─── Read ───
 	GetByID(ctx context.Context, id string) (*models.Role, error)
@@ -21,7 +20,7 @@ type RoleRepository interface {
 	Update(ctx context.Context, role *models.Role) error
 	Delete(ctx context.Context, id string) error
 
-	// UpdatePositions, birden fazla rolün position değerini atomik olarak günceller.
+	// UpdatePositions atomically updates position values for multiple roles.
 	UpdatePositions(ctx context.Context, items []models.PositionUpdate) error
 
 	// ─── User-Role mapping ───

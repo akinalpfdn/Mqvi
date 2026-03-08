@@ -6,31 +6,24 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// ChannelPermissionRepository, kanal bazlı permission override veritabanı işlemleri.
-//
-// Her (channel_id, role_id) çifti için bir allow/deny override saklanır.
-// Bu override'lar role'un global permission'larını kanal bazında değiştirir.
+// ChannelPermissionRepository defines data access for per-channel role permission overrides.
+// Each (channel_id, role_id) pair stores allow/deny bitmasks that override the role's base permissions.
 type ChannelPermissionRepository interface {
-	// GetByChannel, bir kanaldaki tüm permission override'ları döner.
-	// Admin UI'da kullanılır — "bu kanalda hangi roller için override var?"
+	// GetByChannel returns all overrides for a channel.
 	GetByChannel(ctx context.Context, channelID string) ([]models.ChannelPermissionOverride, error)
 
-	// GetByChannelAndRoles, bir kanaldaki belirli rollere ait override'ları döner.
-	// Permission resolution'da kullanılır — "bu kullanıcının rolleri için bu kanalda override var mı?"
+	// GetByChannelAndRoles returns overrides for specific roles in a channel (for permission resolution).
 	GetByChannelAndRoles(ctx context.Context, channelID string, roleIDs []string) ([]models.ChannelPermissionOverride, error)
 
-	// GetByRoles, verilen rollere ait TÜM kanal override'larını döner (tüm kanallar).
-	// Kanal listesi filtreleme sırasında toplu permission resolution için kullanılır.
-	// Tek sorguda tüm override'ları çekerek N+1 query sorununu önler.
+	// GetByRoles returns ALL channel overrides for the given roles (across all channels).
+	// Used for bulk permission resolution when filtering channel lists (avoids N+1).
 	GetByRoles(ctx context.Context, roleIDs []string) ([]models.ChannelPermissionOverride, error)
 
-	// Set, bir (channel_id, role_id) çifti için override oluşturur veya günceller (UPSERT).
+	// Set creates or updates an override for a (channel_id, role_id) pair (UPSERT).
 	Set(ctx context.Context, override *models.ChannelPermissionOverride) error
 
-	// Delete, bir (channel_id, role_id) çifti için override'ı siler.
 	Delete(ctx context.Context, channelID, roleID string) error
 
-	// DeleteAllByChannel, bir kanaldaki tüm override'ları siler.
-	// Kanal silindiğinde kullanılır (CASCADE ile de olur ama explicit daha güvenli).
+	// DeleteAllByChannel removes all overrides for a channel.
 	DeleteAllByChannel(ctx context.Context, channelID string) error
 }

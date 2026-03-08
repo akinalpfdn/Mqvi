@@ -1,6 +1,5 @@
-// Package repository — ServerRepository'nin SQLite implementasyonu.
-//
-// Çoklu sunucu mimarisi: servers + server_members tabloları.
+// Package repository — ServerRepository SQLite implementation.
+// Multi-server architecture: servers + server_members tables.
 package repository
 
 import (
@@ -18,7 +17,6 @@ type sqliteServerRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteServerRepo, constructor.
 func NewSQLiteServerRepo(db database.TxQuerier) ServerRepository {
 	return &sqliteServerRepo{db: db}
 }
@@ -105,12 +103,10 @@ func (r *sqliteServerRepo) Delete(ctx context.Context, serverID string) error {
 	return nil
 }
 
-// ─── Üyelik ───
+// ─── Membership ───
 
 func (r *sqliteServerRepo) GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error) {
-	// position'a göre sırala — kullanıcının kendi sıralama tercihi.
-	// Aynı position değerine sahip sunucular (migration sonrası edge case)
-	// joined_at ile tiebreak yapılır.
+	// Sorted by user's custom position, with joined_at as tiebreaker.
 	query := `
 		SELECT s.id, s.name, s.icon_url
 		FROM servers s
@@ -141,9 +137,7 @@ func (r *sqliteServerRepo) GetUserServers(ctx context.Context, userID string) ([
 }
 
 func (r *sqliteServerRepo) AddMember(ctx context.Context, serverID, userID string) error {
-	// Yeni üye her zaman listenin sonuna eklenir.
-	// position = mevcut max position + 1 (hiç sunucu yoksa 0).
-	// Subquery ile atomic yapıyoruz — ayrı SELECT + INSERT yerine tek sorgu.
+	// New member appended at end: position = max + 1 (atomic via subquery).
 	query := `
 		INSERT OR IGNORE INTO server_members (server_id, user_id, position)
 		VALUES (?, ?, COALESCE((SELECT MAX(position) FROM server_members WHERE user_id = ?), -1) + 1)`
@@ -214,8 +208,6 @@ func (r *sqliteServerRepo) UpdateMemberPositions(ctx context.Context, userID str
 	}
 	defer tx.Rollback()
 
-	// Prepared statement ile her item'ı tek tek güncelle.
-	// server_members'da PRIMARY KEY (server_id, user_id) — hem serverID hem userID gerekli.
 	stmt, err := tx.PrepareContext(ctx, `UPDATE server_members SET position = ? WHERE server_id = ? AND user_id = ?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare position update: %w", err)
@@ -249,9 +241,8 @@ func (r *sqliteServerRepo) GetMaxMemberPosition(ctx context.Context, userID stri
 
 // ─── Admin ───
 
+// ListAllWithStats returns all servers with aggregated stats via correlated subqueries.
 func (r *sqliteServerRepo) ListAllWithStats(ctx context.Context) ([]models.AdminServerListItem, error) {
-	// Tek sorgu ile tüm sunucu istatistiklerini toplayan correlated subquery pattern.
-	// Moderate ölçekteki platformlar için (yüzlerce sunucu) performans sorunsuz.
 	query := `
 		SELECT
 			s.id,

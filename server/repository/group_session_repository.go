@@ -6,28 +6,15 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// GroupSessionRepository, Sender Key grup oturumları için interface.
-//
-// Sender Key (Signal'in grup şifreleme protokolü) her gönderici cihaz için
-// kanala özel bir oturum oluşturur. Oturum anahtarı (SenderKeyDistributionMessage)
-// Signal 1:1 sessions üzerinden kanal üyelerine dağıtılır.
-//
-// Sunucu oturum verilerini opak blob olarak saklar — içeriğini bilmez.
-// Bu repository kanal bazında oturum CRUD'u sağlar.
+// GroupSessionRepository defines data access for Sender Key group sessions.
+// The server stores session data as opaque blobs.
 type GroupSessionRepository interface {
-	// Upsert, grup oturumunu oluşturur veya günceller.
-	// Aynı (channel_id, sender_user_id, sender_device_id, session_id) varsa günceller.
+	// Upsert creates or updates a group session for (channel_id, sender_user_id, sender_device_id, session_id).
 	Upsert(ctx context.Context, channelID, senderUserID, senderDeviceID string, req *models.CreateGroupSessionRequest) error
-
-	// GetByChannel, kanaldaki tüm aktif grup oturumlarını döner.
-	// Kanal üyeleri bu oturumları kullanarak mesajları çözer.
+	// GetByChannel returns all active group sessions for a channel.
 	GetByChannel(ctx context.Context, channelID string) ([]models.ChannelGroupSession, error)
-
-	// DeleteByChannel, kanaldaki tüm grup oturumlarını siler.
-	// Key rotation sırasında çağrılır — eski oturumlar temizlenir.
+	// DeleteByChannel removes all sessions for a channel (called during key rotation).
 	DeleteByChannel(ctx context.Context, channelID string) error
-
-	// DeleteByUser, belirli bir kullanıcının kanaldaki oturumlarını siler.
-	// Kullanıcı kanaldan çıkarıldığında çağrılır.
+	// DeleteByUser removes a user's sessions from a channel (called when user leaves).
 	DeleteByUser(ctx context.Context, channelID, userID string) error
 }

@@ -15,7 +15,6 @@ type sqliteBanRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteBanRepo, BanRepository'nin SQLite implementasyonunu oluşturur.
 func NewSQLiteBanRepo(db database.TxQuerier) BanRepository {
 	return &sqliteBanRepo{db: db}
 }

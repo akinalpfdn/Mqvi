@@ -10,24 +10,17 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// sqliteReactionRepo, ReactionRepository interface'inin SQLite implementasyonu.
 type sqliteReactionRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteReactionRepo, constructor — interface döner.
 func NewSQLiteReactionRepo(db database.TxQuerier) ReactionRepository {
 	return &sqliteReactionRepo{db: db}
 }
 
-// Toggle, bir reaction'ı ekler veya kaldırır.
-//
-// Strateji: INSERT OR IGNORE ile eklemeyi dene.
-// rowsAffected == 0 → UNIQUE constraint nedeniyle eklenmedi → zaten var → DELETE yap.
-// rowsAffected == 1 → başarıyla eklendi.
-//
-// Bu pattern, iki ayrı SELECT + INSERT/DELETE yerine tek bir atomik işlem sağlar.
-// Race condition riski yoktur çünkü UNIQUE constraint DB seviyesinde korunur.
+// Toggle adds or removes a reaction.
+// INSERT OR IGNORE -> rowsAffected == 0 means UNIQUE hit (already exists) -> DELETE.
+// Atomic toggle, no race conditions (UNIQUE constraint enforced at DB level).
 func (r *sqliteReactionRepo) Toggle(ctx context.Context, messageID, userID, emoji string) (bool, error) {
 	insertQuery := `
 		INSERT OR IGNORE INTO reactions (id, message_id, user_id, emoji)
@@ -43,12 +36,11 @@ func (r *sqliteReactionRepo) Toggle(ctx context.Context, messageID, userID, emoj
 		return false, fmt.Errorf("toggle reaction rows affected: %w", err)
 	}
 
-	// INSERT başarılı — yeni reaction eklendi
 	if rowsAffected > 0 {
-		return true, nil
+		return true, nil // added
 	}
 
-	// INSERT başarısız (UNIQUE constraint) — reaction zaten var, sil
+	// Already exists -> remove
 	deleteQuery := `DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?`
 	_, err = r.db.ExecContext(ctx, deleteQuery, messageID, userID, emoji)
 	if err != nil {
@@ -58,13 +50,6 @@ func (r *sqliteReactionRepo) Toggle(ctx context.Context, messageID, userID, emoj
 	return false, nil
 }
 
-// GetByMessageID, tek bir mesajın reaction'larını gruplanmış olarak döner.
-//
-// GROUP BY emoji ile aynı emojileri birleştirir.
-// GROUP_CONCAT(user_id) ile tepki veren kullanıcı ID'lerini virgülle ayırır.
-// COUNT(*) ile her emojinin toplam sayısını hesaplar.
-//
-// Sonuç ReactionGroup dizisi: [{emoji: "👍", count: 3, users: ["u1","u2","u3"]}]
 func (r *sqliteReactionRepo) GetByMessageID(ctx context.Context, messageID string) ([]models.ReactionGroup, error) {
 	query := `
 		SELECT emoji, COUNT(*) as count, GROUP_CONCAT(user_id) as users
@@ -82,19 +67,13 @@ func (r *sqliteReactionRepo) GetByMessageID(ctx context.Context, messageID strin
 	return scanReactionGroups(rows)
 }
 
-// GetByMessageIDs, birden fazla mesajın reaction'larını batch olarak yükler.
-//
-// N+1 problemi çözümü: 50 mesaj varsa 50 ayrı sorgu yerine
-// WHERE message_id IN (?, ?, ...) ile tek sorgu yapılır.
-//
-// Return: map[messageID] → []ReactionGroup
-// Reaction'ı olmayan mesajlar map'te key olarak bulunmaz.
+// GetByMessageIDs batch-loads reactions for multiple messages (avoids N+1).
+// Messages without reactions won't have a key in the returned map.
 func (r *sqliteReactionRepo) GetByMessageIDs(ctx context.Context, messageIDs []string) (map[string][]models.ReactionGroup, error) {
 	if len(messageIDs) == 0 {
 		return make(map[string][]models.ReactionGroup), nil
 	}
 
-	// Dinamik placeholder oluştur: (?, ?, ?, ...)
 	placeholders := make([]string, len(messageIDs))
 	args := make([]any, len(messageIDs))
 	for i, id := range messageIDs {
@@ -139,7 +118,6 @@ func (r *sqliteReactionRepo) GetByMessageIDs(ctx context.Context, messageIDs []s
 	return result, nil
 }
 
-// scanReactionGroups, reaction GROUP BY sorgusunun sonuçlarını parse eder.
 func scanReactionGroups(rows *sql.Rows) ([]models.ReactionGroup, error) {
 	var groups []models.ReactionGroup
 	for rows.Next() {

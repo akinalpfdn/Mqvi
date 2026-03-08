@@ -1,7 +1,5 @@
-// Package repository — LinkPreviewRepository, URL bazlı OG metadata cache.
-//
-// Deduplicated cache — aynı URL tekrar fetch edilmez (TTL süresi dolana kadar).
-// error flag'li kayıtlar başarısız fetch'leri temsil eder.
+// Package repository — LinkPreviewRepository, URL-based OG metadata cache.
+// Deduplicated: same URL is not re-fetched until TTL expires. Error flag marks failed fetches.
 package repository
 
 import (
@@ -12,26 +10,19 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// LinkPreviewRepository, link preview cache veritabanı işlemleri.
+// LinkPreviewRepository defines data access for link preview cache.
 type LinkPreviewRepository interface {
-	// GetByURL, cache'ten URL'e ait preview kaydını döner.
-	// Kayıt yoksa nil döner (error olmadan).
+	// GetByURL returns the cached preview for a URL. Returns nil (no error) if not found.
 	GetByURL(ctx context.Context, url string) (*models.LinkPreview, error)
-
-	// Upsert, preview kaydını ekler veya günceller.
 	Upsert(ctx context.Context, preview *models.LinkPreview) error
-
-	// DeleteExpired, belirtilen tarihten eski kayıtları siler.
-	// Dönen değer silinen satır sayısı.
+	// DeleteExpired removes records older than the given time. Returns deleted row count.
 	DeleteExpired(ctx context.Context, olderThan time.Time) (int64, error)
 }
 
-// sqliteLinkPreviewRepo, SQLite implementasyonu.
 type sqliteLinkPreviewRepo struct {
 	db *sql.DB
 }
 
-// NewSQLiteLinkPreviewRepo, constructor.
 func NewSQLiteLinkPreviewRepo(db *sql.DB) LinkPreviewRepository {
 	return &sqliteLinkPreviewRepo{db: db}
 }

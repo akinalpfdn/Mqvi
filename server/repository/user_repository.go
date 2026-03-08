@@ -1,17 +1,3 @@
-// Package repository, veritabanı erişim katmanını tanımlar.
-//
-// Repository Pattern nedir?
-// Veritabanı işlemlerini (CRUD) soyutlayan bir tasarım kalıbıdır.
-// Service katmanı doğrudan SQL yazmaz — repository interface'i üzerinden çalışır.
-//
-// Neden interface?
-// 1. Test: Mock repository yazarak DB olmadan test edebilirsin
-// 2. Esneklik: SQLite'tan PostgreSQL'e geçmek istersen sadece yeni implementasyon yazarsın
-// 3. SOLID (Dependency Inversion): Service, concrete struct'a değil interface'e bağımlı
-//
-// Go'da interface "implicit"tır — bir struct, interface'deki tüm method'ları
-// implement ediyorsa otomatik olarak o interface'i sağlar. Java'daki gibi
-// "implements" keyword'üne gerek yok.
 package repository
 
 import (
@@ -20,12 +6,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// UserRepository, kullanıcı veritabanı işlemleri için interface.
-//
-// context.Context nedir?
-// Go'da goroutine'ler arası iptal sinyali ve deadline taşıyan bir yapıdır.
-// HTTP handler bir request aldığında context oluşturur — client bağlantıyı koparırsa
-// context iptal olur ve devam eden DB sorgusu da durur. Resource waste'i önler.
+// UserRepository defines data access for users.
 type UserRepository interface {
 	Create(ctx context.Context, user *models.User) error
 	GetByID(ctx context.Context, id string) (*models.User, error)
@@ -33,55 +14,35 @@ type UserRepository interface {
 	GetAll(ctx context.Context) ([]models.User, error)
 	Update(ctx context.Context, user *models.User) error
 	UpdateStatus(ctx context.Context, userID string, status models.UserStatus) error
-	// UpdatePassword, kullanıcının şifre hash'ini günceller.
-	// AuthService.ChangePassword tarafından çağrılır — yeni bcrypt hash alır.
 	UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error
-	// UpdateEmail, kullanıcının email adresini günceller.
-	// nil → email kaldır, *string → yeni email set et.
+	// UpdateEmail sets or clears the user's email. nil removes, *string sets.
 	UpdateEmail(ctx context.Context, userID string, email *string) error
-	// GetByEmail, email adresine göre kullanıcı arar.
-	// İleride "şifremi unuttum" akışı için kullanılacak.
 	GetByEmail(ctx context.Context, email string) (*models.User, error)
 	Count(ctx context.Context) (int, error)
-	// Delete, kullanıcıyı siler (kick işlemi için).
-	// FK cascade ile user_roles, sessions vb. ilişkili kayıtlar da silinir.
+	// Delete removes a user. FK cascade handles user_roles, sessions, etc.
 	Delete(ctx context.Context, id string) error
 
 	// ─── Admin ───
 
-	// ListAllUsersWithStats, platformdaki tüm kullanıcıları istatistikleriyle döner.
-	// Platform admin panelde kullanıcı listesi için kullanılır.
-	// Tek SQL sorgusu ile message_count, storage_mb, owned server counts,
-	// member_server_count, ban_count ve last_activity hesaplanır.
+	// ListAllUsersWithStats returns all users with aggregated stats (message count, storage, bans, etc.).
 	ListAllUsersWithStats(ctx context.Context) ([]models.AdminUserListItem, error)
 
-	// UpdateLastVoiceActivity, bir kullanıcının son ses aktivitesi zamanını günceller.
-	// Ses kanalına katılım olduğunda çağrılır (hub callback'ten).
 	UpdateLastVoiceActivity(ctx context.Context, userID string) error
 
 	// ─── Platform Ban ───
 
-	// PlatformBan, kullanıcıyı platform genelinde yasaklar.
-	// Login, WS connect ve aynı email ile yeni kayıt bloklanır.
+	// PlatformBan blocks login, WS connect, and re-registration with the same email.
 	PlatformBan(ctx context.Context, userID, reason, bannedBy string) error
-
-	// PlatformUnban, platform ban'ini kaldırır.
 	PlatformUnban(ctx context.Context, userID string) error
-
-	// IsEmailPlatformBanned, verilen email'in banlı bir kullanıcıya ait olup olmadığını kontrol eder.
-	// Yeni kayıt sırasında aynı email ile hesap açılmasını engellemek için kullanılır.
+	// IsEmailPlatformBanned checks if an email belongs to a platform-banned user.
 	IsEmailPlatformBanned(ctx context.Context, email string) (bool, error)
-
-	// DeleteAllMessagesByUser, kullanıcının tüm mesajlarını (server + DM) ve eklerini siler.
-	// Platform ban'de opsiyonel olarak çağrılır.
+	// DeleteAllMessagesByUser removes all messages (server + DM) and attachments for a user.
 	DeleteAllMessagesByUser(ctx context.Context, userID string) error
-
-	// HardDeleteUser, kullanıcıyı ve CASCADE ile tüm ilişkili verileri kalıcı olarak siler.
-	// servers.owner_id CASCADE olmadığından, sahip olunan sunucular önceden temizlenmelidir.
+	// HardDeleteUser permanently deletes a user and all cascaded data.
+	// Owned servers must be cleaned up beforehand (no CASCADE on servers.owner_id).
 	HardDeleteUser(ctx context.Context, userID string) error
 
 	// ─── Platform Admin ───
 
-	// SetPlatformAdmin, kullanıcının platform admin durumunu günceller.
 	SetPlatformAdmin(ctx context.Context, userID string, isAdmin bool) error
 }

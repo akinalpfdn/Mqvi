@@ -11,21 +11,10 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// sqliteUserRepo, UserRepository interface'inin SQLite implementasyonu.
-//
-// Go'da struct field'ları küçük harfle başlarsa (db) → private (package dışından erişilemez).
-// Büyük harfle başlarsa (DB) → public.
-// Repository'nin DB bağlantısı dışarıya açık olmamalı — bu yüzden küçük harf.
 type sqliteUserRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteUserRepo, constructor fonksiyonu.
-// UserRepository interface'i döner (concrete struct değil) — Dependency Inversion.
-//
-// Go'da "constructor" diye özel bir syntax yok.
-// Konvansiyon: New + tip adı → NewSQLiteUserRepo.
-// Interface dönmek, çağıran tarafın implementasyondan bağımsız olmasını sağlar.
 func NewSQLiteUserRepo(db database.TxQuerier) UserRepository {
 	return &sqliteUserRepo{db: db}
 }
@@ -36,9 +25,6 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
-	// QueryRowContext: tek bir satır dönen sorgu çalıştırır.
-	// Scan: sorgu sonucunu Go değişkenlerine aktarır.
-	// &user.ID → "user.ID değişkeninin bellek adresini ver" demek (pointer).
 	err := r.db.QueryRowContext(ctx, query,
 		user.Username,
 		user.DisplayName,
@@ -51,7 +37,6 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 	).Scan(&user.ID, &user.CreatedAt)
 
 	if err != nil {
-		// UNIQUE constraint violation → kullanıcı adı veya email zaten var
 		if isUniqueViolation(err) {
 			if containsString(err.Error(), "idx_users_email") {
 				return fmt.Errorf("%w: email already in use", pkg.ErrAlreadyExists)
@@ -123,13 +108,11 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users ORDER BY username`
 
-	// QueryContext: birden fazla satır dönen sorgu.
-	// rows.Next() ile satır satır iterasyon yapılır.
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all users: %w", err)
 	}
-	defer rows.Close() // Önemli: rows'u kapatmayı ASLA unutma — aksi halde bağlantı sızar (leak)
+	defer rows.Close()
 
 	var users []models.User
 	for rows.Next() {
@@ -146,7 +129,6 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 		users = append(users, u)
 	}
 
-	// rows.Err(): iterasyon sırasında oluşan hataları kontrol et
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating user rows: %w", err)
 	}
@@ -166,7 +148,6 @@ func (r *sqliteUserRepo) Update(ctx context.Context, user *models.User) error {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
 
-	// RowsAffected: kaç satır etkilendi? 0 ise kullanıcı bulunamadı.
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to check rows affected: %w", err)
@@ -197,7 +178,6 @@ func (r *sqliteUserRepo) UpdateStatus(ctx context.Context, userID string, status
 	return nil
 }
 
-// UpdatePassword, kullanıcının şifre hash'ini günceller.
 func (r *sqliteUserRepo) UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error {
 	query := `UPDATE users SET password_hash = ? WHERE id = ?`
 
@@ -217,8 +197,7 @@ func (r *sqliteUserRepo) UpdatePassword(ctx context.Context, userID string, newP
 	return nil
 }
 
-// UpdateEmail, kullanıcının email adresini günceller.
-// nil → email kaldır (NULL), *string → yeni email set et.
+// UpdateEmail updates the user's email. nil removes it (NULL), *string sets a new one.
 func (r *sqliteUserRepo) UpdateEmail(ctx context.Context, userID string, email *string) error {
 	query := `UPDATE users SET email = ? WHERE id = ?`
 
@@ -241,8 +220,6 @@ func (r *sqliteUserRepo) UpdateEmail(ctx context.Context, userID string, email *
 	return nil
 }
 
-// GetByEmail, email adresine göre kullanıcı arar.
-// İleride "şifremi unuttum" akışı için kullanılacak.
 func (r *sqliteUserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
 		SELECT id, username, display_name, avatar_url, password_hash, status, custom_status,
@@ -297,7 +274,6 @@ func (r *sqliteUserRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// isUniqueViolation, SQLite UNIQUE constraint hatasını kontrol eder.
 func isUniqueViolation(err error) bool {
 	return err != nil && (errors.Is(err, sql.ErrNoRows) == false) &&
 		(containsString(err.Error(), "UNIQUE constraint failed"))
@@ -318,8 +294,8 @@ func searchString(s, substr string) bool {
 
 // ─── Admin ───
 
+// ListAllUsersWithStats returns all users with aggregated stats via correlated subqueries.
 func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.AdminUserListItem, error) {
-	// Tek sorgu ile tüm kullanıcı istatistiklerini toplayan correlated subquery pattern.
 	query := `
 		SELECT
 			u.id,
@@ -380,7 +356,6 @@ func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.Ad
 	return users, nil
 }
 
-// UpdateLastVoiceActivity, kullanıcının son ses aktivitesi zamanını şimdiki zamana günceller.
 func (r *sqliteUserRepo) UpdateLastVoiceActivity(ctx context.Context, userID string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE users SET last_voice_activity = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -394,8 +369,6 @@ func (r *sqliteUserRepo) UpdateLastVoiceActivity(ctx context.Context, userID str
 
 // ─── Platform Ban ───
 
-// PlatformBan, kullanıcıyı platform genelinde yasaklar.
-// is_platform_banned flag'i 1 yapılır, sebep ve admin bilgisi kaydedilir.
 func (r *sqliteUserRepo) PlatformBan(ctx context.Context, userID, reason, bannedBy string) error {
 	query := `
 		UPDATE users
@@ -421,8 +394,6 @@ func (r *sqliteUserRepo) PlatformBan(ctx context.Context, userID, reason, banned
 	return nil
 }
 
-// PlatformUnban, platform ban'ini kaldırır.
-// Ban bilgileri (reason, banned_by, banned_at) temizlenir.
 func (r *sqliteUserRepo) PlatformUnban(ctx context.Context, userID string) error {
 	query := `
 		UPDATE users
@@ -448,8 +419,8 @@ func (r *sqliteUserRepo) PlatformUnban(ctx context.Context, userID string) error
 	return nil
 }
 
-// IsEmailPlatformBanned, verilen email'in banlı bir kullanıcıya ait olup olmadığını kontrol eder.
-// Kayıt sırasında aynı email ile yeni hesap açılmasını engellemek için kullanılır.
+// IsEmailPlatformBanned checks if the email belongs to a banned user.
+// Used during registration to prevent new accounts with banned emails.
 func (r *sqliteUserRepo) IsEmailPlatformBanned(ctx context.Context, email string) (bool, error) {
 	query := `SELECT COUNT(*) FROM users WHERE email = ? AND is_platform_banned = 1`
 
@@ -462,18 +433,14 @@ func (r *sqliteUserRepo) IsEmailPlatformBanned(ctx context.Context, email string
 	return count > 0, nil
 }
 
-// DeleteAllMessagesByUser, kullanıcının tüm server mesajlarını ve DM mesajlarını siler.
-// Attachment'lar messages tablosuna CASCADE ile silinir.
-// Platform ban'de opsiyonel "mesajları da sil" seçeneği için kullanılır.
+// DeleteAllMessagesByUser deletes all server messages and DM messages for a user.
+// Attachments are CASCADE-deleted with messages. Used for optional "delete messages" on platform ban.
 func (r *sqliteUserRepo) DeleteAllMessagesByUser(ctx context.Context, userID string) error {
-	// Server mesajları — attachments tablosu messages'a CASCADE ile bağlı,
-	// dolayısıyla mesaj silinince ekler de otomatik silinir.
 	_, err := r.db.ExecContext(ctx, `DELETE FROM messages WHERE user_id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user messages: %w", err)
 	}
 
-	// DM mesajları
 	_, err = r.db.ExecContext(ctx, `DELETE FROM dm_messages WHERE user_id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user DM messages: %w", err)
@@ -482,32 +449,29 @@ func (r *sqliteUserRepo) DeleteAllMessagesByUser(ctx context.Context, userID str
 	return nil
 }
 
-// HardDeleteUser, kullanıcıyı ve CASCADE ile tüm ilişkili verileri kalıcı olarak siler.
+// HardDeleteUser permanently deletes the user and all CASCADE-linked data.
 //
-// CASCADE ile otomatik silinen tablolar:
-// user_roles, messages, sessions, dm_channels, dm_messages,
-// message_mentions, reactions, friendships, server_members,
-// channel_reads, password_reset_tokens, server_mutes
+// CASCADE covers: user_roles, messages, sessions, dm_channels, dm_messages,
+// message_mentions, reactions, friendships, server_members, channel_reads,
+// password_reset_tokens, server_mutes.
 //
-// Manuel temizlik gerektiren tablolar:
-// - bans: FK yok, username text olarak saklanır — orphan kalır ama zararsız
-// - servers.owner_id: CASCADE yok — çağıran service sahip olunan sunucuları önceden temizlemeli
+// Manual cleanup needed:
+// - bans: no FK, username stored as text — orphans are harmless
+// - servers.owner_id: no CASCADE — caller must clean up owned servers first
 func (r *sqliteUserRepo) HardDeleteUser(ctx context.Context, userID string) error {
-	// Bans tablosunda FK olmadığından manuel temizlik
+	// bans has no FK — manual cleanup
 	_, err := r.db.ExecContext(ctx, `DELETE FROM bans WHERE user_id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("failed to clean up bans for user: %w", err)
 	}
 
-	// servers.owner_id → users(id) CASCADE yok.
-	// Sahip olunan sunucuları sil — servers tablosunun kendi CASCADE'i
-	// channels, roles, messages vb. sunucu verilerini otomatik temizler.
+	// servers.owner_id has no CASCADE — delete owned servers first
 	_, err = r.db.ExecContext(ctx, `DELETE FROM servers WHERE owner_id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete owned servers: %w", err)
 	}
 
-	// Ana silme — CASCADE ile tüm ilişkili veriler otomatik silinir
+	// Main delete — CASCADE handles all related data
 	result, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("failed to hard delete user: %w", err)
@@ -524,7 +488,6 @@ func (r *sqliteUserRepo) HardDeleteUser(ctx context.Context, userID string) erro
 	return nil
 }
 
-// SetPlatformAdmin, kullanıcının platform admin durumunu günceller.
 func (r *sqliteUserRepo) SetPlatformAdmin(ctx context.Context, userID string, isAdmin bool) error {
 	result, err := r.db.ExecContext(ctx,
 		"UPDATE users SET is_platform_admin = ? WHERE id = ?",

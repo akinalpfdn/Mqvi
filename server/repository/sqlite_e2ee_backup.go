@@ -9,24 +9,14 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// sqliteE2EEBackupRepo, E2EEKeyBackupRepository interface'inin SQLite implementasyonu.
-//
-// e2ee_key_backups tablosunu yönetir. Her kullanıcının tek bir backup'ı
-// olabilir (UNIQUE user_id). Şifreli blob sunucu tarafından OKUNAMAZ.
 type sqliteE2EEBackupRepo struct {
 	db database.TxQuerier
 }
 
-// NewSQLiteE2EEBackupRepo, constructor — interface döner.
 func NewSQLiteE2EEBackupRepo(db database.TxQuerier) E2EEKeyBackupRepository {
 	return &sqliteE2EEBackupRepo{db: db}
 }
 
-// Upsert, anahtar yedeğini oluşturur veya günceller.
-//
-// INSERT ... ON CONFLICT(user_id) DO UPDATE pattern.
-// Kullanıcı recovery password'ünü değiştirdiğinde veya yeni anahtarlar
-// eklendiğinde mevcut backup güncellenir.
 func (r *sqliteE2EEBackupRepo) Upsert(ctx context.Context, userID string, req *models.CreateKeyBackupRequest) error {
 	query := `
 		INSERT INTO e2ee_key_backups (user_id, version, algorithm, encrypted_data, nonce, salt)
@@ -49,7 +39,6 @@ func (r *sqliteE2EEBackupRepo) Upsert(ctx context.Context, userID string, req *m
 	return nil
 }
 
-// GetByUser, kullanıcının anahtar yedeğini döner. Yoksa nil döner.
 func (r *sqliteE2EEBackupRepo) GetByUser(ctx context.Context, userID string) (*models.E2EEKeyBackup, error) {
 	query := `
 		SELECT id, user_id, version, algorithm, encrypted_data, nonce, salt, created_at, updated_at
@@ -71,7 +60,6 @@ func (r *sqliteE2EEBackupRepo) GetByUser(ctx context.Context, userID string) (*m
 	return b, nil
 }
 
-// Delete, kullanıcının anahtar yedeğini siler.
 func (r *sqliteE2EEBackupRepo) Delete(ctx context.Context, userID string) error {
 	query := `DELETE FROM e2ee_key_backups WHERE user_id = ?`
 	_, err := r.db.ExecContext(ctx, query, userID)
@@ -81,5 +69,4 @@ func (r *sqliteE2EEBackupRepo) Delete(ctx context.Context, userID string) error 
 	return nil
 }
 
-// Compile-time interface check.
 var _ E2EEKeyBackupRepository = (*sqliteE2EEBackupRepo)(nil)

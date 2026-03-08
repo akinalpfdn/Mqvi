@@ -1,20 +1,14 @@
 // Package repository — ChannelMuteRepository interface.
-//
-// Kullanıcı bazlı kanal sessize alma veritabanı işlemleri.
-// Expired mute'lar okuma sırasında lazy olarak filtrelenir.
+// Per-user channel mute settings. Expired mutes are lazily filtered on read.
 package repository
 
 import "context"
 
-// ChannelMuteRepository, channel mute veritabanı işlemleri için interface.
+// ChannelMuteRepository defines data access for channel mutes.
 type ChannelMuteRepository interface {
-	// Upsert, kanal mute'unu ekler veya günceller.
-	// mutedUntil nil ise sonsuza kadar sessiz.
+	// Upsert adds or updates a channel mute. nil mutedUntil means indefinite.
 	Upsert(ctx context.Context, userID, channelID, serverID string, mutedUntil *string) error
-
-	// Delete, kanal mute'unu kaldırır (unmute).
 	Delete(ctx context.Context, userID, channelID string) error
-
-	// GetMutedChannelIDs, kullanıcının aktif (expired olmamış) mute'lu kanal ID'lerini döner.
+	// GetMutedChannelIDs returns active (non-expired) muted channel IDs.
 	GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error)
 }

@@ -2,12 +2,8 @@ package repository
 
 import "context"
 
-// MentionRepository, mesaj mention veritabanı işlemleri için interface.
-//
-// SaveMentions: Bir mesajdaki tüm mention'ları batch olarak kaydeder.
-// DeleteByMessageID: Bir mesajın mention'larını siler (mesaj düzenlenirken).
-// GetMentionedUserIDs: Bir mesajda bahsedilen kullanıcı ID'lerini döner.
-// GetByMessageIDs: Birden fazla mesajın mention'larını batch olarak döner (N+1 önleme).
+// MentionRepository defines data access for message mentions.
+// GetByMessageIDs batch-loads mentions for multiple messages (avoids N+1).
 type MentionRepository interface {
 	SaveMentions(ctx context.Context, messageID string, userIDs []string) error
 	DeleteByMessageID(ctx context.Context, messageID string) error
