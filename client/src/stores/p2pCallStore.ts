@@ -173,8 +173,40 @@ type P2PCallStore = {
 async function getMediaStream(callType: P2PCallType): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
     audio: true,
-    video: callType === "video",
+    video: callType === "video"
+      ? {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
+        }
+      : false,
   });
+}
+
+// ─── Degradation Preference ───
+
+/**
+ * applyDegradationPreference — Video sender'lara "balanced" degradation ayarlar.
+ *
+ * degradationPreference nedir?
+ * WebRTC encoder'ına bant genişliği düşünce ne yapması gerektiğini söyler:
+ * - "balanced": FPS ve çözünürlük orantılı düşer (en iyi genel davranış)
+ * - "maintain-resolution": önce FPS düşer (1080p60→1080p30→1080p15 → kötü)
+ * - "maintain-framerate": önce çözünürlük düşer (1080p→720p→480p ama 60fps)
+ *
+ * "balanced" ile tarayıcı hem FPS'i hem çözünürlüğü birlikte düşürür,
+ * böylece 1080p15 veya 720p15 gibi uç durumlara düşme riski azalır.
+ */
+function applyDegradationPreference(pc: RTCPeerConnection): void {
+  for (const sender of pc.getSenders()) {
+    if (sender.track?.kind !== "video") continue;
+
+    const params = sender.getParameters();
+    params.degradationPreference = "balanced";
+    sender.setParameters(params).catch((err) => {
+      console.warn("[p2p] Failed to set degradationPreference:", err);
+    });
+  }
 }
 
 // ─── PeerConnection Factory ───
@@ -397,7 +429,13 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
         // addTrack() onnegotiationneeded event'ini tetikler →
         // createPeerConnection'daki handler otomatik renegotiation yapar.
         navigator.mediaDevices
-          .getUserMedia({ video: true })
+          .getUserMedia({
+            video: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 30 },
+            },
+          })
           .then((videoStream) => {
             const videoTrack = videoStream.getVideoTracks()[0];
             localStream.addTrack(videoTrack);
@@ -442,7 +480,13 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       // 2. Renegotiation sırasında geçici "disconnected" state endCall'ı tetikleyebilir
       // 3. addTransceiver + replaceTrack daha kontrollü bir akış sağlar
       navigator.mediaDevices
-        .getDisplayMedia({ video: true })
+        .getDisplayMedia({
+          video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080, min: 720 },
+            frameRate: { ideal: 60, min: 24 },
+          },
+        })
         .then(async (screenStream) => {
           const screenTrack = screenStream.getVideoTracks()[0];
           const pc = get().peerConnection;
@@ -495,6 +539,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
           // replaceTrack ile screen track'i set et — renegotiation gerektirmez
           await videoSender.replaceTrack(screenTrack);
+
+          // Ekran paylaşımı sender'ına degradation preference uygula
+          const screenParams = videoSender.getParameters();
+          screenParams.degradationPreference = "balanced";
+          await videoSender.setParameters(screenParams).catch(() => {});
 
           // Sender referansını PC'ye kaydet — durdurma sırasında lazım
           (pc as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender = videoSender;
@@ -557,6 +606,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       for (const track of stream.getTracks()) {
         pc.addTrack(track, stream);
       }
+
+      // Video sender'lara degradationPreference ayarla.
+      // "balanced": bant genişliği düşünce hem FPS hem çözünürlük orantılı düşer.
+      // Bu sayede 1080p15 veya 720p15 gibi uç noktalara düşme riski azalır.
+      applyDegradationPreference(pc);
 
       set({ peerConnection: pc });
     } catch (err) {
@@ -726,6 +780,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
             }
           }
 
+          applyDegradationPreference(pc);
           set({ peerConnection: pc });
         }
 
