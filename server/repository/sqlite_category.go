@@ -120,6 +120,41 @@ func (r *sqliteCategoryRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdatePositions atomically updates positions for multiple categories.
+func (r *sqliteCategoryRepo) UpdatePositions(ctx context.Context, items []models.PositionUpdate) error {
+	sqlDB, ok := r.db.(*sql.DB)
+	if !ok {
+		return fmt.Errorf("UpdatePositions requires *sql.DB to start transaction")
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE categories SET position = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, item := range items {
+		result, err := stmt.ExecContext(ctx, item.Position, item.ID)
+		if err != nil {
+			return fmt.Errorf("failed to update position for category %s: %w", item.ID, err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to check rows affected for category %s: %w", item.ID, err)
+		}
+		if affected == 0 {
+			return fmt.Errorf("%w: category %s", pkg.ErrNotFound, item.ID)
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (r *sqliteCategoryRepo) GetMaxPosition(ctx context.Context, serverID string) (int, error) {
 	var maxPos int
 	err := r.db.QueryRowContext(ctx,

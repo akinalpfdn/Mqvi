@@ -149,6 +149,9 @@ export function useWebSocket() {
       case "category_delete":
         useChannelStore.getState().handleCategoryDelete((msg.d as { id: string }).id);
         break;
+      case "category_reorder":
+        useChannelStore.getState().handleCategoryReorder();
+        break;
 
       // ─── Message Events ───
       case "message_create": {

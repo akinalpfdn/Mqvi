@@ -208,6 +208,7 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/categories", authServerPerm(models.PermManageChannels, h.Category.Create))
 	mux.Handle("PATCH /api/servers/{serverId}/categories/{id}", authServerPerm(models.PermManageChannels, h.Category.Update))
 	mux.Handle("DELETE /api/servers/{serverId}/categories/{id}", authServerPerm(models.PermManageChannels, h.Category.Delete))
+	mux.Handle("PATCH /api/servers/{serverId}/categories/reorder", authServerPerm(models.PermManageChannels, h.Category.Reorder))
 
 	// Messages
 	mux.Handle("GET /api/servers/{serverId}/channels/{id}/messages", authServer(h.Message.List))

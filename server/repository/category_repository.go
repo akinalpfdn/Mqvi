@@ -14,4 +14,6 @@ type CategoryRepository interface {
 	Update(ctx context.Context, category *models.Category) error
 	Delete(ctx context.Context, id string) error
 	GetMaxPosition(ctx context.Context, serverID string) (int, error)
+	// UpdatePositions atomically updates position values for multiple categories.
+	UpdatePositions(ctx context.Context, items []models.PositionUpdate) error
 }

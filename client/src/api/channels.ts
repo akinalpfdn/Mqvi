@@ -10,6 +10,7 @@
  * - POST   /api/servers/{serverId}/categories       — create category [MANAGE_CHANNELS]
  * - PATCH  /api/servers/{serverId}/categories/{id}  — update category [MANAGE_CHANNELS]
  * - DELETE /api/servers/{serverId}/categories/{id}  — delete category [MANAGE_CHANNELS]
+ * - PATCH  /api/servers/{serverId}/categories/reorder — reorder categories [MANAGE_CHANNELS]
  */
 
 import { apiClient } from "./client";
@@ -82,6 +83,13 @@ export async function updateCategory(serverId: string, id: string, data: { name?
   return apiClient<Category>(`/servers/${serverId}/categories/${id}`, {
     method: "PATCH",
     body: data,
+  });
+}
+
+export async function reorderCategories(serverId: string, items: { id: string; position: number }[]) {
+  return apiClient<Category[]>(`/servers/${serverId}/categories/reorder`, {
+    method: "PATCH",
+    body: { items },
   });
 }
 

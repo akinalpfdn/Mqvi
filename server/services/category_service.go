@@ -15,6 +15,7 @@ type CategoryService interface {
 	Create(ctx context.Context, serverID string, req *models.CreateCategoryRequest) (*models.Category, error)
 	Update(ctx context.Context, id string, req *models.UpdateCategoryRequest) (*models.Category, error)
 	Delete(ctx context.Context, id string) error
+	Reorder(ctx context.Context, serverID string, items []models.PositionUpdate) ([]models.Category, error)
 }
 
 type categoryService struct {
@@ -88,6 +89,28 @@ func (s *categoryService) Update(ctx context.Context, id string, req *models.Upd
 	})
 
 	return category, nil
+}
+
+func (s *categoryService) Reorder(ctx context.Context, serverID string, items []models.PositionUpdate) ([]models.Category, error) {
+	if len(items) == 0 {
+		return nil, fmt.Errorf("%w: items cannot be empty", pkg.ErrBadRequest)
+	}
+
+	if err := s.categoryRepo.UpdatePositions(ctx, items); err != nil {
+		return nil, fmt.Errorf("failed to update category positions: %w", err)
+	}
+
+	s.hub.BroadcastToAll(ws.Event{
+		Op:   ws.OpCategoryReorder,
+		Data: nil,
+	})
+
+	categories, err := s.categoryRepo.GetAllByServer(ctx, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reload categories after reorder: %w", err)
+	}
+
+	return categories, nil
 }
 
 func (s *categoryService) Delete(ctx context.Context, id string) error {

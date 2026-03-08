@@ -36,7 +36,9 @@ type ChannelState = {
 
   // ─── Reorder ───
   reorderChannels: (items: { id: string; position: number; category_id?: string }[]) => Promise<boolean>;
+  reorderCategories: (items: { id: string; position: number }[]) => Promise<boolean>;
   handleChannelReorder: (categories: CategoryWithChannels[]) => void;
+  handleCategoryReorder: () => void;
 
   clearForServerSwitch: () => void;
 };
@@ -256,8 +258,41 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     return true;
   },
 
+  reorderCategories: async (items) => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return false;
+
+    const prevCategories = get().categories;
+
+    // Optimistic update
+    const positionMap = new Map(items.map((item) => [item.id, item.position]));
+    set((state) => ({
+      categories: [...state.categories]
+        .map((cg) => {
+          const newPos = positionMap.get(cg.category.id);
+          return newPos !== undefined
+            ? { ...cg, category: { ...cg.category, position: newPos } }
+            : cg;
+        })
+        .sort((a, b) => a.category.position - b.category.position),
+    }));
+
+    const res = await channelApi.reorderCategories(serverId, items);
+    if (!res.success) {
+      set({ categories: prevCategories });
+      return false;
+    }
+
+    return true;
+  },
+
   handleChannelReorder: (categories) => {
     set({ categories });
+  },
+
+  /** Re-fetch channels to get updated category order from server */
+  handleCategoryReorder: () => {
+    get().fetchChannels();
   },
 
   // ─── Channel Mute ───

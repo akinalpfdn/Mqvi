@@ -51,7 +51,8 @@ const (
 	OpChannelPermissionUpdate = "channel_permission_update"
 	OpChannelPermissionDelete = "channel_permission_delete"
 
-	OpChannelReorder = "channel_reorder"
+	OpChannelReorder  = "channel_reorder"
+	OpCategoryReorder = "category_reorder"
 
 	// DM operations
 	OpDMChannelCreate  = "dm_channel_create"

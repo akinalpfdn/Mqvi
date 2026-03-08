@@ -76,6 +76,31 @@ func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, category)
 }
 
+// Reorder handles PATCH /api/servers/{serverId}/categories/reorder (requires MANAGE_CHANNELS).
+func (h *CategoryHandler) Reorder(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	var body struct {
+		Items []models.PositionUpdate `json:"items"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	categories, err := h.categoryService.Reorder(r.Context(), serverID, body.Items)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, categories)
+}
+
 // Delete handles DELETE /api/servers/{serverId}/categories/{id}
 func (h *CategoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

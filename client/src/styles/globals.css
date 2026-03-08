@@ -171,6 +171,14 @@ button { font-family:inherit; }
 .ch-tree-cat-add { display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;background:transparent;color:var(--t3);font-size:16px;font-weight:700;cursor:pointer;border-radius:4px;opacity:0;transition:opacity .1s,color .1s,background .1s;margin-right:6px;flex-shrink:0; }
 .ch-tree-cat-row:hover .ch-tree-cat-add { opacity:1; }
 .ch-tree-cat-add:hover { color:var(--t0);background:var(--bg-h); }
+/* Category reorder drop indicators */
+.ch-tree-cat-row { position:relative; }
+.ch-tree-cat-row.cat-drop-above::before,
+.ch-tree-cat-row.cat-drop-below::after { content:"";position:absolute;left:14px;right:8px;height:2px;background:var(--primary);border-radius:1px;pointer-events:none;z-index:2; }
+.ch-tree-cat-row.cat-drop-above::before { top:0; }
+.ch-tree-cat-row.cat-drop-below::after { bottom:0; }
+.ch-tree-cat-row[draggable="true"] { cursor:grab; }
+.ch-tree-cat-row[draggable="true"]:active { cursor:grabbing; }
 /* Inline create form */
 .ch-tree-create-form { padding:4px 10px 6px 28px;display:flex;flex-direction:column;gap:4px; }
 .ch-tree-create-input { width:100%;padding:5px 8px;border:1px solid var(--b1);border-radius:4px;background:var(--bg-0);color:var(--t0);font-size:13px;font-family:var(--f-ui);outline:none; }

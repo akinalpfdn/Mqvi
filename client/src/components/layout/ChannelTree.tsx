@@ -374,6 +374,85 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     setServerDropIndicator(null);
   }
 
+  // ─── Category Drag & Drop State ───
+
+  const reorderCategories = useChannelStore((s) => s.reorderCategories);
+
+  /** Dragged category ID */
+  const dragCatReorderIdRef = useRef<string | null>(null);
+  /** Category drop indicator position */
+  const [catDropIndicator, setCatDropIndicator] = useState<{
+    categoryId: string;
+    position: "above" | "below";
+  } | null>(null);
+
+  function handleCatDragStart(e: React.DragEvent, categoryId: string) {
+    e.stopPropagation();
+    dragCatReorderIdRef.current = categoryId;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/category", categoryId);
+  }
+
+  function handleCatDragOver(e: React.DragEvent, categoryId: string) {
+    // Only handle if a category is being dragged (not a channel)
+    if (!dragCatReorderIdRef.current) return;
+    if (dragCatReorderIdRef.current === categoryId) {
+      e.preventDefault();
+      setCatDropIndicator(null);
+      return;
+    }
+
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos: "above" | "below" = e.clientY < midY ? "above" : "below";
+    setCatDropIndicator({ categoryId, position: pos });
+  }
+
+  function handleCatDragLeave() {
+    setCatDropIndicator(null);
+  }
+
+  function handleCatDrop(e: React.DragEvent, targetCategoryId: string) {
+    e.preventDefault();
+    setCatDropIndicator(null);
+
+    const dragId = dragCatReorderIdRef.current;
+    dragCatReorderIdRef.current = null;
+
+    if (!dragId || dragId === targetCategoryId) return;
+
+    // Filter out uncategorized — only named categories are reorderable
+    const namedCategories = categories.filter((cg) => cg.category.id !== "");
+    const dragIdx = namedCategories.findIndex((cg) => cg.category.id === dragId);
+    const targetIdx = namedCategories.findIndex((cg) => cg.category.id === targetCategoryId);
+    if (dragIdx === -1 || targetIdx === -1) return;
+
+    const ordered = [...namedCategories];
+    const [dragged] = ordered.splice(dragIdx, 1);
+
+    let insertIdx = ordered.findIndex((cg) => cg.category.id === targetCategoryId);
+    if (insertIdx === -1) insertIdx = ordered.length;
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    if (e.clientY >= midY) insertIdx += 1;
+
+    ordered.splice(insertIdx, 0, dragged);
+
+    const items = ordered.map((cg, idx) => ({ id: cg.category.id, position: idx }));
+    reorderCategories(items).then((ok) => {
+      if (!ok) addToast("error", tCh("reorderError"));
+    });
+  }
+
+  function handleCatDragEnd() {
+    dragCatReorderIdRef.current = null;
+    setCatDropIndicator(null);
+  }
+
   function handleDragStart(channelId: string, categoryId: string) {
     dragChannelIdRef.current = channelId;
     dragCategoryIdRef.current = categoryId;
@@ -1263,9 +1342,28 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                           )
                         ) : (
                           <div
-                            className="ch-tree-cat-row"
-                            onDragOver={canManageChannels ? handleCategoryHeaderDragOver : undefined}
-                            onDrop={canManageChannels ? (e) => handleCategoryHeaderDrop(e, cg.category.id) : undefined}
+                            className={`ch-tree-cat-row${catDropIndicator?.categoryId === cg.category.id && catDropIndicator.position === "above" ? " cat-drop-above" : ""}${catDropIndicator?.categoryId === cg.category.id && catDropIndicator.position === "below" ? " cat-drop-below" : ""}`}
+                            draggable={canManageChannels}
+                            onDragStart={canManageChannels ? (e) => handleCatDragStart(e, cg.category.id) : undefined}
+                            onDragOver={canManageChannels ? (e) => {
+                              // Category reorder takes priority over channel-to-category drop
+                              if (dragCatReorderIdRef.current) {
+                                handleCatDragOver(e, cg.category.id);
+                              } else {
+                                handleCategoryHeaderDragOver(e);
+                              }
+                            } : undefined}
+                            onDragLeave={canManageChannels ? () => {
+                              handleCatDragLeave();
+                            } : undefined}
+                            onDrop={canManageChannels ? (e) => {
+                              if (dragCatReorderIdRef.current) {
+                                handleCatDrop(e, cg.category.id);
+                              } else {
+                                handleCategoryHeaderDrop(e, cg.category.id);
+                              }
+                            } : undefined}
+                            onDragEnd={canManageChannels ? handleCatDragEnd : undefined}
                           >
                             <button
                               className="ch-tree-cat-header"
