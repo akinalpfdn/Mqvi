@@ -28,6 +28,7 @@ import ContextMenu from "../shared/ContextMenu";
 import PlatformActionDialog from "./PlatformActionDialog";
 import type { LiveKitInstanceAdmin, AdminServerListItem } from "../../types";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
+import { resolveAssetUrl } from "../../utils/constants";
 
 // ─── Column Definition ───
 
@@ -436,7 +437,7 @@ function AdminServerList() {
           <div className="admin-server-name-cell">
             <div className="admin-server-icon">
               {srv.icon_url ? (
-                <img src={srv.icon_url} alt="" />
+                <img src={resolveAssetUrl(srv.icon_url)} alt="" />
               ) : (
                 srv.name.charAt(0).toUpperCase()
               )}
