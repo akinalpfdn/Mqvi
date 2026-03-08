@@ -13,6 +13,8 @@ import { useTranslation, Trans } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useServerStore } from "../../stores/serverStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useMemberStore } from "../../stores/memberStore";
+import { hasPermission, Permissions } from "../../utils/permissions";
 import * as serverApi from "../../api/servers";
 import AvatarUpload from "./AvatarUpload";
 import type { Server } from "../../types";
@@ -50,6 +52,13 @@ function ServerGeneralSettings() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const isOwner = server !== null && currentUser !== null && server.owner_id === currentUser.id;
+
+  // Admin yetkisi kontrolü — sunucu ayarlarını düzenleyebilmek için gerekli
+  const members = useMemberStore((s) => s.members);
+  const currentMember = members.find((m) => m.id === currentUser?.id);
+  const isAdmin = currentMember
+    ? hasPermission(currentMember.effective_permissions, Permissions.Admin)
+    : false;
 
   useEffect(() => {
     // Server değiştiğinde eski state'i temizle — yeni sunucu
@@ -198,6 +207,14 @@ function ServerGeneralSettings() {
     return (
       <div className="no-channel">
         {t("serverSaveError")}
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="no-channel">
+        {t("noPermission")}
       </div>
     );
   }

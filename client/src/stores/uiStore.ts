@@ -90,6 +90,9 @@ type UIState = {
   // Members
   toggleMembers: () => void;
 
+  // Tab label sync (WS channel_update)
+  updateTabLabel: (channelId: string, newLabel: string) => void;
+
   // Quick Switcher (Ctrl+K)
   toggleQuickSwitcher: () => void;
   closeQuickSwitcher: () => void;
@@ -506,6 +509,24 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   toggleMembers() {
     set((state) => ({ membersOpen: !state.membersOpen }));
+  },
+
+  updateTabLabel(channelId, newLabel) {
+    const state = get();
+    let changed = false;
+    const newPanels = { ...state.panels };
+
+    for (const [panelId, panel] of Object.entries(newPanels)) {
+      const idx = panel.tabs.findIndex((t) => t.channelId === channelId);
+      if (idx !== -1 && panel.tabs[idx].label !== newLabel) {
+        const newTabs = [...panel.tabs];
+        newTabs[idx] = { ...newTabs[idx], label: newLabel };
+        newPanels[panelId] = { ...panel, tabs: newTabs };
+        changed = true;
+      }
+    }
+
+    if (changed) set({ panels: newPanels });
   },
 
   toggleQuickSwitcher() {

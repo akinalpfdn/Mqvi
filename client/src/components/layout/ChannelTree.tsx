@@ -834,15 +834,23 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     // (memberStore aktif sunucuya ait). Diger sunucular icin goster, backend enforce eder.
     const canInvite = serverId !== activeServerId || canManageInvites;
 
+    // Admin yetkisi — sadece aktif sunucu icin kontrol edilebilir.
+    // Diger sunucular icin ayarlar gosterilmez (permission bilgisi yok).
+    const canAccessSettings = serverId === activeServerId && currentMember
+      ? hasPermission(currentMember.effective_permissions, Permissions.Admin)
+      : false;
+
     const items: ContextMenuItem[] = [
-      {
-        label: tServers("serverSettings"),
-        onClick: () => {
-          // Sunucu ayarlarina gitmeden once aktif sunucu olmali
-          if (serverId !== activeServerId) setActiveServer(serverId);
-          openSettings("server-general");
-        },
-      },
+      ...(canAccessSettings
+        ? [
+            {
+              label: tServers("serverSettings"),
+              onClick: () => {
+                openSettings("server-general");
+              },
+            },
+          ]
+        : []),
       {
         label: tServers("markAllAsRead"),
         onClick: async () => {

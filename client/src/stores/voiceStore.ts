@@ -416,6 +416,12 @@ type VoiceStore = {
   handleVoiceStatesSync: (states: VoiceState[]) => void;
 
   /**
+   * updateUserInfo — Kullanıcı profil bilgisi değiştiğinde voice state'leri günceller.
+   * member_update WS event'i geldiğinde çağrılır — avatar ve display_name sync.
+   */
+  updateUserInfo: (userId: string, displayName: string, avatarUrl: string) => void;
+
+  /**
    * handleForceDisconnect — voice_force_disconnect WS event handler.
    * Yetkili biri bizi voice'tan attığında tetiklenir.
    * Voice bağlantısı temizlenir.
@@ -965,6 +971,28 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     }
 
     set({ voiceStates: grouped });
+  },
+
+  updateUserInfo: (userId, displayName, avatarUrl) => {
+    set((state) => {
+      let changed = false;
+      const newStates = { ...state.voiceStates };
+
+      for (const channelId of Object.keys(newStates)) {
+        const idx = newStates[channelId].findIndex((s) => s.user_id === userId);
+        if (idx !== -1) {
+          const entry = newStates[channelId][idx];
+          if (entry.display_name !== displayName || entry.avatar_url !== avatarUrl) {
+            const newArr = [...newStates[channelId]];
+            newArr[idx] = { ...entry, display_name: displayName, avatar_url: avatarUrl };
+            newStates[channelId] = newArr;
+            changed = true;
+          }
+        }
+      }
+
+      return changed ? { voiceStates: newStates } : {};
+    });
   },
 
   handleForceDisconnect: () => {

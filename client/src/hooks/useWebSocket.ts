@@ -196,9 +196,13 @@ export function useWebSocket() {
       case "channel_create":
         useChannelStore.getState().fetchChannels();
         break;
-      case "channel_update":
-        useChannelStore.getState().handleChannelUpdate(msg.d as Channel);
+      case "channel_update": {
+        const updatedChannel = msg.d as Channel;
+        useChannelStore.getState().handleChannelUpdate(updatedChannel);
+        // Tab label sync — kanal adı değiştiğinde açık tab'ın label'ını güncelle
+        useUIStore.getState().updateTabLabel(updatedChannel.id, updatedChannel.name);
         break;
+      }
       case "channel_delete":
         useChannelStore.getState().handleChannelDelete((msg.d as { id: string }).id);
         break;
@@ -465,6 +469,12 @@ export function useWebSocket() {
       case "member_update": {
         const updatedMember = msg.d as MemberWithRoles;
         useMemberStore.getState().handleMemberUpdate(updatedMember);
+        // Voice state sync — avatar veya display_name değiştiğinde voice'taki gösterimi güncelle
+        useVoiceStore.getState().updateUserInfo(
+          updatedMember.id,
+          updatedMember.display_name ?? updatedMember.username,
+          updatedMember.avatar_url ?? "",
+        );
         // Kendi rollerim değiştiyse kanal görünürlüğü değişmiş olabilir
         // (channel permission override'lar role bazlı çalışır).
         // Diğer üyelerin rol değişikliğinde refetch gereksiz.
