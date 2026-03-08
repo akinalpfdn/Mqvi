@@ -22,7 +22,11 @@ const (
 
 	// maxMessageSize: Client'ın gönderebileceği maksimum mesaj boyutu (byte).
 	// WebSocket mesajları küçük olmalı — büyük veri HTTP ile gönderilir.
-	maxMessageSize = 4096
+	// 32KB: WebRTC SDP payload'ları (video + screen share renegotiation)
+	// kolayca 4-8KB olabilir. Eski 4096 limiti video/screen share SDP'lerini
+	// kesip bağlantıyı kapatıyordu (gorilla CloseMessageTooBig).
+	// E2EE base64 şişirmesi (~%33) ve batch ICE candidate'lar dahil 32KB yeterli.
+	maxMessageSize = 32768
 
 	// sendBufferSize: Her client'ın send channel'ının buffer boyutu.
 	// Buffer doluysa (client yavaş) mesajlar kaybolur — bu durumda client disconnect edilir.

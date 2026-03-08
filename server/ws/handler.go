@@ -87,8 +87,8 @@ type ChannelMuteChecker interface {
 // HTTP: istek → yanıt → bağlantı kapanır
 // WebSocket: bağlantı açık kalır, her iki taraf istediği zaman mesaj gönderebilir
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
 	// CheckOrigin: Production'da domain kontrolü yapılmalı.
 	// Şimdilik tüm origin'lere izin veriyoruz (development için).
 	CheckOrigin: func(r *http.Request) bool {
