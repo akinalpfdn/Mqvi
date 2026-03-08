@@ -61,10 +61,18 @@ type VoiceService interface {
 	StartOrphanCleanup()
 }
 
+// forceMoveGrant is a one-time permission bypass for a force-moved user.
+// Consumed by GenerateToken and expires after 30 seconds as a safety net.
+type forceMoveGrant struct {
+	channelID string
+	expiresAt time.Time
+}
+
 type voiceService struct {
 	states             map[string]*models.VoiceState // userID -> VoiceState
 	roomPassphrases    map[string]string             // roomName -> E2EE SFrame passphrase
 	screenShareViewers map[string]map[string]bool    // streamerUserID -> set of viewerUserIDs
+	forceMoveGrants    map[string]forceMoveGrant     // userID -> one-time bypass (consumed on token gen)
 	mu                 sync.RWMutex
 
 	channelGetter ChannelGetter
@@ -89,6 +97,7 @@ func NewVoiceService(
 		states:             make(map[string]*models.VoiceState),
 		roomPassphrases:    make(map[string]string),
 		screenShareViewers: make(map[string]map[string]bool),
+		forceMoveGrants:    make(map[string]forceMoveGrant),
 		channelGetter:      channelGetter,
 		livekitGetter:   livekitGetter,
 		permResolver:    permResolver,
@@ -131,7 +140,20 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	}
 
 	if !effectivePerms.Has(models.PermConnectVoice) {
-		return nil, fmt.Errorf("%w: missing voice connect permission", pkg.ErrForbidden)
+		// Check for a one-time force-move grant (admin moved this user here)
+		s.mu.Lock()
+		grant, hasGrant := s.forceMoveGrants[userID]
+		if hasGrant && grant.channelID == channelID && time.Now().Before(grant.expiresAt) {
+			delete(s.forceMoveGrants, userID) // consume — single use only
+			s.mu.Unlock()
+			log.Printf("[voice] force-move grant consumed for user %s in channel %s", userID, channelID)
+		} else {
+			if hasGrant {
+				delete(s.forceMoveGrants, userID) // expired or wrong channel — clean up
+			}
+			s.mu.Unlock()
+			return nil, fmt.Errorf("%w: missing voice connect permission", pkg.ErrForbidden)
+		}
 	}
 
 	// User limit check (0 = unlimited)
@@ -613,6 +635,13 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 			Action:           "join",
 		},
 	})
+
+	// Grant one-time permission bypass so the moved user can generate a token
+	// for the target channel even without ConnectVoice permission.
+	s.forceMoveGrants[targetUserID] = forceMoveGrant{
+		channelID: targetChannelID,
+		expiresAt: time.Now().Add(30 * time.Second),
+	}
 
 	s.mu.Unlock()
 
