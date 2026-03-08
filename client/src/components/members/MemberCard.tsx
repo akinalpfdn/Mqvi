@@ -1,14 +1,4 @@
-/**
- * MemberCard — Üye profil popover'ı.
- *
- * CSS class'ları: .member-card-backdrop, .member-card, .member-card-banner,
- * .member-card-avatar, .member-card-body, .member-card-name,
- * .member-card-username, .member-card-divider, .member-card-section-title,
- * .member-card-roles, .member-card-joined, .member-card-actions,
- * .member-card-btn, .member-card-btn-kick, .member-card-btn-ban
- *
- * Pozisyon: MemberItem'ın solunda portal ile gösterilir.
- */
+/** MemberCard — Member profile popover, positioned left of MemberItem via portal. */
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -55,7 +45,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   const canBan = !isMe && hasPermission(myPerms, Permissions.BanMembers);
   const canManageRoles = !isMe && hasPermission(myPerms, Permissions.ManageRoles);
 
-  // Arkadaşlık durumu
+  // Friendship state
   const isFriend = friends.some((f) => f.user_id === member.id);
   const outReq = outgoing.find((r) => r.user_id === member.id);
   const inReq = incoming.find((r) => r.user_id === member.id);
@@ -111,11 +101,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
     onClose();
   }
 
-  /**
-   * handleSendMessage — DM kanalı oluşturur/alır ve tab olarak açar.
-   * createOrGetChannel: Kanal yoksa oluşturur, varsa mevcut olanı döner.
-   * openTab: DM tab'ını panelde açar (type: "dm").
-   */
+  /** Open or create DM channel and switch to it */
   async function handleSendMessage() {
     const channelId = await useDMStore.getState().createOrGetChannel(member.id);
     if (channelId) {
@@ -125,10 +111,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
     onClose();
   }
 
-  /**
-   * handleCall — DM kanalı açar ve P2P sesli arama başlatır.
-   * initiateCall: WebRTC signaling başlatır, karşı tarafa offer gönderir.
-   */
+  /** Open DM and start P2P voice call */
   async function handleCall() {
     const channelId = await useDMStore.getState().createOrGetChannel(member.id);
     if (channelId) {
@@ -140,11 +123,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
     onClose();
   }
 
-  /**
-   * handleFriendAction — Arkadaşlık durumuna göre uygun aksiyonu çalıştırır.
-   * isFriend → removeFriend (onay ile), outReq → cancelRequest, inReq → acceptRequest,
-   * hiçbiri değilse → sendRequest (arkadaş ekle).
-   */
+  /** Context-aware friend action (add/remove/accept/cancel) */
   async function handleFriendAction() {
     if (isFriend) {
       const ok = await confirm({
@@ -162,7 +141,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
     }
   }
 
-  /** friendLabel — Arkadaşlık durumuna göre buton metni */
+  /** Friend button label based on current state */
   function getFriendLabel(): string {
     if (isFriend) return t("removeFriend");
     if (outReq) return t("cancelRequest");
@@ -172,7 +151,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
 
   return (
     <>
-      {/* Backdrop — dışarıya tıklamayı yakalamak için */}
+      {/* Backdrop */}
       <div className="member-card-backdrop" onClick={onClose} />
 
       <div
@@ -290,7 +269,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
         </div>
       </div>
 
-      {/* RoleEditorPopup — rol düzenleme popup'ı */}
+      {/* RoleEditorPopup */}
       {showRoleEditor && (
         <RoleEditorPopup
           member={member}

@@ -1,18 +1,7 @@
 /**
- * ResetPasswordPage — Yeni şifre belirleme sayfası.
- *
- * Email'deki reset link'inden açılır (/reset-password?token=xxx).
- * URL'den token okunur, kullanıcı yeni şifre belirler.
- *
- * Üç durum:
- * 1. form — yeni şifre + şifre tekrar input'ları
- * 2. success — şifre başarıyla sıfırlandı, login'e yönlendir
- * 3. error — geçersiz/expired token
- *
- * CSS class'ları: .auth-page, .auth-card, .auth-title, .auth-subtitle,
- * .auth-error, .auth-field, .auth-label, .auth-input, .auth-btn, .auth-link
- *
- * i18n: "auth" namespace'ini kullanır.
+ * ResetPasswordPage — Set new password via email reset link.
+ * States: form | success | invalid/expired token.
+ * i18n: "auth" namespace.
  */
 
 import { useState } from "react";

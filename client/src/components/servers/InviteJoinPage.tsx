@@ -1,17 +1,6 @@
 /**
- * InviteJoinPage — `/invite/:code` rotasında gösterilen davet katılma sayfası.
- *
- * Akış:
- * 1. Kullanıcı giriş yapmamışsa → `/login?returnUrl=/invite/{code}` redirect
- * 2. Preview bilgisi çekilir (sunucu adı, ikon, üye sayısı)
- * 3. Zengin preview kartı gösterilir (logo, başlık, sunucu bilgisi)
- * 4. "Katıl" butonuna basılır → joinServer API çağrılır
- * 5. Başarılı → `/channels`'a yönlendirilir (sunucu otomatik seçilir)
- *
- * Bu sayfa dış paylaşımlar için tasarlandı — WhatsApp, Telegram vb.
- * üzerinden paylaşılan davet linklerini karşılar.
- *
- * CSS class'ları: .invite-join-page, .invite-join-card, .invite-join-*
+ * InviteJoinPage — Handles `/invite/:code` route.
+ * Redirects unauthenticated users to login, shows server preview, joins on click.
  */
 
 import { useState, useEffect } from "react";
@@ -36,7 +25,7 @@ function InviteJoinPage() {
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
 
-  // Preview bilgisi çek — user yoksa bile çalışır (preview endpoint auth gerektirmez)
+  // Fetch preview (works without auth)
   useEffect(() => {
     if (!code) return;
     let cancelled = false;
@@ -53,8 +42,7 @@ function InviteJoinPage() {
     return () => { cancelled = true; };
   }, [code]);
 
-  // Giriş yapmamış → login'e yönlendir (returnUrl ile)
-  // Hooklar'dan SONRA return — React hooks kuralı gereği
+  // Redirect unauthenticated users (must be after all hooks per React rules)
   if (!user) {
     return <Navigate to={`/login?returnUrl=/invite/${code ?? ""}`} replace />;
   }
@@ -90,7 +78,7 @@ function InviteJoinPage() {
 
   return (
     <div className="invite-join-page">
-      {/* Logo + Başlık */}
+      {/* Logo + Title */}
       <div className="invite-join-header">
         <img
           src={publicAsset("mqvi-icon.svg")}
@@ -100,7 +88,7 @@ function InviteJoinPage() {
         <h1 className="invite-join-title">{t("inviteJoinTitle")}</h1>
       </div>
 
-      {/* Preview Kartı */}
+      {/* Preview Card */}
       <div className="invite-join-card">
         {!previewLoaded ? (
           /* Loading skeleton */
@@ -110,7 +98,7 @@ function InviteJoinPage() {
             <div className="invite-join-skeleton-line short" />
           </div>
         ) : preview ? (
-          /* Sunucu bilgisi — inline card tarzı */
+          /* Server info */
           <>
             <div className="invite-join-server">
               <div className="invite-join-icon">
@@ -141,7 +129,7 @@ function InviteJoinPage() {
             </button>
           </>
         ) : (
-          /* Geçersiz davet */
+          /* Invalid invite */
           <div className="invite-join-invalid">
             <svg className="invite-join-invalid-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />

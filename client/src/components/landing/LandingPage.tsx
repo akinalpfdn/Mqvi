@@ -1,21 +1,4 @@
-/**
- * LandingPage — mqvi public tanıtım sayfası.
- *
- * Unauthenticated kullanıcılar "/" rotasına geldiğinde gösterilir.
- *
- * Section'lar:
- * 1. Navbar — logo, section linkler, EN/TR toggle, "Giriş Yap" butonu
- * 2. Hero — kullanıcı sayısı badge, başlık, CTA
- * 3. Problem — kimlik doğrulama sorunu + ID card mockup
- * 4. Features — 9 özellik kartı (3x3 grid)
- * 5. Comparison — mqvi vs diğerleri tablosu
- * 6. Roadmap — Shipped / In Progress / Planned sütunları
- * 7. Self-Host — terminal mockup
- * 8. CTA — son çağrı, register'a yönlendir
- * 9. Footer
- *
- * CSS: landing.css (ayrı dosya, uygulama temasını etkilemez)
- */
+/** LandingPage — Public marketing page for unauthenticated users. CSS: landing.css */
 
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -39,7 +22,7 @@ function LandingPage() {
   const [totalUsers, setTotalUsers] = useState(0);
   const [guideOS, setGuideOS] = useState<"linux" | "windows">("linux");
 
-  // Toplam kullanıcı sayısını çek (mount'ta bir kez)
+  // Fetch total user count once on mount
   useEffect(() => {
     getPublicStats().then((res) => {
       if (res.success && res.data) {
@@ -48,12 +31,12 @@ function LandingPage() {
     });
   }, []);
 
-  /** Dil değiştirme — hem i18n hem localStorage güncellenir */
+  /** Switch language (updates i18n + localStorage) */
   function handleLangChange(lang: Language) {
     changeLanguage(lang);
   }
 
-  /** Section'a smooth scroll */
+  /** Smooth scroll to section */
   function scrollTo(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
   }
@@ -97,7 +80,7 @@ function LandingPage() {
             ))}
           </div>
 
-          {/* Dil toggle */}
+          {/* Language toggle */}
           <div className="lp-nav-lang">
             {(["en", "tr"] as const).map((lang) => (
               <button
@@ -110,7 +93,7 @@ function LandingPage() {
             ))}
           </div>
 
-          {/* Giriş Yap butonu */}
+          {/* Login button */}
           <button className="lp-nav-login" onClick={() => navigate("/login")}>
             {t("nav_login")}
           </button>
@@ -118,7 +101,7 @@ function LandingPage() {
 
         {/* ═══ HERO ═══ */}
         <section className="lp-hero">
-          {/* Kullanıcı sayısı badge — 0'dan büyükse göster */}
+          {/* User count badge */}
           {totalUsers > 0 && (
             <div className="lp-hero-user-count">
               <div className="lp-hero-user-dot" />
@@ -126,23 +109,22 @@ function LandingPage() {
             </div>
           )}
 
-          {/* Uyarı badge */}
+          {/* Warning badge */}
           <div className="lp-hero-badge">
             <div className="lp-hero-badge-dot" />
             {t("hero_badge")}
           </div>
 
-          {/* Başlık */}
           <h1>
             {t("hero_h1_1")}<br />
             {t("hero_h1_2")}<br />
             <span className="lp-hero-gradient">{t("hero_h1_3")}</span>
           </h1>
 
-          {/* Alt başlık */}
+          {/* Subtitle */}
           <p>{t("hero_sub")}</p>
 
-          {/* CTA butonları */}
+          {/* CTA buttons */}
           <div className="lp-hero-actions">
             <button className="lp-btn-primary" onClick={() => navigate("/register")}>
               {t("hero_cta")}
@@ -179,7 +161,7 @@ function LandingPage() {
         <RevealOnScroll>
           <section className="lp-section">
             <div className="lp-problem">
-              {/* Sol: Metin */}
+              {/* Left: Text */}
               <div className="lp-problem-left">
                 <div className="lp-section-label">{t("problem_label")}</div>
                 <h2 className="lp-section-title">
@@ -190,7 +172,7 @@ function LandingPage() {
                 <p className="lp-section-desc">{t("problem_desc")}</p>
               </div>
 
-              {/* Sağ: ID Card mockup */}
+              {/* Right: ID Card mockup */}
               <div className="lp-problem-right">
                 <div className="lp-id-card">
                   <div className="lp-id-card-bar" />
@@ -314,7 +296,6 @@ function LandingPage() {
         {/* ═══ SELF-HOST ═══ */}
         <RevealOnScroll>
           <section id="selfhost" className="lp-section">
-            {/* Başlık */}
             <div className="lp-features-header">
               <div className="lp-section-label">{t("sh_label")}</div>
               <h2 className="lp-section-title">
@@ -348,9 +329,9 @@ function LandingPage() {
               </button>
             </div>
 
-            {/* Adım adım rehber */}
+            {/* Step-by-step guide */}
             <div className="lp-guide">
-              {/* Adım 1: Sunucu Edin */}
+              {/* Step 1: Get a server */}
               <div className="lp-guide-step">
                 <div className="lp-guide-step-num">1</div>
                 <div className="lp-guide-step-content">
@@ -384,7 +365,7 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* Adım 2: Kurulum Script'ini Çalıştır */}
+              {/* Step 2: Run the setup script */}
               <div className="lp-guide-step">
                 <div className="lp-guide-step-num">2</div>
                 <div className="lp-guide-step-content">
@@ -449,7 +430,7 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* Adım 3: mqvi'ye Bağla */}
+              {/* Step 3: Connect to mqvi */}
               <div className="lp-guide-step">
                 <div className="lp-guide-step-num">3</div>
                 <div className="lp-guide-step-content">
@@ -462,7 +443,7 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* SSL Uyarısı */}
+              {/* SSL Warning */}
               <div className="lp-guide-ssl-warning">
                 <div className="lp-guide-ssl-icon">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -477,7 +458,7 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* Hata durumları */}
+              {/* Troubleshooting */}
               <div className="lp-guide-troubleshoot">
                 <h3 className="lp-guide-troubleshoot-title">{t("guide_trouble_title")}</h3>
                 <div className="lp-guide-trouble-grid">

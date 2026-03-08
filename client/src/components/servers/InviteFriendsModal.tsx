@@ -1,18 +1,6 @@
 /**
- * InviteFriendsModal — Sunucuya arkadaş davet etme modal'ı.
- *
- * Akış:
- * 1. Arkadaş listesi checkbox ile gösterilir
- * 2. Kullanıcı arkadaşlarını seçer
- * 3. "Davet Gönder" butonuna basar
- * 4. Backend'de invite kodu oluşturulur (max_uses=0, expires_in=0 — sınırsız)
- * 5. Her seçili arkadaşa DM ile davet URL'si gönderilir
- * 6. Başarı toast'u gösterilir
- *
- * Ek olarak: Üstte "Link Kopyala" butonu — WhatsApp, Telegram vb.
- * üzerinden paylaşmak için invite URL'sini panoya kopyalar.
- *
- * CSS class'ları: modal-backdrop, modal-card, .invite-friends-*
+ * InviteFriendsModal — Invite friends to server via DM or shareable link.
+ * Select friends from checkbox list, sends invite URL as DM to each.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -41,16 +29,12 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
   const sendMessage = useDMStore((s) => s.sendMessage);
   const addToast = useToastStore((s) => s.addToast);
 
-  /** Seçilen arkadaş user_id'leri */
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  /** Gönderim durumu */
   const [isSending, setIsSending] = useState(false);
-  /** Gönderim ilerlemesi */
   const [progress, setProgress] = useState({ sent: 0, total: 0 });
-  /** Link kopyalama durumu */
   const [isCopying, setIsCopying] = useState(false);
 
-  // Escape ile kapatma
+  // Close on Escape
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape" && !isSending) onClose();
@@ -67,7 +51,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     };
   }, [handleKeyDown]);
 
-  /** Arkadaş seçim toggle'ı */
+  /** Toggle friend selection */
   function toggleFriend(userId: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -80,7 +64,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     });
   }
 
-  /** Tüm arkadaşları seç/kaldır */
+  /** Select/deselect all */
   function toggleAll() {
     if (selected.size === friends.length) {
       setSelected(new Set());
@@ -89,15 +73,12 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     }
   }
 
-  /**
-   * Link kopyalama — WhatsApp/Telegram paylaşımı için.
-   * Invite kodu oluşturur ve URL'yi panoya kopyalar.
-   */
+  /** Copy invite link to clipboard for external sharing */
   async function handleCopyLink() {
     if (isCopying) return;
     setIsCopying(true);
 
-    // Doğru sunucu context'inde invite oluşturulmasını garantile
+    // Ensure invite is created in the correct server context
     const currentActive = useServerStore.getState().activeServerId;
     if (currentActive !== serverId) {
       setActiveServer(serverId);
@@ -119,25 +100,20 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     setIsCopying(false);
   }
 
-  /**
-   * Davet gönderimi:
-   * 1. Invite kodu oluştur (unlimited uses, no expiry)
-   * 2. Her seçili arkadaş için DM kanalı aç/getir
-   * 3. DM mesajı gönder
-   */
+  /** Send invite to each selected friend via DM */
   async function handleSendInvites() {
     if (selected.size === 0 || isSending) return;
 
     setIsSending(true);
     setProgress({ sent: 0, total: selected.size });
 
-    // inviteStore activeServerId'ye bağlı — doğru sunucuda oluşturulmasını garantile
+    // Ensure correct server context for inviteStore
     const currentActive = useServerStore.getState().activeServerId;
     if (currentActive !== serverId) {
       setActiveServer(serverId);
     }
 
-    // 1. Mevcut permanent invite'ı kullan veya yeni oluştur
+    // Reuse existing permanent invite or create new
     const invite = await getOrCreatePermanentInvite();
     if (!invite) {
       addToast("error", t("inviteCreateFailed"));
@@ -148,7 +124,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     const inviteContent = getInviteUrl(invite.code);
     let sentCount = 0;
 
-    // 2. Her arkadaşa sıralı gönder (rate limit koruması)
+    // Send sequentially (rate limit protection)
     for (const userId of selected) {
       const channelId = await createOrGetChannel(userId);
       if (channelId) {
@@ -158,13 +134,13 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
       }
     }
 
-    // 3. Sonuç
+    // Done
     addToast("success", t("invitesSent", { count: sentCount }));
     setIsSending(false);
     onClose();
   }
 
-  /** Arkadaş kartı render'ı */
+  /** Render a single friend row */
   function renderFriend(friend: FriendshipWithUser) {
     const isChecked = selected.has(friend.user_id);
     const name = friend.display_name ?? friend.username;
@@ -212,7 +188,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
           </button>
         </div>
 
-        {/* Link Kopyala — dış paylaşım için */}
+        {/* Copy Link — for external sharing */}
         <div className="invite-friends-copy-section">
           <button
             className="invite-friends-copy-btn"

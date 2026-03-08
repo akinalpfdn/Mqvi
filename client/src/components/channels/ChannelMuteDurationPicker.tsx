@@ -1,11 +1,4 @@
-/**
- * ChannelMuteDurationPicker — Kanal sessize alma süresi seçimi.
- *
- * MuteDurationPicker (servers) ile aynı pattern — portal-based popover.
- * Tıklanan süreye göre channelStore.muteChannel() çağrılır ve toast gösterilir.
- *
- * CSS class'ları: .mute-picker, .mute-picker-btn (servers ile paylaşılır)
- */
+/** ChannelMuteDurationPicker — Portal popover for channel mute duration selection. */
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -20,7 +13,6 @@ type ChannelMuteDurationPickerProps = {
   onClose: () => void;
 };
 
-/** Mute duration seçenekleri — backend'in kabul ettiği format */
 const DURATIONS = [
   { key: "mute1Hour", value: "1h" },
   { key: "mute8Hours", value: "8h" },
@@ -34,7 +26,7 @@ function ChannelMuteDurationPicker({ channelId, x, y, onClose }: ChannelMuteDura
   const addToast = useToastStore((s) => s.addToast);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Dışına tıklama veya Escape ile kapatma
+  // Close on outside click or Escape
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -57,7 +49,7 @@ function ChannelMuteDurationPicker({ channelId, x, y, onClose }: ChannelMuteDura
     };
   }, [onClose]);
 
-  // Pozisyon düzeltme — ekranın dışına taşmayı önle
+  // Clamp position to viewport
   useEffect(() => {
     if (!menuRef.current) return;
 

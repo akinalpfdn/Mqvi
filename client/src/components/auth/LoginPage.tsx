@@ -1,11 +1,4 @@
-/**
- * LoginPage — Kullanıcı giriş sayfası.
- *
- * CSS class'ları: .auth-page, .auth-card, .auth-title, .auth-subtitle,
- * .auth-error, .auth-field, .auth-label, .auth-input, .auth-btn, .auth-link
- *
- * i18n: "auth" namespace'ini kullanır.
- */
+/** LoginPage — User login page. i18n: "auth" namespace. */
 
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,9 +20,7 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
 
-  // ─── Electron: Kayıtlı credential'ları yükle ───
-  // Mount'ta safeStorage'dan şifreli credential'ları çöz ve formu doldur.
-  // Sadece Electron'da çalışır — web'de electronAPI undefined.
+  // Load saved credentials from Electron safeStorage on mount
   useEffect(() => {
     if (!isElectron()) return;
     window.electronAPI?.loadCredentials().then((cred) => {
@@ -46,7 +37,7 @@ function LoginPage() {
     e.preventDefault();
     const success = await login(username, password);
     if (success) {
-      // Electron: credential'ları kaydet veya sil
+      // Electron: save or clear credentials
       if (isElectron()) {
         if (rememberMe) {
           window.electronAPI?.saveCredentials(username, password);
@@ -54,7 +45,7 @@ function LoginPage() {
           window.electronAPI?.clearCredentials();
         }
       }
-      // returnUrl varsa oraya yönlendir (davet linki gibi), yoksa /channels
+      // Redirect to returnUrl (e.g. invite link) or /channels
       const returnUrl = searchParams.get("returnUrl");
       navigate(returnUrl ?? "/channels");
     }
@@ -112,7 +103,7 @@ function LoginPage() {
             />
           </div>
 
-          {/* Electron: Beni hatırla checkbox */}
+          {/* Electron: Remember me checkbox */}
           {isElectron() && (
             <label className="auth-remember">
               <input

@@ -1,21 +1,11 @@
-/**
- * RoadmapColumn — Roadmap section'ında tek bir sütun (Shipped / In Progress / Planned).
- *
- * Üst kısımda renkli header + dot, alt kısımda öğe listesi.
- *
- * CSS: .lp-roadmap-col, .lp-roadmap-col-header, .lp-roadmap-col-body,
- *       .lp-roadmap-item (landing.css)
- */
+/** RoadmapColumn — Single roadmap column (Shipped / In Progress / Planned). */
 
 import { useTranslation } from "react-i18next";
 import type { RoadmapItem } from "./landingData";
 
 type RoadmapColumnProps = {
-  /** Sütun başlığı (çevrilmiş) */
   title: string;
-  /** Header ve dot rengi */
   color: string;
-  /** Roadmap öğeleri */
   items: RoadmapItem[];
 };
 
@@ -33,7 +23,7 @@ function RoadmapColumn({ title, color, items }: RoadmapColumnProps) {
         {title}
       </div>
 
-      {/* Öğe listesi */}
+      {/* Items */}
       <div className="lp-roadmap-col-body">
         {items.map((item) => (
           <div key={item.key} className="lp-roadmap-item">

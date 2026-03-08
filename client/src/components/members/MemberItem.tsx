@@ -1,20 +1,4 @@
-/**
- * MemberItem — Üye listesinde tek bir kullanıcı satırı.
- *
- * CSS class'ları: .member, .member.offline, .member-av-wrap,
- * .member-status, .status-on, .status-idle, .status-dnd, .status-off,
- * .member-info, .member-name, .member-activity
- *
- * MemberCard popup: React Portal ile body seviyesinde render edilir.
- *
- * Sağ tık context menu aksiyonları:
- * - Send Message (DM)
- * - Call (P2P audio)
- * - Add Friend / Cancel Request / Accept Request / Remove Friend
- * - Copy ID
- * - Edit Roles (ManageRoles yetkisi)
- * - Kick / Ban (yetki + hiyerarşi)
- */
+/** MemberItem — Single member row in the member list with context menu and profile card. */
 
 import { useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -94,7 +78,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
   const nameColor = highestRole?.color || undefined;
   const displayName = member.display_name ?? member.username;
 
-  /** Sağ tık context menu — üye aksiyonları */
+  /** Right-click context menu */
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       const isSelf = currentUser?.id === member.id;
@@ -106,7 +90,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
 
       const items: ContextMenuItem[] = [];
 
-      // ─── Send Message (DM) — kendine mesaj atma yok ───
+      // ─── Send Message (DM) ───
       if (!isSelf) {
         items.push({
           label: t("sendMessage"),
@@ -125,7 +109,6 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         items.push({
           label: t("call"),
           onClick: async () => {
-            // DM kanalı oluştur/al, sonra arama başlat
             const channelId = await useDMStore.getState().createOrGetChannel(member.id);
             if (channelId) {
               useDMStore.getState().selectDM(channelId);
@@ -136,7 +119,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         });
       }
 
-      // ─── Friend action — duruma göre dinamik ───
+      // ─── Friend action (dynamic based on current state) ───
       if (!isSelf) {
         const isFriend = friends.some((f) => f.user_id === member.id);
         const outReq = outgoing.find((r) => r.user_id === member.id);
@@ -186,7 +169,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         separator: !isSelf,
       });
 
-      // ─── Edit Roles — ManageRoles yetkisi, kendine yapılamaz ───
+      // ─── Edit Roles ───
       if (canManageRoles && !isSelf) {
         items.push({
           label: t("editRoles"),
@@ -305,10 +288,10 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         </div>
       </div>
 
-      {/* Context Menu — sağ tık ile açılır */}
+      {/* Context Menu */}
       <ContextMenu state={menuState} onClose={closeMenu} />
 
-      {/* MemberCard — Portal ile body'ye render edilir */}
+      {/* MemberCard (portal) */}
       {showCard &&
         createPortal(
           <MemberCard
@@ -319,7 +302,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
           document.body
         )}
 
-      {/* RoleEditorPopup — rol düzenleme popup'ı */}
+      {/* RoleEditorPopup */}
       {showRoleEditor && (
         <RoleEditorPopup
           member={member}

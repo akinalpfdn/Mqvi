@@ -1,11 +1,4 @@
-/**
- * RoleBadge — Küçük renkli rol badge'i.
- *
- * CSS class'ları: .role-badge, .role-badge-dot
- *
- * Discord tarzı pill: sol tarafta renk noktası + rol ismi.
- * Renk noktası DB'den gelen role.color ile inline style alır.
- */
+/** RoleBadge — Colored pill with dot + role name. */
 
 import type { Role } from "../../types";
 

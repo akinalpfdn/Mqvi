@@ -1,18 +1,7 @@
 /**
- * ForgotPasswordPage — Şifre sıfırlama email gönderme sayfası.
- *
- * Kullanıcı email adresini girer, backend Resend API ile reset link'i emailler.
- * Cooldown: 90 saniyede 1 istek — geri sayım gösterilir.
- *
- * Üç durum:
- * 1. form — email input + submit button
- * 2. sent — "email'ini kontrol et" başarı mesajı
- * 3. cooldown — geri sayım gösterilir, sayaç bitince tekrar gönderilebilir
- *
- * CSS class'ları: .auth-page, .auth-card, .auth-title, .auth-subtitle,
- * .auth-error, .auth-field, .auth-label, .auth-input, .auth-btn, .auth-link
- *
- * i18n: "auth" namespace'ini kullanır.
+ * ForgotPasswordPage — Request password reset email.
+ * 90s cooldown between requests. States: form | sent | cooldown.
+ * i18n: "auth" namespace.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -31,7 +20,7 @@ function ForgotPasswordPage() {
   const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Cooldown geri sayım timer'ı
+  // Cooldown countdown timer
   useEffect(() => {
     if (cooldown <= 0) {
       if (timerRef.current) {

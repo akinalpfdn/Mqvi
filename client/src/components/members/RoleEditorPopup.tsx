@@ -1,18 +1,6 @@
 /**
- * RoleEditorPopup — Inline rol düzenleme popup'ı.
- *
- * Üye listesinde sağ tık veya MemberCard'dan açılır.
- * Checkbox list ile roller atanır/çıkarılır.
- *
- * Hiyerarşi kuralları:
- * - Sadece actor'ün en yüksek rolünün altındaki roller düzenlenebilir
- * - Owner rolü her zaman disabled
- * - Default (member) rolü her zaman checked + disabled
- * - Save → modifyMemberRoles API çağrısı
- *
- * CSS class'ları: .role-editor-popup, .role-editor-title,
- * .role-editor-list, .role-editor-item, .role-editor-item.disabled,
- * .role-editor-dot, .role-editor-actions, .role-editor-save
+ * RoleEditorPopup — Inline role assignment popup.
+ * Only roles below actor's highest position are editable (hierarchy enforcement).
  */
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -27,11 +15,8 @@ import { useToastStore } from "../../stores/toastStore";
 import type { MemberWithRoles } from "../../types";
 
 type RoleEditorPopupProps = {
-  /** Düzenlenecek üye */
   member: MemberWithRoles;
-  /** Popup pozisyonu (viewport px) */
   position: { top: number; left: number };
-  /** Kapatma callback'i */
   onClose: () => void;
 };
 
@@ -44,28 +29,25 @@ function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
   const members = useMemberStore((s) => s.members);
   const popupRef = useRef<HTMLDivElement>(null);
 
-  /**
-   * Mount'ta rolleri fetch et — roleStore Settings paneli dışında
-   * boş olabilir. Bu sayede popup her açıldığında güncel roller yüklenir.
-   */
+  // Fetch roles on mount (roleStore may be empty outside Settings)
   useEffect(() => {
     fetchRoles();
   }, [fetchRoles]);
 
-  // Üyenin mevcut rol ID'leri
+  // Member's current role IDs
   const [editRoleIds, setEditRoleIds] = useState<string[]>(() =>
     member.roles.map((r) => r.id)
   );
   const [isSaving, setIsSaving] = useState(false);
 
-  // Actor'ün en yüksek rol position'ı — hiyerarşi kontrolü
+  // Actor's highest role position (for hierarchy check)
   const actorMaxPos = useMemo(() => {
     const me = members.find((m) => m.id === currentUser?.id);
     if (!me || me.roles.length === 0) return 0;
     return Math.max(...me.roles.map((r) => r.position));
   }, [members, currentUser]);
 
-  // Değişiklik var mı?
+  // Has changes?
   const originalRoleIds = useMemo(
     () => new Set(member.roles.map((r) => r.id)),
     [member.roles]
@@ -79,7 +61,7 @@ function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
     return false;
   }, [editRoleIds, originalRoleIds]);
 
-  // Düzenlenebilir roller — owner ve default hariç, actor'ün altında
+  // Editable roles — excludes owner/default, only below actor's position
   const editableRoles = useMemo(
     () =>
       roles
@@ -88,7 +70,7 @@ function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
     [roles, actorMaxPos]
   );
 
-  // Dışarı tıkla → kapat
+  // Close on outside click
   useEffect(() => {
     let frameId: number;
 
@@ -108,7 +90,7 @@ function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
     };
   }, [onClose]);
 
-  // ESC ile kapat
+  // Close on Escape
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -142,7 +124,7 @@ function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
     setIsSaving(false);
   }
 
-  // Popup pozisyonunu viewport içinde tut
+  // Clamp popup position to viewport
   const adjustedPos = useMemo(() => {
     const popupWidth = 240;
     const popupHeight = Math.min(editableRoles.length * 40 + 100, 360);

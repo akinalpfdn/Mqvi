@@ -1,23 +1,6 @@
 /**
- * CreateChannelModal — Kanal veya kategori oluşturma modal'ı.
- *
- * Tüm creation flow'ları (sidebar server +, category +, settings +) bu modal'ı kullanır.
- *
- * 2 adımlı wizard:
- * - Step 1: İsim + mode (category/channel) + tip + kategori seçimi
- *   - Category modunda: "Finish" → createCategory API → close
- *   - Channel modunda: "Next" → createChannel API → step 2
- * - Step 2 (sadece channel): ChannelPermissionEditor ile permission override'lar
- *   - "Finish" → close
- *
- * AddServerModal pattern'ını reuse eder:
- * CSS class'ları: .add-server-overlay, .add-server-modal, .add-server-header,
- * .add-server-body, .add-server-steps, .host-type-card, .add-server-field,
- * .add-server-label, .add-server-input, .add-server-actions, .add-server-btn-*
- *
- * Ek CSS: .create-ch-type-*, .create-ch-select, .create-ch-perm-desc
- *
- * i18n: "channels" namespace'ini kullanır.
+ * CreateChannelModal — Create channel or category.
+ * Step 1: Name, mode, type, category. Step 2 (channel only): permission overrides.
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -63,7 +46,7 @@ function CreateChannelModal({
   const overlayRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Step sayısı: category = 1, channel = 2
+  // Category = 1 step, channel = 2 steps
   const totalSteps = mode === "channel" ? 2 : 1;
 
   // Auto-focus name input
@@ -73,14 +56,14 @@ function CreateChannelModal({
     }
   }, [step]);
 
-  // Overlay'a tıklayınca kapat
+  // Close on overlay click
   function handleOverlayClick(e: React.MouseEvent) {
     if (e.target === overlayRef.current) {
       onClose();
     }
   }
 
-  // ESC tuşu ile kapat
+  // Close on Escape
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -101,7 +84,7 @@ function CreateChannelModal({
     setIsCreating(true);
 
     if (mode === "category") {
-      // Category oluştur ve kapat
+      // Create category and close
       const res = await channelApi.createCategory(serverId, { name: trimmed });
       setIsCreating(false);
       if (res.success) {
@@ -111,7 +94,7 @@ function CreateChannelModal({
         addToast("error", t("categoryCreateError"));
       }
     } else {
-      // Channel oluştur ve step 2'ye geç
+      // Create channel and go to step 2
       const res = await channelApi.createChannel(serverId, {
         name: trimmed,
         type: channelType,
@@ -167,7 +150,7 @@ function CreateChannelModal({
         </div>
 
         <div className="add-server-body">
-          {/* Step indicator — sadece channel modunda 2 step göster */}
+          {/* Step indicator — only shown for channel mode (2 steps) */}
           {mode === "channel" && (
             <div className="add-server-steps">
               {Array.from({ length: totalSteps }, (_, i) => (
@@ -176,10 +159,10 @@ function CreateChannelModal({
             </div>
           )}
 
-          {/* ═══ Step 1: İsim + Mode + Type + Category ═══ */}
+          {/* ═══ Step 1: Name + Mode + Type + Category ═══ */}
           {step === 1 && (
             <>
-              {/* Mode seçimi: Category / Channel */}
+              {/* Mode: Channel / Category */}
               <div className="host-type-cards">
                 <div
                   className={`host-type-card${mode === "channel" ? " selected" : ""}`}
@@ -208,7 +191,7 @@ function CreateChannelModal({
                 </div>
               </div>
 
-              {/* İsim */}
+              {/* Name */}
               <div className="add-server-field" style={{ marginTop: 16 }}>
                 <label className="add-server-label">
                   {mode === "category" ? t("categoryName") : t("channelName")}
@@ -297,7 +280,7 @@ function CreateChannelModal({
                     </div>
                   </div>
 
-                  {/* Category seçimi */}
+                  {/* Category selection */}
                   <div className="add-server-field">
                     <label className="add-server-label">
                       {t("selectCategory")}
@@ -320,7 +303,6 @@ function CreateChannelModal({
                 </>
               )}
 
-              {/* Action butonları */}
               <div className="add-server-actions">
                 <button
                   className="add-server-btn-secondary"
@@ -352,7 +334,6 @@ function CreateChannelModal({
 
               <ChannelPermissionEditor channel={createdChannel} />
 
-              {/* Action butonları */}
               <div className="add-server-actions">
                 <button
                   className="add-server-btn-secondary"

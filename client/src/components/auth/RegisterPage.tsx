@@ -1,11 +1,4 @@
-/**
- * RegisterPage — Kullanıcı kayıt sayfası.
- *
- * CSS class'ları: .auth-page, .auth-card, .auth-title,
- * .auth-error, .auth-field, .auth-label, .auth-input, .auth-btn, .auth-link
- *
- * i18n: "auth" namespace'ini kullanır.
- */
+/** RegisterPage — User registration page. i18n: "auth" namespace. */
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -51,7 +44,7 @@ function RegisterPage() {
       email || undefined,
     );
     if (success) {
-      // returnUrl varsa oraya yönlendir (davet linki gibi), yoksa /channels
+      // Redirect to returnUrl (e.g. invite link) or /channels
       const returnUrl = searchParams.get("returnUrl");
       navigate(returnUrl ?? "/channels");
     }
@@ -130,7 +123,7 @@ function RegisterPage() {
               placeholder={t("emailPlaceholder")}
               className="auth-input"
             />
-            {/* Email boşsa uyarı göster — şifremi unuttum kullanılamaz */}
+            {/* Warn if no email — password reset won't work */}
             {!email.trim() && (
               <p className="auth-email-warning">{t("emailWarning")}</p>
             )}

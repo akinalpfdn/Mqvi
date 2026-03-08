@@ -1,17 +1,10 @@
-/**
- * landingData — Landing page'de kullanılan statik veri sabitleri.
- *
- * Feature kartları, karşılaştırma tablosu satırları ve roadmap öğeleri
- * burada tanımlanır. Component dosyalarını temiz tutar.
- * Çeviri key'leri i18n "landing" namespace'inden çekilir.
- */
+/** Static data constants for the landing page. i18n keys from "landing" namespace. */
 
 // ─── Feature Cards ───
 
 export type FeatureItem = {
-  /** "live" veya "beta" — tag rengi belirler */
   tag: "live" | "beta";
-  /** i18n çeviri key prefix'i (f1 → f1_title, f1_desc) */
+  /** i18n key prefix (f1 -> f1_title, f1_desc) */
   translationKey: string;
 };
 
@@ -30,11 +23,9 @@ export const FEATURES: FeatureItem[] = [
 // ─── Comparison Table ───
 
 export type ComparisonRow = {
-  /** i18n çeviri key'i */
   key: string;
-  /** mqvi sütunu: true = ✓, false = ✕, string = çeviri key'i */
+  /** true = check, false = cross, string = i18n key */
   mqvi: boolean | string;
-  /** Diğerleri sütunu: true = ✓, false = ✕, string = çeviri key'i */
   other: boolean | string;
 };
 
@@ -52,7 +43,6 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
 // ─── Roadmap ───
 
 export type RoadmapItem = {
-  /** i18n çeviri key'i */
   key: string;
 };
 

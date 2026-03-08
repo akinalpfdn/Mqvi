@@ -1,18 +1,6 @@
 /**
- * AddServerModal — Sunucu oluşturma veya katılma modal'ı.
- *
- * 3 görünüm modunda çalışır:
- * 1. **choice**: Oluştur veya Katıl seçimi
- * 2. **create**: Çok adımlı sunucu oluşturma wizard'ı
- *    - Step 1: Sunucu adı
- *    - Step 2: Host tipi (mqvi hosted / self-hosted)
- *    - Step 3: LiveKit config (sadece self-hosted)
- * 3. **join**: Davet kodu ile katılma
- *
- * CSS class'ları: .add-server-overlay, .add-server-modal, .add-server-header,
- * .add-server-body, .add-server-steps, .host-type-card, .add-server-choice-btn
- *
- * i18n: "servers" namespace'ini kullanır.
+ * AddServerModal — Create or join a server.
+ * Views: choice | create (multi-step wizard) | join (invite code).
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -65,14 +53,13 @@ function AddServerModal({ onClose }: AddServerModalProps) {
     }
   }, [view, createStep]);
 
-  // Overlay'a tıklayınca kapat (modal dışı)
   function handleOverlayClick(e: React.MouseEvent) {
     if (e.target === overlayRef.current) {
       onClose();
     }
   }
 
-  // ESC tuşu ile kapat
+  // Close on Escape
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -83,7 +70,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
 
   // ─── Create Handlers ───
 
-  /** Toplam step sayısı — self-hosted ise 3, aksi halde 2 */
+  /** Total steps: 3 for self-hosted, 2 otherwise */
   const totalCreateSteps = hostType === "self_hosted" ? 3 : 2;
 
   function handleCreateNext() {
@@ -123,8 +110,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
 
     if (server) {
       addToast("success", t("serverCreated"));
-      // createServer zaten activeServerId + activeServer'ı atomik olarak set eder.
-      // AppLayout useEffect activeServerId değişimini algılayıp cascadeRefetch yapar.
+      // createServer sets activeServerId + activeServer atomically; AppLayout handles cascade refetch.
       onClose();
     } else {
       addToast("error", tCommon("somethingWentWrong"));
@@ -145,7 +131,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
 
     if (server) {
       addToast("success", t("serverJoined"));
-      // joinServer zaten activeServerId + activeServer'ı atomik olarak set eder.
+      // joinServer sets activeServerId + activeServer atomically.
       onClose();
     } else {
       setJoinError(t("invalidInviteCode"));
@@ -167,7 +153,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
     return false;
   }
 
-  /** Step indicator'da step'in durumunu belirler */
+  /** Step indicator class based on current progress */
   function stepClass(step: number): string {
     if (step < createStep) return "add-server-step done";
     if (step === createStep) return "add-server-step active";
@@ -195,7 +181,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
           {/* ═══ Choice View ═══ */}
           {view === "choice" && (
             <div className="add-server-choice">
-              {/* Sunucu Oluştur */}
+              {/* Create Server */}
               <button
                 className="add-server-choice-btn"
                 onClick={() => setView("create")}
@@ -217,7 +203,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
               {/* Or separator */}
               <div className="add-server-or">{t("orSeparator")}</div>
 
-              {/* Sunucuya Katıl */}
+              {/* Join Server */}
               <button
                 className="add-server-choice-btn"
                 onClick={() => setView("join")}
@@ -248,7 +234,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
                 ))}
               </div>
 
-              {/* Step 1: Sunucu adı */}
+              {/* Step 1: Server name */}
               {createStep === 1 && (
                 <div className="add-server-field">
                   <label className="add-server-label">{t("serverName")}</label>
@@ -267,7 +253,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
                 </div>
               )}
 
-              {/* Step 2: Host tipi */}
+              {/* Step 2: Host type */}
               {createStep === 2 && (
                 <div className="host-type-cards">
                   <div
@@ -334,7 +320,6 @@ function AddServerModal({ onClose }: AddServerModalProps) {
                 </>
               )}
 
-              {/* Action butonları */}
               <div className="add-server-actions">
                 <button
                   className="add-server-btn-secondary"

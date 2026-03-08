@@ -1,23 +1,13 @@
 /**
- * RevealOnScroll — IntersectionObserver ile scroll reveal animasyonu.
- *
- * Kullanım: Sarmaladığı içeriğe scroll edildiğinde fade-up animasyonu uygular.
- *
- * Nasıl çalışır?
- * IntersectionObserver, bir DOM elementinin viewport'a girip girmediğini izler.
- * Element %15 görünür olduğunda "visible" state'e geçer ve CSS class toggle yapılır.
- * Bir kez görünür olunca observer disconnect edilir (tekrar gizlenmez).
- *
- * CSS class'ları: .lp-reveal → .lp-reveal--visible (landing.css'de tanımlı)
- *
- * @param delay — transition-delay saniye cinsinden (ör: 0.1, 0.2)
+ * RevealOnScroll — Fade-up animation triggered by IntersectionObserver.
+ * Fires once at 15% visibility, then disconnects.
  */
 
 import { useRef, useState, useEffect, type ReactNode } from "react";
 
 type RevealOnScrollProps = {
   children: ReactNode;
-  /** Animasyon gecikme süresi (saniye) — sıralı kartlar için kullanışlı */
+  /** Transition delay in seconds for staggered reveals */
   delay?: number;
 };
 

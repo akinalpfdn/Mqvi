@@ -1,12 +1,4 @@
-/**
- * MuteDurationPicker — Sunucu sessize alma süresi seçimi.
- *
- * Portal-based popover — ContextMenu benzeri ama sadece mute duration
- * butonları gösterir. Tıklanan süriye göre serverStore.muteServer()
- * çağrılır ve toast gösterilir.
- *
- * CSS class'ları: .mute-picker, .mute-picker-btn
- */
+/** MuteDurationPicker — Portal popover for server mute duration selection. */
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -21,7 +13,6 @@ type MuteDurationPickerProps = {
   onClose: () => void;
 };
 
-/** Mute duration seçenekleri — backend'in kabul ettiği format */
 const DURATIONS = [
   { key: "mute1Hour", value: "1h" },
   { key: "mute8Hours", value: "8h" },
@@ -35,7 +26,7 @@ function MuteDurationPicker({ serverId, x, y, onClose }: MuteDurationPickerProps
   const addToast = useToastStore((s) => s.addToast);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Dışına tıklama veya Escape ile kapatma
+  // Close on outside click or Escape
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -58,7 +49,7 @@ function MuteDurationPicker({ serverId, x, y, onClose }: MuteDurationPickerProps
     };
   }, [onClose]);
 
-  // Pozisyon düzeltme — ekranın dışına taşmayı önle
+  // Clamp position to viewport
   useEffect(() => {
     if (!menuRef.current) return;
 
