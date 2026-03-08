@@ -947,6 +947,18 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .color-hex-preview { width:32px;height:32px;border-radius:6px;border:1px solid var(--b1);flex-shrink:0; }
 .color-hex-input { width:100px;height:32px;background:var(--bg-3);border:1px solid var(--b1);border-radius:6px;padding:0 8px;color:var(--t0);font-size:13px;font-family:var(--f-m);outline:none; }
 .color-hex-input:focus { border-color:var(--primary); }
+.color-native-btn { width:32px;height:32px;border:1px solid var(--b1);border-radius:6px;background:var(--bg-3);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t2);transition:background .15s,color .15s,border-color .15s;flex-shrink:0; }
+.color-native-btn:hover:not(:disabled) { background:var(--bg-h);color:var(--t0);border-color:var(--primary); }
+.color-native-btn:disabled { opacity:0.5;cursor:not-allowed; }
+/* react-colorful popover */
+.color-popover-anchor { position:relative; }
+.color-popover { position:absolute;bottom:calc(100% + 8px);right:0;z-index:200;background:var(--bg-3);border:1px solid var(--b2);border-radius:10px;padding:12px;box-shadow:0 8px 24px rgba(0,0,0,0.5); }
+/* react-colorful dark theme override — picker CSS custom properties */
+.color-popover .react-colorful { width:200px;height:160px; }
+.color-popover .react-colorful__saturation { border-radius:6px 6px 0 0;border-bottom:none; }
+.color-popover .react-colorful__hue { height:14px;border-radius:0 0 6px 6px; }
+.color-popover .react-colorful__saturation-pointer,
+.color-popover .react-colorful__hue-pointer { width:18px;height:18px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4); }
 
 /* Permission toggle */
 .permission-toggle { display:flex;align-items:flex-start;gap:12px;padding:8px 0; }
