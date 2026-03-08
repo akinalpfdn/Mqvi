@@ -1464,6 +1464,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   display:flex;align-items:center;justify-content:center;gap:12px;
   padding:8px 16px;font-size:13px;font-weight:600;
   animation:conn-banner-in 0.2s ease-out;
+  -webkit-app-region:no-drag;
 }
 @keyframes conn-banner-in { from { transform:translateY(-100%); } to { transform:translateY(0); } }
 .connection-banner.connecting { background:var(--yellow);color:#000; }
