@@ -1,25 +1,15 @@
 /**
- * VoiceParticipant — Ses odasında tek bir katılımcı tile'ı.
+ * VoiceParticipant — Single participant tile in the voice room.
  *
- * CSS class'ları:
- * - Tam mod: .voice-participant, .voice-participant-avatar, .voice-participant-avatar.speaking,
- *   .voice-participant-name, .voice-participant-overlay
- * - Kompakt mod: .voice-participant-compact (wrapper), aynı alt class'lar küçük boyutta
+ * Two display modes:
+ * - Full (compact=false): 64px avatar + name below — default grid layout
+ * - Compact (compact=true): 32px avatar + name beside — screen share strip
  *
- * İki boyut modu:
- * - Tam mod (compact=false): 64px avatar + isim altında — screen share yokken
- * - Kompakt mod (compact=true): 32px avatar + isim yanında — screen share strip'i
+ * Right-click opens VoiceUserContextMenu (volume slider, local/server mute/deafen).
+ * No context menu for the local user.
  *
- * Sağ tıklama:
- * - VoiceUserContextMenu açılır (volume slider, local mute, admin server mute/deafen)
- * - Kendi kullanıcımız için context menu açılmaz
- *
- * voiceStore.activeSpeakers üzerinden konuşma algılama yapılır
- * (VoiceStateManager tarafından güncellenir).
- * Katılımcının durumuna göre:
- * - Konuşuyorsa: yeşil ring animasyonu
- * - Mute ise: kırmızı mic-off icon overlay
- * - Deafen ise: kırmızı headphone-off icon overlay
+ * Speaking detection uses voiceStore.activeSpeakers (updated by VoiceStateManager).
+ * Visual states: speaking = green ring, muted = mic-off overlay, deafened = headphone-off overlay.
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -32,39 +22,30 @@ import { resolveAssetUrl } from "../../utils/constants";
 
 type VoiceParticipantProps = {
   participant: Participant;
-  /** Kompakt mod — screen share aktifken küçük gösterim */
+  /** Compact mode for screen share strip */
   compact?: boolean;
 };
 
-/** Konuşma hold süresi (ms). useIsSpeaking heceler arası false döndüğünde
- *  bu süre kadar bekler — tekrar true gelirse timer iptal edilir.
- *  Discord ~250-350ms kullanır. 300ms doğal konuşmadaki mikro-sessizlikleri kapsar. */
+/** Hold duration to avoid flickering between syllables (~Discord's 250-350ms) */
 const SPEAKING_HOLD_MS = 300;
 
 function VoiceParticipant({ participant, compact = false }: VoiceParticipantProps) {
-  // useIsSpeaking: LiveKit'in kendi hook'u.
-  // LOCAL participant için → lokal AnalyserNode ile ses analizi (SFU'ya gitmez, anında tepki)
-  // REMOTE participant için → SFU'dan gelen speaker bilgisi
+  // LOCAL: analyzed via local AnalyserNode (instant). REMOTE: from SFU speaker info.
   const rawSpeaking = useIsSpeaking(participant);
 
-  // ─── Hold timer: yanıp sönmeyi önler ───
-  // rawSpeaking true olunca anında isSpeaking=true set edilir.
-  // rawSpeaking false olunca SPEAKING_HOLD_MS bekler — bu süre içinde tekrar
-  // true gelirse timer iptal edilir ve isSpeaking true kalır.
-  // Bu pattern Discord'un speaking indicator davranışını replike eder.
+  // Hold timer: when rawSpeaking goes false, wait SPEAKING_HOLD_MS before hiding indicator.
+  // If rawSpeaking goes true again within that window, timer is cancelled.
   const [isSpeaking, setIsSpeaking] = useState(false);
   const holdTimerRef = useRef<number>(0);
 
   useEffect(() => {
     if (rawSpeaking) {
-      // Konuşma başladı — bekleyen "kapat" timer'ını iptal et, hemen göster
       if (holdTimerRef.current) {
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = 0;
       }
       setIsSpeaking(true);
     } else {
-      // Konuşma durdu — hold süresi kadar bekle, belki heceler arası sessizliktir
       if (!holdTimerRef.current) {
         holdTimerRef.current = window.setTimeout(() => {
           setIsSpeaking(false);
@@ -84,10 +65,8 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
   const voiceStates = useVoiceStore((s) => s.voiceStates);
   const currentUserId = useAuthStore((s) => s.user?.id);
 
-  // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
-  // Bu katılımcının voice state'ini bul (mute/deafen bilgisi)
   const channelStates = currentVoiceChannelId
     ? voiceStates[currentVoiceChannelId] ?? []
     : [];
@@ -95,7 +74,6 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     (s) => s.user_id === participant.identity
   );
 
-  // Görünen isim: voiceState'teki display_name > LiveKit participant.name > username > identity
   const displayName =
     voiceState?.display_name || voiceState?.username || participant.name || participant.identity;
   const firstLetter = displayName.charAt(0).toUpperCase();
@@ -103,12 +81,10 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
   const isMuted = voiceState?.is_muted ?? false;
   const isDeafened = voiceState?.is_deafened ?? false;
 
-  // Kendi kendinin context menu'sünü açmak anlamsız — sadece remote katılımcılar
   const isLocalUser = participant.identity === currentUserId;
 
   const avatarClass = `voice-participant-avatar${isSpeaking ? " speaking" : ""}`;
 
-  // ─── Context menu: sağ tık ile aç ───
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       if (isLocalUser) return;
@@ -119,7 +95,6 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     [isLocalUser]
   );
 
-  // Mute/Deafen overlay — her iki modda da gösterilir
   const overlay = (isMuted || isDeafened) ? (
     <div className="voice-participant-overlay">
       {isDeafened ? (
@@ -136,7 +111,6 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     </div>
   ) : null;
 
-  // VoiceUserContextMenu — portal ile body'ye render edilir
   const contextMenu = ctxMenu ? (
     <VoiceUserContextMenu
       userId={participant.identity}
@@ -148,7 +122,6 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     />
   ) : null;
 
-  // Avatar içeriği — resim varsa img, yoksa ilk harf
   const avatarContent = avatarUrl ? (
     <img
       src={resolveAssetUrl(avatarUrl)}
@@ -159,7 +132,6 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     firstLetter
   );
 
-  // ─── Kompakt mod: Screen share strip'inde küçük avatar + isim ───
   if (compact) {
     return (
       <>
@@ -175,7 +147,6 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
     );
   }
 
-  // ─── Tam mod: Büyük avatar + isim altında ───
   return (
     <>
       <div className="voice-participant" onContextMenu={handleContextMenu}>

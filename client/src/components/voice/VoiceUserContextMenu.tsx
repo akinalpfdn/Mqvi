@@ -1,20 +1,6 @@
 /**
- * VoiceUserContextMenu — Sidebar voice kullanıcıları için sağ tık menüsü.
- *
- * Portal ile document.body'ye render edilir — sidebar overflow:hidden'ı aşar.
- *
- * İçerik:
- * 1. Header: Avatar + display name
- * 2. Volume slider (0-200%)
- * 3. Local mute toggle (sadece bu client için)
- * 4. Server Mute — PermMuteMembers yetkisi (kanal bazlı override destekli)
- * 5. Server Deafen — PermDeafenMembers yetkisi (kanal bazlı override destekli)
- * 6. Disconnect from Voice — PermMoveMembers yetkisi
- * 7. Move to Channel — PermMoveMembers yetkisi, voice kanalları listesi
- *
- * CSS class'ları: .voice-ctx-menu, .voice-ctx-header, .voice-ctx-body,
- * .voice-ctx-slider, .voice-ctx-range, .voice-ctx-vol-value,
- * .voice-ctx-divider, .voice-ctx-item
+ * VoiceUserContextMenu — Right-click menu for voice sidebar users.
+ * Rendered via portal to document.body to escape sidebar overflow:hidden.
  */
 
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
@@ -48,7 +34,6 @@ function VoiceUserContextMenu({
   const { t } = useTranslation("voice");
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // ─── Store Selectors ───
   const userVolumes = useVoiceStore((s) => s.userVolumes);
   const setUserVolume = useVoiceStore((s) => s.setUserVolume);
   const localMutedUsers = useVoiceStore((s) => s.localMutedUsers);
@@ -56,7 +41,7 @@ function VoiceUserContextMenu({
   const voiceStates = useVoiceStore((s) => s.voiceStates);
   const wsSend = useVoiceStore((s) => s._wsSend);
 
-  // ─── Permission Resolution (kanal bazlı) ───
+  // Channel-level permission resolution
   const currentUser = useAuthStore((s) => s.user);
   const members = useMemberStore((s) => s.members);
   const categories = useChannelStore((s) => s.categories);
@@ -69,7 +54,7 @@ function VoiceUserContextMenu({
     [currentMember]
   );
 
-  // Hedef kullanıcının mevcut voice state'i
+  // Target user's current voice state
   const targetVoiceState = useMemo(() => {
     for (const states of Object.values(voiceStates)) {
       const found = states.find((s) => s.user_id === userId);
@@ -78,32 +63,28 @@ function VoiceUserContextMenu({
     return null;
   }, [voiceStates, userId]);
 
-  // Hedef kullanıcının bulunduğu kanalın override'larını al
   const targetChannelId = targetVoiceState?.channel_id ?? "";
   const channelOverrides = getOverrides(targetChannelId);
 
-  // Kanal bazlı effective permissions — Discord algoritması
+  // Channel-level effective permissions (Discord algorithm)
   const channelPerms = useMemo(
     () => resolveChannelPermissions(basePerms, roleIds, channelOverrides),
     [basePerms, roleIds, channelOverrides]
   );
 
-  // Granüler permission kontrolleri (Admin bypass Has() fonksiyonunda)
   const canMuteMembers = hasPermission(channelPerms, Permissions.MuteMembers);
   const canDeafenMembers = hasPermission(channelPerms, Permissions.DeafenMembers);
   const canMoveMembers = hasPermission(channelPerms, Permissions.MoveMembers);
 
-  // Moderasyon aksiyonlarından en az biri varsa divider göster
   const hasAnyModPerm = canMuteMembers || canDeafenMembers || canMoveMembers;
 
-  // Move to Channel: tüm voice kanalları (hedefin bulunduğu kanal hariç)
+  // Voice channels for "Move to Channel" (exclude target's current channel)
   const voiceChannels = useMemo(() => {
     return categories
       .flatMap((cg) => cg.channels)
       .filter((ch) => ch.type === "voice" && ch.id !== targetChannelId);
   }, [categories, targetChannelId]);
 
-  // Move submenu açık/kapalı
   const [showMoveMenu, setShowMoveMenu] = useState(false);
 
   const isLocallyMuted = localMutedUsers[userId] ?? false;
@@ -113,7 +94,7 @@ function VoiceUserContextMenu({
 
   const name = displayName || username;
 
-  // ─── Dış tıklama + Escape ile kapatma ───
+  // Close on outside click or Escape
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -125,7 +106,7 @@ function VoiceUserContextMenu({
       if (e.key === "Escape") onClose();
     }
 
-    // Bir frame bekle — sağ tık event'inin kendisi "click outside" algılanmasın
+    // Delay one frame so the right-click event itself isn't caught as "outside click"
     requestAnimationFrame(() => {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("keydown", handleEscape);
@@ -137,7 +118,7 @@ function VoiceUserContextMenu({
     };
   }, [onClose]);
 
-  // ─── Pozisyon düzeltme — ekranın dışına taşmayı önle ───
+  // Clamp position to viewport bounds
   useEffect(() => {
     if (!menuRef.current) return;
 
@@ -159,8 +140,6 @@ function VoiceUserContextMenu({
     menu.style.left = `${adjustedX}px`;
     menu.style.top = `${adjustedY}px`;
   }, [position]);
-
-  // ─── Handlers ───
 
   const handleVolumeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -247,7 +226,6 @@ function VoiceUserContextMenu({
           className={`voice-ctx-item${isLocallyMuted ? " active" : ""}`}
           onClick={handleLocalMuteToggle}
         >
-          {/* Speaker off icon */}
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
             {isLocallyMuted ? (
@@ -259,12 +237,11 @@ function VoiceUserContextMenu({
           {isLocallyMuted ? t("localUnmute") : t("localMute")}
         </button>
 
-        {/* Moderation Actions — kanal bazlı granüler permission kontrolü */}
+        {/* Moderation Actions — channel-level granular permission checks */}
         {hasAnyModPerm && (
           <>
             <div className="voice-ctx-divider" />
 
-            {/* Server Mute — PermMuteMembers */}
             {canMuteMembers && (
               <button
                 className={`voice-ctx-item danger${isServerMuted ? " active" : ""}`}
@@ -280,7 +257,6 @@ function VoiceUserContextMenu({
               </button>
             )}
 
-            {/* Server Deafen — PermDeafenMembers */}
             {canDeafenMembers && (
               <button
                 className={`voice-ctx-item danger${isServerDeafened ? " active" : ""}`}
@@ -296,7 +272,6 @@ function VoiceUserContextMenu({
               </button>
             )}
 
-            {/* Disconnect from Voice — PermMoveMembers */}
             {canMoveMembers && (
               <button
                 className="voice-ctx-item danger"
@@ -310,7 +285,6 @@ function VoiceUserContextMenu({
               </button>
             )}
 
-            {/* Move to Channel — PermMoveMembers */}
             {canMoveMembers && voiceChannels.length > 0 && (
               <div className="voice-ctx-move-wrap">
                 <button

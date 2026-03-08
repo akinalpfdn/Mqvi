@@ -1,22 +1,12 @@
 /**
- * VoiceParticipantGrid — Ses odasındaki tüm katılımcıların gösterimi.
+ * VoiceParticipantGrid — Renders all participants in the voice room.
  *
- * CSS class'ları: .voice-room-grid, .voice-grid-strip, .voice-room-loading
+ * Two modes:
+ * 1. Full (no screen share): flex-1, participants in centered grid
+ * 2. Compact (screen share active): fixed-height strip at bottom
  *
- * İki mod:
- * 1. Tam mod (screen share yok): flex-1 ile tüm alanı kaplar,
- *    katılımcılar merkeze grid olarak yayılır.
- * 2. Kompakt mod (screen share aktif): shrink-0 ile altta sabit
- *    yükseklikte strip, ekran paylaşımına alan bırakır.
- *
- * Mod algılama: voiceStore.watchingScreenShares ile aktif screen share
- * izlenip izlenmediğini kontrol eder. useTracks kullanmıyoruz çünkü
- * her useTracks çağrısı LiveKit Room objesine ~6 internal listener ekler —
- * gereksiz listener yükünü azaltmak için store'dan okuyoruz.
- *
- * useParticipants nedir?
- * LiveKit React SDK hook'u — odadaki tüm participant'ları (lokal + remote)
- * bir array olarak döner ve katılımcı ekleme/çıkarma olaylarında otomatik günceller.
+ * Uses voiceStore.watchingScreenShares instead of useTracks to avoid
+ * adding ~6 internal listeners per useTracks call.
  */
 
 import { useParticipants } from "@livekit/components-react";
@@ -28,13 +18,11 @@ function VoiceParticipantGrid() {
   const { t } = useTranslation("voice");
   const participants = useParticipants();
 
-  // Screen share aktif mi? Layout modunu belirler.
-  // useTracks yerine store kullanılır — her useTracks ~6 internal listener ekler.
   const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
   const hasScreenShare = Object.values(watchingScreenShares).some(Boolean);
 
   if (participants.length === 0) {
-    // Screen share aktifken boş mesaj gösterme — alan screen share'e bırakılsın
+    // Don't show empty message when screen share is active
     if (hasScreenShare) return null;
 
     return (
@@ -44,7 +32,7 @@ function VoiceParticipantGrid() {
     );
   }
 
-  // Kompakt mod: screen share aktifken altta dar strip
+  // Compact strip below screen share
   if (hasScreenShare) {
     return (
       <div className="voice-grid-strip">
@@ -59,7 +47,7 @@ function VoiceParticipantGrid() {
     );
   }
 
-  // Tam mod: screen share yokken tüm alanı kapla, merkeze yay
+  // Full grid
   return (
     <div className="voice-room-grid">
       {participants.map((participant) => (

@@ -1,27 +1,20 @@
 /**
- * VoiceProvider — LiveKit bağlantısını AppLayout seviyesinde persistent tutar.
+ * VoiceProvider — Keeps LiveKit connection persistent at AppLayout level.
  *
- * SORUN: VoiceRoom PanelView içinde conditional render ediliyordu. Tab değişince
- * unmount → LiveKitRoom unmount → WebRTC bağlantısı kopuyordu.
+ * LiveKitRoom lives here so tab switches don't unmount the WebRTC connection.
+ * Visual components (VoiceParticipantGrid, ScreenShareView) can mount/unmount
+ * freely — the LiveKit context stays alive in the parent.
  *
- * ÇÖZÜM: LiveKitRoom'u AppLayout seviyesinde her zaman mount tut.
- * Visual component'ler (VoiceParticipantGrid, ScreenShareView) tab'da
- * mount/unmount olabilir — LiveKit context parent'ta kalır.
+ * `display:contents` makes the wrapper div invisible to CSS layout.
+ * `connect` prop controls connection: false = Room created but not connected.
  *
- * LiveKitRoom `display:contents` ile render edilir → CSS layout'u etkilemez.
- * `connect` prop'u false iken Room obje oluşturulur ama bağlanmaz.
- * Voice aktif olunca connect=true → bağlanır. Tab değişince bağlantı korunur.
+ * Always-mounted children:
+ * - RoomAudioRenderer: keeps remote audio playing across tab switches
+ * - VoiceStateManager: syncs store <-> LiveKit state (mute/deafen/PTT/volume)
  *
- * İçerdiği her-zaman-mount component'ler:
- * - RoomAudioRenderer: Remote audio track'leri otomatik attach (ses çalmaya devam)
- * - VoiceStateManager: Store ↔ LiveKit senkronizasyonu (mute/deafen/PTT/volume)
- *
- * E2EE: Server her voice room için random passphrase üretir.
- * ExternalE2EEKeyProvider.setKey(passphrase) ile SFrame frame-level encryption aktif.
- * LiveKit'in built-in e2ee-worker'ı kullanılır.
- *
- * CSS: `display:contents` → LiveKitRoom'un div'i layout'ta görünmez,
- * children doğrudan parent'ın flex/grid'ine katılır.
+ * E2EE: Server generates a random passphrase per voice room.
+ * ExternalE2EEKeyProvider.setKey(passphrase) activates SFrame encryption
+ * via LiveKit's built-in e2ee-worker.
  */
 
 import { useCallback, useEffect, useMemo } from "react";
@@ -46,33 +39,15 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   const leaveVoiceChannel = useVoiceStore((s) => s.leaveVoiceChannel);
   const inputDevice = useVoiceStore((s) => s.inputDevice);
 
-  /** Voice aktif mi? URL ve token varsa bağlantı kurulur. */
   const isConnected = !!livekitUrl && !!livekitToken;
 
   // ─── E2EE Key Provider ───
 
-  /**
-   * ExternalE2EEKeyProvider — LiveKit SFrame E2EE için key sağlayıcı.
-   *
-   * Stable instance: useMemo ile tek sefer oluşturulur.
-   * setKey(passphrase) ile passphrase set edilir — LiveKit PBKDF2 ile
-   * crypto key türetir ve SFrame ile her audio/video frame'i şifreler.
-   */
+  // Stable singleton — LiveKit uses PBKDF2 to derive a CryptoKey from passphrase
   const keyProvider = useMemo(() => new ExternalE2EEKeyProvider(), []);
 
-  /**
-   * e2ee-worker — LiveKit'in built-in SFrame encryption worker'ı.
-   *
-   * Web Worker olarak çalışır — main thread bloklanmaz.
-   * livekit-client package'ından export edilir.
-   * Vite import.meta.url ile doğru path resolve edilir.
-   *
-   * useMemo ile oluşturulur — aynı render pass'ta roomOptions'ta kullanılabilir.
-   * (useRef+useEffect ile olsaydı, effect render'dan sonra çalışır ve
-   * roomOptions hesaplandığında worker henüz null olurdu → E2EE sessizce devre dışı.)
-   *
-   * Passphrase truthy/falsy geçişinde yeni Worker oluşturulur/terminate edilir.
-   */
+  // SFrame worker runs off main thread. Created/terminated on passphrase toggle.
+  // useMemo (not useRef+useEffect) so roomOptions can reference it in the same render pass.
   const e2eeWorker = useMemo(() => {
     if (e2eePassphrase) {
       return new Worker(
@@ -82,14 +57,14 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     return null;
   }, [!!e2eePassphrase]);
 
-  // Worker terminate — önceki worker'ı temizle (passphrase null olunca veya unmount)
+  // Terminate previous worker on passphrase change or unmount
   useEffect(() => {
     return () => {
       e2eeWorker?.terminate();
     };
   }, [e2eeWorker]);
 
-  // Passphrase değiştiğinde key set et (async — PBKDF2 key derivation)
+  // Set key when passphrase changes (async PBKDF2 derivation)
   useEffect(() => {
     if (e2eePassphrase) {
       keyProvider.setKey(e2eePassphrase).catch((err: unknown) => {
@@ -100,31 +75,16 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   }, [e2eePassphrase, keyProvider, tE2ee]);
 
   /**
-   * onDisconnected — LiveKit bağlantısı koptuğunda çağrılır.
+   * onDisconnected — handles LiveKit disconnect events.
    *
-   * DisconnectReason bize NEDEN koptuğunu söyler:
-   * - CLIENT_INITIATED: Kullanıcı kendisi ayrıldı veya connect prop geçişi
-   * - SERVER_SHUTDOWN: LiveKit sunucusu kapandı
-   * - PARTICIPANT_REMOVED: Sunucu tarafından atıldı
-   * - ROOM_DELETED: Oda silindi
-   * - SIGNAL_DISCONNECTED: Sinyal bağlantısı koptu
-   *
-   * ÖNEMLİ — CLIENT_INITIATED geçiş disconnect'leri:
-   * LiveKitRoom connect={false} → connect={true} geçişinde eski state'i
-   * temizlerken CLIENT_INITIATED disconnect event'i fırlatır. Bu bir hata
-   * değil — Room'un normal geçiş davranışıdır.
-   *
-   * Bunu gerçek disconnect'ten ayırmak için: currentVoiceChannelId kontrol edilir.
-   * Kullanıcı gerçekten disconnect tıklarsa, useVoice.leaveVoice() önce
-   * store'u temizler (currentVoiceChannelId=null), SONRA LiveKit disconnect
-   * event'i gelir. Geçiş disconnect'inde ise store hâlâ aktif durumdadır.
+   * CLIENT_INITIATED fires both on real disconnect AND on connect prop transitions
+   * (connect=false -> connect=true). We distinguish them by checking if the store
+   * still has an active voice channel — if so, it's a transition disconnect (ignore).
    */
   const handleDisconnected = useCallback(
     (reason?: DisconnectReason) => {
       console.log("[VoiceProvider] Disconnected from LiveKit. Reason:", reason);
 
-      // CLIENT_INITIATED: Kullanıcı disconnect tıkladıysa store zaten temiz.
-      // Store hâlâ aktifse bu bir connect geçiş disconnect'idir — yoksay.
       if (reason === DisconnectReason.CLIENT_INITIATED) {
         const { currentVoiceChannelId } = useVoiceStore.getState();
         if (currentVoiceChannelId) {
@@ -138,17 +98,9 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     [leaveVoiceChannel]
   );
 
-  /**
-   * onError — LiveKit bağlantı/çalışma zamanı hatası.
-   *
-   * "Client initiated" hataları connect geçişinde normal olarak fırlatılır
-   * (connect={false} → connect={true}). Bunlar filtrelenir — kullanıcıya
-   * gereksiz hata toast'u gösterilmez.
-   */
+  // Filter out expected "Client initiated" errors during connect prop transitions
   const handleError = useCallback(
     (err: Error) => {
-      // connect={false} → connect={true} geçişinde LiveKit "Client initiated"
-      // ConnectionError fırlatır. Bu beklenen davranıştır, hata değil.
       if (err.message?.includes("Client initiated")) {
         console.log("[VoiceProvider] Ignoring transition error:", err.message);
         return;
@@ -164,10 +116,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     [t]
   );
 
-  /**
-   * onEncryptionError — SFrame E2EE hatası.
-   * Passphrase uyuşmazlığı, worker hatası vb. durumlarda tetiklenir.
-   */
+  // SFrame E2EE error (passphrase mismatch, worker failure, etc.)
   const handleEncryptionError = useCallback(
     (err: Error) => {
       console.error("[VoiceProvider] E2EE encryption error:", err);
@@ -180,13 +129,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     [tE2ee]
   );
 
-  /**
-   * audioCaptureDefaults — LiveKit'e mikrofon yakalama ayarlarını iletir.
-   *
-   * useMemo ile sarılır — re-render'da gereksiz yeni obje oluşmasını önler.
-   * LiveKitRoom prop comparison referans bazlıdır, yeni obje → yeniden
-   * bağlantı tetikleyebilir.
-   */
+  // Stable ref — LiveKitRoom does reference comparison on props
   const audioCaptureDefaults: AudioCaptureOptions = useMemo(
     () => ({
       noiseSuppression: true,
@@ -198,23 +141,10 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   );
 
   /**
-   * publishDefaults — Screen share encoding + simulcast ayarları.
-   *
-   * Ana encoding: 1080p/30fps, 3 Mbps — oyun içeriği için yeterli kalite.
-   *
-   * Simulcast: SFU aynı stream'i birden fazla kalite katmanında tutar.
-   * Her alıcıya bant genişliğine göre en uygun katman gönderilir:
-   *   - High (1080p/30fps, 3 Mbps): Tam kalite — güçlü bağlantı
-   *   - Mid  (720p/30fps, 1.5 Mbps): Orta kalite — normal bağlantı
-   *   - Low  (720p/15fps, 800 Kbps): Düşük fps — zayıf bağlantı
-   *
-   * VP9 codec: Aynı bitrate'te H264'e göre ~30-40% daha iyi sıkıştırma →
-   * server bandwidth tasarrufu + daha iyi görüntü kalitesi.
-   * Modern GPU'larda (Chrome/Edge) hardware encoding desteği var.
-   *
-   * useMemo — stable referans: LiveKitRoom prop comparison referans bazlıdır.
-   * Yeni obje → gereksiz room reconfiguration. Static config olduğu için
-   * dependency boş array — sadece mount'ta oluşturulur.
+   * Screen share publish defaults:
+   * - 1080p/30fps main layer, 3 Mbps
+   * - Simulcast: 720p/30fps (1.5M), 720p/15fps (800K) for bandwidth adaptation
+   * - VP9: ~30-40% better compression than H264 at same bitrate
    */
   const publishDefaults = useMemo(
     () => ({
@@ -231,13 +161,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     []
   );
 
-  /**
-   * roomOptions — LiveKitRoom options.
-   *
-   * E2EE aktifse (passphrase + worker varsa) e2ee config eklenir.
-   * ExternalE2EEKeyProvider.setKey() ile set edilen passphrase'ten
-   * LiveKit PBKDF2 ile CryptoKey türetir ve SFrame ile şifreler.
-   */
+  // Attach E2EE config when passphrase + worker are available
   const roomOptions: RoomOptions | undefined = useMemo(() => {
     if (!isConnected) return undefined;
 
@@ -247,7 +171,6 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       webAudioMix: true,
     };
 
-    // E2EE: passphrase ve worker varsa SFrame encryption aktif
     if (e2eePassphrase && e2eeWorker) {
       base.e2ee = {
         keyProvider,
@@ -258,17 +181,8 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     return base;
   }, [isConnected, audioCaptureDefaults, publishDefaults, e2eePassphrase, keyProvider, e2eeWorker]);
 
-  /**
-   * LiveKitRoom her zaman render edilir:
-   * - connect={false} → Room obje oluşturulur ama bağlanmaz
-   * - connect={true}  → Bağlanır, audio/video pipeline aktif
-   *
-   * Bu sayede children (SplitPaneContainer vb.) hiçbir zaman remount olmaz.
-   * Voice başladığında/bittiğinde sadece connect prop değişir.
-   *
-   * display:contents → LiveKitRoom'un wrapper div'i CSS layout'ta görünmez.
-   * Children doğrudan parent'ın flex container'ına katılır.
-   */
+  // LiveKitRoom always rendered — connect prop toggles connection.
+  // display:contents makes wrapper invisible to flex/grid layout.
   return (
     <LiveKitRoom
       serverUrl={livekitUrl || "wss://placeholder.invalid"}
@@ -282,7 +196,6 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       onEncryptionError={handleEncryptionError}
       style={{ display: "contents" }}
     >
-      {/* Audio rendering + state sync — sadece voice aktifken */}
       {isConnected && <RoomAudioRenderer />}
       {isConnected && <VoiceStateManager />}
       {children}

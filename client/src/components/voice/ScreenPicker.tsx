@@ -1,30 +1,15 @@
 /**
- * ScreenPicker — Ekran paylaşımı kaynak seçim modalı.
+ * ScreenPicker — Screen share source selection modal (Electron only).
  *
- * Electron'da setDisplayMediaRequestHandler tetiklendiğinde main process
- * desktopCapturer ile kaynakları alır ve "show-screen-picker" IPC event'i
- * ile renderer'a gönderir. Bu component gelen kaynakları thumbnail grid
- * olarak gösterir.
- *
- * Akış:
- * 1. Main process → "show-screen-picker" event + sources dizisi
- * 2. Bu component açılır, kaynaklar "screens" ve "windows" olarak gruplanır
- * 3. Kullanıcı bir kaynak tıklar → "screen-picker-result" IPC ile source ID gönderilir
- * 4. İptal → null gönderilir → main callback({}) ile stream'i iptal eder
- *
- * Gruplar:
- * - Screens: source.id "screen:" ile başlar (tam ekranlar)
- * - Windows: source.id "window:" ile başlar (uygulama pencereleri)
- *
- * Design: Projedeki modal pattern kullanılır (modal-backdrop + centered card, vpIn animation).
- * CSS class prefix: "sp-" (screen picker).
+ * Flow: main process sends "show-screen-picker" IPC with desktopCapturer sources ->
+ * user picks a source -> "screen-picker-result" IPC sends source ID back ->
+ * cancel sends null -> main callback({}) cancels the stream.
  */
 
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
 
-/** desktopCapturer source — main process'ten gelen serileştirilmiş kaynak */
 interface PickerSource {
   id: string;
   name: string;
@@ -38,7 +23,6 @@ function ScreenPicker() {
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const setScreenShareAudio = useVoiceStore((s) => s.setScreenShareAudio);
 
-  // Main process'ten gelen "show-screen-picker" event'ini dinle
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) return;
@@ -48,19 +32,16 @@ function ScreenPicker() {
     });
   }, []);
 
-  // Kaynak seçildiğinde main process'e gönder ve modalı kapat
   const handleSelect = useCallback((sourceId: string) => {
     window.electronAPI?.sendScreenPickerResult(sourceId);
     setSources(null);
   }, []);
 
-  // İptal — modal kapatılır, main process'e null gönderilir
   const handleCancel = useCallback(() => {
     window.electronAPI?.sendScreenPickerResult(null);
     setSources(null);
   }, []);
 
-  // Escape tuşu ile iptal
   useEffect(() => {
     if (!sources) return;
 
@@ -74,10 +55,9 @@ function ScreenPicker() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [sources, handleCancel]);
 
-  // Modal kapalıysa render etme
   if (!sources) return null;
 
-  // Kaynakları grupla: ekranlar (screen:) ve pencereler (window:)
+  // Group sources: screens (screen:*) and windows (window:*)
   const screens = sources.filter((s) => s.id.startsWith("screen:"));
   const windows = sources.filter((s) => s.id.startsWith("window:"));
 
@@ -86,7 +66,6 @@ function ScreenPicker() {
   return (
     <div className="sp-overlay" onClick={handleCancel}>
       <div className="sp-card" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
         <div className="sp-header">
           <h2 className="sp-title">{t("screenPickerTitle")}</h2>
           <button className="sp-close" onClick={handleCancel}>
@@ -97,7 +76,6 @@ function ScreenPicker() {
           </button>
         </div>
 
-        {/* Tab bar — Screens / Windows */}
         <div className="sp-tabs">
           <button
             className={`sp-tab${activeTab === "screens" ? " sp-tab-active" : ""}`}
@@ -124,7 +102,6 @@ function ScreenPicker() {
           </button>
         </div>
 
-        {/* Source grid */}
         <div className="sp-grid">
           {activeSources.length === 0 ? (
             <div className="sp-empty">{t("screenPickerNoSources")}</div>
@@ -150,7 +127,6 @@ function ScreenPicker() {
           )}
         </div>
 
-        {/* Footer — ses paylaşım toggle'ı */}
         <div className="sp-footer">
           <label className="sp-audio-toggle">
             <span className="sp-audio-label">

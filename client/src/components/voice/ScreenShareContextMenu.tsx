@@ -1,19 +1,9 @@
 /**
- * ScreenShareContextMenu — Ekran paylaşımı audio volume kontrolü.
+ * ScreenShareContextMenu — Independent volume control for screen share audio.
  *
- * Screen share video panelinde sağ tıkla açılır.
- * Sadece screen share audio'sunu kontrol eder — kullanıcının mic
- * sesi bu slider'dan etkilenmez (bağımsız screenShareVolumes state).
- *
- * Portal ile document.body'ye render edilir — panel overflow:hidden'ı aşar.
- *
- * İçerik:
- * 1. Header: Monitor icon + paylaşan kullanıcı ismi
- * 2. Volume slider (0-200%)
- *
- * CSS class'ları: .voice-ctx-menu, .voice-ctx-header, .voice-ctx-body,
- * .voice-ctx-slider, .voice-ctx-range, .voice-ctx-vol-value
- * (VoiceUserContextMenu ile aynı class'lar — tutarlı görünüm)
+ * Right-click on a screen share panel to open. Controls only the screen share
+ * audio track — does not affect the user's mic volume (separate screenShareVolumes state).
+ * Rendered via portal to escape panel overflow:hidden.
  */
 
 import { useEffect, useRef, useCallback } from "react";
@@ -37,12 +27,11 @@ function ScreenShareContextMenu({
   const { t } = useTranslation("voice");
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // ─── Store Selectors ───
   const screenShareVolumes = useVoiceStore((s) => s.screenShareVolumes);
   const setScreenShareVolume = useVoiceStore((s) => s.setScreenShareVolume);
   const currentVolume = screenShareVolumes[userId] ?? 100;
 
-  // ─── Dış tıklama + Escape ile kapatma ───
+  // Close on outside click or Escape
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -54,7 +43,7 @@ function ScreenShareContextMenu({
       if (e.key === "Escape") onClose();
     }
 
-    // Bir frame bekle — sağ tık event'inin kendisi "click outside" algılanmasın
+    // Delay one frame so the opening right-click doesn't trigger "click outside"
     requestAnimationFrame(() => {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("keydown", handleEscape);
@@ -66,7 +55,7 @@ function ScreenShareContextMenu({
     };
   }, [onClose]);
 
-  // ─── Pozisyon düzeltme — ekranın dışına taşmayı önle ───
+  // Clamp position to viewport bounds
   useEffect(() => {
     if (!menuRef.current) return;
 
@@ -89,7 +78,6 @@ function ScreenShareContextMenu({
     menu.style.top = `${adjustedY}px`;
   }, [position]);
 
-  // ─── Handler ───
   const handleVolumeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setScreenShareVolume(userId, Number(e.target.value));
@@ -105,7 +93,6 @@ function ScreenShareContextMenu({
     >
       {/* Header: Monitor icon + Name */}
       <div className="voice-ctx-header">
-        {/* Monitor/screen icon */}
         <svg
           style={{ width: 32, height: 32, flexShrink: 0 }}
           fill="none"
@@ -123,10 +110,8 @@ function ScreenShareContextMenu({
       </div>
 
       <div className="voice-ctx-body">
-        {/* Label */}
         <div className="voice-ctx-label">{t("screenShareVolume")}</div>
 
-        {/* Volume Slider */}
         <div className="voice-ctx-slider">
           <svg
             style={{ width: 14, height: 14 }}

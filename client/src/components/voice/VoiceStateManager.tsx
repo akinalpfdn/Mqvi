@@ -1,35 +1,9 @@
 /**
- * VoiceStateManager — voiceStore ↔ LiveKit senkronizasyonu.
+ * VoiceStateManager — Bidirectional voiceStore <-> LiveKit sync.
+ * Renders inside LiveKitRoom. No visual output (returns null).
  *
- * Bu component, LiveKitRoom içinde render edilir ve iki yönlü senkronizasyon sağlar:
- *
- * 1. voiceStore → LiveKit:
- *    - isMuted değiştiğinde → localParticipant.setMicrophoneEnabled(!isMuted)
- *    - isStreaming değiştiğinde → localParticipant.setScreenShareEnabled(isStreaming)
- *
- * 2. LiveKit → voiceStore:
- *    - Bağlantı kurulduğunda mikrofon durumunu senkronize eder
- *
- * 3. Push-to-talk:
- *    - inputMode === "push_to_talk" ise usePushToTalk hook'u aktif olur
- *    - PTT tuşuna basılınca mic açılır, bırakılınca kapanır
- *    - PTT, isMuted store state'ini BYPASS eder — doğrudan LiveKit participant
- *      üzerinden çalışır. Bu sayede PTT tuşu bırakıldığında store'daki isMuted
- *      değeri değişmez (UI butonları etkilenmez).
- *
- * 4. Volume senkronizasyonu:
- *    - userVolumes, masterVolume, isDeafened değiştiğinde →
- *      RemoteParticipant.setVolume(effectiveVolume) çağrılır
- *    - webAudioMix: true ile LiveKit kendi GainNode pipeline'ını yönetir
- *    - setVolume(n): 0=mute, 1=normal, >1=amplification (200%'e kadar)
- *
- * Neden ayrı component?
- * - LiveKit hook'ları (useLocalParticipant, useRoomContext) sadece <LiveKitRoom>
- *   içinde çalışır. VoiceRoom.tsx'te LiveKitRoom'u render ederiz,
- *   bu component onun child'ı olarak LiveKit context'ine erişir.
- * - Single Responsibility: VoiceRoom bağlantı kurar, VoiceStateManager state senkronize eder.
- *
- * Görsel çıktısı YOKTUR (null render). Sadece side-effect'ler çalıştırır.
+ * Syncs: mic mute, screen share, PTT, per-user volume, noise reduction,
+ * speaking detection, screen share subscriptions, and RTT polling.
  */
 
 import { useEffect, useRef, useCallback } from "react";
@@ -50,7 +24,7 @@ import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
 import { isElectron } from "../../utils/constants";
 
-/** Union type — her iki processor da aynı setMicSensitivity API'sini sunar */
+/** Both processors expose setMicSensitivity */
 type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
 
 function VoiceStateManager() {
@@ -68,18 +42,10 @@ function VoiceStateManager() {
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
   const micSensitivity = useVoiceStore((s) => s.micSensitivity);
 
-  // İlk mount tracking — ilk render'da gereksiz toggle'ları önlemek için.
-  // useRef ile tutulur çünkü state değişikliği re-render tetikler ama
-  // ref değişikliği tetiklemez — performans kazanımı.
+  // Skip effects until initial connection sync is done
   const initialSyncDone = useRef(false);
 
-  // ─── PTT: Doğrudan LiveKit participant üzerinden mic kontrolü ───
-  // usePushToTalk hook'u document-level keydown/keyup dinler.
-  // setMicEnabled fonksiyonu PTT tuşuna basılınca/bırakılınca çağrılır.
-  //
-  // Neden useCallback?
-  // usePushToTalk bu fonksiyonu dependency olarak alır. Stable ref olmazsa
-  // her render'da effect yeniden kurulur (gereksiz listener add/remove).
+  // PTT: bypass store, toggle mic directly on LiveKit participant
   const setMicEnabled = useCallback(
     (enabled: boolean) => {
       localParticipant.setMicrophoneEnabled(enabled).catch((err: unknown) => {
@@ -91,18 +57,7 @@ function VoiceStateManager() {
 
   usePushToTalk({ setMicEnabled });
 
-  // ─── Mikrofon senkronizasyonu ───
-  // isMuted değiştiğinde LiveKit'in gerçek mikrofon durumunu güncelle.
-  //
-  // setMicrophoneEnabled(true) → mikrofonu aç
-  // setMicrophoneEnabled(false) → mikrofonu kapat
-  //
-  // "isMuted" bizim store'daki değer, LiveKit'te "enabled" tersi:
-  // isMuted=true → enabled=false, isMuted=false → enabled=true
-  //
-  // PTT modunda bu effect hâlâ çalışır — kullanıcı VoicePopup'taki mute
-  // butonuna tıklarsa store üzerinden mic kapatılır. PTT tuşu ise
-  // doğrudan participant'a gider (yukarıdaki setMicEnabled).
+  // Sync isMuted store state -> LiveKit mic enabled
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
@@ -111,36 +66,18 @@ function VoiceStateManager() {
     });
   }, [isMuted, localParticipant]);
 
-  // ─── Process-exclusive audio capture (Electron only) ───
+  // Process-exclusive audio capture (Electron only).
   // Uses native audio-capture.exe to capture system audio excluding our
   // own Electron process tree — prevents screen share echo.
   const systemAudioCapture = useSystemAudioCapture();
   const systemAudioCaptureRef = useRef(systemAudioCapture);
   systemAudioCaptureRef.current = systemAudioCapture;
 
-  // Ref to track the custom audio publication for cleanup
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
 
-  // ─── Screen share senkronizasyonu ───
-  // isStreaming değiştiğinde LiveKit'in screen share durumunu güncelle.
-  //
-  // Electron audio strategy:
-  //   - Video: Electron's setDisplayMediaRequestHandler provides the video source
-  //   - Audio: NOT from Electron's loopback (causes echo). Instead, our native
-  //     audio-capture.exe captures system audio excluding Electron's PID via
-  //     WASAPI PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE.
-  //   - The custom audio track is published separately to LiveKit as
-  //     Track.Source.ScreenShareAudio.
-  //
-  // Browser audio strategy:
-  //   - Uses getDisplayMedia({ audio: true }) — standard browser behavior.
-  //   - No process-exclusive capture available in browsers.
-  //
-  // Capture options:
-  //   - resolution: 1920x1080 @ 30fps → tarayıcıdan 1080p yakalama
-  //   - contentHint: "motion" → encoder'a motion optimization ipucu verir.
-  //     "motion" frame rate'i korur (detail yerine smoothness öncelikli) —
-  //     oyun/video paylaşımı için ideal. "detail" ise metin/kod için uygun.
+  // Sync isStreaming -> LiveKit screen share.
+  // Electron: video via getDisplayMedia, audio via native WASAPI capture (echo-free).
+  // Browser: standard getDisplayMedia with optional audio.
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
@@ -150,18 +87,16 @@ function VoiceStateManager() {
       if (cancelled) return;
 
       if (isStreaming) {
-        // ─── START screen share ───
         if (isElectron() && screenShareAudio) {
           // Electron: video only via getDisplayMedia, audio via native capture
           await localParticipant.setScreenShareEnabled(true, {
-            audio: false, // NO loopback audio — we handle audio separately
+            audio: false,
             resolution: { width: 1920, height: 1080, frameRate: 30 },
             contentHint: "motion",
           });
 
           if (cancelled) return;
 
-          // Start native process-exclusive audio capture
           const audioTrack = await systemAudioCaptureRef.current.start();
 
           if (cancelled || !audioTrack) return;
@@ -173,7 +108,6 @@ function VoiceStateManager() {
           });
           customAudioPubRef.current = pub;
         } else {
-          // Browser or no audio: standard getDisplayMedia path
           await localParticipant.setScreenShareEnabled(true, {
             audio: screenShareAudio,
             resolution: { width: 1920, height: 1080, frameRate: 30 },
@@ -181,8 +115,6 @@ function VoiceStateManager() {
           });
         }
       } else {
-        // ─── STOP screen share ───
-        // Unpublish custom audio track if we published one
         if (customAudioPubRef.current) {
           await localParticipant.unpublishTrack(
             customAudioPubRef.current.track!
@@ -190,10 +122,7 @@ function VoiceStateManager() {
           customAudioPubRef.current = null;
         }
 
-        // Stop native capture
         systemAudioCaptureRef.current.stop();
-
-        // Stop screen share video
         await localParticipant.setScreenShareEnabled(false);
       }
     }
@@ -207,47 +136,32 @@ function VoiceStateManager() {
     return () => { cancelled = true; };
   }, [isStreaming, screenShareAudio, localParticipant]);
 
-  // ─── Room EventEmitter listener limit'ini artır ───
-  // VoiceStateManager birden fazla effect'te room.on() ile listener ekler.
-  // LiveKit SDK kendi internal listener'larını da ekler (~6 per useTracks gibi hook'lar).
-  // Default limit (10) aşıldığında MaxListenersExceededWarning oluşur.
-  // Bu uyarı bellek sızıntısı değil — bilinen listener sayımızdır.
+  // Raise EventEmitter limit — we attach many room listeners here + SDK internals
   useEffect(() => {
     if (typeof room.setMaxListeners === "function") {
       room.setMaxListeners(20);
     }
     return () => {
       if (typeof room.setMaxListeners === "function") {
-        room.setMaxListeners(10); // Default'a geri dön
+        room.setMaxListeners(10);
       }
     };
   }, [room]);
 
-  // ─── Bağlantı kurulduğunda ilk senkronizasyon ───
-  // Room'a bağlandığımızda store'daki state'i LiveKit'e uygula.
-  //
-  // RoomEvent.Connected: LiveKit sunucusuna başarıyla bağlanıldığında tetiklenir.
-  // Bu noktada localParticipant hazır ve track'ler yönetilebilir.
+  // Initial sync on room connect — apply store state to LiveKit
   useEffect(() => {
     function handleConnected() {
       console.log("[VoiceStateManager] Connected to LiveKit room");
 
-      // İlk bağlantıda mikrofon durumunu senkronize et.
-      // PTT modunda mic kapalı başlar (joinVoiceChannel'da isMuted=true set edildi).
-      // Voice activity modunda mic açık başlar (isMuted=false).
+      // PTT: mic starts disabled. Voice activity: respect store isMuted.
       const { isMuted: currentMuted, inputMode: currentMode } = useVoiceStore.getState();
-
-      // PTT modunda LiveKit'in audio={true} ile otomatik açtığı mic'i kapat
       const shouldEnable = currentMode === "push_to_talk" ? false : !currentMuted;
 
       localParticipant.setMicrophoneEnabled(shouldEnable).catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to set initial mic state:", err);
       });
 
-      // ─── Screen share auto-subscribe engelleme ───
-      // Room'a bağlandığında zaten auto-subscribe olmuş screen share track'lerini
-      // unsubscribe et. Kullanıcı sidebar'dan tıklayınca tekrar subscribe olur.
-      // Ses (Microphone) track'leri etkilenmez — sadece ScreenShare/ScreenShareAudio.
+      // Unsubscribe auto-subscribed screen shares — user opts in via sidebar
       room.remoteParticipants.forEach((p) => {
         p.trackPublications.forEach((pub) => {
           if (
@@ -259,11 +173,9 @@ function VoiceStateManager() {
         });
       });
 
-      // İlk sync tamamlandı, artık effect'ler çalışabilir
       initialSyncDone.current = true;
     }
 
-    // Room zaten bağlıysa hemen sync yap
     if (room.state === ConnectionState.Connected) {
       handleConnected();
     }
@@ -276,20 +188,7 @@ function VoiceStateManager() {
     };
   }, [room, localParticipant]);
 
-  // ─── RTT (ping) polling ───
-  // İki katmanlı RTT ölçümü:
-  //
-  // 1. Signaling RTT: room.engine.client.rtt → LiveKit'in WebSocket ping/pong'u ile ölçülür.
-  //    Sunucu join response'ta pingInterval gönderir, SDK bu aralıkla ping atar.
-  //    pongResp geldiğinde rtt güncellenir. Ancak bazı server versiyonlarında
-  //    sadece legacy "pong" gönderilir (rtt güncellemez), bu durumda değer 0 kalır.
-  //
-  // 2. WebRTC Stats RTT (fallback): RTCPeerConnection.getStats() → ICE candidate-pair'dan
-  //    currentRoundTripTime okunur (saniye cinsinden, 1000 ile çarpılır).
-  //    Bu, STUN binding request round-trip'i ile ölçülür ve daha güvenilirdir.
-  //
-  // engine, client, pcManager @internal olarak işaretli ama public property —
-  // LiveKit GitHub #1293'te önerilen yaklaşım budur.
+  // RTT polling: try signaling RTT first, fall back to WebRTC stats ICE candidate-pair
   useEffect(() => {
     if (room.state !== ConnectionState.Connected) return;
     let cancelled = false;
@@ -300,14 +199,12 @@ function VoiceStateManager() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const engine = (room as any).engine;
 
-        // Katman 1: Signaling RTT (hızlı, senkron okuma)
         const signalRtt = engine?.client?.rtt as number | undefined;
         if (typeof signalRtt === "number" && signalRtt > 0) {
           useVoiceStore.getState().setRtt(Math.round(signalRtt));
           return;
         }
 
-        // Katman 2: WebRTC stats RTT (async, daha güvenilir fallback)
         const pc = engine?.pcManager?.subscriber?.pc as RTCPeerConnection | undefined;
         if (!pc) return;
         const stats = await pc.getStats();
@@ -324,11 +221,10 @@ function VoiceStateManager() {
           }
         });
       } catch {
-        // engine/client henüz hazır değilse sessizce geç
+        // engine/client not ready yet
       }
     }
 
-    // Hemen bir kez kontrol et, sonra 3sn aralıkla poll et.
     pollRtt();
     const interval = setInterval(pollRtt, 3000);
 
@@ -338,26 +234,14 @@ function VoiceStateManager() {
     };
   }, [room, room.state]);
 
-  // ─── Speaking detection → store (sidebar için) ───
-  //
-  // VoiceParticipant (voice room panel): useIsSpeaking hook'u + hold timer kullanır.
-  // ChannelTree (sidebar): LiveKit context dışında → store'dan okur.
-  //
-  // Store güncelleme:
-  // - Remote speakers: ActiveSpeakersChanged SFU event'i
-  // - Local speaker: localParticipant.isSpeaking polling (150ms interval)
-  //
-  // Hold timer: Her speaker için 300ms debounce — konuşma bittiğinde hemen
-  // store'dan silmek yerine 300ms bekler. Bu sürede tekrar konuşursa timer
-  // iptal edilir. VoiceParticipant'taki hold timer ile aynı mantık —
-  // sidebar'daki speaking indicator'ın da yanıp sönmesini önler.
+  // Speaking detection -> store (for sidebar outside LiveKit context).
+  // 300ms hold timer prevents flickering on speech pauses.
   useEffect(() => {
     const HOLD_MS = 300;
     const setActiveSpeakers = useVoiceStore.getState().setActiveSpeakers;
 
-    // Her speaker için: gerçekte konuşuyor mu (raw) + hold timer sonrası durumu (held)
-    const heldSpeakers = new Map<string, boolean>(); // identity → held speaking state
-    const holdTimers = new Map<string, number>(); // identity → setTimeout id
+    const heldSpeakers = new Map<string, boolean>();
+    const holdTimers = new Map<string, number>();
 
     function updateStore() {
       const ids: string[] = [];
@@ -367,10 +251,8 @@ function VoiceStateManager() {
       setActiveSpeakers(ids);
     }
 
-    /** Bir speaker'ın raw speaking durumunu set et — hold timer ile debounce */
     function setSpeakerRaw(identity: string, speaking: boolean) {
       if (speaking) {
-        // Konuşma başladı — bekleyen timer'ı iptal et, hemen göster
         const existing = holdTimers.get(identity);
         if (existing) {
           clearTimeout(existing);
@@ -381,12 +263,9 @@ function VoiceStateManager() {
           updateStore();
         }
       } else {
-        // Konuşma durdu — hold süresi bekle
         if (heldSpeakers.get(identity) && !holdTimers.has(identity)) {
           const timerId = window.setTimeout(() => {
             holdTimers.delete(identity);
-            // Entry'yi tamamen sil — false olarak bırakmak uzun oturumlarda
-            // Map'in stale entry'lerle büyümesine neden olur.
             heldSpeakers.delete(identity);
             updateStore();
           }, HOLD_MS);
@@ -395,32 +274,25 @@ function VoiceStateManager() {
       }
     }
 
-    // Remote speakers: SFU event
     function handleActiveSpeakers(speakers: Participant[]) {
       const activeSpeakerIds = new Set(speakers.map((s) => s.identity));
 
-      // Yeni konuşanları işaretle
       for (const s of speakers) {
         if (s.identity !== localParticipant.identity) {
           setSpeakerRaw(s.identity, true);
         }
       }
-      // Artık konuşmayan remote'ları işaretle
       heldSpeakers.forEach((_speaking, identity) => {
         if (identity !== localParticipant.identity && !activeSpeakerIds.has(identity)) {
           setSpeakerRaw(identity, false);
         }
       });
 
-      // SFU event geldiğinde local state'i de kontrol et
       setSpeakerRaw(localParticipant.identity, localParticipant.isSpeaking);
     }
 
     room.on(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakers);
 
-    // Local speaker: event-driven — IsSpeakingChanged event'ini dinle.
-    // 150ms polling yerine event kullanmak ~250ms gecikmeyi ~100ms'e düşürür
-    // ve gereksiz CPU kullanımını önler (saniyede 6-7 poll → 0).
     function handleLocalSpeaking(speaking: boolean) {
       setSpeakerRaw(localParticipant.identity, speaking);
     }
@@ -429,7 +301,6 @@ function VoiceStateManager() {
     return () => {
       room.off(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakers);
       localParticipant.off(ParticipantEvent.IsSpeakingChanged, handleLocalSpeaking);
-      // Tüm hold timer'ları temizle
       holdTimers.forEach((timerId) => clearTimeout(timerId));
       holdTimers.clear();
       heldSpeakers.clear();
@@ -437,20 +308,15 @@ function VoiceStateManager() {
     };
   }, [room, localParticipant]);
 
-  // ─── inputMode değiştiğinde mic state güncelle ───
-  // Kullanıcı voice settings'ten mod değiştirdiğinde:
-  // - PTT'ye geçiş: mic kapat (tuş basılmadıkça kapalı)
-  // - Voice activity'ye geçiş: store'daki isMuted'a göre mic aç/kapat
+  // Sync inputMode changes: PTT -> mic off, voice activity -> restore isMuted
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
     if (inputMode === "push_to_talk") {
-      // PTT moduna geçildi → mic kapat
       localParticipant.setMicrophoneEnabled(false).catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to mute on PTT switch:", err);
       });
     } else {
-      // Voice activity moduna geçildi → store'daki isMuted'a göre ayarla
       const currentMuted = useVoiceStore.getState().isMuted;
       localParticipant.setMicrophoneEnabled(!currentMuted).catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to restore mic on VA switch:", err);
@@ -458,50 +324,27 @@ function VoiceStateManager() {
     }
   }, [inputMode, localParticipant]);
 
-  // ─── Volume senkronizasyonu ───
-  // Per-user volume, master volume ve deafen durumunu LiveKit'in
-  // RemoteParticipant.setVolume() API'si ile senkronize eder.
-  //
-  // webAudioMix: true (VoiceRoom'da set edildi) ile LiveKit kendi
-  // AudioContext + GainNode pipeline'ını yönetir. setVolume(n):
-  //   n=0   → mute
-  //   n=1   → normal (%100)
-  //   n=2   → amplification (%200)
-  //
-  // GainNode.gain üst sınırı yok, bu yüzden per-user 200% amplification
-  // mümkün. webAudioMix olmadan setVolume HTMLMediaElement.volume kullanır
-  // ki 0-1 aralığıyla sınırlıdır ve >1 değerlerde hata fırlatır.
+  // Volume sync: per-user + master + deafen -> RemoteParticipant.setVolume()
+  // Requires webAudioMix: true for >100% amplification via GainNode.
 
-  // volumeRef — TrackSubscribed event handler'ı için latest ref pattern.
-  // Effect dependency'si olarak kullanmadan güncel volume state'ine erişim sağlar.
-  // Bu sayede TrackSubscribed listener sadece [room] değiştiğinde yeniden kurulur,
-  // her volume değişikliğinde değil (gereksiz add/remove listener önlenir).
+  // Latest-ref for volume state — avoids re-registering TrackSubscribed listener on every change
   const volumeRef = useRef({ userVolumes, screenShareVolumes, masterVolume, isDeafened });
   volumeRef.current = { userVolumes, screenShareVolumes, masterVolume, isDeafened };
 
-  // Mevcut katılımcılara volume uygula — store state değiştiğinde tetiklenir.
-  // Dual-source: mic ve screen share audio ayrı ayrı set edilir.
-  // LiveKit'in setVolume(vol, source) API'si source parametresiyle
-  // hangi track tipine volume uygulanacağını belirler.
   useEffect(() => {
     room.remoteParticipants.forEach((participant) => {
       const masterFactor = masterVolume / 100;
 
-      // Mic volume
       const micVol = userVolumes[participant.identity] ?? 100;
       const effectiveMic = isDeafened ? 0 : (micVol / 100) * masterFactor;
       participant.setVolume(effectiveMic, Track.Source.Microphone);
 
-      // Screen share audio volume — bağımsız kontrol
       const ssVol = screenShareVolumes[participant.identity] ?? 100;
       const effectiveSS = isDeafened ? 0 : (ssVol / 100) * masterFactor;
       participant.setVolume(effectiveSS, Track.Source.ScreenShareAudio);
     });
   }, [userVolumes, screenShareVolumes, masterVolume, isDeafened, room]);
 
-  // ─── Helper: Tek bir participant'a stored volume uygula ───
-  // Birden fazla event handler'da kullanıldığı için ayrı fonksiyon.
-  // Dual-source: hem mic hem screen share audio volume'u ayrı ayrı set edilir.
   const applyVolumeToParticipant = useCallback(
     (participant: RemoteParticipant) => {
       const {
@@ -512,12 +355,10 @@ function VoiceStateManager() {
       } = volumeRef.current;
       const masterFactor = master / 100;
 
-      // Mic
       const micVol = vols[participant.identity] ?? 100;
       const effectiveMic = deaf ? 0 : (micVol / 100) * masterFactor;
       participant.setVolume(effectiveMic, Track.Source.Microphone);
 
-      // Screen share audio
       const ssVol = ssVols[participant.identity] ?? 100;
       const effectiveSS = deaf ? 0 : (ssVol / 100) * masterFactor;
       participant.setVolume(effectiveSS, Track.Source.ScreenShareAudio);
@@ -525,26 +366,17 @@ function VoiceStateManager() {
     []
   );
 
-  // Yeni participant track subscribe olduğunda volume uygula.
-  // Mevcut katılımcılar yukarıdaki effect ile ele alınır, ama yeni
-  // katılımcılar room.remoteParticipants'a eklenince effect tetiklenmez
-  // (room referansı değişmez). Bu listener yeni track'lere volume atar.
-  //
-  // Ayrıca kısa delay ile retry yapılır — LiveKit webAudioMix pipeline'ı
-  // TrackSubscribed anında henüz hazır olmayabilir, setVolume() etkisiz kalır.
+  // Apply volume when new tracks are subscribed.
+  // Retry after 300ms — webAudioMix pipeline may not be ready at subscribe time.
   useEffect(() => {
     function handleTrackSubscribed(
       _track: RemoteTrack,
       _publication: RemoteTrackPublication,
       participant: RemoteParticipant
     ): void {
-      // Sadece audio track'ler için volume uygula
       if (_track.kind !== Track.Kind.Audio) return;
 
-      // Hemen uygula
       applyVolumeToParticipant(participant);
-
-      // WebAudio pipeline hazır olduktan sonra tekrar uygula (race condition fix)
       setTimeout(() => applyVolumeToParticipant(participant), 300);
     }
 
@@ -555,14 +387,9 @@ function VoiceStateManager() {
     };
   }, [room, applyVolumeToParticipant]);
 
-  // ─── Participant reconnect'te volume uygula ───
-  // Kullanıcı bağlantıyı koparıp yeniden bağlandığında yeni RemoteParticipant
-  // nesnesi oluşur. room referansı değişmez → volume effect tetiklenmez.
-  // ParticipantConnected event'i yeni katılımcıyı yakalar ve stored volume'u atar.
+  // Apply volume on participant reconnect (new RemoteParticipant object)
   useEffect(() => {
     function handleParticipantConnected(participant: RemoteParticipant) {
-      // Audio track henüz subscribe olmamış olabilir, ama participant nesnesi
-      // hazır. Kısa delay ile WebAudio pipeline'ın kurulmasını bekle.
       setTimeout(() => applyVolumeToParticipant(participant), 500);
     }
 
@@ -573,39 +400,26 @@ function VoiceStateManager() {
     };
   }, [room, applyVolumeToParticipant]);
 
-  // ─── Audio Processor yönetimi (Noise Reduction + VAD Gate) ───
-  //
-  // Discord'daki gibi mic sensitivity noise reduction'dan bağımsız çalışır:
-  // - NR ON                    → RNNoiseProcessor (ML denoising + VAD gate)
-  // - NR OFF + sensitivity<100 → VadGateProcessor (sadece enerji tabanlı gate)
-  // - NR OFF + sensitivity=100 → processor yok (her şey geçer)
-  //
-  // Tek bir effect her iki ayarı da dinler ve doğru processor'ı seçer.
-  // Processor değişimi: mevcut processor stop → yeni processor apply.
+  // Audio processor management: NR on -> RNNoise, NR off + sens<100 -> VadGate, else none
   const processorRef = useRef<AudioProcessor | null>(null);
   const noiseReductionRef = useRef(noiseReduction);
   noiseReductionRef.current = noiseReduction;
   const micSensitivityRef = useRef(micSensitivity);
   micSensitivityRef.current = micSensitivity;
 
-  /**
-   * Hangi processor türünün gerektiğini belirler.
-   * "rnnoise" → RNNoiseProcessor, "vadgate" → VadGateProcessor, "none" → yok
-   */
   function getDesiredProcessor(nr: boolean, sens: number): "rnnoise" | "vadgate" | "none" {
     if (nr) return "rnnoise";
     if (sens < 100) return "vadgate";
     return "none";
   }
 
-  /** Aktif processor'ın türünü döndürür */
   function getCurrentProcessorType(): "rnnoise" | "vadgate" | "none" {
     if (!processorRef.current) return "none";
     if (processorRef.current instanceof RNNoiseProcessor) return "rnnoise";
     return "vadgate";
   }
 
-  // noiseReduction veya micSensitivity değiştiğinde doğru processor'ı seç
+  // Switch processor when noiseReduction or micSensitivity changes
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
@@ -616,7 +430,6 @@ function VoiceStateManager() {
     const desired = getDesiredProcessor(noiseReduction, micSensitivity);
     const current = getCurrentProcessorType();
 
-    // Aynı tür zaten aktifse sadece sensitivity güncelle
     if (desired === current) {
       if (processorRef.current && desired !== "none") {
         processorRef.current.setMicSensitivity(micSensitivity);
@@ -629,7 +442,6 @@ function VoiceStateManager() {
     async function switchProcessor() {
       if (cancelled) return;
 
-      // Mevcut processor'ı kaldır
       if (processorRef.current) {
         await audioTrack!.stopProcessor();
         processorRef.current = null;
@@ -638,7 +450,6 @@ function VoiceStateManager() {
 
       if (cancelled) return;
 
-      // Yeni processor oluştur ve uygula
       if (desired === "rnnoise") {
         const processor = new RNNoiseProcessor(micSensitivity);
         processorRef.current = processor;
@@ -650,7 +461,6 @@ function VoiceStateManager() {
         await audioTrack!.setProcessor(processor);
         console.log("[VoiceStateManager] Standalone VAD gate processor applied");
       }
-      // desired === "none" → processor yok, her şey geçer
     }
 
     switchProcessor().catch((err) => {
@@ -662,14 +472,12 @@ function VoiceStateManager() {
     return () => { cancelled = true; };
   }, [noiseReduction, micSensitivity, localParticipant]);
 
-  // Mic track publish olduğunda: gerekli processor'ı uygula.
-  // Voice'a katılırken ayarlar zaten aktifse, mic track ilk publish edildiğinde
-  // processor otomatik uygulanır. Yukarıdaki effect bu durumu yakalayamaz
-  // çünkü noiseReduction/micSensitivity değeri değişmemiştir.
+  // Apply processor when mic track is first published (settings already active on join).
+  // The effect above won't catch this since noiseReduction/micSensitivity haven't changed.
   useEffect(() => {
     function handleLocalTrackPublished(pub: LocalTrackPublication) {
       if (pub.source !== Track.Source.Microphone) return;
-      if (processorRef.current) return; // Zaten uygulanmış
+      if (processorRef.current) return; // already applied
 
       const desired = getDesiredProcessor(noiseReductionRef.current, micSensitivityRef.current);
       if (desired === "none") return;
@@ -696,16 +504,14 @@ function VoiceStateManager() {
     };
   }, [room]);
 
-  // ─── Screen share subscription kontrolü ───
-  //
-  // autoSubscribe: true kalır (ses track'leri otomatik subscribe olur).
-  // Screen share (video + audio) track'leri ise VoiceStateManager tarafından
-  // kontrol edilir: publish edildiğinde hemen unsubscribe, kullanıcı
-  // sidebar'dan tıklayınca subscribe.
-  //
-  // Effect A: TrackPublished → yeni screen share track'i auto-subscribe'ı engelle.
-  // RoomEvent.TrackPublished, autoSubscribe'dan ÖNCE tetiklenir —
-  // setSubscribed(false) çağrılınca SDK subscribe talebini iptal eder.
+  // Screen share subscription control.
+  // autoSubscribe stays true (audio tracks auto-subscribe).
+  // Screen share tracks are manually controlled: unsubscribe on publish,
+  // subscribe when user clicks in sidebar.
+
+  // Effect A: Unsubscribe newly published screen share tracks.
+  // RoomEvent.TrackPublished fires BEFORE autoSubscribe —
+  // setSubscribed(false) cancels the SDK subscribe request.
   useEffect(() => {
     function handleTrackPublished(
       publication: RemoteTrackPublication,
@@ -728,14 +534,7 @@ function VoiceStateManager() {
     };
   }, [room]);
 
-  // Effect B: watchingScreenShares değiştiğinde subscribe/unsubscribe.
-  // Kullanıcı sidebar'daki yayın ikonuna tıkladığında store güncellenir →
-  // bu effect tetiklenir → ilgili remote participant'ın screen share track'lerine
-  // subscribe (izle) veya unsubscribe (bırak) yapılır.
-  //
-  // Local participant'ın track'leri burada YOK — room.remoteParticipants
-  // sadece remote'ları döndürür. Local yayın preview'i ScreenShareView'de
-  // UI filtresi ile kontrol edilir (subscription gerekmez).
+  // Effect B: Subscribe/unsubscribe when watchingScreenShares changes.
   useEffect(() => {
     room.remoteParticipants.forEach((participant) => {
       const watching = watchingScreenShares[participant.identity] ?? false;
@@ -751,7 +550,6 @@ function VoiceStateManager() {
     });
   }, [watchingScreenShares, room]);
 
-  // Görsel çıktısı yok — sadece side-effect'ler
   return null;
 }
 
