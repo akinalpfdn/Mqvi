@@ -286,8 +286,8 @@ function LiveKitTab() {
         </div>
       </div>
 
-      {/* ── Sağ Panel: Form ── */}
-      <div className="settings-content channel-settings-right">
+      {/* ── Sağ Panel: Form + Monitoring ── */}
+      <div className="channel-settings-right" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
         {isCreating ? (
           <CreateForm
             t={t}
@@ -306,28 +306,35 @@ function LiveKitTab() {
             onCancel={() => setIsCreating(false)}
           />
         ) : selectedInstance ? (
-          <EditForm
-            t={t}
-            instance={selectedInstance}
-            formUrl={formUrl}
-            setFormUrl={setFormUrl}
-            formApiKey={formApiKey}
-            setFormApiKey={setFormApiKey}
-            formApiSecret={formApiSecret}
-            setFormApiSecret={setFormApiSecret}
-            formMaxServers={formMaxServers}
-            setFormMaxServers={setFormMaxServers}
-            formHetznerServerID={formHetznerServerID}
-            setFormHetznerServerID={setFormHetznerServerID}
-            isSaving={isSaving}
-            onSave={handleUpdate}
-            onDelete={handleDelete}
-            migrateTargetId={migrateTargetId}
-            setMigrateTargetId={setMigrateTargetId}
-            otherInstances={instances.filter(
-              (i) => i.id !== selectedInstance.id
-            )}
-          />
+          <div className="lk-edit-layout">
+            <div className="lk-edit-form">
+              <EditForm
+                t={t}
+                instance={selectedInstance}
+                formUrl={formUrl}
+                setFormUrl={setFormUrl}
+                formApiKey={formApiKey}
+                setFormApiKey={setFormApiKey}
+                formApiSecret={formApiSecret}
+                setFormApiSecret={setFormApiSecret}
+                formMaxServers={formMaxServers}
+                setFormMaxServers={setFormMaxServers}
+                formHetznerServerID={formHetznerServerID}
+                setFormHetznerServerID={setFormHetznerServerID}
+                isSaving={isSaving}
+                onSave={handleUpdate}
+                onDelete={handleDelete}
+                migrateTargetId={migrateTargetId}
+                setMigrateTargetId={setMigrateTargetId}
+                otherInstances={instances.filter(
+                  (i) => i.id !== selectedInstance.id
+                )}
+              />
+            </div>
+            <div className="lk-edit-monitoring">
+              <MetricsPanel instanceId={selectedInstance.id} t={t} />
+            </div>
+          </div>
         ) : (
           <div className="no-channel">
             {t("platformNoInstanceSelected")}
@@ -615,9 +622,6 @@ function EditForm({
         </button>
       </div>
 
-      {/* ── Metrics Panel ── */}
-      <MetricsPanel instanceId={instance.id} t={t} />
-
       {/* ── Danger Zone ── */}
       <div className="dz-separator" />
       <div className="dz-section">
@@ -741,7 +745,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
 
   return (
     <>
-      <div className="dz-separator" />
       <div className="metrics-section">
         <div className="metrics-header">
           <h2 className="settings-section-title">{t("platformMetrics")}</h2>
@@ -1017,22 +1020,22 @@ function MetricsChart({ data, period, isLoading, t }: MetricsChartProps) {
           <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#e53e3e" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#e53e3e" stopOpacity={0} />
+                <stop offset="5%" stopColor="var(--red)" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="var(--red)" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+            <CartesianGrid stroke="var(--b1)" strokeDasharray="3 3" />
             <XAxis
               dataKey="ts"
               tickFormatter={(v: string) => formatXAxis(v, period)}
-              tick={{ fill: "var(--color-text-muted)", fontSize: 13 }}
+              tick={{ fill: "var(--t2)", fontSize: 13 }}
               axisLine={false}
               tickLine={false}
               minTickGap={40}
             />
             <YAxis
               tickFormatter={(v: number) => `${v.toFixed(0)}%`}
-              tick={{ fill: "var(--color-text-muted)", fontSize: 13 }}
+              tick={{ fill: "var(--t2)", fontSize: 13 }}
               axisLine={false}
               tickLine={false}
               width={45}
@@ -1042,11 +1045,11 @@ function MetricsChart({ data, period, isLoading, t }: MetricsChartProps) {
             <Area
               type="monotone"
               dataKey="cpu_pct"
-              stroke="#e53e3e"
+              stroke="var(--red)"
               fill="url(#cpuGrad)"
               strokeWidth={2}
               dot={false}
-              activeDot={{ r: 3, fill: "#e53e3e" }}
+              activeDot={{ r: 3, fill: "var(--red)" }}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -1059,26 +1062,26 @@ function MetricsChart({ data, period, isLoading, t }: MetricsChartProps) {
           <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="bwInGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#d4a017" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#d4a017" stopOpacity={0} />
+                <stop offset="5%" stopColor="var(--yellow)" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="var(--yellow)" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="bwOutGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#e53e3e" stopOpacity={0.15} />
-                <stop offset="95%" stopColor="#e53e3e" stopOpacity={0} />
+                <stop offset="5%" stopColor="var(--red)" stopOpacity={0.15} />
+                <stop offset="95%" stopColor="var(--red)" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+            <CartesianGrid stroke="var(--b1)" strokeDasharray="3 3" />
             <XAxis
               dataKey="ts"
               tickFormatter={(v: string) => formatXAxis(v, period)}
-              tick={{ fill: "var(--color-text-muted)", fontSize: 13 }}
+              tick={{ fill: "var(--t2)", fontSize: 13 }}
               axisLine={false}
               tickLine={false}
               minTickGap={40}
             />
             <YAxis
               tickFormatter={(v: number) => formatBps(v)}
-              tick={{ fill: "var(--color-text-muted)", fontSize: 13 }}
+              tick={{ fill: "var(--t2)", fontSize: 13 }}
               axisLine={false}
               tickLine={false}
               width={55}
@@ -1096,20 +1099,20 @@ function MetricsChart({ data, period, isLoading, t }: MetricsChartProps) {
             <Area
               type="monotone"
               dataKey="bw_in"
-              stroke="#d4a017"
+              stroke="var(--yellow)"
               fill="url(#bwInGrad)"
               strokeWidth={2}
               dot={false}
-              activeDot={{ r: 3, fill: "#d4a017" }}
+              activeDot={{ r: 3, fill: "var(--yellow)" }}
             />
             <Area
               type="monotone"
               dataKey="bw_out"
-              stroke="#e53e3e"
+              stroke="var(--red)"
               fill="url(#bwOutGrad)"
               strokeWidth={1.5}
               dot={false}
-              activeDot={{ r: 3, fill: "#e53e3e" }}
+              activeDot={{ r: 3, fill: "var(--red)" }}
             />
           </AreaChart>
         </ResponsiveContainer>

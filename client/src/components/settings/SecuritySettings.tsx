@@ -149,7 +149,9 @@ function SecuritySettings() {
           onChange={(e) => setNewEmail(e.target.value)}
           placeholder={t("emailPlaceholder")}
           className="settings-input"
-          autoComplete="email"
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
         />
       </div>
 
@@ -165,7 +167,9 @@ function SecuritySettings() {
           onChange={(e) => setEmailPassword(e.target.value)}
           placeholder={t("emailPasswordPlaceholder")}
           className="settings-input"
-          autoComplete="current-password"
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
         />
         <p className="settings-hint">{t("emailPasswordRequired")}</p>
       </div>
@@ -211,7 +215,9 @@ function SecuritySettings() {
           onChange={(e) => setCurrentPassword(e.target.value)}
           placeholder={t("currentPasswordPlaceholder")}
           className="settings-input"
-          autoComplete="current-password"
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
         />
       </div>
 

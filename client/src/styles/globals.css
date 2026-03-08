@@ -896,6 +896,22 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .avatar-upload-overlay { position:absolute;inset:0;border-radius:inherit;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;font-size:13px;color:#fff; }
 .avatar-upload:hover .avatar-upload-overlay { opacity:1; }
 
+/* ── Crop Modal ── */
+.crop-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999; }
+.crop-modal { background:var(--bg1);border-radius:12px;width:500px;max-width:90vw;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,0.4); }
+.crop-modal-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px; }
+.crop-modal-title { font-size:18px;font-weight:700;color:var(--t0);margin:0; }
+.crop-modal-close { background:none;border:none;color:var(--t2);cursor:pointer;padding:4px;border-radius:6px;display:flex;align-items:center;justify-content:center; }
+.crop-modal-close:hover { color:var(--t0);background:var(--bg3); }
+.crop-modal-canvas { position:relative;width:100%;height:360px;background:var(--bg0); }
+.crop-modal-controls { display:flex;align-items:center;gap:10px;padding:12px 20px;color:var(--t3); }
+.crop-modal-slider { flex:1;appearance:none;height:4px;background:var(--bg3);border-radius:2px;outline:none;cursor:pointer; }
+.crop-modal-slider::-webkit-slider-thumb { appearance:none;width:16px;height:16px;border-radius:999px;background:var(--primary);cursor:pointer;border:2px solid var(--bg1); }
+.crop-modal-footer { display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--bg3); }
+.crop-modal-reset { background:none;border:none;color:var(--primary);cursor:pointer;font-size:14px;font-weight:600;padding:0; }
+.crop-modal-reset:hover { text-decoration:underline; }
+.crop-modal-actions { display:flex;gap:8px; }
+
 /* Color picker */
 .color-picker { display:grid;grid-template-columns:repeat(10,1fr);gap:4px;max-width:280px; }
 .color-swatch { width:24px;height:24px;border-radius:999px;cursor:pointer;border:2px solid transparent;transition:border-color .1s; }
@@ -926,6 +942,12 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .platform-instance-item { flex-direction:column;align-items:flex-start;gap:2px;padding:8px; }
 .platform-instance-capacity { font-size:13px;color:var(--t3); }
 .role-list-item.active .platform-instance-capacity { color:var(--t2); }
+
+/* ── LiveKit Edit Layout — form (sol) + monitoring (sağ) ── */
+.settings-content:has(.lk-edit-layout) { max-width:none; }
+.lk-edit-layout { display:flex;height:100%;min-height:0; }
+.lk-edit-form { width:400px;min-width:400px;overflow-y:auto;padding:24px 20px 24px 24px;border-right:1px solid var(--bg3); }
+.lk-edit-monitoring { flex:1;min-width:0;overflow-y:auto;padding:24px; }
 
 /* ── Metrics Panel — LiveKit Prometheus monitoring ── */
 .metrics-section { margin-top:8px; }
@@ -1378,7 +1400,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   background:var(--bg-3);flex-shrink:0;
 }
 .member-settings-avatar-lg { width:56px;height:56px;border-width:3px; }
-.member-settings-avatar-img { width:100%;height:100%;object-fit:cover; }
+.member-settings-avatar-img { width:100%;height:100%;object-fit:cover;border-radius:inherit; }
 .member-settings-avatar-fallback { font-size:14px;font-weight:600;color:var(--t0); }
 .member-settings-avatar-lg .member-settings-avatar-fallback { font-size:22px; }
 .member-settings-info { display:flex;flex-direction:column;overflow:hidden;min-width:0; }

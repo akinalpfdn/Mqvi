@@ -33,7 +33,7 @@ function getGradientClass(role?: "admin" | "mod" | null): string {
   }
 }
 
-function Avatar({ name, role, avatarUrl, size = 30, isCircle = false }: AvatarProps) {
+function Avatar({ name, role, avatarUrl, size = 30, isCircle = true }: AvatarProps) {
   const roundClass = isCircle ? "avatar avatar-round" : "avatar";
   const fontSize = size * 0.37;
 

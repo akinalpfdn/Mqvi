@@ -1,15 +1,17 @@
 /**
  * AvatarUpload — Kullanıcı avatar veya sunucu ikon yükleme bileşeni.
  *
- * CSS class'ları: .avatar-upload, .avatar-upload-overlay
+ * Dosya seçildiğinde crop modal açılır — kullanıcı zoom/pan ile
+ * dairesel (avatar) veya kare (sunucu ikonu) crop yapabilir.
+ * "Uygula" tıklandığında canvas üzerinde kırpılmış blob onUpload'a gönderilir.
  *
- * Tek bileşen iki kullanım:
- * - isCircle=true: Yuvarlak kullanıcı avatarı
- * - isCircle=false: Köşeli sunucu ikonu
+ * CSS class'ları: .avatar-upload, .avatar-upload-overlay, .crop-modal-*
  */
 
-import { useRef, useState } from "react";
+import { useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import Cropper from "react-easy-crop";
+import type { Area } from "react-easy-crop";
 import { resolveAssetUrl } from "../../utils/constants";
 
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/gif,image/webp";
@@ -34,25 +36,65 @@ function AvatarUpload({
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Crop modal state
+  const [cropImage, setCropImage] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+
   const firstLetter = fallbackText.charAt(0).toUpperCase();
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > MAX_FILE_SIZE) {
-      return;
+    if (file.size > MAX_FILE_SIZE) return;
+
+    // Dosyayı data URL olarak oku ve crop modal aç
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropImage(reader.result as string);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setCroppedAreaPixels(null);
+    };
+    reader.readAsDataURL(file);
+
+    // Input'u temizle (aynı dosyayı tekrar seçebilmek için)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
+  }
+
+  const onCropComplete = useCallback((_: Area, areaPixels: Area) => {
+    setCroppedAreaPixels(areaPixels);
+  }, []);
+
+  async function handleApply() {
+    if (!cropImage || !croppedAreaPixels) return;
 
     setIsUploading(true);
     try {
+      const croppedBlob = await getCroppedImage(cropImage, croppedAreaPixels, isCircle);
+      if (!croppedBlob) return;
+
+      const file = new File([croppedBlob], "avatar.png", { type: "image/png" });
       await onUpload(file);
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      setCropImage(null);
     }
+  }
+
+  function handleCancel() {
+    setCropImage(null);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+  }
+
+  function handleReset() {
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
   }
 
   return (
@@ -119,8 +161,131 @@ function AvatarUpload({
         onChange={handleFileChange}
         style={{ display: "none" }}
       />
+
+      {/* ── Crop Modal ── */}
+      {cropImage && (
+        <div className="crop-modal-backdrop" onClick={handleCancel}>
+          <div className="crop-modal" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="crop-modal-header">
+              <h3 className="crop-modal-title">{t("cropModalTitle")}</h3>
+              <button className="crop-modal-close" onClick={handleCancel}>
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Crop area */}
+            <div className="crop-modal-canvas">
+              <Cropper
+                image={cropImage}
+                crop={crop}
+                zoom={zoom}
+                aspect={1}
+                cropShape={isCircle ? "round" : "rect"}
+                showGrid={false}
+                onCropChange={setCrop}
+                onCropComplete={onCropComplete}
+                onZoomChange={setZoom}
+              />
+            </div>
+
+            {/* Controls */}
+            <div className="crop-modal-controls">
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+              </svg>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.01}
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                className="crop-modal-slider"
+              />
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+              </svg>
+            </div>
+
+            {/* Footer */}
+            <div className="crop-modal-footer">
+              <button className="crop-modal-reset" onClick={handleReset}>
+                {t("cropModalReset")}
+              </button>
+              <div className="crop-modal-actions">
+                <button className="settings-btn settings-btn-secondary" onClick={handleCancel}>
+                  {t("cancel")}
+                </button>
+                <button
+                  className="settings-btn"
+                  onClick={handleApply}
+                  disabled={isUploading}
+                >
+                  {isUploading ? t("saving") : t("cropModalApply")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * Canvas üzerinde kırpılmış resmi oluşturur.
+ * isCircle=true ise dairesel clip mask uygulanır.
+ */
+async function getCroppedImage(
+  imageSrc: string,
+  pixelCrop: Area,
+  isCircle: boolean
+): Promise<Blob | null> {
+  const image = await createImage(imageSrc);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const size = Math.max(pixelCrop.width, pixelCrop.height);
+  canvas.width = size;
+  canvas.height = size;
+
+  if (isCircle) {
+    // Dairesel clip mask
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+  }
+
+  ctx.drawImage(
+    image,
+    pixelCrop.x,
+    pixelCrop.y,
+    pixelCrop.width,
+    pixelCrop.height,
+    0,
+    0,
+    size,
+    size
+  );
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/png", 1);
+  });
+}
+
+function createImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.addEventListener("load", () => resolve(img));
+    img.addEventListener("error", (e) => reject(e));
+    img.crossOrigin = "anonymous";
+    img.src = url;
+  });
 }
 
 export default AvatarUpload;

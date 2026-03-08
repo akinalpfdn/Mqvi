@@ -121,7 +121,7 @@ function InviteJoinPage() {
                     className="invite-join-img"
                   />
                 ) : (
-                  <Avatar name={preview.server_name} size={56} />
+                  <Avatar name={preview.server_name} size={56} isCircle={false} />
                 )}
               </div>
               <div className="invite-join-info">
