@@ -26,6 +26,13 @@ type BadgeState = {
     color1: string;
     color2: string | null;
   }) => Promise<Badge | null>;
+  updateBadge: (badgeId: string, body: {
+    name: string;
+    icon: string;
+    icon_type: "builtin" | "custom";
+    color1: string;
+    color2: string | null;
+  }) => Promise<Badge | null>;
   deleteBadge: (badgeId: string) => Promise<boolean>;
   assignBadge: (badgeId: string, userId: string) => Promise<UserBadge | null>;
   unassignBadge: (badgeId: string, userId: string) => Promise<boolean>;
@@ -53,6 +60,27 @@ export const useBadgeStore = create<BadgeState>((set) => ({
     if (res.success && res.data) {
       set((s) => ({ badges: [res.data!, ...s.badges] }));
       return res.data;
+    }
+    return null;
+  },
+
+  updateBadge: async (badgeId, body) => {
+    const res = await badgeApi.updateBadge(badgeId, body);
+    if (res.success && res.data) {
+      const updated = res.data;
+      set((s) => ({
+        badges: s.badges.map((b) => (b.id === badgeId ? updated : b)),
+        // Update nested badge in all userBadgesMap entries
+        userBadgesMap: Object.fromEntries(
+          Object.entries(s.userBadgesMap).map(([uid, ubs]) => [
+            uid,
+            ubs.map((ub) =>
+              ub.badge_id === badgeId ? { ...ub, badge: updated } : ub
+            ),
+          ])
+        ),
+      }));
+      return updated;
     }
     return null;
   },

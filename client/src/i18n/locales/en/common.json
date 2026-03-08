@@ -133,5 +133,8 @@
   "badgeColor": "Color",
   "badgeGradient": "Use gradient",
   "badgeColorStart": "Start Color",
-  "badgeColorEnd": "End Color"
+  "badgeColorEnd": "End Color",
+  "badgeEditTitle": "Edit Badge",
+  "badgeSave": "Save Changes",
+  "badgeDeleteConfirm": "Are you sure you want to delete the badge \"{{name}}\"? This will remove it from all users."
 }

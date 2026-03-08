@@ -133,5 +133,8 @@
   "badgeColor": "Renk",
   "badgeGradient": "Geçişli renk kullan",
   "badgeColorStart": "Başlangıç Rengi",
-  "badgeColorEnd": "Bitiş Rengi"
+  "badgeColorEnd": "Bitiş Rengi",
+  "badgeEditTitle": "Rozeti Düzenle",
+  "badgeSave": "Değişiklikleri Kaydet",
+  "badgeDeleteConfirm": "\"{{name}}\" rozetini silmek istediğinize emin misiniz? Bu rozet tüm kullanıcılardan kaldırılacak."
 }

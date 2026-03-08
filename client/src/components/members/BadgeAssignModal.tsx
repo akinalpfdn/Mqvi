@@ -1,12 +1,14 @@
 /**
- * BadgeAssignModal — Two-screen modal for badge management.
+ * BadgeAssignModal — Three-screen modal for badge management.
  *
  * Screen 1 (Assign): Shows existing badge templates in a grid. Click to assign/unassign.
  *   Already-assigned badges are highlighted. Max 3 per user enforced.
+ *   Each badge card has delete (top-left) and edit (bottom-left) buttons.
  *   "+ Create New Badge" button switches to Screen 2.
  *
- * Screen 2 (Create): Name input, icon picker (built-in SVG grid OR custom upload),
- *   color picker (solid or gradient), live preview pill, Create button.
+ * Screen 2 (Create/Edit): Name input, icon picker (built-in SVG grid OR custom upload),
+ *   color picker (solid or gradient), live preview pill, Create/Save button.
+ *   Reused for both creating new badges and editing existing ones.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -14,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import Modal from "../shared/Modal";
 import { useBadgeStore } from "../../stores/badgeStore";
 import { BADGE_ICONS, getBadgeIcon } from "../../utils/badgeIcons";
+import { useConfirm } from "../../hooks/useConfirm";
 import * as badgeApi from "../../api/badges";
 import type { MemberWithRoles, Badge } from "../../types";
 
@@ -32,11 +35,12 @@ type BadgeAssignModalProps = {
   onClose: () => void;
 };
 
-type Screen = "assign" | "create";
+type Screen = "assign" | "editor";
 type IconTab = "builtin" | "custom";
 
 function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
   const { t } = useTranslation("common");
+  const confirm = useConfirm();
   const displayName = member.display_name ?? member.username;
 
   const [screen, setScreen] = useState<Screen>("assign");
@@ -49,7 +53,8 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
   const assignedIds = new Set(userBadges.map((ub) => ub.badge_id));
   const [assigning, setAssigning] = useState<string | null>(null);
 
-  // ── Create screen state ──
+  // ── Editor screen state (shared for create + edit) ──
+  const [editingBadge, setEditingBadge] = useState<Badge | null>(null);
   const [badgeName, setBadgeName] = useState("");
   const [iconTab, setIconTab] = useState<IconTab>("builtin");
   const [selectedIcon, setSelectedIcon] = useState("star");
@@ -58,7 +63,7 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
   const [color1, setColor1] = useState("#5865F2");
   const [color2, setColor2] = useState<string | null>(null);
   const [useGradient, setUseGradient] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch badge templates + user badges on mount
@@ -66,6 +71,56 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
     if (!loaded) useBadgeStore.getState().fetchBadges();
     useBadgeStore.getState().fetchUserBadges(member.id);
   }, [loaded, member.id]);
+
+  // ── Helpers ──
+
+  /** Reset editor fields to defaults. */
+  function resetEditor() {
+    setEditingBadge(null);
+    setBadgeName("");
+    setIconTab("builtin");
+    setSelectedIcon("star");
+    setCustomIconUrl("");
+    setUseGradient(false);
+    setColor1("#5865F2");
+    setColor2(null);
+  }
+
+  /** Open editor screen for creating a new badge. */
+  function openCreateScreen() {
+    resetEditor();
+    setScreen("editor");
+  }
+
+  /** Open editor screen pre-filled with an existing badge for editing. */
+  function openEditScreen(badge: Badge, e: React.MouseEvent) {
+    e.stopPropagation();
+    setEditingBadge(badge);
+    setBadgeName(badge.name);
+    setIconTab(badge.icon_type as IconTab);
+    if (badge.icon_type === "builtin") {
+      setSelectedIcon(badge.icon);
+      setCustomIconUrl("");
+    } else {
+      setCustomIconUrl(badge.icon);
+      setSelectedIcon("star");
+    }
+    setColor1(badge.color1);
+    if (badge.color2) {
+      setUseGradient(true);
+      setColor2(badge.color2);
+    } else {
+      setUseGradient(false);
+      setColor2(null);
+    }
+    setScreen("editor");
+  }
+
+  /** Go back to assign screen and reset editor state. */
+  function goBackToAssign() {
+    resetEditor();
+    setScreen("assign");
+  }
 
   // ── Assign / Unassign handlers ──
   async function handleToggleBadge(badge: Badge) {
@@ -84,12 +139,19 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
     setAssigning(null);
   }
 
-  async function handleDeleteBadge(badgeId: string, e: React.MouseEvent) {
+  async function handleDeleteBadge(badge: Badge, e: React.MouseEvent) {
     e.stopPropagation();
-    await useBadgeStore.getState().deleteBadge(badgeId);
+    const ok = await confirm({
+      message: t("badgeDeleteConfirm", { name: badge.name }),
+      confirmLabel: t("delete"),
+      danger: true,
+    });
+    if (ok) {
+      await useBadgeStore.getState().deleteBadge(badge.id);
+    }
   }
 
-  // ── Create handlers ──
+  // ── Create / Edit handlers ──
   async function handleUploadIcon(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -102,28 +164,28 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
     setUploading(false);
   }
 
-  async function handleCreate() {
-    if (!badgeName.trim() || creating) return;
+  async function handleSave() {
+    if (!badgeName.trim() || saving) return;
 
     const icon = iconTab === "builtin" ? selectedIcon : customIconUrl;
     if (!icon) return;
 
-    setCreating(true);
-    await useBadgeStore.getState().createBadge({
+    const body = {
       name: badgeName.trim(),
       icon,
-      icon_type: iconTab,
+      icon_type: iconTab as "builtin" | "custom",
       color1,
       color2: useGradient ? color2 : null,
-    });
-    setCreating(false);
+    };
 
-    // Go back to assign screen
-    setBadgeName("");
-    setSelectedIcon("star");
-    setCustomIconUrl("");
-    setUseGradient(false);
-    setScreen("assign");
+    setSaving(true);
+    if (editingBadge) {
+      await useBadgeStore.getState().updateBadge(editingBadge.id, body);
+    } else {
+      await useBadgeStore.getState().createBadge(body);
+    }
+    setSaving(false);
+    goBackToAssign();
   }
 
   /** Resolve badge background style (solid or gradient). */
@@ -141,6 +203,13 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
       return def ? def.svg : null;
     }
     return <img src={badge.icon} alt="" className="bam-custom-icon" />;
+  }
+
+  // ── Modal title ──
+  function getTitle(): string {
+    if (screen === "assign") return t("assignBadge");
+    if (editingBadge) return t("badgeEditTitle");
+    return t("badgeCreateTitle");
   }
 
   // ── Render: Assign screen ──
@@ -215,13 +284,25 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
                       </svg>
                     </span>
                   )}
+                  {/* Delete button — top-left */}
                   <button
                     className="bam-badge-delete"
                     title={t("delete")}
-                    onClick={(e) => handleDeleteBadge(badge.id, e)}
+                    onClick={(e) => handleDeleteBadge(badge, e)}
                   >
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                  {/* Edit button — bottom-left */}
+                  <button
+                    className="bam-badge-edit"
+                    title={t("edit")}
+                    onClick={(e) => openEditScreen(badge, e)}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
                   </button>
                 </button>
@@ -231,7 +312,7 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
         )}
 
         {/* Create new badge button */}
-        <button className="bam-create-btn" onClick={() => setScreen("create")}>
+        <button className="bam-create-btn" onClick={openCreateScreen}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
           </svg>
@@ -241,8 +322,8 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
     );
   }
 
-  // ── Render: Create screen ──
-  function renderCreateScreen() {
+  // ── Render: Editor screen (create or edit) ──
+  function renderEditorScreen() {
     const previewIcon = iconTab === "builtin"
       ? getBadgeIcon(selectedIcon)?.svg
       : customIconUrl
@@ -250,12 +331,12 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
         : null;
 
     const previewBg = badgeBg(color1, useGradient ? color2 : null);
-    const canCreate = badgeName.trim().length > 0 && (iconTab === "builtin" || customIconUrl);
+    const canSave = badgeName.trim().length > 0 && (iconTab === "builtin" || customIconUrl);
 
     return (
       <div className="bam-create">
         {/* Back button */}
-        <button className="bam-back-btn" onClick={() => setScreen("assign")}>
+        <button className="bam-back-btn" onClick={goBackToAssign}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6" />
           </svg>
@@ -413,21 +494,25 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
           )}
         </div>
 
-        {/* Create button */}
+        {/* Save / Create button */}
         <button
           className="bam-submit-btn"
-          disabled={!canCreate || creating}
-          onClick={handleCreate}
+          disabled={!canSave || saving}
+          onClick={handleSave}
         >
-          {creating ? t("loading") : t("badgeCreate")}
+          {saving
+            ? t("loading")
+            : editingBadge
+              ? t("badgeSave")
+              : t("badgeCreate")}
         </button>
       </div>
     );
   }
 
   return (
-    <Modal isOpen onClose={onClose} title={screen === "assign" ? t("assignBadge") : t("badgeCreateTitle")}>
-      {screen === "assign" ? renderAssignScreen() : renderCreateScreen()}
+    <Modal isOpen onClose={onClose} title={getTitle()}>
+      {screen === "assign" ? renderAssignScreen() : renderEditorScreen()}
     </Modal>
   );
 }

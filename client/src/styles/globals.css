@@ -712,6 +712,9 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .bam-badge-delete { position:absolute;top:4px;left:4px;background:none;border:none;color:var(--t3);cursor:pointer;padding:2px;border-radius:4px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s,color .15s; }
 .bam-badge-card:hover .bam-badge-delete { opacity:1; }
 .bam-badge-delete:hover { color:var(--red); }
+.bam-badge-edit { position:absolute;bottom:4px;left:4px;background:none;border:none;color:var(--t3);cursor:pointer;padding:2px;border-radius:4px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s,color .15s; }
+.bam-badge-card:hover .bam-badge-edit { opacity:1; }
+.bam-badge-edit:hover { color:var(--primary); }
 
 /* Create new badge button */
 .bam-create-btn { display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:36px;border:2px dashed var(--b2);border-radius:10px;background:transparent;color:var(--t2);font-size:13px;font-weight:600;font-family:var(--f-ui);cursor:pointer;transition:color .15s,border-color .15s,background .15s; }
