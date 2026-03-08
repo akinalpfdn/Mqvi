@@ -1,17 +1,3 @@
-// Package handlers — ServerHandler: sunucu yönetimi HTTP endpoint'leri.
-//
-// Multi-server mimaride sunucu oluşturma, listeleme, güncelleme, silme,
-// davet ile katılma ve sunucudan ayrılma endpoint'lerini yönetir.
-//
-// Route'lar:
-//   GET    /api/servers              → kullanıcının sunucu listesi
-//   POST   /api/servers              → yeni sunucu oluştur
-//   POST   /api/servers/join         → davet koduyla katıl
-//   GET    /api/servers/{serverId}   → sunucu detayı (membership required)
-//   PATCH  /api/servers/{serverId}   → sunucu güncelle (Admin perm required)
-//   DELETE /api/servers/{serverId}   → sunucu sil (owner only)
-//   POST   /api/servers/{serverId}/leave → sunucudan ayrıl
-//   GET    /api/servers/{serverId}/livekit → LiveKit ayarları (owner only)
 package handlers
 
 import (
@@ -23,19 +9,17 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// ServerHandler, sunucu yönetimi endpoint'lerini yönetir.
+// ServerHandler handles server CRUD, join/leave, and reorder endpoints.
 type ServerHandler struct {
 	serverService services.ServerService
 }
 
-// NewServerHandler, constructor.
 func NewServerHandler(serverService services.ServerService) *ServerHandler {
 	return &ServerHandler{serverService: serverService}
 }
 
-// ListMyServers godoc
+// ListMyServers returns all servers the user is a member of.
 // GET /api/servers
-// Kullanıcının üye olduğu tüm sunucuları döner (server list sidebar için).
 func (h *ServerHandler) ListMyServers(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -52,12 +36,9 @@ func (h *ServerHandler) ListMyServers(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, servers)
 }
 
-// CreateServer godoc
+// CreateServer creates a new server. Creator becomes owner + member.
 // POST /api/servers
 // Body: { "name": "...", "host_type": "mqvi_hosted"|"self_hosted", ... }
-//
-// Yeni sunucu oluşturur. Oluşturan kişi otomatik owner + üye olur.
-// Self-hosted ise LiveKit credential'ları gerekir.
 func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -80,11 +61,9 @@ func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusCreated, server)
 }
 
-// JoinServer godoc
+// JoinServer joins a server via invite code.
 // POST /api/servers/join
 // Body: { "invite_code": "abc123" }
-//
-// Davet koduyla sunucuya katılır. Kod geçerliyse kullanıcı sunucuya eklenir.
 func (h *ServerHandler) JoinServer(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -107,9 +86,8 @@ func (h *ServerHandler) JoinServer(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, server)
 }
 
-// GetServer godoc
+// GetServer returns server details. Protected by membership middleware.
 // GET /api/servers/{serverId}
-// Sunucu detayını döner. Membership middleware ile korunur.
 func (h *ServerHandler) GetServer(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -126,11 +104,8 @@ func (h *ServerHandler) GetServer(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, server)
 }
 
-// UpdateServer godoc
+// UpdateServer updates server settings. Requires admin permission.
 // PATCH /api/servers/{serverId}
-// Body: { "name": "...", "invite_required": true }
-//
-// Sunucu bilgisini günceller. Admin yetkisi gerektirir.
 func (h *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -153,9 +128,8 @@ func (h *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, server)
 }
 
-// DeleteServer godoc
+// DeleteServer deletes a server. Owner only.
 // DELETE /api/servers/{serverId}
-// Sunucuyu siler. Sadece owner yapabilir.
 func (h *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -177,9 +151,8 @@ func (h *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server deleted"})
 }
 
-// LeaveServer godoc
+// LeaveServer leaves a server. Owner cannot leave -- must transfer ownership first.
 // POST /api/servers/{serverId}/leave
-// Sunucudan ayrılır. Owner ayrılamaz — önce sahiplik devretmeli.
 func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -201,13 +174,9 @@ func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "left server"})
 }
 
-// ReorderServers godoc
+// ReorderServers reorders the user's personal server list.
 // PATCH /api/servers/reorder
 // Body: { "items": [{ "id": "serverId", "position": 0 }, ...] }
-//
-// Kullanıcının sunucu listesini sıralar. Per-user sıralama —
-// sadece isteği yapan kullanıcının görünümü değişir.
-// Auth middleware yeterli, server membership gerekmez (kendi listesini sıralıyor).
 func (h *ServerHandler) ReorderServers(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -230,12 +199,9 @@ func (h *ServerHandler) ReorderServers(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, servers)
 }
 
-// GetLiveKitSettings godoc
+// GetLiveKitSettings returns server's LiveKit config (URL + managed status).
+// Secrets are excluded. Requires admin permission.
 // GET /api/servers/{serverId}/livekit
-//
-// Sunucunun LiveKit ayarlarını döner (URL + platform-managed mı).
-// Secret'lar dahil edilmez — sadece owner'ın ayarlar sayfasında görmesi için.
-// Admin yetkisi gerektirir (route middleware'de).
 func (h *ServerHandler) GetLiveKitSettings(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {

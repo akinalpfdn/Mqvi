@@ -1,8 +1,3 @@
-// Package main — Handler katmanı başlatma.
-//
-// initHandlers, tüm HTTP handler'larını oluşturur.
-// Her handler, ihtiyaç duyduğu service interface'lerini constructor'dan alır.
-// Handler'lar "thin" dir — sadece HTTP parse + service call + response write.
 package main
 
 import (
@@ -11,7 +6,7 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// Handlers, tüm handler instance'larını tutan container struct.
+// Handlers holds all HTTP handler instances.
 type Handlers struct {
 	Auth              *handlers.AuthHandler
 	Channel           *handlers.ChannelHandler
@@ -44,7 +39,6 @@ type Handlers struct {
 	WS                *ws.Handler
 }
 
-// initHandlers, tüm handler'ları service ve rate limiter dependency'leri ile oluşturur.
 func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, hub *ws.Hub, cfg *config.Config) *Handlers {
 	return &Handlers{
 		Auth:              handlers.NewAuthHandler(svcs.Auth, limiters.Login),

@@ -9,27 +9,16 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// DeviceHandler, E2EE cihaz yönetimi HTTP endpoint'lerini barındırır.
-//
-// Endpoint'ler:
-// POST   /api/devices                           — Cihaz kaydet + prekey bundle yükle
-// GET    /api/devices                           — Kendi cihazlarını listele
-// DELETE /api/devices/{deviceId}                — Cihaz sil
-// POST   /api/devices/{deviceId}/prekeys        — One-time prekey yükle
-// PUT    /api/devices/{deviceId}/signed-prekey   — Signed prekey döndür (rotation)
-// GET    /api/devices/{deviceId}/prekey-count    — Kalan prekey sayısını al
-// GET    /api/users/{userId}/devices             — Kullanıcının public cihaz listesi
-// GET    /api/users/{userId}/prekey-bundles      — Prekey bundle'ları al (X3DH için)
+// DeviceHandler handles E2EE device management endpoints.
 type DeviceHandler struct {
 	deviceService services.DeviceService
 }
 
-// NewDeviceHandler, constructor — DeviceHandler pointer döner.
 func NewDeviceHandler(deviceService services.DeviceService) *DeviceHandler {
 	return &DeviceHandler{deviceService: deviceService}
 }
 
-// Register, yeni cihaz kaydeder ve opsiyonel olarak prekey'leri yükler.
+// Register registers a new device with optional prekey upload.
 // POST /api/devices
 func (h *DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -53,7 +42,7 @@ func (h *DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusCreated, device)
 }
 
-// List, kullanıcının kendi cihazlarını listeler.
+// List returns the current user's devices.
 // GET /api/devices
 func (h *DeviceHandler) List(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -71,7 +60,7 @@ func (h *DeviceHandler) List(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, devices)
 }
 
-// Delete, kullanıcının bir cihazını siler.
+// Delete removes a user's device.
 // DELETE /api/devices/{deviceId}
 func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -94,7 +83,7 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, nil)
 }
 
-// UploadPrekeys, cihaz için yeni one-time prekey'ler yükler.
+// UploadPrekeys uploads new one-time prekeys for a device.
 // POST /api/devices/{deviceId}/prekeys
 func (h *DeviceHandler) UploadPrekeys(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -123,7 +112,7 @@ func (h *DeviceHandler) UploadPrekeys(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, nil)
 }
 
-// UpdateSignedPrekey, cihazın signed prekey'ini günceller (rotasyon).
+// UpdateSignedPrekey rotates the device's signed prekey.
 // PUT /api/devices/{deviceId}/signed-prekey
 func (h *DeviceHandler) UpdateSignedPrekey(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -152,7 +141,7 @@ func (h *DeviceHandler) UpdateSignedPrekey(w http.ResponseWriter, r *http.Reques
 	pkg.JSON(w, http.StatusOK, nil)
 }
 
-// GetPrekeyCount, cihazın kalan prekey sayısını döner.
+// GetPrekeyCount returns remaining prekey count for a device.
 // GET /api/devices/{deviceId}/prekey-count
 func (h *DeviceHandler) GetPrekeyCount(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -176,10 +165,9 @@ func (h *DeviceHandler) GetPrekeyCount(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]int{"count": count})
 }
 
-// ListPublicDevices, başka bir kullanıcının public cihaz bilgilerini döner.
+// ListPublicDevices returns another user's public device info.
 // GET /api/users/{userId}/devices
 func (h *DeviceHandler) ListPublicDevices(w http.ResponseWriter, r *http.Request) {
-	// Auth middleware'den geçen kullanıcı — erişim kontrolü
 	_, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
@@ -201,11 +189,10 @@ func (h *DeviceHandler) ListPublicDevices(w http.ResponseWriter, r *http.Request
 	pkg.JSON(w, http.StatusOK, devices)
 }
 
-// GetPrekeyBundles, kullanıcının tüm cihazlarının prekey bundle'larını döner.
-// İlk mesaj gönderilirken çağrılır — her cihaz için ayrı X3DH session kurulur.
+// GetPrekeyBundles returns prekey bundles for all of a user's devices.
+// Called when initiating X3DH -- separate session per device.
 // GET /api/users/{userId}/prekey-bundles
 func (h *DeviceHandler) GetPrekeyBundles(w http.ResponseWriter, r *http.Request) {
-	// Auth middleware'den geçen kullanıcı — erişim kontrolü
 	_, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")

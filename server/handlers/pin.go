@@ -8,22 +8,15 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// PinHandler, mesaj sabitleme endpoint'lerini yöneten struct.
-//
-// Thin handler pattern: sadece HTTP request parse + response yazımı yapar.
-// Tüm iş mantığı PinService'de.
 type PinHandler struct {
 	pinService services.PinService
 }
 
-// NewPinHandler, constructor.
 func NewPinHandler(pinService services.PinService) *PinHandler {
 	return &PinHandler{pinService: pinService}
 }
 
-// ListPins godoc
-// GET /api/channels/{id}/pins
-// Bir kanalın tüm pinlenmiş mesajlarını döner.
+// ListPins handles GET /api/channels/{id}/pins
 func (h *PinHandler) ListPins(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
@@ -36,10 +29,8 @@ func (h *PinHandler) ListPins(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, pins)
 }
 
-// Pin godoc
-// POST /api/channels/{channelId}/messages/{messageId}/pin
-// Bir mesajı sabitler.
-// ManageMessages yetkisi gerekir.
+// Pin handles POST /api/channels/{channelId}/messages/{messageId}/pin
+// Requires ManageMessages permission.
 func (h *PinHandler) Pin(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	messageID := r.PathValue("messageId")
@@ -59,10 +50,8 @@ func (h *PinHandler) Pin(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusCreated, pin)
 }
 
-// Unpin godoc
-// DELETE /api/channels/{channelId}/messages/{messageId}/pin
-// Bir mesajın pin'ini kaldırır.
-// ManageMessages yetkisi gerekir.
+// Unpin handles DELETE /api/channels/{channelId}/messages/{messageId}/pin
+// Requires ManageMessages permission.
 func (h *PinHandler) Unpin(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	messageID := r.PathValue("messageId")

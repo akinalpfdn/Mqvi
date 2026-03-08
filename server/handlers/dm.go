@@ -12,13 +12,8 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// DMHandler, DM (Direct Messages) endpoint'lerini yöneten struct.
-//
-// Channel MessageHandler ile paralel yapı:
-// - dmService: DM iş mantığı (mesaj CRUD, reaction, pin, search)
-// - dmUploadService: DM dosya yükleme (disk save + DB record)
-// - maxUploadSize: Multipart form parse bellek limiti
-// - messageLimiter: Spam koruması — MessageHandler ile aynı instance paylaşılır.
+// DMHandler handles DM endpoints.
+// messageLimiter is shared with MessageHandler (user-based total rate).
 type DMHandler struct {
 	dmService       services.DMService
 	dmUploadService services.DMUploadService
@@ -26,7 +21,6 @@ type DMHandler struct {
 	messageLimiter  *ratelimit.MessageRateLimiter
 }
 
-// NewDMHandler, constructor.
 func NewDMHandler(
 	dmService services.DMService,
 	dmUploadService services.DMUploadService,
@@ -41,14 +35,11 @@ func NewDMHandler(
 	}
 }
 
-// createDMChannelRequest, POST /api/dms body'si.
 type createDMChannelRequest struct {
 	UserID string `json:"user_id"`
 }
 
-// ListChannels godoc
-// GET /api/dms
-// Kullanıcının tüm DM kanallarını listeler (karşı taraf bilgisiyle).
+// ListChannels handles GET /api/dms
 func (h *DMHandler) ListChannels(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -65,12 +56,8 @@ func (h *DMHandler) ListChannels(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, channels)
 }
 
-// CreateOrGetChannel godoc
-// POST /api/dms
-// İki kullanıcı arasındaki DM kanalını bul veya oluştur.
-//
-// Body: { "user_id": "target_user_id" }
-// Response: DMChannelWithUser (karşı taraf bilgisiyle)
+// CreateOrGetChannel handles POST /api/dms
+// Finds or creates a DM channel between two users.
 func (h *DMHandler) CreateOrGetChannel(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -98,9 +85,7 @@ func (h *DMHandler) CreateOrGetChannel(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, channel)
 }
 
-// GetMessages godoc
-// GET /api/dms/{channelId}/messages?before=&limit=
-// DM kanalının mesajlarını cursor-based pagination ile döner.
+// GetMessages handles GET /api/dms/{channelId}/messages?before=&limit=
 func (h *DMHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -126,19 +111,8 @@ func (h *DMHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, page)
 }
 
-// SendMessage godoc
-// POST /api/dms/{channelId}/messages
-// Yeni bir DM mesajı gönderir.
-//
-// İki format desteklenir (channel MessageHandler.Create ile aynı pattern):
-// 1. JSON: { "content": "mesaj", "reply_to_id": "xxx" }
-// 2. Multipart: FormValue("content"), FormValue("reply_to_id"), File("files")
-//
-// Dosya yükleme akışı:
-// 1. Service ile mesaj oluştur (DB'ye kaydet)
-// 2. Multipart ise dosyaları yükle (dmUploadService.Upload)
-// 3. Mesaja attachment'ları ekle
-// 4. BroadcastCreate ile WS broadcast (attachment'lar dahil)
+// SendMessage handles POST /api/dms/{channelId}/messages
+// Accepts JSON or multipart/form-data. Files uploaded after message creation, then WS broadcast.
 func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -147,8 +121,6 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Spam koruması — MessageHandler ile aynı limiter instance.
-	// Kullanıcı channel + DM toplam mesaj hızıyla sınırlanır.
 	if h.messageLimiter != nil && !h.messageLimiter.Allow(user.ID) {
 		retryAfter := h.messageLimiter.CooldownSeconds(user.ID)
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
@@ -162,7 +134,6 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateDMMessageRequest
 
 	if isMultipart(contentType) {
-		// Multipart: dosya + metin içeren mesaj
 		if err := r.ParseMultipartForm(h.maxUploadSize); err != nil {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to parse multipart form")
 			return
@@ -173,7 +144,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			req.ReplyToID = &replyTo
 		}
 
-		// E2EE alanları — multipart'tan parse
+		// E2EE fields from multipart
 		if ev := r.FormValue("encryption_version"); ev == "1" {
 			req.EncryptionVersion = 1
 			if ct := r.FormValue("ciphertext"); ct != "" {
@@ -187,54 +158,48 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Dosya var mı kontrol — HasFiles service'e iletilir (boş content kontrolü için)
 		if r.MultipartForm != nil && len(r.MultipartForm.File["files"]) > 0 {
 			req.HasFiles = true
 		}
 	} else {
-		// JSON: sadece metin mesaj
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 	}
 
-	// Mesajı oluştur
 	msg, err := h.dmService.SendMessage(r.Context(), user.ID, channelID, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
 	}
 
-	// Multipart ise dosyaları yükle
 	if isMultipart(contentType) && r.MultipartForm != nil {
 		isEncrypted := req.EncryptionVersion == 1
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
-				continue // Açılamayan dosyayı atla
+				continue
 			}
 
 			attachment, err := h.dmUploadService.Upload(r.Context(), msg.ID, file, fileHeader, isEncrypted)
 			file.Close()
 			if err != nil {
-				continue // Yüklenemeyen dosyayı atla
+				continue
 			}
 
 			msg.Attachments = append(msg.Attachments, *attachment)
 		}
 	}
 
-	// WS broadcast — dosya yükleme tamamlandıktan sonra
+	// Broadcast after uploads so clients see attachments
 	h.dmService.BroadcastCreate(msg)
 
 	pkg.JSON(w, http.StatusCreated, msg)
 }
 
-// EditMessage godoc
-// PATCH /api/dms/messages/{id}
-// DM mesajını düzenler (sadece mesaj sahibi).
+// EditMessage handles PATCH /api/dms/messages/{id} (owner only).
 func (h *DMHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -258,9 +223,7 @@ func (h *DMHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, msg)
 }
 
-// DeleteMessage godoc
-// DELETE /api/dms/messages/{id}
-// DM mesajını siler (sadece mesaj sahibi).
+// DeleteMessage handles DELETE /api/dms/messages/{id} (owner only).
 func (h *DMHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -279,11 +242,7 @@ func (h *DMHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 // ─── Reaction Endpoints ───
 
-// ToggleReaction godoc
-// POST /api/dms/messages/{id}/reactions
-// DM mesajına emoji tepkisi ekler veya kaldırır (toggle).
-//
-// Body: { "emoji": "👍" }
+// ToggleReaction handles POST /api/dms/messages/{id}/reactions
 func (h *DMHandler) ToggleReaction(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -313,9 +272,7 @@ func (h *DMHandler) ToggleReaction(w http.ResponseWriter, r *http.Request) {
 
 // ─── Pin Endpoints ───
 
-// PinMessage godoc
-// POST /api/dms/messages/{id}/pin
-// DM mesajını sabitler.
+// PinMessage handles POST /api/dms/messages/{id}/pin
 func (h *DMHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -332,9 +289,7 @@ func (h *DMHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"status": "pinned"})
 }
 
-// UnpinMessage godoc
-// DELETE /api/dms/messages/{id}/pin
-// DM mesajının sabitlemesini kaldırır.
+// UnpinMessage handles DELETE /api/dms/messages/{id}/pin
 func (h *DMHandler) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -351,9 +306,7 @@ func (h *DMHandler) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"status": "unpinned"})
 }
 
-// GetPinnedMessages godoc
-// GET /api/dms/{channelId}/pinned
-// DM kanalının sabitlenmiş mesajlarını listeler.
+// GetPinnedMessages handles GET /api/dms/{channelId}/pinned
 func (h *DMHandler) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -373,12 +326,8 @@ func (h *DMHandler) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
 
 // ─── Search Endpoint ───
 
-// SearchMessages godoc
-// GET /api/dms/{channelId}/search?q=&limit=&offset=
-// DM kanalında FTS5 tam metin araması yapar.
-//
-// Channel search handler ile aynı pattern — limit/offset query param'ları
-// ile pagination destekler. DMSearchResult (messages + total_count) döner.
+// SearchMessages handles GET /api/dms/{channelId}/search?q=&limit=&offset=
+// FTS5 full-text search within a DM channel.
 func (h *DMHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -393,7 +342,6 @@ func (h *DMHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pagination parametreleri — channel search handler ile aynı pattern
 	limit := 25
 	offset := 0
 
@@ -417,9 +365,8 @@ func (h *DMHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, result)
 }
 
-// PATCH /api/dms/{channelId}/e2ee
-// DM kanalında E2EE'yi açar veya kapatır.
-// Her iki kullanıcı da toggle yapabilir.
+// ToggleE2EE handles PATCH /api/dms/{channelId}/e2ee
+// Enables or disables E2EE on a DM channel. Either participant can toggle.
 func (h *DMHandler) ToggleE2EE(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	user, ok := r.Context().Value(UserContextKey).(*models.User)

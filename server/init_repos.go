@@ -1,8 +1,3 @@
-// Package main — Repository katmanı başlatma.
-//
-// initRepositories, tüm repository implementasyonlarını oluşturur.
-// Her repository bir SQL.DB bağlantısı alır ve interface döner.
-// main.go'daki wire-up'ı modülerleştirmek için bu dosyaya taşındı.
 package main
 
 import (
@@ -11,12 +6,7 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// Repositories, tüm repository instance'larını tutan container struct.
-//
-// Neden struct? 20 ayrı repository değişkeni yerine tek struct kullanmak:
-// 1. Fonksiyon imzalarını temiz tutar (tek parametre yerine 20 parametre)
-// 2. Yeni repository eklendiğinde sadece struct + initRepositories güncellenir
-// 3. IDE auto-complete ile kolay erişim (repos.User, repos.Channel, vb.)
+// Repositories holds all repository instances.
 type Repositories struct {
 	User              repository.UserRepository
 	Session           repository.SessionRepository
@@ -49,10 +39,7 @@ type Repositories struct {
 	LinkPreview       repository.LinkPreviewRepository
 }
 
-// initRepositories, veritabanı bağlantısından tüm repository'leri oluşturur.
-//
-// Her NewSQLite* fonksiyonu aynı *sql.DB'yi alır — Go'nun sql.DB'si
-// thread-safe connection pool'dur, paylaşılması güvenlidir.
+// initRepositories creates all repositories from the shared DB connection pool.
 func initRepositories(conn *sql.DB) *Repositories {
 	return &Repositories{
 		User:              repository.NewSQLiteUserRepo(conn),

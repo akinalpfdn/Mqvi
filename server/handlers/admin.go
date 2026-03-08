@@ -1,10 +1,5 @@
-// Package handlers — AdminHandler, platform admin endpoint'leri.
-//
-// Bu handler sadece platform admin kullanıcılar tarafından erişilebilir.
-// PlatformAdminMiddleware tarafından korunur.
-//
-// Thin handler pattern: parse request → call service → return response.
-// Business logic service katmanındadır.
+// Package handlers -- AdminHandler: platform admin endpoints.
+// Protected by PlatformAdminMiddleware.
 package handlers
 
 import (
@@ -17,7 +12,6 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// AdminHandler, platform admin endpoint'lerini yönetir.
 type AdminHandler struct {
 	livekitAdminService   services.LiveKitAdminService
 	metricsHistoryService services.MetricsHistoryService
@@ -26,7 +20,6 @@ type AdminHandler struct {
 	reportService         services.ReportService
 }
 
-// NewAdminHandler, constructor.
 func NewAdminHandler(
 	livekitAdminService services.LiveKitAdminService,
 	metricsHistoryService services.MetricsHistoryService,
@@ -43,8 +36,7 @@ func NewAdminHandler(
 	}
 }
 
-// ListLiveKitInstances — GET /api/admin/livekit-instances
-// Tüm platform-managed LiveKit instance'larını listeler.
+// ListLiveKitInstances -- GET /api/admin/livekit-instances
 func (h *AdminHandler) ListLiveKitInstances(w http.ResponseWriter, r *http.Request) {
 	instances, err := h.livekitAdminService.ListInstances(r.Context())
 	if err != nil {
@@ -55,8 +47,7 @@ func (h *AdminHandler) ListLiveKitInstances(w http.ResponseWriter, r *http.Reque
 	pkg.JSON(w, http.StatusOK, instances)
 }
 
-// GetLiveKitInstance — GET /api/admin/livekit-instances/{id}
-// Tek bir LiveKit instance'ı döner.
+// GetLiveKitInstance -- GET /api/admin/livekit-instances/{id}
 func (h *AdminHandler) GetLiveKitInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -73,8 +64,7 @@ func (h *AdminHandler) GetLiveKitInstance(w http.ResponseWriter, r *http.Request
 	pkg.JSON(w, http.StatusOK, instance)
 }
 
-// CreateLiveKitInstance — POST /api/admin/livekit-instances
-// Yeni bir platform-managed LiveKit instance oluşturur.
+// CreateLiveKitInstance -- POST /api/admin/livekit-instances
 func (h *AdminHandler) CreateLiveKitInstance(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateLiveKitInstanceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -91,8 +81,7 @@ func (h *AdminHandler) CreateLiveKitInstance(w http.ResponseWriter, r *http.Requ
 	pkg.JSON(w, http.StatusCreated, instance)
 }
 
-// UpdateLiveKitInstance — PATCH /api/admin/livekit-instances/{id}
-// Mevcut bir LiveKit instance'ı günceller.
+// UpdateLiveKitInstance -- PATCH /api/admin/livekit-instances/{id}
 func (h *AdminHandler) UpdateLiveKitInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -115,9 +104,8 @@ func (h *AdminHandler) UpdateLiveKitInstance(w http.ResponseWriter, r *http.Requ
 	pkg.JSON(w, http.StatusOK, instance)
 }
 
-// DeleteLiveKitInstance — DELETE /api/admin/livekit-instances/{id}?migrate_to={targetId}
-// Bir LiveKit instance'ı siler.
-// Bağlı sunucular varsa migrate_to query parametresi ile hedef instance belirtilmelidir.
+// DeleteLiveKitInstance -- DELETE /api/admin/livekit-instances/{id}?migrate_to={targetId}
+// If servers are attached, migrate_to must specify the target instance.
 func (h *AdminHandler) DeleteLiveKitInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -135,8 +123,7 @@ func (h *AdminHandler) DeleteLiveKitInstance(w http.ResponseWriter, r *http.Requ
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "instance deleted"})
 }
 
-// ListServers — GET /api/admin/servers
-// Platformdaki tüm sunucuları istatistikleriyle listeler.
+// ListServers -- GET /api/admin/servers
 func (h *AdminHandler) ListServers(w http.ResponseWriter, r *http.Request) {
 	servers, err := h.livekitAdminService.ListServers(r.Context())
 	if err != nil {
@@ -147,8 +134,7 @@ func (h *AdminHandler) ListServers(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, servers)
 }
 
-// MigrateServerInstance — PATCH /api/admin/servers/{serverId}/instance
-// Tek bir sunucunun LiveKit instance'ını değiştirir.
+// MigrateServerInstance -- PATCH /api/admin/servers/{serverId}/instance
 func (h *AdminHandler) MigrateServerInstance(w http.ResponseWriter, r *http.Request) {
 	serverID := r.PathValue("serverId")
 	if serverID == "" {
@@ -175,9 +161,8 @@ func (h *AdminHandler) MigrateServerInstance(w http.ResponseWriter, r *http.Requ
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server instance updated"})
 }
 
-// GetLiveKitInstanceMetrics — GET /api/admin/livekit-instances/{id}/metrics
-// Bir LiveKit instance'ın Prometheus /metrics endpoint'inden anlık metrikleri çeker.
-// Erişilemezse available=false döner.
+// GetLiveKitInstanceMetrics -- GET /api/admin/livekit-instances/{id}/metrics
+// Fetches live metrics from the instance's Prometheus endpoint.
 func (h *AdminHandler) GetLiveKitInstanceMetrics(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -194,8 +179,7 @@ func (h *AdminHandler) GetLiveKitInstanceMetrics(w http.ResponseWriter, r *http.
 	pkg.JSON(w, http.StatusOK, metrics)
 }
 
-// ListUsers — GET /api/admin/users
-// Platformdaki tüm kullanıcıları istatistikleriyle listeler.
+// ListUsers -- GET /api/admin/users
 func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.livekitAdminService.ListUsers(r.Context())
 	if err != nil {
@@ -206,8 +190,7 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, users)
 }
 
-// GetLiveKitInstanceMetricsHistory — GET /api/admin/livekit-instances/{id}/metrics/history?period=24h
-// Bir LiveKit instance'ın tarihsel metrik özetini döner.
+// GetLiveKitInstanceMetricsHistory -- GET /api/admin/livekit-instances/{id}/metrics/history?period=24h
 // period: "24h" (default), "7d", "30d"
 func (h *AdminHandler) GetLiveKitInstanceMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -230,9 +213,8 @@ func (h *AdminHandler) GetLiveKitInstanceMetricsHistory(w http.ResponseWriter, r
 	pkg.JSON(w, http.StatusOK, summary)
 }
 
-// GetLiveKitInstanceMetricsTimeSeries — GET /api/admin/livekit-instances/{id}/metrics/timeseries?period=24h
-// Chart için ham time-series veri döner.
-// period: "24h" (default), "7d", "30d"
+// GetLiveKitInstanceMetricsTimeSeries -- GET /api/admin/livekit-instances/{id}/metrics/timeseries?period=24h
+// Returns raw time-series data for charts. period: "24h" (default), "7d", "30d"
 func (h *AdminHandler) GetLiveKitInstanceMetricsTimeSeries(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -254,9 +236,8 @@ func (h *AdminHandler) GetLiveKitInstanceMetricsTimeSeries(w http.ResponseWriter
 	pkg.JSON(w, http.StatusOK, points)
 }
 
-// PlatformBanUser — POST /api/admin/users/{id}/ban
-// Kullanıcıyı platform genelinde yasaklar.
-// Request body: { "reason": "...", "delete_messages": true/false }
+// PlatformBanUser -- POST /api/admin/users/{id}/ban
+// Body: { "reason": "...", "delete_messages": true/false }
 func (h *AdminHandler) PlatformBanUser(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -284,8 +265,7 @@ func (h *AdminHandler) PlatformBanUser(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user banned"})
 }
 
-// PlatformUnbanUser — DELETE /api/admin/users/{id}/ban
-// Kullanıcının platform yasağını kaldırır.
+// PlatformUnbanUser -- DELETE /api/admin/users/{id}/ban
 func (h *AdminHandler) PlatformUnbanUser(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -307,9 +287,8 @@ func (h *AdminHandler) PlatformUnbanUser(w http.ResponseWriter, r *http.Request)
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user unbanned"})
 }
 
-// HardDeleteUser — DELETE /api/admin/users/{id}
-// Kullanıcıyı ve tüm verilerini kalıcı olarak siler.
-// Opsiyonel request body: { "reason": "..." } — doldurulursa kullanıcıya email bildirim gönderilir.
+// HardDeleteUser -- DELETE /api/admin/users/{id}
+// Optional body: { "reason": "..." }
 func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -323,7 +302,7 @@ func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Opsiyonel reason body — DELETE body boş olabilir, hata yutulur
+	// Optional reason body -- DELETE body may be empty
 	var req models.HardDeleteUserRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -335,8 +314,7 @@ func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "user deleted"})
 }
 
-// SetUserPlatformAdmin — PATCH /api/admin/users/{id}/platform-admin
-// Kullanıcının platform admin durumunu günceller.
+// SetUserPlatformAdmin -- PATCH /api/admin/users/{id}/platform-admin
 // Body: { "is_admin": true/false }
 func (h *AdminHandler) SetUserPlatformAdmin(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -365,9 +343,8 @@ func (h *AdminHandler) SetUserPlatformAdmin(w http.ResponseWriter, r *http.Reque
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "admin status updated"})
 }
 
-// AdminDeleteServer — DELETE /api/admin/servers/{serverId}
-// Sunucuyu platform admin yetkisiyle kalıcı olarak siler.
-// Opsiyonel request body: { "reason": "..." } — doldurulursa sunucu sahibine email bildirim gönderilir.
+// AdminDeleteServer -- DELETE /api/admin/servers/{serverId}
+// Optional body: { "reason": "..." }
 func (h *AdminHandler) AdminDeleteServer(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -381,7 +358,7 @@ func (h *AdminHandler) AdminDeleteServer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Opsiyonel reason body — DELETE body boş olabilir, hata yutulur
+	// Optional reason body -- DELETE body may be empty
 	var req models.AdminDeleteServerRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -393,13 +370,9 @@ func (h *AdminHandler) AdminDeleteServer(w http.ResponseWriter, r *http.Request)
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server deleted"})
 }
 
-// ╔══════════════════════════════════════════╗
-// ║  Reports                                 ║
-// ╚══════════════════════════════════════════╝
+// ── Reports ──
 
-// ListReports — GET /api/admin/reports?status=pending&limit=50&offset=0
-// Raporları listeler (opsiyonel status filtresi).
-// Tüm raporlar attachment'ları ile birlikte döner.
+// ListReports -- GET /api/admin/reports?status=pending&limit=50&offset=0
 func (h *AdminHandler) ListReports(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 
@@ -423,15 +396,13 @@ func (h *AdminHandler) ListReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Response: { reports: [...], total: N }
 	pkg.JSON(w, http.StatusOK, map[string]any{
 		"reports": reports,
 		"total":   total,
 	})
 }
 
-// UpdateReportStatus — PATCH /api/admin/reports/{id}/status
-// Rapor durumunu günceller.
+// UpdateReportStatus -- PATCH /api/admin/reports/{id}/status
 // Body: { "status": "reviewed" | "resolved" | "dismissed" | "pending" }
 func (h *AdminHandler) UpdateReportStatus(w http.ResponseWriter, r *http.Request) {
 	admin, ok := r.Context().Value(UserContextKey).(*models.User)

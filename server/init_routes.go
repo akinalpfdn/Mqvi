@@ -1,11 +1,3 @@
-// Package main — HTTP route registration.
-//
-// initRoutes, tüm API endpoint'lerini mux'a bağlar.
-// Middleware chain helper'ları burada tanımlıdır:
-//   - auth: JWT token doğrulaması
-//   - authServer: auth + sunucu üyelik kontrolü
-//   - authServerPerm: auth + sunucu üyelik + belirli permission kontrolü
-//   - authAdmin: auth + platform admin yetkisi
 package main
 
 import (
@@ -17,11 +9,9 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// initRoutes, middleware chain'i kurar ve tüm endpoint'leri mux'a bağlar.
-//
-// Route sıralama kuralı: Literal path'ler parametrik path'lerden ÖNCE tanımlanmalı.
-// Örnek: "/api/servers/join" → "/api/servers/{serverId}" öncesinde,
-// yoksa Go router "join" kelimesini bir serverId olarak yorumlar.
+// initRoutes registers all API endpoints.
+// Literal paths must be registered before parametric ones
+// (e.g. "/api/servers/join" before "/api/servers/{serverId}").
 func initRoutes(
 	mux *http.ServeMux,
 	h *Handlers,
@@ -30,13 +20,13 @@ func initRoutes(
 	roleRepo repository.RoleRepository,
 	serverRepo repository.ServerRepository,
 ) {
-	// ─── Middleware ───
+	// Middleware
 	authMw := middleware.NewAuthMiddleware(authService, userRepo)
 	permMw := middleware.NewPermissionMiddleware(roleRepo)
 	serverMw := middleware.NewServerMembershipMiddleware(serverRepo)
 	platformAdminMw := middleware.NewPlatformAdminMiddleware()
 
-	// ─── Middleware Chain Helpers ───
+	// Middleware chain helpers
 	auth := func(handler http.HandlerFunc) http.Handler {
 		return authMw.Require(http.HandlerFunc(handler))
 	}
@@ -54,7 +44,7 @@ func initRoutes(
 	}
 
 	// ╔══════════════════════════════════════════╗
-	// ║  GLOBAL ROUTES (sunucu bağımsız)         ║
+	// ║  GLOBAL ROUTES (server-independent)       ║
 	// ╚══════════════════════════════════════════╝
 
 	// Auth
@@ -72,27 +62,24 @@ func initRoutes(
 	mux.Handle("PUT /api/users/me/email", auth(h.Auth.ChangeEmail))
 	mux.Handle("POST /api/users/me/avatar", auth(h.Avatar.UploadUserAvatar))
 
-	// Servers — sunucu listesi, oluşturma, katılma
+	// Servers
 	mux.Handle("GET /api/servers", auth(h.Server.ListMyServers))
 	mux.Handle("POST /api/servers", auth(h.Server.CreateServer))
 	mux.Handle("POST /api/servers/join", auth(h.Server.JoinServer))
 	mux.Handle("PATCH /api/servers/reorder", auth(h.Server.ReorderServers))
 
-	// Server Mutes — literal path, {serverId} wildcard'dan ÖNCE olmalı
+	// Server mutes — literal path before {serverId} wildcard
 	mux.Handle("GET /api/servers/mutes", auth(h.ServerMute.ListMuted))
 
 	// Upload
 	mux.Handle("POST /api/upload", auth(h.Message.Upload))
 
-	// DMs — literal path'ler parametric'lerden ÖNCE
+	// DMs — literal paths before parametric
 	mux.Handle("GET /api/dms/settings", auth(h.DMSettings.GetSettings))
 	mux.Handle("GET /api/dms", auth(h.DM.ListChannels))
 	mux.Handle("POST /api/dms", auth(h.DM.CreateOrGetChannel))
 
-	// DM Settings — /api/dms/channels/ prefix ile route conflict önlenir.
-	// Go 1.22 ServeMux'ta "DELETE /api/dms/{channelId}/hide" ve
-	// "DELETE /api/dms/messages/{id}" çakışır (her ikisi de /api/dms/messages/hide
-	// eşleşir). "channels" literal segment ekleyerek ambiguity giderilir.
+	// DM Settings — /api/dms/channels/ prefix avoids route ambiguity with /api/dms/{channelId}
 	mux.Handle("POST /api/dms/channels/{channelId}/hide", auth(h.DMSettings.HideDM))
 	mux.Handle("DELETE /api/dms/channels/{channelId}/hide", auth(h.DMSettings.UnhideDM))
 	mux.Handle("POST /api/dms/channels/{channelId}/pin-conversation", auth(h.DMSettings.PinConversation))
@@ -112,7 +99,7 @@ func initRoutes(
 	mux.Handle("GET /api/dms/{channelId}/search", auth(h.DM.SearchMessages))
 	mux.Handle("PATCH /api/dms/channels/{channelId}/e2ee", auth(h.DM.ToggleE2EE))
 
-	// Block — literal "blocked" ÖNCE, sonra parametric {userId}
+	// Block — literal "blocked" before parametric {userId}
 	mux.Handle("GET /api/users/blocked", auth(h.Block.ListBlocked))
 	mux.Handle("POST /api/users/{userId}/block", auth(h.Block.BlockUser))
 	mux.Handle("DELETE /api/users/{userId}/block", auth(h.Block.UnblockUser))
@@ -120,7 +107,7 @@ func initRoutes(
 	// Report
 	mux.Handle("POST /api/users/{userId}/report", auth(h.Report.CreateReport))
 
-	// E2EE Devices — cihaz kaydı ve prekey yönetimi
+	// E2EE Devices
 	mux.Handle("GET /api/devices", auth(h.Device.List))
 	mux.Handle("POST /api/devices", auth(h.Device.Register))
 	mux.Handle("DELETE /api/devices/{deviceId}", auth(h.Device.Delete))
@@ -128,24 +115,22 @@ func initRoutes(
 	mux.Handle("PUT /api/devices/{deviceId}/signed-prekey", auth(h.Device.UpdateSignedPrekey))
 	mux.Handle("GET /api/devices/{deviceId}/prekey-count", auth(h.Device.GetPrekeyCount))
 
-	// E2EE Key Backup — şifreli anahtar yedekleme
+	// E2EE Key Backup
 	mux.Handle("PUT /api/e2ee/key-backup", auth(h.E2EE.UpsertKeyBackup))
 	mux.Handle("GET /api/e2ee/key-backup", auth(h.E2EE.GetKeyBackup))
 	mux.Handle("DELETE /api/e2ee/key-backup", auth(h.E2EE.DeleteKeyBackup))
 
-	// E2EE User Devices / Prekey Bundles — başka kullanıcının public bilgileri
-	// Literal "blocked" path Users altında daha önce tanımlı, buradaki user-scoped
-	// device/prekey route'ları çakışma oluşturmaz çünkü farklı sub-path'ler.
+	// E2EE User Devices / Prekey Bundles
 	mux.Handle("GET /api/users/{userId}/devices", auth(h.Device.ListPublicDevices))
 	mux.Handle("GET /api/users/{userId}/prekey-bundles", auth(h.Device.GetPrekeyBundles))
 
-	// Channel Mutes — literal path, {serverId} wildcard'dan ÖNCE olmalı
+	// Channel mutes — literal path before {serverId} wildcard
 	mux.Handle("GET /api/channels/mutes", auth(h.ChannelMute.ListMuted))
 
-	// Link Preview — URL Open Graph metadata (server-side fetch, SSRF korumalı)
+	// Link Preview
 	mux.Handle("GET /api/link-preview", auth(h.LinkPreview.Get))
 
-	// GIFs (Klipy proxy) — literal path, auth gerektirir
+	// GIFs (Klipy proxy)
 	mux.Handle("GET /api/gifs/trending", auth(h.Gif.Trending))
 	mux.Handle("GET /api/gifs/search", auth(h.Gif.Search))
 
@@ -157,7 +142,7 @@ func initRoutes(
 	mux.Handle("GET /api/friends", auth(h.Friendship.ListFriends))
 	mux.Handle("DELETE /api/friends/{userId}", auth(h.Friendship.RemoveFriend))
 
-	// Platform Admin — LiveKit instance yönetimi
+	// Platform Admin — LiveKit
 	mux.Handle("GET /api/admin/livekit-instances", authAdmin(h.Admin.ListLiveKitInstances))
 	mux.Handle("GET /api/admin/livekit-instances/{id}/metrics/timeseries", authAdmin(h.Admin.GetLiveKitInstanceMetricsTimeSeries))
 	mux.Handle("GET /api/admin/livekit-instances/{id}/metrics/history", authAdmin(h.Admin.GetLiveKitInstanceMetricsHistory))
@@ -167,16 +152,16 @@ func initRoutes(
 	mux.Handle("PATCH /api/admin/livekit-instances/{id}", authAdmin(h.Admin.UpdateLiveKitInstance))
 	mux.Handle("DELETE /api/admin/livekit-instances/{id}", authAdmin(h.Admin.DeleteLiveKitInstance))
 
-	// Platform Admin — Sunucu listesi + instance migration + silme
+	// Platform Admin — Servers
 	mux.Handle("GET /api/admin/servers", authAdmin(h.Admin.ListServers))
 	mux.Handle("PATCH /api/admin/servers/{serverId}/instance", authAdmin(h.Admin.MigrateServerInstance))
 	mux.Handle("DELETE /api/admin/servers/{serverId}", authAdmin(h.Admin.AdminDeleteServer))
 
-	// Platform Admin — Rapor yönetimi
+	// Platform Admin — Reports
 	mux.Handle("GET /api/admin/reports", authAdmin(h.Admin.ListReports))
 	mux.Handle("PATCH /api/admin/reports/{id}/status", authAdmin(h.Admin.UpdateReportStatus))
 
-	// Platform Admin — Kullanıcı yönetimi
+	// Platform Admin — Users
 	mux.Handle("GET /api/admin/users", authAdmin(h.Admin.ListUsers))
 	mux.Handle("POST /api/admin/users/{id}/ban", authAdmin(h.Admin.PlatformBanUser))
 	mux.Handle("DELETE /api/admin/users/{id}/ban", authAdmin(h.Admin.PlatformUnbanUser))
@@ -186,8 +171,7 @@ func initRoutes(
 	// Stats — public
 	mux.HandleFunc("GET /api/stats", h.Stats.GetPublicStats)
 
-	// Invite Preview — public (auth gerektirmez)
-	// Mesajdaki invite kartında sunucu adı/ikon/üye sayısı göstermek için.
+	// Invite Preview — public (no auth)
 	mux.HandleFunc("GET /api/invites/{code}/preview", h.Invite.Preview)
 
 	// ╔══════════════════════════════════════════╗
@@ -201,11 +185,11 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/leave", authServer(h.Server.LeaveServer))
 	mux.Handle("POST /api/servers/{serverId}/icon", authServerPerm(models.PermAdmin, h.Avatar.UploadServerIcon))
 
-	// Server Mute — sunucu sessize alma
+	// Server Mute
 	mux.Handle("POST /api/servers/{serverId}/mute", authServer(h.ServerMute.Mute))
 	mux.Handle("DELETE /api/servers/{serverId}/mute", authServer(h.ServerMute.Unmute))
 
-	// Channel Mute — kanal sessize alma
+	// Channel Mute
 	mux.Handle("POST /api/servers/{serverId}/channels/{id}/mute", authServer(h.ChannelMute.Mute))
 	mux.Handle("DELETE /api/servers/{serverId}/channels/{id}/mute", authServer(h.ChannelMute.Unmute))
 
@@ -239,7 +223,7 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/channels/{channelId}/messages/{messageId}/pin", authServerPerm(models.PermManageMessages, h.Pin.Pin))
 	mux.Handle("DELETE /api/servers/{serverId}/channels/{channelId}/messages/{messageId}/pin", authServerPerm(models.PermManageMessages, h.Pin.Unpin))
 
-	// Read State — literal path "read-all" ve "unread" {id} wildcard'dan ÖNCE
+	// Read State — literal "read-all" and "unread" before {id} wildcard
 	mux.Handle("POST /api/servers/{serverId}/channels/read-all", authServer(h.ReadState.MarkAllRead))
 	mux.Handle("GET /api/servers/{serverId}/channels/unread", authServer(h.ReadState.GetUnreads))
 	mux.Handle("POST /api/servers/{serverId}/channels/{id}/read", authServer(h.ReadState.MarkRead))
@@ -272,7 +256,7 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/invites", authServerPerm(models.PermManageInvites, h.Invite.Create))
 	mux.Handle("DELETE /api/servers/{serverId}/invites/{code}", authServerPerm(models.PermManageInvites, h.Invite.Delete))
 
-	// E2EE Group Sessions — Sender Key oturum yönetimi (kanal bazında)
+	// E2EE Group Sessions
 	mux.Handle("POST /api/servers/{serverId}/channels/{channelId}/group-sessions", authServer(h.E2EE.CreateGroupSession))
 	mux.Handle("GET /api/servers/{serverId}/channels/{channelId}/group-sessions", authServer(h.E2EE.GetGroupSessions))
 

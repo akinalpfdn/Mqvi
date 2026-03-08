@@ -7,27 +7,19 @@ import (
 	"sync/atomic"
 )
 
-// ─── Interface Segregation: Hub Yetenekleri ───
+// ─── Interface Segregation ───
 //
-// Eski 12-metotlu EventPublisher interface'i 3 odaklı interface'e bölündü.
-// Her service sadece ihtiyaç duyduğu interface'e bağımlı olur (ISP).
+// Hub capabilities split into focused interfaces (ISP):
+// - Broadcaster: event publishing (used by most services)
+// - UserStateProvider: online user queries (message, p2p_call)
+// - ClientManager: connection management (server, member)
 //
-// Broadcaster: event yayınlama (tüm servisler kullanır)
-// UserStateProvider: online kullanıcı bilgisi (message, p2p_call)
-// ClientManager: client bağlantı yönetimi (server, member)
-//
-// Composed interface'ler:
-// BroadcastAndOnline = Broadcaster + UserStateProvider (message, p2p_call)
-// BroadcastAndManage = Broadcaster + ClientManager (server, member)
-// EventPublisher = Broadcaster + UserStateProvider + ClientManager (ws paketi, main wire-up)
-//
-// Hub tüm interface'leri implicit olarak karşılar (Go duck typing).
+// Composed interfaces:
+// - BroadcastAndOnline = Broadcaster + UserStateProvider
+// - BroadcastAndManage = Broadcaster + ClientManager
+// - EventPublisher = all three (ws package + main wire-up)
 
-// Broadcaster, WebSocket üzerinden event yayınlama yeteneklerini tanımlar.
-//
-// Tüm broadcast operasyonlarını içerir: tüm client'lara, belirli bir kullanıcıya,
-// belirli bir sunucuya, veya belirli kullanıcı listesine event gönderme.
-// En yaygın kullanılan interface — 13 service tarafından kullanılır.
+// Broadcaster publishes events over WebSocket.
 type Broadcaster interface {
 	BroadcastToAll(event Event)
 	BroadcastToAllExcept(excludeUserID string, event Event)
@@ -37,22 +29,13 @@ type Broadcaster interface {
 	BroadcastToServerExcept(serverID, excludeUserID string, event Event)
 }
 
-// UserStateProvider, bağlı kullanıcı durumu sorgulama yeteneklerini tanımlar.
-//
-// Hangi kullanıcıların online olduğunu sorgulamak için kullanılır.
-// MessageService: @mention bildirimlerinde online kullanıcıları filtrelemek için.
-// P2PCallService: arama başlatırken hedefin erişilebilir olup olmadığını kontrol etmek için.
+// UserStateProvider queries connected user state.
 type UserStateProvider interface {
 	GetOnlineUserIDs() []string
 	GetVisibleOnlineUserIDs() []string
 }
 
-// ClientManager, WebSocket client bağlantı yönetimi yeteneklerini tanımlar.
-//
-// Client'ları disconnect etme, invisible işaretleme ve sunucu üyelik
-// değişikliklerinde client'ın broadcast kapsamını güncelleme.
-// ServerService: katılma/ayrılma sırasında serverIDs güncelleme.
-// MemberService: kick/ban sonrası disconnect ve serverID kaldırma.
+// ClientManager manages WebSocket client connections.
 type ClientManager interface {
 	SetInvisible(userID string, invisible bool)
 	DisconnectUser(userID string)
@@ -60,194 +43,110 @@ type ClientManager interface {
 	RemoveClientServerID(userID, serverID string)
 }
 
-// BroadcastAndOnline, broadcast + online kullanıcı sorgulaması gerektiren
-// servisler için composed interface.
-//
-// Kullanım: MessageService (broadcast + @mention online filter),
-// P2PCallService (broadcast + reachability check).
+// BroadcastAndOnline — used by MessageService, P2PCallService.
 type BroadcastAndOnline interface {
 	Broadcaster
 	UserStateProvider
 }
 
-// BroadcastAndManage, broadcast + client yönetimi gerektiren servisler için composed interface.
-//
-// Kullanım: ServerService (broadcast + serverID tracking),
-// MemberService (broadcast + kick/ban disconnect).
+// BroadcastAndManage — used by ServerService, MemberService.
 type BroadcastAndManage interface {
 	Broadcaster
 	ClientManager
 }
 
-// EventPublisher, Hub'ın tüm yeteneklerini birleştiren tam interface.
-//
-// Dependency Inversion: Service'ler Hub'ın concrete struct'ına değil,
-// bu (veya alt) interface'lere bağımlıdır. Böylece:
-// 1. Service test edilirken mock kullanılabilir
-// 2. Hub implementasyonu değişse bile service kodu etkilenmez
-//
-// Tam interface sadece ws paketi ve main wire-up'ta kullanılır.
-// Servisler mümkün olduğunca dar interface kullanmalı (ISP).
+// EventPublisher is the full Hub interface. Used in ws package and main wire-up.
 type EventPublisher interface {
 	Broadcaster
 	UserStateProvider
 	ClientManager
 }
 
-// UserConnectionCallback, bir kullanıcının bağlantı durumu değiştiğinde çağrılır.
-//
-// Bu callback pattern nedir?
-// Hub, bağlantı olaylarında (ilk bağlantı, tam kopuş) dış katmanlara
-// haber vermek için fonksiyon referansı tutar. main.go'da set edilir.
-// Böylece Hub doğrudan service'e bağımlı olmaz (Dependency Inversion).
-//
-// prefStatus: Client'ın WS bağlanırken gönderdiği tercih edilen presence durumu.
-// OnUserFirstConnect'te kullanılır — DB'deki "offline" durumundan bağımsız olarak
-// doğru status anında broadcast edilebilir (reconnect sonrası "online" flash yok).
-// OnUserFullyDisconnected callback'inde boş string gönderilir (kullanılmaz).
+// UserConnectionCallback is called on first-connect and full-disconnect.
+// prefStatus: client's preferred presence sent via WS query param.
+// Used in OnUserFirstConnect to broadcast correct status immediately.
+// Empty string for OnUserFullyDisconnected (unused).
 type UserConnectionCallback func(userID, prefStatus string)
 
-// ─── Voice Callback Tipleri ───
-//
-// Voice event'leri de aynı callback pattern'ini kullanır.
-// Client ses kanalına katılmak/ayrılmak/state güncellemek istediğinde
-// Hub bu callback'leri tetikler. main.go'da voiceService'e wire-up yapılır.
+// ─── Voice Callback Types ───
 
-// VoiceJoinCallback, kullanıcı ses kanalına katılmak istediğinde çağrılır.
-// displayName: Kullanıcının tercih ettiği görünen isim (boş ise username kullanılır).
+// VoiceJoinCallback — user wants to join a voice channel.
+// displayName may be empty if the user hasn't set one.
 type VoiceJoinCallback func(userID, username, displayName, avatarURL, channelID string)
 
-// VoiceLeaveCallback, kullanıcı ses kanalından ayrılmak istediğinde çağrılır.
+// VoiceLeaveCallback — user wants to leave a voice channel.
 type VoiceLeaveCallback func(userID string)
 
-// VoiceStateUpdateCallback, kullanıcı mute/deafen/stream toggle'ladığında çağrılır.
-// Pointer parametreler: nil = o alan değişmiyor (partial update).
+// VoiceStateUpdateCallback — user toggled mute/deafen/stream.
+// Nil pointers mean "no change" (partial update).
 type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreaming *bool)
 
-// PresenceManualUpdateCallback, kullanıcı presence durumunu manuel değiştirdiğinde çağrılır.
-// Idle detection veya DND toggle gibi client-initiated durum değişikliklerinde tetiklenir.
-// main.go'da wire-up yapılır — DB persist + broadcast bu callback'te gerçekleşir.
+// PresenceManualUpdateCallback — user manually changed presence (idle, dnd, etc.).
+// Wired in main.go — handles DB persist + broadcast.
 type PresenceManualUpdateCallback func(userID string, status string)
 
-// VoiceAdminStateUpdateCallback, admin bir kullanıcıyı server mute/deafen ettiğinde çağrılır.
-// adminUserID: İşlemi yapan admin, targetUserID: Hedef kullanıcı.
-// Pointer parametreler: nil = o alan değişmiyor (partial update).
+// VoiceAdminStateUpdateCallback — admin server-muted/deafened a user.
+// Nil pointers mean "no change" (partial update).
 type VoiceAdminStateUpdateCallback func(adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool)
 
-// VoiceMoveUserCallback, yetkili bir kullanıcı başka bir kullanıcıyı voice kanallar arası taşıdığında çağrılır.
-// moverUserID: İşlemi yapan kullanıcı, targetUserID: Taşınan kullanıcı, targetChannelID: Hedef kanal.
+// VoiceMoveUserCallback — authorized user moved someone between voice channels.
 type VoiceMoveUserCallback func(moverUserID, targetUserID, targetChannelID string)
 
-// VoiceDisconnectUserCallback, yetkili bir kullanıcı başka bir kullanıcıyı voice'tan attığında çağrılır.
-// disconnecterUserID: İşlemi yapan kullanıcı, targetUserID: Atılan kullanıcı.
+// VoiceDisconnectUserCallback — authorized user kicked someone from voice.
 type VoiceDisconnectUserCallback func(disconnecterUserID, targetUserID string)
 
-// ─── P2P Call Callback Tipleri ───
-//
-// P2P arama event'leri de aynı callback pattern'ini kullanır.
-// Client arama başlatmak/kabul etmek/reddetmek/sonlandırmak istediğinde
-// Hub bu callback'leri tetikler. main.go'da p2pCallService'e wire-up yapılır.
+// ─── P2P Call Callback Types ───
 
-// P2PCallInitiateCallback, kullanıcı P2P arama başlatmak istediğinde çağrılır.
 type P2PCallInitiateCallback func(callerID string, data P2PCallInitiateData)
-
-// P2PCallAcceptCallback, kullanıcı gelen aramayı kabul ettiğinde çağrılır.
 type P2PCallAcceptCallback func(userID string, data P2PCallAcceptData)
-
-// P2PCallDeclineCallback, kullanıcı gelen aramayı reddettiğinde çağrılır.
 type P2PCallDeclineCallback func(userID string, data P2PCallDeclineData)
-
-// P2PCallEndCallback, kullanıcı aktif aramayı sonlandırdığında çağrılır.
 type P2PCallEndCallback func(userID string)
 
-// P2PSignalCallback, WebRTC signaling verisi geldiğinde çağrılır.
-// Server bu veriyi doğrudan karşı tarafa relay eder.
+// P2PSignalCallback — WebRTC signaling data relayed to the other peer.
 type P2PSignalCallback func(senderID string, data P2PSignalData)
 
-// ─── DM Callback Tipleri ───
+// ─── DM Callback Types ───
 
-// DMTypingCallback, DM kanalında kullanıcı yazıyor event'i geldiğinde çağrılır.
-// senderUserID: Yazan kullanıcı, senderUsername: Yazan kullanıcının adı,
-// dmChannelID: DM kanalı ID'si.
-// main.go'da wire-up: DM kanal üyesi lookup → karşı tarafa broadcast.
+// DMTypingCallback — typing indicator in a DM channel.
+// Wired in main.go: looks up DM channel member, broadcasts to the other user.
 type DMTypingCallback func(senderUserID, senderUsername, dmChannelID string)
 
-// cachedUserInfo, Hub'da cache'lenen kullanıcı bilgileri.
-// WS bağlantısı kurulduğunda DB'den çekilir, voice join gibi event'lerde
-// tekrar DB'ye gitmeden kullanılır.
+// cachedUserInfo holds user info cached at WS connect time.
+// Avoids DB lookups for typing/voice broadcasts.
 type cachedUserInfo struct {
 	Username    string
-	DisplayName string // Boş olabilir — kullanıcı display name ayarlamamış olabilir
-	AvatarURL   string // Boş olabilir — kullanıcının avatar'ı yoksa
+	DisplayName string
+	AvatarURL   string
 }
 
-// Hub, tüm WebSocket bağlantılarını yöneten merkezi yapıdır (Observer pattern).
-//
-// Observer pattern nedir?
-// Bir "subject" (Hub) birden fazla "observer"ı (Client) takip eder.
-// Bir event olduğunda Hub, tüm observer'lara bildirim gönderir.
-// Discord'da mesaj gönderildiğinde tüm bağlı kullanıcılara iletilmesi bu pattern'dir.
-//
-// Go channel nedir? (register, unregister, broadcast)
-// Goroutine'ler arası güvenli iletişim sağlayan yapılar.
-// Hub.Run() goroutine'i bu channel'lardan `select` ile okur:
-// - register channel'dan yeni client gelirse → clients map'e ekle
-// - unregister channel'dan client gelirse → map'ten çıkar
-// - broadcast channel'dan veri gelirse → tüm client'lara gönder
+// Hub manages all WebSocket connections (Observer pattern).
+// A single goroutine processes register/unregister via channels.
 type Hub struct {
-	// clients: userID → Client set (bir kullanıcının birden fazla tab'ı olabilir).
-	// map[string]map[*Client]bool — Go'da set yoktur, map[*Client]bool kullanılır.
-	// bool değeri her zaman true'dur — sadece varlık kontrolü için kullanılır.
+	// clients: userID -> set of Client connections (multi-tab support)
 	clients map[string]map[*Client]bool
+	mu      sync.RWMutex
 
-	// mu: clients map'ini koruyan read-write mutex.
-	//
-	// sync.RWMutex nedir?
-	// Mutex'in gelişmiş hali — birden fazla okuyucu aynı anda erişebilir (RLock),
-	// ama yazma işlemi sırasında tüm erişim bloklanır (Lock).
-	// Online kullanıcı listesi gibi okuma ağırlıklı işlemlerde performans sağlar.
-	mu sync.RWMutex
-
-	// register/unregister: Client giriş/çıkış sinyalleri.
 	register   chan *Client
 	unregister chan *Client
 
-	// seq: Her outbound event'e verilen artan sayaç.
-	// atomic.Int64: Birden fazla goroutine'in güvenle okuyup yazabildiği sayı.
-	// Normal int64 kullanılsaydı race condition oluşurdu.
+	// seq: monotonic counter for outbound event ordering
 	seq atomic.Int64
 
-	// userInfos: userID → cachedUserInfo cache (typing, voice broadcast için).
-	// WS bağlantısı kurulduğunda user bilgileri burada cache'lenir —
-	// voice join gibi event'lerde DB'ye gitmeden username/displayName/avatarURL alınabilir.
+	// userInfos: cached user info for typing/voice broadcasts
 	userInfos map[string]cachedUserInfo
 	userMu    sync.RWMutex
 
-	// invisibleUsers: "invisible" (offline) status seçmiş bağlı kullanıcıların set'i.
-	//
-	// Neden gerekli?
-	// Kullanıcı status olarak "offline" (invisible) seçtiğinde WS bağlantısı devam eder
-	// ama diğer kullanıcılar onu "online" listesinde görmemeli.
-	// GetOnlineUserIDs() tüm bağlı kullanıcıları döner (internal kullanım),
-	// GetVisibleOnlineUserIDs() ise invisible kullanıcıları filtreler (ready event için).
-	//
-	// mu (clients mutex) ile korunur — aynı lock altında tutarak
-	// clients ve invisibleUsers arasında tutarsızlık olmasını önleriz.
+	// invisibleUsers: users with "offline" (invisible) status who are still connected.
+	// Protected by mu (same lock as clients).
 	invisibleUsers map[string]bool
 
-	// Presence callback'leri — main.go'da set edilir.
-	// Hub bağlantı olaylarında bu fonksiyonları çağırır.
-	// Callback'ler ayrı goroutine'de çalıştırılır (deadlock önleme).
-	//
-	// Neden goroutine? addClient/removeClient h.mu.Lock() tutar.
-	// Callback içinde BroadcastToAll çağrılırsa h.mu.RLock() ister → deadlock!
-	// go func() ile ayrı goroutine'de çalıştırmak Lock'u serbest bıraktıktan
-	// sonra callback'in çalışmasını sağlar.
+	// Presence callbacks — set in main.go.
+	// Called in separate goroutines to avoid deadlock (callback may call Broadcast
+	// which needs RLock, but add/removeClient holds Lock).
 	onUserFirstConnect      UserConnectionCallback
 	onUserFullyDisconnected UserConnectionCallback
 
-	// Voice callback'leri — main.go'da set edilir.
-	// Client voice event gönderdiğinde handleEvent → Hub callback → main.go → VoiceService
+	// Voice callbacks — set in main.go
 	onVoiceJoin             VoiceJoinCallback
 	onVoiceLeave            VoiceLeaveCallback
 	onVoiceStateUpdate      VoiceStateUpdateCallback
@@ -255,24 +154,19 @@ type Hub struct {
 	onVoiceMoveUser         VoiceMoveUserCallback
 	onVoiceDisconnectUser   VoiceDisconnectUserCallback
 
-	// Presence manuel güncelleme callback'i — main.go'da set edilir.
-	// Client idle/dnd gibi durum değişikliği gönderdiğinde DB persist için çağrılır.
 	onPresenceManualUpdate PresenceManualUpdateCallback
 
-	// P2P Call callback'leri — main.go'da set edilir.
-	// Client P2P arama event'leri gönderdiğinde Hub bu callback'leri tetikler.
+	// P2P Call callbacks — set in main.go
 	onP2PCallInitiate P2PCallInitiateCallback
 	onP2PCallAccept   P2PCallAcceptCallback
 	onP2PCallDecline  P2PCallDeclineCallback
 	onP2PCallEnd      P2PCallEndCallback
 	onP2PSignal       P2PSignalCallback
 
-	// DM callback'leri — main.go'da set edilir.
-	// Client DM kanalında typing event'i gönderdiğinde Hub bu callback'i tetikler.
+	// DM callbacks — set in main.go
 	onDMTyping DMTypingCallback
 }
 
-// NewHub, yeni bir Hub oluşturur.
 func NewHub() *Hub {
 	return &Hub{
 		clients:        make(map[string]map[*Client]bool),
@@ -283,17 +177,7 @@ func NewHub() *Hub {
 	}
 }
 
-// Run, Hub'ın ana event loop'udur. main.go'da `go hub.Run()` ile başlatılır.
-//
-// goroutine olarak çalışır:
-// `go hub.Run()` → yeni bir hafif "thread" (goroutine) başlatır.
-// Go'da goroutine'ler OS thread'lerinden farklıdır — çok daha hafiftir (2KB stack).
-// Yüz binlerce goroutine rahatça çalışabilir.
-//
-// select nedir?
-// Birden fazla channel'ı aynı anda dinler.
-// Hangi channel'dan veri gelirse o case çalışır.
-// Hiçbirinden gelmezse bekler (blocking).
+// Run is the Hub's main event loop. Started as `go hub.Run()` in main.go.
 func (h *Hub) Run() {
 	for {
 		select {
@@ -306,23 +190,17 @@ func (h *Hub) Run() {
 	}
 }
 
-// addClient, yeni bir client'ı Hub'a ekler.
-// Kullanıcının ilk bağlantısıysa onUserFirstConnect callback'ini tetikler.
-// Sonraki bağlantılarda aggregate status hesaplanır — eğer yeni bağlantı
-// daha "aktif" bir duruma sahipse (ör. mevcut "idle" iken yeni tab "online"),
-// presence güncellenir.
+// addClient registers a new client. Fires OnUserFirstConnect for the user's
+// first connection. For subsequent connections, recomputes aggregate status.
 func (h *Hub) addClient(client *Client) {
 	h.mu.Lock()
 
 	isFirstConnection := len(h.clients[client.userID]) == 0
 
-	// Per-connection status başlangıç değeri:
-	// prefStatus varsa (client WS URL'den gönderdi) onu kullan,
-	// yoksa varsayılan "online" — yeni tab açan kullanıcı aktiftir.
+	// Set per-connection status from prefStatus or default to "online"
 	if client.prefStatus != "" && client.prefStatus != "offline" {
 		client.status = client.prefStatus
 	} else if client.prefStatus == "offline" {
-		// Invisible mod — bu bağlantı "offline" olarak takip edilir
 		client.status = "offline"
 	} else {
 		client.status = "online"
@@ -333,8 +211,7 @@ func (h *Hub) addClient(client *Client) {
 	}
 	h.clients[client.userID][client] = true
 
-	// İlk bağlantı değilse: yeni bağlantı aggregate'i değiştirebilir.
-	// Örneğin: Tab 1 idle iken yeni Tab 2 "online" açılırsa → aggregate "online" olur.
+	// New connection may change aggregate (e.g. existing idle + new online = online)
 	var aggregateForExisting string
 	if !isFirstConnection {
 		aggregateForExisting = h.computeAggregateStatusLocked(client.userID)
@@ -345,22 +222,19 @@ func (h *Hub) addClient(client *Client) {
 
 	h.mu.Unlock()
 
-	// Callback'i Lock dışında, ayrı goroutine'de çağır (deadlock önleme).
+	// Callbacks run outside lock in separate goroutines to prevent deadlock
 	if isFirstConnection && h.onUserFirstConnect != nil {
 		userID := client.userID
 		prefStatus := client.prefStatus
 		go h.onUserFirstConnect(userID, prefStatus)
 	} else if !isFirstConnection && h.onPresenceManualUpdate != nil {
-		// Sonraki bağlantı: aggregate status'u broadcast et.
-		// Eğer değişmemişse bile zararsız — DB update idempotent, broadcast aynı durumu gönderir.
 		go h.onPresenceManualUpdate(client.userID, aggregateForExisting)
 	}
 }
 
-// removeClient, bir client'ı Hub'dan çıkarır ve send channel'ını kapatır.
-// Kullanıcının son bağlantısı kapandıysa onUserFullyDisconnected callback'ini tetikler.
-// Kalan bağlantılar varsa aggregate status yeniden hesaplanır — örneğin
-// "online" tab kapandığında kalan "idle" tab'ın durumu broadcast edilir.
+// removeClient unregisters a client and closes its send channel.
+// Fires OnUserFullyDisconnected when the last connection closes.
+// Otherwise recomputes and broadcasts aggregate status.
 func (h *Hub) removeClient(client *Client) {
 	h.mu.Lock()
 
@@ -380,8 +254,6 @@ func (h *Hub) removeClient(client *Client) {
 				userID = client.userID
 				log.Printf("[ws] user fully disconnected: %s", client.userID)
 			} else {
-				// Kalan bağlantılarla aggregate yeniden hesapla.
-				// Kapanan tab "online" idi ve kalan sadece "idle" ise → "idle" broadcast edilmeli.
 				partialDisconnect = true
 				userID = client.userID
 				newAggregate = h.computeAggregateStatusLocked(client.userID)
@@ -393,24 +265,15 @@ func (h *Hub) removeClient(client *Client) {
 
 	h.mu.Unlock()
 
-	// Callback'i Lock dışında, ayrı goroutine'de çağır (deadlock önleme).
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
 		go h.onUserFullyDisconnected(userID, "")
 	} else if partialDisconnect && h.onPresenceManualUpdate != nil {
-		// Kalan bağlantıların aggregate'ini broadcast et.
 		go h.onPresenceManualUpdate(userID, newAggregate)
 	}
 }
 
-// statusPriority, presence durumlarının öncelik sıralamasını tanımlar.
-// Yüksek değer = daha "aktif" → aggregate'te kazanır.
-//
-// Neden bu sıralama?
-// Kullanıcının birden fazla cihazı/tab'ı olabilir.
-// Herhangi bir bağlantı "online" ise → kullanıcı "online" gözükmeli.
-// Tüm bağlantılar "idle" ise → "idle".
-// DND ve invisible manuel tercih — idle'dan düşük (kullanıcı bir tab'da
-// aktif çalışıyorsa, diğer tab'daki DND/invisible geçersiz sayılır).
+// statusPriority defines presence precedence. Higher = more "active".
+// When a user has multiple connections, the highest priority wins.
 var statusPriority = map[string]int{
 	"online":  4,
 	"idle":    3,
@@ -418,16 +281,8 @@ var statusPriority = map[string]int{
 	"offline": 1,
 }
 
-// computeAggregateStatusLocked, bir kullanıcının tüm bağlantılarının
-// status değerlerini tarayıp en yüksek öncelikli olanı döner.
-//
-// MUTLAKA h.mu Lock/RLock altında çağrılmalıdır.
-//
-// Örnek senaryolar:
-// - Tab1="online", Tab2="idle"  → "online" (aktif tab kazanır)
-// - Tab1="idle",   Tab2="idle"  → "idle"   (hepsi idle)
-// - Tab1="dnd",    Tab2="online"→ "online" (aktif çalışma DND'yi geçer)
-// - Bağlantı yok                → "offline"
+// computeAggregateStatusLocked returns the highest-priority status across
+// all connections for a user. MUST be called under h.mu Lock/RLock.
 func (h *Hub) computeAggregateStatusLocked(userID string) string {
 	clients := h.clients[userID]
 	if len(clients) == 0 {
@@ -446,7 +301,7 @@ func (h *Hub) computeAggregateStatusLocked(userID string) string {
 	return bestStatus
 }
 
-// BroadcastToAll, tüm bağlı client'lara event gönderir.
+// BroadcastToAll sends an event to all connected clients.
 func (h *Hub) BroadcastToAll(event Event) {
 	event.Seq = h.seq.Add(1)
 
@@ -464,15 +319,14 @@ func (h *Hub) BroadcastToAll(event Event) {
 			select {
 			case client.send <- data:
 			default:
-				// Buffer dolu — bu client yavaş, kapat
+				// Buffer full — slow client, disconnect
 				go func(c *Client) { h.unregister <- c }(client)
 			}
 		}
 	}
 }
 
-// BroadcastToUsers, belirli kullanıcı listesine event gönderir.
-// Kanal bazlı yetki filtrelemesinde kullanılır — sadece yetkili kullanıcılar alır.
+// BroadcastToUsers sends an event to a specific set of users.
 func (h *Hub) BroadcastToUsers(userIDs []string, event Event) {
 	if len(userIDs) == 0 {
 		return
@@ -486,7 +340,6 @@ func (h *Hub) BroadcastToUsers(userIDs []string, event Event) {
 		return
 	}
 
-	// Hızlı lookup için set oluştur
 	allowed := make(map[string]bool, len(userIDs))
 	for _, id := range userIDs {
 		allowed[id] = true
@@ -509,8 +362,7 @@ func (h *Hub) BroadcastToUsers(userIDs []string, event Event) {
 	}
 }
 
-// BroadcastToAllExcept, belirli bir kullanıcı hariç tüm client'lara event gönderir.
-// Typing indicator gibi durumlarda gönderen kişiye kendi typing event'i gitmez.
+// BroadcastToAllExcept sends an event to everyone except the specified user.
 func (h *Hub) BroadcastToAllExcept(excludeUserID string, event Event) {
 	event.Seq = h.seq.Add(1)
 
@@ -537,7 +389,7 @@ func (h *Hub) BroadcastToAllExcept(excludeUserID string, event Event) {
 	}
 }
 
-// BroadcastToUser, belirli bir kullanıcının tüm bağlantılarına event gönderir.
+// BroadcastToUser sends an event to all connections of a specific user.
 func (h *Hub) BroadcastToUser(userID string, event Event) {
 	event.Seq = h.seq.Add(1)
 
@@ -561,7 +413,7 @@ func (h *Hub) BroadcastToUser(userID string, event Event) {
 	}
 }
 
-// GetOnlineUserIDs, bağlı olan tüm kullanıcı ID'lerini döner.
+// GetOnlineUserIDs returns all connected user IDs (including invisible).
 func (h *Hub) GetOnlineUserIDs() []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -573,11 +425,8 @@ func (h *Hub) GetOnlineUserIDs() []string {
 	return ids
 }
 
-// GetVisibleOnlineUserIDs, bağlı olan ve invisible OLMAYAN kullanıcı ID'lerini döner.
-//
-// Ready event'te kullanılır — yeni bağlanan client'a "kimler online?" bilgisini
-// verirken invisible kullanıcıları hariç tutar.
-// GetOnlineUserIDs ise internal kullanım içindir (tüm bağlı kullanıcılar).
+// GetVisibleOnlineUserIDs returns connected user IDs excluding invisible users.
+// Used in the ready event to populate the online user list.
 func (h *Hub) GetVisibleOnlineUserIDs() []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -592,13 +441,7 @@ func (h *Hub) GetVisibleOnlineUserIDs() []string {
 	return ids
 }
 
-// SetInvisible, bir kullanıcıyı invisible (görünmez) olarak işaretler veya
-// işareti kaldırır.
-//
-// invisible=true: Kullanıcı "offline" status seçti ama hâlâ bağlı.
-//   GetVisibleOnlineUserIDs()'dan hariç tutulur.
-// invisible=false: Kullanıcı online/idle/dnd'ye döndü veya gerçekten koptu.
-//   Normal şekilde online listesinde görünür (bağlıysa).
+// SetInvisible marks a user as invisible (connected but hidden from online lists).
 func (h *Hub) SetInvisible(userID string, invisible bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -610,8 +453,7 @@ func (h *Hub) SetInvisible(userID string, invisible bool) {
 	}
 }
 
-// SetUserInfo, kullanıcı WS bağlantısı kurduğunda user bilgilerini cache'ler.
-// displayName ve avatarURL boş olabilir — nullable alanlar.
+// SetUserInfo caches user profile data at WS connect time.
 func (h *Hub) SetUserInfo(userID, username, displayName, avatarURL string) {
 	h.userMu.Lock()
 	defer h.userMu.Unlock()
@@ -622,114 +464,83 @@ func (h *Hub) SetUserInfo(userID, username, displayName, avatarURL string) {
 	}
 }
 
-// getUserUsername, userID'den username döner (typing broadcast için).
 func (h *Hub) getUserUsername(userID string) string {
 	h.userMu.RLock()
 	defer h.userMu.RUnlock()
 	return h.userInfos[userID].Username
 }
 
-// getUserInfo, userID'den cachedUserInfo döner (voice join broadcast için).
 func (h *Hub) getUserInfo(userID string) cachedUserInfo {
 	h.userMu.RLock()
 	defer h.userMu.RUnlock()
 	return h.userInfos[userID]
 }
 
-// OnUserFirstConnect, kullanıcının ilk bağlantısında çağrılacak callback'i ayarlar.
-//
-// "İlk bağlantı" = kullanıcının daha önce hiç aktif bağlantısı yoktu, şimdi var.
-// Aynı kullanıcının 2. tab'ı açarsa bu callback tekrar çağrılMAZ.
+// OnUserFirstConnect sets the callback for a user's first WS connection.
+// Not fired for additional tabs/connections from the same user.
 func (h *Hub) OnUserFirstConnect(cb UserConnectionCallback) {
 	h.onUserFirstConnect = cb
 }
 
-// OnUserFullyDisconnected, kullanıcının tüm bağlantıları kapandığında çağrılacak callback'i ayarlar.
-//
-// "Tam kopuş" = kullanıcının son tab'ı da kapandı, artık hiç bağlantısı yok.
-// 3 tab açıkken 2'sini kapatmak bu callback'i tetikleMEZ.
+// OnUserFullyDisconnected sets the callback for when a user's last connection closes.
 func (h *Hub) OnUserFullyDisconnected(cb UserConnectionCallback) {
 	h.onUserFullyDisconnected = cb
 }
 
-// OnPresenceManualUpdate, kullanıcı presence durumunu manuel değiştirdiğinde
-// çağrılacak callback'i ayarlar (idle detection, DND toggle vb.).
-//
-// Bu callback DB persist + broadcast işlemlerini yapar.
-// handlePresenceUpdate'teki eski broadcast kodu kaldırıldı —
-// tüm sorumluluk bu callback'e devredildi.
+// OnPresenceManualUpdate sets the callback for manual presence changes.
 func (h *Hub) OnPresenceManualUpdate(cb PresenceManualUpdateCallback) {
 	h.onPresenceManualUpdate = cb
 }
 
-// OnVoiceJoin, kullanıcı ses kanalına katılmak istediğinde çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceJoin(cb VoiceJoinCallback) {
 	h.onVoiceJoin = cb
 }
 
-// OnVoiceLeave, kullanıcı ses kanalından ayrılmak istediğinde çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceLeave(cb VoiceLeaveCallback) {
 	h.onVoiceLeave = cb
 }
 
-// OnVoiceStateUpdate, kullanıcı mute/deafen/stream toggle'ladığında çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceStateUpdate(cb VoiceStateUpdateCallback) {
 	h.onVoiceStateUpdate = cb
 }
 
-// OnVoiceAdminStateUpdate, admin bir kullanıcıyı server mute/deafen ettiğinde
-// çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceAdminStateUpdate(cb VoiceAdminStateUpdateCallback) {
 	h.onVoiceAdminStateUpdate = cb
 }
 
-// OnVoiceMoveUser, yetkili kullanıcı başka bir kullanıcıyı voice kanallar arası taşıdığında
-// çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceMoveUser(cb VoiceMoveUserCallback) {
 	h.onVoiceMoveUser = cb
 }
 
-// OnVoiceDisconnectUser, yetkili kullanıcı başka bir kullanıcıyı voice'tan attığında
-// çağrılacak callback'i ayarlar.
 func (h *Hub) OnVoiceDisconnectUser(cb VoiceDisconnectUserCallback) {
 	h.onVoiceDisconnectUser = cb
 }
 
-// OnP2PCallInitiate, kullanıcı P2P arama başlattığında çağrılacak callback'i ayarlar.
 func (h *Hub) OnP2PCallInitiate(cb P2PCallInitiateCallback) {
 	h.onP2PCallInitiate = cb
 }
 
-// OnP2PCallAccept, kullanıcı gelen aramayı kabul ettiğinde çağrılacak callback'i ayarlar.
 func (h *Hub) OnP2PCallAccept(cb P2PCallAcceptCallback) {
 	h.onP2PCallAccept = cb
 }
 
-// OnP2PCallDecline, kullanıcı gelen aramayı reddettiğinde çağrılacak callback'i ayarlar.
 func (h *Hub) OnP2PCallDecline(cb P2PCallDeclineCallback) {
 	h.onP2PCallDecline = cb
 }
 
-// OnP2PCallEnd, kullanıcı aktif aramayı sonlandırdığında çağrılacak callback'i ayarlar.
 func (h *Hub) OnP2PCallEnd(cb P2PCallEndCallback) {
 	h.onP2PCallEnd = cb
 }
 
-// OnP2PSignal, WebRTC signaling verisi geldiğinde çağrılacak callback'i ayarlar.
 func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {
 	h.onP2PSignal = cb
 }
 
-// OnDMTyping, DM kanalında typing event'i geldiğinde çağrılacak callback'i ayarlar.
-// main.go'da wire-up: dmRepo.GetChannelByID → karşı tarafa broadcast.
 func (h *Hub) OnDMTyping(cb DMTypingCallback) {
 	h.onDMTyping = cb
 }
 
-// DisconnectUser, bir kullanıcının tüm WebSocket bağlantılarını kapatır.
-//
-// Kullanım: Ban işlemi sonrasında kullanıcıyı zorla çıkarmak için.
-// RLock ile client listesini okur, sonra her client'ı unregister kuyruğuna gönderir.
+// DisconnectUser forcefully closes all WS connections for a user (e.g. after ban).
 func (h *Hub) DisconnectUser(userID string) {
 	h.mu.RLock()
 	clients := make([]*Client, 0)
@@ -745,7 +556,7 @@ func (h *Hub) DisconnectUser(userID string) {
 	}
 }
 
-// Shutdown, tüm client bağlantılarını kapatır (graceful shutdown).
+// Shutdown closes all client connections (graceful shutdown).
 func (h *Hub) Shutdown() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -759,16 +570,9 @@ func (h *Hub) Shutdown() {
 	log.Println("[ws] hub shut down, all connections closed")
 }
 
-// ─── Multi-Server Broadcast Metotları ───
+// ─── Multi-Server Broadcast ───
 
-// BroadcastToServer, belirli bir sunucunun üyesi olan tüm bağlı client'lara event gönderir.
-//
-// Multi-server mimaride kritik — sunucu A'daki mesaj sadece sunucu A'nın
-// üyelerine gider, sunucu B üyelerine gitmez.
-//
-// Nasıl çalışır: Tüm client'ları dolaş, client.serverIDs slice'ında serverID
-// varsa event'i gönder. O(clients × serverIDs) — kullanıcı başına ortalama
-// 3-5 sunucu olduğu için pratikte O(clients).
+// BroadcastToServer sends an event to all connected members of a specific server.
 func (h *Hub) BroadcastToServer(serverID string, event Event) {
 	event.Seq = h.seq.Add(1)
 
@@ -795,8 +599,7 @@ func (h *Hub) BroadcastToServer(serverID string, event Event) {
 	}
 }
 
-// BroadcastToServerExcept, belirli bir sunucunun üyelerine (bir kullanıcı hariç) event gönderir.
-// Typing indicator gibi durumlarda gönderen kişiye kendi event'i gitmez.
+// BroadcastToServerExcept sends to all server members except the specified user.
 func (h *Hub) BroadcastToServerExcept(serverID, excludeUserID string, event Event) {
 	event.Seq = h.seq.Add(1)
 
@@ -826,9 +629,7 @@ func (h *Hub) BroadcastToServerExcept(serverID, excludeUserID string, event Even
 	}
 }
 
-// AddClientServerID, bir kullanıcının tüm bağlı client'larına sunucu ID'si ekler.
-// Kullanıcı yeni bir sunucuya katıldığında çağrılır — artık o sunucunun
-// broadcast'lerini alacak.
+// AddClientServerID adds a server ID to all connections of a user (on server join).
 func (h *Hub) AddClientServerID(userID, serverID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -842,9 +643,7 @@ func (h *Hub) AddClientServerID(userID, serverID string) {
 	}
 }
 
-// RemoveClientServerID, bir kullanıcının tüm bağlı client'larından sunucu ID'sini kaldırır.
-// Kullanıcı sunucudan ayrıldığında veya atıldığında çağrılır — artık o sunucunun
-// broadcast'lerini almayacak.
+// RemoveClientServerID removes a server ID from all connections of a user (on leave/kick).
 func (h *Hub) RemoveClientServerID(userID, serverID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -861,16 +660,15 @@ func (h *Hub) RemoveClientServerID(userID, serverID string) {
 	}
 }
 
-// SetClientServerIDs, bir client'ın serverIDs'ini toplu olarak ayarlar.
-// WS bağlantısı kurulduğunda DB'den okunan sunucu listesiyle doldurulur.
+// SetClientServerIDs sets all server IDs for a client (at WS connect, from DB).
 func (h *Hub) SetClientServerIDs(client *Client, serverIDs []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	client.serverIDs = serverIDs
 }
 
-// clientHasServer, bir client'ın belirli bir sunucunun üyesi olup olmadığını kontrol eder.
-// O(n) — n = kullanıcının sunucu sayısı (tipik 3-10, max ~100).
+// clientHasServer checks if a client is a member of the given server.
+// O(n) where n = number of servers per user (typically 3-10).
 func clientHasServer(client *Client, serverID string) bool {
 	for _, id := range client.serverIDs {
 		if id == serverID {

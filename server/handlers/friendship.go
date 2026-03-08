@@ -1,16 +1,3 @@
-// Package handlers — FriendshipHandler: arkadaşlık HTTP endpoint'leri.
-//
-// Thin handler prensibi: Parse → Service → Response.
-// Tüm endpoint'ler auth middleware gerektirir (ek permission gerekmez).
-//
-// Route'lar (main.go'da bağlanır):
-//
-//	GET    /api/friends                    → ListFriends
-//	GET    /api/friends/requests           → ListRequests (incoming + outgoing)
-//	POST   /api/friends/requests           → SendRequest
-//	POST   /api/friends/requests/{id}/accept → AcceptRequest
-//	DELETE /api/friends/requests/{id}      → DeclineRequest
-//	DELETE /api/friends/{userId}           → RemoveFriend
 package handlers
 
 import (
@@ -22,19 +9,15 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// FriendshipHandler, arkadaşlık endpoint'lerini yöneten struct.
 type FriendshipHandler struct {
 	friendService services.FriendshipService
 }
 
-// NewFriendshipHandler, constructor.
 func NewFriendshipHandler(friendService services.FriendshipService) *FriendshipHandler {
 	return &FriendshipHandler{friendService: friendService}
 }
 
-// ListFriends godoc
-// GET /api/friends
-// Kullanıcının kabul edilmiş arkadaşlarını döner.
+// ListFriends handles GET /api/friends
 func (h *FriendshipHandler) ListFriends(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -51,10 +34,8 @@ func (h *FriendshipHandler) ListFriends(w http.ResponseWriter, r *http.Request) 
 	pkg.JSON(w, http.StatusOK, friends)
 }
 
-// ListRequests godoc
-// GET /api/friends/requests
-// Gelen ve gönderilen bekleyen istekleri döner.
-// Response: { incoming: [...], outgoing: [...] }
+// ListRequests handles GET /api/friends/requests
+// Returns both incoming and outgoing pending requests.
 func (h *FriendshipHandler) ListRequests(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -71,10 +52,7 @@ func (h *FriendshipHandler) ListRequests(w http.ResponseWriter, r *http.Request)
 	pkg.JSON(w, http.StatusOK, requests)
 }
 
-// SendRequest godoc
-// POST /api/friends/requests
-// Body: { "username": "john" }
-// Hedef kullanıcıya arkadaşlık isteği gönderir.
+// SendRequest handles POST /api/friends/requests
 func (h *FriendshipHandler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -97,9 +75,7 @@ func (h *FriendshipHandler) SendRequest(w http.ResponseWriter, r *http.Request) 
 	pkg.JSON(w, http.StatusCreated, result)
 }
 
-// AcceptRequest godoc
-// POST /api/friends/requests/{id}/accept
-// Gelen arkadaşlık isteğini kabul eder.
+// AcceptRequest handles POST /api/friends/requests/{id}/accept
 func (h *FriendshipHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -122,9 +98,8 @@ func (h *FriendshipHandler) AcceptRequest(w http.ResponseWriter, r *http.Request
 	pkg.JSON(w, http.StatusOK, result)
 }
 
-// DeclineRequest godoc
-// DELETE /api/friends/requests/{id}
-// Gelen isteği reddeder veya gönderilen isteği iptal eder.
+// DeclineRequest handles DELETE /api/friends/requests/{id}
+// Declines an incoming request or cancels an outgoing one.
 func (h *FriendshipHandler) DeclineRequest(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -146,9 +121,7 @@ func (h *FriendshipHandler) DeclineRequest(w http.ResponseWriter, r *http.Reques
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "request declined"})
 }
 
-// RemoveFriend godoc
-// DELETE /api/friends/{userId}
-// Mevcut arkadaşlığı kaldırır.
+// RemoveFriend handles DELETE /api/friends/{userId}
 func (h *FriendshipHandler) RemoveFriend(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

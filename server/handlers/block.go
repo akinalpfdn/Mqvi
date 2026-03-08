@@ -1,9 +1,3 @@
-// Package handlers — BlockHandler: kullanıcı engelleme endpoint'leri.
-//
-// Endpoint'ler:
-//   POST   /api/users/{userId}/block   → Kullanıcıyı engelle
-//   DELETE /api/users/{userId}/block   → Engeli kaldır
-//   GET    /api/users/blocked          → Engellenen kullanıcıları listele
 package handlers
 
 import (
@@ -14,18 +8,16 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// BlockHandler, kullanıcı engelleme endpoint'lerini yöneten struct.
+// BlockHandler handles user block/unblock endpoints.
 type BlockHandler struct {
 	service services.BlockService
 }
 
-// NewBlockHandler, constructor.
 func NewBlockHandler(service services.BlockService) *BlockHandler {
 	return &BlockHandler{service: service}
 }
 
-// BlockUser godoc
-// POST /api/users/{userId}/block
+// BlockUser -- POST /api/users/{userId}/block
 func (h *BlockHandler) BlockUser(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -47,8 +39,7 @@ func (h *BlockHandler) BlockUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// UnblockUser godoc
-// DELETE /api/users/{userId}/block
+// UnblockUser -- DELETE /api/users/{userId}/block
 func (h *BlockHandler) UnblockUser(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -70,8 +61,7 @@ func (h *BlockHandler) UnblockUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListBlocked godoc
-// GET /api/users/blocked
+// ListBlocked -- GET /api/users/blocked
 func (h *BlockHandler) ListBlocked(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

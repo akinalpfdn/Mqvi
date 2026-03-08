@@ -9,20 +9,16 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// ChannelHandler, kanal endpoint'lerini yöneten struct.
 type ChannelHandler struct {
 	channelService services.ChannelService
 }
 
-// NewChannelHandler, constructor.
 func NewChannelHandler(channelService services.ChannelService) *ChannelHandler {
 	return &ChannelHandler{channelService: channelService}
 }
 
-// List godoc
-// GET /api/servers/{serverId}/channels
-// Kullanıcının görebileceği kanalları kategorilere göre gruplar ve döner.
-// ViewChannel yetkisi olmayan kanallar filtrelenir (sidebar'da gizli kalır).
+// List handles GET /api/servers/{serverId}/channels
+// Returns channels grouped by category, filtered by ViewChannel permission.
 func (h *ChannelHandler) List(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -45,9 +41,7 @@ func (h *ChannelHandler) List(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, grouped)
 }
 
-// Create godoc
-// POST /api/servers/{serverId}/channels
-// Yeni kanal oluşturur. MANAGE_CHANNELS yetkisi gerektirir.
+// Create handles POST /api/servers/{serverId}/channels (requires MANAGE_CHANNELS).
 func (h *ChannelHandler) Create(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -70,9 +64,7 @@ func (h *ChannelHandler) Create(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusCreated, channel)
 }
 
-// Update godoc
-// PATCH /api/servers/{serverId}/channels/{id}
-// Kanalı günceller. MANAGE_CHANNELS yetkisi gerektirir.
+// Update handles PATCH /api/servers/{serverId}/channels/{id} (requires MANAGE_CHANNELS).
 func (h *ChannelHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -91,9 +83,7 @@ func (h *ChannelHandler) Update(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, channel)
 }
 
-// Delete godoc
-// DELETE /api/servers/{serverId}/channels/{id}
-// Kanalı siler. MANAGE_CHANNELS yetkisi gerektirir.
+// Delete handles DELETE /api/servers/{serverId}/channels/{id} (requires MANAGE_CHANNELS).
 func (h *ChannelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -105,9 +95,7 @@ func (h *ChannelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "channel deleted"})
 }
 
-// Reorder godoc
-// PATCH /api/servers/{serverId}/channels/reorder
-// Kanal sıralamasını toplu olarak günceller. MANAGE_CHANNELS yetkisi gerektirir.
+// Reorder handles PATCH /api/servers/{serverId}/channels/reorder (requires MANAGE_CHANNELS).
 func (h *ChannelHandler) Reorder(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

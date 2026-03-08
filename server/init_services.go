@@ -1,13 +1,3 @@
-// Package main — Service katmanı başlatma.
-//
-// initServices, tüm service implementasyonlarını oluşturur.
-// Her service, ihtiyaç duyduğu repository interface'lerini ve diğer
-// dependency'leri constructor injection ile alır.
-//
-// ÖNEMLİ sıralama kuralları (circular dependency ve closure scoping):
-// 1. channelPermService → voiceService ve messageService'den ÖNCE
-// 2. voiceService → Hub callback'lerinden ÖNCE
-// 3. p2pCallService → Hub callback'lerinden ÖNCE
 package main
 
 import (
@@ -22,7 +12,7 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// Services, tüm service instance'larını tutan container struct.
+// Services holds all service instances.
 type Services struct {
 	Auth              services.AuthService
 	Server            services.ServerService
@@ -58,33 +48,25 @@ type Services struct {
 	LinkPreview       services.LinkPreviewService
 }
 
-// RateLimiters, tüm rate limiter instance'larını tutan container.
 type RateLimiters struct {
 	Login   *ratelimit.LoginRateLimiter
 	Message *ratelimit.MessageRateLimiter
 }
 
-// initServices, tüm service'leri ve rate limiter'ları oluşturur.
-//
-// Sıralama kritiktir — bkz. dosya başı yorum.
-// hub ve encryptionKey service'ler arası paylaşılan dependency'lerdir.
+// initServices creates all services. Order matters:
+// channelPermService -> voiceService/messageService (dependency)
+// voiceService/p2pCallService -> before Hub callbacks (closure scoping)
 func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte) (*Services, *RateLimiters, services.MetricsCollector) {
-	// ─── Sıralama-kritik service'ler ───
-
-	// ChannelPermissionService — VoiceService ve MessageService'den ÖNCE
+	// Order-sensitive services
 	channelPermService := services.NewChannelPermissionService(
 		repos.ChannelPermission, repos.Role, repos.Channel, hub,
 	)
-
-	// VoiceService — Hub callback'lerinden ÖNCE (closure scoping)
 	voiceService := services.NewVoiceService(
 		repos.Channel, repos.LiveKit, channelPermService, hub, hub, encryptionKey,
 	)
-
-	// P2PCallService — Hub callback'lerinden ÖNCE
 	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub)
 
-	// ─── Email service (opsiyonel) ───
+	// Email service (optional)
 	var emailSender email.EmailSender
 	if cfg.Email.ResendAPIKey != "" && cfg.Email.FromEmail != "" && cfg.Email.AppURL != "" {
 		emailSender = email.NewResendSender(cfg.Email.ResendAPIKey, cfg.Email.FromEmail, cfg.Email.AppURL)
@@ -93,14 +75,12 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		log.Println("[main] email service disabled (RESEND_API_KEY, RESEND_FROM or APP_URL not set)")
 	}
 
-	// ─── Diğer service'ler (sıralama bağımsız) ───
+	// Remaining services (order-independent)
 	inviteService := services.NewInviteService(repos.Invite, repos.Server)
-
 	authService := services.NewAuthService(
 		repos.User, repos.Session, repos.ResetToken, hub, emailSender,
 		cfg.JWT.Secret, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry,
 	)
-
 	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService)
 	categoryService := services.NewCategoryService(repos.Category, hub)
 	messageService := services.NewMessageService(
@@ -121,13 +101,13 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	pinService := services.NewPinService(repos.Pin, repos.Message, hub)
 	searchService := services.NewSearchService(repos.Search)
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)
-	// BlockService — DMService'den ÖNCE (DMService block checker olarak kullanır)
+
+	// BlockService before DMService (DMService uses it as BlockChecker)
 	blockService := services.NewBlockService(repos.Friendship, repos.User, hub)
 
-	// DMSettingsService — DMService'den ÖNCE (DMService auto-unhide için kullanır)
+	// DMSettingsService before DMService (DMService uses it as DMSettingsUnhider)
 	dmSettingsService := services.NewDMSettingsService(repos.DMSettings, repos.DM, hub)
 
-	// DMService — blockService (BlockChecker ISP) ve dmSettingsService (DMSettingsUnhider ISP) alır
 	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, dmSettingsService)
 	dmUploadService := services.NewDMUploadService(repos.DM, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, hub)
@@ -137,27 +117,23 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reportService := services.NewReportService(repos.Report, repos.User)
 	reportUploadService := services.NewReportUploadService(repos.Report, cfg.Upload.Dir, cfg.Upload.MaxSize)
 
-	// ─── E2EE — Device + Key Backup + Group Session ───
 	deviceService := services.NewDeviceService(repos.Device, hub)
 	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, hub)
 
-	// ─── Platform Admin — User + Server Management ───
 	adminUserService := services.NewAdminUserService(repos.User, hub, voiceService, emailSender)
 	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, emailSender)
 
-	// ─── Link Preview ───
 	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)
 
-	// ─── Metrics History ───
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
 	metricsCollector := services.NewMetricsCollector(
 		repos.LiveKit, repos.MetricsHistory,
-		5*time.Minute, // collection interval
-		30,            // retention days
+		5*time.Minute,
+		30,
 		cfg.HetznerAPIToken,
 	)
 
-	// ─── Rate Limiters ───
+	// Rate limiters
 	loginLimiter := ratelimit.NewLoginRateLimiter(5, 2*time.Minute)
 	messageLimiter := ratelimit.NewMessageRateLimiter(5, 5*time.Second, 15*time.Second)
 

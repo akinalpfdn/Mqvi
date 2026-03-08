@@ -1,15 +1,3 @@
-// Package main — WebSocket Hub callback wire-up.
-//
-// registerHubCallbacks, Hub'ın presence/voice/p2p/dm callback'lerini ayarlar.
-//
-// Bu callback'ler neden burada (main package'da)?
-// Hub ws paketinde yaşıyor, ama DB güncellemesi service/repo katmanında.
-// Hub'ın service'lere bağımlı olmasını istemiyoruz (Dependency Inversion).
-// main package wire-up noktasıdır — tüm katmanları birbirine bağlar.
-//
-// Callback'ler Hub.Run() goroutine'inden ayrı goroutine'de çalışır
-// (addClient/removeClient içinde `go callback()` ile çağrılır),
-// böylece Hub'ın mutex Lock'u ile BroadcastToAll'ın RLock'u çakışmaz.
 package main
 
 import (
@@ -22,16 +10,8 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// registerHubCallbacks, tüm Hub callback'lerini register eder.
-//
-// Parametre olarak aldığı dependency'ler:
-// - hub: callback'lerin bağlanacağı WebSocket Hub
-// - userRepo: presence callback'lerinde DB güncelleme için
-// - dmRepo: DM typing callback'inde kanal üyesi lookup için
-// - voiceService: disconnect ve voice event'leri için
-// - p2pCallService: P2P arama event'leri için
-// - channelRepo: ses kanalı → sunucu lookup için (voice activity tracking)
-// - serverRepo: sunucu last_voice_activity güncelleme için
+// registerHubCallbacks wires Hub events to service layer logic.
+// Callbacks run in separate goroutines (launched by Hub) to avoid mutex deadlock.
 func registerHubCallbacks(
 	hub *ws.Hub,
 	userRepo repository.UserRepository,
@@ -41,23 +21,18 @@ func registerHubCallbacks(
 	channelRepo repository.ChannelRepository,
 	serverRepo repository.ServerRepository,
 ) {
-	// ─── Presence Callback'leri ───
+	// ─── Presence Callbacks ───
 
 	hub.OnUserFirstConnect(func(userID, prefStatus string) {
-		// prefStatus: client'ın WS bağlanırken gönderdiği tercih edilen durum.
-		// Bu değer client'ın localStorage'ından gelir — DB'deki "offline" (disconnect
-		// sonrası set edilen) değerinden her zaman daha doğrudur.
-		//
-		// prefStatus geçerliyse: doğrudan kullan (reconnect sonrası "online" flash yok).
-		// prefStatus boşsa (eski client veya edge case): DB'ye bak ve DND koruma yap.
+		// prefStatus from client localStorage is more current than DB status
+		// (DB is set to "offline" on disconnect).
 		var targetStatus models.UserStatus
 
 		switch prefStatus {
 		case "online", "idle", "dnd":
 			targetStatus = models.UserStatus(prefStatus)
 		case "offline":
-			// Invisible mod — hub handler'da SetInvisible zaten çağrıldı.
-			// Broadcast "offline" (görünmez kullanıcı connect oldu, ama diğerleri görmemeli).
+			// Invisible — SetInvisible already called in handler.
 			hub.BroadcastToAll(ws.Event{
 				Op: ws.OpPresence,
 				Data: ws.PresenceData{
@@ -68,15 +43,12 @@ func registerHubCallbacks(
 			log.Printf("[presence] user %s connected as invisible (prefStatus=offline)", userID)
 			return
 		default:
-			// Eski client veya pref_status gönderilmemiş — DB'ye bak.
+			// No pref_status — fall back to DB (preserves DND/idle across restarts)
 			user, err := userRepo.GetByID(context.Background(), userID)
 			if err != nil {
 				log.Printf("[presence] failed to get user %s: %v", userID, err)
 				return
 			}
-			// DND ve idle tercihleri sunucu restart sonrası DB'den restore edilir.
-			// Normal disconnect/reconnect'te DB "offline" olur ve aşağıdaki
-			// default branch "online" set eder (client 1sn içinde correction gönderir).
 			switch user.Status {
 			case models.UserStatusDND:
 				targetStatus = models.UserStatusDND
@@ -117,19 +89,17 @@ func registerHubCallbacks(
 		})
 		log.Printf("[presence] user %s disconnected (DB set to offline)", userID)
 
-		// Voice state burada TEMİZLENMEZ — voice state explicit bir kaynaktır.
-		// Kullanıcı voice_leave gönderdiğinde veya orphan cleanup sweep'inde silinir.
-		// WS kopması = voice leave DEĞİLDİR (LiveKit bağlantısı ayrı, WS reconnect olabilir).
-		// Bu yaklaşım kısa WS kesintilerinde sidebar flicker'ını ve
-		// yanlış join/leave seslerini önler.
+		// Voice state is NOT cleaned here — WS disconnect != voice leave.
+		// LiveKit connection is separate; WS may reconnect shortly.
+		// Cleaned by explicit voice_leave or orphan cleanup sweep.
 
 		p2pCallService.HandleDisconnect(userID)
 	})
 
 	hub.OnPresenceManualUpdate(func(userID string, status string) {
-		// Not: Ses kanalındayken idle engeli KALDIRILDI.
-		// Otomatik idle zaten client'ta (useIdleDetection) engellenyor.
-		// Manuel idle seçimi kullanıcının bilinçli kararıdır — server bunu bloke etmemeli.
+		// Note: idle-while-in-voice blocking was removed.
+		// Auto-idle is blocked client-side (useIdleDetection).
+		// Manual idle is a deliberate user choice — server should not override.
 
 		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatus(status)); err != nil {
 			log.Printf("[presence] failed to set %s for user %s: %v", status, userID, err)
@@ -148,7 +118,7 @@ func registerHubCallbacks(
 		log.Printf("[presence] user %s is now %s (manual)", userID, status)
 	})
 
-	// ─── Voice Callback'leri ───
+	// ─── Voice Callbacks ───
 
 	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string) {
 		if err := voiceService.JoinChannel(userID, username, displayName, avatarURL, channelID); err != nil {
@@ -156,13 +126,12 @@ func registerHubCallbacks(
 			return
 		}
 
-		// Kullanıcının son ses aktivitesi zamanını güncelle (admin panel user last_activity için).
+		// Track last voice activity for admin panel
 		if actErr := userRepo.UpdateLastVoiceActivity(context.Background(), userID); actErr != nil {
 			log.Printf("[voice] failed to update user voice activity user=%s: %v", userID, actErr)
 		}
 
-		// Sunucunun son ses aktivitesi zamanını güncelle (admin panel server last_activity için).
-		// channel → server lookup yapıp servers.last_voice_activity'yi set eder.
+		// Track server-level voice activity
 		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
 		if chErr != nil {
 			log.Printf("[voice] channel lookup for activity tracking failed channel=%s: %v", channelID, chErr)
@@ -198,7 +167,7 @@ func registerHubCallbacks(
 		}
 	})
 
-	// ─── P2P Call Callback'leri ───
+	// ─── P2P Call Callbacks ───
 
 	hub.OnP2PCallInitiate(func(callerID string, data ws.P2PCallInitiateData) {
 		callType := models.P2PCallType(data.CallType)

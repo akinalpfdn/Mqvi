@@ -9,24 +9,21 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// ReadStateHandler, okunmamış mesaj takibi endpoint'lerini yöneten struct.
+// ReadStateHandler handles unread message tracking endpoints.
 type ReadStateHandler struct {
 	readStateService services.ReadStateService
 }
 
-// NewReadStateHandler, constructor.
 func NewReadStateHandler(readStateService services.ReadStateService) *ReadStateHandler {
 	return &ReadStateHandler{readStateService: readStateService}
 }
 
-// markReadRequest, POST /api/servers/{serverId}/channels/{id}/read body'si.
 type markReadRequest struct {
 	MessageID string `json:"message_id"`
 }
 
-// MarkRead godoc
+// MarkRead marks a channel as read up to a specific message.
 // POST /api/servers/{serverId}/channels/{id}/read
-// Bir kanalı belirli bir mesaja kadar okunmuş olarak işaretler.
 func (h *ReadStateHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
@@ -50,9 +47,8 @@ func (h *ReadStateHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "marked as read"})
 }
 
-// MarkAllRead godoc
+// MarkAllRead marks all channels in the server as read.
 // POST /api/servers/{serverId}/channels/read-all
-// Sunucudaki tüm kanalları okunmuş olarak işaretler.
 func (h *ReadStateHandler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -74,9 +70,8 @@ func (h *ReadStateHandler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "all channels marked as read"})
 }
 
-// GetUnreads godoc
+// GetUnreads returns unread message counts for all channels in the server.
 // GET /api/servers/{serverId}/channels/unread
-// Kullanıcının bu sunucudaki tüm kanallarındaki okunmamış mesaj sayılarını döner.
 func (h *ReadStateHandler) GetUnreads(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

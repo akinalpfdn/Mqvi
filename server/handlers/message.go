@@ -12,11 +12,8 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// MessageHandler, mesaj endpoint'lerini yöneten struct.
-//
-// messageLimiter: Spam koruması — kullanıcı bazlı mesaj rate limiting.
-// Aynı limiter instance'ı DMHandler ile paylaşılır (userID bazlı olduğu için
-// kanal/DM ayrımı yapmaya gerek yok, toplam mesaj hızını kontrol eder).
+// MessageHandler handles message endpoints.
+// messageLimiter is shared with DMHandler (user-based, controls total message rate).
 type MessageHandler struct {
 	messageService services.MessageService
 	uploadService  services.UploadService
@@ -24,7 +21,6 @@ type MessageHandler struct {
 	messageLimiter *ratelimit.MessageRateLimiter
 }
 
-// NewMessageHandler, constructor.
 func NewMessageHandler(
 	messageService services.MessageService,
 	uploadService services.UploadService,
@@ -39,13 +35,8 @@ func NewMessageHandler(
 	}
 }
 
-// List godoc
-// GET /api/channels/{id}/messages?before=ID&limit=50
-// Mesajları cursor-based pagination ile döner.
-//
-// Query parametreleri:
-// - before: Bu mesaj ID'sinden önceki mesajları getir (boşsa en yenilerden başla)
-// - limit: Kaç mesaj dönsün (default 50, max 100)
+// List handles GET /api/channels/{id}/messages?before=ID&limit=50
+// Cursor-based pagination: before=messageID for older messages, limit max 100.
 func (h *MessageHandler) List(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
@@ -73,12 +64,8 @@ func (h *MessageHandler) List(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, page)
 }
 
-// Create godoc
-// POST /api/channels/{id}/messages
-// Yeni mesaj gönderir. JSON veya multipart/form-data kabul eder.
-//
-// JSON body: { "content": "mesaj metni" }
-// Multipart: content field + files field(ları)
+// Create handles POST /api/channels/{id}/messages
+// Accepts JSON or multipart/form-data (for file attachments).
 func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
@@ -88,8 +75,6 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Spam koruması — kullanıcı bazlı mesaj rate limiting.
-	// Aynı limiter hem channel hem DM mesajlarını kontrol eder.
 	if h.messageLimiter != nil && !h.messageLimiter.Allow(user.ID) {
 		retryAfter := h.messageLimiter.CooldownSeconds(user.ID)
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
@@ -99,30 +84,22 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Content-Type'a göre parse et
 	contentType := r.Header.Get("Content-Type")
 
 	var req models.CreateMessageRequest
 
 	if isMultipart(contentType) {
-		// Multipart: dosya + metin içeren mesaj
-		//
-		// ParseMultipartForm nedir?
-		// HTTP request body'sini multipart form olarak parse eder.
-		// maxUploadSize parametresi bellek limitini belirler —
-		// bu boyutu aşan dosyalar otomatik olarak geçici dosyaya yazılır.
 		if err := r.ParseMultipartForm(h.maxUploadSize); err != nil {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to parse multipart form")
 			return
 		}
 
 		req.Content = r.FormValue("content")
-		// Reply desteği — multipart formda reply_to_id alanı
 		if replyTo := r.FormValue("reply_to_id"); replyTo != "" {
 			req.ReplyToID = &replyTo
 		}
 
-		// E2EE alanları — multipart'tan parse
+		// E2EE fields from multipart
 		if ev := r.FormValue("encryption_version"); ev == "1" {
 			req.EncryptionVersion = 1
 			if ct := r.FormValue("ciphertext"); ct != "" {
@@ -136,55 +113,49 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Dosya var mı kontrol — HasFiles service'e iletilir (boş content kontrolü için)
 		if r.MultipartForm != nil && len(r.MultipartForm.File["files"]) > 0 {
 			req.HasFiles = true
 		}
 	} else {
-		// JSON: sadece metin mesaj
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 	}
 
-	// Mesajı oluştur
 	message, err := h.messageService.Create(r.Context(), channelID, user.ID, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
 	}
 
-	// Multipart ise dosyaları yükle
+	// Upload files after message creation
 	if isMultipart(contentType) && r.MultipartForm != nil {
 		isEncrypted := req.EncryptionVersion == 1
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
-				continue // Açılamayan dosyayı atla
+				continue
 			}
 
 			attachment, err := h.uploadService.Upload(r.Context(), message.ID, file, fileHeader, isEncrypted)
 			file.Close()
 			if err != nil {
-				continue // Yüklenemeyen dosyayı atla
+				continue
 			}
 
 			message.Attachments = append(message.Attachments, *attachment)
 		}
 	}
 
-	// WS broadcast — dosya yükleme tamamlandıktan sonra yapılır.
-	// Böylece tüm kullanıcılar mesajı attachment'larıyla birlikte görür.
+	// Broadcast after uploads so all clients see attachments
 	h.messageService.BroadcastCreate(message)
 
 	pkg.JSON(w, http.StatusCreated, message)
 }
 
-// Update godoc
-// PATCH /api/messages/{id}
-// Mesajı düzenler. Sadece mesaj sahibi düzenleyebilir.
+// Update handles PATCH /api/messages/{id} (owner only).
 func (h *MessageHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -209,9 +180,7 @@ func (h *MessageHandler) Update(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, message)
 }
 
-// Delete godoc
-// DELETE /api/messages/{id}
-// Mesajı siler. Mesaj sahibi VEYA MANAGE_MESSAGES yetkisi olan kullanıcılar silebilir.
+// Delete handles DELETE /api/messages/{id} (owner or MANAGE_MESSAGES permission).
 func (h *MessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -221,8 +190,6 @@ func (h *MessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Kullanıcının permission'larını al (context'ten veya başka yerden)
-	// Şimdilik Permission context'i middleware'den geçiyor
 	perms, _ := r.Context().Value(PermissionsContextKey).(models.Permission)
 
 	if err := h.messageService.Delete(r.Context(), id, user.ID, perms); err != nil {
@@ -233,9 +200,7 @@ func (h *MessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "message deleted"})
 }
 
-// Upload godoc
-// POST /api/upload
-// Bağımsız dosya yükleme endpoint'i.
+// Upload handles POST /api/upload (standalone file upload).
 func (h *MessageHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(h.maxUploadSize); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to parse multipart form")
@@ -251,7 +216,6 @@ func (h *MessageHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	messageID := r.FormValue("message_id")
 
-	// Standalone upload: encryption_version form field'ı ile kontrol
 	isEncrypted := r.FormValue("encryption_version") == "1"
 	attachment, err := h.uploadService.Upload(r.Context(), messageID, file, header, isEncrypted)
 	if err != nil {
@@ -262,10 +226,9 @@ func (h *MessageHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusCreated, attachment)
 }
 
-// PermissionsContextKey, context'te kullanıcının effective permission'larını taşır.
+// PermissionsContextKey carries the user's effective permissions in request context.
 const PermissionsContextKey contextKey = "permissions"
 
-// isMultipart, Content-Type'ın multipart/form-data olup olmadığını kontrol eder.
 func isMultipart(contentType string) bool {
 	return len(contentType) >= 19 && contentType[:19] == "multipart/form-data"
 }

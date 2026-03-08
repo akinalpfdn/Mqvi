@@ -9,19 +9,17 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// ServerMuteHandler, sunucu sessize alma endpoint'lerini yöneten struct.
+// ServerMuteHandler handles server mute/unmute endpoints.
 type ServerMuteHandler struct {
 	muteService services.ServerMuteService
 }
 
-// NewServerMuteHandler, constructor.
 func NewServerMuteHandler(muteService services.ServerMuteService) *ServerMuteHandler {
 	return &ServerMuteHandler{muteService: muteService}
 }
 
-// Mute godoc
+// Mute mutes a server for the current user.
 // POST /api/servers/{serverId}/mute
-// Kullanıcı belirli bir sunucuyu sessize alır.
 // Body: {"duration": "1h" | "8h" | "7d" | "forever"}
 func (h *ServerMuteHandler) Mute(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -50,9 +48,8 @@ func (h *ServerMuteHandler) Mute(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server muted"})
 }
 
-// Unmute godoc
+// Unmute removes server mute for the current user.
 // DELETE /api/servers/{serverId}/mute
-// Sunucu sessizliğini kaldırır.
 func (h *ServerMuteHandler) Unmute(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -74,9 +71,8 @@ func (h *ServerMuteHandler) Unmute(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server unmuted"})
 }
 
-// ListMuted godoc
+// ListMuted returns muted server IDs for the current user.
 // GET /api/servers/mutes
-// Kullanıcının sessize aldığı sunucu ID'lerini döner.
 func (h *ServerMuteHandler) ListMuted(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

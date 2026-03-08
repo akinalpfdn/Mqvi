@@ -1,17 +1,3 @@
-// Package handlers — ReportHandler: kullanıcı raporlama endpoint'i.
-//
-// Endpoint:
-//
-//	POST /api/users/{userId}/report → Kullanıcıyı raporla
-//
-// Multipart/JSON dual support:
-// - JSON body: sadece reason + description (dosya yok)
-// - Multipart form: reason + description + opsiyonel dosyalar (delil resimleri)
-//
-// Dosya yükleme mesaj handler pattern'ı ile aynı:
-// 1. Rapor oluştur (service layer)
-// 2. Dosyaları yükle (upload service)
-// 3. Attachments'ı response'a ekle
 package handlers
 
 import (
@@ -23,14 +9,14 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// ReportHandler, kullanıcı raporlama endpoint'ini yöneten struct.
+// ReportHandler handles user reporting.
+// Supports both JSON (text only) and multipart (text + evidence files).
 type ReportHandler struct {
 	service             services.ReportService
 	reportUploadService services.ReportUploadService
 	maxUploadSize       int64
 }
 
-// NewReportHandler, constructor.
 func NewReportHandler(
 	service services.ReportService,
 	reportUploadService services.ReportUploadService,
@@ -43,11 +29,9 @@ func NewReportHandler(
 	}
 }
 
-// CreateReport godoc
-// POST /api/users/{userId}/report
-//
+// CreateReport -- POST /api/users/{userId}/report
 // JSON body: { "reason": "spam|...", "description": "..." }
-// Multipart form: reason (field) + description (field) + files (opsiyonel, sadece resim)
+// Multipart: reason + description fields + optional image files
 func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -65,7 +49,6 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 
 	if isMultipart(contentType) {
-		// Multipart: dosya + metin içeren rapor
 		if err := r.ParseMultipartForm(h.maxUploadSize); err != nil {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to parse multipart form")
 			return
@@ -73,7 +56,6 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		req.Reason = r.FormValue("reason")
 		req.Description = r.FormValue("description")
 	} else {
-		// JSON: sadece metin rapor (dosya yok)
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 			return
@@ -86,23 +68,22 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Null protection — JSON'da null yerine [] döner
+	// Null protection -- return [] instead of null in JSON
 	report.Attachments = []models.ReportAttachment{}
 
-	// Dosya yükleme — rapor oluşturulduktan sonra (message handler pattern).
-	// Dosyalar opsiyonel — yükleme hatası rapor oluşturmayı engellemez.
+	// File uploads are optional -- upload failures don't block report creation
 	if isMultipart(contentType) && r.MultipartForm != nil {
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
-				continue // Açılamayan dosyayı atla
+				continue
 			}
 
 			att, err := h.reportUploadService.Upload(r.Context(), report.ID, file, fileHeader)
 			file.Close()
 			if err != nil {
-				continue // Yüklenemeyen dosyayı atla (boyut/MIME hatası vb.)
+				continue
 			}
 
 			report.Attachments = append(report.Attachments, *att)

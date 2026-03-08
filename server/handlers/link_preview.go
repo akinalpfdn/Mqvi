@@ -1,11 +1,3 @@
-// Package handlers — LinkPreviewHandler, URL Open Graph metadata endpoint'i.
-//
-// Route:
-//   GET /api/link-preview?url=https://example.com
-//
-// Auth gerektirir — rate limit için kullanıcı tanımlanmalı.
-// URL query param olarak alınır, server-side fetch ile metadata çekilir.
-// SSRF koruması service katmanındadır.
 package handlers
 
 import (
@@ -16,25 +8,18 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// LinkPreviewHandler, link preview endpoint'ini yönetir.
+// LinkPreviewHandler fetches Open Graph metadata for URLs.
+// SSRF protection is in the service layer.
 type LinkPreviewHandler struct {
 	service services.LinkPreviewService
 }
 
-// NewLinkPreviewHandler, constructor.
 func NewLinkPreviewHandler(service services.LinkPreviewService) *LinkPreviewHandler {
 	return &LinkPreviewHandler{service: service}
 }
 
-// Get, URL'in Open Graph metadata'sını döner.
-//
+// Get returns Open Graph metadata for the given URL.
 // GET /api/link-preview?url=https://example.com
-//
-// Response: LinkPreview JSON (title, description, image_url, site_name, favicon_url)
-// Hata durumları:
-//   - 400: url parametresi eksik
-//   - 401: auth gerekli
-//   - 502: fetch başarısız (SSRF, timeout, HTML parse hatası)
 func (h *LinkPreviewHandler) Get(w http.ResponseWriter, r *http.Request) {
 	_, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

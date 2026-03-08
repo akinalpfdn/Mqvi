@@ -1,12 +1,3 @@
-// Package middleware — PlatformAdminMiddleware, platform admin yetkisi kontrolü.
-//
-// AuthMiddleware'den SONRA çalışır — context'te user bilgisi mevcuttur.
-// User struct'taki IsPlatformAdmin alanını kontrol eder.
-// false ise → 403 Forbidden.
-//
-// Kullanım:
-//
-//	authMw.Require(platformAdminMw.Require(http.HandlerFunc(adminHandler.List)))
 package middleware
 
 import (
@@ -17,16 +8,15 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// PlatformAdminMiddleware, platform admin yetkisi zorunlu kılan middleware.
+// PlatformAdminMiddleware requires the user to be a platform admin.
+// Runs after AuthMiddleware.
 type PlatformAdminMiddleware struct{}
 
-// NewPlatformAdminMiddleware, constructor.
 func NewPlatformAdminMiddleware() *PlatformAdminMiddleware {
 	return &PlatformAdminMiddleware{}
 }
 
-// Require, platform admin yetkisi zorunlu kılan middleware.
-// Context'teki User'ın IsPlatformAdmin alanı false ise → 403 Forbidden.
+// Require returns 403 if User.IsPlatformAdmin is false.
 func (m *PlatformAdminMiddleware) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, ok := r.Context().Value(handlers.UserContextKey).(*models.User)

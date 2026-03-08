@@ -1,12 +1,3 @@
-// Package handlers — InviteHandler: davet kodu HTTP endpoint'leri.
-//
-// Thin handler prensibi: Parse → Service → Response.
-// Tüm endpoint'ler auth + ServerMembership + ManageInvites permission gerektirir.
-//
-// Route'lar:
-//   GET    /api/servers/{serverId}/invites       → List
-//   POST   /api/servers/{serverId}/invites       → Create
-//   DELETE /api/servers/{serverId}/invites/{code} → Delete
 package handlers
 
 import (
@@ -18,19 +9,15 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// InviteHandler, davet kodu endpoint'lerini yöneten struct.
 type InviteHandler struct {
 	inviteService services.InviteService
 }
 
-// NewInviteHandler, constructor.
 func NewInviteHandler(inviteService services.InviteService) *InviteHandler {
 	return &InviteHandler{inviteService: inviteService}
 }
 
-// List godoc
-// GET /api/servers/{serverId}/invites
-// Sunucunun tüm davet kodlarını oluşturan kullanıcı bilgisiyle döner.
+// List handles GET /api/servers/{serverId}/invites
 func (h *InviteHandler) List(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -47,9 +34,7 @@ func (h *InviteHandler) List(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, invites)
 }
 
-// Create godoc
-// POST /api/servers/{serverId}/invites
-// Body: { "max_uses": 5, "expires_in": 1440 }
+// Create handles POST /api/servers/{serverId}/invites
 func (h *InviteHandler) Create(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -78,8 +63,7 @@ func (h *InviteHandler) Create(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusCreated, invite)
 }
 
-// Delete godoc
-// DELETE /api/servers/{serverId}/invites/{code}
+// Delete handles DELETE /api/servers/{serverId}/invites/{code}
 func (h *InviteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	if code == "" {
@@ -95,10 +79,8 @@ func (h *InviteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "invite deleted"})
 }
 
-// Preview godoc
-// GET /api/invites/{code}/preview
-// Auth gerektirmez — invite kartında sunucu bilgisi göstermek için.
-// Sunucu adı, ikonu ve üye sayısını döner.
+// Preview handles GET /api/invites/{code}/preview
+// No auth required. Returns server name, icon, and member count for invite cards.
 func (h *InviteHandler) Preview(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	if code == "" {

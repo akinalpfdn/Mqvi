@@ -9,86 +9,39 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// WebSocket bağlantı sabitleri
 const (
-	// writeWait: Bir mesajı yazmak için maksimum bekleme süresi.
-	// Bu süre aşılırsa bağlantı kapatılır (ağ sorunu olabilir).
-	writeWait = 10 * time.Second
-
-	// pongWait: Client'ın heartbeat göndermesi için beklenen maksimum süre.
-	// 3 heartbeat kaçırma = 30s × 3 = 90s.
-	// Bu sürede heartbeat gelmezse client bağlantısı kopmuş sayılır.
-	pongWait = 90 * time.Second
-
-	// maxMessageSize: Client'ın gönderebileceği maksimum mesaj boyutu (byte).
-	// WebSocket mesajları küçük olmalı — büyük veri HTTP ile gönderilir.
-	// 32KB: WebRTC SDP payload'ları (video + screen share renegotiation)
-	// kolayca 4-8KB olabilir. Eski 4096 limiti video/screen share SDP'lerini
-	// kesip bağlantıyı kapatıyordu (gorilla CloseMessageTooBig).
-	// E2EE base64 şişirmesi (~%33) ve batch ICE candidate'lar dahil 32KB yeterli.
-	maxMessageSize = 32768
-
-	// sendBufferSize: Her client'ın send channel'ının buffer boyutu.
-	// Buffer doluysa (client yavaş) mesajlar kaybolur — bu durumda client disconnect edilir.
+	writeWait      = 10 * time.Second
+	pongWait       = 90 * time.Second  // 3 missed heartbeats (30s × 3)
+	maxMessageSize = 32768             // 32KB — WebRTC SDP + E2EE base64 overhead
 	sendBufferSize = 256
 )
 
-// Client, tek bir WebSocket bağlantısını temsil eder.
-//
-// Go'da WebSocket bağlantı yönetimi pattern'i:
-// Her bağlantı için iki goroutine oluşturulur:
-// - ReadPump: Client'dan gelen mesajları okur → Hub'a iletir
-// - WritePump: Hub'dan gelen mesajları client'a yazar
-//
-// Neden iki goroutine?
-// gorilla/websocket aynı anda sadece bir okuma ve bir yazma işlemi destekler.
-// İki ayrı goroutine kullanarak okuma ve yazma birbirini bloklamaz.
+// Client represents a single WebSocket connection.
+// Each connection runs two goroutines: ReadPump (read) and WritePump (write).
 type Client struct {
 	hub    *Hub
 	conn   *websocket.Conn
 	userID string
-	// send, client'a gönderilecek mesajların buffer'landığı Go channel'ı.
-	//
-	// Go channel nedir?
-	// Goroutine'ler arası veri iletimi için kullanılan tipli boru (pipe).
-	// `make(chan []byte, 256)` → 256 elemanlık buffer'lı bir byte dizisi kanalı.
-	// Hub mesaj göndermek istediğinde `client.send <- data` yapar,
-	// WritePump `data := <-client.send` ile okur.
-	send chan []byte
-	mu   sync.Mutex // conn.WriteMessage çağrılarını korur
+	send   chan []byte
+	mu     sync.Mutex // protects conn.WriteMessage
 
-	// serverIDs, kullanıcının üye olduğu sunucu ID'leri.
-	// WS bağlantısı kurulduğunda DB'den doldurulur.
-	// Sunucu join/leave olaylarında güncellenir.
-	// BroadcastToServer bu listeyi kontrol ederek
-	// event'i sadece ilgili sunucunun üyelerine gönderir.
+	// serverIDs: servers this user belongs to. Populated from DB at connect,
+	// updated on join/leave. Used by BroadcastToServer for filtering.
 	serverIDs []string
 
-	// prefStatus, bağlantı kurulurken client'ın tercih ettiği presence durumu.
-	// WS URL query parameter'ından okunur: ?pref_status=idle
-	// OnUserFirstConnect callback'ine geçirilir — DB "offline" durumundan
-	// bağımsız olarak doğru status anında broadcast edilir (1-sn ırk yok).
+	// prefStatus: preferred presence sent via WS URL query param (?pref_status=idle).
+	// Passed to OnUserFirstConnect to broadcast correct status immediately.
 	prefStatus string
 
-	// status, bu bağlantının mevcut presence durumunu tutar.
-	//
-	// Neden per-connection status?
-	// Bir kullanıcının birden fazla tab'ı/cihazı olabilir.
-	// Tab 1 idle olursa ama Tab 2 hâlâ online ise → kullanıcı "online" gözükmeli.
-	// Hub, tüm bağlantıların status'larını aggregate ederek
-	// en "aktif" durumu broadcast eder.
-	//
-	// Erişim: Hub.mu altında okunur/yazılır (hub.clients map'i ile aynı lock).
+	// status: per-connection presence. Hub aggregates across all connections
+	// to determine the user's visible status (highest priority wins).
+	// Accessed under Hub.mu.
 	status string
 }
 
-// ReadPump, WebSocket bağlantısından gelen mesajları okur ve işler.
-//
-// Bu fonksiyon bir goroutine olarak çalışır — bağlantı kapanana kadar döngüde kalır.
-// Bağlantı kapandığında Hub'dan çıkış yapar ve kaynakları temizler.
+// ReadPump reads messages from the WebSocket and dispatches events.
+// Runs until the connection closes, then unregisters from Hub.
 func (c *Client) ReadPump() {
-	// defer: Fonksiyon bittiğinde (return veya panic) çalışır.
-	// Bağlantı kapandığında client'ı Hub'dan çıkar ve WS bağlantısını kapat.
 	defer func() {
 		c.hub.unregister <- c
 		c.conn.Close()
@@ -96,8 +49,6 @@ func (c *Client) ReadPump() {
 
 	c.conn.SetReadLimit(maxMessageSize)
 
-	// SetReadDeadline: Bu süre içinde mesaj gelmezse Read hata verir.
-	// Her heartbeat geldiğinde deadline yenilenir.
 	if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 		log.Printf("[ws] failed to set read deadline for user %s: %v", c.userID, err)
 		return
@@ -106,14 +57,12 @@ func (c *Client) ReadPump() {
 	for {
 		_, rawMessage, err := c.conn.ReadMessage()
 		if err != nil {
-			// Bağlantı kapandı veya hata oluştu — ReadPump sonlanır.
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				log.Printf("[ws] unexpected close for user %s: %v", c.userID, err)
 			}
 			return
 		}
 
-		// Gelen mesajı parse et
 		var event Event
 		if err := json.Unmarshal(rawMessage, &event); err != nil {
 			log.Printf("[ws] invalid message from user %s: %v", c.userID, err)
@@ -124,11 +73,10 @@ func (c *Client) ReadPump() {
 	}
 }
 
-// handleEvent, client'dan gelen event'leri türüne göre işler.
+// handleEvent dispatches an incoming event by operation type.
 func (c *Client) handleEvent(event Event) {
 	switch event.Op {
 	case OpHeartbeat:
-		// Heartbeat geldi — deadline'ı yenile ve ack gönder.
 		if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 			log.Printf("[ws] failed to set read deadline for user %s: %v", c.userID, err)
 			return
@@ -136,43 +84,23 @@ func (c *Client) handleEvent(event Event) {
 		c.sendEvent(Event{Op: OpHeartbeatAck})
 
 	case OpTyping:
-		// Typing event'ini parse et ve diğer kullanıcılara broadcast et.
 		c.handleTyping(event)
-
 	case OpPresenceUpdate:
-		// Kullanıcı durumunu değiştirdi (idle, dnd vb.)
 		c.handlePresenceUpdate(event)
-
 	case OpVoiceJoin:
-		// Kullanıcı ses kanalına katılmak istiyor
 		c.handleVoiceJoin(event)
-
 	case OpVoiceLeave:
-		// Kullanıcı ses kanalından ayrılmak istiyor
 		c.handleVoiceLeave()
-
 	case OpVoiceStateUpdateReq:
-		// Kullanıcı mute/deafen/stream durumunu değiştirmek istiyor
 		c.handleVoiceStateUpdate(event)
-
 	case OpVoiceAdminStateUpdate:
-		// Admin: kullanıcıyı server mute/deafen
 		c.handleVoiceAdminStateUpdate(event)
-
 	case OpVoiceMoveUser:
-		// Yetkili: kullanıcıyı başka voice kanala taşı
 		c.handleVoiceMoveUser(event)
-
 	case OpVoiceDisconnectUser:
-		// Yetkili: kullanıcıyı voice'tan at
 		c.handleVoiceDisconnectUser(event)
-
-	// ─── DM Event'leri ───
 	case OpDMTypingStart:
-		// DM kanalında typing event'i — sadece karşı tarafa broadcast
 		c.handleDMTyping(event)
-
-	// ─── P2P Call Event'leri ───
 	case OpP2PCallInitiate:
 		c.handleP2PCallInitiate(event)
 	case OpP2PCallAccept:
@@ -189,16 +117,9 @@ func (c *Client) handleEvent(event Event) {
 	}
 }
 
-// handlePresenceUpdate, client'dan gelen presence değişikliğini işler.
-//
-// Client { op: "presence_update", d: { status: "idle" } } gönderdiğinde çağrılır.
-//
-// Per-connection aggregate logic:
-// Bu bağlantının status'unu günceller, sonra kullanıcının TÜM bağlantılarının
-// aggregate'ini hesaplar. Böylece Tab 1 idle olsa bile Tab 2 online ise
-// kullanıcı "online" olarak broadcast edilir.
-//
-// DB güncelleme ve broadcast işlemi main.go'daki callback'te yapılır (DI).
+// handlePresenceUpdate processes a client presence change.
+// Updates per-connection status, computes aggregate across all connections,
+// then delegates DB persist + broadcast to the callback.
 func (c *Client) handlePresenceUpdate(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -210,37 +131,26 @@ func (c *Client) handlePresenceUpdate(event Event) {
 		return
 	}
 
-	// Geçerli status kontrolü — "offline" = invisible (kullanıcı çevrimdışı görünmek istiyor)
 	switch data.Status {
 	case "online", "idle", "dnd", "offline":
-		// geçerli
+		// valid
 	default:
 		log.Printf("[ws] invalid presence status from user %s: %s", c.userID, data.Status)
 		return
 	}
 
-	// Per-connection status'u güncelle ve aggregate hesapla.
-	// Hub.mu altında yapılır — client.status ve clients map atomik okunur/yazılır.
 	c.hub.mu.Lock()
 	c.status = data.Status
 	aggregate := c.hub.computeAggregateStatusLocked(c.userID)
 	c.hub.mu.Unlock()
 
-	// Callback pattern: DB persist + broadcast sorumluluğu main.go'daki callback'e ait.
-	// Aggregate status kullanılır — tek bağlantının durumu değil, tüm bağlantıların
-	// en aktif olanı broadcast edilir.
 	if c.hub.onPresenceManualUpdate != nil {
 		go c.hub.onPresenceManualUpdate(c.userID, aggregate)
 	}
 }
 
-// handleTyping, typing event'ini işler ve diğer kullanıcılara broadcast eder.
+// handleTyping broadcasts a typing indicator to other users.
 func (c *Client) handleTyping(event Event) {
-	// Event data'sını JSON'dan TypingData'ya parse et.
-	//
-	// json.Marshal + json.Unmarshal neden?
-	// event.Data tipi `any` (interface{}), doğrudan cast edemeyiz.
-	// JSON'a çevirip tekrar parse etmek en güvenli yöntem.
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
 		return
@@ -255,7 +165,6 @@ func (c *Client) handleTyping(event Event) {
 		return
 	}
 
-	// Broadcast: typing_start event'ini tüm kullanıcılara gönder (gönderen hariç).
 	c.hub.BroadcastToAllExcept(c.userID, Event{
 		Op: OpTypingStart,
 		Data: TypingStartData{
@@ -266,11 +175,8 @@ func (c *Client) handleTyping(event Event) {
 	})
 }
 
-// handleDMTyping, DM kanalında typing event'ini işler.
-//
-// Channel typing'den farklı olarak, tüm kullanıcılara değil
-// sadece DM kanalının karşı tarafına broadcast edilir.
-// Bu işlem callback üzerinden yapılır — Hub doğrudan DM repo'ya bağımlı olmaz.
+// handleDMTyping broadcasts a DM typing indicator to the other participant only.
+// Uses a callback to avoid Hub depending on DM repo directly.
 func (c *Client) handleDMTyping(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -288,7 +194,6 @@ func (c *Client) handleDMTyping(event Event) {
 		return
 	}
 
-	// Callback üzerinden DM kanal üyesi lookup + broadcast
 	if c.hub.onDMTyping != nil {
 		username := c.hub.getUserUsername(c.userID)
 		go c.hub.onDMTyping(c.userID, username, data.DMChannelID)
@@ -297,9 +202,6 @@ func (c *Client) handleDMTyping(event Event) {
 
 // ─── Voice Event Handlers ───
 
-// handleVoiceJoin, voice_join event'ini işler.
-// Client { op: "voice_join", d: { channel_id: "abc" } } gönderdiğinde
-// Hub'ın voice join callback'ini tetikler.
 func (c *Client) handleVoiceJoin(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -317,23 +219,17 @@ func (c *Client) handleVoiceJoin(event Event) {
 	}
 
 	if c.hub.onVoiceJoin != nil {
-		// Hub cache'inden kullanıcı bilgilerini al (WS connect'te set edilmiş).
 		info := c.hub.getUserInfo(c.userID)
 		go c.hub.onVoiceJoin(c.userID, info.Username, info.DisplayName, info.AvatarURL, data.ChannelID)
 	}
 }
 
-// handleVoiceLeave, voice_leave event'ini işler.
-// Client { op: "voice_leave" } gönderdiğinde Hub'ın voice leave callback'ini tetikler.
 func (c *Client) handleVoiceLeave() {
 	if c.hub.onVoiceLeave != nil {
 		go c.hub.onVoiceLeave(c.userID)
 	}
 }
 
-// handleVoiceStateUpdate, voice_state_update_request event'ini işler.
-// Client { op: "voice_state_update_request", d: { is_muted: true } } gönderdiğinde
-// Hub'ın voice state update callback'ini tetikler.
 func (c *Client) handleVoiceStateUpdate(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -350,9 +246,6 @@ func (c *Client) handleVoiceStateUpdate(event Event) {
 	}
 }
 
-// handleVoiceAdminStateUpdate, voice_admin_state_update event'ini işler.
-// Admin kullanıcı { op: "voice_admin_state_update", d: { target_user_id: "abc", is_server_muted: true } }
-// gönderdiğinde Hub'ın admin state update callback'ini tetikler.
 func (c *Client) handleVoiceAdminStateUpdate(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -374,9 +267,6 @@ func (c *Client) handleVoiceAdminStateUpdate(event Event) {
 	}
 }
 
-// handleVoiceMoveUser, voice_move_user event'ini işler.
-// Yetkili kullanıcı { op: "voice_move_user", d: { target_user_id: "abc", target_channel_id: "xyz" } }
-// gönderdiğinde Hub'ın voice move callback'ini tetikler.
 func (c *Client) handleVoiceMoveUser(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -398,9 +288,6 @@ func (c *Client) handleVoiceMoveUser(event Event) {
 	}
 }
 
-// handleVoiceDisconnectUser, voice_disconnect_user event'ini işler.
-// Yetkili kullanıcı { op: "voice_disconnect_user", d: { target_user_id: "abc" } }
-// gönderdiğinde Hub'ın voice disconnect callback'ini tetikler.
 func (c *Client) handleVoiceDisconnectUser(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -424,9 +311,6 @@ func (c *Client) handleVoiceDisconnectUser(event Event) {
 
 // ─── P2P Call Event Handlers ───
 
-// handleP2PCallInitiate, p2p_call_initiate event'ini işler.
-// Client { op: "p2p_call_initiate", d: { receiver_id: "abc", call_type: "voice" } }
-// gönderdiğinde Hub'ın P2P call initiate callback'ini tetikler.
 func (c *Client) handleP2PCallInitiate(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -448,7 +332,6 @@ func (c *Client) handleP2PCallInitiate(event Event) {
 	}
 }
 
-// handleP2PCallAccept, p2p_call_accept event'ini işler.
 func (c *Client) handleP2PCallAccept(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -470,7 +353,6 @@ func (c *Client) handleP2PCallAccept(event Event) {
 	}
 }
 
-// handleP2PCallDecline, p2p_call_decline event'ini işler.
 func (c *Client) handleP2PCallDecline(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -492,16 +374,14 @@ func (c *Client) handleP2PCallDecline(event Event) {
 	}
 }
 
-// handleP2PCallEnd, p2p_call_end event'ini işler.
-// Payload gerekmez — userID yeterli (kullanıcının aktif araması sonlandırılır).
+// handleP2PCallEnd — no payload needed, userID identifies the active call.
 func (c *Client) handleP2PCallEnd() {
 	if c.hub.onP2PCallEnd != nil {
 		go c.hub.onP2PCallEnd(c.userID)
 	}
 }
 
-// handleP2PSignal, p2p_signal event'ini işler.
-// WebRTC SDP offer/answer veya ICE candidate'ı karşı tarafa relay eder.
+// handleP2PSignal relays WebRTC SDP/ICE data to the other peer.
 func (c *Client) handleP2PSignal(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -523,7 +403,6 @@ func (c *Client) handleP2PSignal(event Event) {
 	}
 }
 
-// sendEvent, client'a tek bir event gönderir.
 func (c *Client) sendEvent(event Event) {
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -533,25 +412,21 @@ func (c *Client) sendEvent(event Event) {
 
 	select {
 	case c.send <- data:
-		// Başarıyla buffer'a eklendi
 	default:
-		// Buffer dolu — client muhtemelen donmuş, bağlantıyı kapat
 		log.Printf("[ws] send buffer full for user %s, dropping connection", c.userID)
 		c.hub.unregister <- c
 	}
 }
 
-// WritePump, Hub'dan gelen mesajları WebSocket bağlantısına yazar.
-//
-// Bu fonksiyon bir goroutine olarak çalışır.
-// send channel'dan mesaj bekler ve WS'e yazar.
+// WritePump writes messages from Hub to the WebSocket connection.
+// Runs as a goroutine until the send channel is closed.
 func (c *Client) WritePump() {
 	defer c.conn.Close()
 
 	for {
 		message, ok := <-c.send
 		if !ok {
-			// Channel kapatıldı — Hub client'ı çıkardı
+			// Channel closed — Hub removed this client
 			c.writeMessage(websocket.CloseMessage, nil)
 			return
 		}
@@ -562,13 +437,8 @@ func (c *Client) WritePump() {
 	}
 }
 
-// writeMessage, WebSocket'e mesaj yazar (mutex ile korunur).
-//
-// sync.Mutex nedir?
-// Aynı anda sadece bir goroutine'in kritik bölgeye girmesini sağlar.
-// c.mu.Lock() → bölgeye gir, c.mu.Unlock() → bölgeden çık.
-// gorilla/websocket conn'a aynı anda birden fazla yazma YASAK —
-// bu yüzden mutex ile koruyoruz.
+// writeMessage writes to the WebSocket connection under mutex.
+// gorilla/websocket does not support concurrent writes.
 func (c *Client) writeMessage(messageType int, data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -9,19 +9,17 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// ChannelMuteHandler, kanal sessize alma endpoint'lerini yöneten struct.
+// ChannelMuteHandler handles channel mute/unmute endpoints.
 type ChannelMuteHandler struct {
 	muteService services.ChannelMuteService
 }
 
-// NewChannelMuteHandler, constructor.
 func NewChannelMuteHandler(muteService services.ChannelMuteService) *ChannelMuteHandler {
 	return &ChannelMuteHandler{muteService: muteService}
 }
 
-// Mute godoc
+// Mute mutes a channel for the current user.
 // POST /api/servers/{serverId}/channels/{id}/mute
-// Kullanıcı belirli bir kanalı sessize alır.
 // Body: {"duration": "1h" | "8h" | "7d" | "forever"}
 func (h *ChannelMuteHandler) Mute(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
@@ -56,9 +54,8 @@ func (h *ChannelMuteHandler) Mute(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "channel muted"})
 }
 
-// Unmute godoc
+// Unmute removes channel mute for the current user.
 // DELETE /api/servers/{serverId}/channels/{id}/mute
-// Kanal sessizliğini kaldırır.
 func (h *ChannelMuteHandler) Unmute(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -80,9 +77,8 @@ func (h *ChannelMuteHandler) Unmute(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "channel unmuted"})
 }
 
-// ListMuted godoc
+// ListMuted returns muted channel IDs for the current user.
 // GET /api/channels/mutes
-// Kullanıcının sessize aldığı kanal ID'lerini döner.
 func (h *ChannelMuteHandler) ListMuted(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

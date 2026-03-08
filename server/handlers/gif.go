@@ -1,15 +1,5 @@
-// Package handlers — GIF arama endpoint'leri.
-//
-// GifHandler, Klipy API için backend proxy görevi görür.
-// API key server-side'da tutulur, client'a açılmaz.
-//
-// Route'lar:
-//   GET /api/gifs/trending  — Popüler GIF'ler
-//   GET /api/gifs/search    — GIF arama (q parametresi)
-//
-// Klipy API docs: https://docs.klipy.com/
-// Klipy, Tenor'un halefidir — Discord/WhatsApp dahil geçiş yapıldı.
-// KLIPY_API_KEY yoksa her iki endpoint 503 döner.
+// Package handlers -- GifHandler: backend proxy for Klipy GIF API.
+// API key is kept server-side. Returns 503 if KLIPY_API_KEY is not set.
 package handlers
 
 import (
@@ -23,37 +13,28 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// klipyBaseURL, Klipy API production base URL'i.
 const klipyBaseURL = "https://api.klipy.com"
 
-// GifResult, client'a dönen simplified GIF bilgisi.
-// Klipy'nin büyük response objesi yerine sadece gerekli alanlar taşınır.
+// GifResult is the simplified GIF info returned to the client.
 type GifResult struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
-	PreviewURL string `json:"preview_url"` // xs gif — picker thumbnail (küçük, hızlı)
-	URL        string `json:"url"`         // md gif — mesajda gönderilecek orta boyut
+	PreviewURL string `json:"preview_url"` // xs gif for picker thumbnail
+	URL        string `json:"url"`         // md gif for message display
 	Width      int    `json:"width"`
 	Height     int    `json:"height"`
 }
 
-// GifHandler, Klipy API proxy endpoint'lerini yöneten handler.
 type GifHandler struct {
 	klipyAPIKey string
 }
 
-// NewGifHandler, constructor.
-// klipyAPIKey boşsa endpoint'ler 503 döner (opsiyonel özellik — email pattern).
 func NewGifHandler(klipyAPIKey string) *GifHandler {
 	return &GifHandler{klipyAPIKey: klipyAPIKey}
 }
 
-// Trending, popüler GIF'leri döner.
-//
+// Trending returns popular GIFs.
 // GET /api/gifs/trending?per_page=24&page=1
-// Query params:
-//   - per_page: sonuç sayısı (default 24, max 50)
-//   - page: sayfa numarası (default 1)
 func (h *GifHandler) Trending(w http.ResponseWriter, r *http.Request) {
 	if h.klipyAPIKey == "" {
 		pkg.ErrorWithMessage(w, http.StatusServiceUnavailable, "GIF service not configured")
@@ -84,13 +65,8 @@ func (h *GifHandler) Trending(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Search, GIF arama sonuçlarını döner.
-//
+// Search returns GIF search results.
 // GET /api/gifs/search?q=funny&per_page=24&page=1
-// Query params:
-//   - q: arama sorgusu (zorunlu)
-//   - per_page: sonuç sayısı (default 24, max 50)
-//   - page: sayfa numarası (default 1)
 func (h *GifHandler) Search(w http.ResponseWriter, r *http.Request) {
 	if h.klipyAPIKey == "" {
 		pkg.ErrorWithMessage(w, http.StatusServiceUnavailable, "GIF service not configured")
@@ -127,9 +103,8 @@ func (h *GifHandler) Search(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ─── Klipy API response types ───
+// ── Klipy API response types ──
 
-// klipyAPIResponse, Klipy API'nin ham response yapısı.
 type klipyAPIResponse struct {
 	Result bool          `json:"result"`
 	Data   klipyDataWrap `json:"data"`
@@ -147,8 +122,7 @@ type klipyItem struct {
 	File  klipyFiles `json:"file"`
 }
 
-// klipyFiles, her boyut tier'ı için format → URL mapping.
-// Tier'lar: hd (full), md (medium), sm (small), xs (extra small).
+// klipyFiles maps size tiers (hd, md, sm, xs) to format URLs.
 type klipyFiles struct {
 	HD klipyFormats `json:"hd"`
 	MD klipyFormats `json:"md"`
@@ -169,7 +143,6 @@ type klipyMedia struct {
 	Size   int    `json:"size"`
 }
 
-// fetchKlipyResults, Klipy API'ye HTTP isteği atar ve GifResult slice'ına dönüştürür.
 func fetchKlipyResults(url string) ([]GifResult, bool, error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -193,19 +166,18 @@ func fetchKlipyResults(url string) ([]GifResult, bool, error) {
 
 	results := make([]GifResult, 0, len(klipyResp.Data.Data))
 	for _, item := range klipyResp.Data.Data {
-		// Mesajda gösterilecek GIF URL — md (medium) tercih, yoksa sm, yoksa hd
+		// Prefer md (medium) for message display, fallback to sm then hd
 		gifURL := pickMediaURL(item.File.MD.GIF, item.File.SM.GIF, item.File.HD.GIF)
 		if gifURL == "" {
-			continue // GIF format yoksa bu sonucu atla
+			continue
 		}
 
-		// Picker thumbnail — xs (extra small) tercih, yoksa sm
+		// Prefer xs (extra small) for picker thumbnail
 		previewURL := pickMediaURL(item.File.XS.GIF, item.File.SM.GIF, nil)
 		if previewURL == "" {
-			previewURL = gifURL // fallback: ana GIF
+			previewURL = gifURL
 		}
 
-		// Boyutlar — md tier'dan al
 		var width, height int
 		if item.File.MD.GIF != nil {
 			width = item.File.MD.GIF.Width
@@ -225,7 +197,7 @@ func fetchKlipyResults(url string) ([]GifResult, bool, error) {
 	return results, klipyResp.Data.HasNext, nil
 }
 
-// pickMediaURL, verilen media pointer'larından ilk mevcut URL'i döner.
+// pickMediaURL returns the first non-nil media URL from the given options.
 func pickMediaURL(options ...*klipyMedia) string {
 	for _, m := range options {
 		if m != nil && m.URL != "" {
@@ -235,8 +207,7 @@ func pickMediaURL(options ...*klipyMedia) string {
 	return ""
 }
 
-// clampInt, string değeri int'e çevirir ve min/max aralığına sınırlar.
-// Parse hatası veya boş string durumunda defaultVal döner.
+// clampInt parses a string to int and clamps it within [min, max].
 func clampInt(s string, defaultVal, min, max int) int {
 	if s == "" {
 		return defaultVal

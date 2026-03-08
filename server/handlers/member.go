@@ -1,10 +1,3 @@
-// Package handlers — MemberHandler: üye yönetimi HTTP endpoint'leri.
-//
-// Thin handler prensibi: Parse → Service → Response.
-// Tüm iş mantığı (hiyerarşi kontrolü, ban, kick) MemberService'dedir.
-//
-// Multi-server mimaride tüm üye operasyonları sunucu bazlıdır.
-// ServerID context'ten alınır (ServerMembershipMiddleware tarafından eklenir).
 package handlers
 
 import (
@@ -16,19 +9,15 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// MemberHandler, üye endpoint'lerini yöneten struct.
 type MemberHandler struct {
 	memberService services.MemberService
 }
 
-// NewMemberHandler, constructor.
 func NewMemberHandler(memberService services.MemberService) *MemberHandler {
 	return &MemberHandler{memberService: memberService}
 }
 
-// List godoc
-// GET /api/servers/{serverId}/members
-// Sunucudaki tüm üyeleri rolleriyle birlikte döner.
+// List handles GET /api/servers/{serverId}/members
 func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -45,9 +34,7 @@ func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, members)
 }
 
-// Get godoc
-// GET /api/servers/{serverId}/members/{id}
-// Belirli bir üyeyi rolleriyle birlikte döner.
+// Get handles GET /api/servers/{serverId}/members/{id}
 func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -66,9 +53,7 @@ func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, member)
 }
 
-// ModifyRoles godoc
-// PATCH /api/servers/{serverId}/members/{id}/roles
-// Body: { "role_ids": ["roleId1", "roleId2"] }
+// ModifyRoles handles PATCH /api/servers/{serverId}/members/{id}/roles
 func (h *MemberHandler) ModifyRoles(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -104,9 +89,7 @@ func (h *MemberHandler) ModifyRoles(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, member)
 }
 
-// Kick godoc
-// DELETE /api/servers/{serverId}/members/{id}
-// Bir üyeyi sunucudan çıkarır.
+// Kick handles DELETE /api/servers/{serverId}/members/{id}
 func (h *MemberHandler) Kick(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -130,9 +113,7 @@ func (h *MemberHandler) Kick(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "member kicked"})
 }
 
-// Ban godoc
-// POST /api/servers/{serverId}/members/{id}/ban
-// Body: { "reason": "optional ban reason" }
+// Ban handles POST /api/servers/{serverId}/members/{id}/ban
 func (h *MemberHandler) Ban(w http.ResponseWriter, r *http.Request) {
 	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -162,9 +143,7 @@ func (h *MemberHandler) Ban(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "member banned"})
 }
 
-// GetBans godoc
-// GET /api/servers/{serverId}/bans
-// Tüm yasaklı üyeleri listeler. BAN_MEMBERS yetkisi gerektirir.
+// GetBans handles GET /api/servers/{serverId}/bans (requires BAN_MEMBERS).
 func (h *MemberHandler) GetBans(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -181,9 +160,7 @@ func (h *MemberHandler) GetBans(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, bans)
 }
 
-// Unban godoc
-// DELETE /api/servers/{serverId}/bans/{id}
-// Bir üyenin yasağını kaldırır. BAN_MEMBERS yetkisi gerektirir.
+// Unban handles DELETE /api/servers/{serverId}/bans/{id} (requires BAN_MEMBERS).
 func (h *MemberHandler) Unban(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -201,12 +178,8 @@ func (h *MemberHandler) Unban(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "member unbanned"})
 }
 
-// UpdateProfile godoc
-// PATCH /api/users/me/profile
-// Body: { "display_name": "...", "avatar_url": "...", "custom_status": "..." }
-//
-// Kullanıcının kendi profilini günceller.
-// Bu endpoint global — sunucu bağımsız (profil tüm sunucularda aynı).
+// UpdateProfile handles PATCH /api/users/me/profile
+// Global endpoint (not server-scoped).
 func (h *MemberHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {

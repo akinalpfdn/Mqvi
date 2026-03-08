@@ -8,19 +8,16 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// SearchHandler, mesaj arama endpoint'ini yöneten struct.
 type SearchHandler struct {
 	searchService services.SearchService
 }
 
-// NewSearchHandler, constructor.
 func NewSearchHandler(searchService services.SearchService) *SearchHandler {
 	return &SearchHandler{searchService: searchService}
 }
 
-// Search godoc
-// GET /api/servers/{serverId}/search?q=query&channel_id=optional&limit=25&offset=0
-// FTS5 ile tam metin araması yapar. Sunucu bazlı — sadece bu sunucunun kanallarında arar.
+// Search handles GET /api/servers/{serverId}/search?q=query&channel_id=optional&limit=25&offset=0
+// FTS5 full-text search scoped to the server's channels.
 func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -34,13 +31,11 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Opsiyonel kanal filtresi
 	var channelID *string
 	if cid := r.URL.Query().Get("channel_id"); cid != "" {
 		channelID = &cid
 	}
 
-	// Limit
 	limit := 25
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
@@ -48,7 +43,6 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Offset
 	offset := 0
 	if o := r.URL.Query().Get("offset"); o != "" {
 		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {

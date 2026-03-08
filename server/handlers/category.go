@@ -9,18 +9,15 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
-// CategoryHandler, kategori endpoint'lerini yöneten struct.
 type CategoryHandler struct {
 	categoryService services.CategoryService
 }
 
-// NewCategoryHandler, constructor.
 func NewCategoryHandler(categoryService services.CategoryService) *CategoryHandler {
 	return &CategoryHandler{categoryService: categoryService}
 }
 
-// List godoc
-// GET /api/servers/{serverId}/categories
+// List handles GET /api/servers/{serverId}/categories
 func (h *CategoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -37,8 +34,7 @@ func (h *CategoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, categories)
 }
 
-// Create godoc
-// POST /api/servers/{serverId}/categories
+// Create handles POST /api/servers/{serverId}/categories
 func (h *CategoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
 	if !ok || serverID == "" {
@@ -61,8 +57,7 @@ func (h *CategoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusCreated, category)
 }
 
-// Update godoc
-// PATCH /api/servers/{serverId}/categories/{id}
+// Update handles PATCH /api/servers/{serverId}/categories/{id}
 func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -81,8 +76,7 @@ func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, category)
 }
 
-// Delete godoc
-// DELETE /api/servers/{serverId}/categories/{id}
+// Delete handles DELETE /api/servers/{serverId}/categories/{id}
 func (h *CategoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
