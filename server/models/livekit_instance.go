@@ -1,12 +1,3 @@
-// Package models — LiveKitInstance domain modeli.
-//
-// Her sunucu bir LiveKit SFU instance'ına bağlıdır.
-// "mqvi hosted" sunucular platform'un LiveKit'ini kullanır,
-// "self-hosted" sunucular kullanıcının kendi LiveKit'ini kullanır.
-//
-// Credential'lar (APIKey, APISecret) DB'de AES-256-GCM ile şifrelenmiş saklanır.
-// Bu struct'taki değerler decrypt edilmiş haldir — JSON serialize edilirken
-// json:"-" tag'i sayesinde asla client'a gönderilmez.
 package models
 
 import (
@@ -15,21 +6,21 @@ import (
 	"time"
 )
 
-// LiveKitInstance, bir LiveKit SFU sunucu bilgisini temsil eder.
+// LiveKitInstance — credentials are stored AES-256-GCM encrypted in DB.
+// Values here are decrypted; json:"-" prevents them from ever reaching the client.
 type LiveKitInstance struct {
 	ID                string    `json:"id"`
 	URL               string    `json:"url"`
-	APIKey            string    `json:"-"` // asla client'a gönderme
-	APISecret         string    `json:"-"` // asla client'a gönderme
+	APIKey            string    `json:"-"`
+	APISecret         string    `json:"-"`
 	IsPlatformManaged bool      `json:"is_platform_managed"`
 	ServerCount       int       `json:"server_count"`
-	MaxServers        int       `json:"max_servers"` // 0 = sınırsız
+	MaxServers        int       `json:"max_servers"` // 0 = unlimited
 	HetznerServerID   string    `json:"hetzner_server_id"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
-// LiveKitInstanceAdminView, admin panelde gösterilen LiveKit instance bilgisi.
-// Credential'lar ASLA gönderilmez — sadece URL, kapasite ve sunucu sayısı.
+// LiveKitInstanceAdminView — credentials are NEVER exposed, even to admins.
 type LiveKitInstanceAdminView struct {
 	ID                string    `json:"id"`
 	URL               string    `json:"url"`
@@ -40,16 +31,14 @@ type LiveKitInstanceAdminView struct {
 	CreatedAt         time.Time `json:"created_at"`
 }
 
-// CreateLiveKitInstanceRequest, admin panelden yeni LiveKit instance oluşturma isteği.
 type CreateLiveKitInstanceRequest struct {
 	URL             string `json:"url"`
 	APIKey          string `json:"api_key"`
 	APISecret       string `json:"api_secret"`
-	MaxServers      int    `json:"max_servers"` // 0 = sınırsız
+	MaxServers      int    `json:"max_servers"`
 	HetznerServerID string `json:"hetzner_server_id"`
 }
 
-// Validate, CreateLiveKitInstanceRequest'in geçerli olup olmadığını kontrol eder.
 func (r *CreateLiveKitInstanceRequest) Validate() error {
 	r.URL = strings.TrimSpace(r.URL)
 	if r.URL == "" {
@@ -69,9 +58,8 @@ func (r *CreateLiveKitInstanceRequest) Validate() error {
 	return nil
 }
 
-// UpdateLiveKitInstanceRequest, admin panelden LiveKit instance güncelleme isteği.
-// Tüm alanlar optional — sadece gönderilen alanlar güncellenir.
-// Credential'lar boş bırakılırsa mevcut değerler korunur.
+// UpdateLiveKitInstanceRequest — nil fields are not updated.
+// Empty credentials keep existing values.
 type UpdateLiveKitInstanceRequest struct {
 	URL             *string `json:"url"`
 	APIKey          *string `json:"api_key"`
@@ -80,7 +68,6 @@ type UpdateLiveKitInstanceRequest struct {
 	HetznerServerID *string `json:"hetzner_server_id"`
 }
 
-// Validate, UpdateLiveKitInstanceRequest'in geçerli olup olmadığını kontrol eder.
 func (r *UpdateLiveKitInstanceRequest) Validate() error {
 	if r.URL != nil {
 		trimmed := strings.TrimSpace(*r.URL)

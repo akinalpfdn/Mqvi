@@ -2,20 +2,13 @@ package models
 
 import "time"
 
-// Session, JWT refresh token oturumunu temsil eder.
-//
-// Neden refresh token ayrı tabloda?
-// Access token kısa ömürlü (15dk) — sık sık yenilenir.
-// Refresh token uzun ömürlü (7 gün) — access token yenilemek için kullanılır.
-// Refresh token'ları DB'de tutarak:
-//   - Çalınan token'ı iptal edebiliriz (revoke)
-//   - Kullanıcının tüm oturumlarını görebiliriz
-//   - Logout'ta sadece ilgili oturumu silebiliriz
+// Session — JWT refresh token session. Stored in DB so tokens can be
+// revoked and all active sessions can be listed per user.
 type Session struct {
 	ID           string    `json:"id"`
 	UserID       string    `json:"user_id"`
-	RefreshToken string    `json:"-"`                          // API'ye gönderilmez
-	DeviceID     *string   `json:"device_id,omitempty"`        // E2EE cihaz bağlantısı — login session'ı hangi cihaza ait
+	RefreshToken string    `json:"-"`                   // never sent to client
+	DeviceID     *string   `json:"device_id,omitempty"` // E2EE device binding
 	ExpiresAt    time.Time `json:"expires_at"`
 	CreatedAt    time.Time `json:"created_at"`
 }

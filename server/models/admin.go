@@ -5,8 +5,7 @@ import (
 	"strings"
 )
 
-// AdminServerListItem — Platform admin panelde gösterilen sunucu bilgisi.
-// Tek SQL sorgusu ile tüm istatistikler toplanır.
+// AdminServerListItem — server info for platform admin panel. Aggregated in a single query.
 type AdminServerListItem struct {
 	ID                string  `json:"id"`
 	Name              string  `json:"name"`
@@ -23,8 +22,7 @@ type AdminServerListItem struct {
 	LastActivity      *string `json:"last_activity"`
 }
 
-// AdminUserListItem — Platform admin panelde gösterilen kullanıcı bilgisi.
-// Tek SQL sorgusu ile tüm istatistikler toplanır (correlated subquery pattern).
+// AdminUserListItem — user info for platform admin panel. Aggregated via correlated subqueries.
 type AdminUserListItem struct {
 	ID                string  `json:"id"`
 	Username          string  `json:"username"`
@@ -43,37 +41,30 @@ type AdminUserListItem struct {
 	IsPlatformBanned  bool    `json:"is_platform_banned"`
 }
 
-// PlatformBanRequest — Platform-level ban isteği.
-// Reason opsiyonel — admin sebebi kaydetmek istemeyebilir.
-// DeleteMessages true ise kullanıcının tüm mesajları (server + DM) silinir.
+// PlatformBanRequest — DeleteMessages: if true, all user messages (server + DM) are purged.
 type PlatformBanRequest struct {
 	Reason         string `json:"reason"`
 	DeleteMessages bool   `json:"delete_messages"`
 }
 
-// HardDeleteUserRequest — Kullanıcı silme isteği.
-// Reason opsiyonel — doldurulursa kullanıcıya email ile bildirilir.
+// HardDeleteUserRequest — reason is optional; if provided, user is notified via email.
 type HardDeleteUserRequest struct {
 	Reason string `json:"reason"`
 }
 
-// AdminDeleteServerRequest — Platform admin sunucu silme isteği.
-// Reason opsiyonel — doldurulursa sunucu sahibine email ile bildirilir.
+// AdminDeleteServerRequest — reason is optional; if provided, server owner is notified via email.
 type AdminDeleteServerRequest struct {
 	Reason string `json:"reason"`
 }
 
-// SetPlatformAdminRequest — Platform admin durumunu güncelleme isteği.
 type SetPlatformAdminRequest struct {
 	IsAdmin bool `json:"is_admin"`
 }
 
-// MigrateServerInstanceRequest — Tek bir sunucunun LiveKit instance'ını değiştirme isteği.
 type MigrateServerInstanceRequest struct {
 	LiveKitInstanceID string `json:"livekit_instance_id"`
 }
 
-// Validate isteği doğrular.
 func (r *MigrateServerInstanceRequest) Validate() error {
 	r.LiveKitInstanceID = strings.TrimSpace(r.LiveKitInstanceID)
 	if r.LiveKitInstanceID == "" {

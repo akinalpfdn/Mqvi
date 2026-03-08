@@ -1,13 +1,8 @@
-// Package models — ServerMember domain modeli.
-//
-// ServerMember, kullanıcı ↔ sunucu üyelik ilişkisini temsil eder.
-// Bir kullanıcı birden fazla sunucuya üye olabilir.
-// DB'deki "server_members" tablosunun Go karşılığıdır.
 package models
 
 import "time"
 
-// ServerMember, bir kullanıcının bir sunucuya üyeliğini temsil eder.
+// ServerMember — user-to-server membership (many-to-many).
 type ServerMember struct {
 	ServerID string    `json:"server_id"`
 	UserID   string    `json:"user_id"`

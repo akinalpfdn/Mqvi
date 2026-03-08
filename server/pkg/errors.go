@@ -1,20 +1,9 @@
-// Package pkg, projede paylaşılan utility'leri barındırır.
-// Bu dosya domain-level error tanımlarını içerir.
-//
-// Go'da error'lar basit değerlerdir (string taşıyan struct'lar).
-// errors.New() ile sabit error değişkenleri tanımlarız.
-// Böylece error karşılaştırması string yerine referans ile yapılır:
-//
-//	if errors.Is(err, pkg.ErrNotFound) { ... }
-//
-// Bu, typo'ya açık string karşılaştırmasından çok daha güvenlidir.
 package pkg
 
 import "errors"
 
-// Domain-level error'lar.
-// Handler katmanı bu error'ları HTTP status code'larına map'ler.
-// Service katmanı bunları döner, handler yakalar.
+// Domain-level sentinel errors.
+// Services return these; handlers map them to HTTP status codes.
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -23,7 +12,7 @@ var (
 	ErrBadRequest    = errors.New("bad request")
 	ErrInternal      = errors.New("internal error")
 
-	// E2EE (End-to-End Encryption) error'ları
+	// E2EE errors
 	ErrDeviceNotFound   = errors.New("device not found")
 	ErrPrekeyExhausted  = errors.New("prekey pool exhausted")
 	ErrInvalidKey       = errors.New("invalid cryptographic key")

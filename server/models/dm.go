@@ -7,67 +7,51 @@ import (
 	"unicode/utf8"
 )
 
-// DMChannel, iki kullanıcı arasındaki özel mesajlaşma kanalını temsil eder.
-//
-// user1_id < user2_id sıralaması service katmanında sağlanır.
-// Bu sayede aynı iki kullanıcı arasında sadece tek bir kanal oluşabilir
-// (UNIQUE constraint user1_id, user2_id çifti üzerinde).
+// DMChannel — user1_id < user2_id ordering is enforced by the service layer
+// to guarantee a single channel per user pair via UNIQUE constraint.
 type DMChannel struct {
 	ID            string     `json:"id"`
 	User1ID       string     `json:"user1_id"`
 	User2ID       string     `json:"user2_id"`
-	E2EEEnabled   bool       `json:"e2ee_enabled"`    // true = E2EE aktif
+	E2EEEnabled   bool       `json:"e2ee_enabled"`
 	CreatedAt     time.Time  `json:"created_at"`
-	LastMessageAt *time.Time `json:"last_message_at"` // Nullable — henüz mesaj yoksa nil
+	LastMessageAt *time.Time `json:"last_message_at"`
 }
 
-// DMChannelWithUser, DM kanal bilgisi + karşı taraf kullanıcı bilgisi.
-// Frontend'de DM listesi render etmek için kullanılır —
-// hangi kullanıcıyla konuştuğunu göstermek için karşı tarafın bilgisi gerekli.
+// DMChannelWithUser includes the other participant's info for sidebar rendering.
 type DMChannelWithUser struct {
 	ID            string     `json:"id"`
-	OtherUser     *User      `json:"other_user"`      // Karşı taraf kullanıcı bilgisi
-	E2EEEnabled   bool       `json:"e2ee_enabled"`    // true = E2EE aktif
+	OtherUser     *User      `json:"other_user"`
+	E2EEEnabled   bool       `json:"e2ee_enabled"`
 	CreatedAt     time.Time  `json:"created_at"`
-	LastMessageAt *time.Time `json:"last_message_at"` // Son mesaj aktivitesi — sıralama için
-	IsPinned      bool       `json:"is_pinned"`       // Kullanıcı bu DM'yi sabitledi mi
-	IsMuted       bool       `json:"is_muted"`        // Kullanıcı bu DM'yi sessize aldı mı
+	LastMessageAt *time.Time `json:"last_message_at"`
+	IsPinned      bool       `json:"is_pinned"`
+	IsMuted       bool       `json:"is_muted"`
 }
 
-// DMMessage, bir DM mesajını temsil eder.
-// Server mesajlarıyla benzer yapıda ama ayrı tabloda tutulur.
-//
-// Channel Message struct'ı ile paralel alanlar:
-// - ReplyToID + ReferencedMessage → yanıt desteği
-// - Attachments → dosya ekleri
-// - Reactions → emoji tepkileri (ReactionGroup ile aynı format)
-// - IsPinned → sabitleme
 type DMMessage struct {
 	ID          string     `json:"id"`
 	DMChannelID string     `json:"dm_channel_id"`
 	UserID      string     `json:"user_id"`
-	Content     *string    `json:"content"`               // Nullable — sadece dosya içeren mesajlarda nil olabilir
+	Content     *string    `json:"content"`
 	EditedAt    *time.Time `json:"edited_at"`
 	CreatedAt   time.Time  `json:"created_at"`
-	ReplyToID   *string    `json:"reply_to_id"`            // Nullable — yanıt yapılan DM mesajının ID'si
-	IsPinned    bool       `json:"is_pinned"`              // Sabitlenmiş mesaj mı
+	ReplyToID   *string    `json:"reply_to_id"`
+	IsPinned    bool       `json:"is_pinned"`
 
-	// E2EE alanları — encryption_version > 0 ise mesaj şifrelidir.
-	// Channel Message struct'ı ile aynı pattern: Content nil olur,
-	// içerik Ciphertext alanında taşınır. Sunucu Ciphertext'i OKUYAMAZ.
-	EncryptionVersion int     `json:"encryption_version"`            // 0=plaintext, 1=E2EE
-	Ciphertext        *string `json:"ciphertext,omitempty"`          // Base64 şifreli içerik
-	SenderDeviceID    *string `json:"sender_device_id,omitempty"`    // Gönderen cihazın ID'si
-	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`       // JSON: session_id vb.
+	// E2EE — same pattern as Message: Content is nil, payload in Ciphertext
+	EncryptionVersion int     `json:"encryption_version"`         // 0=plaintext, 1=E2EE
+	Ciphertext        *string `json:"ciphertext,omitempty"`
+	SenderDeviceID    *string `json:"sender_device_id,omitempty"`
+	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`
 
-	// JOIN/aggregate ile doldurulan alanlar
+	// Populated via JOINs
 	Author            *User             `json:"author,omitempty"`
 	Attachments       []DMAttachment    `json:"attachments"`
 	Reactions         []ReactionGroup   `json:"reactions"`
-	ReferencedMessage *MessageReference `json:"referenced_message,omitempty"` // Yanıt ön izlemesi
+	ReferencedMessage *MessageReference `json:"referenced_message,omitempty"`
 }
 
-// DMAttachment, bir DM mesajına eklenmiş dosyayı temsil eder.
 type DMAttachment struct {
 	ID          string    `json:"id"`
 	DMMessageID string    `json:"dm_message_id"`
@@ -78,39 +62,23 @@ type DMAttachment struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// CreateDMMessageRequest, yeni DM mesajı oluşturma isteği.
-//
-// ReplyToID opsiyonel — yanıt mesajı gönderilecekse doldurulur.
-// HasFiles service katmanında set edilir — multipart form-data'dan dosya
-// varsa true olur, bu durumda Content boş olabilir (sadece dosya mesajı).
-//
-// E2EE alanları:
-// EncryptionVersion = 1 ise mesaj şifrelidir → Ciphertext zorunlu, Content boş olabilir.
-// EncryptionVersion = 0 veya nil ise eski plaintext akışı çalışır.
+// CreateDMMessageRequest — E2EE: when encryption_version=1, ciphertext is
+// required and content may be empty. HasFiles is set by the service layer.
 type CreateDMMessageRequest struct {
 	Content   string  `json:"content"`
-	ReplyToID *string `json:"reply_to_id,omitempty"` // Opsiyonel — yanıt yapılacak mesajın ID'si
-	HasFiles  bool    `json:"-"`                     // Service katmanı tarafından set edilir, JSON'a dahil değil
+	ReplyToID *string `json:"reply_to_id,omitempty"`
+	HasFiles  bool    `json:"-"`
 
-	// E2EE alanları — frontend şifreli mesaj gönderirken set eder.
-	// Sunucu bu alanları olduğu gibi saklar, içerikle ilgilenmez.
-	EncryptionVersion int     `json:"encryption_version"` // 0=plaintext (default), 1=E2EE
+	EncryptionVersion int     `json:"encryption_version"`
 	Ciphertext        *string `json:"ciphertext,omitempty"`
 	SenderDeviceID    *string `json:"sender_device_id,omitempty"`
 	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`
 }
 
-// Validate, CreateDMMessageRequest'in geçerli olup olmadığını kontrol eder.
-//
-// Üç durum geçerlidir:
-// 1. Plaintext (encryption_version=0): content zorunlu (dosya varsa boş olabilir)
-// 2. E2EE (encryption_version=1): ciphertext zorunlu, content boş olabilir
-// 3. Dosya ekli: content boş olabilir (hem plaintext hem E2EE)
 func (r *CreateDMMessageRequest) Validate() error {
 	r.Content = strings.TrimSpace(r.Content)
 	contentLen := utf8.RuneCountInString(r.Content)
 
-	// E2EE mesaj — Ciphertext zorunlu, Content boş olabilir
 	if r.EncryptionVersion == 1 {
 		if r.Ciphertext == nil || *r.Ciphertext == "" {
 			return fmt.Errorf("ciphertext is required for encrypted messages")
@@ -121,8 +89,6 @@ func (r *CreateDMMessageRequest) Validate() error {
 		return nil
 	}
 
-	// Plaintext — mevcut validasyon
-	// Dosya varsa ve content boşsa → geçerli (sadece dosya mesajı)
 	if r.HasFiles && contentLen == 0 {
 		return nil
 	}
@@ -136,25 +102,16 @@ func (r *CreateDMMessageRequest) Validate() error {
 	return nil
 }
 
-// UpdateDMMessageRequest, DM mesajı düzenleme isteği.
-//
-// E2EE mesajlarda: Content yerine Ciphertext güncellenir.
-// encryption_version alanı mesajın mevcut durumundan alınır (değiştirilemez).
 type UpdateDMMessageRequest struct {
 	Content string `json:"content"`
 
-	// E2EE alanları — şifreli mesaj düzenlenirken set edilir.
 	EncryptionVersion int     `json:"encryption_version"`
 	Ciphertext        *string `json:"ciphertext,omitempty"`
 	SenderDeviceID    *string `json:"sender_device_id,omitempty"`
 	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`
 }
 
-// Validate, UpdateDMMessageRequest'in geçerli olup olmadığını kontrol eder.
-//
-// E2EE mesajlarda ciphertext zorunlu, plaintext mesajlarda content zorunlu.
 func (r *UpdateDMMessageRequest) Validate() error {
-	// E2EE edit
 	if r.EncryptionVersion == 1 {
 		if r.Ciphertext == nil || *r.Ciphertext == "" {
 			return fmt.Errorf("ciphertext is required for encrypted messages")
@@ -162,7 +119,6 @@ func (r *UpdateDMMessageRequest) Validate() error {
 		return nil
 	}
 
-	// Plaintext edit
 	r.Content = strings.TrimSpace(r.Content)
 	contentLen := utf8.RuneCountInString(r.Content)
 	if contentLen < 1 {
@@ -174,11 +130,7 @@ func (r *UpdateDMMessageRequest) Validate() error {
 	return nil
 }
 
-// DMReaction, bir kullanıcının bir DM mesajına verdiği tek bir emoji tepkisi.
-// Channel Reaction struct'ı ile aynı yapı — ayrı tablo (dm_reactions).
-//
-// UNIQUE(dm_message_id, user_id, emoji) constraint'i sayesinde
-// bir kullanıcı aynı DM mesajına aynı emojiyi sadece bir kez ekleyebilir.
+// DMReaction — UNIQUE(dm_message_id, user_id, emoji) prevents duplicate reactions.
 type DMReaction struct {
 	ID          string    `json:"id"`
 	DMMessageID string    `json:"dm_message_id"`
@@ -187,13 +139,10 @@ type DMReaction struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// ToggleDMReactionRequest, DM mesajına emoji tepkisi ekleme/kaldırma isteği.
-// Channel ToggleReactionRequest ile aynı pattern — body'den emoji alınır.
 type ToggleDMReactionRequest struct {
 	Emoji string `json:"emoji"`
 }
 
-// Validate, ToggleDMReactionRequest'in geçerli olup olmadığını kontrol eder.
 func (r *ToggleDMReactionRequest) Validate() error {
 	r.Emoji = strings.TrimSpace(r.Emoji)
 	if r.Emoji == "" {
@@ -202,14 +151,11 @@ func (r *ToggleDMReactionRequest) Validate() error {
 	return nil
 }
 
-// DMMessagePage, DM mesajları için cursor-based pagination response.
 type DMMessagePage struct {
 	Messages []DMMessage `json:"messages"`
 	HasMore  bool        `json:"has_more"`
 }
 
-// DMSearchResult, DM arama sonucunu temsil eder.
-// Channel SearchResult ile aynı pattern — mesajlar + toplam sonuç sayısı (pagination için).
 type DMSearchResult struct {
 	Messages   []DMMessage `json:"messages"`
 	TotalCount int         `json:"total_count"`

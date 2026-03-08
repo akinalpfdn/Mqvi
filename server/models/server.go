@@ -1,7 +1,3 @@
-// Package models — Server domain modeli.
-//
-// Server, bir sunucuyu temsil eder (Discord'taki "guild" benzeri).
-// Çoklu sunucu mimarisi: her kullanıcı birden fazla sunucuya üye olabilir.
 package models
 
 import (
@@ -11,41 +7,34 @@ import (
 	"unicode/utf8"
 )
 
-// Server, sunucu verisini temsil eder.
-// DB'deki "servers" tablosunun Go karşılığıdır.
 type Server struct {
 	ID                string    `json:"id"`
 	Name              string    `json:"name"`
 	IconURL           *string   `json:"icon_url"`
 	OwnerID           string    `json:"owner_id"`
 	InviteRequired    bool      `json:"invite_required"`
-	E2EEEnabled       bool      `json:"e2ee_enabled"`                 // true = E2EE aktif, mesajlar sifreli
-	LiveKitInstanceID *string   `json:"livekit_instance_id,omitempty"` // nil = voice yok
+	E2EEEnabled       bool      `json:"e2ee_enabled"`
+	LiveKitInstanceID *string   `json:"livekit_instance_id,omitempty"` // nil = no voice
 	CreatedAt         time.Time `json:"created_at"`
 }
 
-// ServerListItem, kullanıcının sunucu listesi için minimal veri.
-// Sidebar'daki server icon listesinde kullanılır — gereksiz detay yok.
+// ServerListItem is the minimal data needed for the server icon sidebar.
 type ServerListItem struct {
 	ID      string  `json:"id"`
 	Name    string  `json:"name"`
 	IconURL *string `json:"icon_url"`
 }
 
-// CreateServerRequest, yeni sunucu oluşturma isteği.
-//
-// HostType: "mqvi_hosted" → platform LiveKit'i atanır.
-//
-//	"self_hosted" → kullanıcı kendi LiveKit bilgilerini verir.
+// CreateServerRequest — HostType: "mqvi_hosted" uses platform LiveKit,
+// "self_hosted" requires user-provided LiveKit credentials.
 type CreateServerRequest struct {
 	Name          string `json:"name"`
-	HostType      string `json:"host_type"` // "mqvi_hosted" | "self_hosted"
+	HostType      string `json:"host_type"`
 	LiveKitURL    string `json:"livekit_url,omitempty"`
 	LiveKitKey    string `json:"livekit_key,omitempty"`
 	LiveKitSecret string `json:"livekit_secret,omitempty"`
 }
 
-// Validate, CreateServerRequest kontrolü.
 func (r *CreateServerRequest) Validate() error {
 	r.Name = strings.TrimSpace(r.Name)
 	nameLen := utf8.RuneCountInString(r.Name)
@@ -76,25 +65,20 @@ func (r *CreateServerRequest) Validate() error {
 	return nil
 }
 
-// UpdateServerRequest, sunucu güncelleme isteği.
-//
-// Partial update pattern: nil field'lar değiştirilmez.
+// UpdateServerRequest — nil fields are not updated (partial update).
 type UpdateServerRequest struct {
 	Name           *string `json:"name"`
 	InviteRequired *bool   `json:"invite_required"`
 	E2EEEnabled    *bool   `json:"e2ee_enabled"`
-	// LiveKit credential güncelleme (sadece self-hosted sunucular için)
 	LiveKitURL    *string `json:"livekit_url,omitempty"`
 	LiveKitKey    *string `json:"livekit_key,omitempty"`
 	LiveKitSecret *string `json:"livekit_secret,omitempty"`
 }
 
-// HasLiveKitUpdate, LiveKit credential değişikliği olup olmadığını kontrol eder.
 func (r *UpdateServerRequest) HasLiveKitUpdate() bool {
 	return r.LiveKitURL != nil || r.LiveKitKey != nil || r.LiveKitSecret != nil
 }
 
-// Validate, UpdateServerRequest kontrolü.
 func (r *UpdateServerRequest) Validate() error {
 	if r.Name != nil {
 		nameLen := utf8.RuneCountInString(*r.Name)
@@ -102,7 +86,7 @@ func (r *UpdateServerRequest) Validate() error {
 			return fmt.Errorf("server name must be between 1 and 100 characters")
 		}
 	}
-	// LiveKit güncellemesi varsa 3 alanın hepsi zorunlu
+	// All 3 LiveKit fields are required together
 	if r.HasLiveKitUpdate() {
 		if r.LiveKitURL == nil || strings.TrimSpace(*r.LiveKitURL) == "" {
 			return fmt.Errorf("livekit_url is required when updating LiveKit settings")
@@ -117,12 +101,10 @@ func (r *UpdateServerRequest) Validate() error {
 	return nil
 }
 
-// JoinServerRequest, davet koduyla sunucuya katılma isteği.
 type JoinServerRequest struct {
 	InviteCode string `json:"invite_code"`
 }
 
-// Validate, JoinServerRequest kontrolü.
 func (r *JoinServerRequest) Validate() error {
 	r.InviteCode = strings.TrimSpace(r.InviteCode)
 	if r.InviteCode == "" {
@@ -131,15 +113,11 @@ func (r *JoinServerRequest) Validate() error {
 	return nil
 }
 
-// ReorderServersRequest, kullanıcının sunucu listesi sıralamasını güncelleme isteği.
-//
-// Per-user sıralama: her kullanıcı kendi server listesini bağımsız sıralar.
-// PositionUpdate (channel.go'da tanımlı) yeniden kullanılır — ID+Position çifti.
+// ReorderServersRequest — per-user server list ordering.
 type ReorderServersRequest struct {
 	Items []PositionUpdate `json:"items"`
 }
 
-// Validate, ReorderServersRequest kontrolü.
 func (r *ReorderServersRequest) Validate() error {
 	if len(r.Items) == 0 {
 		return fmt.Errorf("items cannot be empty")

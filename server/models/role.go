@@ -2,24 +2,14 @@ package models
 
 import "time"
 
-// Permission, rol yetkilerini bit flag olarak temsil eder.
-//
-// Bitfield (bit flag) nedir?
-// Her yetkiyi bir bit ile temsil ediyoruz. Böylece tek bir integer'da
-// birden fazla yetkiyi saklayabiliriz.
-//
-// Örnek:
-//   SEND_MESSAGES = 32 (binary: 00100000)
-//   CONNECT_VOICE = 64 (binary: 01000000)
-//   İkisine birden sahip kullanıcı: 96 (binary: 01100000)
-//
-// Kontrol: (permissions & SEND_MESSAGES) != 0 → bu yetki var mı?
-// Ekleme: permissions | SEND_MESSAGES → bu yetkiyi ekle
-// Çıkarma: permissions &^ SEND_MESSAGES → bu yetkiyi kaldır
+// Permission uses bitfields for efficient storage and checking.
+// Check: (perms & PermSendMessages) != 0
+// Grant: perms | PermSendMessages
+// Revoke: perms &^ PermSendMessages
 type Permission int64
 
 const (
-	PermManageChannels Permission = 1 << iota // 1   — iota Go'da auto-increment sabit üretir
+	PermManageChannels Permission = 1 << iota // 1
 	PermManageRoles                            // 2
 	PermKickMembers                            // 4
 	PermBanMembers                             // 8
@@ -29,34 +19,29 @@ const (
 	PermSpeak                                  // 128
 	PermStream                                 // 256
 	PermAdmin                                  // 512
-	PermManageInvites                          // 1024 — davet kodu yönetimi
-	PermReadMessages                           // 2048 — kanal mesajlarını okuma (kanal bazlı override için)
-	PermViewChannel                            // 4096 — kanal görünürlüğü (sidebar'da görünme, hem text hem voice)
-	PermMoveMembers                            // 8192 — üyeleri voice kanallar arası taşıma + voice'tan atma
-	PermMuteMembers                            // 16384 — üyeleri sunucu genelinde susturma (server mute)
-	PermDeafenMembers                          // 32768 — üyeleri sunucu genelinde sağırlaştırma (server deafen)
+	PermManageInvites                          // 1024
+	PermReadMessages                           // 2048
+	PermViewChannel                            // 4096
+	PermMoveMembers                            // 8192
+	PermMuteMembers                            // 16384
+	PermDeafenMembers                          // 32768
 )
 
-// PermAll, tüm yetkilerin toplamıdır (65535).
-// Yeni permission eklendikçe bu değer güncellenir: (1 << N) - 1
+// PermAll is the sum of all permissions. Update when adding new perms: (1 << N) - 1
 const PermAll Permission = (1 << 16) - 1
 
-// Has, belirli bir yetkinin var olup olmadığını kontrol eder.
+// Has checks if a permission is set. Admin bypasses all checks.
 func (p Permission) Has(perm Permission) bool {
-	// ADMIN yetkisi her şeye izin verir
 	if p&PermAdmin != 0 {
 		return true
 	}
 	return p&perm != 0
 }
 
-// OwnerRoleID, default server'ın seed migration'dan gelen owner rol ID'si.
-// Geriye dönük uyumluluk için korunuyor. Yeni sunucularda owner rolü
-// farklı ID'ye sahip olabilir — tanıma için IsOwner field'ı kullanılır.
+// OwnerRoleID is kept for backward compatibility with seeded data.
+// New servers identify the owner role via the IsOwner field.
 const OwnerRoleID = "owner"
 
-// HasOwnerRole, verilen rol listesinde owner rolünün olup olmadığını kontrol eder.
-// is_owner field'ı ile tanır — ID'ye bağımlı değildir.
 func HasOwnerRole(roles []Role) bool {
 	for _, r := range roles {
 		if r.IsOwner {
@@ -66,8 +51,6 @@ func HasOwnerRole(roles []Role) bool {
 	return false
 }
 
-// Role, bir kullanıcı rolünü temsil eder.
-// ServerID, rolün hangi sunucuya ait olduğunu belirtir.
 type Role struct {
 	ID          string     `json:"id"`
 	ServerID    string     `json:"server_id"`

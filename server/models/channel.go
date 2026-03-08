@@ -7,8 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-// ChannelType, kanalın türünü temsil eder (text veya voice).
-// Go'da enum yerine typed constant kullanılır — UserStatus ile aynı pattern.
 type ChannelType string
 
 const (
@@ -16,25 +14,19 @@ const (
 	ChannelTypeVoice ChannelType = "voice"
 )
 
-// Channel, bir sunucu kanalını temsil eder (text chat veya voice).
-// DB'deki "channels" tablosunun Go karşılığı.
-// ServerID, kanalın hangi sunucuya ait olduğunu belirtir.
 type Channel struct {
 	ID         string      `json:"id"`
 	ServerID   string      `json:"server_id"`
 	Name       string      `json:"name"`
 	Type       ChannelType `json:"type"`
-	CategoryID *string     `json:"category_id"` // Nullable — kategorisiz kanal olabilir
+	CategoryID *string     `json:"category_id"`
 	Topic      *string     `json:"topic"`
 	Position   int         `json:"position"`
-	UserLimit  int         `json:"user_limit"` // 0 = sınırsız (sadece voice kanallar için)
-	Bitrate    int         `json:"bitrate"`    // Ses kalitesi (sadece voice kanallar için)
+	UserLimit  int         `json:"user_limit"` // 0 = unlimited (voice only)
+	Bitrate    int         `json:"bitrate"`    // voice only
 	CreatedAt  time.Time   `json:"created_at"`
 }
 
-// Category, kanalları gruplamak için kullanılan kategorileri temsil eder.
-// Discord'daki "TEXT CHANNELS", "VOICE CHANNELS" gibi başlıklar.
-// ServerID, kategorinin hangi sunucuya ait olduğunu belirtir.
 type Category struct {
 	ID        string    `json:"id"`
 	ServerID  string    `json:"server_id"`
@@ -43,23 +35,19 @@ type Category struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// CategoryWithChannels, bir kategoriyi ve altındaki kanalları gruplar.
-// API response'unda sidebar'da gösterim için kullanılır.
-// Frontend bu yapıyı alıp collapsible kategori listeleri oluşturur.
+// CategoryWithChannels groups a category with its channels for sidebar rendering.
 type CategoryWithChannels struct {
 	Category Category  `json:"category"`
 	Channels []Channel `json:"channels"`
 }
 
-// CreateChannelRequest, yeni kanal oluşturma isteği.
 type CreateChannelRequest struct {
 	Name       string `json:"name"`
-	Type       string `json:"type"`        // "text" veya "voice"
-	CategoryID string `json:"category_id"` // Hangi kategoriye ait
-	Topic      string `json:"topic"`       // Opsiyonel kanal açıklaması
+	Type       string `json:"type"`
+	CategoryID string `json:"category_id"`
+	Topic      string `json:"topic"`
 }
 
-// Validate, CreateChannelRequest'in geçerli olup olmadığını kontrol eder.
 func (r *CreateChannelRequest) Validate() error {
 	r.Name = strings.TrimSpace(r.Name)
 	nameLen := utf8.RuneCountInString(r.Name)
@@ -79,16 +67,14 @@ func (r *CreateChannelRequest) Validate() error {
 	return nil
 }
 
-// UpdateChannelRequest, kanal güncelleme isteği.
-// Pointer (*string) kullanılır — nil ise o alan güncellenmez (partial update).
-// CategoryID: boş string ("") → kategorisiz yap, non-nil → belirtilen kategoriye taşı.
+// UpdateChannelRequest uses pointers for partial update — nil means "don't change".
+// CategoryID: empty string = remove from category, non-nil = move to target category.
 type UpdateChannelRequest struct {
 	Name       *string `json:"name"`
 	Topic      *string `json:"topic"`
 	CategoryID *string `json:"category_id"`
 }
 
-// Validate, UpdateChannelRequest'in geçerli olup olmadığını kontrol eder.
 func (r *UpdateChannelRequest) Validate() error {
 	if r.Name != nil {
 		*r.Name = strings.TrimSpace(*r.Name)
@@ -108,12 +94,10 @@ func (r *UpdateChannelRequest) Validate() error {
 	return nil
 }
 
-// CreateCategoryRequest, yeni kategori oluşturma isteği.
 type CreateCategoryRequest struct {
 	Name string `json:"name"`
 }
 
-// Validate, CreateCategoryRequest'in geçerli olup olmadığını kontrol eder.
 func (r *CreateCategoryRequest) Validate() error {
 	r.Name = strings.TrimSpace(r.Name)
 	nameLen := utf8.RuneCountInString(r.Name)
@@ -123,12 +107,10 @@ func (r *CreateCategoryRequest) Validate() error {
 	return nil
 }
 
-// UpdateCategoryRequest, kategori güncelleme isteği.
 type UpdateCategoryRequest struct {
 	Name *string `json:"name"`
 }
 
-// Validate, UpdateCategoryRequest'in geçerli olup olmadığını kontrol eder.
 func (r *UpdateCategoryRequest) Validate() error {
 	if r.Name != nil {
 		*r.Name = strings.TrimSpace(*r.Name)
@@ -140,25 +122,18 @@ func (r *UpdateCategoryRequest) Validate() error {
 	return nil
 }
 
-// PositionUpdate, kanal sıralama güncellemesi için kullanılan tek bir item.
-// Batch reorder API'de kullanılır — her item bir kanalın yeni position değerini taşır.
-//
-// CategoryID opsiyoneldir (pointer). nil ise kategori değişmez, sadece position güncellenir.
-// Cross-category drag-and-drop sırasında kanalın hedef kategorisini belirtmek için kullanılır.
-// Roles ve server reorder'da kullanılmaz (nil kalır).
+// PositionUpdate is used for batch reorder APIs (channels, roles, servers).
+// CategoryID is only used for cross-category channel moves.
 type PositionUpdate struct {
 	ID         string  `json:"id"`
 	Position   int     `json:"position"`
 	CategoryID *string `json:"category_id,omitempty"`
 }
 
-// ReorderChannelsRequest, kanal sıralama güncelleme isteği.
-// Items listesi, yeni sırada her kanalın id ve position'ını taşır.
 type ReorderChannelsRequest struct {
 	Items []PositionUpdate `json:"items"`
 }
 
-// Validate, ReorderChannelsRequest'in geçerli olup olmadığını kontrol eder.
 func (r *ReorderChannelsRequest) Validate() error {
 	if len(r.Items) == 0 {
 		return fmt.Errorf("items cannot be empty")
@@ -180,4 +155,3 @@ func (r *ReorderChannelsRequest) Validate() error {
 
 	return nil
 }
-

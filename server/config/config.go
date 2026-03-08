@@ -1,9 +1,3 @@
-// Package config, uygulamanın tüm konfigürasyonunu merkezi olarak yönetir.
-// Environment variable'lardan okur, .env dosyasını da destekler.
-//
-// Go'da "struct" bir veri yapısıdır — birden fazla field'ı bir arada tutar.
-// Config struct'ı tüm ayarları tek bir yerde toplar, böylece
-// her yerde ayrı ayrı os.Getenv() çağırmak yerine tek bir Config nesnesi taşırız.
 package config
 
 import (
@@ -14,8 +8,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config, uygulamanın tüm konfigürasyon değerlerini taşır.
-// Her alt bölüm ayrı bir struct — Single Responsibility: her struct tek bir concern'ü temsil eder.
 type Config struct {
 	Server          ServerConfig
 	Database        DatabaseConfig
@@ -24,69 +16,51 @@ type Config struct {
 	Upload          UploadConfig
 	Email           EmailConfig
 	Klipy           KlipyConfig
-	EncryptionKey   string // AES-256 key (64 hex char = 32 byte) — LiveKit credential şifreleme
-	HetznerAPIToken string // Hetzner Cloud API token (read-only yeterli) — boş olabilir
+	EncryptionKey   string // AES-256 key (64 hex chars = 32 bytes) for LiveKit credential encryption
+	HetznerAPIToken string // Hetzner Cloud API token (read-only) — optional
 }
 
-// EmailConfig, email gönderim ayarları (Resend API).
-//
-// Opsiyonel — RESEND_API_KEY boşsa password reset özelliği devre dışı kalır.
-// Self-hosted kurulum yapan herkesin email servisi olmayabilir.
+// EmailConfig — optional. If RESEND_API_KEY is empty, password reset is disabled.
 type EmailConfig struct {
-	ResendAPIKey string // Resend API key (re_xxxxxxxx formatında)
-	FromEmail    string // Gönderici adres (ör: noreply@mqvi.app)
-	AppURL       string // Uygulamanın public URL'i (ör: https://app.mqvi.app) — reset link'te kullanılır
+	ResendAPIKey string
+	FromEmail    string // e.g. noreply@mqvi.app
+	AppURL       string // e.g. https://app.mqvi.app — used in reset links
 }
 
-// KlipyConfig, Klipy GIF API ayarları.
-//
-// Opsiyonel — KLIPY_API_KEY boşsa GIF arama özelliği devre dışı kalır.
-// Klipy API (Tenor'un halefi): https://docs.klipy.com/
-// API key: https://partner.klipy.com/api-keys
+// KlipyConfig — optional. If KLIPY_API_KEY is empty, GIF search is disabled.
 type KlipyConfig struct {
-	APIKey string // Klipy API key
+	APIKey string
 }
 
-// ServerConfig, HTTP server ayarları.
 type ServerConfig struct {
 	Host string
 	Port int
 }
 
-// DatabaseConfig, SQLite database ayarları.
 type DatabaseConfig struct {
-	Path string // SQLite dosya yolu (ör: ./data/mqvi.db)
+	Path string
 }
 
-// JWTConfig, JWT token ayarları.
 type JWTConfig struct {
-	Secret             string // Token imzalama anahtarı — GİZLİ TUTULMALI
-	AccessTokenExpiry  int    // Dakika cinsinden (varsayılan: 15)
-	RefreshTokenExpiry int    // Gün cinsinden (varsayılan: 7)
+	Secret             string
+	AccessTokenExpiry  int // minutes (default: 15)
+	RefreshTokenExpiry int // days (default: 7)
 }
 
-// LiveKitConfig, LiveKit SFU server ayarları.
 type LiveKitConfig struct {
-	URL       string // LiveKit server URL (ör: ws://localhost:7880)
+	URL       string
 	APIKey    string
 	APISecret string
 }
 
-// UploadConfig, dosya yükleme ayarları.
 type UploadConfig struct {
-	Dir     string // Dosyaların kaydedileceği dizin
-	MaxSize int64  // Byte cinsinden max dosya boyutu (varsayılan: 25MB)
+	Dir     string
+	MaxSize int64 // bytes (default: 25MB)
 }
 
-// Load, environment variable'lardan Config oluşturur.
-// .env dosyası varsa önce onu yükler (development kolaylığı için).
-//
-// Go'da error handling: Go'da exception/try-catch yoktur.
-// Fonksiyonlar hata durumunda (value, error) tuple'ı döner.
-// Çağıran taraf her zaman error'ı kontrol ETMEK ZORUNDADIR.
+// Load reads configuration from environment variables.
+// Falls back to .env file in development.
 func Load() (*Config, error) {
-	// .env dosyasını yükle — dosya yoksa hata vermez, sessizce devam eder.
-	// Production'da bu dosya olmaz, gerçek env variable'lar kullanılır.
 	_ = godotenv.Load()
 
 	port, err := strconv.Atoi(getEnv("SERVER_PORT", "9090"))
@@ -156,12 +130,11 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// Addr, HTTP server'ın dinleyeceği adresi döner (ör: "0.0.0.0:8080").
+// Addr returns the listen address (e.g. "0.0.0.0:8080").
 func (c *ServerConfig) Addr() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
 }
 
-// getEnv, environment variable'ı okur, yoksa fallback değeri döner.
 func getEnv(key, fallback string) string {
 	if val, ok := os.LookupEnv(key); ok {
 		return val

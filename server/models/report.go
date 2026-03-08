@@ -1,8 +1,3 @@
-// Package models — Report domain modeli.
-//
-// Report, bir kullanıcının başka bir kullanıcıyı raporlamasını temsil eder.
-// Predefined reason kategorileri + zorunlu açıklama ile oluşturulur.
-// Admin panelinden raporlar yönetilir: pending → reviewed → resolved/dismissed.
 package models
 
 import (
@@ -11,18 +6,16 @@ import (
 	"unicode/utf8"
 )
 
-// ReportReason, rapor nedeni typed constant.
 type ReportReason string
 
 const (
-	ReportReasonSpam            ReportReason = "spam"
-	ReportReasonHarassment      ReportReason = "harassment"
-	ReportReasonInappropriate   ReportReason = "inappropriate_content"
-	ReportReasonImpersonation   ReportReason = "impersonation"
-	ReportReasonOther           ReportReason = "other"
+	ReportReasonSpam          ReportReason = "spam"
+	ReportReasonHarassment    ReportReason = "harassment"
+	ReportReasonInappropriate ReportReason = "inappropriate_content"
+	ReportReasonImpersonation ReportReason = "impersonation"
+	ReportReasonOther         ReportReason = "other"
 )
 
-// validReportReasons, kabul edilen rapor nedenleri.
 var validReportReasons = map[ReportReason]bool{
 	ReportReasonSpam:          true,
 	ReportReasonHarassment:    true,
@@ -31,7 +24,6 @@ var validReportReasons = map[ReportReason]bool{
 	ReportReasonOther:         true,
 }
 
-// ReportStatus, rapor durumu typed constant.
 type ReportStatus string
 
 const (
@@ -41,8 +33,7 @@ const (
 	ReportStatusDismissed ReportStatus = "dismissed"
 )
 
-// Report, bir kullanıcı raporunu temsil eder.
-// Time field'ları string: SQLite TEXT olarak saklar, modernc.org/sqlite time.Time'a otomatik dönüştürmez.
+// Report — time fields are strings because modernc.org/sqlite doesn't auto-convert to time.Time.
 type Report struct {
 	ID             string             `json:"id"`
 	ReporterID     string             `json:"reporter_id"`
@@ -56,8 +47,7 @@ type Report struct {
 	Attachments    []ReportAttachment `json:"attachments"`
 }
 
-// ReportAttachment, rapor delili olarak eklenen dosya (sadece resimler).
-// Mevcut Attachment / DMAttachment ile paralel yapı.
+// ReportAttachment — evidence file (images only). Parallel structure to Attachment/DMAttachment.
 type ReportAttachment struct {
 	ID        string  `json:"id"`
 	ReportID  string  `json:"report_id"`
@@ -68,8 +58,7 @@ type ReportAttachment struct {
 	CreatedAt string  `json:"created_at"`
 }
 
-// ReportWithUsers, rapor + raporlayan ve raporlanan kullanıcı bilgisi.
-// Admin panelinde kullanılır.
+// ReportWithUsers — report with reporter and reported user info for admin panel.
 type ReportWithUsers struct {
 	Report
 	ReporterUsername string  `json:"reporter_username"`
@@ -78,8 +67,6 @@ type ReportWithUsers struct {
 	ReportedDisplay  *string `json:"reported_display_name"`
 }
 
-// validReportStatuses, kabul edilen rapor durumları.
-// Admin panelinde status değiştirirken validation için kullanılır.
 var validReportStatuses = map[ReportStatus]bool{
 	ReportStatusPending:   true,
 	ReportStatusReviewed:  true,
@@ -87,13 +74,10 @@ var validReportStatuses = map[ReportStatus]bool{
 	ReportStatusDismissed: true,
 }
 
-// UpdateReportStatusRequest, admin panelden rapor durumu güncelleme isteği.
 type UpdateReportStatusRequest struct {
 	Status string `json:"status"`
 }
 
-// Validate, UpdateReportStatusRequest kontrolü.
-// Status predefined setlerden biri olmalı (pending, reviewed, resolved, dismissed).
 func (r *UpdateReportStatusRequest) Validate() error {
 	status := ReportStatus(r.Status)
 	if !validReportStatuses[status] {
@@ -102,14 +86,11 @@ func (r *UpdateReportStatusRequest) Validate() error {
 	return nil
 }
 
-// CreateReportRequest, rapor oluşturma isteği.
 type CreateReportRequest struct {
 	Reason      string `json:"reason"`
 	Description string `json:"description"`
 }
 
-// Validate, CreateReportRequest kontrolü.
-// Reason predefined setlerden biri olmalı, description 10-1000 karakter.
 func (r *CreateReportRequest) Validate() error {
 	r.Description = strings.TrimSpace(r.Description)
 

@@ -6,17 +6,13 @@ import (
 	"net/http"
 )
 
-// APIResponse, tüm API yanıtları için standart format.
-// Frontend her zaman aynı yapıyı bekler — tutarlılık önemli.
+// APIResponse is the standard envelope for all API responses.
 type APIResponse struct {
 	Success bool   `json:"success"`
 	Data    any    `json:"data,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-// JSON, başarılı bir yanıt gönderir.
-// "any" Go'da generic tip — herhangi bir veri tipini kabul eder.
-// json tag'leri (`json:"success"`) Go struct field'larının JSON'a nasıl serialize edileceğini belirler.
 func JSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -31,8 +27,7 @@ func JSON(w http.ResponseWriter, status int, data any) {
 	}
 }
 
-// Error, hata yanıtı gönderir.
-// Domain error'ları otomatik olarak uygun HTTP status code'a çevrilir.
+// Error sends an error response, mapping domain errors to HTTP status codes.
 func Error(w http.ResponseWriter, err error) {
 	status := mapErrorToStatus(err)
 
@@ -49,7 +44,6 @@ func Error(w http.ResponseWriter, err error) {
 	}
 }
 
-// ErrorWithMessage, özel mesajlı hata yanıtı gönderir.
 func ErrorWithMessage(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -64,9 +58,6 @@ func ErrorWithMessage(w http.ResponseWriter, status int, message string) {
 	}
 }
 
-// mapErrorToStatus, domain error'ları HTTP status code'larına eşler.
-// errors.Is() kullanarak error chain'ini kontrol eder —
-// wrap edilmiş error'lar da doğru match eder.
 func mapErrorToStatus(err error) int {
 	switch {
 	case errors.Is(err, ErrNotFound):

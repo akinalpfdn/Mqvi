@@ -1,9 +1,3 @@
-// Package database, SQLite bağlantısını ve migration sistemini yönetir.
-//
-// Go'da database/sql standart kütüphanesi, farklı veritabanlarına ortak bir
-// arayüz (interface) sağlar. SQLite driver (go-sqlite3) import edildiğinde
-// otomatik olarak kayıt olur — "blank import" (_ "github.com/mattn/go-sqlite3")
-// bu yüzden kullanılır: import'un yan etkisi (side effect) gereklidir.
 package database
 
 import (
@@ -16,55 +10,38 @@ import (
 	"sort"
 	"strings"
 
-	_ "modernc.org/sqlite" // Pure-Go SQLite driver — CGO gerekmez, her platformda çalışır
+	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO)
 )
 
-// recoverableError, migration sırasında tolere edilebilen hata pattern'larıdır.
-// Örneğin yarım kalan bir migration tekrar çalıştırıldığında "duplicate column name"
-// hatası verir — bu güvenle atlanabilir çünkü kolon zaten eklenmiş demektir.
+// recoverableErrors lists error patterns that can be safely skipped
+// when re-running a partially applied migration (e.g. "duplicate column name").
 var recoverableErrors = []string{
-	"duplicate column name", // ALTER TABLE ADD COLUMN tekrar çalıştırılmış
+	"duplicate column name",
 }
 
-// DB, veritabanı bağlantısını saran struct.
-// *sql.DB Go'nun built-in connection pool'udur — thread-safe'dir,
-// birden fazla goroutine aynı anda güvenle kullanabilir.
 type DB struct {
 	Conn *sql.DB
 }
 
-// New, yeni bir SQLite bağlantısı oluşturur ve migration'ları çalıştırır.
-//
-// dbPath: SQLite dosya yolu (ör: "./data/mqvi.db")
-// migrationsFS: Migration SQL dosyalarını içeren fs.FS (embed.FS veya os.DirFS olabilir)
-//
-// Fonksiyon imzasındaki (*DB, error) Go'nun "multiple return value" özelliğidir.
-// Başarılı olursa (*DB, nil), başarısızsa (nil, error) döner.
+// New opens a SQLite connection and runs pending migrations.
 func New(dbPath string, migrationsFS fs.FS) (*DB, error) {
-	// Veritabanı dosyasının bulunduğu dizini oluştur (yoksa)
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// SQLite bağlantısı aç
-	// "_foreign_keys=on" → Foreign key constraint'leri aktif et (SQLite'ta varsayılan kapalı!)
-	// "_journal_mode=WAL" → Write-Ahead Logging: eşzamanlı okuma/yazma performansı
-	// modernc.org/sqlite driver adı "sqlite" (mattn'ınki "sqlite3" idi)
-	// Pragma'lar query param yerine bağlantı sonrası PRAGMA ile de ayarlanabilir.
+	// foreign_keys=on (off by default in SQLite), journal_mode=WAL for concurrent r/w
 	conn, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Bağlantıyı test et
 	if err := conn.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	db := &DB{Conn: conn}
 
-	// Migration'ları çalıştır
 	if err := db.runMigrations(migrationsFS); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
@@ -73,29 +50,13 @@ func New(dbPath string, migrationsFS fs.FS) (*DB, error) {
 	return db, nil
 }
 
-// Close, veritabanı bağlantısını kapatır.
-// Go'da resource cleanup "defer" ile yapılır:
-//
-//	db, _ := database.New(...)
-//	defer db.Close()  // fonksiyon bittiğinde otomatik çağrılır
 func (db *DB) Close() error {
 	return db.Conn.Close()
 }
 
-// runMigrations, migrations/ dizinindeki SQL dosyalarını sırayla çalıştırır.
-// Dosya isimleri sıralıdır: 001_init.sql, 002_seed.sql, ...
-//
-// Migration tracking: schema_migrations tablosu hangi migration'ların zaten
-// uygulandığını takip eder. Bu sayede ALTER TABLE gibi idempotent olmayan
-// komutlar içeren migration'lar tekrar çalıştırılmaz.
-//
-// İlk çalıştırmada schema_migrations tablosu oluşturulur ve mevcut tüm
-// migration'lar çalıştırılıp kaydedilir. Sonraki başlatmalarda sadece
-// henüz uygulanmamış yeni migration'lar çalışır.
+// runMigrations applies SQL files from migrationsFS in alphabetical order.
+// Uses schema_migrations table to track which files have been applied.
 func (db *DB) runMigrations(migrationsFS fs.FS) error {
-	// schema_migrations tablosunu oluştur — hangi migration'ların çalıştığını takip eder.
-	// Bu tablo ilk kez oluşturuluyorsa ve DB'de zaten tablolar varsa (mevcut kurulum),
-	// tüm migration dosyaları "applied" olarak işaretlenir (bootstrap).
 	if _, err := db.Conn.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			filename TEXT PRIMARY KEY,
@@ -105,14 +66,11 @@ func (db *DB) runMigrations(migrationsFS fs.FS) error {
 		return fmt.Errorf("failed to create schema_migrations table: %w", err)
 	}
 
-	// Migration dosyalarını oku (bootstrap için önce dosyalara ihtiyacımız var)
-	// fs.ReadDir: io/fs paketinden — hem embed.FS hem os.DirFS ile çalışır.
 	entries, err := fs.ReadDir(migrationsFS, ".")
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
 	}
 
-	// Sadece .sql dosyalarını al
 	var sqlFiles []string
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
@@ -120,10 +78,8 @@ func (db *DB) runMigrations(migrationsFS fs.FS) error {
 		}
 	}
 
-	// Alfabetik sırala (001_, 002_, ...)
 	sort.Strings(sqlFiles)
 
-	// Halihazırda uygulanmış migration'ları oku
 	applied := make(map[string]bool)
 	rows, err := db.Conn.Query("SELECT filename FROM schema_migrations")
 	if err != nil {
@@ -141,9 +97,8 @@ func (db *DB) runMigrations(migrationsFS fs.FS) error {
 		return fmt.Errorf("failed to iterate migration rows: %w", err)
 	}
 
-	// Bootstrap: schema_migrations boşsa ama DB'de zaten tablolar varsa (mevcut kurulum),
-	// tüm migration dosyalarını "applied" olarak kaydet. Bu sayede ALTER TABLE gibi
-	// idempotent olmayan migration'lar tekrar çalıştırılmaz.
+	// Bootstrap: if schema_migrations is empty but tables already exist,
+	// mark all migrations as applied to avoid re-running ALTER TABLE etc.
 	if len(applied) == 0 {
 		var tableCount int
 		if err := db.Conn.QueryRow(
@@ -153,7 +108,6 @@ func (db *DB) runMigrations(migrationsFS fs.FS) error {
 		}
 
 		if tableCount > 0 {
-			// Mevcut kurulum — tüm migration'ları kaydedilmiş olarak işaretle
 			for _, file := range sqlFiles {
 				if _, err := db.Conn.Exec(
 					"INSERT INTO schema_migrations (filename) VALUES (?)", file,
@@ -168,26 +122,19 @@ func (db *DB) runMigrations(migrationsFS fs.FS) error {
 	}
 
 	for _, file := range sqlFiles {
-		// Zaten uygulanmış migration'ı atla
 		if applied[file] {
 			continue
 		}
 
-		// fs.ReadFile: embed.FS'ten veya disk FS'ten okur — path separator gerekmez.
 		content, err := fs.ReadFile(migrationsFS, file)
 		if err != nil {
 			return fmt.Errorf("failed to read migration %s: %w", file, err)
 		}
 
-		// Migration'ı statement-by-statement çalıştır.
-		// SQLite Exec() birden fazla statement'ı kabul eder ama her biri ayrı
-		// autocommit'tir — yarım kalan migration'ı kurtarmak için her statement'ı
-		// ayrı çalıştırıp recoverable hatalar (ör. "duplicate column name") atlanır.
 		if err := db.execStatements(file, string(content)); err != nil {
 			return err
 		}
 
-		// Migration'ı uygulanmış olarak kaydet
 		if _, err := db.Conn.Exec(
 			"INSERT INTO schema_migrations (filename) VALUES (?)", file,
 		); err != nil {
@@ -200,13 +147,9 @@ func (db *DB) runMigrations(migrationsFS fs.FS) error {
 	return nil
 }
 
-// execStatements, bir migration dosyasındaki SQL'i statement-by-statement çalıştırır.
-// Her statement noktalı virgül (;) ile ayrılır. Bazı hatalar tolere edilir:
-// örneğin "duplicate column name" — yarım kalan migration tekrar çalıştırıldığında
-// ALTER TABLE ADD COLUMN zaten eklenmiş kolonu tekrar eklemeye çalışır.
-// Bu güvenle atlanır çünkü kolon zaten mevcut demektir.
+// execStatements runs each SQL statement individually, skipping recoverable errors
+// (e.g. "duplicate column name" from a partially applied migration).
 func (db *DB) execStatements(filename, content string) error {
-	// SQL'i statement'lara böl (noktalı virgül ile)
 	statements := splitStatements(content)
 
 	for i, stmt := range statements {
@@ -216,7 +159,6 @@ func (db *DB) execStatements(filename, content string) error {
 		}
 
 		if _, err := db.Conn.Exec(stmt); err != nil {
-			// Hata recoverable mi kontrol et
 			errMsg := err.Error()
 			recoverable := false
 			for _, pattern := range recoverableErrors {
@@ -238,14 +180,8 @@ func (db *DB) execStatements(filename, content string) error {
 	return nil
 }
 
-// splitStatements, SQL metnini statement'lara böler.
-// Noktalı virgül (;) ile ayırır ama şu durumları yoksayar:
-// - String literal içindeki ; (tek tırnak ile çevrili)
-// - BEGIN...END blokları içindeki ; (SQLite trigger body'leri)
-//
-// BEGIN/END takibi: CREATE TRIGGER gibi ifadelerde BEGIN keyword'ü
-// blok başlatır, END keyword'ü (satır başında veya boşluktan sonra)
-// blok bitirir. Blok içindeki ; ayraç olarak sayılmaz.
+// splitStatements splits SQL by semicolons, respecting string literals
+// and BEGIN...END blocks (for triggers).
 func splitStatements(sql string) []string {
 	var statements []string
 	var current strings.Builder
@@ -256,22 +192,19 @@ func splitStatements(sql string) []string {
 		ch := sql[i]
 
 		if ch == '\'' {
-			// String literal toggle — '' (escape) handle et
 			if inString && i+1 < len(sql) && sql[i+1] == '\'' {
 				current.WriteByte(ch)
 				current.WriteByte(sql[i+1])
-				i++ // '' → iki tırnak yaz, skip
+				i++
 				continue
 			}
 			inString = !inString
 		}
 
 		if !inString {
-			// BEGIN keyword tespiti — case-insensitive, kelime sınırı kontrolü
 			if matchKeyword(sql, i, "BEGIN") {
 				beginDepth++
 			}
-			// END keyword tespiti — case-insensitive, kelime sınırı kontrolü
 			if matchKeyword(sql, i, "END") && beginDepth > 0 {
 				beginDepth--
 			}
@@ -289,7 +222,6 @@ func splitStatements(sql string) []string {
 		current.WriteByte(ch)
 	}
 
-	// Son statement (noktalı virgülsüz bitmiş olabilir)
 	s := strings.TrimSpace(current.String())
 	if s != "" {
 		statements = append(statements, s)
@@ -298,20 +230,17 @@ func splitStatements(sql string) []string {
 	return statements
 }
 
-// matchKeyword, sql[pos] konumundan başlayan keyword'ü case-insensitive kontrol eder.
-// Kelime sınırı kontrolü yapar: önceki ve sonraki karakter identifier parçası olmamalı.
+// matchKeyword checks for a case-insensitive keyword at the given position
+// with word-boundary checks on both sides.
 func matchKeyword(sql string, pos int, keyword string) bool {
 	if pos+len(keyword) > len(sql) {
 		return false
 	}
-	// Önceki karakter identifier parçası olmamalı
 	if pos > 0 && isIdentChar(sql[pos-1]) {
 		return false
 	}
-	// Keyword eşleşmesi (case-insensitive)
 	for j := 0; j < len(keyword); j++ {
 		c := sql[pos+j]
-		// uppercase'e çevir
 		if c >= 'a' && c <= 'z' {
 			c -= 32
 		}
@@ -319,7 +248,6 @@ func matchKeyword(sql string, pos int, keyword string) bool {
 			return false
 		}
 	}
-	// Sonraki karakter identifier parçası olmamalı
 	afterIdx := pos + len(keyword)
 	if afterIdx < len(sql) && isIdentChar(sql[afterIdx]) {
 		return false
@@ -327,8 +255,6 @@ func matchKeyword(sql string, pos int, keyword string) bool {
 	return true
 }
 
-// isIdentChar, bir byte'ın SQL identifier parçası olup olmadığını kontrol eder.
-// BEGIN/END keyword tespitinde kelime sınırı kontrolü için kullanılır.
 func isIdentChar(b byte) bool {
 	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_'
 }
