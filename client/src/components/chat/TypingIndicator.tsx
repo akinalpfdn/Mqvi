@@ -1,16 +1,4 @@
-/**
- * TypingIndicator — "X yazıyor..." gösterimi.
- *
- * CSS class'ları: .typing-indicator, .typing-dots
- *
- * Animasyon: .typing-dots i { animation: bip ... }
- * nth-child delay'leri CSS'te tanımlıdır.
- *
- * ChatContext refaktörü:
- * Eskiden doğrudan useMessageStore import ediyordu.
- * Artık useChatContext() üzerinden typingUsers alıyor —
- * hem channel hem DM'de aynı component çalışıyor.
- */
+/** TypingIndicator — "X is typing..." display. Works in both channel and DM via ChatContext. */
 
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";

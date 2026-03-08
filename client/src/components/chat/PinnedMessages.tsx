@@ -1,13 +1,4 @@
-/**
- * PinnedMessages — Kanalın pinlenmiş mesajlarını gösteren popup panel.
- *
- * CSS class'ları: .pinned-panel, .pinned-header, .pinned-close,
- * .pinned-list, .pinned-item, .pinned-item-meta, .pinned-item-content
- *
- * Kanal header'ındaki pin ikonuna tıklayınca açılır.
- * Açıldığında ilgili kanalın pinlerini fetch eder.
- * WS event'leri ile gerçek zamanlı güncellenir (pinStore).
- */
+/** PinnedMessages — Channel pinned messages panel. Real-time updates via pinStore. */
 
 import { useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -33,7 +24,7 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
 
   const pins = getPinsForChannel(channelId);
 
-  // Mevcut kullanıcının ManageMessages yetkisi
+  // Check ManageMessages permission for current user
   const currentMember = members.find((m) => m.id === currentUser?.id);
   const canManageMessages = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.ManageMessages)
@@ -50,7 +41,7 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
     [channelId, unpinAction]
   );
 
-  /** Timestamp formatı */
+  /** Format timestamp */
   function formatDate(dateStr: string): string {
     const date = new Date(dateStr);
     return date.toLocaleDateString([], {
@@ -74,7 +65,7 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
         </button>
       </div>
 
-      {/* Pin listesi */}
+      {/* Pin list */}
       <div className="pinned-list">
         {isLoading ? (
           <p className="pinned-empty">{t("noPinnedMessages")}</p>
@@ -87,7 +78,7 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
 
             return (
               <div key={pin.id} className="pinned-item">
-                {/* Yazar avatar + meta */}
+                {/* Author avatar + meta */}
                 <div className="pinned-item-header">
                   <Avatar
                     name={displayName}
@@ -100,12 +91,12 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
                   </span>
                 </div>
 
-                {/* Mesaj içeriği */}
+                {/* Message content */}
                 <div className="pinned-item-content">
                   {pin.message?.content ?? ""}
                 </div>
 
-                {/* Unpin butonu — ManageMessages yetkisi gerekir */}
+                {/* Unpin button — requires ManageMessages */}
                 {canManageMessages && (
                   <button
                     onClick={() => handleUnpin(pin.message_id)}

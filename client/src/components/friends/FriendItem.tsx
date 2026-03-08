@@ -1,15 +1,4 @@
-/**
- * FriendItem — Tek bir arkadaş/istek satırı.
- *
- * Üç kullanım modu:
- * - friend: Avatar + isim + durum + "Message" + "Remove" butonları
- * - incoming: Avatar + isim + "Accept" + "Decline" butonları
- * - outgoing: Avatar + isim + "Cancel" butonu
- *
- * CSS class'ları: .fi-item, .fi-info, .fi-avatar, .fi-name, .fi-username,
- * .fi-status, .fi-actions, .fi-btn, .fi-btn-accept, .fi-btn-decline,
- * .fi-btn-remove, .fi-btn-msg
- */
+/** Single friend/request row. Modes: friend, incoming, outgoing. */
 
 import { useTranslation } from "react-i18next";
 import Avatar from "../shared/Avatar";
@@ -34,7 +23,7 @@ function FriendItem({ friendship, type, onAccept, onDecline, onRemove, onSendMes
 
   return (
     <div className="fi-item">
-      {/* Sol: Avatar + bilgi */}
+      {/* Avatar + info */}
       <div className="fi-info">
         <Avatar
           name={displayName}
@@ -54,7 +43,7 @@ function FriendItem({ friendship, type, onAccept, onDecline, onRemove, onSendMes
         </div>
       </div>
 
-      {/* Sağ: Aksiyon butonları */}
+      {/* Actions */}
       <div className="fi-actions">
         {type === "incoming" && (
           <>
@@ -73,7 +62,7 @@ function FriendItem({ friendship, type, onAccept, onDecline, onRemove, onSendMes
         )}
         {type === "friend" && (
           <>
-            {/* Sesli arama — sadece online arkadaşlar için aktif */}
+            {/* Voice call — disabled when offline */}
             <button
               className="fi-btn fi-btn-call"
               onClick={onVoiceCall}
@@ -84,7 +73,7 @@ function FriendItem({ friendship, type, onAccept, onDecline, onRemove, onSendMes
                 <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z" />
               </svg>
             </button>
-            {/* Görüntülü arama */}
+            {/* Video call */}
             <button
               className="fi-btn fi-btn-call"
               onClick={onVideoCall}

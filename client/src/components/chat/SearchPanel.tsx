@@ -1,14 +1,4 @@
-/**
- * SearchPanel — Mesaj arama paneli.
- *
- * CSS class'ları: .search-panel, .search-header, .search-input-wrap,
- * .search-input, .search-results, .search-result-item, .search-empty,
- * .search-pagination
- *
- * Kanal header'ındaki arama ikonuna tıklayınca açılır.
- * Debounce ile arama — 300ms bekleme süresi sonra API çağrısı yapar.
- * Sonuçlara tıklamak kanala yönlendirir (ileride implementasyon).
- */
+/** SearchPanel — Message search with debounced input and pagination. */
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,13 +10,13 @@ import type { SearchResult } from "../../api/search";
 import type { Message } from "../../types";
 import Avatar from "../shared/Avatar";
 
-/** Debounce süresi (ms) — kullanıcı yazmayı bırakınca bu süre sonra arama yapar */
+/** Debounce delay (ms) */
 const DEBOUNCE_MS = 300;
 
 type SearchPanelProps = {
   channelId?: string;
   onClose: () => void;
-  /** Sonuca tıklanınca mesajın kanalına git */
+  /** Navigate to message's channel on result click */
   onSelectResult?: (message: Message) => void;
 };
 
@@ -57,18 +47,17 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
 
       setIsSearching(true);
 
-      // E2EE aktifse client-side IndexedDB arama
-      // (sunucuda content=NULL oldugundan FTS5 calismaz)
+      // E2EE active — client-side IndexedDB search (server has NULL content)
       if (isE2EEReady && channelId) {
         try {
           const cached = await searchCachedMessages(channelId, searchQuery.trim());
-          // Pagination simule et (IndexedDB tum sonuclari doner)
+          // Simulate pagination (IndexedDB returns all results)
           const total = cached.length;
           const paged = cached
-            .sort((a, b) => b.timestamp - a.timestamp) // en yeni once
+            .sort((a, b) => b.timestamp - a.timestamp) // newest first
             .slice(searchOffset, searchOffset + limit);
 
-          // CachedDecryptedMessage → Message minimal format (render icin)
+          // CachedDecryptedMessage -> Message minimal format for rendering
           const messages: Message[] = paged.map((c) => ({
             id: c.messageId,
             channel_id: c.channelId,
@@ -93,7 +82,7 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
         return;
       }
 
-      // Plaintext — server-side FTS5 arama
+      // Plaintext — server-side FTS5 search
       const serverId = useServerStore.getState().activeServerId;
       if (!serverId) return;
       const res = await searchMessages(serverId, searchQuery.trim(), channelId, limit, searchOffset);
@@ -107,7 +96,7 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
     [channelId, isE2EEReady]
   );
 
-  /** Input değiştiğinde debounce ile arama */
+  /** Debounced search on input change */
   function handleInputChange(value: string) {
     setQuery(value);
     setOffset(0);
@@ -119,21 +108,20 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
     }, DEBOUNCE_MS);
   }
 
-  /** Sonraki sayfa */
+  /** Next page */
   function handleNextPage() {
     const newOffset = offset + limit;
     setOffset(newOffset);
     doSearch(query, newOffset);
   }
 
-  /** Önceki sayfa */
+  /** Previous page */
   function handlePrevPage() {
     const newOffset = Math.max(0, offset - limit);
     setOffset(newOffset);
     doSearch(query, newOffset);
   }
 
-  /** Timestamp formatı */
   function formatDate(dateStr: string): string {
     const date = new Date(dateStr);
     return date.toLocaleDateString([], {

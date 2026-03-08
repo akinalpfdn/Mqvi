@@ -1,14 +1,4 @@
-/**
- * MobileMessageActions — Mobil mesaj aksiyon bottom sheet.
- *
- * Long-press ile açılır. Üstte emoji quick-react bar,
- * altta aksiyon listesi (reply, copy, pin, edit, delete).
- *
- * Aksiyonlar kullanıcı yetkilerine göre dinamik gösterilir.
- * useChatContext'ten gelen handler'ları kullanır.
- *
- * CSS: .mobile-bottom-sheet, .mobile-bs-action, .mobile-msg-emoji-bar
- */
+/** MobileMessageActions — Bottom sheet with emoji bar + actions. Opens on long-press. */
 
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
@@ -23,9 +13,9 @@ type MobileMessageActionsProps = {
   onReply: () => void;
   /** Pin/unpin handler */
   onPinToggle: () => void;
-  /** Edit handler — sadece message owner */
+  /** Edit handler — owner only */
   onEdit: () => void;
-  /** Delete handler — owner veya manage perms */
+  /** Delete handler — owner or manage perms */
   onDelete: () => void;
   /** Emoji reaction handler */
   onReaction: (emoji: string) => void;
@@ -33,11 +23,11 @@ type MobileMessageActionsProps = {
   onCopy: () => void;
   /** Permission: can manage messages */
   canManageMessages: boolean;
-  /** Mesaj pinli mi? */
+  /** Is message pinned? */
   isPinned: boolean;
 };
 
-/** Sık kullanılan emoji'ler — quick react bar */
+/** Frequently used emojis for quick-react bar */
 const QUICK_EMOJIS = ["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE4F"];
 
 function MobileMessageActions({
@@ -81,9 +71,9 @@ function MobileMessageActions({
         ))}
       </div>
 
-      {/* Aksiyon listesi */}
+      {/* Action list */}
       <div className="mobile-bs-actions-list">
-        {/* Reply — her zaman */}
+        {/* Reply — always */}
         <button className="mobile-bs-action" onClick={() => handleAction(onReply)}>
           <span className="mobile-bs-action-icon">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -94,7 +84,7 @@ function MobileMessageActions({
           {t("replyMessage")}
         </button>
 
-        {/* Copy — her zaman */}
+        {/* Copy — always */}
         {message.content && (
           <button className="mobile-bs-action" onClick={() => handleAction(onCopy)}>
             <span className="mobile-bs-action-icon">
@@ -120,7 +110,7 @@ function MobileMessageActions({
           </button>
         )}
 
-        {/* Edit — sadece owner */}
+        {/* Edit — owner only */}
         {isOwner && (
           <button className="mobile-bs-action" onClick={() => handleAction(onEdit)}>
             <span className="mobile-bs-action-icon">
@@ -133,7 +123,7 @@ function MobileMessageActions({
           </button>
         )}
 
-        {/* Delete — owner veya canManageMessages */}
+        {/* Delete — owner or canManageMessages */}
         {(isOwner || canManageMessages) && (
           <button className="mobile-bs-action destructive" onClick={() => handleAction(onDelete)}>
             <span className="mobile-bs-action-icon">

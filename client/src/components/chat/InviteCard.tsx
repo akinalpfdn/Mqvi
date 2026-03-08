@@ -1,17 +1,4 @@
-/**
- * InviteCard — Mesaj içindeki `mqvi:invite/{code}` kalıbını
- * zengin kart olarak render eder.
- *
- * Mount'ta invite preview API'den sunucu bilgisi çekilir:
- * - Sunucu adı, ikonu, üye sayısı gösterilir
- * - Geçersiz kod ise fallback görünüm
- *
- * Tıklanınca: API join endpoint'i çağrılır, hata mesajı parse edilerek
- * "already a member" ve "expired/invalid" ayrı ayrı gösterilir.
- *
- * CSS class'ları: .invite-card, .invite-card-icon, .invite-card-info,
- * .invite-card-name, .invite-card-meta, .invite-card-btn
- */
+/** InviteCard — Rich preview card for invite links in messages. Fetches server info and handles join. */
 
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,11 +19,11 @@ function InviteCard({ code }: InviteCardProps) {
   const [isJoining, setIsJoining] = useState(false);
   const [joined, setJoined] = useState(false);
 
-  /** Preview verisi — null ise henüz yüklenmedi veya geçersiz kod */
+  /** Preview data — null if not loaded yet or invalid code */
   const [preview, setPreview] = useState<InvitePreview | null>(null);
   const [previewLoaded, setPreviewLoaded] = useState(false);
 
-  // Mount'ta preview bilgisini çek
+  // Fetch preview on mount
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -55,10 +42,10 @@ function InviteCard({ code }: InviteCardProps) {
     if (isJoining || joined) return;
     setIsJoining(true);
 
-    // Doğrudan API çağır — hata mesajını parse edebilmek için
+    // Call API directly to parse error messages
     const res = await serversApi.joinServer(code);
     if (res.success && res.data) {
-      // Store'u da güncelle
+      // Update store
       const server = res.data;
       const store = useServerStore.getState();
       const exists = store.servers.some((s) => s.id === server.id);
@@ -71,7 +58,7 @@ function InviteCard({ code }: InviteCardProps) {
       addToast("success", t("serverJoined"));
       setJoined(true);
     } else {
-      // Hata mesajını parse et — backend spesifik mesajlar döndürüyor
+      // Parse error — backend returns specific messages
       const err = res.error ?? "";
       if (err.includes("already a member")) {
         addToast("info", t("alreadyMember"));
@@ -82,7 +69,7 @@ function InviteCard({ code }: InviteCardProps) {
     setIsJoining(false);
   }
 
-  // Preview yüklenene kadar minimal skeleton
+  // Minimal skeleton until preview loads
   if (!previewLoaded) {
     return (
       <span className="invite-card">
@@ -95,7 +82,7 @@ function InviteCard({ code }: InviteCardProps) {
 
   return (
     <span className="invite-card" onClick={(e) => e.stopPropagation()}>
-      {/* Sunucu ikonu */}
+      {/* Server icon */}
       <span className="invite-card-icon">
         {preview?.server_icon_url ? (
           <img
@@ -111,7 +98,7 @@ function InviteCard({ code }: InviteCardProps) {
         )}
       </span>
 
-      {/* Sunucu bilgisi */}
+      {/* Server info */}
       <span className="invite-card-info">
         <span className="invite-card-name">
           {preview?.server_name ?? t("inviteFriends")}
@@ -123,7 +110,7 @@ function InviteCard({ code }: InviteCardProps) {
         </span>
       </span>
 
-      {/* Katıl butonu */}
+      {/* Join button */}
       <button
         className="invite-card-btn"
         onClick={handleJoin}

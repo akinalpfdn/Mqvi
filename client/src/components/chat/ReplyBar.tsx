@@ -1,12 +1,4 @@
-/**
- * ReplyBar — Input üstünde gösterilen yanıt önizleme barı.
- *
- * CSS class'ları: .reply-bar, .reply-bar-icon, .reply-bar-user,
- * .reply-bar-text, .reply-bar-close
- *
- * Kullanıcı bir mesaja yanıt vermeye başladığında görünür.
- * Yanıt ok ikonu + yazar adı + içerik preview + X (iptal) butonu içerir.
- */
+/** ReplyBar — Reply preview bar shown above input. */
 
 import { useTranslation } from "react-i18next";
 import type { ChatMessage } from "../../hooks/useChatContext";
@@ -22,12 +14,12 @@ function ReplyBar({ message, onCancel }: ReplyBarProps) {
   const authorName =
     message.author?.display_name ?? message.author?.username ?? t("unknownUser");
 
-  /** İçerik preview — dosya-only mesajlarda "noContent" göster */
+  /** Content preview — shows "noContent" for file-only messages */
   const previewText = message.content ?? t("noContent");
 
   return (
     <div className="reply-bar">
-      {/* Reply ok ikonu */}
+      {/* Reply arrow icon */}
       <svg
         className="reply-bar-icon"
         width="16"
@@ -44,7 +36,7 @@ function ReplyBar({ message, onCancel }: ReplyBarProps) {
 
       <span className="reply-bar-text">{previewText}</span>
 
-      {/* İptal butonu */}
+      {/* Cancel button */}
       <button className="reply-bar-close" onClick={onCancel} title="Escape">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />

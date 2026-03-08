@@ -1,28 +1,6 @@
 /**
- * DMChat — DM sohbet görünümü.
- *
- * Artık shared component'lar (MessageList, MessageInput, TypingIndicator)
- * DMChatProvider üzerinden ChatContext ile çalışıyor.
- * Eskiden monolitik bir component'ti — tüm mesaj rendering, input,
- * edit/delete burada inline yapılıyordu.
- *
- * Channel ChatArea ile aynı özellik seti:
- * - Reply (ReplyBar + referenced message preview)
- * - Reactions (EmojiPicker + reaction buttons)
- * - File upload (multipart/form-data)
- * - Pin (pin/unpin + DM pinned messages panel)
- * - Search (DM FTS5 search panel)
- * - Typing indicator
- * - Auto-focus after send (input focus bug fix)
- * - Drag-drop file upload
- *
- * Drag-drop entegrasyonu:
- * DMChatContent, useChatContext() ile addFilesRef'e erişir ve
- * useFileDrop hook'u ile tüm DM alanını drop zone yapar.
- * İki ayrı component gerekir çünkü useChatContext() ancak
- * DMChatProvider'ın child'ı olarak çağrılabilir.
- *
- * CSS class'ları: Server ChatArea'dan miras — .chat-area, .dm-header, vb.
+ * DMChat — DM chat view using shared components via ChatContext.
+ * Split into DMChat (provider wrapper) and DMChatContent (needs ChatContext).
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -49,10 +27,7 @@ type DMChatProps = {
   sendDMTyping: (dmChannelId: string) => void;
 };
 
-/**
- * DMChat — Provider wrapper.
- * DMChatProvider'ı render eder, içeriği DMChatContent'e delege eder.
- */
+/** DMChat — Provider wrapper. Delegates content to DMChatContent. */
 function DMChat({ channelId, sendDMTyping }: DMChatProps) {
   const channels = useDMStore((s) => s.channels);
   const otherUser = channels.find((ch) => ch.id === channelId)?.other_user;
@@ -73,10 +48,7 @@ function DMChat({ channelId, sendDMTyping }: DMChatProps) {
   );
 }
 
-/**
- * DMChatContent — Provider'ın child'ı olarak useChatContext() kullanabilir.
- * Drag-drop file upload burada entegre edilir.
- */
+/** DMChatContent — Child of provider, integrates drag-drop file upload. */
 function DMChatContent({
   channelId,
   channelName,
@@ -106,7 +78,7 @@ function DMChatContent({
   const pendingSearchChannelId = useDMStore((s) => s.pendingSearchChannelId);
   const setPendingSearchChannelId = useDMStore((s) => s.setPendingSearchChannelId);
 
-  // DM tab açıldığında: selectedDMId güncelle + unread sıfırla
+  // Update selectedDMId + clear unread when DM tab opens
   useEffect(() => {
     selectDM(channelId);
     clearDMUnread(channelId);
@@ -115,24 +87,22 @@ function DMChatContent({
     };
   }, [channelId, selectDM, clearDMUnread]);
 
-  // E2EE hazir oldugunda mesaj cache'ini temizle ve yeniden fetch et.
-  // Race condition: fetchMessages, e2eeStore.initialize() tamamlanmadan once
-  // calisirsa localDeviceId null olur → tum mesajlar null content ile cache'lenir.
-  // Bu effect, SADECE status "ready"'ye GECIS yaptiginda tetiklenir.
-  // Mount aninda zaten "ready" ise MessageList'in kendi fetch'i yeterlidir.
+  // Invalidate + re-fetch messages when E2EE transitions to "ready".
+  // Prevents race condition where fetchMessages runs before e2eeStore.initialize()
+  // completes, caching all messages with null content.
   const prevE2eeStatusRef = useRef(e2eeInitStatus);
   useEffect(() => {
     const prevStatus = prevE2eeStatusRef.current;
     prevE2eeStatusRef.current = e2eeInitStatus;
 
-    // Sadece non-ready → ready gecisinde invalidate + re-fetch
+    // Only invalidate on non-ready -> ready transition
     if (e2eeInitStatus === "ready" && prevStatus !== "ready") {
       invalidateMessages(channelId);
       fetchMessages(channelId);
     }
   }, [e2eeInitStatus, channelId, invalidateMessages, fetchMessages]);
 
-  // Context menu "Mesajlarda Ara" → DM açıldığında search paneli otomatik aç
+  // Auto-open search panel when triggered from context menu
   useEffect(() => {
     if (pendingSearchChannelId === channelId) {
       setShowSearch(true);
@@ -140,7 +110,7 @@ function DMChatContent({
     }
   }, [pendingSearchChannelId, channelId, setPendingSearchChannelId]);
 
-  // E2EE aktifken alıcının anahtar durumunu kontrol et (banner için)
+  // Check recipient's key status when E2EE is active (for warning banner)
   useEffect(() => {
     if (!dmE2EEEnabled || !otherUser) {
       setRecipientHasKeys(true);
@@ -151,22 +121,22 @@ function DMChatContent({
       if (cancelled) return;
       setRecipientHasKeys(res.success && !!res.data && res.data.length > 0);
     }).catch(() => {
-      if (!cancelled) setRecipientHasKeys(true); // hata durumunda banner gösterme
+      if (!cancelled) setRecipientHasKeys(true); // don't show banner on error
     });
     return () => { cancelled = true; };
   }, [dmE2EEEnabled, otherUser]);
 
-  /** Pin paneli aç/kapa toggle */
+  /** Toggle pin panel */
   const handleTogglePins = useCallback(() => {
     setShowPins((prev) => !prev);
   }, []);
 
-  /** Arama paneli aç/kapa toggle */
+  /** Toggle search panel */
   const handleToggleSearch = useCallback(() => {
     setShowSearch((prev) => !prev);
   }, []);
 
-  // ─── Drag-drop entegrasyonu ───
+  // ─── Drag-drop ───
   const handleFileDrop = useCallback(
     (files: File[]) => {
       addFilesRef.current?.(files);
@@ -191,7 +161,7 @@ function DMChatContent({
 
         {/* Header actions — e2ee, pin, search */}
         <div className="ch-actions">
-          {/* E2EE toggle ikonu */}
+          {/* E2EE toggle */}
           <button
             className={dmE2EEEnabled ? "active" : ""}
             onClick={async () => {
@@ -224,7 +194,7 @@ function DMChatContent({
               </svg>
             )}
           </button>
-          {/* Pin ikonu */}
+          {/* Pin toggle */}
           <button
             className={showPins ? "active" : ""}
             onClick={handleTogglePins}
@@ -234,7 +204,7 @@ function DMChatContent({
               <path strokeLinecap="round" strokeLinejoin="round" d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
             </svg>
           </button>
-          {/* Arama ikonu */}
+          {/* Search toggle */}
           <button
             className={showSearch ? "active" : ""}
             onClick={handleToggleSearch}

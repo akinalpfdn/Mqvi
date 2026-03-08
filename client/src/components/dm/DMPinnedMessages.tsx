@@ -1,13 +1,4 @@
-/**
- * DMPinnedMessages — DM kanalının pinlenmiş mesajlarını gösteren popup panel.
- *
- * Channel PinnedMessages'ten farklı olarak:
- * - pinStore yerine dmStore.getPinnedMessages kullanır
- * - PinnedMessage wrapper tipi yerine doğrudan DMMessage kullanır
- * - DM'de her iki kullanıcı da unpin yapabilir (canManageMessages: true)
- *
- * CSS class'ları: PinnedMessages ile aynı — .pinned-panel, .pinned-header, vb.
- */
+/** Pinned messages popup for DM channels. Uses dmStore instead of pinStore. */
 
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -47,13 +38,13 @@ function DMPinnedMessages({ channelId, onClose }: DMPinnedMessagesProps) {
   const handleUnpin = useCallback(
     async (messageId: string) => {
       await unpinMessage(channelId, messageId);
-      // Listeden kaldır (WS event ile de gelecek ama instant feedback)
+      // Optimistic removal (WS event will also arrive)
       setPins((prev) => prev.filter((m) => m.id !== messageId));
     },
     [channelId, unpinMessage]
   );
 
-  /** Timestamp formatı */
+  /** Format timestamp for display */
   function formatDate(dateStr: string): string {
     const date = new Date(dateStr);
     return date.toLocaleDateString([], {
@@ -77,7 +68,7 @@ function DMPinnedMessages({ channelId, onClose }: DMPinnedMessagesProps) {
         </button>
       </div>
 
-      {/* Pin listesi */}
+      {/* Pin list */}
       <div className="pinned-list">
         {isLoading ? (
           <p className="pinned-empty">{t("noPinnedMessages")}</p>

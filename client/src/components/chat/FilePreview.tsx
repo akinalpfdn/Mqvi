@@ -1,13 +1,4 @@
-/**
- * FilePreview — Mesaj göndermeden önce eklenen dosyaların önizlemesi.
- *
- * CSS class'ları: .file-preview, .file-preview-item,
- * .file-preview-name, .file-preview-remove
- *
- * Resimler thumbnail olarak gösterilir.
- * Diğer dosyalar icon + isim olarak gösterilir.
- * X butonuyla dosya listeden çıkarılabilir.
- */
+/** FilePreview — Previews attached files before sending. Images show thumbnails. */
 
 import { useMemo } from "react";
 

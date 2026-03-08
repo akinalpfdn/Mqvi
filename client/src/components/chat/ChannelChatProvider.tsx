@@ -1,16 +1,4 @@
-/**
- * ChannelChatProvider — Channel store'larını ChatContext'e map'ler.
- *
- * messageStore, pinStore, memberStore selector'larını tek bir
- * ChatContextValue objesine dönüştürür. Channel chat'in mevcut
- * davranışı aynen korunur — sadece veri akışı context üzerinden olur.
- *
- * Kullanım:
- * <ChannelChatProvider channelId={id} channelName={name} sendTyping={fn}>
- *   <MessageList />
- *   <MessageInput />
- * </ChannelChatProvider>
- */
+/** ChannelChatProvider — Maps channel stores (message, pin, member) to ChatContext. */
 
 import { useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
@@ -70,10 +58,10 @@ function ChannelChatProvider({
   const currentUser = useAuthStore((s) => s.user);
   const { hasChannelPerm } = useChannelPermissions(channelId);
 
-  // ─── File drop ref — ChatArea drag-drop'tan MessageInput'a dosya iletimi ───
+  // ─── File drop ref — forwards drag-drop files from ChatArea to MessageInput ───
   const addFilesRef = useRef<((files: File[]) => void) | null>(null);
 
-  // ─── Permission hesaplama ───
+  // ─── Permission calculation ───
   const canSend = hasChannelPerm(Permissions.SendMessages);
   const currentMember = members.find((m) => m.id === currentUser?.id);
   const canManageMessages = currentMember
@@ -115,8 +103,7 @@ function ChannelChatProvider({
 
   const setReplyingTo = useCallback(
     (msg: ChatMessage | null) => {
-      // ChatMessage → Message cast: runtime'da bu obje zaten bir Message,
-      // sadece ChatMessage olarak typed. Cast güvenli.
+      // Safe cast: runtime object is already a Message, just typed as ChatMessage
       storeSetReplyingTo(msg as Message | null);
     },
     [storeSetReplyingTo]

@@ -1,13 +1,4 @@
-/**
- * DMProfileCard — DM kullanıcı profil kartı.
- *
- * MemberCard'ın basitleştirilmiş hali — server-context bağımlılığı yok.
- * Gösterir: Avatar (64px), display name, username, status, custom_status.
- * Aksiyonlar: Mesaj Gönder, Sesli Arama, Arkadaş Ekle/Çıkar.
- *
- * Portal-based popover — click-outside close.
- * CSS class'ları: .dm-profile-backdrop, .dm-profile-card, .dm-profile-*
- */
+/** DMProfileCard — DM user profile popover (no server context). */
 
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -47,12 +38,12 @@ function DMProfileCard({ dm, position, onClose }: DMProfileCardProps) {
   const user = dm.other_user;
   const name = user.display_name || user.username;
 
-  // Arkadaşlık durumu
+  // Friendship state
   const isFriend = friends.some((f) => f.user_id === user.id);
   const outReq = outgoing.find((r) => r.user_id === user.id);
   const inReq = incoming.find((r) => r.user_id === user.id);
 
-  // Click-outside kapatma
+  // Close on click-outside
   useEffect(() => {
     let frameId: number;
 
@@ -72,7 +63,7 @@ function DMProfileCard({ dm, position, onClose }: DMProfileCardProps) {
     };
   }, [onClose]);
 
-  // Pozisyon düzeltme — ekranın dışına taşmayı önle
+  // Clamp position to viewport
   useEffect(() => {
     if (!cardRef.current) return;
 

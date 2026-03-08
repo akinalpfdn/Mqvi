@@ -1,11 +1,4 @@
-/**
- * DMMuteDurationPicker — DM sohbeti sessize alma süresi seçimi.
- *
- * MuteDurationPicker (servers/) ile aynı pattern — portal-based popover.
- * Tıklanan süreye göre dmStore.muteDM() çağrılır.
- *
- * CSS class'ları: .mute-picker, .mute-picker-btn (mevcut — reuse)
- */
+/** DMMuteDurationPicker — portal popover to select DM mute duration. */
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -19,7 +12,7 @@ type DMMuteDurationPickerProps = {
   onClose: () => void;
 };
 
-/** Mute duration seçenekleri — backend'in kabul ettiği format */
+/** Duration options matching backend format */
 const DURATIONS = [
   { key: "mute1Hour", value: "1h" },
   { key: "mute8Hours", value: "8h" },
@@ -32,7 +25,7 @@ function DMMuteDurationPicker({ channelId, x, y, onClose }: DMMuteDurationPicker
   const muteDM = useDMStore((s) => s.muteDM);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Dışına tıklama veya Escape ile kapatma
+  // Close on click-outside or Escape
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -55,7 +48,7 @@ function DMMuteDurationPicker({ channelId, x, y, onClose }: DMMuteDurationPicker
     };
   }, [onClose]);
 
-  // Pozisyon düzeltme — ekranın dışına taşmayı önle
+  // Clamp position to viewport
   useEffect(() => {
     if (!menuRef.current) return;
 

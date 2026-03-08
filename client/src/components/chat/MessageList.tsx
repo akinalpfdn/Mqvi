@@ -1,21 +1,4 @@
-/**
- * MessageList — Scrollable mesaj container'ı.
- *
- * CSS class'ları: .messages-scroll, .msg-welcome, .msg-welcome-icon,
- * .no-channel, .spinner
- *
- * Davranışlar:
- * - Kanal değiştiğinde mesajları fetch eder
- * - Yeni mesaj geldiğinde otomatik scroll (en alttaysa)
- * - Yukarı scroll ile infinite scroll (eski mesajlar)
- * - Mesaj yoksa welcome ekranı
- *
- * Compact mode: Aynı yazarın 5dk içindeki ardışık mesajları compact gösterilir.
- *
- * ChatContext refaktörü:
- * Eskiden doğrudan useMessageStore ve useChannelStore import ediyordu.
- * Artık useChatContext() üzerinden erişiyor — hem channel hem DM'de çalışıyor.
- */
+/** MessageList — Scrollable message container with auto-scroll, infinite scroll, and compact mode. */
 
 import { useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,15 +6,10 @@ import { useChatContext } from "../../hooks/useChatContext";
 import { MessageSkeleton } from "../shared/Skeleton";
 import Message from "./Message";
 
-/** Aynı yazarın ardışık mesajı compact olacak süre (ms) */
+/** Compact threshold for consecutive messages from same author (ms) */
 const COMPACT_THRESHOLD = 5 * 60 * 1000;
 
-/**
- * scrollPositions — Kanal bazlı scroll pozisyonu cache'i.
- * Module-level Map kullanılır (component dışında tanımlanır):
- * - Component unmount/remount olsa bile pozisyon korunur
- * - channelId → scrollTop eşlemesi tutar
- */
+/** Per-channel scroll position cache. Survives component unmount/remount. */
 const scrollPositions = new Map<string, number>();
 
 function MessageList() {
@@ -54,7 +32,7 @@ function MessageList() {
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
 
-  // Kanal değiştiğinde mesajları fetch et + auto-scroll'u engelle
+  // Fetch messages on channel change, disable auto-scroll during transition
   useEffect(() => {
     isAtBottomRef.current = false;
 
@@ -63,7 +41,7 @@ function MessageList() {
     }
   }, [channelId, fetchMessages]);
 
-  // Yeni mesaj geldiğinde auto-scroll (sadece aktif kanalda)
+  // Auto-scroll on new message (only when already at bottom)
   useEffect(() => {
     if (messages.length > prevMessageCountRef.current && isAtBottomRef.current) {
       scrollToBottom();
@@ -71,9 +49,7 @@ function MessageList() {
     prevMessageCountRef.current = messages.length;
   }, [messages.length]);
 
-  /**
-   * Scroll pozisyonu restore — useLayoutEffect ile paint'ten ÖNCE çalışır.
-   */
+  /** Restore scroll position — runs before paint via useLayoutEffect. */
   useLayoutEffect(() => {
     if (!isLoading && messages.length > 0 && scrollRef.current) {
       const savedPos = scrollPositions.get(channelId);
@@ -88,9 +64,7 @@ function MessageList() {
     }
   }, [isLoading, channelId]);
 
-  /**
-   * Scroll-to-message effect — reply preview tıklandığında tetiklenir.
-   */
+  /** Scroll-to-message effect — triggered when reply preview is clicked. */
   useEffect(() => {
     if (!scrollToMessageId) return;
 
@@ -114,7 +88,7 @@ function MessageList() {
     }
   }
 
-  /** Scroll event handler — pozisyon kaydet + en altta mı kontrol et + infinite scroll */
+  /** Scroll handler — save position + check if at bottom + trigger infinite scroll */
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
 
@@ -137,10 +111,7 @@ function MessageList() {
     }
   }, [hasMore, isLoadingMore, channelId, fetchOlderMessages]);
 
-  /**
-   * isCompact — Aynı yazarın 5dk içindeki ardışık mesajı compact gösterilir.
-   * Reply mesajları her zaman full header gösterir.
-   */
+  /** Compact mode for consecutive messages from same author within 5min. Replies always show full header. */
   function isCompact(index: number): boolean {
     if (index === 0) return false;
 
@@ -170,7 +141,7 @@ function MessageList() {
     );
   }
 
-  // Welcome mesajı: Channel modunda "#kanal" ikonu, DM modunda "@kullanıcı" ikonu
+  // Welcome icon: "#" for channels, "@" for DMs
   const welcomeIcon = mode === "dm" ? "@" : "#";
 
   return (
@@ -186,7 +157,7 @@ function MessageList() {
         </div>
       )}
 
-      {/* Mesajlar */}
+      {/* Messages */}
       {messages.length === 0 ? (
         <div className="msg-welcome">
           <div className="msg-welcome-icon">

@@ -1,24 +1,4 @@
-/**
- * Message — Tek bir mesajı render eden component.
- *
- * CSS class'ları: .msg, .msg.first-of-group, .msg.grouped,
- * .msg-row, .msg-avatar, .msg-body, .msg-meta, .msg-name,
- * .name-admin, .name-mod, .name-default, .msg-time, .msg-text,
- * .msg-edited, .msg-gtime, .msg-hover-actions,
- * .msg-edit-area, .msg-edit-textarea, .msg-edit-hint,
- * .msg-attachments, .msg-attachment-img, .msg-attachment-file,
- * .msg-reactions, .msg-reaction-btn, .msg-reaction-btn.active,
- * .msg-reaction-add
- *
- * Hover efektleri tamamen CSS ile yönetilir:
- * - .msg:hover .msg-hover-actions { opacity:1 }
- * - .msg.grouped:hover .msg-gtime { opacity:1 }
- *
- * ChatContext refaktörü:
- * Eskiden doğrudan useMessageStore, usePinStore, useMemberStore import
- * ediyordu. Artık useChatContext() üzerinden erişiyor — hem channel
- * hem DM'de aynı component çalışıyor.
- */
+/** Message — Renders a single message. Works in both channel and DM via ChatContext. */
 
 import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -42,14 +22,11 @@ import type { MemberWithRoles } from "../../types";
 
 type MessageProps = {
   message: ChatMessage;
-  /** Aynı yazarın ardışık mesajı mı? (compact mode için) */
+  /** Consecutive message from same author? (compact mode) */
   isCompact: boolean;
 };
 
-/**
- * getRoleType — Üyenin en yüksek pozisyonlu rolünü alıp Avatar'a uygun
- * role tipini döner.
- */
+/** Returns role type based on member's highest-position role. */
 function getRoleType(member: MemberWithRoles | undefined): "admin" | "mod" | null {
   if (!member || member.roles.length === 0) return null;
 
@@ -63,9 +40,7 @@ function getRoleType(member: MemberWithRoles | undefined): "admin" | "mod" | nul
   return null;
 }
 
-/**
- * getHighestRoleColor — Üyenin en yüksek pozisyonlu rolünün rengini döner.
- */
+/** Returns color of member's highest-position role. */
 function getHighestRoleColor(member: MemberWithRoles | undefined): string | undefined {
   if (!member || member.roles.length === 0) return undefined;
 
@@ -80,7 +55,7 @@ function Message({ message, isCompact }: MessageProps) {
   const { t, i18n } = useTranslation("chat");
   const currentUser = useAuthStore((s) => s.user);
 
-  // ChatContext — store farkını soyutlar (channel vs DM)
+  // ChatContext — abstracts channel vs DM store differences
   const {
     editMessage,
     deleteMessage,
@@ -105,14 +80,14 @@ function Message({ message, isCompact }: MessageProps) {
 
   const isOwner = currentUser?.id === message.user_id;
 
-  // Rol bilgileri — DM'de showRoleColors=false, members=[] olduğundan atlanır
+  // Role info — skipped in DM where showRoleColors=false, members=[]
   const member = showRoleColors ? members.find((m) => m.id === message.user_id) : undefined;
   const roleType = getRoleType(member);
   const roleColor = getHighestRoleColor(member);
 
   const isPinned = isMessagePinned(message.id);
 
-  /** Akıllı timestamp: bugün→saat, dün→"Dün 22:15", bu hafta→"Cuma 22:15", eski→tarih */
+  /** Smart timestamp: today->time, yesterday->"Yesterday 22:15", older->date */
   const locale = i18n.language ?? "en";
   const yesterdayLabel = t("yesterday");
   const timeLabels = useMemo(() => ({ yesterday: yesterdayLabel }), [yesterdayLabel]);
@@ -123,7 +98,7 @@ function Message({ message, isCompact }: MessageProps) {
   const formatFullDate = (dateStr: string) =>
     formatFullDateTime(dateStr, locale);
 
-  /** Edit kaydetme — Enter ile */
+  /** Save edit on Enter */
   async function handleEditSave() {
     if (editContent.trim() && editContent.trim() !== message.content) {
       await editMessage(message.id, editContent.trim());
@@ -131,13 +106,13 @@ function Message({ message, isCompact }: MessageProps) {
     setIsEditing(false);
   }
 
-  /** Edit iptal — Escape ile */
+  /** Cancel edit on Escape */
   function handleEditCancel() {
     setEditContent(message.content ?? "");
     setIsEditing(false);
   }
 
-  /** Mesaj silme — onay dialogu ile */
+  /** Delete with confirmation dialog */
   async function handleDelete() {
     const ok = await confirm({
       message: t("deleteMessageConfirm"),
@@ -148,7 +123,7 @@ function Message({ message, isCompact }: MessageProps) {
     await deleteMessage(message.id);
   }
 
-  /** Pin/Unpin toggle */
+  /** Toggle pin/unpin */
   async function handlePinToggle() {
     if (isPinned) {
       await unpinMessage(message.id);
@@ -157,40 +132,40 @@ function Message({ message, isCompact }: MessageProps) {
     }
   }
 
-  /** Yanıt verme — ReplyBar'ı açar */
+  /** Opens ReplyBar */
   function handleReply() {
     setReplyingTo(message);
   }
 
-  /** Referans mesaja scroll — reply preview tıklayınca orijinal mesaja gider */
+  /** Scroll to referenced message when reply preview is clicked */
   function handleScrollToReply() {
     if (message.reply_to_id) {
       setScrollToMessageId(message.reply_to_id);
     }
   }
 
-  /** Emoji reaction toggle — mevcut reaction'a tıklayınca veya picker'dan seçince */
+  /** Toggle emoji reaction */
   function handleReaction(emoji: string) {
     toggleReaction(message.id, emoji);
   }
 
-  /** Sağ tık context menu — mesaj aksiyonları */
+  /** Right-click context menu */
   function handleContextMenu(e: React.MouseEvent) {
     const items: ContextMenuItem[] = [];
 
-    // Reply — herkes
+    // Reply — everyone
     items.push({
       label: t("replyMessage"),
       onClick: handleReply,
     });
 
-    // Add Reaction — herkes
+    // Add Reaction — everyone
     items.push({
       label: t("addReaction"),
       onClick: () => setPickerSource("bar"),
     });
 
-    // Copy Message — herkes
+    // Copy Message — everyone
     items.push({
       label: t("copyMessage"),
       onClick: () => {
@@ -198,7 +173,7 @@ function Message({ message, isCompact }: MessageProps) {
       },
     });
 
-    // Pin/Unpin — ManageMessages yetkisi
+    // Pin/Unpin — requires ManageMessages
     if (canManageMessages) {
       items.push({
         label: isPinned ? t("unpinMessage") : t("pinMessage"),
@@ -207,7 +182,7 @@ function Message({ message, isCompact }: MessageProps) {
       });
     }
 
-    // Edit — sadece mesaj sahibi
+    // Edit — owner only
     if (isOwner) {
       items.push({
         label: t("editMessage"),
@@ -219,7 +194,7 @@ function Message({ message, isCompact }: MessageProps) {
       });
     }
 
-    // Delete — mesaj sahibi VEYA ManageMessages
+    // Delete — owner or ManageMessages
     if (isOwner || canManageMessages) {
       items.push({
         label: t("deleteMessage"),
@@ -228,7 +203,7 @@ function Message({ message, isCompact }: MessageProps) {
       });
     }
 
-    // Copy ID — herkes (debug/gelişmiş kullanım)
+    // Copy ID — everyone (debug/power user)
     items.push({
       label: t("copyId"),
       onClick: () => copyToClipboard(message.id),
@@ -238,7 +213,7 @@ function Message({ message, isCompact }: MessageProps) {
     openMenu(e, items);
   }
 
-  // Long-press handler — mobilde context menu yerine bottom sheet açar
+  // Long-press — opens bottom sheet on mobile instead of context menu
   const longPressHandlers = useLongPress(
     useCallback(() => setMobileActionsOpen(true), []),
     { delay: 500 }
@@ -247,28 +222,20 @@ function Message({ message, isCompact }: MessageProps) {
   const displayName =
     message.author?.display_name ?? message.author?.username ?? "Unknown";
 
-  /** URL regex — @mention ve tüm http(s) URL'lerini yakalar */
+  /** Captures @mentions and all http(s) URLs */
   const URL_REGEX = /(@\w+|https?:\/\/[^\s<]+)/gi;
 
-  /** Invite pattern — daha spesifik, URL_REGEX sonrası kontrol edilir */
+  /** Invite pattern — checked after URL_REGEX match */
   const INVITE_REGEX = /^https?:\/\/[^\s/]+\/invite\/([a-f0-9]{16})$/i;
 
   /** Klipy GIF pattern */
   const KLIPY_REGEX = /^https?:\/\/static\.klipy\.com\/[^\s]+$/;
 
-  /**
-   * renderContent — Mesaj içeriğindeki özel kalıpları parse eder.
-   *
-   * Desteklenen kalıplar:
-   * - @username → mention highlight
-   * - https://domain/invite/{hex16} → tıklanabilir davet kartı
-   * - https://static.klipy.com/... → inline GIF (tüm mesaj tek URL ise)
-   * - Diğer URL'ler → tıklanabilir link
-   */
+  /** Parse message content: @mentions, invite cards, Klipy GIFs, clickable links. */
   function renderContent(text: string | null): React.ReactNode {
     if (!text) return null;
 
-    // Tüm mesaj tek bir Klipy GIF URL'i ise → inline image olarak göster (Discord pattern)
+    // Entire message is a single Klipy GIF URL — render as inline image
     const trimmed = text.trim();
     if (KLIPY_REGEX.test(trimmed)) {
       return (
@@ -293,7 +260,7 @@ function Message({ message, isCompact }: MessageProps) {
       if (inviteMatch) {
         return <InviteCard key={i} code={inviteMatch[1]} />;
       }
-      // Genel URL → tıklanabilir link
+      // Generic URL — clickable link
       if (/^https?:\/\//i.test(part)) {
         return (
           <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="msg-link">
@@ -305,11 +272,7 @@ function Message({ message, isCompact }: MessageProps) {
     });
   }
 
-  /**
-   * previewUrls — Mesaj içindeki preview gösterilecek URL'ler.
-   * Invite ve Klipy URL'leri hariç tutulur (kendi kartları var).
-   * Maksimum 5 preview — spam koruması.
-   */
+  /** URLs to show link previews for. Excludes invite/Klipy URLs. Max 5. */
   const previewUrls = useMemo(() => {
     if (!message.content) return [];
     const matches = message.content.match(/https?:\/\/[^\s<]+/gi);
@@ -433,7 +396,7 @@ function Message({ message, isCompact }: MessageProps) {
           {message.attachments && message.attachments.length > 0 && (
             <div className="msg-attachments">
               {message.attachments.map((attachment, idx) => {
-                // E2EE sifreli dosya — EncryptedAttachment ile coz + goster
+                // E2EE encrypted file — decrypt via EncryptedAttachment
                 const fileMeta = message.encryption_version === 1
                   ? message.e2ee_file_keys?.[idx]
                   : undefined;
@@ -448,7 +411,7 @@ function Message({ message, isCompact }: MessageProps) {
                   );
                 }
 
-                // Plaintext dosya — dogrudan goster
+                // Plaintext file — render directly
                 const isImage = attachment.mime_type?.startsWith("image/");
 
                 if (isImage) {
@@ -609,7 +572,7 @@ function Message({ message, isCompact }: MessageProps) {
         </div>
       )}
 
-      {/* Mobile message actions bottom sheet — long-press ile açılır */}
+      {/* Mobile message actions bottom sheet — opens on long-press */}
       {isMobile && (
         <MobileMessageActions
           isOpen={mobileActionsOpen}
@@ -637,7 +600,7 @@ function Message({ message, isCompact }: MessageProps) {
   );
 }
 
-/** Dosya boyutunu okunabilir formata çevirir (1024 → "1.0 KB") */
+/** Format bytes to human-readable size (1024 -> "1.0 KB") */
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

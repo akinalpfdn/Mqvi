@@ -1,20 +1,4 @@
-/**
- * MessageInput — Mesaj yazma alanı.
- *
- * CSS class'ları: .input-area, .input-box, .send-btn
- * .input-box button, .input-box textarea CSS'te tanımlıdır.
- *
- * Özellikler:
- * - Enter = gönder, Shift+Enter = yeni satır
- * - Dosya ekleme (file input ile)
- * - Typing indicator trigger (3sn throttle)
- * - Auto-resize textarea
- *
- * ChatContext refaktörü:
- * Eskiden sendTyping, channelId, channelName, canSend props alıyordu.
- * Artık tüm bu değerler useChatContext() üzerinden geliyor.
- * Hem channel hem DM'de aynı component çalışıyor.
- */
+/** MessageInput — Message compose area. Works in both channel and DM via ChatContext. */
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -45,25 +29,21 @@ function MessageInput() {
   const [files, setFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
 
-  /** Emoji picker state */
+  // Emoji picker state
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  /** GIF picker state */
+  // GIF picker state
   const [showGifPicker, setShowGifPicker] = useState(false);
 
-  /** Mention autocomplete state */
+  // Mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  /** Mention başladığı karakter index'i (@ karakterinin konumu) */
+  /** Character index where the @ trigger starts */
   const mentionStartRef = useRef<number>(-1);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  /**
-   * addFilesRef register — ChatArea/DMChat drag-drop'tan dosya iletimi.
-   * Drag-drop event'inde addFilesRef.current?.(files) çağrılır,
-   * burada register edilen callback files state'ine ekler.
-   */
+  // Register callback for drag-drop file forwarding from ChatArea/DMChat
   useEffect(() => {
     addFilesRef.current = (newFiles: File[]) => {
       setFiles((prev) => [...prev, ...newFiles]);
@@ -73,14 +53,14 @@ function MessageInput() {
     };
   }, [addFilesRef]);
 
-  /** Reply seçildiğinde textarea'ya otomatik focus ver */
+  /** Auto-focus textarea when reply is selected */
   useEffect(() => {
     if (replyingTo) {
       textareaRef.current?.focus();
     }
   }, [replyingTo]);
 
-  /** Mesaj gönder — reply varsa replyToId olarak iletir */
+  /** Send message, passing replyToId if replying */
   const handleSend = useCallback(async () => {
     if (!channelId) return;
     if (!content.trim() && files.length === 0) return;
@@ -99,25 +79,22 @@ function MessageInput() {
     }
     setIsSending(false);
 
-    // Gönderim sonrası focus'u textarea'ya geri ver.
-    // disabled={isSending} geçici olarak textarea'yı devre dışı bırakır,
-    // tarayıcı bu sırada focus'u kaldırır — burada geri yüklüyoruz.
-    // Bu aynı zamanda DM input focus bug'ını da çözer.
+    // Restore focus after send — disabled={isSending} causes browser to drop focus
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
   }, [channelId, content, files, isSending, sendMessage, replyingTo, setReplyingTo]);
 
-  /** Klavye event handler */
+  /** Keyboard event handler */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Mention popup açıkken Enter/Tab/ArrowUp/Down → popup'a bırak
+    // Let mention popup handle navigation keys when open
     if (mentionQuery !== null) {
       if (["Enter", "Tab", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) {
         return;
       }
     }
 
-    // Escape — reply iptal et (mention popup kapalıysa)
+    // Escape — cancel reply (when mention popup is closed)
     if (e.key === "Escape" && replyingTo) {
       e.preventDefault();
       setReplyingTo(null);
@@ -130,7 +107,7 @@ function MessageInput() {
     }
   }
 
-  /** Textarea değişikliği — typing trigger + auto-resize + mention detection */
+  /** Textarea change — typing trigger + auto-resize + mention detection */
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setContent(value);
@@ -139,9 +116,7 @@ function MessageInput() {
       sendTyping();
     }
 
-    // Mention detection — cursor konumundan geriye bakarak @ ara
-    // DM modunda mention kullanılmaz, ama MentionAutocomplete
-    // zaten DM'de boş sonuç döneceği için sorun yok.
+    // Mention detection — scan backwards from cursor for @
     const cursorPos = e.target.selectionStart ?? value.length;
     const textBeforeCursor = value.slice(0, cursorPos);
     const atIndex = textBeforeCursor.lastIndexOf("@");
@@ -169,9 +144,7 @@ function MessageInput() {
     }
   }
 
-  /**
-   * handleMentionSelect — Autocomplete'ten kullanıcı seçildiğinde çağrılır.
-   */
+  /** Insert selected mention into content */
   function handleMentionSelect(username: string) {
     const start = mentionStartRef.current;
     if (start < 0) return;
@@ -195,16 +168,13 @@ function MessageInput() {
     });
   }
 
-  /** Mention popup kapatma */
+  /** Close mention popup */
   function handleMentionClose() {
     setMentionQuery(null);
     mentionStartRef.current = -1;
   }
 
-  /**
-   * handleEmojiSelect — EmojiPicker'dan emoji seçildiğinde çağrılır.
-   * Emojiyi textarea'da cursor pozisyonuna ekler ve cursor'ı emojinin sonuna taşır.
-   */
+  /** Insert emoji at cursor position */
   function handleEmojiSelect(emoji: string) {
     const cursorPos = textareaRef.current?.selectionStart ?? content.length;
     const newContent = content.slice(0, cursorPos) + emoji + content.slice(cursorPos);
@@ -221,10 +191,7 @@ function MessageInput() {
     });
   }
 
-  /**
-   * handleGifSelect — GifPicker'dan GIF seçildiğinde çağrılır.
-   * GIF URL'ini mesaj content'i olarak hemen gönderir (Discord davranışı).
-   */
+  /** Send GIF URL as message content immediately */
   async function handleGifSelect(url: string) {
     if (!channelId || isSending) return;
     setShowGifPicker(false);
@@ -241,11 +208,7 @@ function MessageInput() {
     });
   }
 
-  /**
-   * handlePaste — Clipboard'dan dosya/görsel yapıştırma desteği.
-   * Ctrl+V ile clipboard'daki görseller FilePreview'a eklenir.
-   * Sadece dosya varsa preventDefault yapılır — metin paste'i etkilenmez.
-   */
+  /** Paste handler — supports pasting images/files from clipboard */
   function handlePaste(e: React.ClipboardEvent) {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -267,7 +230,7 @@ function MessageInput() {
     }
   }
 
-  /** Dosya ekleme — validateFiles utility kullanır */
+  /** Add files with validation */
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
 
@@ -278,14 +241,14 @@ function MessageInput() {
     e.target.value = "";
   }
 
-  /** Dosya kaldırma */
+  /** Remove file by index */
   function handleFileRemove(index: number) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   if (!channelId) return null;
 
-  // Mesaj gönderme yetkisi yoksa disabled durum göster
+  // No send permission — show disabled state
   if (!canSend) {
     return (
       <div className="input-area">
@@ -296,14 +259,14 @@ function MessageInput() {
     );
   }
 
-  // Placeholder: Channel modunda "#kanal" formatı, DM modunda "@kullanıcı" formatı
+  // Placeholder: "#channel" in channel mode, "@user" in DM mode
   const placeholder = mode === "dm"
     ? t("dmPlaceholder", { user: channelName })
     : t("messagePlaceholder", { channel: channelName });
 
   return (
     <div className="input-area">
-      {/* Mention autocomplete popup — textarea'nın üstünde gösterilir */}
+      {/* Mention autocomplete popup — shown above textarea */}
       {mentionQuery !== null && mode === "channel" && (
         <MentionAutocomplete
           query={mentionQuery}
@@ -312,7 +275,7 @@ function MessageInput() {
         />
       )}
 
-      {/* Reply bar — yanıt verilen mesajın önizlemesi */}
+      {/* Reply bar — preview of the message being replied to */}
       {replyingTo && (
         <ReplyBar
           message={replyingTo}
@@ -320,7 +283,7 @@ function MessageInput() {
         />
       )}
 
-      {/* Dosya önizleme */}
+      {/* File previews */}
       <FilePreview files={files} onRemove={handleFileRemove} />
 
       <div className="input-box">
@@ -409,7 +372,7 @@ function MessageInput() {
         </div>
       </div>
 
-      {/* Karakter sayacı — sadece 100 karakter kala görünür */}
+      {/* Character counter — visible when within 100 chars of limit */}
       {content.length > MAX_MESSAGE_LENGTH - 100 && (
         <span
           className="char-counter"

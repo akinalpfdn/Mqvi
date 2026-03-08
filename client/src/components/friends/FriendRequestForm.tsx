@@ -1,11 +1,4 @@
-/**
- * FriendRequestForm — Username ile arkadaşlık isteği gönderme formu.
- *
- * Basit bir input + submit butonu.
- * Sonuç (başarı/hata) kullanıcıya inline gösterilir.
- *
- * CSS class'ları: .frf-form, .frf-input, .frf-btn, .frf-result, .frf-success, .frf-error
- */
+/** Send friend request by username. Shows inline success/error result. */
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";

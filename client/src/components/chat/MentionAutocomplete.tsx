@@ -1,40 +1,26 @@
-/**
- * MentionAutocomplete — @mention popup component'i.
- *
- * MessageInput'ta kullanıcı "@" yazarken tetiklenir.
- * Üye listesini filtreler ve seçim yapılmasını sağlar.
- *
- * Özellikler:
- * - @ sonrasındaki karakterlere göre gerçek zamanlı filtreleme
- * - Klavye navigasyonu (ArrowUp/Down + Enter/Tab)
- * - Tıklama ile seçim
- * - Max 5 sonuç gösterimi
- *
- * CSS class'ları: .mention-popup, .mention-item, .mention-item.active,
- * .mention-item-avatar, .mention-item-name, .mention-item-username
- */
+/** MentionAutocomplete — @mention popup with keyboard navigation. Max 5 results. */
 
 import { useState, useEffect, useCallback } from "react";
 import { useMemberStore } from "../../stores/memberStore";
 import Avatar from "../shared/Avatar";
 
 type MentionAutocompleteProps = {
-  /** @ sonrasındaki arama metni (ör: "ali" → @ali) */
+  /** Search text after @ (e.g. "ali" -> @ali) */
   query: string;
-  /** Kullanıcı seçildiğinde çağrılır — username döner */
+  /** Called when user is selected — returns username */
   onSelect: (username: string) => void;
-  /** Popup kapatma (Escape veya boş sonuç) */
+  /** Close popup (Escape or empty results) */
   onClose: () => void;
 };
 
-/** Gösterilecek maksimum sonuç sayısı */
+/** Max visible results */
 const MAX_RESULTS = 5;
 
 function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompleteProps) {
   const members = useMemberStore((s) => s.members);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Filtreleme: username veya display_name ile eşleşenleri al
+  // Filter by username or display_name
   const filtered = members
     .filter((m) => {
       const q = query.toLowerCase();
@@ -45,22 +31,19 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
     })
     .slice(0, MAX_RESULTS);
 
-  // Sonuç değiştiğinde aktif index'i sıfırla
+  // Reset active index when results change
   useEffect(() => {
     setActiveIndex(0);
   }, [query]);
 
-  // Sonuç yoksa kapat
+  // Close when no results
   useEffect(() => {
     if (filtered.length === 0 && query.length > 0) {
       onClose();
     }
   }, [filtered.length, query.length, onClose]);
 
-  /**
-   * handleKeyDown — Klavye navigasyonu.
-   * MessageInput'tan forwarded event olarak gelir.
-   */
+  /** Keyboard navigation — forwarded from MessageInput */
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (filtered.length === 0) return;
@@ -90,7 +73,7 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
     [filtered, activeIndex, onSelect, onClose]
   );
 
-  // Global keydown listener (MessageInput'taki textarea'dan gelen eventler)
+  // Global keydown listener (captures events from MessageInput textarea)
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
@@ -105,7 +88,7 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
           key={member.id}
           className={`mention-item${index === activeIndex ? " active" : ""}`}
           onMouseDown={(e) => {
-            // onMouseDown kullanıyoruz (onClick yerine) — blur'dan önce tetiklenmeli
+            // onMouseDown instead of onClick — must fire before blur
             e.preventDefault();
             onSelect(member.username);
           }}

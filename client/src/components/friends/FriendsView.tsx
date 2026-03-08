@@ -1,16 +1,4 @@
-/**
- * FriendsView — Ana arkadaş yönetim sayfası.
- *
- * Tab'lar: Online, All, Pending, Add Friend
- * Arama: Online/All tab'larında isim/username ile filtreleme
- *
- * PanelView'dan "friends" tab tipiyle render edilir.
- * Tüm arkadaşlık CRUD işlemlerini içerir.
- *
- * CSS class'ları: .friends-view, .fv-header, .fv-tabs, .fv-tab,
- * .fv-tab.active, .fv-content, .fv-list, .fv-empty, .fv-search,
- * .fv-search-input
- */
+/** Friends management page with Online/All/Pending/Add tabs and search. */
 
 import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -47,21 +35,18 @@ function FriendsView() {
   const confirmOpen = useConfirmStore((s) => s.open);
   const initiateCall = useP2PCallStore((s) => s.initiateCall);
 
-  // İlk mount'ta verileri çek
+  // Fetch on mount
   useEffect(() => {
     fetchFriends();
     fetchRequests();
   }, [fetchFriends, fetchRequests]);
 
-  // Online arkadaşları filtrele (online, idle, dnd)
+  // Filter non-offline friends
   const onlineFriends = friends.filter(
     (f) => f.user_status !== "offline"
   );
 
-  /**
-   * Arama filtresi — display_name veya username üzerinde case-insensitive arama.
-   * useMemo ile gereksiz yeniden hesaplamayı önler.
-   */
+  // Search filter (case-insensitive on display_name / username)
   const query = searchQuery.trim().toLowerCase();
 
   const filteredOnline = useMemo(
@@ -88,7 +73,7 @@ function FriendsView() {
     [friends, query]
   );
 
-  /** DM aç/oluştur ve tab'a yönlendir */
+  /** Open or create DM channel and navigate to it */
   async function handleSendMessage(userId: string, displayName: string) {
     const channelId = await createOrGetChannel(userId);
     if (channelId) {
@@ -98,7 +83,7 @@ function FriendsView() {
     }
   }
 
-  /** Arkadaş silme — onay dialogu ile */
+  /** Remove friend with confirmation dialog */
   async function handleRemoveFriend(friendship: FriendshipWithUser) {
     const name = friendship.display_name ?? friendship.username;
     const ok = await confirmOpen({
@@ -110,7 +95,7 @@ function FriendsView() {
     if (ok) removeFriend(friendship.user_id);
   }
 
-  /** Tab değiştirildiğinde arama sıfırlanır */
+  /** Reset search when switching tabs */
   function handleTabChange(tab: FriendsTab) {
     setActiveTab(tab);
     setSearchQuery("");
@@ -154,12 +139,12 @@ function FriendsView() {
     );
   }
 
-  /** Arama çubuğu — Online ve All tab'larında gösterilir */
+  /** Search bar shown only on Online and All tabs */
   const showSearch = activeTab === "online" || activeTab === "all";
 
   return (
     <div className="friends-view">
-      {/* Header — tab navigation */}
+      {/* Header */}
       <div className="fv-header">
         <h2 className="fv-title">{t("friends")}</h2>
         <div className="fv-tabs">
@@ -201,7 +186,7 @@ function FriendsView() {
 
       {/* Content area */}
       <div className="fv-content">
-        {/* Arama çubuğu */}
+        {/* Search */}
         {showSearch && (
           <div className="fv-search">
             <input

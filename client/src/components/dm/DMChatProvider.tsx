@@ -1,19 +1,4 @@
-/**
- * DMChatProvider — DM store'unu ChatContext'e map'ler.
- *
- * useDMStore selector'larını tek bir ChatContextValue objesine dönüştürür.
- * DM'de roller ve kanal izinleri olmadığından:
- * - canSend: her zaman true
- * - canManageMessages: her zaman true (DM'de her iki kullanıcı da pin/delete yapabilir)
- * - showRoleColors: false
- * - members: boş array
- *
- * Kullanım:
- * <DMChatProvider channelId={id} channelName={name} sendDMTyping={fn}>
- *   <MessageList />
- *   <MessageInput />
- * </DMChatProvider>
- */
+/** DMChatProvider — Maps DM store to ChatContext (no roles/permissions in DMs). */
 
 import { useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
@@ -62,7 +47,7 @@ function DMChatProvider({
   const storePinMessage = useDMStore((s) => s.pinMessage);
   const storeUnpinMessage = useDMStore((s) => s.unpinMessage);
 
-  // ─── File drop ref — DMChat drag-drop'tan MessageInput'a dosya iletimi ───
+  // ─── File drop ref — forwards files from drag-drop to MessageInput ───
   const addFilesRef = useRef<((files: File[]) => void) | null>(null);
 
   // ─── Actions (stable refs) ───
@@ -100,8 +85,7 @@ function DMChatProvider({
 
   const setReplyingTo = useCallback(
     (msg: ChatMessage | null) => {
-      // ChatMessage → DMMessage cast: runtime'da bu obje zaten bir DMMessage,
-      // ChatMessage olarak typed. Cast güvenli.
+      // Safe cast — runtime object is already a DMMessage
       storeSetReplyingTo(msg as DMMessage | null);
     },
     [storeSetReplyingTo]
@@ -131,10 +115,7 @@ function DMChatProvider({
     [channelId, storeUnpinMessage]
   );
 
-  /**
-   * isMessagePinned — DM'de ayrı pinStore yok, is_pinned doğrudan mesajda.
-   * Messages array'inde ilgili mesajın is_pinned alanını kontrol eder.
-   */
+  /** Check is_pinned directly on message (no separate pinStore for DMs) */
   const isMessagePinned = useCallback(
     (messageId: string) => {
       const msgs = useDMStore.getState().messagesByChannel[channelId];
@@ -152,7 +133,7 @@ function DMChatProvider({
       channelName,
       messages,
       isLoading: isLoadingMessages,
-      isLoadingMore: false, // DM'de henüz isLoadingMore ayrı state yok
+      isLoadingMore: false, // DM store has no separate isLoadingMore state
       hasMore,
       replyingTo,
       scrollToMessageId,

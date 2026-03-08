@@ -1,13 +1,4 @@
-/**
- * DMSearchPanel — DM mesaj arama paneli.
- *
- * Channel SearchPanel ile aynı pattern:
- * - FTS5 tam metin arama + pagination (limit/offset/total_count)
- * - Sonuçlara tıklayınca scrollToMessageId ile mesaja scroll
- * - Önceki/Sonraki sayfa navigasyonu
- *
- * CSS class'ları: SearchPanel ile aynı — .search-panel, .search-header, vb.
- */
+/** DMSearchPanel — DM message search panel. Same pattern as channel SearchPanel. */
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,10 +8,10 @@ import { searchCachedDMMessages } from "../../crypto/keyStorage";
 import Avatar from "../shared/Avatar";
 import type { DMMessage } from "../../types";
 
-/** Debounce süresi (ms) */
+/** Debounce delay (ms) */
 const DEBOUNCE_MS = 300;
 
-/** Sayfa başına sonuç limiti */
+/** Results per page */
 const LIMIT = 25;
 
 type DMSearchPanelProps = {
@@ -61,7 +52,7 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
 
       setIsSearching(true);
 
-      // E2EE aktifse client-side IndexedDB arama
+      // E2EE active — client-side IndexedDB search
       if (isE2EEReady) {
         try {
           const cached = await searchCachedDMMessages(channelId, searchQuery.trim());
@@ -70,7 +61,7 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
             .sort((a, b) => b.timestamp - a.timestamp)
             .slice(searchOffset, searchOffset + LIMIT);
 
-          // CachedDecryptedMessage → DMMessage minimal format
+          // CachedDecryptedMessage -> DMMessage minimal format
           const messages: DMMessage[] = paged.map((c) => ({
             id: c.messageId,
             dm_channel_id: channelId,
@@ -95,7 +86,7 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
         return;
       }
 
-      // Plaintext — server-side FTS5 arama
+      // Plaintext — server-side FTS5 search
       const result = await searchMessages(channelId, searchQuery.trim(), LIMIT, searchOffset);
       setResults({
         messages: result.messages,
@@ -106,7 +97,7 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
     [channelId, searchMessages, isE2EEReady]
   );
 
-  /** Input değiştiğinde debounce ile arama */
+  /** Debounced search on input change */
   function handleInputChange(value: string) {
     setQuery(value);
     setOffset(0);
@@ -118,27 +109,27 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
     }, DEBOUNCE_MS);
   }
 
-  /** Sonraki sayfa */
+  /** Next page */
   function handleNextPage() {
     const newOffset = offset + LIMIT;
     setOffset(newOffset);
     doSearch(query, newOffset);
   }
 
-  /** Önceki sayfa */
+  /** Previous page */
   function handlePrevPage() {
     const newOffset = Math.max(0, offset - LIMIT);
     setOffset(newOffset);
     doSearch(query, newOffset);
   }
 
-  /** Sonuca tıklanınca mesaja scroll */
+  /** Scroll to message on result click */
   function handleSelectResult(msg: DMMessage) {
     setScrollToMessageId(msg.id);
     onClose();
   }
 
-  /** Timestamp formatı */
+  /** Format timestamp */
   function formatDate(dateStr: string): string {
     const date = new Date(dateStr);
     return date.toLocaleDateString([], {

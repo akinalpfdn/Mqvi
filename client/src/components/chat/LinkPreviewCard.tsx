@@ -1,24 +1,13 @@
-/**
- * LinkPreviewCard — Mesaj içindeki URL'ler için Open Graph preview kartı.
- *
- * Mount'ta backend /api/link-preview endpoint'inden OG metadata çekilir.
- * Gösterilen bilgiler: site name, favicon, title, description, OG image.
- *
- * Client-side session cache: Aynı URL tekrar fetch edilmez (Map<string, LinkPreview>).
- *
- * CSS class'ları: .link-preview, .link-preview-accent, .link-preview-body,
- * .link-preview-site, .link-preview-title, .link-preview-desc,
- * .link-preview-img, .link-preview-favicon
- */
+/** LinkPreviewCard — Open Graph preview card for URLs in messages. Session-cached. */
 
 import { useState, useEffect } from "react";
 import { getLinkPreview } from "../../api/linkPreview";
 import type { LinkPreview } from "../../types";
 
-/** Client-side session cache — sunucu restart'ında temizlenir */
+/** Session-level cache — cleared on page reload */
 const previewCache = new Map<string, LinkPreview | null>();
 
-/** Aynı URL için birden fazla concurrent fetch engelleme */
+/** Deduplicates concurrent fetches for the same URL */
 const pendingFetches = new Map<string, Promise<LinkPreview | null>>();
 
 type LinkPreviewCardProps = {
@@ -32,7 +21,7 @@ function LinkPreviewCard({ url }: LinkPreviewCardProps) {
   const [loaded, setLoaded] = useState(previewCache.has(url));
 
   useEffect(() => {
-    // Cache'te varsa tekrar fetch etme
+    // Skip fetch if cached
     if (previewCache.has(url)) {
       setPreview(previewCache.get(url) ?? null);
       setLoaded(true);
@@ -42,7 +31,7 @@ function LinkPreviewCard({ url }: LinkPreviewCardProps) {
     let cancelled = false;
 
     async function load() {
-      // Deduplicate: aynı URL için zaten fetch varsa bekle
+      // Deduplicate: reuse pending fetch for same URL
       let fetchPromise = pendingFetches.get(url);
       if (!fetchPromise) {
         fetchPromise = (async () => {
@@ -66,7 +55,7 @@ function LinkPreviewCard({ url }: LinkPreviewCardProps) {
     return () => { cancelled = true; };
   }, [url]);
 
-  // Yüklenene kadar hiçbir şey gösterme (skeleton gereksiz — asenkron yüklenir)
+  // Show nothing until loaded
   if (!loaded || !preview) return null;
 
   return (
@@ -77,7 +66,7 @@ function LinkPreviewCard({ url }: LinkPreviewCardProps) {
       className="link-preview"
       onClick={(e) => e.stopPropagation()}
     >
-      {/* Sol accent bar */}
+      {/* Left accent bar */}
       <span className="link-preview-accent" />
 
       <span className="link-preview-body">
