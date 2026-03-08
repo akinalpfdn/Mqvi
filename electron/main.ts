@@ -35,6 +35,65 @@ import path from "path";
 /** Ana uygulama penceresi referansı */
 let mainWindow: BrowserWindow | null = null;
 
+// ─── App Settings (persist to disk) ───
+
+/**
+ * Electron-only uygulama ayarları.
+ * %APPDATA%/mqvi/app-settings.json dosyasında saklanır.
+ *
+ * Bu ayarlar renderer yüklenmeden önce main process'te okunmalıdır
+ * (örn: startMinimized → pencere gösterilmeden önce kontrol edilir).
+ * Bu yüzden localStorage yerine dosya sistemi kullanılır.
+ */
+interface AppSettings {
+  /** Windows başlangıcında uygulamayı otomatik aç */
+  openAtLogin: boolean;
+  /** Uygulama açıldığında pencereyi gizle (system tray'de başlat) */
+  startMinimized: boolean;
+  /** X butonuna basınca pencereyi kapatma yerine tray'e küçült */
+  closeToTray: boolean;
+}
+
+const DEFAULT_APP_SETTINGS: AppSettings = {
+  openAtLogin: false,
+  startMinimized: false,
+  closeToTray: true,
+};
+
+/**
+ * loadAppSettings — Disk'ten ayarları okur.
+ * Dosya yoksa veya bozuksa default değerler döner.
+ */
+function loadAppSettings(): AppSettings {
+  try {
+    const settingsPath = path.join(app.getPath("userData"), "app-settings.json");
+    if (existsSync(settingsPath)) {
+      const raw = readFileSync(settingsPath, "utf-8");
+      const parsed = JSON.parse(raw) as Partial<AppSettings>;
+      // Merge with defaults — yeni eklenen key'ler otomatik default alır
+      return { ...DEFAULT_APP_SETTINGS, ...parsed };
+    }
+  } catch {
+    // Dosya bozuksa sessizce default'a düş
+  }
+  return { ...DEFAULT_APP_SETTINGS };
+}
+
+/**
+ * saveAppSettings — Ayarları disk'e yazar.
+ */
+function saveAppSettings(settings: AppSettings): void {
+  try {
+    const settingsPath = path.join(app.getPath("userData"), "app-settings.json");
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[main] Failed to save app settings:", err);
+  }
+}
+
+/** Modül seviyesinde tutulan mevcut ayarlar — her IPC çağrısında disk okumayı önler */
+let appSettings = loadAppSettings();
+
 /** Sistem tray referansı — GC'den korunması için modül seviyesinde tutulur */
 let tray: Tray | null = null;
 
@@ -120,9 +179,12 @@ function createWindow(): void {
     },
   });
 
-  // Pencere hazır olduğunda göster — yarım yüklenmiş sayfa göstermeyi önler
+  // Pencere hazır olduğunda göster — yarım yüklenmiş sayfa göstermeyi önler.
+  // startMinimized açıksa pencere gizli kalır (system tray'de başlar).
   mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
+    if (!appSettings.startMinimized) {
+      mainWindow?.show();
+    }
   });
 
   // Maximize/unmaximize olaylarını renderer'a bildir.
@@ -154,14 +216,12 @@ function createWindow(): void {
     }
   });
 
-  // ─── Close-to-Tray ───
-  // Pencere kapatma talebi geldiğinde:
-  // - isQuitting true → gerçek kapatma (quit/tray quit tıklandı)
-  // - isQuitting false → pencereyi gizle (tray'e küçült)
-  //
-  // Tauri'deki aynı davranış: CloseRequested → window.hide()
+  // ─── Close-to-Tray (toggleable) ───
+  // closeToTray açıksa: X butonuna basınca pencere gizlenir (tray'de kalır)
+  // closeToTray kapalıysa: X butonuna basınca uygulama gerçekten kapanır
+  // isQuitting true → her durumda gerçek kapatma (tray quit tıklandı)
   mainWindow.on("close", (e) => {
-    if (!isQuitting) {
+    if (!isQuitting && appSettings.closeToTray) {
       e.preventDefault();
       mainWindow?.hide();
     }
@@ -537,6 +597,33 @@ function setupIPC(): void {
     "write-clipboard",
     (_e: Electron.IpcMainInvokeEvent, text: string) => {
       clipboard.writeText(text);
+    }
+  );
+
+  // ─── App Settings (General / Windows Settings) ───
+  // Discord'un "Windows Ayarları" sekmesinin karşılığı.
+  // Üç toggle: openAtLogin, startMinimized, closeToTray
+
+  ipcMain.handle("get-app-settings", () => {
+    // openAtLogin için gerçek OS durumunu da kontrol et
+    // (kullanıcı registry'den manuel değiştirmiş olabilir)
+    const loginSettings = app.getLoginItemSettings();
+    appSettings.openAtLogin = loginSettings.openAtLogin;
+    return appSettings;
+  });
+
+  ipcMain.handle(
+    "set-app-setting",
+    (_e: Electron.IpcMainInvokeEvent, key: string, value: boolean) => {
+      if (!(key in DEFAULT_APP_SETTINGS)) return;
+
+      (appSettings as unknown as Record<string, boolean>)[key] = value;
+      saveAppSettings(appSettings);
+
+      // openAtLogin değiştiğinde Windows registry'yi de güncelle
+      if (key === "openAtLogin") {
+        app.setLoginItemSettings({ openAtLogin: value });
+      }
     }
   );
 

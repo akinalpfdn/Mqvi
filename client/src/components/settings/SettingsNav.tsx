@@ -29,6 +29,7 @@ const USER_ITEMS: NavItem[] = [
   { id: "voice", labelKey: "voiceSettings" },
   { id: "security", labelKey: "security" },
   { id: "encryption", labelKey: "encryption" },
+  // "general" is added conditionally below (Electron only)
 ];
 
 /** Server Settings kategorisi — permission-gated */
@@ -83,6 +84,15 @@ function SettingsNav() {
           {t(item.labelKey)}
         </button>
       ))}
+      {/* General (Desktop Settings) — sadece Electron'da görünür */}
+      {isElectron() && (
+        <button
+          className={`settings-nav-item${activeTab === "general" ? " active" : ""}`}
+          onClick={() => setActiveTab("general")}
+        >
+          {t("general")}
+        </button>
+      )}
 
       {/* Server Settings (permission-gated) */}
       {canSeeServerSettings && (
@@ -131,7 +141,7 @@ function SettingsNav() {
 
       {/* App Version — sadece desktop */}
       {!isMobile && (
-        <p className="settings-nav-version">mqvi v2.0.0</p>
+        <p className="settings-nav-version">mqvi v2.1.0</p>
       )}
     </nav>
   );

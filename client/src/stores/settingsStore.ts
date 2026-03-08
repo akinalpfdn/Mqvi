@@ -46,6 +46,7 @@ function loadPersistedTheme(): ThemeId {
 type SettingsTab =
   | "profile"
   | "appearance"
+  | "general"
   | "voice"
   | "security"
   | "encryption"

@@ -116,6 +116,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   clearCredentials: (): Promise<void> =>
     ipcRenderer.invoke("clear-credentials"),
 
+  // ─── App Settings (General / Windows Settings) ───
+  // Discord "Windows Ayarları" karşılığı: openAtLogin, startMinimized, closeToTray
+
+  /** Tüm app settings'i oku */
+  getAppSettings: (): Promise<{ openAtLogin: boolean; startMinimized: boolean; closeToTray: boolean }> =>
+    ipcRenderer.invoke("get-app-settings"),
+
+  /** Tek bir app setting'i güncelle */
+  setAppSetting: (key: string, value: boolean): Promise<void> =>
+    ipcRenderer.invoke("set-app-setting", key, value),
+
   // ─── Window Controls (Custom Titlebar) ───
   // frame:false ile OS titlebar kaldırıldı. Bu API'ler React CustomTitleBar
   // component'inin minimize/maximize/close butonlarını çalıştırır.

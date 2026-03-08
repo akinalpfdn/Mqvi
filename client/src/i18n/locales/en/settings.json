@@ -486,5 +486,14 @@
   "connectionsDeleteConfirm": "Are you sure you want to delete \"{{name}}\"?",
   "connectionsReloadWarning": "Switching connections will reload the app and you will need to log in again.",
   "connectionsInvalidUrl": "Please enter a valid URL (http:// or https://)",
-  "connectionsNameRequired": "Connection name is required"
+  "connectionsNameRequired": "Connection name is required",
+
+  "general": "General",
+  "desktopSettings": "Desktop Settings",
+  "openAtLogin": "Open mqvi at Startup",
+  "openAtLoginDesc": "Allow mqvi to start automatically when you log in to your computer",
+  "startMinimized": "Start Minimized",
+  "startMinimizedDesc": "When the app starts, it will launch in the background in the system tray",
+  "closeToTray": "Minimize to Tray on Close",
+  "closeToTrayDesc": "When you click the X button, the app will minimize to the system tray instead of quitting"
 }

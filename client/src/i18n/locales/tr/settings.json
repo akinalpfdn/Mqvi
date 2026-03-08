@@ -486,5 +486,14 @@
   "connectionsDeleteConfirm": "\"{{name}}\" bağlantısını silmek istediğinize emin misiniz?",
   "connectionsReloadWarning": "Bağlantı değiştirildiğinde uygulama yeniden yüklenecek ve tekrar giriş yapmanız gerekecek.",
   "connectionsInvalidUrl": "Geçerli bir URL girin (http:// veya https://)",
-  "connectionsNameRequired": "Bağlantı adı gerekli"
+  "connectionsNameRequired": "Bağlantı adı gerekli",
+
+  "general": "Genel",
+  "desktopSettings": "Masaüstü Ayarları",
+  "openAtLogin": "Başlangıçta mqvi'yi Aç",
+  "openAtLoginDesc": "Bilgisayarınıza giriş yaptığınızda mqvi'nin otomatik olarak başlamasına izin verin",
+  "startMinimized": "Simge Durumuna Küçültülmüş Olarak Başlat",
+  "startMinimizedDesc": "Uygulama başlatıldığında arka planda sistem tepsisinde çalışır",
+  "closeToTray": "Kapat Düğmesi Başlat Çubuğuna Küçült",
+  "closeToTrayDesc": "X düğmesine bastığınızda uygulama kapanmak yerine sistem tepsisine küçülür"
 }

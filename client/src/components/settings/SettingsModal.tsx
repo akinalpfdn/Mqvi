@@ -27,6 +27,7 @@ import AdminUserList from "./AdminUserList";
 import AdminReportList from "./AdminReportList";
 import ConnectionsSettings from "./ConnectionsSettings";
 import EncryptionSettings from "./EncryptionSettings";
+import GeneralSettings from "./GeneralSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -109,6 +110,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "appearance":
       return <AppearanceSettings />;
+
+    case "general":
+      return <GeneralSettings />;
 
     case "members":
       return <MembersSettings />;

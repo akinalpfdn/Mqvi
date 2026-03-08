@@ -97,6 +97,12 @@ interface ElectronAPI {
   /** Kayıtlı credential'ları sil */
   clearCredentials: () => Promise<void>;
 
+  /** Tüm app settings'i oku (openAtLogin, startMinimized, closeToTray) */
+  getAppSettings: () => Promise<{ openAtLogin: boolean; startMinimized: boolean; closeToTray: boolean }>;
+
+  /** Tek bir app setting'i güncelle */
+  setAppSetting: (key: string, value: boolean) => Promise<void>;
+
   /** Pencereyi küçült (custom titlebar) */
   minimizeWindow: () => Promise<void>;
 
