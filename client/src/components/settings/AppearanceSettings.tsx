@@ -1,17 +1,4 @@
-/**
- * AppearanceSettings — Tema seçim UI'ı.
- *
- * 5 tema kartı gösterir, her birinde:
- * - 3 renk swatch (ön izleme)
- * - Tema adı + açıklama (i18n)
- * - Aktif tema vurgusu (primary border)
- *
- * Tema değiştirme: settingsStore.setTheme() çağırır → applyTheme() +
- * localStorage persist otomatik yapılır.
- *
- * CSS class'ları: .theme-grid, .theme-card, .theme-card-active,
- * .theme-swatches, .theme-swatch, .theme-card-name, .theme-card-desc
- */
+/** AppearanceSettings — Theme selection grid with color swatch previews. */
 
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -43,7 +30,7 @@ function AppearanceSettings() {
               onClick={() => handleSelectTheme(id)}
               type="button"
             >
-              {/* Swatch ön izleme — 3 renk dairesi */}
+              {/* Color swatch preview */}
               <div className="theme-swatches">
                 {theme.swatches.map((color, i) => (
                   <span
@@ -54,11 +41,11 @@ function AppearanceSettings() {
                 ))}
               </div>
 
-              {/* Tema bilgileri */}
+              {/* Theme info */}
               <span className="theme-card-name">{t(theme.nameKey)}</span>
               <span className="theme-card-desc">{t(theme.descKey)}</span>
 
-              {/* Aktif göstergesi */}
+              {/* Active indicator */}
               {isActive && <span className="theme-card-check">&#10003;</span>}
             </button>
           );

@@ -1,15 +1,7 @@
 /**
- * ContextMenu — Paylaşılan sağ tık menü component'i.
- *
- * Portal ile document.body'ye render edilir — böylece
- * overflow:hidden olan parent container'ların dışına çıkabilir.
- *
- * Pozisyon: Mouse tıklama noktasına göre. Eğer menü ekranın
- * sağına veya altına taşarsa otomatik olarak sola/yukarıya kaydırılır.
- *
- * Kapatma: Menü dışına tıklama veya Escape tuşu.
- *
- * CSS: .ctx-menu, .ctx-item, .ctx-separator class'ları
+ * ContextMenu — Portal-rendered right-click menu.
+ * Auto-adjusts position to stay within viewport.
+ * Closes on outside click or Escape.
  */
 
 import { useEffect, useRef } from "react";
@@ -24,7 +16,7 @@ type ContextMenuProps = {
 function ContextMenu({ state, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Menü dışına tıklama ve Escape ile kapatma
+  // Close on outside click or Escape
   useEffect(() => {
     if (!state.isOpen) return;
 
@@ -38,8 +30,7 @@ function ContextMenu({ state, onClose }: ContextMenuProps) {
       if (e.key === "Escape") onClose();
     }
 
-    // requestAnimationFrame ile bir frame bekle — aksi takdirde
-    // sağ tık event'i kendisi de "click outside" olarak algılanır.
+    // Wait one frame so the right-click event itself isn't caught as "click outside"
     requestAnimationFrame(() => {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("keydown", handleEscape);
@@ -51,7 +42,7 @@ function ContextMenu({ state, onClose }: ContextMenuProps) {
     };
   }, [state.isOpen, onClose]);
 
-  // Pozisyon düzeltme — ekranın dışına taşmayı önle
+  // Clamp position to viewport
   useEffect(() => {
     if (!state.isOpen || !menuRef.current) return;
 
@@ -63,12 +54,12 @@ function ContextMenu({ state, onClose }: ContextMenuProps) {
     let adjustedX = state.x;
     let adjustedY = state.y;
 
-    // Sağa taşıyorsa sola kaydır
+    // Shift left if overflowing right
     if (adjustedX + rect.width > viewportW - 8) {
       adjustedX = viewportW - rect.width - 8;
     }
 
-    // Alta taşıyorsa yukarı kaydır
+    // Shift up if overflowing bottom
     if (adjustedY + rect.height > viewportH - 8) {
       adjustedY = viewportH - rect.height - 8;
     }

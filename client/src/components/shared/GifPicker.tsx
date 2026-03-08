@@ -1,19 +1,6 @@
 /**
- * GifPicker — Klipy API destekli GIF arama ve seçme component'i.
- *
- * CSS class'ları: .gif-picker, .gif-picker-flipped, .gif-picker-search,
- * .gif-picker-grid, .gif-picker-item, .gif-picker-empty, .gif-picker-loading
- *
- * Tasarım:
- * - Üstte arama input'u, altta GIF grid
- * - Arama yokken trending GIF'ler gösterilir
- * - Arama yazılınca 300ms debounce ile search endpoint çağrılır
- * - Click-outside + ESC ile kapanır (EmojiPicker pattern)
- * - Viewport-aware positioning (üstte sığmazsa aşağı flip)
- *
- * Backend Klipy API proxy kullanır — API key client'a açılmaz.
- * Klipy, Tenor'un halefidir — Discord/WhatsApp dahil geçiş yapıldı.
- * KLIPY_API_KEY yapılandırılmamışsa empty state gösterilir.
+ * GifPicker — Klipy API-powered GIF search with debounce and viewport-aware positioning.
+ * Uses backend proxy to keep API key server-side.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -21,9 +8,7 @@ import { useTranslation } from "react-i18next";
 import { trendingGifs, searchGifs, type GifResult } from "../../api/gif";
 
 type GifPickerProps = {
-  /** GIF seçildiğinde çağrılır — url parametresi mesaj content'i olacak */
   onSelect: (url: string) => void;
-  /** Picker kapatıldığında çağrılır */
   onClose: () => void;
 };
 
@@ -39,7 +24,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  // İlk render'da trending GIF'leri yükle
+  // Load trending GIFs on mount
   useEffect(() => {
     async function loadTrending() {
       setIsLoading(true);
@@ -54,7 +39,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
     loadTrending();
   }, []);
 
-  // Mount sonrası search input'a focus ve viewport kontrolü
+  // Focus search input and check viewport overflow
   useEffect(() => {
     searchRef.current?.focus();
 
@@ -66,7 +51,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
     }
   }, []);
 
-  // Click-outside: picker dışına tıklanırsa kapat
+  // Close on click outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
@@ -82,7 +67,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
     };
   }, [onClose]);
 
-  // Escape ile kapat
+  // Close on Escape
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -91,14 +76,14 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  // Debounce temizliği
+  // Cleanup debounce timer
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
 
-  /** Arama input değişikliği — 300ms debounce ile API çağrısı */
+  /** 300ms debounced search */
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setQuery(value);
@@ -113,7 +98,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
           setResults(res.data.results);
         }
       } else {
-        // Arama temizlendi → trending'e dön
+        // Query cleared — fall back to trending
         const res = await trendingGifs(24);
         if (res.success && res.data) {
           setResults(res.data.results);
@@ -123,7 +108,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
     }, 300);
   }, []);
 
-  /** GIF tıklandığında — URL'i parent'a ilet ve picker'ı kapat */
+  /** Pass selected GIF URL to parent and close */
   function handleGifClick(gif: GifResult) {
     onSelect(gif.url);
     onClose();
@@ -131,7 +116,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
 
   return (
     <div className={`gif-picker${flipped ? " gif-picker-flipped" : ""}`} ref={pickerRef}>
-      {/* Arama input'u */}
+      {/* Search input */}
       <div className="gif-picker-header">
         <input
           ref={searchRef}
@@ -143,7 +128,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
         />
       </div>
 
-      {/* İçerik */}
+      {/* Content */}
       <div className="gif-picker-body">
         {isUnavailable ? (
           <div className="gif-picker-empty">{t("gifUnavailable")}</div>
@@ -171,7 +156,7 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
         )}
       </div>
 
-      {/* Klipy attribution — API kullanım şartı gereği */}
+      {/* Klipy attribution — required by API TOS */}
       <div className="gif-picker-footer">
         <span className="gif-picker-powered">Powered by KLIPY</span>
       </div>

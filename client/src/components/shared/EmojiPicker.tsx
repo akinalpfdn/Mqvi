@@ -1,20 +1,4 @@
-/**
- * EmojiPicker — @emoji-mart/react tabanlı zengin emoji seçici.
- *
- * 1800+ emoji, arama, skin tone, sık kullanılanlar (otomatik).
- * Tema renkleri CSS custom properties üzerinden uygulanır.
- *
- * Viewport-aware: Mount olduktan sonra picker'ın üst kenarı viewport
- * dışına çıkıyorsa "flipped" class eklenir ve aşağı doğru açılır.
- *
- * Kullanım yerleri:
- * - MessageInput: mesaja emoji ekleme
- * - Message: reaction ekleme (hover + bar picker)
- * - CreateChannelModal: channel/category ismine emoji ekleme
- * - ChannelSettings: channel/category rename'e emoji ekleme
- * - RoleSettings: role ismine emoji ekleme
- * - ChannelTree: sidebar inline rename'e emoji ekleme
- */
+/** EmojiPicker — @emoji-mart/react wrapper with viewport-aware positioning. */
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,9 +6,7 @@ import Picker from "@emoji-mart/react";
 import data from "@emoji-mart/data";
 
 type EmojiPickerProps = {
-  /** Emoji seçildiğinde çağrılır — native emoji string döner */
   onSelect: (emoji: string) => void;
-  /** Picker kapatıldığında çağrılır */
   onClose: () => void;
 };
 
@@ -33,25 +15,22 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   const pickerRef = useRef<HTMLDivElement>(null);
   const [flipped, setFlipped] = useState(false);
 
-  // Viewport sığma kontrolü — picker mount olduktan sonra konumunu kontrol et.
-  // Eğer üst kenarı viewport dışına çıkıyorsa, picker'ı aşağı doğru aç.
+  // Flip picker downward if it overflows the viewport top
   useEffect(() => {
     if (!pickerRef.current) return;
-    // MutationObserver veya rAF ile emoji-mart'ın render olmasını bekle
     const raf = requestAnimationFrame(() => {
       if (!pickerRef.current) return;
       const rect = pickerRef.current.getBoundingClientRect();
       if (rect.top < 0) {
         setFlipped(true);
       } else if (rect.bottom > window.innerHeight) {
-        // Aşağı taşıyorsa yukarı aç (default zaten yukarı, bu durumda flip etme)
         setFlipped(false);
       }
     });
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Click-outside: picker dışına tıklanırsa kapat
+  // Close on click outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
@@ -59,7 +38,7 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
       }
     }
 
-    // Timeout ile ekle — aksi halde aynı click event'i hem butonu açar hem hemen kapatır
+    // Defer to avoid the same click that opened the picker immediately closing it
     const timer = setTimeout(() => {
       document.addEventListener("mousedown", handleClickOutside);
     }, 0);
@@ -70,7 +49,7 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
     };
   }, [onClose]);
 
-  // Escape ile kapat
+  // Close on Escape
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();

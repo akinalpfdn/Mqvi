@@ -1,15 +1,7 @@
 /**
- * ConnectionsSettings — Backend sunucu bağlantı yönetimi (Electron-only).
- *
- * Geliştirici olarak prod/test sunucuları arasında geçiş yapabilmek için
- * kayıtlı bağlantı listesi + ekleme/düzenleme/silme/bağlanma imkanı sağlar.
- *
- * Veri localStorage'da tutulur:
- * - mqvi_connections: SavedConnection[] — kayıtlı bağlantılar
- * - mqvi_server_url: string — aktif bağlantı URL'i (constants.ts tarafından okunur)
- *
- * Bağlantı değiştirildiğinde window.location.reload() çağrılır çünkü
- * SERVER_URL, API_BASE_URL, WS_URL modül seviyesinde hesaplanır.
+ * ConnectionsSettings — Backend server connection management (Electron-only).
+ * Saved connections stored in localStorage. Switching triggers a reload
+ * since SERVER_URL is computed at module level.
  */
 
 import { useState, useCallback } from "react";
@@ -31,11 +23,7 @@ type SavedConnection = {
 const CONNECTIONS_STORAGE_KEY = "mqvi_connections";
 const ACTIVE_URL_KEY = "mqvi_server_url";
 
-/**
- * Varsayılan bağlantı URL'ini hesaplar.
- * resolveServerUrl() ile aynı mantık ama localStorage'ı atlar —
- * env veya hardcoded fallback değerini döner.
- */
+/** Default connection URL from env or hardcoded fallback (skips localStorage). */
 function getDefaultUrl(): string {
   const envUrl = import.meta.env.VITE_SERVER_URL;
   if (envUrl) return (envUrl as string).replace(/\/$/, "");
@@ -49,24 +37,17 @@ function loadConnections(): SavedConnection[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
     }
-  } catch {
-    /* parse hatası — boş dön */
-  }
+  } catch {}
   return [];
 }
 
 function saveConnections(connections: SavedConnection[]): void {
   try {
     localStorage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify(connections));
-  } catch {
-    /* localStorage dolu — sessizce geç */
-  }
+  } catch {}
 }
 
-/**
- * Verilen URL'in aktif bağlantı olup olmadığını kontrol eder.
- * SERVER_URL modül seviyesinde hesaplandığı için doğrudan karşılaştırılır.
- */
+/** Check if the given URL is the currently active connection. */
 function isActiveUrl(url: string): boolean {
   return url.replace(/\/$/, "") === SERVER_URL;
 }
@@ -182,7 +163,7 @@ function ConnectionsSettings() {
     setConnections(updated);
     saveConnections(updated);
 
-    // Silinen bağlantı aktifse, varsayılana geri dön
+    // If deleted connection was active, revert to default
     if (isActiveUrl(conn.url)) {
       localStorage.removeItem(ACTIVE_URL_KEY);
       window.location.reload();
@@ -190,15 +171,14 @@ function ConnectionsSettings() {
   }
 
   async function handleConnect(url: string) {
-    if (isActiveUrl(url)) return; // zaten bağlı
+    if (isActiveUrl(url)) return; // already connected
 
     const ok = await confirm({
       message: t("connectionsReloadWarning"),
     });
     if (!ok) return;
 
-    // Varsayılan URL'e bağlanıyorsa localStorage'ı temizle,
-    // böylece resolveServerUrl() env/fallback'e düşer
+    // Clear localStorage for default URL so resolveServerUrl() falls back to env
     if (url === defaultUrl) {
       localStorage.removeItem(ACTIVE_URL_KEY);
     } else {

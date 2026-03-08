@@ -1,11 +1,4 @@
-/**
- * FileDropOverlay — Dosya sürüklenirken gösterilen görsel overlay.
- *
- * pointer-events: none ile tüm mouse event'leri alt katmana geçer.
- * Sadece görsel feedback sağlar — drop handling parent'ta yapılır.
- *
- * CSS class'ları: .file-drop-overlay, .file-drop-overlay-content
- */
+/** FileDropOverlay — Visual overlay shown during file drag. pointer-events: none passes events through. */
 
 import { useTranslation } from "react-i18next";
 

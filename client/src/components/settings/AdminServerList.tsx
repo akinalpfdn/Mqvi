@@ -1,15 +1,4 @@
-/**
- * AdminServerList — Platform admin sunucu yönetim tablosu.
- *
- * Özellikler:
- * - Sıralama: Sütun başlığına tıkla → asc/desc toggle
- * - Filtreleme: Arama çubuğu ile sunucu adı, ID, kurucu filtrele
- * - Sütun genişliği: Sütun kenarını sürükleyerek ayarla
- * - LiveKit instance migration: Dropdown + onay butonu
- *
- * Sadece is_platform_admin = true olan kullanıcılara görünür.
- * Backend PlatformAdminMiddleware ile korunur.
- */
+/** AdminServerList — Platform admin server management table with LiveKit instance migration. */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -76,14 +65,7 @@ function getDefaultWidths(): Record<string, number> {
   return widths;
 }
 
-/**
- * parseUTC — Backend SQLite timestamp'lerini UTC olarak parse eder.
- *
- * SQLite CURRENT_TIMESTAMP UTC'dir ama timezone göstergesi ("Z") içermez.
- * JavaScript'in Date constructor'ı timezone bilgisi olmayan string'leri
- * LOCAL time olarak yorumlar → UTC+3 (Türkiye) kullanıcılarında 3 saat hatalı
- * gösterime yol açar. "Z" ekleyerek UTC olarak parse etmeyi garanti ediyoruz.
- */
+/** SQLite timestamps lack "Z" suffix — append it to ensure UTC parsing. */
 function parseUTC(iso: string): number {
   return new Date(iso.endsWith("Z") ? iso : iso + "Z").getTime();
 }
@@ -365,7 +347,6 @@ function AdminServerList() {
 
   // ─── Context Menu ───
 
-  /** Sunucu listesini yeniden yükle (delete sonrası) */
   const refetchServers = useCallback(async () => {
     const res = await listAdminServers();
     if (res.success && res.data) {
@@ -373,17 +354,14 @@ function AdminServerList() {
     }
   }, []);
 
-  /** Sağ tık menü öğelerini oluştur */
   function buildContextItems(srv: AdminServerListItem): ContextMenuItem[] {
     const items: ContextMenuItem[] = [];
 
-    // Sahibine DM Gönder
     items.push({
       label: t("platformServerSendDMOwner"),
       onClick: () => handleSendDMOwner(srv),
     });
 
-    // Sunucuyu Sil
     items.push({
       label: t("platformServerDelete"),
       danger: true,
@@ -394,7 +372,6 @@ function AdminServerList() {
     return items;
   }
 
-  /** DM kanalı aç — sunucu sahibine DM gönder */
   async function handleSendDMOwner(srv: AdminServerListItem) {
     const channelId = await useDMStore.getState().createOrGetChannel(srv.owner_id);
     if (channelId) {
@@ -403,7 +380,6 @@ function AdminServerList() {
     }
   }
 
-  /** Delete onayı — PlatformActionDialog'dan gelen callback */
   async function handleDeleteConfirm(reason: string) {
     if (!deleteTarget) return;
     const targetId = deleteTarget.id;

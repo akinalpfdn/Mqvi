@@ -1,22 +1,4 @@
-/**
- * PlatformActionDialog — Platform admin aksiyonları için yeniden kullanılabilir onay dialogu.
- *
- * Server delete ve user delete gibi aksiyonlarda kullanılır.
- * Opsiyonel reason textarea içerir — reason doldurulursa ilgili kişiye
- * email bildirim gönderilir (backend tarafında).
- *
- * PlatformBanDialog'dan farkı: "mesajları da sil" checkbox'u yok.
- * Sadece reason + confirm/cancel.
- *
- * Props:
- * - title: Dialog başlığı
- * - description: Açıklama metni
- * - reasonLabel: Textarea label'ı
- * - reasonPlaceholder: Textarea placeholder'ı
- * - confirmLabel: Onay butonu metni
- * - onConfirm: Onaylandığında reason ile çağrılır
- * - onCancel: İptal edildiğinde çağrılır
- */
+/** PlatformActionDialog — Reusable confirmation dialog with optional reason textarea. */
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -45,12 +27,10 @@ function PlatformActionDialog({
   const [reason, setReason] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Dialog açılınca textarea'ya focus
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
 
-  // Escape ile kapatma
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onCancel();
@@ -76,7 +56,6 @@ function PlatformActionDialog({
         <p className="modal-text">{description}</p>
 
         <form onSubmit={handleSubmit}>
-          {/* Opsiyonel reason */}
           <label className="platform-ban-label">
             {reasonLabel}
           </label>
@@ -90,7 +69,6 @@ function PlatformActionDialog({
             maxLength={500}
           />
 
-          {/* Actions */}
           <div className="modal-actions">
             <button
               type="button"

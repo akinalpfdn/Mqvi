@@ -1,11 +1,4 @@
-/**
- * SettingsNav — Settings modal'ın sol sidebar navigasyonu.
- *
- * CSS class'ları: .settings-nav, .settings-nav-label, .settings-nav-item,
- * .settings-nav-item.active
- *
- * Server Settings kategorisi sadece yetki sahibi kullanıcılara görünür.
- */
+/** Settings sidebar navigation. Server Settings visible only to authorized users. */
 
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -16,13 +9,13 @@ import { useIsMobile } from "../../hooks/useMediaQuery";
 import { isElectron } from "../../utils/constants";
 import type { SettingsTab } from "../../stores/settingsStore";
 
-/** Tek bir navigation item tanımı */
+/** Single nav item definition */
 type NavItem = {
   id: SettingsTab;
   labelKey: string;
 };
 
-/** User Settings kategorisi — herkese görünür */
+/** User Settings — visible to everyone */
 const USER_ITEMS: NavItem[] = [
   { id: "profile", labelKey: "profile" },
   { id: "appearance", labelKey: "appearance" },
@@ -32,7 +25,7 @@ const USER_ITEMS: NavItem[] = [
   // "general" is added conditionally below (Electron only)
 ];
 
-/** Server Settings kategorisi — permission-gated */
+/** Server Settings — permission-gated */
 const SERVER_ITEMS: NavItem[] = [
   { id: "server-general", labelKey: "general" },
   { id: "channels", labelKey: "channels" },
@@ -41,7 +34,7 @@ const SERVER_ITEMS: NavItem[] = [
   { id: "invites", labelKey: "invites" },
 ];
 
-/** Platform Settings kategorisi — sadece platform admin'lere görünür */
+/** Platform Settings — platform admin only */
 const PLATFORM_ITEMS: NavItem[] = [
   { id: "platform", labelKey: "platformLiveKitInstances" },
   { id: "platform-servers", labelKey: "platformServersTab" },
@@ -84,7 +77,7 @@ function SettingsNav() {
           {t(item.labelKey)}
         </button>
       ))}
-      {/* General (Desktop Settings) — sadece Electron'da görünür */}
+      {/* General (Desktop Settings) — Electron only */}
       {isElectron() && (
         <button
           className={`settings-nav-item${activeTab === "general" ? " active" : ""}`}
@@ -130,7 +123,7 @@ function SettingsNav() {
         </>
       )}
 
-      {/* Log Out — mobilde horizontal tab bar'ın sonuna eklenir */}
+      {/* Log Out */}
       {!isMobile && <div className="settings-nav-divider settings-nav-divider-push" />}
       <button
         className="settings-nav-item settings-nav-logout"
@@ -139,7 +132,7 @@ function SettingsNav() {
         {t("logOut")}
       </button>
 
-      {/* App Version — sadece desktop */}
+      {/* App Version — desktop only */}
       {!isMobile && (
         <p className="settings-nav-version">mqvi v2.1.0</p>
       )}

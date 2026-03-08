@@ -1,15 +1,4 @@
-/**
- * ChannelSettings — Kanal ve Kategori yönetimi Settings paneli.
- *
- * İki tab ile çalışır:
- * 1. **Channels** tab: Kanal listesi, isim düzenleme, kategori değiştirme, permission override
- * 2. **Categories** tab: Kategori listesi, isim düzenleme, silme
- *
- * "+" butonu ile CreateChannelModal açılır (her iki tab'da da).
- * ManageChannels yetkisi gerektirir (SettingsNav zaten permission-gated).
- *
- * CSS class'ları: .channel-settings-*, .role-list, .role-list-item
- */
+/** ChannelSettings — Channel and category management (two-tab panel). */
 
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,12 +24,12 @@ function ChannelSettings() {
   // ─── Tab State ───
   const [activeTab, setActiveTab] = useState<SettingsTab>("channels");
 
-  // Tüm kanalları flat olarak al
+  // Flatten all channels
   const allChannels = categories
     .flatMap((cg) => cg.channels)
     .sort((a, b) => a.position - b.position);
 
-  // Gerçek kategoriler (uncategorized hariç)
+  // Real categories (excluding uncategorized)
   const realCategories = categories
     .filter((cg) => cg.category.id !== "")
     .map((cg) => cg.category);
@@ -48,7 +37,7 @@ function ChannelSettings() {
   // ─── Channels Tab State ───
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
 
-  // selectedChannel store'daki güncel veriyle sync — rename sonrası
+  // Sync selectedChannel with store after rename
   useEffect(() => {
     if (!selectedChannel) return;
     const updated = allChannels.find((ch) => ch.id === selectedChannel.id);
@@ -68,7 +57,7 @@ function ChannelSettings() {
   const [editCategoryId, setEditCategoryId] = useState("");
   const [isSavingCategory, setIsSavingCategory] = useState(false);
 
-  // selectedChannel değiştiğinde edit state'leri güncelle
+  // Update edit state when selected channel changes
   useEffect(() => {
     if (selectedChannel) {
       setEditName(selectedChannel.name);
@@ -85,7 +74,7 @@ function ChannelSettings() {
   const [editCatName, setEditCatName] = useState("");
   const [isSavingCatName, setIsSavingCatName] = useState(false);
 
-  // selectedCategory store'daki güncel veriyle sync
+  // Sync selectedCategory with store
   useEffect(() => {
     if (!selectedCategory) return;
     const updated = realCategories.find((c) => c.id === selectedCategory.id);
@@ -220,7 +209,7 @@ function ChannelSettings() {
 
   return (
     <div className="channel-settings-wrapper">
-      {/* Sol Panel */}
+      {/* Left Panel */}
       <div className="role-list">
         {/* Tab toggle */}
         <div className="channel-settings-tabs">
@@ -312,7 +301,7 @@ function ChannelSettings() {
         )}
       </div>
 
-      {/* Sağ Panel */}
+      {/* Right Panel */}
       <div className="settings-content channel-settings-right">
         {/* ═══ Channels Tab — right panel ═══ */}
         {activeTab === "channels" && (
@@ -322,7 +311,7 @@ function ChannelSettings() {
                 {selectedChannel.type === "voice" ? "\uD83D\uDD0A" : "#"} {selectedChannel.name}
               </h2>
 
-              {/* Kanal adı düzenleme */}
+              {/* Channel name edit */}
               <div className="channel-settings-rename-row">
                 <label className="settings-label">{t("channelName")}</label>
                 <div className="channel-settings-rename-input-row">
@@ -377,7 +366,7 @@ function ChannelSettings() {
                 </div>
               </div>
 
-              {/* Kanal kategorisi değiştirme */}
+              {/* Channel category select */}
               <div className="channel-settings-cat-row">
                 <label className="settings-label">{t("moveToCategory")}</label>
                 <select
@@ -395,7 +384,7 @@ function ChannelSettings() {
                 </select>
               </div>
 
-              {/* Kanal izinleri */}
+              {/* Channel permissions */}
               <ChannelPermissionEditor channel={selectedChannel} />
             </div>
           ) : (
@@ -413,7 +402,7 @@ function ChannelSettings() {
                 {selectedCategory.name}
               </h2>
 
-              {/* Kategori adı düzenleme */}
+              {/* Category name edit */}
               <div className="channel-settings-rename-row">
                 <label className="settings-label">{t("categoryName")}</label>
                 <div className="channel-settings-rename-input-row">

@@ -1,30 +1,11 @@
-/**
- * MobileBottomSheet — Reusable mobile bottom sheet overlay.
- *
- * Ekranın altından yukarı kayarak açılır.
- * Backdrop tıklaması ile kapanır.
- * Portal ile document.body'ye render edilir.
- *
- * Kullanım:
- * ```tsx
- * <MobileBottomSheet isOpen={open} onClose={() => setOpen(false)}>
- *   <div>İçerik</div>
- * </MobileBottomSheet>
- * ```
- *
- * CSS class'ları: .mobile-bottom-sheet, .mobile-bottom-sheet-backdrop,
- * .mobile-bottom-sheet-handle, .mobile-bs-action, .mobile-bs-action-icon
- */
+/** MobileBottomSheet — Slides up from bottom, closes on backdrop click. Portaled to body. */
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
 type MobileBottomSheetProps = {
-  /** Bottom sheet açık mı? */
   isOpen: boolean;
-  /** Kapatma callback'i */
   onClose: () => void;
-  /** İçerik */
   children: React.ReactNode;
 };
 

@@ -1,17 +1,6 @@
 /**
- * ReportModal — Kullanıcı raporlama modalı.
- *
- * 5 predefined reason radio button + zorunlu description textarea + opsiyonel resim delilleri.
- * Submit: reportApi.reportUser() → success toast → close.
- *
- * Dosya ekleme: drag & drop (useFileDrop) + paste (clipboard) + file input.
- * FilePreview component'i ile önizleme gösterilir.
- * Sadece resimler kabul edilir (image/*), max 4 dosya.
- *
- * CSS class'ları: .report-overlay, .report-modal, .report-header,
- * .report-body, .report-field, .report-reasons, .report-reason-item,
- * .report-textarea, .report-actions, .report-btn-*,
- * .report-evidence, .report-evidence-drop, .report-evidence-hint
+ * ReportModal — User report modal with predefined reasons, description,
+ * and optional image evidence (drag & drop, paste, file input). Max 4 images.
  */
 
 import { useState, useCallback, useRef } from "react";
@@ -27,13 +16,13 @@ type ReportModalProps = {
   onClose: () => void;
 };
 
-/** Max dosya sayısı — rapor başına delil limiti */
+/** Max evidence files per report */
 const MAX_EVIDENCE_FILES = 4;
 
-/** Sadece resimler kabul edilir — delil screenshotları için yeterli */
+/** Only images accepted for evidence */
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
-/** Predefined report reasons — backend'in kabul ettiği değerler */
+/** Predefined report reasons matching backend enum */
 const REASONS: { value: ReportReason; key: string }[] = [
   { value: "spam", key: "reportReasonSpam" },
   { value: "harassment", key: "reportReasonHarassment" },
@@ -42,7 +31,7 @@ const REASONS: { value: ReportReason; key: string }[] = [
   { value: "other", key: "reportReasonOther" },
 ];
 
-/** Sadece resim dosyalarını filtreler (image/*) */
+/** Filter to image files only */
 function filterImageFiles(files: File[]): File[] {
   return files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
 }
@@ -59,7 +48,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
 
   const isValid = selectedReason !== null && description.trim().length >= 10;
 
-  /** Dosya ekleme — max limit kontrolü ile */
+  /** Add files with max limit enforcement */
   const addFiles = useCallback(
     (newFiles: File[]) => {
       const images = filterImageFiles(newFiles);
@@ -81,17 +70,17 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
     [addToast, t]
   );
 
-  /** Dosya kaldırma */
+  /** Remove file by index */
   function handleRemoveFile(index: number) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
-  /** Drag & drop hook — useFileDrop validateFiles kullanır, biz ek olarak image filtresi uyguluyoruz */
+  /** Drag & drop with image filter */
   const { isDragging, dragHandlers } = useFileDrop((droppedFiles) => {
     addFiles(droppedFiles);
   });
 
-  /** Clipboard paste desteği — MessageInput pattern */
+  /** Clipboard paste support */
   function handlePaste(e: React.ClipboardEvent) {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -109,7 +98,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
     }
   }
 
-  /** File input change — tıklayarak dosya seçme */
+  /** File input change handler */
   function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
     addFiles(Array.from(e.target.files));
@@ -143,7 +132,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
     }
   }
 
-  // Overlay tıklaması ile kapatma (modal içine tıklamayı durdur)
+  // Close on overlay click (stop propagation from modal content)
   function handleOverlayClick(e: React.MouseEvent) {
     if (e.target === e.currentTarget) onClose();
   }
@@ -151,7 +140,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
   return (
     <div className="report-overlay" onClick={handleOverlayClick}>
       <div className="report-modal" {...dragHandlers} onPaste={handlePaste}>
-        {/* Drag overlay — dosya sürüklenirken gösterilir */}
+        {/* Drag overlay */}
         {isDragging && (
           <div className="file-drop-overlay">
             <span className="file-drop-text">{t("reportEvidenceHint")}</span>
@@ -202,7 +191,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
             />
           </div>
 
-          {/* Evidence — opsiyonel resim delilleri */}
+          {/* Evidence — optional image attachments */}
           <div className="report-field">
             <label className="report-label">{t("reportEvidenceLabel")}</label>
 
@@ -220,7 +209,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
               </button>
             )}
 
-            {/* Hidden file input — tıklama ile dosya seçimi */}
+            {/* Hidden file input */}
             <input
               ref={fileInputRef}
               type="file"

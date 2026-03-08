@@ -1,16 +1,4 @@
-/**
- * RoleSettings — Rol yönetimi Settings paneli.
- *
- * Özellikler:
- * - Drag & drop ile rol sıralaması (HTML5 DnD API — ChannelTree pattern)
- * - Hiyerarşi kısıtlaması: sadece kendi en yüksek rolünden düşük rolleri düzenle/sırala
- * - Default rol (Member) her zaman altta sabit, sürüklenemez
- *
- * CSS class'ları: .role-list, .role-list-item, .role-list-item.active,
- * .role-list-dot, .role-list-name, .role-drag-wrap, .role-drag-handle,
- * .settings-label, .settings-input, .settings-btn, .settings-btn-danger,
- * .permission-toggle-*
- */
+/** RoleSettings — Role management panel with drag-and-drop reordering and hierarchy enforcement. */
 
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -66,9 +54,6 @@ function RoleSettings() {
   const addToast = useToastStore((s) => s.addToast);
   const confirm = useConfirm();
 
-  // ─── Actor hiyerarşi hesabı ───
-  // MembersSettings.tsx:62-67 pattern'i ile aynı.
-  // Actor'un effective_permissions ve en yüksek rol position'ını hesapla.
   const myPerms = useMemo(() => {
     const me = members.find((m) => m.id === currentUser?.id);
     return me?.effective_permissions ?? 0;
@@ -82,7 +67,6 @@ function RoleSettings() {
 
   const canManageRoles = hasPermission(myPerms, Permissions.ManageRoles);
 
-  // ─── Edit state ───
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
@@ -92,34 +76,27 @@ function RoleSettings() {
 
   const isOwnerRole = selectedRole?.is_owner ?? false;
 
-  // Actor server owner mı? (owner rolüne sahip mi)
   const isActorOwner = useMemo(() => {
     const me = members.find((m) => m.id === currentUser?.id);
     return me?.roles.some((r) => r.is_owner) ?? false;
   }, [members, currentUser]);
 
-  // Seçili rol actor'dan yüksek veya eşit mi?
-  // Eğer öyleyse düzenleme disabled olmalı.
   const isRoleAboveActor = selectedRole
     ? selectedRole.position >= actorMaxPos
     : false;
 
-  // Owner rolü → sadece server owner isim + renk düzenleyebilir
-  // Diğer roller → canManageRoles + hiyerarşi kontrolü
+  // Owner role: only server owner can edit name + color
   const canEditSelected = canManageRoles && !isRoleAboveActor && !isOwnerRole;
   const canEditOwnerAppearance = isOwnerRole && isActorOwner;
 
-  // ─── Drag & Drop state ───
-  // HTML5 DnD API — ChannelTree.tsx pattern ile aynı.
   const dragRoleIdRef = useRef<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{
     roleId: string;
     position: "above" | "below";
   } | null>(null);
 
-  /** Bir rolün sürüklenebilir olup olmadığını belirle */
   function isDraggable(role: { id: string; is_default: boolean; is_owner: boolean; position: number }): boolean {
-    if (role.is_owner) return false; // Owner rolü her zaman en üstte sabit
+    if (role.is_owner) return false;
     if (role.is_default) return false;
     if (role.position >= actorMaxPos) return false;
     return canManageRoles;
@@ -138,17 +115,13 @@ function RoleSettings() {
     }
   }, [selectedRole]);
 
-  // ─── Drag & Drop Handlers ───
-
   function handleDragStart(roleId: string) {
     dragRoleIdRef.current = roleId;
   }
 
   function handleDragOver(e: React.DragEvent, roleId: string) {
     const role = roles.find((r) => r.id === roleId);
-    // Drop hedefi sürüklenebilir olmalı (default veya üst rol üzerine drop yok)
     if (!role || !isDraggable(role)) return;
-    // Kendi üzerine sürükleme ihmal
     if (dragRoleIdRef.current === roleId) {
       e.preventDefault();
       setDropIndicator(null);
@@ -156,7 +129,6 @@ function RoleSettings() {
     }
     e.preventDefault();
 
-    // Mouse'un hedef elemanın üst yarısında mı alt yarısında mı olduğunu hesapla
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
     const pos: "above" | "below" = e.clientY < midY ? "above" : "below";
@@ -176,7 +148,7 @@ function RoleSettings() {
 
     if (!dragId || dragId === targetRoleId) return;
 
-    // Sadece manageable rolleri filtrele (owner, default ve üst roller hariç)
+    // Exclude owner, default, and roles above actor
     const manageable = roles.filter(
       (r) => r.id !== "owner" && !r.is_default && r.position < actorMaxPos
     );
@@ -186,24 +158,18 @@ function RoleSettings() {
     const targetIdx = ordered.findIndex((r) => r.id === targetRoleId);
     if (dragIdx === -1 || targetIdx === -1) return;
 
-    // Sürüklenen rolü listeden çıkar
     const [dragged] = ordered.splice(dragIdx, 1);
 
-    // Hedefin yeni index'ini hesapla (splice sonrası index kayması)
     let insertIdx = ordered.findIndex((r) => r.id === targetRoleId);
     if (insertIdx === -1) insertIdx = ordered.length;
 
-    // Mouse pozisyonuna göre üstte veya altta ekle
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
     if (e.clientY >= midY) insertIdx += 1;
 
     ordered.splice(insertIdx, 0, dragged);
 
-    // Position atama:
-    // Liste üstten alta sıralı (ordered[0] = en yüksek rank).
-    // Position 1 default role ayrılmış. Manageable roller 2'den başlar.
-    // ordered[0] → en yüksek position, ordered[N-1] → en düşük position.
+    // Position 1 reserved for default role; manageable roles start at 2
     const items = ordered.map((role, idx) => ({
       id: role.id,
       position: 2 + (ordered.length - 1 - idx),
@@ -218,8 +184,6 @@ function RoleSettings() {
     dragRoleIdRef.current = null;
     setDropIndicator(null);
   }
-
-  // ─── CRUD Handlers ───
 
   function handlePermToggle(bit: number, checked: boolean) {
     setEditPerms((prev) => (checked ? prev | bit : prev & ~bit));
@@ -282,9 +246,8 @@ function RoleSettings() {
 
   return (
     <div className="channel-settings-wrapper">
-      {/* Sol Panel: Rol Listesi */}
+      {/* Left Panel: Role List */}
       <div className="role-list">
-        {/* Header */}
         <div className="channel-settings-header">
           <span className="channel-settings-header-label">
             {t("roles")}
@@ -296,7 +259,6 @@ function RoleSettings() {
           )}
         </div>
 
-        {/* Rol listesi — drag & drop destekli */}
         <div className="channel-settings-ch-list">
           {roles.map((role) => {
             const draggable = isDraggable(role);
@@ -333,11 +295,10 @@ function RoleSettings() {
         </div>
       </div>
 
-      {/* Sag Panel: Rol Editoru */}
+      {/* Right Panel: Role Editor */}
       <div className="settings-content channel-settings-right">
         {selectedRole ? (
           <div className="channel-perm-section">
-            {/* Owner rolü uyarısı */}
             {isOwnerRole && !isActorOwner && (
               <div className="role-hierarchy-warning">
                 {t("ownerRoleWarning")}
@@ -349,14 +310,12 @@ function RoleSettings() {
               </div>
             )}
 
-            {/* Hiyerarsi uyarisi — actor'dan yuksek/esit rol secilmisse */}
             {!isOwnerRole && isRoleAboveActor && (
               <div className="role-hierarchy-warning">
                 {t("roleCannotEdit")}
               </div>
             )}
 
-            {/* Rol adi */}
             <div className="settings-field">
               <label className="settings-label">{t("roleName")}</label>
               <div className="name-input-with-emoji">
@@ -407,7 +366,6 @@ function RoleSettings() {
               </div>
             </div>
 
-            {/* Rol rengi */}
             <div className="settings-field">
               <label className="settings-label">{t("roleColor")}</label>
               <ColorPicker
@@ -420,7 +378,6 @@ function RoleSettings() {
               />
             </div>
 
-            {/* Aksiyon butonlari — yetkiler ile renk arasinda */}
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <button
                 onClick={handleSave}
@@ -436,21 +393,17 @@ function RoleSettings() {
               )}
             </div>
 
-            {/* Default rol uyarisi */}
             {selectedRole.is_default && (
               <div style={{ background: "var(--bg-4)", borderRadius: 8, padding: 12, fontSize: 13, color: "var(--t2)", marginBottom: 16 }}>
                 {t("defaultRoleWarning")}
               </div>
             )}
 
-            {/* Yetkiler */}
             <div className="settings-field">
               <label className="settings-label">{t("permissions")}</label>
               <div style={{ background: "var(--bg-1)", borderRadius: 8, overflow: "hidden" }}>
                 {PERMISSION_DEFS.map((perm) => {
-                  // Admin yetkisi verme: sadece Admin yetkisine sahip olanlar yapabilir.
-                  // ManageRoles yetkisi olan ama Admin olmayan biri, bir role Admin
-                  // atayıp kendine vererek privilege escalation yapabilir — bunu engelliyoruz.
+                  // Prevent privilege escalation: only admins can grant Admin
                   const isAdminPerm = perm.bit === Permissions.Admin;
                   const actorHasAdmin = hasPermission(myPerms, Permissions.Admin);
                   const permDisabled = !canEditSelected || (isAdminPerm && !actorHasAdmin);

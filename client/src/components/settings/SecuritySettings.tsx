@@ -1,12 +1,4 @@
-/**
- * SecuritySettings — Güvenlik ayarları sekmesi.
- *
- * 1. Email değiştirme/kaldırma (şifre doğrulama ile)
- * 2. Şifre değiştirme formu
- *
- * CSS class'ları: .settings-section-title, .settings-section-subtitle,
- * .settings-field, .settings-label, .settings-input, .settings-btn
- */
+/** SecuritySettings — Email change/remove (with password verification) and password change. */
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -37,7 +29,7 @@ function SecuritySettings() {
   async function handleEmailSubmit() {
     if (!canSubmitEmail) return;
 
-    // Client-side: email format check (boş = kaldır, doluysa format doğrula)
+    // Client-side: empty = remove, otherwise validate format
     const trimmedEmail = newEmail.trim();
     if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       addToast("error", t("emailInvalid"));
@@ -129,7 +121,7 @@ function SecuritySettings() {
       {/* ═══ Email Section ═══ */}
       <h3 className="settings-section-subtitle">{t("emailSection")}</h3>
 
-      {/* Mevcut email gösterimi */}
+      {/* Current email display */}
       <div className="settings-field">
         <label className="settings-label">{t("currentEmail")}</label>
         <p className="settings-value">
@@ -137,7 +129,7 @@ function SecuritySettings() {
         </p>
       </div>
 
-      {/* Yeni email */}
+      {/* New email */}
       <div className="settings-field">
         <label htmlFor="newEmail" className="settings-label">
           {t("newEmail")}
@@ -155,7 +147,7 @@ function SecuritySettings() {
         />
       </div>
 
-      {/* Şifre doğrulama */}
+      {/* Password verification */}
       <div className="settings-field">
         <label htmlFor="emailPassword" className="settings-label">
           {t("currentPassword")}
@@ -174,7 +166,7 @@ function SecuritySettings() {
         <p className="settings-hint">{t("emailPasswordRequired")}</p>
       </div>
 
-      {/* Email butonları */}
+      {/* Email actions */}
       <div className="settings-btn-row">
         <button
           onClick={handleEmailSubmit}
@@ -203,7 +195,7 @@ function SecuritySettings() {
       {/* ═══ Password Section ═══ */}
       <h3 className="settings-section-subtitle">{t("changePassword")}</h3>
 
-      {/* Mevcut Şifre */}
+      {/* Current Password */}
       <div className="settings-field">
         <label htmlFor="currentPassword" className="settings-label">
           {t("currentPassword")}
@@ -221,7 +213,7 @@ function SecuritySettings() {
         />
       </div>
 
-      {/* Yeni Şifre */}
+      {/* New Password */}
       <div className="settings-field">
         <label htmlFor="newPassword" className="settings-label">
           {t("newPassword")}
@@ -237,7 +229,7 @@ function SecuritySettings() {
         />
       </div>
 
-      {/* Yeni Şifre Tekrar */}
+      {/* Confirm New Password */}
       <div className="settings-field">
         <label htmlFor="confirmNewPassword" className="settings-label">
           {t("confirmNewPassword")}

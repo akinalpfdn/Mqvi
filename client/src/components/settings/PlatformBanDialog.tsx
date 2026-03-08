@@ -1,15 +1,4 @@
-/**
- * PlatformBanDialog — Platform-level ban onay diyalogu.
- *
- * useConfirm yetmez — textarea (ban reason) + checkbox (mesaj silme)
- * gerektirdiğinden custom modal. Mevcut .modal-backdrop / .modal-card
- * CSS class'ları kullanılır.
- *
- * Props:
- * - username: Banlanan kullanıcının adı (dialog'da gösterilir)
- * - onConfirm: Onaylandığında reason + deleteMessages ile çağrılır
- * - onCancel: İptal edildiğinde çağrılır
- */
+/** PlatformBanDialog — Ban confirmation dialog with reason textarea and delete-messages toggle. */
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -27,12 +16,10 @@ function PlatformBanDialog({ username, onConfirm, onCancel }: PlatformBanDialogP
   const [deleteMessages, setDeleteMessages] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Dialog açılınca textarea'ya focus
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
 
-  // Escape ile kapatma
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onCancel();
@@ -60,7 +47,6 @@ function PlatformBanDialog({ username, onConfirm, onCancel }: PlatformBanDialogP
         </p>
 
         <form onSubmit={handleSubmit}>
-          {/* Ban reason */}
           <label className="platform-ban-label">
             {t("platformBanReasonLabel")}
           </label>
@@ -74,7 +60,6 @@ function PlatformBanDialog({ username, onConfirm, onCancel }: PlatformBanDialogP
             maxLength={500}
           />
 
-          {/* Delete messages toggle */}
           <label className="platform-ban-checkbox-label">
             <input
               type="checkbox"
@@ -84,7 +69,6 @@ function PlatformBanDialog({ username, onConfirm, onCancel }: PlatformBanDialogP
             <span>{t("platformBanDeleteMessages")}</span>
           </label>
 
-          {/* Actions */}
           <div className="modal-actions">
             <button
               type="button"

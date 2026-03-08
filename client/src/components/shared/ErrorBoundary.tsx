@@ -1,17 +1,6 @@
 /**
- * ErrorBoundary — React render crash'lerini yakalar ve otomatik kurtarır.
- *
- * React'ta render sırasında yakalanmayan hata tüm component tree'yi öldürür.
- * Electron'da browser gibi F5/refresh yok — kullanıcı siyah ekranla kalır.
- *
- * Bu component:
- * 1. componentDidCatch ile render hatalarını yakalar
- * 2. Kısa bir süre bekledikten sonra window.location.reload() ile sayfayı yeniler
- * 3. Kullanıcıya "Bir hata oluştu, yeniden yükleniyor..." mesajı gösterir
- *
- * React ErrorBoundary class component olmak ZORUNDA — hook'larla yazılamaz.
- * Bu, React'ın bilinen bir kısıtlamasıdır (getDerivedStateFromError + componentDidCatch
- * sadece class component lifecycle'da mevcuttur).
+ * ErrorBoundary — Catches render crashes and auto-reloads after 2s.
+ * Must be a class component (React limitation for error boundaries).
  */
 
 import { Component } from "react";
@@ -40,7 +29,7 @@ class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("[ErrorBoundary] Uncaught render error:", error, errorInfo);
 
-    // 2 saniye sonra otomatik reload — kullanıcıya mesaj göstermeye yetecek kadar
+    // Auto-reload after 2s
     this.reloadTimerId = setTimeout(() => {
       window.location.reload();
     }, 2000);

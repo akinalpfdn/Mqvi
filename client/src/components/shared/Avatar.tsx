@@ -1,16 +1,4 @@
-/**
- * Avatar — Yeniden kullanılabilir role-based gradient avatar.
- *
- * CSS class'ları: .avatar, .avatar-round, .av-admin, .av-mod, .av-default
- *
- * Role'a göre gradient:
- * - Admin: amber (#c8875a → #a06840)
- * - Mod: yeşil (#6fb07a → #4d8a5a)
- * - Varsayılan: amber brand
- *
- * avatarUrl varsa resim, yoksa ilk harf gösterilir.
- * Boyut (size) runtime'da hesaplandığı için inline style ile verilir.
- */
+/** Avatar — Role-based gradient avatar with image or initial fallback. */
 
 import { resolveAssetUrl } from "../../utils/constants";
 

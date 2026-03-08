@@ -1,18 +1,4 @@
-/**
- * EncryptionSettings — Settings > Encryption sekmesi.
- *
- * Üç bölüm:
- * 1. E2EE Durumu — Aktif/Pasif badge + key fingerprint
- * 2. Kurtarma Parolası — Belirle/Değiştir formu
- * 3. Cihaz Yönetimi — Cihaz listesi + remove
- *
- * Tüm iş mantığı e2eeStore action'ları üzerinden yürütülür.
- * Bu component sadece UI katmanıdır.
- *
- * CSS class'ları: .settings-section, .settings-section-title,
- * .settings-section-subtitle, .settings-field, .settings-label,
- * .settings-input, .settings-btn, .settings-divider
- */
+/** EncryptionSettings — E2EE status, recovery password, and device management. */
 
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -41,31 +27,29 @@ function EncryptionSettings() {
   // Key fingerprint
   const [fingerprint, setFingerprint] = useState<string | null>(null);
 
-  // Cihaz listesini mount'ta çek
+  // Fetch device list on mount
   useEffect(() => {
     fetchDevices();
   }, [fetchDevices]);
 
-  // Fingerprint hesapla — identity public key'den SHA-256 hash
+  // Compute fingerprint from identity public key (SHA-256)
   useEffect(() => {
     async function loadFingerprint() {
       try {
         const identity = await keyStorage.getIdentityKeyPair();
         if (!identity) return;
 
-        // SHA-256 hash → hex → 4'lü gruplar
+        // SHA-256 hash -> hex -> 4-char groups
         const hashBuffer = await crypto.subtle.digest("SHA-256", identity.publicKey as BufferSource);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
         const hex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-        // İlk 32 karakter (16 byte), 4'lü gruplarla
+        // First 32 chars (16 bytes), grouped by 4
         const formatted = hex
           .slice(0, 32)
           .match(/.{1,4}/g)
           ?.join(" ") ?? hex.slice(0, 32);
         setFingerprint(formatted);
-      } catch {
-        // Fingerprint yüklenemezse sessizce geç
-      }
+      } catch {}
     }
 
     if (initStatus === "ready") {
@@ -73,7 +57,7 @@ function EncryptionSettings() {
     }
   }, [initStatus]);
 
-  /** Recovery password kaydet */
+  /** Save recovery password */
   const handleSaveRecoveryPassword = useCallback(async () => {
     if (!password.trim()) {
       addToast("error", t("recoveryPasswordRequired"));
@@ -96,7 +80,7 @@ function EncryptionSettings() {
     setIsSavingPassword(false);
   }, [password, confirmPassword, setRecoveryPassword, addToast, t]);
 
-  /** Cihaz sil */
+  /** Remove device */
   async function handleRemoveDevice(deviceId: string) {
     try {
       await removeDevice(deviceId);
@@ -106,7 +90,7 @@ function EncryptionSettings() {
     }
   }
 
-  /** Fingerprint'i panoya kopyala */
+  /** Copy fingerprint to clipboard */
   function handleCopyFingerprint() {
     if (!fingerprint) return;
     navigator.clipboard.writeText(fingerprint).then(
@@ -115,7 +99,7 @@ function EncryptionSettings() {
     );
   }
 
-  /** Tarih formatlama */
+  /** Format date for display */
   function formatDate(dateStr: string): string {
     const date = new Date(dateStr);
     return date.toLocaleDateString([], {

@@ -1,18 +1,4 @@
-/**
- * ColorPicker — Rol renk seçici.
- *
- * Üç parçalı seçim:
- * 1. Preset renk grid'i (20 renk, hızlı seçim)
- * 2. Hex input (manuel giriş)
- * 3. Popover color picker butonu (react-colorful — tam spektrum, dark tema uyumlu)
- *
- * react-colorful: ~2KB, zero-dependency, CSS ile tam stillenebilir.
- * Native <input type="color"> yerine kullanılıyor çünkü OS picker'ı
- * uygulamanın dark temasıyla uyuşmuyor.
- *
- * CSS class'ları: .color-picker, .color-swatch, .color-swatch.selected,
- * .color-hex-input, .color-native-btn, .color-popover
- */
+/** ColorPicker — Preset color grid + hex input + react-colorful popover. */
 
 import { useState, useRef, useEffect } from "react";
 import { HexColorPicker } from "react-colorful";
@@ -34,7 +20,7 @@ function ColorPicker({ value, onChange, disabled }: ColorPickerProps) {
   const [showPopover, setShowPopover] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Click-outside: popover dışına tıklanınca kapat
+  // Close popover on click-outside
   useEffect(() => {
     if (!showPopover) return;
     function handleClickOutside(e: MouseEvent) {
@@ -53,7 +39,7 @@ function ColorPicker({ value, onChange, disabled }: ColorPickerProps) {
 
   return (
     <div>
-      {/* Preset renkler grid'i */}
+      {/* Preset colors grid */}
       <div className="color-picker">
         {PRESET_COLORS.map((color) => (
           <button
@@ -66,7 +52,7 @@ function ColorPicker({ value, onChange, disabled }: ColorPickerProps) {
         ))}
       </div>
 
-      {/* Hex input + popover picker */}
+      {/* Hex input + popover */}
       <div className="color-hex-row">
         <div
           className="color-hex-preview"

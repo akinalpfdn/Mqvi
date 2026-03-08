@@ -1,10 +1,4 @@
-/**
- * PermissionToggle — Tek bir permission checkbox'ı.
- *
- * CSS class'ları: .permission-toggle, .permission-toggle-checkbox,
- * .permission-toggle-checkbox.checked, .permission-toggle-check,
- * .permission-toggle-label, .permission-toggle-desc, .permission-toggle-warn
- */
+/** PermissionToggle — Single permission checkbox with label, description, and optional warning. */
 
 import { useTranslation } from "react-i18next";
 
@@ -31,7 +25,6 @@ function PermissionToggle({
 
   return (
     <div className="permission-toggle">
-      {/* Checkbox */}
       <button
         onClick={() => !disabled && onChange(permBit, !isChecked)}
         className={`permission-toggle-checkbox${isChecked ? " checked" : ""}${disabled ? " disabled" : ""}`}
@@ -44,7 +37,6 @@ function PermissionToggle({
         )}
       </button>
 
-      {/* Label + Description */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <p className="permission-toggle-label">{t(labelKey)}</p>
         <p className="permission-toggle-desc">{t(descKey)}</p>

@@ -1,27 +1,19 @@
 /**
- * GeneralSettings — Discord "Windows Ayarları" karşılığı.
- *
- * Sadece Electron ortamında görünür. Üç toggle:
- * 1. Başlangıçta Aç — Windows login'de uygulamayı otomatik başlat
- * 2. Simge Durumuna Küçültülmüş Başlat — pencere gizli başlar (tray'de)
- * 3. Kapat Düğmesi Tray'e Küçült — X butonuna basınca kapanma yerine tray'e git
- *
- * Ayarlar Electron main process'te %APPDATA%/mqvi/app-settings.json'da saklanır.
- * IPC ile get/set yapılır — renderer localStorage kullanmaz çünkü bu ayarlar
- * main process'te renderer yüklenmeden önce okunmalıdır (örn: startMinimized).
+ * GeneralSettings — Electron-only desktop settings (auto-launch, start minimized, close-to-tray).
+ * Persisted in main process via IPC (%APPDATA%/mqvi/app-settings.json).
  */
 
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
-/** Electron main process'ten gelen ayar yapısı */
+/** Settings shape from Electron main process */
 interface AppSettings {
   openAtLogin: boolean;
   startMinimized: boolean;
   closeToTray: boolean;
 }
 
-/** Tek bir toggle satırı — başlık, açıklama ve switch */
+/** Single toggle row with label, description and switch */
 function SettingToggle({
   label,
   description,
@@ -61,7 +53,7 @@ function GeneralSettings() {
   });
   const [loaded, setLoaded] = useState(false);
 
-  // İlk yüklemede mevcut ayarları Electron main process'ten al
+  // Load current settings from Electron main process on mount
   useEffect(() => {
     async function load() {
       const current = await window.electronAPI?.getAppSettings();
@@ -73,7 +65,7 @@ function GeneralSettings() {
     load();
   }, []);
 
-  /** Tek bir ayarı güncelle — hem local state hem Electron main process */
+  /** Update a single setting — local state + Electron main process */
   async function handleChange(key: keyof AppSettings, value: boolean) {
     setSettings((prev) => ({ ...prev, [key]: value }));
     await window.electronAPI?.setAppSetting(key, value);

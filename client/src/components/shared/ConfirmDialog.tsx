@@ -1,12 +1,4 @@
-/**
- * ConfirmDialog — window.confirm() yerine özel tasarımlı onay dialogu.
- *
- * AppLayout'ta mount edilir (SettingsModal, ToastContainer gibi).
- * confirmStore'dan options okur — null ise render yok.
- *
- * Mevcut .modal-* CSS class'larını kullanır, ek CSS gerekmez.
- * Escape tuşu ile iptal edilir, overlay tıklama ile iptal edilir.
- */
+/** ConfirmDialog — Custom confirm dialog replacing window.confirm(). Reads from confirmStore, renders nothing when null. */
 
 import { useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,7 +10,7 @@ function ConfirmDialog() {
   const confirmAction = useConfirmStore((s) => s.confirm);
   const cancelAction = useConfirmStore((s) => s.cancel);
 
-  // Escape tuşu ile iptal
+  // Close on Escape
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") cancelAction();
@@ -40,17 +32,17 @@ function ConfirmDialog() {
   return (
     <div className="modal-backdrop" onClick={cancelAction}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        {/* Başlık */}
+        {/* Title */}
         {options.title && (
           <div className="modal-header">
             <h2 className="modal-title">{options.title}</h2>
           </div>
         )}
 
-        {/* Mesaj */}
+        {/* Message */}
         <p className="modal-text">{options.message}</p>
 
-        {/* Aksiyonlar */}
+        {/* Actions */}
         <div className="modal-actions">
           <button
             className="settings-btn settings-btn-secondary"

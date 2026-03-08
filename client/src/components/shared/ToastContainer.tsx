@@ -1,9 +1,5 @@
 /**
- * ToastContainer — Toast notification'ları ekranın sağ alt köşesinde stack olarak render eder.
- *
- * CSS class'ları: .toast-container
- *
- * Bu component AppLayout'a mount edilir — uygulama genelinde her zaman aktif.
+ * ToastContainer — Renders stacked toasts at bottom-right. Mounted in AppLayout.
  */
 
 import { useToastStore } from "../../stores/toastStore";

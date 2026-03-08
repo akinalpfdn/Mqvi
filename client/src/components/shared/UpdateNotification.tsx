@@ -1,12 +1,4 @@
-/**
- * UpdateNotification — Auto-update banner (Discord modeli).
- *
- * İki durum gösterir:
- * 1. "downloading": Arka planda indiriliyor — progress bar
- * 2. "ready": İndirme bitti — "Yeniden Başlat" butonu
- *
- * CSS: Tema token'ları kullanır (globals.css @theme).
- */
+/** UpdateNotification — Auto-update banner with download progress and restart button. */
 
 import { useTranslation } from "react-i18next";
 import type { FC } from "react";

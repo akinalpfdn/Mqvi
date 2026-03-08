@@ -1,12 +1,5 @@
 /**
- * Modal — Reusable modal component.
- *
- * CSS class'ları: .modal-backdrop, .modal-card, .modal-title, .modal-actions
- *
- * Özellikler:
- * - Backdrop tıklamasıyla kapanır
- * - Escape tuşuyla kapanır
- * - Body scroll'u kilitler
+ * Modal — Reusable modal. Closes on backdrop click or Escape. Locks body scroll.
  */
 
 import { useEffect, useCallback, type ReactNode } from "react";
@@ -42,7 +35,7 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      {/* Modal content — tıklama yayılmasını engelle */}
+      {/* Stop click propagation to backdrop */}
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="modal-header">

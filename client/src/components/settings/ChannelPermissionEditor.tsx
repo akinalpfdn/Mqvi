@@ -1,16 +1,4 @@
-/**
- * ChannelPermissionEditor — Bir kanalın permission override'larını düzenleme paneli.
- *
- * Layout: RoleSettings ile aynı single-column pattern'ı kullanır.
- * - Üstte: Rol seçim dropdown'ı (settings-input select)
- * - Altta: Seçili rol için tri-state permission toggle'ları
- *
- * Ortak: ViewChannel (hem text hem voice — sidebar görünürlüğü)
- * Text kanalları: SendMessages, ReadMessages, ManageMessages
- * Voice kanalları: ConnectVoice, Speak, Stream
- *
- * CSS class'ları: .perm-tri-*, .settings-field, .settings-label, .settings-input
- */
+/** ChannelPermissionEditor — Per-channel permission overrides with tri-state toggles per role. */
 
 import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,19 +9,19 @@ import { Permissions } from "../../utils/permissions";
 import PermissionTriToggle, { type TriState } from "./PermissionTriToggle";
 import type { Channel, ChannelPermissionOverride } from "../../types";
 
-/** Ortak permission'lar — hem text hem voice kanallar için (sidebar görünürlüğü) */
+/** Shared permissions (text + voice) */
 const COMMON_PERM_DEFS = [
   { bit: Permissions.ViewChannel, label: "permViewChannel", desc: "permViewChannelDesc" },
 ] as const;
 
-/** Text kanallarında override edilebilecek permission'lar */
+/** Text channel overridable permissions */
 const TEXT_PERM_DEFS = [
   { bit: Permissions.SendMessages, label: "permSendMessages", desc: "permSendMessagesDesc" },
   { bit: Permissions.ReadMessages, label: "permReadMessages", desc: "permReadMessagesDesc" },
   { bit: Permissions.ManageMessages, label: "permManageMessages", desc: "permManageMessagesDesc" },
 ] as const;
 
-/** Voice kanallarında override edilebilecek permission'lar */
+/** Voice channel overridable permissions */
 const VOICE_PERM_DEFS = [
   { bit: Permissions.ConnectVoice, label: "permConnect", desc: "permConnectDesc" },
   { bit: Permissions.Speak, label: "permSpeak", desc: "permSpeakDesc" },
@@ -55,13 +43,12 @@ function ChannelPermissionEditor({ channel }: Props) {
 
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
 
-  // İlk yükleme: roller + bu kanalın override'ları
   useEffect(() => {
     fetchRoles();
     fetchOverrides(channel.id);
   }, [fetchRoles, fetchOverrides, channel.id]);
 
-  // İlk rolü otomatik seç
+  // Auto-select first role
   useEffect(() => {
     if (!selectedRoleId && roles.length > 0) {
       setSelectedRoleId(roles[0].id);
@@ -73,18 +60,10 @@ function ChannelPermissionEditor({ channel }: Props) {
     ? [...COMMON_PERM_DEFS, ...VOICE_PERM_DEFS]
     : [...COMMON_PERM_DEFS, ...TEXT_PERM_DEFS];
 
-  // Seçili rol için override
   const currentOverride: ChannelPermissionOverride | undefined = overrides.find(
     (o) => o.role_id === selectedRoleId
   );
 
-  /**
-   * Bir permission bit'inin mevcut TriState değerini hesapla.
-   *
-   * - allow bit set → "allow"
-   * - deny bit set → "deny"
-   * - hiçbiri set değil → "inherit"
-   */
   const getTriState = useCallback(
     (bit: number): TriState => {
       if (!currentOverride) return "inherit";
@@ -95,25 +74,16 @@ function ChannelPermissionEditor({ channel }: Props) {
     [currentOverride]
   );
 
-  /**
-   * Tri-state değiştiğinde yeni allow/deny hesapla ve API'ye gönder.
-   *
-   * Mantık:
-   * - "allow" → allow |= bit, deny &= ~bit
-   * - "deny"  → deny |= bit, allow &= ~bit
-   * - "inherit" → allow &= ~bit, deny &= ~bit
-   */
   async function handleTriChange(bit: number, newState: TriState) {
     if (!selectedRoleId) return;
 
     let allow = currentOverride?.allow ?? 0;
     let deny = currentOverride?.deny ?? 0;
 
-    // Önce bu bit'i her iki taraftan temizle
+    // Clear bit from both sides first
     allow &= ~bit;
     deny &= ~bit;
 
-    // Yeni state'e göre set et
     if (newState === "allow") allow |= bit;
     if (newState === "deny") deny |= bit;
 
@@ -125,12 +95,10 @@ function ChannelPermissionEditor({ channel }: Props) {
     }
   }
 
-  // Seçili rolün rengi — dropdown'da görsel ipucu olarak
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
 
   return (
     <div>
-      {/* Rol seçici — dropdown */}
       <div className="settings-field">
         <label className="settings-label">{t("roles")}</label>
         <div className="perm-tri-role-select">
@@ -154,10 +122,8 @@ function ChannelPermissionEditor({ channel }: Props) {
         </div>
       </div>
 
-      {/* Açıklama */}
       <p className="perm-tri-section-desc">{t("channelPermDesc")}</p>
 
-      {/* Permission override toggle'ları */}
       <div className="settings-field">
         <label className="settings-label">
           {channel.type === "voice" ? t("voicePermissions") : t("textPermissions")}

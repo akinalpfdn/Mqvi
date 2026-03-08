@@ -1,13 +1,4 @@
-/**
- * PlatformSettings — Platform admin LiveKit instance yönetim paneli.
- *
- * Two-panel layout:
- * - Sol: Instance listesi (URL + kapasite)
- * - Sağ: Create/Edit form
- *
- * Sadece is_platform_admin = true olan kullanıcılara görünür.
- * Backend PlatformAdminMiddleware ile korunur.
- */
+/** PlatformSettings — Platform admin LiveKit instance management (CRUD + metrics). */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -42,9 +33,6 @@ function PlatformSettings() {
   return <LiveKitTab />;
 }
 
-// ═══════════════════════════════════════════════════════
-// LiveKit Instances Tab (mevcut işlevsellik)
-// ═══════════════════════════════════════════════════════
 
 function LiveKitTab() {
   const { t } = useTranslation("settings");
@@ -242,7 +230,7 @@ function LiveKitTab() {
   // ─── Render ───
   return (
     <div className="channel-settings-wrapper" style={{ flex: 1, minHeight: 0 }}>
-      {/* ── Sol Panel: Instance Listesi ── */}
+      {/* Left Panel: Instance List */}
       <div className="role-list">
         <div className="channel-settings-header">
           <span className="channel-settings-header-label">
@@ -286,7 +274,7 @@ function LiveKitTab() {
         </div>
       </div>
 
-      {/* ── Sağ Panel: Form + Monitoring ── */}
+      {/* Right Panel: Form + Monitoring */}
       <div className="channel-settings-right" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
         {isCreating ? (
           <CreateForm
@@ -345,9 +333,6 @@ function LiveKitTab() {
   );
 }
 
-// ═══════════════════════════════════════════════════════
-// Create Form
-// ═══════════════════════════════════════════════════════
 
 type CreateFormProps = {
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -476,9 +461,6 @@ function CreateForm({
   );
 }
 
-// ═══════════════════════════════════════════════════════
-// Edit Form
-// ═══════════════════════════════════════════════════════
 
 type EditFormProps = {
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -659,9 +641,6 @@ function EditForm({
   );
 }
 
-// ═══════════════════════════════════════════════════════
-// Metrics Panel — Prometheus /metrics monitoring
-// ═══════════════════════════════════════════════════════
 
 type MetricsPanelProps = {
   instanceId: string;
@@ -722,18 +701,16 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
         setTimeSeries(res.data);
       }
     } catch {
-      // chart verisi opsiyonel — sessizce devam et
+      // chart data is optional — fail silently
     } finally {
       setIsChartLoading(false);
     }
   }, [instanceId]);
 
-  // Instance değiştiğinde otomatik fetch
   useEffect(() => {
     fetchMetrics();
   }, [fetchMetrics]);
 
-  // Period veya instance değiştiğinde history + timeseries fetch
   useEffect(() => {
     fetchHistory(selectedPeriod);
     fetchTimeSeries(selectedPeriod);
@@ -772,7 +749,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
             </p>
 
             <div className="metrics-grid">
-              {/* Hetzner CPU */}
               {metrics.hetzner_avail && (
                 <div className="metrics-card">
                   <span className="metrics-card-label">{t("platformMetricsCPU")}</span>
@@ -783,7 +759,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
                 </div>
               )}
 
-              {/* Hetzner Bandwidth In */}
               {metrics.hetzner_avail && (
                 <div className="metrics-card">
                   <span className="metrics-card-label">{t("platformMetricsBwIn")}</span>
@@ -794,7 +769,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
                 </div>
               )}
 
-              {/* Hetzner Bandwidth Out */}
               {metrics.hetzner_avail && (
                 <div className="metrics-card">
                   <span className="metrics-card-label">{t("platformMetricsBwOut")}</span>
@@ -805,7 +779,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
                 </div>
               )}
 
-              {/* Goroutines */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsGoroutines")}</span>
                 <span className="metrics-card-value">
@@ -813,7 +786,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
                 </span>
               </div>
 
-              {/* Memory */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsMemoryUsed")}</span>
                 <span className="metrics-card-value">
@@ -821,19 +793,16 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
                 </span>
               </div>
 
-              {/* Rooms */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsRooms")}</span>
                 <span className="metrics-card-value">{metrics.room_count}</span>
               </div>
 
-              {/* Participants */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsParticipants")}</span>
                 <span className="metrics-card-value">{metrics.participant_count}</span>
               </div>
 
-              {/* Tracks */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsTracks")}</span>
                 <span className="metrics-card-value">
@@ -844,13 +813,11 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
                 </span>
               </div>
 
-              {/* NACK */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsNack")}</span>
                 <span className="metrics-card-value">{metrics.nack_total.toLocaleString()}</span>
               </div>
 
-              {/* Bandwidth In */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsBytesIn")}</span>
                 <span className="metrics-card-value">{formatBytes(metrics.bytes_in)}</span>
@@ -859,7 +826,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
                 </span>
               </div>
 
-              {/* Bandwidth Out */}
               <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsBytesOut")}</span>
                 <span className="metrics-card-value">{formatBytes(metrics.bytes_out)}</span>
@@ -911,49 +877,41 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
 
         {historySummary && historySummary.sample_count > 0 && (
           <div className="metrics-grid">
-            {/* Peak Participants */}
             <div className="metrics-card">
               <span className="metrics-card-label">{t("platformMetricsPeakParticipants")}</span>
               <span className="metrics-card-value">{historySummary.peak_participants}</span>
             </div>
 
-            {/* Avg Participants */}
             <div className="metrics-card">
               <span className="metrics-card-label">{t("platformMetricsAvgParticipants")}</span>
               <span className="metrics-card-value">{historySummary.avg_participants.toFixed(1)}</span>
             </div>
 
-            {/* Peak Rooms */}
             <div className="metrics-card">
               <span className="metrics-card-label">{t("platformMetricsPeakRooms")}</span>
               <span className="metrics-card-value">{historySummary.peak_rooms}</span>
             </div>
 
-            {/* Peak CPU */}
             <div className="metrics-card">
               <span className="metrics-card-label">{t("platformMetricsPeakCPU")}</span>
               <span className="metrics-card-value">{historySummary.peak_cpu_pct.toFixed(1)}%</span>
             </div>
 
-            {/* Avg CPU */}
             <div className="metrics-card">
               <span className="metrics-card-label">{t("platformMetricsAvgCPU")}</span>
               <span className="metrics-card-value">{historySummary.avg_cpu_pct.toFixed(1)}%</span>
             </div>
 
-            {/* Peak Memory */}
             <div className="metrics-card">
               <span className="metrics-card-label">{t("platformMetricsPeakMemory")}</span>
               <span className="metrics-card-value">{formatBytes(historySummary.peak_memory_bytes)}</span>
             </div>
 
-            {/* Avg Bandwidth In */}
             <div className="metrics-card">
               <span className="metrics-card-label">{t("platformMetricsAvgBandwidthIn")}</span>
               <span className="metrics-card-value">{formatBps(historySummary.avg_bandwidth_in_bps)}</span>
             </div>
 
-            {/* Avg Bandwidth Out */}
             <div className="metrics-card">
               <span className="metrics-card-label">{t("platformMetricsAvgBandwidthOut")}</span>
               <span className="metrics-card-value">{formatBps(historySummary.avg_bandwidth_out_bps)}</span>
@@ -965,7 +923,6 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
   );
 }
 
-/** Byte değerini okunabilir formata çevir (KB/MB/GB) */
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -974,7 +931,6 @@ function formatBytes(bytes: number): string {
   return `${val.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
-/** Bytes/s değerini okunabilir bps formatına çevir (Kbps/Mbps/Gbps) */
 function formatBps(bytesPerSec: number): string {
   const bps = bytesPerSec * 8;
   if (bps === 0) return "0 bps";
@@ -984,9 +940,6 @@ function formatBps(bytesPerSec: number): string {
   return `${val.toFixed(1)} ${units[Math.min(i, units.length - 1)]}`;
 }
 
-// ═══════════════════════════════════════════════════════
-// MetricsChart — Recharts area chart (CPU + Bandwidth)
-// ═══════════════════════════════════════════════════════
 
 type MetricsChartProps = {
   data: MetricsTimeSeriesPoint[];
@@ -1121,9 +1074,6 @@ function MetricsChart({ data, period, isLoading, t }: MetricsChartProps) {
   );
 }
 
-// ═══════════════════════════════════════════════════════
-// Chart Tooltip — dark themed custom tooltip
-// ═══════════════════════════════════════════════════════
 
 type ChartTooltipProps = {
   active?: boolean;
@@ -1150,7 +1100,6 @@ function ChartTooltip({ active, payload, label, period, valueFormatter, labelMap
   );
 }
 
-/** X ekseni timestamp formatı — period'a göre değişir */
 function formatXAxis(ts: string, period: "24h" | "7d" | "30d"): string {
   const d = new Date(ts);
   if (isNaN(d.getTime())) return ts;

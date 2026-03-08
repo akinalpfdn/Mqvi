@@ -1,17 +1,4 @@
-/**
- * PermissionTriToggle — Kanal permission override için üçlü durum toggle'ı.
- *
- * Discord tarzı 3 ayrı buton gösterir:
- * - ✕ (Deny — kırmızı)
- * - — (Inherit — gri/nötr)
- * - ✓ (Allow — yeşil)
- *
- * Aktif buton renkli vurgulanır, diğerleri soluk kalır.
- * Bu sayede kullanıcı mevcut durumu ve tüm seçenekleri tek bakışta görür.
- *
- * CSS class'ları: .perm-tri, .perm-tri-info, .perm-tri-label, .perm-tri-desc,
- * .perm-tri-controls, .perm-tri-btn, .perm-tri-btn.active.deny/.inherit/.allow
- */
+/** PermissionTriToggle — Tri-state toggle (Deny / Inherit / Allow) for channel permission overrides. */
 
 import { useTranslation } from "react-i18next";
 
@@ -36,15 +23,12 @@ function PermissionTriToggle({
 
   return (
     <div className="perm-tri">
-      {/* Label + Description — sol tarafta */}
       <div className="perm-tri-info">
         <p className="perm-tri-label">{t(labelKey)}</p>
         <p className="perm-tri-desc">{t(descKey)}</p>
       </div>
 
-      {/* 3 ayrı durum butonu — sağ tarafta */}
       <div className="perm-tri-controls">
-        {/* Deny (✕) */}
         <button
           className={`perm-tri-btn deny${state === "deny" ? " active" : ""}`}
           onClick={() => onChange(permBit, state === "deny" ? "inherit" : "deny")}
@@ -55,7 +39,6 @@ function PermissionTriToggle({
           </svg>
         </button>
 
-        {/* Inherit (—) */}
         <button
           className={`perm-tri-btn inherit${state === "inherit" ? " active" : ""}`}
           onClick={() => onChange(permBit, "inherit")}
@@ -66,7 +49,6 @@ function PermissionTriToggle({
           </svg>
         </button>
 
-        {/* Allow (✓) */}
         <button
           className={`perm-tri-btn allow${state === "allow" ? " active" : ""}`}
           onClick={() => onChange(permBit, state === "allow" ? "inherit" : "allow")}

@@ -1,23 +1,6 @@
-/**
- * Skeleton — Loading placeholder component'leri.
- *
- * Veri yüklenirken gerçek içeriğin yapısını taklit eden gri kutular gösterir.
- * "Shimmer" efekti ile kullanıcıya içeriğin yüklenmekte olduğunu bildirir.
- *
- * Skeleton pattern nedir?
- * Spinner yerine içeriğin şeklini gösteren placeholder'lar kullanmak.
- * Kullanıcı neyin yükleneceğini önceden görebildiği için
- * bekleme süresi daha kısa hissedilir (perceived performance).
- *
- * Kullanım:
- * <MessageSkeleton count={5} />
- * <MemberSkeleton count={8} />
- * <ChannelSkeleton count={4} />
- *
- * CSS: .sk-* class'ları (globals.css)
- */
+/** Skeleton — Shimmer loading placeholders. CSS: .sk-* (globals.css) */
 
-/** Mesaj listesi skeleton — avatar + isim + metin satırları */
+/** Message list skeleton */
 export function MessageSkeleton({ count = 5 }: { count?: number }) {
   return (
     <div className="sk-container">
@@ -35,7 +18,7 @@ export function MessageSkeleton({ count = 5 }: { count?: number }) {
   );
 }
 
-/** Üye listesi skeleton — küçük avatar + isim */
+/** Member list skeleton */
 export function MemberSkeleton({ count = 8 }: { count?: number }) {
   return (
     <div className="sk-container">
@@ -49,7 +32,7 @@ export function MemberSkeleton({ count = 8 }: { count?: number }) {
   );
 }
 
-/** Kanal listesi skeleton — # ikon + isim pill */
+/** Channel list skeleton */
 export function ChannelSkeleton({ count = 4 }: { count?: number }) {
   return (
     <>

@@ -1,14 +1,4 @@
-/**
- * AdminUserList — Platform admin kullanıcı yönetim tablosu.
- *
- * Özellikler:
- * - Sıralama: Sütun başlığına tıkla → asc/desc toggle
- * - Filtreleme: Arama çubuğu ile username, display name, ID filtrele
- * - Sütun genişliği: Sütun kenarını sürükleyerek ayarla
- *
- * Sadece is_platform_admin = true olan kullanıcılara görünür.
- * Backend PlatformAdminMiddleware ile korunur.
- */
+/** AdminUserList — Platform admin user management table (sortable, filterable, resizable columns). */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -77,14 +67,7 @@ function getDefaultWidths(): Record<string, number> {
   return widths;
 }
 
-/**
- * parseUTC — Backend SQLite timestamp'lerini UTC olarak parse eder.
- *
- * SQLite CURRENT_TIMESTAMP UTC'dir ama timezone göstergesi ("Z") içermez.
- * JavaScript'in Date constructor'ı timezone bilgisi olmayan string'leri
- * LOCAL time olarak yorumlar → UTC+3 (Türkiye) kullanıcılarında 3 saat hatalı
- * gösterime yol açar. "Z" ekleyerek UTC olarak parse etmeyi garanti ediyoruz.
- */
+/** SQLite timestamps lack "Z" suffix — append it to ensure UTC parsing. */
 function parseUTC(iso: string): number {
   return new Date(iso.endsWith("Z") ? iso : iso + "Z").getTime();
 }
@@ -231,7 +214,6 @@ function AdminUserList() {
 
   // ─── Context Menu ───
 
-  /** Kullanıcı listesini yeniden yükle (ban/delete sonrası) */
   const refetchUsers = useCallback(async () => {
     const res = await listAdminUsers();
     if (res.success && res.data) {
@@ -239,12 +221,10 @@ function AdminUserList() {
     }
   }, []);
 
-  /** Sağ tık menü öğelerini oluştur */
   function buildContextItems(user: AdminUserListItem): ContextMenuItem[] {
     const isMe = user.id === currentUser?.id;
     const items: ContextMenuItem[] = [];
 
-    // Mesaj Gönder — kendi satırında gösterme
     if (!isMe) {
       items.push({
         label: t("platformUserSendDM"),
@@ -252,7 +232,6 @@ function AdminUserList() {
       });
     }
 
-    // Admin toggle — kendinde gösterme (adminsiz kalma riski)
     if (!isMe) {
       items.push({
         label: user.is_platform_admin
@@ -263,7 +242,6 @@ function AdminUserList() {
       });
     }
 
-    // Kullanıcıyı Yasakla — kendi satırında ve zaten banlı ise gösterme
     if (!isMe && !user.is_platform_banned) {
       items.push({
         label: t("platformUserBan"),
@@ -273,7 +251,6 @@ function AdminUserList() {
       });
     }
 
-    // Yasağı Kaldır — sadece banlı kullanıcılarda göster
     if (!isMe && user.is_platform_banned) {
       items.push({
         label: t("platformUserUnban"),
@@ -282,7 +259,6 @@ function AdminUserList() {
       });
     }
 
-    // Kullanıcıyı Sil — kendi satırında gösterme
     if (!isMe) {
       items.push({
         label: t("platformUserDelete"),
@@ -295,7 +271,6 @@ function AdminUserList() {
     return items;
   }
 
-  /** DM kanalı aç — MemberCard pattern'i */
   async function handleSendDM(user: AdminUserListItem) {
     const channelId = await useDMStore.getState().createOrGetChannel(user.id);
     if (channelId) {
@@ -305,7 +280,6 @@ function AdminUserList() {
     }
   }
 
-  /** Ban onayı — PlatformBanDialog'dan gelen callback */
   async function handleBanConfirm(reason: string, deleteMessages: boolean) {
     if (!banTarget) return;
     const targetId = banTarget.id;
@@ -321,7 +295,6 @@ function AdminUserList() {
     }
   }
 
-  /** Unban — useConfirm ile basit onay dialogu */
   async function handleUnban(user: AdminUserListItem) {
     const ok = await confirm({
       message: t("platformUnbanConfirm", { username: user.username }),
@@ -337,7 +310,6 @@ function AdminUserList() {
     }
   }
 
-  /** Admin toggle — useConfirm ile basit onay dialogu */
   async function handleAdminToggle(user: AdminUserListItem) {
     const willBeAdmin = !user.is_platform_admin;
     const message = willBeAdmin
@@ -356,7 +328,6 @@ function AdminUserList() {
     }
   }
 
-  /** Hard delete — PlatformActionDialog ile onay + opsiyonel reason */
   async function handleDeleteConfirm(reason: string) {
     if (!deleteTarget) return;
     const targetId = deleteTarget.id;
@@ -419,7 +390,6 @@ function AdminUserList() {
 
   // ─── Helpers ───
 
-  /** Tarih + saat formatı — kullanıcı özellikle saatlerin de gelmesini istedi */
   function formatDateTime(iso: string) {
     try {
       return new Date(iso).toLocaleString(undefined, {

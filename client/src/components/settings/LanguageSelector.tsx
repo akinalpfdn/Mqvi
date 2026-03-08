@@ -1,8 +1,4 @@
-/**
- * LanguageSelector — Dil seçim dropdown'ı.
- *
- * CSS class'ları: .settings-field, .settings-label, .settings-select
- */
+/** LanguageSelector — Language selection dropdown. */
 
 import { useTranslation } from "react-i18next";
 

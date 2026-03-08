@@ -1,12 +1,4 @@
-/**
- * AvatarUpload — Kullanıcı avatar veya sunucu ikon yükleme bileşeni.
- *
- * Dosya seçildiğinde crop modal açılır — kullanıcı zoom/pan ile
- * dairesel (avatar) veya kare (sunucu ikonu) crop yapabilir.
- * "Uygula" tıklandığında canvas üzerinde kırpılmış blob onUpload'a gönderilir.
- *
- * CSS class'ları: .avatar-upload, .avatar-upload-overlay, .crop-modal-*
- */
+/** AvatarUpload — Avatar/icon upload with crop modal (circle or square). */
 
 import { useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -50,7 +42,7 @@ function AvatarUpload({
 
     if (file.size > MAX_FILE_SIZE) return;
 
-    // Dosyayı data URL olarak oku ve crop modal aç
+    // Read as data URL and open crop modal
     const reader = new FileReader();
     reader.onload = () => {
       setCropImage(reader.result as string);
@@ -60,7 +52,7 @@ function AvatarUpload({
     };
     reader.readAsDataURL(file);
 
-    // Input'u temizle (aynı dosyayı tekrar seçebilmek için)
+    // Reset input so the same file can be re-selected
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -99,7 +91,7 @@ function AvatarUpload({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginBottom: 24 }}>
-      {/* Avatar / İkon + hover overlay */}
+      {/* Avatar / Icon + hover overlay */}
       <button
         type="button"
         onClick={() => fileInputRef.current?.click()}
@@ -147,13 +139,13 @@ function AvatarUpload({
         </div>
       </button>
 
-      {/* Alt bilgi text'leri */}
+      {/* Info text */}
       <div style={{ textAlign: "center" }}>
         <p style={{ fontSize: 13, color: "var(--t2)" }}>{t("avatarUpload")}</p>
         <p style={{ fontSize: 13, color: "var(--t3)", marginTop: 2 }}>{t("avatarMaxSize")}</p>
       </div>
 
-      {/* Gizli file input */}
+      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -235,10 +227,7 @@ function AvatarUpload({
   );
 }
 
-/**
- * Canvas üzerinde kırpılmış resmi oluşturur.
- * isCircle=true ise dairesel clip mask uygulanır.
- */
+/** Produce cropped image blob on canvas. Applies circular clip mask when isCircle=true. */
 async function getCroppedImage(
   imageSrc: string,
   pixelCrop: Area,
@@ -254,7 +243,7 @@ async function getCroppedImage(
   canvas.height = size;
 
   if (isCircle) {
-    // Dairesel clip mask
+    // Circular clip mask
     ctx.beginPath();
     ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
     ctx.closePath();

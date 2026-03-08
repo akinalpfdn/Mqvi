@@ -1,9 +1,4 @@
-/**
- * ProfileSettings — Kullanıcı profil ayarları sekmesi.
- *
- * CSS class'ları: .settings-section-title, .settings-field,
- * .settings-label, .settings-input, .settings-btn
- */
+/** ProfileSettings — User profile settings tab. */
 
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -133,7 +128,7 @@ function ProfileSettings() {
     <div className="settings-section">
       <h2 className="settings-section-title">{t("profile")}</h2>
 
-      {/* Avatar yükleme */}
+      {/* Avatar upload */}
       <AvatarUpload
         currentUrl={user.avatar_url}
         previewUrl={avatarPreviewUrl}
@@ -173,7 +168,7 @@ function ProfileSettings() {
         />
       </div>
 
-      {/* Dil Seçimi */}
+      {/* Language */}
       <LanguageSelector
         currentLanguage={pendingLanguage}
         onChange={handleLanguageChange}

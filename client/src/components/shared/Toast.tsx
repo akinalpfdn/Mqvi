@@ -1,12 +1,5 @@
 /**
- * Toast — Tek bir toast notification bileşeni.
- *
- * CSS class'ları: .toast, .toast-success/.toast-error/.toast-warning/.toast-info,
- * .toast-border-success/.toast-border-error/.toast-border-warning/.toast-border-info,
- * .toast-icon, .toast-message, .toast-close
- *
- * Sol kenar: type'a göre renkli border (toast-border-*)
- * Animasyon: CSS vpIn keyframe ile giriş
+ * Toast — Single toast notification with type-colored left border and enter animation.
  */
 
 import { useCallback } from "react";
@@ -28,15 +21,15 @@ function Toast({ id, type, message, isExiting, onDismiss }: ToastProps) {
 
   return (
     <div className={toastClass} role="alert">
-      {/* Type ikonu */}
+      {/* Icon */}
       <div className="toast-icon">
         <ToastIcon type={type} />
       </div>
 
-      {/* Mesaj */}
+      {/* Message */}
       <span className="toast-message">{message}</span>
 
-      {/* Kapat butonu */}
+      {/* Dismiss */}
       <button onClick={handleDismiss} className="toast-close" aria-label="Close">
         ✕
       </button>
@@ -44,9 +37,7 @@ function Toast({ id, type, message, isExiting, onDismiss }: ToastProps) {
   );
 }
 
-/**
- * ToastIcon — Type'a göre ikon render eder.
- */
+/** Icon per toast type. */
 function ToastIcon({ type }: { type: ToastProps["type"] }) {
   switch (type) {
     case "success":

@@ -1,12 +1,4 @@
-/**
- * ServerGeneralSettings — Sunucu genel ayarları sekmesi.
- *
- * Sunucu adı, ikon, davet ayarı ve LiveKit (ses sunucusu) ayarlarını yönetir.
- * LiveKit bölümü sadece self-hosted sunucularda ve owner için düzenlenebilir.
- *
- * CSS class'ları: .settings-section, .settings-section-title,
- * .settings-field, .settings-label, .settings-input, .settings-btn
- */
+/** ServerGeneralSettings — Server name, icon, invite settings, and LiveKit config (self-hosted, owner-only). */
 
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation, Trans } from "react-i18next";
@@ -19,7 +11,7 @@ import * as serverApi from "../../api/servers";
 import AvatarUpload from "./AvatarUpload";
 import type { Server } from "../../types";
 
-/** LiveKit ayarları — backend'den gelen tip */
+/** LiveKit settings from backend */
 type LiveKitSettings = {
   url: string;
   is_platform_managed: boolean;
@@ -53,7 +45,7 @@ function ServerGeneralSettings() {
 
   const isOwner = server !== null && currentUser !== null && server.owner_id === currentUser.id;
 
-  // Admin yetkisi kontrolü — sunucu ayarlarını düzenleyebilmek için gerekli
+  // Admin permission check
   const members = useMemberStore((s) => s.members);
   const currentMember = members.find((m) => m.id === currentUser?.id);
   const isAdmin = currentMember
@@ -61,8 +53,7 @@ function ServerGeneralSettings() {
     : false;
 
   useEffect(() => {
-    // Server değiştiğinde eski state'i temizle — yeni sunucu
-    // yüklenene kadar loading göster, stale veri gösterme.
+    // Clear stale state on server switch
     setServer(null);
     setIsLoaded(false);
     setLkSettings(null);
@@ -79,7 +70,7 @@ function ServerGeneralSettings() {
         setEditName(res.data.name);
         setEditInviteRequired(res.data.invite_required);
 
-        // LiveKit ayarlarını da getir (livekit_instance_id varsa)
+        // Fetch LiveKit settings if instance exists
         if (res.data.livekit_instance_id) {
           const lkRes = await serverApi.getLiveKitSettings(activeServerId);
           if (lkRes.success && lkRes.data) {
@@ -129,7 +120,7 @@ function ServerGeneralSettings() {
   async function handleLiveKitSave() {
     if (!activeServerId || isLkSaving) return;
 
-    // Tüm alanlar zorunlu
+    // All fields required
     if (!editLkUrl.trim() || !editLkKey.trim() || !editLkSecret.trim()) {
       addToast("error", t("livekitSaveError"));
       return;
@@ -144,11 +135,11 @@ function ServerGeneralSettings() {
       });
       if (res.success) {
         addToast("success", t("livekitSaved"));
-        // URL güncellendi — lkSettings'i de güncelle
+        // Update local lkSettings with new URL
         setLkSettings((prev) =>
           prev ? { ...prev, url: editLkUrl.trim() } : prev
         );
-        // Key/Secret input'larını temizle (güvenlik — ekranda kalmasın)
+        // Clear key/secret inputs for security
         setEditLkKey("");
         setEditLkSecret("");
       } else {
@@ -219,7 +210,7 @@ function ServerGeneralSettings() {
     );
   }
 
-  // Self-hosted ve owner → düzenlenebilir LiveKit bölümü
+  // Self-hosted + owner = editable LiveKit section
   const isSelfHosted = lkSettings !== null && !lkSettings.is_platform_managed;
   const showLiveKitEdit = isSelfHosted && isOwner;
 
@@ -227,7 +218,7 @@ function ServerGeneralSettings() {
     <div className="settings-section">
       <h2 className="settings-section-title">{t("general")}</h2>
 
-      {/* Sunucu İkonu */}
+      {/* Server Icon */}
       <AvatarUpload
         currentUrl={server.icon_url}
         fallbackText={server.name}
@@ -235,7 +226,7 @@ function ServerGeneralSettings() {
         isCircle={false}
       />
 
-      {/* Sunucu Adı */}
+      {/* Server Name */}
       <div className="settings-field">
         <label htmlFor="serverName" className="settings-label">
           {t("serverName")}
@@ -298,24 +289,24 @@ function ServerGeneralSettings() {
             {t("livekitSettingsDesc")}
           </p>
 
-          {/* Platform-managed: sadece bilgi göster */}
+          {/* Platform-managed: info only */}
           {lkSettings?.is_platform_managed && (
             <p style={{ fontSize: 14, color: "var(--t1)" }}>
               {t("livekitPlatformManaged")}
             </p>
           )}
 
-          {/* LiveKit yok veya yüklenemedi */}
+          {/* LiveKit not found */}
           {lkNotFound && (
             <p style={{ fontSize: 14, color: "var(--t2)" }}>
               {t("livekitNoInstance")}
             </p>
           )}
 
-          {/* Self-hosted: mevcut URL + düzenleme formu (sadece owner) */}
+          {/* Self-hosted: current URL + edit form (owner only) */}
           {isSelfHosted && (
             <>
-              {/* Mevcut URL gösterimi */}
+              {/* Current URL display */}
               <div className="settings-field">
                 <label className="settings-label">{t("livekitCurrentUrl")}</label>
                 <p style={{
@@ -400,7 +391,7 @@ function ServerGeneralSettings() {
         </>
       )}
 
-      {/* ─── Danger Zone — Server Silme ─── */}
+      {/* ─── Danger Zone — Delete Server ─── */}
       {isOwner && (
         <>
           <div className="dz-separator" />

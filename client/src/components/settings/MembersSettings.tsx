@@ -1,19 +1,4 @@
-/**
- * MembersSettings — Üye yönetimi Settings paneli.
- *
- * İki sekme:
- * - "Members": Tüm üyeler + rol atama + kick/ban
- * - "Bans": Banlı üyeler + unban (sadece BAN_MEMBERS yetkisi varsa görünür)
- *
- * CSS class'ları: channel-settings-wrapper, channel-settings-header,
- * channel-settings-ch-list, role-list-item, settings-btn, settings-btn-danger,
- * member-settings-tabs, member-settings-tab
- *
- * Yetki gereksinimleri:
- * - Rol atama: MANAGE_ROLES (hiyerarşi kontrolü backend'de)
- * - Kick: KICK_MEMBERS
- * - Ban/Unban: BAN_MEMBERS
- */
+/** MembersSettings — Member management with role assignment, kick/ban, and ban list. */
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -40,15 +25,12 @@ function MembersSettings() {
   const addToast = useToastStore((s) => s.addToast);
   const confirm = useConfirm();
 
-  // ─── Tab state ───
   const [activeTab, setActiveTab] = useState<Tab>("members");
 
-  // ─── Members state ───
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [editRoleIds, setEditRoleIds] = useState<string[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // ─── Bans state ───
   const [bans, setBans] = useState<Ban[]>([]);
   const [isBansLoading, setIsBansLoading] = useState(false);
   const [selectedBanUserId, setSelectedBanUserId] = useState<string | null>(null);
@@ -60,7 +42,6 @@ function MembersSettings() {
 
   const selectedMember = members.find((m) => m.id === selectedMemberId);
 
-  /** Seçili üye değiştiğinde editRoleIds'i senkronize et */
   useEffect(() => {
     if (selectedMember) {
       setEditRoleIds(selectedMember.roles.map((r) => r.id));
@@ -68,13 +49,11 @@ function MembersSettings() {
     }
   }, [selectedMember]);
 
-  /** Mevcut kullanıcının effective permissions'ı */
   const myPerms = useMemo(() => {
     const me = members.find((m) => m.id === currentUser?.id);
     return me?.effective_permissions ?? 0;
   }, [members, currentUser]);
 
-  /** Actor'un en yüksek rol position'ı — hiyerarşi kontrolü için */
   const actorMaxPos = useMemo(() => {
     const me = members.find((m) => m.id === currentUser?.id);
     if (!me || me.roles.length === 0) return 0;
@@ -85,25 +64,22 @@ function MembersSettings() {
   const canKick = hasPermission(myPerms, Permissions.KickMembers);
   const canBan = hasPermission(myPerms, Permissions.BanMembers);
 
-  /** Seçili üyenin en yüksek rol position'ı */
   const targetMaxPos = useMemo(() => {
     if (!selectedMember || selectedMember.roles.length === 0) return 0;
     return Math.max(...selectedMember.roles.map((r) => r.position));
   }, [selectedMember]);
 
-  /** Seçili üye owner rolüne sahip mi? */
   const isTargetOwner = selectedMember?.roles.some((r) => r.is_owner) ?? false;
 
   const canActOnTarget = !isTargetOwner && targetMaxPos < actorMaxPos;
 
-  /** Üyenin en yüksek rol rengi — avatar border ve isim rengi için */
+  /** Highest role color for avatar border and name */
   function getMemberColor(member: typeof members[0]): string {
     if (member.roles.length === 0) return "var(--color-text-secondary)";
     const sorted = [...member.roles].sort((a, b) => b.position - a.position);
     return sorted[0].color || "var(--color-text-secondary)";
   }
 
-  // ─── Bans fetch ───
   const fetchBans = useCallback(async () => {
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return;
@@ -115,14 +91,12 @@ function MembersSettings() {
     setIsBansLoading(false);
   }, []);
 
-  /** Tab değiştiğinde bans'ı fetch et */
   useEffect(() => {
     if (activeTab === "bans" && canBan) {
       fetchBans();
     }
   }, [activeTab, canBan, fetchBans]);
 
-  /** Tab geçişinde seçimi temizle */
   function handleTabChange(tab: Tab) {
     setActiveTab(tab);
     setSelectedMemberId(null);
@@ -131,8 +105,6 @@ function MembersSettings() {
   }
 
   const selectedBan = bans.find((b) => b.user_id === selectedBanUserId);
-
-  // ─── Member Handlers ───
 
   function handleRoleToggle(roleId: string) {
     setEditRoleIds((prev) => {
@@ -200,7 +172,6 @@ function MembersSettings() {
     }
   }
 
-  // ─── Unban Handler ───
   async function handleUnban() {
     if (!selectedBan) return;
     const ok = await confirm({
@@ -222,10 +193,8 @@ function MembersSettings() {
     }
   }
 
-  /** Kendimiz mi? Kendimize kick/ban yapamayız */
   const isSelf = selectedMemberId === currentUser?.id;
 
-  /** Ban tarihini okunabilir formata çevir */
   function formatBanDate(dateStr: string): string {
     const date = new Date(dateStr);
     return date.toLocaleDateString(undefined, {
@@ -237,9 +206,9 @@ function MembersSettings() {
 
   return (
     <div className="channel-settings-wrapper">
-      {/* Sol Panel */}
+      {/* Left Panel */}
       <div className="role-list">
-        {/* Tab Toggle — sadece BAN_MEMBERS yetkisi varsa göster */}
+        {/* Tab toggle — only shown when user has BAN_MEMBERS */}
         {canBan ? (
           <div className="member-settings-tabs">
             <button
@@ -272,7 +241,6 @@ function MembersSettings() {
                 onClick={() => setSelectedMemberId(member.id)}
                 className={`role-list-item${member.id === selectedMemberId ? " active" : ""}`}
               >
-                {/* Avatar */}
                 <div
                   className="member-settings-avatar"
                   style={{
@@ -292,7 +260,6 @@ function MembersSettings() {
                   )}
                 </div>
 
-                {/* İsim + username */}
                 <div className="member-settings-info">
                   <span
                     className="member-settings-name"
@@ -327,7 +294,6 @@ function MembersSettings() {
                   onClick={() => setSelectedBanUserId(ban.user_id)}
                   className={`role-list-item${ban.user_id === selectedBanUserId ? " active" : ""}`}
                 >
-                  {/* Avatar fallback — banlı kullanıcının avatar'ı yok */}
                   <div className="member-settings-avatar member-settings-avatar-banned">
                     <span className="member-settings-avatar-fallback">
                       {ban.username.charAt(0).toUpperCase()}
@@ -349,14 +315,13 @@ function MembersSettings() {
         )}
       </div>
 
-      {/* Sağ Panel */}
+      {/* Right Panel */}
       <div className="settings-content channel-settings-right">
         {/* ─── Members Tab — Right Panel ─── */}
         {activeTab === "members" && (
           <>
             {selectedMember ? (
               <div className="channel-perm-section">
-                {/* Üye başlığı */}
                 <div className="member-settings-detail-header">
                   <div
                     className="member-settings-avatar member-settings-avatar-lg"
@@ -387,7 +352,6 @@ function MembersSettings() {
                   </div>
                 </div>
 
-                {/* Mevcut roller */}
                 <div className="settings-field">
                   <label className="settings-label">{t("memberCurrentRoles")}</label>
                   <div className="member-settings-role-tags">
@@ -411,7 +375,7 @@ function MembersSettings() {
                   </div>
                 </div>
 
-                {/* Rol atama — ManageRoles yetkisi + hiyerarşi gerektirir */}
+                {/* Role assignment — requires ManageRoles + hierarchy check */}
                 {canManageRoles && canActOnTarget && !isSelf && (
                   <div className="settings-field">
                     <label className="settings-label">{t("memberAssignRoles")}</label>
@@ -436,7 +400,6 @@ function MembersSettings() {
                   </div>
                 )}
 
-                {/* Kaydet butonu */}
                 {canManageRoles && canActOnTarget && hasChanges && !isSelf && (
                   <div className="member-settings-actions">
                     <button onClick={handleSaveRoles} className="settings-btn">
@@ -446,7 +409,7 @@ function MembersSettings() {
                   </div>
                 )}
 
-                {/* Kick / Ban — sadece başkalarına, yetki + hiyerarşi varsa */}
+                {/* Kick / Ban — only on others, with permission + hierarchy */}
                 {!isSelf && canActOnTarget && (canKick || canBan) && (
                   <div className="settings-field">
                     <label className="settings-label">{t("dangerZone")}</label>
@@ -484,7 +447,6 @@ function MembersSettings() {
           <>
             {selectedBan ? (
               <div className="channel-perm-section">
-                {/* Ban detay başlığı */}
                 <div className="member-settings-detail-header">
                   <div className="member-settings-avatar member-settings-avatar-lg member-settings-avatar-banned">
                     <span className="member-settings-avatar-fallback">
@@ -501,7 +463,6 @@ function MembersSettings() {
                   </div>
                 </div>
 
-                {/* Ban bilgileri */}
                 <div className="settings-field">
                   <label className="settings-label">{t("banReason")}</label>
                   <p className="ban-detail-value">
@@ -516,7 +477,6 @@ function MembersSettings() {
                   </p>
                 </div>
 
-                {/* Unban butonu */}
                 <div className="member-settings-actions">
                   <button
                     onClick={handleUnban}

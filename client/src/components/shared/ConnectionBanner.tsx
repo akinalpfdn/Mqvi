@@ -1,24 +1,13 @@
-/**
- * ConnectionBanner — WebSocket bağlantı durumu göstergesi.
- *
- * Bağlantı koptuğunda (server restart, ağ kesintisi) ekranın üstünde
- * sabit bir banner gösterir. Kullanıcıya ne olduğunu anlatır ve
- * "Yenile" butonu ile uygulamayı yeniden yükleyebilir.
- *
- * Durumlar:
- * - "connected": Banner gösterilmez
- * - "connecting": Sarı banner — "Sunucuya bağlanılıyor... (deneme 2/5)"
- * - "disconnected": Kırmızı banner — "Sunucuya bağlanılamadı" + Yenile butonu
- */
+/** ConnectionBanner — WebSocket connection status indicator (connecting/disconnected). */
 
 import { useTranslation } from "react-i18next";
 
-/** Maksimum reconnect deneme sayısı — useWebSocket'teki ile senkron */
+/** Must match MAX_RECONNECT_ATTEMPTS in useWebSocket */
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 type ConnectionBannerProps = {
   status: "connected" | "connecting" | "disconnected";
-  /** Kaçıncı reconnect denemesinde olduğumuz (0 = ilk bağlantı veya bağlı) */
+  /** Current reconnect attempt (0 = initial connect or connected) */
   reconnectAttempt: number;
 };
 
@@ -31,12 +20,12 @@ function ConnectionBanner({ status, reconnectAttempt }: ConnectionBannerProps) {
     window.location.reload();
   }
 
-  /** Banner metni: retry sırasında deneme sayısı göster, disconnected'da "bağlanılamadı" */
+  /** Banner text with retry count or disconnected message */
   function getBannerText(): string {
     if (status === "disconnected") {
       return t("connectionFailed");
     }
-    // connecting — ilk bağlantı denemesi (attempt=0) veya retry
+    // connecting — initial attempt (0) or retry
     if (reconnectAttempt > 0) {
       return t("connectionRetrying", { attempt: reconnectAttempt, max: MAX_RECONNECT_ATTEMPTS });
     }

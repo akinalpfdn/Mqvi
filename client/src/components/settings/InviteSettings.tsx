@@ -1,17 +1,4 @@
-/**
- * InviteSettings — Davet kodu yönetimi settings tab'ı.
- *
- * CSS class'ları: .settings-section, .settings-section-title,
- * .settings-field, .settings-label, .settings-input, .settings-select,
- * .settings-btn, .settings-btn-danger, .settings-btn-secondary,
- * .invite-list, .invite-item, .invite-code, .invite-meta, .invite-actions
- *
- * Özellikler:
- * - Yeni davet oluşturma (max_uses + expiry seçenekleri)
- * - Mevcut davetleri listeleme (kod, oluşturan, kullanım, son tarih)
- * - Kodu panoya kopyalama
- * - Davet silme
- */
+/** InviteSettings — Invite code management (create, list, copy, delete). */
 
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,10 +6,7 @@ import { useInviteStore } from "../../stores/inviteStore";
 import { useToastStore } from "../../stores/toastStore";
 import { getInviteUrl, copyToClipboard } from "../../utils/constants";
 
-/**
- * Expiry seçenekleri — dakika cinsinden.
- * 0 = süresiz (Never).
- */
+/** Expiry options in minutes. 0 = never. */
 const EXPIRY_OPTIONS = [
   { value: 30, labelKey: "expiry30min" },
   { value: 60, labelKey: "expiry1h" },
@@ -33,10 +17,7 @@ const EXPIRY_OPTIONS = [
   { value: 0, labelKey: "expiryNever" },
 ] as const;
 
-/**
- * Max uses seçenekleri.
- * 0 = sınırsız (No limit).
- */
+/** Max uses options. 0 = unlimited. */
 const MAX_USES_OPTIONS = [
   { value: 0, labelKey: "usesNoLimit" },
   { value: 1, labelKey: "uses1" },
@@ -60,12 +41,9 @@ function InviteSettings() {
   const [maxUses, setMaxUses] = useState(0);
   const [isCreating, setIsCreating] = useState(false);
 
-  // İlk açılışta listeyi çek
   useEffect(() => {
     fetchInvites();
   }, [fetchInvites]);
-
-  // ─── Handlers ───
 
   const handleCreate = useCallback(async () => {
     if (isCreating) return;
@@ -74,12 +52,12 @@ function InviteSettings() {
     const invite = await createInvite(maxUses, expiresIn);
     if (invite) {
       addToast("success", t("inviteCreated"));
-      // Link formatını otomatik kopyala — WhatsApp/DM paylaşımı için
+      // Auto-copy link for easy sharing
       try {
         await copyToClipboard(getInviteUrl(invite.code));
         addToast("success", t("inviteLinkCopied"));
       } catch {
-        // Clipboard API desteklenmiyorsa sessizce devam et
+        // Clipboard API not available
       }
     } else {
       addToast("error", t("inviteCreateError"));
@@ -88,7 +66,7 @@ function InviteSettings() {
     setIsCreating(false);
   }, [isCreating, createInvite, maxUses, expiresIn, addToast, t]);
 
-  /** Ham kodu kopyalar — "Server Ekle" formuna yapıştırmak için */
+  /** Copy raw invite code */
   const handleCopyCode = useCallback(
     async (code: string) => {
       try {
@@ -101,7 +79,7 @@ function InviteSettings() {
     [addToast, t]
   );
 
-  /** Tam invite URL'sini kopyalar — WhatsApp/DM paylaşımı için */
+  /** Copy full invite URL */
   const handleCopyLink = useCallback(
     async (code: string) => {
       try {
@@ -130,7 +108,7 @@ function InviteSettings() {
     <div className="settings-section">
       <h2 className="settings-section-title">{t("invites")}</h2>
 
-      {/* ─── Oluşturma formu ─── */}
+      {/* Create form */}
       <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 24 }}>
         {/* Expiry */}
         <div className="settings-field" style={{ marginBottom: 0 }}>
@@ -176,10 +154,8 @@ function InviteSettings() {
         </button>
       </div>
 
-      {/* ─── Separator ─── */}
       <div style={{ height: 1, background: "var(--b1)", marginBottom: 16 }} />
 
-      {/* ─── Invite listesi ─── */}
       {isLoading ? (
         <p style={{ fontSize: 13, color: "var(--t2)" }}>{t("loading")}</p>
       ) : invites.length === 0 ? (
@@ -201,7 +177,6 @@ function InviteSettings() {
   );
 }
 
-// ─── Alt Component: Tekil Invite Satırı ───
 
 type InviteItemProps = {
   invite: {
@@ -228,7 +203,6 @@ function InviteItem({ invite, onCopyCode, onCopyLink, onDelete }: InviteItemProp
 
   const creatorName = invite.creator_display_name ?? invite.creator_username;
 
-  // Kalan süre hesaplama
   function formatExpiry(): string {
     if (!invite.expires_at) return t("expiryNever");
     if (isExpired) return t("inviteExpired");
@@ -261,7 +235,6 @@ function InviteItem({ invite, onCopyCode, onCopyLink, onDelete }: InviteItemProp
         opacity: isInvalid ? 0.6 : 1,
       }}
     >
-      {/* Sol: Kod + meta bilgi */}
       <div style={{ minWidth: 0 }}>
         <div
           style={{
@@ -293,7 +266,6 @@ function InviteItem({ invite, onCopyCode, onCopyLink, onDelete }: InviteItemProp
         </div>
       </div>
 
-      {/* Sağ: Kod Kopyala + Link Kopyala + Sil butonları */}
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <button
           onClick={() => onCopyCode(invite.code)}

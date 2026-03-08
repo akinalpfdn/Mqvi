@@ -1,12 +1,4 @@
-/**
- * SettingsModal — Discord tarzı tam ekran ayarlar overlay'i.
- *
- * CSS class'ları: .settings-overlay, .settings-content, .settings-close,
- * .settings-section-title
- *
- * Layout: Sol SettingsNav (218px) + sağ content area
- * Kapatma: ESC tuşu veya X butonu
- */
+/** Full-screen settings overlay. Layout: left SettingsNav + right content area. */
 
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,7 +27,7 @@ function SettingsModal() {
   const activeTab = useSettingsStore((s) => s.activeTab);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
 
-  // ESC tuşu ile kapatma
+  // Close on ESC
   useEffect(() => {
     if (!isOpen) return;
 
@@ -65,15 +57,15 @@ function SettingsModal() {
 
   return (
     <div className="settings-overlay">
-      {/* Sol navigasyon sidebar'ı */}
+      {/* Nav sidebar */}
       <SettingsNav />
 
-      {/* Sağ content area */}
+      {/* Content area */}
       <div className="settings-content">
         <SettingsContent activeTab={activeTab} />
       </div>
 
-      {/* Kapat butonu — sağ üst köşe */}
+      {/* Close button */}
       <button
         onClick={closeSettings}
         className="settings-close"
@@ -85,9 +77,7 @@ function SettingsModal() {
   );
 }
 
-/**
- * SettingsContent — activeTab'a göre doğru component'i render eder.
- */
+/** Renders the active tab's component. */
 function SettingsContent({ activeTab }: { activeTab: string }) {
   switch (activeTab) {
     case "profile":

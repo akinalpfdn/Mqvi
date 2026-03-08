@@ -1,27 +1,8 @@
 /**
- * NewDeviceSetup — E2EE cihaz kurulum modal'ı (blocking).
+ * NewDeviceSetup — Blocking E2EE device setup modal.
  *
- * e2eeStore.initStatus === "needs_setup" olduğunda gösterilir.
- * Kullanıcı E2EE anahtarlarını oluşturana veya kurtarma parolasıyla
- * geri yükleyene kadar uygulama kullanılamaz.
- *
- * Akış (hasRecoveryBackup durumuna göre):
- *
- * A) Yedek VAR (hasRecoveryBackup = true):
- *    - Birincil: "Kurtarma Parolasıyla Geri Yükle" (eski mesajlara erişim)
- *    - İkincil: "Yeni Anahtarlar Oluştur" (uyarı ile — eski mesajlar kaybolur)
- *    → Yeni anahtarlar seçilirse onay adımı gösterilir
- *
- * B) Yedek YOK (ilk cihaz / ilk kurulum):
- *    - Sadece "Yeni Anahtarlar Oluştur" (normal akış, uyarı yok)
- *
- * View state machine:
- * - "choice": İlk ekran — seçenekler
- * - "restore": Kurtarma parolası giriş ekranı
- * - "confirmNewKeys": Yeni anahtar oluşturma onay ekranı (yedek varsa)
- *
- * CSS class'ları: .modal-backdrop, .modal-card, .modal-title
- * + e2ee-specific: .e2ee-setup-*
+ * Shown when e2eeStore.initStatus === "needs_setup".
+ * Views: "choice" -> "restore" (recovery password) or "confirmNewKeys" (warning if backup exists).
  */
 
 import { useState } from "react";
@@ -44,7 +25,7 @@ function NewDeviceSetup() {
   const initError = useE2EEStore((s) => s.initError);
   const addToast = useToastStore((s) => s.addToast);
 
-  // needs_recovery_password → doğrudan recovery password formu göster
+  // needs_recovery_password → show recovery password form directly
   const initialView: SetupView = initStatus === "needs_recovery_password"
     ? "setRecoveryPassword"
     : "choice";
@@ -54,13 +35,13 @@ function NewDeviceSetup() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [isSavingRecovery, setIsSavingRecovery] = useState(false);
 
-  /** Yeni anahtarlar oluştur */
+  /** Generate new E2EE keys */
   async function handleGenerateKeys() {
     if (!userId || isGeneratingKeys) return;
     await setupNewDevice(userId);
   }
 
-  /** Kurtarma parolasıyla geri yükle */
+  /** Restore from recovery password */
   async function handleRestore() {
     if (!recoveryPassword.trim() || isRestoring) return;
 
@@ -73,7 +54,7 @@ function NewDeviceSetup() {
     }
   }
 
-  /** Zorunlu recovery password kaydet (ilk kurulum) */
+  /** Save mandatory recovery password (first-time setup) */
   async function handleSaveRecoveryPassword() {
     if (!recoveryPassword.trim() || !recoveryPasswordConfirm.trim() || isSavingRecovery) return;
     if (recoveryPassword !== recoveryPasswordConfirm) {
@@ -115,7 +96,7 @@ function NewDeviceSetup() {
             <div className="e2ee-setup-actions">
               {hasRecoveryBackup ? (
                 <>
-                  {/* Yedek var — kurtarma birincil, yeni anahtar ikincil */}
+                  {/* Backup exists — restore is primary, new keys is secondary */}
                   <button
                     onClick={() => setView("restore")}
                     disabled={isLoading}
@@ -134,7 +115,7 @@ function NewDeviceSetup() {
                 </>
               ) : (
                 <>
-                  {/* Yedek yok — kurtarma birincil, yeni anahtar ikincil */}
+                  {/* No backup — restore is primary, new keys is secondary */}
                   <button
                     onClick={() => setView("restore")}
                     disabled={isLoading}
@@ -207,7 +188,7 @@ function NewDeviceSetup() {
 
         {view === "confirmNewKeys" && (
           <>
-            {/* Onay ekranı — yedek varken yeni anahtar oluşturma uyarısı */}
+            {/* Confirmation — warn about losing old messages when generating new keys */}
             <div className="modal-header">
               <h2 className="modal-title">{t("generateNewKeys")}</h2>
             </div>

@@ -1,22 +1,4 @@
-/**
- * VoiceSettings — Settings modal'daki "Voice & Audio" tab'ı.
- *
- * CSS class'ları: .voice-settings, .vs-section, .vs-label,
- * .vs-desc, .vs-radio-group, .vs-radio, .vs-radio.active,
- * .vs-slider-row, .vs-select, .vs-keybind, .vs-keybind.listening,
- * .vs-toggle-row
- *
- * Ayarlar:
- * 1. Input Mode: Voice Activity / Push to Talk toggle
- * 2. PTT Key: Tuş atama (tıkla → "Press a key..." → keydown ile yakala)
- * 3. Mic Sensitivity: Slider (0-100)
- * 4. Input Device: navigator.mediaDevices.enumerateDevices() ile select
- * 5. Output Device: Select
- * 6. Master Volume: Slider (0-100)
- * 7. Join/Leave Sounds: Toggle switch
- *
- * Tüm ayarlar voiceStore üzerinden yönetilir ve localStorage'da persist edilir.
- */
+/** VoiceSettings — Voice & Audio settings tab. All settings persisted via voiceStore + localStorage. */
 
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -24,21 +6,13 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import type { InputMode } from "../../stores/voiceStore";
 
 
-/**
- * MediaDeviceInfo'nun basitleştirilmiş hali.
- * enumerateDevices() sonucu bu formata dönüştürülür.
- */
+/** Simplified MediaDeviceInfo for select options. */
 type DeviceOption = {
   deviceId: string;
   label: string;
 };
 
-/**
- * Keyboard code → kullanıcı dostu isim dönüşümü.
- *
- * KeyboardEvent.code fiziksel tuşu temsil eder ("Space", "KeyV", "ControlLeft" vb.)
- * Kullanıcıya göstermek için daha okunabilir isimlere çevrilir.
- */
+/** Convert KeyboardEvent.code to a human-readable key name. */
 function formatKeyCode(code: string): string {
   if (code.startsWith("Key")) return code.slice(3);
   if (code.startsWith("Digit")) return code.slice(5);
@@ -69,19 +43,7 @@ function formatKeyCode(code: string): string {
   return mapping[code] ?? code;
 }
 
-/**
- * sliderTrackStyle — Slider'ın dolu kısmını amber renkle boyar.
- *
- * CSS'te `::-webkit-slider-runnable-track` ile gradient background uygulanır.
- * value/max oranına göre sol kısım amber, sağ kısım koyu arka plan olur.
- *
- * Neden inline style?
- * CSS'te slider value'suna göre track rengi değiştiremezsin — ::-webkit-slider-runnable-track
- * sadece statik background kabul eder. JavaScript ile value'ya göre linear-gradient
- * hesaplanıp inline olarak atanır.
- *
- * Firefox bunu native destekler (::-moz-range-progress), Chrome desteklemez.
- */
+/** Inline gradient for slider filled portion (Chrome lacks ::-moz-range-progress). */
 function sliderTrackStyle(value: number, max: number): React.CSSProperties {
   const pct = (value / max) * 100;
   return {
@@ -118,21 +80,16 @@ function VoiceSettings() {
   const [isListeningKey, setIsListeningKey] = useState(false);
 
   // ─── Device enumeration ───
-  // navigator.mediaDevices.enumerateDevices() tüm medya cihazlarını listeler.
-  // Label bilgisi için mic erişim izni gerekir — izin verilmemişse
-  // label boş string olur, biz "Microphone 1" gibi fallback gösteririz.
   useEffect(() => {
     async function loadDevices() {
       try {
-        // Önce mic izni iste — izin verilmeden label bilgisi gelmez
+        // Request mic permission first — labels are empty without it
         await navigator.mediaDevices.getUserMedia({ audio: true })
           .then((stream) => {
-            // İzin alındıktan sonra stream'i hemen kapat (bant genişliği)
+            // Close stream immediately after getting permission
             stream.getTracks().forEach((t) => t.stop());
           })
-          .catch(() => {
-            // İzin reddedildi — label'sız devam et
-          });
+          .catch(() => {});
 
         const devices = await navigator.mediaDevices.enumerateDevices();
 
@@ -152,16 +109,13 @@ function VoiceSettings() {
 
         setAudioInputs(inputs);
         setAudioOutputs(outputs);
-      } catch {
-        // enumerateDevices desteklenmiyor veya hata oluştu
-      }
+      } catch {}
     }
 
     loadDevices();
   }, [t]);
 
   // ─── PTT Key Binding ───
-  // "Press a key..." modunda: bir sonraki keydown'u yakala ve PTT tuşu olarak ayarla.
   useEffect(() => {
     if (!isListeningKey) return;
 
@@ -169,7 +123,7 @@ function VoiceSettings() {
       e.preventDefault();
       e.stopPropagation();
 
-      // Escape ile iptal
+      // Cancel with Escape
       if (e.code === "Escape") {
         setIsListeningKey(false);
         return;
@@ -224,7 +178,7 @@ function VoiceSettings() {
         </div>
       </div>
 
-      {/* ─── PTT Key (sadece PTT modunda göster) ─── */}
+      {/* ─── PTT Key (only in PTT mode) ─── */}
       {inputMode === "push_to_talk" && (
         <div className="vs-section">
           <div className="vs-label">{t("pttKey")}</div>
@@ -238,7 +192,7 @@ function VoiceSettings() {
         </div>
       )}
 
-      {/* ─── Mic Sensitivity (sadece voice activity modunda anlamlı) ─── */}
+      {/* ─── Mic Sensitivity (voice activity mode only) ─── */}
       {inputMode === "voice_activity" && (
         <div className="vs-section">
           <div className="vs-label">{t("micSensitivity")}</div>
@@ -344,8 +298,7 @@ function VoiceSettings() {
         </div>
       </div>
 
-      {/* Screen Share Audio toggle — ScreenPicker modalına taşındı.
-          Ekran paylaşımı başlarken picker'da gösterilir, daha keşfedilebilir. */}
+      {/* Screen Share Audio toggle moved to ScreenPicker modal */}
     </div>
   );
 }
