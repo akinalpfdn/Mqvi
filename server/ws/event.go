@@ -70,8 +70,9 @@ const (
 	OpUserUnblock = "user_unblock"
 
 	// Voice operations
-	OpVoiceStateUpdate = "voice_state_update"
-	OpVoiceStatesSync  = "voice_states_sync"
+	OpVoiceStateUpdate       = "voice_state_update"
+	OpVoiceStatesSync        = "voice_states_sync"
+	OpScreenShareViewerUpdate = "screen_share_viewer_update"
 
 	// Friend operations
 	OpFriendRequestCreate  = "friend_request_create"
@@ -88,6 +89,7 @@ const (
 	OpVoiceAdminStateUpdate = "voice_admin_state_update"
 	OpVoiceMoveUser        = "voice_move_user"
 	OpVoiceDisconnectUser  = "voice_disconnect_user"
+	OpScreenShareWatch     = "screen_share_watch"
 )
 
 // Server -> Client voice moderation
@@ -221,6 +223,21 @@ type VoiceStateItem struct {
 	IsStreaming      bool   `json:"is_streaming"`
 	IsServerMuted    bool   `json:"is_server_muted"`
 	IsServerDeafened bool   `json:"is_server_deafened"`
+}
+
+// ScreenShareWatchData — client tells server they started/stopped watching a screen share.
+type ScreenShareWatchData struct {
+	StreamerUserID string `json:"streamer_user_id"`
+	Watching       bool   `json:"watching"`
+}
+
+// ScreenShareViewerUpdateData — broadcast when viewer count changes for a screen share.
+type ScreenShareViewerUpdateData struct {
+	StreamerUserID string `json:"streamer_user_id"`
+	ChannelID      string `json:"channel_id"`
+	ViewerCount    int    `json:"viewer_count"`
+	ViewerUserID   string `json:"viewer_user_id"` // who joined/left
+	Action         string `json:"action"`          // "join" or "leave"
 }
 
 // ─── P2P Call Event Data ───

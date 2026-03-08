@@ -166,6 +166,9 @@ func registerHubCallbacks(
 			log.Printf("[voice] disconnect user error disconnecter=%s target=%s: %v", disconnecterUserID, targetUserID, err)
 		}
 	})
+	hub.OnScreenShareWatch(func(viewerUserID, streamerUserID string, watching bool) {
+		voiceService.WatchScreenShare(viewerUserID, streamerUserID, watching)
+	})
 
 	// ─── P2P Call Callbacks ───
 

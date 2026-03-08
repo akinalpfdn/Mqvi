@@ -95,6 +95,9 @@ type VoiceMoveUserCallback func(moverUserID, targetUserID, targetChannelID strin
 // VoiceDisconnectUserCallback — authorized user kicked someone from voice.
 type VoiceDisconnectUserCallback func(disconnecterUserID, targetUserID string)
 
+// ScreenShareWatchCallback — user started/stopped watching a screen share.
+type ScreenShareWatchCallback func(viewerUserID, streamerUserID string, watching bool)
+
 // ─── P2P Call Callback Types ───
 
 type P2PCallInitiateCallback func(callerID string, data P2PCallInitiateData)
@@ -165,6 +168,9 @@ type Hub struct {
 
 	// DM callbacks — set in main.go
 	onDMTyping DMTypingCallback
+
+	// Screen share viewer tracking — set in main.go
+	onScreenShareWatch ScreenShareWatchCallback
 }
 
 func NewHub() *Hub {
@@ -538,6 +544,10 @@ func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {
 
 func (h *Hub) OnDMTyping(cb DMTypingCallback) {
 	h.onDMTyping = cb
+}
+
+func (h *Hub) OnScreenShareWatch(cb ScreenShareWatchCallback) {
+	h.onScreenShareWatch = cb
 }
 
 // DisconnectUser forcefully closes all WS connections for a user (e.g. after ban).

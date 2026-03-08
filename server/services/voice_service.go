@@ -55,13 +55,17 @@ type VoiceService interface {
 	// GetUserVoiceChannelID returns the user's active voice channel ID (empty if not in voice).
 	// Satisfies UserVoiceChannelProvider for ChannelService sidebar visibility.
 	GetUserVoiceChannelID(userID string) string
+	WatchScreenShare(viewerUserID, streamerUserID string, watching bool)
+	GetScreenShareViewerCount(streamerUserID string) int
+	CleanupViewersForStreamer(streamerUserID string)
 	StartOrphanCleanup()
 }
 
 type voiceService struct {
-	states          map[string]*models.VoiceState // userID -> VoiceState
-	roomPassphrases map[string]string             // roomName -> E2EE SFrame passphrase
-	mu              sync.RWMutex
+	states             map[string]*models.VoiceState // userID -> VoiceState
+	roomPassphrases    map[string]string             // roomName -> E2EE SFrame passphrase
+	screenShareViewers map[string]map[string]bool    // streamerUserID -> set of viewerUserIDs
+	mu                 sync.RWMutex
 
 	channelGetter ChannelGetter
 	livekitGetter LiveKitInstanceGetter
@@ -82,9 +86,10 @@ func NewVoiceService(
 	encryptionKey []byte,
 ) VoiceService {
 	return &voiceService{
-		states:          make(map[string]*models.VoiceState),
-		roomPassphrases: make(map[string]string),
-		channelGetter:   channelGetter,
+		states:             make(map[string]*models.VoiceState),
+		roomPassphrases:    make(map[string]string),
+		screenShareViewers: make(map[string]map[string]bool),
+		channelGetter:      channelGetter,
 		livekitGetter:   livekitGetter,
 		permResolver:    permResolver,
 		hub:             hub,
@@ -263,6 +268,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	username := state.Username
 	displayName := state.DisplayName
 	avatarURL := state.AvatarURL
+	wasStreaming := state.IsStreaming
 	delete(s.states, userID)
 
 	s.hub.BroadcastToAll(ws.Event{
@@ -276,6 +282,45 @@ func (s *voiceService) LeaveChannel(userID string) error {
 			Action:      "leave",
 		},
 	})
+
+	// Clean up screen share viewer tracking for the leaving user
+	if wasStreaming {
+		// User was streaming — clear their viewer set and broadcast final update
+		delete(s.screenShareViewers, userID)
+		s.hub.BroadcastToAll(ws.Event{
+			Op: ws.OpScreenShareViewerUpdate,
+			Data: ws.ScreenShareViewerUpdateData{
+				StreamerUserID: userID,
+				ChannelID:      channelID,
+				ViewerCount:    0,
+				ViewerUserID:   "",
+				Action:         "leave",
+			},
+		})
+	}
+	// User was a viewer — remove from all streamer viewer sets
+	for streamerID, viewers := range s.screenShareViewers {
+		if viewers[userID] {
+			delete(viewers, userID)
+			viewerCount := len(viewers)
+			if viewerCount == 0 {
+				delete(s.screenShareViewers, streamerID)
+			}
+			// Find streamer's channel for broadcast
+			if streamerState, ok := s.states[streamerID]; ok {
+				s.hub.BroadcastToAll(ws.Event{
+					Op: ws.OpScreenShareViewerUpdate,
+					Data: ws.ScreenShareViewerUpdateData{
+						StreamerUserID: streamerID,
+						ChannelID:      streamerState.ChannelID,
+						ViewerCount:    viewerCount,
+						ViewerUserID:   userID,
+						Action:         "leave",
+					},
+				})
+			}
+		}
+	}
 
 	// Clean up E2EE passphrase if room is empty (forward secrecy)
 	s.cleanupRoomPassphraseIfEmpty(channelID)
@@ -299,6 +344,8 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 	if !ok {
 		return nil
 	}
+
+	wasStreaming := state.IsStreaming
 
 	if maxScreenShares > 0 && isStreaming != nil && *isStreaming {
 		count := 0
@@ -338,6 +385,21 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 			Action:           "update",
 		},
 	})
+
+	// Streamer stopped streaming — clean up viewer tracking and broadcast final update
+	if wasStreaming && !state.IsStreaming {
+		delete(s.screenShareViewers, userID)
+		s.hub.BroadcastToAll(ws.Event{
+			Op: ws.OpScreenShareViewerUpdate,
+			Data: ws.ScreenShareViewerUpdateData{
+				StreamerUserID: userID,
+				ChannelID:      state.ChannelID,
+				ViewerCount:    0,
+				ViewerUserID:   "",
+				Action:         "leave",
+			},
+		})
+	}
 
 	return nil
 }
@@ -620,6 +682,65 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 	log.Printf("[voice] admin %s disconnected user %s from channel %s",
 		disconnecterUserID, targetUserID, channelID)
 	return nil
+}
+
+// ─── Screen Share Viewer Tracking ───
+
+func (s *voiceService) WatchScreenShare(viewerUserID, streamerUserID string, watching bool) {
+	s.mu.Lock()
+
+	// Verify streamer is actually in voice and streaming
+	streamerState, ok := s.states[streamerUserID]
+	if !ok || !streamerState.IsStreaming {
+		s.mu.Unlock()
+		return
+	}
+
+	if watching {
+		if s.screenShareViewers[streamerUserID] == nil {
+			s.screenShareViewers[streamerUserID] = make(map[string]bool)
+		}
+		s.screenShareViewers[streamerUserID][viewerUserID] = true
+	} else {
+		if viewers, exists := s.screenShareViewers[streamerUserID]; exists {
+			delete(viewers, viewerUserID)
+			if len(viewers) == 0 {
+				delete(s.screenShareViewers, streamerUserID)
+			}
+		}
+	}
+
+	viewerCount := len(s.screenShareViewers[streamerUserID])
+	channelID := streamerState.ChannelID
+	s.mu.Unlock()
+
+	action := "leave"
+	if watching {
+		action = "join"
+	}
+
+	s.hub.BroadcastToAll(ws.Event{
+		Op: ws.OpScreenShareViewerUpdate,
+		Data: ws.ScreenShareViewerUpdateData{
+			StreamerUserID: streamerUserID,
+			ChannelID:      channelID,
+			ViewerCount:    viewerCount,
+			ViewerUserID:   viewerUserID,
+			Action:         action,
+		},
+	})
+}
+
+func (s *voiceService) GetScreenShareViewerCount(streamerUserID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.screenShareViewers[streamerUserID])
+}
+
+func (s *voiceService) CleanupViewersForStreamer(streamerUserID string) {
+	s.mu.Lock()
+	delete(s.screenShareViewers, streamerUserID)
+	s.mu.Unlock()
 }
 
 // ─── E2EE Passphrase Helpers ───

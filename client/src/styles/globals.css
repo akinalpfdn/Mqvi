@@ -245,6 +245,7 @@ button.ch-tree-vu-stream { all:unset;display:flex;align-items:center;justify-con
 button.ch-tree-vu-stream:hover { color:var(--t0); }
 button.ch-tree-vu-stream.watching { color:var(--green); }
 button.ch-tree-vu-stream svg { width:14px;height:14px; }
+.ch-tree-vu-viewer-count { font-size:13px;color:var(--color-text-muted);margin-left:2px;min-width:14px;text-align:center; }
 .ch-tree-vu-mute { color:var(--red);opacity:0.7; }
 .ch-tree-vu-deafen { color:var(--red);opacity:0.7; }
 .ch-tree-vu-dot { width:6px;height:6px;border-radius:999px;background:var(--green);animation:pulse 1.5s ease-in-out infinite;flex-shrink:0; }

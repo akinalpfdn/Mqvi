@@ -14,7 +14,7 @@ import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
 import { useServerStore } from "./serverStore";
-import { playWatchStartSound, playWatchStopSound, closeAudioContext } from "../utils/sounds";
+import { playJoinSound, playLeaveSound, closeAudioContext } from "../utils/sounds";
 
 // ─── localStorage Persistence ───
 
@@ -123,6 +123,9 @@ type VoiceStore = {
    */
   watchingScreenShares: Record<string, boolean>;
 
+  /** Screen share viewer counts: streamerUserID -> viewer count */
+  screenShareViewers: Record<string, number>;
+
   /** Pre-mute volume values for local mute restore */
   preMuteVolumes: Record<string, number>;
 
@@ -173,6 +176,7 @@ type VoiceStore = {
   handleVoiceStatesSync: (states: VoiceState[]) => void;
   updateUserInfo: (userId: string, displayName: string, avatarUrl: string) => void;
   handleForceDisconnect: () => void;
+  handleScreenShareViewerUpdate: (data: { streamer_user_id: string; channel_id: string; viewer_count: number; viewer_user_id: string; action: string }) => void;
 };
 
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
@@ -201,6 +205,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   screenShareVolumes: initialSettings.screenShareVolumes,
   activeSpeakers: {},
   watchingScreenShares: {},
+  screenShareViewers: {},
   preMuteVolumes: {},
   rtt: 0,
 
@@ -256,6 +261,14 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   leaveVoiceChannel: () => {
+    // Send unwatch WS events for all active screen share watches before clearing
+    const { watchingScreenShares, _wsSend } = get();
+    if (_wsSend) {
+      for (const streamerId of Object.keys(watchingScreenShares)) {
+        _wsSend("screen_share_watch", { streamer_user_id: streamerId, watching: false });
+      }
+    }
+
     set({
       currentVoiceChannelId: null,
       livekitUrl: null,
@@ -266,6 +279,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       isStreaming: false,
       activeSpeakers: {},
       watchingScreenShares: {},
+      screenShareViewers: {},
       rtt: 0,
       _joinGeneration: get()._joinGeneration + 1,
     });
@@ -525,28 +539,48 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   toggleWatchScreenShare: (userId: string) => {
-    const { watchingScreenShares } = get();
+    const { watchingScreenShares, _wsSend } = get();
     const isWatching = watchingScreenShares[userId] ?? false;
 
     if (isWatching) {
       const next = { ...watchingScreenShares };
       delete next[userId];
       set({ watchingScreenShares: next });
-      playWatchStopSound();
+      playLeaveSound();
     } else {
       set({ watchingScreenShares: { ...watchingScreenShares, [userId]: true } });
-      playWatchStartSound();
+      playJoinSound();
+    }
+
+    // Notify server about watch state change
+    if (_wsSend) {
+      _wsSend("screen_share_watch", {
+        streamer_user_id: userId,
+        watching: !isWatching,
+      });
     }
   },
 
   focusScreenShare: (userId: string) => {
-    const { watchingScreenShares } = get();
+    const { watchingScreenShares, _wsSend } = get();
     const watchingIds = Object.keys(watchingScreenShares);
 
     if (watchingIds.length === 1 && watchingScreenShares[userId]) return;
 
+    // Notify server: unwatch all others, watch this one
+    if (_wsSend) {
+      for (const id of watchingIds) {
+        if (id !== userId) {
+          _wsSend("screen_share_watch", { streamer_user_id: id, watching: false });
+        }
+      }
+      if (!watchingScreenShares[userId]) {
+        _wsSend("screen_share_watch", { streamer_user_id: userId, watching: true });
+      }
+    }
+
     set({ watchingScreenShares: { [userId]: true } });
-    playWatchStopSound();
+    playLeaveSound();
   },
 
   toggleLocalMute: (userId: string) => {
@@ -734,7 +768,20 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       isStreaming: false,
       activeSpeakers: {},
       watchingScreenShares: {},
+      screenShareViewers: {},
       rtt: 0,
+    });
+  },
+
+  handleScreenShareViewerUpdate: (data) => {
+    set((state) => {
+      const next = { ...state.screenShareViewers };
+      if (data.viewer_count > 0) {
+        next[data.streamer_user_id] = data.viewer_count;
+      } else {
+        delete next[data.streamer_user_id];
+      }
+      return { screenShareViewers: next };
     });
   },
 }));

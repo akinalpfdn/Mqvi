@@ -99,6 +99,8 @@ func (c *Client) handleEvent(event Event) {
 		c.handleVoiceMoveUser(event)
 	case OpVoiceDisconnectUser:
 		c.handleVoiceDisconnectUser(event)
+	case OpScreenShareWatch:
+		c.handleScreenShareWatch(event)
 	case OpDMTypingStart:
 		c.handleDMTyping(event)
 	case OpP2PCallInitiate:
@@ -306,6 +308,27 @@ func (c *Client) handleVoiceDisconnectUser(event Event) {
 
 	if c.hub.onVoiceDisconnectUser != nil {
 		go c.hub.onVoiceDisconnectUser(c.userID, data.TargetUserID)
+	}
+}
+
+func (c *Client) handleScreenShareWatch(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	var data ScreenShareWatchData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+
+	if data.StreamerUserID == "" {
+		log.Printf("[ws] screen_share_watch missing streamer_user_id from user %s", c.userID)
+		return
+	}
+
+	if c.hub.onScreenShareWatch != nil {
+		go c.hub.onScreenShareWatch(c.userID, data.StreamerUserID, data.Watching)
 	}
 }
 

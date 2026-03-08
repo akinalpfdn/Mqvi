@@ -447,6 +447,27 @@ export function useWebSocket() {
         }
         break;
       }
+      case "screen_share_viewer_update": {
+        const viewerData = msg.d as {
+          streamer_user_id: string;
+          channel_id: string;
+          viewer_count: number;
+          viewer_user_id: string;
+          action: string;
+        };
+        useVoiceStore.getState().handleScreenShareViewerUpdate(viewerData);
+
+        // Play sound for the streamer when someone joins/leaves their screen share
+        const myId = useAuthStore.getState().user?.id;
+        if (myId === viewerData.streamer_user_id) {
+          if (viewerData.action === "join") {
+            playJoinSound();
+          } else if (viewerData.action === "leave") {
+            playLeaveSound();
+          }
+        }
+        break;
+      }
       case "voice_states_sync": {
         const syncData = msg.d as { states: VoiceState[] };
         const vs = useVoiceStore.getState();
