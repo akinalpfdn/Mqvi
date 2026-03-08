@@ -174,8 +174,8 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         separator: !isSelf,
       });
 
-      // ─── Assign Badge (badge admin only) ───
-      if (!isSelf && currentUser?.id === BADGE_ADMIN_USER_ID) {
+      // ─── Assign Badge (badge admin only, including self) ───
+      if (currentUser?.id === BADGE_ADMIN_USER_ID) {
         items.push({
           label: t("assignBadge"),
           onClick: () => setShowBadgeAssign(true),

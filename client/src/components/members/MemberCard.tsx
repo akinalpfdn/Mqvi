@@ -1,12 +1,14 @@
 /** MemberCard — Member profile popover, positioned left of MemberItem via portal. */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MemberWithRoles } from "../../types";
 import Avatar from "../shared/Avatar";
 import RoleBadge from "./RoleBadge";
 import RoleEditorPopup from "./RoleEditorPopup";
 import BadgeAssignModal from "./BadgeAssignModal";
+import BadgePill from "../shared/BadgePill";
+import { useUserBadges } from "../../hooks/useUserBadges";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
@@ -31,6 +33,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   const { t } = useTranslation("common");
   const confirm = useConfirm();
   const cardRef = useRef<HTMLDivElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState(position);
   const currentUser = useAuthStore((s) => s.user);
 
   const currentMember = useMemberStore((s) =>
@@ -45,6 +48,8 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   const [showRoleEditor, setShowRoleEditor] = useState(false);
   const [showBadgeAssign, setShowBadgeAssign] = useState(false);
 
+  const userBadges = useUserBadges(member.id);
+
   const isMe = currentUser?.id === member.id;
   const canKick = !isMe && hasPermission(myPerms, Permissions.KickMembers);
   const canBan = !isMe && hasPermission(myPerms, Permissions.BanMembers);
@@ -57,10 +62,44 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
   const outReq = outgoing.find((r) => r.user_id === member.id);
   const inReq = incoming.find((r) => r.user_id === member.id);
 
+  // Track whether a child modal (badge assign, role editor) is open via ref
+  // so the click-outside handler can skip closing when a modal is active.
+  const childModalOpenRef = useRef(false);
+  childModalOpenRef.current = showBadgeAssign || showRoleEditor;
+
+  // Measure card after render and clamp within viewport
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const pad = 8;
+    let { top, left } = position;
+
+    // Clamp bottom
+    if (top + rect.height > window.innerHeight - pad) {
+      top = window.innerHeight - rect.height - pad;
+    }
+    // Clamp top
+    if (top < pad) top = pad;
+
+    // Clamp left (card goes off-screen to the left)
+    if (left < pad) left = pad;
+    // Clamp right
+    if (left + rect.width > window.innerWidth - pad) {
+      left = window.innerWidth - rect.width - pad;
+    }
+
+    if (top !== position.top || left !== position.left) {
+      setAdjustedPos({ top, left });
+    }
+  }, [position]);
+
   useEffect(() => {
     let frameId: number;
 
     function handleClick(e: MouseEvent) {
+      // Don't close MemberCard if a child modal/popup is open
+      if (childModalOpenRef.current) return;
       if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
         onClose();
       }
@@ -182,7 +221,7 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
       <div
         ref={cardRef}
         className="member-card"
-        style={{ top: position.top, left: position.left }}
+        style={{ top: adjustedPos.top, left: adjustedPos.left }}
       >
         {/* Header bar */}
         <div className="mc-header">
@@ -196,6 +235,17 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
             </svg>
           </button>
         </div>
+
+        {/* User badges — above avatar for prominence */}
+        {userBadges.length > 0 && (
+          <div className="mc-badges-top">
+            {userBadges.map((ub) => {
+              const badge = ub.badge;
+              if (!badge) return null;
+              return <BadgePill key={ub.id} badge={badge} size="md" />;
+            })}
+          </div>
+        )}
 
         {/* Avatar area */}
         <div className="mc-avatar-area">
@@ -239,9 +289,6 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
             </div>
           )}
 
-          {/* Badges placeholder — TODO: implement real badge system */}
-          {/* {badges.length > 0 && <div className="mc-badges">...</div>} */}
-
           {/* User Actions */}
           {!isMe && (
             <>
@@ -267,17 +314,25 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
                   <FriendIcon />
                   <span>{getFriendLabel()}</span>
                 </button>
-                {isBadgeAdmin && (
-                  <button
-                    className="mc-btn mc-btn-default"
-                    onClick={() => setShowBadgeAssign(true)}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
-                    </svg>
-                    <span>{t("assignBadge")}</span>
-                  </button>
-                )}
+              </div>
+            </>
+          )}
+
+          {/* Badge admin action — works on self and others */}
+          {isBadgeAdmin && (
+            <>
+              {isMe && <div className="mc-divider" />}
+              <div className={`mc-actions${isMe ? "" : ""}`}>
+                <button
+                  className="mc-btn mc-btn-default"
+                  style={isMe ? { gridColumn: "1/-1" } : undefined}
+                  onClick={() => setShowBadgeAssign(true)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
+                  </svg>
+                  <span>{t("assignBadge")}</span>
+                </button>
               </div>
             </>
           )}

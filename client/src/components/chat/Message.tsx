@@ -12,12 +12,14 @@ import { useIsMobile } from "../../hooks/useMediaQuery";
 import { useLongPress } from "../../hooks/useLongPress";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
+import BadgePill from "../shared/BadgePill";
 import ContextMenu from "../shared/ContextMenu";
 import EmojiPicker from "../shared/EmojiPicker";
 import EncryptedAttachment from "./EncryptedAttachment";
 import InviteCard from "./InviteCard";
 import LinkPreviewCard from "./LinkPreviewCard";
 import MobileMessageActions from "./MobileMessageActions";
+import { useUserBadges } from "../../hooks/useUserBadges";
 import type { MemberWithRoles } from "../../types";
 
 type MessageProps = {
@@ -84,6 +86,8 @@ function Message({ message, isCompact }: MessageProps) {
   const member = showRoleColors ? members.find((m) => m.id === message.user_id) : undefined;
   const roleType = getRoleType(member);
   const roleColor = getHighestRoleColor(member);
+
+  const userBadges = useUserBadges(message.user_id);
 
   const isPinned = isMessagePinned(message.id);
 
@@ -310,6 +314,13 @@ function Message({ message, isCompact }: MessageProps) {
             >
               {displayName}
             </span>
+            {userBadges.length > 0 && (
+              <span className="msg-badges">
+                {userBadges.map((ub) =>
+                  ub.badge ? <BadgePill key={ub.id} badge={ub.badge} size="sm" /> : null
+                )}
+              </span>
+            )}
             <span
               className="msg-time"
               title={formatFullDate(message.created_at)}

@@ -161,6 +161,28 @@ export type MemberWithRoles = {
   effective_permissions: number;
 };
 
+/** Badge template created by the badge admin. */
+export type Badge = {
+  id: string;
+  name: string;
+  icon: string;
+  icon_type: "builtin" | "custom";
+  color1: string;
+  color2: string | null;
+  created_by: string;
+  created_at: string;
+};
+
+/** A badge assigned to a specific user. */
+export type UserBadge = {
+  id: string;
+  user_id: string;
+  badge_id: string;
+  assigned_by: string;
+  assigned_at: string;
+  badge?: Badge;
+};
+
 export type Ban = {
   user_id: string;
   username: string;

@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import Avatar from "../shared/Avatar";
+import BadgePill from "../shared/BadgePill";
+import { useUserBadges } from "../../hooks/useUserBadges";
 import { useDMStore } from "../../stores/dmStore";
 import { useFriendStore } from "../../stores/friendStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
@@ -37,6 +39,7 @@ function DMProfileCard({ dm, position, onClose }: DMProfileCardProps) {
 
   const user = dm.other_user;
   const name = user.display_name || user.username;
+  const userBadges = useUserBadges(user.id);
 
   // Friendship state
   const isFriend = friends.some((f) => f.user_id === user.id);
@@ -140,6 +143,15 @@ function DMProfileCard({ dm, position, onClose }: DMProfileCardProps) {
           <div className="dm-profile-username">@{user.username}</div>
           {user.custom_status && (
             <div className="dm-profile-status">{user.custom_status}</div>
+          )}
+
+          {/* User badges */}
+          {userBadges.length > 0 && (
+            <div className="dm-profile-badges">
+              {userBadges.map((ub) =>
+                ub.badge ? <BadgePill key={ub.id} badge={ub.badge} size="md" /> : null
+              )}
+            </div>
           )}
 
           <div className="dm-profile-divider" />

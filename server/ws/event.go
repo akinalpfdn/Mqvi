@@ -120,6 +120,12 @@ const (
 	OpDeviceListUpdate = "device_list_update"
 )
 
+// Badge operations
+const (
+	OpBadgeAssign   = "badge_assign"
+	OpBadgeUnassign = "badge_unassign"
+)
+
 // ReadyData is the payload sent to a client on initial connection.
 type ReadyData struct {
 	OnlineUserIDs   []string          `json:"online_user_ids"`

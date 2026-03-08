@@ -37,6 +37,7 @@ type Repositories struct {
 	E2EEBackup        repository.E2EEKeyBackupRepository
 	GroupSession      repository.GroupSessionRepository
 	LinkPreview       repository.LinkPreviewRepository
+	Badge             repository.BadgeRepository
 }
 
 // initRepositories creates all repositories from the shared DB connection pool.
@@ -71,5 +72,6 @@ func initRepositories(conn *sql.DB) *Repositories {
 		E2EEBackup:        repository.NewSQLiteE2EEBackupRepo(conn),
 		GroupSession:      repository.NewSQLiteGroupSessionRepo(conn),
 		LinkPreview:       repository.NewSQLiteLinkPreviewRepo(conn),
+		Badge:             repository.NewSQLiteBadgeRepo(conn),
 	}
 }

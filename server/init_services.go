@@ -46,6 +46,7 @@ type Services struct {
 	Device            services.DeviceService
 	E2EE              services.E2EEService
 	LinkPreview       services.LinkPreviewService
+	Badge             services.BadgeService
 }
 
 type RateLimiters struct {
@@ -124,6 +125,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, emailSender)
 
 	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)
+	badgeService := services.NewBadgeService(repos.Badge, hub)
 
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
 	metricsCollector := services.NewMetricsCollector(
@@ -170,6 +172,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Device:            deviceService,
 		E2EE:              e2eeService,
 		LinkPreview:       linkPreviewService,
+		Badge:             badgeService,
 	}
 
 	limiters := &RateLimiters{

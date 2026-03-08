@@ -39,6 +39,7 @@ import {
 } from "../utils/constants";
 import { playJoinSound, playLeaveSound, playNotificationSound } from "../utils/sounds";
 import { useE2EEStore } from "../stores/e2eeStore";
+import { useBadgeStore } from "../stores/badgeStore";
 import {
   decryptDMMessage,
   popSentPlaintext,
@@ -910,6 +911,18 @@ export function useWebSocket() {
         break;
       case "device_key_change":
         useE2EEStore.getState().fetchDevices();
+        break;
+
+      // ─── Badge Events ───
+      case "badge_assign":
+        useBadgeStore.getState().handleBadgeAssign(
+          msg.d as { user_id: string; user_badge: import("../types").UserBadge }
+        );
+        break;
+      case "badge_unassign":
+        useBadgeStore.getState().handleBadgeUnassign(
+          msg.d as { user_id: string; badge_id: string }
+        );
         break;
     }
   }

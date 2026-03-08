@@ -130,6 +130,16 @@ func initRoutes(
 	// Link Preview
 	mux.Handle("GET /api/link-preview", auth(h.LinkPreview.Get))
 
+	// Badges — literal paths before parametric
+	mux.Handle("GET /api/badges", auth(h.Badge.ListBadges))
+	mux.Handle("POST /api/badges", auth(h.Badge.CreateBadge))
+	mux.Handle("POST /api/badges/icon", auth(h.Badge.UploadBadgeIcon))
+	mux.Handle("PATCH /api/badges/{id}", auth(h.Badge.UpdateBadge))
+	mux.Handle("DELETE /api/badges/{id}", auth(h.Badge.DeleteBadge))
+	mux.Handle("POST /api/badges/{id}/assign", auth(h.Badge.AssignBadge))
+	mux.Handle("DELETE /api/badges/{id}/assign/{userId}", auth(h.Badge.UnassignBadge))
+	mux.Handle("GET /api/users/{userId}/badges", auth(h.Badge.GetUserBadges))
+
 	// GIFs (Klipy proxy)
 	mux.Handle("GET /api/gifs/trending", auth(h.Gif.Trending))
 	mux.Handle("GET /api/gifs/search", auth(h.Gif.Search))
