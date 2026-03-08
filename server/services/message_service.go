@@ -12,20 +12,8 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// mentionRegex, mesaj içeriğindeki @username kalıplarını bulur.
-//
-// Regex açıklaması:
-// @        — literal @ karakteri (mention başlangıcı)
-// (\w+)   — bir veya daha fazla kelime karakteri (harf, rakam, _)
-//
-// Örnekler:
-//   "merhaba @ali nasılsın"  → ["ali"]
-//   "@ali ve @veli"           → ["ali", "veli"]
-//   "email@test.com"          → ["test"] — false positive, ama service katmanında
-//                               username lookup ile doğrulanır (DB'de "test" yoksa skip)
 var mentionRegex = regexp.MustCompile(`@(\w+)`)
 
-// MessageService, mesaj iş mantığı interface'i.
 type MessageService interface {
 	GetByChannelID(ctx context.Context, channelID string, userID string, beforeID string, limit int) (*models.MessagePage, error)
 	Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error)
@@ -45,9 +33,6 @@ type messageService struct {
 	permResolver   ChannelPermResolver
 }
 
-// NewMessageService, constructor.
-// reactionRepo: Mesajlar listelenirken reaction'ları batch yüklemek için gerekir.
-// permResolver: Kanal bazlı permission override kontrolü (SendMessages, ReadMessages).
 func NewMessageService(
 	messageRepo repository.MessageRepository,
 	attachmentRepo repository.AttachmentRepository,
@@ -70,12 +55,9 @@ func NewMessageService(
 	}
 }
 
-// GetByChannelID, belirli bir kanalın mesajlarını cursor-based pagination ile döner.
-//
-// Kanal bazlı ReadMessages permission kontrolü yapılır.
-// Override ile deny edilmişse kullanıcı bu kanalın mesajlarını göremez.
+// GetByChannelID returns messages with cursor-based pagination.
+// Checks per-channel ReadMessages permission (override-aware).
 func (s *messageService) GetByChannelID(ctx context.Context, channelID string, userID string, beforeID string, limit int) (*models.MessagePage, error) {
-	// Kanal bazlı ReadMessages kontrolü
 	channelPerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
@@ -84,12 +66,11 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 		return nil, fmt.Errorf("%w: missing read messages permission for this channel", pkg.ErrForbidden)
 	}
 
-	// Limit kontrolü
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 
-	// limit + 1 iste — fazladan 1 satır gelirse "daha var" anlamına gelir
+	// Fetch limit+1 to determine if more pages exist
 	messages, err := s.messageRepo.GetByChannelID(ctx, channelID, beforeID, limit+1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get messages: %w", err)
@@ -97,15 +78,15 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 
 	hasMore := len(messages) > limit
 	if hasMore {
-		messages = messages[:limit] // Fazla satırı çıkar
+		messages = messages[:limit]
 	}
 
-	// Mesajları ters çevir — DB'den DESC gelir, frontend ASC bekler (en eski üstte)
+	// Reverse: DB returns DESC, frontend expects ASC (oldest first)
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
 
-	// Attachment'ları batch yükle (N+1 problemi önleme)
+	// Batch load attachments, mentions, reactions (avoid N+1)
 	if len(messages) > 0 {
 		messageIDs := make([]string, len(messages))
 		for i, m := range messages {
@@ -117,19 +98,16 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 			return nil, fmt.Errorf("failed to get attachments: %w", err)
 		}
 
-		// Attachment'ları mesajlarla eşleştir
 		attachmentMap := make(map[string][]models.Attachment)
 		for _, a := range attachments {
 			attachmentMap[a.MessageID] = append(attachmentMap[a.MessageID], a)
 		}
 
-		// Mention'ları batch yükle (N+1 önleme)
 		mentionMap, err := s.mentionRepo.GetByMessageIDs(ctx, messageIDs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get mentions: %w", err)
 		}
 
-		// Reaction'ları batch yükle (N+1 önleme)
 		reactionMap, err := s.reactionRepo.GetByMessageIDs(ctx, messageIDs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get reactions: %w", err)
@@ -138,21 +116,20 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 		for i := range messages {
 			messages[i].Attachments = attachmentMap[messages[i].ID]
 			if messages[i].Attachments == nil {
-				messages[i].Attachments = []models.Attachment{} // null yerine boş dizi
+				messages[i].Attachments = []models.Attachment{}
 			}
 			messages[i].Mentions = mentionMap[messages[i].ID]
 			if messages[i].Mentions == nil {
-				messages[i].Mentions = []string{} // null yerine boş dizi
+				messages[i].Mentions = []string{}
 			}
 			messages[i].Reactions = reactionMap[messages[i].ID]
 			if messages[i].Reactions == nil {
-				messages[i].Reactions = []models.ReactionGroup{} // null yerine boş dizi
+				messages[i].Reactions = []models.ReactionGroup{}
 			}
 		}
 	}
 
-	// Go'da nil slice JSON'a "null" olarak serialize edilir, frontend "null.map()" ile crash eder.
-	// Boş kanalda (hiç mesaj yok) messages nil olabilir — boş slice'a çevir.
+	// nil slice serializes as JSON null — ensure empty array
 	if messages == nil {
 		messages = []models.Message{}
 	}
@@ -163,21 +140,17 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 	}, nil
 }
 
-// Create, yeni bir mesaj oluşturur ve tüm bağlı kullanıcılara bildirir.
-//
-// Kanal bazlı SendMessages permission kontrolü yapılır.
-// Override ile deny edilmişse kullanıcı bu kanala mesaj gönderemez.
+// Create creates a new message. Checks per-channel SendMessages permission.
+// WS broadcast is NOT done here — handler calls BroadcastCreate after file uploads.
 func (s *messageService) Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// Kanal var mı kontrol et
 	if _, err := s.channelRepo.GetByID(ctx, channelID); err != nil {
 		return nil, err
 	}
 
-	// Kanal bazlı SendMessages kontrolü
 	channelPerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
@@ -195,13 +168,12 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		E2EEMetadata:      req.E2EEMetadata,
 	}
 
-	// E2EE mesajlarda Content nil kalır — içerik Ciphertext alanında taşınır.
-	// Plaintext mesajlarda Content req.Content'den set edilir.
+	// E2EE messages have nil Content — payload is in Ciphertext
 	if req.EncryptionVersion == 0 {
 		message.Content = &req.Content
 	}
 
-	// Reply validation — yanıt yapılan mesajın aynı kanalda var olduğunu doğrula
+	// Reply validation — referenced message must be in the same channel
 	if req.ReplyToID != nil && *req.ReplyToID != "" {
 		refMsg, err := s.messageRepo.GetByID(ctx, *req.ReplyToID)
 		if err != nil {
@@ -217,17 +189,16 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
 
-	// Yazar bilgisini yükle (API response ve WS broadcast için)
 	author, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message author: %w", err)
 	}
-	author.PasswordHash = "" // Güvenlik
+	author.PasswordHash = ""
 	message.Author = author
-	message.Attachments = []models.Attachment{} // Boş dizi
-	message.Reactions = []models.ReactionGroup{} // Yeni mesajda reaction yok
+	message.Attachments = []models.Attachment{}
+	message.Reactions = []models.ReactionGroup{}
 
-	// Yanıt bilgisini yükle (API response ve WS broadcast için)
+	// Load reply reference for API response / WS broadcast
 	if message.ReplyToID != nil {
 		refMsg, err := s.messageRepo.GetByID(ctx, *message.ReplyToID)
 		if err == nil && refMsg != nil {
@@ -237,17 +208,14 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 				Content: refMsg.Content,
 			}
 		}
-		// err durumunda (mesaj silinmiş olabilir) ReferencedMessage nil kalır
+		// If deleted, ReferencedMessage stays nil
 	}
 
-	// Mention'ları parse et ve kaydet.
-	// E2EE mesajlarda sunucu mesaj içeriğini okuyamaz → mention extraction yapılamaz.
-	// E2EE mention'lar client tarafında parse edilir ve ayrıca gönderilir (gelecekte).
+	// Parse and save mentions (server can't read E2EE content)
 	if req.EncryptionVersion == 0 {
 		mentionedIDs := s.extractMentions(ctx, req.Content)
 		if len(mentionedIDs) > 0 {
 			if err := s.mentionRepo.SaveMentions(ctx, message.ID, mentionedIDs); err != nil {
-				// Mention kaydetme hatası mesaj oluşturmayı engellemez — log yeterli
 				fmt.Printf("[mention] failed to save mentions for message %s: %v\n", message.ID, err)
 			}
 		}
@@ -256,34 +224,17 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		message.Mentions = []string{}
 	}
 
-	// NOT: WS broadcast burada yapılmıyor.
-	// Multipart mesajlarda dosyalar handler'da yüklenir.
-	// Broadcast, handler'da dosya yükleme tamamlandıktan sonra yapılır —
-	// böylece WS event'i attachment bilgileriyle birlikte gider.
-
 	return message, nil
 }
 
-// BroadcastCreate, mesaj oluşturulduktan sonra WS broadcast yapar.
-//
-// Neden ayrı metod?
-// Multipart mesajlarda dosyalar handler'da yüklenir (service dosya I/O bilmez).
-// Handler önce Create ile mesajı oluşturur, sonra dosyaları yükler,
-// son olarak BroadcastCreate ile attachment'lı mesajı broadcast eder.
-//
-// Güvenlik: Mesaj sadece ViewChannel yetkisi olan kullanıcılara gönderilir.
-// Hub'daki online kullanıcı listesi alınır, her biri için kanal bazlı
-// permission kontrol edilir. Yetkisi olmayana mesaj içeriği bile ulaşmaz.
+// BroadcastCreate sends the message via WS after file uploads complete.
+// Only sends to users with ReadMessages permission on the channel.
 func (s *messageService) BroadcastCreate(message *models.Message) {
 	event := ws.Event{
 		Op:   ws.OpMessageCreate,
 		Data: message,
 	}
 
-	// Online kullanıcıları al ve ReadMessages yetkisi olanları filtrele.
-	// PermReadMessages kullanıyoruz (PermViewChannel değil) çünkü mesaj içeriği
-	// sadece okuma yetkisi olan kullanıcılara ulaşmalı. ViewChannel sadece kanalı
-	// sidebar'da görmeyi sağlar (ör. voice-only erişim), mesaj okuma ayrı bir yetki.
 	onlineUsers := s.hub.GetOnlineUserIDs()
 	ctx := context.Background()
 	var allowed []string
@@ -291,7 +242,7 @@ func (s *messageService) BroadcastCreate(message *models.Message) {
 	for _, userID := range onlineUsers {
 		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, message.ChannelID)
 		if err != nil {
-			continue // Hata durumunda güvenli tarafta kal — gönderme
+			continue
 		}
 		if perms.Has(models.PermReadMessages) {
 			allowed = append(allowed, userID)
@@ -301,8 +252,7 @@ func (s *messageService) BroadcastCreate(message *models.Message) {
 	s.hub.BroadcastToUsers(allowed, event)
 }
 
-// Update, bir mesajı düzenler.
-// Sadece mesaj sahibi düzenleyebilir.
+// Update edits a message. Only the message owner can edit.
 func (s *messageService) Update(ctx context.Context, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
@@ -313,12 +263,10 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		return nil, err
 	}
 
-	// Sahiplik kontrolü — sadece kendi mesajını düzenleyebilirsin
 	if message.UserID != userID {
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
 	}
 
-	// E2EE mesaj düzenleme — Ciphertext güncellenir, Content nil kalır
 	if req.EncryptionVersion == 1 {
 		message.Ciphertext = req.Ciphertext
 		message.SenderDeviceID = req.SenderDeviceID
@@ -332,7 +280,6 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		return nil, err
 	}
 
-	// Attachment'ları yükle
 	attachments, err := s.attachmentRepo.GetByMessageID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get attachments: %w", err)
@@ -342,7 +289,7 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		message.Attachments = []models.Attachment{}
 	}
 
-	// Mention'ları yeniden parse et — E2EE mesajlarda sunucu içeriği okuyamaz
+	// Re-parse mentions (server can't read E2EE content)
 	if req.EncryptionVersion == 0 {
 		if err := s.mentionRepo.DeleteByMessageID(ctx, id); err != nil {
 			fmt.Printf("[mention] failed to delete old mentions for message %s: %v\n", id, err)
@@ -366,15 +313,13 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 	return message, nil
 }
 
-// Delete, bir mesajı siler.
-// Mesaj sahibi VEYA MANAGE_MESSAGES yetkisi olan kullanıcılar silebilir.
+// Delete deletes a message. Owner or MANAGE_MESSAGES permission required.
 func (s *messageService) Delete(ctx context.Context, id string, userID string, userPermissions models.Permission) error {
 	message, err := s.messageRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	// Yetki kontrolü: mesaj sahibi VEYA MANAGE_MESSAGES yetkisi
 	if message.UserID != userID && !userPermissions.Has(models.PermManageMessages) {
 		return fmt.Errorf("%w: you can only delete your own messages", pkg.ErrForbidden)
 	}
@@ -394,17 +339,8 @@ func (s *messageService) Delete(ctx context.Context, id string, userID string, u
 	return nil
 }
 
-// extractMentions, mesaj içeriğindeki @username kalıplarını parse eder ve
-// geçerli kullanıcı ID'lerini döner.
-//
-// Nasıl çalışır:
-// 1. Regex ile tüm @username kalıplarını bul
-// 2. Her username için DB'de kullanıcı ara (UserRepository.GetByUsername)
-// 3. Bulunan kullanıcıların ID'lerini döndür
-// 4. Bulunamayanları sessizce atla (yanlış pozitif veya silinmiş kullanıcı)
-//
-// Duplicate önleme: Aynı kullanıcı birden fazla kez bahsedilirse
-// ID listesinde tek sefer görünür (seen map ile kontrol).
+// extractMentions parses @username patterns from content and returns valid user IDs.
+// Deduplicates results; silently skips unknown usernames.
 func (s *messageService) extractMentions(ctx context.Context, content string) []string {
 	matches := mentionRegex.FindAllStringSubmatch(content, -1)
 	if len(matches) == 0 {
@@ -423,7 +359,7 @@ func (s *messageService) extractMentions(ctx context.Context, content string) []
 
 		user, err := s.userRepo.GetByUsername(ctx, username)
 		if err != nil {
-			continue // Kullanıcı bulunamadı — false positive, skip
+			continue
 		}
 		userIDs = append(userIDs, user.ID)
 	}

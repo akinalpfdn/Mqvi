@@ -9,8 +9,7 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// SearchService, mesaj arama iş mantığı interface'i.
-// Arama sunucu bazlıdır — sadece sunucunun kanallarındaki mesajlar aranır.
+// SearchService handles server-scoped message search (FTS5).
 type SearchService interface {
 	Search(ctx context.Context, serverID, query string, channelID *string, limit, offset int) (*repository.SearchResult, error)
 }

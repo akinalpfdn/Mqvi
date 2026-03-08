@@ -1,21 +1,3 @@
-// Package services, voice (ses) iş mantığını yönetir.
-//
-// VoiceService sorumluluları:
-// 1. LiveKit token generate etme (ses kanalına katılım için)
-// 2. In-memory voice state yönetimi (kim hangi kanalda, mute/deafen/stream)
-// 3. State değişikliklerini WS Hub üzerinden broadcast etme
-//
-// Multi-server mimaride her sunucu kendi LiveKit instance'ına bağlıdır.
-// Token generation sırasında: channel → server → livekit_instance lookup yapılır,
-// credential'lar AES-256-GCM ile decrypt edilir ve token üretilir.
-//
-// Neden in-memory (DB değil)?
-// Voice state geçicidir — sunucu yeniden başlatıldığında tüm WS
-// bağlantıları da düşer. DB'ye yazmak gereksiz I/O olur.
-// sync.RWMutex ile concurrent erişim güvenliği sağlanır.
-//
-// Room name format: "{serverID}:{channelID}" — farklı sunuculardaki aynı
-// channel_id'li kanalların LiveKit'te çakışmaması için.
 package services
 
 import (
@@ -33,144 +15,64 @@ import (
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/ws"
 
-	// LiveKit Go SDK — token generation için.
-	// `auth` paketi JWT token oluşturma API'sini sağlar.
 	"github.com/livekit/protocol/auth"
 	livekit "github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
-// ─── ISP Interface'leri ───
-//
-// Interface Segregation Principle: VoiceService sadece ihtiyacı olan
-// metotlara bağımlı olur, tüm repository interface'ine değil.
-// Bu sayede circular dependency oluşmaz ve test edilebilirlik artar.
+// ─── ISP Interfaces ───
 
-// ChannelGetter, kanal bilgisi almak için minimal interface.
-// repository.ChannelRepository bu interface'i Go'nun duck typing'i
-// sayesinde otomatik olarak karşılar — explicit implement gerekmez.
+// ChannelGetter retrieves channel info. Satisfied by repository.ChannelRepository.
 type ChannelGetter interface {
 	GetByID(ctx context.Context, id string) (*models.Channel, error)
 }
 
-// LiveKitInstanceGetter, sunucuya bağlı LiveKit instance bilgisi almak için ISP interface.
-// repository.LiveKitRepository bu interface'i Go duck typing ile karşılar.
+// LiveKitInstanceGetter retrieves the LiveKit instance for a server.
 type LiveKitInstanceGetter interface {
 	GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error)
 }
 
-// OnlineUserChecker, bağlı kullanıcı kontrolü için minimal ISP interface.
-// Hub.GetOnlineUserIDs() bu interface'i Go duck typing ile karşılar.
-// Orphan voice state cleanup sweep'inde kullanılır.
+// OnlineUserChecker checks connected users. Used by orphan state cleanup.
 type OnlineUserChecker interface {
 	GetOnlineUserIDs() []string
 }
 
 // ─── VoiceService Interface ───
 
-// VoiceService, ses kanalı operasyonları için iş mantığı interface'i.
 type VoiceService interface {
-	// GenerateToken, LiveKit JWT oluşturur. Permission kontrolü içerir.
-	// displayName tercih edilen görünen isimdir — LiveKit'te participant.name olarak kullanılır.
-	// Kanal → sunucu → LiveKit instance lookup yaparak per-server token üretir.
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
-
-	// JoinChannel, kullanıcıyı ses kanalına kaydeder ve broadcast eder.
-	// Kullanıcı başka bir kanalda ise önce oradan çıkarılır.
-	// displayName boş ise username gösterilir.
 	JoinChannel(userID, username, displayName, avatarURL, channelID string) error
-
-	// LeaveChannel, kullanıcıyı mevcut ses kanalından çıkarır.
 	LeaveChannel(userID string) error
-
-	// UpdateState, mute/deafen/streaming durumunu günceller.
 	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool) error
-
-	// GetChannelParticipants, bir ses kanalındaki tüm kullanıcıları döner.
 	GetChannelParticipants(channelID string) []models.VoiceState
-
-	// GetUserVoiceState, kullanıcının anlık ses durumunu döner (nil = kanalda değil).
 	GetUserVoiceState(userID string) *models.VoiceState
-
-	// GetAllVoiceStates, tüm aktif ses durumlarını döner (WS connect sync için).
 	GetAllVoiceStates() []models.VoiceState
-
-	// DisconnectUser, kullanıcıyı ses kanalından çıkarır (WS disconnect cleanup).
 	DisconnectUser(userID string)
-
-	// GetStreamCount, bir kanaldaki aktif ekran paylaşımı sayısını döner.
 	GetStreamCount(channelID string) int
-
-	// AdminUpdateState, yetkili bir kullanıcının başka bir kullanıcıyı server mute/deafen yapmasını sağlar.
-	// PermMuteMembers veya PermDeafenMembers yetkisi gerektirir (hedef kullanıcının kanalında).
-	// Pointer parametreler: nil ise o alan değiştirilmez (partial update).
 	AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error
-
-	// MoveUser, bir kullanıcıyı mevcut ses kanalından başka bir ses kanalına taşır.
-	// Taşıyan kişinin HER İKİ kanalda da PermMoveMembers yetkisi olmalıdır.
 	MoveUser(ctx context.Context, moverUserID, targetUserID, targetChannelID string) error
-
-	// AdminDisconnectUser, bir kullanıcıyı ses kanalından atar.
-	// Atan kişinin hedef kullanıcının bulunduğu kanalda PermMoveMembers yetkisi olmalıdır.
-	// (Discord'da da Disconnect = Move Members yetkisine bağlıdır.)
 	AdminDisconnectUser(ctx context.Context, disconnecterUserID, targetUserID string) error
-
-	// GetUserVoiceChannelID, kullanıcının aktif ses kanalı ID'sini döner.
-	// Kullanıcı hiçbir ses kanalında değilse boş string döner.
-	//
-	// UserVoiceChannelProvider ISP interface'ini karşılar (Go duck typing).
-	// ChannelService.GetAllGrouped tarafından voice-connected kanalları
-	// force-include etmek için kullanılır.
+	// GetUserVoiceChannelID returns the user's active voice channel ID (empty if not in voice).
+	// Satisfies UserVoiceChannelProvider for ChannelService sidebar visibility.
 	GetUserVoiceChannelID(userID string) string
-
-	// StartOrphanCleanup, periyodik orphan voice state temizleme goroutine'ini başlatır.
-	// main.go'da server başlangıcında çağrılır.
 	StartOrphanCleanup()
 }
 
-// ─── Implementasyon ───
-
-// voiceService, VoiceService interface'inin concrete implementasyonu.
-// Küçük harf ile başlar — package dışından erişilemez (encapsulation).
-// Dış dünya sadece VoiceService interface'ini görür.
 type voiceService struct {
-	// In-memory state: userID → VoiceState
-	// Neden userID key? Bir kullanıcı aynı anda tek bir ses kanalında olabilir.
-	states map[string]*models.VoiceState
+	states          map[string]*models.VoiceState // userID -> VoiceState
+	roomPassphrases map[string]string             // roomName -> E2EE SFrame passphrase
+	mu              sync.RWMutex
 
-	// roomPassphrases: roomName → passphrase
-	// Voice E2EE için room bazlı SFrame passphrase.
-	// İlk participant katıldığında oluşturulur, room boşaldığında silinir.
-	// 32 byte crypto/rand → base64 encoded string.
-	// Tüm participant'lar aynı passphrase'i alır → ExternalE2EEKeyProvider.setKey().
-	roomPassphrases map[string]string
-
-	// sync.RWMutex: Concurrent erişim koruması.
-	// RLock: Birden fazla okuyucu aynı anda erişebilir (GetChannelParticipants gibi).
-	// Lock: Yazma sırasında tüm erişim bloklanır (JoinChannel, LeaveChannel gibi).
-	mu sync.RWMutex
-
-	// Dependency'ler — interface üzerinden enjekte edilir (DI)
-	channelGetter  ChannelGetter
-	livekitGetter  LiveKitInstanceGetter // sunucu → LiveKit instance lookup
-	permResolver   ChannelPermResolver   // Kanal bazlı permission override çözümleme (rol + channel override)
-	hub            ws.Broadcaster
-	onlineChecker  OnlineUserChecker // Orphan voice state cleanup için
-	encryptionKey  []byte            // AES-256-GCM key — LiveKit credential'ları decrypt etmek için
+	channelGetter ChannelGetter
+	livekitGetter LiveKitInstanceGetter
+	permResolver  ChannelPermResolver
+	hub           ws.Broadcaster
+	onlineChecker OnlineUserChecker
+	encryptionKey []byte // AES-256-GCM for LiveKit credential decryption
 }
 
-// maxScreenShares — bir ses kanalında aynı anda izin verilen
-// maksimum ekran paylaşımı sayısı. 0 = sınırsız.
-const maxScreenShares = 0
+const maxScreenShares = 0 // 0 = unlimited
 
-// NewVoiceService, yeni bir VoiceService oluşturur.
-// Constructor injection pattern: tüm dependency'ler parametre olarak alınır.
-//
-// Multi-server mimaride livekitCfg yerine livekitGetter + encryptionKey kullanılır:
-// - livekitGetter: sunucuya bağlı LiveKit instance'ını DB'den çeker
-// - encryptionKey: credential'ları AES-256-GCM ile decrypt etmek için
-// - permResolver: Kanal bazlı permission override çözümleme — ConnectVoice, Speak, Stream
-//   kontrolünde rol + kanal override birlikte hesaplanır.
 func NewVoiceService(
 	channelGetter ChannelGetter,
 	livekitGetter LiveKitInstanceGetter,
@@ -194,7 +96,6 @@ func NewVoiceService(
 // ─── Token Generation ───
 
 func (s *voiceService) GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error) {
-	// 1. Kanal var mı ve voice tipinde mi?
 	channel, err := s.channelGetter.GetByID(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -203,16 +104,12 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("%w: not a voice channel", pkg.ErrBadRequest)
 	}
 
-	// 2. Sunucuya bağlı LiveKit instance'ı al
-	//
-	// channel.ServerID → servers.livekit_instance_id → livekit_instances
-	// Her sunucu kendi LiveKit instance'ına bağlıdır.
+	// channel -> server -> livekit_instance lookup
 	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get livekit instance for server %s: %w", channel.ServerID, err)
 	}
 
-	// 3. Credential'ları AES-256-GCM ile decrypt et
 	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt livekit api key: %w", err)
@@ -222,25 +119,19 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("failed to decrypt livekit api secret: %w", err)
 	}
 
-	// 4. Kanal bazlı effective permissions hesapla (override'lar dahil)
-	//
-	// ResolveChannelPermissions, Discord algoritmasını uygular:
-	// base (tüm rollerin OR'u) + channel override'lar (allow/deny).
-	// Admin yetkisi tüm override'ları bypass eder.
+	// Resolve effective permissions (role base + channel overrides)
 	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
 	}
 
-	// 5. PermConnectVoice kontrolü
 	if !effectivePerms.Has(models.PermConnectVoice) {
 		return nil, fmt.Errorf("%w: missing voice connect permission", pkg.ErrForbidden)
 	}
 
-	// 6. UserLimit kontrolü (0 = sınırsız)
+	// User limit check (0 = unlimited)
 	if channel.UserLimit > 0 {
 		participants := s.GetChannelParticipants(channelID)
-		// Kullanıcı zaten bu kanalda ise (yeniden bağlanma) sayma
 		alreadyIn := false
 		for _, p := range participants {
 			if p.UserID == userID {
@@ -253,20 +144,13 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		}
 	}
 
-	// 7. LiveKit grant'larını permission'lara göre belirle
 	canPublish := effectivePerms.Has(models.PermSpeak)
 	canSubscribe := true
 	canPublishData := true
 
-	// 8. LiveKit AccessToken oluştur
-	//
-	// auth.NewAccessToken: LiveKit'in JWT builder'ı.
-	// API key + secret ile imzalanır, client bununla LiveKit'e bağlanır.
-	// LiveKit sunucusu token'ı doğrular ve grant'lara göre izin verir.
 	at := auth.NewAccessToken(apiKey, apiSecret)
 
-	// Room name = "{serverID}:{channelID}" — farklı sunuculardaki aynı
-	// channel_id'li kanallar LiveKit'te çakışmasın.
+	// Room name = "{serverID}:{channelID}" to avoid collisions across servers
 	roomName := channel.ServerID + ":" + channelID
 
 	grant := &auth.VideoGrant{
@@ -277,8 +161,6 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		CanPublishData: &canPublishData,
 	}
 
-	// LiveKit participant.name — UI'da gösterilecek isim.
-	// display_name varsa onu kullan, yoksa username'e düş.
 	participantName := username
 	if displayName != "" {
 		participantName = displayName
@@ -287,19 +169,14 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	at.AddGrant(grant).
 		SetIdentity(userID).
 		SetName(participantName).
-		SetValidFor(24 * time.Hour) // Uzun validite — LiveKit disconnect'i kendisi yönetir
+		SetValidFor(24 * time.Hour)
 
 	token, err := at.ToJWT()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate livekit token: %w", err)
 	}
 
-	// 9. Voice E2EE — room bazlı SFrame passphrase
-	//
-	// İlk participant katıldığında 32 byte random passphrase oluşturulur.
-	// Sonraki participant'lar aynı passphrase'i alır.
-	// Client tarafında ExternalE2EEKeyProvider.setKey(passphrase) ile set edilir.
-	// LiveKit SFrame bu passphrase'ten PBKDF2 ile crypto key türetir.
+	// E2EE: per-room SFrame passphrase (created on first join, reused for session)
 	passphrase, err := s.getOrCreateRoomPassphrase(roomName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create E2EE passphrase: %w", err)
@@ -316,16 +193,15 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 // ─── Channel Join/Leave ───
 
 func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string) error {
-	var oldChannelID string // Eski kanaldan LiveKit cleanup için
+	var oldChannelID string
 
 	s.mu.Lock()
 
-	// Kullanıcı zaten başka bir kanalda ise önce çıkar
+	// Leave current channel if in one
 	if existing, ok := s.states[userID]; ok {
 		oldChannelID = existing.ChannelID
 		delete(s.states, userID)
 
-		// Eski kanaldan ayrılma broadcast'i
 		s.hub.BroadcastToAll(ws.Event{
 			Op: ws.OpVoiceStateUpdate,
 			Data: ws.VoiceStateUpdateBroadcast{
@@ -340,11 +216,9 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			},
 		})
 
-		// Eski kanal boşaldıysa E2EE passphrase'i temizle (forward secrecy)
 		s.cleanupRoomPassphraseIfEmpty(oldChannelID)
 	}
 
-	// Yeni kanala katıl
 	s.states[userID] = &models.VoiceState{
 		UserID:      userID,
 		ChannelID:   channelID,
@@ -353,7 +227,6 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		AvatarURL:   avatarURL,
 	}
 
-	// Katılma broadcast'i
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
@@ -365,12 +238,10 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			Action:      "join",
 		},
 	})
-	// Not: Yeni katılımda IsServerMuted/IsServerDeafened false (zero value) —
-	// struct'ın default'u zaten false, bu yüzden explicit set gerekmez.
 
 	s.mu.Unlock()
 
-	// Eski kanaldan LiveKit phantom participant'ı kaldır (lock dışında, best-effort)
+	// Remove phantom participant from old LiveKit room (best-effort, outside lock)
 	if oldChannelID != "" && oldChannelID != channelID {
 		go s.removeParticipantFromLiveKit(oldChannelID, userID)
 	}
@@ -385,7 +256,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	state, ok := s.states[userID]
 	if !ok {
 		s.mu.Unlock()
-		return nil // Kanalda değil — hata değil, sessizce geç
+		return nil
 	}
 
 	channelID := state.ChannelID
@@ -394,8 +265,6 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	avatarURL := state.AvatarURL
 	delete(s.states, userID)
 
-	// Ayrılma broadcast'i — server mute/deafen state'ini de taşır,
-	// frontend'in sidebar ikonlarını doğru kaldırması için.
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
@@ -408,14 +277,12 @@ func (s *voiceService) LeaveChannel(userID string) error {
 		},
 	})
 
-	// Room boşaldıysa E2EE passphrase'i temizle.
-	// Yeni bir oturum yeni passphrase üretecek — forward secrecy.
+	// Clean up E2EE passphrase if room is empty (forward secrecy)
 	s.cleanupRoomPassphraseIfEmpty(channelID)
 
 	s.mu.Unlock()
 
-	// LiveKit sunucusundan participant'ı kaldır — DB call içerir,
-	// lock dışında goroutine ile çalıştırılır (best-effort).
+	// Remove from LiveKit (best-effort, outside lock — involves DB calls)
 	go s.removeParticipantFromLiveKit(channelID, userID)
 
 	log.Printf("[voice] user %s left channel %s", userID, channelID)
@@ -430,10 +297,9 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 
 	state, ok := s.states[userID]
 	if !ok {
-		return nil // Kanalda değil — sessizce geç
+		return nil
 	}
 
-	// Screen share limit kontrolü — maxScreenShares > 0 ise aktif
 	if maxScreenShares > 0 && isStreaming != nil && *isStreaming {
 		count := 0
 		for _, st := range s.states {
@@ -446,7 +312,6 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 		}
 	}
 
-	// State güncelle
 	if isMuted != nil {
 		state.IsMuted = *isMuted
 	}
@@ -457,7 +322,6 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 		state.IsStreaming = *isStreaming
 	}
 
-	// Güncelleme broadcast'i — tüm state alanlarını taşır (server mute/deafen dahil).
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
@@ -516,7 +380,6 @@ func (s *voiceService) GetAllVoiceStates() []models.VoiceState {
 }
 
 func (s *voiceService) DisconnectUser(userID string) {
-	// LeaveChannel zaten lock alıyor — cleanup best-effort, hatayı logla
 	if err := s.LeaveChannel(userID); err != nil {
 		log.Printf("[voice] disconnect cleanup failed for user=%s: %v", userID, err)
 	}
@@ -535,14 +398,6 @@ func (s *voiceService) GetStreamCount(channelID string) int {
 	return count
 }
 
-// ─── Voice Channel Provider ───
-
-// GetUserVoiceChannelID, kullanıcının aktif ses kanalı ID'sini döner.
-// Kullanıcı hiçbir ses kanalında değilse boş string döner.
-//
-// UserVoiceChannelProvider ISP interface'ini karşılar:
-// ChannelService bu metodu kullanarak "ViewChannel yetkisi olmasa bile
-// kullanıcının seste olduğu kanalı sidebar'da göster" mantığını sağlar.
 func (s *voiceService) GetUserVoiceChannelID(userID string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -555,17 +410,9 @@ func (s *voiceService) GetUserVoiceChannelID(userID string) string {
 
 // ─── Admin State Update ───
 
-// AdminUpdateState, yetkili bir kullanıcının başka bir kullanıcıyı sunucu genelinde
-// susturma (server mute) veya sağırlaştırma (server deafen) yapmasını sağlar.
-//
-// Permission kontrolü:
-// - isServerMuted değiştiriliyorsa → PermMuteMembers gerekli
-// - isServerDeafened değiştiriliyorsa → PermDeafenMembers gerekli
-// Admin yetkisi (PermAdmin) her iki kontrolü de bypass eder (Permission.Has() içindeki check).
-//
-// Partial update: isServerMuted veya isServerDeafened nil ise o alan değiştirilmez.
+// AdminUpdateState applies server-level mute/deafen to a user.
+// Requires PermMuteMembers / PermDeafenMembers on the target's channel.
 func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error {
-	// 1. Hedef kullanıcı ses kanalında mı?
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -574,24 +421,18 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
 	}
 
-	// 2. Granüler yetki kontrolü — hedef kullanıcının bulunduğu kanalda
-	//    effective permission'ları hesapla (rol + kanal override).
-	//    PermAdmin yetkisi her şeyi bypass eder (models.Permission.Has).
 	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, adminUserID, state.ChannelID)
 	if err != nil {
 		return fmt.Errorf("failed to resolve permissions: %w", err)
 	}
 
-	// isServerMuted değiştiriliyorsa PermMuteMembers gerekli
 	if isServerMuted != nil && !effectivePerms.Has(models.PermMuteMembers) {
 		return fmt.Errorf("%w: mute members permission required", pkg.ErrForbidden)
 	}
-	// isServerDeafened değiştiriliyorsa PermDeafenMembers gerekli
 	if isServerDeafened != nil && !effectivePerms.Has(models.PermDeafenMembers) {
 		return fmt.Errorf("%w: deafen members permission required", pkg.ErrForbidden)
 	}
 
-	// 3. State güncelle (partial update — nil alanlar dokunulmaz)
 	if isServerMuted != nil {
 		state.IsServerMuted = *isServerMuted
 	}
@@ -599,7 +440,6 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 		state.IsServerDeafened = *isServerDeafened
 	}
 
-	// 4. Tüm client'lara broadcast et
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
@@ -624,20 +464,9 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 
 // ─── Move & Disconnect ───
 
-// MoveUser, bir kullanıcıyı mevcut ses kanalından başka bir ses kanalına taşır.
-//
-// Permission kontrolü:
-// Mover'ın KAYNAK kanalda ve HEDEF kanalda PermMoveMembers yetkisi olmalıdır.
-// Admin yetkisi her ikisini de bypass eder.
-//
-// İşlem sırası:
-// 1. Hedef kullanıcı voice'ta mı?
-// 2. Hedef kanal voice tipinde mi?
-// 3. Kaynak + hedef kanalda PermMoveMembers?
-// 4. State güncelle → leave(eski) + join(yeni) broadcast
-// 5. Hedef kullanıcıya voice_force_move gönder
+// MoveUser moves a user between voice channels.
+// Requires PermMoveMembers in both source and target channels.
 func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, targetChannelID string) error {
-	// 1. Hedef kanal voice tipinde mi?
 	channel, err := s.channelGetter.GetByID(ctx, targetChannelID)
 	if err != nil {
 		return fmt.Errorf("%w: target channel not found", pkg.ErrNotFound)
@@ -648,7 +477,6 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 
 	s.mu.Lock()
 
-	// 2. Hedef kullanıcı voice'ta mı?
 	state, ok := s.states[targetUserID]
 	if !ok {
 		s.mu.Unlock()
@@ -657,13 +485,12 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 
 	sourceChannelID := state.ChannelID
 
-	// Aynı kanala taşımaya gerek yok
 	if sourceChannelID == targetChannelID {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: user is already in that channel", pkg.ErrBadRequest)
 	}
 
-	// 3. Mover'ın kaynak kanalda PermMoveMembers yetkisi var mı?
+	// Check PermMoveMembers in source channel
 	sourcePerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, sourceChannelID)
 	if err != nil {
 		s.mu.Unlock()
@@ -674,7 +501,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		return fmt.Errorf("%w: move members permission required in source channel", pkg.ErrForbidden)
 	}
 
-	// 4. Mover'ın hedef kanalda PermMoveMembers yetkisi var mı?
+	// Check PermMoveMembers in target channel
 	targetPerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, targetChannelID)
 	if err != nil {
 		s.mu.Unlock()
@@ -685,13 +512,11 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		return fmt.Errorf("%w: move members permission required in target channel", pkg.ErrForbidden)
 	}
 
-	// 5. State güncelle — eski kanaldan çık, yeni kanala geç
 	state.ChannelID = targetChannelID
 
-	// Kaynak kanal boşaldıysa E2EE passphrase'i temizle (forward secrecy)
 	s.cleanupRoomPassphraseIfEmpty(sourceChannelID)
 
-	// 6. Broadcast: leave(eski kanal) + join(yeni kanal)
+	// Broadcast leave(source) + join(target)
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
@@ -724,13 +549,13 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 
 	s.mu.Unlock()
 
-	// 7. Hedef kullanıcıya voice_force_move gönder — client LiveKit room'u değiştirecek
+	// Tell client to switch LiveKit rooms
 	s.hub.BroadcastToUser(targetUserID, ws.Event{
 		Op:   ws.OpVoiceForceMove,
 		Data: ws.VoiceForceMoveData{ChannelID: targetChannelID},
 	})
 
-	// 8. Eski LiveKit room'dan phantom participant'ı kaldır (best-effort)
+	// Remove phantom from old LiveKit room (best-effort)
 	go s.removeParticipantFromLiveKit(sourceChannelID, targetUserID)
 
 	log.Printf("[voice] user %s moved user %s from channel %s to %s",
@@ -738,22 +563,17 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	return nil
 }
 
-// AdminDisconnectUser, bir kullanıcıyı ses kanalından atar (force disconnect).
-//
-// Permission kontrolü:
-// Atan kişinin hedef kullanıcının bulunduğu kanalda PermMoveMembers yetkisi olmalıdır.
-// Discord'da da Disconnect = Move Members yetkisine bağlıdır.
+// AdminDisconnectUser force-disconnects a user from voice.
+// Requires PermMoveMembers in the target's current channel (same as Discord).
 func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUserID, targetUserID string) error {
 	s.mu.Lock()
 
-	// 1. Hedef kullanıcı voice'ta mı?
 	state, ok := s.states[targetUserID]
 	if !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
 	}
 
-	// 2. Disconnecter'ın o kanalda PermMoveMembers yetkisi var mı?
 	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, disconnecterUserID, state.ChannelID)
 	if err != nil {
 		s.mu.Unlock()
@@ -764,14 +584,12 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 		return fmt.Errorf("%w: move members permission required", pkg.ErrForbidden)
 	}
 
-	// 3. State temizle
 	channelID := state.ChannelID
 	username := state.Username
 	displayName := state.DisplayName
 	avatarURL := state.AvatarURL
 	delete(s.states, targetUserID)
 
-	// 4. Broadcast: leave
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
@@ -784,17 +602,14 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 		},
 	})
 
-	// 5. Room boşaldıysa E2EE passphrase'i temizle
 	s.cleanupRoomPassphraseIfEmpty(channelID)
 
 	s.mu.Unlock()
 
-	// 6. Hedef kullanıcıya voice_force_disconnect gönder — client LiveKit'ten çıksın
 	s.hub.BroadcastToUser(targetUserID, ws.Event{
 		Op: ws.OpVoiceForceDisconnect,
 	})
 
-	// 7. LiveKit'ten phantom participant'ı kaldır (best-effort)
 	go s.removeParticipantFromLiveKit(channelID, targetUserID)
 
 	log.Printf("[voice] admin %s disconnected user %s from channel %s",
@@ -804,12 +619,8 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 
 // ─── E2EE Passphrase Helpers ───
 
-// getOrCreateRoomPassphrase, room için E2EE passphrase döner.
-// Room'a ilk katılımda 32 byte crypto/rand → base64 ile passphrase oluşturulur.
-// Sonraki katılımlarda aynı passphrase döner.
-//
-// NOT: Bu metot mu.Lock altında çağrılmamalı — kendi lock'unu almaz.
-// GenerateToken'dan çağrılır, GenerateToken'da lock yok (read-only states erişimi yok).
+// getOrCreateRoomPassphrase returns or creates a per-room E2EE passphrase.
+// 32 bytes crypto/rand -> base64. All participants in the room share the same passphrase.
 func (s *voiceService) getOrCreateRoomPassphrase(roomName string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -818,7 +629,6 @@ func (s *voiceService) getOrCreateRoomPassphrase(roomName string) (string, error
 		return passphrase, nil
 	}
 
-	// 32 byte random → base64 encoded passphrase
 	raw := make([]byte, 32)
 	if _, err := cryptorand.Read(raw); err != nil {
 		return "", fmt.Errorf("crypto/rand failed: %w", err)
@@ -830,20 +640,27 @@ func (s *voiceService) getOrCreateRoomPassphrase(roomName string) (string, error
 	return passphrase, nil
 }
 
-// cleanupRoomPassphraseIfEmpty, channelID'ye ait room'da participant kalmadıysa
-// passphrase'i siler. Forward secrecy: her yeni oturum yeni passphrase alır.
-//
-// NOT: Bu metot mu.Lock altında çağrılır (LeaveChannel, AdminDisconnectUser içinden).
-// Kendi lock almaz — caller lock tutar.
-// StartOrphanCleanup, periyodik olarak orphan voice state'leri temizler.
-//
-// Voice state artık WS disconnect'te silinmiyor (voice state = explicit resource).
-// Kullanıcı tarayıcıyı kapatırsa hem WS hem LiveKit kopar — ama voice state
-// in-memory kalır çünkü explicit voice_leave gelmedi.
-//
-// Bu sweep, Hub'a bağlı olmayan kullanıcıların voice state'lerini temizler.
-// 30 saniye aralıklarla çalışır — WS reconnect için yeterli süre bırakır.
-// Kısa WS kesintilerinde (1-5sn) kullanıcı reconnect eder ve state korunur.
+// cleanupRoomPassphraseIfEmpty deletes the passphrase when a room becomes empty (forward secrecy).
+// MUST be called under mu.Lock (caller holds lock).
+func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
+	for _, state := range s.states {
+		if state.ChannelID == channelID {
+			return
+		}
+	}
+
+	// Room empty — clean up all matching room names (format: "{serverID}:{channelID}")
+	suffix := ":" + channelID
+	for roomName := range s.roomPassphrases {
+		if strings.HasSuffix(roomName, suffix) {
+			delete(s.roomPassphrases, roomName)
+			log.Printf("[voice] cleaned up E2EE passphrase for room %s", roomName)
+		}
+	}
+}
+
+// StartOrphanCleanup periodically removes voice states for disconnected users.
+// Runs every 30s — enough time for WS reconnects during brief disconnections.
 func (s *voiceService) StartOrphanCleanup() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -855,17 +672,13 @@ func (s *voiceService) StartOrphanCleanup() {
 	}()
 }
 
-// orphanEntry, sweep sırasında toplanan orphan bilgisi.
-// Lock dışında LiveKit cleanup için kullanılır.
 type orphanEntry struct {
 	userID    string
 	channelID string
 }
 
-// sweepOrphanStates, Hub'a bağlı olmayan kullanıcıların voice state'lerini temizler.
-//
-// İki aşamalı: lock altında state sil + broadcast, lock dışında LiveKit cleanup.
-// LiveKit cleanup DB call içerdiğinden lock altında yapılamaz (deadlock riski + latency).
+// sweepOrphanStates removes voice states for users no longer connected to the Hub.
+// Two-phase: delete+broadcast under lock, then LiveKit cleanup outside lock.
 func (s *voiceService) sweepOrphanStates() {
 	onlineIDs := s.onlineChecker.GetOnlineUserIDs()
 	onlineSet := make(map[string]bool, len(onlineIDs))
@@ -873,7 +686,6 @@ func (s *voiceService) sweepOrphanStates() {
 		onlineSet[id] = true
 	}
 
-	// Aşama 1: Lock altında orphan'ları topla, state'ten sil, broadcast et
 	var orphans []orphanEntry
 
 	s.mu.Lock()
@@ -904,44 +716,32 @@ func (s *voiceService) sweepOrphanStates() {
 	}
 	s.mu.Unlock()
 
-	// Aşama 2: Lock dışında LiveKit'ten phantom participant'ları kaldır
+	// LiveKit cleanup outside lock (involves DB calls)
 	for _, o := range orphans {
 		s.removeParticipantFromLiveKit(o.channelID, o.userID)
 	}
 }
 
-// removeParticipantFromLiveKit, LiveKit sunucusundan participant'ı explicit olarak kaldırır.
-//
-// Neden gerekli?
-// Go backend voice state'i sildiğinde (LeaveChannel, orphan cleanup), LiveKit sunucusu
-// bundan haberdar OLMAZ — WebRTC bağlantısı ayrı bir transport. Participant, LiveKit'in
-// kendi ICE/DTLS timeout'u dolana kadar "phantom" olarak kalır ve kaynak tüketir.
-// Bu metot ile participant hemen kaldırılır → bellek serbest bırakılır.
-//
-// Best-effort: Hata loglanır ama propagate edilmez. LiveKit kapalı/ulaşılamazsa
-// participant zaten timeout ile düşecektir.
-//
-// NOT: Bu metot DB call yapar (channel + livekit instance lookup) — mu.Lock ALTINDA
-// ÇAĞRILMAMALI. Goroutine ile asenkron çağrılmalı.
+// removeParticipantFromLiveKit explicitly removes a participant from the LiveKit server.
+// Without this, phantom participants linger until ICE/DTLS timeout.
+// Best-effort: errors are logged but not propagated.
+// MUST NOT be called under mu.Lock (does DB lookups).
 func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 1. Channel → ServerID lookup
 	channel, err := s.channelGetter.GetByID(ctx, channelID)
 	if err != nil {
 		log.Printf("[voice] removeParticipant: channel lookup failed for %s: %v", channelID, err)
 		return
 	}
 
-	// 2. ServerID → LiveKit instance lookup
 	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
 	if err != nil {
 		log.Printf("[voice] removeParticipant: livekit instance lookup failed for server %s: %v", channel.ServerID, err)
 		return
 	}
 
-	// 3. Credential decrypt
 	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
 	if err != nil {
 		log.Printf("[voice] removeParticipant: api key decrypt failed: %v", err)
@@ -953,7 +753,6 @@ func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 		return
 	}
 
-	// 4. RoomServiceClient oluştur ve participant'ı kaldır
 	roomName := channel.ServerID + ":" + channelID
 	roomClient := lksdk.NewRoomServiceClient(lkInstance.URL, apiKey, apiSecret)
 
@@ -962,29 +761,9 @@ func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 		Identity: userID,
 	})
 	if err != nil {
-		// ErrParticipantNotFound normal — zaten ayrılmış olabilir
 		log.Printf("[voice] removeParticipant: user=%s room=%s result: %v", userID, roomName, err)
 		return
 	}
 
 	log.Printf("[voice] removeParticipant: successfully removed user=%s from room=%s", userID, roomName)
-}
-
-func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
-	// Kanalda hâlâ participant var mı?
-	for _, state := range s.states {
-		if state.ChannelID == channelID {
-			return // Hâlâ biri var — temizleme
-		}
-	}
-
-	// Room boş — tüm olası room name formatlarını temizle
-	// Room name formatı: "{serverID}:{channelID}" — separator ile eşleştir
-	suffix := ":" + channelID
-	for roomName := range s.roomPassphrases {
-		if strings.HasSuffix(roomName, suffix) {
-			delete(s.roomPassphrases, roomName)
-			log.Printf("[voice] cleaned up E2EE passphrase for room %s", roomName)
-		}
-	}
 }

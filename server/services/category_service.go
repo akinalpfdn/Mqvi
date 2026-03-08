@@ -10,8 +10,6 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// CategoryService, kategori iş mantığı interface'i.
-// Tüm list operasyonları server-scoped.
 type CategoryService interface {
 	GetAllByServer(ctx context.Context, serverID string) ([]models.Category, error)
 	Create(ctx context.Context, serverID string, req *models.CreateCategoryRequest) (*models.Category, error)

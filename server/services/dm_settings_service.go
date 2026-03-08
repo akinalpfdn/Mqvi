@@ -1,13 +1,3 @@
-// Package services — DMSettingsService: DM kanal ayarları iş mantığı.
-//
-// Kullanıcı bazlı DM kanal ayarları: gizleme, sabitleme, sessize alma.
-// Her işlem UPSERT pattern kullanır — satır yoksa oluşturulur, varsa güncellenir.
-//
-// Auto-unhide: Hidden DM'e yeni mesaj geldiğinde otomatik olarak is_hidden=false yapılır.
-// Bu metod dmService tarafından çağrılır (ISP: DMSettingsUnhider interface).
-//
-// WS broadcast: Ayar değişikliklerinde her iki DM katılımcısına bildirim gönderilir,
-// böylece diğer tab'lar/cihazlar da güncellenir.
 package services
 
 import (
@@ -19,41 +9,24 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// DMSettingsService, DM kanal ayarları iş mantığı.
+// DMSettingsService manages per-user DM channel settings (hide, pin, mute).
+// All operations use UPSERT. Auto-unhide: hidden DMs reappear on new message.
 type DMSettingsService interface {
-	// HideDM, DM'yi sidebar'dan gizler.
 	HideDM(ctx context.Context, userID, channelID string) error
-
-	// UnhideDM, DM'yi sidebar'da tekrar gösterir.
 	UnhideDM(ctx context.Context, userID, channelID string) error
-
-	// PinDM, DM'yi listenin en üstüne sabitler.
 	PinDM(ctx context.Context, userID, channelID string) error
-
-	// UnpinDM, DM'nin sabitlemesini kaldırır.
 	UnpinDM(ctx context.Context, userID, channelID string) error
-
-	// MuteDM, DM'yi sessize alır (süreli veya sonsuz).
 	MuteDM(ctx context.Context, userID, channelID string, mutedUntil *string) error
-
-	// UnmuteDM, DM'nin sessize alınmasını kaldırır.
 	UnmuteDM(ctx context.Context, userID, channelID string) error
-
-	// GetDMSettings, kullanıcının pinned + muted DM ID'lerini döner (initial load).
 	GetDMSettings(ctx context.Context, userID string) (*DMSettingsResponse, error)
-
-	// UnhideForNewMessage, hidden DM'e yeni mesaj geldiğinde otomatik unhide yapar.
-	// dmService tarafından çağrılır — ISP: DMSettingsUnhider interface ile kullanılır.
 	UnhideForNewMessage(ctx context.Context, userID, channelID string) error
 }
 
-// DMSettingsUnhider, dmService'in ihtiyaç duyduğu minimal interface (ISP).
-// Yeni mesaj geldiğinde hidden DM'yi otomatik göstermek için kullanılır.
+// DMSettingsUnhider is the ISP interface used by dmService for auto-unhide on new message.
 type DMSettingsUnhider interface {
 	UnhideForNewMessage(ctx context.Context, userID, channelID string) error
 }
 
-// DMSettingsResponse, initial load için pinned + muted DM ID'leri.
 type DMSettingsResponse struct {
 	PinnedChannelIDs []string `json:"pinned_channel_ids"`
 	MutedChannelIDs  []string `json:"muted_channel_ids"`
@@ -65,7 +38,6 @@ type dmSettingsService struct {
 	hub          ws.Broadcaster
 }
 
-// NewDMSettingsService, constructor.
 func NewDMSettingsService(
 	settingsRepo repository.DMSettingsRepository,
 	dmRepo repository.DMRepository,
@@ -78,7 +50,6 @@ func NewDMSettingsService(
 	}
 }
 
-// verifyDMMembership, kullanıcının bu DM kanalının üyesi olduğunu doğrular.
 func (s *dmSettingsService) verifyDMMembership(ctx context.Context, userID, channelID string) error {
 	channel, err := s.dmRepo.GetChannelByID(ctx, channelID)
 	if err != nil {
@@ -90,7 +61,6 @@ func (s *dmSettingsService) verifyDMMembership(ctx context.Context, userID, chan
 	return nil
 }
 
-// broadcastSettingsUpdate, ayar değişikliğini kullanıcının tüm bağlantılarına gönderir.
 func (s *dmSettingsService) broadcastSettingsUpdate(userID, channelID, action string) {
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op: ws.OpDMSettingsUpdate,
@@ -101,7 +71,6 @@ func (s *dmSettingsService) broadcastSettingsUpdate(userID, channelID, action st
 	})
 }
 
-// HideDM, DM'yi sidebar'dan gizler.
 func (s *dmSettingsService) HideDM(ctx context.Context, userID, channelID string) error {
 	if err := s.verifyDMMembership(ctx, userID, channelID); err != nil {
 		return err
@@ -115,7 +84,6 @@ func (s *dmSettingsService) HideDM(ctx context.Context, userID, channelID string
 	return nil
 }
 
-// UnhideDM, DM'yi sidebar'da tekrar gösterir.
 func (s *dmSettingsService) UnhideDM(ctx context.Context, userID, channelID string) error {
 	if err := s.verifyDMMembership(ctx, userID, channelID); err != nil {
 		return err
@@ -129,7 +97,6 @@ func (s *dmSettingsService) UnhideDM(ctx context.Context, userID, channelID stri
 	return nil
 }
 
-// PinDM, DM'yi listenin en üstüne sabitler.
 func (s *dmSettingsService) PinDM(ctx context.Context, userID, channelID string) error {
 	if err := s.verifyDMMembership(ctx, userID, channelID); err != nil {
 		return err
@@ -143,7 +110,6 @@ func (s *dmSettingsService) PinDM(ctx context.Context, userID, channelID string)
 	return nil
 }
 
-// UnpinDM, DM'nin sabitlemesini kaldırır.
 func (s *dmSettingsService) UnpinDM(ctx context.Context, userID, channelID string) error {
 	if err := s.verifyDMMembership(ctx, userID, channelID); err != nil {
 		return err
@@ -157,7 +123,6 @@ func (s *dmSettingsService) UnpinDM(ctx context.Context, userID, channelID strin
 	return nil
 }
 
-// MuteDM, DM'yi sessize alır (süreli veya sonsuz — sentinel).
 func (s *dmSettingsService) MuteDM(ctx context.Context, userID, channelID string, mutedUntil *string) error {
 	if err := s.verifyDMMembership(ctx, userID, channelID); err != nil {
 		return err
@@ -171,7 +136,6 @@ func (s *dmSettingsService) MuteDM(ctx context.Context, userID, channelID string
 	return nil
 }
 
-// UnmuteDM, DM'nin sessize alınmasını kaldırır.
 func (s *dmSettingsService) UnmuteDM(ctx context.Context, userID, channelID string) error {
 	if err := s.verifyDMMembership(ctx, userID, channelID); err != nil {
 		return err
@@ -185,7 +149,6 @@ func (s *dmSettingsService) UnmuteDM(ctx context.Context, userID, channelID stri
 	return nil
 }
 
-// GetDMSettings, initial load için pinned + muted DM ID'leri.
 func (s *dmSettingsService) GetDMSettings(ctx context.Context, userID string) (*DMSettingsResponse, error) {
 	pinned, err := s.settingsRepo.GetPinnedChannelIDs(ctx, userID)
 	if err != nil {
@@ -210,11 +173,8 @@ func (s *dmSettingsService) GetDMSettings(ctx context.Context, userID string) (*
 	}, nil
 }
 
-// UnhideForNewMessage, hidden DM'e yeni mesaj geldiğinde otomatik unhide yapar.
-// Önce IsHidden kontrolü — gizli değilse UPSERT + WS broadcast atlanır.
-// Bu sayede her mesajda gereksiz DB write + WS event önlenir.
+// UnhideForNewMessage auto-unhides a DM when a new message arrives. Skips if not hidden.
 func (s *dmSettingsService) UnhideForNewMessage(ctx context.Context, userID, channelID string) error {
-	// Gizli değilse bir şey yapma — gereksiz UPSERT + broadcast önleme
 	isHidden, err := s.settingsRepo.IsHidden(ctx, userID, channelID)
 	if err != nil {
 		return fmt.Errorf("failed to check DM hidden status: %w", err)

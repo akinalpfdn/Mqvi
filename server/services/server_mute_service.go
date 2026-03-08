@@ -1,7 +1,3 @@
-// Package services — ServerMuteService: sunucu sessize alma iş mantığı.
-//
-// Kullanıcı bazlı sunucu mute/unmute ve muted sunucu listesi.
-// Mute süresi dolduğunda lazy olarak temizlenir (repo katmanında WHERE ile filtrelenir).
 package services
 
 import (
@@ -11,16 +7,11 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// ServerMuteService, sunucu sessize alma iş mantığı interface'i.
+// ServerMuteService handles per-user server mute/unmute.
+// Expired mutes are lazily cleaned via WHERE filter in the repo layer.
 type ServerMuteService interface {
-	// MuteServer, kullanıcının belirli bir sunucuyu sessize almasını sağlar.
 	MuteServer(ctx context.Context, userID, serverID string, req *models.MuteServerRequest) error
-
-	// UnmuteServer, sunucu sessizliğini kaldırır.
 	UnmuteServer(ctx context.Context, userID, serverID string) error
-
-	// GetMutedServerIDs, kullanıcının aktif mute'lu sunucu ID'lerini döner.
-	// WS ready event'inde ve frontend'den çağrılır.
 	GetMutedServerIDs(ctx context.Context, userID string) ([]string, error)
 }
 
@@ -28,7 +19,6 @@ type serverMuteService struct {
 	repo repository.ServerMuteRepository
 }
 
-// NewServerMuteService, constructor — interface döner.
 func NewServerMuteService(repo repository.ServerMuteRepository) ServerMuteService {
 	return &serverMuteService{repo: repo}
 }
@@ -38,7 +28,7 @@ func (s *serverMuteService) MuteServer(ctx context.Context, userID, serverID str
 		return err
 	}
 
-	// Duration'ı *time.Time'a çevir, sonra SQLite uyumlu string'e dönüştür.
+	// Convert duration to SQLite-compatible timestamp string
 	mutedUntil := req.ParseMutedUntil()
 	var mutedUntilStr *string
 	if mutedUntil != nil {

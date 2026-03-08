@@ -10,13 +10,11 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// ReadStateService, okunmamış mesaj takibi iş mantığı interface'i.
-// GetUnreadCounts sunucu bazlıdır — sadece sunucunun kanallarındaki okunmamış sayıları döner.
+// ReadStateService handles unread message tracking.
+// GetUnreadCounts is server-scoped — returns unread counts for channels in a given server.
 type ReadStateService interface {
 	MarkRead(ctx context.Context, userID, channelID, messageID string) error
 	GetUnreadCounts(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error)
-
-	// MarkAllRead, sunucudaki tüm kanalları okunmuş olarak işaretler.
 	MarkAllRead(ctx context.Context, userID, serverID string) error
 }
 
@@ -52,7 +50,7 @@ func (s *readStateService) GetUnreadCounts(ctx context.Context, userID, serverID
 		return nil, err
 	}
 
-	// Permission filtresi — ViewChannel AND ReadMessages yetkisi olan kanalları döndür
+	// Filter to channels where user has ViewChannel AND ReadMessages
 	filtered := make([]models.UnreadInfo, 0, len(all))
 	for _, info := range all {
 		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, info.ChannelID)

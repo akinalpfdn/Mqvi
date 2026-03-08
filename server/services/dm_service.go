@@ -10,29 +10,6 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// DMService, DM iş mantığı interface'i.
-//
-// Kanal:
-//   - GetOrCreateChannel: İki kullanıcı arasındaki DM kanalını bul veya oluştur
-//   - ListChannels: Kullanıcının tüm DM kanallarını listele
-//
-// Mesaj:
-//   - GetMessages: Cursor-based pagination ile mesajları getir (attachments + reactions dahil)
-//   - SendMessage: Yeni DM mesajı gönder (reply desteği)
-//   - BroadcastCreate: Mesajı dosya ekleri ile birlikte WS broadcast et (handler tarafından çağrılır)
-//   - EditMessage: DM mesajını düzenle
-//   - DeleteMessage: DM mesajını sil
-//
-// Reaction:
-//   - ToggleReaction: Emoji tepkisi ekle/kaldır + WS broadcast
-//
-// Pin:
-//   - PinMessage: Mesajı sabitle + WS broadcast
-//   - UnpinMessage: Sabitlemeyi kaldır + WS broadcast
-//   - GetPinnedMessages: Sabitlenmiş mesajları listele
-//
-// Search:
-//   - SearchMessages: FTS5 tam metin arama
 type DMService interface {
 	GetOrCreateChannel(ctx context.Context, userID, otherUserID string) (*models.DMChannelWithUser, error)
 	ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error)
@@ -55,13 +32,10 @@ type dmService struct {
 	dmRepo       repository.DMRepository
 	userRepo     repository.UserRepository
 	hub          ws.Broadcaster
-	blockChecker BlockChecker      // ISP — block kontrolü için minimal interface
-	unhider      DMSettingsUnhider // ISP — auto-unhide için minimal interface
+	blockChecker BlockChecker
+	unhider      DMSettingsUnhider
 }
 
-// NewDMService, constructor.
-// blockChecker: DM mesaj gönderiminde block kontrolü (bidirectional).
-// unhider: Yeni mesaj geldiğinde hidden DM'yi otomatik gösterir.
 func NewDMService(
 	dmRepo repository.DMRepository,
 	userRepo repository.UserRepository,
@@ -78,9 +52,7 @@ func NewDMService(
 	}
 }
 
-// sortUserIDs, iki userID'yi sıralı döndürür.
-// DM kanalı UNIQUE(user1_id, user2_id) constraint'i kullanır.
-// Her zaman aynı sıralamayla kaydetmek aynı çiftin tek kanalı olmasını sağlar.
+// sortUserIDs ensures consistent ordering for the UNIQUE(user1_id, user2_id) constraint.
 func sortUserIDs(a, b string) (string, string) {
 	if a < b {
 		return a, b
@@ -88,8 +60,6 @@ func sortUserIDs(a, b string) (string, string) {
 	return b, a
 }
 
-// broadcastToBothUsers, DM kanalının her iki kullanıcısına WS event gönderir.
-// DM broadcast pattern'ı: user1 + user2 (eğer farklılarsa).
 func (s *dmService) broadcastToBothUsers(channel *models.DMChannel, event ws.Event) {
 	s.hub.BroadcastToUser(channel.User1ID, event)
 	if channel.User1ID != channel.User2ID {
@@ -97,8 +67,6 @@ func (s *dmService) broadcastToBothUsers(channel *models.DMChannel, event ws.Eve
 	}
 }
 
-// verifyChannelMembership, kullanıcının bu DM kanalının üyesi olduğunu doğrular.
-// Değilse ErrForbidden döner. Başarılıysa kanal objesini döner.
 func (s *dmService) verifyChannelMembership(ctx context.Context, userID, channelID string) (*models.DMChannel, error) {
 	channel, err := s.dmRepo.GetChannelByID(ctx, channelID)
 	if err != nil {
@@ -110,8 +78,6 @@ func (s *dmService) verifyChannelMembership(ctx context.Context, userID, channel
 	return channel, nil
 }
 
-// verifyMessageAccess, mesajın sahibini ve kullanıcının
-// bu kanalın üyesi olduğunu doğrular. Kanal objesini de döner (broadcast için).
 func (s *dmService) verifyMessageAccess(ctx context.Context, userID, messageID string) (*models.DMMessage, *models.DMChannel, error) {
 	msg, err := s.dmRepo.GetMessageByID(ctx, messageID)
 	if err != nil {
@@ -126,12 +92,7 @@ func (s *dmService) verifyMessageAccess(ctx context.Context, userID, messageID s
 	return msg, channel, nil
 }
 
-// enrichMessages, mesaj listesine attachments ve reactions batch yükler.
-// Channel message_service.go'daki batch load pattern ile aynı:
-// 1. Tüm mesaj ID'lerini topla
-// 2. Attachments: tek sorgu → map[messageID][]DMAttachment
-// 3. Reactions: tek sorgu → map[messageID][]ReactionGroup
-// 4. Her mesaja atama + null protection (boş dizi)
+// enrichMessages batch-loads attachments and reactions for a message list (avoids N+1).
 func (s *dmService) enrichMessages(ctx context.Context, messages []models.DMMessage) error {
 	if len(messages) == 0 {
 		return nil
@@ -142,19 +103,16 @@ func (s *dmService) enrichMessages(ctx context.Context, messages []models.DMMess
 		messageIDs[i] = m.ID
 	}
 
-	// Batch load attachments — N+1 yerine tek sorgu
 	attachmentMap, err := s.dmRepo.GetAttachmentsByMessageIDs(ctx, messageIDs)
 	if err != nil {
 		return fmt.Errorf("failed to batch load DM attachments: %w", err)
 	}
 
-	// Batch load reactions — N+1 yerine tek sorgu
 	reactionMap, err := s.dmRepo.GetReactionsByMessageIDs(ctx, messageIDs)
 	if err != nil {
 		return fmt.Errorf("failed to batch load DM reactions: %w", err)
 	}
 
-	// Her mesaja batch load verilerini ata
 	for i := range messages {
 		messages[i].Attachments = attachmentMap[messages[i].ID]
 		if messages[i].Attachments == nil {
@@ -171,14 +129,11 @@ func (s *dmService) enrichMessages(ctx context.Context, messages []models.DMMess
 
 // ─── Channel Operations ───
 
-// GetOrCreateChannel, iki kullanıcı arasındaki DM kanalını bulur.
-// Yoksa yeni bir kanal oluşturur ve her iki kullanıcıya WS ile bildirir.
 func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID string) (*models.DMChannelWithUser, error) {
 	if userID == otherUserID {
 		return nil, fmt.Errorf("%w: cannot create DM with yourself", pkg.ErrBadRequest)
 	}
 
-	// Karşı taraf var mı kontrol et
 	otherUser, err := s.userRepo.GetByID(ctx, otherUserID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: user not found", pkg.ErrNotFound)
@@ -186,14 +141,12 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 
 	user1, user2 := sortUserIDs(userID, otherUserID)
 
-	// Mevcut kanalı bul
 	existing, err := s.dmRepo.GetChannelByUsers(ctx, user1, user2)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check existing DM channel: %w", err)
 	}
 
 	if existing != nil {
-		// Kanal zaten var
 		otherUser.PasswordHash = ""
 		return &models.DMChannelWithUser{
 			ID:            existing.ID,
@@ -203,7 +156,6 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		}, nil
 	}
 
-	// Yeni kanal oluştur
 	channel := &models.DMChannel{
 		User1ID: user1,
 		User2ID: user2,
@@ -219,8 +171,7 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		LastMessageAt: channel.LastMessageAt,
 	}
 
-	// Her iki kullanıcıya da yeni kanal bilgisi gönder.
-	// Her kullanıcı kendi perspektifinden "karşı taraf" bilgisini alır.
+	// Notify both users (each sees the other as the "other user")
 	currentUser, err := s.userRepo.GetByID(ctx, userID)
 	if err == nil {
 		currentUser.PasswordHash = ""
@@ -235,7 +186,6 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		})
 	}
 
-	// Kanal oluşturana da bildir (kendi diğer tab'ları için)
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op:   ws.OpDMChannelCreate,
 		Data: result,
@@ -244,27 +194,17 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 	return result, nil
 }
 
-// ListChannels, kullanıcının tüm DM kanallarını listeler.
 func (s *dmService) ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error) {
 	return s.dmRepo.ListChannels(ctx, userID)
 }
 
 // ─── Message Operations ───
 
-// GetMessages, DM kanalının mesajlarını cursor-based pagination ile döner.
-// Yetki kontrolü: kullanıcı bu kanalın üyesi olmalı.
-//
-// Channel message_service.GetMessages ile aynı pattern:
-// 1. Yetki kontrolü
-// 2. limit+1 trick (hasMore)
-// 3. Ters çevir (DB DESC → frontend ASC)
-// 4. Batch load: attachments + reactions
 func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, beforeID string, limit int) (*models.DMMessagePage, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 
-	// Yetki kontrolü — kullanıcı bu DM kanalının üyesi mi?
 	if _, err := s.verifyChannelMembership(ctx, userID, channelID); err != nil {
 		return nil, err
 	}
@@ -279,12 +219,11 @@ func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, b
 		messages = messages[:limit]
 	}
 
-	// Ters çevir (DB'den DESC gelir, frontend ASC bekler)
+	// Reverse: DB returns DESC, frontend expects ASC
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
 
-	// Batch load: attachments + reactions
 	if err := s.enrichMessages(ctx, messages); err != nil {
 		return nil, err
 	}
@@ -299,31 +238,18 @@ func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, b
 	}, nil
 }
 
-// SendMessage, yeni bir DM mesajı gönderir.
-//
-// Channel message_service.Create ile paralel pattern:
-// 1. Validate request
-// 2. Yetki kontrolü (kanal üyeliği)
-// 3. Reply validasyonu (varsa referans mesaj aynı kanalda mı?)
-// 4. DB'ye kaydet
-// 5. Yazar bilgisini yükle
-// 6. Referenced message yükle (reply preview için)
-// 7. Boş slice'lar ata (null protection)
-//
-// NOT: Dosya yükleme bu metottan sonra handler'da yapılır.
-// Handler, dönen mesaja attachments ekleyip BroadcastCreate() çağırır.
+// SendMessage creates a DM message. WS broadcast is done via BroadcastCreate after file uploads.
 func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, req *models.CreateDMMessageRequest) (*models.DMMessage, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// Yetki kontrolü
 	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Block kontrolü — bidirectional: A→B veya B→A yönünde engel varsa mesaj engelle
+	// Bidirectional block check
 	if s.blockChecker != nil {
 		otherUserID := channel.User1ID
 		if channel.User1ID == userID {
@@ -338,7 +264,7 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		}
 	}
 
-	// Reply validasyonu — referans mesaj aynı DM kanalında mı?
+	// Reply validation
 	if req.ReplyToID != nil && *req.ReplyToID != "" {
 		refMsg, err := s.dmRepo.GetMessageByID(ctx, *req.ReplyToID)
 		if err != nil {
@@ -349,7 +275,6 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		}
 	}
 
-	// Content boş string ise nil yap (sadece dosya mesajı veya E2EE mesajı durumu)
 	var contentPtr *string
 	if req.Content != "" {
 		contentPtr = &req.Content
@@ -370,7 +295,6 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		return nil, fmt.Errorf("failed to create DM message: %w", err)
 	}
 
-	// Yazar bilgisini yükle
 	author, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message author: %w", err)
@@ -378,7 +302,7 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 	author.PasswordHash = ""
 	msg.Author = author
 
-	// Referenced message (reply preview) yükle
+	// Load reply reference
 	if msg.ReplyToID != nil && *msg.ReplyToID != "" {
 		refMsg, err := s.dmRepo.GetMessageByID(ctx, *msg.ReplyToID)
 		if err == nil {
@@ -392,35 +316,25 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 			}
 			msg.ReferencedMessage = ref
 		}
-		// Hata durumunda ReferencedMessage nil kalır — frontend "silindi" gösterir
 	}
 
-	// Null protection — JSON'da null yerine [] döner
 	msg.Attachments = []models.DMAttachment{}
 	msg.Reactions = []models.ReactionGroup{}
 
-	// Auto-unhide: Gönderen veya alıcı bu DM'yi gizlemişse, yeni mesaj gelince otomatik göster.
-	// Best-effort — hata mesaj gönderimini engellemez.
-	// IsHidden kontrolü UnhideForNewMessage içinde yapılır — gizli değilse DB write + WS atlanır.
+	// Auto-unhide: if either user hid this DM, show it again on new message (best-effort)
 	if s.unhider != nil {
 		otherUserID := channel.User1ID
 		if channel.User1ID == userID {
 			otherUserID = channel.User2ID
 		}
-		// Alıcı unhide
 		_ = s.unhider.UnhideForNewMessage(ctx, otherUserID, channelID)
-		// Gönderen unhide — kullanıcı DM'yi gizleyip sonra direkt mesaj attığında sidebar'a geri gelir
 		_ = s.unhider.UnhideForNewMessage(ctx, userID, channelID)
 	}
 
 	return msg, nil
 }
 
-// BroadcastCreate, oluşturulan DM mesajını dosya ekleri ile birlikte
-// her iki kullanıcıya WS broadcast eder.
-//
-// Channel BroadcastCreate pattern ile aynı: handler dosyaları yükledikten sonra
-// bu metodu çağırır — böylece WS event attachments dahil gönderilir.
+// BroadcastCreate sends the DM message to both users after file uploads complete.
 func (s *dmService) BroadcastCreate(message *models.DMMessage) {
 	channel, err := s.dmRepo.GetChannelByID(context.Background(), message.DMChannelID)
 	if err != nil {
@@ -434,8 +348,6 @@ func (s *dmService) BroadcastCreate(message *models.DMMessage) {
 	s.broadcastToBothUsers(channel, event)
 }
 
-// EditMessage, bir DM mesajını düzenler.
-// Sadece mesaj sahibi düzenleyebilir.
 func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, req *models.UpdateDMMessageRequest) (*models.DMMessage, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
@@ -454,13 +366,11 @@ func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, r
 		return nil, err
 	}
 
-	// Güncellenmiş mesajı tekrar yükle (edited_at güncel olsun)
 	updated, err := s.dmRepo.GetMessageByID(ctx, messageID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Attachments ve reactions yükle
 	enriched := []models.DMMessage{*updated}
 	if err := s.enrichMessages(ctx, enriched); err != nil {
 		return nil, err
@@ -474,8 +384,6 @@ func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, r
 	return &enriched[0], nil
 }
 
-// DeleteMessage, bir DM mesajını siler.
-// Sadece mesaj sahibi silebilir.
 func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string) error {
 	msg, channel, err := s.verifyMessageAccess(ctx, userID, messageID)
 	if err != nil {
@@ -503,12 +411,6 @@ func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string)
 
 // ─── Reaction Operations ───
 
-// ToggleReaction, DM mesajına emoji tepkisi ekler veya kaldırır.
-//
-// 1. Mesaj erişim kontrolü (kullanıcı bu DM kanalının üyesi mi?)
-// 2. Repository toggle (INSERT OR IGNORE → DELETE pattern)
-// 3. Güncel reaction listesini yükle
-// 4. Her iki kullanıcıya WS broadcast
 func (s *dmService) ToggleReaction(ctx context.Context, userID, messageID, emoji string) error {
 	msg, channel, err := s.verifyMessageAccess(ctx, userID, messageID)
 	if err != nil {
@@ -520,7 +422,6 @@ func (s *dmService) ToggleReaction(ctx context.Context, userID, messageID, emoji
 		return fmt.Errorf("failed to toggle DM reaction: %w", err)
 	}
 
-	// Güncel reaction listesini yükle
 	reactions, err := s.dmRepo.GetReactionsByMessageID(ctx, messageID)
 	if err != nil {
 		return fmt.Errorf("failed to get updated reactions: %w", err)
@@ -540,8 +441,6 @@ func (s *dmService) ToggleReaction(ctx context.Context, userID, messageID, emoji
 
 // ─── Pin Operations ───
 
-// PinMessage, bir DM mesajını sabitler.
-// DM'de her iki kullanıcı da sabitleme yapabilir (channel gibi permission yok).
 func (s *dmService) PinMessage(ctx context.Context, userID, messageID string) error {
 	msg, channel, err := s.verifyMessageAccess(ctx, userID, messageID)
 	if err != nil {
@@ -552,7 +451,6 @@ func (s *dmService) PinMessage(ctx context.Context, userID, messageID string) er
 		return fmt.Errorf("failed to pin DM message: %w", err)
 	}
 
-	// Güncel mesaj bilgisini yükle (is_pinned = true)
 	updated, err := s.dmRepo.GetMessageByID(ctx, messageID)
 	if err != nil {
 		return fmt.Errorf("failed to get updated message: %w", err)
@@ -573,7 +471,6 @@ func (s *dmService) PinMessage(ctx context.Context, userID, messageID string) er
 	return nil
 }
 
-// UnpinMessage, bir DM mesajının sabitlemesini kaldırır.
 func (s *dmService) UnpinMessage(ctx context.Context, userID, messageID string) error {
 	msg, channel, err := s.verifyMessageAccess(ctx, userID, messageID)
 	if err != nil {
@@ -595,7 +492,6 @@ func (s *dmService) UnpinMessage(ctx context.Context, userID, messageID string) 
 	return nil
 }
 
-// GetPinnedMessages, DM kanalının sabitlenmiş mesajlarını listeler.
 func (s *dmService) GetPinnedMessages(ctx context.Context, userID, channelID string) ([]models.DMMessage, error) {
 	if _, err := s.verifyChannelMembership(ctx, userID, channelID); err != nil {
 		return nil, err
@@ -615,12 +511,6 @@ func (s *dmService) GetPinnedMessages(ctx context.Context, userID, channelID str
 
 // ─── Search Operations ───
 
-// SearchMessages, DM kanalında FTS5 tam metin araması yapar.
-//
-// Channel search ile aynı pattern — limit/offset ile pagination,
-// total_count ile toplam sonuç sayısı döner.
-// Limit validasyonu: 1-100 arası, varsayılan 25.
-// Offset validasyonu: >= 0, varsayılan 0.
 func (s *dmService) SearchMessages(ctx context.Context, userID, channelID, query string, limit, offset int) (*models.DMSearchResult, error) {
 	if _, err := s.verifyChannelMembership(ctx, userID, channelID); err != nil {
 		return nil, err
@@ -630,7 +520,6 @@ func (s *dmService) SearchMessages(ctx context.Context, userID, channelID, query
 		return &models.DMSearchResult{Messages: []models.DMMessage{}, TotalCount: 0}, nil
 	}
 
-	// Limit/offset validation — channel search_service ile aynı
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}
@@ -650,9 +539,6 @@ func (s *dmService) SearchMessages(ctx context.Context, userID, channelID, query
 	return &models.DMSearchResult{Messages: messages, TotalCount: totalCount}, nil
 }
 
-// ToggleE2EE, DM kanalının E2EE durumunu değiştirir.
-// Her iki kullanıcı da toggle yapabilir — kanal bazlı ayar.
-// Toggle sonrası her iki kullanıcıya WS broadcast yapılır.
 func (s *dmService) ToggleE2EE(ctx context.Context, userID, channelID string, enabled bool) (*models.DMChannel, error) {
 	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
 	if err != nil {
@@ -665,7 +551,6 @@ func (s *dmService) ToggleE2EE(ctx context.Context, userID, channelID string, en
 
 	channel.E2EEEnabled = enabled
 
-	// Her iki kullanıcıya bildir
 	s.broadcastToBothUsers(channel, ws.Event{
 		Op:   "dm_channel_update",
 		Data: channel,

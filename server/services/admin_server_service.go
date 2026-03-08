@@ -1,14 +1,12 @@
-// Package services — AdminServerService, platform admin sunucu yönetimi.
+// Package services — AdminServerService: platform admin server management.
 //
-// Platform admin'in herhangi bir sunucuyu silmesini sağlar.
-// Owner-only silmeden (ServerService.DeleteServer) farklıdır —
-// burada platform admin yetkisi yeterlidir, sahiplik gerekmez.
+// Allows platform admin to delete any server (unlike owner-only ServerService.DeleteServer).
 //
-// Silme sırası:
-// 1. LiveKit instance cleanup (platform → decrement, self-hosted → delete)
-// 2. server_delete broadcast (DB'den ÖNCE — sonra member listesi kaybolur)
-// 3. DB delete (CASCADE ile channels, messages, members vs.)
-// 4. Opsiyonel email bildirimi (reason + owner email varsa)
+// Deletion order:
+// 1. LiveKit instance cleanup (platform -> decrement, self-hosted -> delete)
+// 2. server_delete broadcast (BEFORE DB delete — member list is needed for broadcast)
+// 3. DB delete (CASCADE removes channels, messages, members, etc.)
+// 4. Optional email notification to server owner
 package services
 
 import (
@@ -21,31 +19,19 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// AdminServerService, platform admin sunucu silme interface'i.
-//
-// DeleteServer: Herhangi bir sunucuyu kalıcı olarak siler.
-// Tüm channels, messages, members, roles, categories CASCADE ile silinir.
-// Reason doldurulmuşsa ve sunucu sahibinin email'i varsa bildirim gönderilir.
+// AdminServerService handles platform admin server deletion.
 type AdminServerService interface {
 	DeleteServer(ctx context.Context, adminUserID, serverID, reason string) error
 }
 
 type adminServerService struct {
 	serverRepo  repository.ServerRepository
-	userRepo    repository.UserRepository     // Sunucu sahibinin email'ini almak için
-	livekitRepo repository.LiveKitRepository  // LiveKit instance cleanup
-	hub         ws.EventPublisher             // server_delete broadcast + BroadcastToServer
-	emailSender email.EmailSender             // Opsiyonel — nil ise email gönderilmez
+	userRepo    repository.UserRepository
+	livekitRepo repository.LiveKitRepository
+	hub         ws.EventPublisher
+	emailSender email.EmailSender // optional, nil = no emails
 }
 
-// NewAdminServerService, AdminServerService implementasyonunu oluşturur.
-//
-// Dependency'ler:
-//   - serverRepo: Sunucu CRUD (GetByID + Delete)
-//   - userRepo: Sunucu sahibinin email adresini almak için
-//   - livekitRepo: LiveKit instance cleanup (platform → decrement, self-hosted → delete)
-//   - hub: server_delete event broadcast + BroadcastToServer
-//   - emailSender: Opsiyonel — reason doldurulursa sunucu sahibine email göndermek için (nil olabilir)
 func NewAdminServerService(
 	serverRepo repository.ServerRepository,
 	userRepo repository.UserRepository,
@@ -62,23 +48,13 @@ func NewAdminServerService(
 	}
 }
 
-// DeleteServer, sunucuyu kalıcı olarak siler (platform admin yetkisi).
-//
-// İşlem sırası (ServerService.DeleteServer pattern'ini takip eder):
-// 1. Sunucu varlık kontrolü
-// 2. LiveKit cleanup — platform-managed ise decrement, self-hosted ise instance sil
-// 3. Tüm üyelere server_delete broadcast (DB silmeden ÖNCE — sonra member listesi kaybolur)
-// 4. DB'den kalıcı silme (CASCADE ile tüm bağlı veriler silinir)
-// 5. Sunucu sahibinin email'ini al, reason + email varsa bildirim gönder
-// 6. Log
 func (s *adminServerService) DeleteServer(ctx context.Context, adminUserID, serverID, reason string) error {
-	// Sunucu varlık kontrolü
 	server, err := s.serverRepo.GetByID(ctx, serverID)
 	if err != nil {
 		return fmt.Errorf("server not found: %w", err)
 	}
 
-	// LiveKit instance cleanup (ServerService.DeleteServer pattern'i)
+	// LiveKit instance cleanup
 	if server.LiveKitInstanceID != nil {
 		instance, lkErr := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
 		if lkErr == nil {
@@ -94,20 +70,17 @@ func (s *adminServerService) DeleteServer(ctx context.Context, adminUserID, serv
 		}
 	}
 
-	// Tüm üyelere server_delete broadcast — ÖNCE gönder, sonra sil
-	// (sildikten sonra server_members kaybolur, BroadcastToServer çalışmaz)
+	// Broadcast BEFORE delete (member list is lost after)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerDelete,
 		Data: map[string]string{"id": serverID},
 	})
 
-	// DB'den kalıcı silme
 	if err := s.serverRepo.Delete(ctx, serverID); err != nil {
 		return fmt.Errorf("failed to delete server: %w", err)
 	}
 
-	// Email bildirimi — reason doluysa ve sunucu sahibinin email'i varsa gönder
-	// Best-effort: hata olursa log et, silme işlemini geri alma
+	// Best-effort email to server owner
 	if reason != "" && s.emailSender != nil {
 		owner, ownerErr := s.userRepo.GetByID(ctx, server.OwnerID)
 		if ownerErr == nil && owner.Email != nil {

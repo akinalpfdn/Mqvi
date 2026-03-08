@@ -10,49 +10,32 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// E2EEService, anahtar yedekleme ve grup oturum yönetimi iş mantığını tanımlar.
+// E2EEService handles key backup and group session management.
 //
-// İki ana sorumluluk:
-// 1. Key Backup: Recovery password ile şifreli anahtar yedekleme/geri yükleme.
-//    Sunucu sadece opak blob saklar — recovery password'ü bilmez.
-// 2. Group Session: Sender Key grup oturumlarının sunucu tarafı koordinasyonu.
-//    Oturum verileri sunucu tarafından okunamaz — sadece depolanır ve dağıtılır.
+// Key Backup: encrypted key backup/restore via recovery password.
+// The server stores opaque blobs only — it never sees the recovery password.
+//
+// Group Session: server-side coordination of Sender Key group sessions.
+// Session data is opaque to the server — stored and distributed only.
 type E2EEService interface {
-	// ─── Key Backup ───
-
-	// UpsertKeyBackup, kullanıcının şifreli anahtar yedeğini oluşturur/günceller.
 	UpsertKeyBackup(ctx context.Context, userID string, req *models.CreateKeyBackupRequest) error
-
-	// GetKeyBackup, kullanıcının anahtar yedeğini döner. Yoksa nil döner.
 	GetKeyBackup(ctx context.Context, userID string) (*models.E2EEKeyBackup, error)
-
-	// DeleteKeyBackup, kullanıcının anahtar yedeğini siler.
 	DeleteKeyBackup(ctx context.Context, userID string) error
 
-	// ─── Group Sessions ───
-
-	// UpsertGroupSession, kanaldaki Sender Key grup oturumunu oluşturur/günceller.
-	// Başarılı kayıt sonrası kanal üyelerine "group_session_new" broadcast edilir.
+	// UpsertGroupSession creates/updates a Sender Key group session.
+	// Broadcasts "group_session_new" to channel members on success.
 	UpsertGroupSession(ctx context.Context, channelID, userID, deviceID string, req *models.CreateGroupSessionRequest) error
-
-	// GetGroupSessions, kanaldaki tüm aktif grup oturumlarını döner.
 	GetGroupSessions(ctx context.Context, channelID string) ([]models.ChannelGroupSession, error)
-
-	// DeleteGroupSessionsByChannel, kanaldaki tüm grup oturumlarını siler (key rotation).
 	DeleteGroupSessionsByChannel(ctx context.Context, channelID string) error
-
-	// DeleteGroupSessionsByUser, kullanıcının kanaldaki oturumlarını siler.
 	DeleteGroupSessionsByUser(ctx context.Context, channelID, userID string) error
 }
 
-// e2eeService, E2EEService interface'inin implementasyonu.
 type e2eeService struct {
 	backupRepo       repository.E2EEKeyBackupRepository
 	groupSessionRepo repository.GroupSessionRepository
 	hub              ws.Broadcaster
 }
 
-// NewE2EEService, constructor — E2EEService interface döner.
 func NewE2EEService(
 	backupRepo repository.E2EEKeyBackupRepository,
 	groupSessionRepo repository.GroupSessionRepository,
@@ -64,8 +47,6 @@ func NewE2EEService(
 		hub:              hub,
 	}
 }
-
-// ─── Key Backup ───
 
 func (s *e2eeService) UpsertKeyBackup(ctx context.Context, userID string, req *models.CreateKeyBackupRequest) error {
 	if err := req.Validate(); err != nil {
@@ -92,8 +73,6 @@ func (s *e2eeService) DeleteKeyBackup(ctx context.Context, userID string) error 
 	return nil
 }
 
-// ─── Group Sessions ───
-
 func (s *e2eeService) UpsertGroupSession(ctx context.Context, channelID, userID, deviceID string, req *models.CreateGroupSessionRequest) error {
 	if err := req.Validate(); err != nil {
 		return fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
@@ -102,7 +81,6 @@ func (s *e2eeService) UpsertGroupSession(ctx context.Context, channelID, userID,
 		return fmt.Errorf("failed to upsert group session: %w", err)
 	}
 
-	// Kanal üyelerine bildirim — yeni Sender Key oturumu mevcut
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpGroupSessionNew,
 		Data: GroupSessionNewData{
@@ -140,10 +118,7 @@ func (s *e2eeService) DeleteGroupSessionsByUser(ctx context.Context, channelID, 
 	return nil
 }
 
-// ─── WS Event Data Struct'ları ───
-
-// GroupSessionNewData, group_session_new event payload'ı.
-// Kanala yeni bir Sender Key oturumu eklendiğinde gönderilir.
+// GroupSessionNewData is the payload for group_session_new events.
 type GroupSessionNewData struct {
 	ChannelID    string `json:"channel_id"`
 	SenderUserID string `json:"sender_user_id"`

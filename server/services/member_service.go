@@ -1,8 +1,3 @@
-// Package services — MemberService: üye yönetimi iş mantığı.
-//
-// Bu service, üye listesi, profil güncelleme, rol atama,
-// kick ve ban işlemlerinin tüm business logic'ini içerir.
-// Tüm operasyonlar server-scoped.
 package services
 
 import (
@@ -16,8 +11,7 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// MemberService, üye yönetimi iş mantığı interface'i.
-// Tüm operasyonlar server-scoped.
+// MemberService handles member management. All operations are server-scoped.
 type MemberService interface {
 	GetAll(ctx context.Context, serverID string) ([]models.MemberWithRoles, error)
 	GetByID(ctx context.Context, serverID, userID string) (*models.MemberWithRoles, error)
@@ -31,10 +25,7 @@ type MemberService interface {
 	IsBanned(ctx context.Context, serverID, userID string) (bool, error)
 }
 
-// VoiceDisconnecter — kick/ban sonrası kullanıcıyı ses kanalından atan minimal interface.
-//
-// Interface Segregation: memberService, voiceService'in tamamına değil sadece
-// DisconnectUser metoduna bağımlı olur. Böylece circular dependency riski yok.
+// VoiceDisconnecter disconnects a user from voice on kick/ban (ISP).
 type VoiceDisconnecter interface {
 	DisconnectUser(userID string)
 }
@@ -66,15 +57,12 @@ func NewMemberService(
 	}
 }
 
-// GetAll, belirli bir sunucudaki tüm üyeleri rolleriyle birlikte döner.
-// server_members tablosuyla JOIN yaparak sadece sunucu üyelerini getirir.
 func (s *memberService) GetAll(ctx context.Context, serverID string) ([]models.MemberWithRoles, error) {
 	users, err := s.userRepo.GetAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all users: %w", err)
 	}
 
-	// Sadece sunucu üyelerini filtrele
 	members := make([]models.MemberWithRoles, 0)
 	for i := range users {
 		isMember, err := s.serverRepo.IsMember(ctx, serverID, users[i].ID)
@@ -137,9 +125,7 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 		return nil, fmt.Errorf("failed to update user profile: %w", err)
 	}
 
-	// Profile güncelleme — kullanıcının üye olduğu tüm sunuculara broadcast.
-	// BroadcastToAll kullanmak, kullanıcının olmadığı sunuculardaki client'lara
-	// da göndererek member listesi karışmasına neden olur.
+	// Broadcast to all servers the user belongs to (not BroadcastToAll)
 	member := models.ToMemberWithRoles(user, nil)
 	servers, srvErr := s.serverRepo.GetUserServers(ctx, userID)
 	if srvErr == nil {
@@ -238,9 +224,7 @@ func (s *memberService) ModifyRoles(ctx context.Context, serverID, actorID, targ
 		return nil, err
 	}
 
-	// Rol değişikliği server-scoped — sadece ilgili sunucuya broadcast et.
-	// BroadcastToAll kullanmak, Server A rollerini Server B'deki client'lara
-	// gönderir ve member listesi karışır.
+	// Role changes are server-scoped — only broadcast to that server
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpMemberUpdate,
 		Data: member,
@@ -258,7 +242,6 @@ func (s *memberService) Kick(ctx context.Context, serverID, actorID, targetID st
 		return err
 	}
 
-	// Sunucudan çıkar (üyelik + roller)
 	if err := s.serverRepo.RemoveMember(ctx, serverID, targetID); err != nil {
 		return fmt.Errorf("failed to kick user: %w", err)
 	}
@@ -293,7 +276,7 @@ func (s *memberService) Ban(ctx context.Context, serverID, actorID, targetID, re
 		return fmt.Errorf("failed to create ban: %w", err)
 	}
 
-	// Sunucudan çıkar — ban zaten oluşturuldu, üyelik kaldırma best-effort
+	// Remove membership (best-effort — ban already created)
 	if rmErr := s.serverRepo.RemoveMember(ctx, serverID, targetID); rmErr != nil {
 		log.Printf("[member] failed to remove member after ban server=%s user=%s: %v", serverID, targetID, rmErr)
 	}
@@ -302,20 +285,13 @@ func (s *memberService) Ban(ctx context.Context, serverID, actorID, targetID, re
 	return nil
 }
 
-// removeFromServer — Kick/Ban sonrası ortak temizlik: voice disconnect, WS broadcast, server ID kaldır.
-//
-// Sıra önemlidir:
-// 1. Voice disconnect — kullanıcı ses kanalındaysa anında düşsün
-// 2. member_leave → sunucudaki üyelere bildir (kullanıcı hâlâ serverIDs'de, broadcast alır)
-// 3. server_delete → atılan kullanıcıya "bu sunucudan çıkarıldın" bildir
-// 4. RemoveClientServerID → artık bu sunucudan event almayacak
+// removeFromServer handles post-kick/ban cleanup: voice disconnect, WS broadcasts, subscription removal.
+// Order matters: broadcast before removing subscription so the kicked user receives the events.
 func (s *memberService) removeFromServer(serverID, targetID string) {
-	// 1. Ses kanalından düşür
 	if s.voiceKick != nil {
 		s.voiceKick.DisconnectUser(targetID)
 	}
 
-	// 2. Sunucu üyelerine: "bu kullanıcı ayrıldı"
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op: ws.OpMemberLeave,
 		Data: map[string]string{
@@ -324,13 +300,11 @@ func (s *memberService) removeFromServer(serverID, targetID string) {
 		},
 	})
 
-	// 3. Atılan kullanıcıya: "bu sunucu listenden silindi" (frontend server_delete handler'ı tetikler)
 	s.hub.BroadcastToUser(targetID, ws.Event{
 		Op:   ws.OpServerDelete,
 		Data: map[string]string{"id": serverID},
 	})
 
-	// 4. Artık bu sunucunun broadcast'lerini alma
 	s.hub.RemoveClientServerID(targetID, serverID)
 }
 

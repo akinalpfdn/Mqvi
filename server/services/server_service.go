@@ -1,8 +1,3 @@
-// Package services — ServerService: çoklu sunucu yönetimi iş mantığı.
-//
-// Sunucu oluşturma, katılma, ayrılma, güncelleme, silme.
-// Her sunucu kendi LiveKit instance'ına bağlı olabilir (mqvi hosted veya self-hosted).
-// Sunucu oluşturulurken default roller, kategoriler ve kanallar otomatik oluşturulur.
 package services
 
 import (
@@ -19,52 +14,28 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// LiveKitSettings, sunucu ayarlarında göstermek için LiveKit bilgileri.
-// Secret'lar asla client'a gönderilmez — sadece URL ve tip bilgisi.
+// LiveKitSettings exposes non-secret LiveKit info for the settings UI.
 type LiveKitSettings struct {
 	URL               string `json:"url"`
 	IsPlatformManaged bool   `json:"is_platform_managed"`
 }
 
-// ServerService, çoklu sunucu yönetimi iş mantığı interface'i.
 type ServerService interface {
-	// CreateServer, yeni bir sunucu oluşturur.
-	// Akış: server → livekit instance → default roller → default kanallar → owner membership.
 	CreateServer(ctx context.Context, ownerID string, req *models.CreateServerRequest) (*models.Server, error)
-
-	// GetServer, sunucu detayını döner.
 	GetServer(ctx context.Context, serverID string) (*models.Server, error)
-
-	// GetUserServers, kullanıcının üye olduğu sunucuların listesini döner.
 	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
-
-	// UpdateServer, sunucu bilgisini günceller (isim, invite_required, livekit credentials).
 	UpdateServer(ctx context.Context, serverID string, req *models.UpdateServerRequest) (*models.Server, error)
-
-	// UpdateIcon, sunucu ikonunu günceller.
 	UpdateIcon(ctx context.Context, serverID, iconURL string) (*models.Server, error)
-
-	// DeleteServer, sunucuyu siler. Sadece owner yapabilir.
 	DeleteServer(ctx context.Context, serverID, userID string) error
-
-	// JoinServer, davet koduyla sunucuya katılır.
 	JoinServer(ctx context.Context, userID, inviteCode string) (*models.Server, error)
-
-	// LeaveServer, sunucudan ayrılır. Owner ayrılamaz.
 	LeaveServer(ctx context.Context, serverID, userID string) error
-
-	// GetLiveKitSettings, sunucunun LiveKit ayarlarını döner (URL + tip).
-	// Secret'lar dahil edilmez — sadece owner'ın ayarlar sayfasında görmesi için.
 	GetLiveKitSettings(ctx context.Context, serverID string) (*LiveKitSettings, error)
-
-	// ReorderServers, kullanıcının sunucu listesini sıralar.
-	// Per-user: sadece o kullanıcının sıralaması değişir, başkalarını etkilemez.
-	// WS broadcast YAPILMAZ — kişisel sıralama.
+	// ReorderServers updates the user's personal server list order. No WS broadcast.
 	ReorderServers(ctx context.Context, userID string, req *models.ReorderServersRequest) ([]models.ServerListItem, error)
 }
 
 type serverService struct {
-	db            *sql.DB // Transaction desteği (WithTx) için — CreateServer atomik çalışır
+	db            *sql.DB // for WithTx in CreateServer
 	serverRepo    repository.ServerRepository
 	livekitRepo   repository.LiveKitRepository
 	roleRepo      repository.RoleRepository
@@ -73,17 +44,9 @@ type serverService struct {
 	userRepo      repository.UserRepository
 	inviteService InviteService
 	hub           ws.BroadcastAndManage
-	encryptionKey []byte
+	encryptionKey []byte // AES-256-GCM for LiveKit credentials
 }
 
-// NewServerService, constructor.
-//
-// db: CreateServer'da WithTx ile atomik işlem için doğrudan *sql.DB gerekir.
-// Repository'ler normal operasyonlarda kullanılır, transaction içinde tx-bound
-// repo'lar oluşturulur.
-//
-// encryptionKey: LiveKit credential'larını AES-256-GCM ile şifrelemek için kullanılır.
-// inviteService: JoinServer'da davet kodunu doğrulamak için.
 func NewServerService(
 	db *sql.DB,
 	serverRepo repository.ServerRepository,
@@ -110,27 +73,13 @@ func NewServerService(
 	}
 }
 
-// CreateServer, yeni bir sunucu oluşturur.
-//
-// Akış:
-// 1. Validate request
-// 2. host_type'a göre LiveKit instance oluştur veya platform instance bağla
-// 3-8. Transaction: Server INSERT → üyelik → roller → kanallar (atomik)
-// 9. WS broadcast (transaction dışında — DB'ye yazıldıktan sonra)
-//
-// Transaction neden gerekli?
-// Adım 3-8'de 9 ayrı INSERT yapılır. Herhangi biri başarısız olursa
-// (örneğin rol oluşturma hatası), önceki adımlar DB'de kalır — "sahipsiz"
-// sunucu, rolsüz üye gibi tutarsız veri oluşur.
-// WithTx ile hepsi tek birim: ya hepsi yazılır (COMMIT) ya hiçbiri (ROLLBACK).
+// CreateServer creates a new server atomically (server + membership + roles + channels in one tx).
 func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *models.CreateServerRequest) (*models.Server, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
 	}
 
-	// ─── mqvi-hosted sunucu limiti ───
-	// Normal kullanıcılar max 1 mqvi-hosted sunucu oluşturabilir (owner olarak).
-	// Platform admin sınırsız. Self-hosted sınırsız.
+	// Non-admin users can own at most 1 mqvi-hosted server
 	if req.HostType == "mqvi_hosted" {
 		user, err := s.userRepo.GetByID(ctx, ownerID)
 		if err != nil {
@@ -147,14 +96,11 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		}
 	}
 
-	// ─── LiveKit Instance (transaction dışında) ───
-	// LiveKit operasyonları bağımsız — kendi tablosunda çalışır.
-	// Hata olursa sunucu oluşturulmadan dönülür.
+	// ─── LiveKit instance setup (outside transaction) ───
 	var livekitInstanceID *string
 
 	switch req.HostType {
 	case "self_hosted":
-		// Self-hosted: kullanıcının LiveKit credential'larını şifrele ve kaydet
 		if req.LiveKitURL == "" || req.LiveKitKey == "" || req.LiveKitSecret == "" {
 			return nil, fmt.Errorf("%w: livekit_url, livekit_key, and livekit_secret are required for self-hosted", pkg.ErrBadRequest)
 		}
@@ -183,10 +129,8 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		livekitInstanceID = &instance.ID
 
 	case "mqvi_hosted":
-		// mqvi hosted: platform'un en az yüklü LiveKit instance'ını bul
 		instance, err := s.livekitRepo.GetLeastLoadedPlatformInstance(ctx)
 		if err != nil {
-			// Platform instance yoksa voice'suz sunucu oluştur
 			log.Printf("[server] no platform livekit instance available, creating server without voice: %v", err)
 		} else {
 			livekitInstanceID = &instance.ID
@@ -196,14 +140,10 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		}
 
 	default:
-		// host_type verilmemişse voice'suz sunucu oluştur
+		// No voice support
 	}
 
-	// ─── Atomik transaction: Server + Üyelik + Roller + Kanallar ───
-	//
-	// WithTx, tek bir *sql.Tx açar. Bu tx'i repository constructor'larına
-	// geçirerek tüm INSERT'ler aynı transaction'da çalışır.
-	// Herhangi bir adım hata verirse ROLLBACK — DB'de hiçbir iz kalmaz.
+	// ─── Atomic transaction: server + membership + roles + channels ───
 	server := &models.Server{
 		Name:              req.Name,
 		OwnerID:           ownerID,
@@ -212,23 +152,20 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 	}
 
 	err := database.WithTx(ctx, s.db, func(tx *sql.Tx) error {
-		// Transaction-bound repository'ler — aynı tx üzerinden çalışır
 		txServerRepo := repository.NewSQLiteServerRepo(tx)
 		txRoleRepo := repository.NewSQLiteRoleRepo(tx)
 		txChannelRepo := repository.NewSQLiteChannelRepo(tx)
 		txCategoryRepo := repository.NewSQLiteCategoryRepo(tx)
 
-		// 3. Server INSERT
 		if err := txServerRepo.Create(ctx, server); err != nil {
 			return fmt.Errorf("failed to create server: %w", err)
 		}
 
-		// 4. Owner üyeliği
 		if err := txServerRepo.AddMember(ctx, server.ID, ownerID); err != nil {
 			return fmt.Errorf("failed to add owner as member: %w", err)
 		}
 
-		// 5. Default "@everyone" rolü — position=1, temel yetkiler
+		// Default "Member" role
 		defaultPerms := models.PermViewChannel | models.PermReadMessages | models.PermSendMessages |
 			models.PermConnectVoice | models.PermSpeak
 
@@ -244,7 +181,7 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 			return fmt.Errorf("failed to create default role: %w", err)
 		}
 
-		// 6. Owner rolü — en yüksek position, tüm yetkiler
+		// Owner role — highest position, full permissions
 		ownerRole := &models.Role{
 			ServerID:    server.ID,
 			Name:        "Owner",
@@ -257,7 +194,6 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 			return fmt.Errorf("failed to create owner role: %w", err)
 		}
 
-		// 7. Rol atamaları
 		if err := txRoleRepo.AssignToUser(ctx, ownerID, defaultRole.ID, server.ID); err != nil {
 			return fmt.Errorf("failed to assign default role to owner: %w", err)
 		}
@@ -265,8 +201,7 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 			return fmt.Errorf("failed to assign owner role: %w", err)
 		}
 
-		// 8. Default kategoriler + kanallar
-		// Discord benzeri yapı: "Text Channels" ve "Voice Channels" ayrı kategoriler.
+		// Default categories + channels
 		textCategory := &models.Category{
 			ServerID: server.ID,
 			Name:     "Text Channels",
@@ -308,14 +243,14 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 			return fmt.Errorf("failed to create default voice channel: %w", err)
 		}
 
-		return nil // → COMMIT
+		return nil
 	})
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server (transaction): %w", err)
 	}
 
-	// ─── WS broadcast (transaction dışında — DB'ye yazıldıktan sonra) ───
+	// WS broadcast (after commit)
 	s.hub.AddClientServerID(ownerID, server.ID)
 	s.hub.BroadcastToUser(ownerID, ws.Event{
 		Op: ws.OpServerCreate,
@@ -350,7 +285,6 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 		return nil, err
 	}
 
-	// Partial update — sunucu genel bilgileri
 	if req.Name != nil {
 		server.Name = *req.Name
 	}
@@ -365,15 +299,12 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 		return nil, fmt.Errorf("failed to update server: %w", err)
 	}
 
-	// ─── LiveKit credential güncelleme ───
-	// Sadece self-hosted sunucularda kullanılır.
-	// 3 alanın tamamı zorunlu (Validate zaten kontrol ediyor).
+	// LiveKit credential update (self-hosted only)
 	if req.HasLiveKitUpdate() {
 		if server.LiveKitInstanceID == nil {
 			return nil, fmt.Errorf("%w: this server has no LiveKit instance", pkg.ErrBadRequest)
 		}
 
-		// Mevcut instance'ı kontrol et — platform-managed değiştirilemez
 		instance, err := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get livekit instance: %w", err)
@@ -382,7 +313,6 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 			return nil, fmt.Errorf("%w: cannot modify platform-managed LiveKit instance", pkg.ErrForbidden)
 		}
 
-		// Yeni credential'ları şifrele
 		encKey, err := crypto.Encrypt(*req.LiveKitKey, s.encryptionKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt livekit key: %w", err)
@@ -403,7 +333,6 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 		log.Printf("[server] livekit credentials updated for server %s", serverID)
 	}
 
-	// Sunucu üyelerine broadcast
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerUpdate,
 		Data: server,
@@ -438,12 +367,11 @@ func (s *serverService) DeleteServer(ctx context.Context, serverID, userID strin
 		return err
 	}
 
-	// Sadece owner silebilir
 	if server.OwnerID != userID {
 		return fmt.Errorf("%w: only the server owner can delete the server", pkg.ErrForbidden)
 	}
 
-	// LiveKit instance cleanup (self-hosted → sil, platform → decrement)
+	// LiveKit cleanup: delete self-hosted instance, decrement platform instance
 	if server.LiveKitInstanceID != nil {
 		instance, err := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
 		if err == nil {
@@ -459,8 +387,7 @@ func (s *serverService) DeleteServer(ctx context.Context, serverID, userID strin
 		}
 	}
 
-	// Tüm üyelere sunucu silindi bildirimi — ÖNCE broadcast et, sonra sil
-	// (sildikten sonra server_members kaybolur, BroadcastToServer çalışmaz)
+	// Broadcast before delete (server_members are needed for BroadcastToServer)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerDelete,
 		Data: map[string]string{"id": serverID},
@@ -474,17 +401,8 @@ func (s *serverService) DeleteServer(ctx context.Context, serverID, userID strin
 	return nil
 }
 
-// JoinServer, davet koduyla sunucuya katılır.
-//
-// Akış:
-// 1. Davet kodunu doğrula ve kullan (ValidateAndUse)
-// 2. Invite'tan server_id al
-// 3. Zaten üye mi kontrol et
-// 4. Üyelik ekle
-// 5. Default rolü ata
-// 6. WS broadcast (user'a server listesi + server'a member_join)
+// JoinServer joins a server via invite code.
 func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode string) (*models.Server, error) {
-	// 1. Davet kodunu doğrula — invite'ı döner (server_id dahil)
 	invite, err := s.inviteService.ValidateAndUse(ctx, inviteCode)
 	if err != nil {
 		return nil, err
@@ -492,7 +410,6 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 
 	serverID := invite.ServerID
 
-	// 2. Zaten üye mi?
 	isMember, err := s.serverRepo.IsMember(ctx, serverID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check membership: %w", err)
@@ -501,12 +418,11 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		return nil, fmt.Errorf("%w: already a member of this server", pkg.ErrBadRequest)
 	}
 
-	// 3. Üyelik ekle
 	if err := s.serverRepo.AddMember(ctx, serverID, userID); err != nil {
 		return nil, fmt.Errorf("failed to add member: %w", err)
 	}
 
-	// 4. Default rolü ata
+	// Assign default role
 	defaultRole, err := s.roleRepo.GetDefaultByServer(ctx, serverID)
 	if err != nil {
 		log.Printf("[server] failed to get default role for server %s: %v", serverID, err)
@@ -516,16 +432,15 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		}
 	}
 
-	// 5. Server bilgisini al
 	server, err := s.serverRepo.GetByID(ctx, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)
 	}
 
-	// 6. WS client serverIDs güncelle — artık bu sunucunun broadcast'lerini alacak
+	// Add server to user's WS subscription list
 	s.hub.AddClientServerID(userID, serverID)
 
-	// 7. WS broadcast — kullanıcıya sunucu eklendi
+	// Notify user: server added to their list
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op: ws.OpServerCreate,
 		Data: models.ServerListItem{
@@ -535,9 +450,7 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		},
 	})
 
-	// Sunucu üyelerine yeni üye katıldı bildirimi — tam MemberWithRoles gönder
-	// Frontend handleMemberJoin bu veriyi doğrudan member listesine ekler,
-	// eksik field olursa sort sırasında localeCompare crash'i olur.
+	// Notify server members: new member joined (full MemberWithRoles for frontend)
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		log.Printf("[server] failed to get user %s for member_join broadcast: %v", userID, err)
@@ -560,7 +473,6 @@ func (s *serverService) LeaveServer(ctx context.Context, serverID, userID string
 		return err
 	}
 
-	// Owner ayrılamaz — önce sahipliği devretmeli
 	if server.OwnerID == userID {
 		return fmt.Errorf("%w: server owner cannot leave; transfer ownership first", pkg.ErrForbidden)
 	}
@@ -569,7 +481,7 @@ func (s *serverService) LeaveServer(ctx context.Context, serverID, userID string
 		return fmt.Errorf("failed to remove member: %w", err)
 	}
 
-	// WS broadcast — sunucu üyelerine üye ayrıldı bildirimi (ÖNCE broadcast, sonra kaldır)
+	// Notify server members (broadcast before removing subscription)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op: ws.OpMemberLeave,
 		Data: map[string]string{
@@ -578,21 +490,20 @@ func (s *serverService) LeaveServer(ctx context.Context, serverID, userID string
 		},
 	})
 
-	// Kullanıcıya sunucu listesinden kaldırıldı bildirimi
+	// Notify user: server removed from their list
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op:   ws.OpServerDelete,
 		Data: map[string]string{"id": serverID},
 	})
 
-	// WS client serverIDs güncelle — artık bu sunucunun broadcast'lerini almayacak
+	// Remove from WS subscription list
 	s.hub.RemoveClientServerID(userID, serverID)
 
 	log.Printf("[server] user %s left server %s", userID, serverID)
 	return nil
 }
 
-// GetLiveKitSettings, sunucuya bağlı LiveKit instance'ın URL ve tip bilgisini döner.
-// Secret'lar dahil edilmez — sadece ayarlar sayfasında göstermek için.
+// GetLiveKitSettings returns non-secret LiveKit info for the settings page.
 func (s *serverService) GetLiveKitSettings(ctx context.Context, serverID string) (*LiveKitSettings, error) {
 	server, err := s.serverRepo.GetByID(ctx, serverID)
 	if err != nil {
@@ -614,14 +525,7 @@ func (s *serverService) GetLiveKitSettings(ctx context.Context, serverID string)
 	}, nil
 }
 
-// ReorderServers, kullanıcının sunucu listesi sıralamasını günceller.
-//
-// Per-user sıralama: server_members.position alanı sadece o kullanıcının
-// kendi görünümünü etkiler. Başka kullanıcıların sıralaması değişmez.
-// Bu yüzden WS broadcast YAPILMAZ — Discord da aynı şekilde çalışır.
-//
-// İstek body'sinde items array'i vardır: her item bir server_id + yeni position.
-// Validate edildikten sonra transaction içinde güncellenir.
+// ReorderServers updates the user's personal server list order (per-user, no broadcast).
 func (s *serverService) ReorderServers(ctx context.Context, userID string, req *models.ReorderServersRequest) ([]models.ServerListItem, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
@@ -631,7 +535,6 @@ func (s *serverService) ReorderServers(ctx context.Context, userID string, req *
 		return nil, fmt.Errorf("failed to update server positions: %w", err)
 	}
 
-	// Güncel sıralı listeyi döndür
 	servers, err := s.serverRepo.GetUserServers(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload servers after reorder: %w", err)

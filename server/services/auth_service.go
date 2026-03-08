@@ -1,14 +1,3 @@
-// Package services, business logic katmanını barındırır.
-//
-// Service Layer Pattern nedir?
-// Handler (HTTP) ile Repository (DB) arasında oturan katmandır.
-// Tüm iş kuralları burada yaşar:
-//   - Şifre hash'leme
-//   - JWT token oluşturma
-//   - Yetki kontrolleri
-//
-// Service ASLA http.Request/Response bilmez — sadece domain modelleri alır/verir.
-// Service ASLA doğrudan SQL çalıştırmaz — Repository interface'i kullanır.
 package services
 
 import (
@@ -31,54 +20,41 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// AuthService interface'i — dışarıya açık API.
-// Handler bu interface'e bağımlıdır, concrete struct'a değil.
 type AuthService interface {
 	Register(ctx context.Context, req *models.CreateUserRequest) (*AuthTokens, error)
 	Login(ctx context.Context, req *models.LoginRequest) (*AuthTokens, error)
 	RefreshToken(ctx context.Context, refreshToken string) (*AuthTokens, error)
 	Logout(ctx context.Context, refreshToken string) error
 	ValidateAccessToken(tokenString string) (*models.TokenClaims, error)
-	// ChangePassword, kullanıcının şifresini değiştirir.
 	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error
-	// ChangeEmail, kullanıcının email adresini değiştirir.
 	ChangeEmail(ctx context.Context, userID, password, newEmail string) error
 
-	// ForgotPassword, kullanıcıya şifre sıfırlama emaili gönderir.
-	// Email DB'de yoksa bile hata vermez (email enumeration koruması).
-	// Cooldown: aynı email'e 90 saniyede 1 istek.
-	// cooldownRemaining > 0 ise kalan süreyi döner.
+	// ForgotPassword sends a password reset email.
+	// Returns silently if email doesn't exist (email enumeration protection).
+	// Cooldown: 1 request per 90s per email. cooldownRemaining > 0 = seconds left.
 	ForgotPassword(ctx context.Context, email string) (cooldownRemaining int, err error)
 
-	// ResetPassword, token ile şifre sıfırlar.
-	// Token doğrulanır, şifre güncellenir, token silinir.
+	// ResetPassword validates token, updates password, and deletes token (one-time use).
 	ResetPassword(ctx context.Context, token, newPassword string) error
 }
 
-// AuthTokens, login/register sonrası dönen token çifti.
 type AuthTokens struct {
 	AccessToken  string      `json:"access_token"`
 	RefreshToken string      `json:"refresh_token"`
 	User         models.User `json:"user"`
 }
 
-// authService, AuthService interface'inin implementasyonu.
 type authService struct {
 	userRepo    repository.UserRepository
 	sessionRepo repository.SessionRepository
-	resetRepo   repository.PasswordResetRepository // nil olabilir — email yoksa reset devre dışı
+	resetRepo   repository.PasswordResetRepository // nil if email not configured
 	hub         ws.EventPublisher
-	emailSender email.EmailSender // nil olabilir — RESEND_API_KEY yoksa feature devre dışı
+	emailSender email.EmailSender // nil if RESEND_API_KEY not set
 	jwtSecret   []byte
 	accessExp   time.Duration
 	refreshExp  time.Duration
 }
 
-// NewAuthService, constructor.
-//
-// Multi-server mimarisinde Register artık hiçbir sunucuya üye eklemez.
-// Kullanıcı kayıt olduktan sonra sunuculara invite ile katılır veya yeni sunucu oluşturur.
-// Ban kontrolü de sunucu bazlı olduğu için Login'den kaldırıldı.
 func NewAuthService(
 	userRepo repository.UserRepository,
 	sessionRepo repository.SessionRepository,
@@ -101,28 +77,19 @@ func NewAuthService(
 	}
 }
 
-// Register, yeni kullanıcı kaydı oluşturur.
-//
-// Multi-server mimarisinde değişiklikler:
-// - Invite code kontrolü KALDIRILDI — kayıt sunucu bağımsız
-// - Rol ataması KALDIRILDI — roller sunucu bazlı, sunucuya katılınca atanır
-// - member_join broadcast KALDIRILDI — sunucu üyeliği kayıt sırasında yok
-//
-// Kullanıcı kayıt olunca boş bir hesap oluşur. Sunuculara katılım
-// ServerService.JoinServer veya CreateServer ile yapılır.
+// Register creates a new user account.
+// Multi-server: no server membership or role assignment at registration.
+// Users join servers via invite or create their own.
 func (s *authService) Register(ctx context.Context, req *models.CreateUserRequest) (*AuthTokens, error) {
-	// 1. Validation
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// 2. Bcrypt hash (cost=12)
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// 3. User oluştur
 	var displayName *string
 	if req.DisplayName != "" {
 		displayName = &req.DisplayName
@@ -132,8 +99,7 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 	if req.Email != "" {
 		email = &req.Email
 
-		// Aynı email ile banlı kullanıcı var mı kontrol et.
-		// Banlanan kullanıcı aynı email ile yeni hesap açamaz.
+		// Prevent banned users from re-registering with the same email
 		banned, banErr := s.userRepo.IsEmailPlatformBanned(ctx, req.Email)
 		if banErr != nil {
 			return nil, fmt.Errorf("failed to check email ban: %w", banErr)
@@ -152,10 +118,9 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
-		return nil, err // ErrAlreadyExists olabilir
+		return nil, err
 	}
 
-	// 4. Token çifti oluştur
 	tokens, err := s.generateTokens(ctx, user)
 	if err != nil {
 		return nil, err
@@ -164,16 +129,12 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 	return tokens, nil
 }
 
-// Login, kullanıcı girişi yapar.
-//
-// Server-scoped ban kontrolü kaldırıldı — sunucu ban'leri WS connect sırasında kontrol edilir.
-// Platform-level ban burada kontrol edilir — banlı kullanıcı hiçbir şekilde giriş yapamaz.
+// Login authenticates a user. Platform-level ban checked here; server bans checked at WS connect.
 func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*AuthTokens, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// Kullanıcıyı bul
 	user, err := s.userRepo.GetByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
@@ -182,17 +143,14 @@ func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*Aut
 		return nil, err
 	}
 
-	// Bcrypt şifre karşılaştırması
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, fmt.Errorf("%w: invalid username or password", pkg.ErrUnauthorized)
 	}
 
-	// Platform-level ban kontrolü — banlı kullanıcı login yapamaz
 	if user.IsPlatformBanned {
 		return nil, fmt.Errorf("%w: account suspended", pkg.ErrForbidden)
 	}
 
-	// Status'u online yap
 	if err := s.userRepo.UpdateStatus(ctx, user.ID, models.UserStatusOnline); err != nil {
 		return nil, fmt.Errorf("failed to update status: %w", err)
 	}
@@ -201,7 +159,6 @@ func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*Aut
 	return s.generateTokens(ctx, user)
 }
 
-// RefreshToken, süresi dolmuş access token'ı yenilemek için kullanılır.
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*AuthTokens, error) {
 	session, err := s.sessionRepo.GetByRefreshToken(ctx, refreshToken)
 	if err != nil {
@@ -227,7 +184,6 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*A
 		return nil, err
 	}
 
-	// Platform-level ban kontrolü — banlı kullanıcı token yenileyemez
 	if user.IsPlatformBanned {
 		return nil, fmt.Errorf("%w: account suspended", pkg.ErrForbidden)
 	}
@@ -235,7 +191,6 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*A
 	return s.generateTokens(ctx, user)
 }
 
-// Logout, refresh token'ı iptal eder (session siler).
 func (s *authService) Logout(ctx context.Context, refreshToken string) error {
 	session, err := s.sessionRepo.GetByRefreshToken(ctx, refreshToken)
 	if err != nil {
@@ -252,7 +207,6 @@ func (s *authService) Logout(ctx context.Context, refreshToken string) error {
 	return s.sessionRepo.DeleteByID(ctx, session.ID)
 }
 
-// ValidateAccessToken, JWT access token'ı doğrular ve claims'i döner.
 func (s *authService) ValidateAccessToken(tokenString string) (*models.TokenClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &models.TokenClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -273,7 +227,6 @@ func (s *authService) ValidateAccessToken(tokenString string) (*models.TokenClai
 	return claims, nil
 }
 
-// ChangePassword, kullanıcının şifresini değiştirir.
 func (s *authService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
 	if len(newPassword) < 6 {
 		return fmt.Errorf("%w: password must be at least 6 characters", pkg.ErrBadRequest)
@@ -300,7 +253,6 @@ func (s *authService) ChangePassword(ctx context.Context, userID, currentPasswor
 	return s.userRepo.UpdatePassword(ctx, userID, string(newHash))
 }
 
-// ChangeEmail, kullanıcının email adresini değiştirir.
 func (s *authService) ChangeEmail(ctx context.Context, userID, password, newEmail string) error {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
@@ -332,42 +284,27 @@ func (s *authService) ChangeEmail(ctx context.Context, userID, password, newEmai
 
 // ─── Password Reset ───
 
-// resetCooldown, aynı kullanıcının arka arkaya reset emaili almasını engeller.
-// 90 saniye — spam koruması.
 const resetCooldown = 90 * time.Second
-
-// resetTokenExpiry, şifre sıfırlama token'ının geçerlilik süresi.
 const resetTokenExpiry = 20 * time.Minute
 
-// ForgotPassword, şifre sıfırlama emaili gönderir.
-//
-// Güvenlik kararları:
-// 1. Email DB'de yoksa bile aynı success yanıtı döner — saldırgan hangi email'lerin
-//    kayıtlı olduğunu tespit edemez (email enumeration koruması).
-// 2. Token plaintext olarak email'e gömülür, DB'de SHA256 hash saklanır.
-// 3. Cooldown: aynı email'e 90 saniyede 1 istek (spam engeli).
-//    cooldownRemaining > 0 ise kalan saniyeyi döner.
+// ForgotPassword sends a reset email. Token stored as SHA256 hash in DB.
+// Email enumeration protection: returns success even if email not found.
 func (s *authService) ForgotPassword(ctx context.Context, emailAddr string) (int, error) {
-	// Email özelliği devre dışıysa (RESEND_API_KEY yoksa)
 	if s.emailSender == nil || s.resetRepo == nil {
 		return 0, fmt.Errorf("%w: password reset is not configured on this server", pkg.ErrBadRequest)
 	}
 
-	// Kullanıcıyı email'e göre bul
 	user, err := s.userRepo.GetByEmail(ctx, emailAddr)
 	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
-			// Email enumeration koruması: email yoksa da success gibi davran.
-			// Ama cooldown dönemeyiz çünkü user yok — 0 dön.
 			return 0, nil
 		}
 		return 0, fmt.Errorf("failed to look up user: %w", err)
 	}
 
-	// Cooldown kontrolü: son token'ın oluşturulma zamanına bak
+	// Cooldown check
 	lastToken, err := s.resetRepo.GetLatestByUserID(ctx, user.ID)
 	if err == nil {
-		// Token var — cooldown doldu mu?
 		elapsed := time.Since(lastToken.CreatedAt)
 		if elapsed < resetCooldown {
 			remaining := int((resetCooldown - elapsed).Seconds())
@@ -377,30 +314,28 @@ func (s *authService) ForgotPassword(ctx context.Context, emailAddr string) (int
 			return remaining, nil
 		}
 	}
-	// err != nil → token yok (ErrNotFound) veya DB hatası — devam et
 
-	// Eski tokenları temizle (bu kullanıcı için)
+	// Clean up old tokens for this user
 	if delErr := s.resetRepo.DeleteByUserID(ctx, user.ID); delErr != nil {
 		log.Printf("[auth] warning: failed to delete old reset tokens for user %s: %v", user.ID, delErr)
 	}
 
-	// Süresi dolmuş tüm tokenları temizle (fırsat temizliği)
+	// Opportunistic cleanup of all expired tokens
 	if delErr := s.resetRepo.DeleteExpired(ctx); delErr != nil {
 		log.Printf("[auth] warning: failed to delete expired reset tokens: %v", delErr)
 	}
 
-	// Yeni token üret (32 byte = 64 hex karakter)
+	// Generate token (32 bytes = 64 hex chars)
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return 0, fmt.Errorf("failed to generate reset token: %w", err)
 	}
 	plainToken := hex.EncodeToString(tokenBytes)
 
-	// SHA256 hash — DB'de plaintext saklanmaz
+	// Store SHA256 hash in DB
 	hashBytes := sha256.Sum256([]byte(plainToken))
 	tokenHash := hex.EncodeToString(hashBytes[:])
 
-	// DB'ye kaydet
 	resetToken := &models.PasswordResetToken{
 		UserID:    user.ID,
 		TokenHash: tokenHash,
@@ -410,7 +345,7 @@ func (s *authService) ForgotPassword(ctx context.Context, emailAddr string) (int
 		return 0, fmt.Errorf("failed to store reset token: %w", err)
 	}
 
-	// Email gönder (plaintext token email'e gömülür)
+	// Send email with plaintext token
 	if err := s.emailSender.SendPasswordReset(ctx, emailAddr, plainToken); err != nil {
 		return 0, fmt.Errorf("failed to send reset email: %w", err)
 	}
@@ -419,15 +354,7 @@ func (s *authService) ForgotPassword(ctx context.Context, emailAddr string) (int
 	return 0, nil
 }
 
-// ResetPassword, token ile şifre sıfırlar.
-//
-// Akış:
-// 1. Gelen plaintext token'ı SHA256 hash'le
-// 2. Hash ile DB'den token kaydını bul
-// 3. Süresi dolmuş mu kontrol et
-// 4. Yeni şifreyi bcrypt ile hash'le
-// 5. Kullanıcının şifresini güncelle
-// 6. Token'ı sil (one-time use)
+// ResetPassword validates the token, updates the password, and deletes all tokens for the user.
 func (s *authService) ResetPassword(ctx context.Context, token, newPassword string) error {
 	if s.resetRepo == nil {
 		return fmt.Errorf("%w: password reset is not configured on this server", pkg.ErrBadRequest)
@@ -437,7 +364,6 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 		return fmt.Errorf("%w: password must be at least 8 characters", pkg.ErrBadRequest)
 	}
 
-	// Token'ı hash'le ve DB'de ara
 	hashBytes := sha256.Sum256([]byte(token))
 	tokenHash := hex.EncodeToString(hashBytes[:])
 
@@ -449,27 +375,23 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 		return fmt.Errorf("failed to look up reset token: %w", err)
 	}
 
-	// Süre kontrolü
 	if time.Now().After(resetToken.ExpiresAt) {
-		// Süresi dolmuş — token'ı sil ve hata ver
 		if delErr := s.resetRepo.DeleteByID(ctx, resetToken.ID); delErr != nil {
 			log.Printf("[auth] warning: failed to delete expired token %s: %v", resetToken.ID, delErr)
 		}
 		return fmt.Errorf("%w: reset token has expired", pkg.ErrBadRequest)
 	}
 
-	// Yeni şifreyi hash'le (bcrypt cost=12)
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
 	if err != nil {
 		return fmt.Errorf("failed to hash new password: %w", err)
 	}
 
-	// Şifreyi güncelle
 	if err := s.userRepo.UpdatePassword(ctx, resetToken.UserID, string(newHash)); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
-	// Token'ı sil (one-time use) + bu kullanıcının diğer tokenlarını da temizle
+	// Delete all tokens for this user (one-time use)
 	if err := s.resetRepo.DeleteByUserID(ctx, resetToken.UserID); err != nil {
 		log.Printf("[auth] warning: failed to delete reset tokens for user %s: %v", resetToken.UserID, err)
 	}

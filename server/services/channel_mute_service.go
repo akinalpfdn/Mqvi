@@ -1,7 +1,3 @@
-// Package services — ChannelMuteService: kanal sessize alma iş mantığı.
-//
-// Kullanıcı bazlı kanal mute/unmute ve muted kanal listesi.
-// Mute süresi dolduğunda lazy olarak temizlenir (repo katmanında WHERE ile filtrelenir).
 package services
 
 import (
@@ -11,16 +7,11 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// ChannelMuteService, kanal sessize alma iş mantığı interface'i.
+// ChannelMuteService handles per-user channel mute/unmute.
+// Expired mutes are lazily cleaned via WHERE filter in the repo layer.
 type ChannelMuteService interface {
-	// MuteChannel, kullanıcının belirli bir kanalı sessize almasını sağlar.
 	MuteChannel(ctx context.Context, userID, channelID, serverID string, req *models.MuteChannelRequest) error
-
-	// UnmuteChannel, kanal sessizliğini kaldırır.
 	UnmuteChannel(ctx context.Context, userID, channelID string) error
-
-	// GetMutedChannelIDs, kullanıcının aktif mute'lu kanal ID'lerini döner.
-	// WS ready event'inde ve frontend'den çağrılır.
 	GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error)
 }
 
@@ -28,7 +19,6 @@ type channelMuteService struct {
 	repo repository.ChannelMuteRepository
 }
 
-// NewChannelMuteService, constructor — interface döner.
 func NewChannelMuteService(repo repository.ChannelMuteRepository) ChannelMuteService {
 	return &channelMuteService{repo: repo}
 }
@@ -38,7 +28,7 @@ func (s *channelMuteService) MuteChannel(ctx context.Context, userID, channelID,
 		return err
 	}
 
-	// Duration'ı *time.Time'a çevir, sonra SQLite uyumlu string'e dönüştür.
+	// Convert duration to SQLite-compatible timestamp string
 	mutedUntil := req.ParseMutedUntil()
 	var mutedUntilStr *string
 	if mutedUntil != nil {

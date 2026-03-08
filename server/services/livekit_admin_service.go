@@ -1,10 +1,3 @@
-// Package services — LiveKitAdminService, platform admin tarafından LiveKit instance yönetimi.
-//
-// Bu service platform-managed LiveKit instance'ların CRUD işlemlerini yönetir.
-// Self-hosted instance'lar bu service'in kapsamı dışındadır — onlar ServerService üzerinden yönetilir.
-//
-// Credential'lar AES-256-GCM ile şifrelenir (pkg/crypto).
-// Admin'e dönen view'larda credential'lar ASLA yer almaz.
 package services
 
 import (
@@ -25,52 +18,31 @@ import (
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 )
 
-// ActiveVoiceProvider — admin service'in in-memory voice state'e erişmesi için ISP interface.
-// VoiceService bu interface'i Go duck typing ile otomatik karşılar.
+// ActiveVoiceProvider gives access to in-memory voice state (ISP for admin service).
 type ActiveVoiceProvider interface {
 	GetAllVoiceStates() []models.VoiceState
 }
 
-// LiveKitAdminService, platform admin'in LiveKit instance yönetimi için interface.
+// LiveKitAdminService manages platform-managed LiveKit instances (CRUD).
+// Self-hosted instances are out of scope — managed via ServerService.
+// Credentials are AES-256-GCM encrypted. Admin views never expose credentials.
 type LiveKitAdminService interface {
-	// ListInstances, tüm platform-managed LiveKit instance'larını döner.
-	// Credential'lar dönen view'da yer almaz.
 	ListInstances(ctx context.Context) ([]models.LiveKitInstanceAdminView, error)
-
-	// GetInstance, tek bir LiveKit instance'ı döner.
 	GetInstance(ctx context.Context, instanceID string) (*models.LiveKitInstanceAdminView, error)
-
-	// CreateInstance, yeni bir platform-managed LiveKit instance oluşturur.
-	// Credential'lar AES-256-GCM ile şifrelenerek DB'ye yazılır.
 	CreateInstance(ctx context.Context, req *models.CreateLiveKitInstanceRequest) (*models.LiveKitInstanceAdminView, error)
-
-	// UpdateInstance, mevcut bir instance'ı günceller.
-	// Optional alanlar — sadece gönderilen alanlar güncellenir.
-	// Credential boş bırakılırsa mevcut değerler korunur.
+	// UpdateInstance updates an instance. Only provided fields are changed.
+	// Empty credentials preserve existing values.
 	UpdateInstance(ctx context.Context, instanceID string, req *models.UpdateLiveKitInstanceRequest) (*models.LiveKitInstanceAdminView, error)
-
-	// DeleteInstance, bir instance'ı siler.
-	// Bağlı sunucular varsa targetInstanceID'ye migrate eder.
-	// targetInstanceID boş ve serverCount > 0 ise hata döner.
+	// DeleteInstance deletes an instance. If servers are attached, migrates them
+	// to targetInstanceID. Errors if targetInstanceID is empty and serverCount > 0.
 	DeleteInstance(ctx context.Context, instanceID, targetInstanceID string) error
-
-	// ListServers, platformdaki tüm sunucuları istatistikleriyle döner.
-	// Admin panelde sunucu listesi için kullanılır.
 	ListServers(ctx context.Context) ([]models.AdminServerListItem, error)
-
-	// MigrateServerInstance, tek bir sunucunun LiveKit instance'ını değiştirir.
-	// Validation: hedef instance platform-managed olmalı, kapasitesi dolmamış olmalı.
-	// Self-hosted sunucular taşınamaz.
+	// MigrateServerInstance moves a server to a different LiveKit instance.
+	// Target must be platform-managed with available capacity. Self-hosted servers cannot be migrated.
 	MigrateServerInstance(ctx context.Context, serverID, newInstanceID string) error
-
-	// ListUsers, platformdaki tüm kullanıcıları istatistikleriyle döner.
-	// Admin panelde kullanıcı listesi için kullanılır.
 	ListUsers(ctx context.Context) ([]models.AdminUserListItem, error)
-
-	// GetInstanceMetrics, bir LiveKit instance'ın Prometheus /metrics endpoint'inden
-	// anlık kaynak kullanım metriklerini çeker ve parse eder.
-	// Instance URL'si DB'den alınır, credential'lar decrypt edilir (gerekirse).
-	// /metrics erişilemezse Available=false döner, hata dönmez.
+	// GetInstanceMetrics fetches real-time metrics from a LiveKit instance's Prometheus endpoint.
+	// Returns Available=false if /metrics is unreachable (no error returned).
 	GetInstanceMetrics(ctx context.Context, instanceID string) (*models.LiveKitInstanceMetrics, error)
 }
 
@@ -81,18 +53,12 @@ type livekitAdminService struct {
 	channelRepo   repository.ChannelRepository
 	voiceProvider ActiveVoiceProvider
 	encryptionKey []byte
-	httpClient    *http.Client // Prometheus /metrics fetch için
+	httpClient    *http.Client
 
-	// Hetzner Cloud API — opsiyonel (nil ise devre dışı)
-	hetznerClient *hcloud.Client
+	hetznerClient *hcloud.Client // optional (nil = disabled)
 	vcpuCache     map[int64]int
 }
 
-// NewLiveKitAdminService, constructor — interface döner.
-// serverRepo: admin sunucu listesi (ListAllWithStats) için gerekli.
-// userRepo: admin kullanıcı listesi (ListAllUsersWithStats) için gerekli.
-// channelRepo: aktif ses kullanıcılarının kanal → sunucu lookup'ı için gerekli.
-// voiceProvider: in-memory voice state'e erişim (aktif ses kullanıcıları last_activity hesabında kullanılır).
 func NewLiveKitAdminService(
 	livekitRepo repository.LiveKitRepository,
 	serverRepo repository.ServerRepository,
@@ -112,8 +78,7 @@ func NewLiveKitAdminService(
 		vcpuCache:     make(map[int64]int),
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
-			// Self-signed sertifika kullanan LiveKit instance'lar için TLS skip.
-			// Bu sadece backend → LiveKit server arası internal trafikte kullanılır.
+			// TLS skip for self-signed certs on internal backend->LiveKit traffic
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
@@ -156,7 +121,6 @@ func (s *livekitAdminService) CreateInstance(ctx context.Context, req *models.Cr
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// Credential'ları şifrele
 	encKey, err := crypto.Encrypt(req.APIKey, s.encryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt api key: %w", err)
@@ -189,18 +153,15 @@ func (s *livekitAdminService) UpdateInstance(ctx context.Context, instanceID str
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// Mevcut instance'ı getir
 	inst, err := s.livekitRepo.GetByID(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Sadece platform-managed instance'lar güncellenebilir
 	if !inst.IsPlatformManaged {
 		return nil, fmt.Errorf("%w: only platform-managed instances can be updated via admin API", pkg.ErrForbidden)
 	}
 
-	// Optional alanları güncelle
 	if req.URL != nil {
 		inst.URL = *req.URL
 	}
@@ -234,47 +195,40 @@ func (s *livekitAdminService) UpdateInstance(ctx context.Context, instanceID str
 }
 
 func (s *livekitAdminService) DeleteInstance(ctx context.Context, instanceID, targetInstanceID string) error {
-	// Silinecek instance'ı getir
 	inst, err := s.livekitRepo.GetByID(ctx, instanceID)
 	if err != nil {
 		return err
 	}
 
-	// Sadece platform-managed instance'lar silinebilir
 	if !inst.IsPlatformManaged {
 		return fmt.Errorf("%w: only platform-managed instances can be deleted via admin API", pkg.ErrForbidden)
 	}
 
-	// Bağlı sunucular varsa migration gerekli
+	// Migrate attached servers if any
 	if inst.ServerCount > 0 {
 		if targetInstanceID == "" {
 			return fmt.Errorf("%w: instance has %d server(s), specify migrate_to target", pkg.ErrBadRequest, inst.ServerCount)
 		}
 
-		// Kendine migrate etme
 		if targetInstanceID == instanceID {
 			return fmt.Errorf("%w: cannot migrate to the same instance", pkg.ErrBadRequest)
 		}
 
-		// Hedef instance'ın varlığını kontrol et
 		target, targetErr := s.livekitRepo.GetByID(ctx, targetInstanceID)
 		if targetErr != nil {
 			return fmt.Errorf("migration target not found: %w", targetErr)
 		}
 
-		// Hedef platform-managed olmalı
 		if !target.IsPlatformManaged {
 			return fmt.Errorf("%w: migration target must be a platform-managed instance", pkg.ErrBadRequest)
 		}
 
-		// Sunucuları taşı
 		_, migrateErr := s.livekitRepo.MigrateServers(ctx, instanceID, targetInstanceID)
 		if migrateErr != nil {
 			return fmt.Errorf("failed to migrate servers: %w", migrateErr)
 		}
 	}
 
-	// Instance'ı sil
 	if err := s.livekitRepo.Delete(ctx, instanceID); err != nil {
 		return fmt.Errorf("failed to delete livekit instance: %w", err)
 	}
@@ -288,10 +242,8 @@ func (s *livekitAdminService) ListServers(ctx context.Context) ([]models.AdminSe
 		return nil, fmt.Errorf("failed to list all servers: %w", err)
 	}
 
-	// In-memory voice state'ten aktif ses kullanıcılarını al.
-	// Şu anda ses kanalında olan kullanıcılar varsa, o sunucunun last_activity'sini "now" yap.
-	// DB sadece JOIN anını kaydeder — devam eden voice session'ı göstermek için
-	// in-memory state ile cross-reference gerekli.
+	// Cross-reference in-memory voice state to update last_activity for servers
+	// with active voice users (DB only records join time, not ongoing sessions)
 	activeServerIDs := s.getActiveVoiceServerIDs(ctx)
 	if len(activeServerIDs) > 0 {
 		now := time.Now().UTC().Format("2006-01-02 15:04:05")
@@ -306,28 +258,24 @@ func (s *livekitAdminService) ListServers(ctx context.Context) ([]models.AdminSe
 }
 
 func (s *livekitAdminService) MigrateServerInstance(ctx context.Context, serverID, newInstanceID string) error {
-	// 1. Sunucunun varlığını kontrol et
 	server, err := s.serverRepo.GetByID(ctx, serverID)
 	if err != nil {
 		return err
 	}
 
-	// 2. Mevcut instance kontrolü — orphan (silinmiş instance) veya self-hosted guard
+	// Guard: orphan (deleted instance) or self-hosted check
 	if server.LiveKitInstanceID != nil && *server.LiveKitInstanceID != "" {
-		// Aynı instance'a taşıma yapma
 		if *server.LiveKitInstanceID == newInstanceID {
 			return fmt.Errorf("%w: server is already on this instance", pkg.ErrBadRequest)
 		}
 
-		// Mevcut instance hâlâ varsa, self-hosted kontrolü yap
-		// Instance silinmişse (orphan) → kontrolü atla, taşımaya izin ver
+		// If current instance still exists and is self-hosted, block migration
 		currentInstance, currentErr := s.livekitRepo.GetByID(ctx, *server.LiveKitInstanceID)
 		if currentErr == nil && !currentInstance.IsPlatformManaged {
 			return fmt.Errorf("%w: self-hosted servers cannot be migrated via admin API", pkg.ErrForbidden)
 		}
 	}
 
-	// 4. Hedef instance var mı, platform-managed mi
 	targetInstance, err := s.livekitRepo.GetByID(ctx, newInstanceID)
 	if err != nil {
 		return fmt.Errorf("target instance not found: %w", err)
@@ -337,13 +285,11 @@ func (s *livekitAdminService) MigrateServerInstance(ctx context.Context, serverI
 		return fmt.Errorf("%w: target must be a platform-managed instance", pkg.ErrBadRequest)
 	}
 
-	// 5. Hedef kapasite dolmamış mı
 	if targetInstance.MaxServers > 0 && targetInstance.ServerCount >= targetInstance.MaxServers {
 		return fmt.Errorf("%w: target instance is at capacity (%d/%d)", pkg.ErrBadRequest,
 			targetInstance.ServerCount, targetInstance.MaxServers)
 	}
 
-	// 6. Transaction ile taşı
 	if err := s.livekitRepo.MigrateOneServer(ctx, serverID, newInstanceID); err != nil {
 		return fmt.Errorf("failed to migrate server instance: %w", err)
 	}
@@ -357,8 +303,7 @@ func (s *livekitAdminService) ListUsers(ctx context.Context) ([]models.AdminUser
 		return nil, fmt.Errorf("failed to list all users: %w", err)
 	}
 
-	// In-memory voice state'ten aktif ses kullanıcılarını al.
-	// Ses kanalında olan kullanıcıların last_activity'sini "now" yap.
+	// Update last_activity for users currently in voice channels
 	activeUserIDs := s.getActiveVoiceUserIDs()
 	if len(activeUserIDs) > 0 {
 		now := time.Now().UTC().Format("2006-01-02 15:04:05")
@@ -372,27 +317,24 @@ func (s *livekitAdminService) ListUsers(ctx context.Context) ([]models.AdminUser
 	return users, nil
 }
 
-// getActiveVoiceServerIDs, in-memory voice state'ten hangi sunucularda aktif ses
-// kullanıcısı olduğunu hesaplar. VoiceState sadece channelID tutar — channel → server
-// lookup'ı için channelRepo kullanılır.
+// getActiveVoiceServerIDs resolves which servers have active voice users.
+// VoiceState only holds channelID — uses channelRepo for channel->server lookup.
 func (s *livekitAdminService) getActiveVoiceServerIDs(ctx context.Context) map[string]bool {
 	states := s.voiceProvider.GetAllVoiceStates()
 	if len(states) == 0 {
 		return nil
 	}
 
-	// Unique channel ID'leri topla (aynı kanalda birden fazla kullanıcı olabilir)
 	channelIDs := make(map[string]struct{})
 	for _, st := range states {
 		channelIDs[st.ChannelID] = struct{}{}
 	}
 
-	// Her channel'dan server ID'yi bul
 	serverIDs := make(map[string]bool)
 	for chID := range channelIDs {
 		ch, err := s.channelRepo.GetByID(ctx, chID)
 		if err != nil {
-			continue // kanal silinmiş olabilir, skip
+			continue // channel may have been deleted
 		}
 		serverIDs[ch.ServerID] = true
 	}
@@ -400,8 +342,6 @@ func (s *livekitAdminService) getActiveVoiceServerIDs(ctx context.Context) map[s
 	return serverIDs
 }
 
-// getActiveVoiceUserIDs, in-memory voice state'ten şu anda ses kanalında olan
-// kullanıcı ID'lerini döner.
 func (s *livekitAdminService) getActiveVoiceUserIDs() map[string]bool {
 	states := s.voiceProvider.GetAllVoiceStates()
 	if len(states) == 0 {
@@ -416,7 +356,6 @@ func (s *livekitAdminService) getActiveVoiceUserIDs() map[string]bool {
 }
 
 func (s *livekitAdminService) GetInstanceMetrics(ctx context.Context, instanceID string) (*models.LiveKitInstanceMetrics, error) {
-	// 1. Instance'ı DB'den getir
 	inst, err := s.livekitRepo.GetByID(ctx, instanceID)
 	if err != nil {
 		return nil, err
@@ -426,7 +365,7 @@ func (s *livekitAdminService) GetInstanceMetrics(ctx context.Context, instanceID
 		FetchedAt: time.Now().UTC(),
 	}
 
-	// 2. LiveKit /metrics — room/participant/memory/goroutines
+	// LiveKit /metrics — rooms, participants, memory, goroutines
 	metricsURL := LiveKitURLToMetrics(inst.URL)
 	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
 	if reqErr == nil {
@@ -454,7 +393,7 @@ func (s *livekitAdminService) GetInstanceMetrics(ctx context.Context, instanceID
 		}
 	}
 
-	// 3. Hetzner Cloud API — CPU ve bandwidth (bağımsız kaynak)
+	// Hetzner Cloud API — CPU and bandwidth (independent source)
 	if inst.HetznerServerID != "" && s.hetznerClient != nil {
 		cpuPct, bwIn, bwOut, hErr := s.fetchHetznerMetricsRT(ctx, inst.HetznerServerID)
 		if hErr == nil {
@@ -462,44 +401,39 @@ func (s *livekitAdminService) GetInstanceMetrics(ctx context.Context, instanceID
 			result.BandwidthInBps = bwIn
 			result.BandwidthOutBps = bwOut
 			result.HetznerAvail = true
-			result.Available = true // Hetzner yalnız başına da "available" sayılır
+			result.Available = true
 		}
 	}
 
 	return result, nil
 }
 
-// LiveKitURLToMetrics, LiveKit WebSocket URL'sini Prometheus /metrics HTTP URL'sine
-// dönüştürür. MetricsCollector da bu fonksiyonu kullanır.
+// LiveKitURLToMetrics converts a LiveKit WebSocket URL to its Prometheus /metrics HTTP URL.
 //
-//	wss://livekit.example.com → https://livekit.example.com/metrics
-//	ws://localhost:7880 → http://localhost:7880/metrics
-//	https://livekit.example.com → https://livekit.example.com/metrics
+//	wss://livekit.example.com -> https://livekit.example.com/metrics
+//	ws://localhost:7880 -> http://localhost:7880/metrics
 func LiveKitURLToMetrics(rawURL string) string {
 	u := rawURL
 
-	// Protokol dönüşümü: wss→https, ws→http
 	if strings.HasPrefix(u, "wss://") {
 		u = "https://" + strings.TrimPrefix(u, "wss://")
 	} else if strings.HasPrefix(u, "ws://") {
 		u = "http://" + strings.TrimPrefix(u, "ws://")
 	}
 
-	// Trailing slash temizle
 	u = strings.TrimRight(u, "/")
 
 	return u + "/metrics"
 }
 
-// fetchHetznerMetricsRT, anlık (real-time) Hetzner metriklerini çeker.
-// MetricsCollector'daki fetchHetznerMetrics ile benzer, ama anlık panel için.
+// fetchHetznerMetricsRT fetches real-time Hetzner metrics for the admin panel.
 func (s *livekitAdminService) fetchHetznerMetricsRT(ctx context.Context, hetznerServerIDStr string) (cpuPct, bwIn, bwOut float64, err error) {
 	serverID, err := strconv.ParseInt(hetznerServerIDStr, 10, 64)
 	if err != nil {
 		return 0, 0, 0, err
 	}
 
-	// vCPU count — cache'den al veya API'den çek
+	// vCPU count — from cache or API
 	vcpuCount := 1
 	if cached, ok := s.vcpuCache[serverID]; ok {
 		vcpuCount = cached
@@ -514,7 +448,7 @@ func (s *livekitAdminService) fetchHetznerMetricsRT(ctx context.Context, hetzner
 		s.vcpuCache[serverID] = vcpuCount
 	}
 
-	// Son 5 dakikalık pencere
+	// Last 5 minutes window
 	now := time.Now().UTC()
 	start := now.Add(-5 * time.Minute)
 	result, _, apiErr := s.hetznerClient.Server.GetMetrics(ctx, &hcloud.Server{ID: serverID}, hcloud.ServerGetMetricsOpts{
@@ -551,7 +485,7 @@ func (s *livekitAdminService) fetchHetznerMetricsRT(ctx context.Context, hetzner
 	return cpuPct, bwIn, bwOut, nil
 }
 
-// toAdminView, LiveKitInstance'ı credential'sız admin view'a dönüştürür.
+// toAdminView converts a LiveKitInstance to a credential-free admin view.
 func toAdminView(inst *models.LiveKitInstance) models.LiveKitInstanceAdminView {
 	return models.LiveKitInstanceAdminView{
 		ID:                inst.ID,

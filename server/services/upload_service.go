@@ -16,11 +16,10 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// UploadService, dosya yükleme iş mantığı interface'i.
+// UploadService handles file upload validation, storage, and DB record creation.
+// isEncrypted: E2EE files are client-side AES-256-GCM encrypted, sent as
+// application/octet-stream — MIME whitelist is skipped for these.
 type UploadService interface {
-	// Upload, dosyayı doğrular, diske kaydeder ve DB'ye attachment kaydı oluşturur.
-	// isEncrypted: E2EE mesajlarda dosyalar client tarafında AES-256-GCM ile şifrelenir
-	// ve application/octet-stream olarak gönderilir. Bu durumda MIME whitelist atlanır.
 	Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.Attachment, error)
 }
 
@@ -30,7 +29,6 @@ type uploadService struct {
 	maxSize        int64
 }
 
-// NewUploadService, constructor.
 func NewUploadService(
 	attachmentRepo repository.AttachmentRepository,
 	uploadDir string,
@@ -43,7 +41,6 @@ func NewUploadService(
 	}
 }
 
-// allowedMimeTypes, yüklemeye izin verilen dosya türleri.
 var allowedMimeTypes = map[string]bool{
 	"image/jpeg":      true,
 	"image/png":       true,
@@ -57,31 +54,24 @@ var allowedMimeTypes = map[string]bool{
 	"text/plain":      true,
 }
 
-// Upload, dosyayı doğrular, diske kaydeder ve DB'ye attachment kaydı oluşturur.
 func (s *uploadService) Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.Attachment, error) {
-	// Boyut kontrolü
 	if header.Size > s.maxSize {
 		return nil, fmt.Errorf("%w: file too large (max %dMB)", pkg.ErrBadRequest, s.maxSize/(1024*1024))
 	}
 
-	// MIME type kontrolü
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	// Sadece base MIME type'ı al (charset vb. parametre olabilir)
 	mimeBase := strings.Split(contentType, ";")[0]
 	mimeBase = strings.TrimSpace(mimeBase)
 
-	// E2EE dosyalar client tarafında AES-256-GCM ile şifrelenir ve
-	// application/octet-stream olarak gönderilir. Bu durumda MIME
-	// whitelist kontrolünü atla — dosya sunucuda opak blob olarak saklanır.
+	// Skip MIME whitelist for E2EE files (opaque blobs on server)
 	if !isEncrypted && !allowedMimeTypes[mimeBase] {
 		return nil, fmt.Errorf("%w: file type not allowed: %s", pkg.ErrBadRequest, mimeBase)
 	}
 
-	// Unique dosya adı oluştur — çakışma ve güvenlik için
-	// {random_hex}_{original_filename} formatı
+	// Generate unique filename: {random_hex}_{original_filename}
 	randomBytes := make([]byte, 8)
 	if _, err := rand.Read(randomBytes); err != nil {
 		return nil, fmt.Errorf("failed to generate random filename: %w", err)
@@ -89,7 +79,6 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 	safeFilename := sanitizeFilename(header.Filename)
 	diskFilename := hex.EncodeToString(randomBytes) + "_" + safeFilename
 
-	// Dosyayı diske kaydet
 	destPath := filepath.Join(s.uploadDir, diskFilename)
 	destFile, err := os.Create(destPath)
 	if err != nil {
@@ -98,12 +87,10 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 	defer destFile.Close()
 
 	if _, err := io.Copy(destFile, file); err != nil {
-		// Hata durumunda dosyayı temizle
 		os.Remove(destPath)
 		return nil, fmt.Errorf("failed to save file: %w", err)
 	}
 
-	// DB'ye attachment kaydı oluştur
 	fileSize := header.Size
 	attachment := &models.Attachment{
 		MessageID: messageID,
@@ -114,23 +101,20 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 	}
 
 	if err := s.attachmentRepo.Create(ctx, attachment); err != nil {
-		os.Remove(destPath) // Hata durumunda dosyayı temizle
+		os.Remove(destPath)
 		return nil, fmt.Errorf("failed to create attachment record: %w", err)
 	}
 
 	return attachment, nil
 }
 
-// sanitizeFilename, dosya adını güvenli hale getirir.
-// Path traversal saldırılarını önler (../../etc/passwd gibi).
+// sanitizeFilename strips path components and dangerous characters to prevent path traversal.
 func sanitizeFilename(name string) string {
-	// Sadece dosya adını al (dizin yolunu kaldır)
 	name = filepath.Base(name)
 
-	// Tehlikeli karakterleri kaldır
 	name = strings.Map(func(r rune) rune {
 		if r == '/' || r == '\\' || r == '\x00' {
-			return -1 // Karakteri sil
+			return -1
 		}
 		return r
 	}, name)

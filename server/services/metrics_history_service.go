@@ -1,7 +1,3 @@
-// Package services — MetricsHistoryService, tarihsel metrik özet sorgulama.
-//
-// Thin service layer — handler ile repository arasında validation ve
-// business logic katmanı sağlar.
 package services
 
 import (
@@ -13,15 +9,11 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// MetricsHistoryService, tarihsel metrik özetlerine erişim interface'i.
+// MetricsHistoryService provides historical metrics summary queries.
 type MetricsHistoryService interface {
-	// GetSummary, belirli bir instance ve zaman aralığı için
-	// peak/average metrik özeti döner.
-	// period: "24h", "7d", "30d"
+	// GetSummary returns peak/average metrics for an instance and time period.
 	GetSummary(ctx context.Context, instanceID string, period string) (*models.MetricsHistorySummary, error)
-
-	// GetTimeSeries, chart için zaman serisi verisi döner.
-	// period: "24h", "7d", "30d"
+	// GetTimeSeries returns time series data points for charting.
 	GetTimeSeries(ctx context.Context, instanceID string, period string) ([]models.MetricsTimeSeriesPoint, error)
 }
 
@@ -30,7 +22,6 @@ type metricsHistoryService struct {
 	livekitRepo repository.LiveKitRepository
 }
 
-// NewMetricsHistoryService, constructor — interface döner.
 func NewMetricsHistoryService(
 	historyRepo repository.MetricsHistoryRepository,
 	livekitRepo repository.LiveKitRepository,
@@ -42,18 +33,15 @@ func NewMetricsHistoryService(
 }
 
 func (s *metricsHistoryService) GetSummary(ctx context.Context, instanceID string, period string) (*models.MetricsHistorySummary, error) {
-	// 1. Period validation
 	if !isValidPeriod(period) {
 		return nil, fmt.Errorf("%w: invalid period %q (expected 24h, 7d, or 30d)", pkg.ErrBadRequest, period)
 	}
 
-	// 2. Instance varlığını kontrol et
 	_, err := s.livekitRepo.GetByID(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Summary'yi getir
 	summary, err := s.historyRepo.GetSummary(ctx, instanceID, period)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metrics history summary: %w", err)
@@ -80,7 +68,6 @@ func (s *metricsHistoryService) GetTimeSeries(ctx context.Context, instanceID st
 	return points, nil
 }
 
-// isValidPeriod, period string'inin geçerli olup olmadığını kontrol eder.
 func isValidPeriod(period string) bool {
 	switch period {
 	case "24h", "7d", "30d":

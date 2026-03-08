@@ -10,25 +10,17 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// ChannelVisibilityChecker, kanal görünürlük filtreleme ISP interface'i.
-// serverID parametresi ile kullanıcının o sunucudaki rolleri alınır.
+// ChannelVisibilityChecker resolves per-user channel visibility using role overrides.
 type ChannelVisibilityChecker interface {
 	BuildVisibilityFilter(ctx context.Context, userID, serverID string) (*ChannelVisibilityFilter, error)
 }
 
-// UserVoiceChannelProvider, kullanıcının aktif ses kanalını sorgulayan ISP interface.
-//
-// Interface Segregation Principle: ChannelService sadece kullanıcının hangi
-// ses kanalında olduğunu bilmeye ihtiyaç duyar — tüm VoiceService'e değil.
-//
-// Kullanım amacı: Bir kullanıcı sürükleme ile ViewChannel yetkisi olmadığı
-// bir ses kanalına taşınırsa, o kanal sidebar'da görünür olmalı.
-// GetAllGrouped bu interface'i kullanarak voice-connected kanalları force-include eder.
+// UserVoiceChannelProvider returns the user's active voice channel ID.
+// Used to force-include voice-connected channels in sidebar even without ViewChannel.
 type UserVoiceChannelProvider interface {
 	GetUserVoiceChannelID(userID string) string
 }
 
-// ChannelVisibilityFilter, kullanıcı bazlı kanal görünürlük hesaplama sonucu.
 type ChannelVisibilityFilter struct {
 	IsAdmin         bool
 	HasBaseView     bool
@@ -49,8 +41,7 @@ func (f *ChannelVisibilityFilter) CanSee(channelID string) bool {
 	return f.HasBaseView
 }
 
-// ChannelService, kanal iş mantığı interface'i.
-// Tüm list operasyonları server-scoped.
+// ChannelService handles channel CRUD. All list operations are server-scoped.
 type ChannelService interface {
 	GetAllGrouped(ctx context.Context, serverID, userID string) ([]models.CategoryWithChannels, error)
 	Create(ctx context.Context, serverID string, req *models.CreateChannelRequest) (*models.Channel, error)
@@ -67,11 +58,6 @@ type channelService struct {
 	voiceProvider UserVoiceChannelProvider
 }
 
-// NewChannelService, ChannelService implementasyonunu oluşturur.
-//
-// voiceProvider: Kullanıcının aktif ses kanalını sorgular.
-// Sürükleme ile ViewChannel yetkisi olmayan bir ses kanalına taşınan
-// kullanıcının o kanalı sidebar'da görebilmesi için gereklidir.
 func NewChannelService(
 	channelRepo repository.ChannelRepository,
 	categoryRepo repository.CategoryRepository,
@@ -104,13 +90,7 @@ func (s *channelService) GetAllGrouped(ctx context.Context, serverID, userID str
 		return nil, fmt.Errorf("failed to build visibility filter: %w", err)
 	}
 
-	// Kullanıcının aktif ses kanalını al — ViewChannel yetkisi olmasa bile
-	// seste olduğu kanal sidebar'da görünmeli.
-	//
-	// Senaryo: Admin, kullanıcıyı ViewChannel yetkisi olmadığı bir ses
-	// kanalına sürüklerse, kullanıcı o kanala voice bağlantısı kurar ama
-	// sidebar'da kanalı göremez. Bu kontrol ile voice-connected kanal
-	// force-include edilir.
+	// Force-include the user's active voice channel even without ViewChannel
 	voiceChannelID := ""
 	if s.voiceProvider != nil {
 		voiceChannelID = s.voiceProvider.GetUserVoiceChannelID(userID)
@@ -130,8 +110,7 @@ func (s *channelService) GetAllGrouped(ctx context.Context, serverID, userID str
 
 	result := make([]models.CategoryWithChannels, 0, len(categories)+1)
 
-	// Kategorisiz kanalları en başa ekle — category_id NULL olanlar
-	// "" key'i ile map'te tutuluyor (line 124 yukarıda).
+	// Uncategorized channels first (category_id = NULL)
 	if uncategorized := channelsByCategory[""]; len(uncategorized) > 0 {
 		result = append(result, models.CategoryWithChannels{
 			Category: models.Category{
@@ -224,10 +203,8 @@ func (s *channelService) Update(ctx context.Context, id string, req *models.Upda
 	}
 	if req.CategoryID != nil {
 		if *req.CategoryID == "" {
-			// Boş string → kategorisiz yap (NULL)
 			channel.CategoryID = nil
 		} else {
-			// Kategori mevcut mu kontrol et
 			if _, err := s.categoryRepo.GetByID(ctx, *req.CategoryID); err != nil {
 				return nil, fmt.Errorf("%w: category not found", pkg.ErrBadRequest)
 			}

@@ -11,58 +11,28 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// PrekeyLowThreshold, prekey havuzu bu sayının altına düşünce
-// client'a "prekey_low" WS event'i gönderilir.
-// Client bu event'i aldığında yeni prekey batch'i yüklemelidir.
+// PrekeyLowThreshold — when prekey pool drops below this, a "prekey_low" WS event is sent.
 const PrekeyLowThreshold = 10
 
-// DeviceService, E2EE cihaz kayıt ve prekey yönetimi iş mantığını tanımlar.
-//
-// Sorumluluklar:
-// - Cihaz kaydı (register) ve kaldırma (delete)
-// - Prekey bundle yönetimi (upload, consume, rotate)
-// - Prekey havuz durumu kontrolü ve "prekey_low" bildirimi
-// - Cihaz listesi (kendi cihazlar + başka kullanıcının public cihazları)
+// DeviceService handles E2EE device registration and prekey management.
 type DeviceService interface {
-	// RegisterDevice, yeni bir cihaz kaydeder ve varsa prekey'leri yükler.
-	// Başarılı kayıt sonrası diğer cihazlara "device_list_update" broadcast edilir.
 	RegisterDevice(ctx context.Context, userID string, req *models.RegisterDeviceRequest) (*models.Device, error)
-
-	// ListDevices, kullanıcının kendi cihazlarını döner (tam bilgi).
 	ListDevices(ctx context.Context, userID string) ([]models.Device, error)
-
-	// ListPublicDevices, başka bir kullanıcının public cihaz bilgilerini döner.
 	ListPublicDevices(ctx context.Context, userID string) ([]models.DevicePublicInfo, error)
-
-	// DeleteDevice, kullanıcının bir cihazını siler.
-	// Diğer cihazlara "device_list_update" broadcast edilir.
 	DeleteDevice(ctx context.Context, userID, deviceID string) error
-
-	// UpdateSignedPrekey, cihazın signed prekey'ini günceller (rotasyon).
-	// Diğer cihazlara "device_key_change" broadcast edilir.
 	UpdateSignedPrekey(ctx context.Context, userID, deviceID string, req *models.UpdateSignedPrekeyRequest) error
-
-	// UploadPrekeys, cihaz için yeni one-time prekey'ler yükler.
 	UploadPrekeys(ctx context.Context, userID, deviceID string, req *models.UploadPrekeysRequest) error
-
-	// GetPrekeyBundles, kullanıcının tüm cihazlarının prekey bundle'larını döner.
-	// İlk mesaj gönderilirken çağrılır — her cihaz için ayrı şifreleme yapılır.
+	// GetPrekeyBundles returns prekey bundles for all of a user's devices.
+	// Called when initiating first message — each device gets separate encryption.
 	GetPrekeyBundles(ctx context.Context, userID string) ([]models.PrekeyBundle, error)
-
-	// GetPrekeyCount, cihazın kalan prekey sayısını döner.
 	GetPrekeyCount(ctx context.Context, userID, deviceID string) (int, error)
 }
 
-// deviceService, DeviceService interface'inin implementasyonu.
 type deviceService struct {
 	deviceRepo repository.DeviceRepository
 	hub        ws.Broadcaster
 }
 
-// NewDeviceService, constructor — DeviceService interface döner.
-//
-// hub: Cihaz değişikliklerinde (kayıt, silme, key rotation)
-// kullanıcının diğer cihazlarına bildirim göndermek için.
 func NewDeviceService(deviceRepo repository.DeviceRepository, hub ws.Broadcaster) DeviceService {
 	return &deviceService{
 		deviceRepo: deviceRepo,
@@ -75,7 +45,6 @@ func (s *deviceService) RegisterDevice(ctx context.Context, userID string, req *
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	// Device struct oluştur — displayName ve signingKey opsiyonel
 	device := &models.Device{
 		UserID:         userID,
 		DeviceID:       req.DeviceID,
@@ -92,19 +61,17 @@ func (s *deviceService) RegisterDevice(ctx context.Context, userID string, req *
 		device.SigningKey = &req.SigningKey
 	}
 
-	// UPSERT — aynı device_id varsa güncellenir
+	// UPSERT — updates if same device_id exists
 	if err := s.deviceRepo.Register(ctx, device); err != nil {
 		return nil, fmt.Errorf("failed to register device: %w", err)
 	}
 
-	// One-time prekey'ler varsa yükle
 	if len(req.OneTimePrekeys) > 0 {
 		if err := s.deviceRepo.UploadPrekeys(ctx, userID, req.DeviceID, req.OneTimePrekeys); err != nil {
 			return nil, fmt.Errorf("failed to upload initial prekeys: %w", err)
 		}
 	}
 
-	// Kullanıcının diğer cihazlarına bildirim — yeni cihaz eklendi
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op:   ws.OpDeviceListUpdate,
 		Data: DeviceListUpdateData{UserID: userID, Action: "added", DeviceID: req.DeviceID},
@@ -140,7 +107,6 @@ func (s *deviceService) DeleteDevice(ctx context.Context, userID, deviceID strin
 		return fmt.Errorf("failed to delete device: %w", err)
 	}
 
-	// Kullanıcının diğer cihazlarına bildirim — cihaz silindi
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op:   ws.OpDeviceListUpdate,
 		Data: DeviceListUpdateData{UserID: userID, Action: "removed", DeviceID: deviceID},
@@ -158,7 +124,6 @@ func (s *deviceService) UpdateSignedPrekey(ctx context.Context, userID, deviceID
 		return fmt.Errorf("failed to update signed prekey: %w", err)
 	}
 
-	// Diğer kullanıcılara bildirim — identity key değişmedi ama signed prekey döndü
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op:   ws.OpDeviceKeyChange,
 		Data: DeviceKeyChangeData{UserID: userID, DeviceID: deviceID},
@@ -184,7 +149,7 @@ func (s *deviceService) GetPrekeyBundles(ctx context.Context, userID string) ([]
 		return nil, fmt.Errorf("failed to get prekey bundles: %w", err)
 	}
 
-	// Prekey tüketimi sonrası havuz kontrolü — her cihaz için
+	// Check prekey pool levels after consumption
 	s.checkPrekeyLevels(ctx, userID)
 
 	return bundles, nil
@@ -198,8 +163,7 @@ func (s *deviceService) GetPrekeyCount(ctx context.Context, userID, deviceID str
 	return count, nil
 }
 
-// checkPrekeyLevels, kullanıcının tüm cihazlarının prekey havuzunu kontrol eder.
-// Havuz PrekeyLowThreshold'un altına düşmüşse ilgili cihaza "prekey_low" event'i gönderir.
+// checkPrekeyLevels sends "prekey_low" events for devices below threshold.
 func (s *deviceService) checkPrekeyLevels(ctx context.Context, userID string) {
 	devices, err := s.deviceRepo.ListByUser(ctx, userID)
 	if err != nil {
@@ -226,25 +190,20 @@ func (s *deviceService) checkPrekeyLevels(ctx context.Context, userID string) {
 	}
 }
 
-// ─── WS Event Data Struct'ları ───
-
-// DeviceListUpdateData, device_list_update event payload'ı.
-// Kullanıcının cihaz listesi değiştiğinde gönderilir.
+// DeviceListUpdateData is the payload for device_list_update events.
 type DeviceListUpdateData struct {
 	UserID   string `json:"user_id"`
-	Action   string `json:"action"`    // "added" veya "removed"
+	Action   string `json:"action"` // "added" or "removed"
 	DeviceID string `json:"device_id"`
 }
 
-// DeviceKeyChangeData, device_key_change event payload'ı.
-// Bir cihazın signed prekey'i döndüğünde gönderilir.
+// DeviceKeyChangeData is the payload for device_key_change events.
 type DeviceKeyChangeData struct {
 	UserID   string `json:"user_id"`
 	DeviceID string `json:"device_id"`
 }
 
-// PrekeyLowData, prekey_low event payload'ı.
-// Cihazın prekey havuzu threshold'un altına düştüğünde gönderilir.
+// PrekeyLowData is the payload for prekey_low events.
 type PrekeyLowData struct {
 	DeviceID  string `json:"device_id"`
 	Remaining int    `json:"remaining"`

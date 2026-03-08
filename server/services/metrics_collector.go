@@ -1,16 +1,12 @@
-// Package services — MetricsCollector, periyodik arka plan metrik toplama servisi.
+// Package services — MetricsCollector: periodic background metrics collection.
 //
-// Her 5 dakikada tüm platform-managed LiveKit instance'lardan metrik toplar:
-//   - LiveKit /metrics endpoint'inden: room_count, participant_count, memory, goroutines
-//   - Hetzner Cloud API'den (varsa): CPU %, network bandwidth
+// Collects metrics from all platform-managed LiveKit instances every interval:
+//   - LiveKit /metrics (Prometheus): room_count, participant_count, memory, goroutines
+//   - Hetzner Cloud API (optional): CPU %, network bandwidth
 //
-// Hetzner entegrasyonu opsiyoneldir:
-//   - hetzner_server_id boş → eski davranış, LiveKit process CPU kullanılır
-//   - hetzner_server_id dolu + HETZNER_API_TOKEN set → gerçek sunucu CPU/BW
-//
-// CPU normalizasyonu: Hetzner max CPU = vCPU_count * 100%. Normalize ederek
-// 0-100% aralığına çevrilir (4 vCPU'da 350% → 87.5%).
-// vCPU sayısı ilk metrik collection'da Hetzner API'den çekilip cache'lenir.
+// CPU normalization: Hetzner reports max CPU = vCPU_count * 100%.
+// Normalized to 0-100% (e.g. 350% on 4 vCPU -> 87.5%).
+// vCPU count is fetched from Hetzner API on first collection and cached.
 package services
 
 import (
@@ -29,20 +25,13 @@ import (
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 )
 
-// MetricsCollector, periyodik arka plan metrik toplama interface'i.
+// MetricsCollector runs periodic background metric collection.
 type MetricsCollector interface {
-	// Start, collector goroutine'ini başlatır.
-	// main.go'da initServices sonrasında çağrılır.
 	Start()
-
-	// Stop, collector goroutine'ini durdurur.
-	// main.go'da graceful shutdown sırasında çağrılır.
 	Stop()
 }
 
-// previousSample, CPU ve bandwidth delta hesaplaması için
-// bir önceki sample'ın counter değerlerini tutar.
-// Counter'lar monotonically increasing olduğundan delta hesaplanabilir.
+// previousSample holds counter values from the last sample for CPU/bandwidth delta computation.
 type previousSample struct {
 	cpuSeconds float64
 	bytesIn    uint64
@@ -58,28 +47,16 @@ type metricsCollector struct {
 	interval      time.Duration
 	retentionDays int
 
-	// Hetzner Cloud API — opsiyonel.
-	// hetznerClient nil ise Hetzner entegrasyonu devre dışıdır.
-	hetznerClient *hcloud.Client
+	hetznerClient *hcloud.Client // optional, nil = disabled
+	vcpuCache     map[int64]int  // cached vCPU counts per Hetzner server ID
 
-	// vCPU count cache — Hetzner sunucusunun vCPU sayısı.
-	// İlk metrik collection'da API'den çekilir, sonra cache'lenir.
-	// Key: Hetzner server ID (int64), Value: vCPU count.
-	vcpuCache map[int64]int
-
-	// In-memory state for delta computation.
-	// Goroutine-safe: sadece collector goroutine'i erişir.
+	// Delta computation state. Goroutine-safe: only accessed by collector goroutine.
 	prevSamples map[string]*previousSample
 
 	stopCh chan struct{}
-	mu     sync.Mutex // Start/Stop race koruması
+	mu     sync.Mutex // Start/Stop race protection
 }
 
-// NewMetricsCollector, constructor.
-//
-// interval: metrik toplama aralığı (production: 5*time.Minute).
-// retentionDays: eski verilerin tutulacağı gün sayısı (default: 30).
-// hetznerToken: Hetzner Cloud API token — boş string ise Hetzner devre dışı.
 func NewMetricsCollector(
 	livekitRepo repository.LiveKitRepository,
 	historyRepo repository.MetricsHistoryRepository,
@@ -111,8 +88,7 @@ func NewMetricsCollector(
 	return mc
 }
 
-// Start, collector goroutine'ini başlatır.
-// İlk collection hemen çalışır, sonra interval aralığında tekrarlar.
+// Start launches the collector goroutine. First collection runs immediately.
 func (c *metricsCollector) Start() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -120,7 +96,6 @@ func (c *metricsCollector) Start() {
 	log.Printf("[metrics-collector] starting (interval=%s, retention=%dd)", c.interval, c.retentionDays)
 
 	go func() {
-		// İlk collection'ı hemen yap — server start'ta beklemeden veri topla
 		c.collectAll()
 
 		ticker := time.NewTicker(c.interval)
@@ -138,7 +113,6 @@ func (c *metricsCollector) Start() {
 	}()
 }
 
-// Stop, collector goroutine'ini durdurur.
 func (c *metricsCollector) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -146,12 +120,10 @@ func (c *metricsCollector) Stop() {
 	close(c.stopCh)
 }
 
-// collectAll, tüm platform-managed instance'lardan metrik toplar.
 func (c *metricsCollector) collectAll() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// 1. Tüm platform-managed instance'ları al
 	instances, err := c.livekitRepo.ListPlatformInstances(ctx)
 	if err != nil {
 		log.Printf("[metrics-collector] failed to list instances: %v", err)
@@ -162,13 +134,12 @@ func (c *metricsCollector) collectAll() {
 		return
 	}
 
-	// 2. Her instance için metrik topla
 	now := time.Now().UTC()
 	for i := range instances {
 		c.collectOne(ctx, &instances[i], now)
 	}
 
-	// 3. Eski verileri temizle (retention period'u geçenleri sil)
+	// Purge expired data
 	cutoff := now.Add(-time.Duration(c.retentionDays) * 24 * time.Hour)
 	purged, purgeErr := c.historyRepo.PurgeOlderThan(ctx, cutoff)
 	if purgeErr != nil {
@@ -178,21 +149,16 @@ func (c *metricsCollector) collectAll() {
 	}
 }
 
-// collectOne, tek bir instance'dan metrik çeker ve DB'ye yazar.
-//
-// İki bağımsız veri kaynağı vardır:
-//   1. LiveKit /metrics (Prometheus) → room_count, participant_count, memory, goroutines
-//   2. Hetzner Cloud API → CPU %, network bandwidth
-//
-// Her ikisi de opsiyoneldir — biri başarısız olursa diğeri yine de kaydedilir.
-// Her iki kaynak da başarısız olursa available=false yazılır.
+// collectOne fetches metrics from a single instance.
+// Two independent sources: LiveKit /metrics and Hetzner API.
+// Either can fail independently — the other is still recorded.
 func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitInstance, now time.Time) {
 	var roomCount, participantCount, goroutines int
 	var memoryBytes, bytesIn, bytesOut uint64
 	var cpuSeconds float64
 	livekitOK := false
 
-	// 1. LiveKit /metrics — room/participant/memory/goroutines için
+	// 1. LiveKit /metrics
 	metricsURL := LiveKitURLToMetrics(inst.URL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
 	if err == nil {
@@ -216,7 +182,7 @@ func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitI
 		}
 	}
 
-	// 2. CPU & bandwidth — Hetzner varsa API'den, yoksa LiveKit delta'larından
+	// 2. CPU & bandwidth — Hetzner API if available, otherwise LiveKit delta fallback
 	var cpuPct, bwInBps, bwOutBps float64
 	hetznerOK := false
 
@@ -232,7 +198,7 @@ func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitI
 		}
 	}
 
-	// Hetzner başarısız + LiveKit başarılı → LiveKit process delta fallback
+	// Fallback: LiveKit process delta when Hetzner is unavailable
 	if !hetznerOK && livekitOK {
 		prev := c.prevSamples[inst.ID]
 		if prev != nil {
@@ -253,13 +219,12 @@ func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitI
 		}
 	}
 
-	// Her iki kaynak da başarısızsa → unavailable
 	if !livekitOK && !hetznerOK {
 		c.insertUnavailable(ctx, inst.ID)
 		return
 	}
 
-	// LiveKit delta referansını güncelle (LiveKit başarılıysa)
+	// Update delta reference
 	if livekitOK {
 		c.prevSamples[inst.ID] = &previousSample{
 			cpuSeconds: cpuSeconds,
@@ -269,7 +234,6 @@ func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitI
 		}
 	}
 
-	// DB'ye yaz
 	snapshot := &models.MetricsSnapshot{
 		InstanceID:       inst.ID,
 		RoomCount:        roomCount,
@@ -289,22 +253,19 @@ func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitI
 	}
 }
 
-// fetchHetznerMetrics, Hetzner Cloud API'den CPU ve network metriklerini çeker.
-// CPU: vCPU sayısına bölünerek 0-100% normalize edilir.
-// Bandwidth: bytes/sec olarak döner.
+// fetchHetznerMetrics fetches CPU and network metrics from Hetzner Cloud API.
+// CPU is normalized to 0-100% by dividing by vCPU count.
 func (c *metricsCollector) fetchHetznerMetrics(ctx context.Context, hetznerServerIDStr string, now time.Time) (cpuPct, bwIn, bwOut float64, err error) {
 	serverID, err := strconv.ParseInt(hetznerServerIDStr, 10, 64)
 	if err != nil {
 		return 0, 0, 0, err
 	}
 
-	// vCPU sayısını cache'den al veya API'den çek
 	vcpuCount, vcpuErr := c.getVCPUCount(ctx, serverID)
 	if vcpuErr != nil {
 		return 0, 0, 0, vcpuErr
 	}
 
-	// Hetzner API'den metrik çek — son interval kadar pencere
 	start := now.Add(-c.interval)
 	result, _, apiErr := c.hetznerClient.Server.GetMetrics(ctx, &hcloud.Server{ID: serverID}, hcloud.ServerGetMetricsOpts{
 		Types: []hcloud.ServerMetricType{
@@ -318,17 +279,15 @@ func (c *metricsCollector) fetchHetznerMetrics(ctx context.Context, hetznerServe
 		return 0, 0, 0, apiErr
 	}
 
-	// CPU — son değeri al ve vCPU ile normalize et
+	// CPU — last value, normalized by vCPU count (e.g. 400% on 4 vCPU -> 100%)
 	if cpuValues, ok := result.TimeSeries["cpu"]; ok && len(cpuValues) > 0 {
 		lastVal := cpuValues[len(cpuValues)-1]
 		rawCPU, parseErr := strconv.ParseFloat(lastVal.Value, 64)
 		if parseErr == nil && vcpuCount > 0 {
-			// Hetzner: 4 vCPU'da max 400%, normalize → 0-100%
 			cpuPct = rawCPU / float64(vcpuCount)
 		}
 	}
 
-	// Network in — son değer (bytes/sec)
 	if inValues, ok := result.TimeSeries["network.0.bandwidth.in"]; ok && len(inValues) > 0 {
 		lastVal := inValues[len(inValues)-1]
 		parsed, parseErr := strconv.ParseFloat(lastVal.Value, 64)
@@ -337,7 +296,6 @@ func (c *metricsCollector) fetchHetznerMetrics(ctx context.Context, hetznerServe
 		}
 	}
 
-	// Network out — son değer (bytes/sec)
 	if outValues, ok := result.TimeSeries["network.0.bandwidth.out"]; ok && len(outValues) > 0 {
 		lastVal := outValues[len(outValues)-1]
 		parsed, parseErr := strconv.ParseFloat(lastVal.Value, 64)
@@ -349,15 +307,12 @@ func (c *metricsCollector) fetchHetznerMetrics(ctx context.Context, hetznerServe
 	return cpuPct, bwIn, bwOut, nil
 }
 
-// getVCPUCount, Hetzner sunucusunun vCPU sayısını döner.
-// İlk çağrıda API'den çeker ve cache'e yazar.
-// Sonraki çağrılarda cache'den döner (server type değişmediği sürece).
+// getVCPUCount returns the vCPU count for a Hetzner server, caching on first lookup.
 func (c *metricsCollector) getVCPUCount(ctx context.Context, serverID int64) (int, error) {
 	if count, ok := c.vcpuCache[serverID]; ok {
 		return count, nil
 	}
 
-	// Hetzner API'den server bilgisini çek
 	server, _, err := c.hetznerClient.Server.GetByID(ctx, serverID)
 	if err != nil {
 		return 0, err
@@ -377,8 +332,7 @@ func (c *metricsCollector) getVCPUCount(ctx context.Context, serverID int64) (in
 	return cores, nil
 }
 
-// insertUnavailable, /metrics erişilemediğinde available=false kayıt yazar.
-// Tarihsel olarak downtime'ı da takip edebilmek için.
+// insertUnavailable records an available=false entry for downtime tracking.
 func (c *metricsCollector) insertUnavailable(ctx context.Context, instanceID string) {
 	snapshot := &models.MetricsSnapshot{
 		InstanceID: instanceID,

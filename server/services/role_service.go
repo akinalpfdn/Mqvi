@@ -1,8 +1,3 @@
-// Package services — RoleService: rol CRUD iş mantığı.
-//
-// Roller sunucudaki yetki gruplarını temsil eder.
-// Her rolün bir position (hiyerarşi sırası), renk ve permission bitfield'ı vardır.
-// Tüm operasyonlar server-scoped.
 package services
 
 import (
@@ -15,8 +10,7 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// RoleService, rol yönetimi iş mantığı interface'i.
-// Tüm list operasyonları server-scoped.
+// RoleService handles role CRUD. All operations are server-scoped.
 type RoleService interface {
 	GetAllByServer(ctx context.Context, serverID string) ([]models.Role, error)
 	Create(ctx context.Context, serverID, actorID string, req *models.CreateRoleRequest) (*models.Role, error)
@@ -52,7 +46,7 @@ func (s *roleService) Create(ctx context.Context, serverID, actorID string, req 
 		return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
 	}
 
-	// Permission escalation kontrolü
+	// Permission escalation check
 	actorPerms, permErr := s.getActorEffectivePermissions(ctx, actorID, serverID)
 	if permErr != nil {
 		return nil, permErr
@@ -69,7 +63,7 @@ func (s *roleService) Create(ctx context.Context, serverID, actorID string, req 
 		return nil, fmt.Errorf("failed to get all roles: %w", err)
 	}
 
-	// Member (default, position=1) hariç, tüm rollerin position'ını 1 artır
+	// Shift all non-default roles up by 1 to make room at position 2
 	var shifts []models.PositionUpdate
 	for _, r := range allRoles {
 		if r.IsDefault {
@@ -115,8 +109,7 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 		return nil, err
 	}
 
-	// Owner rolü özel işlem: sadece server owner isim ve renk değiştirebilir,
-	// permission ve position değişikliği YASAK.
+	// Owner role: only server owner can edit name/color; permissions are immutable
 	if role.IsOwner {
 		actorRoles, roleErr := s.roleRepo.GetByUserIDAndServer(ctx, actorID, serverID)
 		if roleErr != nil {
@@ -125,11 +118,9 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 		if !models.HasOwnerRole(actorRoles) {
 			return nil, fmt.Errorf("%w: only the server owner can modify the Owner role", pkg.ErrForbidden)
 		}
-		// Permission değişikliği engelle — Owner rolü her zaman tam yetkili
 		if req.Permissions != nil {
 			return nil, fmt.Errorf("%w: Owner role permissions cannot be changed", pkg.ErrForbidden)
 		}
-		// Sadece isim ve renk güncellenebilir
 		if req.Name != nil {
 			role.Name = *req.Name
 		}
