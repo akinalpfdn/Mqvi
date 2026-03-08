@@ -1,5 +1,5 @@
 /**
- * AppLayout — Sidebar-based ana layout.
+ * AppLayout — Main layout with sidebar, split panes, and member list.
  *
  * Desktop:
  * ┌─────────┬──────────────────────┬─────────┐
@@ -7,19 +7,11 @@
  * │ (240px) │ (flex-1, recursive)  │ (240px) │
  * └─────────┴──────────────────────┴─────────┘
  *
- * Mobil (768px altı): MobileAppLayout render edilir →
- * Drawer sidebar + drawer members + MobileHeader + tek panel.
+ * Mobile (<768px): MobileAppLayout with drawer sidebar/members.
  *
- * useWebSocket hook'u burada çağrılır — tüm WS event'leri
- * bu noktadan store'lara yönlendirilir.
- *
- * useVoice hook'u burada çağrılır — voice join/leave/mute/deafen
- * orkestrasyon fonksiyonları Sidebar/UserBar'a prop olarak geçilir.
- *
- * Cascade refetch: Server değiştiğinde channelStore, memberStore,
- * roleStore, readStateStore temizlenip yeniden fetch edilir.
- *
- * CSS: .mqvi-app, .mqvi-app.mobile, .app-body, .main-area
+ * Single WS hook here — routes all events to stores.
+ * Voice orchestration props passed down to Sidebar/UserBar.
+ * Cascade refetch on server switch (channels, members, roles, readState).
  */
 
 import { useEffect, useMemo, useRef, useCallback } from "react";
@@ -60,13 +52,13 @@ function AppLayout() {
   const { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS, connectionStatus, reconnectAttempt } =
     useWebSocket();
 
-  // Idle detection — 5dk inaktiflik → "idle", aktivite geri gelince → "online"
+  // Idle detection — auto-set "idle" after 5min inactivity
   useIdleDetection({ sendPresenceUpdate });
 
-  // Electron taskbar badge — okunmamış mesaj sayısını taskbar ikonunda gösterir
+  // Electron taskbar badge for unread count
   useNotificationBadge();
 
-  // E2EE — cihaz kimliği kontrolü + anahtar başlatma
+  // E2EE device identity check + key init
   useE2EE();
   const e2eeInitStatus = useE2EEStore((s) => s.initStatus);
 
@@ -82,31 +74,21 @@ function AppLayout() {
   const layout = useUIStore((s) => s.layout);
   const openTab = useUIStore((s) => s.openTab);
 
-  /**
-   * autoOpenedRef — İlk kanal seçildiğinde otomatik tab açılmasını
-   * tek seferlik yapar. Birden fazla çağrıyı engeller.
-   * Server değiştiğinde sıfırlanır.
-   */
+  // Prevents duplicate auto-tab-open; reset on server switch
   const autoOpenedRef = useRef(false);
 
-  /**
-   * cascadeRefetch — Server değiştiğinde tüm server-scoped store'ları
-   * temizleyip yeniden fetch eder.
-   *
-   * ChannelTree'de sunucu tıklandığında çağrılır.
-   * Ayrıca ilk mount'ta aktif sunucu varsa çalışır.
-   */
+  // Clear and refetch all server-scoped stores
   const cascadeRefetch = useCallback(() => {
-    // Mevcut store verileri temizle (server-scoped olanlar)
+    // Clear server-scoped store data
     useChannelStore.getState().clearForServerSwitch();
     useMemberStore.getState().clearForServerSwitch();
     useRoleStore.getState().clearForServerSwitch();
     useReadStateStore.getState().clearForServerSwitch();
 
-    // Tab auto-open flag'ini sıfırla — yeni sunucuda ilk kanalı açması lazım
+    // Reset auto-open flag for new server
     autoOpenedRef.current = false;
 
-    // Yeni sunucu verilerini fetch et
+    // Fetch new server data
     fetchActiveServer();
     fetchChannels();
     fetchMembers();
@@ -114,10 +96,7 @@ function AppLayout() {
     fetchUnreadCounts();
   }, [fetchActiveServer, fetchChannels, fetchMembers, fetchRoles, fetchUnreadCounts]);
 
-  /**
-   * İlk mount'ta ve activeServerId değiştiğinde (WS ready sonrası)
-   * sunucu verilerini çek. prevServerRef ile gereksiz tekrar çağrıyı engelle.
-   */
+  // Cascade refetch on server change (deduplicated via prevServerRef)
   const prevServerRef = useRef<string | null>(null);
   useEffect(() => {
     if (activeServerId && activeServerId !== prevServerRef.current) {
@@ -126,11 +105,7 @@ function AppLayout() {
     }
   }, [activeServerId, cascadeRefetch]);
 
-  /**
-   * Kanallar yüklendikten sonra ilk text kanalını otomatik tab olarak aç.
-   * channelStore.fetchChannels zaten selectedChannelId'yi setiyor —
-   * burada sadece UI tab'ını açıyoruz.
-   */
+  // Auto-open the first selected channel as a UI tab after channels load
   useEffect(() => {
     if (!selectedChannelId || autoOpenedRef.current) return;
     if (categories.length === 0) return;
@@ -140,7 +115,7 @@ function AppLayout() {
       .find((ch) => ch.id === selectedChannelId);
 
     if (channel) {
-      // Tab'a server bilgisini ekle (multi-server'da kanal ayırt etme)
+      // Attach server info to tab for multi-server context
       let serverInfo: TabServerInfo | undefined;
       if (activeServerId) {
         const srv = servers.find((s) => s.id === activeServerId);
@@ -158,12 +133,7 @@ function AppLayout() {
     }
   }, [selectedChannelId, categories, openTab, activeServerId, servers]);
 
-  /**
-   * Auto-mark-read — Kanal değiştiğinde okunmamış sayacını sıfırla.
-   *
-   * Aktif kanala geçildiğinde, o kanalın son mesajı varsa backend'e
-   * "bu mesaja kadar okudum" bilgisi gönderilir ve local badge sıfırlanır.
-   */
+  // Auto-mark-read when switching channels
   useEffect(() => {
     if (!selectedChannelId) return;
 
@@ -172,7 +142,7 @@ function AppLayout() {
       const lastMessage = messages[messages.length - 1];
       useReadStateStore.getState().markAsRead(selectedChannelId, lastMessage.id);
     } else {
-      // Mesajlar henüz yüklenmemiş olabilir — local badge'i yine sıfırla
+      // Messages not loaded yet — still clear local badge
       useReadStateStore.getState().clearUnread(selectedChannelId);
     }
   }, [selectedChannelId]);
@@ -183,21 +153,15 @@ function AppLayout() {
     sendVoiceStateUpdate,
   });
 
-  // Global keyboard shortcuts — Ctrl+K, Ctrl+Shift+M, Ctrl+Shift+D
+  // Global keyboard shortcuts
   useKeyboardShortcuts({ toggleMute, toggleDeafen });
 
-  // P2P call lifecycle — incoming call timeout, WebRTC negotiation, tab sync
+  // P2P call lifecycle
   useP2PCall();
 
   // ─── Voice ↔ Tab sync ───
 
-  /**
-   * leaveVoice callback'ini voiceStore'a kaydet.
-   * uiStore.closeTab bir voice tab kapatıldığında bu callback'i çağırır —
-   * böylece hem WS voice_leave event'i gönderilir hem de store temizlenir.
-   *
-   * Cleanup'ta null'a set ederiz — component unmount olursa stale callback kalmasın.
-   */
+  // Register leaveVoice so uiStore.closeTab can trigger voice disconnect
   useEffect(() => {
     useVoiceStore.getState().registerOnLeave(leaveVoice);
     return () => {
@@ -205,8 +169,7 @@ function AppLayout() {
     };
   }, [leaveVoice]);
 
-  // sendWS callback'ini voiceStore'a kaydet — VoiceUserContextMenu gibi
-  // deep component'ler prop drilling olmadan WS event gönderebilsin.
+  // Register sendWS for deep components (e.g. VoiceUserContextMenu) to avoid prop drilling
   useEffect(() => {
     useVoiceStore.getState().registerWsSend(sendWS);
     return () => {
@@ -214,25 +177,8 @@ function AppLayout() {
     };
   }, [sendWS]);
 
-  /**
-   * Voice kanal değişikliği → tab close sync + kanal listesi refetch.
-   *
-   * currentVoiceChannelId değişikliğini takip eder:
-   *
-   * 1. Tab close: Bir değerden null'a geçiş = voice kanalından ayrılma
-   *    → o kanala ait voice/screen tab'larını kapatır.
-   *
-   * 2. Channel refetch: Voice kanal değiştiğinde kanal listesini yeniden çeker.
-   *    Neden? Bir kullanıcı sürükleme ile ViewChannel yetkisi olmadığı bir ses
-   *    kanalına taşınırsa, backend artık o kanalı döner (voice-connected override).
-   *    Ayrılınca da kanal tekrar gizlenmeli. Bu logic her iki senaryoyu kapsar:
-   *    - voice_force_move → yeni gizli kanal sidebar'da görünsün
-   *    - voice leave / voice_force_disconnect → gizli kanal tekrar kaybolsun
-   *
-   * prevRef ile önceki değeri tutarız — React'in useEffect cleanup'ı
-   * yeterli değil çünkü önceki değeri bilmemiz lazım.
-   * İlk mount'ta (prev === undefined) skip — cascadeRefetch zaten kanalları çekiyor.
-   */
+  // Voice channel change -> close stale voice tabs + refetch channel list
+  // (hidden channels may become visible via voice-connected override, or vice versa)
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const prevVoiceChannelRef = useRef<string | null | undefined>(undefined);
 
@@ -240,16 +186,15 @@ function AppLayout() {
     const prev = prevVoiceChannelRef.current;
     prevVoiceChannelRef.current = currentVoiceChannelId;
 
-    // İlk mount → skip (cascadeRefetch zaten kanalları çekiyor)
+    // Skip initial mount — cascadeRefetch handles it
     if (prev === undefined) return;
 
-    // Voice kanalından ayrıldıysa → ilgili tab'ları kapat
+    // Left voice channel — close related tabs
     if (prev && !currentVoiceChannelId) {
       useUIStore.getState().closeVoiceTabs(prev);
     }
 
-    // Voice kanal değiştiyse → kanal listesini refetch et
-    // (gizli kanala sürüklenen kullanıcı kanalı görebilsin, ayrılınca kaybolsun)
+    // Refetch channels on voice channel change
     if (prev !== currentVoiceChannelId) {
       fetchChannels();
     }
@@ -258,10 +203,7 @@ function AppLayout() {
   // ─── Responsive layout ───
   const isMobile = useIsMobile();
 
-  /**
-   * Sidebar prop'ları — hem desktop Sidebar hem MobileAppLayout tarafından
-   * kullanılır. useMemo ile stable referans sağlanır.
-   */
+  // Stable sidebar props shared by desktop and mobile layouts
   const sidebarProps = useMemo(
     () => ({
       onJoinVoice: joinVoice,
@@ -274,39 +216,36 @@ function AppLayout() {
     [joinVoice, toggleMute, toggleDeafen, toggleScreenShare, leaveVoice, sendPresenceUpdate]
   );
 
-  /**
-   * Ortak overlay'lar — hem mobil hem desktop'ta gösterilir.
-   * Layout'tan bağımsız, z-index ile üst katmanlarda render edilir.
-   */
+  // Shared overlays rendered in both mobile and desktop layouts
   const overlays = (
     <>
-      {/* Connection status banner — bağlantı kopunca üstte kırmızı banner (z-200) */}
+      {/* Connection status banner */}
       <ConnectionBanner status={connectionStatus} reconnectAttempt={reconnectAttempt} />
 
-      {/* Settings modal — tam ekran overlay (z-50) */}
+      {/* Settings modal */}
       <SettingsModal />
 
-      {/* Onay dialogu — window.confirm() yerine (z-50) */}
+      {/* Confirm dialog */}
       <ConfirmDialog />
 
-      {/* Toast notifications — sağ alt köşe (z-100) */}
+      {/* Toast notifications */}
       <ToastContainer />
 
-      {/* Quick Switcher — Ctrl+K ile açılır (z-60) */}
+      {/* Quick Switcher (Ctrl+K) */}
       <QuickSwitcher />
 
-      {/* P2P gelen arama overlay — z-200, en üst katman */}
+      {/* P2P incoming call overlay */}
       <IncomingCallOverlay />
 
-      {/* Electron screen picker — getDisplayMedia tetiklendiğinde açılır (z-150) */}
+      {/* Electron screen picker */}
       <ScreenPicker />
 
-      {/* E2EE yeni cihaz kurulum modal'ı — blocking overlay (z-300) */}
+      {/* E2EE new device setup (blocking) */}
       {(e2eeInitStatus === "needs_setup" || e2eeInitStatus === "needs_recovery_password") && <NewDeviceSetup />}
     </>
   );
 
-  // ─── Mobil layout ───
+  // Mobile layout
   if (isMobile) {
     return (
       <VoiceProvider>
@@ -320,24 +259,21 @@ function AppLayout() {
     );
   }
 
-  // ─── Desktop layout ───
+  // Desktop layout
   const desktopContent = (
     <div className="mqvi-app">
-      {/* Sol sidebar — kanal ağacı + voice kontrolleri */}
+      {/* Sidebar */}
       <Sidebar {...sidebarProps} />
 
-      {/* Sağ taraf — split paneller + member list */}
-      {/* VoiceProvider: LiveKit bağlantısını her zaman mount tutar.
-          Tab değişince VoiceRoom visual component'i unmount olsa bile
-          ses bağlantısı korunur. display:contents ile layout etkilenmez. */}
+      {/* VoiceProvider wraps body — keeps LiveKit connection alive across tab switches */}
       <VoiceProvider>
         <div className="app-body">
-          {/* Ana içerik alanı — split paneller + member list */}
+          {/* Main content area */}
           <div className="main-area">
-            {/* Split pane container — recursive layout ağacını render eder */}
+            {/* Split pane container */}
             <SplitPaneContainer node={layout} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
 
-            {/* Sağ panel — CSS transition ile açılıp kapanır (.members-panel.open) */}
+            {/* Member list panel */}
             <MemberList />
           </div>
         </div>
@@ -347,7 +283,7 @@ function AppLayout() {
     </div>
   );
 
-  // Electron: custom titlebar + wrapper (frame:false nedeniyle OS titlebar yok)
+  // Electron: custom titlebar (frameless window)
   if (isElectron()) {
     return (
       <div className="electron-app-wrapper">

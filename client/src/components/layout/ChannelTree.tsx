@@ -1,27 +1,6 @@
 /**
- * ChannelTree — VS Code tarzı collapsible kanal ağacı.
- *
- * Sıralama:
- * 1. Friends (collapsible) — placeholder, Faz 4'te implement edilecek
- * 2. DMs (collapsible) — aktif DM kanalları
- * 3. Server (collapsible) — kategoriler altında text + voice kanalları
- *    - Her voice kanalı altında bağlı kullanıcılar inline gösterilir
- *
- * Indent seviyeleri:
- * - Section başlığı (Friends/DMs/Server): 0px
- * - Kategori başlığı: 8px
- * - Kanal: 20px
- * - Voice kullanıcısı: 32px
- *
- * Tıklama:
- * - Text kanal: selectChannel() + openTab("text")
- * - Voice kanal: onJoinVoice(channelId) + openTab("voice")
- * - DM: selectDM() + openTab("dm")
- *
- * CSS class'ları: .ch-tree, .ch-tree-section, .ch-tree-section-header,
- * .ch-tree-chevron, .ch-tree-item, .ch-tree-item.active,
- * .ch-tree-icon, .ch-tree-label, .ch-tree-badge,
- * .ch-tree-voice-user, .ch-tree-vu-dot
+ * ChannelTree — Collapsible tree with Friends, DMs, and Server sections.
+ * Server section shows categories with text/voice channels and inline voice participants.
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -75,20 +54,10 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
   const toggleSection = useSidebarStore((s) => s.toggleSection);
   const expandSection = useSidebarStore((s) => s.expandSection);
-  /**
-   * expandedSections MAP'ine subscribe ol — reactive re-render sağlar.
-   *
-   * ÖNCEKİ HATA: `isSectionExpanded` fonksiyonuna subscribe edilmişti.
-   * Zustand selector'ı fonksiyon referansını döndürüyordu, bu referans
-   * hiç değişmediği için toggleSection() çağrıldığında component
-   * re-render OLMUYORDU → collapse/expand çalışmıyordu.
-   *
-   * Çözüm: expandedSections verisine doğrudan subscribe olup,
-   * component-local helper ile kontrol etmek.
-   */
+  // Subscribe to the map (not a function) so toggleSection triggers re-render
   const expandedSections = useSidebarStore((s) => s.expandedSections);
 
-  /** Section açık mı? Map'te yoksa varsayılan true (ilk açılışta hep açık) */
+  /** Returns true if section is expanded (default: true) */
   function isSectionExpanded(key: string): boolean {
     return expandedSections[key] ?? true;
   }
@@ -237,25 +206,23 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const unmuteChannel = useChannelStore((s) => s.unmuteChannel);
   const { t: tCh } = useTranslation("channels");
 
-  // Permission: MANAGE_CHANNELS yetkisi olan kullanıcılar kanal ekleyebilir
+  // MANAGE_CHANNELS permission
   const currentMember = members.find((m) => m.id === currentUser?.id);
   const canManageChannels = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.ManageChannels)
     : false;
 
-  // Permission: MOVE_MEMBERS yetkisi olan kullanıcılar başka kullanıcıları
-  // voice kanallar arası sürükleyerek taşıyabilir (drag & drop).
+  // MOVE_MEMBERS permission (voice user drag & drop)
   const canMoveMembers = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.MoveMembers)
     : false;
 
-  // Permission: MANAGE_INVITES yetkisi olan kullanıcılar davet kodu oluşturup
-  // arkadaşlarını sunucuya davet edebilir.
+  // MANAGE_INVITES permission
   const canManageInvites = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.ManageInvites)
     : false;
 
-  // Voice user drag & drop için WS send
+  // WS send for voice user drag & drop
   const wsSend = useVoiceStore((s) => s._wsSend);
 
   // ─── Voice User Context Menu State ───
@@ -273,49 +240,42 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const [createModalMode, setCreateModalMode] = useState<"category" | "channel" | undefined>(undefined);
   const [createModalCategoryId, setCreateModalCategoryId] = useState<string | undefined>(undefined);
 
-  // ─── Drag & Drop State ───
-  // Aynı kategori içinde kanal sıralamasını sürükleyerek değiştirme.
-  // HTML5 Drag and Drop API kullanılıyor — harici kütüphane gerektirmez.
+  // ─── Channel Drag & Drop State ───
 
   const reorderChannels = useChannelStore((s) => s.reorderChannels);
 
-  /** Sürüklenen kanalın id'si */
+  /** Dragged channel ID */
   const dragChannelIdRef = useRef<string | null>(null);
-  /** Sürüklenen kanalın ait olduğu kategori id'si */
+  /** Source category ID of dragged channel */
   const dragCategoryIdRef = useRef<string | null>(null);
-  /** Drop hedefinin üstünde/altında çizgi göstermek için */
+  /** Drop indicator position */
   const [dropIndicator, setDropIndicator] = useState<{
     channelId: string;
     position: "above" | "below";
   } | null>(null);
 
   // ─── Voice User Drag & Drop State ───
-  // Yetkili kullanıcıların voice kullanıcılarını sürükleyerek başka kanala taşıması.
-  // Discord'daki gibi: kullanıcıyı tutup başka voice kanala bırakma.
 
-  /** Sürüklenen voice kullanıcının user_id'si */
+  /** Dragged voice user ID */
   const dragVoiceUserIdRef = useRef<string | null>(null);
-  /** Sürüklenen kullanıcının kaynak (source) kanal id'si */
+  /** Source channel ID of dragged voice user */
   const dragVoiceSourceChannelRef = useRef<string | null>(null);
-  /** Sürüklenen kullanıcı id (CSS vu-dragging class'ı için state — ref render tetiklemez) */
+  /** Dragging user ID (state for CSS class — ref doesn't trigger render) */
   const [draggingVoiceUserId, setDraggingVoiceUserId] = useState<string | null>(null);
-  /** Hover edilen hedef voice kanal id (drop target highlight için) */
+  /** Hovered voice channel drop target ID */
   const [voiceDropTargetId, setVoiceDropTargetId] = useState<string | null>(null);
 
   // ─── Server Drag & Drop State ───
-  // Kullanıcının sunucu listesini sürükleyerek sıralaması.
-  // Per-user — başkalarını etkilemez, DB'de persist.
 
-  /** Sürüklenen sunucunun id'si */
+  /** Dragged server ID */
   const dragServerIdRef = useRef<string | null>(null);
-  /** Drop hedefinin üstünde/altında çizgi göstermek için */
+  /** Server drop indicator position */
   const [serverDropIndicator, setServerDropIndicator] = useState<{
     serverId: string;
     position: "above" | "below";
   } | null>(null);
 
   function handleServerDragStart(e: React.DragEvent, serverId: string) {
-    // Kanal veya voice user sürüklemesiyle çakışmasın
     e.stopPropagation();
     dragServerIdRef.current = serverId;
     e.dataTransfer.effectAllowed = "move";
@@ -323,9 +283,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   }
 
   function handleServerDragOver(e: React.DragEvent, serverId: string) {
-    // Sadece server sürükleme aktifse işle
     if (!dragServerIdRef.current) return;
-    // Kendi üzerine bırakma ihmal
+    // Ignore self-drop
     if (dragServerIdRef.current === serverId) {
       e.preventDefault();
       setServerDropIndicator(null);
@@ -354,27 +313,25 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
     if (!dragId || dragId === targetServerId) return;
 
-    // Mevcut listeyi kopyala
     const ordered = [...servers];
     const dragIdx = ordered.findIndex((s) => s.id === dragId);
     const targetIdx = ordered.findIndex((s) => s.id === targetServerId);
     if (dragIdx === -1 || targetIdx === -1) return;
 
-    // Sürüklenen sunucuyu çıkar
     const [dragged] = ordered.splice(dragIdx, 1);
 
-    // Hedefin yeni index'ini hesapla (splice sonrası kayma)
+    // Recalculate target index after splice
     let insertIdx = ordered.findIndex((s) => s.id === targetServerId);
     if (insertIdx === -1) insertIdx = ordered.length;
 
-    // Mouse pozisyonuna göre üstte veya altta ekle
+    // Insert above or below based on mouse position
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
     if (e.clientY >= midY) insertIdx += 1;
 
     ordered.splice(insertIdx, 0, dragged);
 
-    // Position değerlerini 0'dan başlayarak ata
+    // Assign sequential positions
     const items = ordered.map((s, idx) => ({ id: s.id, position: idx }));
     reorderServers(items).then((ok) => {
       if (!ok) addToast("error", tServers("reorderError"));
@@ -392,7 +349,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   }
 
   function handleDragOver(e: React.DragEvent, channelId: string, _categoryId: string) {
-    // Kendi üzerine sürükleme ihmal
+    // Ignore self-drag
     if (dragChannelIdRef.current === channelId) {
       e.preventDefault();
       setDropIndicator(null);
@@ -401,7 +358,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
     e.preventDefault();
 
-    // Mouse'un hedef elemanın üst yarısında mı alt yarısında mı olduğunu hesapla
+    // Determine above/below based on mouse position
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
     const pos: "above" | "below" = e.clientY < midY ? "above" : "below";
@@ -413,19 +370,14 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     setDropIndicator(null);
   }
 
-  /**
-   * Kategori başlığına sürüklenen kanal — boş veya kapalı kategorilere
-   * kanal taşımak için kullanılır.
-   */
+  /** Channel dragged onto a category header — move channel to that category. */
   function handleCategoryHeaderDragOver(e: React.DragEvent) {
     if (!dragChannelIdRef.current) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
   }
 
-  /**
-   * Kategori başlığına bırakılan kanal — kanalı bu kategorinin sonuna ekler.
-   */
+  /** Drop channel onto category header — append to end of that category. */
   function handleCategoryHeaderDrop(e: React.DragEvent, targetCategoryId: string) {
     e.preventDefault();
     setDropIndicator(null);
@@ -436,29 +388,27 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     dragCategoryIdRef.current = null;
 
     if (!dragId) return;
-    // Aynı kategoriye bırakıyorsa bir şey yapma
+    // Same category — no-op
     if (dragCatId === targetCategoryId) return;
 
-    // Kaynak kategoriyi bul ve kanalı çıkar
+    // Find source category and channel
     const sourceCat = categories.find((c) => c.category.id === dragCatId);
     if (!sourceCat) return;
 
     const draggedChannel = sourceCat.channels.find((ch) => ch.id === dragId);
     if (!draggedChannel) return;
 
-    // Hedef kategoriyi bul — kategorisiz (id="") ise listede olmayabilir
+    // Target category (may not exist for uncategorized id="")
     const targetCat = categories.find((c) => c.category.id === targetCategoryId);
 
-    // items: kaynak kategorinin güncel sıralaması (taşınan hariç) + taşınan kanal hedef sona
+    // Build reorder items: source minus dragged + dragged appended to target
     const items: { id: string; position: number; category_id?: string }[] = [];
 
-    // Kaynak kategori: taşınan kanalı çıkar, kalanları yeniden sırala
     const sourceRemaining = sourceCat.channels.filter((ch) => ch.id !== dragId);
     sourceRemaining.forEach((ch, idx) => {
       items.push({ id: ch.id, position: idx });
     });
 
-    // Hedef kategori: mevcut kanallar + taşınan kanal sona
     const targetChannels = targetCat?.channels ?? [];
     targetChannels.forEach((ch, idx) => {
       items.push({ id: ch.id, position: idx });
@@ -488,8 +438,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     const isCrossCategory = dragCatId !== categoryId;
 
     if (isCrossCategory) {
-      // ─── Cross-category drag-and-drop ───
-      // Kaynak ve hedef kategori kanallarını al
+      // Cross-category drag-and-drop
       const sourceCat = categories.find((c) => c.category.id === dragCatId);
       const targetCat = categories.find((c) => c.category.id === categoryId);
       if (!sourceCat || !targetCat) return;
@@ -497,7 +446,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       const draggedChannel = sourceCat.channels.find((ch) => ch.id === dragId);
       if (!draggedChannel) return;
 
-      // Hedef kategorideki ekleme noktasını hesapla
+      // Calculate insertion point in target category
       const targetOrdered = [...targetCat.channels];
       let insertIdx = targetOrdered.findIndex((ch) => ch.id === targetChannelId);
       if (insertIdx === -1) insertIdx = targetOrdered.length;
@@ -506,22 +455,20 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       const midY = rect.top + rect.height / 2;
       if (e.clientY >= midY) insertIdx += 1;
 
-      // Taşınan kanalı hedef listeye ekle
+      // Insert dragged channel at target position
       targetOrdered.splice(insertIdx, 0, draggedChannel);
 
-      // items: kaynak kategorinin güncel sıralaması + hedef kategorinin yeni sıralaması
+      // Build reorder items for both source and target categories
       const items: { id: string; position: number; category_id?: string }[] = [];
 
-      // Kaynak kategori: taşınan kanalı çıkar, kalanları yeniden sırala
       const sourceRemaining = sourceCat.channels.filter((ch) => ch.id !== dragId);
       sourceRemaining.forEach((ch, idx) => {
         items.push({ id: ch.id, position: idx });
       });
 
-      // Hedef kategori: tüm kanalları yeni sırayla gönder
       targetOrdered.forEach((ch, idx) => {
         if (ch.id === dragId) {
-          // Taşınan kanalın category_id'sini değiştir
+          // Moved channel — update category_id
           items.push({ id: ch.id, position: idx, category_id: categoryId });
         } else {
           items.push({ id: ch.id, position: idx });
@@ -532,7 +479,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         if (!ok) addToast("error", tCh("reorderError"));
       });
     } else {
-      // ─── Same-category reorder (mevcut davranış) ───
+      // Same-category reorder
       const cat = categories.find((c) => c.category.id === categoryId);
       if (!cat) return;
 
@@ -567,11 +514,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
   // ─── Voice User Drag Handlers ───
 
-  /**
-   * Voice kullanıcı sürüklemeye başladığında çağrılır.
-   * stopPropagation() ile parent'taki kanal reorder drag'ı engellenir —
-   * böylece iki drag sistemi birbirine karışmaz.
-   */
+  // stopPropagation prevents conflict with channel reorder drag
   function handleVoiceUserDragStart(e: React.DragEvent, userId: string, channelId: string) {
     e.stopPropagation();
     dragVoiceUserIdRef.current = userId;
@@ -581,7 +524,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     e.dataTransfer.setData("text/voice-user", userId);
   }
 
-  /** Sürükleme bittiğinde (drop veya iptal) tüm voice drag state'i temizle. */
+  /** Clear all voice drag state on drop or cancel. */
   function handleVoiceUserDragEnd() {
     dragVoiceUserIdRef.current = null;
     dragVoiceSourceChannelRef.current = null;
@@ -589,15 +532,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     setVoiceDropTargetId(null);
   }
 
-  /**
-   * Birleşik DragOver — hem kanal reorder hem voice user move'u aynı element üzerinde işler.
-   *
-   * dragVoiceUserIdRef set ise voice user sürükleniyor demektir:
-   *   - Sadece voice kanallar (kaynak kanal hariç) geçerli drop target'tır
-   *   - Text kanallar veya kaynak kanal reddedilir
-   *
-   * Aksi halde mevcut kanal reorder mantığı çalışır.
-   */
+  /** Unified DragOver — handles both channel reorder and voice user move on the same element. */
   function handleChannelDragOver(
     e: React.DragEvent,
     channelId: string,
@@ -614,12 +549,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     handleDragOver(e, channelId, categoryId);
   }
 
-  /**
-   * Birleşik DragLeave — cursor kanal elemanının dışına çıktığında çağrılır.
-   *
-   * relatedTarget kontrolü ile child element geçişlerindeki sahte leave event'leri
-   * filtrelenir — cursor hâlâ parent içindeyse highlight kaldırılmaz.
-   */
+  // Filter out false leave events when cursor moves between child elements
   function handleChannelDragLeave(e: React.DragEvent) {
     if (dragVoiceUserIdRef.current) {
       const related = e.relatedTarget as Node | null;
@@ -630,12 +560,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     handleDragLeave();
   }
 
-  /**
-   * Birleşik Drop — voice user move veya kanal reorder'ı gerçekleştirir.
-   *
-   * Voice user drop'ta: WS üzerinden voice_move_user event'i gönderilir,
-   * backend hem kaynak hem hedef kanalda MoveMembers yetkisini kontrol eder.
-   */
+  /** Unified Drop — voice user move (via WS) or channel reorder. */
   function handleChannelDrop(e: React.DragEvent, targetChannelId: string, categoryId: string) {
     if (dragVoiceUserIdRef.current) {
       e.preventDefault();
@@ -655,7 +580,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
   // ─── Handlers ───
 
-  /** Aktif sunucunun tab'da gösterilecek bilgisi */
+  /** Active server info for tab display */
   function getActiveServerInfo(): TabServerInfo | undefined {
     if (!activeServerId) return undefined;
     const srv = servers.find((s) => s.id === activeServerId);
@@ -680,13 +605,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     fetchMessages(dmId);
   }
 
-  /**
-   * handleDMContextMenu — DM sağ tık context menu.
-   *
-   * 11 özellik: Profil, Kapat, Okundu İşaretle, Engelle/Kaldır,
-   * Sabitle/Kaldır, Mesajlarda Ara, Sessize Al/Kaldır,
-   * Arkadaş Ekle/Çıkar, Rapor Et, Sesli Arama, ID Kopyala.
-   */
   function handleDMContextMenu(e: React.MouseEvent, dm: DMChannelWithUser) {
     const user = dm.other_user;
     const name = user.display_name || user.username;
@@ -697,7 +615,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     const inReq = incoming.find((r) => r.user_id === user.id);
 
     const items: ContextMenuItem[] = [
-      // 1. Profili Görüntüle
       {
         label: tDM("viewProfile"),
         onClick: () => {
@@ -705,30 +622,25 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           setDmProfileTarget({ dm, top: rect.top, left: rect.right + 8 });
         },
       },
-      // 2. Sesli Arama
       {
         label: tDM("voiceCall"),
         onClick: () => {
           initiateCall(user.id, "voice");
         },
       },
-      // 3. Mesajlarda Ara
       {
         label: tDM("searchInMessages"),
         onClick: () => {
-          // DM'i aç + search panel tetikle
           handleDMClick(dm.id, name);
           setPendingSearchChannelId(dm.id);
         },
         separator: true,
       },
-      // 4. Okundu İşaretle
       {
         label: tDM("markAsRead"),
         onClick: () => clearDMUnread(dm.id),
         disabled: unread === 0,
       },
-      // 5. Sohbeti Sabitle / Kaldır
       {
         label: dm.is_pinned ? tDM("unpinConversation") : tDM("pinConversation"),
         onClick: () => {
@@ -739,19 +651,16 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           }
         },
       },
-      // 6. Sessize Al / Kaldır
       {
         label: dm.is_muted ? tDM("unmuteDM") : tDM("muteDM"),
         onClick: () => {
           if (dm.is_muted) {
             unmuteDM(dm.id);
           } else {
-            // Duration picker göster
             setDmMutePicker({ channelId: dm.id, x: e.clientX, y: e.clientY });
           }
         },
       },
-      // 7. DM'yi Kapat
       {
         label: tDM("closeDM"),
         onClick: () => hideDM(dm.id),
@@ -759,7 +668,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       },
     ];
 
-    // 8. Arkadaş durumuna göre aksiyon
+    // Friend status actions
     if (isFriend) {
       items.push({
         label: tDM("removeFriend"),
@@ -790,7 +699,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       });
     }
 
-    // 9. Engelle / Engeli Kaldır
+    // Block / Unblock
     if (blocked) {
       items.push({
         label: tDM("unblockUser"),
@@ -812,14 +721,14 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       });
     }
 
-    // 10. Rapor Et
+    // Report
     items.push({
       label: tDM("reportUser"),
       onClick: () => setDmReportTarget({ userId: user.id, username: name }),
       danger: true,
     });
 
-    // 11. Kullanıcı ID'sini Kopyala
+    // Copy User ID
     items.push({
       label: tDM("copyUserId"),
       onClick: async () => {
@@ -836,32 +745,20 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     openTab("friends", "friends", t("friends"));
   }
 
-  /**
-   * Sunucu tıklandığında aktif sunucuyu değiştir.
-   * Cascade refetch, AppLayout'taki useEffect tarafından otomatik tetiklenir
-   * (activeServerId değiştiğinde).
-   */
   function handleServerClick(serverId: string) {
-    if (serverId === activeServerId) return; // zaten aktif
+    if (serverId === activeServerId) return;
     setActiveServer(serverId);
   }
 
-  /**
-   * Sunucu sag tik context menu.
-   * Menu ogeleri: Sunucu Ayarlari, Tumunu Okundu Isaretle,
-   * Arkadaslari Davet Et, Sessize Al / Kaldir, Sunucudan Ayril.
-   */
   function handleServerContextMenu(e: React.MouseEvent, serverId: string, serverName: string) {
     const isMuted = mutedServerIds.has(serverId);
-    // Owner kontrolu — activeServer (tam Server nesnesi) sadece aktif sunucu icin var
+    // activeServer (full Server object) only available for the active server
     const isOwner = activeServer?.owner_id === currentUser?.id && activeServer?.id === serverId;
 
-    // ManageInvites yetkisi sadece aktif sunucu icin kontrol edilebilir
-    // (memberStore aktif sunucuya ait). Diger sunucular icin goster, backend enforce eder.
+    // ManageInvites only checkable for active server; show for others, backend enforces
     const canInvite = serverId !== activeServerId || canManageInvites;
 
-    // Admin yetkisi — sadece aktif sunucu icin kontrol edilebilir.
-    // Diger sunucular icin ayarlar gosterilmez (permission bilgisi yok).
+    // Admin permission only checkable for active server
     const canAccessSettings = serverId === activeServerId && currentMember
       ? hasPermission(currentMember.effective_permissions, Permissions.Admin)
       : false;
@@ -929,7 +826,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         : {
             label: tServers("muteServer"),
             onClick: () => {
-              // MuteDurationPicker'i context menu pozisyonunda ac
               setMutePicker({ serverId, x: e.clientX, y: e.clientY });
             },
             separator: true,
@@ -953,10 +849,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
   // ─── Category Context Menu ───
 
-  /**
-   * handleCategoryContextMenu — Kategori sağ tık context menu.
-   * Yeniden adlandır + sil. Sadece canManageChannels yetkisi varsa açılır.
-   */
   function handleCategoryContextMenu(e: React.MouseEvent, categoryId: string, categoryName: string) {
     if (!canManageChannels) return;
 
@@ -997,11 +889,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
   // ─── Channel Context Menu ───
 
-  /**
-   * handleChannelContextMenu — Kanal sağ tık context menu.
-   * Yeniden adlandır, kanal yetkileri, sil (canManageChannels),
-   * sessize al/kaldır (text kanallar, tüm kullanıcılar).
-   */
   function handleChannelContextMenu(e: React.MouseEvent, ch: Channel) {
     const items: ContextMenuItem[] = [];
 
@@ -1041,7 +928,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       });
     }
 
-    // Sessize al/kaldır — text kanallar için, tüm kullanıcılara açık
+    // Mute/unmute — text channels only
     if (ch.type === "text") {
       const isMuted = mutedChannelIds.has(ch.id);
       items.push({
@@ -1096,7 +983,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
   // ─── Render helpers ───
 
-  /** Chevron ikonu — section açık/kapalı durumuna göre döner */
   function Chevron({ expanded }: { expanded: boolean }) {
     return (
       <span className={`ch-tree-chevron${expanded ? " expanded" : ""}`}>
@@ -1122,7 +1008,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
         {isSectionExpanded("friends") && (
           <div className="ch-tree-section-body">
-            {/* Friends tab açma butonu */}
             <button
               className="ch-tree-item"
               onClick={handleFriendsClick}
@@ -1134,7 +1019,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
               )}
             </button>
 
-            {/* Online arkadaşlar listesi */}
+            {/* Online friends */}
             {friends
               .filter((f) => f.user_status === "online" || f.user_status === "idle" || f.user_status === "dnd")
               .slice(0, 10)
@@ -1228,7 +1113,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         )}
       </div>
 
-      {/* ═══ Servers Section — çoklu sunucu, her biri collapsible ═══ */}
+      {/* ═══ Servers Section ═══ */}
       <div className="ch-tree-section">
         <button
           className="ch-tree-section-header"
@@ -1245,13 +1130,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
               const isActive = srv.id === activeServerId;
               const srvExpanded = isSectionExpanded(srvKey);
 
-              // Sunucu tıklandığında:
-              // - Aktif değilse: aktif yap + section'ı expand et (toggle değil!)
-              // - Zaten aktifse: sadece expand/collapse toggle
-              //
-              // Neden toggle değil expand? Çünkü yeni seçilen sunucunun section'ı
-              // expandedSections map'inde yoksa varsayılan true kabul edilir.
-              // toggleSection bu true'yu false'a çevirir → kanallar gizlenir!
+              // If not active: activate + expand (not toggle — avoids collapsing on first click)
+              // If active: toggle expand/collapse
               function handleSrvHeaderClick() {
                 if (!isActive) {
                   handleServerClick(srv.id);
@@ -1275,7 +1155,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                   onDrop={(e) => handleServerDrop(e, srv.id)}
                   onDragEnd={handleServerDragEnd}
                 >
-                  {/* Sunucu başlığı — ikon + isim + unread badge + create butonu */}
+                  {/* Server header — icon + name + unread badge + create button */}
                   <div className="ch-tree-server-header-row">
                     <button
                       className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
@@ -1295,7 +1175,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         </span>
                       )}
                       <span className="ch-tree-server-name">{srv.name}</span>
-                      {/* Server-level unread badge — aktif + muted değilse göster, muted kanallar hariç */}
+                      {/* Server-level unread badge (excludes muted channels) */}
                       {isActive && !mutedServerIds.has(srv.id) && (() => {
                         const total = Object.entries(unreadCounts).reduce(
                           (sum, [chId, c]) => mutedChannelIds.has(chId) ? sum : sum + c,
@@ -1322,7 +1202,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     )}
                   </div>
 
-                  {/* Kategorisiz drop zone — tüm kanallar kategorilere taşındığında görünür */}
+                  {/* Uncategorized drop zone */}
                   {isActive && srvExpanded && canManageChannels &&
                     categories.length > 0 && !categories.some((c) => c.category.id === "") && (
                     <div
@@ -1332,7 +1212,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     />
                   )}
 
-                  {/* Kategoriler + kanallar — sadece aktif sunucu expanded ise */}
+                  {/* Categories + channels (active server only) */}
                   {isActive && srvExpanded && categories.map((cg) => {
                     const isUncategorized = cg.category.id === "";
                     const catKey = isUncategorized ? "cat:__uncategorized__" : `cat:${cg.category.id}`;
@@ -1340,7 +1220,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
                     return (
                       <div key={cg.category.id || "__uncategorized__"} className="ch-tree-category">
-                        {/* Kategori başlığı — kategorisiz kanallar için drop zone */}
+                        {/* Category header / uncategorized drop zone */}
                         {isUncategorized ? (
                           canManageChannels && (
                             <div
@@ -1375,7 +1255,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                       if (e.key === "Escape") { setShowRenameEmoji(false); setRenamingCategoryId(null); }
                                     }}
                                     onBlur={(e) => {
-                                      // Emoji picker'a tıklayınca blur olur — picker açıkken submit etme
+                                      // Don't submit on blur when emoji picker is open
                                       if (e.relatedTarget && (e.relatedTarget as HTMLElement).closest(".ch-tree-rename-picker")) return;
                                       if (!showRenameEmoji) handleCategoryRenameSubmit();
                                     }}
@@ -1426,7 +1306,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     const isDragging = dragChannelIdRef.current === ch.id;
                     const dropPos = dropIndicator?.channelId === ch.id ? dropIndicator.position : null;
 
-                    // Mute visual logic — muted kanallar soluk gösterilir
+                    // Muted channels appear dimmed
                     const isServerMuted = mutedServerIds.has(srv.id);
                     const isChannelMuted = mutedChannelIds.has(ch.id);
                     const isEffectivelyMuted = isServerMuted || isChannelMuted;
@@ -1443,7 +1323,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         onDrop={(e) => handleChannelDrop(e, ch.id, cg.category.id)}
                         onDragEnd={handleDragEnd}
                       >
-                        {/* Kanal satırı */}
                         <button
                           className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${unread > 0 && !isEffectivelyMuted ? " has-unread" : ""}${voiceDropTargetId === ch.id ? " voice-drop-target" : ""}${mutedClass}`}
                           onClick={() =>
@@ -1502,7 +1381,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                           )}
                         </button>
 
-                        {/* Voice kanalı altında bağlı kullanıcılar */}
+                        {/* Voice channel participants */}
                         {!isText && participants.length > 0 && (
                           <div className="ch-tree-voice-users">
                             {participants.map((p) => {
@@ -1539,7 +1418,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                     isCircle
                                   />
                                   <span className="ch-tree-vu-name">{p.display_name || p.username}</span>
-                                  {/* Durum ikonları: server deafen > server mute > local mute > streaming > self deafen > self mute > online dot */}
+                                  {/* Status icons (priority: server deafen > server mute > local mute > streaming > self deafen > self mute > dot) */}
                                   <span className="ch-tree-vu-icons">
                                     {p.is_server_deafened && (
                                       <svg className="ch-tree-vu-icon ch-tree-vu-server-deafen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("serverDeafened")}>
@@ -1599,7 +1478,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
               );
             })}
 
-            {/* + Sunucu Ekle butonu — her zaman en altta */}
+            {/* Add Server button */}
             <button
               className="ch-tree-item ch-tree-add-server"
               onClick={() => setShowAddServer(true)}
@@ -1618,7 +1497,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         />
       )}
 
-      {/* DM Context Menu — sağ tık menüsü */}
+      {/* DM Context Menu */}
       <ContextMenu state={dmMenuState} onClose={closeDMMenu} />
 
       {/* DM Mute Duration Picker */}
@@ -1649,10 +1528,10 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         />
       )}
 
-      {/* Server Context Menu — sağ tık menüsü */}
+      {/* Server Context Menu */}
       <ContextMenu state={serverMenuState} onClose={closeServerMenu} />
 
-      {/* Mute Duration Picker — mute seçeneklerini gösteren portal popover */}
+      {/* Mute Duration Picker */}
       {mutePicker && (
         <MuteDurationPicker
           serverId={mutePicker.serverId}
@@ -1671,7 +1550,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         />
       )}
 
-      {/* Voice User Context Menu — sağ tık menüsü (portal ile body'ye render edilir) */}
+      {/* Voice User Context Menu */}
       {voiceCtxMenu && (
         <VoiceUserContextMenu
           userId={voiceCtxMenu.userId}
@@ -1719,7 +1598,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         </Modal>
       )}
 
-      {/* Emoji picker — portal to body to escape sidebar overflow:hidden */}
+      {/* Emoji picker — portaled to body to escape sidebar overflow:hidden */}
       {showRenameEmoji && emojiPickerPos && createPortal(
         <div
           className="ch-tree-rename-picker-portal"

@@ -1,16 +1,6 @@
 /**
- * CollapsedSidebar — 52px genişliğinde daraltılmış sidebar.
- *
- * Gösterilecekler:
- * - Expand butonu (üstte)
- * - Server ikonu + unread badge
- * - DM ikonu + unread badge
- * - Alt kısımda kullanıcı avatarı
- *
- * Server ikonuna tıklanınca sidebar otomatik açılır.
- *
- * CSS class'ları: .sb-collapsed, .sb-collapsed-btn,
- * .sb-collapsed-icon, .sb-collapsed-badge, .sb-collapsed-avatar
+ * CollapsedSidebar — 52px narrow sidebar with server/DM icons, unread badges, and user avatar.
+ * Clicking any icon expands the sidebar.
  */
 
 import { useTranslation } from "react-i18next";
@@ -31,7 +21,7 @@ function CollapsedSidebar() {
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
   const mutedChannelIds = useChannelStore((s) => s.mutedChannelIds);
 
-  // Toplam kanal okunmamış sayısı — muted kanallar hariç
+  // Total channel unread count (excluding muted channels)
   const totalChannelUnread = Object.entries(unreadCounts).reduce(
     (sum, [chId, c]) => mutedChannelIds.has(chId) ? sum : sum + c,
     0,
@@ -39,7 +29,7 @@ function CollapsedSidebar() {
 
   return (
     <div className="sb-collapsed">
-      {/* Expand butonu */}
+      {/* Expand button */}
       <button
         className="sb-collapsed-btn sb-collapsed-expand"
         onClick={expandSidebar}
@@ -48,7 +38,7 @@ function CollapsedSidebar() {
         &#x276F;
       </button>
 
-      {/* Server ikonu */}
+      {/* Server icon */}
       <button
         className="sb-collapsed-btn sb-collapsed-server"
         onClick={expandSidebar}
@@ -60,7 +50,7 @@ function CollapsedSidebar() {
         )}
       </button>
 
-      {/* DM ikonu */}
+      {/* DM icon */}
       <button
         className="sb-collapsed-btn sb-collapsed-dm"
         onClick={expandSidebar}
@@ -75,7 +65,7 @@ function CollapsedSidebar() {
       {/* Spacer */}
       <div className="sb-collapsed-spacer" />
 
-      {/* Kullanıcı avatarı */}
+      {/* User avatar */}
       {user && (
         <div className="sb-collapsed-avatar">
           <Avatar

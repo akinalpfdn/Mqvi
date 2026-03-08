@@ -1,13 +1,7 @@
 /**
- * PanelTabBar — VS Code tarzı panel-level tab çubuğu.
- *
- * Her panel her zaman kendi tab bar'ını gösterir (tek panel dahil).
- * Tab'lar sürüklenebilir ve başka panellere bırakılabilir.
- * Tab bar kendisi de drop target — başka panelden tab sürüklenip
- * bar'a bırakılınca merge (moveTab) yapılır.
- *
- * CSS class'ları: .panel-tab-bar, .panel-tab, .panel-tab.active,
- * .panel-tab-close, .panel-tab-dot, .tab-icon, .tab-label
+ * PanelTabBar — VS Code-style draggable tab bar.
+ * Each panel always shows its own tab bar.
+ * Tabs can be dragged between panels; the bar itself is a drop target for merge.
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -29,11 +23,11 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
   const closeTab = useUIStore((s) => s.closeTab);
   const moveTab = useUIStore((s) => s.moveTab);
 
-  // Drop hover state — tab bar'a tab sürüklenince highlight
+  // Highlight when a tab is dragged over the bar
   const [dropHover, setDropHover] = useState(false);
   const enterCountRef = useRef(0);
 
-  // ─── Tab bar drop handlers (merge target) ───
+  // ─── Tab bar drop handlers ───
 
   const handleBarDragEnter = useCallback((e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes("text/tab-id")) return;
@@ -60,7 +54,7 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
   const handleBarDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      e.stopPropagation(); // PanelView'daki drop handler'ı tetiklemesin
+      e.stopPropagation(); // Don't trigger PanelView's drop handler
       enterCountRef.current = 0;
       setDropHover(false);
 
@@ -68,7 +62,7 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
       const fromPanelId = e.dataTransfer.getData("text/panel-id");
       if (!tabId || !fromPanelId) return;
 
-      // Aynı panele drop → no-op
+      // Drop on same panel → no-op
       if (fromPanelId === panelId) return;
 
       moveTab(fromPanelId, panelId, tabId);
@@ -84,7 +78,7 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
   if (dropHover) barClass += " drop-hover";
   if (isMobile) barClass += " mobile";
 
-  // Mobilde drag-drop devre dışı — HTML5 DnD touch'ta çalışmaz
+  // Disable drag-drop on mobile — HTML5 DnD doesn't work with touch
   const dragHandlers = isMobile
     ? {}
     : {
@@ -122,7 +116,7 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
             }
             onClick={() => setActiveTab(panelId, tab.id)}
           >
-            {/* Server ikonu — multi-server'da aynı isimli kanalları ayırt etmek için */}
+            {/* Server icon — disambiguates same-named channels across servers */}
             {tab.serverInfo && (
               <span className="tab-server-icon" title={tab.serverInfo.serverName}>
                 {tab.serverInfo.serverIconUrl ? (
@@ -139,7 +133,7 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
               </span>
             )}
 
-            {/* Type-based ikon */}
+            {/* Type icon */}
             <span className="tab-icon">
               {tab.type === "text" && "#"}
               {tab.type === "voice" && "\uD83D\uDD0A"}
@@ -167,7 +161,7 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
             {/* Label */}
             <span className="tab-label">{tab.label}</span>
 
-            {/* Unread dot — aktif olmayan tab'da okunmamış mesaj varsa */}
+            {/* Unread dot — shown on inactive tabs with unread messages */}
             {tab.hasUnread && !isActive && (
               <span className="panel-tab-dot" />
             )}

@@ -1,16 +1,9 @@
 /**
- * CustomTitleBar — Electron custom window titlebar.
+ * CustomTitleBar — Electron frameless window controls.
  *
- * frame:false ile OS titlebar kaldırıldığında pencere kontrollerini
- * (minimize, maximize/restore, close) sağlar.
- *
- * -webkit-app-region: drag → bar üzerinden pencere sürüklenebilir
- * -webkit-app-region: no-drag → butonlar tıklanabilir kalır
- *
- * Maximize↔restore ikon toggle'ı main process'ten gelen
- * "window-maximized-change" event'i ile yapılır.
- *
- * Close butonu → close-to-tray (isQuitting=false → pencere gizlenir).
+ * Provides minimize, maximize/restore, close buttons when frame:false.
+ * Draggable via -webkit-app-region: drag on the bar itself.
+ * Close button sends to tray (isQuitting=false → window hides).
  */
 
 import { useEffect, useState } from "react";
@@ -22,7 +15,6 @@ function CustomTitleBar() {
     const api = window.electronAPI;
     if (!api) return;
 
-    // Maximize/unmaximize event listener
     api.onMaximizedChange((val) => setIsMaximized(val));
 
     return () => {
@@ -44,22 +36,18 @@ function CustomTitleBar() {
 
   return (
     <div className="custom-titlebar">
-      {/* Sol: drag alanı (boş) */}
       <div className="titlebar-drag-region" />
 
-      {/* Sağ: pencere kontrolleri */}
       <div className="titlebar-controls">
-        {/* Minimize */}
         <button className="titlebar-btn" onClick={handleMinimize}>
           <svg width="10" height="1" viewBox="0 0 10 1">
             <rect width="10" height="1" fill="currentColor" />
           </svg>
         </button>
 
-        {/* Maximize / Restore */}
         <button className="titlebar-btn" onClick={handleMaximize}>
           {isMaximized ? (
-            // Restore icon — iki üst üste kare (Windows standard)
+            // Restore icon (overlapping squares)
             <svg width="10" height="10" viewBox="0 0 10 10">
               <path
                 fill="none"
@@ -69,7 +57,6 @@ function CustomTitleBar() {
               />
             </svg>
           ) : (
-            // Maximize icon — tek kare
             <svg width="10" height="10" viewBox="0 0 10 10">
               <rect
                 x="0.5"
@@ -84,7 +71,7 @@ function CustomTitleBar() {
           )}
         </button>
 
-        {/* Close (tray'e gönder) */}
+        {/* Close → sends to tray */}
         <button className="titlebar-btn close" onClick={handleClose}>
           <svg width="10" height="10" viewBox="0 0 10 10">
             <path

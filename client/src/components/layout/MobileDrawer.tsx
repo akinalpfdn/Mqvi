@@ -1,34 +1,22 @@
 /**
- * MobileDrawer — Generic mobile drawer component.
+ * MobileDrawer — Slide-in drawer from left or right edge.
  *
- * Sol veya sağ kenardan açılan drawer overlay.
- * Portal ile document.body'ye render edilir — overflow:hidden parent'lardan kaçınır.
- *
- * Özellikler:
- * - Backdrop tıklama ile kapatma
- * - CSS transition animasyonu (transform + opacity)
- * - Body scroll lock (drawer açıkken arka plan scroll olmaz)
- *
- * CSS class'ları: .mobile-drawer, .mobile-drawer.left, .mobile-drawer.right,
- * .mobile-drawer.open, .mobile-drawer-backdrop, .mobile-drawer-backdrop.open
+ * Portaled to document.body. Locks body scroll while open.
+ * Backdrop click closes the drawer.
  */
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
 type MobileDrawerProps = {
-  /** Drawer açık mı? */
   isOpen: boolean;
-  /** Kapatma callback'i (backdrop tıklaması vb.) */
   onClose: () => void;
-  /** Drawer yönü */
   side: "left" | "right";
-  /** Drawer içeriği */
   children: React.ReactNode;
 };
 
 function MobileDrawer({ isOpen, onClose, side, children }: MobileDrawerProps) {
-  // Body scroll lock — drawer açıkken arka plan scroll olmasın
+  // Lock body scroll while open
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
@@ -40,12 +28,10 @@ function MobileDrawer({ isOpen, onClose, side, children }: MobileDrawerProps) {
 
   return createPortal(
     <>
-      {/* Backdrop — yarı saydam overlay */}
       <div
         className={`mobile-drawer-backdrop${isOpen ? " open" : ""}`}
         onClick={onClose}
       />
-      {/* Drawer panel */}
       <div className={`mobile-drawer ${side}${isOpen ? " open" : ""}`}>
         {children}
       </div>

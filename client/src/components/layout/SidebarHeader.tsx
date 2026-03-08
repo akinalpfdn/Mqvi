@@ -1,11 +1,5 @@
 /**
- * SidebarHeader — Sidebar üst kısmı: toggle butonu + arama.
- *
- * Expanded modda: mqvi logo/isim + collapse butonu + arama ikonu
- * Collapse butonu: sidebar'ı 52px'e daraltır
- * Arama ikonu: QuickSwitcher'ı tetikler (Ctrl+K)
- *
- * CSS class'ları: .sb-header, .sb-header-brand, .sb-header-actions
+ * SidebarHeader — Brand logo, search (Ctrl+K), and collapse toggle.
  */
 
 import { useTranslation } from "react-i18next";
@@ -30,7 +24,7 @@ function SidebarHeader() {
       </div>
 
       <div className="sb-header-actions">
-        {/* Arama — QuickSwitcher'ı açar */}
+        {/* Search — opens QuickSwitcher */}
         <button
           className="sb-header-btn"
           onClick={toggleQuickSwitcher}
@@ -42,7 +36,7 @@ function SidebarHeader() {
           </svg>
         </button>
 
-        {/* Collapse — mobilde drawer'ı kapatır, desktop'ta sidebar'ı daraltır */}
+        {/* Collapse sidebar (mobile: closes drawer) */}
         <button
           className="sb-header-btn"
           onClick={isMobile ? closeLeftDrawer : collapseSidebar}

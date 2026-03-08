@@ -1,14 +1,6 @@
 /**
- * MemberList — Sağ panel: online/offline kullanıcılar, rol bazlı gruplama.
- *
- * CSS class'ları: .members-panel, .members-panel.open, .members-inner,
- * .members-header, .members-list, .member-label
- *
- * Panel genişliği CSS transition ile yönetilir:
- * .members-panel { width:0; overflow:hidden; transition:width .25s }
- * .members-panel.open { width:200px; }
- *
- * membersOpen state'i .open class'ını toggle eder.
+ * MemberList — Right panel: online/offline users grouped by highest role.
+ * Panel width is CSS-transitioned via .members-panel.open toggle.
  */
 
 import { useTranslation } from "react-i18next";
@@ -21,15 +13,12 @@ import MemberItem from "../members/MemberItem";
 import { MemberSkeleton } from "../shared/Skeleton";
 import type { MemberWithRoles, Role } from "../../types";
 
-/** Member panel genişlik sınırları (px) */
+/** Member panel width bounds (px) */
 const MEMBERS_MIN = 160;
 const MEMBERS_MAX = 360;
 const MEMBERS_DEFAULT = 240;
 
-/**
- * getHighestRole — Üyenin en yüksek position'daki rolünü döner.
- * Grup başlığı ve sıralama bu role göre belirlenir.
- */
+/** Returns the member's highest-position role (used for grouping). */
 function getHighestRole(member: MemberWithRoles): Role | null {
   if (member.roles.length === 0) return null;
   return member.roles.reduce((highest, role) =>
@@ -37,18 +26,13 @@ function getHighestRole(member: MemberWithRoles): Role | null {
   );
 }
 
-/**
- * RoleGroup — Aynı en yüksek role sahip üyeler grubu.
- */
+/** Members sharing the same highest role. */
 type RoleGroup = {
   role: Role;
   members: MemberWithRoles[];
 };
 
-/**
- * groupByHighestRole — Üyeleri en yüksek rollerine göre gruplar.
- * Sonuç role position DESC sıralıdır.
- */
+/** Groups members by highest role, sorted by role position DESC. */
 function groupByHighestRole(members: MemberWithRoles[]): RoleGroup[] {
   const groups = new Map<string, RoleGroup>();
 
@@ -64,7 +48,7 @@ function groupByHighestRole(members: MemberWithRoles[]): RoleGroup[] {
     }
   }
 
-  // Position DESC sırala, aynı group içindeki üyeleri username'e göre sırala
+  // Sort groups by position DESC, members within each group by username
   const result = Array.from(groups.values()).sort(
     (a, b) => b.role.position - a.role.position
   );
@@ -98,26 +82,26 @@ function MemberList() {
     storageKey: "mqvi_members_width",
   });
 
-  // Üyeleri online ve offline olarak ayır
+  // Split members into online/offline
   const onlineMembers = members.filter((m) => onlineUserIds.has(m.id));
   const offlineMembers = members.filter((m) => !onlineUserIds.has(m.id));
 
-  // Online üyeleri role göre grupla
+  // Group online members by role
   const onlineGroups = groupByHighestRole(onlineMembers);
 
-  // Rolsüz online üyeler (herhangi bir gruba girmeyen)
+  // Online members with no roles (ungrouped)
   const ungroupedOnline = onlineMembers.filter(
     (m) => m.roles.length === 0
   );
 
-  // Offline üyeleri username'e göre sırala (gruplama yok)
+  // Offline members sorted by name (no grouping)
   const sortedOffline = [...offlineMembers].sort((a, b) => {
     const nameA = a.display_name ?? a.username ?? "";
     const nameB = b.display_name ?? b.username ?? "";
     return nameA.localeCompare(nameB);
   });
 
-  /** Panel açıkken dinamik genişlik, kapalıyken 0 */
+  /** Dynamic width when open, 0 when closed */
   const panelWidth = membersOpen ? width : 0;
 
   return (
@@ -125,7 +109,7 @@ function MemberList() {
       className={`members-panel${membersOpen ? " open" : ""}`}
       style={membersOpen ? { width: panelWidth } : undefined}
     >
-      {/* Resize handle — sol kenarda, sadece açıkken */}
+      {/* Resize handle — left edge, only when open */}
       {membersOpen && (
         <div
           className={`resize-handle resize-handle-v${isDragging ? " active" : ""}`}
@@ -141,12 +125,12 @@ function MemberList() {
 
         {/* ─── Member List ─── */}
         <div className="members-list">
-          {/* Skeleton UI — yüklenirken gösterilir */}
+          {/* Skeleton while loading */}
           {isLoading && members.length === 0 && (
             <MemberSkeleton count={8} />
           )}
 
-          {/* Online section — role bazlı gruplar */}
+          {/* Online — grouped by role */}
           {onlineGroups.map((group) => (
             <div key={group.role.id}>
               <div className="member-label">
@@ -162,7 +146,7 @@ function MemberList() {
             </div>
           ))}
 
-          {/* Rolsüz online üyeler */}
+          {/* Ungrouped online members */}
           {ungroupedOnline.length > 0 && (
             <div>
               <div className="member-label">

@@ -1,14 +1,7 @@
 /**
  * SplitPaneContainer — Recursive split pane renderer.
- *
- * Desktop: Recursive split tree — her split node iki çocuk + resize handle.
- * Mobil: Flatten — sadece aktif panel gösterilir, split yok.
- *
- * CSS class'ları: .split-container, .split-container.vertical,
- * .split-pane, .split-handle, .split-handle.horizontal, .split-handle.vertical,
- * .split-handle-dot
- *
- * "leaf" node → PanelView, "split" node → recursive split + resize handle
+ * Desktop: recursive split tree with resize handles.
+ * Mobile: flattened — only the active panel is rendered.
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -24,17 +17,14 @@ type SplitPaneContainerProps = {
   sendDMTyping: (dmChannelId: string) => void;
 };
 
-/**
- * findActiveLeaf — Layout ağacında aktif paneli bulur.
- * Bulamazsa ilk leaf'i döner.
- */
+/** Finds the active panel in the layout tree, falls back to first leaf. */
 function findActiveLeaf(node: LayoutNode, activePanelId: string): string {
   if (node.type === "leaf") return node.panelId;
   const left = findLeafContaining(node.children[0], activePanelId);
   if (left) return activePanelId;
   const right = findLeafContaining(node.children[1], activePanelId);
   if (right) return activePanelId;
-  // Aktif panel bu subtree'de değil — ilk leaf'i döner
+  // Active panel not in this subtree — fall back to first leaf
   return firstLeaf(node);
 }
 
@@ -51,14 +41,14 @@ function firstLeaf(node: LayoutNode): string {
 function SplitPaneContainer({ node, path = [], sendTyping, sendDMTyping }: SplitPaneContainerProps) {
   const isMobile = useIsMobile();
 
-  // Mobilde: sadece aktif paneli göster, split yok
+  // Mobile: render only the active panel, no splits
   if (isMobile) {
     const activePanelId = useUIStore.getState().activePanelId;
     const panelId = findActiveLeaf(node, activePanelId);
     return <PanelView panelId={panelId} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />;
   }
 
-  // Desktop: recursive split render
+  // Desktop: recursive split
   if (node.type === "leaf") {
     return <PanelView panelId={node.panelId} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />;
   }
@@ -67,7 +57,7 @@ function SplitPaneContainer({ node, path = [], sendTyping, sendDMTyping }: Split
 
   return (
     <div className={`split-container${isVertical ? " vertical" : ""}`}>
-      {/* Sol / Üst panel */}
+      {/* Left / Top panel */}
       <div className="split-pane" style={{ flex: node.ratio }}>
         <SplitPaneContainer node={node.children[0]} path={[...path, 0]} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
       </div>
@@ -79,7 +69,7 @@ function SplitPaneContainer({ node, path = [], sendTyping, sendDMTyping }: Split
         ratio={node.ratio}
       />
 
-      {/* Sağ / Alt panel */}
+      {/* Right / Bottom panel */}
       <div className="split-pane" style={{ flex: 1 - node.ratio }}>
         <SplitPaneContainer node={node.children[1]} path={[...path, 1]} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
       </div>
@@ -87,9 +77,7 @@ function SplitPaneContainer({ node, path = [], sendTyping, sendDMTyping }: Split
   );
 }
 
-/**
- * SplitResizeHandle — Split paneller arası sürüklenebilir ayırıcı.
- */
+/** Draggable divider between split panels. */
 type ResizeHandleProps = {
   direction: "horizontal" | "vertical";
   path: number[];

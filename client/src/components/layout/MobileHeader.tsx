@@ -1,13 +1,8 @@
 /**
- * MobileHeader — Mobil üst bar (48px).
+ * MobileHeader — Top bar for mobile layout (48px).
  *
- * Hamburger butonu (sidebar drawer) + aktif kanal/tab adı + member butonu.
- * Sadece mobil görünümde gösterilir (CSS: display:none → display:flex @768px).
- *
- * Aktif tab bilgisi uiStore'dan alınır — type'a göre hash/ikon gösterilir.
- *
- * CSS class'ları: .mobile-header, .mobile-header-btn, .mobile-header-title,
- * .mobile-header-hash
+ * Hamburger (sidebar drawer) + active channel/tab name + members toggle.
+ * Hidden on desktop via CSS (display:none above 768px).
  */
 
 import { useTranslation } from "react-i18next";
@@ -27,11 +22,9 @@ function MobileHeader() {
   const openRightDrawer = useMobileStore((s) => s.openRightDrawer);
   const closeRightDrawer = useMobileStore((s) => s.closeRightDrawer);
 
-  // Aktif paneldeki aktif tab'ı bul
   const panel = activePanelId ? panels[activePanelId] : null;
   const activeTab = panel?.tabs.find((tab) => tab.id === panel.activeTabId);
 
-  // Tab type'a göre ikon
   function getTabIcon(): string {
     if (!activeTab) return "#";
     switch (activeTab.type) {
@@ -47,7 +40,6 @@ function MobileHeader() {
 
   return (
     <div className="mobile-header">
-      {/* Hamburger — sidebar drawer toggle */}
       <button
         className="mobile-header-btn"
         onClick={leftDrawerOpen ? closeLeftDrawer : openLeftDrawer}
@@ -60,13 +52,12 @@ function MobileHeader() {
         </svg>
       </button>
 
-      {/* Aktif kanal/tab adı */}
       <div className="mobile-header-title">
         <span className="mobile-header-hash">{getTabIcon()}</span>
         <span>{activeTab?.label ?? t("channels")}</span>
       </div>
 
-      {/* Members toggle — mobilde sağ drawer'ı açar/kapatır */}
+      {/* Members drawer toggle */}
       <button
         className="mobile-header-btn"
         onClick={rightDrawerOpen ? closeRightDrawer : openRightDrawer}

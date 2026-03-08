@@ -1,20 +1,15 @@
 /**
- * MobileAppLayout — Mobil layout orchestrator.
+ * MobileAppLayout — Mobile layout orchestrator.
  *
- * AppLayout'tan useIsMobile() true olduğunda render edilir.
- * Hook'lar (useWebSocket, useVoice, vb.) AppLayout'ta kalır —
- * bu component sadece mobil layout yapısını yönetir.
+ * Rendered when useIsMobile() is true. Hooks remain in AppLayout;
+ * this component only manages mobile layout structure.
  *
- * Yapı:
- * - MobileHeader (üst bar: hamburger + kanal adı + members)
- * - MobileDrawer left (Sidebar)
- * - MobileDrawer right (MemberList)
- * - PanelTabBar (scrollable, split yok)
- * - Aktif view (ChatArea / VoiceRoom / DMChat / FriendsView / P2PCallScreen)
+ * Structure:
+ * - MobileHeader (top bar: hamburger + channel name + members)
+ * - MobileDrawer left (Sidebar) / right (MemberList)
+ * - SplitPaneContainer (single panel, no split)
  *
- * Swipe gesture'lar:
- * - Sol kenardan sağa: sidebar drawer aç
- * - Sağ kenardan sola: members drawer aç
+ * Swipe: left-edge → sidebar drawer, right-edge → members drawer.
  */
 
 import { useEffect } from "react";
@@ -30,7 +25,6 @@ import SplitPaneContainer from "./SplitPaneContainer";
 import type { UserStatus } from "../../types";
 
 type MobileAppLayoutProps = {
-  /** Sidebar props — AppLayout'tan iletilir */
   sidebarProps: {
     onJoinVoice: (channelId: string) => void;
     onToggleMute: () => void;
@@ -54,13 +48,13 @@ function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLa
   const closeRightDrawer = useMobileStore((s) => s.closeRightDrawer);
   const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
 
-  // Kanal değiştiğinde drawer'ları kapat
+  // Close drawers on channel change
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
   useEffect(() => {
     closeAllDrawers();
   }, [selectedChannelId, closeAllDrawers]);
 
-  // Swipe gesture — sol/sağ kenardan drawer aç
+  // Edge swipe → open drawers
   const swipeHandlers = useSwipeGesture({
     onSwipeRight: openLeftDrawer,
     onSwipeLeft: openRightDrawer,
@@ -71,10 +65,9 @@ function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLa
 
   return (
     <div className="mqvi-app mobile" {...swipeHandlers}>
-      {/* Mobile Header — hamburger + kanal adı + members toggle */}
       <MobileHeader />
 
-      {/* Sol Drawer — Sidebar */}
+      {/* Left drawer — Sidebar */}
       <MobileDrawer
         isOpen={leftDrawerOpen}
         onClose={closeLeftDrawer}
@@ -83,7 +76,7 @@ function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLa
         <Sidebar {...sidebarProps} />
       </MobileDrawer>
 
-      {/* Sağ Drawer — MemberList */}
+      {/* Right drawer — MemberList */}
       <MobileDrawer
         isOpen={rightDrawerOpen}
         onClose={closeRightDrawer}
@@ -92,7 +85,6 @@ function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLa
         <MemberList />
       </MobileDrawer>
 
-      {/* Ana içerik alanı — tek panel (split disabled) */}
       <div className="app-body">
         <div className="main-area">
           <SplitPaneContainer node={layout} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />

@@ -1,18 +1,6 @@
 /**
- * UserBar — Sidebar alt kısmı: kullanıcı bilgisi + voice kontrolleri + status picker.
- *
- * VoicePopup'ın TÜM işlevselliğini devralır:
- * - Voice'a bağlıyken: Mic, Deafen, ScreenShare, Disconnect butonları gösterilir
- * - Bağlı değilken: sadece avatar + isim + settings ikonu
- *
- * Status Picker:
- * - Kullanıcı avatarına tıklayınca Discord tarzı status seçim popup'ı açılır
- * - 4 seçenek: Online, Idle, DND, Invisible
- * - Manuel seçim idle detection'ı override eder (Online hariç)
- *
- * CSS class'ları: .user-bar, .ub-user, .ub-avatar, .ub-info,
- * .ub-name, .ub-status, .ub-controls, .ub-ctrl, .ub-ctrl.active,
- * .ub-ctrl.ub-end, .ub-settings, .ub-sp-*
+ * UserBar — User info, voice controls, and status picker at the bottom of the sidebar.
+ * Shows mic/deafen/screen/disconnect when in voice, status picker on avatar click.
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -25,15 +13,10 @@ import { useServerStore } from "../../stores/serverStore";
 import Avatar from "../shared/Avatar";
 import type { UserStatus } from "../../types";
 
-/** Status picker'daki seçenekler — her birinin wire value'su ve i18n key'i */
 const STATUS_OPTIONS: {
-  /** Backend'e gönderilen presence değeri */
   value: UserStatus;
-  /** i18n label key'i (common namespace) */
   labelKey: string;
-  /** i18n description key'i */
   descKey: string;
-  /** CSS renk class'ı */
   colorClass: string;
 }[] = [
   { value: "online", labelKey: "online", descKey: "onlineDesc", colorClass: "ub-sp-green" },
@@ -73,7 +56,7 @@ function UserBar({
   const rtt = useVoiceStore((s) => s.rtt);
   const isInVoice = !!currentVoiceChannelId;
 
-  // Voice bağlantı bilgisi — bağlı olunan server/kanal adı
+  // Connected voice channel name
   const categories = useChannelStore((s) => s.categories);
   const activeServer = useServerStore((s) => s.activeServer);
   const voiceChannelName = isInVoice
@@ -84,15 +67,9 @@ function UserBar({
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  // Ping renk sınıfı — Discord tarzı: yeşil < 100ms, sarı 100-200ms, kırmızı > 200ms
+  // Ping color: green < 100ms, yellow 100-200ms, red > 200ms
   const pingColor = rtt <= 0 ? "" : rtt < 100 ? "ub-ping-good" : rtt < 200 ? "ub-ping-mid" : "ub-ping-bad";
 
-  /**
-   * Status seçimi handler'ı.
-   * 1. manualStatus'u günceller (localStorage + authStore)
-   * 2. WS üzerinden backend'e gönderir
-   * 3. Picker'ı kapatır
-   */
   const handleStatusSelect = useCallback(
     (status: UserStatus) => {
       setManualStatus(status);
@@ -102,7 +79,7 @@ function UserBar({
     [setManualStatus, sendPresenceUpdate],
   );
 
-  // Click-outside: picker dışına tıklanınca kapat
+  // Close picker on click-outside
   useEffect(() => {
     if (!isPickerOpen) return;
 
@@ -116,7 +93,7 @@ function UserBar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isPickerOpen]);
 
-  // Escape tuşu ile picker'ı kapat
+  // Close picker on Escape
   useEffect(() => {
     if (!isPickerOpen) return;
 
@@ -130,11 +107,7 @@ function UserBar({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isPickerOpen]);
 
-  /**
-   * Avatar üzerindeki status dot renk class'ı.
-   * manualStatus'a göre belirlenir (user.status backend'den gelen değer,
-   * manualStatus kullanıcının bilinçli tercihi).
-   */
+  // Status dot color based on manual status preference
   const statusDotClass =
     manualStatus === "online"
       ? "ub-dot-online"
@@ -148,14 +121,13 @@ function UserBar({
 
   return (
     <div className="user-bar">
-      {/* Voice kontrol satırı — kullanıcı adının ÜSTÜNDE, tam genişlik row.
-          Discord referans: voice bağlıyken kontroller üstte ayrı row olarak durur. */}
+      {/* Voice controls row — shown above user info when connected */}
       {isInVoice && (
         <div className="ub-voice-row">
           <div className="ub-voice-info">
             <span className="ub-voice-pulse" />
             <span className="ub-voice-label">{t("voiceConnected")}</span>
-            {/* Ping tooltip — hover ile görünür */}
+            {/* Ping tooltip */}
             {rtt > 0 && (
               <div className="ub-ping-tooltip">
                 <div className={`ub-ping-dot ${pingColor}`} />
@@ -163,16 +135,15 @@ function UserBar({
               </div>
             )}
           </div>
-          {/* Bağlı olunan server / kanal adı — Discord tarzı */}
+          {/* Connected server / channel name */}
           {voiceChannelName && (
             <div className="ub-voice-channel">
               {activeServer ? `${activeServer.name} / ` : ""}{voiceChannelName}
             </div>
           )}
-          {/* Noise Reduction toggle — ses kontrol butonlarının üstünde */}
+          {/* Noise Reduction toggle */}
           <div className="ub-nr-row">
             <div className="ub-nr-label">
-              {/* Ses dalgası ikonu — noise suppression'ı temsil eder */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.1-1.3 2-3 2s-3-.9-3-2 1.3-2 3-2 3 .9 3 2zM21 16c0 1.1-1.3 2-3 2s-3-.9-3-2 1.3-2 3-2 3 .9 3 2z" />
               </svg>
@@ -194,7 +165,6 @@ function UserBar({
               onClick={onToggleMute}
               title={isMuted ? t("unmute") : t("mute")}
             >
-              {/* Mic SVG — isMuted ise çizgili */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                 {isMuted ? (
                   <path d="M12 1a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4zM2.7 2.7a1 1 0 0 1 1.4 0l17 17a1 1 0 0 1-1.4 1.4L2.7 4.1a1 1 0 0 1 0-1.4zM6 10a1 1 0 0 0-2 0 8 8 0 0 0 7 7.9V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.1A8 8 0 0 0 20 10a1 1 0 1 0-2 0 6 6 0 0 1-9.7 4.7" />
@@ -208,7 +178,6 @@ function UserBar({
               onClick={onToggleDeafen}
               title={isDeafened ? t("undeafen") : t("deafen")}
             >
-              {/* Headphones SVG */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                 {isDeafened ? (
                   <path d="M3 12a9 9 0 0 1 18 0v5a4 4 0 0 1-4 4h-1a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h3v-1a7 7 0 0 0-14 0v1h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7a4 4 0 0 1-4-4v-5zM2.7 2.7a1 1 0 0 1 1.4 0l17 17a1 1 0 0 1-1.4 1.4L2.7 4.1a1 1 0 0 1 0-1.4z" />
@@ -222,7 +191,6 @@ function UserBar({
               onClick={onToggleScreenShare}
               title={isStreaming ? t("stopScreenShare") : t("screenShare")}
             >
-              {/* Screen share SVG */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M3 4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6v2H7a1 1 0 1 0 0 2h10a1 1 0 1 0 0-2h-2v-2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3zm9 4a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H9a1 1 0 1 1 0-2h2V9a1 1 0 0 1 1-1z" />
               </svg>
@@ -232,7 +200,6 @@ function UserBar({
               onClick={onDisconnect}
               title={t("endCall")}
             >
-              {/* Disconnect SVG — phone icon */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 8c-3.5 0-6.6 1.1-9 3a1 1 0 0 0 0 1.4l2.5 2.5a1 1 0 0 0 1.2.1c.8-.5 1.7-.9 2.7-1.1a1 1 0 0 0 .8-1v-2.8c.6-.1 1.2-.1 1.8-.1s1.2 0 1.8.1v2.8a1 1 0 0 0 .8 1c1 .2 1.9.6 2.7 1.1a1 1 0 0 0 1.2-.1L21 12.4a1 1 0 0 0 0-1.4c-2.4-1.9-5.5-3-9-3z" />
               </svg>
@@ -241,16 +208,14 @@ function UserBar({
         </div>
       )}
 
-      {/* Kullanıcı bilgisi + settings — her zaman altta */}
+      {/* User info + settings */}
       <div className="ub-main">
-        {/* Status picker container — popup pozisyonlaması için relative */}
         <div className="ub-user-wrap" ref={pickerRef}>
           <div
             className="ub-user"
             onClick={() => setIsPickerOpen((prev) => !prev)}
             title={tc("setStatus")}
           >
-            {/* Avatar + status dot overlay */}
             <div className="ub-avatar-wrap">
               <Avatar
                 name={user.display_name || user.username}
@@ -266,7 +231,7 @@ function UserBar({
             </div>
           </div>
 
-          {/* Status Picker Popup — Discord tarzı, yukarı doğru açılır */}
+          {/* Status picker popup */}
           {isPickerOpen && (
             <div className="ub-sp">
               <div className="ub-sp-header">{tc("setStatus")}</div>
@@ -296,7 +261,7 @@ function UserBar({
           )}
         </div>
 
-        {/* Settings — her zaman görünür */}
+        {/* Settings button */}
         <button
           className="ub-ctrl ub-settings"
           onClick={() => openSettings("profile")}

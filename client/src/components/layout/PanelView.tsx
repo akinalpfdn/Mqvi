@@ -1,21 +1,11 @@
 /**
- * PanelView — Tek bir split panelin render'ı.
+ * PanelView — Renders a single split panel.
  *
- * CSS class'ları: .split-pane (container), .no-channel,
- * .channel-bar, .ch-hash, .ch-name (voice kanal header için)
+ * VS Code-style drop zones: dragging a tab shows 5 drop regions (center/edges).
+ * Edge drops split the panel; center drops move the tab here.
+ * Drag events are captured on the container; DropZoneOverlay is visual only.
  *
- * DropZoneOverlay ile VS Code tarzı split view:
- * - Tab sürüklenirken amber overlay ile 5 bölge gösterilir
- * - Kenar bölgelerine bırakma → panel split
- * - Merkeze bırakma → tab taşıma
- *
- * Drag event'leri bu component'in container div'inde yakalanır.
- * DropZoneOverlay sadece görsel render yapar (pointer-events: none).
- *
- * Tab tiplerine göre:
- * - text → ChatArea
- * - voice/screen → VoiceRoom + channel header
- * - Tab yoksa → boş durum
+ * Tab types: text -> ChatArea, voice/screen -> VoiceRoom, dm -> DMChat, etc.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -55,17 +45,13 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
     : null;
 
   // ─── Drag state ───
-  // activeZone: hangi drop zone'un highlight edileceği (null = overlay gizli)
   const [activeZone, setActiveZone] = useState<DropZone | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // dragEnter counter — nested child element'lerin yanlış dragLeave tetiklemesini engeller.
-  // Her child'a girişte counter artar, çıkışta azalır. 0'a düşünce gerçekten çıkmış demektir.
+  // Enter counter — prevents false dragLeave from nested children
   const enterCountRef = useRef(0);
 
-  // dragend event'i — drag operasyonu bittiğinde (başarılı drop veya iptal)
-  // overlay'ı temizle. PanelTabBar stopPropagation kullandığı için PanelView'ın
-  // onDrop handler'ı her zaman tetiklenmeyebilir. dragend bunu garanti eder.
+  // Clean up overlay on dragend (covers cases where onDrop doesn't fire)
   useEffect(() => {
     function handleDragEnd() {
       setActiveZone(null);
@@ -79,11 +65,10 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
     setActivePanel(panelId);
   }, [panelId, setActivePanel]);
 
-  // ─── Drag event handler'ları ───
-  // Container div'de yakalanır, DropZoneOverlay sadece görsel render yapar.
+  // ─── Drag event handlers ───
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
-    // Sadece tab sürüklemelerini kabul et
+    // Only accept tab drags
     if (!e.dataTransfer.types.includes("text/tab-id")) return;
     e.preventDefault();
     enterCountRef.current += 1;
@@ -115,17 +100,8 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
   }, []);
 
   /**
-   * handleDrop — Tab bırakıldığında zone'a göre aksiyon alır.
-   *
-   * Zone → Action mapping:
-   * - center: tab'ı bu panele taşı (moveTab)
-   * - left/right: yatay split (horizontal)
-   * - top/bottom: dikey split (vertical)
-   *
-   * Aynı panel kuralları:
-   * - center zone + aynı panel → hiçbir şey yapma (zaten burada)
-   * - edge zone + aynı panel + tek tab → yapma (split edilecek bir şey yok)
-   * - edge zone + aynı panel + 2+ tab → split yap
+   * handleDrop — center: moveTab, edges: splitPanel.
+   * Same-panel rules: center=no-op, edge with single tab=no-op.
    */
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -140,7 +116,7 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
       const rect = containerRef.current.getBoundingClientRect();
       const zone = calculateZone(e.clientX, e.clientY, rect);
 
-      // Aynı panel kontrolü
+      // Same-panel guard
       if (fromPanelId === panelId) {
         if (zone === "center") return;
         if (!panel || panel.tabs.length < 2) return;
@@ -169,7 +145,7 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
 
   if (!panel) return null;
 
-  // Mobilde drag-drop devre dışı — HTML5 DnD touch'ta çalışmaz
+  // Disable drag-drop on mobile — HTML5 DnD doesn't work with touch
   const dragHandlers = isMobile
     ? {}
     : {
@@ -187,13 +163,13 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
       onClick={handleFocus}
       {...dragHandlers}
     >
-      {/* VS Code tarzı drop zone overlay — mobilde gösterilmez */}
+      {/* Drop zone overlay — hidden on mobile */}
       {!isMobile && <DropZoneOverlay activeZone={activeZone} />}
 
-      {/* Panel-level tab bar — VS Code tarzı, her zaman gösterilir */}
+      {/* Tab bar */}
       <PanelTabBar panelId={panelId} />
 
-      {/* İçerik */}
+      {/* Content */}
       {!activeTab ? (
         <div className="no-channel">{t("noChannel")}</div>
       ) : activeTab.type === "text" ? (

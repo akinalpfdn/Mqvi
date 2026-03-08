@@ -1,25 +1,12 @@
 /**
- * ChatArea — Text kanal görünümü: kanal başlığı + mesajlar + input.
+ * ChatArea — Text channel view: header + messages + input.
  *
- * CSS class'ları: .chat-area, .channel-bar, .ch-hash, .ch-name,
- * .ch-divider, .ch-topic, .ch-actions
+ * Wrapped in ChannelChatProvider so children access stores via context.
+ * ChatAreaContent is a separate component because useChatContext()
+ * must be called inside the provider.
  *
- * Gradient overlay: .chat-area::after ile CSS'te tanımlıdır —
- * ayrı bir DOM element gerekmez. Typing ve input alanları
- * z-index:2 ile overlay'in üstünde kalır.
- *
- * ChatContext refaktörü:
- * ChannelChatProvider ile sarılır — MessageList, MessageInput,
- * TypingIndicator artık context üzerinden store'lara erişir.
- * PinnedMessages ve SearchPanel hâlâ doğrudan store kullanır
- * (channel-specific logic).
- *
- * Drag-drop dosya yükleme:
- * ChatAreaContent, useChatContext() ile addFilesRef'e erişir ve
- * useFileDrop hook'u ile tüm chat alanını drop zone yapar.
- * Drop edilen dosyalar addFilesRef üzerinden MessageInput'a iletilir.
- * İki ayrı component gerekir çünkü useChatContext() ancak
- * ChannelChatProvider'ın child'ı olarak çağrılabilir.
+ * File drag-drop: useFileDrop makes the entire chat area a drop zone,
+ * forwarding dropped files to MessageInput via addFilesRef.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -44,10 +31,7 @@ type ChatAreaProps = {
   sendTyping: (channelId: string) => void;
 };
 
-/**
- * ChatArea — Provider wrapper.
- * ChannelChatProvider'ı render eder, içeriği ChatAreaContent'e delege eder.
- */
+/** Provider wrapper — delegates content to ChatAreaContent. */
 function ChatArea({ channelId, channel, sendTyping }: ChatAreaProps) {
   return (
     <ChannelChatProvider
@@ -60,10 +44,7 @@ function ChatArea({ channelId, channel, sendTyping }: ChatAreaProps) {
   );
 }
 
-/**
- * ChatAreaContent — Provider'ın child'ı olarak useChatContext() kullanabilir.
- * Drag-drop file upload burada entegre edilir.
- */
+/** Inner content — can call useChatContext() since it's inside the provider. */
 function ChatAreaContent({
   channelId,
   channel,
@@ -82,7 +63,7 @@ function ChatAreaContent({
   const [showPins, setShowPins] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
 
-  // Kanal değiştiğinde pin ve channel permission override verilerini çek
+  // Fetch pins and permission overrides when channel changes
   useEffect(() => {
     if (channelId) {
       fetchPins(channelId);
@@ -90,7 +71,7 @@ function ChatAreaContent({
     }
   }, [channelId, fetchPins, fetchOverrides]);
 
-  // ─── Drag-drop entegrasyonu ───
+  // ─── Drag-drop ───
   const handleFileDrop = useCallback(
     (files: File[]) => {
       addFilesRef.current?.(files);
@@ -119,7 +100,7 @@ function ChatAreaContent({
               </>
             )}
             <div className="ch-actions">
-              {/* Pin ikonu */}
+              {/* Pin icon */}
               <button
                 className={showPins ? "active" : ""}
                 onClick={() => setShowPins((prev) => !prev)}
@@ -129,7 +110,7 @@ function ChatAreaContent({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
                 </svg>
               </button>
-              {/* Arama ikonu */}
+              {/* Search icon */}
               <button
                 className={showSearch ? "active" : ""}
                 onClick={() => setShowSearch((prev) => !prev)}
@@ -139,7 +120,7 @@ function ChatAreaContent({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </button>
-              {/* Üye listesi toggle */}
+              {/* Member list toggle */}
               <button
                 className={membersOpen ? "active" : ""}
                 onClick={toggleMembers}
