@@ -14,15 +14,9 @@ import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { isElectron } from "./utils/constants";
 
 /**
- * App — Root component. Routing ve auth initialization burada.
- *
- * Akış:
- * 1. Uygulama açılınca → authStore.initialize() çağrılır
- * 2. Token varsa → /api/users/me ile kullanıcı çekilir
- * 3. isInitialized true olana kadar loading spinner gösterilir
- * 4. User varsa → /channels, yoksa → /login
- *
- * i18n: "common" namespace'ini kullanır (loading metni gibi genel string'ler).
+ * App — Root component. Handles routing and auth initialization.
+ * Shows loading spinner until auth state is resolved, then routes
+ * to /channels (authenticated) or /login (unauthenticated).
  */
 function App() {
   const { t } = useTranslation("common");
@@ -48,7 +42,7 @@ function App() {
 
   return (
     <>
-      {/* Auto-update banner — indirme sırasında progress, bitince restart butonu */}
+      {/* Auto-update banner */}
       {(updater.status === "downloading" ||
         updater.status === "ready" ||
         updater.status === "error") && (
@@ -62,8 +56,7 @@ function App() {
         />
       )}
     <Routes>
-      {/* Landing — giriş yapmamış kullanıcılar tanıtım sayfası görür.
-          Electron desktop'ta onboarding gereksiz → direkt login'e yönlendir. */}
+      {/* Landing — Electron skips to login directly */}
       <Route
         path="/"
         element={
@@ -77,7 +70,7 @@ function App() {
         }
       />
 
-      {/* Auth sayfaları — sadece giriş yapmamış kullanıcılar */}
+      {/* Auth pages — unauthenticated only */}
       <Route
         path="/login"
         element={user ? <Navigate to="/channels" replace /> : <LoginPage />}
@@ -95,17 +88,16 @@ function App() {
         element={user ? <Navigate to="/channels" replace /> : <ResetPasswordPage />}
       />
 
-      {/* Davet katılma sayfası — dış paylaşımlardan gelen linkler.
-          Auth kontrolü InviteJoinPage içinde yapılır (returnUrl ile login'e yönlendirir). */}
+      {/* Invite join — auth check is handled inside InviteJoinPage */}
       <Route path="/invite/:code" element={<InviteJoinPage />} />
 
-      {/* Ana uygulama — sadece giriş yapmış kullanıcılar */}
+      {/* Main app — authenticated only */}
       <Route
         path="/channels/*"
         element={user ? <AppLayout /> : <Navigate to="/login" replace />}
       />
 
-      {/* Varsayılan yönlendirme — bilinmeyen rotalar */}
+      {/* Default redirect — unknown routes */}
       <Route
         path="*"
         element={

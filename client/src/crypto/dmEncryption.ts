@@ -1,19 +1,17 @@
 /**
- * DM Encryption — DM mesajlari icin E2EE sifreleme/cozme katmani.
+ * DM Encryption — E2EE encrypt/decrypt layer for DM messages.
  *
- * Bu modul dmStore (gonderme) ve useWebSocket (alma) tarafindan
- * cagirilir. Signal Protocol primitive'lerini kullanarak:
- * - Gonderme: plaintext → EncryptedEnvelope[] (her alici cihaz icin)
- * - Alma: EncryptedEnvelope[] → plaintext (bu cihaz icin)
+ * Used by dmStore (sending) and useWebSocket (receiving).
+ * Uses Signal Protocol primitives:
+ * - Send: plaintext → EncryptedEnvelope[] (one per recipient device)
+ * - Receive: EncryptedEnvelope[] → plaintext (for this device)
  *
- * Self-fanout:
- * Gonderici kendi diger cihazlari icin de sifreler — bu sayede
- * ayni kullanicinin tum cihazlari gonderdigi mesajlari gorebilir.
+ * Self-fanout: sender encrypts for own other devices so all
+ * devices can see sent messages.
  *
- * Prekey bundle fetch:
- * Ilk mesajda alicinin prekey bundle'i sunucudan cekilir ve
- * X3DH key agreement ile session kurulur. Sonraki mesajlarda
- * mevcut session kullanilir (Double Ratchet).
+ * On first message, recipient's prekey bundle is fetched and
+ * X3DH session is established. Subsequent messages use existing
+ * Double Ratchet session.
  */
 
 import * as signalProtocol from "./signalProtocol";
@@ -30,47 +28,30 @@ import type { SignalWireMessage } from "./types";
 // ──────────────────────────────────
 
 /**
- * Gönderilen DM mesajlarının plaintext FIFO cache'i.
+ * FIFO plaintext cache for sent DM messages.
  *
- * Signal Protocol, göndericinin kendi cihazına envelope oluşturamaz
- * (kendi cihazınıza Double Ratchet session kuramazsınız). Bu nedenle
- * WS echo geldiğinde gönderici kendi mesajını decrypt edemez.
+ * Signal Protocol cannot create an envelope for the sender's own device
+ * (no Double Ratchet session to self). So on WS echo, the sender cannot
+ * decrypt its own message.
  *
- * Çözüm (Signal Desktop / WhatsApp modeli):
- * Plaintext'i göndermeden ÖNCE in-memory FIFO queue'ya yazarız.
- * WS event geldiğinde pop ederek content'i alırız.
- * API response sonrası IndexedDB'ye kalıcı olarak kaydederiz.
+ * Solution (Signal Desktop / WhatsApp model):
+ * Plaintext is pushed to an in-memory FIFO queue BEFORE the API call.
+ * On WS echo, it's popped from the queue. After API response, it's
+ * persisted to IndexedDB for historical message access.
  *
- * İki aşamalı cache:
- * 1. preSendQueue: channelId → E2EEPayload[] (FIFO) — API call öncesi push
- * 2. IndexedDB messageCache: messageId → content — API response sonrası persist
+ * Two-phase cache:
+ * 1. preSendQueue: channelId → E2EEPayload[] (FIFO) — pushed before API call
+ * 2. IndexedDB messageCache: messageId → content — persisted after API response
  *
- * Race condition handling:
- * - Normal akış: API response → IndexedDB cache → WS event → IndexedDB hit
- * - Nadir durum: WS event → preSendQueue pop → API response → IndexedDB persist
- * preSendQueue SYNC olarak API call öncesinde set edildiği için,
- * WS event her zaman cache'i bulabilir (WS ancak sunucu mesajı işledikten
- * sonra gelir — ki bu API call'dan sonradır).
+ * No race condition: preSendQueue is set synchronously before the API call,
+ * and WS echo only arrives after the server processes the message.
  */
 const preSendQueue = new Map<string, E2EEPayload[]>();
 
-/**
- * Edit işlemleri için in-memory cache.
- *
- * Edit'te messageId zaten bilinir, bu yüzden direkt Map<messageId, payload>
- * kullanılır (FIFO queue gerekmez).
- */
+/** In-memory cache for edit operations. messageId is known, so a direct Map suffices. */
 const editCache = new Map<string, E2EEPayload>();
 
-/**
- * Gönderim öncesi plaintext'i FIFO queue'ya ekler.
- *
- * sendMessage çağrısında, API call'dan ÖNCE çağrılır.
- * Bu sayede WS echo geldiğinde (API call'dan sonra) cache'te bulunur.
- *
- * @param dmChannelId - DM kanalı ID'si
- * @param payload - Şifrelenmemiş mesaj içeriği + dosya anahtarları
- */
+/** Push plaintext to FIFO queue before API call, so WS echo can find it. */
 export function pushSentPlaintext(dmChannelId: string, payload: E2EEPayload): void {
   const queue = preSendQueue.get(dmChannelId);
   if (queue) {
@@ -80,15 +61,7 @@ export function pushSentPlaintext(dmChannelId: string, payload: E2EEPayload): vo
   }
 }
 
-/**
- * WS event geldiğinde kendi mesajımızın plaintext'ini FIFO'dan çeker.
- *
- * FIFO sırası doğrudur çünkü aynı kanala gönderilen mesajlar
- * sunucuda sıralı işlenir ve WS broadcast'i sıralı gelir.
- *
- * @param dmChannelId - DM kanalı ID'si
- * @returns Plaintext payload veya null (cache miss)
- */
+/** Pop own message plaintext from FIFO on WS echo. Order is preserved by server. */
 export function popSentPlaintext(dmChannelId: string): E2EEPayload | null {
   const queue = preSendQueue.get(dmChannelId);
   if (!queue || queue.length === 0) return null;
@@ -98,12 +71,7 @@ export function popSentPlaintext(dmChannelId: string): E2EEPayload | null {
   return payload;
 }
 
-/**
- * Gönderim başarısız olduğunda pre-send cache'i temizler.
- *
- * API call hata verirse queue'daki son eklenen entry kaldırılır.
- * LIFO (son eklenen, ilk çıkar) — çünkü hata veren send'in push'u en sondadır.
- */
+/** Remove last queued entry on send failure (LIFO — failed send's push is last). */
 export function discardLastSentPlaintext(dmChannelId: string): void {
   const queue = preSendQueue.get(dmChannelId);
   if (!queue || queue.length === 0) return;
@@ -112,41 +80,19 @@ export function discardLastSentPlaintext(dmChannelId: string): void {
   if (queue.length === 0) preSendQueue.delete(dmChannelId);
 }
 
-/**
- * Edit öncesi plaintext'i cache'e yazar.
- *
- * Edit'te messageId zaten bilinir — direkt Map'e yaz.
- *
- * @param messageId - Düzenlenen mesajın ID'si
- * @param payload - Yeni plaintext payload
- */
+/** Cache plaintext before edit API call. */
 export function cacheEditPlaintext(messageId: string, payload: E2EEPayload): void {
   editCache.set(messageId, payload);
 }
 
-/**
- * Edit cache'inden plaintext okur ve siler.
- *
- * @param messageId - Mesaj ID'si
- * @returns Plaintext payload veya null
- */
+/** Pop plaintext from edit cache. */
 export function popEditPlaintext(messageId: string): E2EEPayload | null {
   const payload = editCache.get(messageId) ?? null;
   if (payload) editCache.delete(messageId);
   return payload;
 }
 
-/**
- * API response sonrası plaintext'i IndexedDB'ye kalıcı olarak yazar.
- *
- * In-memory cache geçicidir — sayfa yenilenince kaybolur.
- * IndexedDB persist ile fetch (tarihsel yükleme) sırasında da
- * kendi mesajlarımızın content'ine erişilebilir.
- *
- * @param messageId - Sunucunun atadığı mesaj ID'si
- * @param dmChannelId - DM kanalı ID'si
- * @param content - Plaintext mesaj metni
- */
+/** Persist plaintext to IndexedDB after API response for historical access. */
 export async function persistSentPlaintext(
   messageId: string,
   dmChannelId: string,
@@ -166,18 +112,12 @@ export async function persistSentPlaintext(
 // ──────────────────────────────────
 
 /**
- * DM mesajini tum alici cihazlar icin sifreler.
+ * Encrypt a DM message for all recipient devices + self-fanout.
  *
- * Akis:
- * 1. Alicinin tum cihazlari icin prekey bundle cek
- * 2. Her cihaz icin session kur (yoksa X3DH) + sifrele
- * 3. Gondericinin diger cihazlari icin de sifrele (self-fanout)
- * 4. EncryptedEnvelope[] doner — JSON.stringify ile ciphertext alanina yazilir
- *
- * @param currentUserId - Gonderici kullanici ID
- * @param recipientUserId - Alici kullanici ID
- * @param localDeviceId - Bu cihazin device ID'si
- * @param plaintext - Sifrelenmemis mesaj metni
+ * 1. Fetch recipient's prekey bundles
+ * 2. Encrypt for each recipient device (X3DH + Double Ratchet)
+ * 3. Encrypt for sender's other devices (self-fanout)
+ * 4. Returns EncryptedEnvelope[] to be JSON-serialized as ciphertext
  */
 export async function encryptDMMessage(
   currentUserId: string,
@@ -187,20 +127,18 @@ export async function encryptDMMessage(
 ): Promise<EncryptedEnvelope[]> {
   const envelopes: EncryptedEnvelope[] = [];
 
-  // 1. Alicinin tum cihaz bundle'larini cek
+  // Fetch all recipient device bundles
   const recipientBundles = await e2eeApi.fetchPreKeyBundles(recipientUserId);
   if (!recipientBundles.success || !recipientBundles.data) {
     throw new Error("Failed to fetch recipient prekey bundles");
   }
 
-  // Alicinin hic cihazi/anahtari yoksa sifreli mesaj gonderilemez.
-  // Bu durum, alici henuz E2EE kurulumu yapmamissa olusur.
-  // Auto key generation aktif oldugundan nadir gorulen bir edge case.
+  // Recipient has no devices/keys — hasn't set up E2EE yet
   if (recipientBundles.data.length === 0) {
     throw new Error("RECIPIENT_NO_KEYS");
   }
 
-  // Her alici cihaz icin sifrele
+  // Encrypt for each recipient device
   for (const bundle of recipientBundles.data) {
     const envelope = await encryptForDevice(
       recipientUserId,
@@ -211,22 +149,16 @@ export async function encryptDMMessage(
     envelopes.push(envelope);
   }
 
-  // 2. Self-fanout: kendi diger cihazlari icin de sifrele
-  // (Alice Device A → Alice Device B, Alice Device C, ...)
-  //
-  // ONEMLI: Self-fanout her zaman PreKey mesaj olmali.
-  // Recovery restore sonrasi sadece key material var, session state yok.
-  // Regular (non-PreKey) mesajlar session state gerektirir — decrypt edilemez.
-  // Her mesajda session silip yeniden kurarak PreKey zorluyoruz.
+  // Self-fanout: encrypt for sender's other devices.
+  // Always force PreKey messages — after recovery restore, only key material
+  // exists (no session state), so regular messages can't be decrypted.
   const selfBundles = await e2eeApi.fetchPreKeyBundles(currentUserId);
   if (selfBundles.success && selfBundles.data) {
     for (const bundle of selfBundles.data) {
-      // Kendi device'imizi atla — kendimize sifrelemeye gerek yok
+      // Skip own device
       if (bundle.device_id === localDeviceId) continue;
 
-      // Mevcut session'i sil — encryptForDevice PreKey mesaj olusturmaya zorla.
-      // Bu sayede recovery restore eden cihaz, sadece key material ile
-      // (session state olmadan) bu mesaji decrypt edebilir.
+      // Delete existing session to force PreKey message for recovery compatibility
       await keyStorage.deleteSession(currentUserId, bundle.device_id);
 
       const envelope = await encryptForDevice(
@@ -242,29 +174,18 @@ export async function encryptDMMessage(
   return envelopes;
 }
 
-/**
- * Tek bir cihaz icin sifreleme yapar.
- *
- * Session yoksa prekey bundle ile X3DH key agreement yapilir,
- * ardindan Double Ratchet ile mesaj sifrelenir.
- *
- * @param userId - Hedef kullanici ID
- * @param bundle - Cihazin prekey bundle'i
- * @param senderDeviceId - Gondericinin device ID'si
- * @param plaintext - Sifrelenmemis metin
- */
+/** Encrypt for a single device. Establishes X3DH session if none exists. */
 async function encryptForDevice(
   userId: string,
   bundle: PreKeyBundleResponse,
   senderDeviceId: string,
   plaintext: string
 ): Promise<EncryptedEnvelope> {
-  // Session yoksa kur (X3DH key agreement)
+  // Establish session if needed (X3DH key agreement)
   if (!(await signalProtocol.hasSessionFor(userId, bundle.device_id))) {
     await signalProtocol.processPreKeyBundle(userId, bundle.device_id, {
       identityKey: bundle.identity_key,
-      // signing_key ile signed prekey imzasi dogrulanir.
-      // Yoksa identity_key'e fallback — eski cihazlar signing_key gondermemis olabilir.
+      // Fallback to identity_key for legacy devices without signing_key
       signingKey: bundle.signing_key ?? bundle.identity_key,
       signedPrekeyId: bundle.signed_prekey_id,
       signedPrekey: bundle.signed_prekey,
@@ -275,7 +196,7 @@ async function encryptForDevice(
     });
   }
 
-  // Double Ratchet ile sifrele
+  // Encrypt with Double Ratchet
   const wireMessage = await signalProtocol.encryptMessage(
     userId,
     bundle.device_id,
@@ -286,8 +207,7 @@ async function encryptForDevice(
     sender_device_id: senderDeviceId,
     recipient_device_id: bundle.device_id,
     message_type: wireMessage.type,
-    // Tam SignalWireMessage JSON olarak saklanir —
-    // header (ratchet key, message number) + ciphertext + preKeyInfo (varsa)
+    // Full SignalWireMessage stored as JSON (header + ciphertext + preKeyInfo)
     ciphertext: JSON.stringify(wireMessage),
   };
 }
@@ -297,16 +217,9 @@ async function encryptForDevice(
 // ──────────────────────────────────
 
 /**
- * Alinan E2EE DM mesajini cozer ve structured payload'i parse eder.
- *
- * Ciphertext alani JSON-serialized EncryptedEnvelope[] icerir.
- * Bu cihazin device_id'sine ait envelope bulunur ve decrypt edilir.
- * Decrypt sonrasi decodePayload ile content + file_keys ayristirilir.
- *
- * @param senderUserId - Gonderici kullanici ID (mesajin user_id alani)
- * @param ciphertext - JSON string EncryptedEnvelope[]
- * @param senderDeviceId - Gonderici cihaz ID (mesajin sender_device_id alani)
- * @returns Cozulmus payload (content + file_keys) veya null
+ * Decrypt a received E2EE DM message.
+ * Finds the envelope for this device, decrypts via Signal Protocol,
+ * and parses the structured payload (content + file_keys).
  */
 export async function decryptDMMessage(
   senderUserId: string,
@@ -316,7 +229,7 @@ export async function decryptDMMessage(
   const localDeviceId = useE2EEStore.getState().localDeviceId;
   if (!localDeviceId) return null;
 
-  // Envelope dizisini parse et
+  // Parse envelope array
   let envelopes: EncryptedEnvelope[];
   try {
     envelopes = JSON.parse(ciphertext);
@@ -325,15 +238,14 @@ export async function decryptDMMessage(
     return null;
   }
 
-  // Bu cihaz icin envelope bul — once current device ID, sonra legacy ID'leri dene.
-  // Recovery restore sonrasi yeni device ID alinir ama eski mesajlardaki
-  // envelope'lar eski device ID'ye sifrelenmistir. Legacy ID'ler bu durumu cozer.
+  // Find envelope for this device — try current ID first, then legacy IDs
+  // (after recovery restore, old envelopes are encrypted to the old device ID)
   let myEnvelope = envelopes.find(
     (env) => env.recipient_device_id === localDeviceId
   );
 
   if (!myEnvelope) {
-    // Legacy device ID'leri kontrol et (recovery restore sonrasi eski ID'ler)
+    // Check legacy device IDs (from before recovery restore)
     const legacyIds = await deviceManager.getLegacyDeviceIds();
     for (const legacyId of legacyIds) {
       myEnvelope = envelopes.find(
@@ -347,7 +259,7 @@ export async function decryptDMMessage(
     return null;
   }
 
-  // Wire message parse
+  // Parse wire message
   let wireMessage: SignalWireMessage;
   try {
     wireMessage = JSON.parse(myEnvelope.ciphertext);
@@ -356,7 +268,7 @@ export async function decryptDMMessage(
     return null;
   }
 
-  // Signal Protocol ile decrypt
+  // Decrypt via Signal Protocol
   try {
     const plaintext = await signalProtocol.decryptMessage(
       senderUserId,
@@ -366,7 +278,7 @@ export async function decryptDMMessage(
 
     if (plaintext === null) return null;
 
-    // Structured payload parse — content + file_keys ayristir
+    // Parse structured payload (content + file_keys)
     return decodePayload(plaintext);
   } catch (err) {
     console.error("[dmEncryption] decrypt failed:", err);
@@ -375,18 +287,9 @@ export async function decryptDMMessage(
 }
 
 /**
- * DMMessage dizisindeki E2EE mesajlari toplu decrypt eder.
- *
- * fetchMessages/fetchOlderMessages sonrasi cagrilir.
- * Plaintext mesajlar (encryption_version=0) olduklari gibi birakilir.
- * Decrypt edilemeyen mesajlar content=null olarak isaretlenir.
- *
- * Basarili decrypt sonrasi:
- * - content + e2ee_file_keys mesaja set edilir
- * - Mesaj IndexedDB cache'e yazilir (client-side search icin)
- *
- * @param messages - Backend'den gelen ham mesaj dizisi
- * @returns Decrypt edilmis mesaj dizisi (ayni sira)
+ * Batch-decrypt E2EE DM messages from fetchMessages/fetchOlderMessages.
+ * Plaintext messages (encryption_version=0) pass through unchanged.
+ * Successfully decrypted messages are cached to IndexedDB for client-side search.
  */
 export async function decryptDMMessages(
   messages: DMMessage[]
@@ -400,9 +303,7 @@ export async function decryptDMMessages(
       msg.ciphertext &&
       msg.sender_device_id
     ) {
-      // 1) IndexedDB cache kontrol — daha once decrypt edilmis mesaji
-      // tekrar decrypt etme (Double Ratchet stateful — tekrar decrypt
-      // ratchet state'i bozar ve OperationError verir).
+      // Check IndexedDB cache first — re-decrypting breaks Double Ratchet state
       try {
         const cached = await keyStorage.getCachedDecryptedMessage(msg.id);
         if (cached) {
@@ -410,10 +311,10 @@ export async function decryptDMMessages(
           continue;
         }
       } catch {
-        // Cache read hatasi — devam et, decrypt dene
+        // Cache read error — fall through to decrypt
       }
 
-      // 2) Signal Protocol ile decrypt
+      // Decrypt via Signal Protocol
       try {
         const payload = await decryptDMMessage(
           msg.user_id,
@@ -438,7 +339,7 @@ export async function decryptDMMessages(
             });
           }
         } else {
-          // Envelope bulunamadi — bu cihaz icin sifrelenmemis
+          // No envelope found for this device
           result.push({ ...msg, content: null });
         }
       } catch (err) {
@@ -455,12 +356,12 @@ export async function decryptDMMessages(
         result.push({ ...msg, content: null });
       }
     } else {
-      // Plaintext mesaj — olduğu gibi birak
+      // Plaintext message — pass through
       result.push(msg);
     }
   }
 
-  // Toplu cache yazimi — tek transaction ile performansli
+  // Batch cache write for performance
   if (toCache.length > 0) {
     keyStorage.cacheDecryptedMessages(toCache).catch((err) => {
       console.error("[dmEncryption] Failed to cache messages:", err);

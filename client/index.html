@@ -7,7 +7,7 @@
     <link rel="apple-touch-icon" sizes="256x256" href="/mqvi-icon-256.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mqvi</title>
-    <!-- Inline dark styles — CSS/JS yüklenmeden önce beyaz flash'ı önler -->
+    <!-- Prevent white flash before CSS/JS loads -->
     <style>
       html, body { margin:0; padding:0; background:#111111; color:#e0e0e0; }
       #app-loader {
@@ -26,7 +26,7 @@
   </head>
   <body>
     <div id="root">
-      <!-- React mount olana kadar gösterilen loading state -->
+      <!-- Loading state shown until React mounts -->
       <div id="app-loader">
         <img class="logo" src="/mqvi-icon-128.png" alt="mqvi" />
         <div class="spinner"></div>

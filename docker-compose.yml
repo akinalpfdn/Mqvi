@@ -1,10 +1,10 @@
-# mqvi Docker Compose — Tek komutla tüm servisleri ayağa kaldırır.
+# mqvi Docker Compose
 #
-# Kullanım:
-#   docker-compose up        → Tüm servisleri başlat
-#   docker-compose up -d     → Arka planda başlat
-#   docker-compose down      → Durdur
-#   docker-compose logs -f   → Logları izle
+# Usage:
+#   docker-compose up        → Start all services
+#   docker-compose up -d     → Start in background
+#   docker-compose down      → Stop
+#   docker-compose logs -f   → Follow logs
 
 services:
   # ─── Go Backend API ───
@@ -45,7 +45,7 @@ services:
     restart: unless-stopped
 
   # ─── React Frontend (development) ───
-  # Production'da bu servis yerine build output nginx ile serve edilir.
+  # In production, build output is served via nginx instead.
   client:
     build:
       context: ./client

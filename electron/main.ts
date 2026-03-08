@@ -1,18 +1,8 @@
 /**
- * electron/main.ts — Electron ana (main) process.
+ * electron/main.ts — Electron main process.
  *
- * Uygulamanın yaşam döngüsünü, pencere yönetimini, sistem tray'ini,
- * IPC handler'larını ve auto-update mekanizmasını yönetir.
- *
- * Tauri'den geçiş nedenleri:
- * - Mikrofon/kamera izinleri: session.setPermissionRequestHandler ile auto-grant
- * - Ekran paylaşımı: setDisplayMediaRequestHandler ile native kontrol
- * - Auto-update: electron-updater ile GitHub Releases entegrasyonu
- *
- * Güvenlik:
- * - contextIsolation: true — renderer process Node.js API'lerine erişemez
- * - nodeIntegration: false — renderer'da require/import Node modülleri yasak
- * - Tüm IPC preload.ts üzerinden contextBridge ile expose edilir
+ * Manages app lifecycle, window management, system tray,
+ * IPC handlers, and auto-update.
  */
 
 import {
@@ -32,25 +22,21 @@ import { spawn, ChildProcess } from "child_process";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import path from "path";
 
-/** Ana uygulama penceresi referansı */
+/** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
 
 // ─── App Settings (persist to disk) ───
 
 /**
- * Electron-only uygulama ayarları.
- * %APPDATA%/mqvi/app-settings.json dosyasında saklanır.
- *
- * Bu ayarlar renderer yüklenmeden önce main process'te okunmalıdır
- * (örn: startMinimized → pencere gösterilmeden önce kontrol edilir).
- * Bu yüzden localStorage yerine dosya sistemi kullanılır.
+ * Electron-only app settings stored in %APPDATA%/mqvi/app-settings.json.
+ * Read in main process before renderer loads (e.g., startMinimized check).
  */
 interface AppSettings {
-  /** Windows başlangıcında uygulamayı otomatik aç */
+  /** Auto-start on Windows login */
   openAtLogin: boolean;
-  /** Uygulama açıldığında pencereyi gizle (system tray'de başlat) */
+  /** Start minimized to system tray */
   startMinimized: boolean;
-  /** X butonuna basınca pencereyi kapatma yerine tray'e küçült */
+  /** Minimize to tray instead of closing on X button */
   closeToTray: boolean;
 }
 
@@ -60,28 +46,23 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   closeToTray: true,
 };
 
-/**
- * loadAppSettings — Disk'ten ayarları okur.
- * Dosya yoksa veya bozuksa default değerler döner.
- */
+/** Load settings from disk, falling back to defaults if missing or corrupt. */
 function loadAppSettings(): AppSettings {
   try {
     const settingsPath = path.join(app.getPath("userData"), "app-settings.json");
     if (existsSync(settingsPath)) {
       const raw = readFileSync(settingsPath, "utf-8");
       const parsed = JSON.parse(raw) as Partial<AppSettings>;
-      // Merge with defaults — yeni eklenen key'ler otomatik default alır
+      // Merge with defaults so new keys get default values
       return { ...DEFAULT_APP_SETTINGS, ...parsed };
     }
   } catch {
-    // Dosya bozuksa sessizce default'a düş
+    // Silently fall back to defaults on corrupt file
   }
   return { ...DEFAULT_APP_SETTINGS };
 }
 
-/**
- * saveAppSettings — Ayarları disk'e yazar.
- */
+/** Save settings to disk. */
 function saveAppSettings(settings: AppSettings): void {
   try {
     const settingsPath = path.join(app.getPath("userData"), "app-settings.json");
@@ -91,16 +72,15 @@ function saveAppSettings(settings: AppSettings): void {
   }
 }
 
-/** Modül seviyesinde tutulan mevcut ayarlar — her IPC çağrısında disk okumayı önler */
+/** Cached settings — avoids disk reads on every IPC call */
 let appSettings = loadAppSettings();
 
-/** Sistem tray referansı — GC'den korunması için modül seviyesinde tutulur */
+/** System tray reference — kept at module level to prevent GC */
 let tray: Tray | null = null;
 
 /**
- * Close-to-tray flag — modül seviyesinde tutulur.
- * true olduğunda pencere kapatma isteği gerçek kapatma olarak işlenir.
- * false iken (varsayılan) pencere kapatma → hide (tray'e küçült).
+ * When true, window close performs actual quit (tray Quit clicked).
+ * When false (default), close hides window to tray.
  */
 let isQuitting = false;
 
@@ -131,9 +111,9 @@ let captureProcess: ChildProcess | null = null;
 let captureGeneration = 0;
 
 /**
- * Pre-launch update check sonucu.
- * true → splash'te güncelleme bulunamadı (renderer tekrar kontrol etmesin).
- * false → splash hiç çalışmadı (dev mod) veya hata oldu.
+ * Pre-launch update check result.
+ * true = check completed (renderer should not re-check).
+ * false = splash didn't run (dev mode) or check failed.
  */
 let prelaunchUpdateChecked = false;
 
@@ -143,18 +123,7 @@ let captureHeaderParsed = false;
 /** Buffer for accumulating stdout data before header is fully read */
 let captureHeaderBuffer = Buffer.alloc(0);
 
-// ─── Pencere Oluşturma ───
-
-/**
- * Ana BrowserWindow'u oluştur ve yükle.
- *
- * Dev modda Vite dev server'a (localhost:3030) bağlanır.
- * Production'da local dist/index.html dosyasını yükler.
- *
- * Pencere boyutları Tauri config ile aynı tutuldu:
- * - default: 1280x800
- * - min: 940x560
- */
+// ─── Window Creation ───
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -162,14 +131,11 @@ function createWindow(): void {
     minWidth: 940,
     minHeight: 560,
     icon: path.join(__dirname, "../icons/mqvi-icon.ico"),
-    // Pencere oluşturulduğu an koyu arka plan — HTML/CSS yüklenmeden önce
-    // beyaz flash'ı önler. Midnight temasının --bg-0 değeri.
+    // Prevent white flash before CSS loads (matches --bg-0)
     backgroundColor: "#111111",
-    // OS titlebar'ı kaldır — custom titlebar kullanılacak (Discord pattern).
-    // Renderer'da -webkit-app-region: drag ile sürükleme alanı tanımlanır.
+    // Frameless window — custom titlebar with -webkit-app-region: drag
     frame: false,
-    // Pencereyi hazır olana kadar gizle (show: false), sonra ready-to-show
-    // event'inde göster — bu sayede kullanıcı yarım yüklenmiş sayfa görmez
+    // Hide until ready-to-show to avoid partially loaded content
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -179,16 +145,14 @@ function createWindow(): void {
     },
   });
 
-  // Pencere hazır olduğunda göster — yarım yüklenmiş sayfa göstermeyi önler.
-  // startMinimized açıksa pencere gizli kalır (system tray'de başlar).
+  // Show window when ready (unless startMinimized is enabled)
   mainWindow.once("ready-to-show", () => {
     if (!appSettings.startMinimized) {
       mainWindow?.show();
     }
   });
 
-  // Maximize/unmaximize olaylarını renderer'a bildir.
-  // CustomTitleBar component'i bu event ile maximize↔restore ikonunu toggle eder.
+  // Notify renderer of maximize state changes for titlebar icon toggle
   mainWindow.on("maximize", () => {
     mainWindow?.webContents.send("window-maximized-change", true);
   });
@@ -196,11 +160,10 @@ function createWindow(): void {
     mainWindow?.webContents.send("window-maximized-change", false);
   });
 
-  // Varsayılan Electron menü çubuğunu (File/Edit/View/Window/Help) kaldır.
-  // mqvi bir chat uygulaması — browser tarzı menüye ihtiyaç yok.
+  // Remove default Electron menu bar
   Menu.setApplicationMenu(null);
 
-  // Dev: Vite dev server, Prod: local dist dosyası
+  // Dev: Vite dev server, Prod: local dist file
   const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 
   if (isDev) {
@@ -209,17 +172,15 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, "../client/dist/index.html"));
   }
 
-  // F12 ile DevTools açma — production'da da debug için
+  // F12 toggle DevTools (available in production too)
   mainWindow.webContents.on("before-input-event", (_event, input) => {
     if (input.key === "F12") {
       mainWindow?.webContents.toggleDevTools();
     }
   });
 
-  // ─── Close-to-Tray (toggleable) ───
-  // closeToTray açıksa: X butonuna basınca pencere gizlenir (tray'de kalır)
-  // closeToTray kapalıysa: X butonuna basınca uygulama gerçekten kapanır
-  // isQuitting true → her durumda gerçek kapatma (tray quit tıklandı)
+  // ─── Close-to-Tray ───
+  // isQuitting=true always closes; otherwise hide if closeToTray is enabled
   mainWindow.on("close", (e) => {
     if (!isQuitting && appSettings.closeToTray) {
       e.preventDefault();
@@ -227,10 +188,8 @@ function createWindow(): void {
     }
   });
 
-  // Pencere destroy olduktan sonra referansı null'a çek.
-  // Bu olmadan, quit sırasında captureProcess veya autoUpdater callback'ları
-  // mainWindow?.webContents.send() yapmaya çalışır — optional chaining null
-  // kontrolünü geçer ama webContents zaten destroyed → "Object has been destroyed" crash.
+  // Null reference after destroy to prevent "Object has been destroyed" crashes
+  // from callbacks trying to access webContents during quit
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -238,19 +197,7 @@ function createWindow(): void {
 
 // ─── Permission Auto-Grant ───
 
-/**
- * Medya izinlerini otomatik kabul et.
- *
- * Tauri/WebView2'deki en büyük sorun: mikrofon ve kamera kullanırken
- * browser tarzı izin popup'u gösteriyordu. Electron'da session handler
- * ile bu izinleri otomatik verebiliriz — masaüstü uygulaması olarak
- * kullanıcı zaten uygulamayı kurarak güvendiğini göstermiştir.
- *
- * İzin verilen permission türleri:
- * - "media": Mikrofon ve kamera erişimi
- * - "display-capture": Ekran yakalama (getDisplayMedia)
- * - "mediaKeySystem": DRM medya (gerekirse)
- */
+/** Auto-grant media permissions (mic, camera, screen capture). */
 function setupPermissions(): void {
   session.defaultSession.setPermissionRequestHandler(
     (_webContents, permission, callback) => {
@@ -259,27 +206,12 @@ function setupPermissions(): void {
     }
   );
 
-  // ─── getDisplayMedia Intercept — Kullanıcıya Picker Göster ───
+  // ─── getDisplayMedia Intercept — Custom Screen Picker ───
   //
-  // Renderer'da navigator.mediaDevices.getDisplayMedia() çağrıldığında
-  // bu handler tetiklenir. useSystemPicker Electron 33'te Windows'ta
-  // güvenilir çalışmıyor, bu yüzden custom picker UI kullanıyoruz.
-  //
-  // Akış:
-  // 1. Renderer getDisplayMedia() çağırır → bu handler tetiklenir
-  // 2. Handler desktopCapturer ile kaynakları alır (ekranlar + pencereler)
-  // 3. Kaynaklar IPC ile renderer'a gönderilir ("show-screen-picker")
-  // 4. Renderer picker modal gösterir, kullanıcı seçim yapar
-  // 5. Renderer "screen-picker-result" IPC ile seçilen source ID'yi döner
-  // 6. Handler callback ile source'u Electron'a verir → stream başlar
-  //
-  // Audio: VIDEO ONLY — audio is handled separately by our native
-  // audio-capture.exe process which uses WASAPI process-exclusive loopback.
-  // This prevents echo: our own voice chat audio is excluded from capture.
-  // Electron's built-in "loopback" captures ALL system audio including
-  // our voice chat, causing remote participants to hear their own voice.
-  //
-  // Cancel: Kullanıcı picker'da iptal ederse sourceId null gelir → callback({})
+  // Intercepts getDisplayMedia() to show a custom picker UI.
+  // Sources are sent to renderer via IPC, user picks, result comes back.
+  // VIDEO ONLY — audio is handled by audio-capture.exe (WASAPI process loopback)
+  // to exclude our own voice chat audio from capture.
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
       try {
@@ -293,17 +225,17 @@ function setupPermissions(): void {
           return;
         }
 
-        // Kaynakları serialize et — thumbnail'ler DataURL olarak gönderilir
+        // Serialize sources with thumbnails as DataURLs
         const serialized = sources.map((s) => ({
           id: s.id,
           name: s.name,
           thumbnail: s.thumbnail.toDataURL(),
         }));
 
-        // Renderer'a picker açması için event gönder
+        // Send sources to renderer to display picker
         mainWindow?.webContents.send("show-screen-picker", serialized);
 
-        // Renderer'dan seçim sonucunu bekle (Promise ile one-time listener)
+        // Wait for selection result from renderer (one-time listener)
         const sourceId = await new Promise<string | null>((resolve) => {
           ipcMain.once("screen-picker-result", (_event, id: string | null) => {
             resolve(id);
@@ -311,7 +243,7 @@ function setupPermissions(): void {
         });
 
         if (sourceId) {
-          // Seçilen kaynağı orijinal sources listesinden bul
+          // Find the selected source from original list
           const selected = sources.find((s) => s.id === sourceId);
           if (selected) {
             // Video only — no "loopback" audio.
@@ -322,7 +254,7 @@ function setupPermissions(): void {
             callback({});
           }
         } else {
-          // Kullanıcı iptal etti
+          // User cancelled
           callback({});
         }
       } catch (err) {
@@ -335,15 +267,7 @@ function setupPermissions(): void {
 
 // ─── System Tray ───
 
-/**
- * Sistem tray ikonu oluştur.
- *
- * Davranışlar:
- * - Sol tık: Pencereyi göster
- * - Sağ tık: Context menu (Show / Quit)
- *
- * Tauri'deki system_tray modülünün Electron karşılığı.
- */
+/** Create system tray icon with click-to-show and context menu. */
 function createTray(): void {
   const iconPath = path.join(__dirname, "../icons/mqvi-icon-256x256.png");
   tray = new Tray(nativeImage.createFromPath(iconPath));
@@ -375,19 +299,12 @@ function createTray(): void {
 
 // ─── IPC Handlers ───
 
-/**
- * Renderer → Main process IPC handler'ları.
- *
- * contextBridge.exposeInMainWorld ile expose edilen fonksiyonlar
- * ipcRenderer.invoke() ile bu handler'ları çağırır.
- *
- * Tauri'deki invoke() + listen() mekanizmasının Electron karşılığı.
- */
+/** Renderer → Main process IPC handlers. */
 function setupIPC(): void {
-  // Uygulama versiyonu — package.json'daki version
+  // App version from package.json
   ipcMain.handle("get-version", () => app.getVersion());
 
-  // Uygulamayı yeniden başlat — ConnectionSettings'te kullanılır
+  // Relaunch app — used by ConnectionSettings
   ipcMain.handle("relaunch", () => {
     app.relaunch();
     app.exit(0);
@@ -395,11 +312,10 @@ function setupIPC(): void {
 
   // ─── Auto-Updater IPC ───
 
-  // Renderer, splash'te update kontrolünün yapılıp yapılmadığını sorar.
-  // Yapıldıysa renderer tekrar kontrol etmez — çift banner sorunu önlenir.
+  // Prevents duplicate update checks — renderer skips if splash already checked
   ipcMain.handle("was-update-checked", () => prelaunchUpdateChecked);
 
-  // Renderer'dan güncelleme kontrolü ve kurma talebi
+  // Update check and install from renderer
   ipcMain.handle("check-update", async () => {
     try {
       const result = await autoUpdater.checkForUpdates();
@@ -419,13 +335,11 @@ function setupIPC(): void {
   });
 
   ipcMain.handle("install-update", () => {
-    // isSilent=true: Installer penceresi gösterilmez
-    // isForceRunAfter=true: Kurulumdan sonra app otomatik açılır
+    // isSilent=true: no installer window, isForceRunAfter=true: auto-restart
     autoUpdater.quitAndInstall(true, true);
   });
 
   // ─── Desktop Capturer ───
-  // Ekran paylaşımı için mevcut pencere/ekran kaynaklarını listele.
   ipcMain.handle("get-desktop-sources", async () => {
     const sources = await desktopCapturer.getSources({
       types: ["window", "screen"],
@@ -546,9 +460,6 @@ function setupIPC(): void {
   });
 
   // ─── Taskbar Badge (Windows Overlay Icon) ───
-  // Renderer'dan gelen unread count + canvas dataURL ile taskbar overlay icon set eder.
-  // count=0 → overlay kaldır, count>0 → kırmızı badge göster.
-  // Tray tooltip da güncellenir.
   ipcMain.handle(
     "set-badge-count",
     (_e: Electron.IpcMainInvokeEvent, count: number, iconDataURL: string | null) => {
@@ -564,8 +475,6 @@ function setupIPC(): void {
   );
 
   // ─── Flash Frame ───
-  // Mesaj veya arama geldiğinde taskbar ikonunu yanıp söndür (dikkat çek).
-  // Pencere focus alınca flash otomatik durur.
   ipcMain.handle("flash-frame", () => {
     if (mainWindow && !mainWindow.isFocused()) {
       mainWindow.flashFrame(true);
@@ -573,8 +482,6 @@ function setupIPC(): void {
   });
 
   // ─── Window Controls (Custom Titlebar) ───
-  // frame:false ile OS titlebar kaldırıldı, butonlar React component'inden
-  // IPC ile main process'e yönlendirilir.
   ipcMain.handle("minimize-window", () => {
     mainWindow?.minimize();
   });
@@ -586,13 +493,12 @@ function setupIPC(): void {
     }
   });
   ipcMain.handle("close-window", () => {
-    // close-to-tray davranışı korunur (isQuitting=false → hide)
+    // Respects close-to-tray behavior
     mainWindow?.close();
   });
 
   // ─── Clipboard ───
-  // Main process'te clipboard.writeText her zaman çalışır.
-  // Preload'daki clipboard modülü sandboxed olduğu için yazma başarısız olabilir.
+  // clipboard.writeText in main process always works (preload is sandboxed)
   ipcMain.handle(
     "write-clipboard",
     (_e: Electron.IpcMainInvokeEvent, text: string) => {
@@ -601,12 +507,9 @@ function setupIPC(): void {
   );
 
   // ─── App Settings (General / Windows Settings) ───
-  // Discord'un "Windows Ayarları" sekmesinin karşılığı.
-  // Üç toggle: openAtLogin, startMinimized, closeToTray
 
   ipcMain.handle("get-app-settings", () => {
-    // openAtLogin için gerçek OS durumunu da kontrol et
-    // (kullanıcı registry'den manuel değiştirmiş olabilir)
+    // Check actual OS state (user may have changed it via registry)
     const loginSettings = app.getLoginItemSettings();
     appSettings.openAtLogin = loginSettings.openAtLogin;
     return appSettings;
@@ -620,7 +523,7 @@ function setupIPC(): void {
       (appSettings as unknown as Record<string, boolean>)[key] = value;
       saveAppSettings(appSettings);
 
-      // openAtLogin değiştiğinde Windows registry'yi de güncelle
+      // Sync with Windows registry
       if (key === "openAtLogin") {
         app.setLoginItemSettings({ openAtLogin: value });
       }
@@ -640,9 +543,7 @@ function setupIPC(): void {
   });
 
   // ─── Credential Storage (Remember Me) ───
-  // safeStorage: Windows DPAPI ile kullanıcı session'ına özel AES-256 şifreleme.
-  // Şifrelenmiş credential dosyası %APPDATA%/mqvi/cred.enc'de saklanır.
-  // Sadece bu Windows kullanıcısı çözebilir.
+  // Encrypted via Windows DPAPI (safeStorage), stored at %APPDATA%/mqvi/cred.enc
 
   const credPath = path.join(app.getPath("userData"), "cred.enc");
 
@@ -662,7 +563,7 @@ function setupIPC(): void {
       const decrypted = safeStorage.decryptString(Buffer.from(encrypted));
       return JSON.parse(decrypted) as { username: string; password: string };
     } catch {
-      // Dosya bozuksa veya decrypt başarısızsa sessizce null dön
+      // Silently return null on corrupt file or decrypt failure
       return null;
     }
   });
@@ -671,27 +572,18 @@ function setupIPC(): void {
     try {
       if (existsSync(credPath)) unlinkSync(credPath);
     } catch {
-      // Dosya silinememişse sessizce geç
+      // Ignore deletion errors
     }
   });
 }
 
 // ─── Auto Updater ───
 
-/**
- * electron-updater konfigürasyonu.
- *
- * GitHub Releases'ten güncelleme kontrol eder.
- * package.json'daki "build.publish" config'i kullanır:
- *   provider: "github", owner: "akinalpfdn", repo: "Mqvi"
- *
- * Tauri'deki plugin-updater'ın karşılığı.
- * Fark: electron-updater progress event'leri daha detaylı.
- */
+/** Configure electron-updater for GitHub Releases auto-updates. */
 function setupAutoUpdater(): void {
-  // Discord modeli: güncelleme bulunursa otomatik indir
+  // Auto-download when update is found
   autoUpdater.autoDownload = true;
-  // İndirme bitince otomatik kurma — app kapanırken kurulsun
+  // Install on app quit
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on("update-available", (info) => {
@@ -712,17 +604,13 @@ function setupAutoUpdater(): void {
 }
 
 // ─── Single Instance Lock ───
-// Aynı anda sadece bir mqvi instance'ı çalışabilir.
-// İkinci instance açılmaya çalışınca mevcut pencere öne getirilir,
-// yeni instance kapanır. Bu, tray'de birden fazla ikon oluşmasını önler.
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-  // Başka bir instance zaten çalışıyor — bu instance'ı hemen kapat
+  // Another instance is already running — quit this one
   app.quit();
 } else {
-  // Bu birinci (veya tek) instance — ikinci instance denendiğinde
-  // mevcut pencereyi öne getir
+  // Bring existing window to front when second instance is attempted
   app.on("second-instance", () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -735,16 +623,9 @@ if (!gotTheLock) {
 // ─── Pre-Launch Update Check ───
 
 /**
- * Uygulama penceresi açılmadan ÖNCE güncelleme kontrolü yapar.
- * Discord/Slack modeli: eski client yeni API'ye bağlanmadan güncelleme al.
- *
- * Akış:
- * 1. Küçük bir splash penceresi göster ("Güncellemeler kontrol ediliyor...")
- * 2. GitHub Releases'ten yeni versiyon var mı kontrol et
- * 3. Varsa → otomatik indir, kur, uygulamayı yeniden başlat
- * 4. Yoksa veya hata olursa → splash kapat, normal uygulamayı aç
- *
- * Dev modda (app.isPackaged === false) skip edilir.
+ * Pre-launch update check with splash window.
+ * Shows splash, checks for updates, downloads if available, then launches app.
+ * Skipped in dev mode.
  */
 let updateWindow: BrowserWindow | null = null;
 
@@ -765,9 +646,7 @@ function createUpdateWindow(): BrowserWindow {
     },
   });
 
-  // Minimal HTML — inline, dosya gerektirmez.
-  // Logo base64 encode edilerek JS ile set edilir (encodeURIComponent
-  // base64'teki +/= karakterlerini bozabilir, JS ile daha güvenilir).
+  // Inline HTML — logo injected via JS to avoid encodeURIComponent issues with base64
   const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -815,7 +694,7 @@ function createUpdateWindow(): BrowserWindow {
 
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
-  // HTML yüklendikten sonra logoyu JS ile set et — encodeURIComponent sorununu önler
+  // Set logo after HTML loads via JS
   win.webContents.once("did-finish-load", () => {
     const logoPath = path.join(__dirname, "../icons/mqvi-icon-128x128.png");
     try {
@@ -831,7 +710,7 @@ function createUpdateWindow(): BrowserWindow {
 }
 
 async function checkForUpdateBeforeLaunch(): Promise<boolean> {
-  // Dev modda update check yapma
+  // Skip update check in dev mode
   const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
   if (isDev) return false;
 
@@ -841,17 +720,17 @@ async function checkForUpdateBeforeLaunch(): Promise<boolean> {
     autoUpdater.autoDownload = false;
 
     const result = await autoUpdater.checkForUpdates();
-    // Splash'te kontrol yapıldı — renderer tekrar kontrol etmesin
+    // Mark as checked so renderer won't re-check
     prelaunchUpdateChecked = true;
 
     if (!result || !result.updateInfo || result.updateInfo.version === app.getVersion()) {
-      // Güncelleme yok — splash kapat, devam et
+      // No update — close splash, continue
       updateWindow.close();
       updateWindow = null;
       return false;
     }
 
-    // Güncelleme var — progress göster ve indir
+    // Update available — show progress and download
     const newVersion = result.updateInfo.version;
     updateWindow.webContents.executeJavaScript(
       `window.setStatus('Downloading v${newVersion}...')`
@@ -871,19 +750,16 @@ async function checkForUpdateBeforeLaunch(): Promise<boolean> {
           `window.setStatus('Installing...'); window.setProgress(100)`
         );
       }
-      // Kısa bekleme sonra sessizce kur ve yeniden başlat
-      // isSilent=true: NSIS installer penceresi gösterilmez (Discord modeli)
-      // isForceRunAfter=true: Kurulumdan sonra uygulama otomatik açılır
+      // Brief delay then silent install and restart
       setTimeout(() => {
         autoUpdater.quitAndInstall(true, true);
       }, 1000);
     });
 
     await autoUpdater.downloadUpdate();
-    return true; // Güncelleme indiriliyor, uygulama yeniden başlayacak
+    return true; // Update downloading, app will restart
   } catch (err) {
-    // Güncelleme kontrolü başarısız — sessizce devam et
-    // Hata olsa bile kontrol denendi — renderer tekrar denemesin
+    // Check failed — continue silently, mark as checked
     prelaunchUpdateChecked = true;
     console.error("[updater] pre-launch check failed:", err);
     if (updateWindow && !updateWindow.isDestroyed()) {
@@ -899,9 +775,9 @@ async function checkForUpdateBeforeLaunch(): Promise<boolean> {
 app.whenReady().then(async () => {
   setupPermissions();
 
-  // Pencere açılmadan önce güncelleme kontrolü
+  // Pre-launch update check
   const updating = await checkForUpdateBeforeLaunch();
-  if (updating) return; // Güncelleme indiriliyor, quitAndInstall tetiklenecek
+  if (updating) return; // Update downloading, quitAndInstall will be triggered
 
   setupIPC();
   setupAutoUpdater();
@@ -909,14 +785,14 @@ app.whenReady().then(async () => {
   createTray();
 });
 
-// macOS: Tüm pencereler kapandığında uygulama kapanmasın (dock'ta kalsın)
+// macOS: keep app running when all windows are closed
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
-// macOS: Dock ikonuna tıklayınca pencere yoksa yeniden oluştur
+// macOS: recreate window when dock icon is clicked
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
@@ -925,10 +801,7 @@ app.on("activate", () => {
   }
 });
 
-// Quit öncesi:
-// 1. isQuitting flag'i set et — close-to-tray'i bypass etmek için
-// 2. captureProcess'i temizle — aksi halde stdout callback'ı destroy olmuş
-//    window'a event göndermeye çalışır → "Object has been destroyed" crash
+// Set isQuitting flag and clean up capture process before quit
 app.on("before-quit", () => {
   isQuitting = true;
 

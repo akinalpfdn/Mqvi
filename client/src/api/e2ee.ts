@@ -1,31 +1,5 @@
 /**
- * E2EE API — Device, PreKey Bundle, Key Backup ve Group Session endpoint'leri.
- *
- * Bu modul, E2EE cihaz yonetimi ve anahtar degisimi icin
- * backend endpoint'lerine HTTP istekleri gonderir.
- *
- * Endpoint'ler:
- *
- * Device:
- *   POST   /api/devices                           — Cihaz kaydet + prekey bundle yukle
- *   GET    /api/devices                           — Kendi cihazlarini listele
- *   DELETE /api/devices/{deviceId}                — Cihaz sil
- *   POST   /api/devices/{deviceId}/prekeys        — One-time prekey'ler yukle
- *   PUT    /api/devices/{deviceId}/signed-prekey   — Signed prekey rotate et
- *   GET    /api/devices/{deviceId}/prekey-count    — Kalan prekey sayisi
- *
- * User Devices (public):
- *   GET    /api/users/{userId}/devices            — Kullanicinin public cihaz listesi
- *   GET    /api/users/{userId}/prekey-bundles     — X3DH icin prekey bundle'lari
- *
- * Key Backup:
- *   PUT    /api/e2ee/key-backup                   — Sifreli anahtar yedegi yukle
- *   GET    /api/e2ee/key-backup                   — Sifreli anahtar yedegini indir
- *   DELETE /api/e2ee/key-backup                   — Anahtar yedegini sil
- *
- * Group Sessions:
- *   POST   /api/servers/{sId}/channels/{cId}/group-sessions  — Sender Key kaydet
- *   GET    /api/servers/{sId}/channels/{cId}/group-sessions  — Grup session'lari al
+ * E2EE API — Device management, PreKey Bundles, Key Backup, and Group Sessions.
  */
 
 import { apiClient } from "./client";
@@ -41,10 +15,7 @@ import type {
 // Device Management
 // ──────────────────────────────────
 
-/**
- * Yeni cihaz kaydeder ve prekey bundle yukler.
- * POST /api/devices
- */
+/** Register new device and upload prekey bundle. POST /api/devices */
 export function registerDevice(req: {
   device_id: string;
   display_name: string;
@@ -62,28 +33,19 @@ export function registerDevice(req: {
   });
 }
 
-/**
- * Kendi cihazlarini listeler.
- * GET /api/devices
- */
+/** List own devices. GET /api/devices */
 export function listMyDevices() {
   return apiClient<DeviceInfo[]>("/devices");
 }
 
-/**
- * Cihaz siler.
- * DELETE /api/devices/{deviceId}
- */
+/** Delete a device. DELETE /api/devices/{deviceId} */
 export function removeDevice(deviceId: string) {
   return apiClient<null>(`/devices/${deviceId}`, {
     method: "DELETE",
   });
 }
 
-/**
- * Ek one-time prekey'ler yukler.
- * POST /api/devices/{deviceId}/prekeys
- */
+/** Upload additional one-time prekeys. POST /api/devices/{deviceId}/prekeys */
 export function uploadPrekeys(
   deviceId: string,
   req: {
@@ -96,10 +58,7 @@ export function uploadPrekeys(
   });
 }
 
-/**
- * Signed prekey rotate eder.
- * PUT /api/devices/{deviceId}/signed-prekey
- */
+/** Rotate signed prekey. PUT /api/devices/{deviceId}/signed-prekey */
 export function updateSignedPrekey(
   deviceId: string,
   req: {
@@ -114,10 +73,7 @@ export function updateSignedPrekey(
   });
 }
 
-/**
- * Sunucudaki prekey sayisini doner.
- * GET /api/devices/{deviceId}/prekey-count
- */
+/** Get remaining prekey count. GET /api/devices/{deviceId}/prekey-count */
 export function getPrekeyCount(deviceId: string) {
   return apiClient<{ count: number }>(`/devices/${deviceId}/prekey-count`);
 }
@@ -126,19 +82,12 @@ export function getPrekeyCount(deviceId: string) {
 // User Devices (Public)
 // ──────────────────────────────────
 
-/**
- * Bir kullanicinin public cihaz listesini doner.
- * GET /api/users/{userId}/devices
- */
+/** Get a user's public device list. GET /api/users/{userId}/devices */
 export function listUserDevices(userId: string) {
   return apiClient<DevicePublicInfo[]>(`/users/${userId}/devices`);
 }
 
-/**
- * Bir kullanicinin tum cihazlari icin prekey bundle'larini doner.
- * X3DH key agreement icin gerekli.
- * GET /api/users/{userId}/prekey-bundles
- */
+/** Fetch prekey bundles for all of a user's devices (for X3DH). GET /api/users/{userId}/prekey-bundles */
 export function fetchPreKeyBundles(userId: string) {
   return apiClient<PreKeyBundleResponse[]>(`/users/${userId}/prekey-bundles`);
 }
@@ -147,10 +96,7 @@ export function fetchPreKeyBundles(userId: string) {
 // Key Backup
 // ──────────────────────────────────
 
-/**
- * Sifreli anahtar yedegi yukler/gunceller.
- * PUT /api/e2ee/key-backup
- */
+/** Upload/update encrypted key backup. PUT /api/e2ee/key-backup */
 export function uploadKeyBackup(req: {
   version: number;
   algorithm: string;
@@ -164,20 +110,12 @@ export function uploadKeyBackup(req: {
   });
 }
 
-/**
- * Sifreli anahtar yedegini indirir.
- * GET /api/e2ee/key-backup
- *
- * Backup yoksa 200 + null data doner (404 degil).
- */
+/** Download encrypted key backup. Returns null data if no backup exists (not 404). */
 export function downloadKeyBackup() {
   return apiClient<KeyBackupResponse | null>("/e2ee/key-backup");
 }
 
-/**
- * Anahtar yedegini siler.
- * DELETE /api/e2ee/key-backup
- */
+/** Delete key backup. DELETE /api/e2ee/key-backup */
 export function deleteKeyBackup() {
   return apiClient<null>("/e2ee/key-backup", {
     method: "DELETE",
@@ -188,10 +126,7 @@ export function deleteKeyBackup() {
 // Group Sessions (Server-scoped)
 // ──────────────────────────────────
 
-/**
- * Kanala Sender Key grup oturumu kaydeder.
- * POST /api/servers/{serverId}/channels/{channelId}/group-sessions?device_id={deviceId}
- */
+/** Save Sender Key group session. POST /api/servers/{serverId}/channels/{channelId}/group-sessions */
 export function uploadGroupSession(
   serverId: string,
   channelId: string,
@@ -210,10 +145,7 @@ export function uploadGroupSession(
   );
 }
 
-/**
- * Kanaldaki tum aktif grup oturumlarini doner.
- * GET /api/servers/{serverId}/channels/{channelId}/group-sessions
- */
+/** Fetch all active group sessions for a channel. GET /api/servers/{serverId}/channels/{channelId}/group-sessions */
 export function fetchGroupSessions(serverId: string, channelId: string) {
   return apiClient<ChannelGroupSessionResponse[]>(
     `/servers/${serverId}/channels/${channelId}/group-sessions`

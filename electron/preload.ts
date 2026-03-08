@@ -1,16 +1,8 @@
 /**
  * electron/preload.ts — Electron preload script.
  *
- * contextBridge ile renderer process'e güvenli API expose eder.
- * Renderer'da window.electronAPI üzerinden erişilir.
- *
- * Güvenlik modeli:
- * - contextIsolation: true → renderer ve preload farklı JavaScript context'lerde çalışır
- * - contextBridge.exposeInMainWorld(): Sadece belirtilen fonksiyonlar renderer'a açılır
- * - ipcRenderer.invoke(): Main process'teki ipcMain.handle() handler'larını çağırır
- * - ipcRenderer.on(): Main process'ten renderer'a gönderilen event'leri dinler
- *
- * Tauri'deki @tauri-apps/api invoke() ve listen() fonksiyonlarının karşılığı.
+ * Exposes a safe API to the renderer process via contextBridge.
+ * Accessible in renderer as window.electronAPI.
  */
 
 import { contextBridge, ipcRenderer } from "electron";
@@ -18,39 +10,39 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("electronAPI", {
   // ─── Invoke-style IPC (renderer → main → response) ───
 
-  /** Uygulama versiyonunu al (package.json version) */
+  /** App version from package.json */
   getVersion: (): Promise<string> => ipcRenderer.invoke("get-version"),
 
-  /** Uygulamayı yeniden başlat — ConnectionSettings'te kullanılır */
+  /** Relaunch the app — used by ConnectionSettings */
   relaunch: (): Promise<void> => ipcRenderer.invoke("relaunch"),
 
-  /** Splash'te update kontrolü yapıldı mı? true ise renderer tekrar kontrol etmesin */
+  /** Whether pre-launch update check ran — prevents duplicate checks in renderer */
   wasUpdateChecked: (): Promise<boolean> => ipcRenderer.invoke("was-update-checked"),
 
-  /** Güncelleme kontrolü — UpdateInfo veya null döner */
+  /** Check for updates — returns UpdateInfo or null */
   checkUpdate: (): Promise<unknown> => ipcRenderer.invoke("check-update"),
 
-  /** Güncellemeyi indir */
+  /** Download the update */
   downloadUpdate: (): Promise<boolean> => ipcRenderer.invoke("download-update"),
 
-  /** Güncellemeyi kur ve uygulamayı yeniden başlat */
+  /** Install update and restart */
   installUpdate: (): Promise<void> => ipcRenderer.invoke("install-update"),
 
-  /** Ekran paylaşımı için mevcut pencere/ekran kaynaklarını listele */
+  /** List available screen/window sources for screen sharing */
   getDesktopSources: (): Promise<
     Array<{ id: string; name: string; thumbnail: string }>
   > => ipcRenderer.invoke("get-desktop-sources"),
 
   // ─── Screen Picker IPC ───
 
-  /** Main process ekran picker göstermek istediğinde — kaynakları alır */
+  /** Main process requests screen picker — receives sources */
   onShowScreenPicker: (
     cb: (sources: Array<{ id: string; name: string; thumbnail: string }>) => void
   ): void => {
     ipcRenderer.on("show-screen-picker", (_e, sources) => cb(sources));
   },
 
-  /** Kullanıcının seçim sonucunu main process'e gönderir (null = iptal) */
+  /** Send user's selection to main process (null = cancelled) */
   sendScreenPickerResult: (sourceId: string | null): void => {
     ipcRenderer.send("screen-picker-result", sourceId);
   },
@@ -101,88 +93,83 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   // ─── Credential Storage (Remember Me) ───
-  // safeStorage ile şifrelenmiş kullanıcı adı + şifre kaydetme/yükleme/silme.
-  // Sadece Electron'da çalışır — web'de bu API mevcut değildir.
 
-  /** Kullanıcı adı ve şifreyi şifreli olarak kaydet */
+  /** Save credentials encrypted via safeStorage */
   saveCredentials: (username: string, password: string): Promise<void> =>
     ipcRenderer.invoke("save-credentials", username, password),
 
-  /** Kayıtlı credential'ları yükle (yoksa null) */
+  /** Load saved credentials (null if none) */
   loadCredentials: (): Promise<{ username: string; password: string } | null> =>
     ipcRenderer.invoke("load-credentials"),
 
-  /** Kayıtlı credential'ları sil */
+  /** Clear saved credentials */
   clearCredentials: (): Promise<void> =>
     ipcRenderer.invoke("clear-credentials"),
 
   // ─── App Settings (General / Windows Settings) ───
-  // Discord "Windows Ayarları" karşılığı: openAtLogin, startMinimized, closeToTray
 
-  /** Tüm app settings'i oku */
+  /** Read all app settings */
   getAppSettings: (): Promise<{ openAtLogin: boolean; startMinimized: boolean; closeToTray: boolean }> =>
     ipcRenderer.invoke("get-app-settings"),
 
-  /** Tek bir app setting'i güncelle */
+  /** Update a single app setting */
   setAppSetting: (key: string, value: boolean): Promise<void> =>
     ipcRenderer.invoke("set-app-setting", key, value),
 
   // ─── Window Controls (Custom Titlebar) ───
-  // frame:false ile OS titlebar kaldırıldı. Bu API'ler React CustomTitleBar
-  // component'inin minimize/maximize/close butonlarını çalıştırır.
 
-  /** Pencereyi küçült */
+  /** Minimize window */
   minimizeWindow: (): Promise<void> => ipcRenderer.invoke("minimize-window"),
 
-  /** Pencereyi maximize ↔ restore toggle et */
+  /** Toggle maximize / restore */
   maximizeWindow: (): Promise<void> => ipcRenderer.invoke("maximize-window"),
 
-  /** Pencereyi kapat (close-to-tray) */
+  /** Close window (respects close-to-tray) */
   closeWindow: (): Promise<void> => ipcRenderer.invoke("close-window"),
 
-  /** Maximize/unmaximize olayını dinle (ikon toggle için) */
+  /** Listen for maximize/unmaximize changes (icon toggle) */
   onMaximizedChange: (cb: (isMaximized: boolean) => void): void => {
     ipcRenderer.on("window-maximized-change", (_e, val) => cb(val));
   },
 
-  /** Maximize listener'ı temizle (component unmount'ta) */
+  /** Remove maximize listener (on component unmount) */
   removeMaximizedListener: (): void => {
     ipcRenderer.removeAllListeners("window-maximized-change");
   },
 
   // ─── Taskbar Badge + Flash ───
 
-  /** Taskbar overlay badge icon ayarla (Windows). count=0 → badge kaldır. */
+  /** Set taskbar overlay badge icon (Windows). count=0 removes badge. */
   setBadgeCount: (count: number, iconDataURL: string | null): Promise<void> =>
     ipcRenderer.invoke("set-badge-count", count, iconDataURL),
 
-  /** Taskbar'da pencereyi flash et — mesaj/arama geldiğinde dikkat çeker */
+  /** Flash taskbar icon to attract attention on new messages/calls */
   flashFrame: (): Promise<void> => ipcRenderer.invoke("flash-frame"),
 
   // ─── Clipboard ───
 
-  /** Metni panoya kopyala — main process IPC üzerinden, her zaman çalışır */
+  /** Copy text to clipboard via main process IPC */
   writeClipboard: (text: string): Promise<void> =>
     ipcRenderer.invoke("write-clipboard", text),
 
   // ─── Event listeners (main → renderer) ───
 
-  /** Güncelleme mevcut bilgisi geldiğinde */
+  /** Update available */
   onUpdateAvailable: (cb: (info: unknown) => void): void => {
     ipcRenderer.on("update-available", (_e, info) => cb(info));
   },
 
-  /** İndirme progress bilgisi geldiğinde */
+  /** Download progress */
   onUpdateProgress: (cb: (progress: unknown) => void): void => {
     ipcRenderer.on("update-progress", (_e, progress) => cb(progress));
   },
 
-  /** İndirme tamamlandığında */
+  /** Download completed */
   onUpdateDownloaded: (cb: () => void): void => {
     ipcRenderer.on("update-downloaded", () => cb());
   },
 
-  /** Güncelleme hatası oluştuğunda */
+  /** Update error */
   onUpdateError: (cb: (message: string) => void): void => {
     ipcRenderer.on("update-error", (_e, message) => cb(message));
   },

@@ -1,17 +1,7 @@
 /**
- * EncryptedAttachment — E2EE sifreli dosya gosterim component'i.
- *
- * E2EE mesajlardaki attachment'lar sunucuda sifreli olarak saklanir.
- * Bu component sifreli dosyayi indirir, AES-256-GCM ile cozer
- * ve goruntuleme/indirme saglar.
- *
- * State machine:
- * - idle: Henuz decrypt edilmedi (lazy — kullanici etkilesimi bekler)
- * - loading: Decrypt islemi devam ediyor
- * - ready: Basarili — objectUrl mevcut
- * - error: Decrypt basarisiz
- *
- * Resimler otomatik decrypt edilir (mount'ta), dosyalar tiklaninca decrypt edilir.
+ * EncryptedAttachment — displays E2EE encrypted file attachments.
+ * Downloads encrypted file from server, decrypts with AES-256-GCM.
+ * Images auto-decrypt on mount; files decrypt on click.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -25,7 +15,7 @@ type DecryptState = "idle" | "loading" | "ready" | "error";
 
 type EncryptedAttachmentProps = {
   attachment: ChatAttachment;
-  /** Eslesen file_keys girdisi (index sirasina gore) */
+  /** Matching file_keys entry (by index order) */
   fileMeta: EncryptedFileMeta;
 };
 
@@ -37,7 +27,7 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
 
   const isImage = fileMeta.mimeType.startsWith("image/");
 
-  // Object URL cleanup — component unmount veya yeni URL olusturulunca
+  // Object URL cleanup on unmount
   useEffect(() => {
     return () => {
       if (revokeRef.current) {
@@ -57,7 +47,7 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
 
       const blobUrl = URL.createObjectURL(decryptedFile);
 
-      // Onceki URL'yi temizle
+      // Revoke previous URL
       if (revokeRef.current) {
         URL.revokeObjectURL(revokeRef.current);
       }
@@ -71,7 +61,7 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     }
   }, [attachment.file_url, fileMeta, state]);
 
-  // Resimler otomatik decrypt (mount'ta)
+  // Auto-decrypt images on mount
   useEffect(() => {
     if (isImage && state === "idle") {
       doDecrypt();
@@ -106,7 +96,7 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
       );
     }
 
-    // ready — decrypt edilmis resmi goster
+    // ready — show decrypted image
     return (
       <a href={objectUrl!} target="_blank" rel="noopener noreferrer">
         <img
@@ -124,14 +114,14 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     e.preventDefault();
 
     if (state === "ready" && objectUrl) {
-      // Zaten decrypt edilmis — indirme baslat
+      // Already decrypted — start download
       triggerDownload(objectUrl, fileMeta.filename);
       return;
     }
 
     if (state === "loading") return;
 
-    // Decrypt et ve indir
+    // Decrypt and download
     setState("loading");
     try {
       const url = resolveAssetUrl(attachment.file_url);
@@ -175,7 +165,7 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
 
 // ─── Helpers ───
 
-/** Sifreli dosya ikonu (kilit + dosya) */
+/** Encrypted file icon (lock + file) */
 function EncryptedFileIcon() {
   return (
     <svg
@@ -204,7 +194,7 @@ function triggerDownload(url: string, filename: string) {
   document.body.removeChild(a);
 }
 
-/** Dosya boyutunu okunabilir formata cevirir (1024 → "1.0 KB") */
+/** Format file size to human-readable string (1024 → "1.0 KB") */
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;

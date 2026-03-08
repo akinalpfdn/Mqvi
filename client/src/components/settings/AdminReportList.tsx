@@ -1,17 +1,8 @@
 /**
- * AdminReportList — Platform admin rapor yonetim tablosu.
- *
- * Ozellikler:
- * - Siralama: Sutun basligina tikla -> asc/desc toggle
- * - Filtreleme: Arama cubuGu + status dropdown filtresi
- * - Sutun genisligi: Sutun kenarini surukleyerek ayarla
- * - Status inline edit: Dropdown degistir -> onay/iptal butonlari
- * - Context menu: DM Reporter, DM Reported, Ban Reported, Delete Reported
- * - Attachment modal: Tiklayinca rapor dosyalarini goruntule
- *
- * AdminUserList pattern'ini birebir takip eder.
- * Sadece is_platform_admin = true olan kullanicilara gorunur.
- * Backend PlatformAdminMiddleware ile korunur.
+ * AdminReportList — Platform admin report management table.
+ * Sortable columns, search + status filter, resizable columns,
+ * inline status editing, context menu (DM/ban/delete), attachment modal.
+ * Only visible to platform admins (backend-protected).
  */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
@@ -68,7 +59,7 @@ function getDefaultWidths(): Record<string, number> {
   return widths;
 }
 
-/** Backend SQLite timestamp'lerini UTC olarak parse eder. */
+/** Parse backend SQLite timestamps as UTC. */
 function parseUTC(iso: string): number {
   return new Date(iso.endsWith("Z") ? iso : iso + "Z").getTime();
 }
@@ -218,7 +209,7 @@ function AdminReportList() {
     const report = reports.find((r) => r.id === reportId);
     if (!report) return;
 
-    // Ayni status'a donerse pending change'i sil
+    // If reverted to original status, remove pending change
     if (newStatus === report.status) {
       setPendingStatusChanges((prev) => {
         const next = { ...prev };

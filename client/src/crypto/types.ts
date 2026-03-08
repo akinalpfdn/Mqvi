@@ -1,37 +1,20 @@
 /**
  * E2EE crypto layer internal type definitions.
- *
- * Bu tipler sadece crypto/ modulu icinde kullanilir.
- * API ve store tipleri types/index.ts'de tanimlidir.
- *
- * Tum key material Uint8Array olarak saklanir — base64 donusumu
- * sadece network transferinde (API calls) yapilir.
+ * Used only within crypto/ module. API/store types are in types/index.ts.
+ * All key material stored as Uint8Array; base64 conversion only for network transfer.
  */
 
 // ──────────────────────────────────
 // Key Pairs
 // ──────────────────────────────────
 
-/**
- * IndexedDB'de saklanan identity key cifti (X25519).
- *
- * Identity key, cihazin uzun omurlu kriptografik kimligi.
- * Bir kez olusturulur, cihaz silinene kadar degismez.
- * publicKey baska kullanicilara dagitilir (prekey bundle icinde).
- */
+/** Identity key pair (X25519). Long-lived device identity, distributed via prekey bundle. */
 export type StoredIdentityKeyPair = {
   publicKey: Uint8Array;   // 32 bytes — X25519 public key
   privateKey: Uint8Array;  // 32 bytes — X25519 private key
 };
 
-/**
- * IndexedDB'de saklanan signed prekey.
- *
- * Signed prekey, orta vadeli anahtar (~1 hafta/ay).
- * Identity key'in Ed25519 karsiligi ile imzalanir.
- * Prekey bundle icinde diger kullanicilara sunulur.
- * Periyodik olarak rotate edilir (yeni olusturulur, eski silinir).
- */
+/** Signed prekey — medium-term key, signed by Ed25519 identity key. Rotated periodically. */
 export type StoredSignedPreKey = {
   id: number;
   publicKey: Uint8Array;   // 32 bytes — X25519 public key
@@ -40,13 +23,7 @@ export type StoredSignedPreKey = {
   createdAt: number;       // Unix timestamp (ms)
 };
 
-/**
- * IndexedDB'de saklanan one-time prekey.
- *
- * Tek kullanimlik ephemeral prekey — X3DH'da kullanilir ve tuketilir.
- * Havuz azaldiginda (< 10) sunucu prekey_low event'i gonderir,
- * client yeni batch yukler.
- */
+/** One-time prekey — single-use ephemeral key for X3DH. Replenished when pool runs low. */
 export type StoredPreKey = {
   id: number;
   publicKey: Uint8Array;   // 32 bytes — X25519 public key
@@ -59,18 +36,8 @@ export type StoredPreKey = {
 
 /**
  * Ed25519 signing key pair.
- *
- * X25519 (ECDH) ve Ed25519 (signature) farkli anahtar formatlari kullanir.
- * Identity key olarak X25519 kullanilir (DH icin), ancak signed prekey'i
- * imzalamak icin Ed25519 gerekir. Ayni seed'den her iki format da turetilir.
- *
- * @noble/curves kutuphanesi bu donusumu saglar:
- * - ed25519.getPublicKey(seed) → Ed25519 public key
- * - ed25519.sign(message, seed) → Ed25519 signature
- * - x25519.getPublicKey(seed) → X25519 public key
- *
- * Onemli: Ayni 32-byte seed hem X25519 hem Ed25519 icin kullanilir,
- * ama urettikleri public key'ler FARKLIDIR.
+ * Same 32-byte seed produces both X25519 (ECDH) and Ed25519 (signature)
+ * key pairs, but the resulting public keys are different.
  */
 export type StoredSigningKeyPair = {
   publicKey: Uint8Array;   // 32 bytes — Ed25519 public key
@@ -83,74 +50,52 @@ export type StoredSigningKeyPair = {
 
 /**
  * Double Ratchet session state.
- *
- * Signal Protocol'un cekirdegi — her mesaj degisiminde
- * simetrik anahtarlar ileri dogru hareket eder (forward secrecy).
- *
- * Uc ratchet mekanizmasi:
- * 1. DH Ratchet: Her tur degisiminde yeni DH key pair uretilir
- * 2. Root Chain: DH output + root key → yeni root key + chain key
- * 3. Sending/Receiving Chain: chain key → message key + yeni chain key
+ * Three ratchet mechanisms: DH ratchet (new key pair per turn),
+ * root chain (DH + root key → new root + chain key),
+ * sending/receiving chain (chain key → message key + new chain key).
  */
 export type SessionState = {
-  /** 32-byte root key — DH ratchet step'lerinde guncellenir */
+  /** 32-byte root key — updated on DH ratchet steps */
   rootKey: Uint8Array;
 
-  /** 32-byte sending chain key — null ise henuz gonderi yapilmamis */
+  /** 32-byte sending chain key — null if no messages sent yet */
   sendingChainKey: Uint8Array | null;
 
-  /** 32-byte receiving chain key — null ise henuz mesaj alinmamis */
+  /** 32-byte receiving chain key — null if no messages received yet */
   receivingChainKey: Uint8Array | null;
 
-  /** Bizim DH ratchet key pair'imiz (X25519) */
+  /** Our DH ratchet key pair (X25519) */
   sendingRatchetKeyPair: StoredIdentityKeyPair;
 
-  /** Karsi tarafin DH ratchet public key'i — null ise henuz alinmamis */
+  /** Peer's DH ratchet public key — null if not received yet */
   receivingRatchetKey: Uint8Array | null;
 
-  /** Gonderilen mesaj sayaci (mevcut chain'de) */
+  /** Send message counter (current chain) */
   sendMessageNumber: number;
 
-  /** Alinan mesaj sayaci (mevcut chain'de) */
+  /** Receive message counter (current chain) */
   receiveMessageNumber: number;
 
-  /** Onceki sending chain'deki toplam mesaj sayisi */
+  /** Total messages in previous sending chain */
   previousSendChainLength: number;
 
-  /**
-   * Atlanan mesaj anahtarlari — sirasiz gelen mesajlar icin.
-   *
-   * Ornek: Mesaj #3 once gelirse, #1 ve #2 icin message key'ler
-   * burada saklanir. Sonra #1 ve #2 geldiginde bu key'lerle decrypt edilir.
-   * Guvenlik: Max 1000 atlanan anahtar saklanir (DoS koruması).
-   */
+  /** Skipped message keys for out-of-order messages. Max 1000 (DoS protection). */
   skippedMessageKeys: SkippedKey[];
 };
 
-/**
- * Atlanan mesaj anahtari (out-of-order mesajlar icin).
- * ratchetKey + messageNumber bileşik anahtar olarak kullanılır.
- */
+/** Skipped message key. Composite key: ratchetKey + messageNumber. */
 export type SkippedKey = {
   ratchetKey: string;      // base64 encoded X25519 public key
   messageNumber: number;
   messageKey: Uint8Array;  // 32 bytes — AES-256-GCM key
 };
 
-/**
- * IndexedDB'de saklanan Signal session.
- * userId + deviceId birlesik anahtar olusturur.
- */
+/** Signal session stored in IndexedDB. Keyed by userId + deviceId. */
 export type StoredSession = {
-  /** Karsi tarafin user ID'si */
   userId: string;
-  /** Karsi tarafin device ID'si */
   deviceId: string;
-  /** Double Ratchet state */
   state: SessionState;
-  /** Olusturulma zamani (ms) */
   createdAt: number;
-  /** Son guncelleme zamani (ms) */
   updatedAt: number;
 };
 
@@ -159,49 +104,28 @@ export type StoredSession = {
 // ──────────────────────────────────
 
 /**
- * IndexedDB'de saklanan Sender Key.
- *
- * Sender Key, grup/kanal sifreleme icin kullanilir.
- * Her gonderici cihaz, kanal icin bir outbound sender key olusturur.
- * Bu key, kanal uyelerine Signal 1:1 session'lari uzerinden dagitilir.
- *
- * chainKey: Simetrik anahtar — her mesajda HMAC ile ilerletilir
- * publicSigningKey: Mesaj kimlik dogrulamasi icin
- * iteration: Kac kez ilerletildigini takip eder
+ * Sender Key for group/channel encryption.
+ * Each sender device creates an outbound key, distributed via 1:1 Signal sessions.
  */
 export type StoredSenderKey = {
-  /** Kanal ID'si */
   channelId: string;
-  /** Gonderici kullanici ID'si */
   senderUserId: string;
-  /** Gonderici cihaz ID'si */
   senderDeviceId: string;
-  /** Distribution ID — oturum tanimlayicisi */
+  /** Distribution ID — session identifier */
   distributionId: string;
-  /** 32-byte chain key — HMAC ratchet ile ilerletilir */
+  /** 32-byte chain key — advanced via HMAC ratchet per message */
   chainKey: Uint8Array;
   /**
-   * 32-byte baslangic chain key — ilk distribution'daki orijinal key.
-   *
-   * Chain key ratchet tek yonludur (HMAC ile ileri gider, geri gelemez).
-   * Tarihsel mesajlari decrypt edebilmek icin (fetchMessages ile gelen
-   * eski iterasyonlar), orijinal chain key saklanir ve gerektiginde
-   * bastan itibaren ileri tureterek eski message key'ler elde edilir.
-   *
-   * Bu, Signal'in "message key cache" yaklasiminin daha verimli versiyonudur:
-   * N adet message key saklamak yerine, tek bir initial key'den herhangi
-   * bir iterasyonun key'i O(iteration) ile turetilir.
-   *
-   * Guvenlik: initialChainKey ile TUM gecmis message key'ler turetilebildigi
-   * icin forward secrecy yoktur. Ancak Sender Key protokolunde forward secrecy
-   * zaten sinirlidir — gercek forward secrecy icin key rotation kullanilir.
+   * 32-byte initial chain key from first distribution.
+   * Kept for historical message decryption: since chain ratchet is one-way,
+   * old message keys are re-derived from initial key in O(iteration).
+   * No forward secrecy (mitigated by key rotation).
    */
   initialChainKey?: Uint8Array;
-  /** 32-byte signing public key (Ed25519) */
+  /** Ed25519 signing public key */
   publicSigningKey: Uint8Array;
-  /** Mevcut iterasyon sayisi */
+  /** Current iteration count */
   iteration: number;
-  /** Olusturulma zamani (ms) */
   createdAt: number;
 };
 
@@ -210,22 +134,16 @@ export type StoredSenderKey = {
 // ──────────────────────────────────
 
 /**
- * Guvenilen cihaz kimligi.
- *
- * TOFU (Trust On First Use): Bir kullanicinin cihazinin identity key'i
- * ilk goruldugunde otomatik guvenilir. Sonradan degisirse
- * "identity key changed" uyarisi gosterilir (MITM koruması).
+ * Trusted device identity (TOFU — Trust On First Use).
+ * Auto-trusted on first encounter; warns on change (MITM protection).
  */
 export type TrustedIdentity = {
-  /** Kullanici ID'si */
   userId: string;
-  /** Cihaz ID'si */
   deviceId: string;
-  /** 32 bytes — X25519 identity public key */
+  /** X25519 identity public key (32 bytes) */
   identityKey: Uint8Array;
-  /** Ilk gorulme zamani (ms) */
   firstSeen: number;
-  /** Kullanici tarafindan dogrulanmis mi (QR code vb.) */
+  /** Manually verified by user (e.g., QR code) */
   verified: boolean;
 };
 
@@ -234,22 +152,15 @@ export type TrustedIdentity = {
 // ──────────────────────────────────
 
 /**
- * Decrypt edilmis mesajin IndexedDB cache'i.
- *
- * E2EE mesajlar sunucuda sifreli saklanir, dolayisiyla
- * sunucu tarafli arama calismaz. Decrypt edilen mesajlar
- * client-side IndexedDB'ye yazilir ve lokal arama yapilir.
+ * Cached decrypted message in IndexedDB.
+ * Enables client-side search since E2EE messages are stored encrypted on server.
  */
 export type CachedDecryptedMessage = {
-  /** Mesaj ID'si (sunucudaki ID) */
   messageId: string;
-  /** Kanal ID'si (index icin) */
   channelId: string;
-  /** DM kanal ID'si (DM mesajlari icin, null ise server mesaji) */
+  /** DM channel ID (null for server messages) */
   dmChannelId: string | null;
-  /** Decrypt edilmis icerik */
   content: string;
-  /** Mesaj zamani (ms) */
   timestamp: number;
 };
 
@@ -257,18 +168,12 @@ export type CachedDecryptedMessage = {
 // Registration & Metadata
 // ──────────────────────────────────
 
-/**
- * Cihaz kayit metadata'si.
- * IndexedDB metadata store'unda saklanir.
- */
+/** Device registration metadata. */
 export type RegistrationData = {
-  /** Signal registration ID — rastgele 16-bit tamsayi */
+  /** Signal registration ID — random 16-bit integer */
   registrationId: number;
-  /** Bu cihazin benzersiz ID'si */
   deviceId: string;
-  /** Kullanici ID'si */
   userId: string;
-  /** Kayit zamani (ms) */
   createdAt: number;
 };
 
@@ -276,11 +181,7 @@ export type RegistrationData = {
 // Signal Message Types
 // ──────────────────────────────────
 
-/**
- * Signal mesaj tipleri.
- * PreKey mesaji ilk iletisimde (X3DH) kullanilir.
- * Whisper mesaji kurulmus session'larda kullanilir.
- */
+/** Signal message types. PreKey for first contact (X3DH), Whisper for established sessions. */
 export const SignalMessageType = {
   /** Normal Signal message (Double Ratchet) */
   Whisper: 2,
@@ -294,18 +195,13 @@ export type SignalMessageTypeValue = typeof SignalMessageType[keyof typeof Signa
 // Message Header
 // ──────────────────────────────────
 
-/**
- * Double Ratchet mesaj header'i.
- *
- * Her sifreli mesajin basinda yer alir.
- * Alici bu bilgiyle DH ratchet step yapar ve dogru chain key'i bulur.
- */
+/** Double Ratchet message header. Receiver uses this to perform DH ratchet step. */
 export type MessageHeader = {
-  /** Gondericinin mevcut DH ratchet public key'i (base64) */
+  /** Sender's current DH ratchet public key (base64) */
   ratchetKey: string;
-  /** Onceki sending chain'deki toplam mesaj sayisi */
+  /** Total messages in previous sending chain */
   previousChainLength: number;
-  /** Bu mesajin chain icindeki sirasi */
+  /** Message sequence number in current chain */
   messageNumber: number;
 };
 
@@ -313,38 +209,25 @@ export type MessageHeader = {
 // Wire Format
 // ──────────────────────────────────
 
-/**
- * Sifreli mesaj wire format'i.
- *
- * Network uzerinden gonderilen/alinan mesaj yapisi.
- * Header sifrelenmez (alicinin session'i ilerletmesi icin gerekli).
- * Body AES-256-GCM ile sifrelenir.
- */
+/** Encrypted message wire format. Header is unencrypted; body is AES-256-GCM encrypted. */
 export type SignalWireMessage = {
-  /** Mesaj tipi (2=Whisper, 3=PreKey) */
   type: SignalMessageTypeValue;
-  /** Sifrelenmemis header */
   header: MessageHeader;
-  /** AES-256-GCM ile sifreli icerik (base64) */
+  /** AES-256-GCM encrypted content (base64) */
   ciphertext: string;
-  /** PreKey mesaji icin ek bilgiler (sadece type=3'te) */
+  /** X3DH info, only present for PreKey messages (type=3) */
   preKeyInfo?: PreKeyMessageInfo;
 };
 
-/**
- * PreKey mesajina eklenen X3DH bilgileri.
- * Alici bu bilgilerle X3DH'nin kendi tarafini hesaplar.
- */
+/** X3DH info attached to PreKey messages. Receiver uses this to compute its side. */
 export type PreKeyMessageInfo = {
-  /** Gondericinin registration ID'si */
   registrationId: number;
-  /** Gondericinin identity key'i (base64 X25519 public) */
+  /** Sender's identity key (base64 X25519 public) */
   identityKey: string;
-  /** Gondericinin ephemeral key'i (base64 X25519 public) */
+  /** Sender's ephemeral key (base64 X25519 public) */
   ephemeralKey: string;
-  /** Kullnilan signed prekey ID'si */
   signedPrekeyId: number;
-  /** Kullanilan one-time prekey ID'si (varsa) */
+  /** Used one-time prekey ID (if any) */
   oneTimePrekeyId?: number;
 };
 
@@ -352,33 +235,24 @@ export type PreKeyMessageInfo = {
 // Sender Key Wire Format
 // ──────────────────────────────────
 
-/**
- * Sender Key distribution message.
- *
- * Grup sifrelemede, gondericinin sender key'ini
- * kanal uyelerine dagitmak icin kullanilir.
- * Signal 1:1 session'lari uzerinden sifrelenerek gonderilir.
- */
+/** Sender Key distribution message, distributed via 1:1 Signal sessions. */
 export type SenderKeyDistributionData = {
-  /** Benzersiz distribution ID */
   distributionId: string;
   /** 32-byte chain key (base64) */
   chainKey: string;
-  /** 32-byte Ed25519 signing public key (base64) */
+  /** Ed25519 signing public key (base64) */
   publicSigningKey: string;
-  /** Baslangic iterasyonu */
+  /** Starting iteration */
   iteration: number;
 };
 
-/**
- * Sender Key ile sifreli mesaj.
- */
+/** Message encrypted with Sender Key. */
 export type SenderKeyMessage = {
-  /** Distribution ID — hangi sender key ile sifrelandigini belirtir */
+  /** Which sender key was used */
   distributionId: string;
-  /** Mesaj iterasyonu — alici chain key'i bu noktaya ilerletir */
+  /** Receiver advances chain key to this point */
   iteration: number;
-  /** AES-256-GCM ile sifreli icerik (base64) */
+  /** AES-256-GCM encrypted content (base64) */
   ciphertext: string;
 };
 
@@ -386,22 +260,22 @@ export type SenderKeyMessage = {
 // Constants
 // ──────────────────────────────────
 
-/** Maksimum atlanan mesaj anahtari sayisi (DoS koruması) */
+/** Max skipped message keys (DoS protection) */
 export const MAX_SKIP = 1000;
 
-/** Bir batch'te uretilen one-time prekey sayisi */
+/** Number of one-time prekeys generated per batch */
 export const PREKEY_BATCH_SIZE = 100;
 
-/** Prekey havuzu bu sayinin altina dustugunde yeni batch yuklenir */
+/** New batch uploaded when prekey pool drops below this */
 export const PREKEY_LOW_THRESHOLD = 10;
 
-/** Sender Key rotasyon intervali (mesaj sayisi) */
+/** Sender Key rotation interval (message count) */
 export const SENDER_KEY_ROTATION_MESSAGES = 100;
 
-/** Sender Key rotasyon intervali (gun) */
+/** Sender Key rotation interval (days) */
 export const SENDER_KEY_ROTATION_DAYS = 7;
 
-/** HKDF info string'leri — protokol versiyonlama icin */
+/** HKDF info strings for protocol versioning */
 export const HKDF_INFO = {
   ROOT_KEY: "mqvi-e2ee-rk",
   CHAIN_KEY: "mqvi-e2ee-ck",

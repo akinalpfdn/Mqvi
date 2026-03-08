@@ -6,23 +6,16 @@ import (
 	"time"
 )
 
-// Device, bir kullanicinin E2EE kayitli cihazini temsil eder.
-//
-// Signal Protocol'de her cihaz bagimsiz bir kriptografik kimlige sahiptir.
-// Ayni kullanicinin telefonu ve bilgisayari farkli identity key'lere sahiptir.
-// Mesaj gonderirken alicinin HER cihazi icin ayri sifreleme yapilir.
-//
-// identity_key: Curve25519 public key — cihazin uzun omurlu kimligi
-// signed_prekey: Curve25519 public key — orta vadeli, identity_key ile imzali
-// signed_prekey_signature: Ed25519 imza — signed_prekey'in dogrulugunu kanitlar
-// registration_id: Rastgele 32-bit tamsayi — Signal session tanimlayicisi
+// Device represents a user's registered E2EE device.
+// Each device has an independent cryptographic identity in Signal Protocol.
+// Messages are encrypted separately for each recipient device.
 type Device struct {
 	ID                   string    `json:"id"`
 	UserID               string    `json:"user_id"`
 	DeviceID             string    `json:"device_id"`
 	DisplayName          *string   `json:"display_name,omitempty"`
 	IdentityKey          string    `json:"identity_key"`
-	SigningKey           *string   `json:"signing_key,omitempty"` // Ed25519 public — signed prekey doğrulama
+	SigningKey           *string   `json:"signing_key,omitempty"` // Ed25519 public — verifies signed prekey
 	SignedPrekey         string    `json:"signed_prekey"`
 	SignedPrekeyID       int       `json:"signed_prekey_id"`
 	SignedPrekeySig      string    `json:"signed_prekey_signature"`
@@ -31,8 +24,7 @@ type Device struct {
 	CreatedAt            time.Time `json:"created_at"`
 }
 
-// DevicePublicInfo, baska kullanicilarin gorebilecegi cihaz bilgisi.
-// Private key veya signature gibi hassas veriler burada YOKTUR.
+// DevicePublicInfo is the public subset of device info visible to other users.
 type DevicePublicInfo struct {
 	DeviceID    string    `json:"device_id"`
 	DisplayName *string   `json:"display_name,omitempty"`
@@ -41,17 +33,13 @@ type DevicePublicInfo struct {
 	LastSeenAt  time.Time `json:"last_seen_at"`
 }
 
-// PrekeyBundle, X3DH key agreement icin gereken tam anahtar paketi.
-//
-// Baska bir kullanici ilk mesajini gondermek istediginde bu bundle'i ceker.
-// one_time_prekey tuketildikten sonra sunucudan silinir (tek kullanimlik).
-// one_time_prekey nil olabilir — havuz tukenmisse X3DH yine de calisir
-// (3-DH yerine 4-DH yapilamaz, guvenlik biraz azalir ama calisir).
+// PrekeyBundle contains the full key bundle needed for X3DH key agreement.
+// one_time_prekey is consumed (deleted) after use; nil if pool is exhausted.
 type PrekeyBundle struct {
 	DeviceID             string  `json:"device_id"`
 	RegistrationID       int     `json:"registration_id"`
 	IdentityKey          string  `json:"identity_key"`
-	SigningKey           *string `json:"signing_key,omitempty"` // Ed25519 public — signed prekey doğrulama
+	SigningKey           *string `json:"signing_key,omitempty"` // Ed25519 public — verifies signed prekey
 	SignedPrekeyID       int     `json:"signed_prekey_id"`
 	SignedPrekey         string  `json:"signed_prekey"`
 	SignedPrekeySig      string  `json:"signed_prekey_signature"`
@@ -59,7 +47,7 @@ type PrekeyBundle struct {
 	OneTimePrekey        *string `json:"one_time_prekey,omitempty"`
 }
 
-// OneTimePrekey, tek kullanimlik ephemeral prekey.
+// OneTimePrekey is a single-use ephemeral prekey.
 type OneTimePrekey struct {
 	ID        string    `json:"id"`
 	DeviceID  string    `json:"device_id"`
@@ -69,19 +57,18 @@ type OneTimePrekey struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// OTPKey, prekey yukleme istegindeki tek bir prekey.
+// OTPKey is a single prekey entry in an upload request.
 type OTPKey struct {
 	PrekeyID  int    `json:"prekey_id"`
 	PublicKey string `json:"public_key"`
 }
 
-// RegisterDeviceRequest, yeni cihaz kaydı istegi.
-// Ilk giris veya yeni cihaz kurulumunda gonderilir.
+// RegisterDeviceRequest is sent on first login or new device setup.
 type RegisterDeviceRequest struct {
 	DeviceID             string   `json:"device_id"`
 	DisplayName          string   `json:"display_name"`
 	IdentityKey          string   `json:"identity_key"`
-	SigningKey           string   `json:"signing_key"` // Ed25519 public — signed prekey doğrulama
+	SigningKey           string   `json:"signing_key"` // Ed25519 public — verifies signed prekey
 	SignedPrekey         string   `json:"signed_prekey"`
 	SignedPrekeyID       int      `json:"signed_prekey_id"`
 	SignedPrekeySig      string   `json:"signed_prekey_signature"`
@@ -89,7 +76,7 @@ type RegisterDeviceRequest struct {
 	OneTimePrekeys       []OTPKey `json:"one_time_prekeys"`
 }
 
-// Validate, RegisterDeviceRequest'in zorunlu alanlari icerip icermedigini kontrol eder.
+// Validate checks required fields.
 func (r *RegisterDeviceRequest) Validate() error {
 	r.DeviceID = strings.TrimSpace(r.DeviceID)
 	if r.DeviceID == "" {
@@ -110,12 +97,12 @@ func (r *RegisterDeviceRequest) Validate() error {
 	return nil
 }
 
-// UploadPrekeysRequest, ek one-time prekey yukleme istegi.
+// UploadPrekeysRequest is a request to upload additional one-time prekeys.
 type UploadPrekeysRequest struct {
 	OneTimePrekeys []OTPKey `json:"one_time_prekeys"`
 }
 
-// Validate, UploadPrekeysRequest'in en az bir prekey icerip icermedigini kontrol eder.
+// Validate ensures at least one prekey is provided.
 func (r *UploadPrekeysRequest) Validate() error {
 	if len(r.OneTimePrekeys) == 0 {
 		return fmt.Errorf("at least one prekey is required")
@@ -128,14 +115,14 @@ func (r *UploadPrekeysRequest) Validate() error {
 	return nil
 }
 
-// UpdateSignedPrekeyRequest, signed prekey rotasyon istegi.
+// UpdateSignedPrekeyRequest is a signed prekey rotation request.
 type UpdateSignedPrekeyRequest struct {
 	SignedPrekey    string `json:"signed_prekey"`
 	SignedPrekeyID  int    `json:"signed_prekey_id"`
 	SignedPrekeySig string `json:"signed_prekey_signature"`
 }
 
-// Validate, UpdateSignedPrekeyRequest'in zorunlu alanlari kontrol eder.
+// Validate checks required fields.
 func (r *UpdateSignedPrekeyRequest) Validate() error {
 	if strings.TrimSpace(r.SignedPrekey) == "" {
 		return fmt.Errorf("signed_prekey is required")

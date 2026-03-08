@@ -375,6 +375,7 @@ mqvi/
 13. Hardcoded kullanıcıya görünen string (i18n kullan — hem EN hem TR)
 14. Çeviri key'ini tek dile ekleme (her zaman EN + TR birlikte)
 15. `artifactName`'e `${version}` ekleme — sabit `"mqvi-setup.${ext}"` olmalı (landing page download URL bozulur)
+16. Turkish comments, logs, or strings in code — ALL comments, log messages, error strings, and documentation in source code MUST be in English. Turkish is only allowed in i18n locale JSON files (`locales/tr/*.json`, `locales/tr.json`)
 
 ---
 

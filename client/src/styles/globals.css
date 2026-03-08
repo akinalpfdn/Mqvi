@@ -2,10 +2,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Source+Code+Pro:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap');
 
 /* ═══════════════════════════════════════
-   CSS VARIABLES — Referans tasarımdan birebir
+   CSS VARIABLES
    ═══════════════════════════════════════ */
 :root {
-  /* Midnight Ink — varsayılan tema (DEFAULT_THEME ile eşleşir) */
+  /* Midnight Ink — default theme */
   --bg-0:#111111;
   --bg-1:#191919;
   --bg-2:#222222;
@@ -48,8 +48,7 @@ html, body, #root { height:100%; width:100%; overflow:hidden; }
 body { font-family:var(--f-ui); -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
 button { font-family:inherit; }
 
-/* Tema geçiş animasyonu — applyTheme() sırasında eklenir, 400ms sonra kaldırılır.
-   Kalıcı yapılmaz çünkü hover/focus gibi mikro geçişleri yavaşlatır. */
+/* Theme transition — added by applyTheme(), removed after 400ms to avoid slowing hover/focus */
 .theme-transitioning *,.theme-transitioning *::before,.theme-transitioning *::after {
   transition:background-color .35s ease, color .35s ease, border-color .35s ease, fill .35s ease, stroke .35s ease !important;
 }
@@ -75,8 +74,7 @@ button { font-family:inherit; }
 /* ═══════════════════════════════════════
    APP SHELL
    ═══════════════════════════════════════ */
-/* Electron custom titlebar wrapper — frame:false nedeniyle OS titlebar yok,
-   custom titlebar + app content column layout ile dizilir */
+/* Electron custom titlebar wrapper — frameless window column layout */
 .electron-app-wrapper { display:flex;flex-direction:column;height:100vh;overflow:hidden; }
 .electron-app-wrapper .mqvi-app { height:auto;flex:1;min-height:0; }
 
@@ -103,17 +101,17 @@ button { font-family:inherit; }
 .titlebar-btn:hover { background:var(--bg-h);color:var(--t0); }
 .titlebar-btn.close:hover { background:var(--red);color:#fff; }
 
-/* Mobil app shell — column layout, sidebar drawer'da */
+/* Mobile app shell — column layout, sidebar in drawer */
 .mqvi-app.mobile { flex-direction:column; }
 .mqvi-app.mobile .sidebar { display:none; }
 .mqvi-app.mobile .members-panel { display:none; }
 
-/* Drawer içindeki sidebar — full height, width auto, border yok */
+/* Sidebar inside drawer — full height, no border */
 .mobile-drawer .sidebar { display:flex!important;width:100%!important;height:100%!important;border-right:none;overflow:hidden; }
 .mobile-drawer .sidebar-inner { width:100%!important;height:100%!important; }
 .mobile-drawer .resize-handle { display:none; }
 
-/* Drawer içindeki members panel — full height, width auto, always open */
+/* Members panel inside drawer — full height, always open */
 .mobile-drawer .members-panel { display:flex!important;width:100%!important;height:100%!important;border-left:none;overflow:hidden; }
 .mobile-drawer .members-panel .resize-handle { display:none; }
 .mobile-drawer .members-inner { width:100%!important;height:100%!important; }
@@ -122,7 +120,7 @@ button { font-family:inherit; }
    SIDEBAR
    ═══════════════════════════════════════ */
 
-/* Expanded sidebar — genişlik inline style ile set edilir (useResizeHandle) */
+/* Expanded sidebar — width set via inline style (useResizeHandle) */
 .sidebar { background:var(--bg-1);border-right:1px solid var(--b1);display:flex;flex-shrink:0;overflow:hidden;position:relative; }
 .sidebar-inner { height:100%;display:flex;flex-direction:column;overflow:hidden; }
 
@@ -144,12 +142,12 @@ button { font-family:inherit; }
 .ch-tree-section-header:hover { color:var(--t0); }
 .ch-tree-section-body { padding:0 4px; }
 
-/* Server section header — sunucu ikonu + ismi ile özel stil */
+/* Server section header — server icon + name */
 .ch-tree-server-header-row { display:flex;align-items:center;width:100%; }
 .ch-tree-server-header-row .ch-tree-server-header { flex:1;min-width:0; }
 .ch-tree-server-header { display:flex;align-items:center;justify-content:flex-start;gap:8px;width:100%;padding:8px 10px;border:none;background:transparent;color:var(--t0);font-size:15px;font-weight:700;font-family:var(--f-d);cursor:pointer;transition:color .1s;letter-spacing:0;text-align:left; }
 .ch-tree-server-header:hover { color:var(--t0); }
-/* Server-level + button — hover'da görünür */
+/* Server-level + button — visible on hover */
 .ch-tree-server-add { display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;background:transparent;color:var(--t3);font-size:16px;font-weight:700;cursor:pointer;border-radius:4px;opacity:0;transition:opacity .1s,color .1s,background .1s;margin-right:6px;flex-shrink:0; }
 .ch-tree-server-header-row:hover .ch-tree-server-add { opacity:1; }
 .ch-tree-server-add:hover { color:var(--t0);background:var(--bg-h); }
@@ -162,12 +160,12 @@ button { font-family:inherit; }
 .ch-tree-chevron { font-size:13px;color:var(--t3);transition:transform .15s;display:inline-block; }
 .ch-tree-chevron.expanded { transform:rotate(90deg); }
 
-/* Category header (inside Server section) — server'ın alt hiyerarşisi */
+/* Category header (inside Server section) */
 .ch-tree-category { margin-bottom:2px;padding-left:8px; }
 .ch-tree-cat-row { display:flex;align-items:center; }
 .ch-tree-cat-header { display:flex;align-items:center;gap:5px;flex:1;padding:5px 8px 5px 14px;border:none;background:transparent;color:var(--t3);font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-family:var(--f-d);cursor:pointer;transition:color .1s; }
 .ch-tree-cat-header:hover { color:var(--t1); }
-/* Kategori başlığı yanındaki + butonu — hover'da görünür */
+/* Category + button — visible on hover */
 .ch-tree-cat-add { display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;background:transparent;color:var(--t3);font-size:16px;font-weight:700;cursor:pointer;border-radius:4px;opacity:0;transition:opacity .1s,color .1s,background .1s;margin-right:6px;flex-shrink:0; }
 .ch-tree-cat-row:hover .ch-tree-cat-add { opacity:1; }
 .ch-tree-cat-add:hover { color:var(--t0);background:var(--bg-h); }
@@ -197,7 +195,7 @@ button { font-family:inherit; }
 .ch-tree-drag-wrap.drop-above::before { top:0; }
 .ch-tree-drag-wrap.drop-below::after { bottom:0; }
 
-/* Channel item (text, voice, DM) — category altında daha derin indent */
+/* Channel item (text, voice, DM) — deeper indent under category */
 .ch-tree-item { display:flex;align-items:center;gap:7px;width:100%;padding:5px 8px 5px 28px;border:none;background:transparent;color:var(--t1);font-size:14px;font-weight:500;font-family:var(--f-ui);cursor:pointer;border-radius:5px;transition:background .08s;text-align:left; }
 .ch-tree-item:hover { background:var(--bg-h);color:var(--t0); }
 .ch-tree-item.active { background:var(--primary-s);color:var(--t0); }
@@ -212,7 +210,7 @@ button { font-family:inherit; }
 /* Muted channel */
 .ch-tree-item.muted .ch-tree-label,
 .ch-tree-item.muted .ch-tree-icon { opacity:.5; }
-/* Inline rename input — category ve channel adı düzenleme */
+/* Inline rename input */
 .ch-tree-inline-rename { flex:1;background:var(--bg-1);border:1px solid var(--primary);border-radius:3px;color:var(--t0);font-size:14px;padding:2px 24px 2px 6px;outline:none;min-width:0; }
 /* Sidebar inline rename — emoji button + picker wrapper */
 .ch-tree-rename-wrap { position:relative;display:flex;align-items:center;flex:1;min-width:0; }
@@ -229,9 +227,9 @@ button { font-family:inherit; }
 /* Channel label */
 .ch-tree-label { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 
-/* Unread badge (sayı) */
+/* Unread badge (count) */
 .ch-tree-badge { min-width:18px;height:18px;padding:0 5px;background:var(--primary);color:#fff;font-size:13px;font-weight:700;border-radius:999px;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1; }
-/* Unread dot (sayısız, sağda küçük nokta) */
+/* Unread dot (no count, small dot) */
 .ch-tree-unread-dot { width:8px;height:8px;border-radius:999px;background:var(--primary);flex-shrink:0;margin-left:auto; }
 
 /* Voice users inside voice channel */
@@ -239,10 +237,10 @@ button { font-family:inherit; }
 .ch-tree-voice-user { display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;font-size:13px;color:var(--t2); }
 .ch-tree-voice-user:hover { background:var(--bg-h); }
 .ch-tree-vu-name { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-/* Voice user status icons container — sağa hizala */
+/* Voice user status icons — right-aligned */
 .ch-tree-vu-icons { display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0; }
 .ch-tree-vu-icon { width:14px;height:14px;flex-shrink:0; }
-/* Streaming ikon — tıklanabilir button. Yayın izlenirken yeşile döner. */
+/* Streaming icon — clickable, turns green when watching */
 button.ch-tree-vu-stream { all:unset;display:flex;align-items:center;justify-content:center;width:14px;height:14px;flex-shrink:0;cursor:pointer;color:var(--t2);transition:color .15s; }
 button.ch-tree-vu-stream:hover { color:var(--t0); }
 button.ch-tree-vu-stream.watching { color:var(--green); }
@@ -250,15 +248,15 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ch-tree-vu-mute { color:var(--red);opacity:0.7; }
 .ch-tree-vu-deafen { color:var(--red);opacity:0.7; }
 .ch-tree-vu-dot { width:6px;height:6px;border-radius:999px;background:var(--green);animation:pulse 1.5s ease-in-out infinite;flex-shrink:0; }
-/* Speaking indicator — sidebar voice user konuşurken yeşil ring + parlak isim */
+/* Speaking indicator — green ring + brighter name */
 .ch-tree-voice-user.speaking { color:var(--t1); }
 .ch-tree-voice-user.speaking .avatar { box-shadow:0 0 0 2px var(--green); }
 
-/* Voice user drag & drop — kullanıcıyı başka voice kanala sürükleme */
+/* Voice user drag & drop — drag to another voice channel */
 .ch-tree-voice-user[draggable="true"] { cursor:grab;user-select:none; }
 .ch-tree-voice-user[draggable="true"]:active { cursor:grabbing; }
 .ch-tree-voice-user.vu-dragging { opacity:0.35; }
-/* Voice channel drop target highlight — sürüklenen kullanıcı hedef kanal üzerindeyken */
+/* Voice channel drop target highlight */
 .ch-tree-item.voice.voice-drop-target { background:color-mix(in srgb, var(--primary) 18%, transparent);box-shadow:inset 0 0 0 1.5px var(--primary);border-radius:5px; }
 
 /* Placeholder */
@@ -268,13 +266,13 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* User Bar (bottom) */
 .user-bar { flex-shrink:0;background:var(--bg-ub);border-top:1px solid var(--b1); }
 
-/* Voice kontrol satırı — user adının ÜSTÜNDE ayrı row */
+/* Voice control row — above user name */
 .ub-voice-row { display:flex;flex-direction:column;padding:6px 0;border-bottom:1px solid var(--b1);gap:2px; }
 .ub-voice-info { display:flex;align-items:center;gap:6px;position:relative;padding:0 10px; }
 .ub-voice-channel { font-size:13px;color:var(--t2);padding:0 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .ub-voice-pulse { width:8px;height:8px;background:var(--green);border-radius:999px;animation:pulse 2s ease-in-out infinite;flex-shrink:0; }
 .ub-voice-label { font-size:13px;font-weight:600;color:var(--green);font-family:var(--f-d); }
-/* Ping tooltip — hover ile görünür, position:absolute voice-info'ya relative */
+/* Ping tooltip — visible on hover */
 .ub-ping-tooltip { position:absolute;bottom:calc(100% + 8px);left:0;display:flex;align-items:center;gap:6px;background:var(--bg-1);border:1px solid var(--b1);border-radius:6px;padding:6px 10px;box-shadow:0 4px 12px rgba(0,0,0,0.3);opacity:0;pointer-events:none;transition:opacity 0.15s;white-space:nowrap;z-index:50; }
 .ub-voice-info:hover .ub-ping-tooltip { opacity:1;pointer-events:auto; }
 .ub-ping-dot { width:8px;height:8px;border-radius:999px;flex-shrink:0;background:var(--t3); }
@@ -321,10 +319,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ub-sp-label { font-size:14px;font-weight:500;color:var(--t0); }
 .ub-sp-desc { font-size:13px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .ub-sp-check { color:var(--primary);flex-shrink:0; }
-/* Noise Reduction toggle row — voice-info ile voice-btns arası */
+/* Noise Reduction toggle row */
 .ub-nr-row { display:flex;align-items:center;justify-content:space-between;padding:4px 10px;gap:8px; }
 .ub-nr-label { display:flex;align-items:center;gap:6px;font-size:13px;color:var(--t2); }
-/* Switch toggle — iOS/Discord tarzı kaydırmalı toggle */
+/* Switch toggle */
 .ub-switch { position:relative;width:36px;height:20px;border:none;border-radius:999px;cursor:pointer;background:var(--bg-5);transition:background .2s;flex-shrink:0;padding:0; }
 .ub-switch:hover { background:var(--t3); }
 .ub-switch.active { background:var(--green); }
@@ -332,13 +330,12 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ub-switch-thumb { position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;transition:transform .2s;pointer-events:none; }
 .ub-switch.active .ub-switch-thumb { transform:translateX(16px); }
 
-/* Resize handle — sidebar & members panel kenarlarında sürüklenebilir şerit */
+/* Resize handle — draggable strip on sidebar & members panel edges */
 .resize-handle { position:absolute;top:0;width:4px;height:100%;cursor:col-resize;z-index:10;transition:background .15s; }
 .resize-handle:hover { background:var(--primary-m); }
 .resize-handle.active { background:var(--primary); }
-/* Dikey (vertical) resize handle — sidebar sağ kenarı veya members sol kenarı */
-.resize-handle-v { /* dikey yönlü, konum parent'a göre belirlenir */ }
-/* Sidebar: sağ kenarda */
+.resize-handle-v { }
+/* Sidebar: right edge */
 .sidebar > .resize-handle { right:0; }
 /* Members panel: sol kenarda */
 .members-panel > .resize-handle { left:0; }
@@ -360,7 +357,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .tab-icon { font-size:13px;color:var(--t3);display:flex;align-items:center; }
 .tab-label { font-size:13.5px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 
-/* Tab Server Icon — multi-server'da kanal tab'larında sunucu ayırt etme */
+/* Tab Server Icon — distinguish servers in multi-server channel tabs */
 .tab-server-icon { display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .tab-server-img { width:16px;height:16px;border-radius:4px;object-fit:cover; }
 .tab-server-fallback { width:16px;height:16px;border-radius:4px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1; }
@@ -370,7 +367,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    ═══════════════════════════════════════ */
 .main-area { flex:1;display:flex;min-height:0;position:relative; }
 .chat-area { flex:1;display:flex;flex-direction:column;background:var(--bg-2);min-width:0;min-height:0;position:relative; }
-/* gradient overlay kaldırıldı — düz arkaplan daha temiz */
+/* gradient overlay removed — flat background */
 
 /* ═══════════════════════════════════════
    CHANNEL BAR
@@ -450,7 +447,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .msg-reaction-add:hover { background:var(--bg-4);border-color:var(--b2);color:var(--t0); }
 
 /* Emoji Picker */
-/* emoji-mart picker wrapper — pozisyonlama ve tema */
+/* emoji-mart picker wrapper */
 .emoji-picker { position:absolute;bottom:100%;left:0;z-index:100;margin-bottom:6px; }
 .emoji-picker-flipped { bottom:auto;top:100%;margin-bottom:0;margin-top:6px; }
 .emoji-picker em-emoji-picker { --em-rgb-background:var(--bg-3);--em-rgb-input:var(--bg-1);--em-rgb-color:var(--t0);--em-color-border:var(--b2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);border:1px solid var(--b2); }
@@ -474,20 +471,20 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .gif-picker-footer { padding:4px 8px;border-top:1px solid var(--b1);text-align:right; }
 .gif-picker-powered { font-size:11px;color:var(--t3);opacity:0.7; }
 
-/* GIF button — text badge stili (Discord tarzı) */
+/* GIF button — text badge style */
 .input-gif-btn { font-size:13px;font-weight:700;font-family:var(--f-ui);letter-spacing:0.02em; }
 
-/* GIF embed — mesajda inline GIF gösterimi */
+/* GIF embed — inline GIF in messages */
 .msg-gif-embed { max-width:300px;max-height:300px;border-radius:8px;display:block;margin-top:4px;cursor:pointer; }
 
-/* Clickable link — mesaj içindeki tıklanabilir URL */
+/* Clickable link in messages */
 .msg-link { color:var(--primary);text-decoration:none;word-break:break-all; }
 .msg-link:hover { text-decoration:underline;color:var(--primary-h); }
 
-/* Link preview container — mesaj altındaki OG kartları */
+/* Link preview container — OG cards below messages */
 .msg-link-previews { display:flex;flex-direction:column;gap:6px;margin-top:6px; }
 
-/* Link preview card — Discord tarzı OG embed */
+/* Link preview card — OG embed */
 .link-preview { display:flex;border-radius:8px;overflow:hidden;background:var(--bg-3);border:1px solid var(--b1);max-width:480px;text-decoration:none;color:inherit;transition:background .12s;cursor:pointer;margin-top:2px; }
 .link-preview:hover { background:var(--bg-4); }
 .link-preview-accent { width:4px;flex-shrink:0;background:var(--primary);border-radius:4px 0 0 4px; }
@@ -498,7 +495,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .link-preview-desc { font-size:13px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4; }
 .link-preview-img { max-width:100%;max-height:200px;object-fit:cover;border-radius:4px;margin-top:4px; }
 
-/* Reply preview (mesaj içinde — referans mesajın ön izlemesi) */
+/* Reply preview (inline reference to replied message) */
 .msg-reply-preview { display:flex;align-items:center;gap:6px;padding:2px 0 4px;cursor:pointer;font-size:13px;max-width:400px; }
 .msg-reply-preview:hover { opacity:0.8; }
 .msg-reply-bar { width:2px;height:14px;border-radius:1px;background:var(--primary);flex-shrink:0; }
@@ -506,7 +503,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .msg-reply-content { color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .msg-reply-deleted { color:var(--t3);font-style:italic; }
 
-/* Scroll-to highlight animasyonu */
+/* Scroll-to highlight animation */
 .msg-highlight { background:var(--primary-s);transition:background 2s ease-out; }
 
 /* Edit mode */
@@ -538,7 +535,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    ═══════════════════════════════════════ */
 .input-area { padding:0 10px 10px;flex-shrink:0;position:relative;z-index:2; }
 
-/* Reply bar (input üstünde — yanıt verilen mesajın önizlemesi) */
+/* Reply bar (above input — preview of replied message) */
 .reply-bar { display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-3);border-radius:8px 8px 0 0;border:1px solid var(--b1);border-bottom:none;margin-bottom:-1px; }
 .reply-bar-icon { color:var(--t2);flex-shrink:0; }
 .reply-bar-user { font-size:13px;font-weight:600;color:var(--t0);white-space:nowrap; }
@@ -559,7 +556,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .input-box-disabled { justify-content:center;padding:10px;cursor:not-allowed;opacity:0.6; }
 .input-no-perm { font-size:13px;color:var(--t3);font-style:italic;user-select:none; }
 
-/* Character counter — Twitter tarzı kalan karakter sayacı */
+/* Character counter */
 .char-counter { display:block;text-align:right;font-size:13px;color:var(--t3);padding:2px 8px 0;line-height:1; }
 .char-counter[data-warn="true"] { color:var(--warning); }
 .char-counter[data-danger="true"] { color:var(--danger); }
@@ -580,7 +577,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .file-preview-remove { position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:999px;background:var(--bg-5);border:1.5px solid var(--bg-1);color:var(--t1);font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1; }
 .file-preview-remove:hover { background:var(--red);color:#fff; }
 
-/* File drop overlay — drag-drop dosya yükleme sırasında görsel overlay */
+/* File drop overlay — visual feedback during drag-drop upload */
 .file-drop-overlay { position:absolute;inset:0;z-index:50;background:color-mix(in srgb, var(--primary) 12%, transparent);border:2px dashed var(--primary);border-radius:8px;display:flex;align-items:center;justify-content:center;pointer-events:none; }
 .file-drop-overlay-content { display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--primary);pointer-events:none; }
 .file-drop-overlay-content svg { opacity:0.8; }
@@ -590,7 +587,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    MEMBERS PANEL
    ═══════════════════════════════════════ */
 .members-panel { width:0;background:var(--bg-1);border-left:1px solid var(--b1);overflow:hidden;flex-shrink:0;position:relative; }
-.members-panel.open { /* genişlik inline style ile set edilir (useResizeHandle) */ }
+.members-panel.open { /* width set via inline style (useResizeHandle) */ }
 .members-inner { height:100%;display:flex;flex-direction:column; }
 .members-header { height:38px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--b1); }
 .members-header h3 { font-family:var(--f-d);font-size:13px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.04em; }
@@ -677,7 +674,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .split-handle-dot { position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:4px;border-radius:999px;background:var(--t3);opacity:0;transition:opacity .15s; }
 .split-handle:hover .split-handle-dot { opacity:1; }
 
-/* Panel Tab Bar — VS Code tarzı, her zaman görünür */
+/* Panel Tab Bar — VS Code style, always visible */
 .panel-tab-bar { display:flex;align-items:stretch;background:var(--bg-1);border-bottom:1px solid var(--b1);min-height:36px;overflow-x:auto;flex-shrink:0; }
 .panel-tab-bar::-webkit-scrollbar { display:none; }
 .panel-tab-bar.active-panel { background:var(--bg-2); }
@@ -697,7 +694,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .panel-tab:hover .panel-tab-close { opacity:1; }
 .panel-tab-close:hover { color:var(--t0);background:var(--bg-h); }
 
-/* Drop Zone Overlay (tab sürükleme sırasında panel üzerinde gösterilir) */
+/* Drop Zone Overlay (shown over panel during tab drag) */
 .drop-zone-overlay { position:absolute;inset:0;z-index:20;pointer-events:none; }
 .drop-zone { position:absolute;border-radius:4px;border:2px solid transparent;transition:background .15s,border-color .15s; }
 .drop-zone.highlight { background:var(--primary-m);border-color:var(--primary); }
@@ -995,7 +992,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .platform-instance-capacity { font-size:13px;color:var(--t3); }
 .role-list-item.active .platform-instance-capacity { color:var(--t2); }
 
-/* ── LiveKit Edit Layout — form (sol) + monitoring (sağ) ── */
+/* ── LiveKit Edit Layout — form (left) + monitoring (right) ── */
 .settings-content:has(.lk-edit-layout) { max-width:none; }
 .lk-edit-layout { display:flex;height:100%;min-height:0; }
 .lk-edit-form { width:400px;min-width:400px;overflow-y:auto;padding:24px 20px 24px 24px;border-right:1px solid var(--bg3); }
@@ -1041,9 +1038,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .metrics-chart-tooltip-row { display:flex;align-items:center;gap:6px; }
 .metrics-chart-tooltip-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0; }
 
-/* Admin server list — Platform admin sunucu yönetim tablosu */
-
-/* Content area'yı full-width yap (server tablosu geniş alan gerektirir) */
+/* Admin server list — full-width content area for wide table */
 .settings-content:has(.admin-server-list) { max-width:none; }
 
 .admin-server-list {
@@ -1157,8 +1152,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .admin-server-cancel-btn:disabled { opacity:0.4;cursor:not-allowed; }
 
 /* ═══════════════════════════════════════════════════════════════
-   Admin User List Table — Platform admin kullanıcı listesi
-   AdminServerList ile aynı pattern (sort, filter, resizable)
+   Admin User List Table
    ═══════════════════════════════════════════════════════════════ */
 
 .settings-content:has(.admin-user-list) { max-width:none; }
@@ -1281,7 +1275,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   Admin Report List Table — Platform admin rapor listesi
+   Admin Report List Table
    ═══════════════════════════════════════════════════════════════ */
 .settings-content:has(.admin-report-list) { max-width:none; }
 
@@ -1440,7 +1434,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .role-drag-wrap.drop-below::after { bottom:0; }
 .role-drag-handle { color:var(--t3);font-size:14px;cursor:grab;flex-shrink:0;user-select:none; }
 .role-drag-handle:active { cursor:grabbing; }
-/* Hierarchy warning — rol editörü üstünde uyarı */
+/* Hierarchy warning — above role editor */
 .role-hierarchy-warning { background:var(--bg-4);border-radius:8px;padding:12px;font-size:13px;color:var(--t2);margin-bottom:16px; }
 /* Permission toggle disabled state */
 .permission-toggle-checkbox.disabled { opacity:0.4;cursor:not-allowed; }
@@ -1566,8 +1560,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .voice-participant-compact .voice-participant-overlay { width:16px;height:16px;bottom:-1px;right:-1px; }
 .voice-participant-compact .voice-participant-overlay svg { width:10px;height:10px; }
 
-/* Volume popup — sağ tık ile açılan per-user volume slider */
-/* Volume popup — per-user volume slider */
+/* Volume popup — per-user volume slider (right-click) */
 .vp-vol-popup { background:var(--bg-4);border:1px solid var(--b1);border-radius:8px;padding:12px 16px;min-width:200px;box-shadow:0 4px 16px rgba(0,0,0,0.5); }
 .vp-vol-header { font-size:13px;font-weight:600;color:var(--t0);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .vp-vol-slider { display:flex;align-items:center;gap:10px; }
@@ -1580,7 +1573,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .vp-vol-range::-moz-range-thumb { width:16px;height:16px;border-radius:999px;background:var(--primary);border:none;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4); }
 .vp-vol-value { font-size:13px;font-weight:500;color:var(--primary);min-width:36px;text-align:right;font-variant-numeric:tabular-nums; }
 
-/* Voice user context menu (sidebar sağ tık) */
+/* Voice user context menu (sidebar right-click) */
 .voice-ctx-menu { position:fixed;z-index:9999;min-width:220px;max-width:280px;background:var(--bg-2);border:1px solid var(--b1);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:0;animation:vpIn .12s ease-out;overflow:hidden; }
 .voice-ctx-header { display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg-4);border-bottom:1px solid var(--b1); }
 .voice-ctx-header-name { font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
@@ -1766,7 +1759,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .qs-footer { display:flex;gap:16px;padding:8px 14px;border-top:1px solid var(--b1);font-size:13px;color:var(--t3); }
 
 /* ═══════════════════════════════════════
-   CONTEXT MENU (Sağ Tık)
+   CONTEXT MENU
    ═══════════════════════════════════════ */
 .ctx-menu { position:fixed;z-index:70;min-width:160px;max-width:240px;background:var(--bg-2);border:1px solid var(--b1);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:4px;animation:vpIn .1s ease-out; }
 .ctx-item { display:block;width:100%;padding:7px 10px;border:none;background:transparent;color:var(--t1);font-size:13px;font-family:var(--f-ui);text-align:left;border-radius:4px;cursor:pointer;transition:background .08s; }
@@ -1782,12 +1775,11 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .mute-picker-btn { display:block;width:100%;padding:7px 10px;border:none;background:transparent;color:var(--t1);font-size:13px;font-family:var(--f-ui);text-align:left;border-radius:4px;cursor:pointer;transition:background .08s; }
 .mute-picker-btn:hover { background:var(--bg-h);color:var(--t0); }
 
-/* Muted server header — bell-slash ikonu veya opacity ile belirtme */
+/* Muted server header */
 .ch-tree-server-header.muted .ch-tree-server-name { opacity:.5; }
 
 /* ─── Uncategorized Drop Zone ─── */
-/* Kanal drag-drop: kategorisiz alana taşıma hedefi. Diğer drop zone'lar ile aynı
-   2px primary-colored line pattern kullanılır. Hover sırasında görünür olur. */
+/* Uncategorized drop target for channel drag-drop */
 .ch-tree-uncat-drop { position:relative;height:6px; }
 .ch-tree-uncat-drop::after { content:"";position:absolute;left:20px;right:8px;top:50%;transform:translateY(-50%);height:0;background:var(--primary);border-radius:1px;transition:height .1s; }
 .ch-tree-uncat-drop:hover::after { height:2px; }
@@ -1910,15 +1902,15 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    ═══════════════════════════════════════ */
 .invite-join-page { display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;background:var(--bg-0);gap:24px; }
 
-/* Logo + başlık */
+/* Logo + title */
 .invite-join-header { display:flex;flex-direction:column;align-items:center;gap:12px; }
 .invite-join-logo { width:48px;height:48px;opacity:.8; }
 .invite-join-title { font-size:16px;font-weight:500;color:var(--t2);margin:0;letter-spacing:.02em; }
 
-/* Kart — inline preview tarzı */
+/* Card — inline preview style */
 .invite-join-card { display:flex;flex-direction:column;gap:16px;padding:24px;background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;min-width:340px;max-width:420px; }
 
-/* Sunucu satırı — ikon + bilgi yan yana */
+/* Server row — icon + info side by side */
 .invite-join-server { display:flex;align-items:center;gap:14px; }
 .invite-join-icon { flex-shrink:0; }
 .invite-join-img { width:56px;height:56px;border-radius:12px;object-fit:cover; }
@@ -1927,12 +1919,12 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .invite-join-meta { display:flex;align-items:center;gap:6px;font-size:14px;color:var(--t3); }
 .invite-join-dot { width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0; }
 
-/* Katıl butonu — tam genişlik */
+/* Join button — full width */
 .invite-join-btn { width:100%;padding:11px;border:none;border-radius:8px;background:var(--primary);color:var(--text-white, #fff);font-size:15px;font-family:var(--f-ui);font-weight:600;cursor:pointer;transition:opacity .1s;text-align:center; }
 .invite-join-btn:hover:not(:disabled) { opacity:.9; }
 .invite-join-btn:disabled { opacity:.5;cursor:default; }
 
-/* Geçersiz davet */
+/* Invalid invite */
 .invite-join-invalid { display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0;text-align:center; }
 .invite-join-invalid-icon { width:40px;height:40px;color:var(--t3); }
 .invite-join-error { font-size:15px;color:var(--t2);margin:0; }
@@ -2091,10 +2083,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    SCREEN PICKER MODAL (Electron)
    ═══════════════════════════════════════ */
 
-/* Overlay — tüm viewport'u kaplar, modal-backdrop ile aynı pattern */
+/* Overlay — covers full viewport */
 .sp-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:150;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px); }
 
-/* Card — merkezi container, vpIn animation ile girer */
+/* Card — centered container */
 .sp-card { width:680px;max-width:90vw;max-height:80vh;background:var(--bg-2);border:1px solid var(--b1);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;animation:vpIn 0.2s ease-out; }
 
 /* Header */
@@ -2111,27 +2103,27 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .sp-tab-active::after { content:'';position:absolute;bottom:0;left:8px;right:8px;height:2px;background:var(--primary);border-radius:1px; }
 .sp-tab-count { font-size:13px;color:var(--t3);font-weight:400; }
 
-/* Source grid — thumbnail kartları */
+/* Source grid — thumbnail cards */
 .sp-grid { flex:1;overflow-y:auto;padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));gap:12px; }
 .sp-empty { grid-column:1/-1;text-align:center;padding:40px 0;font-size:14px;color:var(--t2); }
 
-/* Source card — tıklanabilir thumbnail */
+/* Source card — clickable thumbnail */
 .sp-source { display:flex;flex-direction:column;gap:8px;padding:8px;border:2px solid var(--b1);border-radius:10px;background:var(--bg-3);cursor:pointer;transition:border-color .15s,background .15s; }
 .sp-source:hover { border-color:var(--primary);background:var(--bg-4); }
 
-/* Thumbnail wrapper — sabit 16:9 aspect ratio */
+/* Thumbnail wrapper — fixed 16:9 aspect ratio */
 .sp-thumbnail-wrap { width:100%;aspect-ratio:16/9;border-radius:6px;overflow:hidden;background:var(--bg-0); }
 .sp-thumbnail { width:100%;height:100%;object-fit:contain; }
 
-/* Source name — tek satır, truncate */
+/* Source name — single line, truncated */
 .sp-source-name { font-size:13px;color:var(--t1);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px; }
 
-/* Footer — ses toggle */
+/* Footer — audio toggle */
 .sp-footer { padding:12px 20px;border-top:1px solid var(--b1); }
 .sp-audio-toggle { display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none; }
 .sp-audio-label { display:flex;align-items:center;gap:8px;font-size:14px;color:var(--t1); }
 
-/* Mini switch — footer toggle icin */
+/* Mini switch — footer toggle */
 .sp-switch { width:36px;height:20px;border-radius:10px;background:var(--bg-5);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0; }
 .sp-switch-on { background:var(--primary); }
 .sp-switch-thumb { width:16px;height:16px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:transform .2s; }
@@ -2141,21 +2133,21 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    GENERAL SETTINGS (Desktop Settings)
    ═══════════════════════════════════════ */
 
-/* Toggle satırları listesi */
+/* Toggle rows list */
 .general-settings-list { display:flex;flex-direction:column;gap:4px; }
 
-/* Tek bir toggle satırı — Discord Windows Ayarları layout'u */
+/* Single toggle row */
 .general-setting-row {
   display:flex;align-items:center;justify-content:space-between;gap:16px;
   padding:16px;border-radius:8px;background:var(--bg-2);
 }
 
-/* Sol taraf — başlık + açıklama */
+/* Left side — title + description */
 .general-setting-info { display:flex;flex-direction:column;gap:4px;flex:1;min-width:0; }
 .general-setting-label { font-size:15px;font-weight:500;color:var(--t0); }
 .general-setting-desc { font-size:13px;color:var(--t2);line-height:1.4; }
 
-/* Toggle switch — iOS/Discord tarzı kaydırmalı toggle (reusable) */
+/* Toggle switch — reusable slide toggle */
 .toggle-switch {
   position:relative;width:44px;height:24px;border:none;border-radius:999px;
   cursor:pointer;background:var(--bg-5);transition:background .2s;flex-shrink:0;padding:0;
@@ -2184,7 +2176,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   --mobile-backdrop-z: 39;
 }
 
-/* dvh fix — mobil browser'larda address bar'ı hesaba kat */
+/* dvh fix — account for mobile browser address bar */
 @supports (height: 100dvh) {
   @media (max-width: 768px) {
     html, body, #root { height: 100dvh; }
@@ -2192,7 +2184,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   }
 }
 
-/* Pull-to-refresh engelle — mobilde istenmeyen sayfa yenilemesi */
+/* Disable pull-to-refresh on mobile */
 @media (max-width: 768px) {
   html, body { overscroll-behavior: none; }
 }
@@ -2243,7 +2235,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   transform: translateX(0);
 }
 
-/* Safe area — notch ve home indicator */
+/* Safe area — notch and home indicator */
 @media (max-width: 768px) {
   .mobile-drawer { padding-top: env(safe-area-inset-top); }
 }
@@ -2378,14 +2370,14 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 }
 .panel-tab-bar.mobile::-webkit-scrollbar { display: none; }
 
-/* Mobilde tab'lar daha büyük (touch-friendly) */
+/* Larger tabs on mobile (touch-friendly) */
 .panel-tab-bar.mobile .panel-tab {
   min-height: var(--mobile-touch-target);
   padding: 0 14px;
   font-size: 14px;
 }
 
-/* Mobilde close butonu her zaman görünür (hover yok) */
+/* Close button always visible on mobile (no hover) */
 .panel-tab-bar.mobile .panel-tab-close {
   opacity: 1;
   width: 24px;
@@ -2396,26 +2388,26 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    MOBILE TOUCH TARGETS (@media 768px)
    ═══════════════════════════════════════ */
 @media (max-width: 768px) {
-  /* Channel tree items — daha büyük touch target */
+  /* Channel tree items — larger touch target */
   .ch-tree-item {
     min-height: var(--mobile-touch-target);
     padding: 8px 8px 8px 24px;
   }
 
-  /* Channel action butonları — 24px → 44px */
+  /* Channel action buttons — 24px → 44px */
   .ch-actions button {
     width: var(--mobile-touch-target);
     height: var(--mobile-touch-target);
     font-size: 16px;
   }
 
-  /* Sidebar header butonları — 30px → 44px */
+  /* Sidebar header buttons — 30px → 44px */
   .sb-header-btn {
     width: var(--mobile-touch-target);
     height: var(--mobile-touch-target);
   }
 
-  /* User bar kontrol butonları — 34px → 44px */
+  /* User bar control buttons — 34px → 44px */
   .ub-ctrl {
     width: var(--mobile-touch-target);
     height: var(--mobile-touch-target);
@@ -2428,7 +2420,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
     font-size: 16px;
   }
 
-  /* Member list items — daha büyük touch target */
+  /* Member list items — larger touch target */
   .member {
     padding: 8px 6px;
     min-height: var(--mobile-touch-target);
@@ -2441,23 +2433,23 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
     height: var(--mobile-touch-target);
   }
 
-  /* Context menu items — daha büyük padding */
+  /* Context menu items — larger padding */
   .ctx-item {
     padding: 12px 14px;
     font-size: 15px;
     min-height: var(--mobile-touch-target);
   }
 
-  /* Section header'lar — daha büyük touch target */
+  /* Section headers — larger touch target */
   .ch-tree-section-header {
     min-height: 36px;
     padding: 6px 10px;
   }
 
-  /* Hover-dependent element'ler — mobilde her zaman görünür */
+  /* Hover-dependent elements — always visible on mobile */
   .ch-tree-cat-add { opacity: 1 !important; }
 
-  /* Message hover actions — mobilde gizle (long-press ile değiştirilecek) */
+  /* Message hover actions — hidden on mobile (use long-press) */
   .msg-hover-actions { display: none !important; }
 
   /* Scrollbar — mobilde native */
@@ -2469,18 +2461,18 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
     padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
-  /* Mesaj input — daha büyük */
+  /* Message input — larger */
   .input-area textarea {
-    font-size: 16px; /* iOS zoom engelle (16px altında zoom yapar) */
+    font-size: 16px; /* Prevent iOS zoom (triggers below 16px) */
   }
 
-  /* Voice controls — mobilde session bar'da daha büyük */
+  /* Voice controls — larger on mobile */
   .vc-btn {
     width: var(--mobile-touch-target);
     height: var(--mobile-touch-target);
   }
 
-  /* Hover state'leri — touch cihazlarda disable et */
+  /* Disable hover states on touch devices */
   .ch-tree-item:hover,
   .member:hover,
   .panel-tab:hover,
@@ -2489,7 +2481,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   .ctx-item:hover {
     background: transparent;
   }
-  /* Active state'leri koru — touch feedback */
+  /* Preserve active states — touch feedback */
   .ch-tree-item:active,
   .member:active,
   .panel-tab:active,
@@ -2498,7 +2490,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   .ctx-item:active {
     background: var(--bg-h);
   }
-  /* Aktif element'lerin background'ını koru */
+  /* Keep active element backgrounds */
   .ch-tree-item.active { background: var(--primary-s); }
   .ch-tree-item.voice.active { background: var(--green-s); }
   .panel-tab.active { background: var(--bg-2); }
@@ -2602,7 +2594,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
     padding: 16px;
     max-width: 100%;
   }
-  /* Settings close butonu — mobilde daha büyük + topbar altına */
+  /* Settings close button — larger on mobile */
   .settings-close {
     top: 56px;
     right: 12px;
@@ -2646,7 +2638,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
     grid-template-columns: repeat(2, 1fr) !important;
   }
 
-  /* Voice room controls — daha büyük */
+  /* Voice room controls — larger */
   .voice-controls button {
     min-width: var(--mobile-touch-target);
     min-height: var(--mobile-touch-target);
@@ -2726,7 +2718,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
     max-height: 240px;
   }
 
-  /* ─── Voice Session Bar — Drawer İçinde Daha Kompakt ─── */
+  /* ─── Voice Session Bar — Compact in Drawer ─── */
   .voice-session-bar {
     padding: 8px;
   }
@@ -2735,7 +2727,6 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 /* ═══════════════════════════════════════
    CHANNEL TREE — SERVER GROUP + ADD SERVER
-   ChannelTree'deki sunucu listesi öğeleri.
    ═══════════════════════════════════════ */
 .ch-tree-server-group { margin-bottom:2px;position:relative;transition:opacity .15s;cursor:grab; }
 .ch-tree-server-group:active { cursor:grabbing; }
@@ -2750,7 +2741,6 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 /* ═══════════════════════════════════════
    ADD SERVER MODAL
-   Sunucu oluşturma / katılma modal'ı.
    ═══════════════════════════════════════ */
 .add-server-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:50;animation:vpIn .15s ease; }
 .add-server-modal { background:var(--bg-1);border-radius:10px;width:440px;max-width:90vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.4); }
@@ -2766,14 +2756,14 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .add-server-step.active { background:var(--primary); }
 .add-server-step.done { background:var(--green); }
 
-/* Form alanları */
+/* Form fields */
 .add-server-field { margin-bottom:16px; }
 .add-server-label { display:block;font-size:13px;font-weight:600;color:var(--t1);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em; }
 .add-server-input { width:100%;padding:10px 12px;border:1px solid var(--b2);border-radius:6px;background:var(--bg-0);color:var(--t0);font-size:14px;font-family:var(--f-ui);outline:none;transition:border-color .15s; }
 .add-server-input:focus { border-color:var(--primary); }
 .add-server-input::placeholder { color:var(--t3); }
 
-/* Host tipi seçim kartları */
+/* Host type selection cards */
 .host-type-cards { display:flex;flex-direction:column;gap:10px; }
 .host-type-card { display:flex;align-items:center;gap:12px;padding:14px 16px;border:2px solid var(--b2);border-radius:8px;cursor:pointer;transition:border-color .15s,background .15s; }
 .host-type-card:hover { background:var(--bg-h); }
@@ -2786,7 +2776,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .host-type-name { font-size:14px;font-weight:600;color:var(--t0);margin-bottom:2px; }
 .host-type-desc { font-size:13px;color:var(--t2); }
 
-/* Action butonları */
+/* Action buttons */
 .add-server-actions { display:flex;gap:10px;margin-top:20px; }
 .add-server-btn-primary { flex:1;padding:10px;border:none;border-radius:6px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s;font-family:var(--f-ui); }
 .add-server-btn-primary:hover { background:var(--primary-h); }
@@ -2794,7 +2784,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .add-server-btn-secondary { flex:1;padding:10px;border:1px solid var(--b2);border-radius:6px;background:transparent;color:var(--t1);font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;font-family:var(--f-ui); }
 .add-server-btn-secondary:hover { background:var(--bg-h);color:var(--t0); }
 
-/* Choice view — oluştur veya katıl */
+/* Choice view — create or join */
 .add-server-choice { display:flex;flex-direction:column;gap:12px; }
 .add-server-choice-btn { display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--b2);border-radius:8px;background:transparent;cursor:pointer;transition:background .15s,border-color .15s;text-align:left;font-family:var(--f-ui); }
 .add-server-choice-btn:hover { background:var(--bg-h);border-color:var(--primary); }
@@ -2808,7 +2798,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .add-server-or { display:flex;align-items:center;gap:12px;color:var(--t3);font-size:13px;font-weight:600;text-transform:uppercase; }
 .add-server-or::before,.add-server-or::after { content:"";flex:1;height:1px;background:var(--b1); }
 
-/* ═══ CreateChannelModal — channel type seçici + select ═══ */
+/* ═══ CreateChannelModal — channel type selector + select ═══ */
 .create-ch-type-row { display:flex;gap:10px;margin-top:4px; }
 .create-ch-type-option { display:flex;align-items:center;gap:8px;padding:10px 16px;border:2px solid var(--b2);border-radius:8px;cursor:pointer;transition:border-color .15s,background .15s;flex:1; }
 .create-ch-type-option:hover { background:var(--bg-h); }

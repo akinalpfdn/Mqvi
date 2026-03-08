@@ -1,24 +1,13 @@
 /**
- * Sender Key Protocol — Grup/kanal sifreleme katmani.
+ * Sender Key Protocol — group/channel encryption layer.
  *
- * Signal'in Sender Key protokolu, grup mesajlasma icin optimize edilmistir.
- * N uyeli bir grupta, her mesaj tek bir sifreleme islemi ile N cihaza gonderilir
- * (her biri icin ayri sifreleme yerine).
+ * Optimized for group messaging: sender encrypts once, all N members
+ * decrypt the same ciphertext with their inbound sender key.
  *
- * Calisma prensibi:
- * 1. Gonderici bir "sender key" olusturur (chainKey + signingKey)
- * 2. Bu sender key'i kanal uyelerine Signal 1:1 session'lari uzerinden dagitir
- *    (SenderKeyDistributionMessage)
- * 3. Gonderici mesaji tek seferde sifreler → tek ciphertext
- * 4. Tum alicilar ayni ciphertext'i kendi inbound sender key'leri ile cozer
+ * Flow: sender creates sender key → distributes via 1:1 Signal sessions →
+ * encrypts with single operation → all recipients decrypt.
  *
- * Key rotation:
- * - Uye cikarildiginda yeni sender key olusturulur
- * - Her SENDER_KEY_ROTATION_MESSAGES (100) mesajda otomatik rotation
- * - Her SENDER_KEY_ROTATION_DAYS (7) gunde otomatik rotation
- *
- * Referans: Signal'in Sender Key spec'i (libsignal-protocol icindeki
- * SenderKeyMessage ve SenderKeyDistributionMessage protokolleri)
+ * Key rotation on member removal, every 100 messages, or every 7 days.
  */
 
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -39,30 +28,19 @@ import {
 // Sender Key Distribution
 // ──────────────────────────────────
 
-/**
- * Yeni Sender Key distribution olusturur (outbound).
- *
- * Kanal icin yeni bir sender key uretir ve dagitim mesaji doner.
- * Bu dagitim mesaji, kanal uyelerine Signal 1:1 session'lari
- * uzerinden sifrelenerek gonderilir.
- *
- * @param channelId - Kanal ID'si
- * @param userId - Bu cihazin kullanici ID'si
- * @param deviceId - Bu cihazin device ID'si
- * @returns Base64 encoded distribution message (sunucuya yuklenmek icin)
- */
+/** Create a new outbound Sender Key distribution for a channel. */
 export async function createDistribution(
   channelId: string,
   userId: string,
   deviceId: string
 ): Promise<SenderKeyDistributionData> {
-  // Rastgele chain key ve distribution ID uret
+  // Generate random chain key and distribution ID
   const chainKey = crypto.getRandomValues(new Uint8Array(32));
   const signingPrivateKey = ed25519.utils.randomSecretKey();
   const signingPublicKey = ed25519.getPublicKey(signingPrivateKey);
   const distributionId = generateDistributionId();
 
-  // Outbound sender key olarak kaydet
+  // Save as outbound sender key
   const senderKey: StoredSenderKey = {
     channelId,
     senderUserId: userId,
@@ -77,8 +55,7 @@ export async function createDistribution(
 
   await keyStorage.saveSenderKey(senderKey);
 
-  // Signing private key'i ayri metadata olarak kaydet
-  // (sadece outbound icin — biz gonderiyoruz, imzalamamiz lazim)
+  // Store signing private key separately (only needed for outbound signing)
   await keyStorage.setMetadata(
     `sk_signing:${channelId}:${userId}:${deviceId}`,
     signingPrivateKey
@@ -92,18 +69,7 @@ export async function createDistribution(
   };
 }
 
-/**
- * Gelen Sender Key distribution'i isle (inbound).
- *
- * Baska bir kullanicinin sender key'ini alir ve kaydeder.
- * Bundan sonra o kullanicinin gonderdigi grup mesajlarini
- * bu key ile cozebiliriz.
- *
- * @param channelId - Kanal ID'si
- * @param senderUserId - Gondericinin kullanici ID'si
- * @param senderDeviceId - Gondericinin cihaz ID'si
- * @param distribution - Distribution message (decode edilmis)
- */
+/** Process an inbound Sender Key distribution. Saves the key for decrypting future messages from this sender. */
 export async function processDistribution(
   channelId: string,
   senderUserId: string,
@@ -130,18 +96,7 @@ export async function processDistribution(
 // Group Encryption
 // ──────────────────────────────────
 
-/**
- * Grup mesaji sifreler (Sender Key).
- *
- * Tek bir encrypt islemi — tum kanal uyeleri ayni ciphertext'i alir.
- * Her mesajda chain key HMAC ratchet ile ilerletilir.
- *
- * @param channelId - Kanal ID'si
- * @param userId - Bu cihazin kullanici ID'si
- * @param deviceId - Bu cihazin device ID'si
- * @param plaintext - Sifrelenmemis mesaj (UTF-8)
- * @returns Sifreli mesaj + metadata
- */
+/** Encrypt a group message with Sender Key. Single encrypt for all channel members. */
 export async function encryptGroupMessage(
   channelId: string,
   userId: string,
@@ -161,7 +116,7 @@ export async function encryptGroupMessage(
     );
   }
 
-  // Rotation gerekli mi kontrol et
+  // Check if rotation needed
   if (needsRotation(senderKey)) {
     throw new Error(
       `Sender key for channel ${channelId} needs rotation. ` +
@@ -169,11 +124,11 @@ export async function encryptGroupMessage(
     );
   }
 
-  // Chain key'den message key turet (HMAC ratchet)
+  // Derive message key from chain key (HMAC ratchet)
   const messageKey = deriveGroupMessageKey(senderKey.chainKey);
   const newChainKey = advanceChainKey(senderKey.chainKey);
 
-  // AES-256-GCM ile sifrele
+  // Encrypt with AES-256-GCM
   const plaintextBytes = new TextEncoder().encode(plaintext);
   const ciphertext = await groupAesGcmEncrypt(
     messageKey,
@@ -184,19 +139,19 @@ export async function encryptGroupMessage(
 
   const iteration = senderKey.iteration;
 
-  // Sender key guncelle
+  // Update sender key
   senderKey.chainKey = newChainKey;
   senderKey.iteration++;
   await keyStorage.saveSenderKey(senderKey);
 
-  // Imza ekle
+  // Sign ciphertext
   const signingPrivateKey = await keyStorage.getMetadata<Uint8Array>(
     `sk_signing:${channelId}:${userId}:${deviceId}`
   );
 
   let signedCiphertext: Uint8Array;
   if (signingPrivateKey) {
-    // Ciphertext'i Ed25519 ile imzala — mesaj butunlugu + gonderici dogrulamasi
+    // Ed25519 signature for message integrity + sender authentication
     const sig = ed25519.sign(
       new Uint8Array(ciphertext),
       new Uint8Array(signingPrivateKey)
@@ -216,18 +171,7 @@ export async function encryptGroupMessage(
   };
 }
 
-/**
- * Grup mesaji cozer (Sender Key).
- *
- * Gondericinin sender key'i ile ciphertext'i cozer.
- * Chain key, gondericinin iterasyonuna kadar ilerletilir.
- *
- * @param channelId - Kanal ID'si
- * @param senderUserId - Gondericinin kullanici ID'si
- * @param senderDeviceId - Gondericinin cihaz ID'si
- * @param message - Sifreli mesaj
- * @returns Cozulmus plaintext (UTF-8)
- */
+/** Decrypt a group message using the sender's Sender Key. */
 export async function decryptGroupMessage(
   channelId: string,
   senderUserId: string,
@@ -256,13 +200,13 @@ export async function decryptGroupMessage(
 
   const rawData = fromBase64(message.ciphertext);
 
-  // Imza dogrula + ciphertext ayir
+  // Verify signature + extract ciphertext
   let ciphertext: Uint8Array;
   if (rawData.length > 64) {
     const signature = rawData.slice(0, 64);
     ciphertext = rawData.slice(64);
 
-    // Ed25519 imza dogrulama
+    // Ed25519 signature verification
     try {
       const valid = ed25519.verify(
         signature,
@@ -279,23 +223,13 @@ export async function decryptGroupMessage(
     ciphertext = rawData;
   }
 
-  // Chain key'i gondericinin iterasyonuna kadar ilerlet
+  // Advance chain key to sender's iteration
   let currentChainKey = senderKey.chainKey;
   let currentIteration = senderKey.iteration;
 
-  /**
-   * Out-of-order mesaj destegi:
-   *
-   * Mesajin iterasyonu mevcut iterasyonun gerisindeyse, iki durum var:
-   * 1. Tarihsel mesaj — fetchMessages ile gelen eski mesaj (en yaygin)
-   * 2. Replay attack — ayni mesajin tekrar gonderilmesi
-   *
-   * initialChainKey varsa, orijinal chain key'den bastan tureterek
-   * eski iterasyonun message key'ini elde edebiliriz. Bu durumda
-   * stored state GUNCELLENMEZ — sadece decrypt yapilir.
-   *
-   * initialChainKey yoksa (eski format sender key), decrypt yapilamaz.
-   */
+  // Out-of-order support: if message iteration is behind current,
+  // re-derive from initialChainKey without updating stored state.
+  // This handles historical messages from fetchMessages.
   const isOutOfOrder = message.iteration < currentIteration;
 
   if (isOutOfOrder) {
@@ -306,7 +240,7 @@ export async function decryptGroupMessage(
       );
     }
 
-    // Bastan tureterek eski iterasyonun chain key'ine ulas
+    // Re-derive from initial chain key to reach the old iteration
     let rewindChainKey = senderKey.initialChainKey;
     for (let i = 0; i < message.iteration; i++) {
       rewindChainKey = advanceChainKey(rewindChainKey);
@@ -314,7 +248,7 @@ export async function decryptGroupMessage(
 
     const messageKey = deriveGroupMessageKey(rewindChainKey);
 
-    // Decrypt — stored state GUNCELLENMEZ (tarihsel mesaj)
+    // Decrypt without updating stored state (historical message)
     const plaintext = await groupAesGcmDecrypt(
       messageKey,
       ciphertext,
@@ -325,19 +259,18 @@ export async function decryptGroupMessage(
     return new TextDecoder().decode(plaintext);
   }
 
-  // Normal akis: mesaj iterasyonu >= mevcut iterasyon
+  // Normal flow: message iteration >= current iteration
   while (currentIteration < message.iteration) {
     currentChainKey = advanceChainKey(currentChainKey);
     currentIteration++;
   }
 
-  // Message key turet
+  // Derive message key
   const messageKey = deriveGroupMessageKey(currentChainKey);
 
-  // Bir sonraki iterasyon icin chain key'i ilerlet
+  // Advance chain key for next iteration
   const nextChainKey = advanceChainKey(currentChainKey);
 
-  // Decrypt
   const plaintext = await groupAesGcmDecrypt(
     messageKey,
     ciphertext,
@@ -345,7 +278,7 @@ export async function decryptGroupMessage(
     message.iteration
   );
 
-  // Sender key guncelle
+  // Update sender key
   senderKey.chainKey = nextChainKey;
   senderKey.iteration = message.iteration + 1;
   await keyStorage.saveSenderKey(senderKey);
@@ -357,27 +290,18 @@ export async function decryptGroupMessage(
 // Key Rotation
 // ──────────────────────────────────
 
-/**
- * Sender key rotation gerekli mi kontrol eder.
- *
- * Rotation kosullari:
- * 1. Mesaj sayisi SENDER_KEY_ROTATION_MESSAGES'i asmis
- * 2. Yas SENDER_KEY_ROTATION_DAYS'i asmis
- *
- * Public versiyon (needsRotationCheck) channelEncryption tarafindan
- * kullanilir — ensureSenderKeyForDecryption icinde key durumu kontrol edilir.
- */
+/** Public wrapper for rotation check, used by channelEncryption. */
 export function needsRotationCheck(senderKey: StoredSenderKey): boolean {
   return needsRotation(senderKey);
 }
 
 function needsRotation(senderKey: StoredSenderKey): boolean {
-  // Mesaj sayisi kontrolu
+  // Message count check
   if (senderKey.iteration >= SENDER_KEY_ROTATION_MESSAGES) {
     return true;
   }
 
-  // Yas kontrolu
+  // Age check
   const ageMs = Date.now() - senderKey.createdAt;
   const maxAgeMs = SENDER_KEY_ROTATION_DAYS * 24 * 60 * 60 * 1000;
   if (ageMs > maxAgeMs) {
@@ -387,10 +311,7 @@ function needsRotation(senderKey: StoredSenderKey): boolean {
   return false;
 }
 
-/**
- * Belirli bir kanal icin sender key rotation gerekli mi kontrol eder.
- * Disaridan erisilebilir — e2eeStore tarafindan kullanilir.
- */
+/** Check if sender key rotation is needed for a channel. Used by e2eeStore. */
 export async function needsSenderKeyRotation(
   channelId: string,
   userId: string,
@@ -402,14 +323,11 @@ export async function needsSenderKeyRotation(
     deviceId
   );
 
-  if (!senderKey) return true; // Key yoksa olusturulmali
+  if (!senderKey) return true; // No key — needs creation
   return needsRotation(senderKey);
 }
 
-/**
- * Belirli bir kanalin tum sender key'lerini temizler.
- * Kanal silindiginde veya uyelik cikarildiginda cagrilir.
- */
+/** Clear all sender keys for a channel (on deletion or membership removal). */
 export async function clearChannelSenderKeys(
   channelId: string
 ): Promise<void> {
@@ -420,30 +338,17 @@ export async function clearChannelSenderKeys(
 // Internal Helpers
 // ──────────────────────────────────
 
-/**
- * Chain key'den message key turetir.
- *
- * HMAC(chainKey, HKDF_INFO.SENDER_KEY) → 32-byte message key
- * Deterministik — ayni chainKey her zaman ayni messageKey uretir.
- */
+/** Derive message key from chain key. Deterministic: same chainKey → same messageKey. */
 function deriveGroupMessageKey(chainKey: Uint8Array): Uint8Array {
   return hmac(sha256, chainKey, new TextEncoder().encode(HKDF_INFO.SENDER_KEY));
 }
 
-/**
- * Chain key'i bir adim ilerletir (HMAC ratchet).
- *
- * HMAC(chainKey, 0x01) → yeni chainKey
- * Forward secrecy: Yeni chain key'den eski message key turetilmez.
- */
+/** Advance chain key by one step (HMAC ratchet). Forward secrecy: old keys not derivable. */
 function advanceChainKey(chainKey: Uint8Array): Uint8Array {
   return hmac(sha256, chainKey, new Uint8Array([0x01]));
 }
 
-/**
- * Grup mesaji icin AES-256-GCM sifreleme.
- * Associated data olarak distributionId ve iteration kullanilir.
- */
+/** AES-256-GCM encrypt for group messages. AD = distributionId:iteration. */
 async function groupAesGcmEncrypt(
   key: Uint8Array,
   plaintext: Uint8Array,
@@ -474,9 +379,7 @@ async function groupAesGcmEncrypt(
   return result.buffer;
 }
 
-/**
- * Grup mesaji icin AES-256-GCM cozme.
- */
+/** AES-256-GCM decrypt for group messages. */
 async function groupAesGcmDecrypt(
   key: Uint8Array,
   data: Uint8Array,
@@ -502,9 +405,7 @@ async function groupAesGcmDecrypt(
   );
 }
 
-/**
- * Rastgele distribution ID uretir (16 byte hex).
- */
+/** Generate random distribution ID (16 byte hex). */
 function generateDistributionId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes)

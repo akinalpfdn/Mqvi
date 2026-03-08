@@ -17,10 +17,10 @@ if (Test-Path "release") {
     try {
         Remove-Item -Recurse -Force "release" -ErrorAction Stop
     } catch {
-        Write-Host "release/ silinemedi - dosya kilitli. Resource Monitor aciliyor..." -ForegroundColor Red
+        Write-Host "release/ is locked. Opening Resource Monitor..." -ForegroundColor Red
         Start-Process "resmon.exe"
-        Write-Host "Resource Monitor > CPU > Associated Handles > 'app.asar' ara > process'i kapat" -ForegroundColor Yellow
-        throw "release/ dizini kilitli - kilidi kaldirip tekrar calistir"
+        Write-Host "Resource Monitor > CPU > Associated Handles > search 'app.asar' > kill the process" -ForegroundColor Yellow
+        throw "release/ directory is locked - release the lock and retry"
     }
 }
 

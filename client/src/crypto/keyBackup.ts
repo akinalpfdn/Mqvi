@@ -1,21 +1,12 @@
 /**
- * Key Backup — Recovery password ile anahtar yedekleme/geri yukleme.
+ * Key Backup — backup/restore E2EE keys with recovery password.
  *
- * Matrix/Element modelinden esinlenmistir:
- * 1. Kullanici opsiyonel bir "recovery password" belirler
- * 2. PBKDF2 (1M iterations, SHA-256) ile AES-256-GCM anahtari turetilir
- * 3. Tum E2EE anahtarlari bu anahtarla sifrelenir
- * 4. Sifreli blob sunucuya yuklenir
- * 5. Yeni cihazda recovery password girilirse tum anahtarlar geri yuklenir
- *
- * Guvenlik:
- * - Sunucu sadece sifreli blob saklar — recovery password'u BILMEZ
- * - PBKDF2 1M iteration — brute-force koruması (~1 saniye per deneme)
- * - AES-256-GCM — authenticated encryption (tamper detection)
- * - Salt her backup icin rastgele — rainbow table koruması
- *
- * Alternatif: Kullanici recovery password belirlemezse,
- * yeni cihazda eski mesajlar gorunmez (sadece yeni mesajlar decrypt edilir).
+ * Inspired by Matrix/Element model:
+ * - User sets an optional recovery password
+ * - PBKDF2 (1M iterations) derives AES-256-GCM key
+ * - All E2EE keys are encrypted and uploaded to server
+ * - Server only stores encrypted blob (never sees the password)
+ * - New device restores keys by entering recovery password
  */
 
 import * as keyStorage from "./keyStorage";
@@ -25,7 +16,7 @@ import { toBase64, fromBase64 } from "./signalProtocol";
 // Constants
 // ──────────────────────────────────
 
-/** PBKDF2 iteration sayisi — yuksek = daha guvenli ama daha yavas */
+/** PBKDF2 iterations — higher = more secure but slower */
 const PBKDF2_ITERATIONS = 1_000_000;
 
 /** Backup algorithm identifier */
@@ -38,10 +29,7 @@ const BACKUP_VERSION = 1;
 // Backup Types
 // ──────────────────────────────────
 
-/**
- * Backup icerigi — sifrelenmeden onceki veri.
- * Tum E2EE anahtarlarini ve session'lari icerir.
- */
+/** Backup contents before encryption — all E2EE keys and sessions. */
 type BackupContents = {
   version: number;
   identity: {
@@ -82,8 +70,8 @@ type BackupContents = {
     iteration: number;
     createdAt: number;
   }>;
-  /** One-time prekey'ler — X3DH icin kritik. Backup'ta olmalidir yoksa
-   *  restore sonrasi PreKey mesajlari decrypt edilemez (3-DH vs 4-DH uyumsuzlugu). */
+  /** One-time prekeys — critical for X3DH. Without them, PreKey messages
+   *  can't be decrypted after restore (3-DH vs 4-DH mismatch). */
   preKeys: Array<{
     id: number;
     publicKey: string;
@@ -96,9 +84,9 @@ type BackupContents = {
     firstSeen: number;
     verified: boolean;
   }>;
-  /** Prekey ID counter — restore sonrasi yeni prekey'lerin eski ID'lere denk gelmemesi icin */
+  /** Prekey ID counter — prevents new prekeys from colliding with old IDs after restore */
   nextPrekeyId?: number;
-  /** Decrypt edilmis mesaj cache'i — restore sonrasi eski mesajlar okunabilir */
+  /** Decrypted message cache — allows reading old messages after restore */
   messageCache?: Array<{
     messageId: string;
     channelId: string;
@@ -112,19 +100,7 @@ type BackupContents = {
 // Backup Creation
 // ──────────────────────────────────
 
-/**
- * Recovery password ile E2EE anahtar yedegi olusturur.
- *
- * Akis:
- * 1. IndexedDB'deki tum anahtarlar ve session'lar okunur
- * 2. JSON olarak serialize edilir
- * 3. Recovery password'den PBKDF2 ile AES key turetilir
- * 4. AES-256-GCM ile sifrelenir
- * 5. Sifreli blob + nonce + salt donulur (sunucuya yuklenecek)
- *
- * @param recoveryPassword - Kullanicinin sectigi recovery password
- * @returns Sunucuya yuklenecek backup verisi
- */
+/** Create an E2EE key backup encrypted with the recovery password. */
 export async function createBackup(recoveryPassword: string): Promise<{
   version: number;
   algorithm: string;
@@ -132,17 +108,17 @@ export async function createBackup(recoveryPassword: string): Promise<{
   nonce: string;         // base64
   salt: string;          // base64
 }> {
-  // 1. Tum E2EE verisini topla
+  // 1. Collect all E2EE data
   const contents = await collectBackupContents();
 
   // 2. JSON serialize
   const plaintext = new TextEncoder().encode(JSON.stringify(contents));
 
-  // 3. PBKDF2 ile key turet
+  // 3. Derive key via PBKDF2
   const salt = crypto.getRandomValues(new Uint8Array(32));
   const derivedKey = await deriveKeyFromPassword(recoveryPassword, salt);
 
-  // 4. AES-256-GCM ile sifrele
+  // 4. Encrypt with AES-256-GCM
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
@@ -171,20 +147,7 @@ export async function createBackup(recoveryPassword: string): Promise<{
 // Backup Restoration
 // ──────────────────────────────────
 
-/**
- * Recovery password ile E2EE anahtarlarini geri yukler.
- *
- * Akis:
- * 1. Sunucudan sifreli backup alinir
- * 2. Recovery password'den ayni PBKDF2 ile AES key turetilir
- * 3. AES-256-GCM ile cozulur
- * 4. JSON deserialize edilir
- * 5. Tum anahtarlar IndexedDB'ye yazilir
- *
- * @param backup - Sunucudan alinan sifreli backup
- * @param recoveryPassword - Kullanicinin girdigi recovery password
- * @returns true ise basarili, false ise sifre yanlis
- */
+/** Restore E2EE keys from backup using recovery password. Returns false if wrong password. */
 export async function restoreFromBackup(
   backup: {
     encryptedData: string;
@@ -194,11 +157,11 @@ export async function restoreFromBackup(
   recoveryPassword: string
 ): Promise<boolean> {
   try {
-    // 1. PBKDF2 ile key turet
+    // 1. Derive key via PBKDF2
     const salt = fromBase64(backup.salt);
     const derivedKey = await deriveKeyFromPassword(recoveryPassword, salt);
 
-    // 2. AES-256-GCM ile coz
+    // 2. Decrypt with AES-256-GCM
     const nonce = fromBase64(backup.nonce);
     const encryptedData = fromBase64(backup.encryptedData);
 
@@ -221,12 +184,12 @@ export async function restoreFromBackup(
       new TextDecoder().decode(decrypted)
     );
 
-    // 4. IndexedDB'ye yaz
+    // 4. Import to IndexedDB
     await importBackupContents(contents);
 
     return true;
   } catch {
-    // Decrypt basarisiz — sifre yanlis veya veri bozuk
+    // Decrypt failed — wrong password or corrupted data
     return false;
   }
 }
@@ -235,9 +198,7 @@ export async function restoreFromBackup(
 // Internal: Collect & Import
 // ──────────────────────────────────
 
-/**
- * IndexedDB'deki tum E2EE verisini toplar.
- */
+/** Collect all E2EE data from IndexedDB. */
 async function collectBackupContents(): Promise<BackupContents> {
   const identity = await keyStorage.getIdentityKeyPair();
   const signing = await keyStorage.getSigningKeyPair();
@@ -318,17 +279,13 @@ async function collectBackupContents(): Promise<BackupContents> {
   };
 }
 
-/**
- * Backup icerigini IndexedDB'ye import eder.
- */
+/** Import backup contents into IndexedDB. */
 async function importBackupContents(contents: BackupContents): Promise<void> {
-  // Mevcut message cache'i koru — restore crypto key'leri degistirir
-  // ama daha once decrypt edilmis mesajlarin plaintext'i korunmali.
-  // Ozellikle ayni tarayicida restore yapildiginda: mevcut cache silinirse
-  // eski mesajlar bir daha okunamaz (ratchet state degismis olabilir).
+  // Preserve existing message cache — previously decrypted messages must remain
+  // readable since ratchet state may have changed after restore
   const existingCache = await keyStorage.getAllCachedMessages();
 
-  // Crypto key'leri temizle (messageCache dahil — sonra geri yazacagiz)
+  // Clear crypto keys (including messageCache — will be re-written below)
   await keyStorage.clearAllE2EEData();
 
   // Identity key pair
@@ -351,13 +308,11 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
     createdAt: Date.now(),
   });
 
-  // deviceId'yi metadata store'a da yaz — getLocalDeviceId() buradan okur.
-  // registerNewDevice() bunu yapar ama importBackupContents yazmazsa
-  // restore sonrası localDeviceId null kalır → device management bozulur.
+  // Write deviceId to metadata store — getLocalDeviceId() reads from here.
+  // Without this, localDeviceId stays null after restore → device management breaks.
   await keyStorage.setMetadata("deviceId", contents.registration.deviceId);
 
-  // nextPrekeyId'yi restore et — yeni prekey uretiminin eski ID'lere denk
-  // gelmemesi icin (eski prekey private key'lerinin ezilmesini onler).
+  // Restore nextPrekeyId to prevent new prekeys from overwriting old private keys
   if (contents.nextPrekeyId) {
     await keyStorage.setMetadata("nextPrekeyId", contents.nextPrekeyId);
   }
@@ -373,7 +328,7 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
     });
   }
 
-  // One-time prekeys — X3DH icin kritik
+  // One-time prekeys — critical for X3DH
   if (contents.preKeys && contents.preKeys.length > 0) {
     await keyStorage.savePreKeys(
       contents.preKeys.map((pk) => ({
@@ -422,9 +377,7 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
     });
   }
 
-  // Message cache — mevcut cache + backup cache'i birlestir.
-  // Mevcut cache oncelikli (ayni tarayicida restore → eski cache korunur).
-  // Backup'taki cache sadece mevcut cache'te olmayan mesajlar icin eklenir.
+  // Merge existing cache + backup cache (existing takes priority)
   const existingIds = new Set(existingCache.map((m) => m.messageId));
   const mergedCache = [...existingCache];
 
@@ -451,11 +404,7 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
 // Internal: Session State Serialization
 // ──────────────────────────────────
 
-/**
- * SessionState'deki Uint8Array'leri base64'e cevirir.
- * JSON.stringify Uint8Array'i dogru serialize edemez, bu yuzden
- * once base64'e cevirip sonra JSON'a yaziyoruz.
- */
+/** Serialize SessionState Uint8Arrays to base64 for JSON compatibility. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function serializeSessionState(state: any): any {
   if (state === null || state === undefined) return state;
@@ -472,9 +421,7 @@ function serializeSessionState(state: any): any {
   return state;
 }
 
-/**
- * Serialized SessionState'deki base64'leri Uint8Array'e geri cevirir.
- */
+/** Deserialize base64 back to Uint8Array in SessionState. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function deserializeSessionState(data: any): any {
   if (data === null || data === undefined) return data;
@@ -497,18 +444,7 @@ function deserializeSessionState(data: any): any {
 // Internal: PBKDF2
 // ──────────────────────────────────
 
-/**
- * Recovery password'den AES-256 key turetir.
- *
- * PBKDF2 (Password-Based Key Derivation Function 2):
- * - Yavas hash fonksiyonu — brute-force'u zorlastirir
- * - 1M iteration ≈ ~1 saniye per deneme (offline attack senaryosu)
- * - Salt her backup icin farkli — ayni sifre farkli key uretir
- *
- * @param password - Kullanicinin recovery password'u
- * @param salt - 32-byte rastgele salt
- * @returns 32-byte AES-256 key
- */
+/** Derive AES-256 key from recovery password via PBKDF2 (1M iterations). */
 async function deriveKeyFromPassword(
   password: string,
   salt: Uint8Array

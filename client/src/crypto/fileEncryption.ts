@@ -1,23 +1,11 @@
 /**
- * File Encryption — E2EE dosya sifreleme/cozme.
+ * File Encryption — E2EE file encrypt/decrypt.
  *
- * Her dosya icin rastgele AES-256-GCM anahtari uretilir.
- * Sifreli dosya sunucuya yuklenir, anahtar mesajin sifreli
- * payload'ina dahil edilir (sunucu anahtari bilmez).
+ * Each file gets a random AES-256-GCM key. Encrypted file is uploaded
+ * to server, key is included in the E2EE message payload (server never sees it).
  *
- * Akis:
- * 1. Client: encryptFile(file) → { encryptedBlob, fileKey, fileIV, sha256 }
- * 2. Client: encryptedBlob'u sunucuya yukle
- * 3. Client: fileKey + fileIV + sha256'yi mesaj payload'ina ekle
- * 4. Client: Mesaji E2EE ile sifrele (fileKey dahil)
- * 5. Alici: Mesaji E2EE ile coz → fileKey elde et
- * 6. Alici: Sunucudan sifreli dosyayi indir
- * 7. Alici: decryptFile(blob, fileKey, fileIV, sha256) → orijinal dosya
- *
- * Thumbnail:
- * Resim dosyalari icin client Canvas API ile kucuk on izleme olusturur.
- * Thumbnail ayni key ile ama farkli IV ile sifrelenir.
- * Bu sayede chat'te on izleme gosterilebilir (tam dosyayi indirmeden).
+ * Image thumbnails are encrypted with the same key but different IV,
+ * allowing preview without downloading the full file.
  */
 
 import { toBase64 } from "./signalProtocol";
@@ -26,44 +14,35 @@ import { toBase64 } from "./signalProtocol";
 // Types
 // ──────────────────────────────────
 
-/**
- * Sifreli dosya meta verileri.
- * Mesajin sifreli payload'ina dahil edilir.
- */
+/** Encrypted file metadata, included in the E2EE message payload. */
 export type EncryptedFileMeta = {
-  /** AES-256-GCM anahtari (base64, 32 bytes) */
+  /** AES-256-GCM key (base64, 32 bytes) */
   key: string;
   /** Initialization vector (base64, 12 bytes) */
   iv: string;
-  /** Orijinal dosya adi */
+  /** Original filename */
   filename: string;
-  /** Orijinal MIME tipi */
+  /** Original MIME type */
   mimeType: string;
-  /** Orijinal dosya boyutu (byte) */
+  /** Original file size (bytes) */
   originalSize: number;
   /** SHA-256 hash of original file (hex) — integrity check */
   digest: string;
 };
 
-/**
- * encryptFile sonucu.
- */
 export type EncryptedFileResult = {
-  /** Sifreli dosya blob'u (sunucuya yuklenecek) */
+  /** Encrypted file blob (for server upload) */
   encryptedBlob: Blob;
-  /** Dosya meta verileri (mesaj payload'ina eklenecek) */
+  /** File metadata (for message payload) */
   meta: EncryptedFileMeta;
 };
 
-/**
- * Thumbnail sonucu.
- */
 export type EncryptedThumbnailResult = {
-  /** Sifreli thumbnail blob'u */
+  /** Encrypted thumbnail blob */
   encryptedBlob: Blob;
-  /** Thumbnail IV (base64) — key dosyaninki ile ayni */
+  /** Thumbnail IV (base64) — same key as the file */
   iv: string;
-  /** Thumbnail boyutlari */
+  /** Thumbnail dimensions */
   width: number;
   height: number;
 };
@@ -72,30 +51,22 @@ export type EncryptedThumbnailResult = {
 // File Encryption
 // ──────────────────────────────────
 
-/**
- * Dosyayi AES-256-GCM ile sifreler.
- *
- * Rastgele key + IV uretir, SHA-256 hash hesaplar,
- * dosyayi sifreler ve meta bilgileri doner.
- *
- * @param file - Sifrelenmemis dosya
- * @returns Sifreli blob + meta bilgiler
- */
+/** Encrypt a file with AES-256-GCM. Generates random key + IV, computes SHA-256 hash. */
 export async function encryptFile(file: File): Promise<EncryptedFileResult> {
-  // Rastgele AES-256 key ve 12-byte IV
+  // Random AES-256 key and 12-byte IV
   const fileKey = crypto.getRandomValues(new Uint8Array(32));
   const fileIV = crypto.getRandomValues(new Uint8Array(12));
 
-  // Dosya icerigini oku
+  // Read file contents
   const plaintext = new Uint8Array(await file.arrayBuffer());
 
-  // SHA-256 hash hesapla (integrity check icin)
+  // SHA-256 hash for integrity check
   const hashBuffer = await crypto.subtle.digest("SHA-256", plaintext as BufferSource);
   const hashHex = Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-  // AES-256-GCM ile sifrele
+  // Encrypt with AES-256-GCM
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
     fileKey as BufferSource,
@@ -125,21 +96,12 @@ export async function encryptFile(file: File): Promise<EncryptedFileResult> {
   };
 }
 
-/**
- * Sifreli dosyayi indirir ve cozer.
- *
- * Sunucudan sifreli blob'u ceker, AES-256-GCM ile cozer,
- * SHA-256 hash ile integrity kontrol eder.
- *
- * @param url - Sifreli dosyanin URL'si (sunucu)
- * @param meta - Dosya meta verileri (mesaj payload'indan)
- * @returns Cozulmus File nesnesi
- */
+/** Download and decrypt an encrypted file. Verifies SHA-256 integrity. */
 export async function decryptFile(
   url: string,
   meta: EncryptedFileMeta
 ): Promise<File> {
-  // Sifreli dosyayi indir
+  // Download encrypted file
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to download encrypted file: HTTP ${response.status}`);
@@ -147,7 +109,7 @@ export async function decryptFile(
 
   const encryptedData = await response.arrayBuffer();
 
-  // AES-256-GCM ile coz
+  // Decrypt with AES-256-GCM
   const fileKey = fromBase64(meta.key);
   const fileIV = fromBase64(meta.iv);
 
@@ -177,7 +139,7 @@ export async function decryptFile(
     );
   }
 
-  // File nesnesini olustur
+  // Create File object
   return new File([decrypted], meta.filename, {
     type: meta.mimeType,
   });
@@ -187,37 +149,28 @@ export async function decryptFile(
 // Thumbnail Generation & Encryption
 // ──────────────────────────────────
 
-/** Thumbnail maksimum boyutu (piksel) */
+/** Thumbnail max size (pixels) */
 const THUMBNAIL_MAX_SIZE = 256;
 
-/**
- * Resim dosyasi icin sifreli thumbnail uretir.
- *
- * Canvas API ile orijinal resmi kucultup JPEG'e cevirir,
- * ayni dosya anahtari ile (farkli IV) sifreler.
- *
- * @param file - Orijinal resim dosyasi
- * @param fileKey - Dosyanin AES key'i (base64)
- * @returns Sifreli thumbnail blob + IV + boyutlar
- */
+/** Generate an encrypted thumbnail for image files. Uses same key with different IV. */
 export async function encryptThumbnail(
   file: File,
   fileKey: string
 ): Promise<EncryptedThumbnailResult | null> {
-  // Sadece resim dosyalari icin thumbnail olustur
+  // Only generate thumbnails for images
   if (!file.type.startsWith("image/")) {
     return null;
   }
 
   try {
-    // Resmi yukle
+    // Load image
     const imageBitmap = await createImageBitmap(file);
     const { width, height } = calculateThumbnailSize(
       imageBitmap.width,
       imageBitmap.height
     );
 
-    // Canvas'a ciz
+    // Draw to canvas
     const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
@@ -225,7 +178,7 @@ export async function encryptThumbnail(
     ctx.drawImage(imageBitmap, 0, 0, width, height);
     imageBitmap.close();
 
-    // JPEG blob'a cevir (quality: 0.7)
+    // Convert to JPEG (quality: 0.7)
     const thumbnailBlob = await canvas.convertToBlob({
       type: "image/jpeg",
       quality: 0.7,
@@ -233,7 +186,7 @@ export async function encryptThumbnail(
 
     const thumbnailData = new Uint8Array(await thumbnailBlob.arrayBuffer());
 
-    // Farkli IV ile sifrele (ayni key)
+    // Encrypt with different IV (same key)
     const thumbnailIV = crypto.getRandomValues(new Uint8Array(12));
     const key = fromBase64(fileKey);
 
@@ -260,19 +213,12 @@ export async function encryptThumbnail(
       height,
     };
   } catch {
-    // Thumbnail olusturulamazsa null don — kritik degil
+    // Thumbnail generation failure is non-critical
     return null;
   }
 }
 
-/**
- * Sifreli thumbnail'i cozer.
- *
- * @param url - Sifreli thumbnail URL'si
- * @param fileKey - Dosya anahtari (base64)
- * @param thumbnailIV - Thumbnail IV (base64)
- * @returns Cozulmus thumbnail blob URL (Object URL)
- */
+/** Decrypt an encrypted thumbnail. Returns an Object URL. */
 export async function decryptThumbnail(
   url: string,
   fileKey: string,
@@ -309,10 +255,7 @@ export async function decryptThumbnail(
 // Internal Helpers
 // ──────────────────────────────────
 
-/**
- * Thumbnail boyutlarini hesaplar.
- * En buyuk kenar THUMBNAIL_MAX_SIZE'a sıgacak sekilde olcekler.
- */
+/** Calculate thumbnail dimensions, fitting largest edge within THUMBNAIL_MAX_SIZE. */
 function calculateThumbnailSize(
   originalWidth: number,
   originalHeight: number
@@ -335,11 +278,7 @@ function calculateThumbnailSize(
   };
 }
 
-/**
- * base64 → Uint8Array (fileEncryption icin lokal kopyasi).
- * signalProtocol'den import etmek yerine lokal tanimlandi
- * circular dependency riski olmamasi icin.
- */
+/** base64 → Uint8Array. Local copy to avoid circular dependency with signalProtocol. */
 function fromBase64(b64: string): Uint8Array {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
