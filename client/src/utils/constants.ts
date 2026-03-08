@@ -8,9 +8,6 @@
 /**
  * Detects if the app is running inside an Electron desktop shell.
  * Electron preload script injects window.electronAPI via contextBridge.
- *
- * Tauri'den geçiş: eski isTauri() → yeni isElectron()
- * Tauri "__TAURI_INTERNALS__" kullanıyordu, Electron "electronAPI" kullanır.
  */
 export function isElectron(): boolean {
   return typeof window !== "undefined" && !!window.electronAPI;
@@ -21,17 +18,14 @@ export function isElectron(): boolean {
 /**
  * Resolves the server base URL based on runtime environment.
  *
- * Web mode: Frontend is served by the Go backend (same-origin),
- *           so "" (empty) lets relative paths like /api/... work naturally.
- *
- * Electron mode: Frontend is served from file:// (local dist),
- *                so we need the absolute server URL (e.g. "https://mqvi.net").
+ * Web mode: "" (same-origin, relative paths work).
+ * Electron mode: absolute URL needed (frontend served from file://).
  *
  * Resolution order:
- * 1. localStorage("mqvi_server_url") — user's explicit setting
- * 2. VITE_SERVER_URL env var — build-time default
- * 3. "https://mqvi.net" — hardcoded fallback for Electron
- * 4. "" — same-origin (web mode)
+ * 1. localStorage("mqvi_server_url")
+ * 2. VITE_SERVER_URL env var
+ * 3. "https://mqvi.net" (Electron fallback)
+ * 4. "" (web mode)
  */
 function resolveServerUrl(): string {
   if (!isElectron()) return "";
@@ -45,34 +39,27 @@ function resolveServerUrl(): string {
   return "https://mqvi.net";
 }
 
-/** Server base URL — absolute in Electron mode, empty in web mode */
+/** Absolute in Electron mode, empty in web mode */
 export const SERVER_URL = resolveServerUrl();
 
-/** API base URL — e.g. "https://mqvi.net/api" or "/api" */
 export const API_BASE_URL = `${SERVER_URL}/api`;
 
 /**
- * Generates a public invite URL for sharing outside the app (WhatsApp, Telegram, etc.).
- *
- * Web mode: uses window.location.origin (e.g. "https://mqvi.net")
- * Electron mode: uses SERVER_URL (e.g. "https://mqvi.net")
- *
- * Result: "https://mqvi.net/invite/{code}" — a real clickable URL.
+ * Generates a public invite URL for sharing outside the app.
+ * Result: "https://mqvi.net/invite/{code}"
  */
 export function getInviteUrl(code: string): string {
   const base = SERVER_URL || window.location.origin;
   return `${base}/invite/${code}`;
 }
 
-/** WebSocket endpoint — e.g. "wss://mqvi.net/ws" or "wss://localhost:9090/ws" */
 export const WS_URL = SERVER_URL
   ? `${SERVER_URL.replace(/^http/, "ws")}/ws`
   : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
 
 /**
- * Resolves a relative asset path to an absolute URL.
- * In web mode (same-origin), paths like "/api/uploads/abc.jpg" work as-is.
- * In Electron mode, we need to prepend the server URL.
+ * Resolves relative asset paths to absolute URLs.
+ * In Electron mode, prepends SERVER_URL for file:// context.
  */
 export function resolveAssetUrl(path: string): string {
   if (!path) return path;
@@ -81,48 +68,36 @@ export function resolveAssetUrl(path: string): string {
 }
 
 /**
- * Vite public dizinindeki asset'lere güvenli referans.
- *
- * Web modda base '/' → '/mqvi-icon.svg' (absolute, çalışır)
- * Electron modda base './' → './mqvi-icon.svg' (relative, file:// ile çalışır)
- *
- * Neden gerekli? JSX'teki '/mqvi-icon.svg' literal string'i Vite tarafından
- * dönüştürülmez (sadece index.html'deki href'ler dönüşür).
- * Electron'da file:///mqvi-icon.svg → bulunamaz hatası verir.
+ * Safe reference to Vite public directory assets.
+ * In Electron, base is "./" (relative, works with file://).
+ * In web, base is "/" (absolute).
  */
 export function publicAsset(filename: string): string {
   return `${import.meta.env.BASE_URL}${filename}`;
 }
 
 /**
- * Panoya kopyalama — Electron ve Web ortamı için.
+ * Clipboard copy — Electron and web compatible.
  *
- * Öncelik sırası:
- * 1. Electron native clipboard (preload writeClipboard) — her zaman çalışır
- * 2. navigator.clipboard API — sadece secure context'te (https/localhost)
- * 3. execCommand("copy") fallback — eski/kısıtlı ortamlar için
- *
- * Electron'da file:// context'inde navigator.clipboard çalışmaz,
- * bu yüzden native clipboard veya execCommand fallback kullanılır.
+ * Priority: Electron native clipboard > navigator.clipboard > execCommand fallback.
+ * In Electron file:// context, navigator.clipboard doesn't work.
  */
 export async function copyToClipboard(text: string): Promise<void> {
-  // 1. Electron main process clipboard (IPC) — en güvenilir yol
   if (isElectron() && window.electronAPI?.writeClipboard) {
     await window.electronAPI.writeClipboard(text);
     return;
   }
 
-  // 2. navigator.clipboard API (secure context gerektirir)
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
       return;
     } catch {
-      // Secure context yoksa (file://) fallback'e düş
+      // No secure context — fall through to execCommand
     }
   }
 
-  // 3. execCommand fallback — file:// ve eski tarayıcılar için
+  // execCommand fallback for file:// and older browsers
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.style.position = "fixed";
@@ -142,7 +117,7 @@ export const WS_HEARTBEAT_MAX_MISS = 3;
 /** Default message count (pagination) */
 export const DEFAULT_MESSAGE_LIMIT = 50;
 
-/** Max message length (characters) — backend ile senkron (models.MaxMessageLength) */
+/** Max message length (characters) — synced with backend models.MaxMessageLength */
 export const MAX_MESSAGE_LENGTH = 999;
 
 /** Max file upload size (bytes) — 25MB */
@@ -171,9 +146,6 @@ export const ACTIVITY_EVENTS = ["mousemove", "keydown", "mousedown", "scroll", "
 /**
  * Permission bit flags — must match backend values.
  * Combined with bitwise OR (|), checked with AND (&).
- *
- * Example: Does the user have SEND_MESSAGES?
- *   (userPerms & Permission.SEND_MESSAGES) !== 0
  */
 export const Permission = {
   MANAGE_CHANNELS: 1 << 0,   // 1

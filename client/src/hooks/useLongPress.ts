@@ -1,18 +1,9 @@
 /**
- * useLongPress — Touch long-press detection hook'u.
+ * useLongPress — Touch long-press detection hook.
  *
- * Belirli süre (varsayılan 500ms) boyunca basılı tutulursa callback çağırılır.
- * Parmak hareket ederse (10px+) veya kaldırılırsa iptal olur.
- *
- * Kullanım:
- * ```tsx
- * const longPressHandlers = useLongPress((e) => {
- *   openContextMenu(e.clientX, e.clientY);
- * });
- * <div {...longPressHandlers}>...</div>
- * ```
- *
- * Context menu default'unu engeller (mobilde browser'ın kendi menüsü açılmasın).
+ * Fires callback after holding for `delay` ms (default 500).
+ * Cancelled if finger moves beyond threshold (10px) or lifts.
+ * Prevents native context menu on mobile.
  */
 
 import { useCallback, useRef } from "react";
@@ -20,9 +11,7 @@ import { useCallback, useRef } from "react";
 type LongPressCallback = (position: { clientX: number; clientY: number }) => void;
 
 type LongPressOptions = {
-  /** Basılı tutma süresi (ms). Varsayılan: 500 */
   delay?: number;
-  /** Hareket toleransı (px). Bu kadar hareket ederse iptal. Varsayılan: 10 */
   moveThreshold?: number;
 };
 
@@ -41,7 +30,6 @@ function useLongPress(
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
-  /** long-press tetiklendi mi? touchEnd'de click'i engellemek için */
   const firedRef = useRef(false);
 
   const clear = useCallback(() => {
@@ -75,7 +63,6 @@ function useLongPress(
       const dx = Math.abs(touch.clientX - startPosRef.current.x);
       const dy = Math.abs(touch.clientY - startPosRef.current.y);
 
-      // Parmak hareket ettiyse long-press iptal
       if (dx > moveThreshold || dy > moveThreshold) {
         clear();
       }
@@ -87,7 +74,6 @@ function useLongPress(
     clear();
   }, [clear]);
 
-  // Context menu'yu engelle — mobilde browser'ın kendi menüsü açılmasın
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
   }, []);

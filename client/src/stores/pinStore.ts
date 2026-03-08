@@ -1,16 +1,7 @@
 /**
- * pinStore — Mesaj sabitleme state yönetimi.
+ * Pin Store — Message pinning state management.
  *
- * Her kanal için pinlenmiş mesaj listesini tutar.
- * WS event'leri ile gerçek zamanlı güncellenir.
- *
- * State yapısı:
- * - pins: channelId → PinnedMessage[] map'i
- * - isLoading: fetch sırasında true
- *
- * Zustand selector stable ref kuralı:
- * `?? []` kullanmak yerine module-level EMPTY sabit kullanılır.
- * Aksi halde her render'da yeni referans oluşur → infinite re-render.
+ * Stable empty ref (EMPTY_PINS) prevents infinite re-renders in selectors.
  */
 
 import { create } from "zustand";
@@ -18,33 +9,23 @@ import { getPins, pinMessage, unpinMessage } from "../api/pins";
 import { useServerStore } from "./serverStore";
 import type { PinnedMessage } from "../types";
 
-/** Stable boş dizi referansı — selector'larda kullanılır. */
+/** Stable empty ref for selectors */
 const EMPTY_PINS: PinnedMessage[] = [];
 
 type PinState = {
-  /** channelId → PinnedMessage[] */
+  /** channelId -> PinnedMessage[] */
   pins: Record<string, PinnedMessage[]>;
   isLoading: boolean;
 
-  /** Bir kanalın pinlenmiş mesajlarını backend'den çeker. */
   fetchPins: (channelId: string) => Promise<void>;
-
-  /** Bir mesajı sabitler. */
   pin: (channelId: string, messageId: string) => Promise<boolean>;
-
-  /** Bir mesajın pin'ini kaldırır. */
   unpin: (channelId: string, messageId: string) => Promise<boolean>;
 
-  /** WS event handler: yeni pin geldi. */
+  // ─── WS Event Handlers ───
   handleMessagePin: (pinned: PinnedMessage) => void;
-
-  /** WS event handler: pin kaldırıldı. */
   handleMessageUnpin: (data: { message_id: string; channel_id: string }) => void;
 
-  /** Bir kanalın pinlerini döner (selector helper). */
   getPinsForChannel: (channelId: string) => PinnedMessage[];
-
-  /** Bir mesajın pinli olup olmadığını kontrol eder. */
   isMessagePinned: (channelId: string, messageId: string) => boolean;
 };
 
@@ -71,7 +52,7 @@ export const usePinStore = create<PinState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return false;
     const res = await pinMessage(serverId, channelId, messageId);
-    // WS event ile güncelleme gelecek — burada ek state güncellemesi gereksiz
+    // State updated via WS event
     return res.success;
   },
 
@@ -79,14 +60,12 @@ export const usePinStore = create<PinState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return false;
     const res = await unpinMessage(serverId, channelId, messageId);
-    // WS event ile güncelleme gelecek — burada ek state güncellemesi gereksiz
     return res.success;
   },
 
   handleMessagePin: (pinned) => {
     set((state) => {
       const channelPins = state.pins[pinned.channel_id] ?? [];
-      // Duplikat kontrolü
       if (channelPins.some((p) => p.message_id === pinned.message_id)) {
         return state;
       }

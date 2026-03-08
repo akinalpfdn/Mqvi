@@ -1,23 +1,8 @@
 /**
- * i18n (internationalization) konfigürasyonu.
+ * i18n configuration — i18next + react-i18next setup.
  *
- * i18next nedir?
- * Çok dilli uygulama geliştirmek için kullanılan framework.
- * Anahtar-değer çiftleriyle çevirileri yönetir:
- *   t("auth.login") → "Log In" (EN) veya "Giriş Yap" (TR)
- *
- * Namespace nedir?
- * Çevirileri mantıksal gruplara ayırmak için kullanılır:
- *   - common: genel kelimeler (Save, Cancel, Error...)
- *   - auth: giriş/kayıt sayfaları
- *   - channels: kanal ile ilgili
- *   - chat: mesajlaşma ile ilgili
- *   - settings: ayarlar sayfası
- *
- * Yeni bir string eklerken:
- * 1. İlgili namespace JSON'una EN + TR çevirisini ekle
- * 2. Component'te: const { t } = useTranslation("namespace");
- * 3. JSX'te: {t("key")}
+ * Namespaces: common, auth, channels, chat, settings, voice, landing, servers, dm, e2ee.
+ * Supported languages: EN (fallback), TR.
  */
 
 import i18n from "i18next";
@@ -48,7 +33,6 @@ import trServers from "./locales/tr/servers.json";
 import trDM from "./locales/tr/dm.json";
 import trE2EE from "./locales/tr/e2ee.json";
 
-/** Desteklenen diller */
 export const SUPPORTED_LANGUAGES = {
   en: "English",
   tr: "Türkçe",
@@ -59,9 +43,7 @@ export type Language = keyof typeof SUPPORTED_LANGUAGES;
 export const DEFAULT_LANGUAGE: Language = "en";
 
 i18n
-  // Tarayıcı dilini otomatik algıla (Accept-Language header, navigator.language vb.)
   .use(LanguageDetector)
-  // React entegrasyonu — useTranslation() hook'u aktif eder
   .use(initReactI18next)
   .init({
     resources: {
@@ -94,27 +76,22 @@ i18n
     fallbackLng: DEFAULT_LANGUAGE,
     supportedLngs: Object.keys(SUPPORTED_LANGUAGES),
 
-    // Varsayılan namespace — t("save") → common namespace'inden arar
     defaultNS: "common",
     ns: ["common", "auth", "channels", "chat", "settings", "voice", "landing", "servers", "dm", "e2ee"],
 
     interpolation: {
-      // React zaten XSS koruması sağlıyor, çift escape'e gerek yok
+      // React already handles XSS protection
       escapeValue: false,
     },
 
     detection: {
-      // Dil algılama sırası: localStorage → tarayıcı dili
       order: ["localStorage", "navigator"],
       lookupLocalStorage: "language",
       caches: ["localStorage"],
     },
   });
 
-/**
- * Dili değiştir ve localStorage'a kaydet.
- * Kullanıcı giriş yaptıysa backend'e de sync edilir (authStore'dan).
- */
+/** Changes language and persists to localStorage. */
 export function changeLanguage(lng: Language): void {
   i18n.changeLanguage(lng);
   localStorage.setItem("language", lng);

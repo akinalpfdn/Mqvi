@@ -1,17 +1,5 @@
 /**
- * Auth Store — Zustand ile kullanıcı oturum yönetimi.
- *
- * Zustand nedir?
- * React için minimalist bir state management kütüphanesidir.
- * Redux'a göre çok daha az boilerplate gerektirir.
- *
- * Nasıl çalışır?
- * 1. create() ile store tanımlanır (state + actions)
- * 2. Component'ler useAuthStore() hook'u ile state'e erişir
- * 3. State değişince, onu kullanan component'ler otomatik yeniden render olur
- *
- * Slice pattern: Her concern (auth, channels, messages) ayrı store dosyasında.
- * Tek monolith store YASAK.
+ * Auth Store — User session management.
  */
 
 import { create } from "zustand";
@@ -22,32 +10,19 @@ import { useE2EEStore } from "./e2eeStore";
 import { useVoiceStore } from "./voiceStore";
 import type { User, UserStatus } from "../types";
 
-/** localStorage key — kullanıcının manuel seçtiği presence durumu */
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
 
-/**
- * syncLanguageFromUser — Kullanıcının DB'deki dil tercihini i18n'e uygular.
- *
- * Login ve initialize sonrası çağrılır. DB'deki dil tercihi,
- * localStorage veya navigator.language'den her zaman önceliklidir.
- * Böylece kullanıcı profilde Türkçe seçtiyse, PC dili İngilizce olsa bile
- * uygulama her zaman Türkçe açılır.
- */
+/** Apply user's DB language preference to i18n (takes priority over browser locale). */
 function syncLanguageFromUser(user: User): void {
   if (user.language && user.language in SUPPORTED_LANGUAGES) {
     changeLanguage(user.language as Language);
   }
 }
 
-/** Store'un state + action tipleri */
 type AuthState = {
-  /** Mevcut kullanıcı (null = giriş yapılmamış) */
   user: User | null;
-  /** Yüklenme durumu */
   isLoading: boolean;
-  /** Hata mesajı */
   error: string | null;
-  /** Auth kontrolü yapıldı mı? (splash screen için) */
   isInitialized: boolean;
 
   // ─── Actions ───
@@ -56,44 +31,17 @@ type AuthState = {
   logout: () => Promise<void>;
   initialize: () => Promise<void>;
   clearError: () => void;
-
-  /**
-   * updateUser — User state'ini kısmen günceller.
-   *
-   * Profil düzenlemesi (display_name, avatar_url, language vb.)
-   * sonrasında tüm kullanıcı bilgisini sunucudan tekrar çekmek yerine
-   * sadece değişen field'ları günceller. Performans + anında UI yansıması.
-   */
   updateUser: (partial: Partial<User>) => void;
 
   /**
-   * manualStatus — Kullanıcının manuel olarak seçtiği presence durumu.
-   *
-   * "online" seçiliyken idle detection normal çalışır (online ↔ idle).
-   * "dnd", "idle", "offline" (invisible) seçiliyken idle detection devre dışı kalır —
-   * kullanıcının bilinçli tercihi korunur. localStorage'da persist edilir.
+   * User's manually selected presence. When set to "online", idle detection works normally.
+   * When "dnd"/"idle"/"offline" (invisible), idle detection is disabled to preserve the choice.
+   * Persisted in localStorage.
    */
   manualStatus: UserStatus;
-
-  /**
-   * setManualStatus — Status picker'dan çağrılır.
-   * 1. manualStatus state'ini günceller
-   * 2. localStorage'a persist eder
-   * 3. user.status'u da günceller (anında UI yansıması)
-   */
   setManualStatus: (status: UserStatus) => void;
 };
 
-/**
- * useAuthStore — Auth state'ini yöneten Zustand store.
- *
- * Kullanım (component içinde):
- *   const { user, login, logout } = useAuthStore();
- *   const isLoggedIn = useAuthStore((s) => s.user !== null);
- *
- * set() fonksiyonu state'i günceller ve ilgili component'leri yeniden render eder.
- * Partial update yapabilir: set({ isLoading: true }) — diğer field'lar değişmez.
- */
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: false,
@@ -139,11 +87,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
-    // Voice kanalindaysa once cik — yeni kullaniciya tasinmasin
+    // Leave voice channel first
     const voiceState = useVoiceStore.getState();
     if (voiceState.currentVoiceChannelId) {
-      // _onLeaveCallback varsa WS event + store temizlik yapar
-      // Yoksa sadece local state temizle
       if (voiceState._onLeaveCallback) {
         voiceState._onLeaveCallback();
       } else {
@@ -151,7 +97,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
     }
 
-    // E2EE state'ini sifirla (IndexedDB korunur)
+    // Reset E2EE state (IndexedDB keys preserved)
     await useE2EEStore.getState().reset();
 
     const refreshToken = localStorage.getItem("refresh_token");
@@ -162,13 +108,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ user: null });
   },
 
-  /**
-   * initialize — Uygulama başladığında mevcut token ile kullanıcı bilgisini çeker.
-   * Sayfa yenilendiğinde (F5) oturum korunur.
-   *
-   * localStorage'da access_token varsa → /api/users/me ile kullanıcıyı çek.
-   * Token süresi dolmuşsa → apiClient otomatik refresh dener.
-   */
+  /** Restore session from stored token on app start. */
   initialize: async () => {
     const token = localStorage.getItem("access_token");
     if (!token) {

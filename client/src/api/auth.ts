@@ -1,14 +1,11 @@
 /**
- * Auth API fonksiyonları — backend auth endpoint'leri ile iletişim.
- *
- * Her fonksiyon apiClient wrapper'ını kullanır.
- * Type parametreleri (<AuthTokens>) beklenen response tipini belirtir.
+ * Auth API — authentication endpoints.
  */
 
 import { apiClient } from "./client";
 import type { AuthTokens, LoginRequest, RegisterRequest, User } from "../types";
 
-/** Yeni kullanıcı kaydı. İlk kullanıcı otomatik Owner olur. */
+/** Register a new user. First user automatically becomes Owner. */
 export async function register(data: RegisterRequest) {
   return apiClient<AuthTokens>("/auth/register", {
     method: "POST",
@@ -16,7 +13,6 @@ export async function register(data: RegisterRequest) {
   });
 }
 
-/** Kullanıcı girişi */
 export async function login(data: LoginRequest) {
   return apiClient<AuthTokens>("/auth/login", {
     method: "POST",
@@ -24,7 +20,6 @@ export async function login(data: LoginRequest) {
   });
 }
 
-/** Access token yenileme */
 export async function refreshToken(refresh_token: string) {
   return apiClient<{ access_token: string; refresh_token: string }>(
     "/auth/refresh",
@@ -35,7 +30,6 @@ export async function refreshToken(refresh_token: string) {
   );
 }
 
-/** Çıkış */
 export async function logout(refresh_token: string) {
   return apiClient<{ message: string }>("/auth/logout", {
     method: "POST",
@@ -43,12 +37,10 @@ export async function logout(refresh_token: string) {
   });
 }
 
-/** Mevcut kullanıcı bilgisi */
 export async function getMe() {
   return apiClient<User>("/users/me");
 }
 
-/** Şifre değiştirme — mevcut şifre doğrulandıktan sonra yeni şifre set eder */
 export async function changePassword(
   currentPassword: string,
   newPassword: string,
@@ -59,7 +51,7 @@ export async function changePassword(
   });
 }
 
-/** Şifre sıfırlama emaili gönderir. cooldown > 0 ise kalan saniye döner. */
+/** Sends a password reset email. Returns cooldown seconds if rate-limited. */
 export async function forgotPassword(email: string) {
   return apiClient<{ message: string; cooldown?: number }>(
     "/auth/forgot-password",
@@ -70,7 +62,6 @@ export async function forgotPassword(email: string) {
   );
 }
 
-/** Token ile şifre sıfırlar */
 export async function resetPassword(token: string, newPassword: string) {
   return apiClient<{ message: string }>("/auth/reset-password", {
     method: "POST",
@@ -78,7 +69,7 @@ export async function resetPassword(token: string, newPassword: string) {
   });
 }
 
-/** Email değiştirme/kaldırma — güvenlik gereği mevcut şifre doğrulaması gerekir */
+/** Change email — requires current password for security. */
 export async function changeEmail(password: string, newEmail: string) {
   return apiClient<{ message: string; email: string | null }>(
     "/users/me/email",

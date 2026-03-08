@@ -1,61 +1,40 @@
 /**
- * RNNoiseProcessor — RNNoise WASM tabanlı gürültü bastırma + VAD gate TrackProcessor'ı.
+ * RNNoiseProcessor — RNNoise WASM noise suppression + VAD gate TrackProcessor.
  *
- * LiveKit'in TrackProcessor<Track.Kind.Audio> interface'ini implement eder.
- * @sapphi-red/web-noise-suppressor paketi ile RNNoise WASM + AudioWorklet
- * kullanarak mikrofon sesinden gürültüyü (nefes, klavye, fan, AC) bastırır.
+ * Implements LiveKit's TrackProcessor<Track.Kind.Audio>.
+ * Uses @sapphi-red/web-noise-suppressor for RNNoise WASM + AudioWorklet
+ * to suppress mic noise (breath, keyboard, fan, AC).
  *
- * Audio akışı:
- *   Mic Track → MediaStreamSource → RnnoiseWorkletNode → VadGateNode → MediaStreamDestination
- *                                          ↑                    ↑
+ * Audio pipeline:
+ *   Mic Track -> MediaStreamSource -> RnnoiseWorkletNode -> VadGateNode -> MediaStreamDestination
+ *                                          |                    |
  *                                     RNNoise WASM        Energy-based gate
- *                                 (ML-based denoising)    (micSensitivity ile kontrol)
+ *                                 (ML-based denoising)    (controlled by micSensitivity)
  *
- * VAD Gate nedir?
- * RNNoise gürültüyü temizledikten sonra kalan sinyalin RMS enerjisini ölçer.
- * Enerji threshold altındaysa (konuşma yok) sessizlik çıkarır.
- * Bu sayede nefes sesi gibi RNNoise'un tam kesertemediği hafif sesler de kesilir.
- * Attack (~5ms) ve release (~200ms) ile kelime başları/sonları kesilmez.
+ * VAD Gate: measures RMS energy after RNNoise. If below threshold (no speech),
+ * outputs silence. Attack (~5ms) and release (~200ms) prevent clipping.
  *
  * micSensitivity (0-100) mapping:
- * - 100 = en hassas (gate devre dışı, her şey geçer)
- * - 50 = moderate (nefes kesilir, konuşma geçer)
- * - 0 = en agresif (sadece net konuşma geçer)
+ * - 100 = most sensitive (gate disabled, everything passes)
+ * - 50 = moderate (breath cut, speech passes)
+ * - 0 = most aggressive (only clear speech passes)
  *
- * RNNoise nedir?
- * Mozilla/Xiph tarafından geliştirilen, neural network tabanlı ses temizleme.
- * WebRTC'nin built-in noiseSuppression'ından çok daha agresif — nefes sesi,
- * klavye tıklaması gibi düzensiz gürültüleri de etkili biçimde bastırır.
- * WASM'a derlenip AudioWorklet'te çalışır → main thread bloke olmaz.
- *
- * Yaşam döngüsü:
- * 1. init(): WASM yükle → AudioWorklet register → audio graph kur
- * 2. restart(): Mevcut graph'ı yık, yeniden kur (track değişimlerinde)
- * 3. destroy(): Tüm node'ları disconnect, kaynakları serbest bırak
- *
- * LocalAudioTrack.setProcessor(new RNNoiseProcessor()) ile kullanılır.
- * LiveKit, processedTrack'i ağ üzerinden publish eder (orijinal track yerine).
+ * Lifecycle: init() -> restart() -> destroy()
+ * Used via LocalAudioTrack.setProcessor(new RNNoiseProcessor()).
  */
 
 import { Track } from "livekit-client";
 import type { TrackProcessor, AudioProcessorOptions } from "livekit-client";
 import { RnnoiseWorkletNode, loadRnnoise } from "@sapphi-red/web-noise-suppressor";
 
-// Vite ?url import'ları — dosya URL'lerini build zamanında resolve eder.
-// AudioWorklet.addModule() ve fetch() ile yüklenecek URL'ler.
+// Vite ?url imports — resolved at build time for AudioWorklet.addModule() and fetch()
 import rnnoiseWorkletPath from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
 import rnnoiseWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
 import rnnoiseSimdWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
 
-// VAD gate worklet — enerji tabanlı ses kapısı
 import vadGateWorkletPath from "./vadGateWorklet.js?url";
 
-/**
- * WASM binary cache — birden fazla init() çağrısında tekrar yüklenmesini önler.
- * İlk yüklemeden sonra Promise resolve olur ve sonraki çağrılarda
- * hemen cached değer döner. Module-level tutulur çünkü WASM binary'si
- * tüm processor instance'ları arasında paylaşılabilir (stateless).
- */
+/** WASM binary cache — shared across all processor instances (stateless). */
 let wasmBinaryPromise: Promise<ArrayBuffer> | null = null;
 
 function getWasmBinary(): Promise<ArrayBuffer> {
@@ -69,11 +48,8 @@ function getWasmBinary(): Promise<ArrayBuffer> {
 }
 
 /**
- * AudioWorklet registration cache — aynı AudioContext'e birden fazla
- * addModule() çağrısı yapılmasını önler. WeakMap kullanılır çünkü
- * AudioContext garbage collect olursa registration da temizlensin.
- *
- * Her worklet (rnnoise + vadGate) ayrı key ile takip edilir.
+ * AudioWorklet registration cache per AudioContext.
+ * WeakMap so registration is GC'd with the AudioContext.
  */
 const registeredContexts = new WeakMap<AudioContext, Map<string, Promise<void>>>();
 
@@ -92,23 +68,20 @@ function ensureWorkletRegistered(ctx: AudioContext, name: string, url: string): 
 }
 
 /**
- * sensitivityToThreshold — micSensitivity (0-100) değerini RMS threshold'a çevirir.
+ * Converts micSensitivity (0-100) to RMS threshold using a quadratic curve.
  *
- * Mapping (quadratic):
- *   sensitivity 100 → threshold 0     (gate devre dışı, her şey geçer)
- *   sensitivity 75  → threshold 0.0025 (çok hafif gate)
- *   sensitivity 50  → threshold 0.01   (moderate — nefes kesilir, konuşma geçer)
- *   sensitivity 25  → threshold 0.0225 (agresif)
- *   sensitivity 0   → threshold 0.04   (çok agresif — sadece net konuşma)
+ *   100 -> 0      (gate disabled)
+ *   75  -> 0.0025 (very light gate)
+ *   50  -> 0.01   (moderate)
+ *   25  -> 0.0225 (aggressive)
+ *   0   -> 0.04   (very aggressive)
  *
- * Neden quadratic?
- * İnsan ses algısı logaritmik — düşük sensitivity'lerde daha hassas kontrol gerekir.
- * Linear mapping düşük değerlerde çok agresif, yüksek değerlerde etkisiz olurdu.
+ * Quadratic because human hearing is logarithmic — low sensitivity needs finer control.
  */
 function sensitivityToThreshold(sensitivity: number): number {
   const clamped = Math.max(0, Math.min(100, sensitivity));
-  const inverted = (100 - clamped) / 100; // 0→1 (sensitivity 100→0)
-  return 0.04 * inverted * inverted; // quadratic curve, max 0.04
+  const inverted = (100 - clamped) / 100;
+  return 0.04 * inverted * inverted;
 }
 
 class RNNoiseProcessor
@@ -122,7 +95,6 @@ class RNNoiseProcessor
   private vadGateNode: AudioWorkletNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
 
-  /** Başlangıç micSensitivity değeri — constructor'da set edilir, init'te uygulanır */
   private initialSensitivity: number;
 
   constructor(micSensitivity = 50) {
@@ -130,78 +102,50 @@ class RNNoiseProcessor
   }
 
   /**
-   * init — Audio processing graph'ı kurar.
+   * Builds the audio processing graph.
+   * Called by LiveKit: LocalAudioTrack.setProcessor() -> init().
    *
-   * LiveKit tarafından çağrılır: LocalAudioTrack.setProcessor() → init().
-   * opts.audioContext LiveKit'in kendi AudioContext'idir (webAudioMix: true).
-   * opts.track mikrofon MediaStreamTrack'idir.
-   *
-   * Sıra:
-   * 1. WASM binary'yi yükle (cache'den veya fetch)
-   * 2. AudioWorklet processor'ları register et (rnnoise + vadGate)
-   * 3. Input track → MediaStreamSource node
-   * 4. RnnoiseWorkletNode oluştur (WASM tabanlı denoising)
-   * 5. VadGateNode oluştur (enerji tabanlı ses kapısı)
-   * 6. MediaStreamDestination node (output track üretir)
-   * 7. Graph bağla: source → rnnoise → vadGate → destination
-   * 8. processedTrack'i set et → LiveKit bu track'i publish eder
+   * Pipeline: source -> rnnoise -> vadGate -> destination
    */
   async init(opts: AudioProcessorOptions): Promise<void> {
     const { audioContext, track } = opts;
 
-    // 1. WASM binary yükle
     const wasmBinary = await getWasmBinary();
 
-    // 2. AudioWorklet'leri register et (paralel)
     await Promise.all([
       ensureWorkletRegistered(audioContext, "rnnoise", rnnoiseWorkletPath),
       ensureWorkletRegistered(audioContext, "vad-gate", vadGateWorkletPath),
     ]);
 
-    // 3. Input: mic track → source node
     const inputStream = new MediaStream([track]);
     this.sourceNode = audioContext.createMediaStreamSource(inputStream);
 
-    // 4. RNNoise worklet node — ML denoising işlemi burada yapılır
-    // maxChannels: 1 → mono mic input (stereo gereksiz, CPU tasarrufu)
+    // maxChannels: 1 — mono mic input (stereo unnecessary, saves CPU)
     this.rnnoiseNode = new RnnoiseWorkletNode(audioContext, {
       wasmBinary,
       maxChannels: 1,
     });
 
-    // 5. VAD gate node — enerji tabanlı ses kapısı
     this.vadGateNode = new AudioWorkletNode(audioContext, "vad-gate-processor");
-    // Başlangıç threshold'unu set et
     this.setMicSensitivity(this.initialSensitivity);
 
-    // 6. Output: destination node → temizlenmiş + gate'lenmiş audio track
     this.destinationNode = audioContext.createMediaStreamDestination();
 
-    // 7. Audio graph bağla: source → rnnoise → vadGate → destination
     this.sourceNode.connect(this.rnnoiseNode);
     this.rnnoiseNode.connect(this.vadGateNode);
     this.vadGateNode.connect(this.destinationNode);
 
-    // 8. LiveKit bu track'i orijinal track yerine ağda publish eder
+    // LiveKit publishes this track instead of the original
     this.processedTrack = this.destinationNode.stream.getAudioTracks()[0];
   }
 
-  /**
-   * restart — Track değiştiğinde (örn. cihaz değişimi) graph'ı yeniden kurar.
-   * Mevcut graph tamamen yıkılıp sıfırdan oluşturulur.
-   */
+  /** Tears down and rebuilds the graph (e.g. on device change). */
   async restart(opts: AudioProcessorOptions): Promise<void> {
     await this.destroy();
     await this.init(opts);
   }
 
-  /**
-   * setMicSensitivity — VAD gate threshold'unu günceller.
-   *
-   * micSensitivity (0-100) → RMS threshold çevirimi yapar ve
-   * AudioWorklet'e postMessage ile gönderir.
-   * Processor aktif değilken de çağrılabilir — node yoksa sessizce geçer.
-   */
+  /** Updates the VAD gate threshold. Safe to call when processor is inactive. */
   setMicSensitivity(sensitivity: number): void {
     this.initialSensitivity = sensitivity;
     if (this.vadGateNode) {
@@ -210,36 +154,31 @@ class RNNoiseProcessor
     }
   }
 
-  /**
-   * destroy — Tüm audio node'ları disconnect eder ve kaynakları serbest bırakır.
-   *
-   * RnnoiseWorkletNode.destroy() WASM belleğini serbest bırakır.
-   * Node disconnect'leri AudioContext'teki referansları temizler.
-   */
+  /** Disconnects all audio nodes and frees WASM memory. */
   async destroy(): Promise<void> {
     try {
       this.sourceNode?.disconnect();
     } catch {
-      // Zaten disconnect olmuş olabilir
+      /* already disconnected */
     }
 
     try {
       this.rnnoiseNode?.disconnect();
       this.rnnoiseNode?.destroy();
     } catch {
-      // Worklet zaten kapatılmış olabilir
+      /* worklet already closed */
     }
 
     try {
       this.vadGateNode?.disconnect();
     } catch {
-      // Zaten disconnect olmuş olabilir
+      /* already disconnected */
     }
 
     try {
       this.destinationNode?.disconnect();
     } catch {
-      // Zaten disconnect olmuş olabilir
+      /* already disconnected */
     }
 
     this.sourceNode = null;

@@ -1,16 +1,5 @@
 /**
- * uiStore — VS Code tarzı tab yönetimi + split pane layout state.
- *
- * Konseptler:
- * - **Tab**: Açık bir kanal/voice/screen sekmesi
- * - **Panel**: Bir veya daha fazla tab barındıran panel
- * - **LayoutNode**: Recursive split tree — leaf (tek panel) veya split (ikiye bölünmüş)
- *
- * VS Code mantığı:
- * 1. Dock'tan kanal tıklandığında aktif panelde tab açılır
- * 2. Tab sürüklenip panelin kenarına bırakılırsa splitPanel() ile ekran ikiye bölünür
- * 3. Son tab kapanırsa panel kaldırılır ve layout yeniden hesaplanır
- * 4. Aynı kanal birden fazla panelde açılamaz (zaten açıksa focus yapılır)
+ * uiStore — VS Code-style tab management + split pane layout state.
  */
 
 import { create } from "zustand";
@@ -22,11 +11,7 @@ import { useVoiceStore } from "./voiceStore";
 
 export type TabType = "text" | "voice" | "screen" | "dm" | "friends" | "p2p";
 
-/**
- * TabServerInfo — Tab'ın ait olduğu sunucu bilgisi.
- * Multi-server'da aynı isimli kanalları ayırt etmek için tab'da
- * küçük server ikonu gösterilir. DM/friends/p2p tab'larında gerekmez.
- */
+/** Server info for multi-server tab disambiguation. Not needed for DM/friends/p2p. */
 export type TabServerInfo = {
   serverId: string;
   serverName: string;
@@ -38,7 +23,7 @@ export type Tab = {
   channelId: string;
   type: TabType;
   label: string;
-  /** Ait olduğu sunucu (text/voice tab'larında zorunlu, DM/friends/p2p'de undefined) */
+  /** Required for text/voice tabs, undefined for DM/friends/p2p */
   serverInfo?: TabServerInfo;
   hasUnread?: boolean;
 };
@@ -114,10 +99,7 @@ function nextTabId(): string {
   return `tab-${tabIdCounter}`;
 }
 
-/**
- * findTabAcrossPanels — Tüm panellerde belirli bir channelId'yi arar.
- * Aynı kanal birden fazla panelde açılamaz kuralını uygulamak için kullanılır.
- */
+/** Find a channel across all panels (enforces single-open rule). */
 function findTabAcrossPanels(
   panels: Record<string, Panel>,
   channelId: string
@@ -129,10 +111,7 @@ function findTabAcrossPanels(
   return null;
 }
 
-/**
- * removeLeafFromLayout — Layout ağacından bir leaf node'u kaldırır.
- * Kaldırma sonrası kardeş node yukarı taşınır (parent split gereksiz hale gelir).
- */
+/** Remove a leaf from layout tree; sibling promotes up when parent split becomes unnecessary. */
 function removeLeafFromLayout(
   node: LayoutNode,
   panelId: string
@@ -151,10 +130,7 @@ function removeLeafFromLayout(
   return { ...node, children: [left, right] };
 }
 
-/**
- * updateRatioAtPath — Layout ağacında belirli bir path'teki split node'un ratio'sunu günceller.
- * path: [0] → ilk split'in sol çocuğu, [1] → sağ çocuğu, vb.
- */
+/** Update split ratio at a given tree path. */
 function updateRatioAtPath(
   node: LayoutNode,
   path: number[],
@@ -175,17 +151,9 @@ function updateRatioAtPath(
 }
 
 /**
- * triggerVoiceLeaveIfNeeded — Voice/screen tab kapatıldığında voice leave tetikler.
- *
- * closeTab içinde, state güncellendikten SONRA çağrılır.
- * Sıralama önemli: Önce tab panelden çıkarılır, sonra voice leave tetiklenir.
- * Bu sayede "voice leave → closeVoiceTabs → closeTab → voice leave" sonsuz
- * döngüsü oluşmaz — çünkü voice leave tetiklendiğinde tab zaten yok.
- *
- * Recursion koruması:
- * - closeTab voice tab'ı siler → triggerVoiceLeaveIfNeeded → _onLeaveCallback()
- *   → leaveVoice() → leaveVoiceChannel() clears currentVoiceChannelId
- *   → AppLayout useEffect → closeVoiceTabs(channelId) → tab zaten yok → no-op ✓
+ * Trigger voice leave when a voice/screen tab is closed.
+ * Called AFTER state update to avoid recursion: tab is already gone
+ * when voice leave fires, so closeVoiceTabs becomes a no-op.
  */
 function triggerVoiceLeaveIfNeeded(closingTab: Tab | undefined): void {
   if (!closingTab) return;
@@ -223,7 +191,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   openTab(channelId, type, label, serverInfo) {
     const state = get();
 
-    // Aynı kanal zaten açıksa → o tab'a ve panele focus yap
+    // Channel already open — focus it
     const existing = findTabAcrossPanels(state.panels, channelId);
     if (existing) {
       set({
@@ -239,7 +207,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       return;
     }
 
-    // Aktif panelde yeni tab aç
+    // Open new tab in active panel
     const panel = state.panels[state.activePanelId];
     if (!panel) return;
 
@@ -268,14 +236,14 @@ export const useUIStore = create<UIState>((set, get) => ({
     const panel = state.panels[panelId];
     if (!panel) return;
 
-    // Kapatılan tab'ın bilgilerini sakla — voice/screen tab sync için lazım
+    // Save closing tab info for voice/screen sync
     const closingTab = panel.tabs.find((t) => t.id === tabId);
 
     const newTabs = panel.tabs.filter((t) => t.id !== tabId);
 
-    // Son tab kapandı → paneli kaldır
+    // Last tab closed — remove panel
     if (newTabs.length === 0) {
-      // Eğer tek panel kaldıysa silme, boş bırak
+      // Keep the last panel alive (empty)
       const panelCount = Object.keys(state.panels).length;
       if (panelCount <= 1) {
         set({
@@ -283,17 +251,17 @@ export const useUIStore = create<UIState>((set, get) => ({
             [panelId]: { ...panel, tabs: [], activeTabId: null },
           },
         });
-        // State güncellendikten SONRA voice leave tetikle
+        // Voice leave after state update
         triggerVoiceLeaveIfNeeded(closingTab);
         return;
       }
 
-      // Paneli layout'tan kaldır
+      // Remove panel from layout
       const newLayout = removeLeafFromLayout(state.layout, panelId);
       const newPanels = { ...state.panels };
       delete newPanels[panelId];
 
-      // Aktif panel silindiyse → ilk kalan panele geç
+      // Switch to first remaining panel if active was removed
       const newActivePanelId =
         state.activePanelId === panelId
           ? Object.keys(newPanels)[0]
@@ -304,12 +272,12 @@ export const useUIStore = create<UIState>((set, get) => ({
         layout: newLayout ?? { type: "leaf", panelId: newActivePanelId },
         activePanelId: newActivePanelId,
       });
-      // State güncellendikten SONRA voice leave tetikle
+      // Trigger voice leave after state update
       triggerVoiceLeaveIfNeeded(closingTab);
       return;
     }
 
-    // Tab kapandı ama başka tab'lar var — aktif tab'ı güncelle
+    // Other tabs remain — update active tab
     const newActiveTabId =
       panel.activeTabId === tabId
         ? newTabs[Math.max(0, newTabs.findIndex((t) => t.id === tabId) - 1)]?.id ?? newTabs[0]?.id ?? null
@@ -325,24 +293,16 @@ export const useUIStore = create<UIState>((set, get) => ({
         },
       },
     });
-    // State güncellendikten SONRA voice leave tetikle
+    // Voice leave after state update
     triggerVoiceLeaveIfNeeded(closingTab);
   },
 
   closeVoiceTabs(channelId) {
-    /**
-     * Voice leave sonrası ilgili voice/screen tab'larını kapatır.
-     *
-     * AppLayout'taki useEffect tarafından çağrılır —
-     * currentVoiceChannelId null olduğunda (voice ayrılma sonrası).
-     *
-     * Recursion riski yok çünkü bu fonksiyon sadece voice leave SONRASI çağrılır.
-     * currentVoiceChannelId zaten null olduğu için closeTab içindeki
-     * triggerVoiceLeaveIfNeeded koşulu sağlanmaz → tekrar leave tetiklenmez.
-     */
+    // Close voice/screen tabs after voice leave. No recursion risk:
+    // currentVoiceChannelId is already null, so triggerVoiceLeaveIfNeeded is a no-op.
     const state = get();
 
-    // Tüm panellerdeki voice/screen tab'larını bul
+    // Find all voice/screen tabs across panels
     const tabsToClose: { panelId: string; tabId: string }[] = [];
     for (const [pId, panel] of Object.entries(state.panels)) {
       for (const tab of panel.tabs) {
@@ -355,7 +315,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       }
     }
 
-    // Her birini closeTab ile kapat (state her çağrıda güncellenir)
+    // Close each (state updates per call)
     for (const { panelId: pId, tabId: tId } of tabsToClose) {
       get().closeTab(pId, tId);
     }
@@ -383,14 +343,14 @@ export const useUIStore = create<UIState>((set, get) => ({
     const tab = sourcePanel.tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
-    // Tab'ı kaynak panelden çıkar
+    // Remove tab from source panel
     const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== tabId);
     const sourceActiveTabId =
       sourcePanel.activeTabId === tabId
         ? remainingTabs[0]?.id ?? null
         : sourcePanel.activeTabId;
 
-    // Yeni panel oluştur
+    // Create new panel
     const newPanelId = nextPanelId();
     const newPanel: Panel = {
       id: newPanelId,
@@ -398,8 +358,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       activeTabId: tab.id,
     };
 
-    // Layout'u güncelle — kaynak leaf'i split node ile değiştir
-    // position: "before" → yeni panel sola/üste, "after" → sağa/alta
+    // Replace source leaf with split node
     function insertSplit(node: LayoutNode): LayoutNode {
       if (node.type === "leaf" && node.panelId === panelId) {
         const first: LayoutNode = position === "before"
@@ -451,7 +410,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     const tab = fromPanel.tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
-    // Kaynak panelden çıkar
+    // Remove from source panel
     const fromTabs = fromPanel.tabs.filter((t) => t.id !== tabId);
     const fromActiveTabId =
       fromPanel.activeTabId === tabId
@@ -460,7 +419,7 @@ export const useUIStore = create<UIState>((set, get) => ({
 
     const newPanels = { ...state.panels };
 
-    // Kaynak panel boşaldıysa → kaldır
+    // Source panel empty — remove it
     if (fromTabs.length === 0 && Object.keys(newPanels).length > 1) {
       const newLayout = removeLeafFromLayout(state.layout, fromPanelId);
       delete newPanels[fromPanelId];
@@ -478,7 +437,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       return;
     }
 
-    // Normal taşıma
+    // Normal move
     newPanels[fromPanelId] = {
       ...fromPanel,
       tabs: fromTabs,

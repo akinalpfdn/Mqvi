@@ -1,37 +1,32 @@
 /**
- * dateFormat — Mesaj timestamp'lerini kullanıcı dostu formata çeviren utility.
+ * dateFormat — Discord-style message timestamp formatting.
  *
- * Format kuralları (Discord benzeri):
- * - Bugün:           "22:15"
- * - Dün:             "Dün 22:15"  /  "Yesterday 22:15"
- * - Bu hafta (2-6):  "Cuma 22:15" /  "Friday 22:15"
- * - Bu yıl (7+):     "1 Mart 22:15"    /  "1 March 22:15"
- * - Geçen yıl+:      "27 Şubat 2025 22:15" / "27 February 2025 22:15"
+ * Format rules:
+ * - Today:        "22:15"
+ * - Yesterday:    "Yesterday 22:15"
+ * - This week:    "Friday 22:15"
+ * - This year:    "1 March 22:15"
+ * - Older:        "27 February 2025 22:15"
  *
- * Hover tooltip için tam tarih: "01/03/2025 22:15"
- *
- * locale parametresi i18next.language'dan gelir — gün/ay adları otomatik
- * Türkçe veya İngilizce olur.
+ * Locale param comes from i18next.language — auto-localizes day/month names.
  */
 
-/** Bugünün başlangıcı (00:00) — karşılaştırma için */
 function startOfDay(date: Date): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   return d;
 }
 
-/** Saat formatı: "22:15" */
 function formatTimeOnly(date: Date, locale: string): string {
   return date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 
 /**
- * Mesaj timestamp'ini kullanıcı dostu kısa formata çevirir.
+ * Formats message timestamp to a human-friendly short format.
  *
- * @param dateStr - ISO 8601 tarih string'i (backend'den gelen created_at)
- * @param locale  - i18next.language değeri ("tr", "en", vb.)
- * @param labels  - i18n çeviri objeleri: { yesterday: string }
+ * @param dateStr - ISO 8601 date string (backend created_at)
+ * @param locale  - i18next.language value ("tr", "en", etc.)
+ * @param labels  - i18n labels: { yesterday: string }
  */
 export function formatMessageTime(
   dateStr: string,
@@ -49,31 +44,30 @@ export function formatMessageTime(
 
   const time = formatTimeOnly(date, locale);
 
-  // Bugün → sadece saat
+  // Today
   if (date >= todayStart) {
     return time;
   }
 
-  // Dün → "Dün 22:15"
+  // Yesterday
   if (date >= yesterdayStart) {
     return `${labels.yesterday} ${time}`;
   }
 
-  // Son 7 gün → "Cuma 22:15"
+  // Last 7 days
   if (date >= weekStart) {
     const dayName = date.toLocaleDateString(locale, { weekday: "long" });
-    // İlk harfi büyük yap (bazı locale'ler küçük harf dönebilir)
     const capitalized = dayName.charAt(0).toUpperCase() + dayName.slice(1);
     return `${capitalized} ${time}`;
   }
 
-  // Bu yıl → "1 Mart 22:15"
+  // This year
   if (date.getFullYear() === now.getFullYear()) {
     const datePart = date.toLocaleDateString(locale, { day: "numeric", month: "long" });
     return `${datePart} ${time}`;
   }
 
-  // Geçen yıl+ → "27 Şubat 2025 22:15"
+  // Older
   const datePart = date.toLocaleDateString(locale, {
     day: "numeric",
     month: "long",
@@ -82,9 +76,7 @@ export function formatMessageTime(
   return `${datePart} ${time}`;
 }
 
-/**
- * Hover tooltip için tam tarih formatı: "01/03/2025 22:15"
- */
+/** Full date format for hover tooltip: "01/03/2025 22:15" */
 export function formatFullDateTime(dateStr: string, locale: string): string {
   const date = new Date(dateStr);
   return date.toLocaleDateString(locale, {

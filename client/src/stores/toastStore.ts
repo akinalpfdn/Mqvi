@@ -1,67 +1,36 @@
 /**
- * Toast Store — Zustand ile global toast notification yönetimi.
+ * Toast Store — Global toast notification management.
  *
- * Toast sistemi neden Zustand store?
- * - Herhangi bir component veya non-React koddan erişilebilir olmalı
- *   (useToastStore.getState().addToast(...) ile)
- * - Global state — aynı anda birden fazla toast gösterilebilir
- * - Auto-dismiss timer'ları merkezi yönetim gerektirir
- *
- * Timer yönetimi neden state dışında (module-level Map)?
- * - setTimeout ID'leri serialize edilemez (Zustand devtools uyumsuz)
- * - Timer'lar state değişikliği değil, side effect — state'te tutmak
- *   gereksiz re-render tetikler
- * - Module-level Map ile timer oluştur/iptal yönetimi izole kalır
+ * Timer IDs are kept in a module-level Map (not in state) because
+ * setTimeout IDs aren't serializable and would cause unnecessary re-renders.
  */
 
 import { create } from "zustand";
 
-/** Toast görsel tipi — sol kenar rengi ve ikonu belirler */
 type ToastType = "success" | "error" | "warning" | "info";
 
-/** Tek bir toast notification */
 type Toast = {
-  /** Benzersiz ID — crypto.randomUUID() ile üretilir */
   id: string;
-  /** Görsel tip — success/error/warning/info */
   type: ToastType;
-  /** Gösterilecek mesaj — i18n çevrilmiş string */
   message: string;
-  /** Otomatik kapanma süresi (ms) */
   duration: number;
-  /** Kapanma animasyonu aktif mi? */
+  /** Exit animation active — fade-out before removal */
   isExiting: boolean;
 };
 
 type ToastState = {
   toasts: Toast[];
-
-  /**
-   * addToast — Yeni toast ekler ve auto-dismiss timer başlatır.
-   *
-   * @param type - Toast tipi (success/error/warning/info)
-   * @param message - Gösterilecek mesaj (çevrilmiş)
-   * @param duration - Otomatik kapanma süresi ms (varsayılan 4000)
-   */
   addToast: (type: ToastType, message: string, duration?: number) => void;
-
-  /**
-   * removeToast — Toast'ı exit animasyonu ile kaldırır.
-   * Önce isExiting=true yapılır (fade-out), 300ms sonra state'ten silinir.
-   */
+  /** Triggers exit animation, then removes from state after 300ms. */
   removeToast: (id: string) => void;
 };
 
-/** Auto-dismiss timer ID'leri — state dışında tutulur (serialization uyumsuzluğu) */
+/** Auto-dismiss timer IDs — kept outside state (not serializable) */
 const timerMap = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** Aynı anda gösterilebilecek maksimum toast sayısı */
 const MAX_VISIBLE = 5;
-
-/** Varsayılan auto-dismiss süresi (ms) */
 const DEFAULT_DURATION = 4000;
-
-/** Exit animasyonu süresi (ms) — CSS transition süresiyle eşleşmeli */
+/** Must match CSS transition duration */
 const EXIT_ANIMATION_MS = 300;
 
 export const useToastStore = create<ToastState>((set, get) => ({
@@ -79,10 +48,8 @@ export const useToastStore = create<ToastState>((set, get) => ({
     };
 
     set((state) => {
-      // Max toast limitini aş → en eski toast'ları çıkar
       const updatedToasts = [...state.toasts, toast];
       if (updatedToasts.length > MAX_VISIBLE) {
-        // Fazla toast'ların timer'larını temizle
         const removed = updatedToasts.splice(0, updatedToasts.length - MAX_VISIBLE);
         for (const r of removed) {
           const timerId = timerMap.get(r.id);
@@ -95,7 +62,6 @@ export const useToastStore = create<ToastState>((set, get) => ({
       return { toasts: updatedToasts };
     });
 
-    // Auto-dismiss timer başlat
     const timerId = setTimeout(() => {
       get().removeToast(id);
     }, duration);
@@ -104,21 +70,20 @@ export const useToastStore = create<ToastState>((set, get) => ({
   },
 
   removeToast: (id) => {
-    // Timer'ı iptal et (manuel kapatma durumunda)
     const timerId = timerMap.get(id);
     if (timerId) {
       clearTimeout(timerId);
       timerMap.delete(id);
     }
 
-    // Exit animasyonu başlat — isExiting=true
+    // Start exit animation
     set((state) => ({
       toasts: state.toasts.map((t) =>
         t.id === id ? { ...t, isExiting: true } : t
       ),
     }));
 
-    // Animasyon bitince state'ten tamamen sil
+    // Remove from state after animation completes
     setTimeout(() => {
       set((state) => ({
         toasts: state.toasts.filter((t) => t.id !== id),

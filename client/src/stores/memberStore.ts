@@ -1,17 +1,6 @@
 /**
- * Member Store — Zustand ile üye + presence state yönetimi.
- *
- * Bu store üyeleri ve online durumlarını yönetir:
- * - Backend'den tüm üyeleri fetch eder
- * - Online kullanıcı ID'lerini Set olarak tutar (hızlı lookup)
- * - WebSocket event'leri ile gerçek zamanlı güncellenir
- *
- * Multi-server: fetchMembers activeServerId'ye göre server-scoped API çağrısı yapar.
- *
- * Online tracking neden Set?
- * Array'de includes() O(n), Set'te has() O(1).
- * Üye listesi sürekli render edildiğinden, her member için
- * "bu kullanıcı online mı?" sorusunun hızlı cevaplanması gerekir.
+ * Member Store — Member list + presence state management.
+ * Online user IDs stored as Set for O(1) lookup.
  */
 
 import { create } from "zustand";
@@ -20,46 +9,23 @@ import { useServerStore } from "./serverStore";
 import type { MemberWithRoles, UserStatus, Role } from "../types";
 
 type MemberState = {
-  /** Tüm üyeler (rolleriyle birlikte) */
   members: MemberWithRoles[];
-  /** Online kullanıcı ID'leri — Set olarak tutulur (O(1) lookup) */
   onlineUserIds: Set<string>;
-  /** Yüklenme durumu */
   isLoading: boolean;
 
   // ─── Actions ───
   fetchMembers: () => Promise<void>;
 
   // ─── WS Event Handlers ───
-
-  /** "ready" event'i — bağlantı kurulduğunda online kullanıcıları set eder */
   handleReady: (onlineUserIds: string[]) => void;
-
-  /** "presence_update" — kullanıcı online/offline/idle/dnd durumu değişti */
   handlePresenceUpdate: (userId: string, status: UserStatus) => void;
-
-  /** "member_join" — yeni üye katıldı */
   handleMemberJoin: (member: MemberWithRoles) => void;
-
-  /** "member_leave" — üye ayrıldı (kick, ban veya kendi isteği) */
   handleMemberLeave: (userId: string) => void;
-
-  /** "member_update" — üye bilgileri güncellendi (rol değişikliği, profil) */
   handleMemberUpdate: (member: MemberWithRoles) => void;
-
-  /** "role_create" — yeni rol oluşturuldu */
   handleRoleCreate: (role: Role) => void;
-
-  /** "role_update" — rol güncellendi (isim, renk, permission) */
   handleRoleUpdate: (role: Role) => void;
-
-  /** "role_delete" — rol silindi */
   handleRoleDelete: (roleId: string) => void;
-
-  /** "roles_reorder" — rol sıralaması güncellendi */
   handleRolesReorder: (roles: Role[]) => void;
-
-  /** Server değiştirildiğinde store'u temizler */
   clearForServerSwitch: () => void;
 };
 
@@ -69,14 +35,8 @@ export const useMemberStore = create<MemberState>((set) => ({
   isLoading: false,
 
   /**
-   * fetchMembers — Backend'den aktif sunucunun üyelerini çeker.
-   *
-   * Multi-server: serverStore'dan activeServerId alır ve
-   * GET /api/servers/{serverId}/members çağırır.
-   *
-   * Stale request guard: API response geldiğinde activeServerId hala aynıysa
-   * sonucu yazar, değilse (server switch olmuşsa) atar. Bu sayede hızlı
-   * server geçişlerinde eski server'ın üyeleri yeni server'ın listesine yazılmaz.
+   * Stale request guard: if activeServerId changed while the request was in flight,
+   * discard the response to prevent cross-server data contamination.
    */
   fetchMembers: async () => {
     const serverId = useServerStore.getState().activeServerId;
@@ -86,15 +46,12 @@ export const useMemberStore = create<MemberState>((set) => ({
 
     const res = await memberApi.getMembers(serverId);
 
-    // Stale request guard — response gelene kadar server değişmiş olabilir.
-    // Eğer activeServerId artık farklıysa bu response'u yoksay.
     const currentServerId = useServerStore.getState().activeServerId;
     if (currentServerId !== serverId) return;
 
     if (res.data) {
-      // onlineUserIds'ı burada SET ETME — WS ready event'i ve
-      // handlePresenceUpdate tek otorite. DB status'u stale olabilir
-      // (server restart sonrası "online"/"idle" kalabilir), WS gerçeği bilir.
+      // Don't set onlineUserIds here — WS ready event + handlePresenceUpdate
+      // are the single source of truth (DB status can be stale after restart).
       set({ members: res.data, isLoading: false });
     } else {
       set({ isLoading: false });
@@ -105,7 +62,6 @@ export const useMemberStore = create<MemberState>((set) => ({
 
   handleReady: (onlineUserIds) => {
     set({ onlineUserIds: new Set(onlineUserIds) });
-    // Ready geldiğinde üyeleri de fetch et — güncel bilgi almak için
     useMemberStore.getState().fetchMembers();
   },
 
@@ -148,10 +104,8 @@ export const useMemberStore = create<MemberState>((set) => ({
     set((state) => ({
       members: state.members.map((m) => {
         if (m.id !== updated.id) return m;
-        // Profile update (BroadcastToAll) roles boş gönderir çünkü
-        // server-agnostic — hangi sunucunun rollerini göndereceğini bilmez.
-        // Bu durumda mevcut rolleri ve yetkileri koru.
-        // Rol değişikliği ise (roles dolu) yeni rolleri kullan.
+        // Profile update (BroadcastToAll) sends empty roles since it's server-agnostic.
+        // Preserve existing roles/permissions in that case.
         const hasRoles = updated.roles && updated.roles.length > 0;
         return {
           ...m,
@@ -166,7 +120,7 @@ export const useMemberStore = create<MemberState>((set) => ({
   },
 
   handleRoleCreate: (_role) => {
-    // roleStore handle eder
+    // Handled by roleStore
   },
 
   handleRoleUpdate: (role) => {

@@ -1,22 +1,15 @@
 /**
- * Stats API — Public istatistik endpoint'leri.
- * Auth gerekmez — landing page'den çağrılır.
+ * Stats API — public statistics endpoints (no auth required).
  */
 
 import { apiClient } from "./client";
 import type { APIResponse } from "../types";
 
-/** Backend'den dönen public stats tipi */
 export type PublicStats = {
   total_users: number;
 };
 
-/**
- * getPublicStats — Toplam kayıtlı kullanıcı sayısını getirir.
- * Auth token olmadan da çalışır (apiClient token yoksa header eklemez).
- *
- * GET /api/stats
- */
+/** Returns total registered user count. Called from the landing page. */
 export async function getPublicStats(): Promise<APIResponse<PublicStats>> {
   return apiClient<PublicStats>("/stats");
 }

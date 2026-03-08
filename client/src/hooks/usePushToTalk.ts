@@ -1,35 +1,20 @@
 /**
- * usePushToTalk — Push-to-talk (PTT) tuş dinleyicisi.
+ * usePushToTalk — Push-to-talk key listener.
  *
- * Bu hook, document seviyesinde keydown/keyup event'lerini dinler ve
- * PTT modu aktifken belirlenen tuşa basılınca mikrofonu açar, bırakılınca kapatır.
+ * Document-level keydown/keyup listeners for app-wide PTT.
  *
- * Güvenlik önlemleri:
- * 1. Focus guard: Kullanıcı bir <input> veya <textarea> içindeyken PTT çalışmaz.
- *    Aksi halde mesaj yazarken boşluk tuşu mikrofonu açardı.
- * 2. Repeat filtresi: Tuş basılı tutulduğunda tarayıcı keydown event'ini tekrarlar
- *    (e.repeat === true). Bu tekrarlar filtrelenir — sadece ilk basış işlenir.
- * 3. Mode guard: inputMode !== "push_to_talk" ise hook hiçbir şey yapmaz.
- * 4. Connection guard: Kullanıcı bir voice kanalında değilse event işlenmez.
- *
- * Neden document-level listener?
- * React'ın synthetic event sistemi component ağacına bağlıdır — sadece
- * o component focus'tayken çalışır. PTT tüm uygulama genelinde çalışmalı,
- * bu yüzden native document.addEventListener kullanılır.
- *
- * @param setMicEnabled — LiveKit localParticipant.setMicrophoneEnabled çağıran fonksiyon.
- *   VoiceStateManager'dan prop olarak gelir.
+ * Guards:
+ * - Focus guard: disabled when typing in input/textarea/contentEditable
+ * - Repeat filter: ignores e.repeat (browser auto-repeat on key hold)
+ * - Mode guard: no-op if inputMode !== "push_to_talk"
+ * - Connection guard: no-op if not in a voice channel
+ * - Blur guard: releases mic on window blur (alt-tab)
  */
 
 import { useEffect, useRef } from "react";
 import { useVoiceStore } from "../stores/voiceStore";
 
 type UsePushToTalkParams = {
-  /**
-   * Mikrofonu aç/kapat fonksiyonu.
-   * true → mic açık, false → mic kapalı.
-   * Bu fonksiyon LiveKit participant'ı üzerinden çalışır.
-   */
   setMicEnabled: (enabled: boolean) => void;
 };
 
@@ -38,21 +23,12 @@ export function usePushToTalk({ setMicEnabled }: UsePushToTalkParams): void {
   const pttKey = useVoiceStore((s) => s.pttKey);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
 
-  // PTT tuşu şu anda basılı mı? Ref ile takip edilir —
-  // state kullanılmaz çünkü re-render gereksizdir (side-effect only).
+  // Ref — no re-render needed, side-effect only
   const isPressedRef = useRef(false);
 
   useEffect(() => {
-    // PTT modu aktif değilse veya voice kanalında değilsek listener ekleme
     if (inputMode !== "push_to_talk" || !currentVoiceChannelId) return;
 
-    /**
-     * isTextInput — Aktif element bir metin giriş alanı mı?
-     *
-     * PTT, kullanıcı bir text input'a yazarken devre dışı kalır.
-     * Böylece Space tuşu mesaj yazarken mikrofonu açmaz.
-     * contentEditable elementler de kontrol edilir (rich text editor).
-     */
     function isTextInput(el: Element | null): boolean {
       if (!el) return false;
       const tag = el.tagName;
@@ -62,17 +38,9 @@ export function usePushToTalk({ setMicEnabled }: UsePushToTalkParams): void {
     }
 
     function handleKeyDown(e: KeyboardEvent) {
-      // Tekrarlayan event'leri filtrele — tuş basılı tutulurken
-      // tarayıcı keydown'u tekrar tekrar gönderir
       if (e.repeat) return;
-
-      // PTT tuşu değilse işleme
       if (e.code !== pttKey) return;
-
-      // Text input focus'taysa PTT çalışmasın
       if (isTextInput(document.activeElement)) return;
-
-      // Zaten basılıysa tekrar açma (güvenlik)
       if (isPressedRef.current) return;
 
       isPressedRef.current = true;
@@ -81,17 +49,13 @@ export function usePushToTalk({ setMicEnabled }: UsePushToTalkParams): void {
 
     function handleKeyUp(e: KeyboardEvent) {
       if (e.code !== pttKey) return;
-
-      // Tuş bırakıldığında text input kontrolü gerekmez —
-      // basış zaten keydown'da engellendiyse isPressedRef false kalır
       if (!isPressedRef.current) return;
 
       isPressedRef.current = false;
       setMicEnabled(false);
     }
 
-    // Sayfa focus kaybederse (alt-tab vb.) tuşu "bırak" olarak işle —
-    // aksi halde kullanıcı başka pencereye geçtiğinde mic açık kalır
+    // Release mic on window blur (e.g. alt-tab)
     function handleBlur() {
       if (isPressedRef.current) {
         isPressedRef.current = false;
@@ -108,7 +72,7 @@ export function usePushToTalk({ setMicEnabled }: UsePushToTalkParams): void {
       document.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleBlur);
 
-      // Cleanup'ta mic'i kapat (PTT modundan çıkarken)
+      // Ensure mic is off when exiting PTT mode
       if (isPressedRef.current) {
         isPressedRef.current = false;
         setMicEnabled(false);

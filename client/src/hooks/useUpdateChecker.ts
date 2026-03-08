@@ -1,32 +1,28 @@
 /**
  * useUpdateChecker — Electron auto-update hook.
  *
- * Discord modeli:
- * 1. Splash screen'de güncelleme kontrolü yapılır (main process)
- * 2. Splash'te güncelleme yoksa → uygulama açılır, renderer tekrar kontrol etmez
- * 3. Runtime'da güncelleme bulunursa → arka planda otomatik indirilir
- * 4. İndirme bitince → "Yeniden başlat" banner'ı gösterilir
- * 5. Kullanıcı tıklarsa hemen restart, tıklamazsa app kapanırken kurulur
+ * Flow:
+ * 1. Update check happens at splash screen (main process)
+ * 2. If found at runtime, downloads in background (autoDownload=true)
+ * 3. Shows "Restart" banner when download completes
+ * 4. User clicks restart or update installs on next app quit
  *
- * Web modda (isElectron() === false) hiçbir şey yapmaz.
+ * No-op in web mode.
  */
 
 import { useState, useEffect, useCallback } from "react";
 import { isElectron } from "../utils/constants";
 
-/** Güncelleme durumu */
 type UpdateStatus =
   | "idle"
   | "downloading"
   | "ready"
   | "error";
 
-/** Güncelleme bilgisi */
 type UpdateInfo = {
   version: string;
 };
 
-/** Hook return tipi */
 type UpdateChecker = {
   status: UpdateStatus;
   update: UpdateInfo | null;
@@ -47,9 +43,6 @@ export function useUpdateChecker(): UpdateChecker {
 
     const api = window.electronAPI!;
 
-    // Main process'ten gelen güncelleme event'lerini dinle.
-    // autoDownload=true olduğu için update-available geldiğinde
-    // indirme otomatik başlar — banner sadece progress gösterir.
     api.onUpdateAvailable((info) => {
       setUpdate({ version: info.version });
       setStatus("downloading");
@@ -62,26 +55,23 @@ export function useUpdateChecker(): UpdateChecker {
 
     api.onUpdateDownloaded(() => {
       setProgress(100);
-      // İndirme bitti — "Yeniden başlat" banner'ı göster
       setStatus("ready");
     });
 
     api.onUpdateError((message) => {
-      // Güncelleme hatası — error banner göster
       setError(message);
       setStatus("error");
     });
 
-    // Cleanup yok — listener'lar app ömrü boyunca kalır
+    // Listeners persist for app lifetime — no cleanup needed
   }, []);
 
-  // Kullanıcı "Yeniden Başlat" tıklarsa → hemen kur ve restart
   const restartAndInstall = useCallback(() => {
     if (!isElectron()) return;
     window.electronAPI!.installUpdate();
   }, []);
 
-  // Banner'ı kapat — app kapanırken otomatik kurulur (autoInstallOnAppQuit)
+  // Dismiss banner — update installs on app quit (autoInstallOnAppQuit)
   const dismiss = useCallback(() => {
     setStatus("idle");
     setUpdate(null);

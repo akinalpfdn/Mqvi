@@ -1,21 +1,16 @@
 /**
- * Pin API — Mesaj sabitleme endpoint'leri.
+ * Pin API — server-scoped message pinning.
  *
- * Multi-server: Tüm endpoint'ler server-scoped.
- * getPins: Bir kanalın tüm pinlenmiş mesajlarını döner.
- * pinMessage: Bir mesajı sabitler (ManageMessages yetkisi gerekir).
- * unpinMessage: Bir mesajın pin'ini kaldırır (ManageMessages yetkisi gerekir).
+ * Pin/unpin require ManageMessages permission.
  */
 
 import { apiClient } from "./client";
 import type { PinnedMessage } from "../types";
 
-/** Bir kanalın tüm pinlenmiş mesajlarını getirir. */
 export async function getPins(serverId: string, channelId: string) {
   return apiClient<PinnedMessage[]>(`/servers/${serverId}/channels/${channelId}/pins`);
 }
 
-/** Bir mesajı sabitler. */
 export async function pinMessage(serverId: string, channelId: string, messageId: string) {
   return apiClient<PinnedMessage>(
     `/servers/${serverId}/channels/${channelId}/messages/${messageId}/pin`,
@@ -23,7 +18,6 @@ export async function pinMessage(serverId: string, channelId: string, messageId:
   );
 }
 
-/** Bir mesajın pin'ini kaldırır. */
 export async function unpinMessage(serverId: string, channelId: string, messageId: string) {
   return apiClient<{ message: string }>(
     `/servers/${serverId}/channels/${channelId}/messages/${messageId}/pin`,

@@ -1,17 +1,15 @@
 /**
- * Channel & Category API fonksiyonları.
+ * Channel & Category API — server-scoped CRUD.
  *
- * Multi-server: Tüm list/create endpoint'leri server-scoped.
- * Backend endpoint'leri:
- * - GET    /api/servers/{serverId}/channels         → Kanalları kategorilere göre gruplu döner
- * - POST   /api/servers/{serverId}/channels         → Yeni kanal oluştur [MANAGE_CHANNELS]
- * - PATCH  /api/servers/{serverId}/channels/{id}    → Kanal güncelle [MANAGE_CHANNELS]
- * - DELETE /api/servers/{serverId}/channels/{id}    → Kanal sil [MANAGE_CHANNELS]
- * - PATCH  /api/servers/{serverId}/channels/reorder → Kanal sıralamasını güncelle [MANAGE_CHANNELS]
- * - GET    /api/servers/{serverId}/categories       → Tüm kategorileri döner
- * - POST   /api/servers/{serverId}/categories       → Yeni kategori oluştur [MANAGE_CHANNELS]
- * - PATCH  /api/servers/{serverId}/categories/{id}  → Kategori güncelle [MANAGE_CHANNELS]
- * - DELETE /api/servers/{serverId}/categories/{id}  → Kategori sil [MANAGE_CHANNELS]
+ * - GET    /api/servers/{serverId}/channels         — channels grouped by category
+ * - POST   /api/servers/{serverId}/channels         — create channel [MANAGE_CHANNELS]
+ * - PATCH  /api/servers/{serverId}/channels/{id}    — update channel [MANAGE_CHANNELS]
+ * - DELETE /api/servers/{serverId}/channels/{id}    — delete channel [MANAGE_CHANNELS]
+ * - PATCH  /api/servers/{serverId}/channels/reorder — reorder channels [MANAGE_CHANNELS]
+ * - GET    /api/servers/{serverId}/categories       — list categories
+ * - POST   /api/servers/{serverId}/categories       — create category [MANAGE_CHANNELS]
+ * - PATCH  /api/servers/{serverId}/categories/{id}  — update category [MANAGE_CHANNELS]
+ * - DELETE /api/servers/{serverId}/categories/{id}  — delete category [MANAGE_CHANNELS]
  */
 
 import { apiClient } from "./client";
@@ -23,12 +21,10 @@ import type {
 
 // ─── Channel API ───
 
-/** Tüm kanalları kategorilere göre gruplu getirir */
 export async function getChannels(serverId: string) {
   return apiClient<CategoryWithChannels[]>(`/servers/${serverId}/channels`);
 }
 
-/** Yeni kanal oluşturur */
 export async function createChannel(serverId: string, data: {
   name: string;
   type: string;
@@ -41,7 +37,6 @@ export async function createChannel(serverId: string, data: {
   });
 }
 
-/** Kanalı günceller */
 export async function updateChannel(
   serverId: string,
   id: string,
@@ -53,16 +48,16 @@ export async function updateChannel(
   });
 }
 
-/** Kanalı siler */
 export async function deleteChannel(serverId: string, id: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/channels/${id}`, {
     method: "DELETE",
   });
 }
 
-/** Kanal sıralamasını toplu günceller.
- * category_id opsiyonel — set edilirse kanalın kategorisi de değişir (cross-category drag-and-drop).
- * category_id verilmezse sadece position güncellenir. */
+/**
+ * Batch reorder channels. category_id is optional — when set, moves the channel
+ * to a different category (cross-category drag-and-drop).
+ */
 export async function reorderChannels(serverId: string, items: { id: string; position: number; category_id?: string }[]) {
   return apiClient<CategoryWithChannels[]>(`/servers/${serverId}/channels/reorder`, {
     method: "PATCH",
@@ -72,12 +67,10 @@ export async function reorderChannels(serverId: string, items: { id: string; pos
 
 // ─── Category API ───
 
-/** Tüm kategorileri getirir */
 export async function getCategories(serverId: string) {
   return apiClient<Category[]>(`/servers/${serverId}/categories`);
 }
 
-/** Yeni kategori oluşturur */
 export async function createCategory(serverId: string, data: { name: string }) {
   return apiClient<Category>(`/servers/${serverId}/categories`, {
     method: "POST",
@@ -85,7 +78,6 @@ export async function createCategory(serverId: string, data: { name: string }) {
   });
 }
 
-/** Kategoriyi günceller */
 export async function updateCategory(serverId: string, id: string, data: { name?: string }) {
   return apiClient<Category>(`/servers/${serverId}/categories/${id}`, {
     method: "PATCH",
@@ -93,7 +85,6 @@ export async function updateCategory(serverId: string, id: string, data: { name?
   });
 }
 
-/** Kategoriyi siler */
 export async function deleteCategory(serverId: string, id: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/categories/${id}`, {
     method: "DELETE",
@@ -102,7 +93,6 @@ export async function deleteCategory(serverId: string, id: string) {
 
 // ─── Channel Mute API ───
 
-/** Kanalı sessize alır */
 export async function muteChannel(serverId: string, channelId: string, duration: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/channels/${channelId}/mute`, {
     method: "POST",
@@ -110,14 +100,12 @@ export async function muteChannel(serverId: string, channelId: string, duration:
   });
 }
 
-/** Kanal sessizliğini kaldırır */
 export async function unmuteChannel(serverId: string, channelId: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/channels/${channelId}/mute`, {
     method: "DELETE",
   });
 }
 
-/** Kullanıcının sessize aldığı tüm kanal ID'lerini döner */
 export async function getMutedChannels() {
   return apiClient<string[]>("/channels/mutes");
 }

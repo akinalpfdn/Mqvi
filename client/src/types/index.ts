@@ -1,11 +1,6 @@
 /**
- * Uygulama genelinde kullanılan TypeScript tipleri.
- *
- * TypeScript'te "type" ve "interface" veri şekillerini tanımlar.
- * Frontend ve backend aynı veri yapılarını paylaşır —
- * bu dosya backend'deki Go struct'larının TypeScript karşılığıdır.
- *
- * Naming convention: PascalCase, "I" prefix yok.
+ * Application-wide TypeScript types.
+ * Mirrors backend Go structs. Naming: PascalCase, no "I" prefix.
  */
 
 // ──────────────────────────────────
@@ -52,10 +47,7 @@ export type Category = {
   position: number;
 };
 
-/**
- * CategoryWithChannels — Sidebar'da kullanılan gruplu yapı.
- * Backend GET /api/channels endpoint'i bu formatta döner.
- */
+/** Grouped structure returned by GET /api/channels. */
 export type CategoryWithChannels = {
   category: Category;
   channels: Channel[];
@@ -65,15 +57,11 @@ export type CategoryWithChannels = {
 // Reaction
 // ──────────────────────────────────
 
-/**
- * ReactionGroup — Gruplanmış emoji tepki bilgisi.
- * Backend'deki models.ReactionGroup struct'ının TypeScript karşılığı.
- * Aynı emojiye tepki veren kullanıcıları ve toplam sayıyı içerir.
- */
+/** Grouped emoji reaction info. */
 export type ReactionGroup = {
   emoji: string;
   count: number;
-  users: string[]; // user ID'leri
+  users: string[]; // user IDs
 };
 
 // ──────────────────────────────────
@@ -81,13 +69,10 @@ export type ReactionGroup = {
 // ──────────────────────────────────
 
 /**
- * ChannelPermissionOverride — Kanal bazlı permission override.
- * Backend'deki models.ChannelPermissionOverride struct'ının TypeScript karşılığı.
- *
- * Discord'un override sistemi:
- * - allow: Bu bit'ler role'un varsayılan permission'ına eklenir (izin ver)
- * - deny: Bu bit'ler role'un varsayılan permission'ından çıkarılır (engelle)
- * - İkisi de 0 ise: inherit (role'un varsayılan permission'ı geçerli)
+ * Discord-style channel permission override.
+ * - allow: bits added to role's default permissions
+ * - deny: bits removed from role's default permissions
+ * - Both 0: inherit (role defaults apply)
  */
 export type ChannelPermissionOverride = {
   channel_id: string;
@@ -101,11 +86,8 @@ export type ChannelPermissionOverride = {
 // ──────────────────────────────────
 
 /**
- * MessageReference — Yanıt yapılan mesajın ön izleme bilgisi.
- * Backend'deki models.MessageReference struct'ının TypeScript karşılığı.
- *
- * Referans mesaj silinmişse author ve content null olur —
- * bu durumda frontend "Orijinal mesaj silindi" gösterir.
+ * Reply preview info. If the referenced message was deleted,
+ * author and content are null ("Original message was deleted").
  */
 export type MessageReference = {
   id: string;
@@ -124,13 +106,14 @@ export type Message = {
   referenced_message: MessageReference | null;
   author: User;
   attachments: Attachment[];
-  mentions: string[];  // Mesajda bahsedilen kullanıcı ID'leri (@username parse sonucu)
-  reactions: ReactionGroup[];  // Emoji tepkileri (gruplanmış)
-  encryption_version: EncryptionVersion;  // 0=plaintext, 1=E2EE
-  ciphertext?: string | null;            // E2EE sifreli icerik (encryption_version=1)
-  sender_device_id?: string | null;      // Gonderici cihaz ID'si
-  e2ee_metadata?: string | null;         // Ek E2EE metadata (JSON string)
-  e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];  // Client-only: decrypt edilmis dosya anahtarlari
+  mentions: string[];
+  reactions: ReactionGroup[];
+  encryption_version: EncryptionVersion; // 0=plaintext, 1=E2EE
+  ciphertext?: string | null;
+  sender_device_id?: string | null;
+  e2ee_metadata?: string | null;
+  /** Client-only: decrypted file keys */
+  e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];
 };
 
 export type Attachment = {
@@ -142,10 +125,7 @@ export type Attachment = {
   mime_type: string | null;
 };
 
-/**
- * MessagePage — Cursor-based pagination response.
- * Backend GET /api/channels/{id}/messages endpoint'i bu formatta döner.
- */
+/** Cursor-based pagination response. */
 export type MessagePage = {
   messages: Message[];
   has_more: boolean;
@@ -168,12 +148,7 @@ export type Role = {
 // Member (User + Roles)
 // ──────────────────────────────────
 
-/**
- * MemberWithRoles — Üye bilgileri + rolleri + hesaplanmış yetkileri.
- *
- * Backend'deki models.MemberWithRoles struct'ının TypeScript karşılığı.
- * Rol hiyerarşisi ve permission kontrolü için effective_permissions kullanılır.
- */
+/** Member info with roles and computed effective_permissions. */
 export type MemberWithRoles = {
   id: string;
   username: string;
@@ -186,9 +161,6 @@ export type MemberWithRoles = {
   effective_permissions: number;
 };
 
-/**
- * Ban — Yasaklanmış kullanıcı bilgisi.
- */
 export type Ban = {
   user_id: string;
   username: string;
@@ -215,11 +187,7 @@ export type Invite = {
 // Pin
 // ──────────────────────────────────
 
-/**
- * PinnedMessage — Sabitlenmiş mesaj bilgisi.
- * Backend'deki models.PinnedMessageWithDetails struct'ının TypeScript karşılığı.
- * Pin bilgisi + mesajın kendisi + pinleyen kullanıcı bir arada döner.
- */
+/** Pinned message with full message data and pinner info. */
 export type PinnedMessage = {
   id: string;
   message_id: string;
@@ -234,11 +202,7 @@ export type PinnedMessage = {
 // Voice
 // ──────────────────────────────────
 
-/**
- * VoiceState — Bir kullanıcının ses kanalındaki anlık durumu.
- * Backend'deki models.VoiceState struct'ının TypeScript karşılığı.
- * Ephemeral (geçici) veridir — DB'ye yazılmaz.
- */
+/** Ephemeral voice state (in-memory only, not persisted to DB). */
 export type VoiceState = {
   user_id: string;
   channel_id: string;
@@ -248,30 +212,22 @@ export type VoiceState = {
   is_muted: boolean;
   is_deafened: boolean;
   is_streaming: boolean;
-  /** Admin tarafından sunucu genelinde susturulmuş (herkes için) */
+  /** Server-wide mute by admin */
   is_server_muted: boolean;
-  /** Admin tarafından sunucu genelinde sağırlaştırılmış (herkes için) */
+  /** Server-wide deafen by admin */
   is_server_deafened: boolean;
 };
 
-/**
- * VoiceTokenResponse — LiveKit token generation yanıtı.
- * POST /api/voice/token endpoint'inden döner.
- * Client bu bilgilerle doğrudan LiveKit sunucusuna bağlanır.
- */
+/** LiveKit token response from POST /api/voice/token. */
 export type VoiceTokenResponse = {
   token: string;
   url: string;
   channel_id: string;
-  /** Room bazlı E2EE passphrase (SFrame). Server tarafından üretilir. */
+  /** Room-level E2EE passphrase (SFrame). Generated server-side. */
   e2ee_passphrase?: string;
 };
 
-/**
- * VoiceStateUpdateData — voice_state_update WS event payload'ı.
- * Bir kullanıcının ses durumu değiştiğinde tüm client'lara broadcast edilir.
- * action alanı değişikliğin türünü belirtir.
- */
+/** voice_state_update WS event payload. */
 export type VoiceStateUpdateData = {
   user_id: string;
   channel_id: string;
@@ -290,24 +246,17 @@ export type VoiceStateUpdateData = {
 // DM (Direct Messages)
 // ──────────────────────────────────
 
-/**
- * DMChannelWithUser — DM kanal bilgisi + karşı taraf kullanıcı bilgisi.
- * Backend'den dönen format — hangi kullanıcıyla konuştuğunu gösterir.
- */
+/** DM channel with the other participant's user info. */
 export type DMChannelWithUser = {
   id: string;
   other_user: User;
-  e2ee_enabled: boolean; // true = E2EE aktif
+  e2ee_enabled: boolean;
   created_at: string;
-  last_message_at: string | null; // Son mesaj aktivitesi — sıralama için
-  is_pinned: boolean;  // Kullanıcı bu DM'yi sabitledi mi
-  is_muted: boolean;   // Kullanıcı bu DM'yi sessize aldı mı
+  last_message_at: string | null;
+  is_pinned: boolean;
+  is_muted: boolean;
 };
 
-/**
- * DMMessage — Bir DM mesajını temsil eder.
- * Server mesajlarıyla benzer yapıda.
- */
 export type DMMessage = {
   id: string;
   dm_channel_id: string;
@@ -321,17 +270,14 @@ export type DMMessage = {
   attachments: DMAttachment[];
   reactions: ReactionGroup[];
   referenced_message: MessageReference | null;
-  encryption_version: EncryptionVersion;  // 0=plaintext, 1=E2EE
+  encryption_version: EncryptionVersion; // 0=plaintext, 1=E2EE
   ciphertext?: string | null;
   sender_device_id?: string | null;
   e2ee_metadata?: string | null;
-  e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];  // Client-only: decrypt edilmis dosya anahtarlari
+  /** Client-only: decrypted file keys */
+  e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];
 };
 
-/**
- * DMAttachment — DM mesajına eklenmiş dosya.
- * Channel Attachment ile aynı yapı ama dm_message_id kullanır.
- */
 export type DMAttachment = {
   id: string;
   dm_message_id: string;
@@ -341,9 +287,6 @@ export type DMAttachment = {
   mime_type: string | null;
 };
 
-/**
- * DMMessagePage — DM mesajları için cursor-based pagination response.
- */
 export type DMMessagePage = {
   messages: DMMessage[];
   has_more: boolean;
@@ -354,13 +297,8 @@ export type DMMessagePage = {
 // ──────────────────────────────────
 
 /**
- * FriendshipWithUser — Arkadaşlık kaydı + karşı taraf kullanıcı bilgisi.
- * Backend'deki models.FriendshipWithUser struct'ının TypeScript karşılığı.
- *
- * status:
- * - "pending": İstek gönderildi, henüz kabul edilmedi
- * - "accepted": Arkadaşlık aktif
- * - "blocked": Kullanıcı engellendi
+ * Friendship record with the other user's info.
+ * status: "pending" | "accepted" | "blocked"
  */
 export type FriendshipWithUser = {
   id: string;
@@ -374,10 +312,6 @@ export type FriendshipWithUser = {
   user_custom_status: string | null;
 };
 
-/**
- * FriendRequestsResponse — Gelen ve giden arkadaşlık istekleri.
- * GET /api/friends/requests endpoint'inden dönen format.
- */
 export type FriendRequestsResponse = {
   incoming: FriendshipWithUser[];
   outgoing: FriendshipWithUser[];
@@ -387,27 +321,11 @@ export type FriendRequestsResponse = {
 // P2P Call (WebRTC)
 // ──────────────────────────────────
 
-/**
- * P2PCallType — P2P arama türü.
- * - "voice": Sadece sesli arama (mikrofon)
- * - "video": Görüntülü arama (mikrofon + kamera)
- */
 export type P2PCallType = "voice" | "video";
 
-/**
- * P2PCallStatus — P2P arama durumu.
- * - "ringing": Arama başlatıldı, karşı taraf henüz yanıtlamadı
- * - "active": Arama kabul edildi, WebRTC bağlantısı aktif
- * - "ended": Arama sonlandırıldı
- */
 export type P2PCallStatus = "ringing" | "active" | "ended";
 
-/**
- * P2PCall — Bir P2P aramayı temsil eder.
- * Backend'deki models.P2PCallBroadcast struct'ının TypeScript karşılığı.
- * Hem caller hem receiver bilgilerini taşır — frontend her iki tarafta da
- * karşı tarafın bilgisini gösterir.
- */
+/** P2P call with both caller and receiver info. */
 export type P2PCall = {
   id: string;
   caller_id: string;
@@ -424,14 +342,8 @@ export type P2PCall = {
 };
 
 /**
- * P2PSignalPayload — WebRTC signaling verisi.
- * SDP offer/answer veya ICE candidate taşır.
- * Server bu veriyi doğrudan karşı tarafa relay eder — içeriğine bakmaz.
- *
- * WebRTC nedir?
- * Tarayıcılar arası doğrudan (peer-to-peer) ses/video iletişimi sağlayan API.
- * Sunucu sadece "signaling" (SDP ve ICE bilgisi alışverişi) için kullanılır.
- * Medya (ses/video) doğrudan kullanıcılar arasında akar.
+ * WebRTC signaling data (SDP offer/answer or ICE candidate).
+ * Server relays this directly to the peer without inspecting contents.
  */
 export type P2PSignalPayload = {
   call_id: string;
@@ -444,10 +356,7 @@ export type P2PSignalPayload = {
 // Platform Admin
 // ──────────────────────────────────
 
-/**
- * LiveKitInstanceAdmin — Admin panelde gösterilen LiveKit instance bilgisi.
- * Credential'lar backend'de kalır, sadece URL ve kapasite bilgisi döner.
- */
+/** LiveKit instance info for admin panel (credentials stay on backend). */
 export type LiveKitInstanceAdmin = {
   id: string;
   url: string;
@@ -474,10 +383,7 @@ export type UpdateLiveKitInstanceRequest = {
   hetzner_server_id?: string;
 };
 
-/**
- * LiveKitInstanceMetrics — Prometheus /metrics endpoint'inden parse edilen
- * LiveKit instance anlık kaynak kullanım metrikleri.
- */
+/** Parsed Prometheus metrics from LiveKit instance. */
 export type LiveKitInstanceMetrics = {
   goroutines: number;
   memory_used: number;
@@ -498,10 +404,7 @@ export type LiveKitInstanceMetrics = {
   available: boolean;
 };
 
-/**
- * MetricsHistorySummary — Belirli bir zaman aralığı için özetlenmiş
- * tarihsel LiveKit metrik verileri. SQL aggregate ile backend'de hesaplanır.
- */
+/** Aggregated historical metrics for a time period (SQL aggregate). */
 export type MetricsHistorySummary = {
   period: string;
   sample_count: number;
@@ -521,10 +424,7 @@ export type MetricsHistorySummary = {
   avg_goroutines: number;
 };
 
-/**
- * MetricsTimeSeriesPoint — Chart için tek bir zaman noktası.
- * Backend GetTimeSeries endpoint'inden döner.
- */
+/** Single time-series data point for charts. */
 export type MetricsTimeSeriesPoint = {
   ts: string;
   cpu_pct: number;
@@ -533,10 +433,7 @@ export type MetricsTimeSeriesPoint = {
   participants: number;
 };
 
-/**
- * AdminServerListItem — Platform admin panelde gösterilen sunucu bilgisi.
- * Tek SQL sorgusu ile tüm istatistikler toplanır.
- */
+/** Server info for platform admin panel (single SQL query with stats). */
 export type AdminServerListItem = {
   id: string;
   name: string;
@@ -553,10 +450,7 @@ export type AdminServerListItem = {
   last_activity: string | null;
 };
 
-/**
- * AdminUserListItem — Platform admin panelde gösterilen kullanıcı bilgisi.
- * Tek SQL sorgusu ile tüm istatistikler toplanır (correlated subquery pattern).
- */
+/** User info for platform admin panel (correlated subquery pattern). */
 export type AdminUserListItem = {
   id: string;
   username: string;
@@ -648,11 +542,6 @@ export type AuthTokens = {
 // Server
 // ──────────────────────────────────
 
-/**
- * Server — Tam sunucu bilgisi.
- * Backend'deki models.Server struct'ının TypeScript karşılığı.
- * Multi-server mimaride kullanıcı birden fazla sunucuya üye olabilir.
- */
 export type Server = {
   id: string;
   name: string;
@@ -665,11 +554,7 @@ export type Server = {
   created_at: string;
 };
 
-/**
- * ServerListItem — Sunucu listesinde gösterilen minimal sunucu bilgisi.
- * WS ready event'inde ve GET /api/servers endpoint'inden döner.
- * Tam Server nesnesinden çok daha hafif — sadece sidebar render'ı için yeterli.
- */
+/** Lightweight server info for sidebar rendering (WS ready + GET /api/servers). */
 export type ServerListItem = {
   id: string;
   name: string;
@@ -677,11 +562,9 @@ export type ServerListItem = {
 };
 
 /**
- * CreateServerRequest — Yeni sunucu oluşturma isteği.
- *
- * host_type seçenekleri:
- * - "mqvi_hosted": Platformun sağladığı LiveKit instance kullanılır (önerilen)
- * - "self_hosted": Kullanıcı kendi LiveKit URL, API Key ve Secret'ını verir
+ * host_type:
+ * - "mqvi_hosted": Platform-managed LiveKit instance
+ * - "self_hosted": User provides their own LiveKit URL/key/secret
  */
 export type CreateServerRequest = {
   name: string;
@@ -691,9 +574,6 @@ export type CreateServerRequest = {
   livekit_secret?: string;
 };
 
-/**
- * JoinServerRequest — Davet koduyla sunucuya katılma isteği.
- */
 export type JoinServerRequest = {
   invite_code: string;
 };
@@ -702,17 +582,10 @@ export type JoinServerRequest = {
 // E2EE (End-to-End Encryption)
 // ──────────────────────────────────
 
-/**
- * Mesaj sifreleme versiyonu.
- * 0 = plaintext (legacy, sifrelenmemis)
- * 1 = E2EE (Signal Protocol / Sender Key ile sifreli)
- */
+/** 0 = plaintext (legacy), 1 = E2EE (Signal Protocol / Sender Key) */
 export type EncryptionVersion = 0 | 1;
 
-/**
- * DeviceInfo — Kullanicinin kendi cihaz bilgisi (tam detay).
- * GET /api/devices endpoint'inden doner.
- */
+/** Own device info (full detail) from GET /api/devices. */
 export type DeviceInfo = {
   id: string;
   user_id: string;
@@ -727,11 +600,7 @@ export type DeviceInfo = {
   created_at: string;
 };
 
-/**
- * DevicePublicInfo — Baska kullanicilarin gorebilecegi cihaz bilgisi.
- * GET /api/users/{userId}/devices endpoint'inden doner.
- * Hassas bilgiler (private key, signature vb.) icerilmez.
- */
+/** Public device info visible to other users (no private keys). */
 export type DevicePublicInfo = {
   device_id: string;
   display_name: string | null;
@@ -741,20 +610,14 @@ export type DevicePublicInfo = {
 };
 
 /**
- * PreKeyBundleResponse — X3DH key agreement icin prekey bundle.
- * GET /api/users/{userId}/prekey-bundles endpoint'inden doner.
- *
- * Her cihaz icin bir bundle doner. Bundle'lar ile ilk mesaj
- * gondermeden once shared secret hesaplanir.
- *
- * one_time_prekey_id ve one_time_prekey null olabilir —
- * havuz tukenmisse X3DH 3-DH ile calisir (4-DH yerine).
+ * X3DH prekey bundle for establishing shared secret.
+ * one_time_prekey can be null if pool is exhausted (falls back to 3-DH).
  */
 export type PreKeyBundleResponse = {
   device_id: string;
   registration_id: number;
   identity_key: string;
-  signing_key: string | null;       // Ed25519 public — signed prekey doğrulama
+  signing_key: string | null;       // Ed25519 public — for signed prekey verification
   signed_prekey_id: number;
   signed_prekey: string;
   signed_prekey_signature: string;
@@ -762,10 +625,7 @@ export type PreKeyBundleResponse = {
   one_time_prekey: string | null;
 };
 
-/**
- * KeyBackupResponse — Sunucuda saklanan sifreli anahtar yedegi.
- * GET /api/e2ee/key-backup endpoint'inden doner.
- */
+/** Encrypted key backup stored on server. */
 export type KeyBackupResponse = {
   id: string;
   user_id: string;
@@ -778,10 +638,7 @@ export type KeyBackupResponse = {
   updated_at: string;
 };
 
-/**
- * ChannelGroupSessionResponse — Kanaldaki Sender Key grup oturumu.
- * GET /api/servers/{sId}/channels/{cId}/group-sessions endpoint'inden doner.
- */
+/** Channel Sender Key group session. */
 export type ChannelGroupSessionResponse = {
   id: string;
   channel_id: string;
@@ -793,10 +650,7 @@ export type ChannelGroupSessionResponse = {
   created_at: string;
 };
 
-/**
- * EncryptedEnvelope — DM mesajlarinda per-device sifreli zarf.
- * Signal Protocol ile sifreli mesaj gondermek icin kullanilir.
- */
+/** Per-device encrypted envelope for DM (Signal Protocol). */
 export type EncryptedEnvelope = {
   sender_device_id: string;
   recipient_device_id?: string;
@@ -804,20 +658,14 @@ export type EncryptedEnvelope = {
   ciphertext: string;     // base64 encoded
 };
 
-/**
- * SenderKeyEnvelope — Grup mesajlarinda Sender Key ile sifreli zarf.
- * Tek ciphertext — tum kanal uyeleri ayni ciphertext'i cozer.
- */
+/** Sender Key envelope for group messages (single ciphertext for all members). */
 export type SenderKeyEnvelope = {
   sender_device_id: string;
   distribution_id: string;
   ciphertext: string;     // base64 encoded
 };
 
-/**
- * EncryptedMessagePayload — E2EE mesaj gondermek icin tam payload.
- * Handler katmaninda JSON body'den parse edilir.
- */
+/** Full E2EE message payload parsed from JSON body in handler layer. */
 export type EncryptedMessagePayload = {
   encryption_version: 1;
   sender_device_id: string;
@@ -826,10 +674,7 @@ export type EncryptedMessagePayload = {
   reply_to_id?: string;
 };
 
-/**
- * EncryptedAttachmentMeta — Sifreli dosya meta verisi.
- * Mesajin sifreli payload'ina dahil edilir — sunucu goremez.
- */
+/** Encrypted file metadata (included in encrypted payload — server cannot see). */
 export type EncryptedAttachmentMeta = {
   key: string;           // AES-256-GCM key (base64)
   iv: string;            // Initialization vector (base64)
@@ -839,11 +684,7 @@ export type EncryptedAttachmentMeta = {
   digest: string;        // SHA-256 hash (hex)
 };
 
-/**
- * LinkPreview — URL Open Graph metadata.
- * GET /api/link-preview?url=... endpoint'inden doner.
- * Server-side fetch ile cekilir (SSRF korumali).
- */
+/** URL Open Graph metadata (server-side fetch with SSRF protection). */
 export type LinkPreview = {
   url: string;
   title: string | null;

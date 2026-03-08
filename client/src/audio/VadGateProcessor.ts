@@ -1,34 +1,24 @@
 /**
- * VadGateProcessor — Standalone enerji tabanlı VAD gate TrackProcessor'ı.
+ * VadGateProcessor — Standalone energy-based VAD gate TrackProcessor.
  *
- * LiveKit'in TrackProcessor<Track.Kind.Audio> interface'ini implement eder.
- * RNNoise KAPALI iken micSensitivity slider'ın çalışması için kullanılır.
+ * Implements LiveKit's TrackProcessor<Track.Kind.Audio>.
+ * Used when noise reduction is OFF but micSensitivity slider should still work.
  *
- * Discord'daki gibi mic sensitivity noise reduction'dan bağımsız çalışır:
- * - NR ON  → RNNoiseProcessor (ML denoising + VAD gate dahil)
- * - NR OFF → VadGateProcessor (sadece VAD gate, denoising yok)
+ * - NR ON  -> RNNoiseProcessor (ML denoising + VAD gate included)
+ * - NR OFF -> VadGateProcessor (VAD gate only, no denoising)
  *
- * Audio akışı:
- *   Mic Track → MediaStreamSource → VadGateNode → MediaStreamDestination
- *                                       ↑
- *                                  Energy-based gate
- *                               (micSensitivity ile kontrol)
+ * Pipeline: Mic Track -> MediaStreamSource -> VadGateNode -> MediaStreamDestination
  *
- * micSensitivity 100 = gate devre dışı (her şey geçer) → bu durumda
- * VoiceStateManager processor'ı hiç uygulamaz (gereksiz pipeline overhead'i önlenir).
+ * When micSensitivity is 100 (gate disabled), VoiceStateManager skips
+ * applying this processor entirely to avoid unnecessary overhead.
  */
 
 import { Track } from "livekit-client";
 import type { TrackProcessor, AudioProcessorOptions } from "livekit-client";
 
-// VAD gate worklet — enerji tabanlı ses kapısı (RNNoiseProcessor ile aynı worklet)
 import vadGateWorkletPath from "./vadGateWorklet.js?url";
 
-/**
- * AudioWorklet registration cache — aynı AudioContext'e birden fazla
- * addModule() çağrısı yapılmasını önler. WeakMap kullanılır çünkü
- * AudioContext garbage collect olursa registration da temizlensin.
- */
+/** AudioWorklet registration cache — prevents duplicate addModule() calls per AudioContext. */
 const registeredContexts = new WeakMap<AudioContext, Promise<void>>();
 
 function ensureWorkletRegistered(ctx: AudioContext): Promise<void> {
@@ -41,13 +31,12 @@ function ensureWorkletRegistered(ctx: AudioContext): Promise<void> {
 }
 
 /**
- * sensitivityToThreshold — micSensitivity (0-100) değerini RMS threshold'a çevirir.
- * RNNoiseProcessor'daki ile aynı mapping — tutarlı davranış için.
+ * Converts micSensitivity (0-100) to RMS threshold (quadratic curve).
+ * Same mapping as RNNoiseProcessor for consistent behavior.
  *
- * Quadratic curve:
- *   sensitivity 100 → threshold 0     (gate devre dışı)
- *   sensitivity 50  → threshold 0.01   (moderate)
- *   sensitivity 0   → threshold 0.04   (çok agresif)
+ *   100 -> 0     (gate disabled)
+ *   50  -> 0.01  (moderate)
+ *   0   -> 0.04  (very aggressive)
  */
 function sensitivityToThreshold(sensitivity: number): number {
   const clamped = Math.max(0, Math.min(100, sensitivity));
@@ -71,34 +60,23 @@ class VadGateProcessor
     this.initialSensitivity = micSensitivity;
   }
 
-  /**
-   * init — Audio processing graph'ı kurar (sadece VAD gate, ML denoising yok).
-   *
-   * Pipeline: source → vadGate → destination
-   * RNNoiseProcessor'a göre çok daha hafif — WASM yüklemesi yok.
-   */
+  /** Builds the audio graph (VAD gate only, no ML denoising — much lighter than RNNoiseProcessor). */
   async init(opts: AudioProcessorOptions): Promise<void> {
     const { audioContext, track } = opts;
 
-    // AudioWorklet register et
     await ensureWorkletRegistered(audioContext);
 
-    // Input: mic track → source node
     const inputStream = new MediaStream([track]);
     this.sourceNode = audioContext.createMediaStreamSource(inputStream);
 
-    // VAD gate node
     this.vadGateNode = new AudioWorkletNode(audioContext, "vad-gate-processor");
     this.setMicSensitivity(this.initialSensitivity);
 
-    // Output: destination node
     this.destinationNode = audioContext.createMediaStreamDestination();
 
-    // Graph bağla: source → vadGate → destination
     this.sourceNode.connect(this.vadGateNode);
     this.vadGateNode.connect(this.destinationNode);
 
-    // LiveKit bu track'i publish eder
     this.processedTrack = this.destinationNode.stream.getAudioTracks()[0];
   }
 
@@ -107,11 +85,7 @@ class VadGateProcessor
     await this.init(opts);
   }
 
-  /**
-   * setMicSensitivity — VAD gate threshold'unu günceller.
-   * RNNoiseProcessor ile aynı API — VoiceStateManager her ikisini de
-   * aynı şekilde kullanabilir.
-   */
+  /** Updates VAD gate threshold. Same API as RNNoiseProcessor for uniform usage. */
   setMicSensitivity(sensitivity: number): void {
     this.initialSensitivity = sensitivity;
     if (this.vadGateNode) {

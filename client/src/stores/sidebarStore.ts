@@ -1,40 +1,24 @@
 /**
- * Sidebar Store — Zustand ile sol sidebar state yönetimi.
+ * Sidebar Store — Left sidebar expand/collapse state.
  *
- * Sidebar iki modda çalışır:
- * - **Expanded** (240px): Tam ağaç görünümü — Header + ChannelTree + UserBar
- * - **Collapsed** (52px): Yalnızca server ikonu + badge'ler
+ * Two modes:
+ * - Expanded (240px): Full tree view — Header + ChannelTree + UserBar
+ * - Collapsed (52px): Server icon + badges only
  *
- * Ağaç yapısı (VS Code tarzı collapsible):
- * ├─ Friends (collapsible section)
- * ├─ DMs (collapsible section)
- * └─ Server (collapsible, altında categories)
- *    ├─ Category 1 (collapsible)
- *    │  ├─ #text-channel
- *    │  └─ 🔊 voice-channel
- *    └─ Category 2
- *       └─ ...
- *
- * Her section'ın expand/collapse durumu `expandedSections` map'inde saklanır.
- * Key format: "friends", "dms", "server", "cat:{categoryId}"
- *
- * State localStorage("mqvi_sidebar") ile persist edilir.
+ * Section keys: "friends", "dms", "server", "cat:{categoryId}"
+ * Missing keys default to expanded (true).
+ * State is persisted to localStorage("mqvi_sidebar").
  */
 
 import { create } from "zustand";
 
 const SIDEBAR_STORAGE_KEY = "mqvi_sidebar";
 
-/** localStorage'a persist edilecek state subset'i */
 type PersistedSidebar = {
   isExpanded: boolean;
   expandedSections: Record<string, boolean>;
 };
 
-/**
- * loadPersistedSidebar — localStorage'dan kaydedilmiş sidebar state'ini okur.
- * Geçersiz veya boş ise varsayılan değerler döner.
- */
 function loadPersistedSidebar(): PersistedSidebar {
   try {
     const raw = localStorage.getItem(SIDEBAR_STORAGE_KEY);
@@ -49,7 +33,7 @@ function loadPersistedSidebar(): PersistedSidebar {
       };
     }
   } catch {
-    /* parse hatası — varsayılan kullan */
+    /* parse error — use defaults */
   }
   return {
     isExpanded: true,
@@ -57,14 +41,11 @@ function loadPersistedSidebar(): PersistedSidebar {
   };
 }
 
-/**
- * persistSidebar — Sidebar state'inin ilgili kısmını localStorage'a yazar.
- */
 function persistSidebar(state: PersistedSidebar): void {
   try {
     localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(state));
   } catch {
-    /* localStorage dolu veya erişim yok */
+    /* localStorage full or inaccessible */
   }
 }
 
@@ -73,39 +54,17 @@ function persistSidebar(state: PersistedSidebar): void {
 // ──────────────────────────────────
 
 type SidebarState = {
-  /** Sidebar genişletilmiş mi? (true = 240px, false = 52px) */
+  /** true = 240px, false = 52px */
   isExpanded: boolean;
-
-  /**
-   * Section expand/collapse durumları.
-   * Key formatları:
-   * - "friends" → Friends section
-   * - "dms" → DMs section
-   * - "server" → Server section (ana düğüm)
-   * - "cat:{categoryId}" → Belirli bir kanal kategorisi
-   *
-   * Map'te bulunmayan key → varsayılan olarak açık (true) kabul edilir.
-   */
+  /** Section expand/collapse states. Missing key = expanded (true). */
   expandedSections: Record<string, boolean>;
 
   // ─── Actions ───
-
-  /** Sidebar expand/collapse toggle */
   toggleSidebar: () => void;
-  /** Sidebar'ı genişlet (collapsed'dan gelindiğinde) */
   expandSidebar: () => void;
-  /** Sidebar'ı daralt */
   collapseSidebar: () => void;
-
-  /** Belirli bir section'ı toggle et */
   toggleSection: (sectionKey: string) => void;
-  /** Belirli bir section'ı aç */
   expandSection: (sectionKey: string) => void;
-
-  /**
-   * isSectionExpanded — Bir section açık mı kontrol eder.
-   * Map'te yoksa varsayılan true döner (ilk açılışta tüm section'lar açık).
-   */
   isSectionExpanded: (sectionKey: string) => boolean;
 };
 

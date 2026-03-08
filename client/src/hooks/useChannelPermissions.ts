@@ -1,14 +1,8 @@
 /**
- * useChannelPermissions — Kanal bazlı effective permission hook'u.
+ * useChannelPermissions — Effective channel permission hook.
  *
- * Bu hook, mevcut kullanıcının belirli bir kanaldaki yetkilerini hesaplar.
- * memberStore'dan kullanıcının rollerini ve effective_permissions'ını,
- * channelPermissionStore'dan o kanaldaki override'ları alır,
- * ve resolveChannelPermissions ile Discord algoritmasını uygular.
- *
- * Kullanım:
- *   const { hasChannelPerm, channelPerms } = useChannelPermissions(channelId);
- *   if (hasChannelPerm(Permissions.SendMessages)) { ... }
+ * Combines user's base permissions, role IDs, and channel overrides
+ * using resolveChannelPermissions (Discord algorithm: (base & ~deny) | allow).
  */
 
 import { useMemo } from "react";
@@ -26,29 +20,24 @@ export function useChannelPermissions(channelID: string | null) {
   const members = useMemberStore((s) => s.members);
   const getOverrides = useChannelPermissionStore((s) => s.getOverrides);
 
-  // Mevcut kullanıcının üyelik bilgisi (rolleri + effective_permissions içerir)
   const currentMember = useMemo(
     () => members.find((m) => m.id === currentUser?.id),
     [members, currentUser?.id]
   );
 
-  // Bu kanaldaki override'lar
   const overrides = channelID ? getOverrides(channelID) : [];
 
-  // Kullanıcının rol ID'leri
   const roleIds = useMemo(
     () => currentMember?.roles.map((r) => r.id) ?? [],
     [currentMember?.roles]
   );
 
-  // Kanal bazlı effective permissions hesapla
   const channelPerms = useMemo(() => {
     const base = currentMember?.effective_permissions ?? 0;
     if (!channelID || overrides.length === 0) return base;
     return resolveChannelPermissions(base, roleIds, overrides);
   }, [currentMember?.effective_permissions, channelID, roleIds, overrides]);
 
-  // Convenience fonksiyon: belirli bir yetkinin var olup olmadığını kontrol et
   const hasChannelPerm = useMemo(() => {
     return (perm: Permission): boolean => {
       if ((channelPerms & Permissions.Admin) !== 0) return true;

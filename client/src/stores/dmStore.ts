@@ -1,23 +1,8 @@
 /**
- * DM Store — Direct Messages state yönetimi.
+ * DM Store — Direct Messages state management.
  *
- * Tasarım kararları:
- * - channels: DMChannelWithUser[] — tüm DM kanalları (karşı taraf bilgisiyle)
- * - selectedDMId: Seçili DM kanalı ID'si (null = DM görünümünde değil)
- * - messagesByChannel: Record<channelId, DMMessage[]> — DM mesaj cache'i
- * - WS event'leri ile gerçek zamanlı güncelleme
- *
- * Feature parity notu:
- * Channel chat ile aynı özellikleri destekler:
- * - Reply (replyingTo + scrollToMessageId)
- * - Reactions (toggleReaction + handleDMReactionUpdate)
- * - Typing indicator (typingUsers + handleDMTypingStart)
- * - Pin (pinMessage/unpinMessage + handleDMMessagePin/Unpin)
- * - File upload (sendMessage files parametresi)
- * - Search (searchMessages)
- *
- * Zustand selector stable ref notu:
- * EMPTY_CHANNELS ve EMPTY_MESSAGES module-level sabit olarak tanımlanır.
+ * Stable empty refs (EMPTY_CHANNELS, EMPTY_MESSAGES) prevent infinite
+ * re-renders in Zustand selectors.
  */
 
 import { create } from "zustand";
@@ -44,57 +29,46 @@ const EMPTY_CHANNELS: DMChannelWithUser[] = [];
 const EMPTY_MESSAGES: DMMessage[] = [];
 const EMPTY_STRINGS: string[] = [];
 
-/**
- * sortChannelsByActivity — DM kanallarını sıralar.
- * Pinned DM'ler en üstte, kendi aralarında activity sıralı.
- * Sonra diğer DM'ler activity sıralı.
- * last_message_at null ise created_at'e fallback edilir.
- */
+/** Sorts DM channels: pinned first (by activity), then unpinned (by activity). */
 function sortChannelsByActivity(channels: DMChannelWithUser[]): DMChannelWithUser[] {
   return [...channels].sort((a, b) => {
-    // Pinned olanlar en üstte
     if (a.is_pinned && !b.is_pinned) return -1;
     if (!a.is_pinned && b.is_pinned) return 1;
-    // Aynı pin durumunda — activity sıralı
     const aTime = a.last_message_at ?? a.created_at;
     const bTime = b.last_message_at ?? b.created_at;
     return bTime.localeCompare(aTime);
   });
 }
 
-/** Typing indicator otomatik temizleme süresi (ms) */
+/** Typing indicator auto-cleanup timeout (ms) */
 const TYPING_TIMEOUT = 5_000;
 
-/** Typing timer'ları: `channelId:username` → timeout ID */
+/** Typing timers: `channelId:username` -> timeout ID */
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 type DMState = {
-  /** Tüm DM kanalları */
   channels: DMChannelWithUser[];
-  /** Seçili DM kanalı ID'si */
   selectedDMId: string | null;
-  /** DM mesaj cache'i: channelId → DMMessage[] */
+  /** Message cache: channelId -> DMMessage[] */
   messagesByChannel: Record<string, DMMessage[]>;
-  /** Kanal bazlı "daha eski mesaj var mı?" */
+  /** Per-channel "has older messages?" flag */
   hasMoreByChannel: Record<string, boolean>;
-  /** DM okunmamış mesaj sayıları: channelId → count */
+  /** DM unread counts: channelId -> count */
   dmUnreadCounts: Record<string, number>;
-  /** Yüklenme durumları */
   isLoading: boolean;
   isLoadingMessages: boolean;
 
   // ─── Reply State ───
-  /** Yanıt verilmekte olan mesaj (input üstünde ReplyBar gösterilir) */
   replyingTo: DMMessage | null;
-  /** Scroll-to-message: Bu ID'ye sahip mesaja scroll et ve highlight yap */
+  /** One-shot scroll target: scroll to this message ID and highlight */
   scrollToMessageId: string | null;
 
   // ─── Typing State ───
-  /** Kanal bazlı typing kullanıcıları: channelId → username[] */
+  /** Per-channel typing users: channelId -> username[] */
   typingUsers: Record<string, string[]>;
 
   // ─── DM Settings State ───
-  /** Context menu "Mesajlarda Ara" → DM aç + search panel aktif */
+  /** Context menu "Search Messages" -> open DM + activate search panel */
   pendingSearchChannelId: string | null;
 
   // ─── Actions ───
@@ -123,27 +97,20 @@ type DMState = {
   searchMessages: (channelId: string, query: string, limit?: number, offset?: number) => Promise<DMSearchResult>;
 
   // ─── Unread ───
-  /** DM okunmamış sayacını artır (mesaj başka birinden geldiğinde) */
   incrementDMUnread: (channelId: string) => void;
-  /** DM mesaj silindiğinde okunmamış sayacını azalt (0'ın altına düşmez) */
   decrementDMUnread: (channelId: string) => void;
-  /** DM okunmamış sayacını sıfırla (kanal açıldığında) */
   clearDMUnread: (channelId: string) => void;
-  /** Toplam DM okunmamış sayısı */
   getTotalDMUnread: () => number;
 
   // ─── DM Settings Actions ───
-  /** Sidebar'dan gizle (backend + lokal state) */
   hideDM: (channelId: string) => Promise<void>;
-  /** Sohbeti sabitle/kaldır */
   pinDM: (channelId: string) => Promise<void>;
   unpinDM: (channelId: string) => Promise<void>;
-  /** Sessize al (duration: "1h"/"8h"/"7d"/"forever") */
+  /** Duration: "1h" / "8h" / "7d" / "forever" */
   muteDM: (channelId: string, duration: string) => Promise<void>;
   unmuteDM: (channelId: string) => Promise<void>;
-  /** Initial load: pinned + muted ID'leri çek → channels'a merge et */
+  /** Fetch pinned + muted IDs and merge into channels */
   fetchDMSettings: () => Promise<void>;
-  /** Context menu → arama paneli tetikleme */
   setPendingSearchChannelId: (id: string | null) => void;
 
   // ─── WS Event Handlers ───
@@ -155,21 +122,18 @@ type DMState = {
   handleDMTypingStart: (channelId: string, username: string) => void;
   handleDMMessagePin: (data: { dm_channel_id: string; message: DMMessage }) => void;
   handleDMMessageUnpin: (data: { dm_channel_id: string; message_id: string }) => void;
-  /** DM settings WS event: hide/pin/mute değişikliği */
   handleDMSettingsUpdate: (data: { dm_channel_id: string; action: string }) => void;
-  /** DM kanalı güncellendi (WS: dm_channel_update — e2ee toggle vb.) */
   handleDMChannelUpdate: (channel: DMChannelWithUser) => void;
 
   // ─── E2EE Toggle ───
-  /** DM kanalında E2EE'yi aç/kapat */
   toggleE2EE: (channelId: string, enabled: boolean) => Promise<boolean>;
 
   // ─── Helpers ───
   getMessagesForChannel: (channelId: string) => DMMessage[];
   getTypingUsers: (channelId: string) => string[];
-  /** Mesaj cache'ini temizle — E2EE init sonrasi yeniden fetch icin */
+  /** Clear message cache for a channel — forces re-fetch after E2EE init */
   invalidateMessages: (channelId: string) => void;
-  /** Tum DM mesaj cache'ini temizle — E2EE restore sonrasi */
+  /** Clear all DM message caches — used after E2EE key restore */
   invalidateFetchCache: () => void;
 };
 
@@ -203,7 +167,6 @@ export const useDMStore = create<DMState>((set, get) => ({
   createOrGetChannel: async (userId) => {
     const res = await dmApi.createDMChannel(userId);
     if (res.success && res.data) {
-      // Kanal zaten listede yoksa ekle
       set((state) => {
         const exists = state.channels.some((ch) => ch.id === res.data!.id);
         if (exists) return state;
@@ -217,9 +180,8 @@ export const useDMStore = create<DMState>((set, get) => ({
   fetchMessages: async (channelId) => {
     if (get().messagesByChannel[channelId]) return;
 
-    // E2EE hazir degilse fetch yapma — mesajlar null content ile cache'lenir
-    // ve bir daha decrypt edilemez. DMChatContent, initStatus "ready" oldugunda
-    // invalidateMessages + fetchMessages cagirarak tekrar dener.
+    // Don't fetch if E2EE isn't ready — messages would be cached with null content
+    // and can never be decrypted. DMChatContent will retry when initStatus becomes "ready".
     const e2eeStatus = useE2EEStore.getState().initStatus;
     if (e2eeStatus !== "ready") return;
 
@@ -227,7 +189,6 @@ export const useDMStore = create<DMState>((set, get) => ({
 
     const res = await dmApi.getDMMessages(channelId, undefined, 50);
     if (res.success && res.data) {
-      // E2EE mesajlari decrypt et (encryption_version=0 olanlara dokunmaz)
       const messages = await decryptDMMessages(res.data!.messages ?? []);
 
       set((state) => ({
@@ -254,7 +215,6 @@ export const useDMStore = create<DMState>((set, get) => ({
     const beforeId = messages[0].id;
     const res = await dmApi.getDMMessages(channelId, beforeId, 50);
     if (res.success && res.data) {
-      // E2EE mesajlari decrypt et
       const decrypted = await decryptDMMessages(res.data!.messages);
 
       set((state) => ({
@@ -271,20 +231,16 @@ export const useDMStore = create<DMState>((set, get) => ({
   },
 
   /**
-   * sendMessage — DM mesajı gönderir.
+   * Sends a DM message with E2EE if the channel has it enabled.
    *
-   * E2EE aktifse:
-   * 1. Alıcının tüm cihazları için prekey bundle çek
-   * 2. Her cihaz için Signal Protocol ile şifrele
-   * 3. Kendi diğer cihazları için de şifrele (self-fanout)
-   * 4. sendEncryptedDMMessage ile gönder
+   * E2EE flow: fetch recipient prekey bundles -> encrypt per-device (Signal Protocol)
+   * -> encrypt for own other devices (self-fanout) -> send via encrypted endpoint.
    *
-   * E2EE aktif değilse plaintext olarak gönderir (legacy).
+   * Falls back to plaintext if E2EE is disabled or recipient has no keys.
    */
   sendMessage: async (channelId, content, files, replyToId) => {
     const e2eeState = useE2EEStore.getState();
 
-    // E2EE aktif — şifreli gönder (kanal e2ee_enabled + cihaz hazır)
     const dmChannel = get().channels.find((ch) => ch.id === channelId);
     if (dmChannel?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const channel = dmChannel;
@@ -292,7 +248,7 @@ export const useDMStore = create<DMState>((set, get) => ({
 
       if (channel && currentUserId) {
         try {
-          // Dosyalar varsa her birini AES-256-GCM ile sifrele
+          // Encrypt files with AES-256-GCM if present
           let encryptedFiles: File[] | undefined;
           let fileMetas: EncryptedFileMeta[] | undefined;
 
@@ -313,7 +269,7 @@ export const useDMStore = create<DMState>((set, get) => ({
             }
           }
 
-          // Structured payload: content + file_keys (varsa) → JSON string
+          // Structured payload: content + file_keys (if any) -> JSON string
           const plaintext = encodePayload(content, fileMetas);
 
           const envelopes = await encryptDMMessage(
@@ -324,13 +280,10 @@ export const useDMStore = create<DMState>((set, get) => ({
           );
 
           const ciphertext = JSON.stringify(envelopes);
-          // e2ee_metadata: sunucunun ihtiyaç duyabileceği ek bilgiler
-          // (şu an boş — mentions DM'de sunucu tarafında işlenmiyor)
           const metadata = JSON.stringify({});
 
-          // Plaintext'i in-memory FIFO cache'e ekle (WS echo'da kullanılacak).
-          // API call'dan ÖNCE yapılır — WS event ancak sunucu işledikten sonra gelir,
-          // dolayısıyla cache her zaman hazır olur.
+          // Push plaintext to in-memory FIFO cache before API call.
+          // WS echo only arrives after server processes it, so cache is always ready.
           pushSentPlaintext(channelId, { content, file_keys: fileMetas });
 
           const res = await dmApi.sendEncryptedDMMessage(
@@ -343,19 +296,17 @@ export const useDMStore = create<DMState>((set, get) => ({
           );
 
           if (res.success && res.data) {
-            // API başarılı → IndexedDB'ye kalıcı cache yaz.
-            // Fetch (tarihsel yükleme) sırasında da erişilebilir olur.
-            // await ile bekle — WS echo gelmeden önce IndexedDB'ye yazılmış olmalı
-            // (in-memory cache'in HMR sonrası boş olma ihtimaline karşı fallback)
+            // Persist to IndexedDB for historical fetch access.
+            // Await to ensure it's written before WS echo arrives
+            // (fallback for HMR clearing in-memory cache).
             try {
               await persistSentPlaintext(res.data.id, channelId, content);
             } catch {
-              // IndexedDB hatası — mesaj yine de gönderildi, cache opsiyonel
+              // IndexedDB error — message was still sent, cache is optional
             }
           }
 
           if (!res.success) {
-            // API başarısız → pre-send cache'den kaldır (LIFO — son eklenen)
             discardLastSentPlaintext(channelId);
             if (res.error?.includes("too many")) {
               useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
@@ -364,11 +315,10 @@ export const useDMStore = create<DMState>((set, get) => ({
 
           return res.success;
         } catch (err) {
-          // Encrypt/send hatası → pre-send cache temizle
           discardLastSentPlaintext(channelId);
           console.error("[dmStore] E2EE encrypt failed:", err);
 
-          // Alıcının E2EE anahtarı yoksa plaintext fallback — mesaj engellenmez
+          // Fallback to plaintext if recipient has no E2EE keys
           const errMsg = err instanceof Error ? err.message : "";
           if (errMsg === "RECIPIENT_NO_KEYS") {
             const fallbackRes = await dmApi.sendDMMessage(channelId, content, files, replyToId);
@@ -383,7 +333,7 @@ export const useDMStore = create<DMState>((set, get) => ({
       }
     }
 
-    // E2EE aktif değil — plaintext gönder (legacy)
+    // No E2EE — send plaintext (legacy)
     const res = await dmApi.sendDMMessage(channelId, content, files, replyToId);
 
     if (!res.success && res.error?.includes("too many")) {
@@ -396,8 +346,7 @@ export const useDMStore = create<DMState>((set, get) => ({
   editMessage: async (messageId, content) => {
     const e2eeState = useE2EEStore.getState();
 
-    // E2EE aktifse şifreli edit gönder — kanal e2ee_enabled kontrolü
-    // Düzenlenen mesajı bul — hangi kanala ait olduğunu ve alıcıyı belirle
+    // Find the message's channel and recipient for E2EE
     const editState = get();
     let recipientUserId: string | null = null;
     let editChannelE2EE = false;
@@ -428,7 +377,7 @@ export const useDMStore = create<DMState>((set, get) => ({
           const ciphertext = JSON.stringify(envelopes);
           const metadata = JSON.stringify({});
 
-          // Edit plaintext'i in-memory cache'e yaz (WS echo'da kullanılacak)
+          // Cache edit plaintext for WS echo decryption
           cacheEditPlaintext(messageId, { content });
 
           const res = await dmApi.editEncryptedDMMessage(
@@ -439,7 +388,7 @@ export const useDMStore = create<DMState>((set, get) => ({
           );
 
           if (res.success) {
-            // IndexedDB cache güncelle (search + fetch için)
+            // Update IndexedDB cache for search + fetch
             persistSentPlaintext(messageId, "", content).catch(() => {});
           }
 
@@ -448,7 +397,6 @@ export const useDMStore = create<DMState>((set, get) => ({
           console.error("[dmStore] E2EE edit encrypt failed:", err);
           const editErrMsg = err instanceof Error ? err.message : "";
           if (editErrMsg === "RECIPIENT_NO_KEYS") {
-            // Alıcının anahtarı yok — plaintext fallback
             const fallbackRes = await dmApi.editDMMessage(messageId, content);
             return fallbackRes.success;
           }
@@ -472,21 +420,12 @@ export const useDMStore = create<DMState>((set, get) => ({
 
   setReplyingTo: (message) => set({ replyingTo: message }),
 
-  /**
-   * setScrollToMessageId — Belirtilen mesaja scroll et.
-   * Değer set edildikten sonra UI tarafında scrollIntoView + highlight yapılır,
-   * ardından null'a sıfırlanır (tek seferlik tetikleme).
-   */
+  /** Set once, UI scrolls + highlights, then resets to null. */
   setScrollToMessageId: (id) => set({ scrollToMessageId: id }),
 
   // ─── Reactions ───
 
-  /**
-   * toggleReaction — Bir DM mesajına emoji reaction ekler veya kaldırır.
-   *
-   * API çağrısı yapar, sonuç WS broadcast ile gelecek (handleDMReactionUpdate).
-   * Optimistic update yapmıyoruz — WS event ile güncellenecek.
-   */
+  /** No optimistic update — WS event (handleDMReactionUpdate) updates state. */
   toggleReaction: async (messageId, _channelId, emoji) => {
     await dmApi.toggleDMReaction(messageId, emoji);
   },
@@ -495,12 +434,10 @@ export const useDMStore = create<DMState>((set, get) => ({
 
   pinMessage: async (_channelId, messageId) => {
     await dmApi.pinDMMessage(messageId);
-    // WS event (dm_message_pin) ile state güncellenecek
   },
 
   unpinMessage: async (_channelId, messageId) => {
     await dmApi.unpinDMMessage(messageId);
-    // WS event (dm_message_unpin) ile state güncellenecek
   },
 
   getPinnedMessages: async (channelId) => {
@@ -524,26 +461,19 @@ export const useDMStore = create<DMState>((set, get) => ({
   // ─── DM Settings Actions ───
 
   /**
-   * hideDM — DM kanalını sidebar'dan gizler.
-   * Backend'e POST gönderir, başarılıysa lokal channels'dan çıkarır.
-   * Yeni mesaj gelince backend otomatik unhide yapar → WS ile geri gelir.
+   * Hides DM from sidebar. Backend auto-unhides on new message (arrives via WS).
    */
   hideDM: async (channelId) => {
     const res = await dmApi.hideDM(channelId);
     if (res.success) {
       set((state) => ({
         channels: state.channels.filter((ch) => ch.id !== channelId),
-        // Eğer gizlenen kanal seçiliyse seçimi temizle
         selectedDMId: state.selectedDMId === channelId ? null : state.selectedDMId,
       }));
       useToastStore.getState().addToast("success", i18n.t("dm:dmClosed"));
     }
   },
 
-  /**
-   * pinDM — DM sohbetini sabitler.
-   * Backend'e POST gönderir, başarılıysa lokal is_pinned güncelle + sırala.
-   */
   pinDM: async (channelId) => {
     const res = await dmApi.pinDMConversation(channelId);
     if (res.success) {
@@ -572,10 +502,6 @@ export const useDMStore = create<DMState>((set, get) => ({
     }
   },
 
-  /**
-   * muteDM — DM sohbetini sessize alır.
-   * Duration: "1h" / "8h" / "7d" / "forever"
-   */
   muteDM: async (channelId, duration) => {
     const res = await dmApi.muteDM(channelId, duration);
     if (res.success) {
@@ -600,11 +526,7 @@ export const useDMStore = create<DMState>((set, get) => ({
     }
   },
 
-  /**
-   * fetchDMSettings — Pinned + muted DM ID'lerini çeker.
-   * Initial load'da channels listesi ile birlikte çağrılır.
-   * Backend'den gelen ID'ler ile lokal channels'ın is_pinned/is_muted'ını senkronize eder.
-   */
+  /** Fetches pinned + muted DM IDs and syncs with local channel state. */
   fetchDMSettings: async () => {
     const res = await dmApi.getDMSettings();
     if (res.success && res.data) {
@@ -673,7 +595,6 @@ export const useDMStore = create<DMState>((set, get) => ({
 
   handleDMChannelCreate: (channel) => {
     set((state) => {
-      // Duplicate kontrolü
       if (state.channels.some((ch) => ch.id === channel.id)) return state;
       return { channels: [channel, ...state.channels] };
     });
@@ -681,7 +602,7 @@ export const useDMStore = create<DMState>((set, get) => ({
 
   handleDMMessageCreate: (message) => {
     set((state) => {
-      // Kanal sıralamasını güncelle — mesaj cache yüklü olmasa bile çalışır
+      // Update channel ordering even if message cache isn't loaded
       const updatedChannels = state.channels.map((ch) =>
         ch.id === message.dm_channel_id
           ? { ...ch, last_message_at: message.created_at }
@@ -689,7 +610,7 @@ export const useDMStore = create<DMState>((set, get) => ({
       );
       const sortedChannels = sortChannelsByActivity(updatedChannels);
 
-      // Typing indicator'ı temizle (mesaj geldi = yazmayı bitirdi)
+      // Clear typing indicator (message arrived = done typing)
       const typingUsers = { ...state.typingUsers };
       if (typingUsers[message.dm_channel_id]) {
         typingUsers[message.dm_channel_id] = typingUsers[message.dm_channel_id].filter(
@@ -697,13 +618,11 @@ export const useDMStore = create<DMState>((set, get) => ({
         );
       }
 
-      // Mesaj cache'i yüklenmemişse sadece kanal sırasını güncelle
       const channelMessages = state.messagesByChannel[message.dm_channel_id];
       if (!channelMessages) {
         return { channels: sortedChannels, typingUsers };
       }
 
-      // Duplicate kontrolü
       if (channelMessages.some((m) => m.id === message.id)) {
         return { channels: sortedChannels, typingUsers };
       }
@@ -736,11 +655,8 @@ export const useDMStore = create<DMState>((set, get) => ({
   },
 
   /**
-   * handleDMMessageDelete — DM mesajı silindiğinde çağrılır.
-   *
-   * Silinen mesajı listeden çıkarır + ona reply yapan mesajların
-   * referenced_message'ını null'a çevir → "Orijinal mesaj silindi" gösterilir.
-   * (Channel messageStore ile aynı pattern)
+   * Removes deleted message and nullifies referenced_message on replies
+   * pointing to it ("Original message was deleted" display).
    */
   handleDMMessageDelete: (data) => {
     set((state) => {
@@ -764,12 +680,7 @@ export const useDMStore = create<DMState>((set, get) => ({
     });
   },
 
-  /**
-   * handleDMReactionUpdate — WS dm_reaction_update event'i geldiğinde çağrılır.
-   *
-   * Backend her toggle sonrası tam reaction listesini gönderir —
-   * doğrudan replace (channel messageStore ile aynı pattern).
-   */
+  /** Backend sends full reaction list after each toggle — direct replace. */
   handleDMReactionUpdate: (data) => {
     set((state) => {
       const channelMessages = state.messagesByChannel[data.dm_channel_id];
@@ -788,13 +699,7 @@ export const useDMStore = create<DMState>((set, get) => ({
     });
   },
 
-  /**
-   * handleDMTypingStart — DM kanalında kullanıcı yazmaya başladığında çağrılır.
-   *
-   * 5 saniye sonra otomatik temizlenir (kullanıcı yazmayı bırakırsa
-   * yeni typing event gelmez → timer ile temizlenir).
-   * (Channel messageStore handleTypingStart ile aynı pattern)
-   */
+  /** Adds user to typing list with 5s auto-cleanup timer. */
   handleDMTypingStart: (channelId, username) => {
     set((state) => {
       const current = state.typingUsers[channelId] ?? [];
@@ -808,7 +713,6 @@ export const useDMStore = create<DMState>((set, get) => ({
       };
     });
 
-    // Mevcut timer'ı iptal et ve yenisini kur
     const key = `${channelId}:${username}`;
     const existingTimer = typingTimers.get(key);
     if (existingTimer) clearTimeout(existingTimer);
@@ -829,12 +733,6 @@ export const useDMStore = create<DMState>((set, get) => ({
     );
   },
 
-  /**
-   * handleDMMessagePin — DM mesajı sabitlendiğinde çağrılır.
-   *
-   * Backend tam enriched DMMessage gönderir — is_pinned:true.
-   * Store'daki ilgili mesajı güncelle.
-   */
   handleDMMessagePin: (data) => {
     set((state) => {
       const channelMessages = state.messagesByChannel[data.dm_channel_id];
@@ -851,11 +749,6 @@ export const useDMStore = create<DMState>((set, get) => ({
     });
   },
 
-  /**
-   * handleDMMessageUnpin — DM mesajı pin'den çıkarıldığında çağrılır.
-   *
-   * Backend message_id gönderir — ilgili mesajın is_pinned'ını false yap.
-   */
   handleDMMessageUnpin: (data) => {
     set((state) => {
       const channelMessages = state.messagesByChannel[data.dm_channel_id];
@@ -872,14 +765,7 @@ export const useDMStore = create<DMState>((set, get) => ({
     });
   },
 
-  /**
-   * handleDMSettingsUpdate — WS dm_settings_update event'i geldiğinde çağrılır.
-   *
-   * Backend aksiyona göre payload gönderir:
-   * - hide/unhide: kanalı listeden çıkar/ekle
-   * - pin/unpin: is_pinned güncelle + sırala
-   * - mute/unmute: is_muted güncelle
-   */
+  /** Handles hide/unhide/pin/unpin/mute/unmute actions from WS broadcast. */
   handleDMSettingsUpdate: (data) => {
     const { dm_channel_id, action } = data;
 
@@ -892,7 +778,7 @@ export const useDMStore = create<DMState>((set, get) => ({
         break;
 
       case "unhidden":
-        // Unhide geldiğinde channels listesini yeniden çek (yeni mesajla geri gelmiş olabilir)
+        // Re-fetch channels (new message may have triggered unhide)
         get().fetchChannels();
         break;
 

@@ -1,17 +1,5 @@
 /**
- * Server Store — Zustand ile çoklu sunucu yönetimi.
- *
- * Multi-server mimaride kullanıcı birden fazla sunucuya üye olabilir.
- * Bu store:
- * - Kullanıcının tüm sunucu listesini tutar (sidebar icon listesi)
- * - Aktif sunucuyu takip eder (tüm server-scoped store'lar buna bağlı)
- * - Sunucu oluşturma, katılma, ayrılma işlemlerini yönetir
- * - WS event'leri ile gerçek zamanlı güncellenir
- *
- * Server değiştirince cascade refetch:
- * setActiveServer çağrıldığında channelStore, memberStore, roleStore, readStateStore
- * otomatik olarak yeni sunucunun verilerini fetch eder. Bu, her store'un
- * fetchXxx fonksiyonunun activeServerId'yi kullanmasıyla sağlanır.
+ * Server Store — Multi-server state management.
  */
 
 import { create } from "zustand";
@@ -22,87 +10,46 @@ import { useRoleStore } from "./roleStore";
 import { useReadStateStore } from "./readStateStore";
 import type { Server, ServerListItem, CreateServerRequest } from "../types";
 
-/** localStorage key — son aktif sunucu ID'si (sayfa yenileme sonrası kurtarma) */
+/** Persist last active server across page reloads */
 const LAST_SERVER_KEY = "mqvi_last_server";
 
 type ServerState = {
-  /** Kullanıcının üye olduğu sunucu listesi (sidebar) */
   servers: ServerListItem[];
-  /** Aktif sunucu ID'si — tüm server-scoped store'lar buna bağlı */
+  /** All server-scoped stores depend on this */
   activeServerId: string | null;
-  /** Aktif sunucunun tam bilgisi (detay sayfası, settings için) */
   activeServer: Server | null;
-  /** Yüklenme durumu */
   isLoading: boolean;
-  /** Sessize alınan sunucu ID'leri — Set olarak tutulur (hızlı lookup) */
   mutedServerIds: Set<string>;
 
   // ─── Actions ───
 
-  /** WS ready event'inden gelen sunucu listesini set eder */
   setServersFromReady: (servers: ServerListItem[]) => void;
-
-  /** API'den sunucu listesini çeker */
   fetchServers: () => Promise<void>;
-
-  /**
-   * Aktif sunucuyu değiştirir.
-   *
-   * Bu fonksiyon çağrıldığında:
-   * 1. activeServerId güncellenir
-   * 2. localStorage'a persist edilir
-   *
-   * Cascade refetch çağıran tarafta (AppLayout/ServerListSidebar)
-   * yapılır — böylece store'lar arası circular dependency önlenir.
-   */
+  /** Cascade refetch is done by the caller (AppLayout) to avoid circular deps. */
   setActiveServer: (serverId: string) => void;
-
-  /** Aktif sunucunun detayını API'den çeker */
   fetchActiveServer: () => Promise<void>;
-
-  /** Yeni sunucu oluşturur */
   createServer: (req: CreateServerRequest) => Promise<Server | null>;
-
-  /** Davet koduyla sunucuya katılır */
   joinServer: (inviteCode: string) => Promise<Server | null>;
-
-  /** Sunucudan ayrılır */
   leaveServer: (serverId: string) => Promise<boolean>;
-
-  /** Sunucuyu siler (owner only) */
   deleteServer: (serverId: string) => Promise<boolean>;
-
-  /** Sunucu listesini sürükleyerek sıralar (per-user, optimistic update) */
   reorderServers: (items: { id: string; position: number }[]) => Promise<boolean>;
 
   // ─── WS Event Handlers ───
 
-  /** server_update — sunucu bilgisi güncellendi */
   handleServerUpdate: (server: Server) => void;
-
-  /** server_create — kullanıcı yeni sunucuya katıldı veya oluşturdu */
   handleServerCreate: (server: ServerListItem) => void;
-
-  /** server_delete — sunucu silindi veya kullanıcı ayrıldı */
   handleServerDelete: (serverId: string) => void;
 
   // ─── Mute Actions ───
 
-  /** WS ready event'inden gelen muted server ID'lerini set eder */
   setMutedServersFromReady: (ids: string[]) => void;
-
-  /** Sunucuyu sessize al — API çağırır + local state günceller */
   muteServer: (serverId: string, duration: string) => Promise<boolean>;
-
-  /** Sunucu sessizliğini kaldır — API çağırır + local state günceller */
   unmuteServer: (serverId: string) => Promise<boolean>;
-
-  /** Sunucunun muted olup olmadığını kontrol eder */
   isServerMuted: (serverId: string) => boolean;
 
   // ─── E2EE Toggle ───
 
-  /** Sunucu E2EE durumunu değiştirir (sadece owner) */
+  /** Toggle server E2EE (owner only) */
   toggleE2EE: (serverId: string, enabled: boolean) => Promise<boolean>;
 };
 
@@ -115,7 +62,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   setServersFromReady: (servers) => {
     set({ servers });
-    // Eğer aktif sunucu yoksa veya aktif sunucu listede yoksa, ilk sunucuyu seç
+    // If no active server or active not in list, select first
     const state = get();
     if (servers.length > 0) {
       const savedId = state.activeServerId;
@@ -139,11 +86,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   setActiveServer: (serverId) => {
-    // Server-scoped store'ları hemen temizle — böylece ChannelTree
-    // yeniden render olduğunda eski sunucunun kanalları gösterilmez.
-    // AppLayout'taki useEffect de cascadeRefetch yapar (clear + fetch),
-    // ama useEffect render SONRASI çalışır — o ana kadar eski veri
-    // yeni sunucu altında görünebilir. Bu early-clear bunu engeller.
+    // Clear server-scoped stores immediately to prevent stale data flash
+    // (useEffect runs after render, but we need the clear before).
     useChannelStore.getState().clearForServerSwitch();
     useMemberStore.getState().clearForServerSwitch();
     useRoleStore.getState().clearForServerSwitch();
@@ -167,8 +111,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const res = await serversApi.createServer(req);
     if (res.success && res.data) {
       const server = res.data;
-      // Sunucu listesine ekle + aktif sunucu olarak set et (atomik)
-      // WS server_create event de gelecek ama race condition'a karşı burada da ekle
+      // Add to list + set active (atomic). WS event will also come but we add here against race.
       set((state) => {
         const servers = state.servers.some((s) => s.id === server.id)
           ? state.servers
@@ -189,8 +132,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     const res = await serversApi.joinServer(inviteCode);
     if (res.success && res.data) {
       const server = res.data;
-      // Sunucu listesine ekle + aktif sunucu olarak set et (atomik)
-      // WS server_create event de gelecek
+      // Add to list + set active (WS event will also come)
       set((state) => {
         const servers = state.servers.some((s) => s.id === server.id)
           ? state.servers
@@ -210,7 +152,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   leaveServer: async (serverId) => {
     const res = await serversApi.leaveServer(serverId);
     if (res.success) {
-      // WS server_delete event de gelecek
+      // WS event will also come
       set((state) => {
         const servers = state.servers.filter((s) => s.id !== serverId);
         let activeServerId = state.activeServerId;
@@ -232,7 +174,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   deleteServer: async (serverId) => {
     const res = await serversApi.deleteServer(serverId);
     if (res.success) {
-      // WS server_delete event de gelecek
+      // WS event will also come
       set((state) => {
         const servers = state.servers.filter((s) => s.id !== serverId);
         let activeServerId = state.activeServerId;
@@ -252,11 +194,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   reorderServers: async (items) => {
-    // Önceki listeyi sakla — rollback için
+    // Save for rollback
     const prevServers = get().servers;
 
-    // Optimistic update: items zaten sıralı position değerleri taşıyor.
-    // ID → position map'i oluştur, listeyi position'a göre sırala.
+    // Optimistic update: sort by new positions
     const positionMap = new Map(items.map((item) => [item.id, item.position]));
     const sorted = [...prevServers].sort((a, b) => {
       const posA = positionMap.get(a.id) ?? 9999;
@@ -279,13 +220,13 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   handleServerUpdate: (server) => {
     set((state) => {
-      // Sunucu listesindeki bilgiyi güncelle
+      // Update sidebar list entry
       const servers = state.servers.map((s) =>
         s.id === server.id
           ? { id: server.id, name: server.name, icon_url: server.icon_url }
           : s
       );
-      // Aktif sunucu ise detayı da güncelle
+      // Update active server detail if applicable
       const activeServer =
         state.activeServer?.id === server.id ? server : state.activeServer;
       return { servers, activeServer };
@@ -353,7 +294,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   toggleE2EE: async (serverId, enabled) => {
     const res = await serversApi.updateServer(serverId, { e2ee_enabled: enabled });
-    // server_update WS event'i handleServerUpdate ile otomatik gelir
+    // server_update WS event will trigger handleServerUpdate automatically
     return res.success;
   },
 }));

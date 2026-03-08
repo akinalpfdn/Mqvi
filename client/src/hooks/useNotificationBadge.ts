@@ -1,20 +1,11 @@
 /**
- * useNotificationBadge — Okunmamış mesaj badge yönetimi.
+ * useNotificationBadge — Unread message badge management.
  *
- * İki ortamda çalışır:
+ * Two environments:
+ * 1. Electron (Windows): Taskbar overlay icon via 16x16 canvas -> IPC
+ * 2. Web (Browser): document.title prefix + favicon badge overlay
  *
- * 1. **Electron (Windows):** Taskbar overlay icon — Discord/Xbox tarzı kırmızı badge.
- *    16x16 canvas → dataURL → IPC → main process → setOverlayIcon.
- *    Tray tooltip da güncellenir.
- *
- * 2. **Web (Browser):** WhatsApp Web tarzı:
- *    - document.title → "(5) mqvi" / "mqvi"
- *    - Favicon badge — orijinal favicon üzerine kırmızı daire + sayı çizilir.
- *      Orijinal favicon bir kez yüklenir (Image), her count değişiminde
- *      32x32 canvas'a orijinal + badge overlay çizilir, <link rel="icon">
- *      güncellenir.
- *
- * Her iki ortamda da kanal + DM unread toplamı izlenir.
+ * Tracks combined channel + DM unread totals.
  */
 
 import { useEffect, useRef } from "react";
@@ -22,26 +13,15 @@ import { useReadStateStore } from "../stores/readStateStore";
 import { useDMStore } from "../stores/dmStore";
 import { useServerStore } from "../stores/serverStore";
 
-/** Badge rengi — Discord kırmızısı */
 const BADGE_COLOR = "#ED4245";
-/** Badge text rengi */
 const BADGE_TEXT_COLOR = "#FFFFFF";
-
-/** Electron overlay icon boyutu (Windows standart) */
 const OVERLAY_ICON_SIZE = 16;
-
-/** Favicon canvas boyutu — yüksek çözünürlüklü favicon */
 const FAVICON_SIZE = 32;
-
-/** Varsayılan sayfa başlığı */
 const BASE_TITLE = "mqvi";
 
 // ─── Electron Overlay Badge ───
 
-/**
- * renderOverlayIcon — 16x16 canvas'a kırmızı daire + beyaz sayı çizer.
- * Electron main process'e gönderilecek dataURL üretir.
- */
+/** Renders 16x16 red circle with white count for taskbar overlay. */
 function renderOverlayIcon(count: number): string {
   const canvas = document.createElement("canvas");
   canvas.width = OVERLAY_ICON_SIZE;
@@ -74,12 +54,7 @@ function renderOverlayIcon(count: number): string {
 
 // ─── Favicon Badge ───
 
-/**
- * renderFaviconWithBadge — Orijinal favicon üzerine kırmızı badge overlay çizer.
- *
- * 32x32 canvas'a orijinal ikon çizilir, sağ üst köşeye badge eklenir.
- * Badge boyutu sayı uzunluğuna göre ayarlanır (tek hane: daire, çok hane: pill).
- */
+/** Draws badge overlay on original favicon. Pill shape for multi-digit counts. */
 function renderFaviconWithBadge(
   originalImg: HTMLImageElement,
   count: number,
@@ -91,20 +66,17 @@ function renderFaviconWithBadge(
   const ctx = canvas.getContext("2d");
   if (!ctx) return "";
 
-  // Orijinal favicon'u çiz
   ctx.drawImage(originalImg, 0, 0, FAVICON_SIZE, FAVICON_SIZE);
 
-  // Badge parametreleri
   const label = count > 99 ? "99+" : String(count);
   const badgeRadius = 8;
   const badgeCenterX = FAVICON_SIZE - badgeRadius;
   const badgeCenterY = badgeRadius;
 
-  // Kırmızı daire badge
   ctx.fillStyle = BADGE_COLOR;
   ctx.beginPath();
   if (label.length > 1) {
-    // Pill şekli — geniş sayılar için
+    // Pill shape for wide numbers
     const padding = label.length > 2 ? 4 : 2;
     const pillWidth = badgeRadius + padding;
     const left = FAVICON_SIZE - pillWidth - badgeRadius;
@@ -120,19 +92,16 @@ function renderFaviconWithBadge(
       -Math.PI / 2,
     );
   } else {
-    // Basit daire — tek hane
     ctx.arc(badgeCenterX, badgeCenterY, badgeRadius, 0, Math.PI * 2);
   }
   ctx.fill();
 
-  // Beyaz sayı
   const fontSize = label.length > 2 ? 8 : label.length > 1 ? 10 : 12;
   ctx.fillStyle = BADGE_TEXT_COLOR;
   ctx.font = `bold ${fontSize}px sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // Pill için text merkezi sola kaymalı
   const textX =
     label.length > 1
       ? FAVICON_SIZE - badgeRadius - (label.length > 2 ? 2 : 1)
@@ -142,10 +111,6 @@ function renderFaviconWithBadge(
   return canvas.toDataURL("image/png");
 }
 
-/**
- * setFavicon — <link rel="icon"> elementini günceller.
- * Mevcut favicon link'i bulunur, href değiştirilir.
- */
 function setFavicon(href: string): void {
   const existing = document.querySelector(
     'link[rel="icon"][type="image/svg+xml"], link[rel="icon"]',
@@ -156,28 +121,18 @@ function setFavicon(href: string): void {
   }
 }
 
-/**
- * useNotificationBadge — AppLayout'ta çağrılır.
- *
- * Zustand store'lardan toplam okunmamış sayıyı izler:
- * - Electron: taskbar overlay icon günceller
- * - Web: document.title + favicon badge günceller
- */
+/** Called in AppLayout. Watches unread stores and updates badge accordingly. */
 export function useNotificationBadge(): void {
   const channelUnreads = useReadStateStore((s) => s.unreadCounts);
   const dmUnreads = useDMStore((s) => s.dmUnreadCounts);
   const activeServerId = useServerStore((s) => s.activeServerId);
   const mutedServerIds = useServerStore((s) => s.mutedServerIds);
 
-  /**
-   * Orijinal favicon Image referansı — bir kez yüklenir, sonra her badge
-   * güncellemesinde canvas'a overlay olarak çizilir. useRef ile tutulur
-   * çünkü Image yükleme async — load event'i ile resolve edilir.
-   */
+  /** Original favicon image — loaded once, reused for badge overlay */
   const originalFaviconRef = useRef<HTMLImageElement | null>(null);
   const originalFaviconHrefRef = useRef<string>("");
 
-  // Orijinal favicon'u bir kez yükle
+  // Load original favicon once
   useEffect(() => {
     const link = document.querySelector(
       'link[rel="icon"]',
@@ -195,9 +150,7 @@ export function useNotificationBadge(): void {
   }, []);
 
   useEffect(() => {
-    // Toplam okunmamış sayı hesapla
-    // Muted sunucunun channel unread'leri badge toplamından hariç tutulur.
-    // channelUnreads aktif sunucuya ait — aktif sunucu muted ise sıfır say.
+    // Exclude muted server's channel unreads from badge total
     const isActiveMuted = activeServerId ? mutedServerIds.has(activeServerId) : false;
     const channelTotal = isActiveMuted
       ? 0
@@ -208,7 +161,6 @@ export function useNotificationBadge(): void {
     );
     const total = channelTotal + dmTotal;
 
-    // ─── Document Title (her ortamda) ───
     document.title = total > 0 ? `(${total}) ${BASE_TITLE}` : BASE_TITLE;
 
     // ─── Electron: Taskbar Overlay Icon ───
@@ -224,7 +176,6 @@ export function useNotificationBadge(): void {
     // ─── Web: Favicon Badge ───
     if (originalFaviconRef.current) {
       if (total === 0) {
-        // Orijinal favicon'a geri dön
         setFavicon(originalFaviconHrefRef.current);
       } else {
         const badgedFavicon = renderFaviconWithBadge(

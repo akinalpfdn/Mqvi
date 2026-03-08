@@ -1,24 +1,17 @@
 /**
- * Role API fonksiyonları.
+ * Role API — server-scoped role CRUD + reordering.
  *
- * Multi-server: Tüm endpoint'ler server-scoped.
- * Backend endpoint'leri:
- * - GET    /api/servers/{serverId}/roles          → Tüm rolleri döner
- * - POST   /api/servers/{serverId}/roles          → Yeni rol oluştur [MANAGE_ROLES]
- * - PATCH  /api/servers/{serverId}/roles/{id}     → Rol güncelle [MANAGE_ROLES]
- * - DELETE /api/servers/{serverId}/roles/{id}     → Rol sil [MANAGE_ROLES]
- * - PATCH  /api/servers/{serverId}/roles/reorder  → Rol sıralamasını güncelle [MANAGE_ROLES]
+ * All mutating endpoints require MANAGE_ROLES permission.
  */
 
 import { apiClient } from "./client";
 import type { Role } from "../types";
 
-/** Tüm rolleri getirir (position DESC sıralı) */
+/** Returns all roles sorted by position DESC. */
 export async function getRoles(serverId: string) {
   return apiClient<Role[]>(`/servers/${serverId}/roles`);
 }
 
-/** Yeni rol oluşturur */
 export async function createRole(serverId: string, data: {
   name: string;
   color: string;
@@ -30,7 +23,6 @@ export async function createRole(serverId: string, data: {
   });
 }
 
-/** Rolü günceller (partial update) */
 export async function updateRole(
   serverId: string,
   id: string,
@@ -42,14 +34,12 @@ export async function updateRole(
   });
 }
 
-/** Rolü siler */
 export async function deleteRole(serverId: string, id: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/roles/${id}`, {
     method: "DELETE",
   });
 }
 
-/** Rol sıralamasını toplu günceller */
 export async function reorderRoles(serverId: string, items: { id: string; position: number }[]) {
   return apiClient<Role[]>(`/servers/${serverId}/roles/reorder`, {
     method: "PATCH",

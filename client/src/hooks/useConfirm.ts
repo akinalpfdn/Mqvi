@@ -1,16 +1,10 @@
 /**
- * useConfirm — window.confirm() yerine özel tasarımlı onay dialogu hook'u.
+ * useConfirm — Promise-based custom confirm dialog hook.
  *
- * Promise tabanlı: `const ok = await confirm({ message: "..." })` şeklinde kullanılır.
- * Boolean döner — true: onaylandı, false: iptal edildi.
- *
- * Kullanım:
+ * Usage:
  *   const confirm = useConfirm();
- *   async function handleDelete() {
- *     const ok = await confirm({ message: t("deleteConfirm"), danger: true });
- *     if (!ok) return;
- *     // silme işlemi...
- *   }
+ *   const ok = await confirm({ message: t("deleteConfirm"), danger: true });
+ *   if (!ok) return;
  */
 
 import { useCallback } from "react";

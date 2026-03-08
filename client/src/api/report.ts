@@ -1,16 +1,11 @@
 /**
- * Report API — Kullanıcı raporlama endpoint'i.
+ * Report API — user reporting endpoint.
  *
- *   reportUser: Kullanıcıyı raporla (predefined reason + zorunlu açıklama + opsiyonel resim delilleri).
- *
- * Multipart/JSON dual support:
- * - Dosya varsa: FormData (multipart/form-data)
- * - Dosya yoksa: JSON body (backward compat)
+ * Supports multipart (with evidence files) or JSON body.
  */
 
 import { apiClient } from "./client";
 
-/** Rapor nedeni — predefined seçenekler. */
 export type ReportReason =
   | "spam"
   | "harassment"
@@ -23,7 +18,6 @@ export type CreateReportRequest = {
   description: string;
 };
 
-/** Rapor delili dosyası — backend'den dönen attachment bilgisi. */
 export type ReportAttachment = {
   id: string;
   report_id: string;
@@ -45,13 +39,7 @@ export type Report = {
   attachments: ReportAttachment[];
 };
 
-/**
- * reportUser — Kullanıcıyı raporla.
- *
- * files parametresi varsa multipart/form-data gönderilir (delil resimleri).
- * Yoksa JSON body gönderilir (backward compat).
- * Browser FormData kullanıldığında Content-Type header'ını otomatik ayarlar.
- */
+/** Reports a user. Uses multipart/form-data when evidence files are provided. */
 export function reportUser(userId: string, req: CreateReportRequest, files?: File[]) {
   if (files && files.length > 0) {
     const formData = new FormData();

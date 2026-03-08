@@ -1,28 +1,17 @@
 /**
- * p2pCallStore — P2P (peer-to-peer) arama state yönetimi.
+ * p2pCallStore — P2P call state management.
  *
- * Zustand store — voiceStore ile benzer pattern.
+ * WebRTC P2P flow:
+ * - Media flows directly between users (no server relay)
+ * - Server only handles signaling (SDP/ICE exchange)
+ * - STUN server helps devices behind NAT discover each other
  *
- * Sorumluluklar:
- * 1. activeCall: Aktif veya çalma durumundaki arama
- * 2. incomingCall: Gelen arama bildirimi (henüz kabul/red edilmemiş)
- * 3. localStream / remoteStream: WebRTC medya stream'leri
- * 4. peerConnection: RTCPeerConnection instance'ı
- * 5. isMuted / isVideoOn / isScreenSharing: Lokal kontrol state'leri
- * 6. callDuration: Aktif arama süresi (saniye)
- * 7. WS event handler'ları (p2p_call_initiate, accept, decline, end, busy, signal)
- *
- * WebRTC P2P akışı:
- * - Medya doğrudan kullanıcılar arasında akar (server relay yok)
- * - Server sadece signaling (SDP/ICE exchange) için kullanılır
- * - STUN sunucusu ile NAT arkasındaki cihazlar birbirini bulur
- *
- * Arama akışı:
- * 1. Caller: initiateCall → server validate → receiver'a broadcast
- * 2. Receiver: acceptCall → WebRTC negotiation başlar
- * 3. Caller: createOffer → relay → Receiver: createAnswer → relay
- * 4. ICE candidates karşılıklı relay edilir
- * 5. Medya P2P akmaya başlar
+ * Call flow:
+ * 1. Caller: initiateCall -> server validate -> broadcast to receiver
+ * 2. Receiver: acceptCall -> WebRTC negotiation starts
+ * 3. Caller: createOffer -> relay -> Receiver: createAnswer -> relay
+ * 4. ICE candidates relayed bidirectionally
+ * 5. Media starts flowing P2P
  */
 
 import { create } from "zustand";
@@ -32,16 +21,6 @@ import { useToastStore } from "./toastStore";
 
 // ─── STUN Configuration ───
 
-/**
- * ICE server yapılandırması.
- * STUN sunucusu NAT arkasındaki cihazların public IP'sini öğrenmesi için gereklidir.
- * Google'ın ücretsiz STUN sunucuları kullanılır — TURN (relay) olmadan sadece P2P bağlantı.
- *
- * STUN nedir?
- * Session Traversal Utilities for NAT — NAT arkasındaki cihazın public IP:port bilgisini
- * öğrenmek için kullanılan protokol. STUN sunucusu "senin dış IP'n şu, portun bu" der.
- * Bu bilgi ICE candidate olarak karşı tarafa gönderilir.
- */
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
@@ -50,126 +29,65 @@ const ICE_SERVERS: RTCIceServer[] = [
 // ─── Types ───
 
 type P2PCallStore = {
-  /** Aktif arama (ringing veya active durumda) — null ise aramada değiliz */
+  /** Active call (ringing or active) — null means not in a call */
   activeCall: P2PCall | null;
 
-  /** Gelen arama bildirimi — IncomingCallOverlay tarafından kullanılır */
+  /** Incoming call notification — used by IncomingCallOverlay */
   incomingCall: P2PCall | null;
 
-  /** Kendi medya stream'imiz (mikrofon + opsiyonel kamera) */
+  /** Local media stream (mic + optional camera) */
   localStream: MediaStream | null;
 
-  /** Karşı tarafın medya stream'i (WebRTC ontrack ile alınır) */
+  /** Remote media stream (received via WebRTC ontrack) */
   remoteStream: MediaStream | null;
 
-  /** WebRTC peer connection instance'ı */
+  /** WebRTC peer connection instance */
   peerConnection: RTCPeerConnection | null;
 
   /**
-   * ICE candidate kuyruğu — remote description henüz set edilmemişken
-   * gelen ICE candidate'lar burada biriktirilir.
-   *
-   * Neden gerekli?
-   * WebRTC'de ICE candidate'lar ve SDP offer/answer WS üzerinden ayrı ayrı gönderilir.
-   * Ağ gecikmesi nedeniyle ICE candidate'lar, SDP offer/answer'dan ÖNCE gelebilir.
-   * Ancak addIceCandidate() çağrılabilmesi için remoteDescription'ın set edilmiş olması gerekir.
-   * Bu kuyruk, erken gelen candidate'ları biriktirir ve setRemoteDescription sonrası flush eder.
+   * ICE candidate queue — buffers candidates arriving before remote description is set.
+   * Flushed after setRemoteDescription completes.
    */
   _pendingCandidates: RTCIceCandidateInit[];
 
-  /** Mikrofon kapalı mı? */
   isMuted: boolean;
-
-  /** Kamera açık mı? (sadece video call'da anlamlı) */
   isVideoOn: boolean;
-
-  /** Ekran paylaşımı aktif mi? */
   isScreenSharing: boolean;
 
-  /** Aktif arama süresi (saniye) — timer ile artırılır */
+  /** Active call duration in seconds — incremented by timer */
   callDuration: number;
-
-  /** Call duration interval ID'si */
   _durationInterval: ReturnType<typeof setInterval> | null;
 
-  // ─── WS Send Fonksiyonu ───
+  // ─── WS Send ───
 
-  /**
-   * _sendWS — WebSocket üzerinden event göndermek için callback.
-   * useWebSocket hook'unda register edilir (DI pattern).
-   *
-   * Neden store'da tutuluyor?
-   * Store, React component'lerden bağımsız çalışır (getState ile erişim).
-   * WS send fonksiyonunu store'a inject ederek, hem component'ler hem de
-   * store action'ları WS mesajı gönderebilir.
-   */
+  /** Injected WS send callback (DI pattern from useWebSocket) */
   _sendWS: ((op: string, data?: unknown) => void) | null;
   registerSendWS: (fn: ((op: string, data?: unknown) => void) | null) => void;
 
   // ─── Actions ───
 
-  /** Arama başlat — caller tarafında çağrılır */
   initiateCall: (receiverId: string, callType: P2PCallType) => void;
-
-  /** Gelen aramayı kabul et — receiver tarafında çağrılır */
   acceptCall: (callId: string) => void;
-
-  /** Gelen aramayı reddet veya başlatılan aramayı iptal et */
   declineCall: (callId: string) => void;
-
-  /** Aktif aramayı sonlandır */
   endCall: () => void;
-
-  /** Mikrofon toggle */
   toggleMute: () => void;
-
-  /** Kamera toggle (video call'da) */
   toggleVideo: () => void;
-
-  /** Ekran paylaşımı toggle */
   toggleScreenShare: () => void;
-
-  /**
-   * WebRTC bağlantısını başlat — caller tarafında acceptCall geldiğinde çağrılır.
-   * RTCPeerConnection oluşturur, offer yaratır ve relay eder.
-   */
   startWebRTC: (isCaller: boolean) => Promise<void>;
-
-  /** Tüm state'i sıfırla — arama bittiğinde çağrılır */
   cleanup: () => void;
 
   // ─── WS Event Handlers ───
 
-  /** p2p_call_initiate event'i geldiğinde (hem caller hem receiver alır) */
   handleCallInitiate: (data: P2PCall) => void;
-
-  /** p2p_call_accept event'i geldiğinde */
   handleCallAccept: (data: { call_id: string }) => void;
-
-  /** p2p_call_decline event'i geldiğinde. reason: "offline" ise kullanıcı çevrimdışı. */
   handleCallDecline: (data: { call_id: string; reason?: string }) => void;
-
-  /** p2p_call_end event'i geldiğinde */
   handleCallEnd: (data: { call_id: string; reason?: string }) => void;
-
-  /** p2p_call_busy event'i geldiğinde (karşı taraf başka aramada) */
   handleCallBusy: (data: { receiver_id: string }) => void;
-
-  /** p2p_signal event'i geldiğinde (SDP/ICE relay) */
   handleSignal: (data: P2PSignalPayload) => void;
 };
 
 // ─── Helper: getUserMedia ───
 
-/**
- * getMediaStream — Kullanıcıdan medya izni alır ve stream döner.
- *
- * getUserMedia nedir?
- * Tarayıcıdan mikrofon ve/veya kamera erişimi isteyen Web API.
- * Kullanıcı izin verirse MediaStream döner — bu stream WebRTC'ye eklenir.
- *
- * @param callType "voice" → sadece mikrofon, "video" → mikrofon + kamera
- */
 async function getMediaStream(callType: P2PCallType): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
     audio: true,
@@ -185,18 +103,7 @@ async function getMediaStream(callType: P2PCallType): Promise<MediaStream> {
 
 // ─── Degradation Preference ───
 
-/**
- * applyDegradationPreference — Video sender'lara "balanced" degradation ayarlar.
- *
- * degradationPreference nedir?
- * WebRTC encoder'ına bant genişliği düşünce ne yapması gerektiğini söyler:
- * - "balanced": FPS ve çözünürlük orantılı düşer (en iyi genel davranış)
- * - "maintain-resolution": önce FPS düşer (1080p60→1080p30→1080p15 → kötü)
- * - "maintain-framerate": önce çözünürlük düşer (1080p→720p→480p ama 60fps)
- *
- * "balanced" ile tarayıcı hem FPS'i hem çözünürlüğü birlikte düşürür,
- * böylece 1080p15 veya 720p15 gibi uç durumlara düşme riski azalır.
- */
+/** Sets "balanced" degradation on video senders — both FPS and resolution degrade proportionally. */
 function applyDegradationPreference(pc: RTCPeerConnection): void {
   for (const sender of pc.getSenders()) {
     if (sender.track?.kind !== "video") continue;
@@ -212,22 +119,8 @@ function applyDegradationPreference(pc: RTCPeerConnection): void {
 // ─── PeerConnection Factory ───
 
 /**
- * createPeerConnection — RTCPeerConnection oluşturur ve standart handler'ları bağlar.
- *
- * Tek yerde PC oluşturmak critical — eskiden caller (startWebRTC) ve receiver (handleSignal)
- * ayrı ayrı PC oluşturuyordu, bu race condition'a yol açıyordu.
- *
- * Handler'lar:
- * - onicecandidate: ICE candidate'ları WS üzerinden relay eder
- * - ontrack: Remote medya geldiğinde remoteStream'i günceller
- * - onconnectionstatechange: Bağlantı koptuğunda aramayı sonlandırır
- * - onnegotiationneeded: addTrack sonrası otomatik renegotiation yapar
- *   (screen share toggle gibi mid-call track değişikliklerinde gerekli)
- *
- * @param activeCall — Aktif arama bilgisi (call_id, call_type)
- * @param sendWS — WS mesaj gönderme fonksiyonu
- * @param set — Zustand set fonksiyonu
- * @param get — Zustand get fonksiyonu
+ * Creates RTCPeerConnection with standard handlers.
+ * Single creation point prevents race conditions from duplicate PC creation.
  */
 function createPeerConnection(
   activeCall: P2PCall,
@@ -237,7 +130,7 @@ function createPeerConnection(
 ): RTCPeerConnection {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-  // ICE candidate — yeni ağ adresi bulunduğunda karşı tarafa relay et
+  // Relay new ICE candidates to the other peer
   pc.onicecandidate = (event) => {
     if (event.candidate) {
       sendWS("p2p_signal", {
@@ -248,16 +141,9 @@ function createPeerConnection(
     }
   };
 
-  // Remote medya geldiğinde store'u güncelle.
-  //
-  // event.streams[0] neden boş olabilir?
-  // addTrack(track, stream) ile eklenen track'ler stream association taşır →
-  // event.streams[0] dolu gelir (video call, voice call).
-  // addTransceiver("video") ile eklenen track'ler stream association TAŞIMAZ →
-  // event.streams boş gelir (screen share mid-call).
-  //
-  // Boş geldiğinde mevcut remoteStream'e track ekleriz (audio kaybetmemek için).
-  // Yeni MediaStream referansı oluşturmak Zustand re-render'ı tetikler.
+  // Handle remote media tracks.
+  // event.streams[0] may be empty for mid-call addTransceiver (screen share) —
+  // in that case, add the track to existing remoteStream to preserve audio.
   pc.ontrack = (event) => {
     if (event.streams[0]) {
       set({ remoteStream: event.streams[0] });
@@ -269,15 +155,11 @@ function createPeerConnection(
     }
   };
 
-  // Bağlantı durumu takibi — koptuğunda aramayı sonlandır.
-  //
-  // "disconnected" state geçici olabilir (renegotiation, ağ değişikliği).
-  // Hemen endCall çağırmak yerine 3sn bekle — eğer bağlantı recovery yapamazsa sonlandır.
-  // "failed" ve "closed" ise kesin kopma — anında sonlandır.
+  // Connection state monitoring — end call on permanent failure.
+  // "disconnected" may be transient (renegotiation, network change) so we wait before ending.
   let disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
 
   pc.onconnectionstatechange = () => {
-    // Bağlantı recovery yaptıysa bekleyen timer'ı iptal et
     if (pc.connectionState === "connected" || pc.connectionState === "connecting") {
       if (disconnectedTimer) {
         clearTimeout(disconnectedTimer);
@@ -287,7 +169,6 @@ function createPeerConnection(
     }
 
     if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-      // Kesin kopma — anında sonlandır
       if (disconnectedTimer) {
         clearTimeout(disconnectedTimer);
         disconnectedTimer = null;
@@ -298,10 +179,7 @@ function createPeerConnection(
         current.endCall();
       }
     } else if (pc.connectionState === "disconnected") {
-      // Geçici kopma olabilir — bekle, recovery olmazsa sonlandır.
-      // Renegotiation sırasında (signalingState !== "stable") bağlantının
-      // geçici düşmesi normal — offer/answer exchange tamamlanana kadar
-      // ICE disconnected kalabilir. Bu durumda 10sn, normal kopmalarda 5sn bekle.
+      // During renegotiation (signalingState !== "stable"), ICE may temporarily disconnect.
       const timeout = pc.signalingState !== "stable" ? 10000 : 5000;
       console.warn("[p2p] PeerConnection disconnected, waiting for recovery...", { signalingState: pc.signalingState, timeout });
       if (!disconnectedTimer) {
@@ -319,22 +197,10 @@ function createPeerConnection(
     }
   };
 
-  // onnegotiationneeded — addTrack sonrası otomatik offer yaratımı ve renegotiation.
-  //
-  // Bu handler ne zaman tetiklenir?
-  // - addTrack() çağrıldığında (yeni transceiver oluşur)
-  // - replaceTrack() bunu TETİKLEMEZ (aynı transceiver kullanılır)
-  //
-  // Neden makingOffer flag'i ve signalingState guard'ı gerekli?
-  // addTrack() asenkron olarak onnegotiationneeded'i tetikler. Aynı zamanda
-  // karşı taraftan gelen bir offer işleniyorsa (signalingState = "have-remote-offer")
-  // veya zaten bir offer yaratılıyorsa (makingOffer=true), yeni offer yaratmak
-  // "glare" durumu (iki taraf aynı anda offer göndermeye çalışır) ve
-  // m-line sırası tutarsızlığına yol açar. Guard'lar bunu önler.
-  //
-  // startWebRTC'de explicit createOffer() çağrısı YOKTUR — bu handler her iki
-  // taraf için de (caller initial offer + mid-call renegotiation) tek yetkili
-  // offer yaratma noktasıdır.
+  // onnegotiationneeded — auto offer creation after addTrack.
+  // makingOffer flag and signalingState guard prevent glare (simultaneous offers)
+  // and m-line order inconsistency. This is the sole offer creation point for
+  // both initial offers and mid-call renegotiation.
   let makingOffer = false;
   pc.onnegotiationneeded = async () => {
     if (makingOffer || pc.signalingState !== "stable") return;
@@ -403,8 +269,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     if (!_sendWS) return;
 
     _sendWS("p2p_call_decline", { call_id: callId });
-
-    // Lokal state temizle
     set({ incomingCall: null, activeCall: null });
   },
 
@@ -419,10 +283,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   toggleMute: () => {
     const { localStream, isMuted } = get();
     if (localStream) {
-      // Audio track'lerin enabled durumunu toggle et.
-      // enabled=false → mikrofon susturulur ama track hâlâ aktif (bağlantı kopmaz).
       for (const track of localStream.getAudioTracks()) {
-        track.enabled = isMuted; // isMuted ise açıyoruz (toggle)
+        track.enabled = isMuted;
       }
     }
     set({ isMuted: !isMuted });
@@ -433,21 +295,17 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     if (!localStream || !peerConnection || !activeCall) return;
 
     if (isVideoOn) {
-      // Video kapatılıyor — track'leri disable et
       for (const track of localStream.getVideoTracks()) {
         track.enabled = false;
       }
       set({ isVideoOn: false });
     } else {
-      // Video açılıyor — mevcut video track varsa enable et, yoksa yeni al
       const existingVideoTrack = localStream.getVideoTracks()[0];
       if (existingVideoTrack) {
         existingVideoTrack.enabled = true;
         set({ isVideoOn: true });
       } else {
-        // Yeni video track al ve PeerConnection'a ekle.
-        // addTrack() onnegotiationneeded event'ini tetikler →
-        // createPeerConnection'daki handler otomatik renegotiation yapar.
+        // Acquire new video track — addTrack triggers onnegotiationneeded for auto renegotiation.
         navigator.mediaDevices
           .getUserMedia({
             video: {
@@ -474,9 +332,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     if (!peerConnection || !activeCall || !localStream) return;
 
     if (isScreenSharing) {
-      // ── Ekran paylaşımını durdur ──
-      // _screenSender'da sakladığımız sender'ı kullanarak screen track'i
-      // kamera track'i ile değiştir veya null yap.
+      // Stop screen share — replace screen track with camera track or null
       const screenSender = (peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender;
 
       if (screenSender) {
@@ -487,18 +343,10 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
       set({ isScreenSharing: false });
     } else {
-      // ── Ekran paylaşımını başlat ──
-      //
-      // Strateji: Mevcut bir video sender varsa replaceTrack kullan (renegotiation yok).
-      // Yoksa (voice-only arama) addTransceiver ile "sendonly" video transceiver oluştur
-      // ve ardından replaceTrack ile screen track'i set et. addTransceiver
-      // onnegotiationneeded'ı tetikler → createPeerConnection'daki handler
-      // otomatik renegotiation yapar.
-      //
-      // addTrack(track, screenStream) KULLANMIYORUZ çünkü:
-      // 1. screenStream ayrı bir MediaStream, PC stream association karışır
-      // 2. Renegotiation sırasında geçici "disconnected" state endCall'ı tetikleyebilir
-      // 3. addTransceiver + replaceTrack daha kontrollü bir akış sağlar
+      // Start screen share.
+      // If a video sender exists, use replaceTrack (no renegotiation needed).
+      // Otherwise (voice-only call), add a sendonly video transceiver first —
+      // addTransceiver triggers onnegotiationneeded for auto renegotiation.
       navigator.mediaDevices
         .getDisplayMedia({
           video: {
@@ -515,31 +363,19 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
             return;
           }
 
-          // Mevcut video sender'ı bul (varsa)
           const senders = pc.getSenders();
           let videoSender = senders.find((s) => s.track?.kind === "video");
 
           if (!videoSender) {
-            // Voice-only arama — video sender yok.
-            // Boş track'li video transceiver ekle. addTransceiver onnegotiationneeded tetikler.
-            // Renegotiation tamamlanana kadar beklemeliyiz yoksa replaceTrack başarısız olabilir.
+            // Voice-only call — add video transceiver, wait for renegotiation to complete.
+            // Two-phase wait: first wait for renegotiation to start (state leaves "stable"),
+            // then wait for it to finish (state returns to "stable").
             const transceiver = pc.addTransceiver("video", { direction: "sendrecv" });
             videoSender = transceiver.sender;
 
-            // Renegotiation'ın tamamlanmasını bekle — offer/answer exchange olmalı.
-            // onnegotiationneeded handler otomatik offer gönderir, karşı taraf answer döner.
-            //
-            // Neden iki aşamalı bekleme?
-            // addTransceiver çağrıldığında signalingState hâlâ "stable".
-            // onnegotiationneeded asenkron tetiklenir → state "have-local-offer" olur.
-            // Sadece "stable" beklesek, renegotiation başlamadan önce çözebilir.
-            // Bu yüzden önce "stable" olmayan state'i bekle (renegotiation başladı),
-            // sonra tekrar "stable" bekle (renegotiation tamamlandı).
             await new Promise<void>((resolve) => {
-              // Aşama 1: Renegotiation başlayana kadar bekle (signalingState != "stable")
               const waitForStart = () => {
                 if (pc.signalingState !== "stable") {
-                  // Renegotiation başladı → tamamlanmasını bekle
                   const waitForEnd = () => {
                     if (pc.signalingState === "stable") {
                       resolve();
@@ -552,23 +388,20 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
                   setTimeout(waitForStart, 20);
                 }
               };
-              // onnegotiationneeded async tetiklenir — kısa gecikme sonrası kontrol başlat
               setTimeout(waitForStart, 20);
             });
           }
 
-          // replaceTrack ile screen track'i set et — renegotiation gerektirmez
           await videoSender.replaceTrack(screenTrack);
 
-          // Ekran paylaşımı sender'ına degradation preference uygula
           const screenParams = videoSender.getParameters();
           screenParams.degradationPreference = "balanced";
           await videoSender.setParameters(screenParams).catch(() => {});
 
-          // Sender referansını PC'ye kaydet — durdurma sırasında lazım
+          // Store sender reference for stop
           (pc as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender = videoSender;
 
-          // Kullanıcı tarayıcı native "paylaşımı durdur" butonuna tıklarsa
+          // Handle browser native "stop sharing" button
           screenTrack.onended = () => {
             const current = get();
             if (!current.isScreenSharing) return;
@@ -587,7 +420,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
           set({ isScreenSharing: true });
         })
         .catch((err) => {
-          // Kullanıcı paylaşımı iptal ettiyse hata fırlatılır — sessizce devam et
           console.error("[p2p] Screen share error:", err);
         });
     }
@@ -598,43 +430,27 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     if (!activeCall || !_sendWS) return;
 
     try {
-      // Receiver: Stream almayı handleSignal("offer")'a bırak.
-      // Burada getMediaStream çağırırsak race condition oluşur:
-      //   - startWebRTC async (getMediaStream bekliyor)
-      //   - Bu sırada caller'ın offer'ı WS'ten gelir → handleSignal çağrılır
-      //   - handleSignal: localStream null → ikinci getMediaStream çağrısı
-      //   - İki eşzamanlı getUserMedia → macOS'ta audio device contention
-      //   - startWebRTC tamamlanınca stream'i üstüne yazar → PC'deki track farklı stream'den
-      //
-      // Doğrusu: receiver'da tek yer (handleSignal) hem stream alır hem PC oluşturur.
+      // Receiver defers stream acquisition to handleSignal("offer") to avoid
+      // race condition with concurrent getUserMedia calls.
       if (!isCaller) {
         return;
       }
 
-      // 1. Caller: Medya izni al
       const stream = await getMediaStream(activeCall.call_type);
       set({
         localStream: stream,
         isVideoOn: activeCall.call_type === "video",
       });
 
-      // 2. Caller: RTCPeerConnection oluştur
       const pc = createPeerConnection(activeCall, _sendWS, set, get);
 
-      // 3. Lokal track'leri PeerConnection'a ekle
-      // addTrack() çağrıları onnegotiationneeded'i tetikler → handler otomatik
-      // olarak createOffer() → setLocalDescription() → WS relay yapar.
-      // Burada ayrıca explicit createOffer() çağırmıyoruz — çift offer yaratımı
-      // race condition'a ve m-line sırası tutarsızlığına yol açar.
+      // addTrack triggers onnegotiationneeded -> handler auto-creates offer.
+      // No explicit createOffer here to avoid duplicate offers.
       for (const track of stream.getTracks()) {
         pc.addTrack(track, stream);
       }
 
-      // Video sender'lara degradationPreference ayarla.
-      // "balanced": bant genişliği düşünce hem FPS hem çözünürlük orantılı düşer.
-      // Bu sayede 1080p15 veya 720p15 gibi uç noktalara düşme riski azalır.
       applyDegradationPreference(pc);
-
       set({ peerConnection: pc });
     } catch (err) {
       console.error("[p2p] WebRTC start error:", err);
@@ -645,10 +461,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   cleanup: () => {
     const { localStream, remoteStream, peerConnection, _durationInterval } = get();
 
-    // PeerConnection'daki TÜM sender/receiver track'lerini durdur.
-    // localStream sadece getUserMedia track'lerini tutar — getDisplayMedia
-    // (screen share) track'leri ayrı stream'de olduğu için localStream'de yok.
-    // PC sender'larını iterate ederek screen share track dahil hepsini durdururuz.
+    // Stop all sender/receiver tracks (includes screen share tracks not in localStream)
     if (peerConnection) {
       for (const sender of peerConnection.getSenders()) {
         if (sender.track) sender.track.stop();
@@ -658,7 +471,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       }
     }
 
-    // localStream ve remoteStream'deki kalan track'leri de durdur (güvenlik ağı)
+    // Safety net — stop remaining tracks on local/remote streams
     if (localStream) {
       for (const track of localStream.getTracks()) {
         track.stop();
@@ -670,12 +483,10 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       }
     }
 
-    // PeerConnection'ı kapat
     if (peerConnection) {
       peerConnection.close();
     }
 
-    // Duration timer'ı temizle
     if (_durationInterval) {
       clearInterval(_durationInterval);
     }
@@ -700,23 +511,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   handleCallInitiate: (data) => {
     const { activeCall } = get();
 
-    // Zaten bir aramadaysak bu gelen aramadır → incomingCall'a ata
-    // Yoksa biz başlatıyorsak → activeCall'a ata
     if (activeCall) {
-      // Zaten aktif aramadaysak, sadece gelen arama overlay göster
+      // Already in a call — show as incoming call overlay
       set({ incomingCall: data });
     } else {
-      // Bu event hem caller'a hem receiver'a gelir.
-      // Caller kendi başlattığı aramayı activeCall olarak set eder.
-      // Receiver ise incomingCall olarak set eder.
-      // Ayrım: Eğer callerID bizim user ID'miz ise biz caller'ız.
-      // Bu kontrol component seviyesinde yapılır (useAuthStore.user.id ile).
-      // Burada her iki durumda da data'yı tutarız, component karar verir.
-      //
-      // Aslında ikisini de set edelim — component kendi rolüne göre render eder.
-      // Ancak daha temizi: caller ise activeCall, receiver ise incomingCall.
-      // Bu ayrımı dışarıdan yapmak gerekir — şimdilik her iki field'ı kontrol eden
-      // component seviyesinde yapılır.
+      // Both caller and receiver get this event.
+      // Component layer decides role based on callerId vs current userId.
       set({ activeCall: data, incomingCall: data });
     }
   },
@@ -725,47 +525,38 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     const { activeCall } = get();
     if (!activeCall || activeCall.id !== data.call_id) return;
 
-    // Arama kabul edildi — status güncelle, incomingCall temizle
     set({
       activeCall: { ...activeCall, status: "active" },
       incomingCall: null,
     });
 
-    // Duration timer başlat (her saniye artır)
+    // Start duration timer
     const interval = setInterval(() => {
       set((state) => ({ callDuration: state.callDuration + 1 }));
     }, 1000);
     set({ _durationInterval: interval });
 
-    // WebRTC negotiation — caller isCaller=true, receiver isCaller=false.
-    // handleCallAccept HER İKİ tarafta da tetiklenir.
-    // Caller: Bu event'i alınca offer oluşturmalı → startWebRTC(true).
-    // Receiver: Bu event'i alınca stream hazırlamalı, offer beklemeli → startWebRTC(false).
-    //
-    // Hangimiz caller? activeCall.caller_id === bizim userId ise biz caller'ız.
-    // userId bilgisi store'da yok — bu kararı component verecek ve startWebRTC çağıracak.
-    // Store sadece state günceller.
+    // handleCallAccept fires on both sides.
+    // Caller starts WebRTC via startWebRTC(true), receiver via startWebRTC(false).
+    // Role determination happens at the component level (userId comparison).
   },
 
   handleCallDecline: (data) => {
     const { activeCall, incomingCall } = get();
     const t = i18n.t.bind(i18n);
 
-    // Server "offline" reason ile decline gönderirse → toast göster
     if (data.reason === "offline") {
       useToastStore.getState().addToast("warning", t("common:userOffline"));
       get().cleanup();
       return;
     }
 
-    // Aktif arama reddedildi
     if (activeCall && activeCall.id === data.call_id) {
       useToastStore.getState().addToast("info", t("common:callDeclined"));
       get().cleanup();
       return;
     }
 
-    // Gelen arama reddedildi (caller iptal etti)
     if (incomingCall && incomingCall.id === data.call_id) {
       set({ incomingCall: null });
     }
@@ -786,14 +577,9 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
     switch (data.type) {
       case "offer": {
-        // SDP offer geldi — iki senaryo:
-        //
-        // A) İlk offer (yeni arama): PC yoksa oluştur, local track ekle, answer döndür.
-        //    Receiver'da PC sadece burada oluşturulur (startWebRTC(false) PC oluşturmaz).
-        //    Bu race condition'ı ortadan kaldırır.
-        //
-        // B) Renegotiation offer (mid-call): PC zaten var (screen share, video toggle).
-        //    Mevcut PC üzerinden yeni remote description set et, yeni answer döndür.
+        // Two scenarios:
+        // A) Initial offer (new call): PC doesn't exist — create it, add local tracks, send answer.
+        // B) Renegotiation (mid-call): PC exists — set new remote description, send new answer.
 
         let pc = peerConnection;
 
@@ -802,14 +588,9 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
           pc = createPeerConnection(activeCall, _sendWS, set, get);
 
-          // Local stream'i hazırla ve addTrack ile PC'ye ekle.
-          //
-          // addTrack onnegotiationneeded'ı tetikler, ama bu event ASENKRON ateşlenir.
-          // addTrack → applyDegradationPreference → set → setRemoteDescription zinciri
-          // arasında event loop'a dönülmez (hepsi senkron). setRemoteDescription
-          // signalingState'i SENKRON olarak "have-remote-offer"a çeker.
-          // onnegotiationneeded handler tetiklendiğinde guard (state !== "stable")
-          // offer yaratımını engeller → glare oluşmaz.
+          // addTrack fires onnegotiationneeded async, but setRemoteDescription
+          // synchronously changes signalingState to "have-remote-offer" —
+          // the onnegotiationneeded guard prevents glare.
           let stream = get().localStream;
           if (!stream) {
             try {
@@ -830,13 +611,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
           set({ peerConnection: pc });
         }
 
-        // Remote description set et (offer) — state: have-remote-offer
         await pc.setRemoteDescription(
           new RTCSessionDescription({ type: "offer", sdp: data.sdp })
         );
 
-        // Kuyruklanmış ICE candidate'ları flush et
-        // setRemoteDescription başarılı → artık addIceCandidate çağrılabilir.
+        // Flush queued ICE candidates
         const pendingOffer = get()._pendingCandidates;
         if (pendingOffer.length > 0) {
           set({ _pendingCandidates: [] });
@@ -845,7 +624,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
           }
         }
 
-        // Answer oluştur ve relay et
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -862,11 +640,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       }
 
       case "answer": {
-        // SDP answer geldi (biz caller'ız).
-        // Normalde signalingState "have-local-offer" olmalı.
-        // Glare durumunda (her iki taraf aynı anda offer gönderdi) veya
-        // renegotiation race condition'ında answer geç gelebilir ve state
-        // "stable" olabilir. try-catch ile yakala — geçersiz answer zararsız.
+        // In glare or renegotiation race conditions, a late answer may arrive
+        // when state is already "stable" — try-catch handles this safely.
         if (!peerConnection) return;
         try {
           await peerConnection.setRemoteDescription(
@@ -877,7 +652,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
           break;
         }
 
-        // Kuyruklanmış ICE candidate'ları flush et
+        // Flush queued ICE candidates
         const pendingAnswer = get()._pendingCandidates;
         if (pendingAnswer.length > 0) {
           set({ _pendingCandidates: [] });
@@ -889,17 +664,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       }
 
       case "ice-candidate": {
-        // ICE candidate geldi — remote description set edilmişse ekle, yoksa kuyruğa al.
-        //
-        // Race condition koruması:
-        // ICE candidate'lar WS üzerinden SDP offer/answer'dan önce gelebilir.
-        // addIceCandidate() çağrısı remoteDescription null iken InvalidStateError fırlatır.
-        // Bu yüzden candidate'ları biriktirip setRemoteDescription sonrası flush ediyoruz.
+        // ICE candidates may arrive before SDP offer/answer via WS.
+        // addIceCandidate throws InvalidStateError if remoteDescription is null — queue and flush later.
         if (!data.candidate) break;
 
         const candidateInit = data.candidate as RTCIceCandidateInit;
 
-        // PeerConnection henüz oluşturulmamış veya remoteDescription henüz set edilmemişse → kuyrukla
         if (!peerConnection || !peerConnection.remoteDescription) {
           set((state) => ({
             _pendingCandidates: [...state._pendingCandidates, candidateInit],

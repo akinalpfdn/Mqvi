@@ -1,23 +1,16 @@
 /**
- * Invites API fonksiyonları — davet kodu CRUD endpoint'leri.
+ * Invites API — server-scoped invite code CRUD.
  *
- * Multi-server: Tüm endpoint'ler server-scoped.
- * - GET    /api/servers/{serverId}/invites        → davet listesi
- * - POST   /api/servers/{serverId}/invites        → yeni davet oluştur
- * - DELETE /api/servers/{serverId}/invites/{code}  → davet sil
- *
- * Tüm endpoint'ler ManageInvites yetkisi gerektirir.
+ * All endpoints require ManageInvites permission.
  */
 
 import { apiClient } from "./client";
 import type { Invite } from "../types";
 
-/** Tüm davet kodlarını listele */
 export async function getInvites(serverId: string) {
   return apiClient<Invite[]>(`/servers/${serverId}/invites`);
 }
 
-/** Yeni davet kodu oluştur */
 export async function createInvite(serverId: string, data: {
   max_uses: number;
   expires_in: number;
@@ -28,14 +21,13 @@ export async function createInvite(serverId: string, data: {
   });
 }
 
-/** Davet kodunu sil */
 export async function deleteInvite(serverId: string, code: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/invites/${code}`, {
     method: "DELETE",
   });
 }
 
-/** Davet kodu ön izlemesi — sunucu adı, ikon, üye sayısı (auth gerektirmez) */
+/** Invite code preview — server name, icon, member count (no auth required). */
 export type InvitePreview = {
   server_name: string;
   server_icon_url: string | null;

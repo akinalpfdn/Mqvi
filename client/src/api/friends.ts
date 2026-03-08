@@ -1,12 +1,5 @@
 /**
- * Friends API — Arkadaşlık sistemi endpoint'leri.
- *
- * listFriends: Kabul edilmiş arkadaşları listeler.
- * listRequests: Gelen ve giden arkadaşlık isteklerini listeler.
- * sendRequest: Username ile arkadaşlık isteği gönderir.
- * acceptRequest: Gelen isteği kabul eder.
- * declineRequest: Gelen isteği reddeder veya gönderilen isteği iptal eder.
- * removeFriend: Mevcut arkadaşlığı kaldırır.
+ * Friends API — friendship system endpoints.
  */
 
 import { apiClient } from "./client";

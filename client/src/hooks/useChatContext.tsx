@@ -1,34 +1,18 @@
 /**
- * ChatContext — Channel ve DM chat arasında paylaşılan bileşen arayüzü.
+ * ChatContext — Shared interface between Channel and DM chat components.
  *
- * Neden Context?
- * Message.tsx, MessageInput.tsx, MessageList.tsx gibi bileşenler doğrudan
- * useMessageStore, usePinStore, useMemberStore import ediyordu.
- * Bu, aynı bileşenlerin DM'de kullanılmasını engelliyordu çünkü
- * DM farklı store'lar kullanıyor (useDMStore).
+ * Abstracts store differences so shared components (Message, MessageInput, etc.)
+ * work with both channel and DM modes via a single interface (DIP).
  *
- * ChatContext, store farklılıklarını soyutlar:
- * - ChannelChatProvider → messageStore, pinStore, memberStore → ChatContext
- * - DMChatProvider     → dmStore                              → ChatContext
- * - Shared components  → useChatContext() ile tek interface
- *
- * Bu SOLID'in Dependency Inversion (DIP) prensibidir:
- * Component'ler concrete store'lara değil, abstract interface'e bağımlı olur.
- *
- * ChatMessage tipi:
- * Structural subtyping kullanılır. Hem Message hem DMMessage, ChatMessage'ın
- * tüm alanlarına sahiptir (+ ek alanlar). TypeScript bunu otomatik kabul eder
- * çünkü "fazla alan varsa sorun değil" kuralı geçerlidir.
+ * ChatMessage uses structural subtyping — both Message and DMMessage satisfy it.
  */
 
 import { createContext, useContext, type RefObject } from "react";
 import type { User, ReactionGroup, MessageReference, MemberWithRoles } from "../types";
 import type { EncryptedFileMeta } from "../crypto/fileEncryption";
 
-// ─── ChatMessage — Ortak mesaj tipi ───
-// Message ve DMMessage'ın display-relevant kesişimi.
-// message_id vs dm_message_id gibi farklar burada yok —
-// component'ler sadece render için gereken alanlara erişir.
+// ─── ChatMessage — Common message type ───
+// Display-relevant intersection of Message and DMMessage.
 
 export type ChatAttachment = {
   id: string;
@@ -52,18 +36,15 @@ export type ChatMessage = {
   referenced_message: MessageReference | null;
   /** E2EE: 0 = plaintext, 1 = encrypted */
   encryption_version?: number;
-  /** E2EE: Dosya sifreleme anahtarlari (index sirasina gore attachment'lara eslenir) */
+  /** E2EE: File encryption keys (index-matched to attachments) */
   e2ee_file_keys?: EncryptedFileMeta[];
 };
 
 // ─── Context Value ───
 
 export type ChatContextValue = {
-  /** "channel" veya "dm" — component'lerin mode'a göre davranış değiştirmesi için */
   mode: "channel" | "dm";
-  /** Aktif kanal/DM kanal ID'si */
   channelId: string;
-  /** Kanal adı veya karşı kullanıcının adı */
   channelName: string;
 
   // ─── State ───
@@ -97,22 +78,14 @@ export type ChatContextValue = {
   unpinMessage: (messageId: string) => Promise<void>;
   isMessagePinned: (messageId: string) => boolean;
 
-  // ─── File Drop (drag-drop communication) ───
-  /**
-   * addFilesRef — Chat area wrapper'dan MessageInput'a dosya iletimi için ref.
-   * MessageInput mount olunca callback'i register eder,
-   * ChatArea/DMChat drag-drop'ta çağırır.
-   */
+  // ─── File Drop ───
+  /** Ref for passing dropped files from ChatArea to MessageInput */
   addFilesRef: RefObject<((files: File[]) => void) | null>;
 
   // ─── Permissions / UI ───
-  /** Kullanıcının bu kanalda mesaj gönderme yetkisi var mı? */
   canSend: boolean;
-  /** Kullanıcının mesajları yönetme (pin, başkasının mesajını silme) yetkisi var mı? */
   canManageMessages: boolean;
-  /** Rol renklerini göster mi? (Channel: evet, DM: hayır) */
   showRoleColors: boolean;
-  /** Üye listesi — DM'de boş array */
   members: MemberWithRoles[];
 };
 
@@ -121,10 +94,8 @@ export type ChatContextValue = {
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 /**
- * useChatContext — ChatContext'e erişim hook'u.
- *
- * ChannelChatProvider veya DMChatProvider içinde çağrılmalıdır.
- * Provider dışında çağrılırsa hata fırlatır.
+ * useChatContext — Must be called within ChannelChatProvider or DMChatProvider.
+ * Throws if used outside a provider.
  */
 export function useChatContext(): ChatContextValue {
   const ctx = useContext(ChatContext);

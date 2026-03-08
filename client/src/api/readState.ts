@@ -1,25 +1,15 @@
 /**
- * Read State API — Okunmamış mesaj takibi endpoint'leri.
- *
- * Multi-server: server-scoped unread counts.
- * markRead: Bir kanalı belirli bir mesaja kadar okunmuş olarak işaretler.
- * getUnreadCounts: Kullanıcının belirli sunucudaki okunmamış mesaj sayılarını döner.
+ * Read State API — unread message tracking, server-scoped.
  */
 
 import { apiClient } from "./client";
 
-/** UnreadInfo — Backend'den dönen okunmamış bilgisi */
 export type UnreadInfo = {
   channel_id: string;
   unread_count: number;
 };
 
-/**
- * markRead — Bir kanalı belirli bir mesaja kadar okunmuş olarak işaretler.
- *
- * Frontend kanal değiştirdiğinde veya yeni mesaj geldiğinde (aktif kanaldaysa)
- * otomatik çağrılır.
- */
+/** Marks a channel as read up to the given message ID. */
 export function markRead(serverId: string, channelId: string, messageId: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/channels/${channelId}/read`, {
     method: "POST",
@@ -27,20 +17,12 @@ export function markRead(serverId: string, channelId: string, messageId: string)
   });
 }
 
-/**
- * getUnreadCounts — Kullanıcının belirli sunucudaki okunmamış mesaj sayılarını döner.
- *
- * Uygulama başlatıldığında ve WS reconnect'te çağrılır.
- * Sadece okunmamış > 0 olan kanallar döner (gereksiz veri yok).
- */
+/** Returns unread counts for all channels in a server (only channels with unread > 0). */
 export function getUnreadCounts(serverId: string) {
   return apiClient<UnreadInfo[]>(`/servers/${serverId}/channels/unread`);
 }
 
-/**
- * markAllRead — Sunucudaki tüm kanalları okunmuş olarak işaretler.
- * Context menüden "Tümünü okundu işaretle" seçeneği için.
- */
+/** Marks all channels in a server as read. */
 export function markAllRead(serverId: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/channels/read-all`, {
     method: "POST",

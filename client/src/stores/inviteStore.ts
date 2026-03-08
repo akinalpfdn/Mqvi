@@ -1,13 +1,5 @@
 /**
- * Invite Store — Zustand ile davet kodu state yönetimi.
- *
- * Neden ayrı store?
- * Slice pattern: her concern ayrı dosyada.
- * Invite verisi sadece Settings modal'ın Invites tab'ında kullanılır.
- *
- * Zustand selector stable ref notu:
- * invites listesi başlangıçta boş dizi olarak tanımlanır (EMPTY_INVITES),
- * böylece component'lerde `?? []` kullanımına gerek kalmaz.
+ * Invite Store — Invite code management.
  */
 
 import { create } from "zustand";
@@ -15,29 +7,17 @@ import * as inviteApi from "../api/invites";
 import { useServerStore } from "./serverStore";
 import type { Invite } from "../types";
 
-/** Stable empty array referansı — infinite re-render önlemi */
+/** Stable empty ref for selectors */
 const EMPTY_INVITES: Invite[] = [];
 
 type InviteState = {
-  /** Davet kodu listesi */
   invites: Invite[];
-  /** Yüklenme durumu */
   isLoading: boolean;
 
-  /** Tüm davet kodlarını sunucudan çek */
   fetchInvites: () => Promise<void>;
-
-  /** Yeni davet kodu oluştur, listeye ekle */
   createInvite: (maxUses: number, expiresIn: number) => Promise<Invite | null>;
-
-  /**
-   * Mevcut sınırsız/süresiz (permanent) invite'ı getir, yoksa oluştur.
-   * "Copy Invite Link" ve "Send Invites" gibi akışlarda kullanılır —
-   * her tıklamada yeni kod oluşturmak yerine var olanı yeniden kullanır.
-   */
+  /** Get existing permanent invite or create one. Used by "Copy Invite Link" flows. */
   getOrCreatePermanentInvite: () => Promise<Invite | null>;
-
-  /** Davet kodunu sil, listeden çıkar */
   deleteInvite: (code: string) => Promise<boolean>;
 };
 
@@ -67,8 +47,7 @@ export const useInviteStore = create<InviteState>((set, get) => ({
     });
 
     if (res.success && res.data) {
-      // Listeyi yeniden çek — creator bilgisi için full refetch
-      // (create endpoint sadece Invite döner, InviteWithCreator değil)
+      // Full refetch for creator info (create endpoint returns bare Invite)
       await get().fetchInvites();
       return res.data;
     }
@@ -80,18 +59,16 @@ export const useInviteStore = create<InviteState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return null;
 
-    // Store'da invite yoksa sunucudan çek
     if (get().invites.length === 0) {
       await get().fetchInvites();
     }
 
-    // Mevcut permanent invite'ı bul (max_uses=0, expires_at=null, henüz süresi dolmamış)
+    // Find existing permanent invite (unlimited uses, no expiry)
     const existing = get().invites.find(
       (inv) => inv.max_uses === 0 && inv.expires_at === null,
     );
     if (existing) return existing;
 
-    // Yoksa yeni oluştur
     return get().createInvite(0, 0);
   },
 
@@ -101,7 +78,6 @@ export const useInviteStore = create<InviteState>((set, get) => ({
     const res = await inviteApi.deleteInvite(serverId, code);
 
     if (res.success) {
-      // Optimistic update: listeden hemen çıkar
       set((state) => ({
         invites: state.invites.filter((inv) => inv.code !== code),
       }));

@@ -1,21 +1,12 @@
 /**
- * HTTP API client — tüm backend istekleri bu modül üzerinden yapılır.
+ * HTTP API client — all backend requests go through this module.
  *
- * Neden fetch wrapper?
- * - Her istekte Authorization header otomatik eklenir
- * - 401 geldiğinde refresh token ile yenileme dener
- * - Tutarlı error handling
- * - Type-safe response parsing
+ * Handles auth token injection, 401 refresh flow, and consistent error handling.
  */
 
 import type { APIResponse } from "../types";
 import { API_BASE_URL } from "../utils/constants";
 
-/**
- * Token'ları localStorage'da tutar.
- * Zustand store hazır olduğunda oradan da erişilebilir,
- * ama API client'ın store'a bağımlı olmaması için burada da erişim var.
- */
 function getAccessToken(): string | null {
   return localStorage.getItem("access_token");
 }
@@ -35,30 +26,21 @@ function clearTokens(): void {
 }
 
 /**
- * refreshAccessToken — Süresi dolmuş access token'ı yenilemek için
- * refresh token ile backend'e istek atar.
+ * Refreshes an expired access token using the refresh token.
  *
- * Race condition koruması:
- * Birden fazla istek aynı anda 401 alırsa, hepsi refreshAccessToken() çağırır.
- * İlk çağrı refresh endpoint'ine gider ve eski refresh token'ı invalidate eder.
- * Eğer diğer istekler de ayrı ayrı refresh yapsa, eski (artık geçersiz) token'la
- * giderler → fail → clearTokens() → kullanıcı beklenmedik şekilde logout olur.
- *
- * Çözüm: refreshPromise lock. İlk 401 gerçek refresh isteğini başlatır,
- * sonraki 401'ler aynı promise'i bekler. Refresh tamamlanınca (başarılı veya
- * başarısız) promise sıfırlanır ve hepsi yeni token'la retry eder.
+ * Uses a shared promise lock to prevent multiple concurrent refresh requests.
+ * Without this, parallel 401s would each try to refresh, invalidating each other's
+ * tokens and causing unexpected logouts.
  */
 let refreshPromise: Promise<boolean> | null = null;
 
 async function refreshAccessToken(): Promise<boolean> {
-  // Zaten bir refresh devam ediyorsa, onu bekle — ikinci istek yapmadan
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = doRefresh();
   try {
     return await refreshPromise;
   } finally {
-    // Tamamlanınca lock'u serbest bırak — sonraki 401'ler yeni refresh başlatabilsin
     refreshPromise = null;
   }
 }
@@ -102,14 +84,11 @@ type RequestOptions = {
 };
 
 /**
- * apiClient — Temel HTTP istek fonksiyonu.
+ * Core HTTP request function. Generic type <T> specifies the expected response data type.
  *
- * Kullanım:
+ * Usage:
  *   const data = await apiClient<User[]>("/users");
- *   const user = await apiClient<User>("/users/me", { method: "PATCH", body: { display_name: "Yeni Ad" } });
- *
- * Generic tip <T>, beklenen response data tipini belirtir — TypeScript bu sayede
- * dönen verinin tipini bilir ve yanlış kullanımda derleme hatası verir.
+ *   const user = await apiClient<User>("/users/me", { method: "PATCH", body: { display_name: "New" } });
  */
 export async function apiClient<T>(
   endpoint: string,
@@ -145,14 +124,13 @@ export async function apiClient<T>(
   try {
     res = await fetch(`${API_BASE_URL}${endpoint}`, fetchOptions);
   } catch (err) {
-    // Network hatası, DNS çözülemedi, TLS hatası, CORS reject vb.
     const message =
       err instanceof Error ? err.message : "Network request failed";
     console.error(`[apiClient] ${method} ${endpoint}:`, message);
     return { success: false, error: message } as APIResponse<T>;
   }
 
-  // 401 Unauthorized → refresh token ile yenilemeyi dene
+  // 401 — attempt token refresh
   if (res.status === 401 && getRefreshToken()) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {
@@ -171,7 +149,6 @@ export async function apiClient<T>(
     }
   }
 
-  // JSON parse hatası koruması (sunucu beklenmeyen yanıt dönerse)
   try {
     const data: APIResponse<T> = await res.json();
     return data;
@@ -185,13 +162,9 @@ export async function apiClient<T>(
 }
 
 /**
- * isTokenExpired — JWT access token'ın süresinin dolup dolmadığını kontrol eder.
- *
- * JWT yapısı: header.payload.signature (base64 encoded, nokta ile ayrılmış)
- * Payload içindeki "exp" alanı token'ın geçerlilik bitiş zamanını (Unix timestamp) tutar.
- *
- * 10 saniyelik buffer: Token 10 saniye içinde expire olacaksa da "expired" sayılır.
- * Bu, tam son anda gönderilen isteklerin transport sırasında expire olmasını önler.
+ * Checks if a JWT access token is expired.
+ * Includes a 10s buffer so tokens about to expire are treated as expired,
+ * preventing requests that expire mid-transport.
  */
 function isTokenExpired(token: string): boolean {
   try {
@@ -203,17 +176,11 @@ function isTokenExpired(token: string): boolean {
 }
 
 /**
- * ensureFreshToken — Geçerli bir access token olduğundan emin ol.
+ * Ensures a valid access token exists, refreshing if needed.
  *
- * WebSocket reconnect'te kullanılır: bağlanmadan önce token'ın expire olup
- * olmadığını kontrol eder, expire olduysa refresh token ile yeniler.
- *
- * HTTP istekleri için bu gerekmez — apiClient zaten 401'de refresh yapar.
- * Ama WebSocket bağlantısında 401 dönmez, sadece connection reject edilir
- * ve onclose tetiklenir. Bu da sonsuz reconnect döngüsüne yol açar:
- * expired token → reject → onclose → reconnect → expired token → ...
- *
- * @returns Taze access token veya null (refresh de başarısızsa)
+ * Used before WebSocket connections — unlike HTTP requests, WS connections
+ * don't return 401 on expired tokens, they just get rejected, causing
+ * infinite reconnect loops.
  */
 async function ensureFreshToken(): Promise<string | null> {
   const token = getAccessToken();
@@ -221,7 +188,6 @@ async function ensureFreshToken(): Promise<string | null> {
 
   if (!isTokenExpired(token)) return token;
 
-  // Token expired veya expire olmak üzere — refresh yap
   const refreshed = await refreshAccessToken();
   if (!refreshed) return null;
 

@@ -1,30 +1,12 @@
 /**
  * useMediaQuery — Reactive CSS media query hook.
  *
- * `window.matchMedia()` API'sini kullanır — resize event'i yerine
- * sadece breakpoint eşiklerinde re-render tetiklenir (performans).
- *
- * Convenience wrapper'lar:
- * - useIsMobile() → max-width: 768px
- * - useIsTablet() → max-width: 1024px (768px dahil)
- *
- * SSR-safe: window yoksa false döner.
+ * Uses window.matchMedia() — only re-renders on breakpoint transitions.
+ * SSR-safe: returns false if window is undefined.
  */
 
 import { useEffect, useState } from "react";
 
-/**
- * useMediaQuery — Verilen CSS media query'sinin eşleşip eşleşmediğini
- * reactive olarak döner.
- *
- * @param query CSS media query string'i (örn: "(max-width: 768px)")
- * @returns Eşleşme durumu (boolean)
- *
- * Nasıl çalışır:
- * 1. İlk render'da `window.matchMedia(query).matches` ile senkron kontrol
- * 2. `change` event listener ile threshold geçişlerinde state güncelleme
- * 3. Component unmount'ta listener temizlenir
- */
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -36,7 +18,7 @@ function useMediaQuery(query: string): boolean {
 
     const mql = window.matchMedia(query);
 
-    // İlk mount'ta mismatch olabilir (SSR hydration), senkronize et
+    // Sync on mount in case of SSR hydration mismatch
     setMatches(mql.matches);
 
     function handleChange(e: MediaQueryListEvent) {
@@ -50,12 +32,12 @@ function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-/** 768px altı — telefon + küçük tablet portrait */
+/** Phone + small tablet portrait */
 function useIsMobile(): boolean {
   return useMediaQuery("(max-width: 768px)");
 }
 
-/** 1024px altı — tablet landscape dahil (768px de dahil) */
+/** Tablet landscape (includes 768px) */
 function useIsTablet(): boolean {
   return useMediaQuery("(max-width: 1024px)");
 }

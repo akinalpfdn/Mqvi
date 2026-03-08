@@ -1,13 +1,7 @@
 /**
- * Role Store — Zustand ile rol yönetimi state'i.
+ * Role Store — Role management state for settings panel.
  *
- * Bu store Settings panelindeki rol yönetimi için kullanılır:
- * - Tüm rolleri fetch ve cache
- * - Seçili rol tracking
- * - CRUD operasyonları (API çağrısı + WS ile senkron)
- *
- * Multi-server: fetchRoles, createRole, updateRole, deleteRole, reorderRoles
- * serverStore'dan activeServerId alır ve server-scoped API çağrısı yapar.
+ * Multi-server: all actions use activeServerId from serverStore.
  */
 
 import { create } from "zustand";
@@ -16,11 +10,10 @@ import { useServerStore } from "./serverStore";
 import type { Role } from "../types";
 
 type RoleState = {
-  /** Tüm roller (position DESC sıralı) */
+  /** All roles (sorted by position DESC) */
   roles: Role[];
-  /** Seçili rol ID'si (settings panelinde düzenlenmekte olan) */
+  /** Currently selected role ID (being edited in settings) */
   selectedRoleId: string | null;
-  /** Yüklenme durumu */
   isLoading: boolean;
 
   // ─── Actions ───
@@ -44,7 +37,6 @@ type RoleState = {
   handleRoleDelete: (roleId: string) => void;
   handleRolesReorder: (roles: Role[]) => void;
 
-  /** Server değiştirildiğinde store'u temizler */
   clearForServerSwitch: () => void;
 };
 

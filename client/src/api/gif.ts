@@ -1,45 +1,31 @@
 /**
- * GIF API — Klipy GIF arama ve trending endpoint'leri.
+ * GIF API — Klipy GIF search and trending via backend proxy.
  *
- * Backend Klipy API proxy'si üzerinden çalışır.
- * API key backend'de tutulur, client'a açılmaz.
- *
- * Klipy, Tenor'un halefidir — Discord/WhatsApp dahil geçiş yapıldı.
- * KLIPY_API_KEY yapılandırılmamışsa 503 döner.
+ * API key is stored server-side. Returns 503 if KLIPY_API_KEY is not configured.
  */
 
 import { apiClient } from "./client";
 
-/** GIF arama/trending sonucu — backend'in döndüğü simplified format. */
 export type GifResult = {
   id: string;
   title: string;
-  preview_url: string; // xs gif — picker thumbnail (küçük, hızlı)
-  url: string;         // md gif — mesajda gönderilecek orta boyut
+  preview_url: string; // xs gif — picker thumbnail
+  url: string;         // md gif — sent in messages
   width: number;
   height: number;
 };
 
-/** Backend'in döndüğü paginated GIF response. */
 type GifResponse = {
   results: GifResult[];
-  has_next: boolean; // sonraki sayfa var mı
+  has_next: boolean;
 };
 
-/**
- * trendingGifs — Popüler GIF'leri getirir.
- *
- * GIF picker ilk açıldığında ve arama kutusu boşken kullanılır.
- */
+/** Fetches trending GIFs. Used when the picker opens and search is empty. */
 export function trendingGifs(perPage = 24, page = 1) {
   return apiClient<GifResponse>(`/gifs/trending?per_page=${perPage}&page=${page}`);
 }
 
-/**
- * searchGifs — GIF arama yapar.
- *
- * Kullanıcı GIF picker'da arama yazarken debounced olarak çağrılır.
- */
+/** Searches GIFs. Called debounced as user types in the picker. */
 export function searchGifs(query: string, perPage = 24, page = 1) {
   return apiClient<GifResponse>(`/gifs/search?q=${encodeURIComponent(query)}&per_page=${perPage}&page=${page}`);
 }

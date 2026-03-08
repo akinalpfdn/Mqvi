@@ -1,26 +1,16 @@
 /**
- * Message API fonksiyonları.
+ * Message API — server-scoped message CRUD.
  *
- * Multi-server: Tüm endpoint'ler server-scoped.
- * Backend endpoint'leri:
- * - GET    /api/servers/{serverId}/channels/{id}/messages  → Mesajları cursor-based pagination ile döner
- * - POST   /api/servers/{serverId}/channels/{id}/messages  → Yeni mesaj gönder (JSON veya multipart)
- * - PATCH  /api/servers/{serverId}/messages/{id}           → Mesajı düzenle
- * - DELETE /api/servers/{serverId}/messages/{id}           → Mesajı sil
+ * - GET    /api/servers/{serverId}/channels/{id}/messages  — cursor-based pagination
+ * - POST   /api/servers/{serverId}/channels/{id}/messages  — send message (JSON or multipart)
+ * - PATCH  /api/servers/{serverId}/messages/{id}           — edit message
+ * - DELETE /api/servers/{serverId}/messages/{id}           — delete message
  */
 
 import { apiClient } from "./client";
 import type { Message, MessagePage } from "../types";
 import { API_BASE_URL } from "../utils/constants";
 
-/**
- * Mesajları cursor-based pagination ile getirir.
- *
- * @param serverId - Sunucu ID'si
- * @param channelId - Kanal ID'si
- * @param before - Bu ID'den önceki mesajları getir (boşsa en yenilerden başla)
- * @param limit - Kaç mesaj dönsün (default 50, max 100)
- */
 export async function getMessages(
   serverId: string,
   channelId: string,
@@ -38,11 +28,8 @@ export async function getMessages(
 }
 
 /**
- * Yeni mesaj gönderir.
- *
- * Dosya varsa multipart/form-data, yoksa JSON gönderir.
- * FormData kullanıldığında Content-Type header'ı browser tarafından
- * otomatik ayarlanır (boundary dahil). Manuel set etmek HATALI olur.
+ * Sends a new message. Uses multipart/form-data when files are attached,
+ * JSON otherwise. Browser sets Content-Type automatically for FormData.
  */
 export async function sendMessage(
   serverId: string,
@@ -52,7 +39,6 @@ export async function sendMessage(
   replyToId?: string
 ) {
   if (files && files.length > 0) {
-    // Multipart: dosya + metin
     const formData = new FormData();
     formData.append("content", content);
     if (replyToId) {
@@ -68,7 +54,6 @@ export async function sendMessage(
     });
   }
 
-  // JSON: sadece metin (+ opsiyonel reply)
   return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
     method: "POST",
     body: { content, reply_to_id: replyToId },
@@ -76,10 +61,8 @@ export async function sendMessage(
 }
 
 /**
- * Şifreli kanal mesajı gönderir. E2EE aktifken sendMessage yerine kullanılır.
- *
- * Ciphertext, SenderKeyMessage JSON string'idir (Sender Key ile tek ciphertext).
- * Dosya ekli şifreli mesajlarda multipart kullanılır.
+ * Sends an E2EE channel message. Ciphertext is a JSON-serialized SenderKeyMessage.
+ * Uses multipart when encrypted files are attached.
  */
 export async function sendEncryptedMessage(
   serverId: string,
@@ -91,7 +74,6 @@ export async function sendEncryptedMessage(
   replyToId?: string
 ) {
   if (files && files.length > 0) {
-    // Multipart: şifreli dosya + metadata
     const formData = new FormData();
     formData.append("encryption_version", "1");
     formData.append("ciphertext", ciphertext);
@@ -110,7 +92,6 @@ export async function sendEncryptedMessage(
     });
   }
 
-  // JSON: şifreli metin
   return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
     method: "POST",
     body: {
@@ -123,9 +104,7 @@ export async function sendEncryptedMessage(
   });
 }
 
-/**
- * Şifreli kanal mesajını düzenler. E2EE mesajlarda editMessage yerine kullanılır.
- */
+/** Edits an E2EE channel message. */
 export function editEncryptedMessage(
   serverId: string,
   messageId: string,
@@ -144,7 +123,7 @@ export function editEncryptedMessage(
   });
 }
 
-/** Mesajı düzenler (sadece mesaj sahibi) */
+/** Edits a message (owner only). */
 export async function editMessage(serverId: string, messageId: string, content: string) {
   return apiClient<Message>(`/servers/${serverId}/messages/${messageId}`, {
     method: "PATCH",
@@ -152,19 +131,15 @@ export async function editMessage(serverId: string, messageId: string, content: 
   });
 }
 
-/** Mesajı siler (mesaj sahibi veya MANAGE_MESSAGES yetkisi) */
+/** Deletes a message (owner or MANAGE_MESSAGES permission). */
 export async function deleteMessage(serverId: string, messageId: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/messages/${messageId}`, {
     method: "DELETE",
   });
 }
 
-/**
- * Upload URL'sini döner — attachment gösterimi için.
- * Backend'de statik dosya servisi: GET /api/uploads/{filename}
- */
+/** Returns the full upload URL for an attachment. */
 export function getUploadUrl(fileUrl: string): string {
-  // file_url zaten "/api/uploads/..." formatında geliyorsa direkt kullan
   if (fileUrl.startsWith("/api/")) {
     return fileUrl;
   }

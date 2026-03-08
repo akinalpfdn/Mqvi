@@ -1,41 +1,23 @@
 /**
- * useSwipeGesture — Yatay swipe detection hook'u.
+ * useSwipeGesture — Horizontal swipe detection hook.
  *
- * Touch event'lerini takip eder ve belirli eşikleri aştığında
- * onSwipeLeft / onSwipeRight callback'lerini çağırır.
- *
- * Özellikler:
- * - Minimum mesafe eşiği (threshold, varsayılan 50px)
- * - Hız eşiği (velocityThreshold, varsayılan 0.3 px/ms)
- * - Edge-only mod (edgeWidth > 0 ise sadece ekran kenarından başlayan swipe'lar)
- * - Dikey scroll ile çakışma önleme (dikey hareket > yatay ise iptal)
- *
- * Kullanım:
- * ```tsx
- * const swipeHandlers = useSwipeGesture({
- *   onSwipeRight: () => openSidebar(),
- *   edgeWidth: 20, // sadece sol kenardan
- * });
- * <div {...swipeHandlers}>...</div>
- * ```
+ * Features:
+ * - Minimum distance threshold (default 50px)
+ * - Velocity threshold (default 0.3 px/ms)
+ * - Edge-only mode (edgeWidth > 0: only swipes starting from screen edge)
+ * - Vertical scroll conflict prevention (cancels if vertical > horizontal)
  */
 
 import { useCallback, useRef } from "react";
 
 type SwipeConfig = {
-  /** Sağa swipe callback */
   onSwipeRight?: () => void;
-  /** Sola swipe callback */
   onSwipeLeft?: () => void;
-  /** Minimum swipe mesafesi (px). Varsayılan: 50 */
   threshold?: number;
-  /** Minimum swipe hızı (px/ms). Varsayılan: 0.3 */
   velocityThreshold?: number;
   /**
-   * Edge trigger genişliği (px). 0 = her yerden swipe kabul.
-   * Pozitif değer = sadece ilgili kenardan başlayan swipe'lar:
-   * - onSwipeRight varsa: sol kenardan (0 → edgeWidth)
-   * - onSwipeLeft varsa: sağ kenardan (viewport - edgeWidth → viewport)
+   * Edge trigger width (px). 0 = accept swipe from anywhere.
+   * Positive = only from relevant edge (left for swipeRight, right for swipeLeft).
    */
   edgeWidth?: number;
 };
@@ -50,9 +32,7 @@ type SwipeState = {
   startX: number;
   startY: number;
   startTime: number;
-  /** true = swipe iptal (dikey hareket baskın) */
   cancelled: boolean;
-  /** true = edge kontrolünü geçti */
   edgeValid: boolean;
 };
 
@@ -72,14 +52,12 @@ function useSwipeGesture(config: SwipeConfig): SwipeHandlers {
       const touch = e.touches[0];
       const x = touch.clientX;
 
-      // Edge kontrolü — sadece belirli kenardan başlayan swipe'ları kabul et
       let edgeValid = true;
       if (edgeWidth > 0) {
         const vw = window.innerWidth;
         const fromLeftEdge = x <= edgeWidth;
         const fromRightEdge = x >= vw - edgeWidth;
 
-        // En az bir kenar koşulunu sağlamalı
         edgeValid =
           (!!onSwipeRight && fromLeftEdge) ||
           (!!onSwipeLeft && fromRightEdge);
@@ -105,7 +83,7 @@ function useSwipeGesture(config: SwipeConfig): SwipeHandlers {
       const dx = Math.abs(touch.clientX - state.startX);
       const dy = Math.abs(touch.clientY - state.startY);
 
-      // Dikey hareket baskınsa swipe iptal — kullanıcı scroll yapıyor
+      // Cancel if vertical movement dominates — user is scrolling
       if (dy > dx && dy > 10) {
         state.cancelled = true;
       }
@@ -127,7 +105,6 @@ function useSwipeGesture(config: SwipeConfig): SwipeHandlers {
       const elapsed = Date.now() - state.startTime;
       const velocity = elapsed > 0 ? absDx / elapsed : 0;
 
-      // Eşikleri kontrol et
       if (absDx >= threshold && velocity >= velocityThreshold) {
         if (dx > 0 && onSwipeRight) {
           onSwipeRight();

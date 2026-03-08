@@ -1,26 +1,19 @@
 /**
- * Channel Permission Override API fonksiyonları.
+ * Channel Permission Override API — server-scoped per-channel role overrides.
  *
- * Multi-server: Tüm endpoint'ler server-scoped.
- * Backend endpoint'leri:
- * - GET    /api/servers/{serverId}/channels/{id}/permissions               → Override'ları listele
- * - PUT    /api/servers/{serverId}/channels/{channelId}/permissions/{roleId} → Override oluştur/güncelle
- * - DELETE /api/servers/{serverId}/channels/{channelId}/permissions/{roleId} → Override sil
- *
- * Tüm CUD endpoint'leri ManageChannels yetkisi gerektirir.
+ * All CUD endpoints require ManageChannels permission.
  */
 
 import { apiClient } from "./client";
 import type { ChannelPermissionOverride } from "../types";
 
-/** Bir kanaldaki tüm permission override'ları getirir */
 export async function getOverrides(serverId: string, channelID: string) {
   return apiClient<ChannelPermissionOverride[]>(
     `/servers/${serverId}/channels/${channelID}/permissions`
   );
 }
 
-/** Bir kanal-rol çifti için override oluşturur veya günceller (UPSERT) */
+/** Creates or updates (UPSERT) a permission override for a channel-role pair. */
 export async function setOverride(
   serverId: string,
   channelID: string,
@@ -37,7 +30,7 @@ export async function setOverride(
   );
 }
 
-/** Bir kanal-rol çifti için override'ı siler (inherit'e döner) */
+/** Deletes a permission override (reverts to inherited). */
 export async function deleteOverride(serverId: string, channelID: string, roleID: string) {
   return apiClient<{ message: string }>(
     `/servers/${serverId}/channels/${channelID}/permissions/${roleID}`,

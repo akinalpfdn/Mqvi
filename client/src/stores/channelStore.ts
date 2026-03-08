@@ -1,13 +1,5 @@
 /**
- * Channel Store — Zustand ile kanal ve kategori state yönetimi.
- *
- * Bu store kanalları ve kategorileri yönetir:
- * - Backend'den fetch edip cache'ler
- * - Seçili kanalı takip eder
- * - WebSocket event'leri ile gerçek zamanlı güncellenir
- *
- * Multi-server: fetchChannels activeServerId'ye göre server-scoped API çağrısı yapar.
- * Server değiştirildiğinde dışarıdan fetchChannels() çağrılır (cascade refetch).
+ * Channel Store — Channel and category state management.
  */
 
 import { create } from "zustand";
@@ -20,13 +12,9 @@ import type {
 } from "../types";
 
 type ChannelState = {
-  /** Kategorilere göre gruplanmış kanallar */
   categories: CategoryWithChannels[];
-  /** Seçili kanal ID'si */
   selectedChannelId: string | null;
-  /** Yüklenme durumu */
   isLoading: boolean;
-  /** Sessize alınan kanal ID'leri — Set olarak tutulur (hızlı lookup) */
   mutedChannelIds: Set<string>;
 
   // ─── Actions ───
@@ -47,13 +35,9 @@ type ChannelState = {
   handleCategoryDelete: (categoryId: string) => void;
 
   // ─── Reorder ───
-  /** Optimistic kanal sıralama — anında UI günceller, sonra API çağırır.
-   * category_id opsiyonel — cross-category drag-and-drop için. */
   reorderChannels: (items: { id: string; position: number; category_id?: string }[]) => Promise<boolean>;
-  /** WS channel_reorder event handler — store'u tam listeyle replace eder */
   handleChannelReorder: (categories: CategoryWithChannels[]) => void;
 
-  /** Server değiştirildiğinde store'u temizler */
   clearForServerSwitch: () => void;
 };
 
@@ -63,13 +47,6 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   isLoading: false,
   mutedChannelIds: new Set<string>(),
 
-  /**
-   * fetchChannels — Backend'den aktif sunucunun kanallarını çeker.
-   *
-   * Multi-server: serverStore'dan activeServerId alır ve
-   * GET /api/servers/{serverId}/channels çağırır.
-   * Server yoksa erken dönüş.
-   */
   fetchChannels: async () => {
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return;
@@ -81,7 +58,6 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       const state = get();
       let selectedChannelId = state.selectedChannelId;
 
-      // Seçili kanal hala görünür listede mi?
       const allVisible = res.data.flatMap((cg) => cg.channels);
 
       if (selectedChannelId) {
@@ -125,17 +101,14 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
         return cg;
       });
 
-      // Eğer hedef kategori bulunamadıysa (örn. kategorisiz kanal ve
-      // henüz uncategorized grubu yoksa), yeni bir sanal grup oluştur.
+      // If target category not found, create virtual uncategorized group or fallback
       if (!found) {
         if (targetCatId === "") {
-          // Kategorisiz: en başa uncategorized grup ekle
           categories.unshift({
             category: { id: "", name: "", position: -1 },
             channels: [channel],
           });
         } else if (categories.length > 0) {
-          // Bilinmeyen kategori: ilk gruba fallback (eski davranış)
           const first = { ...categories[0] };
           first.channels = [...first.channels, channel];
           categories[0] = first;
@@ -211,7 +184,7 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
     const prevCategories = get().categories;
 
-    // Cross-category taşıma var mı kontrol et
+    // Check for cross-category moves
     const categoryChangeMap = new Map<string, string>();
     for (const item of items) {
       if (item.category_id !== undefined) {
@@ -224,23 +197,17 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     const positionMap = new Map(items.map((item) => [item.id, item.position]));
 
     if (hasCategoryChange) {
-      // Cross-category: kanalı kaynak category'den çıkar, hedef category'ye ekle
       set((state) => {
-        // Tüm kanalları flat topla (taşınan kanalın bilgisine ihtiyacımız var)
         const allChannels = state.categories.flatMap((cg) => cg.channels);
 
-        // Her category'nin kanallarını yeniden hesapla
         const newCategories = state.categories.map((cg) => {
           const catId = cg.category.id;
 
-          // Bu category'ye ait olacak kanalları hesapla:
-          // 1. Mevcut kanallar (taşınanlar hariç)
-          // 2. Bu category'ye taşınan kanallar
           let channels = cg.channels.filter(
             (ch) => !categoryChangeMap.has(ch.id)
           );
 
-          // Bu category'ye taşınan kanalları ekle
+          // Add channels moved to this category
           for (const [chId, targetCatId] of categoryChangeMap) {
             if (targetCatId === catId) {
               const ch = allChannels.find((c) => c.id === chId);
@@ -253,7 +220,6 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
             }
           }
 
-          // Position güncelle ve sırala
           channels = channels
             .map((ch) => {
               const newPos = positionMap.get(ch.id);
@@ -267,7 +233,7 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
         return { categories: newCategories };
       });
     } else {
-      // Same-category: sadece position güncelle (mevcut davranış)
+      // Same-category reorder
       set((state) => ({
         categories: state.categories.map((cg) => ({
           ...cg,

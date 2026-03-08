@@ -1,21 +1,13 @@
 /**
- * voiceStore — Voice (ses kanalı) state yönetimi.
+ * voiceStore — Voice channel state management.
  *
- * Zustand slice store pattern'i ile organize edilir.
+ * Handles voice states, LiveKit connection info, local controls (mute/deafen/stream),
+ * and persisted voice settings (input mode, PTT key, mic sensitivity, volumes, devices).
  *
- * Sorumluluklar:
- * 1. voiceStates: Hangi kullanıcılar hangi ses kanallarında → sidebar gösterimi
- * 2. currentVoiceChannelId: Aktif ses kanalı (null = bağlı değil)
- * 3. isMuted / isDeafened / isStreaming: Lokal kontrol state'leri
- * 4. livekitUrl / livekitToken: LiveKit bağlantı bilgileri
- * 5. WS event handler'ları (voice_state_update, voice_states_sync)
- * 6. Voice settings: inputMode, PTT key, mic sensitivity, device selection, volumes
- *    → localStorage'da persist edilir (sayfa yenilemede korunur)
- *
- * Discord davranışları:
- * - Mute toggle: deafen edilmişse mute kapatılamaz (deafen > mute)
- * - Deafen toggle: deafen açılınca mute da açılır, deafen kapatılınca mute kalır
- * - Bir kullanıcı aynı anda tek bir ses kanalında olabilir
+ * Discord-like behaviors:
+ * - Mute toggle: if deafened, deafen is disabled first
+ * - Deafen toggle: enabling deafen also mutes; disabling deafen also unmutes
+ * - A user can only be in one voice channel at a time
  */
 
 import { create } from "zustand";
@@ -26,18 +18,8 @@ import { playWatchStartSound, playWatchStopSound, closeAudioContext } from "../u
 
 // ─── localStorage Persistence ───
 
-/**
- * Voice ayarları localStorage key'i.
- * Prefix ile namespace'lenir — başka uygulamalarla çakışma olmaz.
- */
 const STORAGE_KEY = "mqvi_voice_settings";
 
-/**
- * VoiceSettings — localStorage'da persist edilen voice ayarları.
- *
- * Bu tip, voiceStore'daki transient state'lerden (voiceStates, livekitUrl vb.)
- * ayrı tutulur. Sadece kullanıcı tercihleri persist edilir.
- */
 type VoiceSettings = {
   inputMode: InputMode;
   pttKey: string;
@@ -47,43 +29,16 @@ type VoiceSettings = {
   outputDevice: string;
   masterVolume: number;
   soundsEnabled: boolean;
-  /**
-   * localMutedUsers — Kullanıcı bazlı yerel sessize alma.
-   * userId → true ise o kullanıcının sesi sadece bu client'ta kapalıdır.
-   * Diğer kullanıcıları etkilemez — tamamen lokal.
-   */
+  /** Per-user local mute — only affects this client */
   localMutedUsers: Record<string, boolean>;
-  /**
-   * noiseReduction — RNNoise ML tabanlı gürültü bastırma.
-   * true ise mikrofon sesi RNNoise WASM AudioWorklet'ten geçirilir.
-   * Nefes, klavye, fan gibi gürültüleri agresif biçimde bastırır.
-   */
+  /** RNNoise ML-based noise suppression */
   noiseReduction: boolean;
-  /**
-   * screenShareVolumes — Ekran paylaşımı audio'su için bağımsız volume.
-   * userId → volume (0-200, default 100).
-   * userVolumes mic sesini, bu ise screen share audio'sunu kontrol eder.
-   */
+  /** Per-user screen share audio volume (0-200, default 100) */
   screenShareVolumes: Record<string, number>;
-  /**
-   * screenShareAudio — Ekran paylaşırken sistem sesini de paylaş.
-   *
-   * true ise getDisplayMedia({ audio: true }) ile sistem/tab sesi yakalanır.
-   * false ise sadece video paylaşılır, ses yakalanmaz.
-   *
-   * Varsayılan: false — çünkü sistem sesi yakalandığında voice chat
-   * katılımcılarının sesleri de ekran paylaşımına karışır (echo).
-   * Discord bunu native per-process audio capture ile çözer,
-   * tarayıcı/WebView ortamında bu mümkün değil.
-   */
+  /** Share system audio when screen sharing (default: false to avoid echo) */
   screenShareAudio: boolean;
 };
 
-/**
- * InputMode — Mikrofon giriş modu.
- * - voice_activity: Ses algılandığında otomatik iletim (varsayılan)
- * - push_to_talk: Belirli tuş basılı tutulurken iletim
- */
 type InputMode = "voice_activity" | "push_to_talk";
 
 const DEFAULT_SETTINGS: VoiceSettings = {
@@ -101,13 +56,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   screenShareAudio: false,
 };
 
-/**
- * loadSettings — localStorage'dan voice ayarlarını yükler.
- *
- * JSON parse hatası veya eksik key durumunda default değerler kullanılır.
- * Partial merge yapılır: localStorage'da olmayan key'ler default'tan gelir.
- * Bu sayede yeni ayar eklendiğinde eski kullanıcıların localStorage'ı bozulmaz.
- */
+/** Loads voice settings from localStorage with partial merge (new keys get defaults). */
 function loadSettings(): VoiceSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -120,207 +69,72 @@ function loadSettings(): VoiceSettings {
   }
 }
 
-/**
- * saveSettings — Voice ayarlarını localStorage'a kaydeder.
- *
- * Her setter action'ında çağrılır. Tüm settings bir arada saklanır —
- * tek key ile atomic write yapılır (partial update yok).
- */
 function saveSettings(settings: VoiceSettings): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch {
-    // localStorage dolu veya erişilemez — sessizce devam et
+    /* localStorage full or inaccessible */
   }
 }
 
-/** Store init'te bir kez yüklenir */
 const initialSettings = loadSettings();
 
 export type { InputMode };
 
 type VoiceStore = {
-  /**
-   * channelId → VoiceState[] mapping.
-   * Map yerine Record kullanılır — Zustand JSON serialize için daha uyumlu.
-   */
+  /** channelId -> VoiceState[] mapping */
   voiceStates: Record<string, VoiceState[]>;
-
-  /** Kullanıcının bağlı olduğu ses kanalı ID'si (null = bağlı değil) */
   currentVoiceChannelId: string | null;
-
-  /** Lokal mute durumu (mikrofon kapalı) */
   isMuted: boolean;
-
-  /** Lokal deafen durumu (ses çıkışı kapalı) */
   isDeafened: boolean;
-
-  /** Lokal screen share durumu */
   isStreaming: boolean;
-
-  /** LiveKit bağlantı URL'i (ws://...) */
   livekitUrl: string | null;
-
-  /** LiveKit JWT token'ı */
   livekitToken: string | null;
-
-  /** Room bazlı E2EE passphrase (SFrame). Server tarafından üretilir. */
+  /** Room-level E2EE passphrase (SFrame) */
   e2eePassphrase: string | null;
-
-  /** Monotonically increasing join generation — stale API response'ları discard eder */
+  /** Monotonically increasing — discards stale API responses */
   _joinGeneration: number;
 
   // ─── Voice Settings (persisted) ───
 
-  /**
-   * inputMode — Mikrofon giriş modu.
-   * "voice_activity": Ses algılandığında otomatik iletim
-   * "push_to_talk": Belirli tuş basılı tutulurken iletim
-   */
   inputMode: InputMode;
-
-  /**
-   * pttKey — Push-to-talk tuşu.
-   * KeyboardEvent.code değeri kullanılır (örn: "Space", "KeyV", "ControlLeft").
-   * code, fiziksel tuşu temsil eder — klavye layout'undan bağımsızdır.
-   */
+  /** PTT key — uses KeyboardEvent.code (layout-independent) */
   pttKey: string;
-
-  /**
-   * micSensitivity — Mikrofon hassasiyeti (0-100).
-   * 0 = en düşük hassasiyet (çok ses gerekir), 100 = en yüksek (fısıltı bile algılanır).
-   * LiveKit'in WebRTC audio constraint'lerine map edilir.
-   */
+  /** Mic sensitivity (0-100) */
   micSensitivity: number;
-
-  /**
-   * userVolumes — Kullanıcı bazlı ses seviyeleri.
-   * userId → volume (0-200, default 100).
-   * 0 = sessiz, 100 = normal, 200 = 2x amplified.
-   */
+  /** Per-user volume: userId -> volume (0-200, default 100) */
   userVolumes: Record<string, number>;
-
-  /** inputDevice — Seçili mikrofon device ID'si (MediaDeviceInfo.deviceId) */
   inputDevice: string;
-
-  /** outputDevice — Seçili hoparlör device ID'si */
   outputDevice: string;
-
-  /**
-   * masterVolume — Ana ses seviyesi (0-100).
-   * Tüm remote audio'nun genel seviyesini kontrol eder.
-   */
+  /** Master volume (0-100) */
   masterVolume: number;
-
-  /** soundsEnabled — Kanal giriş/çıkış sesleri açık mı? */
   soundsEnabled: boolean;
-
-  /**
-   * screenShareAudio — Ekran paylaşırken sistem sesini de paylaş.
-   *
-   * true ise getDisplayMedia({ audio: true }) — ses ve video paylaşılır.
-   * false ise getDisplayMedia({ audio: false }) — sadece video paylaşılır.
-   *
-   * Varsayılan: false — tarayıcı ortamında getDisplayMedia sistem sesini
-   * yakaladığında voice chat sesleri de karışır (echo). Discord bunu
-   * native per-process audio capture ile çözer, biz tarayıcıda çözemeyiz.
-   */
   screenShareAudio: boolean;
-
-  /**
-   * localMutedUsers — Kullanıcı bazlı yerel sessize alma.
-   * userId → true ise o kullanıcının sesi sadece bu client'ta kapalıdır.
-   * Diğer kullanıcıları etkilemez — tamamen lokal.
-   */
   localMutedUsers: Record<string, boolean>;
-
-  /**
-   * noiseReduction — RNNoise ML tabanlı gürültü bastırma.
-   * true ise mikrofon sesi RNNoise WASM AudioWorklet'ten geçirilir.
-   * Nefes, klavye, fan gibi gürültüleri agresif biçimde bastırır.
-   * localStorage'da persist edilir.
-   */
   noiseReduction: boolean;
-
-  /**
-   * screenShareVolumes — Ekran paylaşımı audio'su için bağımsız volume.
-   * userId → volume (0-200, default 100).
-   * userVolumes mikrofon sesini kontrol ederken, bu sadece screen share audio'sunu kontrol eder.
-   */
   screenShareVolumes: Record<string, number>;
 
-  /**
-   * activeSpeakers — Şu anda konuşan kullanıcılar.
-   * userId → true. LiveKit'in ActiveSpeakersChanged event'i ile güncellenir.
-   * Transient state — localStorage'a persist edilmez.
-   *
-   * Neden store'da?
-   * VoiceParticipant (LiveKit context içinde) ve ChannelTree (LiveKit dışında)
-   * her ikisi de bu state'e ihtiyaç duyar. Store merkezi erişim sağlar.
-   */
+  /** Currently speaking users — transient, not persisted */
   activeSpeakers: Record<string, boolean>;
 
   /**
-   * watchingScreenShares — Hangi kullanıcıların ekran paylaşımını izliyoruz.
-   * userId → true ise o kullanıcının screen share track'ine subscribe olunur.
-   *
-   * Varsayılan olarak hiç kimsenin yayını izlenmez — sidebar'daki yayın ikonuna
-   * tıklanınca subscribe olunur. Bu bandwidth tasarrufu sağlar:
-   * autoSubscribe: true kalır (ses için) ama screen share video/audio
-   * VoiceStateManager tarafından hemen unsubscribe edilir, sadece bu map'teki
-   * kullanıcılar için tekrar subscribe yapılır.
-   *
-   * Local participant'ın kendi yayını için de çalışır: subscribe gerekmez,
-   * sadece ScreenShareView'de göster/gizle kontrolü sağlar (preview).
-   *
-   * Transient state — leaveVoiceChannel'da temizlenir, persist edilmez.
+   * Users whose screen shares we're watching.
+   * Default is none — subscribe on sidebar click for bandwidth savings.
    */
   watchingScreenShares: Record<string, boolean>;
 
-  /**
-   * preMuteVolumes — Local mute öncesi volume değerleri.
-   * Mute açılırken volume 0'a çekilir, eski değer burada saklanır.
-   * Mute kapatılırken eski volume geri yüklenir.
-   */
+  /** Pre-mute volume values for local mute restore */
   preMuteVolumes: Record<string, number>;
 
-  /**
-   * rtt — LiveKit signal server'a round-trip time (ms).
-   * VoiceStateManager tarafından periyodik olarak güncellenir.
-   * 0 = henüz ölçülmedi veya bağlı değil.
-   */
+  /** LiveKit signal server round-trip time (ms) */
   rtt: number;
 
   // ─── Actions ───
 
-  /**
-   * joinVoiceChannel — Ses kanalına katılır.
-   * 1. API'den LiveKit token alır
-   * 2. Store state'ini günceller (livekitUrl, livekitToken, currentVoiceChannelId)
-   * Not: WS voice_join event'i ayrıca gönderilir (useVoice hook'unda)
-   */
   joinVoiceChannel: (channelId: string) => Promise<VoiceTokenResponse | null>;
-
-  /**
-   * leaveVoiceChannel — Ses kanalından ayrılır.
-   * Store state'ini temizler.
-   * Not: WS voice_leave event'i ayrıca gönderilir (useVoice hook'unda)
-   */
   leaveVoiceChannel: () => void;
-
-  /**
-   * toggleMute — Mikrofon açma/kapama.
-   * Discord davranışı: deafen edilmişse önce deafen kapatılır.
-   */
   toggleMute: () => void;
-
-  /**
-   * toggleDeafen — Ses çıkışı açma/kapama.
-   * Discord davranışı: deafen açılınca mute da açılır.
-   */
   toggleDeafen: () => void;
-
-  /** setStreaming — Screen share durumunu günceller */
   setStreaming: (isStreaming: boolean) => void;
 
   // ─── Voice Settings Actions ───
@@ -337,95 +151,27 @@ type VoiceStore = {
   setScreenShareAudio: (enabled: boolean) => void;
   setNoiseReduction: (enabled: boolean) => void;
   setRtt: (rtt: number) => void;
-
-  /**
-   * setActiveSpeakers — Konuşan kullanıcıları günceller.
-   * LiveKit ActiveSpeakersChanged event'inden gelen speaker listesi ile çağrılır.
-   * Eski speaker'lar temizlenir, yeni liste set edilir.
-   */
   setActiveSpeakers: (speakerIds: string[]) => void;
-
-  /**
-   * toggleWatchScreenShare — Belirli bir kullanıcının ekran paylaşımını izle/bırak.
-   * Toggle pattern: zaten izleniyorsa bırak, izlenmiyorsa izlemeye başla.
-   * Remote kullanıcılar için VoiceStateManager subscription'ı kontrol eder.
-   * Local kullanıcı için ScreenShareView'de göster/gizle.
-   */
   toggleWatchScreenShare: (userId: string) => void;
-
-  /**
-   * focusScreenShare — Birden fazla yayın izlenirken tek birine odaklan.
-   *
-   * Çift tıklama ile tetiklenir: Sadece belirtilen userId'nin yayını kalır,
-   * diğer tüm izlenen yayınlar kapatılır. Zaten tek bu yayın izleniyorsa
-   * hiçbir şey yapmaz (gereksiz state güncellemesi önlenir).
-   */
+  /** Double-click focus — keep only this user's stream, close all others */
   focusScreenShare: (userId: string) => void;
-
-  /**
-   *
-   * Mute açılırken: Mevcut volume değeri preMuteVolumes'a kaydedilir,
-   * volume 0'a çekilir, localMutedUsers[userId] = true.
-   * Mute kapatılırken: preMuteVolumes'dan eski volume geri yüklenir,
-   * localMutedUsers'dan silinir.
-   */
   toggleLocalMute: (userId: string) => void;
 
   // ─── Cross-store Callback ───
 
-  /**
-   * _onLeaveCallback — Tab close'dan tetiklenen voice leave callback'i.
-   *
-   * Bu field, useVoice hook'undaki leaveVoice() fonksiyonunu tutar.
-   * uiStore.closeTab bir voice tab'ı kapattığında bu callback çağrılır —
-   * böylece hem WS voice_leave event'i gönderilir hem de store temizlenir.
-   *
-   * Neden doğrudan leaveVoiceChannel çağırmıyoruz?
-   * Çünkü leaveVoiceChannel sadece store'u temizler — WS event göndermez.
-   * Backend'in kullanıcının ayrıldığını bilmesi için WS event şart.
-   *
-   * registerOnLeave: AppLayout'ta useVoice hook oluşturulduktan sonra çağrılır.
-   */
+  /** Tab close voice leave callback — registered by useVoice hook */
   _onLeaveCallback: (() => void) | null;
   registerOnLeave: (fn: (() => void) | null) => void;
 
-  /**
-   * _wsSend — Generic WS event gönderme callback'i.
-   *
-   * useWebSocket hook'undaki sendWS fonksiyonunu tutar.
-   * VoiceUserContextMenu gibi deep component'lerin prop drilling olmadan
-   * WS event göndermesini sağlar (admin voice state update vb.).
-   *
-   * registerWsSend: AppLayout'ta useWebSocket hook oluşturulduktan sonra çağrılır.
-   */
+  /** Generic WS send callback — avoids prop drilling for deep components */
   _wsSend: ((op: string, data?: unknown) => void) | null;
   registerWsSend: (fn: ((op: string, data?: unknown) => void) | null) => void;
 
   // ─── WS Event Handlers ───
 
-  /**
-   * handleVoiceStateUpdate — voice_state_update WS event handler.
-   * join/leave/update action'a göre voiceStates map'ini günceller.
-   */
   handleVoiceStateUpdate: (data: VoiceStateUpdateData) => void;
-
-  /**
-   * handleVoiceStatesSync — voice_states_sync WS event handler.
-   * Bağlantı kurulduğunda tüm aktif voice state'leri bulk sync eder.
-   */
   handleVoiceStatesSync: (states: VoiceState[]) => void;
-
-  /**
-   * updateUserInfo — Kullanıcı profil bilgisi değiştiğinde voice state'leri günceller.
-   * member_update WS event'i geldiğinde çağrılır — avatar ve display_name sync.
-   */
   updateUserInfo: (userId: string, displayName: string, avatarUrl: string) => void;
-
-  /**
-   * handleForceDisconnect — voice_force_disconnect WS event handler.
-   * Yetkili biri bizi voice'tan attığında tetiklenir.
-   * Voice bağlantısı temizlenir.
-   */
   handleForceDisconnect: () => void;
 };
 
@@ -438,10 +184,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   livekitUrl: null,
   livekitToken: null,
   e2eePassphrase: null,
-  /** Monotonically increasing join generation — stale API response'ları discard eder */
   _joinGeneration: 0,
 
-  // ─── Voice Settings (localStorage'dan yüklenir) ───
+  // ─── Voice Settings (loaded from localStorage) ───
   inputMode: initialSettings.inputMode,
   pttKey: initialSettings.pttKey,
   micSensitivity: initialSettings.micSensitivity,
@@ -472,15 +217,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       const serverId = useServerStore.getState().activeServerId;
       if (!serverId) return null;
 
-      // Generation counter — stale API response'ları discard etmek için.
-      // leave() araya girerse generation artmış olur ve set() atlanır.
       const gen = get()._joinGeneration + 1;
       set({ _joinGeneration: gen });
 
       const response = await voiceApi.getVoiceToken(serverId, channelId);
 
-      // API response geldiğinde generation hâlâ aynı mı? Değilse araya
-      // leave veya başka join girmiş → bu response'ı discard et.
+      // Discard stale response if generation changed (leave/join interleaved)
       if (get()._joinGeneration !== gen) {
         console.log("[voiceStore] Stale join response discarded (gen mismatch)");
         return null;
@@ -493,8 +235,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       console.log("[voiceStore] Voice token obtained, connecting to:", response.data.url);
 
-      // PTT modunda mic kapalı başlar (tuş basıldığında açılır).
-      // Voice activity modunda mic açık başlar (normal davranış).
+      // PTT mode starts muted (unmuted on key press)
       const startMuted = get().inputMode === "push_to_talk";
 
       set({
@@ -526,13 +267,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       activeSpeakers: {},
       watchingScreenShares: {},
       rtt: 0,
-      // Generation artır — in-flight join response'ları discard edilsin
       _joinGeneration: get()._joinGeneration + 1,
     });
 
-    // Ses efektleri AudioContext'ini kapat — voice'dan çıkınca
-    // bellekte kalmasını önle (2-5MB + birikmiş node referansları).
-    // Sonraki ses çalımında otomatik yeni context oluşturulur.
+    // Release AudioContext memory (2-5MB + accumulated node refs)
     closeAudioContext();
   },
 
@@ -540,7 +278,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     const { isMuted, isDeafened } = get();
 
     if (isDeafened) {
-      // Deafen açıkken mute toggle → deafen'ı kapat, mute durumunu çevir
       set({ isDeafened: false, isMuted: !isMuted });
     } else {
       set({ isMuted: !isMuted });
@@ -551,10 +288,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     const { isDeafened } = get();
 
     if (!isDeafened) {
-      // Deafen açılıyor → mute da açılır (Discord davranışı)
+      // Deafen on -> mute also on (Discord behavior)
       set({ isDeafened: true, isMuted: true });
     } else {
-      // Deafen kapatılıyor → mute da açılır (Discord davranışı)
+      // Deafen off -> unmute too (Discord behavior)
       set({ isDeafened: false, isMuted: false });
     }
   },
@@ -564,8 +301,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   // ─── Voice Settings Actions ───
-  // Her setter, güncel settings'i okuyup localStorage'a yazar.
-  // Bu pattern "read-modify-write" ile atomic persist sağlar.
+  // Each setter reads current settings and persists atomically.
 
   setInputMode: (mode) => {
     set({ inputMode: mode });
@@ -793,13 +529,11 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     const isWatching = watchingScreenShares[userId] ?? false;
 
     if (isWatching) {
-      // İzlemeyi bırak — key'i sil
       const next = { ...watchingScreenShares };
       delete next[userId];
       set({ watchingScreenShares: next });
       playWatchStopSound();
     } else {
-      // İzlemeye başla
       set({ watchingScreenShares: { ...watchingScreenShares, [userId]: true } });
       playWatchStartSound();
     }
@@ -809,10 +543,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     const { watchingScreenShares } = get();
     const watchingIds = Object.keys(watchingScreenShares);
 
-    // Zaten sadece bu yayın izleniyorsa → no-op
     if (watchingIds.length === 1 && watchingScreenShares[userId]) return;
 
-    // Sadece bu userId'yi tut, diğerlerini kapat
     set({ watchingScreenShares: { [userId]: true } });
     playWatchStopSound();
   },
@@ -822,7 +554,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     const isCurrentlyMuted = localMutedUsers[userId] ?? false;
 
     if (isCurrentlyMuted) {
-      // Unmute: Eski volume'u geri yükle, localMutedUsers'dan çıkar
+      // Unmute: restore previous volume
       const restoredVolume = preMuteVolumes[userId] ?? 100;
       const newLocalMuted = { ...localMutedUsers };
       delete newLocalMuted[userId];
@@ -836,7 +568,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         userVolumes: newVolumes,
       });
 
-      // localStorage persist
       const s = get();
       saveSettings({
         inputMode: s.inputMode,
@@ -853,7 +584,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         screenShareAudio: s.screenShareAudio,
       });
     } else {
-      // Mute: Mevcut volume'u sakla, volume'u 0'a çek
+      // Mute: save current volume, set to 0
       const currentVolume = userVolumes[userId] ?? 100;
       const newLocalMuted = { ...localMutedUsers, [userId]: true };
       const newPreMute = { ...preMuteVolumes, [userId]: currentVolume };
@@ -865,7 +596,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         userVolumes: newVolumes,
       });
 
-      // localStorage persist
       const s = get();
       saveSettings({
         inputMode: s.inputMode,
@@ -892,7 +622,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       switch (data.action) {
         case "join": {
-          // Kullanıcıyı eski kanallardan temizle (birden fazla kanalda olamaz)
+          // Remove user from all channels (can only be in one)
           for (const channelId of Object.keys(newStates)) {
             newStates[channelId] = newStates[channelId].filter(
               (s) => s.user_id !== data.user_id
@@ -902,7 +632,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
             }
           }
 
-          // Yeni kanala ekle
           const channelStates = newStates[data.channel_id] ?? [];
           newStates[data.channel_id] = [
             ...channelStates,
@@ -923,7 +652,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         }
 
         case "leave": {
-          // Kullanıcıyı kanaldan çıkar
           if (newStates[data.channel_id]) {
             newStates[data.channel_id] = newStates[data.channel_id].filter(
               (s) => s.user_id !== data.user_id
@@ -936,7 +664,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         }
 
         case "update": {
-          // Kullanıcının state'ini güncelle
           if (newStates[data.channel_id]) {
             newStates[data.channel_id] = newStates[data.channel_id].map((s) =>
               s.user_id === data.user_id
@@ -960,7 +687,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   handleVoiceStatesSync: (states: VoiceState[]) => {
-    // Tüm state'leri channelId'ye göre grupla
     const grouped: Record<string, VoiceState[]> = {};
 
     for (const state of states) {
@@ -996,9 +722,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   handleForceDisconnect: () => {
-    // Yetkili biri bizi voice'tan attı.
-    // leaveVoiceChannel ile aynı temizlik — ancak WS voice_leave event'i
-    // göndermiyoruz çünkü server tarafında zaten state temizlendi.
+    // Admin force-disconnected us — same cleanup as leave but no WS event sent
+    // (server already cleared state).
     set({
       currentVoiceChannelId: null,
       livekitUrl: null,

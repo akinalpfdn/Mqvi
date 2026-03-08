@@ -1,12 +1,8 @@
 /**
- * themes.ts — 5 tema paleti tanımı + uygulama fonksiyonu.
+ * Theme palettes and application logic.
  *
- * Her tema mevcut CSS variable isimlerini kullanır (--bg-0..5, --t0..3, vb.).
- * applyTheme() çağrıldığında document.documentElement üzerindeki
- * CSS custom property'leri değiştirilerek tüm UI anında güncellenir.
- *
- * Paletler documents/mqvi-palette-explorer.jsx referans alınarak
- * mevcut token yapısına uyarlanmıştır.
+ * Each theme maps to existing CSS variable names (--bg-0..5, --t0..3, etc.).
+ * applyTheme() sets CSS custom properties on :root, instantly updating all UI.
  */
 
 export type ThemeId =
@@ -27,12 +23,12 @@ export type ThemePalette = {
   nameKey: string;
   descKey: string;
   colors: Record<string, string>;
-  /** Swatch preview renkleri (tema kartında gösterilir) */
+  /** Swatch preview colors shown on theme cards */
   swatches: [string, string, string];
 };
 
 // ────────────────────────────────────────
-// Ocean — Mevcut palet (cyan/teal)
+// Ocean — Cyan/teal
 // ────────────────────────────────────────
 const ocean: ThemePalette = {
   id: "ocean",
@@ -71,7 +67,7 @@ const ocean: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Aurora Borealis — Derin uzay mavisi + kuzey ışıkları yeşili
+// Aurora Borealis — Deep space blue + northern lights green
 // ────────────────────────────────────────
 const aurora: ThemePalette = {
   id: "aurora",
@@ -110,7 +106,7 @@ const aurora: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Midnight Ink — Nötr gri + mavi accent (DEFAULT)
+// Midnight Ink — Neutral grey + blue accent (DEFAULT)
 // ────────────────────────────────────────
 const midnight: ThemePalette = {
   id: "midnight",
@@ -149,7 +145,7 @@ const midnight: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Warm Ember — Sıcak kahverengi-siyah + turuncu accent
+// Warm Ember — Warm brown-black + orange accent
 // ────────────────────────────────────────
 const ember: ThemePalette = {
   id: "ember",
@@ -188,7 +184,7 @@ const ember: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Deep Teal — İyileştirilmiş kontrast teal
+// Deep Teal — Improved contrast teal
 // ────────────────────────────────────────
 const deepTeal: ThemePalette = {
   id: "deepTeal",
@@ -227,7 +223,7 @@ const deepTeal: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Crisp Light — Aydınlık gündüz modu, temiz ve profesyonel
+// Crisp Light — Clean daylight mode
 // ────────────────────────────────────────
 const crispLight: ThemePalette = {
   id: "crispLight",
@@ -266,7 +262,7 @@ const crispLight: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Velvet Night — Dracula esintili koyu mor tema
+// Velvet Night — Dracula-inspired dark purple
 // ────────────────────────────────────────
 const velvetNight: ThemePalette = {
   id: "velvetNight",
@@ -305,7 +301,7 @@ const velvetNight: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Nordic Frost — Nord paletinden ilham alan buzul tema
+// Nordic Frost — Nord-inspired glacial theme
 // ────────────────────────────────────────
 const nordicFrost: ThemePalette = {
   id: "nordicFrost",
@@ -344,7 +340,7 @@ const nordicFrost: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Obsidian Rose — Lüks koyu tema, altın + gül aksanları
+// Obsidian Rose — Luxury dark with gold + rose accents
 // ────────────────────────────────────────
 const obsidianRose: ThemePalette = {
   id: "obsidianRose",
@@ -383,7 +379,7 @@ const obsidianRose: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Sage Terminal — Yeşil-siyah terminal estetiği, retro-futuristik
+// Sage Terminal — Green-black terminal aesthetic, retro-futuristic
 // ────────────────────────────────────────
 const sageTerminal: ThemePalette = {
   id: "sageTerminal",
@@ -422,7 +418,7 @@ const sageTerminal: ThemePalette = {
 };
 
 // ────────────────────────────────────────
-// Slate Ocean — Derin lacivert-gri, profesyonel ve zamansız
+// Slate Ocean — Deep navy-grey, professional and timeless
 // ────────────────────────────────────────
 const slateOcean: ThemePalette = {
   id: "slateOcean",
@@ -495,11 +491,8 @@ export const THEME_ORDER: ThemeId[] = [
 export const DEFAULT_THEME: ThemeId = "midnight";
 
 /**
- * applyTheme — Seçilen temanın CSS variable'larını :root'a uygular.
- *
- * document.documentElement.style.setProperty() kullanarak her variable'ı set eder.
- * Bu sayede globals.css'teki :root fallback değerleri override edilir ve
- * tüm var() referansları anında yeni temayı yansıtır.
+ * Applies theme CSS variables to :root. Uses a temporary "theme-transitioning"
+ * class for smooth 400ms transition, removed after to avoid affecting hover/focus.
  */
 export function applyTheme(id: ThemeId): void {
   const theme = THEMES[id];
@@ -507,12 +500,6 @@ export function applyTheme(id: ThemeId): void {
 
   const root = document.documentElement;
 
-  /**
-   * Geçiş animasyonu:
-   * "theme-transitioning" CSS class'ı tüm * elementlerine
-   * background-color/color/border-color transition'ı ekler.
-   * 400ms sonra kaldırılır — böylece hover/focus mikro geçişleri etkilenmez.
-   */
   root.classList.add("theme-transitioning");
 
   for (const [key, value] of Object.entries(theme.colors)) {

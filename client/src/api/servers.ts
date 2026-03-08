@@ -1,16 +1,15 @@
 /**
- * Servers API — Multi-server CRUD + üyelik endpoint'leri.
+ * Servers API — multi-server CRUD + membership endpoints.
  *
- * Backend endpoint'leri:
- * - GET    /api/servers                     → Kullanıcının sunucu listesi
- * - POST   /api/servers                     → Yeni sunucu oluştur
- * - POST   /api/servers/join                → Davet koduyla katıl
- * - GET    /api/servers/{serverId}          → Sunucu detayı
- * - PATCH  /api/servers/{serverId}          → Sunucu güncelle [Admin]
- * - DELETE /api/servers/{serverId}          → Sunucu sil [Owner]
- * - POST   /api/servers/{serverId}/leave    → Sunucudan ayrıl
- * - POST   /api/servers/{serverId}/icon     → Sunucu ikonu yükle [Admin]
- * - GET    /api/servers/{serverId}/livekit  → LiveKit ayarları [Admin]
+ * - GET    /api/servers                     — user's server list
+ * - POST   /api/servers                     — create server
+ * - POST   /api/servers/join                — join via invite code
+ * - GET    /api/servers/{serverId}          — server details
+ * - PATCH  /api/servers/{serverId}          — update server [Admin]
+ * - DELETE /api/servers/{serverId}          — delete server [Owner]
+ * - POST   /api/servers/{serverId}/leave    — leave server
+ * - POST   /api/servers/{serverId}/icon     — upload server icon [Admin]
+ * - GET    /api/servers/{serverId}/livekit  — LiveKit settings [Admin]
  */
 
 import { apiClient } from "./client";
@@ -20,12 +19,10 @@ import type {
   CreateServerRequest,
 } from "../types";
 
-/** Kullanıcının üye olduğu sunucuları listeler */
 export async function getMyServers() {
   return apiClient<ServerListItem[]>("/servers");
 }
 
-/** Yeni sunucu oluşturur */
 export async function createServer(data: CreateServerRequest) {
   return apiClient<Server>("/servers", {
     method: "POST",
@@ -33,7 +30,6 @@ export async function createServer(data: CreateServerRequest) {
   });
 }
 
-/** Davet koduyla sunucuya katılır */
 export async function joinServer(inviteCode: string) {
   return apiClient<Server>("/servers/join", {
     method: "POST",
@@ -41,12 +37,10 @@ export async function joinServer(inviteCode: string) {
   });
 }
 
-/** Sunucu detayını getirir */
 export async function getServer(serverId: string) {
   return apiClient<Server>(`/servers/${serverId}`);
 }
 
-/** Sunucu bilgisini günceller (isim, invite_required, livekit credentials) */
 export async function updateServer(
   serverId: string,
   data: {
@@ -64,28 +58,28 @@ export async function updateServer(
   });
 }
 
-/** Sunucuyu siler (sadece owner) */
+/** Deletes the server (owner only). */
 export async function deleteServer(serverId: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}`, {
     method: "DELETE",
   });
 }
 
-/** Sunucudan ayrılır (owner ayrılamaz) */
+/** Leaves the server (owner cannot leave). */
 export async function leaveServer(serverId: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/leave`, {
     method: "POST",
   });
 }
 
-/** LiveKit ayarlarını getirir (URL + tip bilgisi, secret yok) */
+/** Returns LiveKit settings (URL + type info, no secret). */
 export async function getLiveKitSettings(serverId: string) {
   return apiClient<{ url: string; is_platform_managed: boolean }>(
     `/servers/${serverId}/livekit`
   );
 }
 
-/** Kullanıcının sunucu listesini sıralar (per-user) */
+/** Reorders user's server list (per-user). */
 export async function reorderServers(items: { id: string; position: number }[]) {
   return apiClient<ServerListItem[]>("/servers/reorder", {
     method: "PATCH",
@@ -95,7 +89,6 @@ export async function reorderServers(items: { id: string; position: number }[]) 
 
 // ─── Server Mute ───
 
-/** Sunucuyu sessize al */
 export async function muteServer(serverId: string, duration: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/mute`, {
     method: "POST",
@@ -103,19 +96,17 @@ export async function muteServer(serverId: string, duration: string) {
   });
 }
 
-/** Sunucu sessizliğini kaldır */
 export async function unmuteServer(serverId: string) {
   return apiClient<{ message: string }>(`/servers/${serverId}/mute`, {
     method: "DELETE",
   });
 }
 
-/** Kullanıcının mute'lu sunucu ID'lerini getir */
 export async function getMutedServers() {
   return apiClient<string[]>("/servers/mutes");
 }
 
-/** Sunucu ikonu yükler — multipart/form-data */
+/** Uploads server icon — multipart/form-data. */
 export async function uploadServerIcon(serverId: string, file: File) {
   const formData = new FormData();
   formData.append("file", file);

@@ -1,16 +1,10 @@
 /**
- * useFileDrop — Drag-and-drop dosya yükleme hook'u.
+ * useFileDrop — Drag-and-drop file upload hook.
  *
- * PanelView'daki tab drag-drop pattern'ından farklı:
- * - Tab drop: "text/tab-id" MIME type kontrol eder
- * - File drop: dataTransfer.files kontrol eder
+ * enterCount pattern: nested child elements fire spurious dragLeave events.
+ * Counter increments on enter, decrements on leave — only truly "left" at 0.
  *
- * enterCount pattern: PanelView ile aynı — nested child element'lerin
- * yanlış dragLeave tetiklemesini engeller. Her child'a girişte counter artar,
- * çıkışta azalır. 0'a düşünce gerçekten çıkmış demektir.
- *
- * Tab sürükleme ile çakışma yok: Tab sürüklemesinde dataTransfer.files boştur,
- * bu hook sadece dosya sürüklendiğinde aktifleşir.
+ * No conflict with tab drag-drop: tab drags have empty dataTransfer.files.
  */
 
 import { useState, useCallback, useRef } from "react";
@@ -24,16 +18,10 @@ type FileDropHandlers = {
 };
 
 type UseFileDropReturn = {
-  /** Dosya sürüklenirken true — overlay göstermek için */
   isDragging: boolean;
-  /** Container div'e spread edilecek event handler'ları */
   dragHandlers: FileDropHandlers;
 };
 
-/**
- * hasFiles — Drag event'inde dosya olup olmadığını kontrol eder.
- * Tab sürüklemesi (text/tab-id) ile karışmaması için types listesinde "Files" arar.
- */
 function hasFiles(e: React.DragEvent): boolean {
   return e.dataTransfer.types.includes("Files");
 }

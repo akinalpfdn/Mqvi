@@ -1,8 +1,8 @@
 /**
- * Admin API — Platform admin LiveKit instance yönetimi.
+ * Admin API — Platform admin LiveKit instance management.
  *
- * Bu endpoint'ler sadece is_platform_admin = true olan kullanıcılar tarafından
- * erişilebilir. Backend PlatformAdminMiddleware ile korunur.
+ * All endpoints require is_platform_admin = true.
+ * Protected by PlatformAdminMiddleware on the backend.
  */
 
 import { apiClient } from "./client";
@@ -18,17 +18,14 @@ import type {
   AdminReportListItem,
 } from "../types";
 
-/** Tüm platform-managed LiveKit instance'larını listeler. */
 export async function listLiveKitInstances() {
   return apiClient<LiveKitInstanceAdmin[]>("/admin/livekit-instances");
 }
 
-/** Tek bir LiveKit instance'ı getirir. */
 export async function getLiveKitInstance(id: string) {
   return apiClient<LiveKitInstanceAdmin>(`/admin/livekit-instances/${id}`);
 }
 
-/** Yeni bir platform-managed LiveKit instance oluşturur. */
 export async function createLiveKitInstance(
   data: CreateLiveKitInstanceRequest
 ) {
@@ -38,7 +35,6 @@ export async function createLiveKitInstance(
   });
 }
 
-/** Mevcut bir LiveKit instance'ı günceller. */
 export async function updateLiveKitInstance(
   id: string,
   data: UpdateLiveKitInstanceRequest
@@ -49,10 +45,7 @@ export async function updateLiveKitInstance(
   });
 }
 
-/**
- * Bir LiveKit instance'ı siler.
- * Bağlı sunucular varsa migrateToId ile hedef instance belirtilmelidir.
- */
+/** If linked servers exist, migrateToId specifies the target instance. */
 export async function deleteLiveKitInstance(
   id: string,
   migrateToId?: string
@@ -63,14 +56,12 @@ export async function deleteLiveKitInstance(
   return apiClient<{ message: string }>(url, { method: "DELETE" });
 }
 
-/** Bir LiveKit instance'ın anlık Prometheus metriklerini çeker. */
 export async function getLiveKitInstanceMetrics(id: string) {
   return apiClient<LiveKitInstanceMetrics>(
     `/admin/livekit-instances/${id}/metrics`
   );
 }
 
-/** Bir LiveKit instance'ın tarihsel metrik özetini getirir (admin). */
 export async function getLiveKitMetricsHistory(
   id: string,
   period: "24h" | "7d" | "30d" = "24h"
@@ -80,7 +71,6 @@ export async function getLiveKitMetricsHistory(
   );
 }
 
-/** Bir LiveKit instance'ın time-series metrik verisini getirir (chart için). */
 export async function getLiveKitMetricsTimeSeries(
   id: string,
   period: "24h" | "7d" | "30d" = "24h"
@@ -90,17 +80,14 @@ export async function getLiveKitMetricsTimeSeries(
   );
 }
 
-/** Platformdaki tüm sunucuları istatistikleriyle listeler (admin). */
 export async function listAdminServers() {
   return apiClient<AdminServerListItem[]>("/admin/servers");
 }
 
-/** Platformdaki tüm kullanıcıları istatistikleriyle listeler (admin). */
 export async function listAdminUsers() {
   return apiClient<AdminUserListItem[]>("/admin/users");
 }
 
-/** Kullanıcıyı platform genelinde yasaklar (admin). */
 export async function platformBanUser(
   userId: string,
   data: { reason: string; delete_messages: boolean }
@@ -111,17 +98,13 @@ export async function platformBanUser(
   });
 }
 
-/** Kullanıcının platform yasağını kaldırır (admin). */
 export async function platformUnbanUser(userId: string) {
   return apiClient<{ message: string }>(`/admin/users/${userId}/ban`, {
     method: "DELETE",
   });
 }
 
-/**
- * Kullanıcıyı ve tüm verilerini kalıcı olarak siler (admin).
- * Reason opsiyonel — doldurulursa kullanıcıya email bildirim gönderilir.
- */
+/** Permanently deletes user and all their data. Optional reason triggers email notification. */
 export async function hardDeleteUser(
   userId: string,
   data?: { reason: string }
@@ -132,10 +115,7 @@ export async function hardDeleteUser(
   });
 }
 
-/**
- * Sunucuyu platform admin yetkisiyle kalıcı olarak siler.
- * Reason opsiyonel — doldurulursa sunucu sahibine email bildirim gönderilir.
- */
+/** Permanently deletes server with platform admin authority. Optional reason triggers owner notification. */
 export async function adminDeleteServer(
   serverId: string,
   data?: { reason: string }
@@ -146,7 +126,6 @@ export async function adminDeleteServer(
   });
 }
 
-/** Kullanıcının platform admin durumunu günceller (admin). */
 export async function setUserPlatformAdmin(
   userId: string,
   data: { is_admin: boolean }
@@ -157,7 +136,6 @@ export async function setUserPlatformAdmin(
   });
 }
 
-/** Tek bir sunucunun LiveKit instance'ını değiştirir (admin). */
 export async function migrateServerInstance(
   serverId: string,
   livekitInstanceId: string
@@ -171,7 +149,6 @@ export async function migrateServerInstance(
   );
 }
 
-/** Platformdaki raporları listeler (admin). Opsiyonel status filtresi. */
 export async function listAdminReports(status?: string) {
   const query = status ? `?status=${status}&limit=100` : "?limit=100";
   return apiClient<{ reports: AdminReportListItem[]; total: number }>(
@@ -179,7 +156,6 @@ export async function listAdminReports(status?: string) {
   );
 }
 
-/** Rapor durumunu günceller (admin). */
 export async function updateReportStatus(reportId: string, status: string) {
   return apiClient<{ message: string }>(`/admin/reports/${reportId}/status`, {
     method: "PATCH",

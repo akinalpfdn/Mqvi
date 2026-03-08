@@ -1,9 +1,5 @@
 /**
- * Block API — Kullanıcı engelleme endpoint'leri.
- *
- *   blockUser: Kullanıcıyı engelle.
- *   unblockUser: Engeli kaldır.
- *   listBlocked: Engellenen kullanıcıları listele.
+ * Block API — user blocking endpoints.
  */
 
 import { apiClient } from "./client";

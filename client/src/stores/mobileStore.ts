@@ -1,35 +1,20 @@
 /**
- * mobileStore — Mobil UI state yönetimi.
+ * Mobile Store — Mobile UI state management.
  *
- * Drawer'lar (sidebar/members) ve mobil-specific state burada tutulur.
- * Desktop modda bu store kullanılmaz — sadece `useIsMobile()` true
- * olduğunda component'ler bu store'a subscribe olur.
- *
- * Drawer mantığı:
- * - Aynı anda sadece bir drawer açık olabilir (sol veya sağ)
- * - Kanal seçildiğinde sol drawer otomatik kapanır
- * - Backdrop tıklandığında veya swipe ile kapatılır
+ * Only one drawer (left or right) can be open at a time.
+ * Not used on desktop — components only subscribe when useIsMobile() is true.
  */
 
 import { create } from "zustand";
 
 type MobileState = {
-  /** Sol drawer (sidebar) açık mı? */
   leftDrawerOpen: boolean;
-  /** Sağ drawer (member list) açık mı? */
   rightDrawerOpen: boolean;
 
-  // ─── Actions ───
-
-  /** Sol drawer'ı aç (sağ drawer açıksa kapat) */
   openLeftDrawer: () => void;
-  /** Sol drawer'ı kapat */
   closeLeftDrawer: () => void;
-  /** Sağ drawer'ı aç (sol drawer açıksa kapat) */
   openRightDrawer: () => void;
-  /** Sağ drawer'ı kapat */
   closeRightDrawer: () => void;
-  /** Tüm drawer'ları kapat */
   closeAllDrawers: () => void;
 };
 

@@ -1,24 +1,10 @@
 /**
- * DM API — Direct Messages endpoint'leri.
+ * DM API — Direct Messages endpoints.
  *
- * Mesaj:
- *   listDMChannels: Kullanıcının tüm DM kanallarını listeler.
- *   createDMChannel: İki kullanıcı arasında DM kanalı oluşturur/bulur.
- *   getDMMessages: Cursor-based pagination ile DM mesajlarını getirir.
- *   sendDMMessage: Yeni DM mesajı gönderir (JSON veya multipart/form-data).
- *   editDMMessage: DM mesajını düzenler.
- *   deleteDMMessage: DM mesajını siler.
- *
- * Reaction:
- *   toggleDMReaction: DM mesajına emoji tepkisi ekle/kaldır (toggle).
- *
- * Pin:
- *   pinDMMessage: DM mesajını sabitle.
- *   unpinDMMessage: DM mesajının sabitlemesini kaldır.
- *   getDMPinnedMessages: DM kanalının sabitlenmiş mesajlarını listele.
- *
- * Search:
- *   searchDMMessages: DM kanalında FTS5 tam metin araması.
+ * Message: list, create, get, send, edit, delete DM channels/messages.
+ * Reaction: toggle emoji reaction on DM messages.
+ * Pin: pin/unpin DM messages.
+ * Search: FTS5 full-text search within DM channels.
  */
 
 import { apiClient } from "./client";
@@ -43,12 +29,8 @@ export function getDMMessages(channelId: string, before?: string, limit = 50) {
 }
 
 /**
- * Yeni DM mesajı gönderir.
- *
- * Channel sendMessage ile aynı pattern:
- * - Dosya varsa multipart/form-data (FormData), yoksa JSON
- * - FormData kullanıldığında Content-Type browser tarafından ayarlanır
- * - reply_to_id opsiyonel — yanıt mesajı için
+ * Sends a DM message. Uses multipart/form-data when files are attached, JSON otherwise.
+ * Browser sets Content-Type automatically for FormData (including boundary).
  */
 export async function sendDMMessage(
   channelId: string,
@@ -57,7 +39,6 @@ export async function sendDMMessage(
   replyToId?: string
 ) {
   if (files && files.length > 0) {
-    // Multipart: dosya + metin
     const formData = new FormData();
     formData.append("content", content);
     if (replyToId) {
@@ -73,7 +54,6 @@ export async function sendDMMessage(
     });
   }
 
-  // JSON: sadece metin (+ opsiyonel reply)
   return apiClient<DMMessage>(`/dms/${channelId}/messages`, {
     method: "POST",
     body: {
@@ -84,11 +64,9 @@ export async function sendDMMessage(
 }
 
 /**
- * Şifreli DM mesajı gönderir. E2EE aktifken sendDMMessage yerine kullanılır.
- *
- * Ciphertext, JSON-serialized EncryptedEnvelope[] dizisidir.
- * Her envelope bir alıcı cihaz için ayrı ayrı şifrelenmiş mesajı içerir.
- * Dosya ekli şifreli mesajlarda multipart kullanılır.
+ * Sends an E2EE DM message. Ciphertext is a JSON-serialized EncryptedEnvelope[] array,
+ * each envelope encrypted separately per recipient device.
+ * Uses multipart when encrypted files are attached.
  */
 export async function sendEncryptedDMMessage(
   channelId: string,
@@ -99,7 +77,6 @@ export async function sendEncryptedDMMessage(
   replyToId?: string
 ) {
   if (files && files.length > 0) {
-    // Multipart: şifreli dosya + metadata
     const formData = new FormData();
     formData.append("encryption_version", "1");
     formData.append("ciphertext", ciphertext);
@@ -118,7 +95,6 @@ export async function sendEncryptedDMMessage(
     });
   }
 
-  // JSON: şifreli metin
   return apiClient<DMMessage>(`/dms/${channelId}/messages`, {
     method: "POST",
     body: {
@@ -131,9 +107,7 @@ export async function sendEncryptedDMMessage(
   });
 }
 
-/**
- * Şifreli DM mesajını düzenler. E2EE mesajlarda editDMMessage yerine kullanılır.
- */
+/** Edits an E2EE DM message. */
 export function editEncryptedDMMessage(
   messageId: string,
   ciphertext: string,
@@ -166,10 +140,7 @@ export function deleteDMMessage(messageId: string) {
 
 // ─── Reaction ───
 
-/**
- * DM mesajına emoji tepkisi ekle/kaldır (toggle).
- * Emoji zaten varsa kaldırılır, yoksa eklenir.
- */
+/** Toggle emoji reaction on a DM message (adds if absent, removes if present). */
 export function toggleDMReaction(messageId: string, emoji: string) {
   return apiClient<{ status: string }>(`/dms/messages/${messageId}/reactions`, {
     method: "POST",
@@ -197,7 +168,7 @@ export function getDMPinnedMessages(channelId: string) {
 
 // ─── DM Settings ───
 
-/** Pinned + muted DM ID'leri (initial load). */
+/** Pinned + muted DM IDs (initial load). */
 export type DMSettingsResponse = {
   pinned_channel_ids: string[];
   muted_channel_ids: string[];
@@ -236,7 +207,7 @@ export function unmuteDM(channelId: string) {
 
 // ─── E2EE Toggle ───
 
-/** DM kanalında E2EE'yi aç/kapat. Her iki taraf da değiştirebilir. */
+/** Toggle E2EE on a DM channel. Either participant can change it. */
 export function toggleDME2EE(channelId: string, enabled: boolean) {
   return apiClient<{ id: string; e2ee_enabled: boolean }>(`/dms/channels/${channelId}/e2ee`, {
     method: "PATCH",
@@ -246,16 +217,12 @@ export function toggleDME2EE(channelId: string, enabled: boolean) {
 
 // ─── Search ───
 
-/** DM arama sonucu tipi — mesajlar + toplam sayı (pagination için). */
 export type DMSearchResult = {
   messages: DMMessage[];
   total_count: number;
 };
 
-/**
- * DM kanalında FTS5 tam metin araması yapar.
- * Channel searchMessages ile aynı pattern — limit/offset ile pagination destekler.
- */
+/** FTS5 full-text search within a DM channel. Supports limit/offset pagination. */
 export function searchDMMessages(channelId: string, query: string, limit = 25, offset = 0) {
   const params = new URLSearchParams({ q: query });
   if (limit !== 25) params.set("limit", String(limit));

@@ -1,63 +1,32 @@
 /**
- * useResizeHandle — Panel genişliğini sürükleyerek ayarlama hook'u.
+ * useResizeHandle — Drag-to-resize panel width hook.
  *
- * Kullanım:
- * ```tsx
- * const { width, handleMouseDown } = useResizeHandle({
- *   initialWidth: 240,
- *   minWidth: 180,
- *   maxWidth: 400,
- *   direction: "right",
- *   storageKey: "mqvi_sidebar_width",
- * });
- * ```
+ * direction: "right" = drag right to widen (left sidebar),
+ *            "left"  = drag left to widen (right sidebar).
  *
- * direction:
- * - "right" → sağa doğru sürüklemek genişletir (sol sidebar)
- * - "left"  → sola doğru sürüklemek genişletir (sağ sidebar)
- *
- * Mouse event'leri document seviyesinde dinlenir (mouseup/mousemove).
- * Bu sayede cursor handle'ın dışına çıksa bile drag devam eder.
- *
- * Drag sırasında `user-select: none` uygulanır → metin seçimi engellenir.
- * Drag bittiğinde geri alınır.
+ * Mouse events are on document level so drag continues outside the handle.
+ * user-select: none applied during drag to prevent text selection.
+ * Disabled on mobile.
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useIsMobile } from "./useMediaQuery";
 
 type ResizeHandleOptions = {
-  /** Başlangıç genişliği (px) — localStorage'ta değer yoksa kullanılır */
   initialWidth: number;
-  /** Minimum genişlik (px) */
   minWidth: number;
-  /** Maximum genişlik (px) */
   maxWidth: number;
-  /**
-   * Sürükleme yönü:
-   * - "right": sağa sürükle = genişlet (sol sidebar)
-   * - "left": sola sürükle = genişlet (sağ sidebar)
-   */
   direction: "right" | "left";
-  /** localStorage key — persist etmek için */
   storageKey: string;
-  /** Genişlik değiştiğinde çağrılır (opsiyonel) */
   onWidthChange?: (width: number) => void;
 };
 
 type ResizeHandleResult = {
-  /** Mevcut genişlik (px) */
   width: number;
-  /** Resize handle'ın onMouseDown handler'ı */
   handleMouseDown: (e: React.MouseEvent) => void;
-  /** Drag aktif mi? (handle'a görsel feedback için) */
   isDragging: boolean;
 };
 
-/**
- * loadWidth — localStorage'dan kaydedilmiş genişliği okur.
- * Geçersiz veya yok ise null döner.
- */
 function loadWidth(key: string): number | null {
   try {
     const raw = localStorage.getItem(key);
@@ -66,23 +35,19 @@ function loadWidth(key: string): number | null {
       if (Number.isFinite(n) && n > 0) return n;
     }
   } catch {
-    /* localStorage erişim hatası */
+    /* localStorage access error */
   }
   return null;
 }
 
-/**
- * saveWidth — Genişliği localStorage'a yazar.
- */
 function saveWidth(key: string, width: number): void {
   try {
     localStorage.setItem(key, String(Math.round(width)));
   } catch {
-    /* localStorage dolu */
+    /* localStorage full */
   }
 }
 
-/** No-op mouse handler — mobilde resize devre dışı */
 const NOOP_MOUSE_DOWN = () => {};
 
 export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResult {
@@ -99,16 +64,12 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
 
   const [isDragging, setIsDragging] = useState(false);
 
-  /**
-   * Drag state ref'leri — event listener'lar closure'da
-   * stale state yakalar, ref ile güncel değere erişiriz.
-   */
+  /** Refs to avoid stale closures in event listeners */
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // Mobilde resize devre dışı
       if (isMobile) return;
 
       e.preventDefault();
@@ -116,7 +77,6 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
       startWidthRef.current = width;
       setIsDragging(true);
 
-      // Drag sırasında metin seçimini engelle
       document.body.style.userSelect = "none";
       document.body.style.cursor = direction === "right" ? "col-resize" : "col-resize";
     },
@@ -142,11 +102,6 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
       setIsDragging(false);
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
-
-      // Drag bittiğinde son genişliği kaydet
-      // Burada startWidthRef + son delta'yı kullanmak yerine
-      // en güncel width'i okumak lazım — setTimeout ile çözüyoruz
-      // çünkü React state async güncellenir.
     }
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -158,10 +113,7 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
     };
   }, [isDragging, isMobile, direction, minWidth, maxWidth, onWidthChange]);
 
-  /**
-   * Drag bittiğinde (isDragging false olunca) son genişliği persist et.
-   * isDragging → false geçişini takip eder.
-   */
+  /** Persist width when drag ends (isDragging transitions false) */
   const prevDraggingRef = useRef(false);
   useEffect(() => {
     if (prevDraggingRef.current && !isDragging) {
@@ -170,7 +122,6 @@ export function useResizeHandle(options: ResizeHandleOptions): ResizeHandleResul
     prevDraggingRef.current = isDragging;
   }, [isDragging, width, storageKey]);
 
-  // Mobilde resize handle devre dışı — no-op handler + isDragging her zaman false
   if (isMobile) {
     return { width, handleMouseDown: NOOP_MOUSE_DOWN, isDragging: false };
   }

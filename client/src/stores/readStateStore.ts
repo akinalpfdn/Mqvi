@@ -1,14 +1,5 @@
 /**
- * Read State Store — Okunmamış mesaj sayısı state yönetimi.
- *
- * Multi-server: fetchUnreadCounts activeServerId'ye göre server-scoped.
- * markAsRead de serverId gerektirir.
- *
- * Tasarım kararları:
- * - unreadCounts: Record<channelId, number> — her kanalın okunmamış sayısı.
- * - WS message_create geldiğinde, aktif kanal DEĞİLSE sayacı artır.
- * - Kanal değiştirdiğinde (selectChannel) auto-mark-read: sayacı sıfırla + backend'e bildir.
- * - Uygulama başladığında ve reconnect'te fetchUnreadCounts çağrılır.
+ * Read State Store — Unread message count management.
  */
 
 import { create } from "zustand";
@@ -17,23 +8,15 @@ import { useServerStore } from "./serverStore";
 import { useChannelStore } from "./channelStore";
 
 type ReadStateState = {
-  /** Kanal bazlı okunmamış mesaj sayıları: channelId → count */
+  /** channelId -> unread count */
   unreadCounts: Record<string, number>;
 
-  // ─── Actions ───
-  /** Backend'den tüm okunmamış sayıları çek (uygulama başlatma / reconnect) */
   fetchUnreadCounts: () => Promise<void>;
-  /** Bir kanalı okundu olarak işaretle (sayacı sıfırla + backend'e bildir) */
   markAsRead: (channelId: string, lastMessageId: string) => void;
-  /** Yeni mesaj geldiğinde okunmamış sayacını artır (aktif kanal değilse) */
   incrementUnread: (channelId: string) => void;
-  /** Mesaj silindiğinde okunmamış sayacını azalt (0'ın altına düşmez) */
   decrementUnread: (channelId: string) => void;
-  /** Bir kanalın okunmamış sayısını sıfırla (sadece local) */
   clearUnread: (channelId: string) => void;
-  /** Server değiştirildiğinde store'u temizler */
   clearForServerSwitch: () => void;
-  /** Sunucudaki tüm kanalları okundu olarak işaretle */
   markAllAsRead: (serverId: string) => Promise<boolean>;
 };
 
@@ -46,20 +29,9 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
 
     const res = await readStateApi.getUnreadCounts(serverId);
     if (res.success && res.data) {
-      // Backend sonucunu direkt kullan (replace, merge değil).
-      //
-      // Neden Math.max merge kaldırıldı:
-      // Server switch'te clearForServerSwitch → fetchUnreadCounts arasında
-      // WS'den gelen incrementUnread çağrıları eski server'ın kanalları için
-      // count artırıyordu. Fetch sonucu geldiğinde Math.max(backend=0, local=1)
-      // → stale unread kalıyordu. Replace ile fetch sonucu her zaman doğru.
-      //
-      // incrementUnread race condition: Fetch sırasında gelen yeni mesajlar
-      // fetch sonucundan sonraya kadar kaybolabilir mi? Hayır — çünkü
-      // backend zaten o mesajı saydı (count'a dahil), veya mesaj
-      // fetchUnreadCounts'un backend'e gittiği andan sonra geldi ki bu
-      // durumda WS event'i ile incrementUnread zaten çalışacak.
-      // Muted kanalları filtrele — sessiz kanallarda unread gösterilmez.
+      // Direct replace (not merge). Math.max merge was removed because
+      // increments from a previous server could leak into the new server's
+      // counts between clearForServerSwitch and fetch completion.
       const mutedChannelIds = useChannelStore.getState().mutedChannelIds;
       const mutedServerIds = useServerStore.getState().mutedServerIds;
       const activeServerId = useServerStore.getState().activeServerId;
@@ -67,9 +39,7 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
 
       const counts: Record<string, number> = {};
       for (const info of res.data) {
-        // Server muted ise tüm kanallar muted — hiçbir unread gösterme
         if (isServerMuted) continue;
-        // Kanal muted ise o kanalın unread'ini atla
         if (mutedChannelIds.has(info.channel_id)) continue;
         counts[info.channel_id] = info.unread_count;
       }
@@ -81,7 +51,7 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return;
 
-    // Önce local'i sıfırla (anında UI güncellemesi)
+    // Clear local first for instant UI update
     set((state) => {
       if (!state.unreadCounts[channelId]) return state;
       const next = { ...state.unreadCounts };
@@ -89,7 +59,7 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
       return { unreadCounts: next };
     });
 
-    // Backend'e bildir (fire-and-forget)
+    // Fire-and-forget to backend
     readStateApi.markRead(serverId, channelId, lastMessageId);
   },
 
@@ -136,10 +106,7 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
   },
 
   markAllAsRead: async (serverId) => {
-    // Önce local'i sıfırla (anında UI güncellemesi)
     set({ unreadCounts: {} });
-
-    // Backend'e bildir
     const res = await readStateApi.markAllRead(serverId);
     return res.success;
   },

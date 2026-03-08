@@ -1,13 +1,5 @@
 /**
- * Message Store — Zustand ile mesaj state yönetimi.
- *
- * Tasarım kararları:
- * - messagesByChannel: Kanal değiştirince cache'den gösterir, yoksa fetch eder.
- *   Record<channelId, Message[]> formatında — her kanalın mesajları ayrı tutulur.
- * - Mesajlar created_at ASC sıralı (en eski üstte, en yeni altta).
- * - WebSocket "message_create" → dizinin sonuna ekler (yeni mesaj altta).
- * - Cursor pagination: fetchOlderMessages dizideki ilk mesajın ID'sini "before" olarak gönderir.
- * - typingUsers: Hangi kullanıcıların yazmakta olduğunu takip eder (typing indicator için).
+ * Message Store — Channel message state management.
  */
 
 import { create } from "zustand";
@@ -27,27 +19,22 @@ import type { EncryptedFileMeta } from "../crypto/fileEncryption";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
 
 type MessageState = {
-  /** Kanal bazlı mesaj cache'i: channelId → Message[] */
+  /** channelId -> Message[] */
   messagesByChannel: Record<string, Message[]>;
-  /** Kanal bazlı "daha eski mesaj var mı?" bilgisi */
   hasMoreByChannel: Record<string, boolean>;
-  /** Yüklenme durumu (ilk yükleme) */
   isLoading: boolean;
-  /** Daha eski mesajlar yüklenirken */
   isLoadingMore: boolean;
-  /** Kanal bazlı typing kullanıcıları: channelId → username[] */
+  /** channelId -> username[] */
   typingUsers: Record<string, string[]>;
 
   // ─── Reply State ───
-  /** Yanıt verilmekte olan mesaj (input üstünde ReplyBar gösterilir) */
   replyingTo: Message | null;
-  /** Scroll-to-message: Bu ID'ye sahip mesaja scroll et ve highlight yap */
   scrollToMessageId: string | null;
 
   // ─── Actions ───
   fetchMessages: (channelId: string) => Promise<void>;
   fetchOlderMessages: (channelId: string) => Promise<void>;
-  /** fetchedChannels cache'ini temizler — E2EE restore sonrasi mesajlarin yeniden decrypt edilmesi icin */
+  /** Clear fetch cache — forces re-fetch + re-decrypt (E2EE restore) */
   invalidateFetchCache: () => void;
   sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string) => Promise<boolean>;
   editMessage: (messageId: string, content: string) => Promise<boolean>;
@@ -68,20 +55,12 @@ type MessageState = {
   handleReactionUpdate: (data: { message_id: string; channel_id: string; reactions: ReactionGroup[] }) => void;
 };
 
-/** Typing indicator otomatik temizleme süresi (ms) */
 const TYPING_TIMEOUT = 5_000;
-
-/** Typing timer'ları: `channelId:username` → timeout ID */
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
- * fetchedChannels — API'den başarıyla mesaj çekilmiş kanalları takip eder.
- *
- * Neden ayrı bir Set?
- * messagesByChannel[channelId] artık WS mesajlarını da buffer'lıyor (fetchMessages
- * tamamlanmadan gelen mesajlar). Eski cache guard `if (messagesByChannel[channelId]) return`
- * buffer'lanmış mesajları da "fetched" sanıyordu. Bu Set ile "API'den çekildi" ve
- * "WS'den buffer'landı" ayrımı net olur.
+ * Tracks channels that have been fetched from API (not just WS-buffered).
+ * Separate from messagesByChannel because WS messages can buffer before fetch completes.
  */
 const fetchedChannels = new Set<string>();
 
@@ -99,18 +78,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
   },
 
-  /**
-   * fetchMessages — Bir kanalın mesajlarını ilk kez yükler.
-   * Cache'de varsa tekrar çekmez (kanal değiştirince hızlı geçiş).
-   *
-   * Merge mekanizması: fetchMessages çalışırken WS'den gelen mesajlar
-   * handleMessageCreate tarafından buffer'lanır. API response geldiğinde
-   * buffer'daki mesajlar API sonuçlarıyla merge edilir (duplicate'ler filtrelenir).
-   */
   fetchMessages: async (channelId) => {
-    // API'den zaten çekilmişse tekrar çekme.
-    // fetchedChannels Set'i kullanılır — messagesByChannel'da WS buffer'ı
-    // olabilir, bu "fetched" anlamına gelmez.
     if (fetchedChannels.has(channelId)) return;
 
     set({ isLoading: true });
@@ -122,14 +90,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     if (res.success && res.data) {
       fetchedChannels.add(channelId);
 
-      // Backend boş kanalda messages: null dönebilir (Go nil slice → JSON null).
-      // Null üzerinde .map() crash eder — boş array'e fallback.
-      // E2EE mesajlari bulk decrypt et — plaintext mesajlar oldugu gibi kalir.
+      // Go nil slice -> JSON null; fallback to empty array
       const apiMessages = await decryptChannelMessages(res.data.messages ?? []);
 
       set((state) => {
-        // Fetch sırasında WS'den buffer'lanmış mesajları al.
-        // API response'ta olmayan WS mesajlarını sonuna ekle (daha yeni oldukları için).
+        // Merge WS-buffered messages that arrived during fetch
         const buffered = state.messagesByChannel[channelId] ?? [];
         const apiIds = new Set(apiMessages.map((m) => m.id));
         const newFromWS = buffered.filter((m) => !apiIds.has(m.id));
@@ -147,10 +112,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         };
       });
 
-      // Mesajlar yüklendikten sonra auto-mark-read:
-      // Tüm mesajların (API + WS buffer) en sonuncusu ile backend'e bildir.
-      // AppLayout'taki useEffect mesajlar yüklenmeden çalışabilir, bu yüzden
-      // burada tekrar kontrol ediyoruz.
+      // Auto-mark-read after messages load
       const allMessages = get().messagesByChannel[channelId];
       if (allMessages && allMessages.length > 0) {
         const lastMsg = allMessages[allMessages.length - 1];
@@ -161,10 +123,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
-  /**
-   * fetchOlderMessages — Daha eski mesajları yükler (yukarı scroll).
-   * Cursor: cache'deki ilk mesajın ID'si "before" parametresi olarak gönderilir.
-   */
   fetchOlderMessages: async (channelId) => {
     const messages = get().messagesByChannel[channelId];
     if (!messages || messages.length === 0) return;
@@ -172,7 +130,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     set({ isLoadingMore: true });
 
-    // İlk mesajın ID'si cursor olur (en eski mesaj dizinin başında)
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) { set({ isLoadingMore: false }); return; }
 
@@ -180,7 +137,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const res = await messageApi.getMessages(serverId, channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
 
     if (res.success && res.data) {
-      // E2EE mesajlari bulk decrypt et
       const decrypted = await decryptChannelMessages(res.data.messages ?? []);
 
       set((state) => ({
@@ -203,14 +159,14 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return false;
 
-    // E2EE aktifse Sender Key ile sifrele
+    // E2EE: encrypt with Sender Key
     const e2eeState = useE2EEStore.getState();
     const activeServer = useServerStore.getState().activeServer;
     if (activeServer?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
       if (currentUserId) {
         try {
-          // Dosyalar varsa her birini AES-256-GCM ile sifrele
+          // Encrypt files with AES-256-GCM
           let encryptedFiles: File[] | undefined;
           let fileMetas: EncryptedFileMeta[] | undefined;
 
@@ -220,7 +176,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
             for (let i = 0; i < files.length; i++) {
               const result = await encryptFile(files[i]);
-              // Sifreli blob'u File nesnesine cevir (FormData icin)
               encryptedFiles.push(
                 new File(
                   [result.encryptedBlob],
@@ -232,7 +187,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             }
           }
 
-          // Structured payload: content + file_keys (varsa) → JSON string
           const plaintext = encodePayload(content, fileMetas);
 
           const senderKeyMsg = await encryptChannelMessage(
@@ -272,7 +226,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     // Plaintext fallback
     const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId);
 
-    // Rate limit aşıldıysa kullanıcıya toast ile bildir
     if (!res.success && res.error?.includes("too many")) {
       useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
     }
@@ -284,12 +237,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return false;
 
-    // E2EE aktifse sifreli edit
+    // E2EE encrypted edit
     const e2eeState = useE2EEStore.getState();
     const activeServerForEdit = useServerStore.getState().activeServer;
     if (activeServerForEdit?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
-      // Mesajin kanalini bul
+      // Find which channel this message belongs to
       const allChannels = get().messagesByChannel;
       let channelId: string | null = null;
       for (const [chId, msgs] of Object.entries(allChannels)) {
@@ -344,22 +297,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
   setReplyingTo: (message) => set({ replyingTo: message }),
 
-  /**
-   * setScrollToMessageId — Belirtilen mesaja scroll et.
-   * Değer set edildikten sonra UI tarafında scrollIntoView + highlight yapılır,
-   * ardından null'a sıfırlanır (tek seferlik tetikleme).
-   */
+  /** One-shot: UI scrolls to message and highlights, then resets to null. */
   setScrollToMessageId: (id) => set({ scrollToMessageId: id }),
 
   // ─── Reactions ───
 
-  /**
-   * toggleReaction — Bir mesaja emoji reaction ekler veya kaldırır.
-   *
-   * API çağrısı yapar, sonuç WS broadcast ile gelecek (handleReactionUpdate).
-   * Optimistic update yapmıyoruz — WS event ile güncellenecek.
-   * Bu daha basit ve race condition riski yok.
-   */
+  /** No optimistic update — WS event will update via handleReactionUpdate. */
   toggleReaction: async (messageId, _channelId, emoji) => {
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return;
@@ -368,23 +311,16 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
   // ─── WebSocket Event Handlers ───
 
-  /**
-   * handleMessageCreate — Yeni mesaj geldiğinde çağrılır.
-   * Mesajı ilgili kanalın dizisinin sonuna ekler (en yeni altta).
-   * Aynı zamanda typing indicator'ı temizler (mesaj geldi = yazmayı bitirdi).
-   */
   handleMessageCreate: (message) => {
     set((state) => {
-      // Kanal henüz yüklenmemişse bile mesajı buffer'la.
-      // fetchMessages tamamlandığında buffer'daki mesajlarla merge eder.
-      // Eski davranış `if (!channelMessages) return state` idi — bu da fetch
-      // sırasında gelen WS mesajlarının kaybolmasına neden oluyordu.
+      // Buffer messages even if channel isn't fetched yet.
+      // fetchMessages will merge buffered messages when it completes.
       const channelMessages = state.messagesByChannel[message.channel_id] ?? [];
 
-      // Duplicate kontrolü (aynı mesaj iki kez gelmesin)
+      // Duplicate guard
       if (channelMessages.some((m) => m.id === message.id)) return state;
 
-      // Typing indicator'ı temizle
+      // Clear typing indicator
       const typingUsers = { ...state.typingUsers };
       if (typingUsers[message.channel_id]) {
         typingUsers[message.channel_id] = typingUsers[message.channel_id].filter(
@@ -423,8 +359,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const channelMessages = state.messagesByChannel[data.channel_id];
       if (!channelMessages) return state;
 
-      // Silinen mesajı listeden çıkar + ona reply yapan mesajların
-      // referenced_message'ını null'a çevir → "Orijinal mesaj silindi" gösterilir.
+      // Remove deleted message + null out referenced_message for replies to it
       const updated = channelMessages
         .filter((m) => m.id !== data.id)
         .map((m) =>
@@ -442,12 +377,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     });
   },
 
-  /**
-   * handleTypingStart — Bir kullanıcı yazmaya başladığında çağrılır.
-   *
-   * 5 saniye sonra otomatik temizlenir (kullanıcı yazmayı bırakırsa
-   * yeni typing event gelmez → timer ile temizlenir).
-   */
+  /** Auto-cleared after 5s if no new typing event arrives. */
   handleTypingStart: (channelId, username) => {
     set((state) => {
       const current = state.typingUsers[channelId] ?? [];
@@ -461,7 +391,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       };
     });
 
-    // Mevcut timer'ı iptal et ve yenisini kur
     const key = `${channelId}:${username}`;
     const existingTimer = typingTimers.get(key);
     if (existingTimer) clearTimeout(existingTimer);
@@ -482,13 +411,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     );
   },
 
-  /**
-   * handleReactionUpdate — WS reaction_update event'i geldiğinde çağrılır.
-   *
-   * İlgili mesajın reactions alanını güncel listeyle değiştirir.
-   * Backend her toggle sonrası tam reaction listesini gönderir —
-   * bu sayede client-side merge'e gerek kalmaz, doğrudan replace.
-   */
+  /** Backend sends full reaction list after each toggle — direct replace, no client merge. */
   handleReactionUpdate: (data) => {
     set((state) => {
       const channelMessages = state.messagesByChannel[data.channel_id];
