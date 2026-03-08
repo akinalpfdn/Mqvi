@@ -64,6 +64,9 @@ type UIState = {
   // Voice-tab sync
   closeVoiceTabs: (channelId: string) => void;
 
+  // Permission-based tab cleanup (text channels only)
+  closeTextTabByChannel: (channelId: string) => void;
+
   // Split actions
   splitPanel: (panelId: string, direction: SplitDirection, tabId: string, position?: "before" | "after") => void;
   moveTab: (fromPanelId: string, toPanelId: string, tabId: string) => void;
@@ -494,5 +497,18 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   closeQuickSwitcher() {
     set({ quickSwitcherOpen: false });
+  },
+
+  closeTextTabByChannel(channelId) {
+    const state = get();
+    const found = findTabAcrossPanels(state.panels, channelId);
+    if (!found) return;
+
+    const panel = state.panels[found.panelId];
+    const tab = panel.tabs.find((t) => t.id === found.tabId);
+    // Only close text tabs — voice tabs stay open (user may still be in voice)
+    if (!tab || tab.type !== "text") return;
+
+    get().closeTab(found.panelId, found.tabId);
   },
 }));

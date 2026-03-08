@@ -758,18 +758,31 @@ export function useWebSocket() {
 
       // ─── Channel Permission Events ───
       // Override changes may affect channel visibility (ViewChannel deny/allow)
-      case "channel_permission_update":
+      case "channel_permission_update": {
         useChannelPermissionStore
           .getState()
           .handleOverrideUpdate(msg.d as ChannelPermissionOverride);
-        useChannelStore.getState().fetchChannels();
+        const cpUpd = msg.d as ChannelPermissionOverride;
+        useChannelStore.getState().fetchChannels().then(() => {
+          // Close text tab if channel is no longer visible after permission change
+          const allVisible = useChannelStore.getState().categories.flatMap((c) => c.channels);
+          if (!allVisible.some((ch) => ch.id === cpUpd.channel_id)) {
+            useUIStore.getState().closeTextTabByChannel(cpUpd.channel_id);
+          }
+        });
         break;
+      }
       case "channel_permission_delete": {
         const cpDel = msg.d as { channel_id: string; role_id: string };
         useChannelPermissionStore
           .getState()
           .handleOverrideDelete(cpDel.channel_id, cpDel.role_id);
-        useChannelStore.getState().fetchChannels();
+        useChannelStore.getState().fetchChannels().then(() => {
+          const allVisible = useChannelStore.getState().categories.flatMap((c) => c.channels);
+          if (!allVisible.some((ch) => ch.id === cpDel.channel_id)) {
+            useUIStore.getState().closeTextTabByChannel(cpDel.channel_id);
+          }
+        });
         break;
       }
 
