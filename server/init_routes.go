@@ -142,6 +142,9 @@ func initRoutes(
 	// Channel Mutes — literal path, {serverId} wildcard'dan ÖNCE olmalı
 	mux.Handle("GET /api/channels/mutes", auth(h.ChannelMute.ListMuted))
 
+	// Link Preview — URL Open Graph metadata (server-side fetch, SSRF korumalı)
+	mux.Handle("GET /api/link-preview", auth(h.LinkPreview.Get))
+
 	// GIFs (Klipy proxy) — literal path, auth gerektirir
 	mux.Handle("GET /api/gifs/trending", auth(h.Gif.Trending))
 	mux.Handle("GET /api/gifs/search", auth(h.Gif.Search))

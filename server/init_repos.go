@@ -46,6 +46,7 @@ type Repositories struct {
 	Device            repository.DeviceRepository
 	E2EEBackup        repository.E2EEKeyBackupRepository
 	GroupSession      repository.GroupSessionRepository
+	LinkPreview       repository.LinkPreviewRepository
 }
 
 // initRepositories, veritabanı bağlantısından tüm repository'leri oluşturur.
@@ -82,5 +83,6 @@ func initRepositories(conn *sql.DB) *Repositories {
 		Device:            repository.NewSQLiteDeviceRepo(conn),
 		E2EEBackup:        repository.NewSQLiteE2EEBackupRepo(conn),
 		GroupSession:      repository.NewSQLiteGroupSessionRepo(conn),
+		LinkPreview:       repository.NewSQLiteLinkPreviewRepo(conn),
 	}
 }

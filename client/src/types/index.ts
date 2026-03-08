@@ -838,3 +838,17 @@ export type EncryptedAttachmentMeta = {
   original_size: number;
   digest: string;        // SHA-256 hash (hex)
 };
+
+/**
+ * LinkPreview — URL Open Graph metadata.
+ * GET /api/link-preview?url=... endpoint'inden doner.
+ * Server-side fetch ile cekilir (SSRF korumali).
+ */
+export type LinkPreview = {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image_url: string | null;
+  site_name: string | null;
+  favicon_url: string | null;
+};

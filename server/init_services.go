@@ -55,6 +55,7 @@ type Services struct {
 	AdminServer       services.AdminServerService
 	Device            services.DeviceService
 	E2EE              services.E2EEService
+	LinkPreview       services.LinkPreviewService
 }
 
 // RateLimiters, tüm rate limiter instance'larını tutan container.
@@ -144,6 +145,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	adminUserService := services.NewAdminUserService(repos.User, hub, voiceService, emailSender)
 	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, emailSender)
 
+	// ─── Link Preview ───
+	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)
+
 	// ─── Metrics History ───
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
 	metricsCollector := services.NewMetricsCollector(
@@ -189,6 +193,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		AdminServer:       adminServerService,
 		Device:            deviceService,
 		E2EE:              e2eeService,
+		LinkPreview:       linkPreviewService,
 	}
 
 	limiters := &RateLimiters{

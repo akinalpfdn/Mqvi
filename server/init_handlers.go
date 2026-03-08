@@ -40,6 +40,7 @@ type Handlers struct {
 	Gif               *handlers.GifHandler
 	Device            *handlers.DeviceHandler
 	E2EE              *handlers.E2EEHandler
+	LinkPreview       *handlers.LinkPreviewHandler
 	WS                *ws.Handler
 }
 
@@ -73,6 +74,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Gif:               handlers.NewGifHandler(cfg.Klipy.APIKey),
 		Device:            handlers.NewDeviceHandler(svcs.Device),
 		E2EE:              handlers.NewE2EEHandler(svcs.E2EE),
+		LinkPreview:       handlers.NewLinkPreviewHandler(svcs.LinkPreview),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute),
 	}
 }

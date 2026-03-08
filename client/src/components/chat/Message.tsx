@@ -36,6 +36,7 @@ import ContextMenu from "../shared/ContextMenu";
 import EmojiPicker from "../shared/EmojiPicker";
 import EncryptedAttachment from "./EncryptedAttachment";
 import InviteCard from "./InviteCard";
+import LinkPreviewCard from "./LinkPreviewCard";
 import MobileMessageActions from "./MobileMessageActions";
 import type { MemberWithRoles } from "../../types";
 
@@ -246,19 +247,30 @@ function Message({ message, isCompact }: MessageProps) {
   const displayName =
     message.author?.display_name ?? message.author?.username ?? "Unknown";
 
+  /** URL regex — @mention ve tüm http(s) URL'lerini yakalar */
+  const URL_REGEX = /(@\w+|https?:\/\/[^\s<]+)/gi;
+
+  /** Invite pattern — daha spesifik, URL_REGEX sonrası kontrol edilir */
+  const INVITE_REGEX = /^https?:\/\/[^\s/]+\/invite\/([a-f0-9]{16})$/i;
+
+  /** Klipy GIF pattern */
+  const KLIPY_REGEX = /^https?:\/\/static\.klipy\.com\/[^\s]+$/;
+
   /**
    * renderContent — Mesaj içeriğindeki özel kalıpları parse eder.
    *
    * Desteklenen kalıplar:
    * - @username → mention highlight
    * - https://domain/invite/{hex16} → tıklanabilir davet kartı
+   * - https://static.klipy.com/... → inline GIF (tüm mesaj tek URL ise)
+   * - Diğer URL'ler → tıklanabilir link
    */
   function renderContent(text: string | null): React.ReactNode {
     if (!text) return null;
 
     // Tüm mesaj tek bir Klipy GIF URL'i ise → inline image olarak göster (Discord pattern)
     const trimmed = text.trim();
-    if (/^https?:\/\/static\.klipy\.com\/[^\s]+$/.test(trimmed)) {
+    if (KLIPY_REGEX.test(trimmed)) {
       return (
         <a href={trimmed} target="_blank" rel="noopener noreferrer">
           <img src={trimmed} alt="GIF" className="msg-gif-embed" loading="lazy" />
@@ -266,7 +278,7 @@ function Message({ message, isCompact }: MessageProps) {
       );
     }
 
-    const parts = text.split(/(@\w+|https?:\/\/[^\s/]+\/invite\/[a-f0-9]{16})/gi);
+    const parts = text.split(URL_REGEX);
     return parts.map((part, i) => {
       // @mention
       if (/^@\w+$/.test(part)) {
@@ -276,14 +288,38 @@ function Message({ message, isCompact }: MessageProps) {
           </span>
         );
       }
-      // https://domain/invite/{code}
-      const inviteMatch = part.match(/^https?:\/\/[^\s/]+\/invite\/([a-f0-9]{16})$/i);
+      // Invite link → InviteCard
+      const inviteMatch = part.match(INVITE_REGEX);
       if (inviteMatch) {
         return <InviteCard key={i} code={inviteMatch[1]} />;
+      }
+      // Genel URL → tıklanabilir link
+      if (/^https?:\/\//i.test(part)) {
+        return (
+          <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="msg-link">
+            {part}
+          </a>
+        );
       }
       return part;
     });
   }
+
+  /**
+   * previewUrls — Mesaj içindeki preview gösterilecek URL'ler.
+   * Invite ve Klipy URL'leri hariç tutulur (kendi kartları var).
+   * Maksimum 5 preview — spam koruması.
+   */
+  const previewUrls = useMemo(() => {
+    if (!message.content) return [];
+    const matches = message.content.match(/https?:\/\/[^\s<]+/gi);
+    if (!matches) return [];
+
+    const unique = [...new Set(matches)];
+    return unique
+      .filter((u) => !INVITE_REGEX.test(u) && !KLIPY_REGEX.test(u))
+      .slice(0, 5);
+  }, [message.content]);
 
   const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}${pickerSource ? " picker-open" : ""}`;
 
@@ -373,6 +409,13 @@ function Message({ message, isCompact }: MessageProps) {
           ) : (
             <div className="msg-text">
               {renderContent(message.content)}
+              {previewUrls.length > 0 && (
+                <span className="msg-link-previews">
+                  {previewUrls.map((url) => (
+                    <LinkPreviewCard key={url} url={url} />
+                  ))}
+                </span>
+              )}
               {message.edited_at && (
                 <span className="msg-edited">
                   {t("edited")}
