@@ -107,5 +107,11 @@
   "connectionRetrying": "Connecting to server... (attempt {{attempt}}/{{max}})",
   "connectionFailed": "Could not connect to server",
   "connectionLost": "Connection lost",
-  "connectionRefresh": "Refresh"
+  "connectionRefresh": "Refresh",
+  "userProfile": "User Profile",
+  "userActions": "User Actions",
+  "moderation": "Moderation",
+  "adminAccess": "ADMIN ACCESS",
+  "assignBadge": "Assign Badge",
+  "assignBadgePlaceholder": "Badge assignment for {{username}} is coming soon."
 }

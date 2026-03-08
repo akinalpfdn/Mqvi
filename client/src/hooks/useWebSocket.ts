@@ -414,6 +414,11 @@ export function useWebSocket() {
       case "voice_state_update": {
         const voiceData = msg.d as VoiceStateUpdateData;
         const voiceState = useVoiceStore.getState();
+
+        // Capture previous streaming state before store update (for screen share sound)
+        const prevStates = voiceState.voiceStates[voiceData.channel_id] ?? [];
+        const prevStreaming = prevStates.find((s) => s.user_id === voiceData.user_id)?.is_streaming ?? false;
+
         voiceState.handleVoiceStateUpdate(voiceData);
 
         // Play join/leave sounds for same-channel users or self.
@@ -428,6 +433,15 @@ export function useWebSocket() {
           if (voiceData.action === "join") {
             playJoinSound();
           } else if (voiceData.action === "leave") {
+            playLeaveSound();
+          }
+        }
+
+        // Screen share start/stop sound for same-channel users (not self)
+        if (isSameChannel && !isMe && voiceData.action === "update") {
+          if (!prevStreaming && voiceData.is_streaming) {
+            playJoinSound();
+          } else if (prevStreaming && !voiceData.is_streaming) {
             playLeaveSound();
           }
         }

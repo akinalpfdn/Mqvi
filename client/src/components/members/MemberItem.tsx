@@ -21,6 +21,10 @@ import { useServerStore } from "../../stores/serverStore";
 import type { MemberWithRoles } from "../../types";
 import MemberCard from "./MemberCard";
 import RoleEditorPopup from "./RoleEditorPopup";
+import BadgeAssignModal from "./BadgeAssignModal";
+
+/** The user ID that can assign badges to other users. */
+const BADGE_ADMIN_USER_ID = "95a8b295072f98a5";
 
 type MemberItemProps = {
   member: MemberWithRoles;
@@ -71,6 +75,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
   const [cardPos, setCardPos] = useState({ top: 0, left: 0 });
   const [showRoleEditor, setShowRoleEditor] = useState(false);
   const [roleEditorPos, setRoleEditorPos] = useState({ top: 0, left: 0 });
+  const [showBadgeAssign, setShowBadgeAssign] = useState(false);
   const itemRef = useRef<HTMLDivElement>(null);
   const highestRole = getHighestRole(member);
   const roleType = getRoleType(member);
@@ -169,6 +174,14 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
         separator: !isSelf,
       });
 
+      // ─── Assign Badge (badge admin only) ───
+      if (!isSelf && currentUser?.id === BADGE_ADMIN_USER_ID) {
+        items.push({
+          label: t("assignBadge"),
+          onClick: () => setShowBadgeAssign(true),
+        });
+      }
+
       // ─── Edit Roles ───
       if (canManageRoles && !isSelf) {
         items.push({
@@ -233,7 +246,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
 
     if (itemRef.current) {
       const rect = itemRef.current.getBoundingClientRect();
-      const cardWidth = 288;
+      const cardWidth = 340;
       const gap = 8;
 
       let top = rect.top;
@@ -308,6 +321,14 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
           member={member}
           position={roleEditorPos}
           onClose={() => setShowRoleEditor(false)}
+        />
+      )}
+
+      {/* Badge Assign Modal (placeholder) */}
+      {showBadgeAssign && (
+        <BadgeAssignModal
+          member={member}
+          onClose={() => setShowBadgeAssign(false)}
         />
       )}
     </>

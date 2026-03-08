@@ -107,5 +107,11 @@
   "connectionRetrying": "Sunucuya bağlanılıyor... (deneme {{attempt}}/{{max}})",
   "connectionFailed": "Sunucuya bağlanılamadı",
   "connectionLost": "Bağlantı koptu",
-  "connectionRefresh": "Yenile"
+  "connectionRefresh": "Yenile",
+  "userProfile": "Kullanıcı Profili",
+  "userActions": "Kullanıcı İşlemleri",
+  "moderation": "Moderasyon",
+  "adminAccess": "YÖNETİCİ ERİŞİMİ",
+  "assignBadge": "Rozet Ata",
+  "assignBadgePlaceholder": "{{username}} için rozet atama yakında eklenecek."
 }
