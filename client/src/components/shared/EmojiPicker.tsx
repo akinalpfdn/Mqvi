@@ -1,113 +1,54 @@
 /**
- * EmojiPicker — Basit, kütüphanesiz emoji seçici component.
+ * EmojiPicker — @emoji-mart/react tabanlı zengin emoji seçici.
  *
- * CSS class'ları: .emoji-picker, .emoji-picker-tabs, .emoji-picker-tab,
- * .emoji-picker-tab.active, .emoji-picker-grid, .emoji-picker-btn
+ * 1800+ emoji, arama, skin tone, sık kullanılanlar (otomatik).
+ * Tema renkleri CSS custom properties üzerinden uygulanır.
  *
- * Tasarım:
- * - ~80 emoji, 6 kategori sekmesi
- * - Grid layout, her emoji bir buton
- * - Click-outside ile kapanır
- * - Dışarıya doğru büyüyen absolute pozisyonlu dropdown
+ * Viewport-aware: Mount olduktan sonra picker'ın üst kenarı viewport
+ * dışına çıkıyorsa "flipped" class eklenir ve aşağı doğru açılır.
  *
- * Neden kütüphane yok?
- * emoji-mart gibi kütüphaneler 200KB+ eklenti getirir.
- * Basit bir reaction sistemi için 80 emoji yeterli.
- * İleride genişletilmek istenirse custom emoji upload veya
- * daha büyük bir emoji seti eklenebilir.
+ * Kullanım yerleri:
+ * - MessageInput: mesaja emoji ekleme
+ * - Message: reaction ekleme (hover + bar picker)
+ * - CreateChannelModal: channel/category ismine emoji ekleme
+ * - ChannelSettings: channel/category rename'e emoji ekleme
+ * - RoleSettings: role ismine emoji ekleme
+ * - ChannelTree: sidebar inline rename'e emoji ekleme
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import Picker from "@emoji-mart/react";
+import data from "@emoji-mart/data";
 
 type EmojiPickerProps = {
-  /** Emoji seçildiğinde çağrılır */
+  /** Emoji seçildiğinde çağrılır — native emoji string döner */
   onSelect: (emoji: string) => void;
   /** Picker kapatıldığında çağrılır */
   onClose: () => void;
 };
 
-/** Kategori tanımları — her biri bir sekme ve emoji listesi içerir */
-type EmojiCategory = {
-  /** i18n key'i */
-  labelKey: string;
-  /** Sekme ikonu (emoji) */
-  icon: string;
-  /** Kategorideki emojiler */
-  emojis: string[];
-};
-
-const EMOJI_CATEGORIES: EmojiCategory[] = [
-  {
-    labelKey: "emojiFrequent",
-    icon: "⭐",
-    emojis: ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉", "🔥", "👀", "💯", "✅", "👎"],
-  },
-  {
-    labelKey: "emojiPeople",
-    icon: "😀",
-    emojis: [
-      "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂",
-      "🙂", "😉", "😊", "😇", "🥰", "😍", "🤩", "😘",
-      "😋", "😛", "😜", "🤪", "😎", "🤗", "🤔", "🤐",
-      "😬", "😳", "🥺", "😭", "😤", "🤯", "😱", "🥱",
-    ],
-  },
-  {
-    labelKey: "emojiGestures",
-    icon: "👋",
-    emojis: [
-      "👋", "🤚", "✋", "🖖", "👌", "🤌", "🤏", "✌️",
-      "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉", "👆",
-      "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜",
-      "👏", "🙌", "🫶", "👐", "🤲", "🙏", "💪", "🫡",
-    ],
-  },
-  {
-    labelKey: "emojiNature",
-    icon: "🌿",
-    emojis: [
-      "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
-      "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
-      "🌸", "🌺", "🌻", "🌹", "🌿", "🍀", "🌈", "☀️",
-    ],
-  },
-  {
-    labelKey: "emojiFood",
-    icon: "🍕",
-    emojis: [
-      "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓",
-      "🍑", "🍒", "🥝", "🍕", "🍔", "🍟", "🌮", "🍿",
-      "☕", "🍺", "🍷", "🧃", "🍰", "🎂", "🍩", "🍪",
-    ],
-  },
-  {
-    labelKey: "emojiObjects",
-    icon: "💡",
-    emojis: [
-      "⚽", "🏀", "🎮", "🎲", "🎯", "🏆", "🎵", "🎸",
-      "💡", "📱", "💻", "⌨️", "🖥️", "📷", "🔑", "🔒",
-      "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
-      "⭐", "🌟", "💫", "✨", "🔥", "💥", "💯", "🎉",
-    ],
-  },
-];
-
 function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
-  const { t } = useTranslation("chat");
-  const [activeTab, setActiveTab] = useState(0);
+  const { i18n } = useTranslation();
   const pickerRef = useRef<HTMLDivElement>(null);
   const [flipped, setFlipped] = useState(false);
 
   // Viewport sığma kontrolü — picker mount olduktan sonra konumunu kontrol et.
-  // Eğer üst kenarı viewport dışına çıkıyorsa (top < 0), picker'ı aşağı doğru aç.
-  // Bu, chat'in en üstündeki mesajlarda emoji picker'ın erişilemez olmasını önler.
+  // Eğer üst kenarı viewport dışına çıkıyorsa, picker'ı aşağı doğru aç.
   useEffect(() => {
     if (!pickerRef.current) return;
-    const rect = pickerRef.current.getBoundingClientRect();
-    if (rect.top < 0) {
-      setFlipped(true);
-    }
+    // MutationObserver veya rAF ile emoji-mart'ın render olmasını bekle
+    const raf = requestAnimationFrame(() => {
+      if (!pickerRef.current) return;
+      const rect = pickerRef.current.getBoundingClientRect();
+      if (rect.top < 0) {
+        setFlipped(true);
+      } else if (rect.bottom > window.innerHeight) {
+        // Aşağı taşıyorsa yukarı aç (default zaten yukarı, bu durumda flip etme)
+        setFlipped(false);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   // Click-outside: picker dışına tıklanırsa kapat
@@ -138,44 +79,33 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const handleEmojiClick = useCallback(
-    (emoji: string) => {
-      onSelect(emoji);
+  const handleEmojiSelect = useCallback(
+    (emoji: { native: string }) => {
+      onSelect(emoji.native);
       onClose();
     },
     [onSelect, onClose]
   );
 
-  const category = EMOJI_CATEGORIES[activeTab];
-
   return (
-    <div className={`emoji-picker${flipped ? " emoji-picker-flipped" : ""}`} ref={pickerRef}>
-      {/* Kategori sekmeleri */}
-      <div className="emoji-picker-tabs">
-        {EMOJI_CATEGORIES.map((cat, i) => (
-          <button
-            key={cat.labelKey}
-            className={`emoji-picker-tab${i === activeTab ? " active" : ""}`}
-            onClick={() => setActiveTab(i)}
-            title={t(cat.labelKey)}
-          >
-            {cat.icon}
-          </button>
-        ))}
-      </div>
-
-      {/* Emoji grid */}
-      <div className="emoji-picker-grid">
-        {category.emojis.map((emoji) => (
-          <button
-            key={emoji}
-            className="emoji-picker-btn"
-            onClick={() => handleEmojiClick(emoji)}
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
+    <div
+      className={`emoji-picker${flipped ? " emoji-picker-flipped" : ""}`}
+      ref={pickerRef}
+    >
+      <Picker
+        data={data}
+        onEmojiSelect={handleEmojiSelect}
+        locale={i18n.language === "tr" ? "tr" : "en"}
+        theme="dark"
+        set="native"
+        previewPosition="none"
+        skinTonePosition="search"
+        perLine={8}
+        maxFrequentRows={2}
+        navPosition="bottom"
+        emojiSize={28}
+        emojiButtonSize={36}
+      />
     </div>
   );
 }

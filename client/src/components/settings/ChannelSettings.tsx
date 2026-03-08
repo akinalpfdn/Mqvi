@@ -20,6 +20,7 @@ import * as channelApi from "../../api/channels";
 import { useServerStore } from "../../stores/serverStore";
 import ChannelPermissionEditor from "./ChannelPermissionEditor";
 import CreateChannelModal from "../channels/CreateChannelModal";
+import EmojiPicker from "../shared/EmojiPicker";
 import type { Channel, Category } from "../../types";
 
 type SettingsTab = "channels" | "categories";
@@ -74,6 +75,10 @@ function ChannelSettings() {
       setEditCategoryId(selectedChannel.category_id ?? "");
     }
   }, [selectedChannel]);
+
+  // ─── Emoji picker state ───
+  const [showChEmojiPicker, setShowChEmojiPicker] = useState(false);
+  const [showCatEmojiPicker, setShowCatEmojiPicker] = useState(false);
 
   // ─── Categories Tab State ───
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
@@ -321,16 +326,45 @@ function ChannelSettings() {
               <div className="channel-settings-rename-row">
                 <label className="settings-label">{t("channelName")}</label>
                 <div className="channel-settings-rename-input-row">
-                  <input
-                    className="settings-input"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && channelNameChanged) handleRenameChannel();
-                      if (e.key === "Escape") setEditName(selectedChannel.name);
-                    }}
-                    maxLength={100}
-                  />
+                  <div className="name-input-with-emoji">
+                    <input
+                      className="settings-input"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && channelNameChanged) handleRenameChannel();
+                        if (e.key === "Escape") setEditName(selectedChannel.name);
+                      }}
+                      maxLength={50}
+                    />
+                    <button
+                      type="button"
+                      className="name-emoji-btn"
+                      onClick={() => setShowChEmojiPicker((p) => !p)}
+                      title={t("emoji", { ns: "chat" })}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                        <line x1="9" y1="9" x2="9.01" y2="9" />
+                        <line x1="15" y1="9" x2="15.01" y2="9" />
+                      </svg>
+                    </button>
+                    {showChEmojiPicker && (
+                      <div className="name-emoji-picker-wrap">
+                        <EmojiPicker
+                          onSelect={(emoji) => {
+                            setEditName((prev) => {
+                              const next = prev + emoji;
+                              return [...next].length <= 50 ? next : prev;
+                            });
+                            setShowChEmojiPicker(false);
+                          }}
+                          onClose={() => setShowChEmojiPicker(false)}
+                        />
+                      </div>
+                    )}
+                  </div>
                   {channelNameChanged && (
                     <button
                       className="settings-btn"
@@ -383,16 +417,45 @@ function ChannelSettings() {
               <div className="channel-settings-rename-row">
                 <label className="settings-label">{t("categoryName")}</label>
                 <div className="channel-settings-rename-input-row">
-                  <input
-                    className="settings-input"
-                    value={editCatName}
-                    onChange={(e) => setEditCatName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && catNameChanged) handleRenameCategory();
-                      if (e.key === "Escape") setEditCatName(selectedCategory.name);
-                    }}
-                    maxLength={100}
-                  />
+                  <div className="name-input-with-emoji">
+                    <input
+                      className="settings-input"
+                      value={editCatName}
+                      onChange={(e) => setEditCatName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && catNameChanged) handleRenameCategory();
+                        if (e.key === "Escape") setEditCatName(selectedCategory.name);
+                      }}
+                      maxLength={50}
+                    />
+                    <button
+                      type="button"
+                      className="name-emoji-btn"
+                      onClick={() => setShowCatEmojiPicker((p) => !p)}
+                      title={t("emoji", { ns: "chat" })}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                        <line x1="9" y1="9" x2="9.01" y2="9" />
+                        <line x1="15" y1="9" x2="15.01" y2="9" />
+                      </svg>
+                    </button>
+                    {showCatEmojiPicker && (
+                      <div className="name-emoji-picker-wrap">
+                        <EmojiPicker
+                          onSelect={(emoji) => {
+                            setEditCatName((prev) => {
+                              const next = prev + emoji;
+                              return [...next].length <= 50 ? next : prev;
+                            });
+                            setShowCatEmojiPicker(false);
+                          }}
+                          onClose={() => setShowCatEmojiPicker(false)}
+                        />
+                      </div>
+                    )}
+                  </div>
                   {catNameChanged && (
                     <button
                       className="settings-btn"

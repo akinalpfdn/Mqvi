@@ -27,8 +27,8 @@ type CreateRoleRequest struct {
 func (r *CreateRoleRequest) Validate() error {
 	r.Name = strings.TrimSpace(r.Name)
 	nameLen := utf8.RuneCountInString(r.Name)
-	if nameLen < 1 || nameLen > 32 {
-		return fmt.Errorf("role name must be between 1 and 32 characters")
+	if nameLen < 1 || nameLen > 50 {
+		return fmt.Errorf("role name must be between 1 and 50 characters")
 	}
 
 	r.Color = strings.TrimSpace(r.Color)

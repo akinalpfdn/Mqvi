@@ -27,6 +27,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
 import * as channelApi from "../../api/channels";
 import ChannelPermissionEditor from "../settings/ChannelPermissionEditor";
+import EmojiPicker from "../shared/EmojiPicker";
 import type { Channel } from "../../types";
 
 type CreateChannelModalProps = {
@@ -57,6 +58,7 @@ function CreateChannelModal({
   const [categoryId, setCategoryId] = useState(defaultCategoryId ?? "");
   const [createdChannel, setCreatedChannel] = useState<Channel | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const overlayRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -211,20 +213,50 @@ function CreateChannelModal({
                 <label className="add-server-label">
                   {mode === "category" ? t("categoryName") : t("channelName")}
                 </label>
-                <input
-                  ref={nameInputRef}
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={
-                    mode === "category" ? t("categoryName") : t("channelName")
-                  }
-                  maxLength={100}
-                  className="add-server-input"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleNext();
-                  }}
-                />
+                <div className="name-input-with-emoji">
+                  <input
+                    ref={nameInputRef}
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={
+                      mode === "category" ? t("categoryName") : t("channelName")
+                    }
+                    maxLength={50}
+                    className="add-server-input"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleNext();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="name-emoji-btn"
+                    onClick={() => setShowEmojiPicker((p) => !p)}
+                    title={t("emoji", { ns: "chat" })}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                      <line x1="9" y1="9" x2="9.01" y2="9" />
+                      <line x1="15" y1="9" x2="15.01" y2="9" />
+                    </svg>
+                  </button>
+                  {showEmojiPicker && (
+                    <div className="name-emoji-picker-wrap">
+                      <EmojiPicker
+                        onSelect={(emoji) => {
+                          setName((prev) => {
+                            const next = prev + emoji;
+                            return [...next].length <= 50 ? next : prev;
+                          });
+                          setShowEmojiPicker(false);
+                          nameInputRef.current?.focus();
+                        }}
+                        onClose={() => setShowEmojiPicker(false)}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Channel-specific fields */}

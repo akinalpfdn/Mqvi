@@ -22,6 +22,7 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import PermissionToggle from "./PermissionToggle";
 import ColorPicker from "./ColorPicker";
+import EmojiPicker from "../shared/EmojiPicker";
 
 const PERMISSION_DEFS = [
   {
@@ -87,6 +88,7 @@ function RoleSettings() {
   const [editColor, setEditColor] = useState("");
   const [editPerms, setEditPerms] = useState(0);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showRoleEmojiPicker, setShowRoleEmojiPicker] = useState(false);
 
   const isOwnerRole = selectedRole?.is_owner ?? false;
 
@@ -357,16 +359,52 @@ function RoleSettings() {
             {/* Rol adi */}
             <div className="settings-field">
               <label className="settings-label">{t("roleName")}</label>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => {
-                  setEditName(e.target.value);
-                  setHasChanges(true);
-                }}
-                className="settings-input"
-                disabled={!(canEditSelected || canEditOwnerAppearance)}
-              />
+              <div className="name-input-with-emoji">
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => {
+                    setEditName(e.target.value);
+                    setHasChanges(true);
+                  }}
+                  className="settings-input"
+                  maxLength={50}
+                  disabled={!(canEditSelected || canEditOwnerAppearance)}
+                />
+                {(canEditSelected || canEditOwnerAppearance) && (
+                  <>
+                    <button
+                      type="button"
+                      className="name-emoji-btn"
+                      onClick={() => setShowRoleEmojiPicker((p) => !p)}
+                      title={t("emoji", { ns: "chat" })}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                        <line x1="9" y1="9" x2="9.01" y2="9" />
+                        <line x1="15" y1="9" x2="15.01" y2="9" />
+                      </svg>
+                    </button>
+                    {showRoleEmojiPicker && (
+                      <div className="name-emoji-picker-wrap">
+                        <EmojiPicker
+                          onSelect={(emoji) => {
+                            setEditName((prev) => {
+                              const next = prev + emoji;
+                              if ([...next].length > 50) return prev;
+                              return next;
+                            });
+                            setHasChanges(true);
+                            setShowRoleEmojiPicker(false);
+                          }}
+                          onClose={() => setShowRoleEmojiPicker(false)}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Rol rengi */}

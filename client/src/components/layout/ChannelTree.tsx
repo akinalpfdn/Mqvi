@@ -24,7 +24,8 @@
  * .ch-tree-voice-user, .ch-tree-vu-dot
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useChannelStore } from "../../stores/channelStore";
@@ -54,6 +55,7 @@ import CreateChannelModal from "../channels/CreateChannelModal";
 import ChannelMuteDurationPicker from "../channels/ChannelMuteDurationPicker";
 import ChannelPermissionEditor from "../settings/ChannelPermissionEditor";
 import Modal from "../shared/Modal";
+import EmojiPicker from "../shared/EmojiPicker";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -164,6 +166,30 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
   const [renamingChannelId, setRenamingChannelId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [showRenameEmoji, setShowRenameEmoji] = useState(false);
+  const renameEmojiBtnRef = useRef<HTMLButtonElement>(null);
+  const [emojiPickerPos, setEmojiPickerPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Recalculate portal picker position when opened
+  const openRenameEmojiPicker = useCallback(() => {
+    setShowRenameEmoji((prev) => {
+      const next = !prev;
+      if (next && renameEmojiBtnRef.current) {
+        const rect = renameEmojiBtnRef.current.getBoundingClientRect();
+        setEmojiPickerPos({ top: rect.top, left: rect.right + 6 });
+      }
+      return next;
+    });
+  }, []);
+
+  // Close portal picker on scroll (sidebar scroll changes position)
+  useEffect(() => {
+    if (!showRenameEmoji) return;
+    function handleScroll() { setShowRenameEmoji(false); }
+    const tree = document.querySelector(".ch-tree");
+    tree?.addEventListener("scroll", handleScroll);
+    return () => tree?.removeEventListener("scroll", handleScroll);
+  }, [showRenameEmoji]);
 
   // Channel permission modal state
   const [permModalChannel, setPermModalChannel] = useState<Channel | null>(null);
@@ -938,6 +964,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       {
         label: tCh("renameCategory"),
         onClick: () => {
+          setShowRenameEmoji(false);
+          setRenamingChannelId(null);
           setRenamingCategoryId(categoryId);
           setRenameValue(categoryName);
         },
@@ -981,6 +1009,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       items.push({
         label: tCh("renameChannel"),
         onClick: () => {
+          setShowRenameEmoji(false);
+          setRenamingCategoryId(null);
           setRenamingChannelId(ch.id);
           setRenameValue(ch.name);
         },
@@ -1332,19 +1362,39 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                             >
                               <Chevron expanded={catExpanded} />
                               {renamingCategoryId === cg.category.id ? (
-                                <input
-                                  className="ch-tree-inline-rename"
-                                  value={renameValue}
-                                  autoFocus
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => setRenameValue(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    e.stopPropagation();
-                                    if (e.key === "Enter") handleCategoryRenameSubmit();
-                                    if (e.key === "Escape") setRenamingCategoryId(null);
-                                  }}
-                                  onBlur={() => handleCategoryRenameSubmit()}
-                                />
+                                <div className="ch-tree-rename-wrap" onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    className="ch-tree-inline-rename"
+                                    value={renameValue}
+                                    autoFocus
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    maxLength={50}
+                                    onKeyDown={(e) => {
+                                      e.stopPropagation();
+                                      if (e.key === "Enter") { setShowRenameEmoji(false); handleCategoryRenameSubmit(); }
+                                      if (e.key === "Escape") { setShowRenameEmoji(false); setRenamingCategoryId(null); }
+                                    }}
+                                    onBlur={(e) => {
+                                      // Emoji picker'a tıklayınca blur olur — picker açıkken submit etme
+                                      if (e.relatedTarget && (e.relatedTarget as HTMLElement).closest(".ch-tree-rename-picker")) return;
+                                      if (!showRenameEmoji) handleCategoryRenameSubmit();
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="ch-tree-rename-emoji"
+                                    ref={renameEmojiBtnRef}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={openRenameEmojiPicker}
+                                  >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <circle cx="12" cy="12" r="10" />
+                                      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                                      <line x1="9" y1="9" x2="9.01" y2="9" />
+                                      <line x1="15" y1="9" x2="15.01" y2="9" />
+                                    </svg>
+                                  </button>
+                                </div>
                               ) : (
                                 <span>{cg.category.name}</span>
                               )}
@@ -1412,19 +1462,38 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                             {isText ? "#" : "\uD83D\uDD0A"}
                           </span>
                           {renamingChannelId === ch.id ? (
-                            <input
-                              className="ch-tree-inline-rename"
-                              value={renameValue}
-                              autoFocus
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => setRenameValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                e.stopPropagation();
-                                if (e.key === "Enter") handleChannelRenameSubmit();
-                                if (e.key === "Escape") setRenamingChannelId(null);
-                              }}
-                              onBlur={() => handleChannelRenameSubmit()}
-                            />
+                            <div className="ch-tree-rename-wrap" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                className="ch-tree-inline-rename"
+                                value={renameValue}
+                                autoFocus
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                maxLength={50}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation();
+                                  if (e.key === "Enter") { setShowRenameEmoji(false); handleChannelRenameSubmit(); }
+                                  if (e.key === "Escape") { setShowRenameEmoji(false); setRenamingChannelId(null); }
+                                }}
+                                onBlur={(e) => {
+                                  if (e.relatedTarget && (e.relatedTarget as HTMLElement).closest(".ch-tree-rename-picker")) return;
+                                  if (!showRenameEmoji) handleChannelRenameSubmit();
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="ch-tree-rename-emoji"
+                                ref={renameEmojiBtnRef}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={openRenameEmojiPicker}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <circle cx="12" cy="12" r="10" />
+                                  <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                                  <line x1="9" y1="9" x2="9.01" y2="9" />
+                                  <line x1="15" y1="9" x2="15.01" y2="9" />
+                                </svg>
+                              </button>
+                            </div>
                           ) : (
                             <span className="ch-tree-label">{ch.name}</span>
                           )}
@@ -1648,6 +1717,26 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
         >
           <ChannelPermissionEditor channel={permModalChannel} />
         </Modal>
+      )}
+
+      {/* Emoji picker — portal to body to escape sidebar overflow:hidden */}
+      {showRenameEmoji && emojiPickerPos && createPortal(
+        <div
+          className="ch-tree-rename-picker-portal"
+          style={{ position: "fixed", top: emojiPickerPos.top, left: emojiPickerPos.left, zIndex: 9999 }}
+        >
+          <EmojiPicker
+            onSelect={(emoji) => {
+              setRenameValue((prev) => {
+                const next = prev + emoji;
+                return [...next].length <= 50 ? next : prev;
+              });
+              setShowRenameEmoji(false);
+            }}
+            onClose={() => setShowRenameEmoji(false)}
+          />
+        </div>,
+        document.body
       )}
     </div>
   );

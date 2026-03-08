@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -64,15 +63,8 @@ type CreateChannelRequest struct {
 func (r *CreateChannelRequest) Validate() error {
 	r.Name = strings.TrimSpace(r.Name)
 	nameLen := utf8.RuneCountInString(r.Name)
-	if nameLen < 1 || nameLen > 100 {
-		return fmt.Errorf("channel name must be between 1 and 100 characters")
-	}
-
-	// Kanal adı Unicode harf, rakam, boşluk, tire ve alt çizgi içerebilir.
-	for _, ch := range r.Name {
-		if !isValidChannelNameChar(ch) {
-			return fmt.Errorf("channel name contains invalid characters")
-		}
+	if nameLen < 1 || nameLen > 50 {
+		return fmt.Errorf("channel name must be between 1 and 50 characters")
 	}
 
 	if r.Type != string(ChannelTypeText) && r.Type != string(ChannelTypeVoice) {
@@ -101,13 +93,8 @@ func (r *UpdateChannelRequest) Validate() error {
 	if r.Name != nil {
 		*r.Name = strings.TrimSpace(*r.Name)
 		nameLen := utf8.RuneCountInString(*r.Name)
-		if nameLen < 1 || nameLen > 100 {
-			return fmt.Errorf("channel name must be between 1 and 100 characters")
-		}
-		for _, ch := range *r.Name {
-			if !isValidChannelNameChar(ch) {
-				return fmt.Errorf("channel name contains invalid characters")
-			}
+		if nameLen < 1 || nameLen > 50 {
+			return fmt.Errorf("channel name must be between 1 and 50 characters")
 		}
 	}
 
@@ -130,8 +117,8 @@ type CreateCategoryRequest struct {
 func (r *CreateCategoryRequest) Validate() error {
 	r.Name = strings.TrimSpace(r.Name)
 	nameLen := utf8.RuneCountInString(r.Name)
-	if nameLen < 1 || nameLen > 100 {
-		return fmt.Errorf("category name must be between 1 and 100 characters")
+	if nameLen < 1 || nameLen > 50 {
+		return fmt.Errorf("category name must be between 1 and 50 characters")
 	}
 	return nil
 }
@@ -146,8 +133,8 @@ func (r *UpdateCategoryRequest) Validate() error {
 	if r.Name != nil {
 		*r.Name = strings.TrimSpace(*r.Name)
 		nameLen := utf8.RuneCountInString(*r.Name)
-		if nameLen < 1 || nameLen > 100 {
-			return fmt.Errorf("category name must be between 1 and 100 characters")
+		if nameLen < 1 || nameLen > 50 {
+			return fmt.Errorf("category name must be between 1 and 50 characters")
 		}
 	}
 	return nil
@@ -194,12 +181,3 @@ func (r *ReorderChannelsRequest) Validate() error {
 	return nil
 }
 
-// isValidChannelNameChar, kanal adında izin verilen karakterleri kontrol eder.
-// Unicode harf/rakam, boşluk, tire, alt çizgi, eğik çizgi kabul edilir.
-// unicode.IsLetter: tüm dillerdeki harfleri kapsar (Türkçe ş/ç/ğ/ı/ö/ü dahil).
-// unicode.IsDigit: tüm Unicode rakamlarını kapsar.
-func isValidChannelNameChar(ch rune) bool {
-	return unicode.IsLetter(ch) ||
-		unicode.IsDigit(ch) ||
-		ch == '-' || ch == '_' || ch == ' ' || ch == '/'
-}
