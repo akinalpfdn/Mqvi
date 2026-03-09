@@ -37,6 +37,7 @@ type Handlers struct {
 	E2EE              *handlers.E2EEHandler
 	LinkPreview       *handlers.LinkPreviewHandler
 	Badge             *handlers.BadgeHandler
+	Preferences       *handlers.PreferencesHandler
 	WS                *ws.Handler
 }
 
@@ -71,6 +72,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		E2EE:              handlers.NewE2EEHandler(svcs.E2EE),
 		LinkPreview:       handlers.NewLinkPreviewHandler(svcs.LinkPreview),
 		Badge:             handlers.NewBadgeHandler(svcs.Badge, cfg.Upload.Dir),
+		Preferences:       handlers.NewPreferencesHandler(svcs.Preferences),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute),
 	}
 }

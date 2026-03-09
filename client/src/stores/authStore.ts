@@ -7,6 +7,7 @@ import * as authApi from "../api/auth";
 import { setTokens, clearTokens } from "../api/client";
 import { changeLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
+import { usePreferencesStore } from "./preferencesStore";
 import { useVoiceStore } from "./voiceStore";
 import type { User, UserStatus } from "../types";
 
@@ -63,6 +64,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       setTokens(res.data.access_token, res.data.refresh_token);
       syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false });
+      usePreferencesStore.getState().fetchAndApply();
       return true;
     }
 
@@ -79,6 +81,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       setTokens(res.data.access_token, res.data.refresh_token);
       syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false });
+      // Fetch server-side preferences and apply to stores
+      usePreferencesStore.getState().fetchAndApply();
       return true;
     }
 
@@ -99,6 +103,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     // Reset E2EE state (IndexedDB keys preserved)
     await useE2EEStore.getState().reset();
+    usePreferencesStore.getState().reset();
 
     const refreshToken = localStorage.getItem("refresh_token");
     if (refreshToken) {
@@ -120,6 +125,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (res.success && res.data) {
       syncLanguageFromUser(res.data);
       set({ user: res.data, isInitialized: true });
+      usePreferencesStore.getState().fetchAndApply();
     } else {
       clearTokens();
       set({ isInitialized: true });

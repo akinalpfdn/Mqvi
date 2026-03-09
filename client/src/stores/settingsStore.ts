@@ -1,9 +1,14 @@
 /**
  * Settings Store — settings modal + theme state management.
+ *
+ * Theme is synced to server via preferencesStore. On app load,
+ * localStorage is used as immediate fallback; server preferences
+ * override once fetched.
  */
 
 import { create } from "zustand";
 import { type ThemeId, DEFAULT_THEME, THEMES, applyTheme } from "../styles/themes";
+import { usePreferencesStore } from "./preferencesStore";
 
 const THEME_STORAGE_KEY = "mqvi_theme";
 
@@ -46,6 +51,8 @@ type SettingsState = {
   closeSettings: () => void;
   setActiveTab: (tab: SettingsTab) => void;
   setTheme: (id: ThemeId) => void;
+  /** Apply theme from server preferences (no re-sync to server) */
+  applyFromServer: (themeId: string) => void;
 };
 
 export type { SettingsTab };
@@ -69,6 +76,19 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       /* localStorage full or inaccessible */
     }
     set({ themeId: id });
+    // Sync to server
+    usePreferencesStore.getState().set({ theme: id });
+  },
+
+  applyFromServer: (themeId: string) => {
+    if (themeId in THEMES) {
+      const id = themeId as ThemeId;
+      applyTheme(id);
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, id);
+      } catch { /* ignore */ }
+      set({ themeId: id });
+    }
   },
 }));
 

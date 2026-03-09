@@ -7,10 +7,11 @@
  *
  * Section keys: "friends", "dms", "server", "cat:{categoryId}"
  * Missing keys default to expanded (true).
- * State is persisted to localStorage("mqvi_sidebar").
+ * State is persisted to both localStorage (immediate) and server preferences (durable).
  */
 
 import { create } from "zustand";
+import { usePreferencesStore } from "./preferencesStore";
 
 const SIDEBAR_STORAGE_KEY = "mqvi_sidebar";
 
@@ -49,6 +50,14 @@ function persistSidebar(state: PersistedSidebar): void {
   }
 }
 
+/** Sync sidebar sections to server preferences */
+function syncToServer(sections: Record<string, boolean>, isExpanded: boolean): void {
+  usePreferencesStore.getState().set({
+    sidebar_sections: sections,
+    sidebar_expanded: isExpanded,
+  });
+}
+
 // ──────────────────────────────────
 // Store types
 // ──────────────────────────────────
@@ -66,6 +75,8 @@ type SidebarState = {
   toggleSection: (sectionKey: string) => void;
   expandSection: (sectionKey: string) => void;
   isSectionExpanded: (sectionKey: string) => boolean;
+  /** Apply sidebar state from server preferences (no re-sync to server) */
+  applyFromServer: (sections: Record<string, boolean>, isExpanded?: boolean) => void;
 };
 
 // ──────────────────────────────────
@@ -82,6 +93,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
     set((state) => {
       const next = !state.isExpanded;
       persistSidebar({ isExpanded: next, expandedSections: state.expandedSections });
+      syncToServer(state.expandedSections, next);
       return { isExpanded: next };
     });
   },
@@ -90,6 +102,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
     set((state) => {
       if (state.isExpanded) return state;
       persistSidebar({ isExpanded: true, expandedSections: state.expandedSections });
+      syncToServer(state.expandedSections, true);
       return { isExpanded: true };
     });
   },
@@ -98,6 +111,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
     set((state) => {
       if (!state.isExpanded) return state;
       persistSidebar({ isExpanded: false, expandedSections: state.expandedSections });
+      syncToServer(state.expandedSections, false);
       return { isExpanded: false };
     });
   },
@@ -110,6 +124,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
         [sectionKey]: !current,
       };
       persistSidebar({ isExpanded: state.isExpanded, expandedSections: next });
+      syncToServer(next, state.isExpanded);
       return { expandedSections: next };
     });
   },
@@ -122,11 +137,19 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
         [sectionKey]: true,
       };
       persistSidebar({ isExpanded: state.isExpanded, expandedSections: next });
+      syncToServer(next, state.isExpanded);
       return { expandedSections: next };
     });
   },
 
   isSectionExpanded: (sectionKey) => {
     return get().expandedSections[sectionKey] ?? true;
+  },
+
+  applyFromServer: (sections, isExpanded?: boolean) => {
+    const merged = { ...get().expandedSections, ...sections };
+    const expanded = typeof isExpanded === "boolean" ? isExpanded : get().isExpanded;
+    persistSidebar({ isExpanded: expanded, expandedSections: merged });
+    set({ expandedSections: merged, isExpanded: expanded });
   },
 }));

@@ -13,6 +13,7 @@
 import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
+import { usePreferencesStore } from "./preferencesStore";
 import { useServerStore } from "./serverStore";
 import { playJoinSound, playLeaveSound, closeAudioContext } from "../utils/sounds";
 
@@ -51,7 +52,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   masterVolume: 100,
   soundsEnabled: true,
   localMutedUsers: {},
-  noiseReduction: false,
+  noiseReduction: true,
   screenShareVolumes: {},
   screenShareAudio: false,
 };
@@ -75,6 +76,8 @@ function saveSettings(settings: VoiceSettings): void {
   } catch {
     /* localStorage full or inaccessible */
   }
+  // Sync to server (debounced via preferencesStore)
+  usePreferencesStore.getState().set({ voice_settings: settings });
 }
 
 const initialSettings = loadSettings();
@@ -177,6 +180,9 @@ type VoiceStore = {
   updateUserInfo: (userId: string, displayName: string, avatarUrl: string) => void;
   handleForceDisconnect: () => void;
   handleScreenShareViewerUpdate: (data: { streamer_user_id: string; channel_id: string; viewer_count: number; viewer_user_id: string; action: string }) => void;
+
+  /** Apply voice settings from server preferences (no re-sync to server) */
+  applyFromServer: (settings: Record<string, unknown>) => void;
 };
 
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
@@ -782,6 +788,36 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         delete next[data.streamer_user_id];
       }
       return { screenShareViewers: next };
+    });
+  },
+
+  applyFromServer: (settings) => {
+    // Merge server settings into current state + localStorage (no re-sync to server)
+    const merged: VoiceSettings = { ...DEFAULT_SETTINGS, ...loadSettings() };
+    const keys = Object.keys(settings) as (keyof VoiceSettings)[];
+    for (const key of keys) {
+      if (key in merged) {
+        (merged as Record<string, unknown>)[key] = settings[key];
+      }
+    }
+    // Persist to localStorage
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    } catch { /* ignore */ }
+    // Update Zustand state
+    set({
+      inputMode: merged.inputMode,
+      pttKey: merged.pttKey,
+      micSensitivity: merged.micSensitivity,
+      userVolumes: merged.userVolumes,
+      inputDevice: merged.inputDevice,
+      outputDevice: merged.outputDevice,
+      masterVolume: merged.masterVolume,
+      soundsEnabled: merged.soundsEnabled,
+      screenShareAudio: merged.screenShareAudio,
+      localMutedUsers: merged.localMutedUsers,
+      noiseReduction: merged.noiseReduction,
+      screenShareVolumes: merged.screenShareVolumes,
     });
   },
 }));

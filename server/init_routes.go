@@ -61,6 +61,8 @@ func initRoutes(
 	mux.Handle("POST /api/users/me/password", auth(h.Auth.ChangePassword))
 	mux.Handle("PUT /api/users/me/email", auth(h.Auth.ChangeEmail))
 	mux.Handle("POST /api/users/me/avatar", auth(h.Avatar.UploadUserAvatar))
+	mux.Handle("GET /api/users/me/preferences", auth(h.Preferences.Get))
+	mux.Handle("PATCH /api/users/me/preferences", auth(h.Preferences.Update))
 
 	// Servers
 	mux.Handle("GET /api/servers", auth(h.Server.ListMyServers))
