@@ -62,5 +62,7 @@
   "gifTrending": "Trend",
   "gifNoResults": "GIF bulunamadı",
   "gifLoading": "GIF'ler yükleniyor...",
-  "gifUnavailable": "GIF arama kullanılamıyor"
+  "gifUnavailable": "GIF arama kullanılamıyor",
+
+  "jumpToMention": "Bahsedilene git"
 }

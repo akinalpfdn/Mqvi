@@ -34,6 +34,10 @@ export type ChatMessage = {
   attachments: ChatAttachment[];
   reactions: ReactionGroup[];
   referenced_message: MessageReference | null;
+  /** User IDs mentioned in this message */
+  mentions?: string[];
+  /** Role IDs mentioned in this message */
+  role_mentions?: string[];
   /** E2EE: 0 = plaintext, 1 = encrypted */
   encryption_version?: number;
   /** E2EE: File encryption keys (index-matched to attachments) */

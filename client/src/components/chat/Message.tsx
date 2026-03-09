@@ -21,6 +21,7 @@ import LinkPreviewCard from "./LinkPreviewCard";
 import MemberCard from "../members/MemberCard";
 import MobileMessageActions from "./MobileMessageActions";
 import { useUserBadges } from "../../hooks/useUserBadges";
+import { useRoleStore } from "../../stores/roleStore";
 import type { MemberWithRoles, User } from "../../types";
 
 type MessageProps = {
@@ -73,6 +74,7 @@ function Message({ message, isCompact }: MessageProps) {
     members,
   } = useChatContext();
 
+  const roles = useRoleStore((s) => s.roles);
   const isMobile = useIsMobile();
   const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
@@ -92,6 +94,20 @@ function Message({ message, isCompact }: MessageProps) {
   const userBadges = useUserBadges(message.user_id);
 
   const isPinned = isMessagePinned(message.id);
+
+  // Check if current user is mentioned (user mention or role mention)
+  const currentMember = members.find((m) => m.id === currentUser?.id);
+  const isMentioned = useMemo(() => {
+    if (!currentUser) return false;
+    // Direct @user mention
+    if (message.mentions?.includes(currentUser.id)) return true;
+    // Role mention — check if current user has any of the mentioned roles
+    if (message.role_mentions?.length && currentMember?.roles?.length) {
+      const myRoleIds = new Set(currentMember.roles.map((r) => r.id));
+      return message.role_mentions.some((rid) => myRoleIds.has(rid));
+    }
+    return false;
+  }, [message, currentUser, currentMember]);
 
   /** Smart timestamp: today->time, yesterday->"Yesterday 22:15", older->date */
   const locale = i18n.language ?? "en";
@@ -251,10 +267,29 @@ function Message({ message, isCompact }: MessageProps) {
       );
     }
 
+    // Build a set of role names (lowercase) for quick lookup
+    const roleNameMap = new Map<string, { color: string }>();
+    for (const r of roles) {
+      roleNameMap.set(r.name.toLowerCase(), { color: r.color });
+    }
+
     const parts = text.split(URL_REGEX);
     return parts.map((part, i) => {
-      // @mention
+      // @mention — check if it's a role mention or user mention
       if (/^@\w+$/.test(part)) {
+        const name = part.slice(1).toLowerCase();
+        const roleInfo = roleNameMap.get(name);
+        if (roleInfo) {
+          return (
+            <span
+              key={i}
+              className="msg-role-mention"
+              style={{ color: roleInfo.color, backgroundColor: `${roleInfo.color}20` }}
+            >
+              {part}
+            </span>
+          );
+        }
         return (
           <span key={i} className="msg-mention">
             {part}
@@ -290,7 +325,7 @@ function Message({ message, isCompact }: MessageProps) {
       .slice(0, 5);
   }, [message.content]);
 
-  const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}${pickerSource ? " picker-open" : ""}`;
+  const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}${pickerSource ? " picker-open" : ""}${isMentioned ? " msg-mentioned" : ""}`;
 
   return (
     <div

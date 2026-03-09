@@ -23,13 +23,13 @@ func NewSQLiteRoleRepo(db database.TxQuerier) RoleRepository {
 
 func (r *sqliteRoleRepo) GetByID(ctx context.Context, id string) (*models.Role, error) {
 	query := `
-		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, created_at
+		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, mentionable, created_at
 		FROM roles WHERE id = ?`
 
 	role := &models.Role{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
-		&role.Permissions, &role.IsDefault, &role.IsOwner, &role.CreatedAt,
+		&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -44,7 +44,7 @@ func (r *sqliteRoleRepo) GetByID(ctx context.Context, id string) (*models.Role, 
 
 func (r *sqliteRoleRepo) GetAllByServer(ctx context.Context, serverID string) ([]models.Role, error) {
 	query := `
-		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, created_at
+		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, mentionable, created_at
 		FROM roles WHERE server_id = ? ORDER BY position DESC`
 
 	rows, err := r.db.QueryContext(ctx, query, serverID)
@@ -58,7 +58,7 @@ func (r *sqliteRoleRepo) GetAllByServer(ctx context.Context, serverID string) ([
 		var role models.Role
 		if err := rows.Scan(
 			&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
-			&role.Permissions, &role.IsDefault, &role.IsOwner, &role.CreatedAt,
+			&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan role row: %w", err)
 		}
@@ -74,13 +74,13 @@ func (r *sqliteRoleRepo) GetAllByServer(ctx context.Context, serverID string) ([
 
 func (r *sqliteRoleRepo) GetDefaultByServer(ctx context.Context, serverID string) (*models.Role, error) {
 	query := `
-		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, created_at
+		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, mentionable, created_at
 		FROM roles WHERE server_id = ? AND is_default = 1 LIMIT 1`
 
 	role := &models.Role{}
 	err := r.db.QueryRowContext(ctx, query, serverID).Scan(
 		&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
-		&role.Permissions, &role.IsDefault, &role.IsOwner, &role.CreatedAt,
+		&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -95,7 +95,7 @@ func (r *sqliteRoleRepo) GetDefaultByServer(ctx context.Context, serverID string
 
 func (r *sqliteRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serverID string) ([]models.Role, error) {
 	query := `
-		SELECT r.id, r.server_id, r.name, r.color, r.position, r.permissions, r.is_default, r.is_owner, r.created_at
+		SELECT r.id, r.server_id, r.name, r.color, r.position, r.permissions, r.is_default, r.is_owner, r.mentionable, r.created_at
 		FROM roles r
 		INNER JOIN user_roles ur ON r.id = ur.role_id
 		WHERE ur.user_id = ? AND ur.server_id = ?
@@ -112,7 +112,7 @@ func (r *sqliteRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serve
 		var role models.Role
 		if err := rows.Scan(
 			&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
-			&role.Permissions, &role.IsDefault, &role.IsOwner, &role.CreatedAt,
+			&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan role row: %w", err)
 		}
@@ -142,8 +142,8 @@ func (r *sqliteRoleRepo) GetMaxPosition(ctx context.Context, serverID string) (i
 
 func (r *sqliteRoleRepo) Create(ctx context.Context, role *models.Role) error {
 	query := `
-		INSERT INTO roles (id, server_id, name, color, position, permissions, is_default, is_owner)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO roles (id, server_id, name, color, position, permissions, is_default, is_owner, mentionable)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	isDefault := 0
@@ -154,9 +154,13 @@ func (r *sqliteRoleRepo) Create(ctx context.Context, role *models.Role) error {
 	if role.IsOwner {
 		isOwner = 1
 	}
+	mentionable := 0
+	if role.Mentionable {
+		mentionable = 1
+	}
 
 	err := r.db.QueryRowContext(ctx, query,
-		role.ServerID, role.Name, role.Color, role.Position, role.Permissions, isDefault, isOwner,
+		role.ServerID, role.Name, role.Color, role.Position, role.Permissions, isDefault, isOwner, mentionable,
 	).Scan(&role.ID, &role.CreatedAt)
 
 	if err != nil {
@@ -167,10 +171,10 @@ func (r *sqliteRoleRepo) Create(ctx context.Context, role *models.Role) error {
 }
 
 func (r *sqliteRoleRepo) Update(ctx context.Context, role *models.Role) error {
-	query := `UPDATE roles SET name = ?, color = ?, permissions = ? WHERE id = ?`
+	query := `UPDATE roles SET name = ?, color = ?, permissions = ?, mentionable = ? WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query,
-		role.Name, role.Color, role.Permissions, role.ID,
+		role.Name, role.Color, role.Permissions, role.Mentionable, role.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update role: %w", err)

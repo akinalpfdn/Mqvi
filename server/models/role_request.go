@@ -13,6 +13,7 @@ type CreateRoleRequest struct {
 	Name        string     `json:"name"`
 	Color       string     `json:"color"`
 	Permissions Permission `json:"permissions"`
+	Mentionable *bool      `json:"mentionable"`
 }
 
 func (r *CreateRoleRequest) Validate() error {
@@ -42,6 +43,7 @@ type UpdateRoleRequest struct {
 	Name        *string     `json:"name"`
 	Color       *string     `json:"color"`
 	Permissions *Permission `json:"permissions"`
+	Mentionable *bool       `json:"mentionable"`
 }
 
 func (r *UpdateRoleRequest) Validate() error {

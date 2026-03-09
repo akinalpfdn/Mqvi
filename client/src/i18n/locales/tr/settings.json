@@ -17,6 +17,8 @@
   "editRole": "Rolü Düzenle",
   "roleName": "Rol Adı",
   "roleColor": "Rol Rengi",
+  "roleMentionable": "Herkesin bu rolü @etiketlemesine izin ver",
+  "roleMentionableDesc": "Etkinleştirildiğinde, herkes bu rolü mesajlarda etiketleyerek tüm üyeleri bilgilendirebilir.",
   "permissions": "Yetkiler",
   "deleteRole": "Rolü Sil",
   "confirmDeleteRole": "\"{{name}}\" rolünü silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",

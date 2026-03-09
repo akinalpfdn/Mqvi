@@ -60,5 +60,6 @@ type Role struct {
 	Permissions Permission `json:"permissions"`
 	IsDefault   bool       `json:"is_default"`
 	IsOwner     bool       `json:"is_owner"`
+	Mentionable bool       `json:"mentionable"`
 	CreatedAt   time.Time  `json:"created_at"`
 }

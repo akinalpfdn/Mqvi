@@ -1,49 +1,68 @@
-/** MentionAutocomplete — @mention popup with keyboard navigation. Max 5 results. */
+/** MentionAutocomplete — @mention popup with keyboard navigation. Shows users and mentionable roles. */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useMemberStore } from "../../stores/memberStore";
+import { useRoleStore } from "../../stores/roleStore";
 import Avatar from "../shared/Avatar";
+import type { MemberWithRoles, Role } from "../../types";
 
 type MentionAutocompleteProps = {
   /** Search text after @ (e.g. "ali" -> @ali) */
   query: string;
-  /** Called when user is selected — returns username */
-  onSelect: (username: string) => void;
+  /** Called when user or role is selected — returns the text to insert */
+  onSelect: (text: string) => void;
   /** Close popup (Escape or empty results) */
   onClose: () => void;
 };
 
 /** Max visible results */
-const MAX_RESULTS = 5;
+const MAX_RESULTS = 7;
+
+type MentionItem =
+  | { type: "user"; member: MemberWithRoles }
+  | { type: "role"; role: Role };
 
 function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompleteProps) {
   const members = useMemberStore((s) => s.members);
+  const roles = useRoleStore((s) => s.roles);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Filter by username or display_name
-  const filtered = members
-    .filter((m) => {
-      const q = query.toLowerCase();
-      return (
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    const items: MentionItem[] = [];
+
+    // Mentionable roles first
+    for (const role of roles) {
+      if (!role.mentionable) continue;
+      if (role.name.toLowerCase().includes(q)) {
+        items.push({ type: "role", role });
+      }
+    }
+
+    // Then users
+    for (const m of members) {
+      if (
         m.username.toLowerCase().includes(q) ||
         (m.display_name?.toLowerCase().includes(q) ?? false)
-      );
-    })
-    .slice(0, MAX_RESULTS);
+      ) {
+        items.push({ type: "user", member: m });
+      }
+      if (items.length >= MAX_RESULTS) break;
+    }
 
-  // Reset active index when results change
+    return items.slice(0, MAX_RESULTS);
+  }, [query, members, roles]);
+
   useEffect(() => {
     setActiveIndex(0);
   }, [query]);
 
-  // Close when no results
   useEffect(() => {
     if (filtered.length === 0 && query.length > 0) {
       onClose();
     }
   }, [filtered.length, query.length, onClose]);
 
-  /** Keyboard navigation — forwarded from MessageInput */
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (filtered.length === 0) return;
@@ -61,7 +80,8 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
         case "Tab":
           e.preventDefault();
           if (filtered[activeIndex]) {
-            onSelect(filtered[activeIndex].username);
+            const item = filtered[activeIndex];
+            onSelect(item.type === "user" ? item.member.username : item.role.name);
           }
           break;
         case "Escape":
@@ -73,7 +93,6 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
     [filtered, activeIndex, onSelect, onClose]
   );
 
-  // Global keydown listener (captures events from MessageInput textarea)
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
@@ -83,32 +102,55 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
 
   return (
     <div className="mention-popup">
-      {filtered.map((member, index) => (
-        <button
-          key={member.id}
-          className={`mention-item${index === activeIndex ? " active" : ""}`}
-          onMouseDown={(e) => {
-            // onMouseDown instead of onClick — must fire before blur
-            e.preventDefault();
-            onSelect(member.username);
-          }}
-          onMouseEnter={() => setActiveIndex(index)}
-        >
-          <div className="mention-item-avatar">
-            <Avatar
-              name={member.display_name ?? member.username}
-              avatarUrl={member.avatar_url ?? undefined}
-              size={22}
-            />
-          </div>
-          <span className="mention-item-name">
-            {member.display_name ?? member.username}
-          </span>
-          <span className="mention-item-username">
-            @{member.username}
-          </span>
-        </button>
-      ))}
+      {filtered.map((item, index) => {
+        if (item.type === "role") {
+          return (
+            <button
+              key={`role-${item.role.id}`}
+              className={`mention-item${index === activeIndex ? " active" : ""}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onSelect(item.role.name);
+              }}
+              onMouseEnter={() => setActiveIndex(index)}
+            >
+              <span
+                className="mention-role-dot"
+                style={{ backgroundColor: item.role.color }}
+              />
+              <span className="mention-item-name">@{item.role.name}</span>
+              <span className="mention-item-tag">Role</span>
+            </button>
+          );
+        }
+
+        const member = item.member;
+        return (
+          <button
+            key={member.id}
+            className={`mention-item${index === activeIndex ? " active" : ""}`}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onSelect(member.username);
+            }}
+            onMouseEnter={() => setActiveIndex(index)}
+          >
+            <div className="mention-item-avatar">
+              <Avatar
+                name={member.display_name ?? member.username}
+                avatarUrl={member.avatar_url ?? undefined}
+                size={22}
+              />
+            </div>
+            <span className="mention-item-name">
+              {member.display_name ?? member.username}
+            </span>
+            <span className="mention-item-username">
+              @{member.username}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

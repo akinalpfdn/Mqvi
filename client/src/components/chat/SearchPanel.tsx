@@ -67,6 +67,7 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
             edited_at: null,
             attachments: [],
             mentions: [],
+            role_mentions: [],
             reactions: [],
             reply_to_id: null,
             referenced_message: null,

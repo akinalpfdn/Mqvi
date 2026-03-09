@@ -79,12 +79,18 @@ func (s *roleService) Create(ctx context.Context, serverID, actorID string, req 
 
 	newPosition := 2
 
+	mentionable := true
+	if req.Mentionable != nil {
+		mentionable = *req.Mentionable
+	}
+
 	role := &models.Role{
 		ServerID:    serverID,
 		Name:        req.Name,
 		Color:       req.Color,
 		Position:    newPosition,
 		Permissions: req.Permissions,
+		Mentionable: mentionable,
 	}
 
 	if err := s.roleRepo.Create(ctx, role); err != nil {
@@ -168,6 +174,9 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 	}
 	if req.Permissions != nil {
 		role.Permissions = *req.Permissions
+	}
+	if req.Mentionable != nil {
+		role.Mentionable = *req.Mentionable
 	}
 
 	if err := s.roleRepo.Update(ctx, role); err != nil {

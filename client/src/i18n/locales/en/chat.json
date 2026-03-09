@@ -62,5 +62,7 @@
   "gifTrending": "Trending",
   "gifNoResults": "No GIFs found",
   "gifLoading": "Loading GIFs...",
-  "gifUnavailable": "GIF search is not available"
+  "gifUnavailable": "GIF search is not available",
+
+  "jumpToMention": "Jump to mention"
 }

@@ -32,7 +32,8 @@ type Message struct {
 	ReplyToID   *string      `json:"reply_to_id"`
 	Author      *User        `json:"author,omitempty"`       // populated via JOIN
 	Attachments []Attachment    `json:"attachments,omitempty"`
-	Mentions    []string        `json:"mentions"`
+	Mentions     []string        `json:"mentions"`
+	RoleMentions []string        `json:"role_mentions"`
 	Reactions   []ReactionGroup `json:"reactions"`
 	ReferencedMessage *MessageReference `json:"referenced_message,omitempty"`
 

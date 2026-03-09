@@ -17,6 +17,8 @@
   "editRole": "Edit Role",
   "roleName": "Role Name",
   "roleColor": "Role Color",
+  "roleMentionable": "Allow anyone to @mention this role",
+  "roleMentionableDesc": "When enabled, anyone can mention this role in messages to notify all members.",
   "permissions": "Permissions",
   "deleteRole": "Delete Role",
   "confirmDeleteRole": "Are you sure you want to delete the role \"{{name}}\"? This action cannot be undone.",

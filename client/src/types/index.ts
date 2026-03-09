@@ -109,6 +109,7 @@ export type Message = {
   author: User;
   attachments: Attachment[];
   mentions: string[];
+  role_mentions: string[];
   reactions: ReactionGroup[];
   encryption_version: EncryptionVersion; // 0=plaintext, 1=E2EE
   ciphertext?: string | null;
@@ -144,6 +145,7 @@ export type Role = {
   permissions: number;
   is_default: boolean;
   is_owner: boolean;
+  mentionable: boolean;
 };
 
 // ──────────────────────────────────

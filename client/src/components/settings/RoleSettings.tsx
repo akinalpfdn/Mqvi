@@ -71,6 +71,7 @@ function RoleSettings() {
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
   const [editPerms, setEditPerms] = useState(0);
+  const [editMentionable, setEditMentionable] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
   const [showRoleEmojiPicker, setShowRoleEmojiPicker] = useState(false);
 
@@ -111,6 +112,7 @@ function RoleSettings() {
       setEditName(selectedRole.name);
       setEditColor(selectedRole.color);
       setEditPerms(selectedRole.permissions);
+      setEditMentionable(selectedRole.mentionable);
       setHasChanges(false);
     }
   }, [selectedRole]);
@@ -193,10 +195,11 @@ function RoleSettings() {
   async function handleSave() {
     if (!selectedRoleId || !hasChanges) return;
 
-    const updates: { name?: string; color?: string; permissions?: number } = {};
+    const updates: { name?: string; color?: string; permissions?: number; mentionable?: boolean } = {};
     if (editName !== selectedRole?.name) updates.name = editName;
     if (editColor !== selectedRole?.color) updates.color = editColor;
     if (editPerms !== selectedRole?.permissions) updates.permissions = editPerms;
+    if (editMentionable !== selectedRole?.mentionable) updates.mentionable = editMentionable;
 
     const success = await updateRole(selectedRoleId, updates);
     if (success) {
@@ -376,6 +379,27 @@ function RoleSettings() {
                 }}
                 disabled={!(canEditSelected || canEditOwnerAppearance)}
               />
+            </div>
+
+            {/* Mentionable toggle */}
+            <div className="settings-field">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <label className="settings-label" style={{ marginBottom: 0 }}>{t("roleMentionable")}</label>
+                  <p style={{ fontSize: 13, color: "var(--t3)", margin: "4px 0 0" }}>{t("roleMentionableDesc")}</p>
+                </div>
+                <button
+                  type="button"
+                  className={`toggle-switch${editMentionable ? " toggle-switch-on" : ""}`}
+                  onClick={() => {
+                    setEditMentionable((prev) => !prev);
+                    setHasChanges(true);
+                  }}
+                  disabled={!(canEditSelected || canEditOwnerAppearance)}
+                >
+                  <span className="toggle-switch-thumb" />
+                </button>
+              </div>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

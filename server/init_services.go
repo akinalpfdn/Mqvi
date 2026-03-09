@@ -87,7 +87,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	categoryService := services.NewCategoryService(repos.Category, hub)
 	messageService := services.NewMessageService(
 		repos.Message, repos.Attachment, repos.Channel, repos.User,
-		repos.Mention, repos.Reaction, hub, channelPermService,
+		repos.Mention, repos.RoleMention, repos.Role, repos.Reaction, hub, channelPermService,
 	)
 	uploadService := services.NewUploadService(repos.Attachment, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(repos.User, repos.Role, repos.Ban, repos.Server, hub, voiceService)

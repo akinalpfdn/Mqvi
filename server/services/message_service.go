@@ -23,14 +23,16 @@ type MessageService interface {
 }
 
 type messageService struct {
-	messageRepo    repository.MessageRepository
-	attachmentRepo repository.AttachmentRepository
-	channelRepo    repository.ChannelRepository
-	userRepo       repository.UserRepository
-	mentionRepo    repository.MentionRepository
-	reactionRepo   repository.ReactionRepository
-	hub            ws.BroadcastAndOnline
-	permResolver   ChannelPermResolver
+	messageRepo     repository.MessageRepository
+	attachmentRepo  repository.AttachmentRepository
+	channelRepo     repository.ChannelRepository
+	userRepo        repository.UserRepository
+	mentionRepo     repository.MentionRepository
+	roleMentionRepo repository.RoleMentionRepository
+	roleRepo        repository.RoleRepository
+	reactionRepo    repository.ReactionRepository
+	hub             ws.BroadcastAndOnline
+	permResolver    ChannelPermResolver
 }
 
 func NewMessageService(
@@ -39,19 +41,23 @@ func NewMessageService(
 	channelRepo repository.ChannelRepository,
 	userRepo repository.UserRepository,
 	mentionRepo repository.MentionRepository,
+	roleMentionRepo repository.RoleMentionRepository,
+	roleRepo repository.RoleRepository,
 	reactionRepo repository.ReactionRepository,
 	hub ws.BroadcastAndOnline,
 	permResolver ChannelPermResolver,
 ) MessageService {
 	return &messageService{
-		messageRepo:    messageRepo,
-		attachmentRepo: attachmentRepo,
-		channelRepo:    channelRepo,
-		userRepo:       userRepo,
-		mentionRepo:    mentionRepo,
-		reactionRepo:   reactionRepo,
-		hub:            hub,
-		permResolver:   permResolver,
+		messageRepo:     messageRepo,
+		attachmentRepo:  attachmentRepo,
+		channelRepo:     channelRepo,
+		userRepo:        userRepo,
+		mentionRepo:     mentionRepo,
+		roleMentionRepo: roleMentionRepo,
+		roleRepo:        roleRepo,
+		reactionRepo:    reactionRepo,
+		hub:             hub,
+		permResolver:    permResolver,
 	}
 }
 
@@ -113,6 +119,11 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 			return nil, fmt.Errorf("failed to get reactions: %w", err)
 		}
 
+		roleMentionMap, err := s.roleMentionRepo.GetByMessageIDs(ctx, messageIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get role mentions: %w", err)
+		}
+
 		for i := range messages {
 			messages[i].Attachments = attachmentMap[messages[i].ID]
 			if messages[i].Attachments == nil {
@@ -121,6 +132,10 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 			messages[i].Mentions = mentionMap[messages[i].ID]
 			if messages[i].Mentions == nil {
 				messages[i].Mentions = []string{}
+			}
+			messages[i].RoleMentions = roleMentionMap[messages[i].ID]
+			if messages[i].RoleMentions == nil {
+				messages[i].RoleMentions = []string{}
 			}
 			messages[i].Reactions = reactionMap[messages[i].ID]
 			if messages[i].Reactions == nil {
@@ -213,6 +228,12 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 
 	// Parse and save mentions (server can't read E2EE content)
 	if req.EncryptionVersion == 0 {
+		channel, _ := s.channelRepo.GetByID(ctx, channelID)
+		serverID := ""
+		if channel != nil {
+			serverID = channel.ServerID
+		}
+
 		mentionedIDs := s.extractMentions(ctx, req.Content)
 		if len(mentionedIDs) > 0 {
 			if err := s.mentionRepo.SaveMentions(ctx, message.ID, mentionedIDs); err != nil {
@@ -220,8 +241,17 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 			}
 		}
 		message.Mentions = mentionedIDs
+
+		roleMentionIDs := s.extractRoleMentions(ctx, req.Content, serverID)
+		if len(roleMentionIDs) > 0 {
+			if err := s.roleMentionRepo.SaveRoleMentions(ctx, message.ID, roleMentionIDs); err != nil {
+				fmt.Printf("[mention] failed to save role mentions for message %s: %v\n", message.ID, err)
+			}
+		}
+		message.RoleMentions = roleMentionIDs
 	} else {
 		message.Mentions = []string{}
+		message.RoleMentions = []string{}
 	}
 
 	return message, nil
@@ -291,6 +321,12 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 
 	// Re-parse mentions (server can't read E2EE content)
 	if req.EncryptionVersion == 0 {
+		channel, _ := s.channelRepo.GetByID(ctx, message.ChannelID)
+		serverID := ""
+		if channel != nil {
+			serverID = channel.ServerID
+		}
+
 		if err := s.mentionRepo.DeleteByMessageID(ctx, id); err != nil {
 			fmt.Printf("[mention] failed to delete old mentions for message %s: %v\n", id, err)
 		}
@@ -301,8 +337,20 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 			}
 		}
 		message.Mentions = mentionedIDs
+
+		if err := s.roleMentionRepo.DeleteByMessageID(ctx, id); err != nil {
+			fmt.Printf("[mention] failed to delete old role mentions for message %s: %v\n", id, err)
+		}
+		roleMentionIDs := s.extractRoleMentions(ctx, req.Content, serverID)
+		if len(roleMentionIDs) > 0 {
+			if err := s.roleMentionRepo.SaveRoleMentions(ctx, id, roleMentionIDs); err != nil {
+				fmt.Printf("[mention] failed to save role mentions for message %s: %v\n", id, err)
+			}
+		}
+		message.RoleMentions = roleMentionIDs
 	} else {
 		message.Mentions = []string{}
+		message.RoleMentions = []string{}
 	}
 
 	s.hub.BroadcastToAll(ws.Event{
@@ -337,6 +385,53 @@ func (s *messageService) Delete(ctx context.Context, id string, userID string, u
 	})
 
 	return nil
+}
+
+// extractRoleMentions parses @rolename patterns from content and returns mentionable role IDs.
+// Roles are matched case-insensitively within the given server.
+func (s *messageService) extractRoleMentions(ctx context.Context, content string, serverID string) []string {
+	if serverID == "" {
+		return []string{}
+	}
+
+	matches := mentionRegex.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return []string{}
+	}
+
+	// Load all server roles once (cached per request)
+	roles, err := s.roleRepo.GetAllByServer(ctx, serverID)
+	if err != nil {
+		return []string{}
+	}
+
+	// Build name→role lookup (lowercase)
+	roleByName := make(map[string]*models.Role, len(roles))
+	for i := range roles {
+		roleByName[strings.ToLower(roles[i].Name)] = &roles[i]
+	}
+
+	seen := make(map[string]bool)
+	var roleIDs []string
+
+	for _, match := range matches {
+		name := strings.ToLower(match[1])
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+
+		role, ok := roleByName[name]
+		if !ok || !role.Mentionable {
+			continue
+		}
+		roleIDs = append(roleIDs, role.ID)
+	}
+
+	if roleIDs == nil {
+		roleIDs = []string{}
+	}
+	return roleIDs
 }
 
 // extractMentions parses @username patterns from content and returns valid user IDs.

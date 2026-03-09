@@ -26,7 +26,7 @@ type RoleState = {
   }) => Promise<boolean>;
   updateRole: (
     id: string,
-    data: { name?: string; color?: string; permissions?: number }
+    data: { name?: string; color?: string; permissions?: number; mentionable?: boolean }
   ) => Promise<boolean>;
   deleteRole: (id: string) => Promise<boolean>;
   reorderRoles: (items: { id: string; position: number }[]) => Promise<boolean>;

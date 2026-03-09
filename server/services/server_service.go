@@ -165,17 +165,18 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 			return fmt.Errorf("failed to add owner as member: %w", err)
 		}
 
-		// Default "Member" role
+		// Default "everyone" role
 		defaultPerms := models.PermViewChannel | models.PermReadMessages | models.PermSendMessages |
 			models.PermConnectVoice | models.PermSpeak
 
 		defaultRole := &models.Role{
 			ServerID:    server.ID,
-			Name:        "Member",
+			Name:        "everyone",
 			Color:       "#99AAB5",
 			Position:    1,
 			Permissions: defaultPerms,
 			IsDefault:   true,
+			Mentionable: true,
 		}
 		if err := txRoleRepo.Create(ctx, defaultRole); err != nil {
 			return fmt.Errorf("failed to create default role: %w", err)

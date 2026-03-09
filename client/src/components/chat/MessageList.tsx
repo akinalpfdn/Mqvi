@@ -1,8 +1,10 @@
 /** MessageList — Scrollable message container with auto-scroll, infinite scroll, and compact mode. */
 
-import { useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
+import { useAuthStore } from "../../stores/authStore";
+import { useMemberStore } from "../../stores/memberStore";
 import { MessageSkeleton } from "../shared/Skeleton";
 import Message from "./Message";
 
@@ -28,9 +30,64 @@ function MessageList() {
     setScrollToMessageId,
   } = useChatContext();
 
+  const currentUser = useAuthStore((s) => s.user);
+  const members = useMemberStore((s) => s.members);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
+
+  // ─── Mention Navigation State ───
+  const [mentionNavIndex, setMentionNavIndex] = useState(-1);
+
+  // Compute mention message IDs (messages where current user is mentioned)
+  const mentionMessageIds = useMemo(() => {
+    if (!currentUser) return [];
+    const myMember = members.find((m) => m.id === currentUser.id);
+    const myRoleIds = myMember?.roles?.length
+      ? new Set(myMember.roles.map((r) => r.id))
+      : null;
+
+    const ids: string[] = [];
+    for (const msg of messages) {
+      if (msg.mentions?.includes(currentUser.id)) {
+        ids.push(msg.id);
+        continue;
+      }
+      if (msg.role_mentions?.length && myRoleIds) {
+        if (msg.role_mentions.some((rid) => myRoleIds.has(rid))) {
+          ids.push(msg.id);
+        }
+      }
+    }
+    return ids;
+  }, [messages, currentUser, members]);
+
+  // Reset mention nav index when channel changes or mentions change
+  useEffect(() => {
+    setMentionNavIndex(-1);
+  }, [channelId]);
+
+  const mentionCount = mentionMessageIds.length;
+  const hasUnvisitedMentions = mentionNavIndex < mentionCount - 1;
+
+  function handleMentionNavClick() {
+    if (mentionCount === 0) return;
+    const nextIndex = mentionNavIndex + 1;
+    if (nextIndex >= mentionCount) {
+      // All visited — wrap around
+      setMentionNavIndex(-1);
+      return;
+    }
+    setMentionNavIndex(nextIndex);
+    const msgId = mentionMessageIds[nextIndex];
+    const el = document.getElementById(`msg-${msgId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("msg-highlight");
+      setTimeout(() => el.classList.remove("msg-highlight"), 2000);
+    }
+  }
 
   // Fetch messages on channel change, disable auto-scroll during transition
   useEffect(() => {
@@ -145,46 +202,63 @@ function MessageList() {
   const welcomeIcon = mode === "dm" ? "@" : "#";
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={handleScroll}
-      className="messages-scroll"
-    >
-      {/* Loading more indicator */}
-      {isLoadingMore && (
-        <div style={{ display: "flex", justifyContent: "center", padding: "16px 0" }}>
-          <div className="spinner" />
-        </div>
-      )}
-
-      {/* Messages */}
-      {messages.length === 0 ? (
-        <div className="msg-welcome">
-          <div className="msg-welcome-icon">
-            <span>{welcomeIcon}</span>
+    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="messages-scroll"
+      >
+        {/* Loading more indicator */}
+        {isLoadingMore && (
+          <div style={{ display: "flex", justifyContent: "center", padding: "16px 0" }}>
+            <div className="spinner" />
           </div>
-          <h2>
-            {mode === "dm"
-              ? t("welcomeDM", { user: channelName })
-              : t("welcomeChannel", { channel: channelName })}
-          </h2>
-          <p>
-            {mode === "dm"
-              ? t("dmStart", { user: channelName })
-              : t("channelStart", { channel: channelName })}
-          </p>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: "8px 0" }}>
-          {messages.map((msg, index) => (
-            <div key={msg.id} id={`msg-${msg.id}`}>
-              <Message
-                message={msg}
-                isCompact={isCompact(index)}
-              />
+        )}
+
+        {/* Messages */}
+        {messages.length === 0 ? (
+          <div className="msg-welcome">
+            <div className="msg-welcome-icon">
+              <span>{welcomeIcon}</span>
             </div>
-          ))}
-        </div>
+            <h2>
+              {mode === "dm"
+                ? t("welcomeDM", { user: channelName })
+                : t("welcomeChannel", { channel: channelName })}
+            </h2>
+            <p>
+              {mode === "dm"
+                ? t("dmStart", { user: channelName })
+                : t("channelStart", { channel: channelName })}
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: "8px 0" }}>
+            {messages.map((msg, index) => (
+              <div key={msg.id} id={`msg-${msg.id}`}>
+                <Message
+                  message={msg}
+                  isCompact={isCompact(index)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Mention Navigation FAB */}
+      {mentionCount > 0 && hasUnvisitedMentions && (
+        <button
+          className="mention-nav-fab"
+          onClick={handleMentionNavClick}
+          title={t("jumpToMention")}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+          </svg>
+          <span>{mentionCount - mentionNavIndex - 1}</span>
+        </button>
       )}
     </div>
   );
