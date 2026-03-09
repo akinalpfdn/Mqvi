@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useInviteStore } from "../../stores/inviteStore";
+import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
 import { getInviteUrl, copyToClipboard } from "../../utils/constants";
 
@@ -30,6 +31,7 @@ const MAX_USES_OPTIONS = [
 
 function InviteSettings() {
   const { t } = useTranslation("settings");
+  const serverId = useServerStore((s) => s.activeServerId);
   const invites = useInviteStore((s) => s.invites);
   const isLoading = useInviteStore((s) => s.isLoading);
   const fetchInvites = useInviteStore((s) => s.fetchInvites);
@@ -42,14 +44,14 @@ function InviteSettings() {
   const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
-    fetchInvites();
-  }, [fetchInvites]);
+    if (serverId) fetchInvites(serverId);
+  }, [fetchInvites, serverId]);
 
   const handleCreate = useCallback(async () => {
-    if (isCreating) return;
+    if (isCreating || !serverId) return;
     setIsCreating(true);
 
-    const invite = await createInvite(maxUses, expiresIn);
+    const invite = await createInvite(serverId, maxUses, expiresIn);
     if (invite) {
       addToast("success", t("inviteCreated"));
       // Auto-copy link for easy sharing
@@ -64,7 +66,7 @@ function InviteSettings() {
     }
 
     setIsCreating(false);
-  }, [isCreating, createInvite, maxUses, expiresIn, addToast, t]);
+  }, [isCreating, serverId, createInvite, maxUses, expiresIn, addToast, t]);
 
   /** Copy raw invite code */
   const handleCopyCode = useCallback(
@@ -94,14 +96,15 @@ function InviteSettings() {
 
   const handleDelete = useCallback(
     async (code: string) => {
-      const success = await deleteInvite(code);
+      if (!serverId) return;
+      const success = await deleteInvite(serverId, code);
       if (success) {
         addToast("success", t("inviteDeleted"));
       } else {
         addToast("error", t("inviteDeleteError"));
       }
     },
-    [deleteInvite, addToast, t]
+    [serverId, deleteInvite, addToast, t]
   );
 
   return (

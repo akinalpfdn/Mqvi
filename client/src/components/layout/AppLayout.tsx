@@ -46,6 +46,7 @@ import { useUIStore, type TabServerInfo } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
+import { useInviteStore } from "../../stores/inviteStore";
 import { useNotificationBadge } from "../../hooks/useNotificationBadge";
 
 function AppLayout() {
@@ -84,6 +85,7 @@ function AppLayout() {
     useMemberStore.getState().clearForServerSwitch();
     useRoleStore.getState().clearForServerSwitch();
     useReadStateStore.getState().clearForServerSwitch();
+    useInviteStore.getState().clearForServerSwitch();
 
     // Reset auto-open flag for new server
     autoOpenedRef.current = false;

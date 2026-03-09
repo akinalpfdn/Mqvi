@@ -6,7 +6,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useFriendStore } from "../../stores/friendStore";
-import { useServerStore } from "../../stores/serverStore";
 import { useInviteStore } from "../../stores/inviteStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -23,7 +22,6 @@ type InviteFriendsModalProps = {
 function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModalProps) {
   const { t } = useTranslation("servers");
   const friends = useFriendStore((s) => s.friends);
-  const setActiveServer = useServerStore((s) => s.setActiveServer);
   const getOrCreatePermanentInvite = useInviteStore((s) => s.getOrCreatePermanentInvite);
   const createOrGetChannel = useDMStore((s) => s.createOrGetChannel);
   const sendMessage = useDMStore((s) => s.sendMessage);
@@ -78,13 +76,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     if (isCopying) return;
     setIsCopying(true);
 
-    // Ensure invite is created in the correct server context
-    const currentActive = useServerStore.getState().activeServerId;
-    if (currentActive !== serverId) {
-      setActiveServer(serverId);
-    }
-
-    const invite = await getOrCreatePermanentInvite();
+    const invite = await getOrCreatePermanentInvite(serverId);
     if (!invite) {
       addToast("error", t("inviteCreateFailed"));
       setIsCopying(false);
@@ -107,14 +99,8 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     setIsSending(true);
     setProgress({ sent: 0, total: selected.size });
 
-    // Ensure correct server context for inviteStore
-    const currentActive = useServerStore.getState().activeServerId;
-    if (currentActive !== serverId) {
-      setActiveServer(serverId);
-    }
-
     // Reuse existing permanent invite or create new
-    const invite = await getOrCreatePermanentInvite();
+    const invite = await getOrCreatePermanentInvite(serverId);
     if (!invite) {
       addToast("error", t("inviteCreateFailed"));
       setIsSending(false);

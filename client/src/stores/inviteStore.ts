@@ -4,7 +4,6 @@
 
 import { create } from "zustand";
 import * as inviteApi from "../api/invites";
-import { useServerStore } from "./serverStore";
 import type { Invite } from "../types";
 
 /** Stable empty ref for selectors */
@@ -13,34 +12,34 @@ const EMPTY_INVITES: Invite[] = [];
 type InviteState = {
   invites: Invite[];
   isLoading: boolean;
+  /** Which server the current invites belong to */
+  _loadedServerId: string | null;
 
-  fetchInvites: () => Promise<void>;
-  createInvite: (maxUses: number, expiresIn: number) => Promise<Invite | null>;
+  fetchInvites: (serverId: string) => Promise<void>;
+  createInvite: (serverId: string, maxUses: number, expiresIn: number) => Promise<Invite | null>;
   /** Get existing permanent invite or create one. Used by "Copy Invite Link" flows. */
-  getOrCreatePermanentInvite: () => Promise<Invite | null>;
-  deleteInvite: (code: string) => Promise<boolean>;
+  getOrCreatePermanentInvite: (serverId: string) => Promise<Invite | null>;
+  deleteInvite: (serverId: string, code: string) => Promise<boolean>;
+  clearForServerSwitch: () => void;
 };
 
 export const useInviteStore = create<InviteState>((set, get) => ({
   invites: EMPTY_INVITES,
   isLoading: false,
+  _loadedServerId: null,
 
-  fetchInvites: async () => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
+  fetchInvites: async (serverId: string) => {
     set({ isLoading: true });
 
     const res = await inviteApi.getInvites(serverId);
     if (res.success && res.data) {
-      set({ invites: res.data, isLoading: false });
+      set({ invites: res.data, isLoading: false, _loadedServerId: serverId });
     } else {
       set({ isLoading: false });
     }
   },
 
-  createInvite: async (maxUses, expiresIn) => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return null;
+  createInvite: async (serverId: string, maxUses: number, expiresIn: number) => {
     const res = await inviteApi.createInvite(serverId, {
       max_uses: maxUses,
       expires_in: expiresIn,
@@ -48,19 +47,17 @@ export const useInviteStore = create<InviteState>((set, get) => ({
 
     if (res.success && res.data) {
       // Full refetch for creator info (create endpoint returns bare Invite)
-      await get().fetchInvites();
+      await get().fetchInvites(serverId);
       return res.data;
     }
 
     return null;
   },
 
-  getOrCreatePermanentInvite: async () => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return null;
-
-    if (get().invites.length === 0) {
-      await get().fetchInvites();
+  getOrCreatePermanentInvite: async (serverId: string) => {
+    // If cached invites are for a different server, refetch
+    if (get()._loadedServerId !== serverId || get().invites.length === 0) {
+      await get().fetchInvites(serverId);
     }
 
     // Find existing permanent invite (unlimited uses, no expiry)
@@ -69,12 +66,10 @@ export const useInviteStore = create<InviteState>((set, get) => ({
     );
     if (existing) return existing;
 
-    return get().createInvite(0, 0);
+    return get().createInvite(serverId, 0, 0);
   },
 
-  deleteInvite: async (code) => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return false;
+  deleteInvite: async (serverId: string, code: string) => {
     const res = await inviteApi.deleteInvite(serverId, code);
 
     if (res.success) {
@@ -85,5 +80,9 @@ export const useInviteStore = create<InviteState>((set, get) => ({
     }
 
     return false;
+  },
+
+  clearForServerSwitch: () => {
+    set({ invites: EMPTY_INVITES, _loadedServerId: null });
   },
 }));
