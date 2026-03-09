@@ -83,12 +83,24 @@ function FriendItem({ friendship, type, onAccept, onDecline, onRemove, onSendMes
       <div className="fi-item" onContextMenu={handleContextMenu}>
         {/* Avatar + info */}
         <div className="fi-info">
-          <Avatar
-            name={displayName}
-            avatarUrl={friendship.avatar_url ?? undefined}
-            size={36}
-            isCircle
-          />
+          <button
+            className="fi-avatar-btn"
+            onClick={(e) => {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setProfileTarget({
+                user: friendshipToUser(friendship),
+                top: rect.top,
+                left: rect.right + 8,
+              });
+            }}
+          >
+            <Avatar
+              name={displayName}
+              avatarUrl={friendship.avatar_url ?? undefined}
+              size={36}
+              isCircle
+            />
+          </button>
           <div className="fi-text">
             <span className="fi-name">{displayName}</span>
             <span className="fi-username">@{friendship.username}</span>

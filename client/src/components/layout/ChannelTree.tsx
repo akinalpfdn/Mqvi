@@ -1614,12 +1614,36 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                     });
                                   }}
                                 >
-                                  <Avatar
-                                    name={p.display_name || p.username}
-                                    avatarUrl={p.avatar_url}
-                                    size={22}
-                                    isCircle
-                                  />
+                                  <button
+                                    className="ch-tree-vu-avatar-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                      setUserCardTarget({
+                                        user: {
+                                          id: p.user_id,
+                                          username: p.username,
+                                          display_name: p.display_name || null,
+                                          avatar_url: p.avatar_url || null,
+                                          status: "online" as const,
+                                          custom_status: null,
+                                          email: null,
+                                          language: "en",
+                                          is_platform_admin: false,
+                                          created_at: new Date().toISOString(),
+                                        },
+                                        top: rect.top,
+                                        left: rect.right + 8,
+                                      });
+                                    }}
+                                  >
+                                    <Avatar
+                                      name={p.display_name || p.username}
+                                      avatarUrl={p.avatar_url}
+                                      size={22}
+                                      isCircle
+                                    />
+                                  </button>
                                   <span className="ch-tree-vu-name">{p.display_name || p.username}</span>
                                   {/* Status icons (priority: server deafen > server mute > local mute > streaming > self deafen > self mute > dot) */}
                                   <span className="ch-tree-vu-icons">

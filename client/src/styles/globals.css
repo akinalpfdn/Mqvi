@@ -236,6 +236,8 @@ button { font-family:inherit; }
 .ch-tree-voice-users { padding:2px 0 2px 42px; }
 .ch-tree-voice-user { display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;font-size:13px;color:var(--t2); }
 .ch-tree-voice-user:hover { background:var(--bg-h); }
+.ch-tree-vu-avatar-btn { all:unset;cursor:pointer;display:flex;border-radius:50%;flex-shrink:0; }
+.ch-tree-vu-avatar-btn:hover { opacity:.8; }
 .ch-tree-vu-name { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 /* Voice user status icons — right-aligned */
 .ch-tree-vu-icons { display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0; }
@@ -400,6 +402,8 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .msg-gtime { font-size:13px;color:var(--t3);font-family:var(--f-m);opacity:0;margin-left:6px;white-space:nowrap;transition:opacity .1s; }
 .msg.grouped:hover .msg-gtime { opacity:1; }
 .msg-avatar { flex-shrink:0; }
+.msg-avatar-btn { all:unset;cursor:pointer;display:flex;border-radius:50%; }
+.msg-avatar-btn:hover { opacity:.8; }
 .msg-body { min-width:0;flex:1; }
 .msg-meta { display:flex;align-items:baseline;gap:6px;margin-bottom:1px; }
 .msg-name { font-size:13px;font-weight:600;cursor:pointer;color:var(--t0); }
@@ -2138,6 +2142,8 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* FriendItem */
 .fi-item { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:6px;transition:background .1s; }
 .fi-item:hover { background:var(--bg-h); }
+.fi-avatar-btn { all:unset;cursor:pointer;display:flex;border-radius:50%;flex-shrink:0; }
+.fi-avatar-btn:hover { opacity:.8; }
 .fi-info { display:flex;align-items:center;gap:10px;min-width:0; }
 .fi-text { display:flex;flex-direction:column;gap:1px;min-width:0; }
 .fi-name { font-size:13px;font-weight:600;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }

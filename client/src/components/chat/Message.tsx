@@ -18,9 +18,10 @@ import EmojiPicker from "../shared/EmojiPicker";
 import EncryptedAttachment from "./EncryptedAttachment";
 import InviteCard from "./InviteCard";
 import LinkPreviewCard from "./LinkPreviewCard";
+import MemberCard from "../members/MemberCard";
 import MobileMessageActions from "./MobileMessageActions";
 import { useUserBadges } from "../../hooks/useUserBadges";
-import type { MemberWithRoles } from "../../types";
+import type { MemberWithRoles, User } from "../../types";
 
 type MessageProps = {
   message: ChatMessage;
@@ -79,6 +80,7 @@ function Message({ message, isCompact }: MessageProps) {
   const [editContent, setEditContent] = useState(message.content ?? "");
   const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [profileTarget, setProfileTarget] = useState<{ user: User; top: number; left: number } | null>(null);
 
   const isOwner = currentUser?.id === message.user_id;
 
@@ -298,12 +300,25 @@ function Message({ message, isCompact }: MessageProps) {
     >
       <div className="msg-row">
         <div className="msg-avatar">
-          <Avatar
-            name={displayName}
-            role={roleType}
-            avatarUrl={message.author?.avatar_url ?? undefined}
-            size={30}
-          />
+          <button
+            className="msg-avatar-btn"
+            onClick={(e) => {
+              if (!message.author) return;
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setProfileTarget({
+                user: message.author,
+                top: rect.top,
+                left: rect.right + 8,
+              });
+            }}
+          >
+            <Avatar
+              name={displayName}
+              role={roleType}
+              avatarUrl={message.author?.avatar_url ?? undefined}
+              size={30}
+            />
+          </button>
         </div>
 
         <div className="msg-body">
@@ -605,6 +620,15 @@ function Message({ message, isCompact }: MessageProps) {
           }}
           canManageMessages={canManageMessages}
           isPinned={isPinned}
+        />
+      )}
+
+      {profileTarget && (
+        <MemberCard
+          member={member}
+          user={profileTarget.user}
+          position={{ top: profileTarget.top, left: profileTarget.left }}
+          onClose={() => setProfileTarget(null)}
         />
       )}
     </div>
