@@ -1,6 +1,6 @@
 /** Message — Renders a single message. Works in both channel and DM via ChatContext. */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { formatMessageTime, formatFullDateTime } from "../../utils/dateFormat";
 import { useAuthStore } from "../../stores/authStore";
@@ -19,6 +19,7 @@ import EncryptedAttachment from "./EncryptedAttachment";
 import InviteCard from "./InviteCard";
 import LinkPreviewCard from "./LinkPreviewCard";
 import MemberCard from "../members/MemberCard";
+import MentionAutocomplete from "./MentionAutocomplete";
 import MobileMessageActions from "./MobileMessageActions";
 import { useUserBadges } from "../../hooks/useUserBadges";
 import { useRoleStore } from "../../stores/roleStore";
@@ -61,6 +62,7 @@ function Message({ message, isCompact }: MessageProps) {
 
   // ChatContext — abstracts channel vs DM store differences
   const {
+    mode,
     editMessage,
     deleteMessage,
     toggleReaction,
@@ -80,6 +82,9 @@ function Message({ message, isCompact }: MessageProps) {
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content ?? "");
+  const [editMentionQuery, setEditMentionQuery] = useState<string | null>(null);
+  const editMentionStartRef = useRef<number>(-1);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [profileTarget, setProfileTarget] = useState<{ user: User; top: number; left: number } | null>(null);
@@ -131,7 +136,59 @@ function Message({ message, isCompact }: MessageProps) {
   /** Cancel edit on Escape */
   function handleEditCancel() {
     setEditContent(message.content ?? "");
+    setEditMentionQuery(null);
     setIsEditing(false);
+  }
+
+  /** Detect @mention while editing */
+  function handleEditChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    setEditContent(value);
+
+    const cursorPos = e.target.selectionStart ?? value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf("@");
+
+    if (atIndex >= 0) {
+      const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : " ";
+      if (charBeforeAt === " " || charBeforeAt === "\n" || atIndex === 0) {
+        const query = textBeforeCursor.slice(atIndex + 1);
+        if (!query.includes(" ") && !query.includes("\n")) {
+          editMentionStartRef.current = atIndex;
+          setEditMentionQuery(query);
+        } else {
+          setEditMentionQuery(null);
+        }
+      } else {
+        setEditMentionQuery(null);
+      }
+    } else {
+      setEditMentionQuery(null);
+    }
+  }
+
+  /** Insert selected mention into edit content */
+  function handleEditMentionSelect(username: string) {
+    const start = editMentionStartRef.current;
+    if (start < 0) return;
+
+    const cursorPos = editTextareaRef.current?.selectionStart ?? editContent.length;
+    const before = editContent.slice(0, start);
+    const after = editContent.slice(cursorPos);
+    const newContent = `${before}@${username} ${after}`;
+
+    setEditContent(newContent);
+    setEditMentionQuery(null);
+    editMentionStartRef.current = -1;
+
+    requestAnimationFrame(() => {
+      if (editTextareaRef.current) {
+        const pos = start + username.length + 2;
+        editTextareaRef.current.selectionStart = pos;
+        editTextareaRef.current.selectionEnd = pos;
+        editTextareaRef.current.focus();
+      }
+    });
   }
 
   /** Delete with confirmation dialog */
@@ -290,9 +347,14 @@ function Message({ message, isCompact }: MessageProps) {
             </span>
           );
         }
+        // Resolve display_name from members list
+        const mentionedMember = members.find((m) => m.username.toLowerCase() === name);
+        const mentionLabel = mentionedMember
+          ? `@${mentionedMember.display_name ?? mentionedMember.username}`
+          : part;
         return (
           <span key={i} className="msg-mention">
-            {part}
+            {mentionLabel}
           </span>
         );
       }
@@ -412,10 +474,21 @@ function Message({ message, isCompact }: MessageProps) {
           {/* Content */}
           {isEditing ? (
             <div className="msg-edit-area">
+              {editMentionQuery !== null && mode === "channel" && (
+                <MentionAutocomplete
+                  query={editMentionQuery}
+                  onSelect={handleEditMentionSelect}
+                  onClose={() => { setEditMentionQuery(null); editMentionStartRef.current = -1; }}
+                />
+              )}
               <textarea
+                ref={editTextareaRef}
                 value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
+                onChange={handleEditChange}
                 onKeyDown={(e) => {
+                  if (editMentionQuery !== null) {
+                    if (["Enter", "Tab", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) return;
+                  }
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleEditSave();
