@@ -314,18 +314,29 @@ function MemberCard({ member, position, onClose }: MemberCardProps) {
                   <FriendIcon />
                   <span>{getFriendLabel()}</span>
                 </button>
+                {isBadgeAdmin && (
+                  <button
+                    className="mc-btn mc-btn-default"
+                    onClick={() => setShowBadgeAssign(true)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
+                    </svg>
+                    <span>{t("assignBadge")}</span>
+                  </button>
+                )}
               </div>
             </>
           )}
 
-          {/* Badge admin action — works on self and others */}
-          {isBadgeAdmin && (
+          {/* Badge admin action when viewing own card */}
+          {isBadgeAdmin && isMe && (
             <>
-              {isMe && <div className="mc-divider" />}
-              <div className={`mc-actions${isMe ? "" : ""}`}>
+              <div className="mc-divider" />
+              <div className="mc-actions">
                 <button
                   className="mc-btn mc-btn-default"
-                  style={isMe ? { gridColumn: "1/-1" } : undefined}
+                  style={{ gridColumn: "1/-1" }}
                   onClick={() => setShowBadgeAssign(true)}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

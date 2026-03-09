@@ -75,23 +75,6 @@ func (s *p2pCallService) InitiateCall(callerID, receiverID string, callType mode
 		return fmt.Errorf("%w: not friends", pkg.ErrForbidden)
 	}
 
-	// Check receiver is online
-	onlineIDs := s.hub.GetOnlineUserIDs()
-	receiverOnline := false
-	for _, id := range onlineIDs {
-		if id == receiverID {
-			receiverOnline = true
-			break
-		}
-	}
-	if !receiverOnline {
-		s.hub.BroadcastToUser(callerID, ws.Event{
-			Op:   ws.OpP2PCallDecline,
-			Data: map[string]string{"call_id": "", "reason": "offline"},
-		})
-		return fmt.Errorf("%w: user is offline", pkg.ErrBadRequest)
-	}
-
 	s.mu.RLock()
 	_, callerBusy := s.userCalls[callerID]
 	_, receiverBusy := s.userCalls[receiverID]

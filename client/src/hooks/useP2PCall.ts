@@ -11,15 +11,17 @@
  */
 
 import { useEffect, useRef } from "react";
+import i18n from "i18next";
 import { useP2PCallStore } from "../stores/p2pCallStore";
 import { useAuthStore } from "../stores/authStore";
 import { useVoiceStore } from "../stores/voiceStore";
+import { useToastStore } from "../stores/toastStore";
 import { useUIStore } from "../stores/uiStore";
 
-const INCOMING_CALL_TIMEOUT = 30_000;
+const OUTGOING_CALL_TIMEOUT = 30_000;
 
 export function useP2PCall() {
-  const incomingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const outgoingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevActiveCallRef = useRef<string | null>(null);
 
   // ─── Effect: Start WebRTC when call transitions to active ───
@@ -80,38 +82,6 @@ export function useP2PCall() {
     return () => unsubscribe();
   }, []);
 
-  // ─── Effect: Incoming call timeout (30s) ───
-  useEffect(() => {
-    const unsubscribe = useP2PCallStore.subscribe((state, prev) => {
-      if (state.incomingCall && !prev.incomingCall) {
-        if (incomingTimeoutRef.current) {
-          clearTimeout(incomingTimeoutRef.current);
-        }
-
-        incomingTimeoutRef.current = setTimeout(() => {
-          const current = useP2PCallStore.getState();
-          if (current.incomingCall) {
-            current.declineCall(current.incomingCall.id);
-          }
-        }, INCOMING_CALL_TIMEOUT);
-      }
-
-      if (!state.incomingCall && prev.incomingCall) {
-        if (incomingTimeoutRef.current) {
-          clearTimeout(incomingTimeoutRef.current);
-          incomingTimeoutRef.current = null;
-        }
-      }
-    });
-
-    return () => {
-      unsubscribe();
-      if (incomingTimeoutRef.current) {
-        clearTimeout(incomingTimeoutRef.current);
-      }
-    };
-  }, []);
-
   // ─── Effect: Route caller/receiver on call initiate ───
   useEffect(() => {
     const unsubscribe = useP2PCallStore.subscribe((state, prev) => {
@@ -122,14 +92,49 @@ export function useP2PCall() {
         const call = state.activeCall;
 
         if (call.caller_id === userId) {
-          // We're the caller — clear incomingCall
           useP2PCallStore.setState({ incomingCall: null });
         }
-        // Receiver: keep both activeCall and incomingCall
-        // (activeCall transitions to active on accept)
       }
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // ─── Effect: Outgoing call timeout (30s, same as incoming) ───
+  useEffect(() => {
+    const unsubscribe = useP2PCallStore.subscribe((state, prev) => {
+      const userId = useAuthStore.getState().user?.id;
+      if (!userId) return;
+
+      const isNewOutgoing =
+        state.activeCall?.status === "ringing" &&
+        state.activeCall.caller_id === userId &&
+        (!prev.activeCall || prev.activeCall.id !== state.activeCall.id);
+
+      if (isNewOutgoing) {
+        if (outgoingTimeoutRef.current) clearTimeout(outgoingTimeoutRef.current);
+
+        outgoingTimeoutRef.current = setTimeout(() => {
+          const current = useP2PCallStore.getState();
+          if (current.activeCall?.status === "ringing") {
+            useToastStore.getState().addToast("info", i18n.t("common:callNoAnswer"));
+            current.endCall();
+          }
+        }, OUTGOING_CALL_TIMEOUT);
+      }
+
+      // Clear timeout when call is no longer ringing (accepted, ended, or cleaned up)
+      const wasRinging = prev.activeCall?.status === "ringing" && prev.activeCall.caller_id === userId;
+      const noLongerRinging = !state.activeCall || state.activeCall.status !== "ringing";
+      if (wasRinging && noLongerRinging && outgoingTimeoutRef.current) {
+        clearTimeout(outgoingTimeoutRef.current);
+        outgoingTimeoutRef.current = null;
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (outgoingTimeoutRef.current) clearTimeout(outgoingTimeoutRef.current);
+    };
   }, []);
 }

@@ -76,7 +76,7 @@
   "callEnded": "Arama Bitti",
   "callDeclined": "Arama Reddedildi",
   "userBusy": "Kullanıcı meşgul",
-  "userOffline": "Kullanıcı çevrimdışı",
+  "callNoAnswer": "Cevap yok",
   "endCall": "Aramayı Bitir",
   "acceptCall": "Kabul Et",
   "declineCall": "Reddet",

@@ -76,7 +76,7 @@
   "callEnded": "Call Ended",
   "callDeclined": "Call Declined",
   "userBusy": "User is busy",
-  "userOffline": "User is offline",
+  "callNoAnswer": "No answer",
   "endCall": "End Call",
   "acceptCall": "Accept",
   "declineCall": "Decline",

@@ -545,12 +545,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     const { activeCall, incomingCall } = get();
     const t = i18n.t.bind(i18n);
 
-    if (data.reason === "offline") {
-      useToastStore.getState().addToast("warning", t("common:userOffline"));
-      get().cleanup();
-      return;
-    }
-
     if (activeCall && activeCall.id === data.call_id) {
       useToastStore.getState().addToast("info", t("common:callDeclined"));
       get().cleanup();
