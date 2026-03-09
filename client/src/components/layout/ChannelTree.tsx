@@ -1302,6 +1302,15 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
         {isSectionExpanded("servers") && (
           <div className="ch-tree-section-body">
+            {/* Add Server button — always at top for easy access */}
+            <button
+              className="ch-tree-item ch-tree-add-server"
+              onClick={() => setShowAddServer(true)}
+            >
+              <span className="ch-tree-icon">+</span>
+              <span className="ch-tree-label">{tServers("addServer")}</span>
+            </button>
+
             {servers.map((srv) => {
               const srvKey = `srv:${srv.id}`;
               const isActive = srv.id === activeServerId;
@@ -1712,14 +1721,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
               );
             })}
 
-            {/* Add Server button */}
-            <button
-              className="ch-tree-item ch-tree-add-server"
-              onClick={() => setShowAddServer(true)}
-            >
-              <span className="ch-tree-icon">+</span>
-              <span className="ch-tree-label">{tServers("addServer")}</span>
-            </button>
           </div>
         )}
       </div>
