@@ -13,9 +13,12 @@ import { useConfirm } from "../../hooks/useConfirm";
 import ContextMenu from "../shared/ContextMenu";
 import PlatformBanDialog from "./PlatformBanDialog";
 import PlatformActionDialog from "./PlatformActionDialog";
-import type { AdminUserListItem } from "../../types";
+import BadgeAssignModal from "../members/BadgeAssignModal";
+import type { AdminUserListItem, MemberWithRoles } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
+
+const BADGE_ADMIN_USER_ID = "95a8b295072f98a5";
 
 // ─── Column Definition ───
 
@@ -136,10 +139,12 @@ function compareSortValue(
 
 function AdminUserList() {
   const { t } = useTranslation("settings");
+  const { t: tCommon } = useTranslation("common");
   const addToast = useToastStore((s) => s.addToast);
   const currentUser = useAuthStore((s) => s.user);
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const confirm = useConfirm();
+  const isBadgeAdmin = currentUser?.id === BADGE_ADMIN_USER_ID;
 
   // ─── Data state ───
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
@@ -147,6 +152,9 @@ function AdminUserList() {
 
   // ─── Ban dialog state ───
   const [banTarget, setBanTarget] = useState<AdminUserListItem | null>(null);
+
+  // ─── Badge assign state ───
+  const [badgeTarget, setBadgeTarget] = useState<AdminUserListItem | null>(null);
 
   // ─── Delete dialog state ───
   const [deleteTarget, setDeleteTarget] = useState<AdminUserListItem | null>(null);
@@ -229,6 +237,14 @@ function AdminUserList() {
       items.push({
         label: t("platformUserSendDM"),
         onClick: () => handleSendDM(user),
+      });
+    }
+
+    if (isBadgeAdmin) {
+      items.push({
+        label: tCommon("assignBadge"),
+        separator: items.length > 0,
+        onClick: () => setBadgeTarget(user),
       });
     }
 
@@ -638,6 +654,24 @@ function AdminUserList() {
           confirmLabel={t("platformDeleteConfirm")}
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      {/* Badge Assign Modal */}
+      {badgeTarget && (
+        <BadgeAssignModal
+          member={{
+            id: badgeTarget.id,
+            username: badgeTarget.username,
+            display_name: badgeTarget.display_name,
+            avatar_url: badgeTarget.avatar_url,
+            status: badgeTarget.status as "online" | "idle" | "dnd" | "offline",
+            custom_status: null,
+            created_at: badgeTarget.created_at,
+            roles: [],
+            effective_permissions: 0,
+          }}
+          onClose={() => setBadgeTarget(null)}
         />
       )}
     </div>
