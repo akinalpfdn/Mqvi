@@ -429,4 +429,4 @@ Contributions are welcome! Please open an issue to discuss what you'd like to ch
 
 ## License
 
-[MIT](LICENSE) — use it however you want.
+[AGPL-3.0](LICENSE) — free for personal and non-commercial use. Commercial use requires a [separate license](COMMERCIAL-LICENSE.md). See [CLA.md](CLA.md) for contribution terms.

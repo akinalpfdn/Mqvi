@@ -427,4 +427,4 @@ Katkilar memnuniyetle karsilanir! Lutfen PR gondermeden once degisikliginizi tar
 
 ## Lisans
 
-[MIT](LICENSE) — istediginiz gibi kullanin.
+[AGPL-3.0](LICENSE) — kisisel ve ticari olmayan kullanim serbesttir. Ticari kullanim icin [ayri bir lisans](COMMERCIAL-LICENSE.md) gereklidir. Katki sartlari icin [CLA.md](CLA.md) dosyasina bakin.
