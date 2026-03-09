@@ -376,6 +376,7 @@ mqvi/
 14. Çeviri key'ini tek dile ekleme (her zaman EN + TR birlikte)
 15. `artifactName`'e `${version}` ekleme — sabit `"mqvi-setup.${ext}"` olmalı (landing page download URL bozulur)
 16. Turkish comments, logs, or strings in code — ALL comments, log messages, error strings, and documentation in source code MUST be in English. Turkish is only allowed in i18n locale JSON files (`locales/tr/*.json`, `locales/tr.json`)
+17. Verbose/redundant comments — Comments must be short and meaningful. Do NOT write multi-line explanations that repeat what the code already says. One short line for "why" when the reason is non-obvious. No comment at all when the code is self-explanatory. Function names and signatures should do the talking, not paragraph-length docstrings.
 
 ---
 

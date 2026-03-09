@@ -48,10 +48,7 @@ func (r *sqliteMetricsHistoryRepo) Insert(ctx context.Context, snapshot *models.
 // GetSummary returns peak/average aggregates for a time period.
 // Only available=1 records are included (unreachable snapshots excluded).
 func (r *sqliteMetricsHistoryRepo) GetSummary(ctx context.Context, instanceID string, period string) (*models.MetricsHistorySummary, error) {
-	modifier, err := periodToModifier(period)
-	if err != nil {
-		return nil, err
-	}
+	cutoff := periodCutoff(period)
 
 	query := `
 		SELECT
@@ -73,12 +70,12 @@ func (r *sqliteMetricsHistoryRepo) GetSummary(ctx context.Context, instanceID st
 		FROM livekit_metrics_history
 		WHERE instance_id = ?
 		  AND available = 1
-		  AND collected_at >= datetime('now', ?)`
+		  AND collected_at >= ?`
 
 	summary := &models.MetricsHistorySummary{Period: period}
 
 	var avgMemory float64
-	err = r.db.QueryRowContext(ctx, query, instanceID, modifier).Scan(
+	err := r.db.QueryRowContext(ctx, query, instanceID, cutoff).Scan(
 		&summary.SampleCount,
 		&summary.PeakParticipants,
 		&summary.AvgParticipants,
@@ -107,10 +104,7 @@ func (r *sqliteMetricsHistoryRepo) GetSummary(ctx context.Context, instanceID st
 // GetTimeSeries returns time series data for charts.
 // Aggregation depends on period: 24h = raw, 7d = hourly avg, 30d = 6-hour avg.
 func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID string, period string) ([]models.MetricsTimeSeriesPoint, error) {
-	modifier, err := periodToModifier(period)
-	if err != nil {
-		return nil, err
-	}
+	cutoff := periodCutoff(period)
 
 	var query string
 	switch period {
@@ -118,7 +112,7 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 		query = `
 			SELECT collected_at, cpu_pct, bandwidth_in_bps, bandwidth_out_bps, participant_count
 			FROM livekit_metrics_history
-			WHERE instance_id = ? AND available = 1 AND collected_at >= datetime('now', ?)
+			WHERE instance_id = ? AND available = 1 AND collected_at >= ?
 			ORDER BY collected_at ASC`
 	case "7d":
 		query = `
@@ -127,7 +121,7 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 				AVG(cpu_pct), AVG(bandwidth_in_bps), AVG(bandwidth_out_bps),
 				CAST(AVG(participant_count) AS INTEGER)
 			FROM livekit_metrics_history
-			WHERE instance_id = ? AND available = 1 AND collected_at >= datetime('now', ?)
+			WHERE instance_id = ? AND available = 1 AND collected_at >= ?
 			GROUP BY strftime('%Y-%m-%dT%H:00:00', collected_at)
 			ORDER BY ts ASC`
 	case "30d":
@@ -139,12 +133,12 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 				AVG(cpu_pct), AVG(bandwidth_in_bps), AVG(bandwidth_out_bps),
 				CAST(AVG(participant_count) AS INTEGER)
 			FROM livekit_metrics_history
-			WHERE instance_id = ? AND available = 1 AND collected_at >= datetime('now', ?)
+			WHERE instance_id = ? AND available = 1 AND collected_at >= ?
 			GROUP BY ts
 			ORDER BY ts ASC`
 	}
 
-	rows, qErr := r.db.QueryContext(ctx, query, instanceID, modifier)
+	rows, qErr := r.db.QueryContext(ctx, query, instanceID, cutoff)
 	if qErr != nil {
 		return nil, fmt.Errorf("failed to get metrics time series: %w", qErr)
 	}
@@ -157,11 +151,14 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 		if scanErr := rows.Scan(&tsStr, &p.CPUPercent, &p.BandwidthInBps, &p.BandwidthOutBps, &p.Participants); scanErr != nil {
 			return nil, fmt.Errorf("failed to scan time series row: %w", scanErr)
 		}
-		parsed, parseErr := time.Parse("2006-01-02T15:04:05", tsStr)
+		parsed, parseErr := time.Parse(time.RFC3339, tsStr)
 		if parseErr != nil {
-			parsed, parseErr = time.Parse("2006-01-02 15:04:05", tsStr)
+			parsed, parseErr = time.Parse("2006-01-02T15:04:05", tsStr)
 			if parseErr != nil {
-				continue
+				parsed, parseErr = time.Parse("2006-01-02 15:04:05", tsStr)
+				if parseErr != nil {
+					continue
+				}
 			}
 		}
 		p.Timestamp = parsed
@@ -191,17 +188,18 @@ func (r *sqliteMetricsHistoryRepo) PurgeOlderThan(ctx context.Context, before ti
 	return count, nil
 }
 
-// periodToModifier converts a period string to a SQLite datetime modifier.
-// Only whitelisted values accepted (SQL injection protection).
-func periodToModifier(period string) (string, error) {
+// periodCutoff computes cutoff timestamp string matching collected_at format.
+// Uses time.Now() (not UTC) to match CURRENT_TIMESTAMP behavior in modernc.org/sqlite.
+func periodCutoff(period string) string {
+	now := time.Now()
+	var d time.Duration
 	switch period {
-	case "24h":
-		return "-24 hours", nil
 	case "7d":
-		return "-7 days", nil
+		d = 7 * 24 * time.Hour
 	case "30d":
-		return "-30 days", nil
+		d = 30 * 24 * time.Hour
 	default:
-		return "", fmt.Errorf("invalid period: %s (expected 24h, 7d, or 30d)", period)
+		d = 24 * time.Hour
 	}
+	return now.Add(-d).Format("2006-01-02 15:04:05")
 }

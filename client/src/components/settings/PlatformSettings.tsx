@@ -697,9 +697,7 @@ function MetricsPanel({ instanceId, t }: MetricsPanelProps) {
     try {
       setIsChartLoading(true);
       const res = await getLiveKitMetricsTimeSeries(instanceId, period);
-      if (res.success && res.data) {
-        setTimeSeries(res.data);
-      }
+      setTimeSeries(res.success && res.data ? res.data : []);
     } catch {
       // chart data is optional — fail silently
     } finally {
