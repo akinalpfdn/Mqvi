@@ -68,6 +68,7 @@
   "noIncomingRequests": "Gelen istek yok",
   "noOutgoingRequests": "Gönderilen istek yok",
   "noPendingRequests": "Bekleyen istek yok",
+  "viewProfile": "Profili Görüntüle",
   "voiceCall": "Sesli Arama",
   "videoCall": "Görüntülü Arama",
   "incomingCall": "Gelen Arama",
