@@ -124,6 +124,8 @@ type DMState = {
   handleDMMessageUnpin: (data: { dm_channel_id: string; message_id: string }) => void;
   handleDMSettingsUpdate: (data: { dm_channel_id: string; action: string }) => void;
   handleDMChannelUpdate: (channel: DMChannelWithUser) => void;
+  /** Update author info across all cached DM messages. */
+  handleDMAuthorUpdate: (userId: string, patch: { display_name?: string | null; avatar_url?: string | null }) => void;
 
   // ─── E2EE Toggle ───
   toggleE2EE: (channelId: string, enabled: boolean) => Promise<boolean>;
@@ -826,6 +828,31 @@ export const useDMStore = create<DMState>((set, get) => ({
         ch.id === channel.id ? { ...ch, ...channel } : ch
       ),
     }));
+  },
+
+  handleDMAuthorUpdate: (userId, patch) => {
+    set((state) => {
+      const updated: Record<string, DMMessage[]> = {};
+      let changed = false;
+
+      for (const [chId, msgs] of Object.entries(state.messagesByChannel)) {
+        const newMsgs = msgs.map((m) => {
+          if (m.author?.id !== userId) return m;
+          changed = true;
+          return { ...m, author: { ...m.author, ...patch } };
+        });
+        updated[chId] = newMsgs;
+      }
+
+      // Also update other_user in DM channel list
+      const updatedChannels = state.channels.map((ch) => {
+        if (ch.other_user?.id !== userId) return ch;
+        changed = true;
+        return { ...ch, other_user: { ...ch.other_user, ...patch } };
+      });
+
+      return changed ? { messagesByChannel: updated, channels: updatedChannels } : state;
+    });
   },
 
   toggleE2EE: async (channelId, enabled) => {

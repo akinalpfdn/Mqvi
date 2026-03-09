@@ -381,6 +381,13 @@ export function useWebSocket() {
           updatedMember.display_name ?? updatedMember.username,
           updatedMember.avatar_url ?? "",
         );
+        // Sync author info in cached messages (display_name / avatar)
+        const authorPatch = {
+          display_name: updatedMember.display_name,
+          avatar_url: updatedMember.avatar_url,
+        };
+        useMessageStore.getState().handleAuthorUpdate(updatedMember.id, authorPatch);
+        useDMStore.getState().handleDMAuthorUpdate(updatedMember.id, authorPatch);
         // Refetch channels if own roles changed (channel visibility may differ)
         const myUserId = useAuthStore.getState().user?.id;
         if (updatedMember.id === myUserId) {

@@ -2336,8 +2336,8 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   cursor:pointer;background:var(--bg-5);transition:background .2s;flex-shrink:0;padding:0;
 }
 .toggle-switch:hover { background:var(--t3); }
-.toggle-switch-on { background:var(--green); }
-.toggle-switch-on:hover { background:var(--green-h,var(--green)); }
+.toggle-switch-on { background:var(--primary); }
+.toggle-switch-on:hover { background:var(--primary-h,var(--primary)); }
 .toggle-switch-thumb {
   position:absolute;top:2px;left:2px;width:20px;height:20px;
   border-radius:999px;background:#fff;transition:transform .2s;pointer-events:none;

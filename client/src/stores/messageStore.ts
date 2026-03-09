@@ -53,6 +53,8 @@ type MessageState = {
   handleMessageDelete: (data: { id: string; channel_id: string }) => void;
   handleTypingStart: (channelId: string, username: string) => void;
   handleReactionUpdate: (data: { message_id: string; channel_id: string; reactions: ReactionGroup[] }) => void;
+  /** Update author info across all cached messages (display_name, avatar change). */
+  handleAuthorUpdate: (userId: string, patch: { display_name?: string | null; avatar_url?: string | null }) => void;
 };
 
 const TYPING_TIMEOUT = 5_000;
@@ -427,6 +429,24 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           ),
         },
       };
+    });
+  },
+
+  handleAuthorUpdate: (userId, patch) => {
+    set((state) => {
+      const updated: Record<string, Message[]> = {};
+      let changed = false;
+
+      for (const [chId, msgs] of Object.entries(state.messagesByChannel)) {
+        const newMsgs = msgs.map((m) => {
+          if (m.author?.id !== userId) return m;
+          changed = true;
+          return { ...m, author: { ...m.author, ...patch } };
+        });
+        updated[chId] = newMsgs;
+      }
+
+      return changed ? { messagesByChannel: updated } : state;
     });
   },
 }));
