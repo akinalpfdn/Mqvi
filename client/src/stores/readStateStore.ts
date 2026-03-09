@@ -1,5 +1,9 @@
 /**
- * Read State Store — Unread message count management.
+ * Read State Store — Global unread message count management.
+ *
+ * Tracks unread counts across ALL servers simultaneously so that
+ * cross-server notifications and per-server badges work correctly.
+ * channelServerMap maintains channelId→serverId mapping for aggregation.
  */
 
 import { create } from "zustand";
@@ -8,47 +12,77 @@ import { useServerStore } from "./serverStore";
 import { useChannelStore } from "./channelStore";
 
 type ReadStateState = {
-  /** channelId -> unread count */
+  /** channelId -> unread count (global, not per-server) */
   unreadCounts: Record<string, number>;
+  /** channelId -> serverId mapping for per-server aggregation */
+  channelServerMap: Record<string, string>;
 
-  fetchUnreadCounts: () => Promise<void>;
+  /** Fetch unread counts for a specific server and merge into global state */
+  fetchUnreadCounts: (serverId: string) => Promise<void>;
+  /** Fetch unread counts for ALL servers the user belongs to */
+  fetchAllUnreadCounts: () => Promise<void>;
   markAsRead: (channelId: string, lastMessageId: string) => void;
   incrementUnread: (channelId: string) => void;
   decrementUnread: (channelId: string) => void;
   clearUnread: (channelId: string) => void;
+  /** Register channelId → serverId mapping (called when messages arrive) */
+  registerChannel: (channelId: string, serverId: string) => void;
+  /** Register multiple channels for a server (called when channels are fetched) */
+  registerChannels: (channelIds: string[], serverId: string) => void;
+  /** Get total unread count for a specific server */
+  getServerUnreadTotal: (serverId: string) => number;
+  /** Clear only the active server's unread data (for server switch refetch) */
   clearForServerSwitch: () => void;
   markAllAsRead: (serverId: string) => Promise<boolean>;
 };
 
-export const useReadStateStore = create<ReadStateState>((set) => ({
+export const useReadStateStore = create<ReadStateState>((set, get) => ({
   unreadCounts: {},
+  channelServerMap: {},
 
-  fetchUnreadCounts: async () => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-
+  fetchUnreadCounts: async (serverId: string) => {
     const res = await readStateApi.getUnreadCounts(serverId);
     if (res.success && res.data) {
-      // Direct replace (not merge). Math.max merge was removed because
-      // increments from a previous server could leak into the new server's
-      // counts between clearForServerSwitch and fetch completion.
       const mutedChannelIds = useChannelStore.getState().mutedChannelIds;
       const mutedServerIds = useServerStore.getState().mutedServerIds;
-      const activeServerId = useServerStore.getState().activeServerId;
-      const isServerMuted = activeServerId ? mutedServerIds.has(activeServerId) : false;
+      const isServerMuted = mutedServerIds.has(serverId);
 
-      const counts: Record<string, number> = {};
-      for (const info of res.data) {
-        if (isServerMuted) continue;
-        if (mutedChannelIds.has(info.channel_id)) continue;
-        counts[info.channel_id] = info.unread_count;
-      }
-      set({ unreadCounts: counts });
+      set((state) => {
+        // Clear old entries belonging to this server, then add fresh ones
+        const nextCounts = { ...state.unreadCounts };
+        const nextMap = { ...state.channelServerMap };
+
+        // Remove stale entries for this server
+        for (const [chId, sid] of Object.entries(state.channelServerMap)) {
+          if (sid === serverId) {
+            delete nextCounts[chId];
+          }
+        }
+
+        // Add fresh counts (skip muted)
+        for (const info of res.data!) {
+          nextMap[info.channel_id] = serverId;
+          if (!isServerMuted && !mutedChannelIds.has(info.channel_id)) {
+            nextCounts[info.channel_id] = info.unread_count;
+          }
+        }
+
+        return { unreadCounts: nextCounts, channelServerMap: nextMap };
+      });
     }
   },
 
+  fetchAllUnreadCounts: async () => {
+    const servers = useServerStore.getState().servers;
+    // Fetch in parallel for all servers
+    await Promise.all(servers.map((srv) => get().fetchUnreadCounts(srv.id)));
+  },
+
   markAsRead: (channelId, lastMessageId) => {
-    const serverId = useServerStore.getState().activeServerId;
+    // Look up serverId from the mapping
+    const serverId =
+      get().channelServerMap[channelId] ??
+      useServerStore.getState().activeServerId;
     if (!serverId) return;
 
     // Clear local first for instant UI update
@@ -101,12 +135,58 @@ export const useReadStateStore = create<ReadStateState>((set) => ({
     });
   },
 
+  registerChannel: (channelId, serverId) => {
+    set((state) => {
+      if (state.channelServerMap[channelId] === serverId) return state;
+      return {
+        channelServerMap: { ...state.channelServerMap, [channelId]: serverId },
+      };
+    });
+  },
+
+  registerChannels: (channelIds, serverId) => {
+    set((state) => {
+      let changed = false;
+      const nextMap = { ...state.channelServerMap };
+      for (const chId of channelIds) {
+        if (nextMap[chId] !== serverId) {
+          nextMap[chId] = serverId;
+          changed = true;
+        }
+      }
+      return changed ? { channelServerMap: nextMap } : state;
+    });
+  },
+
+  getServerUnreadTotal: (serverId) => {
+    const { unreadCounts, channelServerMap } = get();
+    const mutedChannelIds = useChannelStore.getState().mutedChannelIds;
+    let total = 0;
+    for (const [chId, count] of Object.entries(unreadCounts)) {
+      if (channelServerMap[chId] === serverId && !mutedChannelIds.has(chId)) {
+        total += count;
+      }
+    }
+    return total;
+  },
+
   clearForServerSwitch: () => {
-    set({ unreadCounts: {} });
+    // No-op: unread counts are now global. Server-specific data is refreshed
+    // by fetchUnreadCounts(serverId) which replaces that server's entries.
   },
 
   markAllAsRead: async (serverId) => {
-    set({ unreadCounts: {} });
+    // Clear only this server's counts locally
+    set((state) => {
+      const nextCounts = { ...state.unreadCounts };
+      for (const [chId, sid] of Object.entries(state.channelServerMap)) {
+        if (sid === serverId) {
+          delete nextCounts[chId];
+        }
+      }
+      return { unreadCounts: nextCounts };
+    });
+
     const res = await readStateApi.markAllRead(serverId);
     return res.success;
   },

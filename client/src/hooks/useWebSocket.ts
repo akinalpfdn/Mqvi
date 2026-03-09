@@ -196,15 +196,21 @@ export function useWebSocket() {
           }
         }
 
-        // Visibility check: only process messages for channels the user can see.
-        // Also drop messages when categories are empty (server switch in progress).
-        const categories = useChannelStore.getState().categories;
-        const visibleChannels = categories.flatMap((cg) => cg.channels);
-        if (!visibleChannels.some((ch) => ch.id === message.channel_id)) {
-          break;
+        // Track channelId → serverId mapping for cross-server unread aggregation
+        const msgServerId = message.server_id;
+        if (msgServerId) {
+          useReadStateStore.getState().registerChannel(message.channel_id, msgServerId);
         }
 
-        useMessageStore.getState().handleMessageCreate(message);
+        // Determine if this message belongs to the currently active server
+        const activeServerId = useServerStore.getState().activeServerId;
+        const isActiveServer = msgServerId === activeServerId;
+
+        // Only add to messageStore if it belongs to active server's channels
+        // (messageStore is server-scoped — non-active server messages are not rendered)
+        if (isActiveServer) {
+          useMessageStore.getState().handleMessageCreate(message);
+        }
 
         // Don't increment unread for own messages (server broadcasts to sender too)
         const currentUserId = useAuthStore.getState().user?.id;
@@ -217,15 +223,16 @@ export function useWebSocket() {
         const panel = uiState.panels[uiState.activePanelId];
         const activeTab = panel?.tabs.find((t) => t.id === panel.activeTabId);
         const isViewingThisChannel =
-          activeTab?.type === "text" && activeTab?.channelId === message.channel_id;
+          isActiveServer &&
+          activeTab?.type === "text" &&
+          activeTab?.channelId === message.channel_id;
 
         if (isViewingThisChannel) {
           useReadStateStore.getState().markAsRead(message.channel_id, message.id);
         } else {
-          // Muted server/channel check — skip unread, sound, flash if muted
-          const activeServerId = useServerStore.getState().activeServerId;
-          const isServerMuted = activeServerId
-            ? useServerStore.getState().isServerMuted(activeServerId)
+          // Muted server/channel check — use the MESSAGE's server, not activeServerId
+          const isServerMuted = msgServerId
+            ? useServerStore.getState().isServerMuted(msgServerId)
             : false;
           const isChannelMuted = useChannelStore.getState().mutedChannelIds.has(message.channel_id);
           const isEffectivelyMuted = isServerMuted || isChannelMuted;
@@ -323,7 +330,8 @@ export function useWebSocket() {
         }
 
         useMemberStore.getState().handleReady(data.online_user_ids);
-        useReadStateStore.getState().fetchUnreadCounts();
+        // Fetch unread counts for ALL servers so cross-server badges work
+        useReadStateStore.getState().fetchAllUnreadCounts();
         useDMStore.getState().fetchChannels();
         useDMStore.getState().fetchDMSettings();
         useFriendStore.getState().fetchFriends();

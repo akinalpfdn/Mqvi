@@ -176,6 +176,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const screenShareViewers = useVoiceStore((s) => s.screenShareViewers);
   const toggleWatchScreenShare = useVoiceStore((s) => s.toggleWatchScreenShare);
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
+  const getServerUnreadTotal = useReadStateStore((s) => s.getServerUnreadTotal);
 
   const dmChannels = useDMStore((s) => s.channels);
   const selectedDMId = useDMStore((s) => s.selectedDMId);
@@ -1287,12 +1288,9 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         </span>
                       )}
                       <span className="ch-tree-server-name">{srv.name}</span>
-                      {/* Server-level unread badge (excludes muted channels) */}
-                      {isActive && !mutedServerIds.has(srv.id) && (() => {
-                        const total = Object.entries(unreadCounts).reduce(
-                          (sum, [chId, c]) => mutedChannelIds.has(chId) ? sum : sum + c,
-                          0,
-                        );
+                      {/* Server-level unread badge (all servers, excludes muted) */}
+                      {!mutedServerIds.has(srv.id) && (() => {
+                        const total = getServerUnreadTotal(srv.id);
                         return total > 0 ? (
                           <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
                         ) : null;

@@ -99,6 +99,8 @@ export type Message = {
   id: string;
   channel_id: string;
   user_id: string;
+  /** Transient — set by backend on WS broadcast for cross-server notification routing */
+  server_id?: string;
   content: string | null;
   edited_at: string | null;
   created_at: string;

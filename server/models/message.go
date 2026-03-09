@@ -23,6 +23,9 @@ type Message struct {
 	ID          string       `json:"id"`
 	ChannelID   string       `json:"channel_id"`
 	UserID      string       `json:"user_id"`
+	// ServerID is a transient field (not stored in DB) populated before WS broadcast
+	// so clients know which server a message belongs to without a channel lookup.
+	ServerID    string       `json:"server_id,omitempty"`
 	Content     *string      `json:"content"`
 	EditedAt    *time.Time   `json:"edited_at"`
 	CreatedAt   time.Time    `json:"created_at"`

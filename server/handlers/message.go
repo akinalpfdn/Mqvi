@@ -149,6 +149,9 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Set transient server_id so clients can route cross-server notifications
+	message.ServerID = r.PathValue("serverId")
+
 	// Broadcast after uploads so all clients see attachments
 	h.messageService.BroadcastCreate(message)
 

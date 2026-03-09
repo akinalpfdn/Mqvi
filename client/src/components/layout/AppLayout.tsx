@@ -80,11 +80,12 @@ function AppLayout() {
 
   // Clear and refetch all server-scoped stores
   const cascadeRefetch = useCallback(() => {
-    // Clear server-scoped store data
+    const serverId = useServerStore.getState().activeServerId;
+
+    // Clear server-scoped store data (readState is global, no clear needed)
     useChannelStore.getState().clearForServerSwitch();
     useMemberStore.getState().clearForServerSwitch();
     useRoleStore.getState().clearForServerSwitch();
-    useReadStateStore.getState().clearForServerSwitch();
     useInviteStore.getState().clearForServerSwitch();
 
     // Reset auto-open flag for new server
@@ -95,7 +96,7 @@ function AppLayout() {
     fetchChannels();
     fetchMembers();
     fetchRoles();
-    fetchUnreadCounts();
+    if (serverId) fetchUnreadCounts(serverId);
   }, [fetchActiveServer, fetchChannels, fetchMembers, fetchRoles, fetchUnreadCounts]);
 
   // Cascade refetch on server change (deduplicated via prevServerRef)
