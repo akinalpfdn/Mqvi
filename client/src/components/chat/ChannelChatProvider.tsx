@@ -52,7 +52,7 @@ function ChannelChatProvider({
 
   const pinAction = usePinStore((s) => s.pin);
   const unpinAction = usePinStore((s) => s.unpin);
-  const storeIsMessagePinned = usePinStore((s) => s.isMessagePinned);
+  const channelPins = usePinStore((s) => s.pins[channelId]);
 
   const members = useMemberStore((s) => s.members);
   const currentUser = useAuthStore((s) => s.user);
@@ -133,9 +133,14 @@ function ChannelChatProvider({
     [channelId, unpinAction]
   );
 
+  const pinnedIds = useMemo(
+    () => new Set((channelPins ?? []).map((p) => p.message_id)),
+    [channelPins]
+  );
+
   const isMessagePinned = useCallback(
-    (messageId: string) => storeIsMessagePinned(channelId, messageId),
-    [channelId, storeIsMessagePinned]
+    (messageId: string) => pinnedIds.has(messageId),
+    [pinnedIds]
   );
 
   // ─── Context Value (memoized) ───
