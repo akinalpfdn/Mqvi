@@ -6,6 +6,7 @@ import (
 	"html"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,6 +25,15 @@ import (
 	"github.com/akinalp/mqvi/ws"
 	"github.com/rs/cors"
 )
+
+func init() {
+	// Windows registry can return wrong MIME types for some extensions.
+	// Force correct values so http.FileServer serves them properly.
+	mime.AddExtensionType(".svg", "image/svg+xml")
+	mime.AddExtensionType(".wasm", "application/wasm")
+	mime.AddExtensionType(".js", "text/javascript")
+	mime.AddExtensionType(".css", "text/css")
+}
 
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
