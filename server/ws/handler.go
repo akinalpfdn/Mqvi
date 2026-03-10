@@ -64,12 +64,13 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 4096,
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
+		log.Printf("[ws] CheckOrigin called — origin=%q host=%q", origin, r.Host)
 		// No Origin header = same-origin request (non-browser or same host)
 		if origin == "" {
 			return true
 		}
-		// Electron file:// sends "null" as Origin
-		if origin == "null" {
+		// Electron sends "file://" or "null" as Origin depending on version
+		if origin == "null" || origin == "file://" {
 			return true
 		}
 		// Same-origin: origin host matches request Host header

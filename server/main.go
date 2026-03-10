@@ -141,7 +141,12 @@ func main() {
 	apiHandler := corsHandler.Handler(mux)
 
 	finalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/ws" {
+		// WebSocket upgrade bypasses CORS middleware — ws.CheckOrigin handles its own origin validation
+		if r.URL.Path == "/ws" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
 			apiHandler.ServeHTTP(w, r)
 			return
 		}
