@@ -36,6 +36,15 @@ func New(dbPath string, migrationsFS fs.FS) (*DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Connection pool settings for SQLite:
+	// - MaxOpenConns=1 prevents "database is locked" under concurrent writes
+	//   (SQLite only supports one writer at a time; WAL mode allows concurrent reads)
+	// - MaxIdleConns=1 keeps one warm connection ready
+	// - ConnMaxLifetime=0 means connections are reused indefinitely
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
+	conn.SetConnMaxLifetime(0)
+
 	if err := conn.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}

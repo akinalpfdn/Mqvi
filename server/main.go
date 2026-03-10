@@ -124,8 +124,9 @@ func main() {
 		}
 	}
 
-	// 15. CORS
-	corsHandler := initCORS(cfg)
+	// 15. CORS (shared origin whitelist for both HTTP CORS and WebSocket upgrade)
+	corsHandler, corsOrigins := initCORS(cfg)
+	ws.AllowedOrigins = corsOrigins
 
 	// 16. Final handler
 	apiHandler := corsHandler.Handler(mux)
@@ -340,13 +341,10 @@ func initFrontendFS() (fs.FS, bool) {
 	return frontendFS, hasFrontend
 }
 
-func initCORS(cfg *config.Config) *cors.Cors {
+func initCORS(cfg *config.Config) (*cors.Cors, []string) {
 	corsOrigins := []string{
 		"http://localhost:3030",
 		"http://localhost:1420",
-		"tauri://localhost",
-		"https://tauri.localhost",
-		"http://tauri.localhost",
 	}
 	if extra := os.Getenv("CORS_ORIGINS"); extra != "" {
 		for _, origin := range strings.Split(extra, ",") {
@@ -362,7 +360,7 @@ func initCORS(cfg *config.Config) *cors.Cors {
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
-	})
+	}), corsOrigins
 }
 
 // ─── Social Media Crawler OG Meta Tags ───

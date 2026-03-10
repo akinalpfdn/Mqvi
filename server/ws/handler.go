@@ -48,12 +48,31 @@ type ChannelMuteChecker interface {
 	GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error)
 }
 
+// AllowedOrigins is set by main.go at startup to share the same origin
+// whitelist between HTTP CORS and WebSocket upgrade.
+// Electron production uses file:// protocol which sends "null" as Origin.
+var AllowedOrigins []string
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	// TODO: restrict origins in production
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		origin := r.Header.Get("Origin")
+		// No Origin header = same-origin request (non-browser or same host)
+		if origin == "" {
+			return true
+		}
+		// Electron file:// sends "null" as Origin
+		if origin == "null" {
+			return true
+		}
+		for _, allowed := range AllowedOrigins {
+			if origin == allowed {
+				return true
+			}
+		}
+		log.Printf("[ws] rejected connection from origin: %s", origin)
+		return false
 	},
 }
 
