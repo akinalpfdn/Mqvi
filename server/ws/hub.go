@@ -419,6 +419,34 @@ func (h *Hub) BroadcastToUser(userID string, event Event) {
 	}
 }
 
+// broadcastToUserExcept sends an event to all connections of a user except the given client.
+// Used for voice_replaced: notify other sessions without affecting the initiating tab.
+func (h *Hub) broadcastToUserExcept(userID string, exclude *Client, event Event) {
+	event.Seq = h.seq.Add(1)
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("[ws] failed to marshal user-except event: %v", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if clients, ok := h.clients[userID]; ok {
+		for client := range clients {
+			if client == exclude {
+				continue
+			}
+			select {
+			case client.send <- data:
+			default:
+				go func(c *Client) { h.unregister <- c }(client)
+			}
+		}
+	}
+}
+
 // GetOnlineUserIDs returns all connected user IDs (including invisible).
 func (h *Hub) GetOnlineUserIDs() []string {
 	h.mu.RLock()

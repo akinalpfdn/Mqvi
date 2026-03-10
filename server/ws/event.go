@@ -96,6 +96,7 @@ const (
 const (
 	OpVoiceForceMove       = "voice_force_move"
 	OpVoiceForceDisconnect = "voice_force_disconnect"
+	OpVoiceReplaced        = "voice_replaced"
 )
 
 // P2P Call signaling flow:

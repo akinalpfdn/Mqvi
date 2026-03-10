@@ -553,6 +553,10 @@ export function useWebSocket() {
         useVoiceStore.getState().handleForceDisconnect();
         break;
       }
+      case "voice_replaced": {
+        useVoiceStore.getState().handleVoiceReplaced();
+        break;
+      }
 
       // ─── Pin Events ───
       case "message_pin":

@@ -136,6 +136,9 @@ type VoiceStore = {
   /** LiveKit signal server round-trip time (ms) */
   rtt: number;
 
+  /** Set when another session takes over voice — prevents auto-rejoin loop */
+  wasReplaced: boolean;
+
   // ─── Actions ───
 
   joinVoiceChannel: (channelId: string) => Promise<VoiceTokenResponse | null>;
@@ -180,6 +183,7 @@ type VoiceStore = {
   handleVoiceStatesSync: (states: VoiceState[]) => void;
   updateUserInfo: (userId: string, displayName: string, avatarUrl: string) => void;
   handleForceDisconnect: () => void;
+  handleVoiceReplaced: () => void;
   handleScreenShareViewerUpdate: (data: { streamer_user_id: string; channel_id: string; viewer_count: number; viewer_user_id: string; action: string }) => void;
 
   /** Apply voice settings from server preferences (no re-sync to server) */
@@ -215,6 +219,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   screenShareViewers: {},
   preMuteVolumes: {},
   rtt: 0,
+  wasReplaced: false,
 
   // ─── Cross-store Callback ───
   _onLeaveCallback: null,
@@ -778,6 +783,25 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     // Admin force-disconnected us — same cleanup as leave but no WS event sent
     // (server already cleared state).
     set({
+      currentVoiceChannelId: null,
+      livekitUrl: null,
+      livekitToken: null,
+      e2eePassphrase: null,
+      isMuted: false,
+      isDeafened: false,
+      isStreaming: false,
+      activeSpeakers: {},
+      watchingScreenShares: {},
+      screenShareViewers: {},
+      rtt: 0,
+    });
+  },
+
+  handleVoiceReplaced: () => {
+    // Another session took over voice — leave silently, skip auto-rejoin
+    console.log("[voiceStore] Voice replaced by another session");
+    set({
+      wasReplaced: true,
       currentVoiceChannelId: null,
       livekitUrl: null,
       livekitToken: null,

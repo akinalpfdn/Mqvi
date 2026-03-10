@@ -220,6 +220,10 @@ func (c *Client) handleVoiceJoin(event Event) {
 		return
 	}
 
+	// Notify other sessions of same user: "voice replaced by another session"
+	// Prevents auto-rejoin ping-pong when same account joins from multiple tabs
+	c.hub.broadcastToUserExcept(c.userID, c, Event{Op: OpVoiceReplaced})
+
 	if c.hub.onVoiceJoin != nil {
 		info := c.hub.getUserInfo(c.userID)
 		go c.hub.onVoiceJoin(c.userID, info.Username, info.DisplayName, info.AvatarURL, data.ChannelID)

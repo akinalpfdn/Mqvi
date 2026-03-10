@@ -28,7 +28,7 @@ if [ ! -f ./livekit-server ]; then
         *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
     esac
 
-    LK_VERSION="v1.8.3"
+    LK_VERSION="v1.9.12"
     LK_URL="https://github.com/livekit/livekit/releases/download/${LK_VERSION}/livekit_${LK_VERSION#v}_linux_${LK_ARCH}.tar.gz"
     echo "Downloading: $LK_URL"
     curl -fsSL "$LK_URL" | tar xz livekit-server

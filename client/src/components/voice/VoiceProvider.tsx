@@ -78,14 +78,19 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   const rejoinAttemptsRef = useRef(0);
   const MAX_REJOIN_ATTEMPTS = 2;
 
-  // Reset rejoin counter when user explicitly joins a new channel
+  // Reset rejoin counter when user explicitly joins a DIFFERENT channel.
+  // Only track non-null channels so auto-rejoin (leave→rejoin same channel)
+  // doesn't reset the counter.
   const prevChannelRef = useRef<string | null>(null);
   useEffect(() => {
     const channelId = useVoiceStore.getState().currentVoiceChannelId;
     if (channelId && channelId !== prevChannelRef.current) {
       rejoinAttemptsRef.current = 0;
     }
-    prevChannelRef.current = channelId;
+    // Only update ref for non-null channels to avoid null→same-channel reset
+    if (channelId) {
+      prevChannelRef.current = channelId;
+    }
   });
 
   /**
@@ -102,7 +107,14 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     (reason?: DisconnectReason) => {
       console.log("[VoiceProvider] Disconnected from LiveKit. Reason:", reason);
 
-      const { currentVoiceChannelId, _wsSend } = useVoiceStore.getState();
+      const { currentVoiceChannelId, _wsSend, wasReplaced } = useVoiceStore.getState();
+
+      // Another session took over voice — don't auto-rejoin (prevents ping-pong loop)
+      if (wasReplaced) {
+        console.log("[VoiceProvider] Voice replaced by another session, skipping auto-rejoin");
+        useVoiceStore.setState({ wasReplaced: false });
+        return;
+      }
 
       if (reason === DisconnectReason.CLIENT_INITIATED) {
         if (currentVoiceChannelId) {
