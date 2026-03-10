@@ -118,7 +118,12 @@ describe("e2eeStore", () => {
       useE2EEStore.setState({
         initStatus: "ready",
         localDeviceId: "dev1",
-        devices: [{ device_id: "dev1", display_name: "Test", created_at: "", last_active: "" }],
+        devices: [{
+          id: "1", user_id: "u1", device_id: "dev1", display_name: "Test",
+          identity_key: "", signed_prekey: "", signed_prekey_id: 0,
+          signed_prekey_signature: "", registration_id: 0,
+          last_seen_at: "", created_at: "",
+        }],
         hasRecoveryBackup: true,
         decryptionErrors: [{ messageId: "m1", channelId: "ch1", error: "err", timestamp: 1 }],
         isGeneratingKeys: true,
