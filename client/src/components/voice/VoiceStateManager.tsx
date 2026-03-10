@@ -151,8 +151,6 @@ function VoiceStateManager() {
   // Initial sync on room connect — apply store state to LiveKit
   useEffect(() => {
     function handleConnected() {
-      console.log("[VoiceStateManager] Connected to LiveKit room");
-
       // PTT: mic starts disabled. Voice activity: respect store isMuted.
       const { isMuted: currentMuted, inputMode: currentMode } = useVoiceStore.getState();
       const shouldEnable = currentMode === "push_to_talk" ? false : !currentMuted;
@@ -445,7 +443,7 @@ function VoiceStateManager() {
       if (processorRef.current) {
         await audioTrack!.stopProcessor();
         processorRef.current = null;
-        console.log("[VoiceStateManager] Previous audio processor removed");
+        // Previous processor removed
       }
 
       if (cancelled) return;
@@ -454,12 +452,12 @@ function VoiceStateManager() {
         const processor = new RNNoiseProcessor(micSensitivity);
         processorRef.current = processor;
         await audioTrack!.setProcessor(processor);
-        console.log("[VoiceStateManager] RNNoise + VAD gate processor applied");
+        // RNNoise + VAD gate active
       } else if (desired === "vadgate") {
         const processor = new VadGateProcessor(micSensitivity);
         processorRef.current = processor;
         await audioTrack!.setProcessor(processor);
-        console.log("[VoiceStateManager] Standalone VAD gate processor applied");
+        // VAD gate active
       }
     }
 
@@ -494,7 +492,7 @@ function VoiceStateManager() {
 
       processorRef.current = processor;
       audioTrack.setProcessor(processor)
-        .then(() => console.log(`[VoiceStateManager] ${desired} processor applied on track publish`))
+        .then(() => { /* processor applied */ })
         .catch((err) => console.error("[VoiceStateManager] Failed to apply processor on publish:", err));
     }
 

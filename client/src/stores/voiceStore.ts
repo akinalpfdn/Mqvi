@@ -244,7 +244,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       // Retry once on auth failure — token may have expired mid-request
       if (!response.success && response.error?.includes("401")) {
-        console.warn("[voiceStore] Voice token request got 401, refreshing and retrying");
         const refreshed = await ensureFreshToken();
         if (refreshed) {
           response = await voiceApi.getVoiceToken(serverId, channelId);
@@ -253,7 +252,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       // Discard stale response if generation changed (leave/join interleaved)
       if (get()._joinGeneration !== gen) {
-        console.log("[voiceStore] Stale join response discarded (gen mismatch)");
         return null;
       }
 
@@ -262,7 +260,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         return null;
       }
 
-      console.log("[voiceStore] Voice token obtained, connecting to:", response.data.url);
+      // Token obtained — VoiceProvider will connect via LiveKitRoom props
 
       // PTT mode starts muted (unmuted on key press)
       const startMuted = get().inputMode === "push_to_talk";
@@ -799,7 +797,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
   handleVoiceReplaced: () => {
     // Another session took over voice — leave silently, skip auto-rejoin
-    console.log("[voiceStore] Voice replaced by another session");
     set({
       wasReplaced: true,
       currentVoiceChannelId: null,

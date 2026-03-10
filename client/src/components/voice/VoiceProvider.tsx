@@ -19,8 +19,12 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
-import { DisconnectReason, ExternalE2EEKeyProvider, VideoPreset } from "livekit-client";
+import { DisconnectReason, ExternalE2EEKeyProvider, LogLevel, setLogLevel, VideoPreset } from "livekit-client";
 import type { AudioCaptureOptions, RoomOptions } from "livekit-client";
+
+// Suppress noisy SDK logs (transition disconnects, internal WS lifecycle).
+// Only real errors will appear in the console.
+setLogLevel(LogLevel.error);
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
@@ -105,22 +109,16 @@ function VoiceProvider({ children }: VoiceProviderProps) {
    */
   const handleDisconnected = useCallback(
     (reason?: DisconnectReason) => {
-      console.log("[VoiceProvider] Disconnected from LiveKit. Reason:", reason);
-
       const { currentVoiceChannelId, _wsSend, wasReplaced } = useVoiceStore.getState();
 
       // Another session took over voice — don't auto-rejoin (prevents ping-pong loop)
       if (wasReplaced) {
-        console.log("[VoiceProvider] Voice replaced by another session, skipping auto-rejoin");
         useVoiceStore.setState({ wasReplaced: false });
         return;
       }
 
       if (reason === DisconnectReason.CLIENT_INITIATED) {
-        if (currentVoiceChannelId) {
-          console.log("[VoiceProvider] Transition disconnect, ignoring (voice still active)");
-          return;
-        }
+        if (currentVoiceChannelId) return; // Transition disconnect — ignore
       }
 
       // Server-initiated disconnect while user was in voice — attempt auto-rejoin
@@ -128,19 +126,13 @@ function VoiceProvider({ children }: VoiceProviderProps) {
         if (rejoinAttemptsRef.current < MAX_REJOIN_ATTEMPTS) {
           rejoinAttemptsRef.current++;
           const channelToRejoin = currentVoiceChannelId;
-          console.log(
-            `[VoiceProvider] Server-initiated disconnect, auto-rejoin attempt ${rejoinAttemptsRef.current}/${MAX_REJOIN_ATTEMPTS} for channel:`,
-            channelToRejoin
-          );
 
-          // Clear stale connection, then rejoin with fresh token
           leaveVoiceChannel();
           useVoiceStore.getState().joinVoiceChannel(channelToRejoin).then((tokenResp) => {
             if (tokenResp && _wsSend) {
               _wsSend("voice_join", { channel_id: channelToRejoin });
-              console.log("[VoiceProvider] Auto-rejoin successful");
             } else {
-              console.warn("[VoiceProvider] Auto-rejoin failed — token request unsuccessful");
+              console.warn("[VoiceProvider] Auto-rejoin failed");
             }
           });
           return;
@@ -157,10 +149,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   // Filter out expected "Client initiated" errors during connect prop transitions
   const handleError = useCallback(
     (err: Error) => {
-      if (err.message?.includes("Client initiated")) {
-        console.log("[VoiceProvider] Ignoring transition error:", err.message);
-        return;
-      }
+      if (err.message?.includes("Client initiated")) return;
 
       console.error("[VoiceProvider] LiveKit error:", err);
       useToastStore.getState().addToast(
