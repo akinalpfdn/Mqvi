@@ -132,6 +132,9 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 
 	claims, err := h.tokenValidator.ValidateAccessToken(token)
 	if err != nil {
+		h.hub.logEvent(models.LogLevelWarn, models.LogCategoryAuth, nil, "WS connect: invalid token", map[string]string{
+			"error": err.Error(),
+		})
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -143,10 +146,14 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		user, err := h.userInfoProvider.GetByID(r.Context(), claims.UserID)
 		if err != nil {
 			log.Printf("[ws] user info fetch failed for %s: %v", claims.UserID, err)
+			h.hub.logEvent(models.LogLevelError, models.LogCategoryWS, &claims.UserID, "WS connect: user lookup failed", map[string]string{
+				"error": err.Error(),
+			})
 			http.Error(w, "user not found", http.StatusUnauthorized)
 			return
 		}
 		if user.IsPlatformBanned {
+			h.hub.logEvent(models.LogLevelWarn, models.LogCategoryAuth, &claims.UserID, "WS connect blocked: account suspended", nil)
 			http.Error(w, "account suspended", http.StatusForbidden)
 			return
 		}

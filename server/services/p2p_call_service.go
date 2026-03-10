@@ -26,6 +26,11 @@ type UserInfoGetter interface {
 	GetByID(ctx context.Context, id string) (*models.User, error)
 }
 
+// P2PAppLogger writes structured logs. ISP to avoid circular dependency.
+type P2PAppLogger interface {
+	Log(level models.LogLevel, category models.LogCategory, userID, serverID *string, message string, metadata map[string]string)
+}
+
 type P2PCallService interface {
 	InitiateCall(callerID, receiverID string, callType models.P2PCallType) error
 	AcceptCall(userID, callID string) error
@@ -34,17 +39,29 @@ type P2PCallService interface {
 	RelaySignal(senderID, callID string, signal ws.P2PSignalData) error
 	HandleDisconnect(userID string)
 	GetUserCall(userID string) *models.P2PCall
+	SetAppLogger(logger P2PAppLogger)
 }
 
 type p2pCallService struct {
 	friendChecker FriendChecker
 	userGetter    UserInfoGetter
 	hub           ws.BroadcastAndOnline
+	appLogger     P2PAppLogger
 
 	// In-memory state, cleared on server restart.
 	activeCalls map[string]*models.P2PCall // callID -> call
 	userCalls   map[string]string          // userID -> callID (max 1 call per user)
 	mu          sync.RWMutex
+}
+
+func (s *p2pCallService) SetAppLogger(logger P2PAppLogger) {
+	s.appLogger = logger
+}
+
+func (s *p2pCallService) logError(userID *string, message string, metadata map[string]string) {
+	if s.appLogger != nil {
+		s.appLogger.Log(models.LogLevelError, models.LogCategoryVoice, userID, nil, message, metadata)
+	}
 }
 
 func NewP2PCallService(
@@ -112,11 +129,17 @@ func (s *p2pCallService) InitiateCall(callerID, receiverID string, callType mode
 	caller, err := s.userGetter.GetByID(ctx, callerID)
 	if err != nil {
 		s.cleanupCall(call.ID)
+		s.logError(&callerID, "P2P call initiate: caller lookup failed", map[string]string{
+			"call_id": call.ID, "error": err.Error(),
+		})
 		return err
 	}
 	receiver, err := s.userGetter.GetByID(ctx, receiverID)
 	if err != nil {
 		s.cleanupCall(call.ID)
+		s.logError(&callerID, "P2P call initiate: receiver lookup failed", map[string]string{
+			"call_id": call.ID, "receiver_id": receiverID, "error": err.Error(),
+		})
 		return err
 	}
 
@@ -293,6 +316,9 @@ func (s *p2pCallService) HandleDisconnect(userID string) {
 	s.mu.Unlock()
 
 	log.Printf("[p2p] call ended due to disconnect: user=%s, call=%s", userID, callID)
+	s.logError(&userID, "P2P call ended due to WS disconnect", map[string]string{
+		"call_id": callID,
+	})
 
 	otherUserID := call.CallerID
 	if call.CallerID == userID {

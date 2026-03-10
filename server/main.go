@@ -90,9 +90,11 @@ func main() {
 	// 9. Service layer (order matters: channelPerm -> voice -> p2pCall -> rest)
 	svcs, limiters, metricsCollector := initServices(db.Conn, repos, hub, cfg, encryptionKey)
 
-	// 9b. Wire structured app logger into Hub and VoiceService
+	// 9b. Wire structured app logger into Hub and services
 	hub.SetAppLogger(svcs.AppLog)
 	svcs.Voice.SetAppLogger(svcs.AppLog)
+	svcs.P2PCall.SetAppLogger(svcs.AppLog)
+	svcs.Auth.SetAppLogger(svcs.AppLog)
 
 	// 10. Hub callbacks (must be after services, before hub.Run)
 	registerHubCallbacks(hub, repos.User, repos.DM, svcs.Voice, svcs.P2PCall, repos.Channel, repos.Server)

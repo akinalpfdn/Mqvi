@@ -20,6 +20,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// AuthAppLogger writes structured logs. ISP to avoid circular dependency.
+type AuthAppLogger interface {
+	Log(level models.LogLevel, category models.LogCategory, userID, serverID *string, message string, metadata map[string]string)
+}
+
 type AuthService interface {
 	Register(ctx context.Context, req *models.CreateUserRequest) (*AuthTokens, error)
 	Login(ctx context.Context, req *models.LoginRequest) (*AuthTokens, error)
@@ -36,6 +41,8 @@ type AuthService interface {
 
 	// ResetPassword validates token, updates password, and deletes token (one-time use).
 	ResetPassword(ctx context.Context, token, newPassword string) error
+
+	SetAppLogger(logger AuthAppLogger)
 }
 
 type AuthTokens struct {
@@ -50,9 +57,20 @@ type authService struct {
 	resetRepo   repository.PasswordResetRepository // nil if email not configured
 	hub         ws.EventPublisher
 	emailSender email.EmailSender // nil if RESEND_API_KEY not set
+	appLogger   AuthAppLogger
 	jwtSecret   []byte
 	accessExp   time.Duration
 	refreshExp  time.Duration
+}
+
+func (s *authService) SetAppLogger(logger AuthAppLogger) {
+	s.appLogger = logger
+}
+
+func (s *authService) logWarn(userID *string, message string, metadata map[string]string) {
+	if s.appLogger != nil {
+		s.appLogger.Log(models.LogLevelWarn, models.LogCategoryAuth, userID, nil, message, metadata)
+	}
 }
 
 func NewAuthService(
@@ -144,10 +162,16 @@ func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*Aut
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		s.logWarn(&user.ID, "Login failed: invalid password", map[string]string{
+			"username": req.Username,
+		})
 		return nil, fmt.Errorf("%w: invalid username or password", pkg.ErrUnauthorized)
 	}
 
 	if user.IsPlatformBanned {
+		s.logWarn(&user.ID, "Login blocked: account suspended", map[string]string{
+			"username": req.Username,
+		})
 		return nil, fmt.Errorf("%w: account suspended", pkg.ErrForbidden)
 	}
 
@@ -185,6 +209,9 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*A
 	}
 
 	if user.IsPlatformBanned {
+		s.logWarn(&user.ID, "Token refresh blocked: account suspended", map[string]string{
+			"username": user.Username,
+		})
 		return nil, fmt.Errorf("%w: account suspended", pkg.ErrForbidden)
 	}
 

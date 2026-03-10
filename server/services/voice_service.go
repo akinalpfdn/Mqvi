@@ -94,10 +94,17 @@ func (s *voiceService) SetAppLogger(logger VoiceAppLogger) {
 	s.appLogger = logger
 }
 
-// logError is a helper to write structured error logs if appLogger is set.
+// logError writes a structured error log if appLogger is set.
 func (s *voiceService) logError(category models.LogCategory, userID *string, message string, metadata map[string]string) {
 	if s.appLogger != nil {
 		s.appLogger.Log(models.LogLevelError, category, userID, nil, message, metadata)
+	}
+}
+
+// logWarn writes a structured warning log if appLogger is set.
+func (s *voiceService) logWarn(category models.LogCategory, userID *string, message string, metadata map[string]string) {
+	if s.appLogger != nil {
+		s.appLogger.Log(models.LogLevelWarn, category, userID, nil, message, metadata)
 	}
 }
 
@@ -537,6 +544,9 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 
 	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, adminUserID, state.ChannelID)
 	if err != nil {
+		s.logError(models.LogCategoryVoice, &adminUserID, "AdminUpdateState: permission resolve failed", map[string]string{
+			"target_user": targetUserID, "channel_id": state.ChannelID, "error": err.Error(),
+		})
 		return fmt.Errorf("failed to resolve permissions: %w", err)
 	}
 
@@ -608,6 +618,9 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	sourcePerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, sourceChannelID)
 	if err != nil {
 		s.mu.Unlock()
+		s.logError(models.LogCategoryVoice, &moverUserID, "MoveUser: source channel permission resolve failed", map[string]string{
+			"target_user": targetUserID, "source_channel": sourceChannelID, "error": err.Error(),
+		})
 		return fmt.Errorf("failed to resolve source channel permissions: %w", err)
 	}
 	if !sourcePerms.Has(models.PermMoveMembers) {
@@ -619,6 +632,9 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	targetPerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, targetChannelID)
 	if err != nil {
 		s.mu.Unlock()
+		s.logError(models.LogCategoryVoice, &moverUserID, "MoveUser: target channel permission resolve failed", map[string]string{
+			"target_user": targetUserID, "target_channel": targetChannelID, "error": err.Error(),
+		})
 		return fmt.Errorf("failed to resolve target channel permissions: %w", err)
 	}
 	if !targetPerms.Has(models.PermMoveMembers) {
@@ -703,6 +719,9 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, disconnecterUserID, state.ChannelID)
 	if err != nil {
 		s.mu.Unlock()
+		s.logError(models.LogCategoryVoice, &disconnecterUserID, "AdminDisconnectUser: permission resolve failed", map[string]string{
+			"target_user": targetUserID, "channel_id": state.ChannelID, "error": err.Error(),
+		})
 		return fmt.Errorf("failed to resolve permissions: %w", err)
 	}
 	if !effectivePerms.Has(models.PermMoveMembers) {
@@ -897,6 +916,9 @@ func (s *voiceService) sweepOrphanStates() {
 			s.cleanupRoomPassphraseIfEmpty(channelID)
 			orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID})
 			log.Printf("[voice] orphan cleanup: removed user %s from channel %s", userID, channelID)
+			s.logWarn(models.LogCategoryVoice, &userID, "orphan cleanup: stale voice state removed", map[string]string{
+				"channel_id": channelID,
+			})
 		}
 	}
 	s.mu.Unlock()
@@ -918,12 +940,18 @@ func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 	channel, err := s.channelGetter.GetByID(ctx, channelID)
 	if err != nil {
 		log.Printf("[voice] removeParticipant: channel lookup failed for %s: %v", channelID, err)
+		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: channel lookup failed", map[string]string{
+			"channel_id": channelID, "error": err.Error(),
+		})
 		return
 	}
 
 	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
 	if err != nil {
 		log.Printf("[voice] removeParticipant: livekit instance lookup failed for server %s: %v", channel.ServerID, err)
+		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: LiveKit instance lookup failed", map[string]string{
+			"server_id": channel.ServerID, "channel_id": channelID, "error": err.Error(),
+		})
 		return
 	}
 
@@ -953,6 +981,9 @@ func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 	})
 	if err != nil {
 		log.Printf("[voice] removeParticipant: user=%s room=%s result: %v", userID, roomName, err)
+		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: LiveKit API call failed", map[string]string{
+			"room": roomName, "channel_id": channelID, "error": err.Error(),
+		})
 		return
 	}
 
