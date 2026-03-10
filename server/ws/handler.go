@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/gorilla/websocket"
 
@@ -64,6 +65,10 @@ var upgrader = websocket.Upgrader{
 		}
 		// Electron file:// sends "null" as Origin
 		if origin == "null" {
+			return true
+		}
+		// Same-origin: origin host matches request Host header
+		if u, err := url.Parse(origin); err == nil && u.Host == r.Host {
 			return true
 		}
 		for _, allowed := range AllowedOrigins {

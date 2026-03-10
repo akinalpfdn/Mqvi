@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { formatMessageTime, formatFullDateTime } from "../../utils/dateFormat";
 import { useAuthStore } from "../../stores/authStore";
 import { useChatContext, type ChatMessage } from "../../hooks/useChatContext";
-import { resolveAssetUrl, copyToClipboard } from "../../utils/constants";
+import { copyToClipboard } from "../../utils/constants";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useIsMobile } from "../../hooks/useMediaQuery";
@@ -14,12 +14,13 @@ import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
 import BadgePill from "../shared/BadgePill";
 import ContextMenu from "../shared/ContextMenu";
-import EmojiPicker from "../shared/EmojiPicker";
-import EncryptedAttachment from "./EncryptedAttachment";
 import InviteCard from "./InviteCard";
 import LinkPreviewCard from "./LinkPreviewCard";
 import MemberCard from "../members/MemberCard";
 import MentionAutocomplete from "./MentionAutocomplete";
+import MessageAttachments from "./MessageAttachments";
+import MessageHoverActions from "./MessageHoverActions";
+import MessageReactions from "./MessageReactions";
 import MobileMessageActions from "./MobileMessageActions";
 import { useUserBadges } from "../../hooks/useUserBadges";
 import { useRoleStore } from "../../stores/roleStore";
@@ -527,120 +528,16 @@ function Message({ message, isCompact }: MessageProps) {
           )}
 
           {/* Attachments */}
-          {message.attachments && message.attachments.length > 0 && (
-            <div className="msg-attachments">
-              {message.attachments.map((attachment, idx) => {
-                // E2EE encrypted file — decrypt via EncryptedAttachment
-                const fileMeta = message.encryption_version === 1
-                  ? message.e2ee_file_keys?.[idx]
-                  : undefined;
-
-                if (fileMeta) {
-                  return (
-                    <EncryptedAttachment
-                      key={attachment.id}
-                      attachment={attachment}
-                      fileMeta={fileMeta}
-                    />
-                  );
-                }
-
-                // Plaintext file — render directly
-                const isImage = attachment.mime_type?.startsWith("image/");
-
-                if (isImage) {
-                  return (
-                    <a
-                      key={attachment.id}
-                      href={resolveAssetUrl(attachment.file_url)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <img
-                        src={resolveAssetUrl(attachment.file_url)}
-                        alt={attachment.filename}
-                        className="msg-attachment-img"
-                        loading="lazy"
-                      />
-                    </a>
-                  );
-                }
-
-                return (
-                  <a
-                    key={attachment.id}
-                    href={resolveAssetUrl(attachment.file_url)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="msg-attachment-file"
-                  >
-                    <svg
-                      className="msg-attachment-file-icon"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={1.5}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
-                      />
-                    </svg>
-                    <div style={{ minWidth: 0 }}>
-                      <p className="msg-attachment-file-name">
-                        {attachment.filename}
-                      </p>
-                      {attachment.file_size && (
-                        <p className="msg-attachment-file-size">
-                          {formatFileSize(attachment.file_size)}
-                        </p>
-                      )}
-                    </div>
-                  </a>
-                );
-              })}
-            </div>
-          )}
+          <MessageAttachments message={message} />
 
           {/* Reactions */}
-          {((message.reactions && message.reactions.length > 0) || pickerSource === "bar") && (
-            <div className="msg-reactions">
-              {message.reactions?.map((reaction) => {
-                const isActive = currentUser
-                  ? reaction.users.includes(currentUser.id)
-                  : false;
-
-                return (
-                  <button
-                    key={reaction.emoji}
-                    className={`msg-reaction-btn${isActive ? " active" : ""}`}
-                    onClick={() => handleReaction(reaction.emoji)}
-                    title={reaction.users.length.toString()}
-                  >
-                    <span className="msg-reaction-emoji">{reaction.emoji}</span>
-                    <span className="msg-reaction-count">{reaction.count}</span>
-                  </button>
-                );
-              })}
-
-              <div className="msg-reaction-add-wrap">
-                <button
-                  className="msg-reaction-add"
-                  onClick={() => setPickerSource("bar")}
-                  title={t("addReaction")}
-                >
-                  +
-                </button>
-                {pickerSource === "bar" && (
-                  <EmojiPicker
-                    onSelect={handleReaction}
-                    onClose={() => setPickerSource(null)}
-                  />
-                )}
-              </div>
-            </div>
-          )}
+          <MessageReactions
+            message={message}
+            pickerSource={pickerSource}
+            onPickerOpen={() => setPickerSource("bar")}
+            onPickerClose={() => setPickerSource(null)}
+            onReaction={handleReaction}
+          />
         </div>
       </div>
 
@@ -648,62 +545,22 @@ function Message({ message, isCompact }: MessageProps) {
       <ContextMenu state={menuState} onClose={closeMenu} />
 
       {!isEditing && (
-        <div className="msg-hover-actions">
-          <button onClick={handleReply} title={t("replyMessage")}>
-            <svg style={{ width: 14, height: 14 }} fill="currentColor" viewBox="0 0 24 24" stroke="none">
-              <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
-            </svg>
-          </button>
-          <div className="msg-reaction-add-wrap">
-            <button
-              onClick={() => setPickerSource("hover")}
-              title={t("addReaction")}
-            >
-              <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-            {pickerSource === "hover" && (
-              <EmojiPicker
-                onSelect={handleReaction}
-                onClose={() => setPickerSource(null)}
-              />
-            )}
-          </div>
-          {canManageMessages && (
-            <button
-              onClick={handlePinToggle}
-              title={isPinned ? t("unpinMessage") : t("pinMessage")}
-            >
-              <svg style={{ width: 14, height: 14 }} fill={isPinned ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
-              </svg>
-            </button>
-          )}
-          {isOwner && (
-            <button
-              onClick={() => {
-                setEditContent(message.content ?? "");
-                setIsEditing(true);
-              }}
-              title={t("editMessage")}
-            >
-              <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-            </button>
-          )}
-          {(isOwner || canManageMessages) && (
-            <button
-              onClick={handleDelete}
-              title={t("deleteMessage")}
-            >
-              <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          )}
-        </div>
+        <MessageHoverActions
+          isOwner={isOwner}
+          isPinned={isPinned}
+          canManageMessages={canManageMessages}
+          pickerSource={pickerSource}
+          onReply={handleReply}
+          onReaction={handleReaction}
+          onPickerOpen={() => setPickerSource("hover")}
+          onPickerClose={() => setPickerSource(null)}
+          onPinToggle={handlePinToggle}
+          onEditStart={() => {
+            setEditContent(message.content ?? "");
+            setIsEditing(true);
+          }}
+          onDelete={handleDelete}
+        />
       )}
 
       {/* Mobile message actions bottom sheet — opens on long-press */}
@@ -741,13 +598,6 @@ function Message({ message, isCompact }: MessageProps) {
       )}
     </div>
   );
-}
-
-/** Format bytes to human-readable size (1024 -> "1.0 KB") */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default Message;
