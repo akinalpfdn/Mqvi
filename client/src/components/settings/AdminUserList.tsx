@@ -14,7 +14,7 @@ import ContextMenu from "../shared/ContextMenu";
 import PlatformBanDialog from "./PlatformBanDialog";
 import PlatformActionDialog from "./PlatformActionDialog";
 import BadgeAssignModal from "../members/BadgeAssignModal";
-import type { AdminUserListItem, MemberWithRoles } from "../../types";
+import type { AdminUserListItem } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 

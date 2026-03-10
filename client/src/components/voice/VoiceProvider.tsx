@@ -17,7 +17,7 @@
  * via LiveKit's built-in e2ee-worker.
  */
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
 import { DisconnectReason, ExternalE2EEKeyProvider, VideoPreset } from "livekit-client";
 import type { AudioCaptureOptions, RoomOptions } from "livekit-client";
@@ -74,23 +74,67 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     }
   }, [e2eePassphrase, keyProvider, tE2ee]);
 
+  // Track rejoin attempts to prevent infinite loops
+  const rejoinAttemptsRef = useRef(0);
+  const MAX_REJOIN_ATTEMPTS = 2;
+
+  // Reset rejoin counter when user explicitly joins a new channel
+  const prevChannelRef = useRef<string | null>(null);
+  useEffect(() => {
+    const channelId = useVoiceStore.getState().currentVoiceChannelId;
+    if (channelId && channelId !== prevChannelRef.current) {
+      rejoinAttemptsRef.current = 0;
+    }
+    prevChannelRef.current = channelId;
+  });
+
   /**
    * onDisconnected — handles LiveKit disconnect events.
    *
    * CLIENT_INITIATED fires both on real disconnect AND on connect prop transitions
    * (connect=false -> connect=true). We distinguish them by checking if the store
    * still has an active voice channel — if so, it's a transition disconnect (ignore).
+   *
+   * For server-initiated disconnects (network blip, token expiry), attempt auto-rejoin
+   * with a fresh LiveKit token instead of fully leaving.
    */
   const handleDisconnected = useCallback(
     (reason?: DisconnectReason) => {
       console.log("[VoiceProvider] Disconnected from LiveKit. Reason:", reason);
 
+      const { currentVoiceChannelId, _wsSend } = useVoiceStore.getState();
+
       if (reason === DisconnectReason.CLIENT_INITIATED) {
-        const { currentVoiceChannelId } = useVoiceStore.getState();
         if (currentVoiceChannelId) {
           console.log("[VoiceProvider] Transition disconnect, ignoring (voice still active)");
           return;
         }
+      }
+
+      // Server-initiated disconnect while user was in voice — attempt auto-rejoin
+      if (currentVoiceChannelId && reason !== DisconnectReason.CLIENT_INITIATED) {
+        if (rejoinAttemptsRef.current < MAX_REJOIN_ATTEMPTS) {
+          rejoinAttemptsRef.current++;
+          const channelToRejoin = currentVoiceChannelId;
+          console.log(
+            `[VoiceProvider] Server-initiated disconnect, auto-rejoin attempt ${rejoinAttemptsRef.current}/${MAX_REJOIN_ATTEMPTS} for channel:`,
+            channelToRejoin
+          );
+
+          // Clear stale connection, then rejoin with fresh token
+          leaveVoiceChannel();
+          useVoiceStore.getState().joinVoiceChannel(channelToRejoin).then((tokenResp) => {
+            if (tokenResp && _wsSend) {
+              _wsSend("voice_join", { channel_id: channelToRejoin });
+              console.log("[VoiceProvider] Auto-rejoin successful");
+            } else {
+              console.warn("[VoiceProvider] Auto-rejoin failed — token request unsuccessful");
+            }
+          });
+          return;
+        }
+
+        console.warn("[VoiceProvider] Max rejoin attempts reached, giving up");
       }
 
       leaveVoiceChannel();

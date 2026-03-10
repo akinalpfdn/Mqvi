@@ -353,6 +353,26 @@ export function useWebSocket() {
             }
           }
         }
+
+        // Voice auto-rejoin: if user was in a voice channel before WS dropped,
+        // re-fetch a fresh LiveKit token and re-join automatically.
+        {
+          const voiceState = useVoiceStore.getState();
+          const previousChannel = voiceState.currentVoiceChannelId;
+          if (previousChannel) {
+            console.log("[useWebSocket] WS reconnected while in voice, re-joining channel:", previousChannel);
+            // Clear stale LiveKit credentials so VoiceProvider disconnects old session
+            voiceState.leaveVoiceChannel();
+            // Re-join with fresh token (async, fire-and-forget — errors logged inside)
+            voiceState.joinVoiceChannel(previousChannel).then((tokenResp) => {
+              if (tokenResp) {
+                sendVoiceJoin(previousChannel);
+              } else {
+                console.warn("[useWebSocket] Voice auto-rejoin failed — user needs to rejoin manually");
+              }
+            });
+          }
+        }
         break;
       }
       case "presence_update": {
@@ -1157,18 +1177,30 @@ export function useWebSocket() {
           }
         }, WS_HEARTBEAT_INTERVAL);
 
-        // Proactive token refresh every 12min while WS is open.
-        // Prevents expired token on reconnect after long idle.
-        const TOKEN_REFRESH_INTERVAL = 12 * 60 * 1000;
+        // Proactive token refresh every 10min while WS is open.
+        // Access token expires at 15min — 10min gives 5min buffer.
+        // On failure, retries every 10s (up to 9 times) for smooth recovery.
+        const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000;
+        const TOKEN_REFRESH_RETRY_DELAY = 10_000;
+        const TOKEN_REFRESH_MAX_RETRIES = 9;
+
         tokenRefreshIntervalRef.current = setInterval(async () => {
           if (activeConnectionIdRef.current !== myId) {
             clearInterval(tokenRefreshIntervalRef.current!);
             return;
           }
-          try {
-            await ensureFreshToken();
-          } catch {
-            // Will retry next interval
+
+          for (let attempt = 0; attempt < TOKEN_REFRESH_MAX_RETRIES; attempt++) {
+            try {
+              await ensureFreshToken();
+              break;
+            } catch {
+              console.warn(`[useWebSocket] Token refresh attempt ${attempt + 1} failed`);
+              if (attempt < TOKEN_REFRESH_MAX_RETRIES - 1) {
+                await new Promise((r) => setTimeout(r, TOKEN_REFRESH_RETRY_DELAY));
+                if (activeConnectionIdRef.current !== myId) return;
+              }
+            }
           }
         }, TOKEN_REFRESH_INTERVAL);
       };

@@ -13,6 +13,7 @@
 import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
+import { ensureFreshToken } from "../api/client";
 import { usePreferencesStore } from "./preferencesStore";
 import { useServerStore } from "./serverStore";
 import { playJoinSound, playLeaveSound, closeAudioContext } from "../utils/sounds";
@@ -231,7 +232,19 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       const gen = get()._joinGeneration + 1;
       set({ _joinGeneration: gen });
 
-      const response = await voiceApi.getVoiceToken(serverId, channelId);
+      // Ensure fresh JWT before requesting LiveKit token
+      await ensureFreshToken();
+
+      let response = await voiceApi.getVoiceToken(serverId, channelId);
+
+      // Retry once on auth failure — token may have expired mid-request
+      if (!response.success && response.error?.includes("401")) {
+        console.warn("[voiceStore] Voice token request got 401, refreshing and retrying");
+        const refreshed = await ensureFreshToken();
+        if (refreshed) {
+          response = await voiceApi.getVoiceToken(serverId, channelId);
+        }
+      }
 
       // Discard stale response if generation changed (leave/join interleaved)
       if (get()._joinGeneration !== gen) {
