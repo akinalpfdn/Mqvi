@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/akinalp/mqvi/models"
 	"github.com/gorilla/websocket"
 )
 
@@ -59,6 +60,8 @@ func (c *Client) ReadPump() {
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				log.Printf("[ws] unexpected close for user %s: %v", c.userID, err)
+				c.hub.logEvent(models.LogLevelWarn, models.LogCategoryWS, &c.userID,
+					"WebSocket unexpected close", map[string]string{"error": err.Error()})
 			}
 			return
 		}

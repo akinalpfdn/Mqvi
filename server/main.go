@@ -90,6 +90,10 @@ func main() {
 	// 9. Service layer (order matters: channelPerm -> voice -> p2pCall -> rest)
 	svcs, limiters, metricsCollector := initServices(db.Conn, repos, hub, cfg, encryptionKey)
 
+	// 9b. Wire structured app logger into Hub and VoiceService
+	hub.SetAppLogger(svcs.AppLog)
+	svcs.Voice.SetAppLogger(svcs.AppLog)
+
 	// 10. Hub callbacks (must be after services, before hub.Run)
 	registerHubCallbacks(hub, repos.User, repos.DM, svcs.Voice, svcs.P2PCall, repos.Channel, repos.Server)
 
@@ -100,6 +104,9 @@ func main() {
 
 	// 10b. Metrics collector — background goroutine polling LiveKit instances
 	metricsCollector.Start()
+
+	// 10c. App log service — async writer + auto-purge (30 days)
+	svcs.AppLog.Start(context.Background())
 
 	// 11. Handler layer
 	h := initHandlers(svcs, repos, limiters, hub, cfg)

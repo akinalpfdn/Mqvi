@@ -18,6 +18,7 @@ type AdminHandler struct {
 	adminUserService      services.AdminUserService
 	adminServerService    services.AdminServerService
 	reportService         services.ReportService
+	appLogService         services.AppLogService
 }
 
 func NewAdminHandler(
@@ -26,6 +27,7 @@ func NewAdminHandler(
 	adminUserService services.AdminUserService,
 	adminServerService services.AdminServerService,
 	reportService services.ReportService,
+	appLogService services.AppLogService,
 ) *AdminHandler {
 	return &AdminHandler{
 		livekitAdminService:   livekitAdminService,
@@ -33,7 +35,43 @@ func NewAdminHandler(
 		adminUserService:      adminUserService,
 		adminServerService:    adminServerService,
 		reportService:         reportService,
+		appLogService:         appLogService,
 	}
+}
+
+// ListAppLogs -- GET /api/admin/logs
+func (h *AdminHandler) ListAppLogs(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	offset, _ := strconv.Atoi(q.Get("offset"))
+
+	filter := models.AppLogFilter{
+		Level:    q.Get("level"),
+		Category: q.Get("category"),
+		Search:   q.Get("search"),
+		Limit:    limit,
+		Offset:   offset,
+	}
+
+	logs, total, err := h.appLogService.List(r.Context(), filter)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]interface{}{
+		"logs":  logs,
+		"total": total,
+	})
+}
+
+// ClearAppLogs -- DELETE /api/admin/logs
+func (h *AdminHandler) ClearAppLogs(w http.ResponseWriter, r *http.Request) {
+	if err := h.appLogService.Clear(r.Context()); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	pkg.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // ListLiveKitInstances -- GET /api/admin/livekit-instances

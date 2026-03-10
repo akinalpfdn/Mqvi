@@ -48,6 +48,7 @@ type Services struct {
 	LinkPreview       services.LinkPreviewService
 	Badge             services.BadgeService
 	Preferences       services.PreferencesService
+	AppLog            services.AppLogService
 }
 
 type RateLimiters struct {
@@ -128,6 +129,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)
 	badgeService := services.NewBadgeService(repos.Badge, hub)
 	preferencesService := services.NewPreferencesService(repos.Preferences)
+	appLogService := services.NewAppLogService(repos.AppLog)
 
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
 	metricsCollector := services.NewMetricsCollector(
@@ -176,6 +178,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		LinkPreview:       linkPreviewService,
 		Badge:             badgeService,
 		Preferences:       preferencesService,
+		AppLog:            appLogService,
 	}
 
 	limiters := &RateLimiters{

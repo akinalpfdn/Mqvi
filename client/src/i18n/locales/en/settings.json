@@ -497,5 +497,27 @@
   "startMinimized": "Start Minimized",
   "startMinimizedDesc": "When the app starts, it will launch in the background in the system tray",
   "closeToTray": "Minimize to Tray on Close",
-  "closeToTrayDesc": "When you click the X button, the app will minimize to the system tray instead of quitting"
+  "closeToTrayDesc": "When you click the X button, the app will minimize to the system tray instead of quitting",
+
+  "platformLogsTab": "Logs",
+  "platformLogsTitle": "Application Logs",
+  "platformLogsClearAll": "Clear All",
+  "platformLogsClearConfirm": "Are you sure you want to delete all application logs? This action cannot be undone.",
+  "platformLogsCleared": "All logs cleared",
+  "platformLogsClearError": "Failed to clear logs",
+  "platformLogsLoadError": "Failed to load logs",
+  "platformLogsEmpty": "No logs found",
+  "platformLogsSearchPlaceholder": "Search logs...",
+  "platformLogsAllLevels": "All Levels",
+  "platformLogsLevelError": "Error",
+  "platformLogsLevelWarn": "Warning",
+  "platformLogsLevelInfo": "Info",
+  "platformLogsAllCategories": "All Categories",
+  "platformLogsCategoryVoice": "Voice",
+  "platformLogsCategoryVideo": "Video",
+  "platformLogsCategoryScreenShare": "Screen Share",
+  "platformLogsCategoryWs": "WebSocket",
+  "platformLogsCategoryAuth": "Auth",
+  "platformLogsCategoryGeneral": "General",
+  "platformLogsPage": "Page {{current}} of {{total}}"
 }

@@ -497,5 +497,27 @@
   "startMinimized": "Simge Durumuna Küçültülmüş Olarak Başlat",
   "startMinimizedDesc": "Uygulama başlatıldığında arka planda sistem tepsisinde çalışır",
   "closeToTray": "Kapat Düğmesi Başlat Çubuğuna Küçült",
-  "closeToTrayDesc": "X düğmesine bastığınızda uygulama kapanmak yerine sistem tepsisine küçülür"
+  "closeToTrayDesc": "X düğmesine bastığınızda uygulama kapanmak yerine sistem tepsisine küçülür",
+
+  "platformLogsTab": "Günlükler",
+  "platformLogsTitle": "Uygulama Günlükleri",
+  "platformLogsClearAll": "Tümünü Temizle",
+  "platformLogsClearConfirm": "Tüm uygulama günlüklerini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.",
+  "platformLogsCleared": "Tüm günlükler temizlendi",
+  "platformLogsClearError": "Günlükler temizlenemedi",
+  "platformLogsLoadError": "Günlükler yüklenemedi",
+  "platformLogsEmpty": "Günlük bulunamadı",
+  "platformLogsSearchPlaceholder": "Günlüklerde ara...",
+  "platformLogsAllLevels": "Tüm Seviyeler",
+  "platformLogsLevelError": "Hata",
+  "platformLogsLevelWarn": "Uyarı",
+  "platformLogsLevelInfo": "Bilgi",
+  "platformLogsAllCategories": "Tüm Kategoriler",
+  "platformLogsCategoryVoice": "Ses",
+  "platformLogsCategoryVideo": "Video",
+  "platformLogsCategoryScreenShare": "Ekran Paylaşımı",
+  "platformLogsCategoryWs": "WebSocket",
+  "platformLogsCategoryAuth": "Kimlik Doğrulama",
+  "platformLogsCategoryGeneral": "Genel",
+  "platformLogsPage": "Sayfa {{current}} / {{total}}"
 }

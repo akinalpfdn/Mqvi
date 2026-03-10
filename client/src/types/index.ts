@@ -526,6 +526,23 @@ export type AdminReportListItem = {
 };
 
 // ──────────────────────────────────
+// App Logs (Admin)
+// ──────────────────────────────────
+export type AppLogLevel = "error" | "warn" | "info";
+export type AppLogCategory = "voice" | "video" | "screen_share" | "ws" | "auth" | "general";
+
+export type AppLog = {
+  id: string;
+  level: AppLogLevel;
+  category: AppLogCategory;
+  user_id: string | null;
+  server_id: string | null;
+  message: string;
+  metadata: string;
+  created_at: string;
+};
+
+// ──────────────────────────────────
 // WebSocket
 // ──────────────────────────────────
 export type WSMessage = {

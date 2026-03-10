@@ -49,6 +49,11 @@ type ChannelMuteChecker interface {
 	GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error)
 }
 
+// AppLogger writes structured app logs asynchronously. ISP interface to avoid circular dependency.
+type AppLogger interface {
+	Log(level models.LogLevel, category models.LogCategory, userID, serverID *string, message string, metadata map[string]string)
+}
+
 // AllowedOrigins is set by main.go at startup to share the same origin
 // whitelist between HTTP CORS and WebSocket upgrade.
 // Electron production uses file:// protocol which sends "null" as Origin.

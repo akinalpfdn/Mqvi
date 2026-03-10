@@ -5,6 +5,8 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+
+	"github.com/akinalp/mqvi/models"
 )
 
 // ─── Interface Segregation ───
@@ -171,6 +173,9 @@ type Hub struct {
 
 	// Screen share viewer tracking — set in main.go
 	onScreenShareWatch ScreenShareWatchCallback
+
+	// Structured app logger — set in main.go
+	appLogger AppLogger
 }
 
 func NewHub() *Hub {
@@ -259,6 +264,8 @@ func (h *Hub) removeClient(client *Client) {
 				fullyDisconnected = true
 				userID = client.userID
 				log.Printf("[ws] user fully disconnected: %s", client.userID)
+				h.logEvent(models.LogLevelInfo, models.LogCategoryWS, &client.userID,
+					"user fully disconnected (all tabs closed)", nil)
 			} else {
 				partialDisconnect = true
 				userID = client.userID
@@ -519,6 +526,18 @@ func (h *Hub) OnUserFirstConnect(cb UserConnectionCallback) {
 // OnUserFullyDisconnected sets the callback for when a user's last connection closes.
 func (h *Hub) OnUserFullyDisconnected(cb UserConnectionCallback) {
 	h.onUserFullyDisconnected = cb
+}
+
+// SetAppLogger sets the structured app logger for WS events.
+func (h *Hub) SetAppLogger(logger AppLogger) {
+	h.appLogger = logger
+}
+
+// logEvent is a helper that safely logs via appLogger if set.
+func (h *Hub) logEvent(level models.LogLevel, category models.LogCategory, userID *string, message string, metadata map[string]string) {
+	if h.appLogger != nil {
+		h.appLogger.Log(level, category, userID, nil, message, metadata)
+	}
 }
 
 // OnPresenceManualUpdate sets the callback for manual presence changes.

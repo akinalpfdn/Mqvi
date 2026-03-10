@@ -59,6 +59,12 @@ type VoiceService interface {
 	GetScreenShareViewerCount(streamerUserID string) int
 	CleanupViewersForStreamer(streamerUserID string)
 	StartOrphanCleanup()
+	SetAppLogger(logger VoiceAppLogger)
+}
+
+// VoiceAppLogger writes structured logs. ISP interface to avoid importing services.AppLogService.
+type VoiceAppLogger interface {
+	Log(level models.LogLevel, category models.LogCategory, userID, serverID *string, message string, metadata map[string]string)
 }
 
 // forceMoveGrant is a one-time permission bypass for a force-moved user.
@@ -81,6 +87,18 @@ type voiceService struct {
 	hub           ws.Broadcaster
 	onlineChecker OnlineUserChecker
 	encryptionKey []byte // AES-256-GCM for LiveKit credential decryption
+	appLogger     VoiceAppLogger
+}
+
+func (s *voiceService) SetAppLogger(logger VoiceAppLogger) {
+	s.appLogger = logger
+}
+
+// logError is a helper to write structured error logs if appLogger is set.
+func (s *voiceService) logError(category models.LogCategory, userID *string, message string, metadata map[string]string) {
+	if s.appLogger != nil {
+		s.appLogger.Log(models.LogLevelError, category, userID, nil, message, metadata)
+	}
 }
 
 const maxScreenShares = 0 // 0 = unlimited
@@ -121,15 +139,24 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	// channel -> server -> livekit_instance lookup
 	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
 	if err != nil {
+		s.logError(models.LogCategoryVoice, &userID, "LiveKit instance lookup failed", map[string]string{
+			"server_id": channel.ServerID, "error": err.Error(),
+		})
 		return nil, fmt.Errorf("failed to get livekit instance for server %s: %w", channel.ServerID, err)
 	}
 
 	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
 	if err != nil {
+		s.logError(models.LogCategoryVoice, &userID, "LiveKit API key decryption failed", map[string]string{
+			"instance_id": lkInstance.ID, "error": err.Error(),
+		})
 		return nil, fmt.Errorf("failed to decrypt livekit api key: %w", err)
 	}
 	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
 	if err != nil {
+		s.logError(models.LogCategoryVoice, &userID, "LiveKit API secret decryption failed", map[string]string{
+			"instance_id": lkInstance.ID, "error": err.Error(),
+		})
 		return nil, fmt.Errorf("failed to decrypt livekit api secret: %w", err)
 	}
 
@@ -200,6 +227,9 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 
 	token, err := at.ToJWT()
 	if err != nil {
+		s.logError(models.LogCategoryVoice, &userID, "LiveKit JWT generation failed", map[string]string{
+			"channel_id": channelID, "error": err.Error(),
+		})
 		return nil, fmt.Errorf("failed to generate livekit token: %w", err)
 	}
 
@@ -900,11 +930,17 @@ func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
 	if err != nil {
 		log.Printf("[voice] removeParticipant: api key decrypt failed: %v", err)
+		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: API key decrypt failed", map[string]string{
+			"channel_id": channelID, "error": err.Error(),
+		})
 		return
 	}
 	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
 	if err != nil {
 		log.Printf("[voice] removeParticipant: api secret decrypt failed: %v", err)
+		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: API secret decrypt failed", map[string]string{
+			"channel_id": channelID, "error": err.Error(),
+		})
 		return
 	}
 

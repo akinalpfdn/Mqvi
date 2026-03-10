@@ -180,6 +180,10 @@ func initRoutes(
 	mux.Handle("DELETE /api/admin/users/{id}", authAdmin(h.Admin.HardDeleteUser))
 	mux.Handle("PATCH /api/admin/users/{id}/platform-admin", authAdmin(h.Admin.SetUserPlatformAdmin))
 
+	// Platform Admin — App Logs
+	mux.Handle("GET /api/admin/logs", authAdmin(h.Admin.ListAppLogs))
+	mux.Handle("DELETE /api/admin/logs", authAdmin(h.Admin.ClearAppLogs))
+
 	// Stats — public
 	mux.HandleFunc("GET /api/stats", h.Stats.GetPublicStats)
 

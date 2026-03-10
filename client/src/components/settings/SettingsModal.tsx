@@ -17,6 +17,7 @@ import PlatformSettings from "./PlatformSettings";
 import AdminServerList from "./AdminServerList";
 import AdminUserList from "./AdminUserList";
 import AdminReportList from "./AdminReportList";
+import AdminLogsPanel from "./AdminLogsPanel";
 import ConnectionsSettings from "./ConnectionsSettings";
 import EncryptionSettings from "./EncryptionSettings";
 import GeneralSettings from "./GeneralSettings";
@@ -124,6 +125,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "platform-reports":
       return <AdminReportList />;
+
+    case "platform-logs":
+      return <AdminLogsPanel />;
 
     case "platform-connections":
       return <ConnectionsSettings />;

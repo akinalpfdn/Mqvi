@@ -16,6 +16,7 @@ import type {
   AdminServerListItem,
   AdminUserListItem,
   AdminReportListItem,
+  AppLog,
 } from "../types";
 
 export async function listLiveKitInstances() {
@@ -161,4 +162,30 @@ export async function updateReportStatus(reportId: string, status: string) {
     method: "PATCH",
     body: { status },
   });
+}
+
+// ── App Logs ──
+
+export async function listAppLogs(params?: {
+  level?: string;
+  category?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const query = new URLSearchParams();
+  if (params?.level) query.set("level", params.level);
+  if (params?.category) query.set("category", params.category);
+  if (params?.search) query.set("search", params.search);
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.offset) query.set("offset", String(params.offset));
+
+  const qs = query.toString();
+  return apiClient<{ logs: AppLog[]; total: number }>(
+    `/admin/logs${qs ? `?${qs}` : ""}`
+  );
+}
+
+export async function clearAppLogs() {
+  return apiClient<{ status: string }>("/admin/logs", { method: "DELETE" });
 }

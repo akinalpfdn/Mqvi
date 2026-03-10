@@ -40,6 +40,7 @@ type SettingsTab =
   | "platform-servers"
   | "platform-users"
   | "platform-reports"
+  | "platform-logs"
   | "platform-connections";
 
 type SettingsState = {
