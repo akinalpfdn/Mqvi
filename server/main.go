@@ -108,7 +108,7 @@ func main() {
 	metricsCollector.Start()
 
 	// 10c. App log service — async writer + auto-purge (30 days)
-	svcs.AppLog.Start(context.Background())
+	svcs.AppLog.Start()
 
 	// 11. Handler layer
 	h := initHandlers(svcs, repos, limiters, hub, cfg)
@@ -201,6 +201,7 @@ func main() {
 	<-done
 	log.Println("[main] shutting down...")
 
+	svcs.AppLog.Stop()
 	metricsCollector.Stop()
 	hub.Shutdown()
 

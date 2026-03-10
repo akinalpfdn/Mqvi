@@ -19,12 +19,16 @@ type AppLogService interface {
 	// Clear deletes all logs.
 	Clear(ctx context.Context) error
 	// Start begins the async writer goroutine and auto-purge ticker.
-	Start(ctx context.Context)
+	Start()
+	// Stop signals goroutines to exit and drains buffered entries.
+	Stop()
 }
 
 type appLogService struct {
-	repo repository.AppLogRepository
-	ch   chan models.AppLog
+	repo   repository.AppLogRepository
+	ch     chan models.AppLog
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 // NewAppLogService creates the service. Call Start() to begin async writing.
@@ -32,6 +36,7 @@ func NewAppLogService(repo repository.AppLogRepository) AppLogService {
 	return &appLogService{
 		repo: repo,
 		ch:   make(chan models.AppLog, 256),
+		done: make(chan struct{}),
 	}
 }
 
@@ -69,12 +74,17 @@ func (s *appLogService) Clear(ctx context.Context) error {
 }
 
 // Start runs the async writer and daily auto-purge (30 days).
-func (s *appLogService) Start(ctx context.Context) {
+func (s *appLogService) Start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+
 	// Writer goroutine — drains channel and writes to DB
 	go func() {
+		defer close(s.done)
 		for {
 			select {
 			case <-ctx.Done():
+				s.drain()
 				return
 			case entry := <-s.ch:
 				if err := s.repo.Insert(context.Background(), &entry); err != nil {
@@ -103,4 +113,27 @@ func (s *appLogService) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// Stop cancels background goroutines and drains any buffered log entries.
+func (s *appLogService) Stop() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	<-s.done
+	log.Println("[app_log] stopped")
+}
+
+// drain flushes remaining entries from the channel before exit.
+func (s *appLogService) drain() {
+	for {
+		select {
+		case entry := <-s.ch:
+			if err := s.repo.Insert(context.Background(), &entry); err != nil {
+				log.Printf("[app_log] drain: failed to write: %v", err)
+			}
+		default:
+			return
+		}
+	}
 }

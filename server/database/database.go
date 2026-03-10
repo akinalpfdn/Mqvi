@@ -30,19 +30,19 @@ func New(dbPath string, migrationsFS fs.FS) (*DB, error) {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// foreign_keys=on (off by default in SQLite), journal_mode=WAL for concurrent r/w
-	conn, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	// foreign_keys=on (off by default in SQLite), journal_mode=WAL for concurrent r/w,
+	// busy_timeout=5000ms lets concurrent writers wait instead of returning SQLITE_BUSY immediately.
+	conn, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Connection pool settings for SQLite:
-	// - MaxOpenConns=1 prevents "database is locked" under concurrent writes
-	//   (SQLite only supports one writer at a time; WAL mode allows concurrent reads)
-	// - MaxIdleConns=1 keeps one warm connection ready
+	// Connection pool settings for SQLite WAL mode:
+	// - MaxOpenConns=4 allows concurrent reads (WAL serializes writes internally)
+	// - MaxIdleConns=2 keeps warm connections ready
 	// - ConnMaxLifetime=0 means connections are reused indefinitely
-	conn.SetMaxOpenConns(1)
-	conn.SetMaxIdleConns(1)
+	conn.SetMaxOpenConns(4)
+	conn.SetMaxIdleConns(2)
 	conn.SetConnMaxLifetime(0)
 
 	if err := conn.Ping(); err != nil {
