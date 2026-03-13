@@ -174,14 +174,43 @@ function VoiceStateManager() {
       initialSyncDone.current = true;
     }
 
+    // Restore mic and volumes after SDK internal reconnect.
+    // RoomEvent.Reconnected fires when LiveKit reconnects without our intervention.
+    function handleReconnected() {
+      const { isMuted: currentMuted, inputMode: currentMode } = useVoiceStore.getState();
+      const shouldEnable = currentMode === "push_to_talk" ? false : !currentMuted;
+
+      // Wait for PeerConnection to stabilize before re-enabling mic
+      setTimeout(() => {
+        localParticipant.setMicrophoneEnabled(shouldEnable).catch((err: unknown) => {
+          console.error("[VoiceStateManager] Failed to restore mic after reconnect:", err);
+        });
+
+        // Re-apply volumes — RemoteParticipant objects may have been recreated
+        const { userVolumes: vols, screenShareVolumes: ssVols, masterVolume: master, isDeafened: deaf } =
+          useVoiceStore.getState();
+        const masterFactor = master / 100;
+
+        room.remoteParticipants.forEach((participant) => {
+          const micVol = vols[participant.identity] ?? 100;
+          participant.setVolume(deaf ? 0 : (micVol / 100) * masterFactor, Track.Source.Microphone);
+
+          const ssVol = ssVols[participant.identity] ?? 100;
+          participant.setVolume(deaf ? 0 : (ssVol / 100) * masterFactor, Track.Source.ScreenShareAudio);
+        });
+      }, 1000);
+    }
+
     if (room.state === ConnectionState.Connected) {
       handleConnected();
     }
 
     room.on(RoomEvent.Connected, handleConnected);
+    room.on(RoomEvent.Reconnected, handleReconnected);
 
     return () => {
       room.off(RoomEvent.Connected, handleConnected);
+      room.off(RoomEvent.Reconnected, handleReconnected);
       initialSyncDone.current = false;
     };
   }, [room, localParticipant]);
