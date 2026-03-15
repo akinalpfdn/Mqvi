@@ -451,19 +451,21 @@ export function useWebSocket() {
         const voiceData = msg.d as VoiceStateUpdateData;
         const voiceState = useVoiceStore.getState();
 
-        // Capture previous streaming state before store update (for screen share sound)
+        // Capture state BEFORE store update for accurate sound decisions
         const prevStates = voiceState.voiceStates[voiceData.channel_id] ?? [];
         const prevStreaming = prevStates.find((s) => s.user_id === voiceData.user_id)?.is_streaming ?? false;
+        const myUserId = useAuthStore.getState().user?.id;
+        const prevMyChannelId = voiceState.currentVoiceChannelId;
 
         voiceState.handleVoiceStateUpdate(voiceData);
 
         // Play join/leave sounds for same-channel users or self.
-        // Filter out self-rejoin (WS reconnect) to avoid misleading sounds.
-        const myUserId = useAuthStore.getState().user?.id;
-        const myChannelId = voiceState.currentVoiceChannelId;
+        // Same-channel rejoin (WS reconnect) never reaches here — server skips that broadcast.
+        // isSelfJoin: user was NOT in this channel before → genuine first join
         const isMe = voiceData.user_id === myUserId;
+        const myChannelId = voiceState.currentVoiceChannelId;
         const isSameChannel = myChannelId && myChannelId === voiceData.channel_id;
-        const isSelfRejoin = isMe && voiceData.action === "join" && myChannelId === voiceData.channel_id;
+        const isSelfRejoin = isMe && voiceData.action === "join" && prevMyChannelId === voiceData.channel_id;
 
         if ((isSameChannel || isMe) && !isSelfRejoin) {
           if (voiceData.action === "join") {
