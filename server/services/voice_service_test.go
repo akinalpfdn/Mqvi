@@ -95,6 +95,36 @@ func TestVoiceJoinChannel_SwitchChannels(t *testing.T) {
 	}
 }
 
+func TestVoiceJoinChannel_SameChannelRejoin(t *testing.T) {
+	svc, hub := newTestVoiceService()
+
+	var broadcasts []ws.Event
+	hub.BroadcastToAllFn = func(event ws.Event) {
+		broadcasts = append(broadcasts, event)
+	}
+
+	// Join ch1
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	broadcasts = nil // reset
+
+	// Rejoin same channel (WS reconnect scenario)
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+
+	// Should produce zero broadcasts — silent rejoin
+	if len(broadcasts) != 0 {
+		t.Fatalf("expected 0 broadcasts for same-channel rejoin, got %d", len(broadcasts))
+	}
+
+	// State should still exist
+	state := svc.GetUserVoiceState("u1")
+	if state == nil {
+		t.Fatal("expected voice state after rejoin")
+	}
+	if state.ChannelID != "ch1" {
+		t.Errorf("channelID = %q, want %q", state.ChannelID, "ch1")
+	}
+}
+
 func TestVoiceLeaveChannel(t *testing.T) {
 	svc, hub := newTestVoiceService()
 

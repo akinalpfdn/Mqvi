@@ -264,6 +264,18 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	// Leave current channel if in one
 	if existing, ok := s.states[userID]; ok {
 		oldChannelID = existing.ChannelID
+
+		// Same-channel rejoin (WS reconnect) — silently refresh state, no broadcast.
+		// This prevents false leave/join sounds for everyone in the channel.
+		if oldChannelID == channelID {
+			existing.Username = username
+			existing.DisplayName = displayName
+			existing.AvatarURL = avatarURL
+			s.mu.Unlock()
+			log.Printf("[voice] same-channel rejoin user=%s channel=%s (no broadcast)", userID, channelID)
+			return nil
+		}
+
 		delete(s.states, userID)
 
 		s.hub.BroadcastToAll(ws.Event{
