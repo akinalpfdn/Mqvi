@@ -16,6 +16,8 @@ type ReadStateState = {
   unreadCounts: Record<string, number>;
   /** channelId -> serverId mapping for per-server aggregation */
   channelServerMap: Record<string, string>;
+  /** channelId -> set of mention message IDs the user has already seen */
+  seenMentions: Record<string, Set<string>>;
 
   /** Fetch unread counts for a specific server and merge into global state */
   fetchUnreadCounts: (serverId: string) => Promise<void>;
@@ -34,11 +36,16 @@ type ReadStateState = {
   /** Clear only the active server's unread data (for server switch refetch) */
   clearForServerSwitch: () => void;
   markAllAsRead: (serverId: string) => Promise<boolean>;
+  /** Mark a mention message as seen (survives channel switches) */
+  markMentionSeen: (channelId: string, messageId: string) => void;
+  /** Check if a mention message has been seen */
+  isMentionSeen: (channelId: string, messageId: string) => boolean;
 };
 
 export const useReadStateStore = create<ReadStateState>((set, get) => ({
   unreadCounts: {},
   channelServerMap: {},
+  seenMentions: {},
 
   fetchUnreadCounts: async (serverId: string) => {
     const res = await readStateApi.getUnreadCounts(serverId);
@@ -189,5 +196,19 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
 
     const res = await readStateApi.markAllRead(serverId);
     return res.success;
+  },
+
+  markMentionSeen: (channelId, messageId) => {
+    set((state) => {
+      const existing = state.seenMentions[channelId];
+      if (existing?.has(messageId)) return state;
+      const next = new Set(existing);
+      next.add(messageId);
+      return { seenMentions: { ...state.seenMentions, [channelId]: next } };
+    });
+  },
+
+  isMentionSeen: (channelId, messageId) => {
+    return get().seenMentions[channelId]?.has(messageId) ?? false;
   },
 }));

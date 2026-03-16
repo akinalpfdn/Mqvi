@@ -1,10 +1,11 @@
 /** MessageList — Scrollable message container with auto-scroll, infinite scroll, and compact mode. */
 
-import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useAuthStore } from "../../stores/authStore";
 import { useMemberStore } from "../../stores/memberStore";
+import { useReadStateStore } from "../../stores/readStateStore";
 import { MessageSkeleton } from "../shared/Skeleton";
 import Message from "./Message";
 
@@ -38,9 +39,10 @@ function MessageList() {
   const prevMessageCountRef = useRef(0);
 
   // ─── Mention Navigation State ───
-  const [mentionNavIndex, setMentionNavIndex] = useState(-1);
+  const seenMentions = useReadStateStore((s) => s.seenMentions[channelId]);
+  const markMentionSeen = useReadStateStore((s) => s.markMentionSeen);
 
-  // Compute mention message IDs (messages where current user is mentioned)
+  // Compute unseen mention message IDs (exclude already-seen mentions)
   const mentionMessageIds = useMemo(() => {
     if (!currentUser) return [];
     const myMember = members.find((m) => m.id === currentUser.id);
@@ -50,6 +52,9 @@ function MessageList() {
 
     const ids: string[] = [];
     for (const msg of messages) {
+      // Skip mentions already seen by the user
+      if (seenMentions?.has(msg.id)) continue;
+
       if (msg.mentions?.includes(currentUser.id)) {
         ids.push(msg.id);
         continue;
@@ -61,26 +66,17 @@ function MessageList() {
       }
     }
     return ids;
-  }, [messages, currentUser, members]);
-
-  // Reset mention nav index when channel changes or mentions change
-  useEffect(() => {
-    setMentionNavIndex(-1);
-  }, [channelId]);
+  }, [messages, currentUser, members, seenMentions]);
 
   const mentionCount = mentionMessageIds.length;
-  const hasUnvisitedMentions = mentionNavIndex < mentionCount - 1;
 
   function handleMentionNavClick() {
     if (mentionCount === 0) return;
-    const nextIndex = mentionNavIndex + 1;
-    if (nextIndex >= mentionCount) {
-      // All visited — wrap around
-      setMentionNavIndex(-1);
-      return;
-    }
-    setMentionNavIndex(nextIndex);
-    const msgId = mentionMessageIds[nextIndex];
+    const msgId = mentionMessageIds[0];
+
+    // Mark as seen — removes from the list permanently (survives channel switch)
+    markMentionSeen(channelId, msgId);
+
     const el = document.getElementById(`msg-${msgId}`);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -247,7 +243,7 @@ function MessageList() {
       </div>
 
       {/* Mention Navigation FAB */}
-      {mentionCount > 0 && hasUnvisitedMentions && (
+      {mentionCount > 0 && (
         <button
           className="mention-nav-fab"
           onClick={handleMentionNavClick}
@@ -257,7 +253,7 @@ function MessageList() {
             <circle cx="12" cy="12" r="4" />
             <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
           </svg>
-          <span>{mentionCount - mentionNavIndex - 1}</span>
+          <span>{mentionCount}</span>
         </button>
       )}
     </div>
