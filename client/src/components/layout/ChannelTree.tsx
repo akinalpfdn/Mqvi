@@ -1308,7 +1308,14 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                       <>
                                         <button
                                           className={`ch-tree-vu-icon ch-tree-vu-stream${watchingScreenShares[p.user_id] ? " watching" : ""}`}
-                                          onClick={(e) => { e.stopPropagation(); toggleWatchScreenShare(p.user_id); }}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const wasWatching = watchingScreenShares[p.user_id];
+                                            toggleWatchScreenShare(p.user_id);
+                                            if (!wasWatching && currentVoiceChannelId) {
+                                              openTab(currentVoiceChannelId, "voice", ch.name, getActiveServerInfo());
+                                            }
+                                          }}
                                           title={watchingScreenShares[p.user_id] ? tVoice("stopWatching") : tVoice("watchScreenShare")}
                                         >
                                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
