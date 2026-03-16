@@ -51,14 +51,18 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
   // Enter counter — prevents false dragLeave from nested children
   const enterCountRef = useRef(0);
 
-  // Clean up overlay on dragend (covers cases where onDrop doesn't fire)
+  // Clean up overlay on dragend OR drop (covers stopPropagation from tab bar)
   useEffect(() => {
-    function handleDragEnd() {
+    function clearOverlay() {
       setActiveZone(null);
       enterCountRef.current = 0;
     }
-    document.addEventListener("dragend", handleDragEnd);
-    return () => document.removeEventListener("dragend", handleDragEnd);
+    document.addEventListener("dragend", clearOverlay);
+    document.addEventListener("drop", clearOverlay);
+    return () => {
+      document.removeEventListener("dragend", clearOverlay);
+      document.removeEventListener("drop", clearOverlay);
+    };
   }, []);
 
   const handleFocus = useCallback(() => {
