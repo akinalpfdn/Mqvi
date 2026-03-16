@@ -1,92 +1,120 @@
 name: Build & Release Desktop
 
-# Triggered by annotated tag push: git tag -a v2.5.3 -m "release notes" && git push origin v2.5.3
-# Tag annotation message becomes the release notes.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  # ─── Phase 1: Create draft release ───
-  create-release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            label: windows-x64
+          - platform: macos-14
+            label: macos-arm64
+          - platform: ubuntu-22.04
+            label: linux-x64
+
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Read annotated tag message for release notes
-      - name: Extract tag annotation
-        id: tag
-        run: |
-          TAG=${{ github.ref_name }}
-          # Annotated tag message (everything after the tag header)
-          NOTES=$(git tag -l --format='%(contents)' "$TAG")
-          if [ -z "$NOTES" ]; then
-            NOTES="Release $TAG"
-          fi
-          echo "notes<<EOFNOTES" >> "$GITHUB_OUTPUT"
-          echo "$NOTES" >> "$GITHUB_OUTPUT"
-          echo "EOFNOTES" >> "$GITHUB_OUTPUT"
-
-      - name: Create draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create ${{ github.ref_name }} \
-            --title "${{ github.ref_name }}" \
-            --notes "${{ steps.tag.outputs.notes }}" \
-            --draft
-
-  # ─── Phase 2: Build all platforms in parallel ───
-
-  build-windows:
-    needs: create-release
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # Find MSVC vcvars64.bat dynamically (VS 2022 on GitHub runners)
-      - name: Setup MSVC environment
+      # ─── macOS: generate .icns from PNG ───
+      - name: Generate macOS icon
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          mkdir -p icons/icon.iconset
+          sips -z 16 16     icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_16x16.png
+          sips -z 32 32     icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_32x32.png
+          sips -z 64 64     icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_128x128.png
+          sips -z 256 256   icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_256x256.png
+          sips -z 512 512   icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   icons/mqvi-icon-512x512.png --out icons/icon.iconset/icon_512x512.png
+          iconutil -c icns icons/icon.iconset -o icons/icon.icns
+          rm -rf icons/icon.iconset
+
+      # ─── macOS: import code signing certificate ───
+      - name: Import Apple certificate
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          rm certificate.p12
+
+      # ─── macOS: write API key for notarization ───
+      - name: Prepare Apple API key
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/apple-keys"
+          echo "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/apple-keys/AuthKey.p8"
+
+      # ─── Windows: setup MSVC for native audio-capture.exe ───
+      - name: Setup MSVC
+        if: matrix.platform == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # ─── Install dependencies ───
       - name: Install root dependencies
         run: npm ci
 
       - name: Install client dependencies
         run: npm ci --prefix client
 
+      # ─── Build client (Vite) ───
       - name: Build client
         run: npx vite build --outDir dist
         working-directory: client
 
-      # Compile native audio-capture.exe (WASAPI)
+      # ─── Windows: compile native audio-capture.exe ───
       - name: Compile audio-capture.exe
-        run: |
-          cl.exe /EHsc /O2 /W3 native\audio-capture.cpp /Fe:native\audio-capture.exe ole32.lib mmdevapi.lib
+        if: matrix.platform == 'windows-latest'
+        run: cl.exe /EHsc /O2 /W3 native\audio-capture.cpp /Fe:native\audio-capture.exe ole32.lib mmdevapi.lib
         shell: cmd
 
+      # ─── Compile Electron TypeScript ───
       - name: Compile Electron TypeScript
         run: npx tsc -p electron/tsconfig.json
 
-      # Phase 1: Build unpacked
-      - name: Build unpacked app
+      # ─── Platform-specific builds ───
+
+      # Windows: 3-phase build (unpacked → rcedit icon → NSIS installer)
+      - name: Build Windows (unpacked)
+        if: matrix.platform == 'windows-latest'
         run: npx electron-builder --win --dir
 
-      # Phase 2: Embed icon with rcedit
-      - name: Embed icon
-        run: |
-          npx rcedit release/win-unpacked/mqvi.exe --set-icon icons/mqvi-icon.ico
+      - name: Embed Windows icon
+        if: matrix.platform == 'windows-latest'
+        run: npx rcedit release/win-unpacked/mqvi.exe --set-icon icons/mqvi-icon.ico
 
-      # Phase 2.5: Generate app-update.yml
       - name: Generate app-update.yml
+        if: matrix.platform == 'windows-latest'
         run: |
           @"
           provider: github
@@ -96,138 +124,71 @@ jobs:
           "@ | Set-Content -Path "release/win-unpacked/resources/app-update.yml" -Encoding UTF8
         shell: pwsh
 
-      # Phase 3: Build NSIS installer from patched unpacked
-      - name: Build NSIS installer
+      - name: Build Windows NSIS
+        if: matrix.platform == 'windows-latest'
         run: npx electron-builder --win nsis --prepackaged release/win-unpacked
 
-      - name: Upload to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload ${{ github.ref_name }} `
-            release/mqvi-setup.exe `
-            release/latest.yml `
-            release/mqvi-setup.exe.blockmap `
-            --clobber
-        shell: pwsh
-
-  build-macos:
-    needs: create-release
-    runs-on: macos-14  # Apple Silicon (M1)
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # Import Apple certificate into temporary keychain
-      - name: Import Apple certificate
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          CERT_PATH=$RUNNER_TEMP/certificate.p12
-          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
-
-          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERT_PATH
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          security import $CERT_PATH -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: \
-            -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
-
-      # Write Apple API key to file for notarization
-      - name: Write Apple API key
-        env:
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-        run: |
-          mkdir -p ~/private_keys
-          echo -n "$APPLE_API_KEY" > ~/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8
-
-      - name: Install root dependencies
-        run: npm ci
-
-      - name: Install client dependencies
-        run: npm ci --prefix client
-
-      - name: Build client
-        run: npx vite build --outDir dist
-        working-directory: client
-
-      - name: Compile Electron TypeScript
-        run: npx tsc -p electron/tsconfig.json
-
-      # Build macOS DMG (arm64) with code signing + notarization
+      # macOS: DMG with code signing + notarization
       - name: Build macOS DMG
+        if: startsWith(matrix.platform, 'macos')
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_KEY: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+          APPLE_API_KEY: ${{ format('{0}/apple-keys/AuthKey.p8', runner.temp) }}
         run: npx electron-builder --mac --arm64 --publish never
 
-      - name: Upload to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload ${{ github.ref_name }} \
-            release/mqvi-setup.dmg \
-            release/latest-mac.yml \
-            release/mqvi-setup.dmg.blockmap \
-            --clobber
-
-  build-linux:
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install root dependencies
-        run: npm ci
-
-      - name: Install client dependencies
-        run: npm ci --prefix client
-
-      - name: Build client
-        run: npx vite build --outDir dist
-        working-directory: client
-
-      - name: Compile Electron TypeScript
-        run: npx tsc -p electron/tsconfig.json
-
+      # Linux: AppImage
       - name: Build Linux AppImage
+        if: matrix.platform == 'ubuntu-22.04'
         run: npx electron-builder --linux --publish never
 
-      - name: Upload to release
+      # ─── Upload artifacts ───
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.label }}
+          path: |
+            release/mqvi-setup.*
+            release/latest*.yml
+
+  # ─── Create release and upload all artifacts ───
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.ref_name }} \
-            release/mqvi-setup.AppImage \
-            release/latest-linux.yml \
-            --clobber
+          TAG=${{ github.ref_name }}
+          NOTES=$(git tag -l --format='%(contents)' "$TAG")
+          if [ -z "$NOTES" ]; then
+            NOTES="Release $TAG"
+          fi
 
-  # ─── Phase 3: Publish release (remove draft flag) ───
-  publish-release:
-    needs: [build-windows, build-macos, build-linux]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit ${{ github.ref_name }} --draft=false
+          # Create release with tag annotation as notes
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$NOTES" \
+            artifacts/* \
+            || echo "Release may already exist, uploading assets..."
+
+          # If release already exists, just upload
+          gh release upload "$TAG" artifacts/* --clobber 2>/dev/null || true

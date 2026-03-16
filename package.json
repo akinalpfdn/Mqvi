@@ -54,7 +54,7 @@
     },
     "mac": {
       "target": [{ "target": "dmg", "arch": ["arm64"] }],
-      "icon": "icons/mqvi-icon-512x512.png",
+      "icon": "icons/icon.icns",
       "category": "public.app-category.social-networking",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
