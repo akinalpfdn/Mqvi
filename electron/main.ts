@@ -269,7 +269,9 @@ function setupPermissions(): void {
 
 /** Create system tray icon with click-to-show and context menu. */
 function createTray(): void {
-  const iconPath = path.join(__dirname, "../icons/mqvi-icon-256x256.png");
+  // macOS menu bar needs small icons. Use pre-generated 22x22 + 44x44 (@2x retina).
+  const iconName = process.platform === "darwin" ? "tray-icon-22.png" : "mqvi-icon-256x256.png";
+  const iconPath = path.join(__dirname, "../icons", iconName);
   tray = new Tray(nativeImage.createFromPath(iconPath));
 
   tray.setToolTip("mqvi");
