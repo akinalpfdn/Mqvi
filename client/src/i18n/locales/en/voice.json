@@ -56,5 +56,10 @@
   "youWereMoved": "You were moved to another channel",
   "youWereDisconnected": "You were disconnected from voice",
   "dragToMove": "Drag to move to another channel",
-  "voiceChannelLocked": "You do not have permission to connect to this channel"
+  "voiceChannelLocked": "You do not have permission to connect to this channel",
+
+  "afkKickTitle": "Wakey Wakey!",
+  "afkKickMessage": "You were disconnected from {{channel}} on {{server}} for being AFK. The tumbleweeds were getting lonely.",
+  "afkKickSubtitle": "Pro tip: Move your mouse, say something, or at least pretend to be awake.",
+  "afkKickDismiss": "I'm awake, I swear!"
 }

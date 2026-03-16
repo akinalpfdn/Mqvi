@@ -100,6 +100,9 @@ type VoiceDisconnectUserCallback func(disconnecterUserID, targetUserID string)
 // ScreenShareWatchCallback — user started/stopped watching a screen share.
 type ScreenShareWatchCallback func(viewerUserID, streamerUserID string, watching bool)
 
+// VoiceActivityCallback — client reports activity (mouse/keyboard/VAD/screen share).
+type VoiceActivityCallback func(userID string)
+
 // ─── P2P Call Callback Types ───
 
 type P2PCallInitiateCallback func(callerID string, data P2PCallInitiateData)
@@ -158,6 +161,7 @@ type Hub struct {
 	onVoiceAdminStateUpdate VoiceAdminStateUpdateCallback
 	onVoiceMoveUser         VoiceMoveUserCallback
 	onVoiceDisconnectUser   VoiceDisconnectUserCallback
+	onVoiceActivity         VoiceActivityCallback
 
 	onPresenceManualUpdate PresenceManualUpdateCallback
 
@@ -567,6 +571,10 @@ func (h *Hub) OnVoiceMoveUser(cb VoiceMoveUserCallback) {
 
 func (h *Hub) OnVoiceDisconnectUser(cb VoiceDisconnectUserCallback) {
 	h.onVoiceDisconnectUser = cb
+}
+
+func (h *Hub) OnVoiceActivity(cb VoiceActivityCallback) {
+	h.onVoiceActivity = cb
 }
 
 func (h *Hub) OnP2PCallInitiate(cb P2PCallInitiateCallback) {

@@ -43,13 +43,13 @@ func (r *sqliteServerRepo) Create(ctx context.Context, server *models.Server) er
 
 func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*models.Server, error) {
 	query := `
-		SELECT id, name, icon_url, owner_id, invite_required, e2ee_enabled, livekit_instance_id, created_at
+		SELECT id, name, icon_url, owner_id, invite_required, e2ee_enabled, livekit_instance_id, afk_timeout_minutes, created_at
 		FROM servers WHERE id = ?`
 
 	s := &models.Server{}
 	err := r.db.QueryRowContext(ctx, query, serverID).Scan(
 		&s.ID, &s.Name, &s.IconURL, &s.OwnerID,
-		&s.InviteRequired, &s.E2EEEnabled, &s.LiveKitInstanceID, &s.CreatedAt,
+		&s.InviteRequired, &s.E2EEEnabled, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes, &s.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -64,12 +64,12 @@ func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*model
 
 func (r *sqliteServerRepo) Update(ctx context.Context, server *models.Server) error {
 	query := `
-		UPDATE servers SET name = ?, icon_url = ?, invite_required = ?, e2ee_enabled = ?, livekit_instance_id = ?
+		UPDATE servers SET name = ?, icon_url = ?, invite_required = ?, e2ee_enabled = ?, livekit_instance_id = ?, afk_timeout_minutes = ?
 		WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query,
 		server.Name, server.IconURL, server.InviteRequired,
-		server.E2EEEnabled, server.LiveKitInstanceID, server.ID,
+		server.E2EEEnabled, server.LiveKitInstanceID, server.AFKTimeoutMinutes, server.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update server: %w", err)

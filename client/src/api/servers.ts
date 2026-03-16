@@ -47,6 +47,7 @@ export async function updateServer(
     name?: string;
     invite_required?: boolean;
     e2ee_enabled?: boolean;
+    afk_timeout_minutes?: number;
     livekit_url?: string;
     livekit_key?: string;
     livekit_secret?: string;

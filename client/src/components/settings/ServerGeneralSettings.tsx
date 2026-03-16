@@ -28,6 +28,7 @@ function ServerGeneralSettings() {
   const [server, setServer] = useState<Server | null>(null);
   const [editName, setEditName] = useState("");
   const [editInviteRequired, setEditInviteRequired] = useState(false);
+  const [editAFKTimeout, setEditAFKTimeout] = useState(60);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -69,6 +70,7 @@ function ServerGeneralSettings() {
         setServer(res.data);
         setEditName(res.data.name);
         setEditInviteRequired(res.data.invite_required);
+        setEditAFKTimeout(res.data.afk_timeout_minutes ?? 60);
 
         // Fetch LiveKit settings if instance exists
         if (res.data.livekit_instance_id) {
@@ -91,7 +93,8 @@ function ServerGeneralSettings() {
   const hasChanges =
     server !== null &&
     (editName !== server.name ||
-      editInviteRequired !== server.invite_required);
+      editInviteRequired !== server.invite_required ||
+      editAFKTimeout !== (server.afk_timeout_minutes ?? 60));
 
   async function handleSave() {
     if (!hasChanges || isSaving) return;
@@ -102,6 +105,7 @@ function ServerGeneralSettings() {
       const res = await serverApi.updateServer(activeServerId, {
         name: editName,
         invite_required: editInviteRequired,
+        afk_timeout_minutes: editAFKTimeout,
       });
       if (res.success && res.data) {
         setServer(res.data);
@@ -261,6 +265,26 @@ function ServerGeneralSettings() {
             {t("inviteRequiredDesc")}
           </p>
         </div>
+      </div>
+
+      {/* AFK Voice Timeout */}
+      <div className="settings-field">
+        <label htmlFor="afkTimeout" className="settings-label">
+          {t("afkTimeout")}
+        </label>
+        <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 2, marginBottom: 8 }}>{t("afkTimeoutDesc")}</p>
+        <select
+          id="afkTimeout"
+          value={editAFKTimeout}
+          onChange={(e) => setEditAFKTimeout(Number(e.target.value))}
+          className="settings-input"
+          style={{ width: 200 }}
+        >
+          <option value={15}>{t("afkTimeout15")}</option>
+          <option value={30}>{t("afkTimeout30")}</option>
+          <option value={45}>{t("afkTimeout45")}</option>
+          <option value={60}>{t("afkTimeout60")}</option>
+        </select>
       </div>
 
       {/* Separator */}

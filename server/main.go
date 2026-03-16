@@ -104,6 +104,9 @@ func main() {
 	// Voice orphan cleanup — periodic sweep for stale voice states (30s interval)
 	svcs.Voice.StartOrphanCleanup()
 
+	// Voice AFK checker — kicks idle users based on per-server timeout
+	svcs.Voice.StartAFKChecker()
+
 	// 10b. Metrics collector — background goroutine polling LiveKit instances
 	metricsCollector.Start()
 

@@ -29,6 +29,7 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 		&testutil.MockChannelPermResolver{},
 		hub,
 		nil, // onlineChecker
+		nil, // afkTimeoutGetter
 		nil, // encryptionKey
 	)
 	return svc, hub

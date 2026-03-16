@@ -3085,3 +3085,13 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .e2ee-device-this { font-weight:400;color:var(--green);font-size:13px; }
 .e2ee-device-meta { font-size:13px;color:var(--t3); }
 .e2ee-device-remove { flex-shrink:0;margin-left:12px; }
+
+/* ─── AFK Kick Popup ─── */
+.afk-kick-overlay { position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);backdrop-filter:blur(4px); }
+.afk-kick-popup { width:420px;max-width:90vw;background:var(--bg-2);border-radius:16px;padding:32px;text-align:center;animation:vpIn .2s ease-out;border:1px solid var(--b2); }
+.afk-kick-emoji { font-size:64px;margin-bottom:12px;line-height:1; }
+.afk-kick-title { font-family:var(--f-display);font-size:22px;font-weight:700;color:var(--t0);margin-bottom:12px; }
+.afk-kick-message { font-size:15px;color:var(--t1);line-height:1.6;margin-bottom:8px; }
+.afk-kick-subtitle { font-size:14px;color:var(--t3);line-height:1.5;margin-bottom:24px;font-style:italic; }
+.afk-kick-btn { padding:10px 32px;border:none;border-radius:8px;background:var(--primary);color:var(--text-white, #fff);font-size:15px;font-family:var(--f-ui);font-weight:600;cursor:pointer;transition:opacity .1s; }
+.afk-kick-btn:hover { opacity:.9; }

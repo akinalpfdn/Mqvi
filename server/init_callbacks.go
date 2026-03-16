@@ -169,6 +169,9 @@ func registerHubCallbacks(
 	hub.OnScreenShareWatch(func(viewerUserID, streamerUserID string, watching bool) {
 		voiceService.WatchScreenShare(viewerUserID, streamerUserID, watching)
 	})
+	hub.OnVoiceActivity(func(userID string) {
+		voiceService.UpdateActivity(userID)
+	})
 
 	// ─── P2P Call Callbacks ───
 

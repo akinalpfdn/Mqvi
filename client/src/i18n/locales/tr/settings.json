@@ -130,6 +130,13 @@
   "inviteRequired": "Davet Zorunlu",
   "inviteRequiredDesc": "Aktifken yeni üyelerin kayıt olmak için davet kodu girmesi gerekir",
 
+  "afkTimeout": "AFK Ses Zaman Aşımı",
+  "afkTimeoutDesc": "Bu süre boyunca aktif olmayan kullanıcılar ses kanalından çıkarılır.",
+  "afkTimeout15": "15 dakika",
+  "afkTimeout30": "30 dakika",
+  "afkTimeout45": "45 dakika",
+  "afkTimeout60": "1 saat",
+
   "livekitSettings": "Ses Sunucusu (LiveKit)",
   "livekitSettingsDesc": "Bu sunucudaki ses ve görüntü için LiveKit bağlantısını yönetin.",
   "livekitUrl": "LiveKit URL",

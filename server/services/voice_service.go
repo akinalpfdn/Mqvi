@@ -37,6 +37,11 @@ type OnlineUserChecker interface {
 	GetOnlineUserIDs() []string
 }
 
+// AFKTimeoutGetter retrieves a server's AFK timeout. Satisfied by repository.ServerRepository.
+type AFKTimeoutGetter interface {
+	GetByID(ctx context.Context, serverID string) (*models.Server, error)
+}
+
 // ─── VoiceService Interface ───
 
 type VoiceService interface {
@@ -58,7 +63,9 @@ type VoiceService interface {
 	WatchScreenShare(viewerUserID, streamerUserID string, watching bool)
 	GetScreenShareViewerCount(streamerUserID string) int
 	CleanupViewersForStreamer(streamerUserID string)
+	UpdateActivity(userID string)
 	StartOrphanCleanup()
+	StartAFKChecker()
 	SetAppLogger(logger VoiceAppLogger)
 }
 
@@ -81,13 +88,14 @@ type voiceService struct {
 	forceMoveGrants    map[string]forceMoveGrant     // userID -> one-time bypass (consumed on token gen)
 	mu                 sync.RWMutex
 
-	channelGetter ChannelGetter
-	livekitGetter LiveKitInstanceGetter
-	permResolver  ChannelPermResolver
-	hub           ws.Broadcaster
-	onlineChecker OnlineUserChecker
-	encryptionKey []byte // AES-256-GCM for LiveKit credential decryption
-	appLogger     VoiceAppLogger
+	channelGetter    ChannelGetter
+	livekitGetter    LiveKitInstanceGetter
+	permResolver     ChannelPermResolver
+	hub              ws.Broadcaster
+	onlineChecker    OnlineUserChecker
+	afkTimeoutGetter AFKTimeoutGetter
+	encryptionKey    []byte // AES-256-GCM for LiveKit credential decryption
+	appLogger        VoiceAppLogger
 }
 
 func (s *voiceService) SetAppLogger(logger VoiceAppLogger) {
@@ -116,6 +124,7 @@ func NewVoiceService(
 	permResolver ChannelPermResolver,
 	hub ws.Broadcaster,
 	onlineChecker OnlineUserChecker,
+	afkTimeoutGetter AFKTimeoutGetter,
 	encryptionKey []byte,
 ) VoiceService {
 	return &voiceService{
@@ -124,11 +133,12 @@ func NewVoiceService(
 		screenShareViewers: make(map[string]map[string]bool),
 		forceMoveGrants:    make(map[string]forceMoveGrant),
 		channelGetter:      channelGetter,
-		livekitGetter:   livekitGetter,
-		permResolver:    permResolver,
-		hub:             hub,
-		onlineChecker:   onlineChecker,
-		encryptionKey:   encryptionKey,
+		livekitGetter:      livekitGetter,
+		permResolver:       permResolver,
+		hub:                hub,
+		onlineChecker:      onlineChecker,
+		afkTimeoutGetter:   afkTimeoutGetter,
+		encryptionKey:      encryptionKey,
 	}
 }
 
@@ -271,6 +281,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			existing.Username = username
 			existing.DisplayName = displayName
 			existing.AvatarURL = avatarURL
+			existing.LastActivity = time.Now()
 			s.mu.Unlock()
 			log.Printf("[voice] same-channel rejoin user=%s channel=%s (no broadcast)", userID, channelID)
 			return nil
@@ -296,11 +307,12 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	}
 
 	s.states[userID] = &models.VoiceState{
-		UserID:      userID,
-		ChannelID:   channelID,
-		Username:    username,
-		DisplayName: displayName,
-		AvatarURL:   avatarURL,
+		UserID:       userID,
+		ChannelID:    channelID,
+		Username:     username,
+		DisplayName:  displayName,
+		AvatarURL:    avatarURL,
+		LastActivity: time.Now(),
 	}
 
 	s.hub.BroadcastToAll(ws.Event{
@@ -1000,4 +1012,131 @@ func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 	}
 
 	log.Printf("[voice] removeParticipant: successfully removed user=%s from room=%s", userID, roomName)
+}
+
+// UpdateActivity resets the AFK timer for a user (called on mouse/keyboard/VAD/screen share activity).
+func (s *voiceService) UpdateActivity(userID string) {
+	s.mu.Lock()
+	if state, ok := s.states[userID]; ok {
+		state.LastActivity = time.Now()
+	}
+	s.mu.Unlock()
+}
+
+// StartAFKChecker periodically checks for inactive voice users and kicks them.
+// Runs every 30 seconds — checks each user's LastActivity against the server's afk_timeout_minutes.
+func (s *voiceService) StartAFKChecker() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			s.sweepAFKUsers()
+		}
+	}()
+}
+
+type afkEntry struct {
+	userID      string
+	channelID   string
+	channelName string
+	serverID    string
+	serverName  string
+}
+
+// sweepAFKUsers finds and kicks users who exceeded their server's AFK timeout.
+// Two-phase: identify AFK users under read lock, then kick outside lock.
+func (s *voiceService) sweepAFKUsers() {
+	now := time.Now()
+
+	// Phase 1: identify potential AFK users under read lock
+	type candidate struct {
+		userID    string
+		channelID string
+		idleSince time.Time
+	}
+	var candidates []candidate
+
+	s.mu.RLock()
+	for userID, state := range s.states {
+		// Skip users who are streaming — they're actively sharing content
+		if state.IsStreaming {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			userID:    userID,
+			channelID: state.ChannelID,
+			idleSince: state.LastActivity,
+		})
+	}
+	s.mu.RUnlock()
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	// Phase 2: check each candidate against server AFK timeout (requires DB lookups)
+	// Group by channel to minimize DB queries
+	channelTimeouts := make(map[string]time.Duration) // channelID -> timeout
+	channelInfo := make(map[string]afkEntry)           // channelID -> server/channel names
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var toKick []afkEntry
+
+	for _, c := range candidates {
+		timeout, ok := channelTimeouts[c.channelID]
+		if !ok {
+			channel, err := s.channelGetter.GetByID(ctx, c.channelID)
+			if err != nil {
+				continue
+			}
+			server, err := s.afkTimeoutGetter.GetByID(ctx, channel.ServerID)
+			if err != nil {
+				continue
+			}
+			timeout = time.Duration(server.AFKTimeoutMinutes) * time.Minute
+			channelTimeouts[c.channelID] = timeout
+			channelInfo[c.channelID] = afkEntry{
+				channelID:   c.channelID,
+				channelName: channel.Name,
+				serverID:    server.ID,
+				serverName:  server.Name,
+			}
+		}
+
+		if timeout <= 0 {
+			continue
+		}
+
+		if now.Sub(c.idleSince) >= timeout {
+			info := channelInfo[c.channelID]
+			toKick = append(toKick, afkEntry{
+				userID:      c.userID,
+				channelID:   info.channelID,
+				channelName: info.channelName,
+				serverID:    info.serverID,
+				serverName:  info.serverName,
+			})
+		}
+	}
+
+	// Phase 3: kick AFK users
+	for _, entry := range toKick {
+		log.Printf("[voice] AFK kick: user=%s channel=%s server=%s (idle too long)", entry.userID, entry.channelID, entry.serverID)
+
+		// Notify user before disconnect
+		s.hub.BroadcastToUser(entry.userID, ws.Event{
+			Op: ws.OpVoiceAFKKick,
+			Data: ws.VoiceAFKKickData{
+				ChannelID:   entry.channelID,
+				ChannelName: entry.channelName,
+				ServerName:  entry.serverName,
+			},
+		})
+
+		// Use the existing disconnect flow
+		s.DisconnectUser(entry.userID)
+	}
 }

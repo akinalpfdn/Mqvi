@@ -551,6 +551,11 @@ export function useWebSocket() {
         useVoiceStore.getState().handleForceDisconnect();
         break;
       }
+      case "voice_afk_kick": {
+        const afkData = msg.d as { channel_name: string; server_name: string };
+        useVoiceStore.getState().handleAFKKick(afkData.channel_name, afkData.server_name);
+        break;
+      }
       case "voice_replaced": {
         useVoiceStore.getState().handleVoiceReplaced();
         break;

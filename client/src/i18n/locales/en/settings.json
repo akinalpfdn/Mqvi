@@ -130,6 +130,13 @@
   "inviteRequired": "Require Invite",
   "inviteRequiredDesc": "When enabled, new members must provide an invite code to register",
 
+  "afkTimeout": "AFK Voice Timeout",
+  "afkTimeoutDesc": "Users inactive for this duration will be disconnected from voice channels.",
+  "afkTimeout15": "15 minutes",
+  "afkTimeout30": "30 minutes",
+  "afkTimeout45": "45 minutes",
+  "afkTimeout60": "1 hour",
+
   "livekitSettings": "Voice Server (LiveKit)",
   "livekitSettingsDesc": "Manage the LiveKit connection for voice and video in this server.",
   "livekitUrl": "LiveKit URL",

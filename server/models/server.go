@@ -8,14 +8,15 @@ import (
 )
 
 type Server struct {
-	ID                string    `json:"id"`
-	Name              string    `json:"name"`
-	IconURL           *string   `json:"icon_url"`
-	OwnerID           string    `json:"owner_id"`
-	InviteRequired    bool      `json:"invite_required"`
-	E2EEEnabled       bool      `json:"e2ee_enabled"`
-	LiveKitInstanceID *string   `json:"livekit_instance_id,omitempty"` // nil = no voice
-	CreatedAt         time.Time `json:"created_at"`
+	ID                 string    `json:"id"`
+	Name               string    `json:"name"`
+	IconURL            *string   `json:"icon_url"`
+	OwnerID            string    `json:"owner_id"`
+	InviteRequired     bool      `json:"invite_required"`
+	E2EEEnabled        bool      `json:"e2ee_enabled"`
+	LiveKitInstanceID  *string   `json:"livekit_instance_id,omitempty"` // nil = no voice
+	AFKTimeoutMinutes  int       `json:"afk_timeout_minutes"`           // 15/30/45/60, default 60
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // ServerListItem is the minimal data needed for the server icon sidebar.
@@ -67,12 +68,13 @@ func (r *CreateServerRequest) Validate() error {
 
 // UpdateServerRequest — nil fields are not updated (partial update).
 type UpdateServerRequest struct {
-	Name           *string `json:"name"`
-	InviteRequired *bool   `json:"invite_required"`
-	E2EEEnabled    *bool   `json:"e2ee_enabled"`
-	LiveKitURL    *string `json:"livekit_url,omitempty"`
-	LiveKitKey    *string `json:"livekit_key,omitempty"`
-	LiveKitSecret *string `json:"livekit_secret,omitempty"`
+	Name              *string `json:"name"`
+	InviteRequired    *bool   `json:"invite_required"`
+	E2EEEnabled       *bool   `json:"e2ee_enabled"`
+	AFKTimeoutMinutes *int    `json:"afk_timeout_minutes,omitempty"`
+	LiveKitURL        *string `json:"livekit_url,omitempty"`
+	LiveKitKey        *string `json:"livekit_key,omitempty"`
+	LiveKitSecret     *string `json:"livekit_secret,omitempty"`
 }
 
 func (r *UpdateServerRequest) HasLiveKitUpdate() bool {
@@ -84,6 +86,12 @@ func (r *UpdateServerRequest) Validate() error {
 		nameLen := utf8.RuneCountInString(*r.Name)
 		if nameLen < 1 || nameLen > 100 {
 			return fmt.Errorf("server name must be between 1 and 100 characters")
+		}
+	}
+	if r.AFKTimeoutMinutes != nil {
+		v := *r.AFKTimeoutMinutes
+		if v != 15 && v != 30 && v != 45 && v != 60 {
+			return fmt.Errorf("afk_timeout_minutes must be 15, 30, 45, or 60")
 		}
 	}
 	// All 3 LiveKit fields are required together

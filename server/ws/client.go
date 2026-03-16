@@ -104,6 +104,8 @@ func (c *Client) handleEvent(event Event) {
 		c.handleVoiceDisconnectUser(event)
 	case OpScreenShareWatch:
 		c.handleScreenShareWatch(event)
+	case OpVoiceActivity:
+		c.handleVoiceActivity()
 	case OpDMTypingStart:
 		c.handleDMTyping(event)
 	case OpP2PCallInitiate:
@@ -236,6 +238,12 @@ func (c *Client) handleVoiceJoin(event Event) {
 func (c *Client) handleVoiceLeave() {
 	if c.hub.onVoiceLeave != nil {
 		go c.hub.onVoiceLeave(c.userID)
+	}
+}
+
+func (c *Client) handleVoiceActivity() {
+	if c.hub.onVoiceActivity != nil {
+		go c.hub.onVoiceActivity(c.userID)
 	}
 }
 

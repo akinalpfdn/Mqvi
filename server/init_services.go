@@ -65,7 +65,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.ChannelPermission, repos.Role, repos.Channel, hub,
 	)
 	voiceService := services.NewVoiceService(
-		repos.Channel, repos.LiveKit, channelPermService, hub, hub, encryptionKey,
+		repos.Channel, repos.LiveKit, channelPermService, hub, hub, repos.Server, encryptionKey,
 	)
 	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub)
 
