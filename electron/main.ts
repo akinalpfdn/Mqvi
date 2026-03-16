@@ -357,6 +357,12 @@ function setupIPC(): void {
   // including voice chat audio, causing echo for remote participants.
 
   ipcMain.handle("start-system-capture", () => {
+    // WASAPI process loopback is Windows-only
+    if (process.platform !== "win32") {
+      console.log("[main] System audio capture not available on this platform");
+      return null;
+    }
+
     // If a previous capture is still running, kill it first.
     // This handles rapid stop→start cycles where the old process
     // hasn't exited yet.
@@ -531,6 +537,7 @@ function setupIPC(): void {
   );
 
   ipcMain.handle("stop-system-capture", () => {
+    if (process.platform !== "win32") return;
     if (captureProcess) {
       console.log("[main] Stopping audio capture gen=" + captureGeneration);
       captureProcess.kill();

@@ -1,0 +1,233 @@
+name: Build & Release Desktop
+
+# Triggered by annotated tag push: git tag -a v2.5.3 -m "release notes" && git push origin v2.5.3
+# Tag annotation message becomes the release notes.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # ─── Phase 1: Create draft release ───
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Read annotated tag message for release notes
+      - name: Extract tag annotation
+        id: tag
+        run: |
+          TAG=${{ github.ref_name }}
+          # Annotated tag message (everything after the tag header)
+          NOTES=$(git tag -l --format='%(contents)' "$TAG")
+          if [ -z "$NOTES" ]; then
+            NOTES="Release $TAG"
+          fi
+          echo "notes<<EOFNOTES" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOFNOTES" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --title "${{ github.ref_name }}" \
+            --notes "${{ steps.tag.outputs.notes }}" \
+            --draft
+
+  # ─── Phase 2: Build all platforms in parallel ───
+
+  build-windows:
+    needs: create-release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Find MSVC vcvars64.bat dynamically (VS 2022 on GitHub runners)
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install client dependencies
+        run: npm ci --prefix client
+
+      - name: Build client
+        run: npx vite build --outDir dist
+        working-directory: client
+
+      # Compile native audio-capture.exe (WASAPI)
+      - name: Compile audio-capture.exe
+        run: |
+          cl.exe /EHsc /O2 /W3 native\audio-capture.cpp /Fe:native\audio-capture.exe ole32.lib mmdevapi.lib
+        shell: cmd
+
+      - name: Compile Electron TypeScript
+        run: npx tsc -p electron/tsconfig.json
+
+      # Phase 1: Build unpacked
+      - name: Build unpacked app
+        run: npx electron-builder --win --dir
+
+      # Phase 2: Embed icon with rcedit
+      - name: Embed icon
+        run: |
+          npx rcedit release/win-unpacked/mqvi.exe --set-icon icons/mqvi-icon.ico
+
+      # Phase 2.5: Generate app-update.yml
+      - name: Generate app-update.yml
+        run: |
+          @"
+          provider: github
+          owner: akinalpfdn
+          repo: Mqvi
+          updaterCacheDirName: mqvi-desktop-updater
+          "@ | Set-Content -Path "release/win-unpacked/resources/app-update.yml" -Encoding UTF8
+        shell: pwsh
+
+      # Phase 3: Build NSIS installer from patched unpacked
+      - name: Build NSIS installer
+        run: npx electron-builder --win nsis --prepackaged release/win-unpacked
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} `
+            release/mqvi-setup.exe `
+            release/latest.yml `
+            release/mqvi-setup.exe.blockmap `
+            --clobber
+        shell: pwsh
+
+  build-macos:
+    needs: create-release
+    runs-on: macos-14  # Apple Silicon (M1)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Import Apple certificate into temporary keychain
+      - name: Import Apple certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERT_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $CERT_PATH -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      # Write Apple API key to file for notarization
+      - name: Write Apple API key
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          mkdir -p ~/private_keys
+          echo -n "$APPLE_API_KEY" > ~/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install client dependencies
+        run: npm ci --prefix client
+
+      - name: Build client
+        run: npx vite build --outDir dist
+        working-directory: client
+
+      - name: Compile Electron TypeScript
+        run: npx tsc -p electron/tsconfig.json
+
+      # Build macOS DMG (arm64) with code signing + notarization
+      - name: Build macOS DMG
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+        run: npx electron-builder --mac --arm64 --publish never
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} \
+            release/mqvi-setup.dmg \
+            release/latest-mac.yml \
+            release/mqvi-setup.dmg.blockmap \
+            --clobber
+
+  build-linux:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install client dependencies
+        run: npm ci --prefix client
+
+      - name: Build client
+        run: npx vite build --outDir dist
+        working-directory: client
+
+      - name: Compile Electron TypeScript
+        run: npx tsc -p electron/tsconfig.json
+
+      - name: Build Linux AppImage
+        run: npx electron-builder --linux --publish never
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} \
+            release/mqvi-setup.AppImage \
+            release/latest-linux.yml \
+            --clobber
+
+  # ─── Phase 3: Publish release (remove draft flag) ───
+  publish-release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ github.ref_name }} --draft=false

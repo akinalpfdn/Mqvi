@@ -31,34 +31,52 @@
       "client/dist",
       "icons"
     ],
-    "extraResources": [
-      {
-        "from": "native/audio-capture.exe",
-        "to": "native/audio-capture.exe"
-      }
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "icons/mqvi-icon.ico",
-      "signAndEditExecutable": false
-    },
     "artifactName": "mqvi-setup.${ext}",
+    "publish": {
+      "provider": "github",
+      "owner": "akinalpfdn",
+      "repo": "Mqvi"
+    },
+    "win": {
+      "target": ["nsis"],
+      "icon": "icons/mqvi-icon.ico",
+      "signAndEditExecutable": false,
+      "extraResources": [
+        {
+          "from": "native/audio-capture.exe",
+          "to": "native/audio-capture.exe"
+        }
+      ]
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false
     },
     "mac": {
-      "target": [
-        "dmg"
-      ],
-      "icon": "icons/icon.icns"
+      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "icon": "icons/mqvi-icon-512x512.png",
+      "category": "public.app-category.social-networking",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "notarize": {
+        "teamId": "${env.APPLE_TEAM_ID}"
+      }
     },
-    "publish": {
-      "provider": "github",
-      "owner": "akinalpfdn",
-      "repo": "Mqvi"
+    "dmg": {
+      "background": "build/dmg-background.png",
+      "iconSize": 80,
+      "window": { "width": 540, "height": 380 },
+      "contents": [
+        { "x": 140, "y": 210 },
+        { "x": 400, "y": 210, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "icons/mqvi-icon-512x512.png",
+      "category": "Network;Chat"
     }
   }
 }
