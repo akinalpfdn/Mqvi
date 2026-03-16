@@ -142,7 +142,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch user info before upgrade — reject banned users early
 	var displayName, avatarURL string
-	var dbStatus models.UserStatus
+	var dbPrefStatus models.UserStatus
 	if h.userInfoProvider != nil {
 		user, err := h.userInfoProvider.GetByID(r.Context(), claims.UserID)
 		if err != nil {
@@ -164,7 +164,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		if user.AvatarURL != nil {
 			avatarURL = *user.AvatarURL
 		}
-		dbStatus = user.Status
+		dbPrefStatus = user.PrefStatus
 	}
 
 	// Server-scoped ban check
@@ -187,13 +187,10 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// pref_status from client localStorage — correct status broadcast on reconnect
-	prefStatus := r.URL.Query().Get("pref_status")
-	switch prefStatus {
-	case "online", "idle", "dnd", "offline":
-		// valid
-	default:
-		prefStatus = ""
+	// pref_status from DB — persistent across devices and sessions
+	prefStatus := string(dbPrefStatus)
+	if prefStatus == "" {
+		prefStatus = "online"
 	}
 
 	client := &Client{
@@ -206,11 +203,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 
 	// Set invisible BEFORE register so GetVisibleOnlineUserIDs is correct in the ready event.
-	// Priority: pref_status (latest client preference) > DB status (possibly stale)
 	isInvisible := prefStatus == "offline"
-	if prefStatus == "" {
-		isInvisible = dbStatus == models.UserStatusOffline
-	}
 	if isInvisible {
 		h.hub.SetInvisible(claims.UserID, true)
 	}
@@ -262,7 +255,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 
 	h.hub.register <- client
 
-	// Send ready event with online users, servers, and mute state
+	// Send ready event with online users, servers, mute state, and persisted pref_status
 	client.sendEvent(Event{
 		Op: OpReady,
 		Data: ReadyData{
@@ -270,6 +263,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			Servers:         readyServers,
 			MutedServerIDs:  mutedServerIDs,
 			MutedChannelIDs: mutedChannelIDs,
+			PrefStatus:      prefStatus,
 		},
 	})
 

@@ -315,6 +315,7 @@ export function useWebSocket() {
           servers: ServerListItem[];
           muted_server_ids: string[];
           muted_channel_ids: string[];
+          pref_status: string;
         };
 
         if (data.servers) {
@@ -329,6 +330,12 @@ export function useWebSocket() {
           useChannelStore.getState().setMutedChannelsFromReady(data.muted_channel_ids);
         }
 
+        // Sync persistent pref_status from server — overrides any stale localStorage value.
+        // This ensures all devices show the same status preference.
+        if (data.pref_status) {
+          useAuthStore.getState().setManualStatus(data.pref_status as UserStatus);
+        }
+
         useMemberStore.getState().handleReady(data.online_user_ids);
         // Fetch unread counts for ALL servers so cross-server badges work
         useReadStateStore.getState().fetchAllUnreadCounts();
@@ -339,20 +346,6 @@ export function useWebSocket() {
         useBlockStore.getState().fetchBlocked();
 
         setConnectionStatus("connected");
-
-        // Status persistence safety net: send manualStatus correction on ready.
-        // Server already uses pref_status from WS URL, but this covers edge cases.
-        {
-          const storedStatus = useAuthStore.getState().manualStatus;
-          if (storedStatus !== "online") {
-            const ws = wsRef.current;
-            if (ws?.readyState === WebSocket.OPEN) {
-              ws.send(
-                JSON.stringify({ op: "presence_update", d: { status: storedStatus } })
-              );
-            }
-          }
-        }
 
         // Voice auto-rejoin: if user was in a voice channel before WS dropped,
         // re-fetch a fresh LiveKit token and re-join automatically.
@@ -1154,9 +1147,7 @@ export function useWebSocket() {
         wsRef.current = null;
       }
 
-      // Include pref_status in WS URL for immediate correct status broadcast on connect
-      const prefStatus = useAuthStore.getState().manualStatus;
-      const socket = new WebSocket(`${WS_URL}?token=${token}&pref_status=${prefStatus}`);
+      const socket = new WebSocket(`${WS_URL}?token=${token}`);
       wsRef.current = socket;
 
       // ─── onopen ───

@@ -14,6 +14,7 @@ type UserRepository interface {
 	GetAll(ctx context.Context) ([]models.User, error)
 	Update(ctx context.Context, user *models.User) error
 	UpdateStatus(ctx context.Context, userID string, status models.UserStatus) error
+	UpdatePrefStatus(ctx context.Context, userID string, prefStatus models.UserStatus) error
 	UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error
 	// UpdateEmail sets or clears the user's email. nil removes, *string sets.
 	UpdateEmail(ctx context.Context, userID string, email *string) error

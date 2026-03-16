@@ -37,7 +37,8 @@ type AuthState = {
   /**
    * User's manually selected presence. When set to "online", idle detection works normally.
    * When "dnd"/"idle"/"offline" (invisible), idle detection is disabled to preserve the choice.
-   * Persisted in localStorage.
+   * Persisted in DB (pref_status column). localStorage is a local cache for UI before WS connects.
+   * Authoritative value comes from server via ready event.
    */
   manualStatus: UserStatus;
   setManualStatus: (status: UserStatus) => void;

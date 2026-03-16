@@ -30,8 +30,8 @@ type Client struct {
 	// updated on join/leave. Used by BroadcastToServer for filtering.
 	serverIDs []string
 
-	// prefStatus: preferred presence sent via WS URL query param (?pref_status=idle).
-	// Passed to OnUserFirstConnect to broadcast correct status immediately.
+	// prefStatus: user's preferred presence loaded from DB at connect time.
+	// Used by addClient to set initial per-connection status.
 	prefStatus string
 
 	// status: per-connection presence. Hub aggregates across all connections

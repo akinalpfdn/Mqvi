@@ -135,6 +135,7 @@ type ReadyData struct {
 	Servers         []ReadyServerItem `json:"servers"`
 	MutedServerIDs  []string          `json:"muted_server_ids"`
 	MutedChannelIDs []string          `json:"muted_channel_ids"`
+	PrefStatus      string            `json:"pref_status"`
 }
 
 // ReadyServerItem is a minimal server representation for the ready event.

@@ -65,10 +65,8 @@ type EventPublisher interface {
 }
 
 // UserConnectionCallback is called on first-connect and full-disconnect.
-// prefStatus: client's preferred presence sent via WS query param.
-// Used in OnUserFirstConnect to broadcast correct status immediately.
-// Empty string for OnUserFullyDisconnected (unused).
-type UserConnectionCallback func(userID, prefStatus string)
+// Second arg is unused (kept for signature compatibility).
+type UserConnectionCallback func(userID, _ string)
 
 // ─── Voice Callback Types ───
 
