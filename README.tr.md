@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.exe"><img src="icons/btn-windows.svg" alt="Windows İndir" height="48" /></a>&nbsp;&nbsp;
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.dmg"><img src="icons/btn-macos.svg" alt="macOS İndir" height="48" /></a>&nbsp;&nbsp;
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.AppImage"><img src="icons/btn-linux.svg" alt="Linux İndir" height="48" /></a>
+</p>
+
+<p align="center">
   <a href="https://mqvi.net">Web Sitesi</a> &middot;
   <a href="#ozellikler">Ozellikler</a> &middot;
   <a href="#self-host-sadece-ses-sunucusu">Self-Host</a> &middot;

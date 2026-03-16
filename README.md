@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.exe"><img src="icons/btn-windows.svg" alt="Download for Windows" height="48" /></a>&nbsp;&nbsp;
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.dmg"><img src="icons/btn-macos.svg" alt="Download for macOS" height="48" /></a>&nbsp;&nbsp;
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.AppImage"><img src="icons/btn-linux.svg" alt="Download for Linux" height="48" /></a>
+</p>
+
+<p align="center">
   <a href="https://mqvi.net">Website</a> &middot;
   <a href="#features">Features</a> &middot;
   <a href="#self-host-voice-server-only">Self-Host</a> &middot;
