@@ -111,7 +111,8 @@ jobs:
 
       - name: Embed Windows icon
         if: matrix.platform == 'windows-latest'
-        run: npx rcedit release/win-unpacked/mqvi.exe --set-icon icons/mqvi-icon.ico
+        run: node_modules\rcedit\bin\rcedit-x64.exe release\win-unpacked\mqvi.exe --set-icon icons\mqvi-icon.ico
+        shell: cmd
 
       - name: Generate app-update.yml
         if: matrix.platform == 'windows-latest'
@@ -129,15 +130,17 @@ jobs:
         run: npx electron-builder --win nsis --prepackaged release/win-unpacked
 
       # macOS: DMG with code signing + notarization
+      # electron-builder reads CSC_LINK/CSC_KEY_PASSWORD for signing.
+      # @electron/notarize reads APPLE_API_KEY_ID, APPLE_API_ISSUER, APPLE_API_KEY_PATH, APPLE_TEAM_ID.
       - name: Build macOS DMG
         if: startsWith(matrix.platform, 'macos')
         env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_KEY: ${{ format('{0}/apple-keys/AuthKey.p8', runner.temp) }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ format('{0}/apple-keys/AuthKey.p8', runner.temp) }}
         run: npx electron-builder --mac --arm64 --publish never
 
       # Linux: AppImage
