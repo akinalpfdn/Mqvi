@@ -58,6 +58,17 @@ interface ElectronAPI {
   onCaptureAudioStopped: (cb: () => void) => void;
   onCaptureAudioError: (cb: (msg: string) => void) => void;
 
+  /** Register a key for global PTT detection (works when app is unfocused) */
+  registerPTTShortcut: (keyCode: string) => Promise<boolean>;
+  /** Unregister the global PTT shortcut */
+  unregisterPTTShortcut: () => Promise<void>;
+  /** PTT key pressed globally */
+  onPTTGlobalDown: (cb: () => void) => void;
+  /** PTT key released globally */
+  onPTTGlobalUp: (cb: () => void) => void;
+  /** Remove global PTT listeners to prevent accumulation */
+  removePTTListeners: () => void;
+
   /** Save credentials encrypted with safeStorage */
   saveCredentials: (username: string, password: string) => Promise<void>;
   loadCredentials: () => Promise<{ username: string; password: string } | null>;

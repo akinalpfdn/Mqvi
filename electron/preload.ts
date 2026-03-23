@@ -92,6 +92,32 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("capture-audio-error", (_e, msg) => cb(msg));
   },
 
+  // ─── Global PTT (Push-to-Talk) Shortcut ───
+
+  /** Register a key for global PTT detection (works even when app is unfocused) */
+  registerPTTShortcut: (keyCode: string): Promise<boolean> =>
+    ipcRenderer.invoke("register-ptt-shortcut", keyCode),
+
+  /** Unregister the global PTT shortcut */
+  unregisterPTTShortcut: (): Promise<void> =>
+    ipcRenderer.invoke("unregister-ptt-shortcut"),
+
+  /** PTT key pressed globally (main → renderer) */
+  onPTTGlobalDown: (cb: () => void): void => {
+    ipcRenderer.on("ptt-global-down", () => cb());
+  },
+
+  /** PTT key released globally (main → renderer) */
+  onPTTGlobalUp: (cb: () => void): void => {
+    ipcRenderer.on("ptt-global-up", () => cb());
+  },
+
+  /** Remove global PTT listeners to prevent accumulation across sessions */
+  removePTTListeners: (): void => {
+    ipcRenderer.removeAllListeners("ptt-global-down");
+    ipcRenderer.removeAllListeners("ptt-global-up");
+  },
+
   // ─── Credential Storage (Remember Me) ───
 
   /** Save credentials encrypted via safeStorage */

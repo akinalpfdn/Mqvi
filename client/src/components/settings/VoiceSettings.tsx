@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
 import type { InputMode } from "../../stores/voiceStore";
+import { isElectron } from "../../utils/constants";
 
 
 /** Simplified MediaDeviceInfo for select options. */
@@ -189,6 +190,11 @@ function VoiceSettings() {
             {isListeningKey ? t("pttListening") : formatKeyCode(pttKey)}
           </button>
           <div className="vs-desc">{t("pttKeyHint")}</div>
+          {!isElectron() && (
+            <div className="vs-desc vs-warning">
+              {t("pttWebOnly")}
+            </div>
+          )}
         </div>
       )}
 

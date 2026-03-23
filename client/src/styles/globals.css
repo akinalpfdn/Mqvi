@@ -976,6 +976,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .vs-section { margin-bottom:24px; }
 .vs-label { font-size:13px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px; }
 .vs-desc { font-size:13px;color:var(--t3);margin-top:4px; }
+.vs-desc.vs-warning { color:var(--warning);margin-top:6px; }
 
 /* Radio toggle — input mode */
 .vs-radio-group { display:flex;gap:10px; }

@@ -11,7 +11,8 @@
     "electron:dist": "npm run electron:build"
   },
   "dependencies": {
-    "electron-updater": "^6"
+    "electron-updater": "^6",
+    "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
     "concurrently": "^9",
@@ -38,7 +39,9 @@
       "repo": "Mqvi"
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "icons/mqvi-icon.ico",
       "signAndEditExecutable": false,
       "extraResources": [
@@ -53,7 +56,14 @@
       "perMachine": false
     },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
       "icon": "icons/icon.icns",
       "category": "public.app-category.social-networking",
       "hardenedRuntime": true,
@@ -65,14 +75,27 @@
     "dmg": {
       "background": "build/dmg-background.png",
       "iconSize": 80,
-      "window": { "width": 540, "height": 380 },
+      "window": {
+        "width": 540,
+        "height": 380
+      },
       "contents": [
-        { "x": 140, "y": 210 },
-        { "x": 400, "y": 210, "type": "link", "path": "/Applications" }
+        {
+          "x": 140,
+          "y": 210
+        },
+        {
+          "x": 400,
+          "y": 210,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "icon": "icons/mqvi-icon-512x512.png",
       "category": "Network;Chat"
     }

@@ -18,7 +18,9 @@
       "Bash(ls -la \"c:\\\\Users\\\\akina\\\\source\\\\repos\\\\VoidChat\\\\server\\\\database\\\\migrations\"\" 2>/dev/null || ls -la \"c:UsersakinasourcereposVoidChatservermigrations\"\")",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:docs.rs)",
-      "Bash(find /c/Users/akina/source/repos/VoidChat/client/src -name \"*.tsx\" -type f -exec grep -l \"openSettings\" {} ;)"
+      "Bash(find /c/Users/akina/source/repos/VoidChat/client/src -name \"*.tsx\" -type f -exec grep -l \"openSettings\" {} ;)",
+      "Bash(node -e \"const { UiohookKey } = require\\(''uiohook-napi''\\); console.log\\(JSON.stringify\\(UiohookKey, null, 2\\)\\)\")",
+      "Bash(\"C:\\\\Program Files\\\\nodejs\\\\npx.cmd\" tsc -p electron/tsconfig.json --noEmit)"
     ]
   }
 }

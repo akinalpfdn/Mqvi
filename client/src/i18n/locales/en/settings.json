@@ -158,6 +158,7 @@
   "pushToTalkDesc": "Hold a key to transmit",
   "pttKey": "PTT Key",
   "pttKeyHint": "Click and press a key to bind",
+  "pttWebOnly": "Push to Talk only works while this tab is focused. Use the desktop app for global PTT support.",
   "pttListening": "Press a key...",
   "micSensitivity": "Mic Sensitivity",
   "inputDevice": "Input Device",
