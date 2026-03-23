@@ -297,9 +297,10 @@ Tum secenekler icin [`.env.example`](deploy/.env.example) dosyasina bak. Onemli 
 
 ### Onkokullar
 
-- Go 1.21+
-- Node.js 20+
+- Go 1.22+
+- Node.js 22+
 - npm
+- LiveKit Server (ses/video icin — asagiya bak)
 
 ### Kurulum
 
@@ -310,6 +311,7 @@ cd Mqvi
 
 # Backend
 cd server
+cp ../deploy/.env.example .env   # .env dosyasini kopyala ve duzenle (JWT_SECRET, ENCRYPTION_KEY ayarla)
 go mod download
 go run .
 
@@ -320,6 +322,23 @@ npm run dev
 ```
 
 Vite dev sunucusu `/api` ve `/ws` isteklerini `localhost:9090`'a yonlendirir.
+
+### LiveKit (Ses/Video)
+
+Ses ve video icin calisan bir [LiveKit](https://livekit.io) sunucusu gerekir. LiveKit olmadan metin sohbeti calisiyor ama ses kanallarina baglanamezsiniz.
+
+```bash
+# Hizli kurulum — projenin scriptini kullan:
+# Linux:
+sudo bash deploy/livekit-setup.sh
+# Windows (Yonetici olarak PowerShell):
+irm https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.ps1 | iex
+
+# Veya manuel kur: https://docs.livekit.io/home/self-hosting/local/
+livekit-server --config deploy/livekit.yaml --dev
+```
+
+`.env` dosyandaki `LIVEKIT_URL`, `LIVEKIT_API_KEY` ve `LIVEKIT_API_SECRET` degerlerini LiveKit yapilandirmana gore ayarla.
 
 ### Kaynaktan Derleme
 
@@ -427,7 +446,7 @@ middleware    ws/hub (WebSocket broadcast)
 
 ## Katkida Bulunma
 
-Katkilar memnuniyetle karsilanir! Lutfen PR gondermeden once degisikliginizi tartismak icin bir issue acin.
+Katkilar memnuniyetle karsilanir! Issue acmadan veya PR gondermeden once [Katki Kilavuzu](CONTRIBUTING.md)'nu okumanizi rica ederiz.
 
 ---
 
