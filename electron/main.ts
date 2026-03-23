@@ -18,6 +18,7 @@ import {
   safeStorage,
 } from "electron";
 import { autoUpdater } from "electron-updater";
+import { uIOhook, UiohookKey } from "uiohook-napi";
 import { spawn, ChildProcess } from "child_process";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import path from "path";
@@ -122,6 +123,114 @@ let captureHeaderParsed = false;
 
 /** Buffer for accumulating stdout data before header is fully read */
 let captureHeaderBuffer = Buffer.alloc(0);
+
+// ─── Global PTT (Push-to-Talk) ───
+
+/**
+ * uiohook keycode that the user has bound for PTT.
+ * null = no global PTT active (user not in voice or PTT mode disabled).
+ * When set, uIOhook keydown/keyup for this code toggle the mic via IPC.
+ */
+let pttTargetKeycode: number | null = null;
+
+/** Whether uIOhook is currently running (started/stopped on demand) */
+let uiohookRunning = false;
+
+/**
+ * Map KeyboardEvent.code (stored by frontend) → uiohook native keycode.
+ * Built from UiohookKey enum + manual entries for left/right modifier variants.
+ */
+const codeToUiohook: Record<string, number> = {
+  // Letters — frontend stores "KeyA", "KeyB", etc.
+  KeyA: UiohookKey.A, KeyB: UiohookKey.B, KeyC: UiohookKey.C,
+  KeyD: UiohookKey.D, KeyE: UiohookKey.E, KeyF: UiohookKey.F,
+  KeyG: UiohookKey.G, KeyH: UiohookKey.H, KeyI: UiohookKey.I,
+  KeyJ: UiohookKey.J, KeyK: UiohookKey.K, KeyL: UiohookKey.L,
+  KeyM: UiohookKey.M, KeyN: UiohookKey.N, KeyO: UiohookKey.O,
+  KeyP: UiohookKey.P, KeyQ: UiohookKey.Q, KeyR: UiohookKey.R,
+  KeyS: UiohookKey.S, KeyT: UiohookKey.T, KeyU: UiohookKey.U,
+  KeyV: UiohookKey.V, KeyW: UiohookKey.W, KeyX: UiohookKey.X,
+  KeyY: UiohookKey.Y, KeyZ: UiohookKey.Z,
+
+  // Digits — frontend stores "Digit0", "Digit1", etc.
+  Digit0: UiohookKey[0], Digit1: UiohookKey[1], Digit2: UiohookKey[2],
+  Digit3: UiohookKey[3], Digit4: UiohookKey[4], Digit5: UiohookKey[5],
+  Digit6: UiohookKey[6], Digit7: UiohookKey[7], Digit8: UiohookKey[8],
+  Digit9: UiohookKey[9],
+
+  // Modifiers — frontend differentiates left/right
+  ControlLeft: UiohookKey.Ctrl, ControlRight: UiohookKey.CtrlRight,
+  ShiftLeft: UiohookKey.Shift, ShiftRight: UiohookKey.ShiftRight,
+  AltLeft: UiohookKey.Alt, AltRight: UiohookKey.AltRight,
+  MetaLeft: UiohookKey.Meta, MetaRight: UiohookKey.MetaRight,
+
+  // Common keys
+  Space: UiohookKey.Space,
+  Tab: UiohookKey.Tab,
+  CapsLock: UiohookKey.CapsLock,
+  Backquote: UiohookKey.Backquote,
+  Minus: UiohookKey.Minus,
+  Equal: UiohookKey.Equal,
+  BracketLeft: UiohookKey.BracketLeft,
+  BracketRight: UiohookKey.BracketRight,
+  Backslash: UiohookKey.Backslash,
+  Semicolon: UiohookKey.Semicolon,
+  Quote: UiohookKey.Quote,
+  Comma: UiohookKey.Comma,
+  Period: UiohookKey.Period,
+  Slash: UiohookKey.Slash,
+  Enter: UiohookKey.Enter,
+  Backspace: UiohookKey.Backspace,
+
+  // Function keys
+  F1: UiohookKey.F1, F2: UiohookKey.F2, F3: UiohookKey.F3,
+  F4: UiohookKey.F4, F5: UiohookKey.F5, F6: UiohookKey.F6,
+  F7: UiohookKey.F7, F8: UiohookKey.F8, F9: UiohookKey.F9,
+  F10: UiohookKey.F10, F11: UiohookKey.F11, F12: UiohookKey.F12,
+
+  // Numpad
+  Numpad0: UiohookKey.Numpad0, Numpad1: UiohookKey.Numpad1,
+  Numpad2: UiohookKey.Numpad2, Numpad3: UiohookKey.Numpad3,
+  Numpad4: UiohookKey.Numpad4, Numpad5: UiohookKey.Numpad5,
+  Numpad6: UiohookKey.Numpad6, Numpad7: UiohookKey.Numpad7,
+  Numpad8: UiohookKey.Numpad8, Numpad9: UiohookKey.Numpad9,
+  NumpadMultiply: UiohookKey.NumpadMultiply,
+  NumpadAdd: UiohookKey.NumpadAdd,
+  NumpadSubtract: UiohookKey.NumpadSubtract,
+  NumpadDecimal: UiohookKey.NumpadDecimal,
+  NumpadDivide: UiohookKey.NumpadDivide,
+  NumpadEnter: UiohookKey.NumpadEnter,
+};
+
+/** Start the native keyboard hook if not already running */
+function startUiohook(): void {
+  if (uiohookRunning) return;
+  uIOhook.start();
+  uiohookRunning = true;
+  console.log("[main] uIOhook started for global PTT");
+}
+
+/** Stop the native keyboard hook */
+function stopUiohook(): void {
+  if (!uiohookRunning) return;
+  uIOhook.stop();
+  uiohookRunning = false;
+  console.log("[main] uIOhook stopped");
+}
+
+// ─── uIOhook event handlers (registered once, filter by pttTargetKeycode) ───
+
+uIOhook.on("keydown", (e) => {
+  if (pttTargetKeycode !== null && e.keycode === pttTargetKeycode) {
+    mainWindow?.webContents.send("ptt-global-down");
+  }
+});
+
+uIOhook.on("keyup", (e) => {
+  if (pttTargetKeycode !== null && e.keycode === pttTargetKeycode) {
+    mainWindow?.webContents.send("ptt-global-up");
+  }
+});
 
 // ─── Window Creation ───
 function createWindow(): void {
@@ -584,6 +693,31 @@ function setupIPC(): void {
       // Ignore deletion errors
     }
   });
+
+  // ─── Global PTT (Push-to-Talk) Shortcut ───
+  // Renderer tells us which key to watch; uIOhook fires keydown/keyup globally.
+
+  ipcMain.handle(
+    "register-ptt-shortcut",
+    (_e: Electron.IpcMainInvokeEvent, keyCode: string) => {
+      const uiCode = codeToUiohook[keyCode];
+      if (uiCode === undefined) {
+        console.warn(`[main] Unknown PTT key code: ${keyCode}`);
+        return false;
+      }
+
+      pttTargetKeycode = uiCode;
+      startUiohook();
+      console.log(`[main] PTT registered: ${keyCode} → uiohook ${uiCode}`);
+      return true;
+    }
+  );
+
+  ipcMain.handle("unregister-ptt-shortcut", () => {
+    pttTargetKeycode = null;
+    stopUiohook();
+    console.log("[main] PTT unregistered");
+  });
 }
 
 // ─── Auto Updater ───
@@ -810,9 +944,12 @@ app.on("activate", () => {
   }
 });
 
-// Set isQuitting flag and clean up capture process before quit
+// Set isQuitting flag and clean up capture process + uIOhook before quit
 app.on("before-quit", () => {
   isQuitting = true;
+
+  stopUiohook();
+  pttTargetKeycode = null;
 
   if (captureProcess) {
     captureGeneration++;
