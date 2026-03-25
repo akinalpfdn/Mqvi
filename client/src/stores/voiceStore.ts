@@ -92,6 +92,10 @@ type VoiceStore = {
   isMuted: boolean;
   isDeafened: boolean;
   isStreaming: boolean;
+  /** Server-enforced mute — admin silenced this user's mic */
+  isServerMuted: boolean;
+  /** Server-enforced deafen — admin silenced all audio for this user */
+  isServerDeafened: boolean;
   livekitUrl: string | null;
   livekitToken: string | null;
   /** Room-level E2EE passphrase (SFrame) */
@@ -201,6 +205,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   isMuted: false,
   isDeafened: false,
   isStreaming: false,
+  isServerMuted: false,
+  isServerDeafened: false,
   livekitUrl: null,
   livekitToken: null,
   e2eePassphrase: null,
@@ -305,6 +311,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       isMuted: false,
       isDeafened: false,
       isStreaming: false,
+      isServerMuted: false,
+      isServerDeafened: false,
       activeSpeakers: {},
       watchingScreenShares: {},
       screenShareViewers: {},

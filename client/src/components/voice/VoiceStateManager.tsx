@@ -33,6 +33,8 @@ function VoiceStateManager() {
   const isMuted = useVoiceStore((s) => s.isMuted);
   const isStreaming = useVoiceStore((s) => s.isStreaming);
   const inputMode = useVoiceStore((s) => s.inputMode);
+  const isServerMuted = useVoiceStore((s) => s.isServerMuted);
+  const isServerDeafened = useVoiceStore((s) => s.isServerDeafened);
   const userVolumes = useVoiceStore((s) => s.userVolumes);
   const screenShareVolumes = useVoiceStore((s) => s.screenShareVolumes);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
@@ -57,14 +59,16 @@ function VoiceStateManager() {
 
   usePushToTalk({ setMicEnabled });
 
-  // Sync isMuted store state -> LiveKit mic enabled
+  // Sync isMuted + isServerMuted -> LiveKit mic enabled
+  // Server mute overrides local state — mic is always off when server muted
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
-    localParticipant.setMicrophoneEnabled(!isMuted).catch((err: unknown) => {
+    const shouldEnable = !isMuted && !isServerMuted;
+    localParticipant.setMicrophoneEnabled(shouldEnable).catch((err: unknown) => {
       console.error("[VoiceStateManager] Failed to toggle microphone:", err);
     });
-  }, [isMuted, localParticipant]);
+  }, [isMuted, isServerMuted, localParticipant]);
 
   // Process-exclusive audio capture (Electron only).
   // Uses native audio-capture.exe to capture system audio excluding our
@@ -151,9 +155,9 @@ function VoiceStateManager() {
   // Initial sync on room connect — apply store state to LiveKit
   useEffect(() => {
     function handleConnected() {
-      // PTT: mic starts disabled. Voice activity: respect store isMuted.
-      const { isMuted: currentMuted, inputMode: currentMode } = useVoiceStore.getState();
-      const shouldEnable = currentMode === "push_to_talk" ? false : !currentMuted;
+      // PTT: mic starts disabled. Voice activity: respect store isMuted + server mute.
+      const { isMuted: currentMuted, inputMode: currentMode, isServerMuted: srvMuted } = useVoiceStore.getState();
+      const shouldEnable = currentMode === "push_to_talk" ? false : (!currentMuted && !srvMuted);
 
       localParticipant.setMicrophoneEnabled(shouldEnable).catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to set initial mic state:", err);
@@ -177,8 +181,8 @@ function VoiceStateManager() {
     // Restore mic and volumes after SDK internal reconnect.
     // RoomEvent.Reconnected fires when LiveKit reconnects without our intervention.
     function handleReconnected() {
-      const { isMuted: currentMuted, inputMode: currentMode } = useVoiceStore.getState();
-      const shouldEnable = currentMode === "push_to_talk" ? false : !currentMuted;
+      const { isMuted: currentMuted, inputMode: currentMode, isServerMuted: srvMuted } = useVoiceStore.getState();
+      const shouldEnable = currentMode === "push_to_talk" ? false : (!currentMuted && !srvMuted);
 
       // Wait for PeerConnection to stabilize before re-enabling mic
       setTimeout(() => {
@@ -187,16 +191,17 @@ function VoiceStateManager() {
         });
 
         // Re-apply volumes — RemoteParticipant objects may have been recreated
-        const { userVolumes: vols, screenShareVolumes: ssVols, masterVolume: master, isDeafened: deaf } =
+        const { userVolumes: vols, screenShareVolumes: ssVols, masterVolume: master, isDeafened: deaf, isServerDeafened: srvDeaf } =
           useVoiceStore.getState();
         const masterFactor = master / 100;
+        const fullyDeaf = deaf || srvDeaf;
 
         room.remoteParticipants.forEach((participant) => {
           const micVol = vols[participant.identity] ?? 100;
-          participant.setVolume(deaf ? 0 : (micVol / 100) * masterFactor, Track.Source.Microphone);
+          participant.setVolume(fullyDeaf ? 0 : (micVol / 100) * masterFactor, Track.Source.Microphone);
 
           const ssVol = ssVols[participant.identity] ?? 100;
-          participant.setVolume(deaf ? 0 : (ssVol / 100) * masterFactor, Track.Source.ScreenShareAudio);
+          participant.setVolume(fullyDeaf ? 0 : (ssVol / 100) * masterFactor, Track.Source.ScreenShareAudio);
         });
       }, 1000);
     }
@@ -344,8 +349,8 @@ function VoiceStateManager() {
         console.error("[VoiceStateManager] Failed to mute on PTT switch:", err);
       });
     } else {
-      const currentMuted = useVoiceStore.getState().isMuted;
-      localParticipant.setMicrophoneEnabled(!currentMuted).catch((err: unknown) => {
+      const { isMuted: currentMuted, isServerMuted: srvMuted } = useVoiceStore.getState();
+      localParticipant.setMicrophoneEnabled(!currentMuted && !srvMuted).catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to restore mic on VA switch:", err);
       });
     }
@@ -355,22 +360,25 @@ function VoiceStateManager() {
   // Requires webAudioMix: true for >100% amplification via GainNode.
 
   // Latest-ref for volume state — avoids re-registering TrackSubscribed listener on every change
-  const volumeRef = useRef({ userVolumes, screenShareVolumes, masterVolume, isDeafened });
-  volumeRef.current = { userVolumes, screenShareVolumes, masterVolume, isDeafened };
+  const volumeRef = useRef({ userVolumes, screenShareVolumes, masterVolume, isDeafened, isServerDeafened });
+  volumeRef.current = { userVolumes, screenShareVolumes, masterVolume, isDeafened, isServerDeafened };
+
+  // Server deafen overrides local state — all audio is silenced when server deafened
+  const effectiveDeafened = isDeafened || isServerDeafened;
 
   useEffect(() => {
     room.remoteParticipants.forEach((participant) => {
       const masterFactor = masterVolume / 100;
 
       const micVol = userVolumes[participant.identity] ?? 100;
-      const effectiveMic = isDeafened ? 0 : (micVol / 100) * masterFactor;
+      const effectiveMic = effectiveDeafened ? 0 : (micVol / 100) * masterFactor;
       participant.setVolume(effectiveMic, Track.Source.Microphone);
 
       const ssVol = screenShareVolumes[participant.identity] ?? 100;
-      const effectiveSS = isDeafened ? 0 : (ssVol / 100) * masterFactor;
+      const effectiveSS = effectiveDeafened ? 0 : (ssVol / 100) * masterFactor;
       participant.setVolume(effectiveSS, Track.Source.ScreenShareAudio);
     });
-  }, [userVolumes, screenShareVolumes, masterVolume, isDeafened, room]);
+  }, [userVolumes, screenShareVolumes, masterVolume, effectiveDeafened, room]);
 
   const applyVolumeToParticipant = useCallback(
     (participant: RemoteParticipant) => {
@@ -379,15 +387,17 @@ function VoiceStateManager() {
         screenShareVolumes: ssVols,
         masterVolume: master,
         isDeafened: deaf,
+        isServerDeafened: srvDeaf,
       } = volumeRef.current;
       const masterFactor = master / 100;
+      const fullyDeaf = deaf || srvDeaf;
 
       const micVol = vols[participant.identity] ?? 100;
-      const effectiveMic = deaf ? 0 : (micVol / 100) * masterFactor;
+      const effectiveMic = fullyDeaf ? 0 : (micVol / 100) * masterFactor;
       participant.setVolume(effectiveMic, Track.Source.Microphone);
 
       const ssVol = ssVols[participant.identity] ?? 100;
-      const effectiveSS = deaf ? 0 : (ssVol / 100) * masterFactor;
+      const effectiveSS = fullyDeaf ? 0 : (ssVol / 100) * masterFactor;
       participant.setVolume(effectiveSS, Track.Source.ScreenShareAudio);
     },
     []

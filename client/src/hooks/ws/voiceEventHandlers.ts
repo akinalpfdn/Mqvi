@@ -39,6 +39,14 @@ export async function handleVoiceEvent(
         if (!prevStreaming && voiceData.is_streaming) playJoinSound();
         else if (prevStreaming && !voiceData.is_streaming) playLeaveSound();
       }
+
+      // Enforce server mute/deafen on self — update store so VoiceStateManager syncs to LiveKit
+      if (isMe && voiceData.action === "update") {
+        useVoiceStore.setState({
+          isServerMuted: voiceData.is_server_muted,
+          isServerDeafened: voiceData.is_server_deafened,
+        });
+      }
       return true;
     }
 
