@@ -3,21 +3,20 @@
 // ─── Feature Cards ───
 
 export type FeatureItem = {
-  tag: "live" | "beta";
   /** i18n key prefix (f1 -> f1_title, f1_desc) */
   translationKey: string;
 };
 
 export const FEATURES: FeatureItem[] = [
-  { tag: "live", translationKey: "f1" },
-  { tag: "live", translationKey: "f2" },
-  { tag: "live", translationKey: "f3" },
-  { tag: "live", translationKey: "f4" },
-  { tag: "beta", translationKey: "f5" },
-  { tag: "live", translationKey: "f6" },
-  { tag: "beta", translationKey: "f7" },
-  { tag: "live", translationKey: "f8" },
-  { tag: "live", translationKey: "f9" },
+  { translationKey: "f1" },
+  { translationKey: "f2" },
+  { translationKey: "f3" },
+  { translationKey: "f4" },
+  { translationKey: "f5" },
+  { translationKey: "f6" },
+  { translationKey: "f7" },
+  { translationKey: "f8" },
+  { translationKey: "f9" },
 ];
 
 // ─── Comparison Table ───
@@ -38,33 +37,4 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
   { key: "cr6", mqvi: true, other: true },
   { key: "cr7", mqvi: true, other: false },
   { key: "cr8", mqvi: "cr8_mqvi", other: "cr8_other" },
-];
-
-// ─── Roadmap ───
-
-export type RoadmapItem = {
-  key: string;
-};
-
-export const ROADMAP_DONE: RoadmapItem[] = [
-  { key: "rd1" },
-  { key: "rd2" },
-  { key: "rd4" },
-  { key: "rd5" },
-  { key: "rd6" },
-  { key: "rd7" },
-  { key: "rd8" },
-  { key: "rd9" },
-  { key: "rd10" },
-];
-
-export const ROADMAP_WIP: RoadmapItem[] = [
-  { key: "rw1" },
-];
-
-export const ROADMAP_PLANNED: RoadmapItem[] = [
-  { key: "rp1" },
-  { key: "rp2" },
-  { key: "rp3" },
-  { key: "rp4" },
 ];

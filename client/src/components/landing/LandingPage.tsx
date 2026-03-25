@@ -1,47 +1,40 @@
-/** LandingPage — Public marketing page for unauthenticated users. CSS: landing.css */
+/** LandingPage — Public marketing page. CSS: landing.css */
 
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { changeLanguage, type Language } from "../../i18n";
 import { getPublicStats } from "../../api/stats";
-import FeatureCard from "./FeatureCard";
-import RoadmapColumn from "./RoadmapColumn";
 import RevealOnScroll from "./RevealOnScroll";
-import {
-  FEATURES,
-  COMPARISON_ROWS,
-  ROADMAP_DONE,
-  ROADMAP_PLANNED,
-} from "./landingData";
+import { FEATURES, COMPARISON_ROWS } from "./landingData";
 import "../../styles/landing.css";
 
 const RELEASE_BASE = "https://github.com/akinalpfdn/Mqvi/releases/latest/download";
 const RELEASES_PAGE = "https://github.com/akinalpfdn/Mqvi/releases/latest";
+const LANDING_ASSETS = "/static/landing";
 
 type OSInfo = { os: "windows" | "macos" | "linux" | "mobile"; url: string; i18nKey: string };
 
 function detectOS(): OSInfo {
   const ua = navigator.userAgent.toLowerCase();
-
-  // Mobile detection — no desktop installer available
   if (/android|iphone|ipad|ipod|mobile/i.test(ua)) {
     return { os: "mobile", url: RELEASES_PAGE, i18nKey: "hero_download_desktop" };
   }
-
-  // macOS detection (check before linux — iOS iPad with desktop mode has "mac" too,
-  // but mobile regex above catches it first)
   if (ua.includes("mac")) {
     return { os: "macos", url: `${RELEASE_BASE}/mqvi-setup.dmg`, i18nKey: "hero_download_macos" };
   }
-
-  // Linux detection — after mobile filter, so Android doesn't match
   if (ua.includes("linux")) {
     return { os: "linux", url: `${RELEASE_BASE}/mqvi-setup.AppImage`, i18nKey: "hero_download_linux" };
   }
-
   return { os: "windows", url: `${RELEASE_BASE}/mqvi-setup.exe`, i18nKey: "hero_download_windows" };
 }
+
+const SHOWCASE = [
+  { img: "ss-chat", key: "sc1" },
+  { img: "ss-voice", key: "sc2" },
+  { img: "ss-screenshare", key: "sc3" },
+  { img: "ss-dm", key: "sc4" },
+] as const;
 
 function LandingPage() {
   const { t, i18n } = useTranslation("landing");
@@ -49,26 +42,18 @@ function LandingPage() {
   const [totalUsers, setTotalUsers] = useState(0);
   const [guideOS, setGuideOS] = useState<"linux" | "windows">("linux");
 
-  // Fetch total user count once on mount
   useEffect(() => {
     getPublicStats().then((res) => {
-      if (res.success && res.data) {
-        setTotalUsers(res.data.total_users);
-      }
+      if (res.success && res.data) setTotalUsers(res.data.total_users);
     });
   }, []);
 
-  /** Switch language (updates i18n + localStorage) */
-  function handleLangChange(lang: Language) {
-    changeLanguage(lang);
-  }
-
-  /** Smooth scroll to section */
-  function scrollTo(id: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-  }
+  function handleLangChange(lang: Language) { changeLanguage(lang); }
+  function scrollTo(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }); }
 
   const currentLang = i18n.language?.startsWith("tr") ? "tr" : "en";
+  const lang = currentLang;
+  const { url: downloadUrl, i18nKey: downloadKey } = detectOS();
 
   return (
     <div className="landing-page">
@@ -78,49 +63,39 @@ function LandingPage() {
         <div className="lp-aurora-blob lp-aurora-blob--2" />
         <div className="lp-aurora-blob lp-aurora-blob--3" />
       </div>
-
-      {/* ── Grain Overlay ── */}
       <div className="lp-grain" />
 
-      {/* ── Content ── */}
       <div className="lp-content">
 
         {/* ═══ NAVBAR ═══ */}
         <nav className="lp-nav">
-          <div className="lp-nav-logo">m</div>
+          <img src="/mqvi-icon.svg" alt="mqvi" className="lp-nav-logo-img" />
           <span className="lp-nav-brand">mqvi</span>
 
           <div className="lp-nav-links">
             {[
               ["features", t("nav_features")],
               ["comparison", t("nav_compare")],
-              ["roadmap", t("nav_roadmap")],
               ["selfhost", t("nav_selfhost")],
             ].map(([id, label]) => (
-              <button
-                key={id}
-                className="lp-nav-link"
-                onClick={() => scrollTo(id)}
-              >
+              <button key={id} className="lp-nav-link" onClick={() => scrollTo(id)}>
                 {label}
               </button>
             ))}
           </div>
 
-          {/* Language toggle */}
           <div className="lp-nav-lang">
-            {(["en", "tr"] as const).map((lang) => (
+            {(["en", "tr"] as const).map((l) => (
               <button
-                key={lang}
-                className={`lp-nav-lang-btn${currentLang === lang ? " lp-nav-lang-btn--active" : ""}`}
-                onClick={() => handleLangChange(lang)}
+                key={l}
+                className={`lp-nav-lang-btn${currentLang === l ? " lp-nav-lang-btn--active" : ""}`}
+                onClick={() => handleLangChange(l)}
               >
-                {lang.toUpperCase()}
+                {l.toUpperCase()}
               </button>
             ))}
           </div>
 
-          {/* Login button */}
           <button className="lp-nav-login" onClick={() => navigate("/login")}>
             {t("nav_login")}
           </button>
@@ -128,7 +103,6 @@ function LandingPage() {
 
         {/* ═══ HERO ═══ */}
         <section className="lp-hero">
-          {/* User count badge */}
           {totalUsers > 0 && (
             <div className="lp-hero-user-count">
               <div className="lp-hero-user-dot" />
@@ -136,98 +110,57 @@ function LandingPage() {
             </div>
           )}
 
-          {/* Warning badge */}
-          <div className="lp-hero-badge">
-            <div className="lp-hero-badge-dot" />
-            {t("hero_badge")}
-          </div>
-
           <h1>
             {t("hero_h1_1")}<br />
-            {t("hero_h1_2")}<br />
-            <span className="lp-hero-gradient">{t("hero_h1_3")}</span>
+            <span className="lp-hero-gradient">{t("hero_h1_2")}</span>
           </h1>
+          <p className="lp-hero-sub">{t("hero_sub")}</p>
 
-          {/* Subtitle */}
-          <p>{t("hero_sub")}</p>
-
-          {/* CTA buttons */}
-          <div className="lp-hero-actions">
-            <button className="lp-btn-primary" onClick={() => navigate("/register")}>
-              {t("hero_cta")}
-            </button>
-            <button className="lp-btn-secondary" onClick={() => scrollTo("features")}>
-              {t("hero_cta2")}
-            </button>
-          </div>
-
-          {/* Desktop download — auto-detects OS */}
-          {(() => {
-            const { url, i18nKey } = detectOS();
-            return (
-              <a
-                href={url}
-                className="lp-download-link"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                {t(i18nKey)}
-              </a>
-            );
-          })()}
-
-          {/* Scroll indicator */}
-          <div className="lp-hero-scroll">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 5v14M5 12l7 7 7-7" />
+          <a href={downloadUrl} className="lp-download-link" target="_blank" rel="noopener noreferrer">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
+            {t(downloadKey)}
+          </a>
+
+          {/* Demo Video */}
+          <div className="lp-hero-video-wrap">
+            <video
+              className="lp-hero-video"
+              src={`${LANDING_ASSETS}/demo-${lang}.mp4`}
+              autoPlay
+              muted
+              loop
+              playsInline
+            />
           </div>
         </section>
 
-        {/* ═══ PROBLEM ═══ */}
-        <RevealOnScroll>
-          <section className="lp-section">
-            <div className="lp-problem">
-              {/* Left: Text */}
-              <div className="lp-problem-left">
-                <div className="lp-section-label">{t("problem_label")}</div>
-                <h2 className="lp-section-title">
-                  {t("problem_t1")}<br />
-                  {t("problem_t2")}<br />
-                  {t("problem_t3")}
-                </h2>
-                <p className="lp-section-desc">{t("problem_desc")}</p>
-              </div>
+        {/* ═══ SHOWCASE ═══ */}
+        <section className="lp-section">
+          <RevealOnScroll>
+            <div className="lp-section-label lp-section--center">{t("showcase_label")}</div>
+          </RevealOnScroll>
 
-              {/* Right: ID Card mockup */}
-              <div className="lp-problem-right">
-                <div className="lp-id-card">
-                  <div className="lp-id-card-bar" />
-                  <div className="lp-id-card-header">
-                    <div className="lp-id-card-icon">!</div>
-                    {t("id_header")}
-                  </div>
-                  {(["id_name", "id_number", "id_dob"] as const).map((key) => (
-                    <div key={key} className="lp-id-card-row">
-                      <span className="lp-id-card-label">{t(key)}</span>
-                      <div className="lp-id-card-redacted" />
-                    </div>
-                  ))}
-                  <div className="lp-id-card-row">
-                    <span className="lp-id-card-label">{t("id_photo")}</span>
-                    <span className="lp-id-card-upload">{t("id_upload")}</span>
-                  </div>
-                  <div className="lp-id-card-stamp">{t("id_stamp")}</div>
+          {SHOWCASE.map((item, i) => (
+            <RevealOnScroll key={item.key}>
+              <div className={`lp-showcase-row ${i % 2 === 1 ? "lp-showcase-row--reverse" : ""}`}>
+                <img
+                  className="lp-showcase-img"
+                  src={`${LANDING_ASSETS}/${item.img}-${lang}.png`}
+                  alt={t(`${item.key}_title`)}
+                  loading="lazy"
+                />
+                <div className="lp-showcase-text">
+                  <h3>{t(`${item.key}_title`)}</h3>
+                  <p>{t(`${item.key}_desc`)}</p>
                 </div>
               </div>
-            </div>
-          </section>
-        </RevealOnScroll>
+            </RevealOnScroll>
+          ))}
+        </section>
 
         {/* ═══ FEATURES ═══ */}
         <section id="features" className="lp-section">
@@ -238,20 +171,19 @@ function LandingPage() {
                 {t("feat_t1")}<br />
                 {t("feat_t2")}
               </h2>
-              <p className="lp-section-desc" style={{ margin: "0 auto" }}>
-                {t("feat_desc")}
-              </p>
+              <p className="lp-section-desc">{t("feat_desc")}</p>
             </div>
           </RevealOnScroll>
 
           <div className="lp-features-grid">
             {FEATURES.map((f, i) => (
-              <FeatureCard
-                key={f.translationKey}
-                tag={f.tag}
-                translationKey={f.translationKey}
-                delay={i * 0.06}
-              />
+              <RevealOnScroll key={f.translationKey} delay={i * 0.06}>
+                <div className="lp-feature-card">
+                  <div className="lp-feature-card-line" />
+                  <h3>{t(`${f.translationKey}_title`)}</h3>
+                  <p>{t(`${f.translationKey}_desc`)}</p>
+                </div>
+              </RevealOnScroll>
             ))}
           </div>
         </section>
@@ -264,20 +196,15 @@ function LandingPage() {
             <p className="lp-section-desc">{t("comp_desc")}</p>
 
             <div className="lp-comparison-table">
-              {/* Header */}
               <div className="lp-comp-header">
                 <div className="lp-comp-cell" />
                 <div className="lp-comp-cell lp-comp-cell--header lp-comp-cell--mqvi">mqvi</div>
                 <div className="lp-comp-cell lp-comp-cell--header lp-comp-cell--other">{t("comp_others")}</div>
               </div>
 
-              {/* Rows */}
               {COMPARISON_ROWS.map((row) => (
                 <div key={row.key} className="lp-comp-row">
-                  {/* Feature name */}
                   <div className="lp-comp-cell">{t(row.key)}</div>
-
-                  {/* mqvi column */}
                   <div className="lp-comp-cell lp-comp-cell--mqvi" style={{ justifyContent: "center" }}>
                     {typeof row.mqvi === "string" ? (
                       <span>{t(row.mqvi)}</span>
@@ -285,8 +212,6 @@ function LandingPage() {
                       <span className="lp-comp-check">{"\u2713"}</span>
                     )}
                   </div>
-
-                  {/* Others column */}
                   <div className="lp-comp-cell" style={{ justifyContent: "center" }}>
                     {typeof row.other === "string" ? (
                       <span className="lp-comp-text-bad">{t(row.other)}</span>
@@ -302,30 +227,7 @@ function LandingPage() {
           </section>
         </RevealOnScroll>
 
-        {/* ═══ ROADMAP ═══ */}
-        <section id="roadmap" className="lp-section">
-          <RevealOnScroll>
-            <div className="lp-features-header">
-              <div className="lp-section-label">{t("road_label")}</div>
-              <h2 className="lp-section-title">
-                {t("road_t1")}<br />
-                {t("road_t2")}
-              </h2>
-              <p className="lp-section-desc" style={{ margin: "0 auto" }}>
-                {t("road_desc")}
-              </p>
-            </div>
-          </RevealOnScroll>
-
-          <RevealOnScroll delay={0.1}>
-            <div className="lp-roadmap-grid">
-              <RoadmapColumn title={t("road_done")} color="#22c55e" items={ROADMAP_DONE} />
-              <RoadmapColumn title={t("road_plan")} color="var(--lp-secondary)" items={ROADMAP_PLANNED} />
-            </div>
-          </RevealOnScroll>
-        </section>
-
-        {/* ═══ SELF-HOST ═══ */}
+        {/* ═══ SELF-HOST ═══ (unchanged) */}
         <RevealOnScroll>
           <section id="selfhost" className="lp-section">
             <div className="lp-features-header">
@@ -339,21 +241,14 @@ function LandingPage() {
               </p>
             </div>
 
-            {/* OS Tab Bar */}
             <div className="lp-guide-os-tabs">
-              <button
-                className={`lp-guide-os-tab ${guideOS === "linux" ? "active" : ""}`}
-                onClick={() => setGuideOS("linux")}
-              >
+              <button className={`lp-guide-os-tab ${guideOS === "linux" ? "active" : ""}`} onClick={() => setGuideOS("linux")}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12.5 2c-.4 0-.8.3-.8.8v.1c-.1.6-.4 1.1-.8 1.5-.5.4-1 .7-1.5.8-.3.1-.5.3-.5.6v.3c0 .6.2 1.2.5 1.7.2.3.2.7.1 1-.2.4-.5.7-.9.9-.4.2-.6.6-.5 1 .2 1 .7 1.9 1.5 2.5-.2.5-.3 1-.3 1.5 0 .7.2 1.3.5 1.9-.8.6-1.3 1.4-1.3 2.2 0 1.8 2 3.2 4.5 3.2s4.5-1.4 4.5-3.2c0-.8-.5-1.6-1.3-2.2.3-.6.5-1.2.5-1.9 0-.5-.1-1-.3-1.5.8-.6 1.3-1.5 1.5-2.5.1-.4-.1-.8-.5-1-.4-.2-.7-.5-.9-.9-.1-.3-.1-.7.1-1 .3-.5.5-1.1.5-1.7v-.3c0-.3-.2-.5-.5-.6-.5-.1-1-.4-1.5-.8-.4-.4-.7-.9-.8-1.5v-.1c0-.5-.4-.8-.8-.8z" />
                 </svg>
                 {t("guide_os_linux")}
               </button>
-              <button
-                className={`lp-guide-os-tab ${guideOS === "windows" ? "active" : ""}`}
-                onClick={() => setGuideOS("windows")}
-              >
+              <button className={`lp-guide-os-tab ${guideOS === "windows" ? "active" : ""}`} onClick={() => setGuideOS("windows")}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M3 5.5l7.5-1v7H3V5.5zm0 13l7.5 1v-7H3v6zm8.5 1.2L21 21V12.5h-9.5v7.2zm0-15.4v7.2H21V3l-9.5 1.3z" />
                 </svg>
@@ -361,9 +256,7 @@ function LandingPage() {
               </button>
             </div>
 
-            {/* Step-by-step guide */}
             <div className="lp-guide">
-              {/* Step 1: Get a server */}
               <div className="lp-guide-step">
                 <div className="lp-guide-step-num">1</div>
                 <div className="lp-guide-step-content">
@@ -381,9 +274,7 @@ function LandingPage() {
                   <div className="lp-guide-specs">
                     <div className="lp-guide-spec">
                       <span className="lp-guide-spec-label">{t("guide_s1_os")}</span>
-                      <span className="lp-guide-spec-val">
-                        {guideOS === "linux" ? t("guide_s1_os_linux") : t("guide_s1_os_windows")}
-                      </span>
+                      <span className="lp-guide-spec-val">{guideOS === "linux" ? t("guide_s1_os_linux") : t("guide_s1_os_windows")}</span>
                     </div>
                     <div className="lp-guide-spec">
                       <span className="lp-guide-spec-label">{t("guide_s1_ram")}</span>
@@ -397,7 +288,6 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* Step 2: Run the setup script */}
               <div className="lp-guide-step">
                 <div className="lp-guide-step-num">2</div>
                 <div className="lp-guide-step-content">
@@ -462,7 +352,6 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* Step 3: Connect to mqvi */}
               <div className="lp-guide-step">
                 <div className="lp-guide-step-num">3</div>
                 <div className="lp-guide-step-content">
@@ -475,7 +364,6 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* SSL Warning */}
               <div className="lp-guide-ssl-warning">
                 <div className="lp-guide-ssl-icon">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -490,26 +378,15 @@ function LandingPage() {
                 </div>
               </div>
 
-              {/* Troubleshooting */}
               <div className="lp-guide-troubleshoot">
                 <h3 className="lp-guide-troubleshoot-title">{t("guide_trouble_title")}</h3>
                 <div className="lp-guide-trouble-grid">
-                  <div className="lp-guide-trouble-card">
-                    <div className="lp-guide-trouble-q">{t("guide_trouble_q1")}</div>
-                    <div className="lp-guide-trouble-a">{t("guide_trouble_a1")}</div>
-                  </div>
-                  <div className="lp-guide-trouble-card">
-                    <div className="lp-guide-trouble-q">{t("guide_trouble_q2")}</div>
-                    <div className="lp-guide-trouble-a">{t("guide_trouble_a2")}</div>
-                  </div>
-                  <div className="lp-guide-trouble-card">
-                    <div className="lp-guide-trouble-q">{t("guide_trouble_q3")}</div>
-                    <div className="lp-guide-trouble-a">{t("guide_trouble_a3")}</div>
-                  </div>
-                  <div className="lp-guide-trouble-card">
-                    <div className="lp-guide-trouble-q">{t("guide_trouble_q4")}</div>
-                    <div className="lp-guide-trouble-a">{t("guide_trouble_a4")}</div>
-                  </div>
+                  {([1, 2, 3, 4] as const).map((n) => (
+                    <div key={n} className="lp-guide-trouble-card">
+                      <div className="lp-guide-trouble-q">{t(`guide_trouble_q${n}`)}</div>
+                      <div className="lp-guide-trouble-a">{t(`guide_trouble_a${n}`)}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -542,7 +419,7 @@ function LandingPage() {
         {/* ═══ FOOTER ═══ */}
         <footer className="lp-footer">
           <div className="lp-footer-left">
-            <div className="lp-footer-logo">m</div>
+            <img src="/mqvi-icon.svg" alt="mqvi" className="lp-footer-logo-img" />
             <span className="lp-footer-copy">{t("footer_copy")}</span>
           </div>
           <div className="lp-footer-links">

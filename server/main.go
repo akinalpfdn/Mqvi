@@ -149,7 +149,7 @@ func main() {
 			mux.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/static/") {
 			apiHandler.ServeHTTP(w, r)
 			return
 		}

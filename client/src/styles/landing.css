@@ -141,16 +141,9 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(26, 48, 56, 0.5);
 }
-.lp-nav-logo {
+.lp-nav-logo-img {
   width: 34px; height: 34px;
   border-radius: 9px;
-  background: var(--lp-accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 16px;
-  color: #fff;
   flex-shrink: 0;
 }
 .lp-nav-brand {
@@ -219,13 +212,12 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
    HERO
    ═══════════════════════════════════════ */
 .lp-hero {
-  min-height: 100vh;
+  min-height: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   text-align: center;
-  padding: 120px 24px 80px;
+  padding: 90px 24px 60px;
   position: relative;
 }
 .lp-hero-badge {
@@ -273,7 +265,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -1.5px;
-  max-width: 700px;
+  max-width: 900px;
   margin-bottom: 24px;
   animation: lp-fadeUp 0.8s ease 0.1s both;
 }
@@ -285,7 +277,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   color: var(--lp-text-muted);
   max-width: 560px;
   line-height: 1.7;
-  margin-bottom: 48px;
+  margin-bottom: 0;
   animation: lp-fadeUp 0.8s ease 0.2s both;
 }
 .lp-hero-actions {
@@ -325,7 +317,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-top: 24px;
+  margin-top: 12px;
   padding: 14px 40px;
   border-radius: 12px;
   border: 2px solid var(--lp-accent);
@@ -343,11 +335,61 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   color: var(--lp-bg);
 }
 .lp-download-link svg { flex-shrink: 0; width: 20px; height: 20px; }
-.lp-hero-scroll {
-  position: absolute;
-  bottom: 40px;
-  animation: lp-bounce 2s ease infinite;
-  color: var(--lp-text-dim);
+
+/* ── Hero Video ── */
+.lp-hero-video-wrap {
+  margin-top: 48px;
+  width: 100%;
+  max-width: 900px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--lp-border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.lp-hero-video {
+  width: 100%;
+  display: block;
+  border-radius: 12px;
+}
+
+/* ── Showcase (zigzag rows) ── */
+.lp-showcase-row {
+  display: flex;
+  align-items: center;
+  gap: 60px;
+  margin-bottom: 80px;
+}
+.lp-showcase-row--reverse {
+  flex-direction: row-reverse;
+}
+.lp-showcase-img {
+  width: 55%;
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid var(--lp-border);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+.lp-showcase-text {
+  flex: 1;
+}
+.lp-showcase-text h3 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  letter-spacing: -0.3px;
+}
+.lp-showcase-text p {
+  font-size: 16px;
+  color: var(--lp-text-muted);
+  line-height: 1.7;
+  margin: 0;
+}
+
+/* ── Footer logo img ── */
+.lp-footer-logo-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
 }
 
 /* ═══════════════════════════════════════
@@ -483,10 +525,17 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   text-align: center;
   margin-bottom: 64px;
 }
+.lp-features-header .lp-section-desc {
+  margin: 0 auto;
+}
 .lp-features-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
+}
+/* RevealOnScroll wrapper must stretch to fill grid cell */
+.lp-features-grid > .lp-reveal {
+  display: flex;
 }
 
 /* Feature Card */
@@ -498,6 +547,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   transition: all 0.4s;
   position: relative;
   overflow: hidden;
+  flex: 1;
 }
 .lp-feature-card:hover {
   border-color: var(--lp-accent);
@@ -1024,7 +1074,16 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
     padding: 12px 24px;
     font-size: 15px;
   }
-  .lp-hero-scroll { display: none; }
+  /* ── Showcase ── */
+  .lp-showcase-row,
+  .lp-showcase-row--reverse {
+    flex-direction: column;
+    gap: 24px;
+    margin-bottom: 60px;
+  }
+  .lp-showcase-img {
+    width: 100%;
+  }
 
   /* ── Sections ── */
   .lp-section {
