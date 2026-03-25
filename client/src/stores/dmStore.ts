@@ -21,9 +21,16 @@ import {
   persistSentPlaintext,
   cacheEditPlaintext,
 } from "../crypto/dmEncryption";
-import { encryptFile } from "../crypto/fileEncryption";
 import { encodePayload } from "../crypto/e2eePayload";
-import type { EncryptedFileMeta } from "../crypto/fileEncryption";
+import {
+  encryptFilesForE2EE,
+  handleRateLimitError,
+  createTypingHandler,
+  updateMessageInRecord,
+  deleteMessageFromRecord,
+  updateReactionInRecord,
+  updateAuthorInRecord,
+} from "./shared/messageUtils";
 
 const EMPTY_CHANNELS: DMChannelWithUser[] = [];
 const EMPTY_MESSAGES: DMMessage[] = [];
@@ -39,12 +46,6 @@ function sortChannelsByActivity(channels: DMChannelWithUser[]): DMChannelWithUse
     return bTime.localeCompare(aTime);
   });
 }
-
-/** Typing indicator auto-cleanup timeout (ms) */
-const TYPING_TIMEOUT = 5_000;
-
-/** Typing timers: `channelId:username` -> timeout ID */
-const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 type DMState = {
   channels: DMChannelWithUser[];
@@ -250,28 +251,15 @@ export const useDMStore = create<DMState>((set, get) => ({
 
       if (channel && currentUserId) {
         try {
-          // Encrypt files with AES-256-GCM if present
           let encryptedFiles: File[] | undefined;
-          let fileMetas: EncryptedFileMeta[] | undefined;
+          let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
 
           if (files && files.length > 0) {
-            encryptedFiles = [];
-            fileMetas = [];
-
-            for (let i = 0; i < files.length; i++) {
-              const result = await encryptFile(files[i]);
-              encryptedFiles.push(
-                new File(
-                  [result.encryptedBlob],
-                  `encrypted_${i}.bin`,
-                  { type: "application/octet-stream" }
-                )
-              );
-              fileMetas.push(result.meta);
-            }
+            const result = await encryptFilesForE2EE(files);
+            encryptedFiles = result.files;
+            fileMetas = result.metas;
           }
 
-          // Structured payload: content + file_keys (if any) -> JSON string
           const plaintext = encodePayload(content, fileMetas);
 
           const envelopes = await encryptDMMessage(
@@ -310,9 +298,7 @@ export const useDMStore = create<DMState>((set, get) => ({
 
           if (!res.success) {
             discardLastSentPlaintext(channelId);
-            if (res.error?.includes("too many")) {
-              useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
-            }
+            handleRateLimitError(res);
           }
 
           return res.success;
@@ -324,9 +310,7 @@ export const useDMStore = create<DMState>((set, get) => ({
           const errMsg = err instanceof Error ? err.message : "";
           if (errMsg === "RECIPIENT_NO_KEYS") {
             const fallbackRes = await dmApi.sendDMMessage(channelId, content, files, replyToId);
-            if (!fallbackRes.success && fallbackRes.error?.includes("too many")) {
-              useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
-            }
+            handleRateLimitError(fallbackRes);
             return fallbackRes.success;
           }
           useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
@@ -337,11 +321,7 @@ export const useDMStore = create<DMState>((set, get) => ({
 
     // No E2EE — send plaintext (legacy)
     const res = await dmApi.sendDMMessage(channelId, content, files, replyToId);
-
-    if (!res.success && res.error?.includes("too many")) {
-      useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
-    }
-
+    handleRateLimitError(res);
     return res.success;
   },
 
@@ -641,99 +621,32 @@ export const useDMStore = create<DMState>((set, get) => ({
   },
 
   handleDMMessageUpdate: (message) => {
-    set((state) => {
-      const channelMessages = state.messagesByChannel[message.dm_channel_id];
-      if (!channelMessages) return state;
-
-      return {
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [message.dm_channel_id]: channelMessages.map((m) =>
-            m.id === message.id ? message : m
-          ),
-        },
-      };
-    });
+    set((state) => ({
+      messagesByChannel: updateMessageInRecord(
+        state.messagesByChannel, message.dm_channel_id, message
+      ),
+    }));
   },
 
-  /**
-   * Removes deleted message and nullifies referenced_message on replies
-   * pointing to it ("Original message was deleted" display).
-   */
   handleDMMessageDelete: (data) => {
-    set((state) => {
-      const channelMessages = state.messagesByChannel[data.dm_channel_id];
-      if (!channelMessages) return state;
-
-      const updated = channelMessages
-        .filter((m) => m.id !== data.id)
-        .map((m) =>
-          m.reply_to_id === data.id
-            ? { ...m, referenced_message: { id: data.id, author: null, content: null } }
-            : m
-        );
-
-      return {
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [data.dm_channel_id]: updated,
-        },
-      };
-    });
+    set((state) => ({
+      messagesByChannel: deleteMessageFromRecord(
+        state.messagesByChannel, data.dm_channel_id, data.id
+      ),
+    }));
   },
 
   /** Backend sends full reaction list after each toggle — direct replace. */
   handleDMReactionUpdate: (data) => {
-    set((state) => {
-      const channelMessages = state.messagesByChannel[data.dm_channel_id];
-      if (!channelMessages) return state;
-
-      return {
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [data.dm_channel_id]: channelMessages.map((m) =>
-            m.id === data.dm_message_id
-              ? { ...m, reactions: data.reactions }
-              : m
-          ),
-        },
-      };
-    });
+    set((state) => ({
+      messagesByChannel: updateReactionInRecord(
+        state.messagesByChannel, data.dm_channel_id, data.dm_message_id, data.reactions
+      ),
+    }));
   },
 
   /** Adds user to typing list with 5s auto-cleanup timer. */
-  handleDMTypingStart: (channelId, username) => {
-    set((state) => {
-      const current = state.typingUsers[channelId] ?? [];
-      if (current.includes(username)) return state;
-
-      return {
-        typingUsers: {
-          ...state.typingUsers,
-          [channelId]: [...current, username],
-        },
-      };
-    });
-
-    const key = `${channelId}:${username}`;
-    const existingTimer = typingTimers.get(key);
-    if (existingTimer) clearTimeout(existingTimer);
-
-    typingTimers.set(
-      key,
-      setTimeout(() => {
-        set((state) => ({
-          typingUsers: {
-            ...state.typingUsers,
-            [channelId]: (state.typingUsers[channelId] ?? []).filter(
-              (u) => u !== username
-            ),
-          },
-        }));
-        typingTimers.delete(key);
-      }, TYPING_TIMEOUT)
-    );
-  },
+  handleDMTypingStart: createTypingHandler(set),
 
   handleDMMessagePin: (data) => {
     set((state) => {
@@ -832,26 +745,21 @@ export const useDMStore = create<DMState>((set, get) => ({
 
   handleDMAuthorUpdate: (userId, patch) => {
     set((state) => {
-      const updated: Record<string, DMMessage[]> = {};
-      let changed = false;
-
-      for (const [chId, msgs] of Object.entries(state.messagesByChannel)) {
-        const newMsgs = msgs.map((m) => {
-          if (m.author?.id !== userId) return m;
-          changed = true;
-          return { ...m, author: { ...m.author, ...patch } };
-        });
-        updated[chId] = newMsgs;
-      }
+      const { updated, changed: messagesChanged } = updateAuthorInRecord(
+        state.messagesByChannel, userId, patch
+      );
 
       // Also update other_user in DM channel list
+      let channelsChanged = false;
       const updatedChannels = state.channels.map((ch) => {
         if (ch.other_user?.id !== userId) return ch;
-        changed = true;
+        channelsChanged = true;
         return { ...ch, other_user: { ...ch.other_user, ...patch } };
       });
 
-      return changed ? { messagesByChannel: updated, channels: updatedChannels } : state;
+      return (messagesChanged || channelsChanged)
+        ? { messagesByChannel: updated, channels: updatedChannels }
+        : state;
     });
   },
 
