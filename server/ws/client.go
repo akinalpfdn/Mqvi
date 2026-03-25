@@ -30,8 +30,8 @@ type Client struct {
 	// updated on join/leave. Used by BroadcastToServer for filtering.
 	serverIDs []string
 
-	// prefStatus: preferred presence sent via WS URL query param (?pref_status=idle).
-	// Passed to OnUserFirstConnect to broadcast correct status immediately.
+	// prefStatus: user's preferred presence loaded from DB at connect time.
+	// Used by addClient to set initial per-connection status.
 	prefStatus string
 
 	// status: per-connection presence. Hub aggregates across all connections
@@ -104,6 +104,8 @@ func (c *Client) handleEvent(event Event) {
 		c.handleVoiceDisconnectUser(event)
 	case OpScreenShareWatch:
 		c.handleScreenShareWatch(event)
+	case OpVoiceActivity:
+		c.handleVoiceActivity()
 	case OpDMTypingStart:
 		c.handleDMTyping(event)
 	case OpP2PCallInitiate:
@@ -154,7 +156,9 @@ func (c *Client) handlePresenceUpdate(event Event) {
 	}
 }
 
-// handleTyping broadcasts a typing indicator to other users.
+// handleTyping validates channel access and broadcasts a typing indicator
+// to the channel's server members only. Uses a callback to avoid Hub
+// depending on channel/permission services directly (same pattern as DM typing).
 func (c *Client) handleTyping(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -170,14 +174,10 @@ func (c *Client) handleTyping(event Event) {
 		return
 	}
 
-	c.hub.BroadcastToAllExcept(c.userID, Event{
-		Op: OpTypingStart,
-		Data: TypingStartData{
-			UserID:    c.userID,
-			Username:  c.hub.getUserUsername(c.userID),
-			ChannelID: typing.ChannelID,
-		},
-	})
+	if c.hub.onChannelTyping != nil {
+		username := c.hub.getUserUsername(c.userID)
+		go c.hub.onChannelTyping(c.userID, username, typing.ChannelID)
+	}
 }
 
 // handleDMTyping broadcasts a DM typing indicator to the other participant only.
@@ -236,6 +236,12 @@ func (c *Client) handleVoiceJoin(event Event) {
 func (c *Client) handleVoiceLeave() {
 	if c.hub.onVoiceLeave != nil {
 		go c.hub.onVoiceLeave(c.userID)
+	}
+}
+
+func (c *Client) handleVoiceActivity() {
+	if c.hub.onVoiceActivity != nil {
+		go c.hub.onVoiceActivity(c.userID)
 	}
 }
 

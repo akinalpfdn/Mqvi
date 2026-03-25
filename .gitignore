@@ -35,7 +35,6 @@ native/*.obj
 # Root node_modules (Electron + build tools)
 # ========================
 /node_modules/
-/package-lock.json
 
 # ========================
 # Environment & Secrets

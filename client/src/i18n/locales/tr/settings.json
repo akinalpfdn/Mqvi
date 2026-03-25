@@ -130,6 +130,13 @@
   "inviteRequired": "Davet Zorunlu",
   "inviteRequiredDesc": "Aktifken yeni üyelerin kayıt olmak için davet kodu girmesi gerekir",
 
+  "afkTimeout": "AFK Ses Zaman Aşımı",
+  "afkTimeoutDesc": "Bu süre boyunca aktif olmayan kullanıcılar ses kanalından çıkarılır.",
+  "afkTimeout15": "15 dakika",
+  "afkTimeout30": "30 dakika",
+  "afkTimeout45": "45 dakika",
+  "afkTimeout60": "1 saat",
+
   "livekitSettings": "Ses Sunucusu (LiveKit)",
   "livekitSettingsDesc": "Bu sunucudaki ses ve görüntü için LiveKit bağlantısını yönetin.",
   "livekitUrl": "LiveKit URL",
@@ -151,6 +158,7 @@
   "pushToTalkDesc": "Bir tuşu basılı tutarak iletim",
   "pttKey": "Bas-Konuş Tuşu",
   "pttKeyHint": "Tıklayıp bir tuşa basın",
+  "pttWebOnly": "Bas-Konuş yalnızca bu sekme odaklanmışken çalışır. Global Bas-Konuş desteği için masaüstü uygulamasını kullanın.",
   "pttListening": "Bir tuşa basın...",
   "micSensitivity": "Mikrofon Hassasiyeti",
   "inputDevice": "Giriş Cihazı",

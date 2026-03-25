@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<!--
+  Open in browser, right-click canvas → Save Image As → dmg-background.png
+  Size: 540x380 (matches DMG window size in package.json)
+-->
+<html>
+<body style="margin:0;background:#fff">
+<canvas id="c" width="540" height="380"></canvas>
+<script>
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+
+// White background
+ctx.fillStyle = '#ffffff';
+ctx.fillRect(0, 0, 540, 380);
+
+// Subtle grid dots
+ctx.fillStyle = 'rgba(0,0,0,0.04)';
+for (let x = 20; x < 540; x += 20) {
+  for (let y = 20; y < 380; y += 20) {
+    ctx.beginPath();
+    ctx.arc(x, y, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Arrow from app icon (x:140) to Applications (x:400)
+const arrowY = 215;
+const arrowStartX = 195;
+const arrowEndX = 345;
+
+// Arrow line
+ctx.strokeStyle = '#000';
+ctx.lineWidth = 2;
+ctx.setLineDash([8, 6]);
+ctx.beginPath();
+ctx.moveTo(arrowStartX, arrowY);
+ctx.lineTo(arrowEndX - 12, arrowY);
+ctx.stroke();
+
+// Arrow head
+ctx.setLineDash([]);
+ctx.fillStyle = '#000';
+ctx.beginPath();
+ctx.moveTo(arrowEndX, arrowY);
+ctx.lineTo(arrowEndX - 14, arrowY - 8);
+ctx.lineTo(arrowEndX - 14, arrowY + 8);
+ctx.closePath();
+ctx.fill();
+
+// "Drag to install" text
+ctx.fillStyle = '#000';
+ctx.font = '13px -apple-system, BlinkMacSystemFont, sans-serif';
+ctx.textAlign = 'center';
+ctx.fillText('Drag to Applications', 270, arrowY - 20);
+</script>
+</body>
+</html>

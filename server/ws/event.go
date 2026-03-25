@@ -90,6 +90,7 @@ const (
 	OpVoiceMoveUser        = "voice_move_user"
 	OpVoiceDisconnectUser  = "voice_disconnect_user"
 	OpScreenShareWatch     = "screen_share_watch"
+	OpVoiceActivity        = "voice_activity" // client reports mouse/keyboard/VAD/screen share activity
 )
 
 // Server -> Client voice moderation
@@ -97,6 +98,7 @@ const (
 	OpVoiceForceMove       = "voice_force_move"
 	OpVoiceForceDisconnect = "voice_force_disconnect"
 	OpVoiceReplaced        = "voice_replaced"
+	OpVoiceAFKKick         = "voice_afk_kick" // user kicked for inactivity
 )
 
 // P2P Call signaling flow:
@@ -133,6 +135,7 @@ type ReadyData struct {
 	Servers         []ReadyServerItem `json:"servers"`
 	MutedServerIDs  []string          `json:"muted_server_ids"`
 	MutedChannelIDs []string          `json:"muted_channel_ids"`
+	PrefStatus      string            `json:"pref_status"`
 }
 
 // ReadyServerItem is a minimal server representation for the ready event.
@@ -245,6 +248,13 @@ type ScreenShareViewerUpdateData struct {
 	ViewerCount    int    `json:"viewer_count"`
 	ViewerUserID   string `json:"viewer_user_id"` // who joined/left
 	Action         string `json:"action"`          // "join" or "leave"
+}
+
+// VoiceAFKKickData — sent to user before AFK disconnect.
+type VoiceAFKKickData struct {
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	ServerName  string `json:"server_name"`
 }
 
 // ─── P2P Call Event Data ───

@@ -65,10 +65,8 @@ type EventPublisher interface {
 }
 
 // UserConnectionCallback is called on first-connect and full-disconnect.
-// prefStatus: client's preferred presence sent via WS query param.
-// Used in OnUserFirstConnect to broadcast correct status immediately.
-// Empty string for OnUserFullyDisconnected (unused).
-type UserConnectionCallback func(userID, prefStatus string)
+// Second arg is unused (kept for signature compatibility).
+type UserConnectionCallback func(userID, _ string)
 
 // ─── Voice Callback Types ───
 
@@ -100,6 +98,9 @@ type VoiceDisconnectUserCallback func(disconnecterUserID, targetUserID string)
 // ScreenShareWatchCallback — user started/stopped watching a screen share.
 type ScreenShareWatchCallback func(viewerUserID, streamerUserID string, watching bool)
 
+// VoiceActivityCallback — client reports activity (mouse/keyboard/VAD/screen share).
+type VoiceActivityCallback func(userID string)
+
 // ─── P2P Call Callback Types ───
 
 type P2PCallInitiateCallback func(callerID string, data P2PCallInitiateData)
@@ -109,6 +110,10 @@ type P2PCallEndCallback func(userID string)
 
 // P2PSignalCallback — WebRTC signaling data relayed to the other peer.
 type P2PSignalCallback func(senderID string, data P2PSignalData)
+
+// ChannelTypingCallback — typing indicator in a server channel.
+// Wired in main.go: validates channel access, broadcasts to server members only.
+type ChannelTypingCallback func(senderUserID, senderUsername, channelID string)
 
 // ─── DM Callback Types ───
 
@@ -158,6 +163,7 @@ type Hub struct {
 	onVoiceAdminStateUpdate VoiceAdminStateUpdateCallback
 	onVoiceMoveUser         VoiceMoveUserCallback
 	onVoiceDisconnectUser   VoiceDisconnectUserCallback
+	onVoiceActivity         VoiceActivityCallback
 
 	onPresenceManualUpdate PresenceManualUpdateCallback
 
@@ -167,6 +173,9 @@ type Hub struct {
 	onP2PCallDecline  P2PCallDeclineCallback
 	onP2PCallEnd      P2PCallEndCallback
 	onP2PSignal       P2PSignalCallback
+
+	// Channel typing callback — set in main.go
+	onChannelTyping ChannelTypingCallback
 
 	// DM callbacks — set in main.go
 	onDMTyping DMTypingCallback
@@ -569,6 +578,10 @@ func (h *Hub) OnVoiceDisconnectUser(cb VoiceDisconnectUserCallback) {
 	h.onVoiceDisconnectUser = cb
 }
 
+func (h *Hub) OnVoiceActivity(cb VoiceActivityCallback) {
+	h.onVoiceActivity = cb
+}
+
 func (h *Hub) OnP2PCallInitiate(cb P2PCallInitiateCallback) {
 	h.onP2PCallInitiate = cb
 }
@@ -587,6 +600,10 @@ func (h *Hub) OnP2PCallEnd(cb P2PCallEndCallback) {
 
 func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {
 	h.onP2PSignal = cb
+}
+
+func (h *Hub) OnChannelTyping(cb ChannelTypingCallback) {
+	h.onChannelTyping = cb
 }
 
 func (h *Hub) OnDMTyping(cb DMTypingCallback) {

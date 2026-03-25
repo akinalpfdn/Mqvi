@@ -23,15 +23,20 @@ func registerHubCallbacks(
 ) {
 	// ─── Presence Callbacks ───
 
-	hub.OnUserFirstConnect(func(userID, prefStatus string) {
-		// prefStatus from client localStorage is more current than DB status
-		// (DB is set to "offline" on disconnect).
-		var targetStatus models.UserStatus
+	hub.OnUserFirstConnect(func(userID, _ string) {
+		// Read persistent pref_status from DB (not client-provided — client may differ per device).
+		user, err := userRepo.GetByID(context.Background(), userID)
+		if err != nil {
+			log.Printf("[presence] failed to get user %s: %v", userID, err)
+			return
+		}
 
-		switch prefStatus {
-		case "online", "idle", "dnd":
-			targetStatus = models.UserStatus(prefStatus)
-		case "offline":
+		targetStatus := user.PrefStatus
+		if targetStatus == "" {
+			targetStatus = models.UserStatusOnline
+		}
+
+		if targetStatus == models.UserStatusOffline {
 			// Invisible — SetInvisible already called in handler.
 			hub.BroadcastToAll(ws.Event{
 				Op: ws.OpPresence,
@@ -40,23 +45,8 @@ func registerHubCallbacks(
 					Status: string(models.UserStatusOffline),
 				},
 			})
-			log.Printf("[presence] user %s connected as invisible (prefStatus=offline)", userID)
+			log.Printf("[presence] user %s connected as invisible (pref_status=offline)", userID)
 			return
-		default:
-			// No pref_status — fall back to DB (preserves DND/idle across restarts)
-			user, err := userRepo.GetByID(context.Background(), userID)
-			if err != nil {
-				log.Printf("[presence] failed to get user %s: %v", userID, err)
-				return
-			}
-			switch user.Status {
-			case models.UserStatusDND:
-				targetStatus = models.UserStatusDND
-			case models.UserStatusIdle:
-				targetStatus = models.UserStatusIdle
-			default:
-				targetStatus = models.UserStatusOnline
-			}
 		}
 
 		if updateErr := userRepo.UpdateStatus(context.Background(), userID, targetStatus); updateErr != nil {
@@ -70,7 +60,7 @@ func registerHubCallbacks(
 				Status: string(targetStatus),
 			},
 		})
-		log.Printf("[presence] user %s connected with status %s", userID, targetStatus)
+		log.Printf("[presence] user %s connected with status %s (from pref_status)", userID, targetStatus)
 	})
 
 	hub.OnUserFullyDisconnected(func(userID, _ string) {
@@ -97,13 +87,17 @@ func registerHubCallbacks(
 	})
 
 	hub.OnPresenceManualUpdate(func(userID string, status string) {
-		// Note: idle-while-in-voice blocking was removed.
-		// Auto-idle is blocked client-side (useIdleDetection).
-		// Manual idle is a deliberate user choice — server should not override.
+		ctx := context.Background()
+		st := models.UserStatus(status)
 
-		if err := userRepo.UpdateStatus(context.Background(), userID, models.UserStatus(status)); err != nil {
+		if err := userRepo.UpdateStatus(ctx, userID, st); err != nil {
 			log.Printf("[presence] failed to set %s for user %s: %v", status, userID, err)
 			return
+		}
+
+		// Persist preference so it survives reconnects and cross-device sessions
+		if err := userRepo.UpdatePrefStatus(ctx, userID, st); err != nil {
+			log.Printf("[presence] failed to set pref_status %s for user %s: %v", status, userID, err)
 		}
 
 		hub.SetInvisible(userID, status == string(models.UserStatusOffline))
@@ -169,6 +163,9 @@ func registerHubCallbacks(
 	hub.OnScreenShareWatch(func(viewerUserID, streamerUserID string, watching bool) {
 		voiceService.WatchScreenShare(viewerUserID, streamerUserID, watching)
 	})
+	hub.OnVoiceActivity(func(userID string) {
+		voiceService.UpdateActivity(userID)
+	})
 
 	// ─── P2P Call Callbacks ───
 
@@ -197,6 +194,27 @@ func registerHubCallbacks(
 		if err := p2pCallService.RelaySignal(senderID, data.CallID, data); err != nil {
 			log.Printf("[p2p] signal relay error sender=%s call=%s: %v", senderID, data.CallID, err)
 		}
+	})
+
+	// ─── Channel Typing Callback ───
+	// Validates sender has ReadMessages permission, then broadcasts to server members only.
+
+	hub.OnChannelTyping(func(senderUserID, senderUsername, channelID string) {
+		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
+		if chErr != nil {
+			return
+		}
+
+		// Verify sender is a server member by checking if client has this server
+		// (serverIDs are populated from DB at WS connect and kept in sync)
+		hub.BroadcastToServerExcept(ch.ServerID, senderUserID, ws.Event{
+			Op: ws.OpTypingStart,
+			Data: ws.TypingStartData{
+				UserID:    senderUserID,
+				Username:  senderUsername,
+				ChannelID: channelID,
+			},
+		})
 	})
 
 	// ─── DM Typing Callback ───

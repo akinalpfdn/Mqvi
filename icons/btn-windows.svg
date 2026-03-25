@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="56" viewBox="0 0 200 56">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2196F3"/>
+      <stop offset="100%" stop-color="#1565C0"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="56" rx="12" fill="url(#bg)"/>
+  <g fill="white" transform="translate(28, 16)">
+    <path d="M0 3.5L9.5 2.1v9.2H0zm10.5-1.6L23 0v11.4H10.5zM0 12.6h9.5v9.3L0 20.5zm10.5.1H23V24l-12.5-1.8z" transform="scale(0.95)"/>
+  </g>
+  <text x="108" y="34" font-family="system-ui,-apple-system,sans-serif" font-size="17" font-weight="600" fill="white" text-anchor="middle">Windows</text>
+</svg>

@@ -104,6 +104,9 @@ func main() {
 	// Voice orphan cleanup — periodic sweep for stale voice states (30s interval)
 	svcs.Voice.StartOrphanCleanup()
 
+	// Voice AFK checker — kicks idle users based on per-server timeout
+	svcs.Voice.StartAFKChecker()
+
 	// 10b. Metrics collector — background goroutine polling LiveKit instances
 	metricsCollector.Start()
 
@@ -141,7 +144,12 @@ func main() {
 	apiHandler := corsHandler.Handler(mux)
 
 	finalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/ws" {
+		// WebSocket upgrade bypasses CORS middleware — ws.CheckOrigin handles its own origin validation
+		if r.URL.Path == "/ws" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
 			apiHandler.ServeHTTP(w, r)
 			return
 		}
@@ -178,16 +186,19 @@ func main() {
 		w.Write(indexHTMLWeb)
 	})
 
-	// 17. HTTP Server
+	// 17. Security headers
+	securedHandler := securityHeaders(finalHandler)
+
+	// 18. HTTP Server
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
-		Handler:      finalHandler,
+		Handler:      securedHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// 18. Graceful shutdown
+	// 19. Graceful shutdown
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
@@ -371,6 +382,18 @@ func initCORS(cfg *config.Config) (*cors.Cors, []string) {
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
 	}), corsOrigins
+}
+
+// securityHeaders wraps a handler with standard HTTP security headers.
+// Applied to all responses (API + static + SPA).
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "geolocation=()")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ─── Social Media Crawler OG Meta Tags ───

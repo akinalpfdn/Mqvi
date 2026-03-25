@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "mqvi-desktop",
-  "version": "2.4.0",
+  "version": "2.6.0",
   "description": "mqvi desktop application",
   "author": "akinalpfdn",
   "main": "dist-electron/main.js",
@@ -11,7 +11,8 @@
     "electron:dist": "npm run electron:build"
   },
   "dependencies": {
-    "electron-updater": "^6"
+    "electron-updater": "^6",
+    "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
     "concurrently": "^9",
@@ -31,34 +32,72 @@
       "client/dist",
       "icons"
     ],
-    "extraResources": [
-      {
-        "from": "native/audio-capture.exe",
-        "to": "native/audio-capture.exe"
-      }
-    ],
+    "artifactName": "mqvi-setup.${ext}",
+    "publish": {
+      "provider": "github",
+      "owner": "akinalpfdn",
+      "repo": "Mqvi"
+    },
     "win": {
       "target": [
         "nsis"
       ],
       "icon": "icons/mqvi-icon.ico",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "extraResources": [
+        {
+          "from": "native/audio-capture.exe",
+          "to": "native/audio-capture.exe"
+        }
+      ]
     },
-    "artifactName": "mqvi-setup.${ext}",
     "nsis": {
       "oneClick": true,
       "perMachine": false
     },
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
-      "icon": "icons/icon.icns"
+      "icon": "icons/icon.icns",
+      "category": "public.app-category.social-networking",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "notarize": true
     },
-    "publish": {
-      "provider": "github",
-      "owner": "akinalpfdn",
-      "repo": "Mqvi"
+    "dmg": {
+      "background": "build/dmg-background.png",
+      "iconSize": 80,
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 140,
+          "y": 210
+        },
+        {
+          "x": 400,
+          "y": 210,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "icons/mqvi-icon-512x512.png",
+      "category": "Network;Chat"
     }
   }
 }

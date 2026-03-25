@@ -593,6 +593,7 @@ export type Server = {
   invite_required: boolean;
   e2ee_enabled: boolean;
   livekit_instance_id: string | null;
+  afk_timeout_minutes: number;
   member_count: number;
   created_at: string;
 };

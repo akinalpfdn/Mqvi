@@ -30,6 +30,7 @@ type User struct {
 	AvatarURL       *string    `json:"avatar_url"`
 	PasswordHash    string     `json:"-"`
 	Status          UserStatus `json:"status"`
+	PrefStatus      UserStatus `json:"pref_status"`
 	CustomStatus    *string    `json:"custom_status"`
 	Email           *string    `json:"email"`
 	Language        string     `json:"language"`

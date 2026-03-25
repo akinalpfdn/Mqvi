@@ -183,8 +183,13 @@ type VoiceStore = {
   handleVoiceStatesSync: (states: VoiceState[]) => void;
   updateUserInfo: (userId: string, displayName: string, avatarUrl: string) => void;
   handleForceDisconnect: () => void;
+  handleAFKKick: (channelName: string, serverName: string) => void;
   handleVoiceReplaced: () => void;
   handleScreenShareViewerUpdate: (data: { streamer_user_id: string; channel_id: string; viewer_count: number; viewer_user_id: string; action: string }) => void;
+
+  // AFK kick popup state
+  afkKickInfo: { channelName: string; serverName: string } | null;
+  dismissAFKKick: () => void;
 
   /** Apply voice settings from server preferences (no re-sync to server) */
   applyFromServer: (settings: Record<string, unknown>) => void;
@@ -220,6 +225,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   preMuteVolumes: {},
   rtt: 0,
   wasReplaced: false,
+  afkKickInfo: null,
 
   // ─── Cross-store Callback ───
   _onLeaveCallback: null,
@@ -794,6 +800,26 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       rtt: 0,
     });
   },
+
+  handleAFKKick: (channelName: string, serverName: string) => {
+    // AFK kick — cleanup voice state + show popup
+    set({
+      currentVoiceChannelId: null,
+      livekitUrl: null,
+      livekitToken: null,
+      e2eePassphrase: null,
+      isMuted: false,
+      isDeafened: false,
+      isStreaming: false,
+      activeSpeakers: {},
+      watchingScreenShares: {},
+      screenShareViewers: {},
+      rtt: 0,
+      afkKickInfo: { channelName, serverName },
+    });
+  },
+
+  dismissAFKKick: () => set({ afkKickInfo: null }),
 
   handleVoiceReplaced: () => {
     // Another session took over voice — leave silently, skip auto-rejoin

@@ -27,6 +27,7 @@ import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
 import { useIdleDetection } from "../../hooks/useIdleDetection";
+import { useVoiceActivityReporter } from "../../hooks/useVoiceActivityReporter";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useP2PCall } from "../../hooks/useP2PCall";
 import { useE2EE } from "../../hooks/useE2EE";
@@ -35,6 +36,7 @@ import NewDeviceSetup from "../shared/NewDeviceSetup";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
 import QuickSwitcher from "../shared/QuickSwitcher";
 import ScreenPicker from "../voice/ScreenPicker";
+import AFKKickPopup from "../voice/AFKKickPopup";
 import ConnectionBanner from "../shared/ConnectionBanner";
 import CustomTitleBar from "./CustomTitleBar";
 import { isElectron } from "../../utils/constants";
@@ -55,6 +57,9 @@ function AppLayout() {
 
   // Idle detection — auto-set "idle" after 5min inactivity
   useIdleDetection({ sendPresenceUpdate });
+
+  // Voice AFK activity reporter — sends voice_activity ping while in voice
+  useVoiceActivityReporter({ sendWS });
 
   // Electron taskbar badge for unread count
   useNotificationBadge();
@@ -242,6 +247,9 @@ function AppLayout() {
 
       {/* Electron screen picker */}
       <ScreenPicker />
+
+      {/* AFK kick popup — manual dismiss only */}
+      <AFKKickPopup />
 
       {/* E2EE new device setup (blocking) */}
       {(e2eeInitStatus === "needs_setup" || e2eeInitStatus === "needs_recovery_password") && <NewDeviceSetup />}

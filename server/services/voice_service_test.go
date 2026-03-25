@@ -29,6 +29,7 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 		&testutil.MockChannelPermResolver{},
 		hub,
 		nil, // onlineChecker
+		nil, // afkTimeoutGetter
 		nil, // encryptionKey
 	)
 	return svc, hub
@@ -92,6 +93,36 @@ func TestVoiceJoinChannel_SwitchChannels(t *testing.T) {
 	// Should have: join ch1, leave ch1, join ch2 = 3 broadcasts
 	if len(broadcasts) != 3 {
 		t.Fatalf("expected 3 broadcasts (join+leave+join), got %d", len(broadcasts))
+	}
+}
+
+func TestVoiceJoinChannel_SameChannelRejoin(t *testing.T) {
+	svc, hub := newTestVoiceService()
+
+	var broadcasts []ws.Event
+	hub.BroadcastToAllFn = func(event ws.Event) {
+		broadcasts = append(broadcasts, event)
+	}
+
+	// Join ch1
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	broadcasts = nil // reset
+
+	// Rejoin same channel (WS reconnect scenario)
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+
+	// Should produce zero broadcasts — silent rejoin
+	if len(broadcasts) != 0 {
+		t.Fatalf("expected 0 broadcasts for same-channel rejoin, got %d", len(broadcasts))
+	}
+
+	// State should still exist
+	state := svc.GetUserVoiceState("u1")
+	if state == nil {
+		t.Fatal("expected voice state after rejoin")
+	}
+	if state.ChannelID != "ch1" {
+		t.Errorf("channelID = %q, want %q", state.ChannelID, "ch1")
 	}
 }
 

@@ -57,7 +57,11 @@ async function doRefresh(): Promise<boolean> {
     });
 
     if (!res.ok) {
-      clearTokens();
+      // Only clear tokens on explicit auth rejection — 5xx/429/network errors
+      // don't mean the token is invalid, just that the server/network failed.
+      if (res.status === 401 || res.status === 403) {
+        clearTokens();
+      }
       return false;
     }
 
@@ -69,10 +73,9 @@ async function doRefresh(): Promise<boolean> {
       return true;
     }
 
-    clearTokens();
     return false;
   } catch {
-    clearTokens();
+    // Network error (timeout, DNS, offline) — tokens may still be valid, don't clear.
     return false;
   }
 }

@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.exe"><img src="icons/btn-windows.svg" alt="Download for Windows" height="48" /></a>&nbsp;&nbsp;
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.dmg"><img src="icons/btn-macos.svg" alt="Download for macOS" height="48" /></a>&nbsp;&nbsp;
+  <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.AppImage"><img src="icons/btn-linux.svg" alt="Download for Linux" height="48" /></a>
+</p>
+
+<p align="center">
   <a href="https://mqvi.net">Website</a> &middot;
   <a href="#features">Features</a> &middot;
   <a href="#self-host-voice-server-only">Self-Host</a> &middot;
@@ -293,9 +299,10 @@ See [`.env.example`](deploy/.env.example) for all options. Key settings:
 
 ### Prerequisites
 
-- Go 1.21+
-- Node.js 20+
+- Go 1.22+
+- Node.js 22+
 - npm
+- LiveKit Server (for voice/video — see below)
 
 ### Setup
 
@@ -306,6 +313,7 @@ cd Mqvi
 
 # Backend
 cd server
+cp ../deploy/.env.example .env   # copy and edit .env (set JWT_SECRET, ENCRYPTION_KEY)
 go mod download
 go run .
 
@@ -316,6 +324,23 @@ npm run dev
 ```
 
 The Vite dev server proxies `/api` and `/ws` to `localhost:9090`.
+
+### LiveKit (Voice/Video)
+
+Voice and video require a running [LiveKit](https://livekit.io) server. Without it, text chat works fine but voice channels won't connect.
+
+```bash
+# Quick setup — use the project's script:
+# Linux:
+sudo bash deploy/livekit-setup.sh
+# Windows (PowerShell as Admin):
+irm https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.ps1 | iex
+
+# Or install manually: https://docs.livekit.io/home/self-hosting/local/
+livekit-server --config deploy/livekit.yaml --dev
+```
+
+Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in your `.env` to match your LiveKit config.
 
 ### Building from Source
 
@@ -423,7 +448,7 @@ middleware    ws/hub (WebSocket broadcast)
 
 ## Contributing
 
-Contributions are welcome! Please open an issue to discuss what you'd like to change before submitting a PR.
+Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) before opening issues or submitting pull requests.
 
 ---
 
