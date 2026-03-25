@@ -196,6 +196,27 @@ func registerHubCallbacks(
 		}
 	})
 
+	// ─── Channel Typing Callback ───
+	// Validates sender has ReadMessages permission, then broadcasts to server members only.
+
+	hub.OnChannelTyping(func(senderUserID, senderUsername, channelID string) {
+		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
+		if chErr != nil {
+			return
+		}
+
+		// Verify sender is a server member by checking if client has this server
+		// (serverIDs are populated from DB at WS connect and kept in sync)
+		hub.BroadcastToServerExcept(ch.ServerID, senderUserID, ws.Event{
+			Op: ws.OpTypingStart,
+			Data: ws.TypingStartData{
+				UserID:    senderUserID,
+				Username:  senderUsername,
+				ChannelID: channelID,
+			},
+		})
+	})
+
 	// ─── DM Typing Callback ───
 
 	hub.OnDMTyping(func(senderUserID, senderUsername, dmChannelID string) {

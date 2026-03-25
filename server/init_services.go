@@ -52,8 +52,11 @@ type Services struct {
 }
 
 type RateLimiters struct {
-	Login   *ratelimit.LoginRateLimiter
-	Message *ratelimit.MessageRateLimiter
+	Login         *ratelimit.LoginRateLimiter
+	Message       *ratelimit.MessageRateLimiter
+	Register      *ratelimit.LoginRateLimiter
+	ForgotPwd     *ratelimit.LoginRateLimiter
+	ResetPwd      *ratelimit.LoginRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -142,6 +145,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// Rate limiters
 	loginLimiter := ratelimit.NewLoginRateLimiter(5, 2*time.Minute)
 	messageLimiter := ratelimit.NewMessageRateLimiter(5, 5*time.Second, 15*time.Second)
+	registerLimiter := ratelimit.NewLoginRateLimiter(3, 10*time.Minute)   // 3 registrations per 10 min per IP
+	forgotPwdLimiter := ratelimit.NewLoginRateLimiter(3, 5*time.Minute)   // 3 forgot-password per 5 min per IP
+	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)    // 5 reset attempts per 5 min per IP
 
 	svcs := &Services{
 		Auth:              authService,
@@ -182,8 +188,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	}
 
 	limiters := &RateLimiters{
-		Login:   loginLimiter,
-		Message: messageLimiter,
+		Login:     loginLimiter,
+		Message:   messageLimiter,
+		Register:  registerLimiter,
+		ForgotPwd: forgotPwdLimiter,
+		ResetPwd:  resetPwdLimiter,
 	}
 
 	return svcs, limiters, metricsCollector

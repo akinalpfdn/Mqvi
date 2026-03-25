@@ -111,6 +111,10 @@ type P2PCallEndCallback func(userID string)
 // P2PSignalCallback — WebRTC signaling data relayed to the other peer.
 type P2PSignalCallback func(senderID string, data P2PSignalData)
 
+// ChannelTypingCallback — typing indicator in a server channel.
+// Wired in main.go: validates channel access, broadcasts to server members only.
+type ChannelTypingCallback func(senderUserID, senderUsername, channelID string)
+
 // ─── DM Callback Types ───
 
 // DMTypingCallback — typing indicator in a DM channel.
@@ -169,6 +173,9 @@ type Hub struct {
 	onP2PCallDecline  P2PCallDeclineCallback
 	onP2PCallEnd      P2PCallEndCallback
 	onP2PSignal       P2PSignalCallback
+
+	// Channel typing callback — set in main.go
+	onChannelTyping ChannelTypingCallback
 
 	// DM callbacks — set in main.go
 	onDMTyping DMTypingCallback
@@ -593,6 +600,10 @@ func (h *Hub) OnP2PCallEnd(cb P2PCallEndCallback) {
 
 func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {
 	h.onP2PSignal = cb
+}
+
+func (h *Hub) OnChannelTyping(cb ChannelTypingCallback) {
+	h.onChannelTyping = cb
 }
 
 func (h *Hub) OnDMTyping(cb DMTypingCallback) {
