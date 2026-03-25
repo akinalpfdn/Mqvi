@@ -156,7 +156,9 @@ func (c *Client) handlePresenceUpdate(event Event) {
 	}
 }
 
-// handleTyping broadcasts a typing indicator to other users.
+// handleTyping validates channel access and broadcasts a typing indicator
+// to the channel's server members only. Uses a callback to avoid Hub
+// depending on channel/permission services directly (same pattern as DM typing).
 func (c *Client) handleTyping(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -172,14 +174,10 @@ func (c *Client) handleTyping(event Event) {
 		return
 	}
 
-	c.hub.BroadcastToAllExcept(c.userID, Event{
-		Op: OpTypingStart,
-		Data: TypingStartData{
-			UserID:    c.userID,
-			Username:  c.hub.getUserUsername(c.userID),
-			ChannelID: typing.ChannelID,
-		},
-	})
+	if c.hub.onChannelTyping != nil {
+		username := c.hub.getUserUsername(c.userID)
+		go c.hub.onChannelTyping(c.userID, username, typing.ChannelID)
+	}
 }
 
 // handleDMTyping broadcasts a DM typing indicator to the other participant only.

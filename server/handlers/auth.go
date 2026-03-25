@@ -12,21 +12,44 @@ import (
 )
 
 type AuthHandler struct {
-	authService  services.AuthService
-	loginLimiter *ratelimit.LoginRateLimiter
+	authService      services.AuthService
+	loginLimiter     *ratelimit.LoginRateLimiter
+	registerLimiter  *ratelimit.LoginRateLimiter
+	forgotPwdLimiter *ratelimit.LoginRateLimiter
+	resetPwdLimiter  *ratelimit.LoginRateLimiter
 }
 
-// NewAuthHandler creates a new AuthHandler. loginLimiter may be nil to disable rate limiting.
-func NewAuthHandler(authService services.AuthService, loginLimiter *ratelimit.LoginRateLimiter) *AuthHandler {
+// NewAuthHandler creates a new AuthHandler. All limiters may be nil to disable rate limiting.
+func NewAuthHandler(
+	authService services.AuthService,
+	loginLimiter *ratelimit.LoginRateLimiter,
+	registerLimiter *ratelimit.LoginRateLimiter,
+	forgotPwdLimiter *ratelimit.LoginRateLimiter,
+	resetPwdLimiter *ratelimit.LoginRateLimiter,
+) *AuthHandler {
 	return &AuthHandler{
-		authService:  authService,
-		loginLimiter: loginLimiter,
+		authService:      authService,
+		loginLimiter:     loginLimiter,
+		registerLimiter:  registerLimiter,
+		forgotPwdLimiter: forgotPwdLimiter,
+		resetPwdLimiter:  resetPwdLimiter,
 	}
 }
 
 // Register handles POST /api/auth/register
 // First registered user automatically becomes Owner.
+// IP-based rate limiting prevents registration spam.
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	ip := ratelimit.ExtractIP(r)
+	if h.registerLimiter != nil && !h.registerLimiter.Allow(ip) {
+		retryAfter := h.registerLimiter.RetryAfterSeconds(ip)
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests,
+			fmt.Sprintf("too many registration attempts, please try again in %s",
+				ratelimit.FormatRetryMessage(retryAfter)))
+		return
+	}
+
 	var req models.CreateUserRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -200,8 +223,18 @@ func (h *AuthHandler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 
 // ForgotPassword handles POST /api/auth/forgot-password
 // Returns same success response whether email exists or not (enumeration protection).
-// 90-second cooldown per email; remaining time returned in response if active.
+// IP-based rate limiting + per-email 90s cooldown.
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	ip := ratelimit.ExtractIP(r)
+	if h.forgotPwdLimiter != nil && !h.forgotPwdLimiter.Allow(ip) {
+		retryAfter := h.forgotPwdLimiter.RetryAfterSeconds(ip)
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests,
+			fmt.Sprintf("too many requests, please try again in %s",
+				ratelimit.FormatRetryMessage(retryAfter)))
+		return
+	}
+
 	var req models.ForgotPasswordRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -235,7 +268,18 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 // ResetPassword handles POST /api/auth/reset-password
 // Validates token, updates password, deletes token.
+// IP-based rate limiting prevents brute-force token guessing.
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	ip := ratelimit.ExtractIP(r)
+	if h.resetPwdLimiter != nil && !h.resetPwdLimiter.Allow(ip) {
+		retryAfter := h.resetPwdLimiter.RetryAfterSeconds(ip)
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests,
+			fmt.Sprintf("too many attempts, please try again in %s",
+				ratelimit.FormatRetryMessage(retryAfter)))
+		return
+	}
+
 	var req models.ResetPasswordRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
