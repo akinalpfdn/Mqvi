@@ -17,17 +17,29 @@ import {
 import "../../styles/landing.css";
 
 const RELEASE_BASE = "https://github.com/akinalpfdn/Mqvi/releases/latest/download";
+const RELEASES_PAGE = "https://github.com/akinalpfdn/Mqvi/releases/latest";
 
-type OSInfo = { os: "windows" | "macos" | "linux"; url: string; i18nKey: string };
+type OSInfo = { os: "windows" | "macos" | "linux" | "mobile"; url: string; i18nKey: string };
 
 function detectOS(): OSInfo {
   const ua = navigator.userAgent.toLowerCase();
+
+  // Mobile detection — no desktop installer available
+  if (/android|iphone|ipad|ipod|mobile/i.test(ua)) {
+    return { os: "mobile", url: RELEASES_PAGE, i18nKey: "hero_download_desktop" };
+  }
+
+  // macOS detection (check before linux — iOS iPad with desktop mode has "mac" too,
+  // but mobile regex above catches it first)
   if (ua.includes("mac")) {
     return { os: "macos", url: `${RELEASE_BASE}/mqvi-setup.dmg`, i18nKey: "hero_download_macos" };
   }
+
+  // Linux detection — after mobile filter, so Android doesn't match
   if (ua.includes("linux")) {
     return { os: "linux", url: `${RELEASE_BASE}/mqvi-setup.AppImage`, i18nKey: "hero_download_linux" };
   }
+
   return { os: "windows", url: `${RELEASE_BASE}/mqvi-setup.exe`, i18nKey: "hero_download_windows" };
 }
 
