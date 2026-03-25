@@ -16,6 +16,21 @@ import {
 } from "./landingData";
 import "../../styles/landing.css";
 
+const RELEASE_BASE = "https://github.com/akinalpfdn/Mqvi/releases/latest/download";
+
+type OSInfo = { os: "windows" | "macos" | "linux"; url: string; i18nKey: string };
+
+function detectOS(): OSInfo {
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes("mac")) {
+    return { os: "macos", url: `${RELEASE_BASE}/mqvi-setup.dmg`, i18nKey: "hero_download_macos" };
+  }
+  if (ua.includes("linux")) {
+    return { os: "linux", url: `${RELEASE_BASE}/mqvi-setup.AppImage`, i18nKey: "hero_download_linux" };
+  }
+  return { os: "windows", url: `${RELEASE_BASE}/mqvi-setup.exe`, i18nKey: "hero_download_windows" };
+}
+
 function LandingPage() {
   const { t, i18n } = useTranslation("landing");
   const navigate = useNavigate();
@@ -134,20 +149,25 @@ function LandingPage() {
             </button>
           </div>
 
-          {/* Desktop download */}
-          <a
-            href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.exe"
-            className="lp-download-link"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            {t("hero_download")}
-          </a>
+          {/* Desktop download — auto-detects OS */}
+          {(() => {
+            const { url, i18nKey } = detectOS();
+            return (
+              <a
+                href={url}
+                className="lp-download-link"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                {t(i18nKey)}
+              </a>
+            );
+          })()}
 
           {/* Scroll indicator */}
           <div className="lp-hero-scroll">
