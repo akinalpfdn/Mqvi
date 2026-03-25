@@ -80,7 +80,7 @@ func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*m
 		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
 			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
-		FROM users WHERE username = ?`
+		FROM users WHERE username = ? COLLATE NOCASE`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
@@ -120,7 +120,7 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 		if err := rows.Scan(
 			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
 			&u.PasswordHash, &u.Status, &u.PrefStatus, &u.CustomStatus, &u.Email,
-			&u.Language, &u.IsPlatformAdmin, &u.IsPlatformBanned,
+			&u.Language, &u.IsPlatformAdmin, &u.IsPlatformBanned, &u.HasSeenDownloadPrompt,
 			&u.PlatformBanReason, &u.PlatformBannedBy, &u.PlatformBannedAt,
 			&u.CreatedAt,
 		); err != nil {
