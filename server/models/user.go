@@ -35,8 +35,9 @@ type User struct {
 	Email           *string    `json:"email"`
 	Language        string     `json:"language"`
 	IsPlatformAdmin   bool       `json:"is_platform_admin"`
-	IsPlatformBanned  bool       `json:"is_platform_banned"`
-	PlatformBanReason string     `json:"-"`
+	IsPlatformBanned      bool       `json:"is_platform_banned"`
+	HasSeenDownloadPrompt bool       `json:"has_seen_download_prompt"`
+	PlatformBanReason     string     `json:"-"`
 	PlatformBannedBy  string     `json:"-"`
 	PlatformBannedAt  *time.Time `json:"-"`
 	CreatedAt         time.Time  `json:"created_at"`

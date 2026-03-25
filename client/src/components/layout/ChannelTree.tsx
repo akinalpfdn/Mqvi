@@ -1269,6 +1269,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                           email: null,
                                           language: "en",
                                           is_platform_admin: false,
+                                          has_seen_download_prompt: false,
                                           created_at: new Date().toISOString(),
                                         },
                                         top: rect.top,

@@ -38,6 +38,7 @@ type Handlers struct {
 	LinkPreview       *handlers.LinkPreviewHandler
 	Badge             *handlers.BadgeHandler
 	Preferences       *handlers.PreferencesHandler
+	DownloadPrompt    *handlers.DownloadPromptHandler
 	WS                *ws.Handler
 }
 
@@ -73,6 +74,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		LinkPreview:       handlers.NewLinkPreviewHandler(svcs.LinkPreview),
 		Badge:             handlers.NewBadgeHandler(svcs.Badge, cfg.Upload.Dir),
 		Preferences:       handlers.NewPreferencesHandler(svcs.Preferences),
+		DownloadPrompt:    handlers.NewDownloadPromptHandler(repos.User),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute),
 	}
 }

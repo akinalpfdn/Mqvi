@@ -69,6 +69,13 @@ export async function resetPassword(token: string, newPassword: string) {
   });
 }
 
+/** Mark download prompt as seen — never show again across devices. */
+export async function dismissDownloadPrompt() {
+  return apiClient<{ message: string }>("/users/me/dismiss-download-prompt", {
+    method: "POST",
+  });
+}
+
 /** Change email — requires current password for security. */
 export async function changeEmail(password: string, newEmail: string) {
   return apiClient<{ message: string; email: string | null }>(

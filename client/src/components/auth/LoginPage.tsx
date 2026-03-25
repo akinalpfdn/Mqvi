@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
 import { isElectron } from "../../utils/constants";
+import { detectOS, shouldShowDownloadPrompt } from "../../utils/detectOS";
 
 function LoginPage() {
   // ─── Hooks ───
@@ -153,6 +154,21 @@ function LoginPage() {
           {t("needAccount")}{" "}
           <Link to={searchParams.get("returnUrl") ? `/register?returnUrl=${searchParams.get("returnUrl")}` : "/register"}>{t("registerLink")}</Link>
         </p>
+
+        {/* Desktop download hint — only on web browsers with desktop OS */}
+        {shouldShowDownloadPrompt() && (() => {
+          const { url, i18nKey } = detectOS();
+          return (
+            <a href={url} className="auth-download-link" target="_blank" rel="noopener noreferrer">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {t(i18nKey)}
+            </a>
+          );
+        })()}
       </div>
     </div>
   );

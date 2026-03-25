@@ -18,6 +18,7 @@ export type User = {
   email: string | null;
   language: string;
   is_platform_admin: boolean;
+  has_seen_download_prompt: boolean;
   created_at: string;
 };
 

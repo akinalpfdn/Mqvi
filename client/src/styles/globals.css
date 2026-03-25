@@ -1044,6 +1044,19 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .auth-link { display:block;text-align:center;margin-top:16px;font-size:13px;color:var(--t2); }
 .auth-link a { color:var(--primary);text-decoration:none; }
 .auth-link a:hover { text-decoration:underline; }
+.auth-download-link { display:flex;align-items:center;justify-content:center;gap:6px;margin-top:16px;padding:8px 20px;border-radius:8px;border:1px solid var(--primary);color:var(--primary);font-size:13px;font-weight:500;text-decoration:none;transition:background .15s,color .15s; }
+.auth-download-link:hover { background:var(--primary);color:#fff; }
+
+/* ── Download Prompt Modal ── */
+.download-prompt-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
+.download-prompt-modal { background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;padding:32px;max-width:400px;width:90%;text-align:center; }
+.download-prompt-modal h3 { font-size:18px;font-weight:700;margin-bottom:8px;color:var(--t1); }
+.download-prompt-modal p { font-size:14px;color:var(--t2);margin-bottom:24px;line-height:1.5; }
+.download-prompt-actions { display:flex;flex-direction:column;gap:10px; }
+.download-prompt-btn-primary { display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 24px;border-radius:8px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;text-decoration:none;transition:background .15s; }
+.download-prompt-btn-primary:hover { background:var(--primary-h); }
+.download-prompt-btn-dismiss { padding:8px;background:none;border:none;color:var(--t3);font-size:13px;cursor:pointer;font-family:var(--f-ui); }
+.download-prompt-btn-dismiss:hover { color:var(--t2); }
 
 /* ═══════════════════════════════════════
    SETTINGS MODAL

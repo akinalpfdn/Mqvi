@@ -43,6 +43,10 @@ type UserRepository interface {
 	// Owned servers must be cleaned up beforehand (no CASCADE on servers.owner_id).
 	HardDeleteUser(ctx context.Context, userID string) error
 
+	// ─── Download Prompt ───
+
+	SetDownloadPromptSeen(ctx context.Context, userID string) error
+
 	// ─── Platform Admin ───
 
 	SetPlatformAdmin(ctx context.Context, userID string, isAdmin bool) error

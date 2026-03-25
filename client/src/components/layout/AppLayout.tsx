@@ -22,6 +22,7 @@ import MemberList from "./MemberList";
 import Sidebar from "./Sidebar";
 import ToastContainer from "../shared/ToastContainer";
 import ConfirmDialog from "../shared/ConfirmDialog";
+import DownloadPromptModal from "../shared/DownloadPromptModal";
 import SettingsModal from "../settings/SettingsModal";
 import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
@@ -238,6 +239,9 @@ function AppLayout() {
 
       {/* Toast notifications */}
       <ToastContainer />
+
+      {/* One-time download prompt for web users */}
+      <DownloadPromptModal />
 
       {/* Quick Switcher (Ctrl+K) */}
       <QuickSwitcher />
