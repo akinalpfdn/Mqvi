@@ -338,6 +338,18 @@ func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config) {
 	}))
 	mux.Handle("GET /api/uploads/", uploadsHandler)
 
+	// Landing page assets (video, screenshots) — public, no auth
+	landingDir := cfg.Upload.Dir + "/../landing"
+	landingHandler := http.StripPrefix("/static/landing/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/") || strings.Contains(r.URL.Path, "\\") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.FileServer(http.Dir(landingDir)).ServeHTTP(w, r)
+	}))
+	mux.Handle("GET /static/landing/", landingHandler)
+
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok","service":"mqvi"}`)
