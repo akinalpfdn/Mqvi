@@ -12,11 +12,18 @@ import { useAuthStore } from "./authStore";
 import { useReadStateStore } from "./readStateStore";
 import { useToastStore } from "./toastStore";
 import { encryptChannelMessage, decryptChannelMessages } from "../crypto/channelEncryption";
-import { encryptFile } from "../crypto/fileEncryption";
 import { encodePayload } from "../crypto/e2eePayload";
 import type { Message, ReactionGroup } from "../types";
-import type { EncryptedFileMeta } from "../crypto/fileEncryption";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
+import {
+  encryptFilesForE2EE,
+  handleRateLimitError,
+  createTypingHandler,
+  updateMessageInRecord,
+  deleteMessageFromRecord,
+  updateReactionInRecord,
+  updateAuthorInRecord,
+} from "./shared/messageUtils";
 
 type MessageState = {
   /** channelId -> Message[] */
@@ -56,9 +63,6 @@ type MessageState = {
   /** Update author info across all cached messages (display_name, avatar change). */
   handleAuthorUpdate: (userId: string, patch: { display_name?: string | null; avatar_url?: string | null }) => void;
 };
-
-const TYPING_TIMEOUT = 5_000;
-const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Tracks channels that have been fetched from API (not just WS-buffered).
@@ -168,25 +172,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const currentUserId = useAuthStore.getState().user?.id;
       if (currentUserId) {
         try {
-          // Encrypt files with AES-256-GCM
           let encryptedFiles: File[] | undefined;
-          let fileMetas: EncryptedFileMeta[] | undefined;
+          let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
 
           if (files && files.length > 0) {
-            encryptedFiles = [];
-            fileMetas = [];
-
-            for (let i = 0; i < files.length; i++) {
-              const result = await encryptFile(files[i]);
-              encryptedFiles.push(
-                new File(
-                  [result.encryptedBlob],
-                  `encrypted_${i}.bin`,
-                  { type: "application/octet-stream" }
-                )
-              );
-              fileMetas.push(result.meta);
-            }
+            const result = await encryptFilesForE2EE(files);
+            encryptedFiles = result.files;
+            fileMetas = result.metas;
           }
 
           const plaintext = encodePayload(content, fileMetas);
@@ -212,10 +204,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             replyToId
           );
 
-          if (!res.success && res.error?.includes("too many")) {
-            useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
-          }
-
+          handleRateLimitError(res);
           return res.success;
         } catch (err) {
           console.error("[messageStore] E2EE encryption failed:", err);
@@ -227,11 +216,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     // Plaintext fallback
     const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId);
-
-    if (!res.success && res.error?.includes("too many")) {
-      useToastStore.getState().addToast("warning", i18n.t("chat:tooManyMessages"));
-    }
-
+    handleRateLimitError(res);
     return res.success;
   },
 
@@ -341,111 +326,38 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   handleMessageUpdate: (message) => {
-    set((state) => {
-      const channelMessages = state.messagesByChannel[message.channel_id];
-      if (!channelMessages) return state;
-
-      return {
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [message.channel_id]: channelMessages.map((m) =>
-            m.id === message.id ? message : m
-          ),
-        },
-      };
-    });
+    set((state) => ({
+      messagesByChannel: updateMessageInRecord(
+        state.messagesByChannel, message.channel_id, message
+      ),
+    }));
   },
 
   handleMessageDelete: (data) => {
-    set((state) => {
-      const channelMessages = state.messagesByChannel[data.channel_id];
-      if (!channelMessages) return state;
-
-      // Remove deleted message + null out referenced_message for replies to it
-      const updated = channelMessages
-        .filter((m) => m.id !== data.id)
-        .map((m) =>
-          m.reply_to_id === data.id
-            ? { ...m, referenced_message: { id: data.id, author: null, content: null } }
-            : m
-        );
-
-      return {
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [data.channel_id]: updated,
-        },
-      };
-    });
+    set((state) => ({
+      messagesByChannel: deleteMessageFromRecord(
+        state.messagesByChannel, data.channel_id, data.id
+      ),
+    }));
   },
 
   /** Auto-cleared after 5s if no new typing event arrives. */
-  handleTypingStart: (channelId, username) => {
-    set((state) => {
-      const current = state.typingUsers[channelId] ?? [];
-      if (current.includes(username)) return state;
-
-      return {
-        typingUsers: {
-          ...state.typingUsers,
-          [channelId]: [...current, username],
-        },
-      };
-    });
-
-    const key = `${channelId}:${username}`;
-    const existingTimer = typingTimers.get(key);
-    if (existingTimer) clearTimeout(existingTimer);
-
-    typingTimers.set(
-      key,
-      setTimeout(() => {
-        set((state) => ({
-          typingUsers: {
-            ...state.typingUsers,
-            [channelId]: (state.typingUsers[channelId] ?? []).filter(
-              (u) => u !== username
-            ),
-          },
-        }));
-        typingTimers.delete(key);
-      }, TYPING_TIMEOUT)
-    );
-  },
+  handleTypingStart: createTypingHandler(set),
 
   /** Backend sends full reaction list after each toggle — direct replace, no client merge. */
   handleReactionUpdate: (data) => {
-    set((state) => {
-      const channelMessages = state.messagesByChannel[data.channel_id];
-      if (!channelMessages) return state;
-
-      return {
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [data.channel_id]: channelMessages.map((m) =>
-            m.id === data.message_id
-              ? { ...m, reactions: data.reactions }
-              : m
-          ),
-        },
-      };
-    });
+    set((state) => ({
+      messagesByChannel: updateReactionInRecord(
+        state.messagesByChannel, data.channel_id, data.message_id, data.reactions
+      ),
+    }));
   },
 
   handleAuthorUpdate: (userId, patch) => {
     set((state) => {
-      const updated: Record<string, Message[]> = {};
-      let changed = false;
-
-      for (const [chId, msgs] of Object.entries(state.messagesByChannel)) {
-        const newMsgs = msgs.map((m) => {
-          if (m.author?.id !== userId) return m;
-          changed = true;
-          return { ...m, author: { ...m.author, ...patch } };
-        });
-        updated[chId] = newMsgs;
-      }
-
+      const { updated, changed } = updateAuthorInRecord(
+        state.messagesByChannel, userId, patch
+      );
       return changed ? { messagesByChannel: updated } : state;
     });
   },
