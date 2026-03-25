@@ -50,9 +50,17 @@ export const useMemberStore = create<MemberState>((set) => ({
     if (currentServerId !== serverId) return;
 
     if (res.data) {
-      // Don't set onlineUserIds here — WS ready event + handlePresenceUpdate
-      // are the single source of truth (DB status can be stale after restart).
-      set({ members: res.data, isLoading: false });
+      // Merge member statuses into onlineUserIds to fix race conditions
+      // where fetchMembers returns after presence events have been missed.
+      set((state) => {
+        const merged = new Set(state.onlineUserIds);
+        for (const m of res.data!) {
+          if (m.status && m.status !== "offline") {
+            merged.add(m.id);
+          }
+        }
+        return { members: res.data!, onlineUserIds: merged, isLoading: false };
+      });
     } else {
       set({ isLoading: false });
     }
