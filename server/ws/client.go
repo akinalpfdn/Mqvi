@@ -152,7 +152,7 @@ func (c *Client) handlePresenceUpdate(event Event) {
 	c.hub.mu.Unlock()
 
 	if c.hub.onPresenceManualUpdate != nil {
-		go c.hub.onPresenceManualUpdate(c.userID, aggregate)
+		go c.hub.onPresenceManualUpdate(c.userID, aggregate, data.IsAuto)
 	}
 }
 

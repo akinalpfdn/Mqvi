@@ -175,14 +175,15 @@ export function useWebSocket() {
 
   /**
    * sendPresenceUpdate — Sends presence status via WS.
-   * Called by idle detection and manual status picker.
+   * Called by idle detection (isAuto=true) and manual status picker (isAuto=false).
+   * Auto-idle does NOT persist to pref_status — so idle detection resumes after WS reconnect.
    */
-  const sendPresenceUpdate = useCallback((status: UserStatus) => {
+  const sendPresenceUpdate = useCallback((status: UserStatus, isAuto = false) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
           op: "presence_update",
-          d: { status },
+          d: { status, is_auto: isAuto },
         })
       );
     }

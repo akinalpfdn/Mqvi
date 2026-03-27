@@ -18,7 +18,7 @@ import { useVoiceStore } from "../stores/voiceStore";
 import type { UserStatus } from "../types";
 
 type UseIdleDetectionParams = {
-  sendPresenceUpdate: (status: UserStatus) => void;
+  sendPresenceUpdate: (status: UserStatus, isAuto?: boolean) => void;
 };
 
 export function useIdleDetection({ sendPresenceUpdate }: UseIdleDetectionParams) {
@@ -38,10 +38,10 @@ export function useIdleDetection({ sendPresenceUpdate }: UseIdleDetectionParams)
         return;
       }
 
-      // Activity detected while idle — return to online
+      // Activity detected while idle — return to online (auto, not persisted)
       if (isIdleRef.current) {
         isIdleRef.current = false;
-        sendPresenceUpdate("online");
+        sendPresenceUpdate("online", true);
       }
 
       timerRef.current = setTimeout(function idleCheck() {
@@ -58,7 +58,7 @@ export function useIdleDetection({ sendPresenceUpdate }: UseIdleDetectionParams)
         }
 
         isIdleRef.current = true;
-        sendPresenceUpdate("idle");
+        sendPresenceUpdate("idle", true);
       }, IDLE_TIMEOUT);
     }
 

@@ -86,7 +86,7 @@ func registerHubCallbacks(
 		p2pCallService.HandleDisconnect(userID)
 	})
 
-	hub.OnPresenceManualUpdate(func(userID string, status string) {
+	hub.OnPresenceManualUpdate(func(userID string, status string, isAuto bool) {
 		ctx := context.Background()
 		st := models.UserStatus(status)
 
@@ -95,9 +95,13 @@ func registerHubCallbacks(
 			return
 		}
 
-		// Persist preference so it survives reconnects and cross-device sessions
-		if err := userRepo.UpdatePrefStatus(ctx, userID, st); err != nil {
-			log.Printf("[presence] failed to set pref_status %s for user %s: %v", status, userID, err)
+		// Only persist pref_status for manual changes — auto-idle should not
+		// overwrite the user's preferred status, so idle detection can resume
+		// correctly after WS reconnect.
+		if !isAuto {
+			if err := userRepo.UpdatePrefStatus(ctx, userID, st); err != nil {
+				log.Printf("[presence] failed to set pref_status %s for user %s: %v", status, userID, err)
+			}
 		}
 
 		hub.SetInvisible(userID, status == string(models.UserStatusOffline))
@@ -109,7 +113,12 @@ func registerHubCallbacks(
 				Status: status,
 			},
 		})
-		log.Printf("[presence] user %s is now %s (manual)", userID, status)
+
+		source := "manual"
+		if isAuto {
+			source = "auto"
+		}
+		log.Printf("[presence] user %s is now %s (%s)", userID, status, source)
 	})
 
 	// ─── Voice Callbacks ───

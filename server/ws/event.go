@@ -149,6 +149,7 @@ type ReadyServerItem struct {
 type PresenceData struct {
 	UserID string `json:"user_id"`
 	Status string `json:"status"`
+	IsAuto bool   `json:"is_auto,omitempty"`
 }
 
 type TypingData struct {

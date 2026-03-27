@@ -81,9 +81,9 @@ type VoiceLeaveCallback func(userID string)
 // Nil pointers mean "no change" (partial update).
 type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreaming *bool)
 
-// PresenceManualUpdateCallback — user manually changed presence (idle, dnd, etc.).
-// Wired in main.go — handles DB persist + broadcast.
-type PresenceManualUpdateCallback func(userID string, status string)
+// PresenceManualUpdateCallback — user changed presence (manual or auto-idle).
+// isAuto distinguishes auto-idle from manual status changes (only manual persists to pref_status).
+type PresenceManualUpdateCallback func(userID string, status string, isAuto bool)
 
 // VoiceAdminStateUpdateCallback — admin server-muted/deafened a user.
 // Nil pointers mean "no change" (partial update).
@@ -248,7 +248,7 @@ func (h *Hub) addClient(client *Client) {
 		prefStatus := client.prefStatus
 		go h.onUserFirstConnect(userID, prefStatus)
 	} else if !isFirstConnection && h.onPresenceManualUpdate != nil {
-		go h.onPresenceManualUpdate(client.userID, aggregateForExisting)
+		go h.onPresenceManualUpdate(client.userID, aggregateForExisting, false)
 	}
 }
 
@@ -290,7 +290,7 @@ func (h *Hub) removeClient(client *Client) {
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
 		go h.onUserFullyDisconnected(userID, "")
 	} else if partialDisconnect && h.onPresenceManualUpdate != nil {
-		go h.onPresenceManualUpdate(userID, newAggregate)
+		go h.onPresenceManualUpdate(userID, newAggregate, false)
 	}
 }
 
