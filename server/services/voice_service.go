@@ -1004,10 +1004,15 @@ func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 		Identity: userID,
 	})
 	if err != nil {
-		log.Printf("[voice] removeParticipant: user=%s room=%s result: %v", userID, roomName, err)
-		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: LiveKit API call failed", map[string]string{
-			"room": roomName, "channel_id": channelID, "error": err.Error(),
-		})
+		meta := map[string]string{"room": roomName, "channel_id": channelID, "error": err.Error()}
+		if strings.Contains(err.Error(), "not_found") || strings.Contains(err.Error(), "not found") {
+			// Expected when participant already left LiveKit (e.g. network drop, orphan sweep after LiveKit timeout)
+			log.Printf("[voice] removeParticipant: user=%s room=%s already gone (not found)", userID, roomName)
+			s.logWarn(models.LogCategoryVoice, &userID, "removeParticipant: participant already left LiveKit", meta)
+		} else {
+			log.Printf("[voice] removeParticipant: user=%s room=%s result: %v", userID, roomName, err)
+			s.logError(models.LogCategoryVoice, &userID, "removeParticipant: LiveKit API call failed", meta)
+		}
 		return
 	}
 
