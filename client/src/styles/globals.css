@@ -45,7 +45,16 @@
    ═══════════════════════════════════════ */
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body, #root { height:100%; width:100%; overflow:hidden; }
-body { font-family:var(--f-ui); -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+body {
+  font-family:var(--f-ui);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  /* Safe area insets for notch/dynamic island/home indicator (iOS/Android) */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
 button { font-family:inherit; }
 
 /* Theme transition — added by applyTheme(), removed after 400ms to avoid slowing hover/focus */

@@ -1,4 +1,5 @@
 import UIKit
+import AVFoundation
 import Capacitor
 
 @UIApplicationMain
@@ -7,7 +8,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Configure audio session for voice/video calls.
+        // .playAndRecord: simultaneous input + output (required for calls).
+        // .allowBluetooth: support AirPods / BT headsets.
+        // .defaultToSpeaker: route to speaker when no headphones connected.
+        // .mixWithOthers: don't interrupt other audio apps when not in a call.
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(
+                .playAndRecord,
+                mode: .voiceChat,
+                options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .mixWithOthers]
+            )
+            try audioSession.setActive(true)
+        } catch {
+            print("Failed to configure AVAudioSession: \(error.localizedDescription)")
+        }
+
         return true
     }
 

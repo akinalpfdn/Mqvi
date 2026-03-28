@@ -47,5 +47,18 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+
+	<!-- Background modes — voice/video must continue when app is backgrounded -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>voip</string>
+	</array>
+
+	<!-- Privacy usage descriptions — required for mic/camera access -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>mqvi needs microphone access for voice calls and audio messages.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>mqvi needs camera access for video calls.</string>
 </dict>
 </plist>

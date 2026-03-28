@@ -6,10 +6,14 @@ import "./styles/globals.css";
 import App from "./App";
 import ErrorBoundary from "./components/shared/ErrorBoundary";
 import { isNativeApp } from "./utils/constants";
+import { configureMobileUI } from "./utils/nativePlugins";
 
 // Native shells (Electron file://, Capacitor capacitor://) don't support HTML5 History API.
 // Web uses BrowserRouter for clean URLs.
 const Router = isNativeApp() ? HashRouter : BrowserRouter;
+
+// Configure mobile-specific UI (status bar, keyboard) — no-op on web/Electron
+configureMobileUI();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

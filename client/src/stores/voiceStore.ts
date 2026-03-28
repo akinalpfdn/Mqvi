@@ -13,6 +13,8 @@
 import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
+import { startVoiceCallService, stopVoiceCallService } from "../utils/nativePlugins";
+import { ensureMicPermission } from "../utils/devicePermissions";
 import { ensureFreshToken } from "../api/client";
 import { usePreferencesStore } from "./preferencesStore";
 import { useServerStore } from "./serverStore";
@@ -246,6 +248,13 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       const serverId = useServerStore.getState().activeServerId;
       if (!serverId) return null;
 
+      // On mobile, ensure microphone permission before proceeding
+      const micGranted = await ensureMicPermission();
+      if (!micGranted) {
+        console.warn("[voiceStore] Microphone permission denied");
+        return null;
+      }
+
       const gen = get()._joinGeneration + 1;
       set({ _joinGeneration: gen });
 
@@ -287,6 +296,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         isStreaming: false,
       });
 
+      // Start native foreground service for background audio (mobile only)
+      startVoiceCallService();
+
       return response.data;
     } catch (err) {
       console.error("[voiceStore] Voice join error:", err);
@@ -295,6 +307,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   leaveVoiceChannel: () => {
+    // Stop native foreground service (mobile only)
+    stopVoiceCallService();
+
     // Send unwatch WS events for all active screen share watches before clearing
     const { watchingScreenShares, _wsSend } = get();
     if (_wsSend) {
