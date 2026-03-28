@@ -12,6 +12,24 @@ dist
 dist-ssr
 *.local
 
+# Capacitor — auto-generated & build artifacts (native source IS tracked)
+# Web assets copied by `cap sync` — rebuilt from dist/
+ios/App/App/public
+android/app/src/main/assets/public
+# Auto-generated config files — rebuilt by `cap sync`
+ios/App/App/capacitor.config.json
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+# Cordova compatibility plugins — auto-generated
+ios/capacitor-cordova-ios-plugins
+android/capacitor-cordova-android-plugins
+# CocoaPods
+ios/App/Pods
+# Gradle build artifacts
+android/.gradle
+android/app/build
+android/build
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

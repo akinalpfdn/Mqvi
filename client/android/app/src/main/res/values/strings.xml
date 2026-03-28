@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">mqvi</string>
+    <string name="title_activity_main">mqvi</string>
+    <string name="package_name">net.mqvi.app</string>
+    <string name="custom_url_scheme">net.mqvi.app</string>
+</resources>

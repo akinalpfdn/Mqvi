@@ -10,8 +10,8 @@ import react from "@vitejs/plugin-react";
 //   Eğer "./" olursa → tarayıcı ./src/main.tsx'i /invite/src/main.tsx olarak çözer → 404.
 //
 // - Build: base "./" → script src="./assets/index-xxx.js" (relative)
-//   Electron file:// protokolünde absolute "/" → C:\ gibi yanlış path oluşturur.
-//   Relative "./" ile doğru çalışır.
+//   Electron file:// and Capacitor capacitor:// use relative paths.
+//   Absolute "/" → wrong path resolution. Relative "./" works correctly.
 export default defineConfig(({ command }) => ({
   plugins: [react()],
   clearScreen: false,
@@ -33,7 +33,7 @@ export default defineConfig(({ command }) => ({
   envPrefix: ["VITE_"],
   base: command === "serve" ? "/" : "./",
   build: {
-    // Electron uses Chromium — target latest Chrome for full ES2020+ support
+    // Electron (Chromium) and Capacitor (WKWebView/Android WebView) both support modern JS
     target: "chrome120",
     minify: "esbuild",
     sourcemap: false,
