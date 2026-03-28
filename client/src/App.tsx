@@ -11,7 +11,7 @@ import LandingPage from "./components/landing/LandingPage";
 import InviteJoinPage from "./components/servers/InviteJoinPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
-import { isElectron } from "./utils/constants";
+import { isNativeApp } from "./utils/constants";
 
 /**
  * App — Root component. Handles routing and auth initialization.
@@ -56,13 +56,13 @@ function App() {
         />
       )}
     <Routes>
-      {/* Landing — Electron skips to login directly */}
+      {/* Landing — native apps (Electron/Capacitor) skip to login directly */}
       <Route
         path="/"
         element={
           user ? (
             <Navigate to="/channels" replace />
-          ) : isElectron() ? (
+          ) : isNativeApp() ? (
             <Navigate to="/login" replace />
           ) : (
             <LandingPage />
@@ -101,7 +101,7 @@ function App() {
       <Route
         path="*"
         element={
-          <Navigate to={user ? "/channels" : isElectron() ? "/login" : "/"} replace />
+          <Navigate to={user ? "/channels" : isNativeApp() ? "/login" : "/"} replace />
         }
       />
     </Routes>

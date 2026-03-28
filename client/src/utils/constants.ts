@@ -3,7 +3,9 @@
  * No hardcoded values elsewhere — every constant goes here.
  */
 
-// ─── Electron Detection ───
+import { Capacitor } from "@capacitor/core";
+
+// ─── Platform Detection ───
 
 /**
  * Detects if the app is running inside an Electron desktop shell.
@@ -13,22 +15,45 @@ export function isElectron(): boolean {
   return typeof window !== "undefined" && !!window.electronAPI;
 }
 
+/**
+ * Detects if the app is running inside a Capacitor native shell (iOS/Android).
+ * Capacitor injects a bridge object at runtime.
+ */
+export function isCapacitor(): boolean {
+  return Capacitor.isNativePlatform();
+}
+
+/**
+ * Returns the Capacitor platform: "ios", "android", or "web".
+ */
+export function getCapacitorPlatform(): string {
+  return Capacitor.getPlatform();
+}
+
+/**
+ * Detects if the app is running in any native shell (Electron or Capacitor).
+ * These environments need absolute server URLs (no Vite proxy).
+ */
+export function isNativeApp(): boolean {
+  return isElectron() || isCapacitor();
+}
+
 // ─── Server URL Resolution ───
 
 /**
  * Resolves the server base URL based on runtime environment.
  *
- * Web mode: "" (same-origin, relative paths work).
- * Electron mode: absolute URL needed (frontend served from file://).
+ * Web mode: "" (same-origin, relative paths work via Vite proxy or nginx).
+ * Native mode (Electron/Capacitor): absolute URL needed — no proxy available.
  *
  * Resolution order:
  * 1. localStorage("mqvi_server_url")
  * 2. VITE_SERVER_URL env var
- * 3. "https://mqvi.net" (Electron fallback)
+ * 3. "https://mqvi.net" (native fallback)
  * 4. "" (web mode)
  */
 function resolveServerUrl(): string {
-  if (!isElectron()) return "";
+  if (!isNativeApp()) return "";
 
   const stored = localStorage.getItem("mqvi_server_url");
   if (stored) return stored.replace(/\/$/, "");
@@ -39,7 +64,7 @@ function resolveServerUrl(): string {
   return "https://mqvi.net";
 }
 
-/** Absolute in Electron mode, empty in web mode */
+/** Absolute in native mode (Electron/Capacitor), empty in web mode */
 export const SERVER_URL = resolveServerUrl();
 
 export const API_BASE_URL = `${SERVER_URL}/api`;

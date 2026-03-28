@@ -1,3 +1,5 @@
+import { isNativeApp } from "./constants";
+
 const RELEASE_BASE = "https://github.com/akinalpfdn/Mqvi/releases/latest/download";
 const RELEASES_PAGE = "https://github.com/akinalpfdn/Mqvi/releases/latest";
 
@@ -21,9 +23,9 @@ export function detectOS(): OSInfo {
   return { os: "windows", url: `${RELEASE_BASE}/mqvi-setup.exe`, i18nKey: "hero_download_windows" };
 }
 
-/** Returns true if running on desktop OS in a web browser (not Electron, not mobile) */
+/** Returns true if running on desktop OS in a web browser (not Electron/Capacitor, not mobile) */
 export function shouldShowDownloadPrompt(): boolean {
-  if (typeof window !== "undefined" && window.electronAPI) return false;
+  if (isNativeApp()) return false;
   const { os } = detectOS();
   return os === "windows" || os === "macos" || os === "linux";
 }

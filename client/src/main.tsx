@@ -5,11 +5,11 @@ import "./i18n"; // Must be imported before App for i18n initialization
 import "./styles/globals.css";
 import App from "./App";
 import ErrorBoundary from "./components/shared/ErrorBoundary";
-import { isElectron } from "./utils/constants";
+import { isNativeApp } from "./utils/constants";
 
-// Electron uses HashRouter (file:// protocol doesn't support HTML5 History API).
+// Native shells (Electron file://, Capacitor capacitor://) don't support HTML5 History API.
 // Web uses BrowserRouter for clean URLs.
-const Router = isElectron() ? HashRouter : BrowserRouter;
+const Router = isNativeApp() ? HashRouter : BrowserRouter;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
