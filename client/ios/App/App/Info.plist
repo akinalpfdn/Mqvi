@@ -60,5 +60,12 @@
 	<string>mqvi needs microphone access for voice calls and audio messages.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>mqvi needs camera access for video calls.</string>
+
+	<!-- LiveKit ReplayKit screen share — App Group for IPC with broadcast extension -->
+	<key>RTCAppGroupIdentifier</key>
+	<string>group.net.mqvi.app</string>
+	<!-- Bundle identifier of the broadcast extension -->
+	<key>RTCScreenSharingExtension</key>
+	<string>net.mqvi.app.broadcast</string>
 </dict>
 </plist>

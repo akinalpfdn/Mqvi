@@ -133,6 +133,33 @@ export async function copyToClipboard(text: string): Promise<void> {
   document.body.removeChild(textarea);
 }
 
+// ─── Screen Share Identity ───
+
+/**
+ * Suffix appended to user IDs for iOS native screen share participants.
+ * These participants connect via LiveKit Swift SDK (separate from the JS SDK connection)
+ * and only publish screen share tracks.
+ */
+export const SCREEN_SHARE_IDENTITY_SUFFIX = "_ss";
+
+/**
+ * Resolves the real user ID from a LiveKit participant identity.
+ * Strips the "_ss" suffix from iOS native screen share sub-participants.
+ */
+export function resolveUserId(identity: string): string {
+  if (identity.endsWith(SCREEN_SHARE_IDENTITY_SUFFIX)) {
+    return identity.slice(0, -SCREEN_SHARE_IDENTITY_SUFFIX.length);
+  }
+  return identity;
+}
+
+/**
+ * Returns true if the identity belongs to a screen share sub-participant (iOS native).
+ */
+export function isScreenShareIdentity(identity: string): boolean {
+  return identity.endsWith(SCREEN_SHARE_IDENTITY_SUFFIX);
+}
+
 /** WebSocket heartbeat interval (ms) */
 export const WS_HEARTBEAT_INTERVAL = 30_000;
 

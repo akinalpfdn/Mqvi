@@ -13,6 +13,7 @@ import { useTracks } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { resolveUserId } from "../../utils/constants";
 import ScreenSharePanel from "./ScreenSharePanel";
 import ScreenShareResizeHandle from "./ScreenShareResizeHandle";
 
@@ -34,10 +35,12 @@ function ScreenShareView() {
     { onlySubscribed: false }
   );
 
-  // Filter to only tracks the user is watching
+  // Filter to only tracks the user is watching.
+  // resolveUserId maps "_ss" sub-participant identities to the original user ID
+  // so iOS native screen share tracks are matched correctly.
   const screenShareTracks = useMemo(
     () => allScreenShareTracks.filter(
-      (t) => watchingScreenShares[t.participant.identity] ?? false
+      (t) => watchingScreenShares[resolveUserId(t.participant.identity)] ?? false
     ),
     [allScreenShareTracks, watchingScreenShares]
   );

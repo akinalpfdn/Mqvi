@@ -9,14 +9,23 @@
  * adding ~6 internal listeners per useTracks call.
  */
 
+import { useMemo } from "react";
 import { useParticipants } from "@livekit/components-react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { isScreenShareIdentity } from "../../utils/constants";
 import VoiceParticipant from "./VoiceParticipant";
 
 function VoiceParticipantGrid() {
   const { t } = useTranslation("voice");
-  const participants = useParticipants();
+  const allParticipants = useParticipants();
+
+  // Filter out iOS native screen share sub-participants (identity ends with "_ss").
+  // They are separate LiveKit connections that only publish screen share tracks.
+  const participants = useMemo(
+    () => allParticipants.filter((p) => !isScreenShareIdentity(p.identity)),
+    [allParticipants]
+  );
 
   const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
   const hasScreenShare = Object.values(watchingScreenShares).some(Boolean);

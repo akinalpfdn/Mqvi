@@ -22,7 +22,10 @@ import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
-import { isElectron } from "../../utils/constants";
+import { isElectron, isCapacitor, getCapacitorPlatform, resolveUserId } from "../../utils/constants";
+import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
+import { getScreenShareToken } from "../../api/voice";
+import { useServerStore } from "../../stores/serverStore";
 
 /** Both processors expose setMicSensitivity */
 type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
@@ -80,18 +83,33 @@ function VoiceStateManager() {
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
 
   // Sync isStreaming -> LiveKit screen share.
+  // iOS Capacitor: native ReplayKit via ScreenSharePlugin (separate LiveKit connection).
   // Electron: video via getDisplayMedia, audio via native WASAPI capture (echo-free).
-  // Browser: standard getDisplayMedia with optional audio.
+  // Browser/Android: standard getDisplayMedia with optional audio.
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
     let cancelled = false;
+    const isIOSCapacitor = isCapacitor() && getCapacitorPlatform() === "ios";
 
     async function toggleScreenShare() {
       if (cancelled) return;
 
       if (isStreaming) {
-        if (isElectron() && screenShareAudio) {
+        if (isIOSCapacitor) {
+          // iOS: use native ScreenSharePlugin (ReplayKit + LiveKit Swift SDK)
+          const serverId = useServerStore.getState().activeServerId;
+          const channelId = useVoiceStore.getState().currentVoiceChannelId;
+          if (!serverId || !channelId) return;
+
+          const response = await getScreenShareToken(serverId, channelId);
+          if (cancelled || !response.success || !response.data) {
+            console.error("[VoiceStateManager] Failed to get screen share token:", response.error);
+            return;
+          }
+
+          await startNativeScreenShare(response.data.url, response.data.token);
+        } else if (isElectron() && screenShareAudio) {
           // Electron: video only via getDisplayMedia, audio via native capture
           await localParticipant.setScreenShareEnabled(true, {
             audio: false,
@@ -112,6 +130,7 @@ function VoiceStateManager() {
           });
           customAudioPubRef.current = pub;
         } else {
+          // Browser / Android Capacitor: standard getDisplayMedia
           await localParticipant.setScreenShareEnabled(true, {
             audio: screenShareAudio,
             resolution: { width: 1920, height: 1080, frameRate: 30 },
@@ -119,15 +138,20 @@ function VoiceStateManager() {
           });
         }
       } else {
-        if (customAudioPubRef.current) {
-          await localParticipant.unpublishTrack(
-            customAudioPubRef.current.track!
-          );
-          customAudioPubRef.current = null;
-        }
+        if (isIOSCapacitor) {
+          // iOS: stop native screen share
+          await stopNativeScreenShare();
+        } else {
+          if (customAudioPubRef.current) {
+            await localParticipant.unpublishTrack(
+              customAudioPubRef.current.track!
+            );
+            customAudioPubRef.current = null;
+          }
 
-        systemAudioCaptureRef.current.stop();
-        await localParticipant.setScreenShareEnabled(false);
+          systemAudioCaptureRef.current.stop();
+          await localParticipant.setScreenShareEnabled(false);
+        }
       }
     }
 
@@ -139,6 +163,27 @@ function VoiceStateManager() {
 
     return () => { cancelled = true; };
   }, [isStreaming, screenShareAudio, localParticipant]);
+
+  // iOS: listen for native screen share stopped (user stops from Control Center)
+  useEffect(() => {
+    if (!isCapacitor() || getCapacitorPlatform() !== "ios") return;
+
+    let removeListener: (() => void) | null = null;
+
+    onNativeScreenShareStopped(() => {
+      // Sync store state — native screen share was stopped externally
+      const { isStreaming: currentlyStreaming } = useVoiceStore.getState();
+      if (currentlyStreaming) {
+        useVoiceStore.getState().setStreaming(false);
+      }
+    }).then((cleanup) => {
+      removeListener = cleanup;
+    });
+
+    return () => {
+      removeListener?.();
+    };
+  }, []);
 
   // Raise EventEmitter limit — we attach many room listeners here + SDK internals
   useEffect(() => {
@@ -558,7 +603,7 @@ function VoiceStateManager() {
         publication.source === Track.Source.ScreenShare ||
         publication.source === Track.Source.ScreenShareAudio
       ) {
-        const watching = useVoiceStore.getState().watchingScreenShares[participant.identity];
+        const watching = useVoiceStore.getState().watchingScreenShares[resolveUserId(participant.identity)];
         if (!watching) {
           publication.setSubscribed(false);
         }
@@ -574,7 +619,7 @@ function VoiceStateManager() {
   // Effect B: Subscribe/unsubscribe when watchingScreenShares changes.
   useEffect(() => {
     room.remoteParticipants.forEach((participant) => {
-      const watching = watchingScreenShares[participant.identity] ?? false;
+      const watching = watchingScreenShares[resolveUserId(participant.identity)] ?? false;
 
       participant.trackPublications.forEach((pub) => {
         if (

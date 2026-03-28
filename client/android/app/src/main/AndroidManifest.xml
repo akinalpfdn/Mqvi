@@ -28,7 +28,7 @@
         <service
             android:name=".VoiceCallService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback|microphone" />
+            android:foregroundServiceType="mediaPlayback|microphone|mediaProjection" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -55,6 +55,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Screen share via MediaProjection (Android 14+ requires foreground service type) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <!-- Notifications for foreground service and calls -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

@@ -283,6 +283,7 @@ func initRoutes(
 
 	// Voice
 	mux.Handle("POST /api/servers/{serverId}/voice/token", authServer(h.Voice.Token))
+	mux.Handle("POST /api/servers/{serverId}/voice/screen-token", authServer(h.Voice.ScreenShareToken))
 	mux.Handle("GET /api/servers/{serverId}/voice/states", authServer(h.Voice.VoiceStates))
 
 	// WebSocket

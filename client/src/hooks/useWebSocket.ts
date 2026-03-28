@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { ensureFreshToken } from "../api/client";
+import { APP_RESUME_EVENT } from "../utils/nativePlugins";
 import { useP2PCallStore } from "../stores/p2pCallStore";
 import {
   WS_URL,
@@ -368,10 +369,25 @@ export function useWebSocket() {
 
     doConnect();
 
+    // App resume listener — reconnect WS if socket is closed (mobile background → foreground)
+    function onAppResume() {
+      if (activeConnectionIdRef.current !== myId) return;
+
+      const ws = wsRef.current;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        reconnectAttemptRef.current = 0;
+        setReconnectAttempt(0);
+        doConnect();
+      }
+    }
+
+    window.addEventListener(APP_RESUME_EVENT, onAppResume);
+
     return () => {
       // Increment (not reset) to invalidate all callbacks from this connection
       activeConnectionIdRef.current++;
       cleanupTimers();
+      window.removeEventListener(APP_RESUME_EVENT, onAppResume);
 
       if (wsRef.current) {
         wsRef.current.close();

@@ -12,6 +12,7 @@ import type { TrackReferenceOrPlaceholder, TrackReference } from "@livekit/compo
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { resolveUserId } from "../../utils/constants";
 import ScreenShareContextMenu from "./ScreenShareContextMenu";
 
 type ScreenSharePanelProps = {
@@ -33,7 +34,8 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
   // ─── Context Menu State ───
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const currentUser = useAuthStore((s) => s.user);
-  const isLocalUser = trackRef.participant.identity === currentUser?.id;
+  const realUserId = resolveUserId(trackRef.participant.identity);
+  const isLocalUser = realUserId === currentUser?.id;
 
   useEffect(() => {
     function handleFullscreenChange() {
@@ -60,14 +62,14 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
     }
   }, []);
 
-  const displayName = trackRef.participant.name || trackRef.participant.identity;
+  const displayName = trackRef.participant.name || realUserId;
 
   // Double-click to focus a single stream when multiple are visible
   const handleDoubleClick = useCallback(() => {
     if (watchingCount > 1) {
-      focusScreenShare(trackRef.participant.identity);
+      focusScreenShare(realUserId);
     }
-  }, [watchingCount, focusScreenShare, trackRef.participant.identity]);
+  }, [watchingCount, focusScreenShare, realUserId]);
 
   // Skip context menu for own screen share
   const handleContextMenu = useCallback(
@@ -109,7 +111,7 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
 
       {ctxMenu && (
         <ScreenShareContextMenu
-          userId={trackRef.participant.identity}
+          userId={realUserId}
           displayName={displayName}
           position={ctxMenu}
           onClose={() => setCtxMenu(null)}
