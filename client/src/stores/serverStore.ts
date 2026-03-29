@@ -8,6 +8,7 @@ import { useChannelStore } from "./channelStore";
 import { useMemberStore } from "./memberStore";
 import { useRoleStore } from "./roleStore";
 import { useReadStateStore } from "./readStateStore";
+import { useE2EEStore } from "./e2eeStore";
 import type { Server, ServerListItem, CreateServerRequest } from "../types";
 
 /** Persist last active server across page reloads */
@@ -295,6 +296,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
   toggleE2EE: async (serverId, enabled) => {
     const res = await serversApi.updateServer(serverId, { e2ee_enabled: enabled });
     // server_update WS event will trigger handleServerUpdate automatically
+    if (res.success && enabled) {
+      useE2EEStore.getState().checkAndPromptRecovery();
+    }
     return res.success;
   },
 }));

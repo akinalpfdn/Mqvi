@@ -148,9 +148,15 @@ export async function handleSystemEvent(
     }
 
     // ─── Servers ───
-    case "server_update":
-      useServerStore.getState().handleServerUpdate(msg.d as Server);
+    case "server_update": {
+      const updatedServer = msg.d as Server;
+      useServerStore.getState().handleServerUpdate(updatedServer);
+      // Trigger recovery password prompt if E2EE was just enabled
+      if (updatedServer.e2ee_enabled) {
+        useE2EEStore.getState().checkAndPromptRecovery();
+      }
       return true;
+    }
     case "server_create":
       useServerStore.getState().handleServerCreate(msg.d as ServerListItem);
       return true;

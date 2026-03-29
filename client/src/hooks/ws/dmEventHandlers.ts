@@ -16,9 +16,15 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
     case "dm_channel_create":
       useDMStore.getState().handleDMChannelCreate(msg.d as DMChannelWithUser);
       return true;
-    case "dm_channel_update":
-      useDMStore.getState().handleDMChannelUpdate(msg.d as DMChannelWithUser);
+    case "dm_channel_update": {
+      const dmChannel = msg.d as DMChannelWithUser;
+      useDMStore.getState().handleDMChannelUpdate(dmChannel);
+      // Trigger recovery password prompt if E2EE was just enabled
+      if (dmChannel.e2ee_enabled) {
+        useE2EEStore.getState().checkAndPromptRecovery();
+      }
       return true;
+    }
 
     case "dm_message_create": {
       let dmMsg = msg.d as DMMessage;

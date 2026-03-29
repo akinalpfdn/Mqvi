@@ -771,6 +771,10 @@ export const useDMStore = create<DMState>((set, get) => ({
           ch.id === channelId ? { ...ch, e2ee_enabled: enabled } : ch
         ),
       }));
+      // Trigger recovery password prompt if E2EE was enabled
+      if (enabled) {
+        useE2EEStore.getState().checkAndPromptRecovery();
+      }
     }
     return res.success;
   },

@@ -11,6 +11,7 @@ import type { DeviceInfo } from "../types";
 import { useMessageStore } from "./messageStore";
 import { useDMStore } from "./dmStore";
 import { useChannelStore } from "./channelStore";
+import { useServerStore } from "./serverStore";
 
 // ──────────────────────────────────
 // Types
@@ -21,7 +22,6 @@ export type E2EEInitStatus =
   | "initializing"
   | "ready"
   | "needs_setup"
-  | "needs_recovery_password"
   | "error";
 
 export type DecryptionError = {
@@ -40,6 +40,10 @@ type E2EEState = {
   decryptionErrors: DecryptionError[];
   isGeneratingKeys: boolean;
   initError: string | null;
+  /** Show non-blocking recovery password prompt when E2EE first becomes relevant. */
+  showRecoveryPrompt: boolean;
+  /** Whether the user dismissed the recovery prompt in this session. */
+  recoveryPromptDismissed: boolean;
 
   // ─── Actions ───
 
@@ -48,6 +52,9 @@ type E2EEState = {
   restoreFromRecovery: (password: string) => Promise<boolean>;
   setRecoveryPassword: (password: string) => Promise<void>;
   completeRecoverySetup: (password: string) => Promise<void>;
+  /** Check if recovery password prompt should be shown (E2EE active + no backup). */
+  checkAndPromptRecovery: () => void;
+  dismissRecoveryPrompt: () => void;
   fetchDevices: () => Promise<void>;
   removeDevice: (deviceId: string) => Promise<void>;
   addDecryptionError: (error: DecryptionError) => void;
@@ -70,10 +77,12 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
   decryptionErrors: [],
   isGeneratingKeys: false,
   initError: null,
+  showRecoveryPrompt: false,
+  recoveryPromptDismissed: false,
 
   initialize: async (userId: string) => {
     const current = get().initStatus;
-    if (current === "initializing" || current === "ready" || current === "needs_recovery_password") return;
+    if (current === "initializing" || current === "ready") return;
 
     set({ initStatus: "initializing", initError: null });
 
@@ -113,12 +122,14 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
           localDeviceId: deviceId,
         });
 
-        // Background: prekey check + device list + backup status
+        // Background: prekey check + device list + backup status + deferred recovery prompt
         get().handlePrekeyLow();
         get().fetchDevices();
         checkRecoveryBackup(set);
+        scheduleDeferredRecoveryCheck(get);
       } else {
-        // No local keys — check for server backup
+        // No local keys — check for server backup.
+        // Backup existence implies E2EE was previously used and backed up → show restore flow.
         try {
           const backupRes = await e2eeApi.downloadKeyBackup();
           if (backupRes.success && backupRes.data) {
@@ -133,32 +144,12 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
           // Backup check failed — continue to auto key generation
         }
 
-        // No backup — check if user has other devices.
-        // If yes: don't auto-create keys (user should set recovery password on other device first).
-        // If no: first-time user, auto-setup.
-        try {
-          const devicesRes = await e2eeApi.listMyDevices();
-          if (devicesRes.success && devicesRes.data && devicesRes.data.length > 0) {
-            set({
-              initStatus: "needs_setup",
-              localDeviceId: null,
-              hasRecoveryBackup: false,
-            });
-            return;
-          }
-        } catch {
-          set({
-            initStatus: "needs_setup",
-            localDeviceId: null,
-            hasRecoveryBackup: false,
-          });
-          return;
-        }
-
-        // No devices at all — first-time user, auto generate keys.
-        // App will block until mandatory recovery password is set.
+        // No backup — silently generate keys regardless of whether other devices exist.
+        // If no E2EE activity: keys sit idle, no user-facing popup.
+        // If E2EE activates later: recovery password prompt will appear at that time.
+        // Old keys on other devices are independent (per-device identity) so no conflict.
         await get().setupNewDevice(userId);
-        set({ initStatus: "needs_recovery_password" });
+        scheduleDeferredRecoveryCheck(get);
       }
     } catch (err) {
       const message =
@@ -300,10 +291,31 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
   completeRecoverySetup: async (password: string) => {
     try {
       await get().setRecoveryPassword(password);
-      set({ initStatus: "ready" });
+      set({ showRecoveryPrompt: false });
     } catch (err) {
       throw err;
     }
+  },
+
+  checkAndPromptRecovery: () => {
+    const { initStatus, hasRecoveryBackup, recoveryPromptDismissed, showRecoveryPrompt } = get();
+    if (initStatus !== "ready" || hasRecoveryBackup || recoveryPromptDismissed || showRecoveryPrompt) return;
+
+    // Check if any DM channel or the active server has E2EE enabled
+    const dmChannels = useDMStore.getState().channels;
+    const activeServer = useServerStore.getState().activeServer;
+
+    const hasE2EEActivity =
+      dmChannels.some((ch) => ch.e2ee_enabled) ||
+      (activeServer?.e2ee_enabled === true);
+
+    if (hasE2EEActivity) {
+      set({ showRecoveryPrompt: true });
+    }
+  },
+
+  dismissRecoveryPrompt: () => {
+    set({ showRecoveryPrompt: false, recoveryPromptDismissed: true });
   },
 
   fetchDevices: async () => {
@@ -371,6 +383,8 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
       decryptionErrors: [],
       isGeneratingKeys: false,
       initError: null,
+      showRecoveryPrompt: false,
+      recoveryPromptDismissed: false,
     });
   },
 }));
@@ -391,4 +405,17 @@ async function checkRecoveryBackup(
   } catch {
     // Non-critical — silently continue
   }
+}
+
+/**
+ * Schedule a deferred recovery prompt check.
+ * DM channels and servers may not be loaded yet when init completes,
+ * so we wait a few seconds for stores to populate from the WS ready event.
+ */
+function scheduleDeferredRecoveryCheck(
+  get: () => E2EEState
+): void {
+  setTimeout(() => {
+    get().checkAndPromptRecovery();
+  }, 5000);
 }

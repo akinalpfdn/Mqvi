@@ -85,5 +85,11 @@
   "mandatoryRecoveryDescription": "Your encryption keys have been generated. Set a recovery password to protect them. If you lose access to all your devices, this password will be the only way to recover your encrypted messages.",
   "mandatoryRecoveryHint": "You can change this password anytime from Settings > Encryption.",
 
-  "recipientNoKeysBanner": "This user hasn't set up encryption yet. Messages will be sent unencrypted until they set up their encryption keys."
+  "recipientNoKeysBanner": "This user hasn't set up encryption yet. Messages will be sent unencrypted until they set up their encryption keys.",
+
+  "recoveryPromptTitle": "Protect Your Encrypted Messages",
+  "recoveryPromptDescription": "End-to-end encryption has been enabled in a conversation you're part of. Set a recovery password to keep your message history accessible across devices.",
+  "recoveryPromptHint": "You can change this password anytime from Settings > Encryption.",
+  "recoveryPromptSetPassword": "Set Recovery Password",
+  "recoveryPromptDismiss": "Later"
 }

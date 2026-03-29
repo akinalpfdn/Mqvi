@@ -34,6 +34,7 @@ import { useP2PCall } from "../../hooks/useP2PCall";
 import { useE2EE } from "../../hooks/useE2EE";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import NewDeviceSetup from "../shared/NewDeviceSetup";
+import RecoveryPasswordPrompt from "../shared/RecoveryPasswordPrompt";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
 import QuickSwitcher from "../shared/QuickSwitcher";
 import ScreenPicker from "../voice/ScreenPicker";
@@ -68,6 +69,7 @@ function AppLayout() {
   // E2EE device identity check + key init
   useE2EE();
   const e2eeInitStatus = useE2EEStore((s) => s.initStatus);
+  const showRecoveryPrompt = useE2EEStore((s) => s.showRecoveryPrompt);
 
   const activeServerId = useServerStore((s) => s.activeServerId);
   const servers = useServerStore((s) => s.servers);
@@ -255,8 +257,11 @@ function AppLayout() {
       {/* AFK kick popup — manual dismiss only */}
       <AFKKickPopup />
 
-      {/* E2EE new device setup (blocking) */}
-      {(e2eeInitStatus === "needs_setup" || e2eeInitStatus === "needs_recovery_password") && <NewDeviceSetup />}
+      {/* E2EE new device setup (blocking — only when backup exists and restore is needed) */}
+      {e2eeInitStatus === "needs_setup" && <NewDeviceSetup />}
+
+      {/* E2EE recovery password prompt (non-blocking — shown when E2EE activates without backup) */}
+      {showRecoveryPrompt && <RecoveryPasswordPrompt />}
     </>
   );
 
