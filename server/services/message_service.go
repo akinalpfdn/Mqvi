@@ -257,29 +257,33 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	return message, nil
 }
 
-// BroadcastCreate sends the message via WS after file uploads complete.
-// Only sends to users with ReadMessages permission on the channel.
-func (s *messageService) BroadcastCreate(message *models.Message) {
-	event := ws.Event{
-		Op:   ws.OpMessageCreate,
-		Data: message,
-	}
-
+// allowedViewers returns online user IDs that have both ViewChannel and ReadMessages
+// permission on the given channel. Used to filter all channel-scoped WS broadcasts.
+func (s *messageService) allowedViewers(channelID string) []string {
 	onlineUsers := s.hub.GetOnlineUserIDs()
 	ctx := context.Background()
 	var allowed []string
 
 	for _, userID := range onlineUsers {
-		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, message.ChannelID)
+		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
 		if err != nil {
 			continue
 		}
-		if perms.Has(models.PermReadMessages) {
+		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
 			allowed = append(allowed, userID)
 		}
 	}
 
-	s.hub.BroadcastToUsers(allowed, event)
+	return allowed
+}
+
+// BroadcastCreate sends the message via WS after file uploads complete.
+// Only sends to users with ViewChannel + ReadMessages permission on the channel.
+func (s *messageService) BroadcastCreate(message *models.Message) {
+	s.hub.BroadcastToUsers(s.allowedViewers(message.ChannelID), ws.Event{
+		Op:   ws.OpMessageCreate,
+		Data: message,
+	})
 }
 
 // Update edits a message. Only the message owner can edit.
@@ -353,7 +357,7 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		message.RoleMentions = []string{}
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToUsers(s.allowedViewers(message.ChannelID), ws.Event{
 		Op:   ws.OpMessageUpdate,
 		Data: message,
 	})
@@ -376,7 +380,7 @@ func (s *messageService) Delete(ctx context.Context, id string, userID string, u
 		return err
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToUsers(s.allowedViewers(message.ChannelID), ws.Event{
 		Op: ws.OpMessageDelete,
 		Data: map[string]string{
 			"id":         id,

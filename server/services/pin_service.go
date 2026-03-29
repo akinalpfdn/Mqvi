@@ -21,21 +21,41 @@ type PinService interface {
 }
 
 type pinService struct {
-	pinRepo     repository.PinRepository
-	messageRepo repository.MessageRepository
-	hub         ws.Broadcaster
+	pinRepo      repository.PinRepository
+	messageRepo  repository.MessageRepository
+	hub          ws.BroadcastAndOnline
+	permResolver ChannelPermResolver
 }
 
 func NewPinService(
 	pinRepo repository.PinRepository,
 	messageRepo repository.MessageRepository,
-	hub ws.Broadcaster,
+	hub ws.BroadcastAndOnline,
+	permResolver ChannelPermResolver,
 ) PinService {
 	return &pinService{
-		pinRepo:     pinRepo,
-		messageRepo: messageRepo,
-		hub:         hub,
+		pinRepo:      pinRepo,
+		messageRepo:  messageRepo,
+		hub:          hub,
+		permResolver: permResolver,
 	}
+}
+
+// allowedViewers returns online user IDs that have ViewChannel + ReadMessages on the channel.
+func (s *pinService) allowedViewers(channelID string) []string {
+	onlineUsers := s.hub.GetOnlineUserIDs()
+	ctx := context.Background()
+	var allowed []string
+	for _, uid := range onlineUsers {
+		perms, err := s.permResolver.ResolveChannelPermissions(ctx, uid, channelID)
+		if err != nil {
+			continue
+		}
+		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
+			allowed = append(allowed, uid)
+		}
+	}
+	return allowed
 }
 
 func (s *pinService) Pin(ctx context.Context, messageID string, channelID string, pinnedBy string) (*models.PinnedMessageWithDetails, error) {
@@ -69,7 +89,7 @@ func (s *pinService) Pin(ctx context.Context, messageID string, channelID string
 		Message:       message,
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToUsers(s.allowedViewers(channelID), ws.Event{
 		Op:   ws.OpMessagePin,
 		Data: result,
 	})
@@ -91,7 +111,7 @@ func (s *pinService) Unpin(ctx context.Context, messageID string, channelID stri
 		return err
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToUsers(s.allowedViewers(channelID), ws.Event{
 		Op: ws.OpMessageUnpin,
 		Data: map[string]string{
 			"message_id": messageID,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
@@ -21,18 +22,21 @@ type ReactionService interface {
 type reactionService struct {
 	reactionRepo repository.ReactionRepository
 	messageRepo  repository.MessageRepository
-	hub          ws.Broadcaster
+	hub          ws.BroadcastAndOnline
+	permResolver ChannelPermResolver
 }
 
 func NewReactionService(
 	reactionRepo repository.ReactionRepository,
 	messageRepo repository.MessageRepository,
-	hub ws.Broadcaster,
+	hub ws.BroadcastAndOnline,
+	permResolver ChannelPermResolver,
 ) ReactionService {
 	return &reactionService{
 		reactionRepo: reactionRepo,
 		messageRepo:  messageRepo,
 		hub:          hub,
+		permResolver: permResolver,
 	}
 }
 
@@ -62,9 +66,8 @@ func (s *reactionService) ToggleReaction(ctx context.Context, messageID, userID,
 		return fmt.Errorf("failed to get reactions after toggle: %w", err)
 	}
 
-	// Broadcast includes actor_id and message_author_id so frontend can
-	// determine unread state ("someone reacted to my message").
-	s.hub.BroadcastToAll(ws.Event{
+	// Only broadcast to users who can view + read this channel.
+	event := ws.Event{
 		Op: ws.OpReactionUpdate,
 		Data: map[string]any{
 			"message_id":        messageID,
@@ -74,7 +77,20 @@ func (s *reactionService) ToggleReaction(ctx context.Context, messageID, userID,
 			"message_author_id": message.UserID,
 			"added":             added,
 		},
-	})
+	}
+
+	onlineUsers := s.hub.GetOnlineUserIDs()
+	var allowed []string
+	for _, uid := range onlineUsers {
+		perms, permErr := s.permResolver.ResolveChannelPermissions(ctx, uid, message.ChannelID)
+		if permErr != nil {
+			continue
+		}
+		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
+			allowed = append(allowed, uid)
+		}
+	}
+	s.hub.BroadcastToUsers(allowed, event)
 
 	return nil
 }
