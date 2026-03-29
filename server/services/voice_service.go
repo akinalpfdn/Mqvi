@@ -63,6 +63,7 @@ type VoiceService interface {
 	GetUserVoiceChannelID(userID string) string
 	WatchScreenShare(viewerUserID, streamerUserID string, watching bool)
 	GetScreenShareViewerCount(streamerUserID string) int
+	GetScreenShareStats() (streamers int, viewers int)
 	CleanupViewersForStreamer(streamerUserID string)
 	UpdateActivity(userID string)
 	StartOrphanCleanup()
@@ -918,6 +919,21 @@ func (s *voiceService) GetScreenShareViewerCount(streamerUserID string) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.screenShareViewers[streamerUserID])
+}
+
+// GetScreenShareStats returns the total number of active streamers and total viewers.
+func (s *voiceService) GetScreenShareStats() (streamers int, viewers int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, state := range s.states {
+		if state.IsStreaming {
+			streamers++
+		}
+	}
+	for _, viewerSet := range s.screenShareViewers {
+		viewers += len(viewerSet)
+	}
+	return
 }
 
 func (s *voiceService) CleanupViewersForStreamer(streamerUserID string) {

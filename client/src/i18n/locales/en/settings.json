@@ -437,6 +437,11 @@
   "platformMetricsChartNoData": "No chart data available yet",
   "platformMetricsChartCPU": "CPU Usage (%)",
   "platformMetricsChartBandwidth": "Network Bandwidth",
+  "platformMetricsChartVoiceActivity": "Voice Activity",
+  "platformMetricsChartMemory": "Memory Usage",
+  "platformMetricsScreenShares": "Screen Shares",
+  "platformMetricsStreamers": "Streaming",
+  "platformMetricsViewers": "Watching",
 
   "platformMetricsCPU": "Server CPU",
   "platformMetricsBwIn": "Bandwidth In",

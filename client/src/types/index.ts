@@ -427,6 +427,8 @@ export type LiveKitInstanceMetrics = {
   bw_in_bps: number;
   bw_out_bps: number;
   hetzner_avail: boolean;
+  screen_share_count: number;
+  screen_share_viewers: number;
   fetched_at: string;
   available: boolean;
 };
@@ -458,6 +460,8 @@ export type MetricsTimeSeriesPoint = {
   bw_in: number;
   bw_out: number;
   participants: number;
+  memory_bytes: number;
+  screen_shares: number;
 };
 
 /** Server info for platform admin panel (single SQL query with stats). */

@@ -437,6 +437,11 @@
   "platformMetricsChartNoData": "Henüz grafik verisi yok",
   "platformMetricsChartCPU": "CPU Kullanımı (%)",
   "platformMetricsChartBandwidth": "Ağ Bant Genişliği",
+  "platformMetricsChartVoiceActivity": "Ses Aktivitesi",
+  "platformMetricsChartMemory": "Bellek Kullanımı",
+  "platformMetricsScreenShares": "Ekran Paylaşımı",
+  "platformMetricsStreamers": "Yayın Yapan",
+  "platformMetricsViewers": "İzleyen",
 
   "platformMetricsCPU": "Sunucu CPU",
   "platformMetricsBwIn": "Gelen Bant Genişliği",

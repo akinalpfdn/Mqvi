@@ -193,6 +193,16 @@ function MetricsPanel({ instanceId }: MetricsPanelProps) {
               </div>
 
               <div className="metrics-card">
+                <span className="metrics-card-label">{t("platformMetricsScreenShares")}</span>
+                <span className="metrics-card-value">
+                  {metrics.screen_share_count} / {metrics.screen_share_viewers}
+                </span>
+                <span className="metrics-card-sub">
+                  {t("platformMetricsStreamers")} / {t("platformMetricsViewers")}
+                </span>
+              </div>
+
+              <div className="metrics-card">
                 <span className="metrics-card-label">{t("platformMetricsNack")}</span>
                 <span className="metrics-card-value">{metrics.nack_total.toLocaleString()}</span>
               </div>
@@ -328,6 +338,69 @@ function MetricsChart({ data, period, isLoading }: MetricsChartProps) {
 
   return (
     <div className="metrics-chart-container">
+      {/* Voice Activity Chart — participants + screen shares */}
+      <div className="metrics-chart-block">
+        <span className="metrics-chart-title">{t("platformMetricsChartVoiceActivity")}</span>
+        <ResponsiveContainer width="100%" height={160}>
+          <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="partGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--teal)" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="var(--teal)" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="ssGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--purple)" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="var(--purple)" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="var(--b1)" strokeDasharray="3 3" />
+            <XAxis
+              dataKey="ts"
+              tickFormatter={(v: string) => formatXAxis(v, period)}
+              tick={{ fill: "var(--t2)", fontSize: 13 }}
+              axisLine={false}
+              tickLine={false}
+              minTickGap={40}
+            />
+            <YAxis
+              tick={{ fill: "var(--t2)", fontSize: 13 }}
+              axisLine={false}
+              tickLine={false}
+              width={30}
+              domain={[0, "auto"]}
+              allowDecimals={false}
+            />
+            <Tooltip
+              content={
+                <ChartTooltip
+                  period={period}
+                  valueFormatter={(v) => String(Math.round(v))}
+                  labelMap={{ participants: t("platformMetricsParticipants"), screen_shares: t("platformMetricsScreenShares") }}
+                />
+              }
+            />
+            <Area
+              type="monotone"
+              dataKey="participants"
+              stroke="var(--teal)"
+              fill="url(#partGrad)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 3, fill: "var(--teal)" }}
+            />
+            <Area
+              type="monotone"
+              dataKey="screen_shares"
+              stroke="var(--purple)"
+              fill="url(#ssGrad)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 3, fill: "var(--purple)" }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
       {/* CPU Chart */}
       <div className="metrics-chart-block">
         <span className="metrics-chart-title">{t("platformMetricsChartCPU")}</span>
@@ -428,6 +501,48 @@ function MetricsChart({ data, period, isLoading }: MetricsChartProps) {
               strokeWidth={1.5}
               dot={false}
               activeDot={{ r: 3, fill: "var(--red)" }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Memory Chart */}
+      <div className="metrics-chart-block">
+        <span className="metrics-chart-title">{t("platformMetricsChartMemory")}</span>
+        <ResponsiveContainer width="100%" height={160}>
+          <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="memGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--green)" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="var(--green)" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="var(--b1)" strokeDasharray="3 3" />
+            <XAxis
+              dataKey="ts"
+              tickFormatter={(v: string) => formatXAxis(v, period)}
+              tick={{ fill: "var(--t2)", fontSize: 13 }}
+              axisLine={false}
+              tickLine={false}
+              minTickGap={40}
+            />
+            <YAxis
+              tickFormatter={(v: number) => formatBytes(v)}
+              tick={{ fill: "var(--t2)", fontSize: 13 }}
+              axisLine={false}
+              tickLine={false}
+              width={55}
+              domain={[0, "auto"]}
+            />
+            <Tooltip content={<ChartTooltip period={period} valueFormatter={(v) => formatBytes(v)} />} />
+            <Area
+              type="monotone"
+              dataKey="memory_bytes"
+              stroke="var(--green)"
+              fill="url(#memGrad)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 3, fill: "var(--green)" }}
             />
           </AreaChart>
         </ResponsiveContainer>

@@ -12,6 +12,12 @@ import (
 	"github.com/akinalp/mqvi/services"
 )
 
+// ScreenShareStatsProvider exposes screen share metrics for the admin panel.
+// Implemented by VoiceService — minimal ISP to avoid importing full voice layer.
+type ScreenShareStatsProvider interface {
+	GetScreenShareStats() (streamers int, viewers int)
+}
+
 type AdminHandler struct {
 	livekitAdminService   services.LiveKitAdminService
 	metricsHistoryService services.MetricsHistoryService
@@ -19,6 +25,7 @@ type AdminHandler struct {
 	adminServerService    services.AdminServerService
 	reportService         services.ReportService
 	appLogService         services.AppLogService
+	screenShareStats      ScreenShareStatsProvider
 }
 
 func NewAdminHandler(
@@ -28,6 +35,7 @@ func NewAdminHandler(
 	adminServerService services.AdminServerService,
 	reportService services.ReportService,
 	appLogService services.AppLogService,
+	screenShareStats ScreenShareStatsProvider,
 ) *AdminHandler {
 	return &AdminHandler{
 		livekitAdminService:   livekitAdminService,
@@ -36,6 +44,7 @@ func NewAdminHandler(
 		adminServerService:    adminServerService,
 		reportService:         reportService,
 		appLogService:         appLogService,
+		screenShareStats:      screenShareStats,
 	}
 }
 
@@ -212,6 +221,12 @@ func (h *AdminHandler) GetLiveKitInstanceMetrics(w http.ResponseWriter, r *http.
 	if err != nil {
 		pkg.Error(w, err)
 		return
+	}
+
+	if h.screenShareStats != nil {
+		streamers, viewers := h.screenShareStats.GetScreenShareStats()
+		metrics.ScreenShareCount = streamers
+		metrics.ScreenShareViewers = viewers
 	}
 
 	pkg.JSON(w, http.StatusOK, metrics)

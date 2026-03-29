@@ -140,6 +140,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		5*time.Minute,
 		30,
 		cfg.HetznerAPIToken,
+		voiceService,
 	)
 
 	// Rate limiters

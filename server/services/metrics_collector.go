@@ -39,6 +39,11 @@ type previousSample struct {
 	timestamp  time.Time
 }
 
+// ScreenShareCounter provides current screen share count for periodic metric snapshots.
+type ScreenShareCounter interface {
+	GetScreenShareStats() (streamers int, viewers int)
+}
+
 type metricsCollector struct {
 	livekitRepo repository.LiveKitRepository
 	historyRepo repository.MetricsHistoryRepository
@@ -47,8 +52,9 @@ type metricsCollector struct {
 	interval      time.Duration
 	retentionDays int
 
-	hetznerClient *hcloud.Client // optional, nil = disabled
-	vcpuCache     map[int64]int  // cached vCPU counts per Hetzner server ID
+	hetznerClient    *hcloud.Client // optional, nil = disabled
+	vcpuCache        map[int64]int  // cached vCPU counts per Hetzner server ID
+	screenShareStats ScreenShareCounter // optional, nil = no screen share tracking
 
 	// Delta computation state. Goroutine-safe: only accessed by collector goroutine.
 	prevSamples map[string]*previousSample
@@ -63,15 +69,17 @@ func NewMetricsCollector(
 	interval time.Duration,
 	retentionDays int,
 	hetznerToken string,
+	screenShareStats ScreenShareCounter,
 ) MetricsCollector {
 	mc := &metricsCollector{
-		livekitRepo:   livekitRepo,
-		historyRepo:   historyRepo,
-		interval:      interval,
-		retentionDays: retentionDays,
-		prevSamples:   make(map[string]*previousSample),
-		vcpuCache:     make(map[int64]int),
-		stopCh:        make(chan struct{}),
+		livekitRepo:      livekitRepo,
+		historyRepo:      historyRepo,
+		interval:         interval,
+		retentionDays:    retentionDays,
+		screenShareStats: screenShareStats,
+		prevSamples:      make(map[string]*previousSample),
+		vcpuCache:        make(map[int64]int),
+		stopCh:           make(chan struct{}),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -234,6 +242,11 @@ func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitI
 		}
 	}
 
+	var screenShareCount int
+	if c.screenShareStats != nil {
+		screenShareCount, _ = c.screenShareStats.GetScreenShareStats()
+	}
+
 	snapshot := &models.MetricsSnapshot{
 		InstanceID:       inst.ID,
 		RoomCount:        roomCount,
@@ -242,6 +255,7 @@ func (c *metricsCollector) collectOne(ctx context.Context, inst *models.LiveKitI
 		Goroutines:       goroutines,
 		BytesIn:          bytesIn,
 		BytesOut:         bytesOut,
+		ScreenShareCount: screenShareCount,
 		CPUPercent:       cpuPct,
 		BandwidthInBps:   bwInBps,
 		BandwidthOutBps:  bwOutBps,

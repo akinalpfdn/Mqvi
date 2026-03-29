@@ -22,8 +22,8 @@ func (r *sqliteMetricsHistoryRepo) Insert(ctx context.Context, snapshot *models.
 		INSERT INTO livekit_metrics_history (
 			instance_id, room_count, participant_count, memory_bytes,
 			goroutines, bytes_in, bytes_out, cpu_pct,
-			bandwidth_in_bps, bandwidth_out_bps, available
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			bandwidth_in_bps, bandwidth_out_bps, screen_share_count, available
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := r.db.ExecContext(ctx, query,
 		snapshot.InstanceID,
@@ -36,6 +36,7 @@ func (r *sqliteMetricsHistoryRepo) Insert(ctx context.Context, snapshot *models.
 		snapshot.CPUPercent,
 		snapshot.BandwidthInBps,
 		snapshot.BandwidthOutBps,
+		snapshot.ScreenShareCount,
 		snapshot.Available,
 	)
 	if err != nil {
@@ -110,7 +111,8 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 	switch period {
 	case "24h":
 		query = `
-			SELECT collected_at, cpu_pct, bandwidth_in_bps, bandwidth_out_bps, participant_count
+			SELECT collected_at, cpu_pct, bandwidth_in_bps, bandwidth_out_bps,
+				participant_count, memory_bytes, screen_share_count
 			FROM livekit_metrics_history
 			WHERE instance_id = ? AND available = 1 AND collected_at >= ?
 			ORDER BY collected_at ASC`
@@ -119,7 +121,9 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 			SELECT
 				strftime('%Y-%m-%dT%H:00:00', collected_at) AS ts,
 				AVG(cpu_pct), AVG(bandwidth_in_bps), AVG(bandwidth_out_bps),
-				CAST(AVG(participant_count) AS INTEGER)
+				CAST(AVG(participant_count) AS INTEGER),
+				CAST(AVG(memory_bytes) AS INTEGER),
+				CAST(AVG(screen_share_count) AS INTEGER)
 			FROM livekit_metrics_history
 			WHERE instance_id = ? AND available = 1 AND collected_at >= ?
 			GROUP BY strftime('%Y-%m-%dT%H:00:00', collected_at)
@@ -131,7 +135,9 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 				printf('%02d', (CAST(strftime('%H', collected_at) AS INTEGER) / 6) * 6) ||
 				':00:00' AS ts,
 				AVG(cpu_pct), AVG(bandwidth_in_bps), AVG(bandwidth_out_bps),
-				CAST(AVG(participant_count) AS INTEGER)
+				CAST(AVG(participant_count) AS INTEGER),
+				CAST(AVG(memory_bytes) AS INTEGER),
+				CAST(AVG(screen_share_count) AS INTEGER)
 			FROM livekit_metrics_history
 			WHERE instance_id = ? AND available = 1 AND collected_at >= ?
 			GROUP BY ts
@@ -148,7 +154,7 @@ func (r *sqliteMetricsHistoryRepo) GetTimeSeries(ctx context.Context, instanceID
 	for rows.Next() {
 		var p models.MetricsTimeSeriesPoint
 		var tsStr string
-		if scanErr := rows.Scan(&tsStr, &p.CPUPercent, &p.BandwidthInBps, &p.BandwidthOutBps, &p.Participants); scanErr != nil {
+		if scanErr := rows.Scan(&tsStr, &p.CPUPercent, &p.BandwidthInBps, &p.BandwidthOutBps, &p.Participants, &p.MemoryBytes, &p.ScreenShares); scanErr != nil {
 			return nil, fmt.Errorf("failed to scan time series row: %w", scanErr)
 		}
 		parsed, parseErr := time.Parse(time.RFC3339, tsStr)

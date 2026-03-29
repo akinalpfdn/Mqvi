@@ -14,6 +14,7 @@ type MetricsSnapshot struct {
 	Goroutines       int       `json:"goroutines"`
 	BytesIn          uint64    `json:"bytes_in"`
 	BytesOut         uint64    `json:"bytes_out"`
+	ScreenShareCount int       `json:"screen_share_count"`
 	CPUPercent       float64   `json:"cpu_pct"`
 	BandwidthInBps   float64   `json:"bandwidth_in_bps"`
 	BandwidthOutBps  float64   `json:"bandwidth_out_bps"`
@@ -54,4 +55,6 @@ type MetricsTimeSeriesPoint struct {
 	BandwidthInBps  float64   `json:"bw_in"`
 	BandwidthOutBps float64   `json:"bw_out"`
 	Participants    int       `json:"participants"`
+	MemoryBytes     uint64    `json:"memory_bytes"`
+	ScreenShares    int       `json:"screen_shares"`
 }
