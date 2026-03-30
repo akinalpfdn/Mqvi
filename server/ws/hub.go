@@ -248,7 +248,7 @@ func (h *Hub) addClient(client *Client) {
 		prefStatus := client.prefStatus
 		go h.onUserFirstConnect(userID, prefStatus)
 	} else if !isFirstConnection && h.onPresenceManualUpdate != nil {
-		go h.onPresenceManualUpdate(client.userID, aggregateForExisting, false)
+		go h.onPresenceManualUpdate(client.userID, aggregateForExisting, true)
 	}
 }
 
@@ -290,7 +290,7 @@ func (h *Hub) removeClient(client *Client) {
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
 		go h.onUserFullyDisconnected(userID, "")
 	} else if partialDisconnect && h.onPresenceManualUpdate != nil {
-		go h.onPresenceManualUpdate(userID, newAggregate, false)
+		go h.onPresenceManualUpdate(userID, newAggregate, true)
 	}
 }
 
