@@ -1096,6 +1096,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .settings-textarea:focus { border-color:var(--primary); }
 .settings-select { width:100%;max-width:400px;height:40px;background:var(--bg-3);border:1px solid var(--b1);border-radius:8px;padding:0 12px;color:var(--t0);font-size:14px;font-family:var(--f-ui);outline:none;cursor:pointer;appearance:none; }
 .settings-field { margin-bottom:16px; }
+.settings-field-hint { display:block;margin-top:4px;font-size:13px;color:var(--t3); }
 .settings-btn { height:36px;padding:0 20px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--f-ui);transition:background .15s; }
 .settings-btn:hover { background:var(--primary-h); }
 .settings-btn:disabled { opacity:.5;cursor:not-allowed; }

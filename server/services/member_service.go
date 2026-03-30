@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -108,6 +110,16 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 		return nil, err
 	}
 
+	if req.Username != nil && !strings.EqualFold(*req.Username, user.Username) {
+		existing, existErr := s.userRepo.GetByUsername(ctx, *req.Username)
+		if existErr == nil && existing.ID != userID {
+			return nil, fmt.Errorf("%w: username is already taken", pkg.ErrAlreadyExists)
+		}
+		if existErr != nil && !errors.Is(existErr, pkg.ErrNotFound) {
+			return nil, fmt.Errorf("failed to check username availability: %w", existErr)
+		}
+		user.Username = *req.Username
+	}
 	if req.DisplayName != nil {
 		user.DisplayName = req.DisplayName
 	}

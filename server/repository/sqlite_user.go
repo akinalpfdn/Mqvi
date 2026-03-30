@@ -138,11 +138,11 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 
 func (r *sqliteUserRepo) Update(ctx context.Context, user *models.User) error {
 	query := `
-		UPDATE users SET display_name = ?, avatar_url = ?, custom_status = ?, language = ?
+		UPDATE users SET username = ?, display_name = ?, avatar_url = ?, custom_status = ?, language = ?
 		WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query,
-		user.DisplayName, user.AvatarURL, user.CustomStatus, user.Language, user.ID,
+		user.Username, user.DisplayName, user.AvatarURL, user.CustomStatus, user.Language, user.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)

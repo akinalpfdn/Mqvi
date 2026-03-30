@@ -8,6 +8,7 @@ import { apiClient } from "./client";
 import type { MemberWithRoles } from "../types";
 
 type UpdateProfileRequest = {
+  username?: string;
   display_name?: string | null;
   custom_status?: string | null;
   language?: string;

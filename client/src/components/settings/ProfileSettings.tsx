@@ -15,6 +15,7 @@ function ProfileSettings() {
   const updateUser = useAuthStore((s) => s.updateUser);
   const addToast = useToastStore((s) => s.addToast);
 
+  const [username, setUsername] = useState(user?.username ?? "");
   const [displayName, setDisplayName] = useState(user?.display_name ?? "");
   const [customStatus, setCustomStatus] = useState(user?.custom_status ?? "");
   const [pendingLanguage, setPendingLanguage] = useState(user?.language ?? "en");
@@ -25,6 +26,7 @@ function ProfileSettings() {
   const prevPreviewUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
+    setUsername(user?.username ?? "");
     setDisplayName(user?.display_name ?? "");
     setCustomStatus(user?.custom_status ?? "");
     setPendingLanguage(user?.language ?? "en");
@@ -34,7 +36,7 @@ function ProfileSettings() {
       prevPreviewUrlRef.current = null;
     }
     setAvatarPreviewUrl(null);
-  }, [user?.display_name, user?.custom_status, user?.language, user?.avatar_url]);
+  }, [user?.username, user?.display_name, user?.custom_status, user?.language, user?.avatar_url]);
 
   useEffect(() => {
     return () => {
@@ -45,6 +47,7 @@ function ProfileSettings() {
   }, []);
 
   const hasChanges =
+    username !== (user?.username ?? "") ||
     displayName !== (user?.display_name ?? "") ||
     customStatus !== (user?.custom_status ?? "") ||
     pendingAvatarFile !== null ||
@@ -81,12 +84,14 @@ function ProfileSettings() {
       }
 
       const profileChanged =
+        username !== (user?.username ?? "") ||
         displayName !== (user?.display_name ?? "") ||
         customStatus !== (user?.custom_status ?? "") ||
         pendingLanguage !== (user?.language ?? "en");
 
       if (profileChanged) {
         const res = await profileApi.updateProfile({
+          ...(username !== (user?.username ?? "") ? { username } : {}),
           display_name: displayName || null,
           custom_status: customStatus || null,
           language: pendingLanguage,
@@ -97,6 +102,7 @@ function ProfileSettings() {
             i18n.changeLanguage(pendingLanguage);
           }
           updateUser({
+            username: res.data.username,
             display_name: res.data.display_name,
             custom_status: res.data.custom_status,
             language: pendingLanguage,
@@ -135,6 +141,23 @@ function ProfileSettings() {
         fallbackText={user.display_name ?? user.username}
         onUpload={handleAvatarSelect}
       />
+
+      {/* Username */}
+      <div className="settings-field">
+        <label htmlFor="username" className="settings-label">
+          {t("username")}
+        </label>
+        <input
+          id="username"
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+          placeholder={t("usernamePlaceholder")}
+          maxLength={32}
+          className="settings-input"
+        />
+        <span className="settings-field-hint">{t("usernameHint")}</span>
+      </div>
 
       {/* Display Name */}
       <div className="settings-field">

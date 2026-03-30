@@ -3,6 +3,7 @@ package models
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -49,6 +50,7 @@ func ToMemberWithRoles(user *User, roles []Role) MemberWithRoles {
 
 // UpdateProfileRequest — nil fields are not updated (partial update).
 type UpdateProfileRequest struct {
+	Username     *string `json:"username"`
 	DisplayName  *string `json:"display_name"`
 	AvatarURL    *string `json:"avatar_url"`
 	CustomStatus *string `json:"custom_status"`
@@ -61,6 +63,19 @@ var allowedLanguages = map[string]bool{
 }
 
 func (r *UpdateProfileRequest) Validate() error {
+	if r.Username != nil {
+		trimmed := strings.TrimSpace(*r.Username)
+		r.Username = &trimmed
+		usernameLen := utf8.RuneCountInString(trimmed)
+		if usernameLen < 3 || usernameLen > 32 {
+			return fmt.Errorf("username must be between 3 and 32 characters")
+		}
+		for _, ch := range trimmed {
+			if !isValidUsernameChar(ch) {
+				return fmt.Errorf("username can only contain letters, numbers, and underscores")
+			}
+		}
+	}
 	if r.DisplayName != nil && utf8.RuneCountInString(*r.DisplayName) > 32 {
 		return fmt.Errorf("display name must be at most 32 characters")
 	}
