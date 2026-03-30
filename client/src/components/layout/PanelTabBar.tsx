@@ -115,6 +115,12 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
                   }
             }
             onClick={() => setActiveTab(panelId, tab.id)}
+            onAuxClick={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+                closeTab(panelId, tab.id);
+              }
+            }}
           >
             {/* Server icon — disambiguates same-named channels across servers */}
             {tab.serverInfo && (

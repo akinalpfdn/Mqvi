@@ -92,8 +92,8 @@ function ProfileSettings() {
       if (profileChanged) {
         const res = await profileApi.updateProfile({
           ...(username !== (user?.username ?? "") ? { username } : {}),
-          display_name: displayName || null,
-          custom_status: customStatus || null,
+          display_name: displayName,
+          custom_status: customStatus,
           language: pendingLanguage,
         });
 

@@ -121,13 +121,21 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 		user.Username = *req.Username
 	}
 	if req.DisplayName != nil {
-		user.DisplayName = req.DisplayName
+		if *req.DisplayName == "" {
+			user.DisplayName = nil
+		} else {
+			user.DisplayName = req.DisplayName
+		}
 	}
 	if req.AvatarURL != nil {
 		user.AvatarURL = req.AvatarURL
 	}
 	if req.CustomStatus != nil {
-		user.CustomStatus = req.CustomStatus
+		if *req.CustomStatus == "" {
+			user.CustomStatus = nil
+		} else {
+			user.CustomStatus = req.CustomStatus
+		}
 	}
 	if req.Language != nil {
 		user.Language = *req.Language
