@@ -3174,3 +3174,13 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .feedback-reply-input textarea { min-height:80px;resize:vertical; }
 .feedback-status-select { width:auto;min-width:140px;padding:4px 8px;font-size:13px; }
 .feedback-ticket-user { font-size:13px;color:var(--t2);white-space:nowrap; }
+
+@media (max-width: 768px) {
+  .feedback-ticket-row { flex-wrap:wrap;gap:6px 10px; }
+  .feedback-ticket-subject { min-width:0;width:100%;order:-1; }
+  .feedback-ticket-date { margin-left:auto; }
+  .feedback-detail-meta { flex-wrap:wrap;gap:8px; }
+  .feedback-create-form { max-width:100%; }
+  .feedback-reply { padding:10px 12px; }
+  .feedback-status-select { min-width:120px; }
+}
