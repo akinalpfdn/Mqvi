@@ -17,6 +17,7 @@ import { useIsSpeaking } from "@livekit/components-react";
 import type { Participant } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useSoundboardStore } from "../../stores/soundboardStore";
 import VoiceUserContextMenu from "./VoiceUserContextMenu";
 import { resolveAssetUrl } from "../../utils/constants";
 
@@ -82,8 +83,10 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
   const isDeafened = voiceState?.is_deafened ?? false;
 
   const isLocalUser = participant.identity === currentUserId;
+  const playingSound = useSoundboardStore((s) => s.playingSound);
+  const isPlayingSound = playingSound?.userId === participant.identity;
 
-  const avatarClass = `voice-participant-avatar${isSpeaking ? " speaking" : ""}`;
+  const avatarClass = `voice-participant-avatar${isSpeaking || isPlayingSound ? " speaking" : ""}`;
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {

@@ -50,6 +50,7 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useInviteStore } from "../../stores/inviteStore";
+import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useNotificationBadge } from "../../hooks/useNotificationBadge";
 
 function AppLayout() {
@@ -93,6 +94,7 @@ function AppLayout() {
     useMemberStore.getState().clearForServerSwitch();
     useRoleStore.getState().clearForServerSwitch();
     useInviteStore.getState().clearForServerSwitch();
+    useSoundboardStore.getState().clearForServerSwitch();
 
     // Reset auto-open flag for new server
     autoOpenedRef.current = false;

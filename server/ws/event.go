@@ -123,6 +123,14 @@ const (
 	OpDeviceListUpdate = "device_list_update"
 )
 
+// Soundboard operations
+const (
+	OpSoundboardCreate = "soundboard_sound_create"
+	OpSoundboardUpdate = "soundboard_sound_update"
+	OpSoundboardDelete = "soundboard_sound_delete"
+	OpSoundboardPlay   = "soundboard_play"
+)
+
 // Badge operations
 const (
 	OpBadgeAssign   = "badge_assign"

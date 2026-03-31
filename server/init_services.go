@@ -51,6 +51,7 @@ type Services struct {
 	AppLog            services.AppLogService
 	Feedback          services.FeedbackService
 	FeedbackUpload    services.FeedbackUploadService
+	Soundboard        services.SoundboardService
 }
 
 type RateLimiters struct {
@@ -140,6 +141,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
 	feedbackService := services.NewFeedbackService(repos.Feedback)
 	feedbackUploadService := services.NewFeedbackUploadService(repos.Feedback, cfg.Upload.Dir, cfg.Upload.MaxSize)
+	soundboardService := services.NewSoundboardService(
+		repos.Soundboard, repos.User, hub, voiceService, cfg.Upload.Dir, cfg.Upload.MaxSize,
+	)
 	metricsCollector := services.NewMetricsCollector(
 		repos.LiveKit, repos.MetricsHistory,
 		5*time.Minute,
@@ -194,6 +198,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		AppLog:            appLogService,
 		Feedback:          feedbackService,
 		FeedbackUpload:    feedbackUploadService,
+		Soundboard:        soundboardService,
 	}
 
 	limiters := &RateLimiters{

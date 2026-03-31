@@ -96,6 +96,8 @@
   "permDeafenMembersDesc": "Ses kanallarında üyeleri sunucu genelinde sağırlaştırma",
   "permManageInvites": "Davetleri Yönet",
   "permManageInvitesDesc": "Davet bağlantıları oluşturma, görüntüleme ve silme",
+  "permUseSoundboard": "Ses Paneli Kullan",
+  "permUseSoundboardDesc": "Ses kanallarında ses panelinden ses çalma",
   "inviteExpiry": "Geçerlilik Süresi",
   "inviteMaxUses": "Maks. Kullanım",
   "inviteCreate": "Davet Oluştur",

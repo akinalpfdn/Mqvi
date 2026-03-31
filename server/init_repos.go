@@ -42,6 +42,7 @@ type Repositories struct {
 	RoleMention       repository.RoleMentionRepository
 	AppLog            repository.AppLogRepository
 	Feedback          repository.FeedbackRepository
+	Soundboard        repository.SoundboardRepository
 }
 
 // initRepositories creates all repositories from the shared DB connection pool.
@@ -81,5 +82,6 @@ func initRepositories(conn *sql.DB) *Repositories {
 		RoleMention:       repository.NewSQLiteRoleMentionRepo(conn),
 		AppLog:            repository.NewSQLiteAppLogRepo(conn),
 		Feedback:          repository.NewSQLiteFeedbackRepo(conn),
+		Soundboard:        repository.NewSQLiteSoundboardRepo(conn),
 	}
 }

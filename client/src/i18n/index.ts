@@ -20,6 +20,7 @@ import enLanding from "./locales/en/landing.json";
 import enServers from "./locales/en/servers.json";
 import enDM from "./locales/en/dm.json";
 import enE2EE from "./locales/en/e2ee.json";
+import enSoundboard from "./locales/en/soundboard.json";
 
 // ─── TR Translation Files ───
 import trCommon from "./locales/tr/common.json";
@@ -32,6 +33,7 @@ import trLanding from "./locales/tr/landing.json";
 import trServers from "./locales/tr/servers.json";
 import trDM from "./locales/tr/dm.json";
 import trE2EE from "./locales/tr/e2ee.json";
+import trSoundboard from "./locales/tr/soundboard.json";
 
 export const SUPPORTED_LANGUAGES = {
   en: "English",
@@ -58,6 +60,7 @@ i18n
         servers: enServers,
         dm: enDM,
         e2ee: enE2EE,
+        soundboard: enSoundboard,
       },
       tr: {
         common: trCommon,
@@ -70,6 +73,7 @@ i18n
         servers: trServers,
         dm: trDM,
         e2ee: trE2EE,
+        soundboard: trSoundboard,
       },
     },
 
@@ -77,7 +81,7 @@ i18n
     supportedLngs: Object.keys(SUPPORTED_LANGUAGES),
 
     defaultNS: "common",
-    ns: ["common", "auth", "channels", "chat", "settings", "voice", "landing", "servers", "dm", "e2ee"],
+    ns: ["common", "auth", "channels", "chat", "settings", "voice", "landing", "servers", "dm", "e2ee", "soundboard"],
 
     interpolation: {
       // React already handles XSS protection

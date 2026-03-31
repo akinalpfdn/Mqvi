@@ -152,6 +152,11 @@ export async function apiClient<T>(
     }
   }
 
+  // 204 No Content — no body to parse
+  if (res.status === 204) {
+    return { success: true, data: undefined as T };
+  }
+
   try {
     const data: APIResponse<T> = await res.json();
     return data;

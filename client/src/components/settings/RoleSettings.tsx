@@ -34,6 +34,7 @@ const PERMISSION_DEFS = [
   { bit: Permissions.MuteMembers, label: "permMuteMembers", desc: "permMuteMembersDesc" },
   { bit: Permissions.DeafenMembers, label: "permDeafenMembers", desc: "permDeafenMembersDesc" },
   { bit: Permissions.ManageInvites, label: "permManageInvites", desc: "permManageInvitesDesc" },
+  { bit: Permissions.UseSoundboard, label: "permUseSoundboard", desc: "permUseSoundboardDesc" },
 ] as const;
 
 function RoleSettings() {

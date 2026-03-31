@@ -11,6 +11,8 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useServerStore } from "../../stores/serverStore";
 import Avatar from "../shared/Avatar";
+import { useSoundboardStore } from "../../stores/soundboardStore";
+import SoundboardPanel from "../soundboard/SoundboardPanel";
 import type { UserStatus } from "../../types";
 
 const STATUS_OPTIONS: {
@@ -55,6 +57,12 @@ function UserBar({
   const setNoiseReduction = useVoiceStore((s) => s.setNoiseReduction);
   const rtt = useVoiceStore((s) => s.rtt);
   const isInVoice = !!currentVoiceChannelId;
+  const isPanelOpen = useSoundboardStore((s) => s.isPanelOpen);
+  const togglePanel = useSoundboardStore((s) => s.togglePanel);
+  const closePanel = useSoundboardStore((s) => s.closePanel);
+  const sbRef = useRef<HTMLDivElement>(null);
+  const sbBtnRef = useRef<HTMLButtonElement>(null);
+  const [sbPos, setSbPos] = useState<{ top: number; left: number } | null>(null);
 
   // Connected voice channel name
   const categories = useChannelStore((s) => s.categories);
@@ -66,6 +74,8 @@ function UserBar({
   // Status picker popup state
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const userRowRef = useRef<HTMLDivElement>(null);
+  const [spPos, setSpPos] = useState<{ top: number; left: number } | null>(null);
 
   // Ping color: green < 100ms, yellow 100-200ms, red > 200ms
   const pingColor = rtt <= 0 ? "" : rtt < 100 ? "ub-ping-good" : rtt < 200 ? "ub-ping-mid" : "ub-ping-bad";
@@ -78,6 +88,13 @@ function UserBar({
     },
     [setManualStatus, sendPresenceUpdate],
   );
+
+  // Compute status picker position
+  useEffect(() => {
+    if (!isPickerOpen || !userRowRef.current) return;
+    const rect = userRowRef.current.getBoundingClientRect();
+    setSpPos({ top: rect.top - 6, left: rect.left });
+  }, [isPickerOpen]);
 
   // Close picker on click-outside
   useEffect(() => {
@@ -106,6 +123,35 @@ function UserBar({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isPickerOpen]);
+
+  // Compute soundboard popup position from button rect
+  useEffect(() => {
+    if (!isPanelOpen || !sbBtnRef.current) return;
+    const rect = sbBtnRef.current.getBoundingClientRect();
+    setSbPos({ top: rect.top - 6, left: rect.left });
+  }, [isPanelOpen]);
+
+  // Close soundboard on click outside
+  useEffect(() => {
+    if (!isPanelOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (sbRef.current && !sbRef.current.contains(e.target as Node)) {
+        closePanel();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [isPanelOpen, closePanel]);
+
+  // Close soundboard on Escape
+  useEffect(() => {
+    if (!isPanelOpen) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closePanel();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [isPanelOpen, closePanel]);
 
   // Status dot color based on manual status preference
   const statusDotClass =
@@ -196,6 +242,16 @@ function UserBar({
               </svg>
             </button>
             <button
+              ref={sbBtnRef}
+              className={`ub-ctrl${isPanelOpen ? " active" : ""}`}
+              onClick={togglePanel}
+              title={t("soundboard", { ns: "soundboard" })}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6zM10 19a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+              </svg>
+            </button>
+            <button
               className="ub-ctrl ub-end"
               onClick={onDisconnect}
               title={t("endCall")}
@@ -212,6 +268,7 @@ function UserBar({
       <div className="ub-main">
         <div className="ub-user-wrap" ref={pickerRef}>
           <div
+            ref={userRowRef}
             className="ub-user"
             onClick={() => setIsPickerOpen((prev) => !prev)}
             title={tc("setStatus")}
@@ -231,9 +288,9 @@ function UserBar({
             </div>
           </div>
 
-          {/* Status picker popup */}
-          {isPickerOpen && (
-            <div className="ub-sp">
+          {/* Status picker popup — fixed position above user row */}
+          {isPickerOpen && spPos && (
+            <div className="ub-sp" style={{ top: spPos.top, left: spPos.left, transform: "translateY(-100%)" }}>
               <div className="ub-sp-header">{tc("setStatus")}</div>
               <div className="ub-sp-divider" />
               {STATUS_OPTIONS.map((opt) => {
@@ -272,6 +329,17 @@ function UserBar({
           </svg>
         </button>
       </div>
+
+      {/* Soundboard floating popup — fixed position, above button */}
+      {isPanelOpen && sbPos && (
+        <div
+          ref={sbRef}
+          className="sb-float-popup"
+          style={{ top: sbPos.top, left: sbPos.left, transform: "translateY(-100%)" }}
+        >
+          <SoundboardPanel />
+        </div>
+      )}
     </div>
   );
 }

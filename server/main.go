@@ -330,7 +330,8 @@ func runStartupCleanup(db *database.DB, repos *Repositories, cfg *config.Config,
 // registerStaticAndUploads sets up the upload file serving endpoint.
 func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config) {
 	uploadsHandler := http.StripPrefix("/api/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/") || strings.Contains(r.URL.Path, "\\") {
+		// Block path traversal but allow one level of subdirectory (e.g. soundboard/)
+		if strings.Contains(r.URL.Path, "\\") || strings.Contains(r.URL.Path, "..") {
 			http.NotFound(w, r)
 			return
 		}

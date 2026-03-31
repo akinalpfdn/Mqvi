@@ -96,6 +96,8 @@
   "permDeafenMembersDesc": "Server deafen members in voice channels",
   "permManageInvites": "Manage Invites",
   "permManageInvitesDesc": "Create, view, and delete invite links",
+  "permUseSoundboard": "Use Soundboard",
+  "permUseSoundboardDesc": "Play sounds from the soundboard in voice channels",
   "inviteExpiry": "Expire After",
   "inviteMaxUses": "Max Uses",
   "inviteCreate": "Create Invite",

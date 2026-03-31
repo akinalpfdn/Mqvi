@@ -17,6 +17,7 @@ import { useBlockStore } from "../../stores/blockStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { useBadgeStore } from "../../stores/badgeStore";
+import { useSoundboardStore } from "../../stores/soundboardStore";
 import type {
   WSMessage,
   MemberWithRoles,
@@ -27,6 +28,8 @@ import type {
   FriendshipWithUser,
   P2PCall,
   P2PSignalPayload,
+  SoundboardSound,
+  SoundboardPlayEvent,
 } from "../../types";
 import type { WSHandlerContext } from "./types";
 
@@ -229,6 +232,20 @@ export async function handleSystemEvent(
       return true;
     case "badge_unassign":
       useBadgeStore.getState().handleBadgeUnassign(msg.d as { user_id: string; badge_id: string });
+      return true;
+
+    // ─── Soundboard ───
+    case "soundboard_sound_create":
+      useSoundboardStore.getState().handleSoundCreate(msg.d as SoundboardSound);
+      return true;
+    case "soundboard_sound_update":
+      useSoundboardStore.getState().handleSoundUpdate(msg.d as SoundboardSound);
+      return true;
+    case "soundboard_sound_delete":
+      useSoundboardStore.getState().handleSoundDelete(msg.d as { id: string; server_id: string });
+      return true;
+    case "soundboard_play":
+      useSoundboardStore.getState().handleSoundPlay(msg.d as SoundboardPlayEvent);
       return true;
 
     default:
