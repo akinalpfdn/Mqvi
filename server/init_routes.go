@@ -110,6 +110,12 @@ func initRoutes(
 	// Report
 	mux.Handle("POST /api/users/{userId}/report", auth(h.Report.CreateReport))
 
+	// Feedback
+	mux.Handle("POST /api/feedback", auth(h.Feedback.CreateTicket))
+	mux.Handle("GET /api/feedback", auth(h.Feedback.ListMyTickets))
+	mux.Handle("GET /api/feedback/{id}", auth(h.Feedback.GetTicket))
+	mux.Handle("POST /api/feedback/{id}/reply", auth(h.Feedback.AddReply))
+
 	// E2EE Devices
 	mux.Handle("GET /api/devices", auth(h.Device.List))
 	mux.Handle("POST /api/devices", auth(h.Device.Register))
@@ -173,6 +179,12 @@ func initRoutes(
 	// Platform Admin — Reports
 	mux.Handle("GET /api/admin/reports", authAdmin(h.Admin.ListReports))
 	mux.Handle("PATCH /api/admin/reports/{id}/status", authAdmin(h.Admin.UpdateReportStatus))
+
+	// Platform Admin — Feedback
+	mux.Handle("GET /api/admin/feedback", authAdmin(h.Feedback.AdminListTickets))
+	mux.Handle("GET /api/admin/feedback/{id}", authAdmin(h.Feedback.AdminGetTicket))
+	mux.Handle("POST /api/admin/feedback/{id}/reply", authAdmin(h.Feedback.AdminReply))
+	mux.Handle("PATCH /api/admin/feedback/{id}/status", authAdmin(h.Feedback.AdminUpdateStatus))
 
 	// Platform Admin — Users
 	mux.Handle("GET /api/admin/users", authAdmin(h.Admin.ListUsers))

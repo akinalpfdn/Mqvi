@@ -49,6 +49,7 @@ type Services struct {
 	Badge             services.BadgeService
 	Preferences       services.PreferencesService
 	AppLog            services.AppLogService
+	Feedback          services.FeedbackService
 }
 
 type RateLimiters struct {
@@ -135,6 +136,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	appLogService := services.NewAppLogService(repos.AppLog)
 
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
+	feedbackService := services.NewFeedbackService(repos.Feedback)
 	metricsCollector := services.NewMetricsCollector(
 		repos.LiveKit, repos.MetricsHistory,
 		5*time.Minute,
@@ -186,6 +188,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Badge:             badgeService,
 		Preferences:       preferencesService,
 		AppLog:            appLogService,
+		Feedback:          feedbackService,
 	}
 
 	limiters := &RateLimiters{

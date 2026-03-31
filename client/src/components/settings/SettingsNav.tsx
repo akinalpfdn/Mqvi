@@ -22,6 +22,7 @@ const USER_ITEMS: NavItem[] = [
   { id: "voice", labelKey: "voiceSettings" },
   { id: "security", labelKey: "security" },
   { id: "encryption", labelKey: "encryption" },
+  { id: "feedback", labelKey: "feedback" },
   // "general" is added conditionally below (Electron only)
 ];
 

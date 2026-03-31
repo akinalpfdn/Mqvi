@@ -533,6 +533,36 @@ export type AdminReportListItem = {
 // ──────────────────────────────────
 // App Logs (Admin)
 // ──────────────────────────────────
+// Feedback
+export type FeedbackType = "bug" | "suggestion" | "question" | "other";
+export type FeedbackStatus = "open" | "in_progress" | "resolved" | "closed";
+
+export type FeedbackTicket = {
+  id: string;
+  user_id: string;
+  type: FeedbackType;
+  subject: string;
+  content: string;
+  status: FeedbackStatus;
+  created_at: string;
+  updated_at: string;
+  username?: string;
+  display_name?: string | null;
+  reply_count?: number;
+};
+
+export type FeedbackReply = {
+  id: string;
+  ticket_id: string;
+  user_id: string;
+  is_admin: boolean;
+  content: string;
+  created_at: string;
+  username?: string;
+  display_name?: string | null;
+};
+
+// ──────────────────────────────────
 export type AppLogLevel = "error" | "warn" | "info";
 export type AppLogCategory = "voice" | "video" | "screen_share" | "ws" | "auth" | "general";
 

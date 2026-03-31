@@ -21,6 +21,7 @@ import AdminLogsPanel from "./AdminLogsPanel";
 import ConnectionsSettings from "./ConnectionsSettings";
 import EncryptionSettings from "./EncryptionSettings";
 import GeneralSettings from "./GeneralSettings";
+import FeedbackSettings from "./FeedbackSettings";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -113,6 +114,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "encryption":
       return <EncryptionSettings />;
+
+    case "feedback":
+      return <FeedbackSettings />;
 
     case "platform":
       return <PlatformSettings />;
