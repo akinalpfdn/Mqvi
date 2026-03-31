@@ -21,7 +21,6 @@ export type E2EEInitStatus =
   | "uninitialized"
   | "initializing"
   | "ready"
-  | "needs_setup"
   | "error";
 
 export type DecryptionError = {
@@ -128,26 +127,20 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
         checkRecoveryBackup(set);
         scheduleDeferredRecoveryCheck(get);
       } else {
-        // No local keys — check for server backup.
-        // Backup existence implies E2EE was previously used and backed up → show restore flow.
+        // No local keys — check backup status (don't block on it).
+        // Even if backup exists, silently generate new keys so the app is usable immediately.
+        // If E2EE is active, the non-blocking recovery prompt will offer restore option.
+        // This prevents the blocking modal for users who never used E2EE but had
+        // a backup from the old mandatory recovery password flow.
         try {
           const backupRes = await e2eeApi.downloadKeyBackup();
           if (backupRes.success && backupRes.data) {
-            set({
-              initStatus: "needs_setup",
-              localDeviceId: null,
-              hasRecoveryBackup: true,
-            });
-            return;
+            set({ hasRecoveryBackup: true });
           }
         } catch {
-          // Backup check failed — continue to auto key generation
+          // Non-critical — continue
         }
 
-        // No backup — silently generate keys regardless of whether other devices exist.
-        // If no E2EE activity: keys sit idle, no user-facing popup.
-        // If E2EE activates later: recovery password prompt will appear at that time.
-        // Old keys on other devices are independent (per-device identity) so no conflict.
         await get().setupNewDevice(userId);
         scheduleDeferredRecoveryCheck(get);
       }

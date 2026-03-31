@@ -89,7 +89,9 @@
 
   "recoveryPromptTitle": "Protect Your Encrypted Messages",
   "recoveryPromptDescription": "End-to-end encryption has been enabled in a conversation you're part of. Set a recovery password to keep your message history accessible across devices.",
-  "recoveryPromptHint": "You can change this password anytime from Settings > Encryption.",
+  "recoveryPromptDescriptionRestore": "End-to-end encryption is active and a backup of your previous encryption keys was found. Restore to access your previous encrypted messages, or continue with new keys.",
+  "recoveryPromptHint": "You can manage this anytime from Settings > Encryption.",
   "recoveryPromptSetPassword": "Set Recovery Password",
+  "recoveryPromptContinueNewKeys": "Continue with New Keys",
   "recoveryPromptDismiss": "Later"
 }

@@ -89,7 +89,9 @@
 
   "recoveryPromptTitle": "Şifreli Mesajlarınızı Koruyun",
   "recoveryPromptDescription": "Dahil olduğunuz bir sohbette uçtan uca şifreleme açıldı. Mesaj geçmişinizi farklı cihazlarda görüntüleyebilmek için bir kurtarma parolası belirleyin.",
-  "recoveryPromptHint": "Bu parolayı istediğiniz zaman Ayarlar > Şifreleme bölümünden değiştirebilirsiniz.",
+  "recoveryPromptDescriptionRestore": "Uçtan uca şifreleme aktif ve önceki şifreleme anahtarlarınızın yedeği bulundu. Eski şifreli mesajlarınıza erişmek için geri yükleyin veya yeni anahtarlarla devam edin.",
+  "recoveryPromptHint": "Bunu istediğiniz zaman Ayarlar > Şifreleme bölümünden yönetebilirsiniz.",
   "recoveryPromptSetPassword": "Kurtarma Parolası Belirle",
+  "recoveryPromptContinueNewKeys": "Yeni Anahtarlarla Devam Et",
   "recoveryPromptDismiss": "Daha Sonra"
 }
