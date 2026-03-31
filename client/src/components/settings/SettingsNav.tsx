@@ -41,6 +41,7 @@ const PLATFORM_ITEMS: NavItem[] = [
   { id: "platform-servers", labelKey: "platformServersTab" },
   { id: "platform-users", labelKey: "platformUsersTab" },
   { id: "platform-reports", labelKey: "platformReportsTab" },
+  { id: "platform-feedback", labelKey: "platformFeedbackTab" },
   { id: "platform-logs", labelKey: "platformLogsTab" },
   { id: "platform-connections", labelKey: "platformConnections" },
 ];

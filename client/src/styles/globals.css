@@ -3172,3 +3172,5 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 .feedback-reply-input { display:flex;flex-direction:column;gap:8px; }
 .feedback-reply-input textarea { min-height:80px;resize:vertical; }
+.feedback-status-select { width:auto;min-width:140px;padding:4px 8px;font-size:13px; }
+.feedback-ticket-user { font-size:13px;color:var(--t2);white-space:nowrap; }

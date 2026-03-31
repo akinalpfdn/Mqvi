@@ -42,6 +42,7 @@ type SettingsTab =
   | "platform-reports"
   | "platform-logs"
   | "platform-connections"
+  | "platform-feedback"
   | "feedback";
 
 type SettingsState = {

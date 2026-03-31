@@ -567,5 +567,13 @@
   "feedbackStatus_open": "Açık",
   "feedbackStatus_in_progress": "İşleniyor",
   "feedbackStatus_resolved": "Çözüldü",
-  "feedbackStatus_closed": "Kapatıldı"
+  "feedbackStatus_closed": "Kapatıldı",
+
+  "platformFeedbackTab": "Geri Bildirim",
+  "adminFeedbackTitle": "Geri Bildirim Talepleri",
+  "adminFeedbackEmpty": "Henüz geri bildirim talebi yok.",
+  "adminFeedbackAllStatuses": "Tüm Durumlar",
+  "adminFeedbackAllTypes": "Tüm Türler",
+  "adminFeedbackStatusUpdated": "Durum güncellendi",
+  "adminFeedbackStatusError": "Durum güncellenemedi"
 }

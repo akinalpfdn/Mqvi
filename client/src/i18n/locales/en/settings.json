@@ -567,5 +567,13 @@
   "feedbackStatus_open": "Open",
   "feedbackStatus_in_progress": "In Progress",
   "feedbackStatus_resolved": "Resolved",
-  "feedbackStatus_closed": "Closed"
+  "feedbackStatus_closed": "Closed",
+
+  "platformFeedbackTab": "Feedback",
+  "adminFeedbackTitle": "Feedback Tickets",
+  "adminFeedbackEmpty": "No feedback tickets yet.",
+  "adminFeedbackAllStatuses": "All Statuses",
+  "adminFeedbackAllTypes": "All Types",
+  "adminFeedbackStatusUpdated": "Status updated",
+  "adminFeedbackStatusError": "Failed to update status"
 }
