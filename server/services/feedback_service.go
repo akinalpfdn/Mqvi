@@ -17,6 +17,7 @@ type FeedbackService interface {
 	ListAll(ctx context.Context, status, ticketType string, limit, offset int) ([]models.FeedbackTicketWithUser, int, error)
 	AddReply(ctx context.Context, ticketID, userID string, isAdmin bool, req *models.CreateFeedbackReplyRequest) (*models.FeedbackReply, error)
 	UpdateStatus(ctx context.Context, ticketID string, req *models.UpdateFeedbackStatusRequest) error
+	DeleteTicket(ctx context.Context, id, userID string) error
 }
 
 type feedbackService struct {
@@ -72,6 +73,22 @@ func (s *feedbackService) GetTicketByID(ctx context.Context, id, userID string, 
 		return nil, nil, err
 	}
 
+	allAtts, _ := s.feedbackRepo.GetAttachmentsByTicketID(ctx, id)
+
+	// Separate ticket-level vs reply-level attachments
+	for i := range allAtts {
+		if allAtts[i].ReplyID == nil {
+			ticket.Attachments = append(ticket.Attachments, allAtts[i])
+		} else {
+			for j := range replies {
+				if replies[j].ID == *allAtts[i].ReplyID {
+					replies[j].Attachments = append(replies[j].Attachments, allAtts[i])
+					break
+				}
+			}
+		}
+	}
+
 	return ticket, replies, nil
 }
 
@@ -116,6 +133,17 @@ func (s *feedbackService) AddReply(ctx context.Context, ticketID, userID string,
 	}
 
 	return reply, nil
+}
+
+func (s *feedbackService) DeleteTicket(ctx context.Context, id, userID string) error {
+	ticket, err := s.feedbackRepo.GetTicketByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ticket.UserID != userID {
+		return fmt.Errorf("%w: you can only delete your own feedback", pkg.ErrForbidden)
+	}
+	return s.feedbackRepo.DeleteTicket(ctx, id)
 }
 
 func (s *feedbackService) UpdateStatus(ctx context.Context, ticketID string, req *models.UpdateFeedbackStatusRequest) error {

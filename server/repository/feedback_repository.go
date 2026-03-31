@@ -13,6 +13,11 @@ type FeedbackRepository interface {
 	ListAll(ctx context.Context, status, ticketType string, limit, offset int) ([]models.FeedbackTicketWithUser, int, error)
 	UpdateStatus(ctx context.Context, id string, status models.FeedbackStatus) error
 
+	DeleteTicket(ctx context.Context, id string) error
+
 	CreateReply(ctx context.Context, reply *models.FeedbackReply) error
 	GetRepliesByTicketID(ctx context.Context, ticketID string) ([]models.FeedbackReplyWithUser, error)
+
+	CreateAttachment(ctx context.Context, att *models.FeedbackAttachment) error
+	GetAttachmentsByTicketID(ctx context.Context, ticketID string) ([]models.FeedbackAttachment, error)
 }

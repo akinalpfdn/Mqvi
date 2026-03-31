@@ -25,14 +25,15 @@ const (
 // ─── Entities ───
 
 type FeedbackTicket struct {
-	ID        string         `json:"id"`
-	UserID    string         `json:"user_id"`
-	Type      FeedbackType   `json:"type"`
-	Subject   string         `json:"subject"`
-	Content   string         `json:"content"`
-	Status    FeedbackStatus `json:"status"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
+	ID          string               `json:"id"`
+	UserID      string               `json:"user_id"`
+	Type        FeedbackType         `json:"type"`
+	Subject     string               `json:"subject"`
+	Content     string               `json:"content"`
+	Status      FeedbackStatus       `json:"status"`
+	CreatedAt   string               `json:"created_at"`
+	UpdatedAt   string               `json:"updated_at"`
+	Attachments []FeedbackAttachment `json:"attachments,omitempty"`
 }
 
 type FeedbackTicketWithUser struct {
@@ -43,18 +44,30 @@ type FeedbackTicketWithUser struct {
 }
 
 type FeedbackReply struct {
-	ID        string `json:"id"`
-	TicketID  string `json:"ticket_id"`
-	UserID    string `json:"user_id"`
-	IsAdmin   bool   `json:"is_admin"`
-	Content   string `json:"content"`
-	CreatedAt string `json:"created_at"`
+	ID          string               `json:"id"`
+	TicketID    string               `json:"ticket_id"`
+	UserID      string               `json:"user_id"`
+	IsAdmin     bool                 `json:"is_admin"`
+	Content     string               `json:"content"`
+	CreatedAt   string               `json:"created_at"`
+	Attachments []FeedbackAttachment `json:"attachments,omitempty"`
 }
 
 type FeedbackReplyWithUser struct {
 	FeedbackReply
 	Username    string  `json:"username"`
 	DisplayName *string `json:"display_name,omitempty"`
+}
+
+type FeedbackAttachment struct {
+	ID        string  `json:"id"`
+	TicketID  string  `json:"ticket_id"`
+	ReplyID   *string `json:"reply_id,omitempty"`
+	Filename  string  `json:"filename"`
+	FileURL   string  `json:"file_url"`
+	FileSize  *int64  `json:"file_size,omitempty"`
+	MimeType  *string `json:"mime_type,omitempty"`
+	CreatedAt string  `json:"created_at"`
 }
 
 // ─── Requests ───

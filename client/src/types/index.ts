@@ -537,6 +537,16 @@ export type AdminReportListItem = {
 export type FeedbackType = "bug" | "suggestion" | "question" | "other";
 export type FeedbackStatus = "open" | "in_progress" | "resolved" | "closed";
 
+export type FeedbackAttachment = {
+  id: string;
+  ticket_id: string;
+  reply_id?: string | null;
+  filename: string;
+  file_url: string;
+  file_size?: number | null;
+  mime_type?: string | null;
+};
+
 export type FeedbackTicket = {
   id: string;
   user_id: string;
@@ -549,6 +559,7 @@ export type FeedbackTicket = {
   username?: string;
   display_name?: string | null;
   reply_count?: number;
+  attachments?: FeedbackAttachment[];
 };
 
 export type FeedbackReply = {
@@ -560,6 +571,7 @@ export type FeedbackReply = {
   created_at: string;
   username?: string;
   display_name?: string | null;
+  attachments?: FeedbackAttachment[];
 };
 
 // ──────────────────────────────────

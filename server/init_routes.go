@@ -115,6 +115,7 @@ func initRoutes(
 	mux.Handle("GET /api/feedback", auth(h.Feedback.ListMyTickets))
 	mux.Handle("GET /api/feedback/{id}", auth(h.Feedback.GetTicket))
 	mux.Handle("POST /api/feedback/{id}/reply", auth(h.Feedback.AddReply))
+	mux.Handle("DELETE /api/feedback/{id}", auth(h.Feedback.DeleteTicket))
 
 	// E2EE Devices
 	mux.Handle("GET /api/devices", auth(h.Device.List))

@@ -3153,7 +3153,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .feedback-status-resolved { background:var(--green-s);color:var(--green); }
 .feedback-status-closed { background:rgba(160,160,160,.1);color:var(--t3); }
 
-.feedback-create-form { display:flex;flex-direction:column;gap:12px;margin-top:8px;max-width:600px; }
+.feedback-create-form { display:flex;flex-direction:column;gap:12px;margin-top:8px;max-width:600px;position:relative; }
 .feedback-textarea { resize:vertical;min-height:120px;font-family:var(--f-ui); }
 
 .feedback-detail { margin-top:8px; }
@@ -3172,6 +3172,19 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 .feedback-reply-input { display:flex;flex-direction:column;gap:8px; }
 .feedback-reply-input textarea { min-height:80px;resize:vertical; }
+.feedback-reply-actions { display:flex;align-items:center;gap:8px; }
+.feedback-reply-actions .settings-btn-primary { margin-left:auto; }
+.feedback-file-area { display:flex;flex-direction:column;gap:8px; }
+.feedback-file-list { display:flex;flex-wrap:wrap;gap:6px; }
+.feedback-file-item { display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--bg-3);border-radius:4px;font-size:13px;color:var(--t1); }
+.feedback-file-name { max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.feedback-file-remove { background:none;border:none;color:var(--t3);cursor:pointer;font-size:14px;padding:0 2px; }
+.feedback-file-remove:hover { color:var(--red); }
+
+.feedback-attachments { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px; }
+.feedback-attachment-thumb { display:block;width:120px;height:90px;border-radius:6px;overflow:hidden;border:1px solid var(--b1); }
+.feedback-attachment-thumb img { width:100%;height:100%;object-fit:cover; }
+
 .feedback-status-select { width:auto;min-width:140px;padding:4px 8px;font-size:13px; }
 .feedback-ticket-user { font-size:13px;color:var(--t2);white-space:nowrap; }
 

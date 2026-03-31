@@ -1,6 +1,7 @@
 /** AdminFeedbackList — Platform admin feedback ticket management. */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+
 import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import {
@@ -10,6 +11,8 @@ import {
   adminUpdateFeedbackStatus,
 } from "../../api/feedback";
 import type { FeedbackTicket, FeedbackReply, FeedbackStatus, FeedbackType } from "../../types";
+import { resolveAssetUrl } from "../../utils/constants";
+import FilePreview from "../chat/FilePreview";
 
 const STATUS_OPTIONS: Array<FeedbackStatus | ""> = ["", "open", "in_progress", "resolved", "closed"];
 const TYPE_OPTIONS: Array<FeedbackType | ""> = ["", "bug", "suggestion", "question", "other"];
@@ -28,6 +31,8 @@ function AdminFeedbackList() {
   const [activeTicket, setActiveTicket] = useState<FeedbackTicket | null>(null);
   const [replies, setReplies] = useState<FeedbackReply[]>([]);
   const [replyContent, setReplyContent] = useState("");
+  const [replyFiles, setReplyFiles] = useState<File[]>([]);
+  const replyFileInputRef = useRef<HTMLInputElement>(null);
   const [isSendingReply, setIsSendingReply] = useState(false);
 
   const fetchTickets = useCallback(async () => {
@@ -62,10 +67,11 @@ function AdminFeedbackList() {
   const handleReply = async () => {
     if (!replyContent.trim() || !activeTicket) return;
     setIsSendingReply(true);
-    const res = await adminReplyToFeedback(activeTicket.id, replyContent.trim());
+    const res = await adminReplyToFeedback(activeTicket.id, replyContent.trim(), replyFiles.length > 0 ? replyFiles : undefined);
     if (res.success && res.data) {
       setReplies((prev) => [...prev, res.data!]);
       setReplyContent("");
+      setReplyFiles([]);
     } else {
       addToast("error", res.error ?? t("feedbackReplyError"));
     }
@@ -88,6 +94,7 @@ function AdminFeedbackList() {
     setActiveTicket(null);
     setReplies([]);
     setReplyContent("");
+    setReplyFiles([]);
   };
 
   // ─── Detail View ───
@@ -123,6 +130,22 @@ function AdminFeedbackList() {
           <p>{activeTicket.content}</p>
         </div>
 
+        {activeTicket.attachments && activeTicket.attachments.length > 0 && (
+          <div className="feedback-attachments">
+            {activeTicket.attachments.map((att) => (
+              <a
+                key={att.id}
+                href={resolveAssetUrl(att.file_url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="feedback-attachment-thumb"
+              >
+                <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+              </a>
+            ))}
+          </div>
+        )}
+
         <div className="feedback-replies">
           {replies.map((reply) => (
             <div
@@ -139,6 +162,15 @@ function AdminFeedbackList() {
                 </span>
               </div>
               <p className="feedback-reply-content">{reply.content}</p>
+              {reply.attachments && reply.attachments.length > 0 && (
+                <div className="feedback-attachments">
+                  {reply.attachments.map((att) => (
+                    <a key={att.id} href={resolveAssetUrl(att.file_url)} target="_blank" rel="noopener noreferrer" className="feedback-attachment-thumb">
+                      <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -152,6 +184,36 @@ function AdminFeedbackList() {
             rows={3}
             maxLength={5000}
           />
+          <div className="report-field">
+            {replyFiles.length > 0 && (
+              <FilePreview files={replyFiles} onRemove={(i) => setReplyFiles((prev) => prev.filter((_, j) => j !== i))} />
+            )}
+            {replyFiles.length < 4 && (
+              <button
+                type="button"
+                className="report-evidence-drop"
+                onClick={() => replyFileInputRef.current?.click()}
+              >
+                <span className="report-evidence-hint">{t("feedbackEvidenceHint")}</span>
+              </button>
+            )}
+            <input
+              ref={replyFileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => {
+                if (e.target.files) {
+                  const images = Array.from(e.target.files).filter((f) =>
+                    ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(f.type)
+                  );
+                  setReplyFiles((prev) => [...prev, ...images].slice(0, 4));
+                }
+                e.target.value = "";
+              }}
+            />
+          </div>
           <button
             className="settings-btn settings-btn-primary"
             onClick={handleReply}
@@ -213,8 +275,8 @@ function AdminFeedbackList() {
               {t(`feedbackType_${ticket.type}`)}
             </span>
             <span className="feedback-ticket-subject">{ticket.subject}</span>
-            <span className="feedback-ticket-user">
-              {ticket.display_name ?? ticket.username}
+            <span className="feedback-ticket-user" title={ticket.display_name ?? undefined}>
+              {ticket.username}
             </span>
             <span className={`feedback-status-badge feedback-status-${ticket.status}`}>
               {t(`feedbackStatus_${ticket.status}`)}

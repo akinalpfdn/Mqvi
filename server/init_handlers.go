@@ -76,7 +76,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Badge:             handlers.NewBadgeHandler(svcs.Badge, cfg.Upload.Dir),
 		Preferences:       handlers.NewPreferencesHandler(svcs.Preferences),
 		DownloadPrompt:    handlers.NewDownloadPromptHandler(repos.User),
-		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback),
+		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback, svcs.FeedbackUpload, cfg.Upload.MaxSize, limiters.Feedback, svcs.AppLog),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute),
 	}
 }

@@ -150,11 +150,25 @@ func (r *sqliteFeedbackRepo) UpdateStatus(ctx context.Context, id string, status
 	return nil
 }
 
+func (r *sqliteFeedbackRepo) DeleteTicket(ctx context.Context, id string) error {
+	// Replies are cascade-deleted by FK constraint
+	result, err := r.db.ExecContext(ctx, `DELETE FROM feedback_tickets WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete feedback ticket: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("feedback ticket not found")
+	}
+	return nil
+}
+
 func (r *sqliteFeedbackRepo) CreateReply(ctx context.Context, reply *models.FeedbackReply) error {
-	query := `INSERT INTO feedback_replies (id, ticket_id, user_id, is_admin, content) VALUES (?, ?, ?, ?, ?)`
-	_, err := r.db.ExecContext(ctx, query,
+	query := `INSERT INTO feedback_replies (id, ticket_id, user_id, is_admin, content) VALUES (?, ?, ?, ?, ?)
+		RETURNING created_at`
+	err := r.db.QueryRowContext(ctx, query,
 		reply.ID, reply.TicketID, reply.UserID, reply.IsAdmin, reply.Content,
-	)
+	).Scan(&reply.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create feedback reply: %w", err)
 	}
@@ -199,4 +213,33 @@ func (r *sqliteFeedbackRepo) GetRepliesByTicketID(ctx context.Context, ticketID 
 	}
 
 	return replies, nil
+}
+
+func (r *sqliteFeedbackRepo) CreateAttachment(ctx context.Context, att *models.FeedbackAttachment) error {
+	query := `INSERT INTO feedback_attachments (id, ticket_id, reply_id, filename, file_url, file_size, mime_type) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err := r.db.ExecContext(ctx, query, att.ID, att.TicketID, att.ReplyID, att.Filename, att.FileURL, att.FileSize, att.MimeType)
+	if err != nil {
+		return fmt.Errorf("failed to create feedback attachment: %w", err)
+	}
+	return nil
+}
+
+func (r *sqliteFeedbackRepo) GetAttachmentsByTicketID(ctx context.Context, ticketID string) ([]models.FeedbackAttachment, error) {
+	query := `SELECT id, ticket_id, reply_id, filename, file_url, file_size, mime_type, created_at
+		FROM feedback_attachments WHERE ticket_id = ? ORDER BY created_at ASC`
+	rows, err := r.db.QueryContext(ctx, query, ticketID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feedback attachments: %w", err)
+	}
+	defer rows.Close()
+
+	var atts []models.FeedbackAttachment
+	for rows.Next() {
+		var a models.FeedbackAttachment
+		if scanErr := rows.Scan(&a.ID, &a.TicketID, &a.ReplyID, &a.Filename, &a.FileURL, &a.FileSize, &a.MimeType, &a.CreatedAt); scanErr != nil {
+			return nil, fmt.Errorf("failed to scan feedback attachment: %w", scanErr)
+		}
+		atts = append(atts, a)
+	}
+	return atts, nil
 }

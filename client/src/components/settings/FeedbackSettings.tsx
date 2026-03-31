@@ -1,6 +1,6 @@
 /** FeedbackSettings — Submit feedback tickets and view your ticket history. */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import {
@@ -8,8 +8,12 @@ import {
   listMyFeedbackTickets,
   getFeedbackTicket,
   addFeedbackReply,
+  deleteFeedbackTicket,
 } from "../../api/feedback";
-import type { FeedbackTicket, FeedbackReply, FeedbackType, FeedbackStatus } from "../../types";
+import type { FeedbackTicket, FeedbackReply, FeedbackType } from "../../types";
+import { resolveAssetUrl } from "../../utils/constants";
+import { useFileDrop } from "../../hooks/useFileDrop";
+import FilePreview from "../chat/FilePreview";
 
 type View = "list" | "create" | "detail";
 
@@ -26,13 +30,49 @@ function FeedbackSettings() {
   const [activeTicket, setActiveTicket] = useState<FeedbackTicket | null>(null);
   const [replies, setReplies] = useState<FeedbackReply[]>([]);
   const [replyContent, setReplyContent] = useState("");
+  const [replyFiles, setReplyFiles] = useState<File[]>([]);
+  const replyFileInputRef = useRef<HTMLInputElement>(null);
   const [isSendingReply, setIsSendingReply] = useState(false);
 
   // Create form state
   const [formType, setFormType] = useState<FeedbackType>("bug");
   const [formSubject, setFormSubject] = useState("");
   const [formContent, setFormContent] = useState("");
+  const [formFiles, setFormFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const MAX_FILES = 4;
+  const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+  const addFiles = useCallback((newFiles: File[]) => {
+    const images = newFiles.filter((f) => ALLOWED_TYPES.includes(f.type));
+    if (images.length === 0) return;
+    setFormFiles((prev) => {
+      const remaining = MAX_FILES - prev.length;
+      if (remaining <= 0) {
+        addToast("warning", t("feedbackMaxFiles"));
+        return prev;
+      }
+      if (images.length > remaining) addToast("warning", t("feedbackMaxFiles"));
+      return [...prev, ...images.slice(0, remaining)];
+    });
+  }, [addToast, t]);
+
+  const { isDragging, dragHandlers } = useFileDrop(addFiles);
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const pasted: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === "file") {
+        const f = item.getAsFile();
+        if (f) pasted.push(f);
+      }
+    }
+    if (pasted.length > 0) addFiles(pasted);
+  }
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -61,12 +101,14 @@ function FeedbackSettings() {
         type: formType,
         subject: formSubject.trim(),
         content: formContent.trim(),
+        files: formFiles.length > 0 ? formFiles : undefined,
       });
       if (res.success) {
         addToast("success", t("feedbackSubmitSuccess"));
         setFormSubject("");
         setFormContent("");
         setFormType("bug");
+        setFormFiles([]);
         setView("list");
         fetchTickets();
       } else {
@@ -92,14 +134,29 @@ function FeedbackSettings() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!activeTicket) return;
+    if (!window.confirm(t("feedbackDeleteConfirm"))) return;
+    const res = await deleteFeedbackTicket(activeTicket.id);
+    if (res.success) {
+      addToast("success", t("feedbackDeleteSuccess"));
+      setView("list");
+      setActiveTicket(null);
+      fetchTickets();
+    } else {
+      addToast("error", res.error ?? t("feedbackDeleteError"));
+    }
+  };
+
   const handleReply = async () => {
     if (!replyContent.trim() || !activeTicket) return;
     try {
       setIsSendingReply(true);
-      const res = await addFeedbackReply(activeTicket.id, replyContent.trim());
+      const res = await addFeedbackReply(activeTicket.id, replyContent.trim(), replyFiles.length > 0 ? replyFiles : undefined);
       if (res.success && res.data) {
         setReplies((prev) => [...prev, res.data!]);
         setReplyContent("");
+        setReplyFiles([]);
       } else {
         addToast("error", res.error ?? t("feedbackReplyError"));
       }
@@ -178,7 +235,12 @@ function FeedbackSettings() {
 
       {/* ─── Create View ─── */}
       {view === "create" && (
-        <div className="feedback-create-form">
+        <div className="feedback-create-form" {...dragHandlers} onPaste={handlePaste}>
+          {isDragging && (
+            <div className="file-drop-overlay">
+              <span className="file-drop-text">{t("feedbackEvidenceHint")}</span>
+            </div>
+          )}
           <label className="settings-label">{t("feedbackTypeLabel")}</label>
           <select
             className="settings-input"
@@ -211,6 +273,36 @@ function FeedbackSettings() {
             maxLength={5000}
           />
 
+          <div className="report-field">
+            <label className="settings-label">{t("feedbackAttachmentsLabel")}</label>
+
+            {formFiles.length > 0 && (
+              <FilePreview files={formFiles} onRemove={(i) => setFormFiles((prev) => prev.filter((_, j) => j !== i))} />
+            )}
+
+            {formFiles.length < MAX_FILES && (
+              <button
+                type="button"
+                className="report-evidence-drop"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <span className="report-evidence-hint">{t("feedbackEvidenceHint")}</span>
+              </button>
+            )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => {
+                if (e.target.files) addFiles(Array.from(e.target.files));
+                e.target.value = "";
+              }}
+            />
+          </div>
+
           <button
             className="settings-btn settings-btn-primary"
             onClick={handleSubmit}
@@ -234,11 +326,34 @@ function FeedbackSettings() {
             <span className="feedback-ticket-date">
               {new Date(activeTicket.created_at).toLocaleString()}
             </span>
+            <button
+              className="settings-btn settings-btn-danger"
+              onClick={handleDelete}
+              style={{ marginLeft: "auto" }}
+            >
+              {t("feedbackDelete")}
+            </button>
           </div>
 
           <div className="feedback-detail-content">
             <p>{activeTicket.content}</p>
           </div>
+
+          {activeTicket.attachments && activeTicket.attachments.length > 0 && (
+            <div className="feedback-attachments">
+              {activeTicket.attachments.map((att) => (
+                <a
+                  key={att.id}
+                  href={resolveAssetUrl(att.file_url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="feedback-attachment-thumb"
+                >
+                  <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                </a>
+              ))}
+            </div>
+          )}
 
           {/* Replies */}
           <div className="feedback-replies">
@@ -257,6 +372,15 @@ function FeedbackSettings() {
                   </span>
                 </div>
                 <p className="feedback-reply-content">{reply.content}</p>
+                {reply.attachments && reply.attachments.length > 0 && (
+                  <div className="feedback-attachments">
+                    {reply.attachments.map((att) => (
+                      <a key={att.id} href={resolveAssetUrl(att.file_url)} target="_blank" rel="noopener noreferrer" className="feedback-attachment-thumb">
+                        <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -272,6 +396,34 @@ function FeedbackSettings() {
                 rows={3}
                 maxLength={5000}
               />
+              <div className="report-field">
+                {replyFiles.length > 0 && (
+                  <FilePreview files={replyFiles} onRemove={(i) => setReplyFiles((prev) => prev.filter((_, j) => j !== i))} />
+                )}
+                {replyFiles.length < MAX_FILES && (
+                  <button
+                    type="button"
+                    className="report-evidence-drop"
+                    onClick={() => replyFileInputRef.current?.click()}
+                  >
+                    <span className="report-evidence-hint">{t("feedbackEvidenceHint")}</span>
+                  </button>
+                )}
+                <input
+                  ref={replyFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  multiple
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    if (e.target.files) {
+                      const images = Array.from(e.target.files).filter((f) => ALLOWED_TYPES.includes(f.type));
+                      setReplyFiles((prev) => [...prev, ...images].slice(0, MAX_FILES));
+                    }
+                    e.target.value = "";
+                  }}
+                />
+              </div>
               <button
                 className="settings-btn settings-btn-primary"
                 onClick={handleReply}

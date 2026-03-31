@@ -50,6 +50,7 @@ type Services struct {
 	Preferences       services.PreferencesService
 	AppLog            services.AppLogService
 	Feedback          services.FeedbackService
+	FeedbackUpload    services.FeedbackUploadService
 }
 
 type RateLimiters struct {
@@ -58,6 +59,7 @@ type RateLimiters struct {
 	Register      *ratelimit.LoginRateLimiter
 	ForgotPwd     *ratelimit.LoginRateLimiter
 	ResetPwd      *ratelimit.LoginRateLimiter
+	Feedback      *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -137,6 +139,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
 	feedbackService := services.NewFeedbackService(repos.Feedback)
+	feedbackUploadService := services.NewFeedbackUploadService(repos.Feedback, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	metricsCollector := services.NewMetricsCollector(
 		repos.LiveKit, repos.MetricsHistory,
 		5*time.Minute,
@@ -151,6 +154,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	registerLimiter := ratelimit.NewLoginRateLimiter(3, 10*time.Minute)   // 3 registrations per 10 min per IP
 	forgotPwdLimiter := ratelimit.NewLoginRateLimiter(3, 5*time.Minute)   // 3 forgot-password per 5 min per IP
 	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)    // 5 reset attempts per 5 min per IP
+	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second) // 2 feedback per min, 30s cooldown
 
 	svcs := &Services{
 		Auth:              authService,
@@ -189,6 +193,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Preferences:       preferencesService,
 		AppLog:            appLogService,
 		Feedback:          feedbackService,
+		FeedbackUpload:    feedbackUploadService,
 	}
 
 	limiters := &RateLimiters{
@@ -197,6 +202,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Register:  registerLimiter,
 		ForgotPwd: forgotPwdLimiter,
 		ResetPwd:  resetPwdLimiter,
+		Feedback:  feedbackLimiter,
 	}
 
 	return svcs, limiters, metricsCollector
