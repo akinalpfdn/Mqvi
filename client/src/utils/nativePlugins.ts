@@ -144,18 +144,20 @@ export async function configureMobileUI(): Promise<void> {
   if (!isCapacitor()) return;
 
   try {
-    // Dark status bar to match app theme
+    // Dark status bar (light icons) to match app's dark theme
     await StatusBar.setStyle({ style: Style.Dark });
-    // Transparent overlay — content extends behind status bar (safe area CSS handles spacing)
-    await StatusBar.setOverlaysWebView({ overlay: true });
+    // Dark background color matching the app theme
+    await StatusBar.setBackgroundColor({ color: "#111111" });
+    // No overlay — system reserves space for status bar, content starts below it
+    await StatusBar.setOverlaysWebView({ overlay: false });
   } catch {
     // StatusBar plugin may not be available on all platforms
   }
 
   try {
-    // Keyboard resizes the body (not the native WebView) for better control
-    await Keyboard.setResizeMode({ mode: KeyboardResize.Body });
-    // Auto-scroll to focused input when keyboard opens
+    // None — let the WebView handle keyboard resize natively.
+    // Body/Ionic modes cause double-shift with safe-area padding.
+    await Keyboard.setResizeMode({ mode: KeyboardResize.None });
     await Keyboard.setScroll({ isDisabled: false });
   } catch {
     // Keyboard plugin may not be available on all platforms

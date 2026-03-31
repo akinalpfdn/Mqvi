@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Dark background matching app theme -->
+    <item android:drawable="@color/splash_background" />
+    <!-- Centered app icon -->
+    <item
+        android:gravity="center"
+        android:width="128dp"
+        android:height="128dp"
+        android:drawable="@mipmap/ic_launcher" />
+</layer-list>

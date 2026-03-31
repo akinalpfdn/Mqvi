@@ -378,9 +378,10 @@ func initCORS(cfg *config.Config) (*cors.Cors, []string) {
 	corsOrigins := []string{
 		"http://localhost:3030",
 		"http://localhost:1420",
-		"capacitor://localhost", // iOS Capacitor WKWebView
-		"ionic://localhost",     // iOS Capacitor (legacy scheme)
-		"http://localhost",      // Android Capacitor WebView
+		"capacitor://localhost",  // iOS Capacitor WKWebView
+		"ionic://localhost",      // iOS Capacitor (legacy scheme)
+		"http://localhost",       // Android Capacitor WebView (legacy)
+		"https://localhost",      // Android Capacitor WebView (Capacitor 6+)
 	}
 	if extra := os.Getenv("CORS_ORIGINS"); extra != "" {
 		for _, origin := range strings.Split(extra, ",") {
