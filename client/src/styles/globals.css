@@ -3183,4 +3183,14 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   .feedback-create-form { max-width:100%; }
   .feedback-reply { padding:10px 12px; }
   .feedback-status-select { min-width:120px; }
+
+  /* Platform Settings — LiveKit instance sidebar + metrics */
+  .channel-settings-wrapper { flex-direction:column;height:auto; }
+  .role-list { width:100%;border-right:none;border-bottom:1px solid var(--b1);max-height:180px; }
+  .channel-settings-right { padding:16px; }
+  .metrics-grid { grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px; }
+  .metrics-card { padding:10px; }
+  .metrics-card-value { font-size:17px; }
+  .metrics-header { flex-wrap:wrap;gap:8px; }
+  .metrics-chart-block { padding:8px 4px 4px; }
 }
