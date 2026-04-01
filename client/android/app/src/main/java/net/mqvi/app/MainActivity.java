@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         // Register custom native plugins before super.onCreate
         registerPlugin(VoiceCallPlugin.class);
+        registerPlugin(ScreenSharePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

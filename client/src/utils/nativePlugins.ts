@@ -83,7 +83,7 @@ export async function initAppLifecycle(): Promise<void> {
   }
 }
 
-// ─── Screen Share Plugin (iOS only) ───
+// ─── Screen Share Plugin (iOS + Android) ───
 
 interface ScreenSharePluginInterface {
   start(opts: { url: string; token: string }): Promise<{ started: boolean }>;
@@ -95,23 +95,22 @@ interface ScreenSharePluginInterface {
 const ScreenShareNative = registerPlugin<ScreenSharePluginInterface>("ScreenShare");
 
 /**
- * Start iOS native screen share via ReplayKit + LiveKit Swift SDK.
- * Connects to the LiveKit room as a separate "{userId}_ss" identity
- * and triggers the system broadcast picker for full-screen capture.
- *
- * No-op on non-iOS platforms — Android uses getDisplayMedia, Electron uses WASAPI.
+ * Start native screen share via platform-specific API + LiveKit native SDK.
+ * iOS: ReplayKit + LiveKit Swift SDK.
+ * Android: MediaProjection + LiveKit Android SDK.
+ * Both connect as a separate LiveKit room identity ("{userId}_ss").
  */
 export async function startNativeScreenShare(url: string, token: string): Promise<boolean> {
-  if (!isCapacitor() || getCapacitorPlatform() !== "ios") return false;
+  if (!isCapacitor()) return false;
   const result = await ScreenShareNative.start({ url, token });
   return result.started;
 }
 
 /**
- * Stop iOS native screen share and disconnect the native LiveKit room.
+ * Stop native screen share and disconnect the native LiveKit room.
  */
 export async function stopNativeScreenShare(): Promise<void> {
-  if (!isCapacitor() || getCapacitorPlatform() !== "ios") return;
+  if (!isCapacitor()) return;
   await ScreenShareNative.stop();
 }
 
@@ -119,17 +118,18 @@ export async function stopNativeScreenShare(): Promise<void> {
  * Check if native screen share is currently active.
  */
 export async function isNativeScreenShareActive(): Promise<boolean> {
-  if (!isCapacitor() || getCapacitorPlatform() !== "ios") return false;
+  if (!isCapacitor()) return false;
   const result = await ScreenShareNative.isActive();
   return result.active;
 }
 
 /**
- * Listen for native screen share stopped (e.g., user stops from Control Center).
+ * Listen for native screen share stopped externally.
+ * iOS: user stops from Control Center. Android: system revokes MediaProjection.
  * Returns a cleanup function to remove the listener.
  */
 export async function onNativeScreenShareStopped(handler: () => void): Promise<() => void> {
-  if (!isCapacitor() || getCapacitorPlatform() !== "ios") return () => {};
+  if (!isCapacitor()) return () => {};
   const listener = await ScreenShareNative.addListener("screenShareStopped", handler);
   return () => listener.remove();
 }
