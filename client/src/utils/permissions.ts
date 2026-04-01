@@ -25,6 +25,7 @@ export const Permissions = {
   MuteMembers: 16384,
   DeafenMembers: 32768,
   UseSoundboard: 65536,
+  ManageSoundboard: 131072,
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
@@ -69,7 +70,7 @@ export function resolveChannelPermissions(
 ): number {
   // Admin bypasses all overrides
   if ((basePermissions & Permissions.Admin) !== 0) {
-    return 131071; // PermAll = (1 << 17) - 1
+    return 262143; // PermAll = (1 << 18) - 1
   }
 
   const roleIdSet = new Set(roleIds);

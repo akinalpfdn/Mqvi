@@ -1783,7 +1783,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    MODAL (Generic)
    ═══════════════════════════════════════ */
 .modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:50;display:flex;align-items:center;justify-content:center; }
-.modal-card { background:var(--bg-3);border:1px solid var(--b2);border-radius:12px;max-width:480px;width:100%;padding:24px;box-shadow:0 12px 48px rgba(0,0,0,0.5); }
+.modal-card { background:var(--bg-3);border:1px solid var(--b2);border-radius:12px;max-width:480px;width:100%;padding:24px;box-shadow:0 12px 48px rgba(0,0,0,0.5);max-height:calc(100vh - 40px);overflow-y:auto; }
 .modal-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:16px; }
 .modal-title { font-family:var(--f-d);font-size:18px;font-weight:700;color:var(--t0); }
 .modal-text { font-size:14px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
@@ -3248,6 +3248,11 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 }
 .sb-add-btn:hover { color: var(--t1); background: var(--b2); }
 
+.sb-back-btn { background:none;border:none;color:var(--t2);cursor:pointer;padding:2px;display:flex;align-items:center; }
+.sb-back-btn:hover { color:var(--t1); }
+
+.sb-upload-view { display:flex;flex-direction:column; }
+
 .sb-empty {
   text-align: center;
   padding: 16px 0;
@@ -3266,10 +3271,20 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 }
 .sb-upload-btn:hover { opacity: 0.9; }
 
+.sb-search { width:100%;padding:5px 8px;background:var(--b1);border:1px solid var(--b3);border-radius:4px;color:var(--t1);font-size:13px;margin-bottom:6px; }
+.sb-search:focus { border-color:var(--accent);outline:none; }
+.sb-search::placeholder { color:var(--t3); }
+
+.sb-volume-row { display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:4px 0; }
+.sb-vol-btn { background:none;border:none;color:var(--t2);cursor:pointer;padding:2px;display:flex; }
+.sb-vol-btn:hover { color:var(--t1); }
+.sb-vol-slider { flex:1;height:4px;accent-color:var(--accent);cursor:pointer; }
+.sb-vol-pct { font-size:13px;color:var(--t3);min-width:28px;text-align:right; }
+
 .sb-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 4px;
 }
 
 .sb-sound-btn {
@@ -3277,8 +3292,8 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 10px 6px;
+  gap: 2px;
+  padding: 6px 4px;
   background: var(--b2);
   border: 1px solid transparent;
   border-radius: 6px;
@@ -3303,35 +3318,13 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   to { box-shadow: 0 0 8px 2px var(--accent); }
 }
 
-.sb-sound-emoji {
-  font-size: 22px;
-  line-height: 1;
-}
-
-.sb-sound-name {
-  font-size: 13px;
-  color: var(--t1);
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-
-.sb-played-by {
-  font-size: 13px;
-  color: var(--accent);
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
+.sb-sound-emoji { font-size:18px;line-height:1; }
+.sb-sound-name { font-size:13px;color:var(--t1);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%; }
 
 .sb-sound-delete {
   position: absolute;
-  top: 3px;
-  right: 3px;
+  top: 2px;
+  right: 2px;
   background: none;
   border: none;
   color: var(--t3);
@@ -3439,14 +3432,24 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .sb-emoji-clear:hover { color: var(--danger); }
 
 .sb-emoji-row .emoji-picker {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
-  z-index: 200;
+  position: fixed;
+  z-index: 9999;
 }
 
-.sb-hint { font-size: 13px; color: var(--t3); margin: 0; }
-.sb-error { font-size: 13px; color: var(--danger); margin: 0; }
+.sb-hint { font-size:13px;color:var(--t3);margin:0; }
+.sb-error { font-size:13px;color:var(--danger);margin:0; }
+
+/* Waveform Trimmer */
+.wt-container { background:var(--b1);border-radius:6px;padding:8px;margin-bottom:4px; }
+.wt-top-row { display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:13px; }
+.wt-play-btn { background:none;border:1px solid var(--b3);border-radius:4px;padding:4px 8px;color:var(--t1);cursor:pointer;display:flex;align-items:center; }
+.wt-play-btn:hover { border-color:var(--accent);color:var(--accent); }
+.wt-time { color:var(--t2); }
+.wt-dash { color:var(--t3); }
+.wt-dur { color:var(--t2);margin-left:auto; }
+.wt-dur.error { color:var(--danger); }
+.wt-canvas-wrap { position:relative;cursor:col-resize;border-radius:4px;overflow:hidden;background:var(--b2); }
+.wt-canvas-wrap canvas { display:block;width:100%; }
 
 .sb-upload-footer {
   display: flex;

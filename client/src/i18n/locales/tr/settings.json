@@ -98,6 +98,8 @@
   "permManageInvitesDesc": "Davet bağlantıları oluşturma, görüntüleme ve silme",
   "permUseSoundboard": "Ses Paneli Kullan",
   "permUseSoundboardDesc": "Ses kanallarında ses panelinden ses çalma",
+  "permManageSoundboard": "Ses Panelini Yönet",
+  "permManageSoundboardDesc": "Ses paneline ses ekleme, düzenleme ve silme",
   "inviteExpiry": "Geçerlilik Süresi",
   "inviteMaxUses": "Maks. Kullanım",
   "inviteCreate": "Davet Oluştur",

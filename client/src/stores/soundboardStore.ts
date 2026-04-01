@@ -1,5 +1,6 @@
 /**
  * Soundboard store — manages soundboard sounds per server.
+ * Volume and muted state persisted to localStorage.
  */
 
 import { create } from "zustand";
@@ -9,21 +10,43 @@ import { useServerStore } from "./serverStore";
 import { SERVER_URL } from "../utils/constants";
 
 const EMPTY: SoundboardSound[] = [];
+const STORAGE_KEY = "mqvi_soundboard_settings";
+
+function loadSettings(): { volume: number; muted: boolean } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        volume: typeof parsed.volume === "number" ? parsed.volume : 0.5,
+        muted: typeof parsed.muted === "boolean" ? parsed.muted : false,
+      };
+    }
+  } catch { /* ignore */ }
+  return { volume: 0.5, muted: false };
+}
+
+function saveSettings(volume: number, muted: boolean) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ volume, muted }));
+}
+
+const initial = loadSettings();
 
 type SoundboardState = {
   sounds: SoundboardSound[];
   isLoading: boolean;
   isPanelOpen: boolean;
-  /** Currently playing sound info (for visual feedback) */
   playingSound: { soundId: string; userId: string; username: string } | null;
+  volume: number;
+  muted: boolean;
 
-  // Actions
   fetchSounds: () => Promise<void>;
   playSound: (soundId: string) => Promise<void>;
   togglePanel: () => void;
   closePanel: () => void;
+  setVolume: (v: number) => void;
+  toggleMuted: () => void;
 
-  // WS event handlers
   handleSoundCreate: (sound: SoundboardSound) => void;
   handleSoundUpdate: (sound: SoundboardSound) => void;
   handleSoundDelete: (data: { id: string; server_id: string }) => void;
@@ -37,6 +60,8 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
   isLoading: false,
   isPanelOpen: false,
   playingSound: null,
+  volume: initial.volume,
+  muted: initial.muted,
 
   fetchSounds: async () => {
     const serverId = useServerStore.getState().activeServerId;
@@ -67,6 +92,17 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
 
   closePanel: () => set({ isPanelOpen: false }),
 
+  setVolume: (v) => {
+    set({ volume: v });
+    saveSettings(v, get().muted);
+  },
+
+  toggleMuted: () => {
+    const next = !get().muted;
+    set({ muted: next });
+    saveSettings(get().volume, next);
+  },
+
   handleSoundCreate: (sound) => {
     const serverId = useServerStore.getState().activeServerId;
     if (sound.server_id !== serverId) return;
@@ -95,7 +131,8 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (data.server_id !== serverId) return;
 
-    // Show who is playing
+    const { muted, volume } = get();
+
     set({
       playingSound: {
         soundId: data.sound_id,
@@ -104,14 +141,13 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
       },
     });
 
-    // Play the audio locally
-    const audio = new Audio(`${SERVER_URL}${data.sound_url}`);
-    audio.volume = 0.5;
-    audio.play().catch(() => {
-      // Browser may block autoplay — ignore
-    });
+    // Play audio unless muted
+    if (!muted && volume > 0) {
+      const audio = new Audio(`${SERVER_URL}${data.sound_url}`);
+      audio.volume = volume;
+      audio.play().catch(() => {});
+    }
 
-    // Clear playing state after duration
     const sound = get().sounds.find((s) => s.id === data.sound_id);
     const duration = sound?.duration_ms ?? 3000;
     setTimeout(() => {

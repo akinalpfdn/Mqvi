@@ -301,9 +301,9 @@ func initRoutes(
 
 	// Soundboard
 	mux.Handle("GET /api/servers/{serverId}/soundboard/sounds", authServer(h.Soundboard.List))
-	mux.Handle("POST /api/servers/{serverId}/soundboard/sounds", authServerPerm(models.PermManageChannels, h.Soundboard.Create))
-	mux.Handle("PATCH /api/servers/{serverId}/soundboard/sounds/{soundId}", authServerPerm(models.PermManageChannels, h.Soundboard.Update))
-	mux.Handle("DELETE /api/servers/{serverId}/soundboard/sounds/{soundId}", authServerPerm(models.PermManageChannels, h.Soundboard.Delete))
+	mux.Handle("POST /api/servers/{serverId}/soundboard/sounds", authServerPerm(models.PermManageSoundboard, h.Soundboard.Create))
+	mux.Handle("PATCH /api/servers/{serverId}/soundboard/sounds/{soundId}", authServerPerm(models.PermManageSoundboard, h.Soundboard.Update))
+	mux.Handle("DELETE /api/servers/{serverId}/soundboard/sounds/{soundId}", authServerPerm(models.PermManageSoundboard, h.Soundboard.Delete))
 	mux.Handle("POST /api/servers/{serverId}/soundboard/sounds/{soundId}/play", authServerPerm(models.PermUseSoundboard, h.Soundboard.Play))
 
 	// WebSocket
