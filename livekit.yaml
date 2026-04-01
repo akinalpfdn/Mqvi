@@ -25,4 +25,15 @@ room:
   empty_timeout: 300  # 5 minutes
   max_participants: 50
 
+audio:
+  # Speaker detection sensitivity — higher = more sensitive to quiet voices
+  # (dBov scale: 35 = -35dBov default, 45 = -45dBov catches softer speech)
+  active_level: 45
+  # Minimum % of audio samples that must exceed active_level (default 40)
+  min_percentile: 30
+  # How often the SFU sends ActiveSpeakersChanged events in ms (default 400)
+  update_interval: 200
+  # Number of intervals to smooth before reporting (default 2)
+  smooth_intervals: 2
+
 # Codec preferences (VP9, Opus, H264) are configured client-side, not here.

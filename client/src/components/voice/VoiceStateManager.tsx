@@ -314,7 +314,7 @@ function VoiceStateManager() {
   // Speaking detection -> store (for sidebar outside LiveKit context).
   // 300ms hold timer prevents flickering on speech pauses.
   useEffect(() => {
-    const HOLD_MS = 300;
+    const HOLD_MS = 150;
     const setActiveSpeakers = useVoiceStore.getState().setActiveSpeakers;
 
     const heldSpeakers = new Map<string, boolean>();

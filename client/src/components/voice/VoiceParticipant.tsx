@@ -28,7 +28,7 @@ type VoiceParticipantProps = {
 };
 
 /** Hold duration to avoid flickering between syllables (~Discord's 250-350ms) */
-const SPEAKING_HOLD_MS = 300;
+const SPEAKING_HOLD_MS = 150;
 
 function VoiceParticipant({ participant, compact = false }: VoiceParticipantProps) {
   // LOCAL: analyzed via local AnalyserNode (instant). REMOTE: from SFU speaker info.
