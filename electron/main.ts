@@ -32,6 +32,14 @@ let mainWindow: BrowserWindow | null = null;
  * Electron-only app settings stored in %APPDATA%/mqvi/app-settings.json.
  * Read in main process before renderer loads (e.g., startMinimized check).
  */
+interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMaximized: boolean;
+}
+
 interface AppSettings {
   /** Auto-start on Windows login */
   openAtLogin: boolean;
@@ -39,6 +47,8 @@ interface AppSettings {
   startMinimized: boolean;
   /** Minimize to tray instead of closing on X button */
   closeToTray: boolean;
+  /** Persisted window position and size */
+  windowBounds?: WindowBounds;
 }
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -232,11 +242,55 @@ uIOhook.on("keyup", (e) => {
   }
 });
 
+// ─── Window Bounds Persistence ───
+
+/** Debounce timer for saving window bounds (avoid excessive disk writes on drag/resize) */
+let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Save current window bounds to settings (debounced). */
+function persistWindowBounds(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (boundsTimer) clearTimeout(boundsTimer);
+  boundsTimer = setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const isMaximized = mainWindow.isMaximized();
+    // When maximized, keep the pre-maximized bounds so restore works correctly
+    const bounds = isMaximized
+      ? appSettings.windowBounds ?? { ...mainWindow.getBounds(), isMaximized: true }
+      : { ...mainWindow.getBounds(), isMaximized: false };
+    bounds.isMaximized = isMaximized;
+    appSettings.windowBounds = bounds;
+    saveAppSettings(appSettings);
+  }, 500);
+}
+
+/**
+ * Validate that saved bounds are still visible on a connected display.
+ * Returns true if at least part of the window is on-screen.
+ */
+function boundsVisibleOnScreen(bounds: WindowBounds): boolean {
+  const { screen } = require("electron");
+  const displays = screen.getAllDisplays();
+  // Check if at least 100px of the window is visible on any display
+  for (const display of displays) {
+    const { x, y, width, height } = display.workArea;
+    const overlapX = Math.max(0, Math.min(bounds.x + bounds.width, x + width) - Math.max(bounds.x, x));
+    const overlapY = Math.max(0, Math.min(bounds.y + bounds.height, y + height) - Math.max(bounds.y, y));
+    if (overlapX > 100 && overlapY > 50) return true;
+  }
+  return false;
+}
+
 // ─── Window Creation ───
 function createWindow(): void {
+  // Restore saved bounds or use defaults
+  const saved = appSettings.windowBounds;
+  const useSaved = saved && boundsVisibleOnScreen(saved);
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: useSaved ? saved!.width : 1280,
+    height: useSaved ? saved!.height : 800,
+    ...(useSaved ? { x: saved!.x, y: saved!.y } : {}),
     minWidth: 940,
     minHeight: 560,
     icon: path.join(__dirname, "../icons/mqvi-icon.ico"),
@@ -257,16 +311,26 @@ function createWindow(): void {
   // Show window when ready (unless startMinimized is enabled)
   mainWindow.once("ready-to-show", () => {
     if (!appSettings.startMinimized) {
+      // Restore maximized state after showing
+      if (useSaved && saved!.isMaximized) {
+        mainWindow?.maximize();
+      }
       mainWindow?.show();
     }
   });
 
+  // Persist window bounds on move, resize, maximize, unmaximize
+  mainWindow.on("move", persistWindowBounds);
+  mainWindow.on("resize", persistWindowBounds);
+
   // Notify renderer of maximize state changes for titlebar icon toggle
   mainWindow.on("maximize", () => {
     mainWindow?.webContents.send("window-maximized-change", true);
+    persistWindowBounds();
   });
   mainWindow.on("unmaximize", () => {
     mainWindow?.webContents.send("window-maximized-change", false);
+    persistWindowBounds();
   });
 
   // Remove default Electron menu bar

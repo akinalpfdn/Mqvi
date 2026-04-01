@@ -16,3 +16,9 @@ keys:
 
 logging:
   level: info
+
+audio:
+  active_level: 45
+  min_percentile: 30
+  update_interval: 200
+  smooth_intervals: 2
