@@ -45,21 +45,15 @@
    GLOBAL RESETS
    ═══════════════════════════════════════ */
 * { margin:0; padding:0; box-sizing:border-box; }
-html, body { height:100%; width:100%; overflow:hidden; }
-#root { height:100dvh; width:100%; overflow:hidden; }
-#root {
-  /* Bottom safe area for gesture bar / home indicator on modern phones.
-     env() returns 0 on web/Electron — only affects mobile. */
-  padding-bottom: env(safe-area-inset-bottom);
-}
-/* Capacitor mobile — safe area padding for status bar (top) and gesture bar (bottom) */
+html, body, #root { height:100%; width:100%; overflow:hidden; }
+/* Capacitor mobile — shrink #root to fit between status bar and gesture bar */
 html.capacitor-android #root {
-  padding-top: max(env(safe-area-inset-top), 28px);
-  padding-bottom: max(env(safe-area-inset-bottom), 16px);
+  height: calc(100% - max(env(safe-area-inset-top), 28px) - max(env(safe-area-inset-bottom), 16px));
+  margin-top: max(env(safe-area-inset-top), 28px);
 }
 html.capacitor-ios #root {
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
+  height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  margin-top: env(safe-area-inset-top);
 }
 body { font-family:var(--f-ui); -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
 button { font-family:inherit; }
