@@ -85,6 +85,7 @@ function Message({ message, isCompact }: MessageProps) {
   const [editContent, setEditContent] = useState(message.content ?? "");
   const [editMentionQuery, setEditMentionQuery] = useState<string | null>(null);
   const editMentionStartRef = useRef<number>(-1);
+  const editMentionSelectionsRef = useRef<import("./MentionAutocomplete").MentionSelection[]>([]);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
@@ -128,9 +129,11 @@ function Message({ message, isCompact }: MessageProps) {
 
   /** Save edit on Enter */
   async function handleEditSave() {
-    if (editContent.trim() && editContent.trim() !== message.content) {
-      await editMessage(message.id, editContent.trim());
+    const tokenized = convertEditMentionTokens(editContent.trim());
+    if (tokenized && tokenized !== message.content) {
+      await editMessage(message.id, tokenized);
     }
+    editMentionSelectionsRef.current = [];
     setIsEditing(false);
   }
 
@@ -154,7 +157,7 @@ function Message({ message, isCompact }: MessageProps) {
       const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : " ";
       if (charBeforeAt === " " || charBeforeAt === "\n" || atIndex === 0) {
         const query = textBeforeCursor.slice(atIndex + 1);
-        if (!query.includes(" ") && !query.includes("\n")) {
+        if (!query.includes("\n")) {
           editMentionStartRef.current = atIndex;
           setEditMentionQuery(query);
         } else {
@@ -169,14 +172,17 @@ function Message({ message, isCompact }: MessageProps) {
   }
 
   /** Insert selected mention into edit content */
-  function handleEditMentionSelect(username: string) {
+  function handleEditMentionSelect(mention: import("./MentionAutocomplete").MentionSelection) {
     const start = editMentionStartRef.current;
     if (start < 0) return;
+
+    editMentionSelectionsRef.current.push(mention);
 
     const cursorPos = editTextareaRef.current?.selectionStart ?? editContent.length;
     const before = editContent.slice(0, start);
     const after = editContent.slice(cursorPos);
-    const newContent = `${before}@${username} ${after}`;
+    const displayText = `@${mention.name}`;
+    const newContent = `${before}${displayText} ${after}`;
 
     setEditContent(newContent);
     setEditMentionQuery(null);
@@ -184,12 +190,24 @@ function Message({ message, isCompact }: MessageProps) {
 
     requestAnimationFrame(() => {
       if (editTextareaRef.current) {
-        const pos = start + username.length + 2;
+        const pos = start + displayText.length + 1;
         editTextareaRef.current.selectionStart = pos;
         editTextareaRef.current.selectionEnd = pos;
         editTextareaRef.current.focus();
       }
     });
+  }
+
+  /** Convert @name mentions to tokens in edit content */
+  function convertEditMentionTokens(text: string): string {
+    let result = text;
+    const sorted = [...editMentionSelectionsRef.current].sort((a, b) => b.name.length - a.name.length);
+    for (const m of sorted) {
+      const token = m.type === "role" ? `<@&${m.id}>` : `<@${m.id}>`;
+      const escaped = m.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      result = result.replace(new RegExp(`@${escaped}`, "gi"), token);
+    }
+    return result;
   }
 
   /** Delete with confirmation dialog */
@@ -302,14 +320,14 @@ function Message({ message, isCompact }: MessageProps) {
   const displayName =
     message.author?.display_name ?? message.author?.username ?? "Unknown";
 
-  /** Captures @mentions and all http(s) URLs */
-  const URL_REGEX = /(@\w+|https?:\/\/[^\s<]+)/gi;
-
-  /** Invite pattern — checked after URL_REGEX match */
+  /** Invite pattern */
   const INVITE_REGEX = /^https?:\/\/[^\s/]+\/invite\/([a-f0-9]{16})$/i;
 
   /** Klipy GIF pattern */
   const KLIPY_REGEX = /^https?:\/\/static\.klipy\.com\/[^\s]+$/;
+
+  /** Captures token mentions <@id>/<@&id>, legacy @word mentions, and URLs */
+  const TOKEN_REGEX = /(<@&?[a-f0-9]+>|@\w+|https?:\/\/[^\s<]+)/gi;
 
   /** Parse message content: @mentions, invite cards, Klipy GIFs, clickable links. */
   function renderContent(text: string | null): React.ReactNode {
@@ -325,18 +343,58 @@ function Message({ message, isCompact }: MessageProps) {
       );
     }
 
-    // Build a set of role names (lowercase) for quick lookup
-    const roleNameMap = new Map<string, { color: string }>();
+    // Build lookup maps for token resolution
+    const roleById = new Map<string, { name: string; color: string }>();
     for (const r of roles) {
-      roleNameMap.set(r.name.toLowerCase(), { color: r.color });
+      roleById.set(r.id, { name: r.name, color: r.color });
+    }
+    const memberById = new Map<string, { username: string; displayName: string | null }>();
+    for (const m of members) {
+      memberById.set(m.id, { username: m.username, displayName: m.display_name });
+    }
+    // Legacy: role name lookup for old @rolename format
+    const roleByName = new Map<string, { color: string }>();
+    for (const r of roles) {
+      roleByName.set(r.name.toLowerCase(), { color: r.color });
     }
 
-    const parts = text.split(URL_REGEX);
+    const parts = text.split(TOKEN_REGEX);
     return parts.map((part, i) => {
-      // @mention — check if it's a role mention or user mention
+      // Token mention: <@&roleId> or <@userId>
+      const roleTokenMatch = part.match(/^<@&([a-f0-9]+)>$/);
+      if (roleTokenMatch) {
+        const role = roleById.get(roleTokenMatch[1]);
+        if (role) {
+          return (
+            <span
+              key={i}
+              className="msg-role-mention"
+              style={{ color: role.color, backgroundColor: `${role.color}20` }}
+            >
+              @{role.name}
+            </span>
+          );
+        }
+        return <span key={i} className="msg-mention">@unknown-role</span>;
+      }
+
+      const userTokenMatch = part.match(/^<@([a-f0-9]+)>$/);
+      if (userTokenMatch) {
+        const member = memberById.get(userTokenMatch[1]);
+        if (member) {
+          return (
+            <span key={i} className="msg-mention">
+              @{member.displayName ?? member.username}
+            </span>
+          );
+        }
+        return <span key={i} className="msg-mention">@unknown-user</span>;
+      }
+
+      // Legacy @username mention (backward compat for old messages)
       if (/^@\w+$/.test(part)) {
         const name = part.slice(1).toLowerCase();
-        const roleInfo = roleNameMap.get(name);
+        const roleInfo = roleByName.get(name);
         if (roleInfo) {
           return (
             <span
@@ -348,17 +406,17 @@ function Message({ message, isCompact }: MessageProps) {
             </span>
           );
         }
-        // Resolve display_name from members list
         const mentionedMember = members.find((m) => m.username.toLowerCase() === name);
-        const mentionLabel = mentionedMember
-          ? `@${mentionedMember.display_name ?? mentionedMember.username}`
-          : part;
-        return (
-          <span key={i} className="msg-mention">
-            {mentionLabel}
-          </span>
-        );
+        if (mentionedMember) {
+          return (
+            <span key={i} className="msg-mention">
+              @{mentionedMember.display_name ?? mentionedMember.username}
+            </span>
+          );
+        }
+        return part;
       }
+
       // Invite link → InviteCard
       const inviteMatch = part.match(INVITE_REGEX);
       if (inviteMatch) {

@@ -7,13 +7,19 @@ import { useServerStore } from "../../stores/serverStore";
 import Avatar from "../shared/Avatar";
 import type { MemberWithRoles, Role } from "../../types";
 
+export type MentionSelection = {
+  id: string;
+  name: string;
+  type: "user" | "role";
+};
+
 type MentionAutocompleteProps = {
   /** Search text after @ (e.g. "ali" -> @ali) */
   query: string;
   /** Server ID this channel belongs to (uses active server if omitted) */
   serverId?: string;
-  /** Called when user or role is selected — returns the text to insert */
-  onSelect: (text: string) => void;
+  /** Called when user or role is selected */
+  onSelect: (mention: MentionSelection) => void;
   /** Close popup (Escape or empty results) */
   onClose: () => void;
 };
@@ -99,7 +105,11 @@ function MentionAutocomplete({ query, serverId, onSelect, onClose }: MentionAuto
           e.preventDefault();
           if (filtered[activeIndex]) {
             const item = filtered[activeIndex];
-            onSelect(item.type === "user" ? item.member.username : item.role.name);
+            if (item.type === "user") {
+              onSelect({ id: item.member.id, name: item.member.username, type: "user" });
+            } else {
+              onSelect({ id: item.role.id, name: item.role.name, type: "role" });
+            }
           }
           break;
         case "Escape":
@@ -128,7 +138,7 @@ function MentionAutocomplete({ query, serverId, onSelect, onClose }: MentionAuto
               className={`mention-item${index === activeIndex ? " active" : ""}`}
               onMouseDown={(e) => {
                 e.preventDefault();
-                onSelect(item.role.name);
+                onSelect({ id: item.role.id, name: item.role.name, type: "role" });
               }}
               onMouseEnter={() => setActiveIndex(index)}
             >
@@ -149,7 +159,7 @@ function MentionAutocomplete({ query, serverId, onSelect, onClose }: MentionAuto
             className={`mention-item${index === activeIndex ? " active" : ""}`}
             onMouseDown={(e) => {
               e.preventDefault();
-              onSelect(member.username);
+              onSelect({ id: member.id, name: member.username, type: "user" });
             }}
             onMouseEnter={() => setActiveIndex(index)}
           >
