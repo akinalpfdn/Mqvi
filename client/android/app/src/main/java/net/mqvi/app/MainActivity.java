@@ -43,5 +43,6 @@ public class MainActivity extends BridgeActivity {
                 return windowInsets;
             }
         );
+
     }
 }

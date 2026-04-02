@@ -15,6 +15,7 @@
 import { useUIStore } from "../../stores/uiStore";
 import { useMobileStore } from "../../stores/mobileStore";
 import { useSwipeGesture } from "../../hooks/useSwipeGesture";
+import { getCapacitorPlatform } from "../../utils/constants";
 import MobileHeader from "./MobileHeader";
 import MobileDrawer from "./MobileDrawer";
 import Sidebar from "./Sidebar";
@@ -49,13 +50,17 @@ function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLa
   // NOT by watching selectedChannelId — server switch auto-selects channels
   // and we don't want to close the drawer during server browsing.
 
-  // Edge swipe → open drawers
+  // Edge swipe → open drawers.
+  // Android: disabled — system back gesture conflicts with left edge swipe.
+  //   Users use hamburger/members buttons instead.
+  // iOS: edge swipe works (no system back gesture conflict).
+  const isAndroid = getCapacitorPlatform() === "android";
   const swipeHandlers = useSwipeGesture({
-    onSwipeRight: openLeftDrawer,
-    onSwipeLeft: openRightDrawer,
-    edgeWidth: 20,
-    threshold: 40,
-    velocityThreshold: 0.2,
+    onSwipeRight: isAndroid ? undefined : openLeftDrawer,
+    onSwipeLeft: isAndroid ? undefined : openRightDrawer,
+    edgeWidth: 30,
+    threshold: 30,
+    velocityThreshold: 0.15,
   });
 
   return (

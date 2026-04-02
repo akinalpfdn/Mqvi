@@ -2,11 +2,12 @@
  * MobileDrawer — Slide-in drawer from left or right edge.
  *
  * Portaled to document.body. Locks body scroll while open.
- * Backdrop click closes the drawer.
+ * Backdrop click or swipe in closing direction closes the drawer.
  */
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useSwipeGesture } from "../../hooks/useSwipeGesture";
 
 type MobileDrawerProps = {
   isOpen: boolean;
@@ -26,13 +27,24 @@ function MobileDrawer({ isOpen, onClose, side, children }: MobileDrawerProps) {
     }
   }, [isOpen]);
 
+  // Swipe to close: left drawer → swipe left, right drawer → swipe right
+  const swipeHandlers = useSwipeGesture({
+    onSwipeLeft: side === "left" ? onClose : undefined,
+    onSwipeRight: side === "right" ? onClose : undefined,
+    threshold: 30,
+    velocityThreshold: 0.15,
+  });
+
   return createPortal(
     <>
       <div
         className={`mobile-drawer-backdrop${isOpen ? " open" : ""}`}
         onClick={onClose}
       />
-      <div className={`mobile-drawer ${side}${isOpen ? " open" : ""}`}>
+      <div
+        className={`mobile-drawer ${side}${isOpen ? " open" : ""}`}
+        {...swipeHandlers}
+      >
         {children}
       </div>
     </>,
