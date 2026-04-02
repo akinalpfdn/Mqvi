@@ -1,0 +1,36 @@
+{
+  "title": "Gizlilik Politikası",
+  "lastUpdated": "Son güncelleme: 2 Nisan 2026",
+
+  "introTitle": "Giriş",
+  "introDesc": "mqvi açık kaynaklı bir iletişim platformudur. Hangi verileri topladığımız ve nasıl işlediğimiz konusunda şeffaf olmayı taahhüt ediyoruz. Bu politika mqvi.net adresinde barındırılan mqvi sunucusu için geçerlidir.",
+
+  "dataCollectedTitle": "Topladığımız Veriler",
+  "dataItem1": "Hesap bilgileri: kullanıcı adı, görünen ad ve isteğe bağlı olarak e-posta adresiniz (yalnızca şifre sıfırlama için kullanılır).",
+  "dataItem2": "Mesajlar: sunucularda ve direkt mesajlarda gönderdiğiniz metin mesajları, alıcılara iletilmek üzere sunucularımızda saklanır.",
+  "dataItem3": "Dosyalar: yüklediğiniz resim, video ve diğer dosyalar iletim için sunucularımızda saklanır.",
+  "dataItem4": "Temel kullanım verileri: hesap oluşturma ve son aktivite zaman damgaları, operasyonel amaçlarla tutulur.",
+
+  "dataUsageTitle": "Verilerinizi Nasıl Kullanıyoruz",
+  "dataUsageDesc": "Verileriniz yalnızca hizmeti sağlamak için kullanılır:",
+  "usageItem1": "Mesajları ve dosyaları hedeflenen alıcılara iletmek.",
+  "usageItem2": "E-posta adresi verdiyseniz şifre sıfırlama e-postaları göndermek.",
+  "usageItem3": "Platformu sürdürmek ve işletmek.",
+
+  "noTrackingTitle": "Takip veya Analitik Yok",
+  "noTrackingDesc": "Takip amaçlı çerez, analitik hizmeti, reklam ağı veya herhangi bir kullanıcı profilleme yöntemi kullanmıyoruz. mqvi'de üçüncü taraf takipçi bulunmamaktadır.",
+
+  "dataSharingTitle": "Veri Paylaşımı",
+  "dataSharingDesc": "Verilerinizi üçüncü taraflarla satmıyor, kiralamıyor veya paylaşmıyoruz. Verilerinize yalnızca iletişim kurduğunuz alıcılar erişebilir.",
+
+  "selfHostTitle": "Self-Hosted Sunucular",
+  "selfHostDesc": "mqvi üzerinde self-hosted sunucu oluşturduğunuzda yalnızca ses ve görüntü altyapısı kendi LiveKit sunucunuzda çalışır. Mesajlarınız, direkt mesajlarınız, dosyalarınız ve hesap verileriniz mqvi.net üzerinde saklanmaya devam eder ve bu politika kapsamındadır. Tüm veriler üzerinde tam kontrol istiyorsanız açık kaynak projeyi forklayarak kendi bağımsız kopyanızı çalıştırabilirsiniz — bu durumda gizlilik uygulamaları o sunucunun yöneticisi tarafından belirlenir.",
+
+  "deletionTitle": "Veri Silme",
+  "deletionDesc": "Uygulama ayarlarından hesap silme talebinde bulunabilirsiniz. 14 günlük bekleme süresinin ardından (bu süre içinde iptal edebilirsiniz) profil bilgileriniz, yüklediğiniz dosyalar ve kişisel verileriniz kalıcı olarak silinir. Mesajlarınız sohbet bütünlüğü için korunur ancak anonim olarak \"Silinmiş Kullanıcı\" şeklinde gösterilir. Direkt mesaj konuşmaları karşı taraf için görünür olmaya devam eder.",
+
+  "contactTitle": "İletişim",
+  "contactDesc": "Gizlilikle ilgili sorularınız için GitHub deposunda bir issue açabilir veya uygulama üzerinden bize ulaşabilirsiniz.",
+
+  "footerCopy": "© 2025 mqvi — Açık kaynak, özgür iletişim."
+}

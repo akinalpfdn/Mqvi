@@ -1,0 +1,36 @@
+{
+  "title": "Privacy Policy",
+  "lastUpdated": "Last updated: April 2, 2026",
+
+  "introTitle": "Introduction",
+  "introDesc": "mqvi is an open-source communication platform. We are committed to transparency about what data we collect and how we handle it. This policy applies to the mqvi instance hosted at mqvi.net.",
+
+  "dataCollectedTitle": "What We Collect",
+  "dataItem1": "Account information: username, display name, and optionally your email address (used only for password recovery).",
+  "dataItem2": "Messages: text messages you send in servers and direct messages are stored on our servers to deliver them to recipients.",
+  "dataItem3": "Files: images, videos, and other files you upload are stored on our servers for delivery.",
+  "dataItem4": "Basic usage data: timestamps of account creation and last activity for operational purposes.",
+
+  "dataUsageTitle": "How We Use Your Data",
+  "dataUsageDesc": "Your data is used solely to provide the service:",
+  "usageItem1": "Deliver messages and files to their intended recipients.",
+  "usageItem2": "Send password reset emails if you provided an email address.",
+  "usageItem3": "Maintain and operate the platform.",
+
+  "noTrackingTitle": "No Tracking or Analytics",
+  "noTrackingDesc": "We do not use cookies for tracking, analytics services, advertising networks, or any form of user profiling. There are no third-party trackers embedded in mqvi.",
+
+  "dataSharingTitle": "Data Sharing",
+  "dataSharingDesc": "We do not sell, rent, or share your data with third parties. Your data is only accessible to the recipients you communicate with.",
+
+  "selfHostTitle": "Self-Hosted Servers",
+  "selfHostDesc": "When you create a self-hosted server on mqvi, only the voice and video infrastructure runs on your own LiveKit server. Your messages, direct messages, files, and account data are still stored on mqvi.net and covered by this policy. If you want full control over all data, you can fork the open-source project and run your own independent instance — in that case, the privacy practices are determined by that instance's operator.",
+
+  "deletionTitle": "Data Deletion",
+  "deletionDesc": "You can request account deletion through the app settings. After a 14-day grace period (during which you can cancel), your profile information, uploaded files, and personal data are permanently removed. Your messages are preserved for conversation continuity but displayed anonymously as \"Deleted User\". Direct message conversations remain visible to the other participant.",
+
+  "contactTitle": "Contact",
+  "contactDesc": "For privacy-related questions, open an issue on our GitHub repository or reach out via the app.",
+
+  "footerCopy": "© 2025 mqvi — Open source, free communication."
+}

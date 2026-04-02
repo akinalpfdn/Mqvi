@@ -1,7 +1,7 @@
 /**
  * i18n configuration — i18next + react-i18next setup.
  *
- * Namespaces: common, auth, channels, chat, settings, voice, landing, servers, dm, e2ee.
+ * Namespaces: common, auth, channels, chat, settings, voice, landing, privacy, servers, dm, e2ee.
  * Supported languages: EN (fallback), TR.
  */
 
@@ -21,6 +21,7 @@ import enServers from "./locales/en/servers.json";
 import enDM from "./locales/en/dm.json";
 import enE2EE from "./locales/en/e2ee.json";
 import enSoundboard from "./locales/en/soundboard.json";
+import enPrivacy from "./locales/en/privacy.json";
 
 // ─── TR Translation Files ───
 import trCommon from "./locales/tr/common.json";
@@ -34,6 +35,7 @@ import trServers from "./locales/tr/servers.json";
 import trDM from "./locales/tr/dm.json";
 import trE2EE from "./locales/tr/e2ee.json";
 import trSoundboard from "./locales/tr/soundboard.json";
+import trPrivacy from "./locales/tr/privacy.json";
 
 export const SUPPORTED_LANGUAGES = {
   en: "English",
@@ -61,6 +63,7 @@ i18n
         dm: enDM,
         e2ee: enE2EE,
         soundboard: enSoundboard,
+        privacy: enPrivacy,
       },
       tr: {
         common: trCommon,
@@ -74,6 +77,7 @@ i18n
         dm: trDM,
         e2ee: trE2EE,
         soundboard: trSoundboard,
+        privacy: trPrivacy,
       },
     },
 
@@ -81,7 +85,7 @@ i18n
     supportedLngs: Object.keys(SUPPORTED_LANGUAGES),
 
     defaultNS: "common",
-    ns: ["common", "auth", "channels", "chat", "settings", "voice", "landing", "servers", "dm", "e2ee", "soundboard"],
+    ns: ["common", "auth", "channels", "chat", "settings", "voice", "landing", "privacy", "servers", "dm", "e2ee", "soundboard"],
 
     interpolation: {
       // React already handles XSS protection

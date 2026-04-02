@@ -409,7 +409,7 @@ function LandingPage() {
           <div className="lp-footer-links">
             <a href="#" className="lp-footer-link">{t("footer_docs")}</a>
             <a href="https://github.com/akinalpfdn/Mqvi" target="_blank" rel="noopener noreferrer" className="lp-footer-link">GitHub</a>
-            <a href="#" className="lp-footer-link">{t("footer_privacy")}</a>
+            <a href="/privacy" className="lp-footer-link">{t("footer_privacy")}</a>
           </div>
         </footer>
 

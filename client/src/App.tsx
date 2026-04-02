@@ -8,6 +8,7 @@ import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import AppLayout from "./components/layout/AppLayout";
 import LandingPage from "./components/landing/LandingPage";
+import PrivacyPage from "./components/landing/PrivacyPage";
 import InviteJoinPage from "./components/servers/InviteJoinPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
@@ -87,6 +88,9 @@ function App() {
         path="/reset-password"
         element={user ? <Navigate to="/channels" replace /> : <ResetPasswordPage />}
       />
+
+      {/* Privacy policy — public page */}
+      <Route path="/privacy" element={<PrivacyPage />} />
 
       {/* Invite join — auth check is handled inside InviteJoinPage */}
       <Route path="/invite/:code" element={<InviteJoinPage />} />
