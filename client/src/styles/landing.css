@@ -942,6 +942,36 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 }
 
 /* ═══════════════════════════════════════
+   FAQ
+   ═══════════════════════════════════════ */
+.lp-faq-grid {
+  max-width: 900px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.lp-faq-item {
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--lp-surface);
+  border: 1px solid var(--lp-border);
+  transition: border-color 0.2s;
+}
+.lp-faq-item:hover { border-color: var(--lp-accent); }
+.lp-faq-q {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--lp-text);
+  margin-bottom: 8px;
+}
+.lp-faq-a {
+  font-size: 14px;
+  color: var(--lp-text-muted);
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════
    CTA
    ═══════════════════════════════════════ */
 .lp-cta {
@@ -1193,6 +1223,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   .lp-guide-step-title { font-size: 18px; }
   .lp-guide-step-desc { font-size: 14px; }
   .lp-guide-trouble-grid { grid-template-columns: 1fr; }
+  .lp-faq-grid { grid-template-columns: 1fr; }
   .lp-guide-spec { flex-direction: column; gap: 2px; align-items: flex-start; }
   .lp-guide-spec-label { min-width: auto; }
   .lp-guide-port-row { grid-template-columns: 120px 60px 1fr; padding: 8px 12px; font-size: 13px; }
