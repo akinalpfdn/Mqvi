@@ -71,7 +71,7 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
             reactions: [],
             reply_to_id: null,
             referenced_message: null,
-            author: { id: "", username: "", display_name: null, avatar_url: null, status: "offline" as const, custom_status: null, email: null, language: "en", is_platform_admin: false, has_seen_download_prompt: false, created_at: "" },
+            author: { id: "", username: "", display_name: null, avatar_url: null, status: "offline" as const, custom_status: null, email: null, language: "en", is_platform_admin: false, has_seen_download_prompt: false, has_seen_welcome: false, created_at: "" },
             encryption_version: 1,
           }));
 

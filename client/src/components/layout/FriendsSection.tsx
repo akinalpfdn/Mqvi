@@ -60,6 +60,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
               language: "en",
               is_platform_admin: false,
               has_seen_download_prompt: false,
+              has_seen_welcome: false,
               created_at: friend.created_at ?? new Date().toISOString(),
             },
             rect.top,

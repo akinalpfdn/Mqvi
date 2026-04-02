@@ -189,6 +189,7 @@ function friendshipToUser(f: FriendshipWithUser): User {
     language: "en",
     is_platform_admin: false,
     has_seen_download_prompt: false,
+    has_seen_welcome: false,
     created_at: f.created_at ?? new Date().toISOString(),
   };
 }

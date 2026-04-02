@@ -896,6 +896,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   gap: 16px;
   padding: 20px 24px;
   margin-top: 32px;
+  margin-left: 64px;
   border-radius: 12px;
   background: rgba(234, 179, 8, 0.08);
   border: 1px solid rgba(234, 179, 8, 0.25);
@@ -919,7 +920,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 }
 
 /* Troubleshoot bölümü */
-.lp-guide-troubleshoot { margin-top: 48px; }
+.lp-guide-troubleshoot { margin-top: 48px; margin-left: 64px; }
 .lp-guide-troubleshoot-title {
   font-size: 20px; font-weight: 700; color: var(--lp-text);
   margin-bottom: 20px;
@@ -1212,7 +1213,9 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
     flex-direction: column;
     gap: 12px;
     padding: 16px;
+    margin-left: 48px;
   }
+  .lp-guide-troubleshoot { margin-left: 48px; }
 
   /* ── CTA ── */
   .lp-cta {
