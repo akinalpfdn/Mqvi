@@ -19,6 +19,7 @@ export type User = {
   language: string;
   is_platform_admin: boolean;
   has_seen_download_prompt: boolean;
+  has_seen_welcome: boolean;
   created_at: string;
 };
 

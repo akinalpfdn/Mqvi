@@ -46,6 +46,7 @@ type UserRepository interface {
 	// ─── Download Prompt ───
 
 	SetDownloadPromptSeen(ctx context.Context, userID string) error
+	SetWelcomeSeen(ctx context.Context, userID string) error
 
 	// ─── Platform Admin ───
 

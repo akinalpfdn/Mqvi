@@ -52,7 +52,7 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, error) {
 	query := `
 		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
-			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt,
+			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE id = ?`
 
@@ -60,7 +60,7 @@ func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
 		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt,
+		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
 		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
 		&user.CreatedAt,
 	)
@@ -78,7 +78,7 @@ func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, 
 func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*models.User, error) {
 	query := `
 		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
-			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt,
+			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE username = ? COLLATE NOCASE`
 
@@ -86,7 +86,7 @@ func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*m
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
 		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt,
+		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
 		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
 		&user.CreatedAt,
 	)
@@ -104,7 +104,7 @@ func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*m
 func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 	query := `
 		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
-			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt,
+			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users ORDER BY username`
 
@@ -120,7 +120,7 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 		if err := rows.Scan(
 			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
 			&u.PasswordHash, &u.Status, &u.PrefStatus, &u.CustomStatus, &u.Email,
-			&u.Language, &u.IsPlatformAdmin, &u.IsPlatformBanned, &u.HasSeenDownloadPrompt,
+			&u.Language, &u.IsPlatformAdmin, &u.IsPlatformBanned, &u.HasSeenDownloadPrompt, &u.HasSeenWelcome,
 			&u.PlatformBanReason, &u.PlatformBannedBy, &u.PlatformBannedAt,
 			&u.CreatedAt,
 		); err != nil {
@@ -242,7 +242,7 @@ func (r *sqliteUserRepo) UpdateEmail(ctx context.Context, userID string, email *
 func (r *sqliteUserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
 		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
-			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt,
+			email, language, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE email = ?`
 
@@ -250,7 +250,7 @@ func (r *sqliteUserRepo) GetByEmail(ctx context.Context, email string) (*models.
 	err := r.db.QueryRowContext(ctx, query, email).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
 		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt,
+		&user.Language, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
 		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
 		&user.CreatedAt,
 	)
@@ -514,6 +514,17 @@ func (r *sqliteUserRepo) SetDownloadPromptSeen(ctx context.Context, userID strin
 	)
 	if err != nil {
 		return fmt.Errorf("failed to set download prompt seen: %w", err)
+	}
+	return nil
+}
+
+func (r *sqliteUserRepo) SetWelcomeSeen(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE users SET has_seen_welcome = 1 WHERE id = ?",
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set welcome seen: %w", err)
 	}
 	return nil
 }

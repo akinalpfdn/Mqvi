@@ -1076,6 +1076,20 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .download-prompt-btn-dismiss:hover { color:var(--t2); }
 
 /* ═══════════════════════════════════════
+   WELCOME MODAL
+   ═══════════════════════════════════════ */
+.welcome-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
+.welcome-modal { background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;padding:32px;max-width:420px;width:90%;text-align:center; }
+.welcome-logo { display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:var(--primary);color:#fff;margin-bottom:16px; }
+.welcome-modal h3 { font-size:20px;font-weight:700;margin-bottom:6px;color:var(--t1); }
+.welcome-modal > p { font-size:14px;color:var(--t2);margin-bottom:20px; }
+.welcome-features { list-style:none;padding:0;margin:0 0 24px;text-align:left;display:flex;flex-direction:column;gap:12px; }
+.welcome-features li { display:flex;align-items:center;gap:10px;font-size:14px;color:var(--t1); }
+.welcome-features li svg { flex-shrink:0;color:var(--primary); }
+.welcome-btn { width:100%;padding:12px;border-radius:8px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;border:none;cursor:pointer;font-family:var(--f-ui);transition:background .15s; }
+.welcome-btn:hover { background:var(--primary-h); }
+
+/* ═══════════════════════════════════════
    SETTINGS MODAL
    ═══════════════════════════════════════ */
 .settings-overlay { position:fixed;top:var(--safe-area-inset-top);left:0;right:0;bottom:var(--safe-area-inset-bottom);z-index:50;display:flex;background:var(--bg-0); }

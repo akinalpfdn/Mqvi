@@ -295,6 +295,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
                       onChange={(e) => setLivekitUrl(e.target.value)}
                       placeholder={t("livekitUrlPlaceholder")}
                       className="add-server-input"
+                      autoComplete="off"
                     />
                   </div>
                   <div className="add-server-field">
@@ -305,16 +306,18 @@ function AddServerModal({ onClose }: AddServerModalProps) {
                       onChange={(e) => setLivekitKey(e.target.value)}
                       placeholder={t("livekitKeyPlaceholder")}
                       className="add-server-input"
+                      autoComplete="off"
                     />
                   </div>
                   <div className="add-server-field">
                     <label className="add-server-label">{t("livekitSecret")}</label>
                     <input
-                      type="password"
+                      type="text"
                       value={livekitSecret}
                       onChange={(e) => setLivekitSecret(e.target.value)}
                       placeholder={t("livekitSecretPlaceholder")}
                       className="add-server-input"
+                      autoComplete="off"
                     />
                   </div>
                 </>
