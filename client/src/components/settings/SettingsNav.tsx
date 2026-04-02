@@ -3,7 +3,7 @@
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useAuthStore } from "../../stores/authStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import { isElectron } from "../../utils/constants";
@@ -54,7 +54,7 @@ function SettingsNav() {
   const user = useAuthStore((s) => s.user);
   const isMobile = useIsMobile();
 
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const currentMember = members.find((m) => m.id === user?.id);
   const perms = currentMember?.effective_permissions ?? 0;
 

@@ -3,9 +3,10 @@ package ws
 // Event is the WebSocket message format.
 // Seq is a monotonic counter for gap detection on the client side.
 type Event struct {
-	Op   string `json:"op"`
-	Data any    `json:"d,omitempty"`
-	Seq  int64  `json:"seq,omitempty"`
+	Op       string `json:"op"`
+	Data     any    `json:"d,omitempty"`
+	Seq      int64  `json:"seq,omitempty"`
+	ServerID string `json:"server_id,omitempty"`
 }
 
 // ─── Operation Constants ───

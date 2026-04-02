@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useAuthStore } from "../../stores/authStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
@@ -43,7 +43,7 @@ function VoiceUserContextMenu({
 
   // Channel-level permission resolution
   const currentUser = useAuthStore((s) => s.user);
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const categories = useChannelStore((s) => s.categories);
   const getOverrides = useChannelPermissionStore((s) => s.getOverrides);
 

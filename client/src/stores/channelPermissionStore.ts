@@ -19,9 +19,9 @@ type ChannelPermissionState = {
   fetchedChannels: Set<string>;
 
   // ─── Actions ───
-  fetchOverrides: (channelID: string) => Promise<void>;
-  setOverride: (channelID: string, roleID: string, allow: number, deny: number) => Promise<boolean>;
-  deleteOverride: (channelID: string, roleID: string) => Promise<boolean>;
+  fetchOverrides: (channelID: string, serverId?: string) => Promise<void>;
+  setOverride: (channelID: string, roleID: string, allow: number, deny: number, serverId?: string) => Promise<boolean>;
+  deleteOverride: (channelID: string, roleID: string, serverId?: string) => Promise<boolean>;
   getOverrides: (channelID: string) => ChannelPermissionOverride[];
 
   /** Batch-fetch overrides for multiple channels (skips already-fetched) */
@@ -37,10 +37,10 @@ export const useChannelPermissionStore = create<ChannelPermissionState>(
     overridesByChannel: {},
     fetchedChannels: new Set(),
 
-    fetchOverrides: async (channelID) => {
+    fetchOverrides: async (channelID, explicitServerId?) => {
       if (get().fetchedChannels.has(channelID)) return;
 
-      const serverId = useServerStore.getState().activeServerId;
+      const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
       if (!serverId) return;
 
       const res = await channelPermApi.getOverrides(serverId, channelID);
@@ -55,8 +55,8 @@ export const useChannelPermissionStore = create<ChannelPermissionState>(
       }
     },
 
-    setOverride: async (channelID, roleID, allow, deny) => {
-      const serverId = useServerStore.getState().activeServerId;
+    setOverride: async (channelID, roleID, allow, deny, explicitServerId?) => {
+      const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
       if (!serverId) return false;
       const res = await channelPermApi.setOverride(
         serverId,
@@ -69,8 +69,8 @@ export const useChannelPermissionStore = create<ChannelPermissionState>(
       return !!res.data;
     },
 
-    deleteOverride: async (channelID, roleID) => {
-      const serverId = useServerStore.getState().activeServerId;
+    deleteOverride: async (channelID, roleID, explicitServerId?) => {
+      const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
       if (!serverId) return false;
       const res = await channelPermApi.deleteOverride(serverId, channelID, roleID);
       return !!res.data;

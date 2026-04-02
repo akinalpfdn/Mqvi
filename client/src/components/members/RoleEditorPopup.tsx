@@ -6,9 +6,9 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useRoleStore } from "../../stores/roleStore";
+import { useRoleStore, useActiveRoles } from "../../stores/roleStore";
 import { useAuthStore } from "../../stores/authStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import * as memberApi from "../../api/members";
 import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -23,10 +23,10 @@ type RoleEditorPopupProps = {
 function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
   const { t } = useTranslation("common");
   const addToast = useToastStore((s) => s.addToast);
-  const roles = useRoleStore((s) => s.roles);
+  const roles = useActiveRoles();
   const fetchRoles = useRoleStore((s) => s.fetchRoles);
   const currentUser = useAuthStore((s) => s.user);
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const popupRef = useRef<HTMLDivElement>(null);
 
   // Fetch roles on mount (roleStore may be empty outside Settings)

@@ -3,14 +3,23 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useMemberStore } from "../../stores/memberStore";
 import { useRoleStore } from "../../stores/roleStore";
+import { useServerStore } from "../../stores/serverStore";
 import Avatar from "../shared/Avatar";
 import type { MemberWithRoles, Role } from "../../types";
+
+export type MentionSelection = {
+  id: string;
+  name: string;
+  type: "user" | "role";
+};
 
 type MentionAutocompleteProps = {
   /** Search text after @ (e.g. "ali" -> @ali) */
   query: string;
-  /** Called when user or role is selected — returns the text to insert */
-  onSelect: (text: string) => void;
+  /** Server ID this channel belongs to (uses active server if omitted) */
+  serverId?: string;
+  /** Called when user or role is selected */
+  onSelect: (mention: MentionSelection) => void;
   /** Close popup (Escape or empty results) */
   onClose: () => void;
 };
@@ -22,9 +31,24 @@ type MentionItem =
   | { type: "user"; member: MemberWithRoles }
   | { type: "role"; role: Role };
 
-function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompleteProps) {
-  const members = useMemberStore((s) => s.members);
-  const roles = useRoleStore((s) => s.roles);
+function MentionAutocomplete({ query, serverId, onSelect, onClose }: MentionAutocompleteProps) {
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const effectiveServerId = serverId ?? activeServerId;
+
+  const membersByServer = useMemberStore((s) => s.membersByServer);
+  const rolesByServer = useRoleStore((s) => s.rolesByServer);
+  const fetchMembers = useMemberStore((s) => s.fetchMembers);
+  const fetchRoles = useRoleStore((s) => s.fetchRoles);
+
+  // Lazy-fetch if this server's data isn't cached yet
+  useEffect(() => {
+    if (!effectiveServerId) return;
+    if (!membersByServer[effectiveServerId]) fetchMembers(effectiveServerId);
+    if (!rolesByServer[effectiveServerId]) fetchRoles(effectiveServerId);
+  }, [effectiveServerId, membersByServer, rolesByServer, fetchMembers, fetchRoles]);
+
+  const members: MemberWithRoles[] = effectiveServerId ? (membersByServer[effectiveServerId] ?? []) : [];
+  const roles: Role[] = effectiveServerId ? (rolesByServer[effectiveServerId] ?? []) : [];
   const [activeIndex, setActiveIndex] = useState(0);
 
   const filtered = useMemo(() => {
@@ -81,7 +105,11 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
           e.preventDefault();
           if (filtered[activeIndex]) {
             const item = filtered[activeIndex];
-            onSelect(item.type === "user" ? item.member.username : item.role.name);
+            if (item.type === "user") {
+              onSelect({ id: item.member.id, name: item.member.username, type: "user" });
+            } else {
+              onSelect({ id: item.role.id, name: item.role.name, type: "role" });
+            }
           }
           break;
         case "Escape":
@@ -110,7 +138,7 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
               className={`mention-item${index === activeIndex ? " active" : ""}`}
               onMouseDown={(e) => {
                 e.preventDefault();
-                onSelect(item.role.name);
+                onSelect({ id: item.role.id, name: item.role.name, type: "role" });
               }}
               onMouseEnter={() => setActiveIndex(index)}
             >
@@ -131,7 +159,7 @@ function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompletePr
             className={`mention-item${index === activeIndex ? " active" : ""}`}
             onMouseDown={(e) => {
               e.preventDefault();
-              onSelect(member.username);
+              onSelect({ id: member.id, name: member.username, type: "user" });
             }}
             onMouseEnter={() => setActiveIndex(index)}
           >

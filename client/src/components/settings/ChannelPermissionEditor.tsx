@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { useRoleStore } from "../../stores/roleStore";
+import { useRoleStore, useActiveRoles } from "../../stores/roleStore";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { useToastStore } from "../../stores/toastStore";
 import { Permissions } from "../../utils/permissions";
@@ -37,7 +37,8 @@ type Props = {
 
 function ChannelPermissionEditor({ channel }: Props) {
   const { t } = useTranslation("settings");
-  const { roles, fetchRoles } = useRoleStore();
+  const roles = useActiveRoles();
+  const fetchRoles = useRoleStore((s) => s.fetchRoles);
   const { fetchOverrides, getOverrides, setOverride } = useChannelPermissionStore();
   const addToast = useToastStore((s) => s.addToast);
 

@@ -8,7 +8,7 @@ import { MAX_MESSAGE_LENGTH } from "../../utils/constants";
 import EmojiPicker from "../shared/EmojiPicker";
 import GifPicker from "../shared/GifPicker";
 import FilePreview from "./FilePreview";
-import MentionAutocomplete from "./MentionAutocomplete";
+import MentionAutocomplete, { type MentionSelection } from "./MentionAutocomplete";
 import ReplyBar from "./ReplyBar";
 
 function MessageInput() {
@@ -17,6 +17,7 @@ function MessageInput() {
     mode,
     channelId,
     channelName,
+    serverId,
     canSend,
     sendMessage,
     replyingTo,
@@ -39,6 +40,8 @@ function MessageInput() {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   /** Character index where the @ trigger starts */
   const mentionStartRef = useRef<number>(-1);
+  /** Tracked mention selections for token conversion on send */
+  const mentionSelectionsRef = useRef<MentionSelection[]>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -60,6 +63,20 @@ function MessageInput() {
     }
   }, [replyingTo]);
 
+  /** Convert @name mentions to <@id>/<@&id> tokens before sending */
+  function convertMentionTokens(text: string): string {
+    let result = text;
+    // Sort longest name first to prevent partial matches
+    const sorted = [...mentionSelectionsRef.current].sort((a, b) => b.name.length - a.name.length);
+    for (const m of sorted) {
+      const token = m.type === "role" ? `<@&${m.id}>` : `<@${m.id}>`;
+      // Replace all occurrences of @name (case-insensitive)
+      const escaped = m.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      result = result.replace(new RegExp(`@${escaped}`, "gi"), token);
+    }
+    return result;
+  }
+
   /** Send message, passing replyToId if replying */
   const handleSend = useCallback(async () => {
     if (!channelId) return;
@@ -68,11 +85,13 @@ function MessageInput() {
 
     setIsSending(true);
     const replyToId = replyingTo?.id;
-    const success = await sendMessage(content.trim(), files, replyToId);
+    const tokenized = convertMentionTokens(content.trim());
+    const success = await sendMessage(tokenized, files, replyToId);
     if (success) {
       setContent("");
       setFiles([]);
       setReplyingTo(null);
+      mentionSelectionsRef.current = [];
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
@@ -125,7 +144,9 @@ function MessageInput() {
       const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : " ";
       if (charBeforeAt === " " || charBeforeAt === "\n" || atIndex === 0) {
         const query = textBeforeCursor.slice(atIndex + 1);
-        if (!query.includes(" ") && !query.includes("\n")) {
+        // Allow spaces in query (role names can contain spaces like "Level 3")
+        // Only close on newline — selection via Enter/Tab/click inserts and closes
+        if (!query.includes("\n")) {
           mentionStartRef.current = atIndex;
           setMentionQuery(query);
         } else {
@@ -144,15 +165,18 @@ function MessageInput() {
     }
   }
 
-  /** Insert selected mention into content */
-  function handleMentionSelect(username: string) {
+  /** Insert selected mention into content and track for token conversion */
+  function handleMentionSelect(mention: MentionSelection) {
     const start = mentionStartRef.current;
     if (start < 0) return;
+
+    mentionSelectionsRef.current.push(mention);
 
     const cursorPos = textareaRef.current?.selectionStart ?? content.length;
     const before = content.slice(0, start);
     const after = content.slice(cursorPos);
-    const newContent = `${before}@${username} ${after}`;
+    const displayText = `@${mention.name}`;
+    const newContent = `${before}${displayText} ${after}`;
 
     setContent(newContent);
     setMentionQuery(null);
@@ -160,7 +184,7 @@ function MessageInput() {
 
     requestAnimationFrame(() => {
       if (textareaRef.current) {
-        const pos = start + username.length + 2;
+        const pos = start + displayText.length + 1;
         textareaRef.current.selectionStart = pos;
         textareaRef.current.selectionEnd = pos;
         textareaRef.current.focus();
@@ -270,6 +294,7 @@ function MessageInput() {
       {mentionQuery !== null && mode === "channel" && (
         <MentionAutocomplete
           query={mentionQuery}
+          serverId={serverId}
           onSelect={handleMentionSelect}
           onClose={handleMentionClose}
         />

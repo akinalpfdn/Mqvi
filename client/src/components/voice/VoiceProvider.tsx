@@ -127,9 +127,13 @@ function VoiceProvider({ children }: VoiceProviderProps) {
           rejoinAttemptsRef.current++;
           const channelToRejoin = currentVoiceChannelId;
 
+          // Preserve mute/deafen state across auto-rejoin
+          const { isMuted: prevMuted, isDeafened: prevDeafened } = useVoiceStore.getState();
+
           leaveVoiceChannel();
           useVoiceStore.getState().joinVoiceChannel(channelToRejoin).then((tokenResp) => {
             if (tokenResp && _wsSend) {
+              useVoiceStore.setState({ isMuted: prevMuted, isDeafened: prevDeafened });
               _wsSend("voice_join", { channel_id: channelToRejoin });
             } else {
               console.warn("[VoiceProvider] Auto-rejoin failed");
@@ -233,7 +237,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       serverUrl={livekitUrl || "wss://placeholder.invalid"}
       token={livekitToken || ""}
       connect={isConnected}
-      audio={isConnected}
+      audio={false}
       video={false}
       options={roomOptions}
       onDisconnected={handleDisconnected}

@@ -39,20 +39,20 @@ type MessageState = {
   scrollToMessageId: string | null;
 
   // ─── Actions ───
-  fetchMessages: (channelId: string) => Promise<void>;
-  fetchOlderMessages: (channelId: string) => Promise<void>;
+  fetchMessages: (channelId: string, serverId?: string) => Promise<void>;
+  fetchOlderMessages: (channelId: string, serverId?: string) => Promise<void>;
   /** Clear fetch cache — forces re-fetch + re-decrypt (E2EE restore) */
   invalidateFetchCache: () => void;
-  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string) => Promise<boolean>;
-  editMessage: (messageId: string, content: string) => Promise<boolean>;
-  deleteMessage: (messageId: string) => Promise<boolean>;
+  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, serverId?: string) => Promise<boolean>;
+  editMessage: (messageId: string, content: string, serverId?: string) => Promise<boolean>;
+  deleteMessage: (messageId: string, serverId?: string) => Promise<boolean>;
 
   // ─── Reply Actions ───
   setReplyingTo: (message: Message | null) => void;
   setScrollToMessageId: (id: string | null) => void;
 
   // ─── Reactions ───
-  toggleReaction: (messageId: string, channelId: string, emoji: string) => Promise<void>;
+  toggleReaction: (messageId: string, channelId: string, emoji: string, serverId?: string) => Promise<void>;
 
   // ─── WS Event Handlers ───
   handleMessageCreate: (message: Message) => void;
@@ -84,12 +84,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
   },
 
-  fetchMessages: async (channelId) => {
+  fetchMessages: async (channelId, explicitServerId?) => {
     if (fetchedChannels.has(channelId)) return;
 
     set({ isLoading: true });
 
-    const serverId = useServerStore.getState().activeServerId;
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) { set({ isLoading: false }); return; }
 
     const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
@@ -129,14 +129,14 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
-  fetchOlderMessages: async (channelId) => {
+  fetchOlderMessages: async (channelId, explicitServerId?) => {
     const messages = get().messagesByChannel[channelId];
     if (!messages || messages.length === 0) return;
     if (!get().hasMoreByChannel[channelId]) return;
 
     set({ isLoadingMore: true });
 
-    const serverId = useServerStore.getState().activeServerId;
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) { set({ isLoadingMore: false }); return; }
 
     const beforeId = messages[0].id;
@@ -161,8 +161,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
-  sendMessage: async (channelId, content, files, replyToId) => {
-    const serverId = useServerStore.getState().activeServerId;
+  sendMessage: async (channelId, content, files, replyToId, explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return false;
 
     // E2EE: encrypt with Sender Key
@@ -220,8 +220,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     return res.success;
   },
 
-  editMessage: async (messageId, content) => {
-    const serverId = useServerStore.getState().activeServerId;
+  editMessage: async (messageId, content, explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return false;
 
     // E2EE encrypted edit
@@ -273,8 +273,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     return res.success;
   },
 
-  deleteMessage: async (messageId) => {
-    const serverId = useServerStore.getState().activeServerId;
+  deleteMessage: async (messageId, explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return false;
     const res = await messageApi.deleteMessage(serverId, messageId);
     return res.success;
@@ -290,8 +290,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   // ─── Reactions ───
 
   /** No optimistic update — WS event will update via handleReactionUpdate. */
-  toggleReaction: async (messageId, _channelId, emoji) => {
-    const serverId = useServerStore.getState().activeServerId;
+  toggleReaction: async (messageId, _channelId, emoji, explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return;
     await reactionApi.toggleReaction(serverId, messageId, emoji);
   },

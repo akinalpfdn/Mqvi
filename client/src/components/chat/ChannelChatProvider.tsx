@@ -5,17 +5,20 @@ import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hook
 import { useMessageStore } from "../../stores/messageStore";
 import { usePinStore } from "../../stores/pinStore";
 import { useMemberStore } from "../../stores/memberStore";
+import { useServerStore } from "../../stores/serverStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useChannelPermissions } from "../../hooks/useChannelPermissions";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import type { Message } from "../../types";
+import type { Message, MemberWithRoles } from "../../types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_STRINGS: string[] = [];
+const EMPTY_MEMBERS: MemberWithRoles[] = [];
 
 type ChannelChatProviderProps = {
   channelId: string;
   channelName: string;
+  serverId?: string;
   sendTyping: (channelId: string) => void;
   children: ReactNode;
 };
@@ -23,6 +26,7 @@ type ChannelChatProviderProps = {
 function ChannelChatProvider({
   channelId,
   channelName,
+  serverId: explicitServerId,
   sendTyping: sendTypingProp,
   children,
 }: ChannelChatProviderProps) {
@@ -54,7 +58,10 @@ function ChannelChatProvider({
   const unpinAction = usePinStore((s) => s.unpin);
   const channelPins = usePinStore((s) => s.pins[channelId]);
 
-  const members = useMemberStore((s) => s.members);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const targetServerId = explicitServerId ?? activeServerId;
+  const membersByServer = useMemberStore((s) => s.membersByServer);
+  const members = targetServerId ? (membersByServer[targetServerId] ?? EMPTY_MEMBERS) : EMPTY_MEMBERS;
   const currentUser = useAuthStore((s) => s.user);
   const { hasChannelPerm } = useChannelPermissions(channelId);
 
@@ -71,34 +78,34 @@ function ChannelChatProvider({
   // ─── Actions (stable refs) ───
   const sendMessage = useCallback(
     (content: string, files?: File[], replyToId?: string) =>
-      storeSendMessage(channelId, content, files, replyToId),
-    [channelId, storeSendMessage]
+      storeSendMessage(channelId, content, files, replyToId, explicitServerId),
+    [channelId, storeSendMessage, explicitServerId]
   );
 
   const editMessage = useCallback(
-    (id: string, content: string) => storeEditMessage(id, content),
-    [storeEditMessage]
+    (id: string, content: string) => storeEditMessage(id, content, explicitServerId),
+    [storeEditMessage, explicitServerId]
   );
 
   const deleteMessage = useCallback(
-    (id: string) => storeDeleteMessage(id),
-    [storeDeleteMessage]
+    (id: string) => storeDeleteMessage(id, explicitServerId),
+    [storeDeleteMessage, explicitServerId]
   );
 
   const fetchMessages = useCallback(
-    () => storeFetchMessages(channelId),
-    [channelId, storeFetchMessages]
+    () => storeFetchMessages(channelId, explicitServerId),
+    [channelId, storeFetchMessages, explicitServerId]
   );
 
   const fetchOlderMessages = useCallback(
-    () => storeFetchOlderMessages(channelId),
-    [channelId, storeFetchOlderMessages]
+    () => storeFetchOlderMessages(channelId, explicitServerId),
+    [channelId, storeFetchOlderMessages, explicitServerId]
   );
 
   const toggleReaction = useCallback(
     (messageId: string, emoji: string) =>
-      storeToggleReaction(messageId, channelId, emoji),
-    [channelId, storeToggleReaction]
+      storeToggleReaction(messageId, channelId, emoji, explicitServerId),
+    [channelId, storeToggleReaction, explicitServerId]
   );
 
   const setReplyingTo = useCallback(
@@ -121,16 +128,16 @@ function ChannelChatProvider({
 
   const pinMessage = useCallback(
     async (messageId: string) => {
-      await pinAction(channelId, messageId);
+      await pinAction(channelId, messageId, explicitServerId);
     },
-    [channelId, pinAction]
+    [channelId, pinAction, explicitServerId]
   );
 
   const unpinMessage = useCallback(
     async (messageId: string) => {
-      await unpinAction(channelId, messageId);
+      await unpinAction(channelId, messageId, explicitServerId);
     },
-    [channelId, unpinAction]
+    [channelId, unpinAction, explicitServerId]
   );
 
   const pinnedIds = useMemo(
@@ -149,6 +156,7 @@ function ChannelChatProvider({
       mode: "channel" as const,
       channelId,
       channelName,
+      serverId: explicitServerId,
       messages,
       isLoading,
       isLoadingMore,
@@ -175,7 +183,7 @@ function ChannelChatProvider({
       addFilesRef,
     }),
     [
-      channelId, channelName, messages, isLoading, isLoadingMore, hasMore,
+      channelId, channelName, explicitServerId, messages, isLoading, isLoadingMore, hasMore,
       replyingTo, scrollToMessageId, typingUsers,
       sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,

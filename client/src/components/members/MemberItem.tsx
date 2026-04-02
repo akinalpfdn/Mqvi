@@ -9,7 +9,7 @@ import { useContextMenu } from "../../hooks/useContextMenu";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import { copyToClipboard } from "../../utils/constants";
 import { useAuthStore } from "../../stores/authStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useFriendStore } from "../../stores/friendStore";
@@ -66,7 +66,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const confirm = useConfirm();
   const currentUser = useAuthStore((s) => s.user);
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const friends = useFriendStore((s) => s.friends);
   const incoming = useFriendStore((s) => s.incoming);
   const outgoing = useFriendStore((s) => s.outgoing);

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -12,7 +11,9 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-var mentionRegex = regexp.MustCompile(`@(\w+)`)
+// Discord-style token patterns: <@userId> for user mentions, <@&roleId> for role mentions
+var userMentionRegex = regexp.MustCompile(`<@([a-f0-9]+)>`)
+var roleMentionRegex = regexp.MustCompile(`<@&([a-f0-9]+)>`)
 
 type MessageService interface {
 	GetByChannelID(ctx context.Context, channelID string, userID string, beforeID string, limit int) (*models.MessagePage, error)
@@ -391,45 +392,44 @@ func (s *messageService) Delete(ctx context.Context, id string, userID string, u
 	return nil
 }
 
-// extractRoleMentions parses @rolename patterns from content and returns mentionable role IDs.
-// Roles are matched case-insensitively within the given server.
+// extractRoleMentions parses <@&roleId> tokens from content and returns role IDs.
+// Only includes roles that exist in the server and are mentionable.
 func (s *messageService) extractRoleMentions(ctx context.Context, content string, serverID string) []string {
 	if serverID == "" {
 		return []string{}
 	}
 
-	matches := mentionRegex.FindAllStringSubmatch(content, -1)
+	matches := roleMentionRegex.FindAllStringSubmatch(content, -1)
 	if len(matches) == 0 {
 		return []string{}
 	}
 
-	// Load all server roles once (cached per request)
+	// Load all server roles to validate IDs and check mentionable flag
 	roles, err := s.roleRepo.GetAllByServer(ctx, serverID)
 	if err != nil {
 		return []string{}
 	}
 
-	// Build name→role lookup (lowercase)
-	roleByName := make(map[string]*models.Role, len(roles))
+	roleByID := make(map[string]*models.Role, len(roles))
 	for i := range roles {
-		roleByName[strings.ToLower(roles[i].Name)] = &roles[i]
+		roleByID[roles[i].ID] = &roles[i]
 	}
 
 	seen := make(map[string]bool)
 	var roleIDs []string
 
 	for _, match := range matches {
-		name := strings.ToLower(match[1])
-		if seen[name] {
+		roleID := match[1]
+		if seen[roleID] {
 			continue
 		}
-		seen[name] = true
+		seen[roleID] = true
 
-		role, ok := roleByName[name]
+		role, ok := roleByID[roleID]
 		if !ok || !role.Mentionable {
 			continue
 		}
-		roleIDs = append(roleIDs, role.ID)
+		roleIDs = append(roleIDs, roleID)
 	}
 
 	if roleIDs == nil {
@@ -438,10 +438,10 @@ func (s *messageService) extractRoleMentions(ctx context.Context, content string
 	return roleIDs
 }
 
-// extractMentions parses @username patterns from content and returns valid user IDs.
-// Deduplicates results; silently skips unknown usernames.
+// extractMentions parses <@userId> tokens from content and returns valid user IDs.
+// Validates that each user ID exists. Deduplicates results.
 func (s *messageService) extractMentions(ctx context.Context, content string) []string {
-	matches := mentionRegex.FindAllStringSubmatch(content, -1)
+	matches := userMentionRegex.FindAllStringSubmatch(content, -1)
 	if len(matches) == 0 {
 		return []string{}
 	}
@@ -450,17 +450,18 @@ func (s *messageService) extractMentions(ctx context.Context, content string) []
 	var userIDs []string
 
 	for _, match := range matches {
-		username := strings.ToLower(match[1])
-		if seen[username] {
+		userID := match[1]
+		if seen[userID] {
 			continue
 		}
-		seen[username] = true
+		seen[userID] = true
 
-		user, err := s.userRepo.GetByUsername(ctx, username)
+		// Validate user exists
+		_, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
 			continue
 		}
-		userIDs = append(userIDs, user.ID)
+		userIDs = append(userIDs, userID)
 	}
 
 	if userIDs == nil {
