@@ -87,9 +87,15 @@ export async function handleVoiceEvent(
       const forceMoveData = msg.d as { channel_id: string; channel_name?: string };
       const voiceStore = useVoiceStore.getState();
 
+      // Preserve user's mute/deafen state across the move
+      const prevMuted = voiceStore.isMuted;
+      const prevDeafened = voiceStore.isDeafened;
+
       voiceStore.leaveVoiceChannel();
       voiceStore.joinVoiceChannel(forceMoveData.channel_id).then((tokenResp) => {
         if (tokenResp) {
+          // Restore mute/deafen state that was cleared by leave+join cycle
+          useVoiceStore.setState({ isMuted: prevMuted, isDeafened: prevDeafened });
           ctx.sendVoiceJoin(forceMoveData.channel_id);
 
           const channelName = forceMoveData.channel_name
