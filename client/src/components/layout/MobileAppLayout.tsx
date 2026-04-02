@@ -12,10 +12,8 @@
  * Swipe: left-edge → sidebar drawer, right-edge → members drawer.
  */
 
-import { useEffect } from "react";
 import { useUIStore } from "../../stores/uiStore";
 import { useMobileStore } from "../../stores/mobileStore";
-import { useChannelStore } from "../../stores/channelStore";
 import { useSwipeGesture } from "../../hooks/useSwipeGesture";
 import MobileHeader from "./MobileHeader";
 import MobileDrawer from "./MobileDrawer";
@@ -46,13 +44,10 @@ function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLa
   const closeLeftDrawer = useMobileStore((s) => s.closeLeftDrawer);
   const openRightDrawer = useMobileStore((s) => s.openRightDrawer);
   const closeRightDrawer = useMobileStore((s) => s.closeRightDrawer);
-  const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
 
-  // Close drawers on channel change
-  const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
-  useEffect(() => {
-    closeAllDrawers();
-  }, [selectedChannelId, closeAllDrawers]);
+  // Drawer close is handled explicitly by ChannelTree on manual channel click,
+  // NOT by watching selectedChannelId — server switch auto-selects channels
+  // and we don't want to close the drawer during server browsing.
 
   // Edge swipe → open drawers
   const swipeHandlers = useSwipeGesture({

@@ -18,6 +18,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { resolveAssetUrl } from "../../utils/constants";
+import { useMobileStore } from "../../stores/mobileStore";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
@@ -56,6 +57,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   function isSectionExpanded(key: string): boolean {
     return expandedSections[key] ?? true;
   }
+
+  const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
 
   const categories = useChannelStore((s) => s.categories);
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
@@ -657,11 +660,13 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   function handleTextChannelClick(channelId: string, channelName: string) {
     selectChannel(channelId);
     openTab(channelId, "text", channelName, getActiveServerInfo());
+    closeAllDrawers();
   }
 
   function handleVoiceChannelClick(channelId: string, channelName: string) {
     onJoinVoice(channelId);
     openTab(channelId, "voice", channelName, getActiveServerInfo());
+    closeAllDrawers();
   }
 
   // Callback for FriendsSection / DMSection to show user profile card
