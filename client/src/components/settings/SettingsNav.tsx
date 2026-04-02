@@ -137,7 +137,7 @@ function SettingsNav() {
 
       {/* App Version — desktop only */}
       {!isMobile && (
-        <p className="settings-nav-version">mqvi v2.8.1</p>
+        <p className="settings-nav-version">mqvi v2.9.0</p>
       )}
     </nav>
   );
