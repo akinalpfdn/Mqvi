@@ -88,12 +88,7 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
         useReadStateStore.getState().registerChannel(message.channel_id, msgServerId);
       }
 
-      const activeServerId = useServerStore.getState().activeServerId;
-      const isActiveServer = msgServerId === activeServerId;
-
-      if (isActiveServer) {
-        useMessageStore.getState().handleMessageCreate(message);
-      }
+      useMessageStore.getState().handleMessageCreate(message);
 
       const currentUserId = useAuthStore.getState().user?.id;
       if (message.author?.id === currentUserId || message.user_id === currentUserId) {
@@ -104,7 +99,7 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
       const panel = uiState.panels[uiState.activePanelId];
       const activeTab = panel?.tabs.find((t) => t.id === panel.activeTabId);
       const isViewingThisChannel =
-        isActiveServer && activeTab?.type === "text" && activeTab?.channelId === message.channel_id;
+        activeTab?.type === "text" && activeTab?.channelId === message.channel_id;
 
       if (isViewingThisChannel) {
         useReadStateStore.getState().markAsRead(message.channel_id, message.id);

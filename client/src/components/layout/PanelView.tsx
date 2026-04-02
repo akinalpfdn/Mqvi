@@ -177,7 +177,7 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
       {!activeTab ? (
         <div className="no-channel">{t("noChannel")}</div>
       ) : activeTab.type === "text" ? (
-        <ChatArea channelId={activeTab.channelId} channel={channel ?? null} sendTyping={sendTyping} />
+        <ChatArea channelId={activeTab.channelId} channel={channel ?? null} serverId={activeTab.serverInfo?.serverId} sendTyping={sendTyping} />
       ) : activeTab.type === "dm" ? (
         <DMChat channelId={activeTab.channelId} sendDMTyping={sendDMTyping} />
       ) : activeTab.type === "friends" ? (

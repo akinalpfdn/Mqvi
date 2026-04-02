@@ -28,18 +28,20 @@ import type { Channel } from "../../types";
 type ChatAreaProps = {
   channelId: string;
   channel: Channel | null;
+  serverId?: string;
   sendTyping: (channelId: string) => void;
 };
 
 /** Provider wrapper — delegates content to ChatAreaContent. */
-function ChatArea({ channelId, channel, sendTyping }: ChatAreaProps) {
+function ChatArea({ channelId, channel, serverId, sendTyping }: ChatAreaProps) {
   return (
     <ChannelChatProvider
       channelId={channelId}
       channelName={channel?.name ?? ""}
+      serverId={serverId}
       sendTyping={sendTyping}
     >
-      <ChatAreaContent channelId={channelId} channel={channel} />
+      <ChatAreaContent channelId={channelId} channel={channel} serverId={serverId} />
     </ChannelChatProvider>
   );
 }
@@ -48,9 +50,11 @@ function ChatArea({ channelId, channel, sendTyping }: ChatAreaProps) {
 function ChatAreaContent({
   channelId,
   channel,
+  serverId,
 }: {
   channelId: string;
   channel: Channel | null;
+  serverId?: string;
 }) {
   const { t } = useTranslation("chat");
   const { addFilesRef } = useChatContext();
@@ -66,10 +70,10 @@ function ChatAreaContent({
   // Fetch pins and permission overrides when channel changes
   useEffect(() => {
     if (channelId) {
-      fetchPins(channelId);
-      fetchOverrides(channelId);
+      fetchPins(channelId, serverId);
+      fetchOverrides(channelId, serverId);
     }
-  }, [channelId, fetchPins, fetchOverrides]);
+  }, [channelId, serverId, fetchPins, fetchOverrides]);
 
   // ─── Drag-drop ───
   const handleFileDrop = useCallback(

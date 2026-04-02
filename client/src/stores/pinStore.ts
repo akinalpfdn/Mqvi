@@ -17,9 +17,9 @@ type PinState = {
   pins: Record<string, PinnedMessage[]>;
   isLoading: boolean;
 
-  fetchPins: (channelId: string) => Promise<void>;
-  pin: (channelId: string, messageId: string) => Promise<boolean>;
-  unpin: (channelId: string, messageId: string) => Promise<boolean>;
+  fetchPins: (channelId: string, serverId?: string) => Promise<void>;
+  pin: (channelId: string, messageId: string, serverId?: string) => Promise<boolean>;
+  unpin: (channelId: string, messageId: string, serverId?: string) => Promise<boolean>;
 
   // ─── WS Event Handlers ───
   handleMessagePin: (pinned: PinnedMessage) => void;
@@ -33,8 +33,8 @@ export const usePinStore = create<PinState>((set, get) => ({
   pins: {},
   isLoading: false,
 
-  fetchPins: async (channelId) => {
-    const serverId = useServerStore.getState().activeServerId;
+  fetchPins: async (channelId, explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return;
     set({ isLoading: true });
     const res = await getPins(serverId, channelId);
@@ -48,16 +48,16 @@ export const usePinStore = create<PinState>((set, get) => ({
     }
   },
 
-  pin: async (channelId, messageId) => {
-    const serverId = useServerStore.getState().activeServerId;
+  pin: async (channelId, messageId, explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return false;
     const res = await pinMessage(serverId, channelId, messageId);
     // State updated via WS event
     return res.success;
   },
 
-  unpin: async (channelId, messageId) => {
-    const serverId = useServerStore.getState().activeServerId;
+  unpin: async (channelId, messageId, explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return false;
     const res = await unpinMessage(serverId, channelId, messageId);
     return res.success;
