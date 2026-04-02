@@ -6,7 +6,6 @@
 import { registerPlugin } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { StatusBar, Style } from "@capacitor/status-bar";
-import { Keyboard, KeyboardResize } from "@capacitor/keyboard";
 import { isCapacitor, getCapacitorPlatform } from "./constants";
 import { ensureFreshToken } from "../api/client";
 
@@ -143,23 +142,12 @@ export async function onNativeScreenShareStopped(handler: () => void): Promise<(
 export async function configureMobileUI(): Promise<void> {
   if (!isCapacitor()) return;
 
-  try {
-    // Dark status bar (light icons) to match app's dark theme
-    await StatusBar.setStyle({ style: Style.Dark });
-    // Dark background color matching the app theme
-    await StatusBar.setBackgroundColor({ color: "#111111" });
-    // No overlay — system reserves space for status bar, content starts below it
-    await StatusBar.setOverlaysWebView({ overlay: false });
-  } catch {
-    // StatusBar plugin may not be available on all platforms
-  }
+  // Safe area insets are handled by:
+  // - Android: MainActivity.java injects --safe-area-inset-* CSS vars via WindowInsets
+  // - iOS: CSS env(safe-area-inset-*) works natively in WKWebView
+  // - CSS: #root uses padding-top/bottom with var(--safe-area-inset-*, env(..., 0px))
 
   try {
-    // None — let the WebView handle keyboard resize natively.
-    // Body/Ionic modes cause double-shift with safe-area padding.
-    await Keyboard.setResizeMode({ mode: KeyboardResize.None });
-    await Keyboard.setScroll({ isDisabled: false });
-  } catch {
-    // Keyboard plugin may not be available on all platforms
-  }
+    await StatusBar.setStyle({ style: Style.Dark });
+  } catch {}
 }
