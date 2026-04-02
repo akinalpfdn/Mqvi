@@ -7,7 +7,7 @@
  * active video (remote large + local PiP + controls).
  */
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -30,9 +30,19 @@ function P2PCallScreen() {
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
   // Hidden audio element — always plays remote stream audio regardless of video state
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+
+  // Callback ref for local video — assigns srcObject immediately when element mounts.
+  // useEffect + conditional render causes missed assignments (ref is null when effect runs).
+  const localVideoRef = useCallback(
+    (node: HTMLVideoElement | null) => {
+      if (node && localStream) {
+        node.srcObject = localStream;
+      }
+    },
+    [localStream],
+  );
 
   useEffect(() => {
     if (remoteAudioRef.current && remoteStream) {
@@ -45,12 +55,6 @@ function P2PCallScreen() {
       remoteVideoRef.current.srcObject = remoteStream;
     }
   }, [remoteStream]);
-
-  useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream]);
 
   const isCaller = activeCall ? activeCall.caller_id === currentUserId : false;
   const otherName = activeCall
@@ -98,24 +102,12 @@ function P2PCallScreen() {
         <div className="p2p-call-screen p2p-active">
           <div className="p2p-media-area">
             {hasRemoteVideo ? (
-              <>
-                <video
-                  ref={remoteVideoRef}
-                  className="p2p-remote-video"
-                  autoPlay
-                  playsInline
-                />
-                {/* Local PiP — hidden during screen share (camera track is replaced) */}
-                {hasLocalVideo && isVideoOn && !isScreenSharing && (
-                  <video
-                    ref={localVideoRef}
-                    className="p2p-local-video"
-                    autoPlay
-                    playsInline
-                    muted
-                  />
-                )}
-              </>
+              <video
+                ref={remoteVideoRef}
+                className="p2p-remote-video"
+                autoPlay
+                playsInline
+              />
             ) : (
               <div className="p2p-avatar-large">
                 <Avatar
@@ -125,6 +117,17 @@ function P2PCallScreen() {
                   isCircle
                 />
               </div>
+            )}
+
+            {/* Local PiP — always outside remote block so it renders independently */}
+            {hasLocalVideo && isVideoOn && !isScreenSharing && (
+              <video
+                ref={localVideoRef}
+                className="p2p-local-video"
+                autoPlay
+                playsInline
+                muted
+              />
             )}
           </div>
 
