@@ -109,13 +109,42 @@
   "guide_trouble_q4": "Yerel ağda çalışıyor ama dışarıdan çalışmıyor",
   "guide_trouble_a4": "livekit.yaml dosyanda 'use_external_ip: true' ayarının olduğundan emin ol. Windows'ta ayrıca router'ının 7880, 7881, 7882 ve 50000-60000 portlarını bu makineye yönlendirdiğinden emin ol.",
 
+  "nav_faq": "SSS",
+
+  "faq_label": "SSS",
+  "faq_title": "Sık Sorulan Sorular",
+
+  "faq_q1": "mqvi ücretsiz mi?",
+  "faq_a1": "Evet. mqvi açık kaynaklı ve ücretsiz. Gelecekte ücretli planlar gelebilir, ancak temel özellikler her zaman ücretsiz kalacak.",
+
+  "faq_q2": "mqvi nedir?",
+  "faq_a2": "Gizliliğe öncelik veren açık kaynaklı bir iletişim platformu. Mesajlaşma, sesli ve görüntülü aramalar, ekran paylaşımı — hepsi tek yerde.",
+
+  "faq_q3": "Verilerim güvende mi?",
+  "faq_a3": "Mesajlar ve aramalar için uçtan uca şifreleme, analitik veya takipçi yok, kaynak kodu tamamen açık ve herkes tarafından denetlenebilir.",
+
+  "faq_q4": "Hangi platformlarda çalışıyor?",
+  "faq_a4": "Web, Windows, macOS ve Linux. Mobil uygulamalar şu anda geliştirme aşamasında.",
+
+  "faq_q5": "Sesli ve görüntülü sohbet var mı?",
+  "faq_a5": "Evet — sesli kanallar, görüntülü aramalar ve sistem sesi dahil ekran paylaşımı. LiveKit altyapısıyla.",
+
+  "faq_q6": "Açık kaynak mı?",
+  "faq_a6": "Tüm kaynak kod GitHub'da. Denetleyebilir, katkıda bulunabilir veya forklayıp kendi bağımsız kopyanızı çalıştırabilirsiniz.",
+
+  "faq_q7": "Hesabımı silebilir miyim?",
+  "faq_a7": "Evet. Uygulama ayarlarından hesap silme talebinde bulunabilirsiniz. Fikrinizi değiştirmeniz durumunda 14 günlük bekleme süresi vardır.",
+
+  "faq_q8": "Bir hata bulursam nasıl bildiririm?",
+  "faq_a8": "GitHub deposunda bir issue açabilir veya uygulama içi geri bildirim özelliğini kullanabilirsiniz.",
+
   "cta_t1": "Denemek ister misin?",
   "cta_t2": "Ücretsiz.",
   "cta_desc": "Açık kaynak, takip yok. Kaydol ve konuşmaya başla.",
   "cta_btn1": "Hemen Başla",
   "cta_btn2": "GitHub'da İncele",
 
-  "footer_copy": "© 2025 mqvi — Açık kaynak, özgür iletişim.",
-  "footer_docs": "Dökümanlar",
-  "footer_privacy": "Gizlilik"
+  "footer_copy": "© 2026 mqvi — Açık kaynak, özgür iletişim.",
+  "footer_privacy": "Gizlilik",
+  "footer_terms": "Koşullar"
 }

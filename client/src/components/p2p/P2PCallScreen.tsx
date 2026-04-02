@@ -7,12 +7,95 @@
  * active video (remote large + local PiP + controls).
  */
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
 import Avatar from "../shared/Avatar";
 import P2PCallControls from "./P2PCallControls";
+
+// ─── Draggable Local PiP ───
+
+function DraggableLocalVideo({ stream }: { stream: MediaStream }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+  const videoRef = useCallback(
+    (node: HTMLVideoElement | null) => {
+      if (node && stream) node.srcObject = stream;
+    },
+    [stream],
+  );
+
+  // Clamp position within parent bounds
+  const clamp = useCallback((el: HTMLDivElement) => {
+    const parent = el.parentElement;
+    if (!parent) return;
+    const pr = parent.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    let x = parseInt(el.style.left || "0", 10);
+    let y = parseInt(el.style.top || "0", 10);
+    x = Math.max(0, Math.min(x, pr.width - er.width));
+    y = Math.max(0, Math.min(y, pr.height - er.height));
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+  }, []);
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    setDragging(true);
+
+    // Switch from right/bottom positioning to left/top for drag
+    const parent = el.parentElement;
+    if (parent && !el.style.left) {
+      const pr = parent.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      el.style.left = `${er.left - pr.left}px`;
+      el.style.top = `${er.top - pr.top}px`;
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+    }
+
+    dragState.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: parseInt(el.style.left || "0", 10),
+      origY: parseInt(el.style.top || "0", 10),
+    };
+  }, []);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    const el = wrapRef.current;
+    const ds = dragState.current;
+    if (!el || !ds) return;
+    const dx = e.clientX - ds.startX;
+    const dy = e.clientY - ds.startY;
+    el.style.left = `${ds.origX + dx}px`;
+    el.style.top = `${ds.origY + dy}px`;
+    clamp(el);
+  }, [clamp]);
+
+  const onPointerUp = useCallback(() => {
+    setDragging(false);
+    dragState.current = null;
+  }, []);
+
+  return (
+    <div
+      ref={wrapRef}
+      className={`p2p-local-video-wrap${dragging ? " dragging" : ""}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    >
+      <video ref={videoRef} autoPlay playsInline muted />
+    </div>
+  );
+}
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -30,7 +113,6 @@ function P2PCallScreen() {
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
   // Hidden audio element — always plays remote stream audio regardless of video state
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
@@ -45,12 +127,6 @@ function P2PCallScreen() {
       remoteVideoRef.current.srcObject = remoteStream;
     }
   }, [remoteStream]);
-
-  useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream]);
 
   const isCaller = activeCall ? activeCall.caller_id === currentUserId : false;
   const otherName = activeCall
@@ -98,24 +174,12 @@ function P2PCallScreen() {
         <div className="p2p-call-screen p2p-active">
           <div className="p2p-media-area">
             {hasRemoteVideo ? (
-              <>
-                <video
-                  ref={remoteVideoRef}
-                  className="p2p-remote-video"
-                  autoPlay
-                  playsInline
-                />
-                {/* Local PiP — hidden during screen share (camera track is replaced) */}
-                {hasLocalVideo && isVideoOn && !isScreenSharing && (
-                  <video
-                    ref={localVideoRef}
-                    className="p2p-local-video"
-                    autoPlay
-                    playsInline
-                    muted
-                  />
-                )}
-              </>
+              <video
+                ref={remoteVideoRef}
+                className="p2p-remote-video"
+                autoPlay
+                playsInline
+              />
             ) : (
               <div className="p2p-avatar-large">
                 <Avatar
@@ -125,6 +189,11 @@ function P2PCallScreen() {
                   isCircle
                 />
               </div>
+            )}
+
+            {/* Local PiP — draggable, independent of remote video state */}
+            {hasLocalVideo && isVideoOn && !isScreenSharing && localStream && (
+              <DraggableLocalVideo stream={localStream} />
             )}
           </div>
 

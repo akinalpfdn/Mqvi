@@ -46,6 +46,8 @@ export function usePushToTalk({ setMicEnabled }: UsePushToTalkParams): void {
 
     api.onPTTGlobalDown(() => {
       if (isPressedRef.current) return;
+      const { isMuted, isServerMuted } = useVoiceStore.getState();
+      if (isMuted || isServerMuted) return;
       isPressedRef.current = true;
       setMicEnabled(true);
     });
@@ -89,6 +91,8 @@ export function usePushToTalk({ setMicEnabled }: UsePushToTalkParams): void {
       if (e.code !== pttKey) return;
       if (isTextInput(document.activeElement)) return;
       if (isPressedRef.current) return;
+      const { isMuted, isServerMuted } = useVoiceStore.getState();
+      if (isMuted || isServerMuted) return;
 
       isPressedRef.current = true;
       setMicEnabled(true);

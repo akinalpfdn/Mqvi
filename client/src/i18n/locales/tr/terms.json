@@ -1,0 +1,59 @@
+{
+  "title": "Kullanım Koşulları",
+  "lastUpdated": "Son güncelleme: 2 Nisan 2026",
+
+  "acceptanceTitle": "Koşulların Kabulü",
+  "acceptanceDesc": "mqvi'ye erişerek veya kullanarak bu Kullanım Koşulları'na bağlı olmayı kabul edersiniz. Kabul etmiyorsanız hizmeti kullanmayın. mqvi'yi kullanmak için en az 13 yaşında (Avrupa Birliği'nde 16) olmanız gerekmektedir.",
+
+  "serviceTitle": "Hizmet Tanımı",
+  "serviceDesc": "mqvi, mesajlaşma, sesli ve görüntülü aramalar ve dosya paylaşımı sunan açık kaynaklı bir iletişim platformudur. Bu koşullar yalnızca mqvi.net adresinde barındırılan resmi sunucu için geçerlidir. Açık kaynak yazılımın self-hosted kopyaları tamamen kendi operatörlerinin sorumluluğundadır.",
+
+  "accountTitle": "Hesap Sorumluluğu",
+  "accountDesc": "Hesap bilgilerinizin güvenliğinden ve hesabınız altında gerçekleşen tüm etkinliklerden siz sorumlusunuz. Kayıt sırasında doğru bilgi vermeyi ve yetkisiz erişim durumunda bizi derhal bilgilendirmeyi kabul edersiniz.",
+
+  "contentTitle": "Kullanıcı İçeriği",
+  "contentDesc": "mqvi'de oluşturduğunuz ve paylaştığınız içeriğin mülkiyeti size aittir. Hizmeti kullanarak, içeriğinizi yalnızca hizmeti işletmek amacıyla depolamamız, iletmemiz ve görüntülememiz için bize sınırlı bir lisans verirsiniz. Bu koşulları ihlal eden içerikleri kaldırabiliriz.",
+
+  "conductTitle": "Kabul Edilebilir Kullanım",
+  "conductDesc": "mqvi'yi aşağıdaki amaçlarla kullanmamayı kabul edersiniz:",
+  "conductItem1": "Çocuk istismarı materyali dahil olmak üzere yasadışı içerik yüklemek veya paylaşmak.",
+  "conductItem2": "Diğer kullanıcıları taciz etmek, tehdit etmek veya istismar etmek.",
+  "conductItem3": "Kötü amaçlı yazılım, spam dağıtmak veya oltalama yapmak.",
+  "conductItem4": "Hizmete veya diğer kullanıcıların hesaplarına yetkisiz erişim sağlamaya çalışmak.",
+  "conductItem5": "Hizmeti yürürlükteki yasaları ihlal eden herhangi bir faaliyet için kullanmak.",
+
+  "ipTitle": "Fikri Mülkiyet",
+  "ipDesc": "mqvi yazılımı açık kaynaklıdır ve ilgili açık kaynak lisansı altında lisanslanmıştır. Bu koşullar yazılımın kendisini değil, barındırılan hizmetin kullanımını yönetir. mqvi adı ve logosu bize aittir.",
+
+  "disclaimerTitle": "Garanti Reddi",
+  "disclaimerDesc": "mqvi, açık veya zımni hiçbir garanti olmaksızın \"OLDUĞU GİBİ\" ve \"MEVCUT OLDUĞU ŞEKİLDE\" sunulmaktadır. Hizmetin kesintisiz, güvenli veya hatasız olacağını garanti etmiyoruz. Hizmetin güvenilirliği, doğruluğu veya kullanılabilirliği konusunda hiçbir garanti vermiyoruz.",
+
+  "liabilityTitle": "Sorumluluk Sınırlaması",
+  "liabilityDesc": "Yasaların izin verdiği azami ölçüde, mqvi ve operatörü dolaylı, arızi, özel, sonuçsal veya cezai zararlardan veya herhangi bir veri, kullanım ya da kâr kaybından sorumlu tutulamaz. Hizmeti kullanımınızdan kaynaklanan herhangi bir talep için toplam sorumluluğumuz 100 USD ile sınırlıdır.",
+
+  "indemnityTitle": "Tazminat",
+  "indemnityDesc": "Hizmeti kullanımınızdan, içeriğinizden veya bu koşulları ihlal etmenizden kaynaklanan tüm taleplere, zararlara veya masraflara karşı mqvi operatörünü tazmin etmeyi ve zararsız tutmayı kabul edersiniz.",
+
+  "terminationTitle": "Fesih",
+  "terminationDesc": "Bu koşulların ihlali durumunda hesabınızı kendi takdirimize bağlı olarak askıya alabilir veya silebiliriz. Hesabınızı istediğiniz zaman uygulama ayarlarından silebilirsiniz. Fesih üzerine hizmeti kullanma hakkınız derhal sona erer. Doğası gereği fesihten sonra da geçerli olması gereken hükümler yürürlükte kalır.",
+
+  "copyrightTitle": "Telif Hakkı ve Kaldırma",
+  "copyrightDesc": "mqvi'deki bir içeriğin telif hakkınızı ihlal ettiğini düşünüyorsanız lütfen ilgili detaylarla GitHub deposunda bir issue açın. İnceleyip gerekli işlemi yapacağız.",
+
+  "selfHostTitle": "Self-Hosted Kopyalar",
+  "selfHostDesc": "mqvi yazılımı açık kaynak lisansı altında self-hosting için kullanılabilir. Bu Kullanım Koşulları yalnızca resmi mqvi.net sunucusu için geçerlidir. Üçüncü taraflarca işletilen self-hosted kopyalardan, bunların veri işleme, erişilebilirlik veya yasal uyumluluk dahil hiçbir konusunda sorumluluk kabul etmiyoruz.",
+
+  "voiceTitle": "Ses ve Görüntü",
+  "voiceDesc": "Ses ve görüntü özellikleri LiveKit altyapısı aracılığıyla sağlanmaktadır. Gerçek zamanlı iletişimin kullanılabilirliğini veya kalitesini garanti etmiyoruz. Konuşmaların kaydedilmesiyle ilgili yerel yasalara uymak sizin sorumluluğunuzdadır.",
+
+  "changesTitle": "Koşul Değişiklikleri",
+  "changesDesc": "Bu koşulları istediğimiz zaman güncelleyebiliriz. Değişikliklerden sonra hizmeti kullanmaya devam etmeniz güncellenmiş koşulları kabul ettiğiniz anlamına gelir. Önemli değişiklikler uygulama içi bildirimle iletilecektir.",
+
+  "lawTitle": "Uygulanacak Hukuk",
+  "lawDesc": "Bu koşullar Türkiye Cumhuriyeti yasalarına tabidir. Bu koşullardan kaynaklanan tüm uyuşmazlıklar Türkiye'deki mahkemelerin münhasır yargı yetkisine tabi olacaktır.",
+
+  "contactTitle": "İletişim",
+  "contactDesc": "Bu koşullarla ilgili sorularınız için GitHub deposunda bir issue açabilir veya uygulama üzerinden bize ulaşabilirsiniz.",
+
+  "footerCopy": "© 2026 mqvi — Açık kaynak, özgür iletişim."
+}

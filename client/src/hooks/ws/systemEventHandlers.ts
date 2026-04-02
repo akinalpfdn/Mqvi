@@ -67,14 +67,17 @@ export async function handleSystemEvent(
 
       setConnectionStatus("connected");
 
-      // Voice auto-rejoin
+      // Voice auto-rejoin — preserve mute/deafen across reconnect
       {
         const voiceState = useVoiceStore.getState();
         const previousChannel = voiceState.currentVoiceChannelId;
         if (previousChannel) {
+          const prevMuted = voiceState.isMuted;
+          const prevDeafened = voiceState.isDeafened;
           voiceState.leaveVoiceChannel();
           voiceState.joinVoiceChannel(previousChannel).then((tokenResp) => {
             if (tokenResp) {
+              useVoiceStore.setState({ isMuted: prevMuted, isDeafened: prevDeafened });
               ctx.sendVoiceJoin(previousChannel);
             } else {
               console.warn("[useWebSocket] Voice auto-rejoin failed — user needs to rejoin manually");

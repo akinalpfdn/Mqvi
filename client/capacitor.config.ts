@@ -19,15 +19,12 @@ const config: CapacitorConfig = {
   },
 
   android: {
-    // Allow mixed content for dev (HTTP API calls)
     allowMixedContent: true,
   },
 
   plugins: {
-    // Keyboard plugin — auto-scroll when keyboard opens
     Keyboard: {
-      resize: "body",
-      resizeOnFullScreen: true,
+      resize: "none",
     },
   },
 };

@@ -23,6 +23,7 @@ import Sidebar from "./Sidebar";
 import ToastContainer from "../shared/ToastContainer";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import DownloadPromptModal from "../shared/DownloadPromptModal";
+import WelcomeModal from "../shared/WelcomeModal";
 import SettingsModal from "../settings/SettingsModal";
 import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
@@ -241,6 +242,9 @@ function AppLayout() {
 
       {/* Toast notifications */}
       <ToastContainer />
+
+      {/* One-time welcome modal for new users */}
+      <WelcomeModal />
 
       {/* One-time download prompt for web users */}
       <DownloadPromptModal />

@@ -18,6 +18,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { resolveAssetUrl } from "../../utils/constants";
+import { useMobileStore } from "../../stores/mobileStore";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
@@ -56,6 +57,8 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   function isSectionExpanded(key: string): boolean {
     return expandedSections[key] ?? true;
   }
+
+  const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
 
   const categories = useChannelStore((s) => s.categories);
   const selectedChannelId = useChannelStore((s) => s.selectedChannelId);
@@ -657,11 +660,13 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   function handleTextChannelClick(channelId: string, channelName: string) {
     selectChannel(channelId);
     openTab(channelId, "text", channelName, getActiveServerInfo());
+    closeAllDrawers();
   }
 
   function handleVoiceChannelClick(channelId: string, channelName: string) {
     onJoinVoice(channelId);
     openTab(channelId, "voice", channelName, getActiveServerInfo());
+    closeAllDrawers();
   }
 
   // Callback for FriendsSection / DMSection to show user profile card
@@ -1270,6 +1275,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                           language: "en",
                                           is_platform_admin: false,
                                           has_seen_download_prompt: false,
+                                          has_seen_welcome: false,
                                           created_at: new Date().toISOString(),
                                         },
                                         top: rect.top,
@@ -1340,9 +1346,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
                                       </svg>
-                                    ) : (
-                                      <span className="ch-tree-vu-dot" />
-                                    )}
+                                    ) : null}
                                   </span>
                                 </div>
                               );

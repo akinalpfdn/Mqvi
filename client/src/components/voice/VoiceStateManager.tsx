@@ -22,7 +22,7 @@ import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
-import { isElectron, isCapacitor, getCapacitorPlatform, resolveUserId } from "../../utils/constants";
+import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
 import { getScreenShareToken } from "../../api/voice";
 import { useServerStore } from "../../stores/serverStore";
@@ -83,21 +83,22 @@ function VoiceStateManager() {
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
 
   // Sync isStreaming -> LiveKit screen share.
-  // iOS Capacitor: native ReplayKit via ScreenSharePlugin (separate LiveKit connection).
+  // Capacitor (iOS/Android): native plugin via separate LiveKit connection.
+  //   iOS: ReplayKit + LiveKit Swift SDK. Android: MediaProjection + LiveKit Android SDK.
   // Electron: video via getDisplayMedia, audio via native WASAPI capture (echo-free).
-  // Browser/Android: standard getDisplayMedia with optional audio.
+  // Browser: standard getDisplayMedia with optional audio.
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
     let cancelled = false;
-    const isIOSCapacitor = isCapacitor() && getCapacitorPlatform() === "ios";
+    const useNativeScreenShare = isCapacitor();
 
     async function toggleScreenShare() {
       if (cancelled) return;
 
       if (isStreaming) {
-        if (isIOSCapacitor) {
-          // iOS: use native ScreenSharePlugin (ReplayKit + LiveKit Swift SDK)
+        if (useNativeScreenShare) {
+          // Capacitor (iOS/Android): native screen share plugin
           const serverId = useServerStore.getState().activeServerId;
           const channelId = useVoiceStore.getState().currentVoiceChannelId;
           if (!serverId || !channelId) return;
@@ -130,7 +131,7 @@ function VoiceStateManager() {
           });
           customAudioPubRef.current = pub;
         } else {
-          // Browser / Android Capacitor: standard getDisplayMedia
+          // Browser: standard getDisplayMedia
           await localParticipant.setScreenShareEnabled(true, {
             audio: screenShareAudio,
             resolution: { width: 1920, height: 1080, frameRate: 30 },
@@ -138,8 +139,8 @@ function VoiceStateManager() {
           });
         }
       } else {
-        if (isIOSCapacitor) {
-          // iOS: stop native screen share
+        if (useNativeScreenShare) {
+          // Capacitor: stop native screen share
           await stopNativeScreenShare();
         } else {
           if (customAudioPubRef.current) {
@@ -164,9 +165,9 @@ function VoiceStateManager() {
     return () => { cancelled = true; };
   }, [isStreaming, screenShareAudio, localParticipant]);
 
-  // iOS: listen for native screen share stopped (user stops from Control Center)
+  // Capacitor: listen for native screen share stopped (user stops externally)
   useEffect(() => {
-    if (!isCapacitor() || getCapacitorPlatform() !== "ios") return;
+    if (!isCapacitor()) return;
 
     let removeListener: (() => void) | null = null;
 

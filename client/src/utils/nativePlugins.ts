@@ -6,7 +6,6 @@
 import { registerPlugin } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { StatusBar, Style } from "@capacitor/status-bar";
-import { Keyboard, KeyboardResize } from "@capacitor/keyboard";
 import { isCapacitor, getCapacitorPlatform } from "./constants";
 import { ensureFreshToken } from "../api/client";
 
@@ -83,7 +82,7 @@ export async function initAppLifecycle(): Promise<void> {
   }
 }
 
-// ─── Screen Share Plugin (iOS only) ───
+// ─── Screen Share Plugin (iOS + Android) ───
 
 interface ScreenSharePluginInterface {
   start(opts: { url: string; token: string }): Promise<{ started: boolean }>;
@@ -95,23 +94,22 @@ interface ScreenSharePluginInterface {
 const ScreenShareNative = registerPlugin<ScreenSharePluginInterface>("ScreenShare");
 
 /**
- * Start iOS native screen share via ReplayKit + LiveKit Swift SDK.
- * Connects to the LiveKit room as a separate "{userId}_ss" identity
- * and triggers the system broadcast picker for full-screen capture.
- *
- * No-op on non-iOS platforms — Android uses getDisplayMedia, Electron uses WASAPI.
+ * Start native screen share via platform-specific API + LiveKit native SDK.
+ * iOS: ReplayKit + LiveKit Swift SDK.
+ * Android: MediaProjection + LiveKit Android SDK.
+ * Both connect as a separate LiveKit room identity ("{userId}_ss").
  */
 export async function startNativeScreenShare(url: string, token: string): Promise<boolean> {
-  if (!isCapacitor() || getCapacitorPlatform() !== "ios") return false;
+  if (!isCapacitor()) return false;
   const result = await ScreenShareNative.start({ url, token });
   return result.started;
 }
 
 /**
- * Stop iOS native screen share and disconnect the native LiveKit room.
+ * Stop native screen share and disconnect the native LiveKit room.
  */
 export async function stopNativeScreenShare(): Promise<void> {
-  if (!isCapacitor() || getCapacitorPlatform() !== "ios") return;
+  if (!isCapacitor()) return;
   await ScreenShareNative.stop();
 }
 
@@ -119,17 +117,18 @@ export async function stopNativeScreenShare(): Promise<void> {
  * Check if native screen share is currently active.
  */
 export async function isNativeScreenShareActive(): Promise<boolean> {
-  if (!isCapacitor() || getCapacitorPlatform() !== "ios") return false;
+  if (!isCapacitor()) return false;
   const result = await ScreenShareNative.isActive();
   return result.active;
 }
 
 /**
- * Listen for native screen share stopped (e.g., user stops from Control Center).
+ * Listen for native screen share stopped externally.
+ * iOS: user stops from Control Center. Android: system revokes MediaProjection.
  * Returns a cleanup function to remove the listener.
  */
 export async function onNativeScreenShareStopped(handler: () => void): Promise<() => void> {
-  if (!isCapacitor() || getCapacitorPlatform() !== "ios") return () => {};
+  if (!isCapacitor()) return () => {};
   const listener = await ScreenShareNative.addListener("screenShareStopped", handler);
   return () => listener.remove();
 }
@@ -143,23 +142,12 @@ export async function onNativeScreenShareStopped(handler: () => void): Promise<(
 export async function configureMobileUI(): Promise<void> {
   if (!isCapacitor()) return;
 
-  try {
-    // Dark status bar (light icons) to match app's dark theme
-    await StatusBar.setStyle({ style: Style.Dark });
-    // Dark background color matching the app theme
-    await StatusBar.setBackgroundColor({ color: "#111111" });
-    // No overlay — system reserves space for status bar, content starts below it
-    await StatusBar.setOverlaysWebView({ overlay: false });
-  } catch {
-    // StatusBar plugin may not be available on all platforms
-  }
+  // Safe area insets are handled by:
+  // - Android: MainActivity.java injects --safe-area-inset-* CSS vars via WindowInsets
+  // - iOS: CSS env(safe-area-inset-*) works natively in WKWebView
+  // - CSS: #root uses padding-top/bottom with var(--safe-area-inset-*, env(..., 0px))
 
   try {
-    // None — let the WebView handle keyboard resize natively.
-    // Body/Ionic modes cause double-shift with safe-area padding.
-    await Keyboard.setResizeMode({ mode: KeyboardResize.None });
-    await Keyboard.setScroll({ isDisabled: false });
-  } catch {
-    // Keyboard plugin may not be available on all platforms
-  }
+    await StatusBar.setStyle({ style: Style.Dark });
+  } catch {}
 }

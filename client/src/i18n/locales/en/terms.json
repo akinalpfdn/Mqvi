@@ -1,0 +1,59 @@
+{
+  "title": "Terms of Service",
+  "lastUpdated": "Last updated: April 2, 2026",
+
+  "acceptanceTitle": "Acceptance of Terms",
+  "acceptanceDesc": "By accessing or using mqvi, you agree to be bound by these Terms of Service. If you do not agree, do not use the service. You must be at least 13 years old (or 16 in the European Union) to use mqvi.",
+
+  "serviceTitle": "Service Description",
+  "serviceDesc": "mqvi is an open-source communication platform providing messaging, voice and video calls, and file sharing. These terms apply only to the official instance hosted at mqvi.net. Self-hosted instances of the open-source software are the sole responsibility of their operators.",
+
+  "accountTitle": "Account Responsibilities",
+  "accountDesc": "You are responsible for maintaining the security of your account credentials and for all activity that occurs under your account. You agree to provide accurate information during registration and to notify us immediately of any unauthorized use.",
+
+  "contentTitle": "User Content",
+  "contentDesc": "You retain ownership of the content you create and share on mqvi. By using the service, you grant us a limited license to store, transmit, and display your content solely for the purpose of operating the service. We may remove content that violates these terms.",
+
+  "conductTitle": "Acceptable Use",
+  "conductDesc": "You agree not to use mqvi to:",
+  "conductItem1": "Upload or share illegal content, including but not limited to child exploitation material.",
+  "conductItem2": "Harass, threaten, or abuse other users.",
+  "conductItem3": "Distribute malware, spam, or engage in phishing.",
+  "conductItem4": "Attempt to gain unauthorized access to the service or other users' accounts.",
+  "conductItem5": "Use the service for any activity that violates applicable laws.",
+
+  "ipTitle": "Intellectual Property",
+  "ipDesc": "The mqvi software is open source and licensed under its respective open-source license. These terms govern your use of the hosted service, not the software itself. The mqvi name and logo are our property.",
+
+  "disclaimerTitle": "Disclaimer of Warranties",
+  "disclaimerDesc": "mqvi is provided \"AS IS\" and \"AS AVAILABLE\" without warranties of any kind, whether express or implied. We do not guarantee that the service will be uninterrupted, secure, or error-free. We make no warranties regarding the reliability, accuracy, or availability of the service.",
+
+  "liabilityTitle": "Limitation of Liability",
+  "liabilityDesc": "To the maximum extent permitted by law, mqvi and its operator shall not be liable for any indirect, incidental, special, consequential, or punitive damages, or any loss of data, use, or profits. Our total liability for any claim arising from your use of the service is limited to $100 USD.",
+
+  "indemnityTitle": "Indemnification",
+  "indemnityDesc": "You agree to indemnify and hold harmless the operator of mqvi from any claims, damages, or expenses arising from your use of the service, your content, or your violation of these terms.",
+
+  "terminationTitle": "Termination",
+  "terminationDesc": "We may suspend or terminate your account at our discretion for violation of these terms. You may delete your account at any time through the app settings. Upon termination, your right to use the service ceases immediately. Provisions that by their nature should survive termination will remain in effect.",
+
+  "copyrightTitle": "Copyright & Takedowns",
+  "copyrightDesc": "If you believe content on mqvi infringes your copyright, please open an issue on our GitHub repository with the relevant details. We will review and take appropriate action.",
+
+  "selfHostTitle": "Self-Hosted Instances",
+  "selfHostDesc": "The mqvi software is available for self-hosting under its open-source license. These Terms of Service apply exclusively to the official mqvi.net instance. We bear no responsibility for self-hosted instances operated by third parties, including their data handling, availability, or compliance with applicable laws.",
+
+  "voiceTitle": "Voice & Video",
+  "voiceDesc": "Voice and video features are provided through LiveKit infrastructure. We do not guarantee availability or quality of real-time communication. You are responsible for complying with local laws regarding recording of conversations.",
+
+  "changesTitle": "Changes to Terms",
+  "changesDesc": "We may update these terms at any time. Continued use of the service after changes constitutes acceptance of the updated terms. Material changes will be communicated through an in-app notification.",
+
+  "lawTitle": "Governing Law",
+  "lawDesc": "These terms are governed by the laws of the Republic of Turkey. Any disputes arising from these terms shall be subject to the exclusive jurisdiction of the courts in Turkey.",
+
+  "contactTitle": "Contact",
+  "contactDesc": "For questions about these terms, open an issue on our GitHub repository or reach out via the app.",
+
+  "footerCopy": "© 2026 mqvi — Open source, free communication."
+}

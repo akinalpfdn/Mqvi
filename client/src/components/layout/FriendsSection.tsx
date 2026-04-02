@@ -5,6 +5,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
+import { useMobileStore } from "../../stores/mobileStore";
 import { useFriendStore } from "../../stores/friendStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
@@ -32,10 +33,12 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
   const initiateCall = useP2PCallStore((s) => s.initiateCall);
   const { menuState, openMenu, closeMenu } = useContextMenu();
 
+  const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
   const isExpanded = expandedSections["friends"] ?? true;
 
   function handleFriendsClick() {
     openTab("friends", "friends", t("friends"));
+    closeAllDrawers();
   }
 
   function handleFriendContextMenu(e: React.MouseEvent, friend: FriendshipWithUser) {
@@ -57,6 +60,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
               language: "en",
               is_platform_admin: false,
               has_seen_download_prompt: false,
+              has_seen_welcome: false,
               created_at: friend.created_at ?? new Date().toISOString(),
             },
             rect.top,

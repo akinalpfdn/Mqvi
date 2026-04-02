@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
-import { isElectron } from "../../utils/constants";
+import { isElectron, isNativeApp } from "../../utils/constants";
 import { detectOS, shouldShowDownloadPrompt } from "../../utils/detectOS";
 
 function LoginPage() {
@@ -169,6 +169,15 @@ function LoginPage() {
             </a>
           );
         })()}
+
+        {!isNativeApp() && (
+          <Link to="/" className="auth-home-link">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            {t("backToHome")}
+          </Link>
+        )}
       </div>
     </div>
   );

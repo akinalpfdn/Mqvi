@@ -109,13 +109,42 @@
   "guide_trouble_q4": "Works on LAN but not from outside",
   "guide_trouble_a4": "Make sure 'use_external_ip: true' is set in your livekit.yaml. On Windows, also check that your router forwards ports 7880, 7881, 7882, and 50000-60000.",
 
+  "nav_faq": "FAQ",
+
+  "faq_label": "FAQ",
+  "faq_title": "Frequently Asked Questions",
+
+  "faq_q1": "Is mqvi free?",
+  "faq_a1": "Yes. mqvi is open source and free to use. Paid plans may be introduced in the future, but core features will always remain free.",
+
+  "faq_q2": "What is mqvi?",
+  "faq_a2": "An open-source communication platform built with privacy in mind. Messaging, voice & video calls, screen sharing — all in one place.",
+
+  "faq_q3": "Is my data safe?",
+  "faq_a3": "End-to-end encryption for messages and calls, no analytics or trackers, and the source code is fully open for anyone to audit.",
+
+  "faq_q4": "What platforms does it run on?",
+  "faq_a4": "Web, Windows, macOS, and Linux. Mobile apps are currently in development.",
+
+  "faq_q5": "Does it have voice and video chat?",
+  "faq_a5": "Yes — voice channels, video calls, and screen sharing with system audio. Powered by LiveKit.",
+
+  "faq_q6": "Is it open source?",
+  "faq_a6": "Every line of code is on GitHub. You can audit it, contribute, or fork it and run your own independent instance.",
+
+  "faq_q7": "Can I delete my account?",
+  "faq_a7": "Yes. You can request account deletion from the app settings. There's a 14-day grace period in case you change your mind.",
+
+  "faq_q8": "How do I report a bug?",
+  "faq_a8": "Open an issue on our GitHub repository or use the in-app feedback feature.",
+
   "cta_t1": "Ready to try it?",
   "cta_t2": "It's free.",
   "cta_desc": "Open source, no tracking. Just sign up and start talking.",
   "cta_btn1": "Get Started",
   "cta_btn2": "View on GitHub",
 
-  "footer_copy": "© 2025 mqvi — Open source, free communication.",
-  "footer_docs": "Docs",
-  "footer_privacy": "Privacy"
+  "footer_copy": "© 2026 mqvi — Open source, free communication.",
+  "footer_privacy": "Privacy",
+  "footer_terms": "Terms"
 }

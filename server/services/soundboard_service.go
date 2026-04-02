@@ -37,6 +37,7 @@ var soundAllowedMimeTypes = map[string]bool{
 // VoiceStateGetter retrieves a user's current voice state.
 type VoiceStateGetter interface {
 	GetUserVoiceState(userID string) *models.VoiceState
+	GetChannelParticipants(channelID string) []models.VoiceState
 }
 
 // SoundboardService manages soundboard sounds per server.
@@ -256,7 +257,14 @@ func (s *soundboardService) Play(ctx context.Context, serverID, soundID, userID,
 		return fmt.Errorf("%w: sound does not belong to this server", pkg.ErrBadRequest)
 	}
 
-	s.hub.BroadcastToServer(serverID, ws.Event{
+	// Broadcast only to users in the same voice channel
+	participants := s.voice.GetChannelParticipants(voiceState.ChannelID)
+	userIDs := make([]string, 0, len(participants))
+	for _, p := range participants {
+		userIDs = append(userIDs, p.UserID)
+	}
+
+	s.hub.BroadcastToUsers(userIDs, ws.Event{
 		Op: ws.OpSoundboardPlay,
 		Data: models.SoundboardPlayEvent{
 			SoundID:   sound.ID,

@@ -61,6 +61,7 @@ function LandingPage() {
               ["features", t("nav_features")],
               ["comparison", t("nav_compare")],
               ["selfhost", t("nav_selfhost")],
+              ["faq", t("nav_faq")],
             ].map(([id, label]) => (
               <button key={id} className="lp-nav-link" onClick={() => scrollTo(id)}>
                 {label}
@@ -377,6 +378,22 @@ function LandingPage() {
           </section>
         </RevealOnScroll>
 
+        {/* ═══ FAQ ═══ */}
+        <RevealOnScroll>
+          <section id="faq" className="lp-section lp-section--center">
+            <span className="lp-section-label">{t("faq_label")}</span>
+            <h2 className="lp-section-title">{t("faq_title")}</h2>
+            <div className="lp-faq-grid">
+              {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
+                <div key={n} className="lp-faq-item">
+                  <h3 className="lp-faq-q">{t(`faq_q${n}`)}</h3>
+                  <p className="lp-faq-a">{t(`faq_a${n}`)}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </RevealOnScroll>
+
         {/* ═══ CTA ═══ */}
         <RevealOnScroll>
           <section id="cta" className="lp-cta">
@@ -407,9 +424,9 @@ function LandingPage() {
             <span className="lp-footer-copy">{t("footer_copy")}</span>
           </div>
           <div className="lp-footer-links">
-            <a href="#" className="lp-footer-link">{t("footer_docs")}</a>
             <a href="https://github.com/akinalpfdn/Mqvi" target="_blank" rel="noopener noreferrer" className="lp-footer-link">GitHub</a>
-            <a href="#" className="lp-footer-link">{t("footer_privacy")}</a>
+            <a href="/privacy" className="lp-footer-link">{t("footer_privacy")}</a>
+            <a href="/terms" className="lp-footer-link">{t("footer_terms")}</a>
           </div>
         </footer>
 

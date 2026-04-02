@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
+import { useMobileStore } from "../../stores/mobileStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useFriendStore } from "../../stores/friendStore";
 import { useBlockStore } from "../../stores/blockStore";
@@ -68,6 +69,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
     userId: string; username: string;
   } | null>(null);
 
+  const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
   const isExpanded = expandedSections["dms"] ?? true;
 
   function handleDMClick(dmId: string, userName: string) {
@@ -75,6 +77,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
     openTab(dmId, "dm", userName);
     clearDMUnread(dmId);
     fetchMessages(dmId);
+    closeAllDrawers();
   }
 
   function handleDMContextMenu(e: React.MouseEvent, dm: DMChannelWithUser) {

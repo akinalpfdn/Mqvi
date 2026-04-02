@@ -76,6 +76,13 @@ export async function dismissDownloadPrompt() {
   });
 }
 
+/** Mark welcome modal as seen — never show again across devices. */
+export async function dismissWelcome() {
+  return apiClient<{ message: string }>("/users/me/dismiss-welcome", {
+    method: "POST",
+  });
+}
+
 /** Change email — requires current password for security. */
 export async function changeEmail(password: string, newEmail: string) {
   return apiClient<{ message: string; email: string | null }>(
