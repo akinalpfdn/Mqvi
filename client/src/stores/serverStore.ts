@@ -63,9 +63,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   setServersFromReady: (servers) => {
     set({ servers });
-    // If no active server or active not in list, select first
     const state = get();
     if (servers.length > 0) {
+      // If no active server or active not in list, select first
       const savedId = state.activeServerId;
       const exists = savedId && servers.some((s) => s.id === savedId);
       if (!exists) {
@@ -73,6 +73,11 @@ export const useServerStore = create<ServerState>((set, get) => ({
         set({ activeServerId: firstServer.id });
         localStorage.setItem(LAST_SERVER_KEY, firstServer.id);
       }
+    } else {
+      // No servers — clear stale activeServerId and channel data
+      set({ activeServerId: null, activeServer: null });
+      localStorage.removeItem(LAST_SERVER_KEY);
+      useChannelStore.getState().clearForServerSwitch();
     }
   },
 

@@ -9,6 +9,7 @@ import { changeLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
 import { usePreferencesStore } from "./preferencesStore";
 import { useVoiceStore } from "./voiceStore";
+import { useSettingsStore } from "./settingsStore";
 import type { User, UserStatus } from "../types";
 
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
@@ -111,6 +112,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       await authApi.logout(refreshToken);
     }
     clearTokens();
+    // Close settings modal if open (SPA doesn't reload between logout → login)
+    useSettingsStore.getState().closeSettings();
     set({ user: null });
   },
 
