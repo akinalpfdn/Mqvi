@@ -1066,6 +1066,26 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .auth-home-link { display:flex;align-items:center;justify-content:center;gap:4px;margin-top:12px;color:var(--t3);font-size:13px;text-decoration:none;transition:color .15s; }
 .auth-home-link:hover { color:var(--t1); }
 
+/* ── Terms Checkbox ── */
+.auth-terms-check { display:flex;align-items:flex-start;gap:8px;margin:16px 0 4px;font-size:13px;color:var(--t2);cursor:pointer;line-height:1.5; }
+.auth-terms-check input[type="checkbox"] { margin-top:3px;flex-shrink:0;accent-color:var(--primary); }
+.auth-terms-link { background:none;border:none;padding:0;color:var(--primary);font-size:13px;cursor:pointer;text-decoration:underline;font-family:inherit; }
+.auth-terms-link:hover { color:var(--primary-h); }
+
+/* ── Legal Modal ── */
+.legal-modal-overlay { position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
+.legal-modal { background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;max-width:640px;width:90%;max-height:80vh;display:flex;flex-direction:column; }
+.legal-modal-header { display:flex;align-items:center;justify-content:space-between;padding:20px 24px 16px;border-bottom:1px solid var(--b1); }
+.legal-modal-header h2 { font-size:18px;font-weight:700;color:var(--t1); }
+.legal-modal-close { background:none;border:none;color:var(--t3);font-size:18px;cursor:pointer;padding:4px; }
+.legal-modal-close:hover { color:var(--t1); }
+.legal-modal-body { padding:20px 24px;overflow-y:auto;flex:1; }
+.legal-modal-section { margin-bottom:24px; }
+.legal-modal-section h3 { font-size:15px;font-weight:600;color:var(--t1);margin-bottom:6px; }
+.legal-modal-section p { font-size:14px;color:var(--t2);line-height:1.6;margin-bottom:8px; }
+.legal-modal-section ul { list-style:disc;padding-left:20px;margin:8px 0; }
+.legal-modal-section li { font-size:14px;color:var(--t2);margin-bottom:6px;line-height:1.5; }
+
 /* ── Download Prompt Modal ── */
 .download-prompt-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
 .download-prompt-modal { background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;padding:32px;max-width:400px;width:90%;text-align:center; }

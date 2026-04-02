@@ -957,6 +957,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   background: var(--lp-surface);
   border: 1px solid var(--lp-border);
   transition: border-color 0.2s;
+  text-align: left;
 }
 .lp-faq-item:hover { border-color: var(--lp-accent); }
 .lp-faq-q {

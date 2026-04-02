@@ -380,7 +380,7 @@ function LandingPage() {
 
         {/* ═══ FAQ ═══ */}
         <RevealOnScroll>
-          <section id="faq" className="lp-section">
+          <section id="faq" className="lp-section lp-section--center">
             <span className="lp-section-label">{t("faq_label")}</span>
             <h2 className="lp-section-title">{t("faq_title")}</h2>
             <div className="lp-faq-grid">
@@ -426,6 +426,7 @@ function LandingPage() {
           <div className="lp-footer-links">
             <a href="https://github.com/akinalpfdn/Mqvi" target="_blank" rel="noopener noreferrer" className="lp-footer-link">GitHub</a>
             <a href="/privacy" className="lp-footer-link">{t("footer_privacy")}</a>
+            <a href="/terms" className="lp-footer-link">{t("footer_terms")}</a>
           </div>
         </footer>
 

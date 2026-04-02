@@ -1,11 +1,87 @@
 /** RegisterPage — User registration page. i18n: "auth" namespace. */
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
 import { isNativeApp } from "../../utils/constants";
 import { detectOS, shouldShowDownloadPrompt } from "../../utils/detectOS";
+
+/** Inline modal for Terms of Service / Privacy Policy */
+function LegalModal({ type, onClose }: { type: "terms" | "privacy"; onClose: () => void }) {
+  const { t } = useTranslation(type);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  const sections: { title: string; content: string | string[] }[] = type === "terms" ? [
+    { title: t("acceptanceTitle"), content: t("acceptanceDesc") },
+    { title: t("serviceTitle"), content: t("serviceDesc") },
+    { title: t("accountTitle"), content: t("accountDesc") },
+    { title: t("contentTitle"), content: t("contentDesc") },
+    { title: t("conductTitle"), content: [t("conductDesc"), t("conductItem1"), t("conductItem2"), t("conductItem3"), t("conductItem4"), t("conductItem5")] },
+    { title: t("ipTitle"), content: t("ipDesc") },
+    { title: t("disclaimerTitle"), content: t("disclaimerDesc") },
+    { title: t("liabilityTitle"), content: t("liabilityDesc") },
+    { title: t("indemnityTitle"), content: t("indemnityDesc") },
+    { title: t("terminationTitle"), content: t("terminationDesc") },
+    { title: t("copyrightTitle"), content: t("copyrightDesc") },
+    { title: t("selfHostTitle"), content: t("selfHostDesc") },
+    { title: t("voiceTitle"), content: t("voiceDesc") },
+    { title: t("changesTitle"), content: t("changesDesc") },
+    { title: t("lawTitle"), content: t("lawDesc") },
+    { title: t("contactTitle"), content: t("contactDesc") },
+  ] : [
+    { title: t("introTitle"), content: t("introDesc") },
+    { title: t("dataCollectedTitle"), content: [t("dataItem1"), t("dataItem2"), t("dataItem3"), t("dataItem4")] },
+    { title: t("dataUsageTitle"), content: [t("dataUsageDesc"), t("usageItem1"), t("usageItem2"), t("usageItem3")] },
+    { title: t("noTrackingTitle"), content: t("noTrackingDesc") },
+    { title: t("dataSharingTitle"), content: t("dataSharingDesc") },
+    { title: t("selfHostTitle"), content: t("selfHostDesc") },
+    { title: t("deletionTitle"), content: t("deletionDesc") },
+    { title: t("contactTitle"), content: t("contactDesc") },
+  ];
+
+  return (
+    <div
+      className="legal-modal-overlay"
+      ref={overlayRef}
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+    >
+      <div className="legal-modal">
+        <div className="legal-modal-header">
+          <h2>{t("title")}</h2>
+          <button className="legal-modal-close" onClick={onClose}>&#x2715;</button>
+        </div>
+        <div className="legal-modal-body">
+          {sections.map((s, i) => (
+            <div key={i} className="legal-modal-section">
+              <h3>{s.title}</h3>
+              {Array.isArray(s.content) ? (
+                <>
+                  <p>{s.content[0]}</p>
+                  <ul>
+                    {s.content.slice(1).map((item, j) => (
+                      <li key={j}>{item}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p>{s.content}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function RegisterPage() {
   // ─── Hooks ───
@@ -25,6 +101,8 @@ function RegisterPage() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [legalModal, setLegalModal] = useState<"terms" | "privacy" | null>(null);
 
   // ─── Handlers ───
   async function handleSubmit(e: React.FormEvent) {
@@ -205,10 +283,30 @@ function RegisterPage() {
             </div>
           </div>
 
-          <button type="submit" disabled={isLoading} className="auth-btn">
+          <label className="auth-terms-check">
+            <input
+              type="checkbox"
+              checked={acceptedTerms}
+              onChange={(e) => setAcceptedTerms(e.target.checked)}
+            />
+            <span>
+              {t("agreeToTermsPre")}
+              <button type="button" className="auth-terms-link" onClick={() => setLegalModal("terms")}>{t("termsLink")}</button>
+              {t("agreeToTermsMid")}
+              <button type="button" className="auth-terms-link" onClick={() => setLegalModal("privacy")}>{t("privacyLink")}</button>
+              {t("agreeToTermsPost")}
+            </span>
+          </label>
+
+          <button type="submit" disabled={isLoading || !acceptedTerms} className="auth-btn">
             {isLoading ? t("registering") : t("register")}
           </button>
         </form>
+
+        {/* Legal document modal */}
+        {legalModal && (
+          <LegalModal type={legalModal} onClose={() => setLegalModal(null)} />
+        )}
 
         {/* Footer Link */}
         <p className="auth-link">
