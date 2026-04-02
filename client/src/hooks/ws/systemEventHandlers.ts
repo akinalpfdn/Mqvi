@@ -98,15 +98,30 @@ export async function handleSystemEvent(
       return true;
     }
 
-    case "member_join":
-      useMemberStore.getState().handleMemberJoin(msg.d as MemberWithRoles);
+    case "member_join": {
+      const serverId = msg.server_id;
+      if (serverId) useMemberStore.getState().handleMemberJoin(serverId, msg.d as MemberWithRoles);
       return true;
-    case "member_leave":
-      useMemberStore.getState().handleMemberLeave((msg.d as { user_id: string }).user_id);
+    }
+    case "member_leave": {
+      const serverId = msg.server_id;
+      if (serverId) useMemberStore.getState().handleMemberLeave(serverId, (msg.d as { user_id: string }).user_id);
       return true;
+    }
     case "member_update": {
       const updatedMember = msg.d as MemberWithRoles;
-      useMemberStore.getState().handleMemberUpdate(updatedMember);
+      const serverId = msg.server_id;
+      if (serverId) {
+        // Server-scoped update (role change, nickname, etc.)
+        useMemberStore.getState().handleMemberUpdate(serverId, updatedMember);
+      } else {
+        // Profile update (display_name, avatar) — broadcast to all servers.
+        // Update every cached server's member list.
+        const cached = useMemberStore.getState().membersByServer;
+        for (const sid of Object.keys(cached)) {
+          useMemberStore.getState().handleMemberUpdate(sid, updatedMember);
+        }
+      }
       useVoiceStore.getState().updateUserInfo(
         updatedMember.id,
         updatedMember.display_name ?? updatedMember.username,
@@ -127,29 +142,37 @@ export async function handleSystemEvent(
 
     // ─── Roles ───
     case "role_create": {
+      const serverId = msg.server_id;
+      if (!serverId) return true;
       const role = msg.d as Role;
-      useMemberStore.getState().handleRoleCreate(role);
-      useRoleStore.getState().handleRoleCreate(role);
+      useMemberStore.getState().handleRoleCreate(serverId, role);
+      useRoleStore.getState().handleRoleCreate(serverId, role);
       return true;
     }
     case "role_update": {
+      const serverId = msg.server_id;
+      if (!serverId) return true;
       const role = msg.d as Role;
-      useMemberStore.getState().handleRoleUpdate(role);
-      useRoleStore.getState().handleRoleUpdate(role);
+      useMemberStore.getState().handleRoleUpdate(serverId, role);
+      useRoleStore.getState().handleRoleUpdate(serverId, role);
       useChannelStore.getState().fetchChannels();
       return true;
     }
     case "role_delete": {
+      const serverId = msg.server_id;
+      if (!serverId) return true;
       const roleId = (msg.d as { id: string }).id;
-      useMemberStore.getState().handleRoleDelete(roleId);
-      useRoleStore.getState().handleRoleDelete(roleId);
+      useMemberStore.getState().handleRoleDelete(serverId, roleId);
+      useRoleStore.getState().handleRoleDelete(serverId, roleId);
       useChannelStore.getState().fetchChannels();
       return true;
     }
     case "roles_reorder": {
+      const serverId = msg.server_id;
+      if (!serverId) return true;
       const roles = msg.d as Role[];
-      useRoleStore.getState().handleRolesReorder(roles);
-      useMemberStore.getState().handleRolesReorder(roles);
+      useRoleStore.getState().handleRolesReorder(serverId, roles);
+      useMemberStore.getState().handleRolesReorder(serverId, roles);
       return true;
     }
 

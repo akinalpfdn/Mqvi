@@ -12,7 +12,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { useUIStore, type TabServerInfo } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useReadStateStore } from "../../stores/readStateStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
@@ -159,7 +159,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const getServerUnreadTotal = useReadStateStore((s) => s.getServerUnreadTotal);
 
   const currentUser = useAuthStore((s) => s.user);
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const addToast = useToastStore((s) => s.addToast);
   const mutedChannelIds = useChannelStore((s) => s.mutedChannelIds);
   const unmuteChannel = useChannelStore((s) => s.unmuteChannel);

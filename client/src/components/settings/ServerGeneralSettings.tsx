@@ -5,7 +5,7 @@ import { useTranslation, Trans } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useServerStore } from "../../stores/serverStore";
 import { useAuthStore } from "../../stores/authStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as serverApi from "../../api/servers";
 import AvatarUpload from "./AvatarUpload";
@@ -47,7 +47,7 @@ function ServerGeneralSettings() {
   const isOwner = server !== null && currentUser !== null && server.owner_id === currentUser.id;
 
   // Admin permission check
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const currentMember = members.find((m) => m.id === currentUser?.id);
   const isAdmin = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.Admin)

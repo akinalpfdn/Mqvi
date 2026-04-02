@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useRoleStore } from "../../stores/roleStore";
+import { useRoleStore, useActiveRoles } from "../../stores/roleStore";
 import { useAuthStore } from "../../stores/authStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
@@ -40,8 +40,8 @@ const PERMISSION_DEFS = [
 
 function RoleSettings() {
   const { t } = useTranslation("settings");
+  const roles = useActiveRoles();
   const {
-    roles,
     selectedRoleId,
     isLoading,
     fetchRoles,
@@ -52,7 +52,7 @@ function RoleSettings() {
     reorderRoles,
   } = useRoleStore();
   const currentUser = useAuthStore((s) => s.user);
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const addToast = useToastStore((s) => s.addToast);
   const confirm = useConfirm();
 

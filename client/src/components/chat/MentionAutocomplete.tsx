@@ -3,12 +3,15 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useMemberStore } from "../../stores/memberStore";
 import { useRoleStore } from "../../stores/roleStore";
+import { useServerStore } from "../../stores/serverStore";
 import Avatar from "../shared/Avatar";
 import type { MemberWithRoles, Role } from "../../types";
 
 type MentionAutocompleteProps = {
   /** Search text after @ (e.g. "ali" -> @ali) */
   query: string;
+  /** Server ID this channel belongs to (uses active server if omitted) */
+  serverId?: string;
   /** Called when user or role is selected — returns the text to insert */
   onSelect: (text: string) => void;
   /** Close popup (Escape or empty results) */
@@ -22,9 +25,24 @@ type MentionItem =
   | { type: "user"; member: MemberWithRoles }
   | { type: "role"; role: Role };
 
-function MentionAutocomplete({ query, onSelect, onClose }: MentionAutocompleteProps) {
-  const members = useMemberStore((s) => s.members);
-  const roles = useRoleStore((s) => s.roles);
+function MentionAutocomplete({ query, serverId, onSelect, onClose }: MentionAutocompleteProps) {
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const effectiveServerId = serverId ?? activeServerId;
+
+  const membersByServer = useMemberStore((s) => s.membersByServer);
+  const rolesByServer = useRoleStore((s) => s.rolesByServer);
+  const fetchMembers = useMemberStore((s) => s.fetchMembers);
+  const fetchRoles = useRoleStore((s) => s.fetchRoles);
+
+  // Lazy-fetch if this server's data isn't cached yet
+  useEffect(() => {
+    if (!effectiveServerId) return;
+    if (!membersByServer[effectiveServerId]) fetchMembers(effectiveServerId);
+    if (!rolesByServer[effectiveServerId]) fetchRoles(effectiveServerId);
+  }, [effectiveServerId, membersByServer, rolesByServer, fetchMembers, fetchRoles]);
+
+  const members: MemberWithRoles[] = effectiveServerId ? (membersByServer[effectiveServerId] ?? []) : [];
+  const roles: Role[] = effectiveServerId ? (rolesByServer[effectiveServerId] ?? []) : [];
   const [activeIndex, setActiveIndex] = useState(0);
 
   const filtered = useMemo(() => {

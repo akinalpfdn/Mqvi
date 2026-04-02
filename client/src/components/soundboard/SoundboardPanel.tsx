@@ -11,7 +11,7 @@ import { useTranslation } from "react-i18next";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useServerStore } from "../../stores/serverStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useConfirmStore } from "../../stores/confirmStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
@@ -31,7 +31,7 @@ function SoundboardPanel() {
   const toggleMuted = useSoundboardStore((s) => s.toggleMuted);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const serverId = useServerStore((s) => s.activeServerId);
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const userId = useAuthStore((s) => s.user?.id);
   const confirm = useConfirmStore((s) => s.open);
 

@@ -17,6 +17,7 @@ function MessageInput() {
     mode,
     channelId,
     channelName,
+    serverId,
     canSend,
     sendMessage,
     replyingTo,
@@ -270,6 +271,7 @@ function MessageInput() {
       {mentionQuery !== null && mode === "channel" && (
         <MentionAutocomplete
           query={mentionQuery}
+          serverId={serverId}
           onSelect={handleMentionSelect}
           onClose={handleMentionClose}
         />

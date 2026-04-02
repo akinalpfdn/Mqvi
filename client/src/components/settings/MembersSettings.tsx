@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { useMemberStore } from "../../stores/memberStore";
-import { useRoleStore } from "../../stores/roleStore";
+import { useMemberStore, useActiveMembers } from "../../stores/memberStore";
+import { useRoleStore, useActiveRoles } from "../../stores/roleStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -17,9 +17,9 @@ type Tab = "members" | "bans";
 
 function MembersSettings() {
   const { t } = useTranslation("settings");
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const fetchMembers = useMemberStore((s) => s.fetchMembers);
-  const roles = useRoleStore((s) => s.roles);
+  const roles = useActiveRoles();
   const fetchRoles = useRoleStore((s) => s.fetchRoles);
   const currentUser = useAuthStore((s) => s.user);
   const addToast = useToastStore((s) => s.addToast);

@@ -92,8 +92,6 @@ function AppLayout() {
 
     // Clear server-scoped store data (readState is global, no clear needed)
     useChannelStore.getState().clearForServerSwitch();
-    useMemberStore.getState().clearForServerSwitch();
-    useRoleStore.getState().clearForServerSwitch();
     useInviteStore.getState().clearForServerSwitch();
     useSoundboardStore.getState().clearForServerSwitch();
 
@@ -103,9 +101,11 @@ function AppLayout() {
     // Fetch new server data
     fetchActiveServer();
     fetchChannels();
-    fetchMembers();
-    fetchRoles();
-    if (serverId) fetchUnreadCounts(serverId);
+    if (serverId) {
+      fetchMembers(serverId);
+      fetchRoles(serverId);
+      fetchUnreadCounts(serverId);
+    }
   }, [fetchActiveServer, fetchChannels, fetchMembers, fetchRoles, fetchUnreadCounts]);
 
   // Cascade refetch on server change (deduplicated via prevServerRef)

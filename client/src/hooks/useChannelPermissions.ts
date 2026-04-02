@@ -7,7 +7,7 @@
 
 import { useMemo } from "react";
 import { useAuthStore } from "../stores/authStore";
-import { useMemberStore } from "../stores/memberStore";
+import { useActiveMembers } from "../stores/memberStore";
 import { useChannelPermissionStore } from "../stores/channelPermissionStore";
 import {
   resolveChannelPermissions,
@@ -17,7 +17,7 @@ import {
 
 export function useChannelPermissions(channelID: string | null) {
   const currentUser = useAuthStore((s) => s.user);
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const getOverrides = useChannelPermissionStore((s) => s.getOverrides);
 
   const currentMember = useMemo(

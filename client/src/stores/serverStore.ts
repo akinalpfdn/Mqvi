@@ -5,8 +5,6 @@
 import { create } from "zustand";
 import * as serversApi from "../api/servers";
 import { useChannelStore } from "./channelStore";
-import { useMemberStore } from "./memberStore";
-import { useRoleStore } from "./roleStore";
 import { useReadStateStore } from "./readStateStore";
 import { useE2EEStore } from "./e2eeStore";
 import type { Server, ServerListItem, CreateServerRequest } from "../types";
@@ -95,8 +93,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
     // Clear server-scoped stores immediately to prevent stale data flash
     // (useEffect runs after render, but we need the clear before).
     useChannelStore.getState().clearForServerSwitch();
-    useMemberStore.getState().clearForServerSwitch();
-    useRoleStore.getState().clearForServerSwitch();
     useReadStateStore.getState().clearForServerSwitch();
 
     set({ activeServerId: serverId, activeServer: null });

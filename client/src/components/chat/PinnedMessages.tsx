@@ -3,7 +3,7 @@
 import { useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { usePinStore } from "../../stores/pinStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { useAuthStore } from "../../stores/authStore";
 import Avatar from "../shared/Avatar";
@@ -19,7 +19,7 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
   const getPinsForChannel = usePinStore((s) => s.getPinsForChannel);
   const unpinAction = usePinStore((s) => s.unpin);
   const isLoading = usePinStore((s) => s.isLoading);
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const currentUser = useAuthStore((s) => s.user);
 
   const pins = getPinsForChannel(channelId);

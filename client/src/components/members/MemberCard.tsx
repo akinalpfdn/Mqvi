@@ -11,7 +11,7 @@ import BadgeAssignModal from "./BadgeAssignModal";
 import BadgePill from "../shared/BadgePill";
 import { useUserBadges } from "../../hooks/useUserBadges";
 import { useAuthStore } from "../../stores/authStore";
-import { useMemberStore } from "../../stores/memberStore";
+import { useActiveMembers } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useFriendStore } from "../../stores/friendStore";
@@ -49,9 +49,8 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
   const createdAt = target.created_at;
   const isServerContext = !!member;
 
-  const currentMember = useMemberStore((s) =>
-    s.members.find((m) => m.id === currentUser?.id)
-  );
+  const activeMembers = useActiveMembers();
+  const currentMember = activeMembers.find((m) => m.id === currentUser?.id);
   const myPerms = currentMember?.effective_permissions ?? 0;
 
   const friends = useFriendStore((s) => s.friends);

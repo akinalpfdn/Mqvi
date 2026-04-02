@@ -23,7 +23,7 @@ import MessageHoverActions from "./MessageHoverActions";
 import MessageReactions from "./MessageReactions";
 import MobileMessageActions from "./MobileMessageActions";
 import { useUserBadges } from "../../hooks/useUserBadges";
-import { useRoleStore } from "../../stores/roleStore";
+import { useActiveRoles } from "../../stores/roleStore";
 import type { MemberWithRoles, User } from "../../types";
 
 type MessageProps = {
@@ -77,7 +77,7 @@ function Message({ message, isCompact }: MessageProps) {
     members,
   } = useChatContext();
 
-  const roles = useRoleStore((s) => s.roles);
+  const roles = useActiveRoles();
   const isMobile = useIsMobile();
   const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();

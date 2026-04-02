@@ -5,13 +5,15 @@ import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hook
 import { useMessageStore } from "../../stores/messageStore";
 import { usePinStore } from "../../stores/pinStore";
 import { useMemberStore } from "../../stores/memberStore";
+import { useServerStore } from "../../stores/serverStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useChannelPermissions } from "../../hooks/useChannelPermissions";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import type { Message } from "../../types";
+import type { Message, MemberWithRoles } from "../../types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_STRINGS: string[] = [];
+const EMPTY_MEMBERS: MemberWithRoles[] = [];
 
 type ChannelChatProviderProps = {
   channelId: string;
@@ -56,7 +58,10 @@ function ChannelChatProvider({
   const unpinAction = usePinStore((s) => s.unpin);
   const channelPins = usePinStore((s) => s.pins[channelId]);
 
-  const members = useMemberStore((s) => s.members);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const targetServerId = explicitServerId ?? activeServerId;
+  const membersByServer = useMemberStore((s) => s.membersByServer);
+  const members = targetServerId ? (membersByServer[targetServerId] ?? EMPTY_MEMBERS) : EMPTY_MEMBERS;
   const currentUser = useAuthStore((s) => s.user);
   const { hasChannelPerm } = useChannelPermissions(channelId);
 
@@ -151,6 +156,7 @@ function ChannelChatProvider({
       mode: "channel" as const,
       channelId,
       channelName,
+      serverId: explicitServerId,
       messages,
       isLoading,
       isLoadingMore,
@@ -177,7 +183,7 @@ function ChannelChatProvider({
       addFilesRef,
     }),
     [
-      channelId, channelName, messages, isLoading, isLoadingMore, hasMore,
+      channelId, channelName, explicitServerId, messages, isLoading, isLoadingMore, hasMore,
       replyingTo, scrollToMessageId, typingUsers,
       sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,

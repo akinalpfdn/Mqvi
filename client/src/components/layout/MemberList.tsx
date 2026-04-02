@@ -4,7 +4,7 @@
  */
 
 import { useTranslation } from "react-i18next";
-import { useMemberStore } from "../../stores/memberStore";
+import { useMemberStore, useActiveMembers } from "../../stores/memberStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useMobileStore } from "../../stores/mobileStore";
 import { useIsMobile } from "../../hooks/useMediaQuery";
@@ -66,7 +66,7 @@ function groupByHighestRole(members: MemberWithRoles[]): RoleGroup[] {
 
 function MemberList() {
   const { t } = useTranslation("common");
-  const members = useMemberStore((s) => s.members);
+  const members = useActiveMembers();
   const isLoading = useMemberStore((s) => s.isLoading);
   const onlineUserIds = useMemberStore((s) => s.onlineUserIds);
   const toggleMembers = useUIStore((s) => s.toggleMembers);

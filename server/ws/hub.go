@@ -647,8 +647,10 @@ func (h *Hub) Shutdown() {
 // ─── Multi-Server Broadcast ───
 
 // BroadcastToServer sends an event to all connected members of a specific server.
+// Automatically injects server_id into the event so clients can route to the correct cache.
 func (h *Hub) BroadcastToServer(serverID string, event Event) {
 	event.Seq = h.seq.Add(1)
+	event.ServerID = serverID
 
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -676,6 +678,7 @@ func (h *Hub) BroadcastToServer(serverID string, event Event) {
 // BroadcastToServerExcept sends to all server members except the specified user.
 func (h *Hub) BroadcastToServerExcept(serverID, excludeUserID string, event Event) {
 	event.Seq = h.seq.Add(1)
+	event.ServerID = serverID
 
 	data, err := json.Marshal(event)
 	if err != nil {

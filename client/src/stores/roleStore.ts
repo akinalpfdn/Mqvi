@@ -1,7 +1,6 @@
 /**
- * Role Store — Role management state for settings panel.
- *
- * Multi-server: all actions use activeServerId from serverStore.
+ * Role Store — Per-server role management.
+ * Roles are cached per server: `rolesByServer[serverId] -> Role[]`.
  */
 
 import { create } from "zustand";
@@ -10,14 +9,17 @@ import { useServerStore } from "./serverStore";
 import type { Role } from "../types";
 
 type RoleState = {
-  /** All roles (sorted by position DESC) */
-  roles: Role[];
+  rolesByServer: Record<string, Role[]>;
   /** Currently selected role ID (being edited in settings) */
   selectedRoleId: string | null;
+  loadingServers: Set<string>;
+
+  // ─── Selectors ───
+  getRolesForServer: (serverId: string) => Role[];
   isLoading: boolean;
 
   // ─── Actions ───
-  fetchRoles: () => Promise<void>;
+  fetchRoles: (serverId?: string) => Promise<void>;
   selectRole: (roleId: string) => void;
   createRole: (data: {
     name: string;
@@ -31,35 +33,69 @@ type RoleState = {
   deleteRole: (id: string) => Promise<boolean>;
   reorderRoles: (items: { id: string; position: number }[]) => Promise<boolean>;
 
-  // ─── WS Event Handlers ───
-  handleRoleCreate: (role: Role) => void;
-  handleRoleUpdate: (role: Role) => void;
-  handleRoleDelete: (roleId: string) => void;
-  handleRolesReorder: (roles: Role[]) => void;
+  // ─── WS Event Handlers (all require serverId) ───
+  handleRoleCreate: (serverId: string, role: Role) => void;
+  handleRoleUpdate: (serverId: string, role: Role) => void;
+  handleRoleDelete: (serverId: string, roleId: string) => void;
+  handleRolesReorder: (serverId: string, roles: Role[]) => void;
 
-  clearForServerSwitch: () => void;
+  /** Remove cache for a specific server */
+  clearServer: (serverId: string) => void;
 };
 
+/** Stable empty ref */
+const EMPTY_ROLES: Role[] = [];
+
+/** Tracks in-flight fetches */
+const fetchingServers = new Set<string>();
+
 export const useRoleStore = create<RoleState>((set, get) => ({
-  roles: [],
+  rolesByServer: {},
   selectedRoleId: null,
+  loadingServers: new Set(),
+
+  // ─── Selectors ───
+
   isLoading: false,
 
-  fetchRoles: async () => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
+  getRolesForServer: (serverId) => {
+    return get().rolesByServer[serverId] ?? EMPTY_ROLES;
+  },
 
-    set({ isLoading: true });
+  fetchRoles: async (explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
+    if (!serverId) return;
+    if (fetchingServers.has(serverId)) return;
+
+    fetchingServers.add(serverId);
+    set((state) => ({
+      loadingServers: new Set([...state.loadingServers, serverId]),
+    }));
+
     const res = await roleApi.getRoles(serverId);
+
+    fetchingServers.delete(serverId);
+
     if (res.data) {
       const sorted = [...res.data].sort((a, b) => b.position - a.position);
-      set({ roles: sorted, isLoading: false });
+      set((state) => {
+        const newLoading = new Set(state.loadingServers);
+        newLoading.delete(serverId);
+        return {
+          rolesByServer: { ...state.rolesByServer, [serverId]: sorted },
+          loadingServers: newLoading,
+        };
+      });
 
       if (!get().selectedRoleId && sorted.length > 0) {
         set({ selectedRoleId: sorted[0].id });
       }
     } else {
-      set({ isLoading: false });
+      set((state) => {
+        const newLoading = new Set(state.loadingServers);
+        newLoading.delete(serverId);
+        return { loadingServers: newLoading };
+      });
     }
   },
 
@@ -75,13 +111,17 @@ export const useRoleStore = create<RoleState>((set, get) => ({
     if (res.data) {
       const newRole = res.data;
       set((state) => {
-        if (state.roles.some((r) => r.id === newRole.id)) {
+        const current = state.rolesByServer[serverId] ?? [];
+        if (current.some((r) => r.id === newRole.id)) {
           return { selectedRoleId: newRole.id };
         }
         return {
-          roles: [newRole, ...state.roles].sort(
-            (a, b) => b.position - a.position
-          ),
+          rolesByServer: {
+            ...state.rolesByServer,
+            [serverId]: [...current, newRole].sort(
+              (a, b) => b.position - a.position
+            ),
+          },
           selectedRoleId: newRole.id,
         };
       });
@@ -96,9 +136,15 @@ export const useRoleStore = create<RoleState>((set, get) => ({
 
     const res = await roleApi.updateRole(serverId, id, data);
     if (res.data) {
-      set((state) => ({
-        roles: state.roles.map((r) => (r.id === id ? res.data! : r)),
-      }));
+      set((state) => {
+        const current = state.rolesByServer[serverId] ?? [];
+        return {
+          rolesByServer: {
+            ...state.rolesByServer,
+            [serverId]: current.map((r) => (r.id === id ? res.data! : r)),
+          },
+        };
+      });
       return true;
     }
     return false;
@@ -111,9 +157,10 @@ export const useRoleStore = create<RoleState>((set, get) => ({
     const res = await roleApi.deleteRole(serverId, id);
     if (res.data) {
       set((state) => {
-        const roles = state.roles.filter((r) => r.id !== id);
+        const current = state.rolesByServer[serverId] ?? [];
+        const roles = current.filter((r) => r.id !== id);
         return {
-          roles,
+          rolesByServer: { ...state.rolesByServer, [serverId]: roles },
           selectedRoleId:
             state.selectedRoleId === id
               ? roles[0]?.id ?? null
@@ -129,21 +176,29 @@ export const useRoleStore = create<RoleState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return false;
 
-    const prevRoles = get().roles;
+    const prevRoles = get().rolesByServer[serverId] ?? [];
 
     const positionMap = new Map(items.map((item) => [item.id, item.position]));
-    set((state) => ({
-      roles: state.roles
-        .map((r) => {
-          const newPos = positionMap.get(r.id);
-          return newPos !== undefined ? { ...r, position: newPos } : r;
-        })
-        .sort((a, b) => b.position - a.position),
-    }));
+    set((state) => {
+      const current = state.rolesByServer[serverId] ?? [];
+      return {
+        rolesByServer: {
+          ...state.rolesByServer,
+          [serverId]: current
+            .map((r) => {
+              const newPos = positionMap.get(r.id);
+              return newPos !== undefined ? { ...r, position: newPos } : r;
+            })
+            .sort((a, b) => b.position - a.position),
+        },
+      };
+    });
 
     const res = await roleApi.reorderRoles(serverId, items);
     if (!res.success) {
-      set({ roles: prevRoles });
+      set((state) => ({
+        rolesByServer: { ...state.rolesByServer, [serverId]: prevRoles },
+      }));
       return false;
     }
 
@@ -152,28 +207,41 @@ export const useRoleStore = create<RoleState>((set, get) => ({
 
   // ─── WS Event Handlers ───
 
-  handleRoleCreate: (role) => {
+  handleRoleCreate: (serverId, role) => {
     set((state) => {
-      if (state.roles.some((r) => r.id === role.id)) return state;
+      const current = state.rolesByServer[serverId] ?? [];
+      if (current.some((r) => r.id === role.id)) return state;
       return {
-        roles: [...state.roles, role].sort(
-          (a, b) => b.position - a.position
-        ),
+        rolesByServer: {
+          ...state.rolesByServer,
+          [serverId]: [...current, role].sort(
+            (a, b) => b.position - a.position
+          ),
+        },
       };
     });
   },
 
-  handleRoleUpdate: (role) => {
-    set((state) => ({
-      roles: state.roles.map((r) => (r.id === role.id ? role : r)),
-    }));
+  handleRoleUpdate: (serverId, role) => {
+    set((state) => {
+      const current = state.rolesByServer[serverId];
+      if (!current) return state;
+      return {
+        rolesByServer: {
+          ...state.rolesByServer,
+          [serverId]: current.map((r) => (r.id === role.id ? role : r)),
+        },
+      };
+    });
   },
 
-  handleRoleDelete: (roleId) => {
+  handleRoleDelete: (serverId, roleId) => {
     set((state) => {
-      const roles = state.roles.filter((r) => r.id !== roleId);
+      const current = state.rolesByServer[serverId];
+      if (!current) return state;
+      const roles = current.filter((r) => r.id !== roleId);
       return {
-        roles,
+        rolesByServer: { ...state.rolesByServer, [serverId]: roles },
         selectedRoleId:
           state.selectedRoleId === roleId
             ? roles[0]?.id ?? null
@@ -182,12 +250,41 @@ export const useRoleStore = create<RoleState>((set, get) => ({
     });
   },
 
-  handleRolesReorder: (roles) => {
+  handleRolesReorder: (serverId, roles) => {
     const sorted = [...roles].sort((a, b) => b.position - a.position);
-    set({ roles: sorted });
+    set((state) => ({
+      rolesByServer: { ...state.rolesByServer, [serverId]: sorted },
+    }));
   },
 
-  clearForServerSwitch: () => {
-    set({ roles: [], selectedRoleId: null, isLoading: false });
+  clearServer: (serverId) => {
+    set((state) => {
+      const { [serverId]: _, ...rest } = state.rolesByServer;
+      return { rolesByServer: rest };
+    });
   },
 }));
+
+/** Stable empty ref */
+const EMPTY_ROLES_HOOK: Role[] = [];
+
+/**
+ * Derived selector: roles for the currently active server.
+ */
+export function useActiveRoles(): Role[] {
+  const serverId = useServerStore((s) => s.activeServerId);
+  const rolesByServer = useRoleStore((s) => s.rolesByServer);
+  if (!serverId) return EMPTY_ROLES_HOOK;
+  return rolesByServer[serverId] ?? EMPTY_ROLES_HOOK;
+}
+
+/**
+ * Derived selector: roles for a specific server (falls back to active).
+ */
+export function useRolesForServer(serverId?: string): Role[] {
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const rolesByServer = useRoleStore((s) => s.rolesByServer);
+  const id = serverId ?? activeServerId;
+  if (!id) return EMPTY_ROLES_HOOK;
+  return rolesByServer[id] ?? EMPTY_ROLES_HOOK;
+}
