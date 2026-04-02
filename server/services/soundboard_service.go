@@ -32,6 +32,7 @@ var soundAllowedMimeTypes = map[string]bool{
 	"audio/mp4":   true,
 	"audio/x-m4a": true,
 	"audio/aac":   true,
+	"video/mp4":   true, // frontend extracts audio and converts to WAV before upload; kept as fallback
 }
 
 // VoiceStateGetter retrieves a user's current voice state.

@@ -3412,6 +3412,14 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   font-size: 14px;
 }
 .sb-file-btn:hover { border-color: var(--accent); color: var(--t1); }
+.sb-file-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sb-format-hint {
+  display: block;
+  font-size: 13px;
+  color: var(--t3);
+  margin-top: 4px;
+}
 
 .sb-file-info {
   display: flex;

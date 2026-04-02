@@ -15,7 +15,70 @@ type Props = {
 };
 
 const MAX_DURATION_MS = 7000;
-const ACCEPTED_TYPES = "audio/mpeg,audio/ogg,audio/wav,audio/webm,audio/mp4,audio/x-m4a,audio/aac,.m4a";
+const ACCEPTED_TYPES =
+  "audio/mpeg,audio/ogg,audio/wav,audio/webm,audio/mp4,audio/x-m4a,audio/aac,.m4a,video/mp4,.mp4";
+
+function isVideoFile(file: File): boolean {
+  return file.type === "video/mp4" || (file.name.toLowerCase().endsWith(".mp4") && !file.type.startsWith("audio/"));
+}
+
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  const dataLength = buffer.length * blockAlign;
+  const headerLength = 44;
+  const arrayBuffer = new ArrayBuffer(headerLength + dataLength);
+  const view = new DataView(arrayBuffer);
+
+  function writeString(offset: number, str: string) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  }
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataLength, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(36, "data");
+  view.setUint32(40, dataLength, true);
+
+  const channels: Float32Array[] = [];
+  for (let ch = 0; ch < numChannels; ch++) channels.push(buffer.getChannelData(ch));
+
+  let offset = 44;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      const sample = Math.max(-1, Math.min(1, channels[ch][i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([arrayBuffer], { type: "audio/wav" });
+}
+
+async function extractAudioFromVideo(file: File): Promise<File> {
+  const arrayBuffer = await file.arrayBuffer();
+  const audioCtx = new AudioContext();
+  try {
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    const wavBlob = audioBufferToWav(audioBuffer);
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    return new File([wavBlob], `${baseName}.wav`, { type: "audio/wav" });
+  } finally {
+    await audioCtx.close();
+  }
+}
 
 function SoundUploadForm({ onClose }: Props) {
   const { t } = useTranslation("soundboard");
@@ -31,6 +94,7 @@ function SoundUploadForm({ onClose }: Props) {
   const [error, setError] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -38,7 +102,7 @@ function SoundUploadForm({ onClose }: Props) {
 
   const trimmedDurationMs = trimEnd - trimStart;
   const durationError = trimmedDurationMs > MAX_DURATION_MS;
-  const canSubmit = !!file && name.trim().length > 0 && !durationError && trimmedDurationMs > 0 && !isUploading;
+  const canSubmit = !!file && name.trim().length > 0 && !durationError && trimmedDurationMs > 0 && !isUploading && !isConverting;
 
   useEffect(() => {
     return () => {
@@ -48,19 +112,9 @@ function SoundUploadForm({ onClose }: Props) {
     };
   }, [objectUrl]);
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (!selected) return;
-
-    setFile(selected);
-    setError("");
-
-    if (!name) {
-      setName(selected.name.replace(/\.[^.]+$/, ""));
-    }
-
+  const loadAudioMeta = useCallback((audioFile: File) => {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
-    const url = URL.createObjectURL(selected);
+    const url = URL.createObjectURL(audioFile);
     setObjectUrl(url);
 
     const audio = new Audio(url);
@@ -71,7 +125,34 @@ function SoundUploadForm({ onClose }: Props) {
       setTrimEnd(Math.min(ms, MAX_DURATION_MS));
     });
     audio.addEventListener("error", () => setError(t("readError")));
-  }, [name, objectUrl, t]);
+  }, [objectUrl, t]);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (!selected) return;
+
+    setError("");
+
+    if (!name) {
+      setName(selected.name.replace(/\.[^.]+$/, ""));
+    }
+
+    if (isVideoFile(selected)) {
+      setIsConverting(true);
+      try {
+        const wavFile = await extractAudioFromVideo(selected);
+        setFile(wavFile);
+        loadAudioMeta(wavFile);
+      } catch {
+        setError(t("videoConvertError"));
+      } finally {
+        setIsConverting(false);
+      }
+    } else {
+      setFile(selected);
+      loadAudioMeta(selected);
+    }
+  }, [name, loadAudioMeta, t]);
 
   const handlePreview = () => {
     if (!objectUrl) return;
@@ -126,12 +207,13 @@ function SoundUploadForm({ onClose }: Props) {
 
       <div className="sb-upload-body">
         <input ref={fileRef} type="file" accept={ACCEPTED_TYPES} onChange={handleFileChange} className="sb-file-input" />
-        <button className="sb-file-btn" onClick={() => fileRef.current?.click()}>
+        <button className="sb-file-btn" onClick={() => fileRef.current?.click()} disabled={isConverting}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
           </svg>
-          {file ? t("changeFile") : t("selectFile")}
+          {isConverting ? t("converting") : file ? t("changeFile") : t("selectFile")}
         </button>
+        <span className="sb-format-hint">{t("supportedFormats")}</span>
 
         {file && totalDurationMs > 0 && objectUrl && (
           <WaveformTrimmer
