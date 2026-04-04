@@ -1240,10 +1240,10 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                 <div
                                   key={p.user_id}
                                   className={`ch-tree-voice-user${isSpeaking ? " speaking" : ""}${draggingVoiceUserId === p.user_id ? " vu-dragging" : ""}`}
-                                  draggable={canMoveMembers && !isMe}
+                                  draggable={isMe || canMoveMembers}
                                   onDragStart={(e) => handleVoiceUserDragStart(e, p.user_id, ch.id)}
                                   onDragEnd={handleVoiceUserDragEnd}
-                                  title={canMoveMembers && !isMe ? tVoice("dragToMove") : undefined}
+                                  title={(isMe || canMoveMembers) ? tVoice("dragToMove") : undefined}
                                   onContextMenu={(e) => {
                                     if (isMe) return;
                                     e.preventDefault();

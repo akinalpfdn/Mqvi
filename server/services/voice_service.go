@@ -720,37 +720,50 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		return fmt.Errorf("%w: user is already in that channel", pkg.ErrBadRequest)
 	}
 
-	// Check PermMoveMembers in source channel
-	sourcePerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, sourceChannelID)
-	if err != nil {
-		s.mu.Unlock()
-		s.logError(models.LogCategoryVoice, &moverUserID, "MoveUser: source channel permission resolve failed", map[string]string{
-			"target_user": targetUserID, "source_channel": sourceChannelID, "error": err.Error(),
-		})
-		return fmt.Errorf("failed to resolve source channel permissions: %w", err)
-	}
-	if !sourcePerms.Has(models.PermMoveMembers) {
-		s.mu.Unlock()
-		return fmt.Errorf("%w: move members permission required in source channel", pkg.ErrForbidden)
-	}
+	isSelfMove := moverUserID == targetUserID
 
-	// Check PermMoveMembers in target channel
-	targetPerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, targetChannelID)
-	if err != nil {
-		s.mu.Unlock()
-		s.logError(models.LogCategoryVoice, &moverUserID, "MoveUser: target channel permission resolve failed", map[string]string{
-			"target_user": targetUserID, "target_channel": targetChannelID, "error": err.Error(),
-		})
-		return fmt.Errorf("failed to resolve target channel permissions: %w", err)
-	}
-	if !targetPerms.Has(models.PermMoveMembers) {
-		s.mu.Unlock()
-		return fmt.Errorf("%w: move members permission required in target channel", pkg.ErrForbidden)
-	}
-	// Mover must also have ConnectVoice in target channel
-	if !targetPerms.Has(models.PermConnectVoice) {
-		s.mu.Unlock()
-		return fmt.Errorf("%w: connect voice permission required in target channel", pkg.ErrForbidden)
+	if isSelfMove {
+		// Self-move: only need ConnectVoice in target channel (no MoveMembers required)
+		targetPerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, targetChannelID)
+		if err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("failed to resolve target channel permissions: %w", err)
+		}
+		if !targetPerms.Has(models.PermConnectVoice) {
+			s.mu.Unlock()
+			return fmt.Errorf("%w: connect voice permission required in target channel", pkg.ErrForbidden)
+		}
+	} else {
+		// Moving another user: require PermMoveMembers in both channels
+		sourcePerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, sourceChannelID)
+		if err != nil {
+			s.mu.Unlock()
+			s.logError(models.LogCategoryVoice, &moverUserID, "MoveUser: source channel permission resolve failed", map[string]string{
+				"target_user": targetUserID, "source_channel": sourceChannelID, "error": err.Error(),
+			})
+			return fmt.Errorf("failed to resolve source channel permissions: %w", err)
+		}
+		if !sourcePerms.Has(models.PermMoveMembers) {
+			s.mu.Unlock()
+			return fmt.Errorf("%w: move members permission required in source channel", pkg.ErrForbidden)
+		}
+
+		targetPerms, err := s.permResolver.ResolveChannelPermissions(ctx, moverUserID, targetChannelID)
+		if err != nil {
+			s.mu.Unlock()
+			s.logError(models.LogCategoryVoice, &moverUserID, "MoveUser: target channel permission resolve failed", map[string]string{
+				"target_user": targetUserID, "target_channel": targetChannelID, "error": err.Error(),
+			})
+			return fmt.Errorf("failed to resolve target channel permissions: %w", err)
+		}
+		if !targetPerms.Has(models.PermMoveMembers) {
+			s.mu.Unlock()
+			return fmt.Errorf("%w: move members permission required in target channel", pkg.ErrForbidden)
+		}
+		if !targetPerms.Has(models.PermConnectVoice) {
+			s.mu.Unlock()
+			return fmt.Errorf("%w: connect voice permission required in target channel", pkg.ErrForbidden)
+		}
 	}
 
 	state.ChannelID = targetChannelID
