@@ -34,6 +34,7 @@
   "localMuted": "Locally Muted",
   "serverMuted": "Server Muted",
   "serverDeafened": "Server Deafened",
+  "micVolume": "Input Volume",
   "noiseReduction": "Noise Reduction",
   "noiseReductionOn": "Turn off noise reduction",
   "noiseReductionOff": "Turn on noise reduction",

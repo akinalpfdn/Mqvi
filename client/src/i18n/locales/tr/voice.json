@@ -34,6 +34,7 @@
   "localMuted": "Yerel Olarak Susturulmuş",
   "serverMuted": "Sunucu Tarafından Susturulmuş",
   "serverDeafened": "Sunucu Tarafından Sağırlaştırılmış",
+  "micVolume": "Giriş Sesi",
   "noiseReduction": "Gürültü Azaltma",
   "noiseReductionOn": "Gürültü azaltmayı kapat",
   "noiseReductionOff": "Gürültü azaltmayı aç",
