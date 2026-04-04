@@ -1276,6 +1276,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                                           is_platform_admin: false,
                                           has_seen_download_prompt: false,
                                           has_seen_welcome: false,
+                                          dm_privacy: "message_request" as const,
                                           created_at: new Date().toISOString(),
                                         },
                                         top: rect.top,

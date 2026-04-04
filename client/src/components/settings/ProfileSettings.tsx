@@ -19,6 +19,7 @@ function ProfileSettings() {
   const [displayName, setDisplayName] = useState(user?.display_name ?? "");
   const [customStatus, setCustomStatus] = useState(user?.custom_status ?? "");
   const [pendingLanguage, setPendingLanguage] = useState(user?.language ?? "en");
+  const [pendingDMPrivacy, setPendingDMPrivacy] = useState(user?.dm_privacy ?? "message_request");
   const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -30,6 +31,7 @@ function ProfileSettings() {
     setDisplayName(user?.display_name ?? "");
     setCustomStatus(user?.custom_status ?? "");
     setPendingLanguage(user?.language ?? "en");
+    setPendingDMPrivacy(user?.dm_privacy ?? "message_request");
     setPendingAvatarFile(null);
     if (prevPreviewUrlRef.current) {
       URL.revokeObjectURL(prevPreviewUrlRef.current);
@@ -51,7 +53,8 @@ function ProfileSettings() {
     displayName !== (user?.display_name ?? "") ||
     customStatus !== (user?.custom_status ?? "") ||
     pendingAvatarFile !== null ||
-    pendingLanguage !== (user?.language ?? "en");
+    pendingLanguage !== (user?.language ?? "en") ||
+    pendingDMPrivacy !== (user?.dm_privacy ?? "message_request");
 
   async function handleAvatarSelect(file: File) {
     if (prevPreviewUrlRef.current) {
@@ -87,7 +90,8 @@ function ProfileSettings() {
         username !== (user?.username ?? "") ||
         displayName !== (user?.display_name ?? "") ||
         customStatus !== (user?.custom_status ?? "") ||
-        pendingLanguage !== (user?.language ?? "en");
+        pendingLanguage !== (user?.language ?? "en") ||
+        pendingDMPrivacy !== (user?.dm_privacy ?? "message_request");
 
       if (profileChanged) {
         const res = await profileApi.updateProfile({
@@ -95,6 +99,7 @@ function ProfileSettings() {
           display_name: displayName,
           custom_status: customStatus,
           language: pendingLanguage,
+          dm_privacy: pendingDMPrivacy,
         });
 
         if (res.success && res.data) {
@@ -106,6 +111,7 @@ function ProfileSettings() {
             display_name: res.data.display_name,
             custom_status: res.data.custom_status,
             language: pendingLanguage,
+            dm_privacy: pendingDMPrivacy,
           });
         } else {
           addToast("error", res.error ?? t("profileSaveError"));
@@ -197,8 +203,26 @@ function ProfileSettings() {
         onChange={handleLanguageChange}
       />
 
+      {/* DM Privacy */}
+      <div className="settings-field">
+        <label htmlFor="dmPrivacy" className="settings-label">
+          {t("dmPrivacy")}
+        </label>
+        <select
+          id="dmPrivacy"
+          value={pendingDMPrivacy}
+          onChange={(e) => setPendingDMPrivacy(e.target.value as "everyone" | "message_request" | "friends_only")}
+          className="settings-input"
+        >
+          <option value="everyone">{t("dmPrivacyEveryone")}</option>
+          <option value="message_request">{t("dmPrivacyMessageRequest")}</option>
+          <option value="friends_only">{t("dmPrivacyFriendsOnly")}</option>
+        </select>
+        <span className="settings-field-hint">{t("dmPrivacyHint")}</span>
+      </div>
+
       {/* Separator */}
-      <div style={{ height: 1, background: "var(--b1)", margin: "24px 0" }} />
+      <div className="settings-separator" />
 
       {/* Save */}
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>

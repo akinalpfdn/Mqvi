@@ -170,6 +170,17 @@ func (r *sqliteDMRepo) UpdateChannelStatus(ctx context.Context, channelID, statu
 	return nil
 }
 
+func (r *sqliteDMRepo) SetInitiatedBy(ctx context.Context, channelID, userID string) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE dm_channels SET initiated_by = ? WHERE id = ?",
+		userID, channelID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set initiated_by: %w", err)
+	}
+	return nil
+}
+
 func (r *sqliteDMRepo) CountMessagesBySender(ctx context.Context, channelID, userID string) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,

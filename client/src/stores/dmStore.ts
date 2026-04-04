@@ -10,6 +10,7 @@ import i18n from "../i18n";
 import * as dmApi from "../api/dm";
 import type { DMSearchResult } from "../api/dm";
 import type { DMChannelWithUser, DMMessage, ReactionGroup } from "../types";
+import { useUIStore } from "./uiStore";
 import { useToastStore } from "./toastStore";
 import { useE2EEStore } from "./e2eeStore";
 import { useAuthStore } from "./authStore";
@@ -129,6 +130,7 @@ type DMState = {
   handleDMMessageUnpin: (data: { dm_channel_id: string; message_id: string }) => void;
   handleDMSettingsUpdate: (data: { dm_channel_id: string; action: string }) => void;
   handleDMChannelUpdate: (channel: DMChannelWithUser) => void;
+  handleDMChannelStatusChange: (data: { dm_channel_id: string; status: "accepted" | "pending"; initiated_by: string | null }) => void;
   handleDMRequestAccept: (data: { dm_channel_id: string }) => void;
   handleDMRequestDecline: (data: { dm_channel_id: string }) => void;
   /** Update author info across all cached DM messages. */
@@ -749,6 +751,14 @@ export const useDMStore = create<DMState>((set, get) => ({
     }));
   },
 
+  handleDMChannelStatusChange: (data) => {
+    set((state) => ({
+      channels: state.channels.map((ch) =>
+        ch.id === data.dm_channel_id ? { ...ch, status: data.status, initiated_by: data.initiated_by } : ch
+      ),
+    }));
+  },
+
   handleDMRequestAccept: (data) => {
     set((state) => ({
       channels: state.channels.map((ch) =>
@@ -758,6 +768,7 @@ export const useDMStore = create<DMState>((set, get) => ({
   },
 
   handleDMRequestDecline: (data) => {
+    useUIStore.getState().closeDMTab(data.dm_channel_id);
     set((state) => ({
       channels: state.channels.filter((ch) => ch.id !== data.dm_channel_id),
       selectedDMId: state.selectedDMId === data.dm_channel_id ? null : state.selectedDMId,
@@ -778,6 +789,7 @@ export const useDMStore = create<DMState>((set, get) => ({
   declineDMRequest: async (channelId) => {
     const res = await dmApi.declineDMRequest(channelId);
     if (res.success) {
+      useUIStore.getState().closeDMTab(channelId);
       set((state) => ({
         channels: state.channels.filter((ch) => ch.id !== channelId),
         selectedDMId: state.selectedDMId === channelId ? null : state.selectedDMId,

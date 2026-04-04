@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { useToastStore } from "../../stores/toastStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -78,6 +79,7 @@ function DMChatContent({
   const currentUserId = useAuthStore((s) => s.user?.id);
   const acceptDMRequest = useDMStore((s) => s.acceptDMRequest);
   const declineDMRequest = useDMStore((s) => s.declineDMRequest);
+  const blockUser = useBlockStore((s) => s.blockUser);
 
   const dmChannel = channels.find((ch) => ch.id === channelId);
   const isPending = dmChannel?.status === "pending";
@@ -271,6 +273,17 @@ function DMChatContent({
             </button>
             <button className="dm-request-decline" onClick={() => declineDMRequest(channelId)}>
               {tDM("dmRequestDecline")}
+            </button>
+            <button
+              className="dm-request-block"
+              onClick={() => {
+                if (otherUser) {
+                  blockUser(otherUser.id);
+                  declineDMRequest(channelId);
+                }
+              }}
+            >
+              {tDM("blockUser")}
             </button>
           </div>
         </div>

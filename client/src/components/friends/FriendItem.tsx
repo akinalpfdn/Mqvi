@@ -190,6 +190,7 @@ function friendshipToUser(f: FriendshipWithUser): User {
     is_platform_admin: false,
     has_seen_download_prompt: false,
     has_seen_welcome: false,
+    dm_privacy: "message_request" as const,
     created_at: f.created_at ?? new Date().toISOString(),
   };
 }

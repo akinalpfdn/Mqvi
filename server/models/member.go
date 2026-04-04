@@ -55,11 +55,18 @@ type UpdateProfileRequest struct {
 	AvatarURL    *string `json:"avatar_url"`
 	CustomStatus *string `json:"custom_status"`
 	Language     *string `json:"language"`
+	DMPrivacy    *string `json:"dm_privacy"`
 }
 
 var allowedLanguages = map[string]bool{
 	"en": true,
 	"tr": true,
+}
+
+var allowedDMPrivacy = map[string]bool{
+	"everyone":        true,
+	"message_request": true,
+	"friends_only":    true,
 }
 
 func (r *UpdateProfileRequest) Validate() error {
@@ -84,6 +91,9 @@ func (r *UpdateProfileRequest) Validate() error {
 	}
 	if r.Language != nil && !allowedLanguages[*r.Language] {
 		return fmt.Errorf("unsupported language: %s", *r.Language)
+	}
+	if r.DMPrivacy != nil && !allowedDMPrivacy[*r.DMPrivacy] {
+		return fmt.Errorf("unsupported dm_privacy value: %s", *r.DMPrivacy)
 	}
 	return nil
 }

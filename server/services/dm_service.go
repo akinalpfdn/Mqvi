@@ -170,25 +170,26 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		}, nil
 	}
 
-	// Determine channel status based on friendship
-	status := models.DMStatusAccepted
-	var initiatedBy *string
-	if s.friendChecker != nil {
+	// Check friends_only at channel creation time (blocks DM window entirely)
+	// Platform admins bypass all DM privacy restrictions
+	sender, _ := s.userRepo.GetByID(ctx, userID)
+	isPlatformAdmin := sender != nil && sender.IsPlatformAdmin
+
+	if !isPlatformAdmin && otherUser.DMPrivacy == "friends_only" && s.friendChecker != nil {
 		friends, err := s.friendChecker.AreFriends(ctx, userID, otherUserID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check friendship: %w", err)
 		}
 		if !friends {
-			status = models.DMStatusPending
-			initiatedBy = &userID
+			return nil, fmt.Errorf("%w: this user only accepts messages from friends", pkg.ErrForbidden)
 		}
 	}
 
+	// Channel always starts as "accepted" — pending status is set on first message in SendMessage
 	channel := &models.DMChannel{
-		User1ID:     user1,
-		User2ID:     user2,
-		Status:      status,
-		InitiatedBy: initiatedBy,
+		User1ID: user1,
+		User2ID: user2,
+		Status:  models.DMStatusAccepted,
 	}
 	if err := s.dmRepo.CreateChannel(ctx, channel); err != nil {
 		return nil, fmt.Errorf("failed to create DM channel: %w", err)
@@ -281,12 +282,13 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		return nil, err
 	}
 
+	otherUserID := channel.User1ID
+	if channel.User1ID == userID {
+		otherUserID = channel.User2ID
+	}
+
 	// Bidirectional block check
 	if s.blockChecker != nil {
-		otherUserID := channel.User1ID
-		if channel.User1ID == userID {
-			otherUserID = channel.User2ID
-		}
 		blocked, err := s.blockChecker.IsBlocked(ctx, userID, otherUserID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check block status: %w", err)
@@ -296,20 +298,58 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		}
 	}
 
-	// DM request enforcement: pending channels allow only 1 message from the initiator
-	if channel.Status == models.DMStatusPending && channel.InitiatedBy != nil && *channel.InitiatedBy == userID {
-		count, err := s.dmRepo.CountMessagesBySender(ctx, channelID, userID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to count messages: %w", err)
-		}
-		if count >= 1 {
-			return nil, fmt.Errorf("%w: dm_request_pending", pkg.ErrForbidden)
-		}
-	}
+	// DM privacy + request enforcement
 
-	// Recipient of a pending request cannot send messages until they accept
-	if channel.Status == models.DMStatusPending && channel.InitiatedBy != nil && *channel.InitiatedBy != userID {
-		return nil, fmt.Errorf("%w: dm_request_not_accepted", pkg.ErrForbidden)
+	sender, _ := s.userRepo.GetByID(ctx, userID)
+	isPlatformAdmin := sender != nil && sender.IsPlatformAdmin
+
+	if !isPlatformAdmin {
+		if channel.Status == models.DMStatusPending {
+			// Initiator already sent their 1 message
+			if channel.InitiatedBy != nil && *channel.InitiatedBy == userID {
+				return nil, fmt.Errorf("%w: dm_request_pending", pkg.ErrForbidden)
+			}
+			// Recipient must accept first
+			if channel.InitiatedBy != nil && *channel.InitiatedBy != userID {
+				return nil, fmt.Errorf("%w: dm_request_not_accepted", pkg.ErrForbidden)
+			}
+		}
+
+		// First message on an accepted channel from a non-friend → transition to pending
+		if channel.Status == models.DMStatusAccepted && s.friendChecker != nil {
+			recipient, _ := s.userRepo.GetByID(ctx, otherUserID)
+			if recipient != nil && recipient.DMPrivacy == "message_request" {
+				friends, err := s.friendChecker.AreFriends(ctx, userID, otherUserID)
+				if err != nil {
+					return nil, fmt.Errorf("failed to check friendship: %w", err)
+				}
+				if !friends {
+					msgCount, err := s.dmRepo.CountMessagesBySender(ctx, channelID, userID)
+					if err != nil {
+						return nil, fmt.Errorf("failed to count messages: %w", err)
+					}
+					if msgCount == 0 {
+						// First message: transition channel to pending
+						_ = s.dmRepo.UpdateChannelStatus(ctx, channelID, models.DMStatusPending)
+						channel.Status = models.DMStatusPending
+						channel.InitiatedBy = &userID
+						_ = s.dmRepo.SetInitiatedBy(ctx, channelID, userID)
+					} else {
+						return nil, fmt.Errorf("%w: dm_request_pending", pkg.ErrForbidden)
+					}
+				}
+			}
+			// friends_only at send time: block non-friends entirely
+			if recipient != nil && recipient.DMPrivacy == "friends_only" {
+				friends, err := s.friendChecker.AreFriends(ctx, userID, otherUserID)
+				if err != nil {
+					return nil, fmt.Errorf("failed to check friendship: %w", err)
+				}
+				if !friends {
+					return nil, fmt.Errorf("%w: this user only accepts messages from friends", pkg.ErrForbidden)
+				}
+			}
+		}
 	}
 
 	// Reply validation
@@ -371,10 +411,6 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 
 	// Auto-unhide: if either user hid this DM, show it again on new message (best-effort)
 	if s.unhider != nil {
-		otherUserID := channel.User1ID
-		if channel.User1ID == userID {
-			otherUserID = channel.User2ID
-		}
 		_ = s.unhider.UnhideForNewMessage(ctx, otherUserID, channelID)
 		_ = s.unhider.UnhideForNewMessage(ctx, userID, channelID)
 	}
@@ -394,6 +430,18 @@ func (s *dmService) BroadcastCreate(message *models.DMMessage) {
 		Data: message,
 	}
 	s.broadcastToBothUsers(channel, event)
+
+	// If channel just became pending, notify both users
+	if channel.Status == models.DMStatusPending {
+		s.broadcastToBothUsers(channel, ws.Event{
+			Op: ws.OpDMChannelStatusChange,
+			Data: map[string]any{
+				"dm_channel_id": channel.ID,
+				"status":        channel.Status,
+				"initiated_by":  channel.InitiatedBy,
+			},
+		})
+	}
 }
 
 func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, req *models.UpdateDMMessageRequest) (*models.DMMessage, error) {

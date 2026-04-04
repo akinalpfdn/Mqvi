@@ -34,6 +34,7 @@ type User struct {
 	CustomStatus    *string    `json:"custom_status"`
 	Email           *string    `json:"email"`
 	Language        string     `json:"language"`
+	DMPrivacy       string     `json:"dm_privacy"`
 	IsPlatformAdmin   bool       `json:"is_platform_admin"`
 	IsPlatformBanned      bool       `json:"is_platform_banned"`
 	HasSeenDownloadPrompt bool       `json:"has_seen_download_prompt"`
