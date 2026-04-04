@@ -4,18 +4,23 @@
  * Provides minimize, maximize/restore, close buttons when frame:false.
  * Draggable via -webkit-app-region: drag on the bar itself.
  * Close button sends to tray (isQuitting=false → window hides).
+ * Shows "Update" button when a new version is downloaded and ready.
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 function CustomTitleBar() {
+  const { t } = useTranslation("settings");
   const [isMaximized, setIsMaximized] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
 
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) return;
 
     api.onMaximizedChange((val) => setIsMaximized(val));
+    api.onUpdateDownloaded(() => setUpdateReady(true));
 
     return () => {
       api.removeMaximizedListener();
@@ -34,9 +39,19 @@ function CustomTitleBar() {
     window.electronAPI?.closeWindow();
   }
 
+  function handleUpdate() {
+    window.electronAPI?.installUpdate();
+  }
+
   return (
     <div className="custom-titlebar">
       <div className="titlebar-drag-region" />
+
+      {updateReady && (
+        <button className="titlebar-update-btn" onClick={handleUpdate}>
+          {t("updateRestart")}
+        </button>
+      )}
 
       <div className="titlebar-controls">
         <button className="titlebar-btn" onClick={handleMinimize}>

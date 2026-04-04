@@ -6,7 +6,7 @@
  * Rendered via portal to escape panel overflow:hidden.
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
@@ -30,6 +30,7 @@ function ScreenShareContextMenu({
   const screenShareVolumes = useVoiceStore((s) => s.screenShareVolumes);
   const setScreenShareVolume = useVoiceStore((s) => s.setScreenShareVolume);
   const currentVolume = screenShareVolumes[userId] ?? 100;
+  const [preMuteVolume, setPreMuteVolume] = useState(currentVolume || 100);
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -80,10 +81,21 @@ function ScreenShareContextMenu({
 
   const handleVolumeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      setScreenShareVolume(userId, Number(e.target.value));
+      const val = Number(e.target.value);
+      if (val > 0) setPreMuteVolume(val);
+      setScreenShareVolume(userId, val);
     },
     [userId, setScreenShareVolume]
   );
+
+  const handleToggleMute = useCallback(() => {
+    if (currentVolume > 0) {
+      setPreMuteVolume(currentVolume);
+      setScreenShareVolume(userId, 0);
+    } else {
+      setScreenShareVolume(userId, preMuteVolume);
+    }
+  }, [userId, currentVolume, preMuteVolume, setScreenShareVolume]);
 
   return createPortal(
     <div
@@ -114,17 +126,26 @@ function ScreenShareContextMenu({
 
         <div className="voice-ctx-slider">
           <svg
-            style={{ width: 14, height: 14 }}
+            style={{ width: 14, height: 14, cursor: "pointer", opacity: currentVolume === 0 ? 0.5 : 1 }}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
             strokeWidth={2}
+            onClick={handleToggleMute}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-            />
+            {currentVolume > 0 ? (
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+              />
+            ) : (
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 9l-6 6M11 9l6 6"
+              />
+            )}
           </svg>
           <input
             type="range"

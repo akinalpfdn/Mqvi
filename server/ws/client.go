@@ -229,7 +229,7 @@ func (c *Client) handleVoiceJoin(event Event) {
 
 	if c.hub.onVoiceJoin != nil {
 		info := c.hub.getUserInfo(c.userID)
-		go c.hub.onVoiceJoin(c.userID, info.Username, info.DisplayName, info.AvatarURL, data.ChannelID)
+		go c.hub.onVoiceJoin(c.userID, info.Username, info.DisplayName, info.AvatarURL, data.ChannelID, data.IsMuted, data.IsDeafened)
 	}
 }
 

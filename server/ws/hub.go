@@ -72,7 +72,7 @@ type UserConnectionCallback func(userID, _ string)
 
 // VoiceJoinCallback — user wants to join a voice channel.
 // displayName may be empty if the user hasn't set one.
-type VoiceJoinCallback func(userID, username, displayName, avatarURL, channelID string)
+type VoiceJoinCallback func(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool)
 
 // VoiceLeaveCallback — user wants to leave a voice channel.
 type VoiceLeaveCallback func(userID string)

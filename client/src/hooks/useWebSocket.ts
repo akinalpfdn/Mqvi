@@ -19,6 +19,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { ensureFreshToken } from "../api/client";
 import { APP_RESUME_EVENT } from "../utils/nativePlugins";
 import { useP2PCallStore } from "../stores/p2pCallStore";
+import { useVoiceStore } from "../stores/voiceStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
@@ -155,10 +156,11 @@ export function useWebSocket() {
 
   const sendVoiceJoin = useCallback((channelId: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const { isMuted, isDeafened } = useVoiceStore.getState();
       wsRef.current.send(
         JSON.stringify({
           op: "voice_join",
-          d: { channel_id: channelId },
+          d: { channel_id: channelId, is_muted: isMuted, is_deafened: isDeafened },
         })
       );
     }

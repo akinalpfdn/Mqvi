@@ -183,7 +183,9 @@ type DMTypingStartData struct {
 // ─── Voice Event Data ───
 
 type VoiceJoinData struct {
-	ChannelID string `json:"channel_id"`
+	ChannelID  string `json:"channel_id"`
+	IsMuted    bool   `json:"is_muted,omitempty"`
+	IsDeafened bool   `json:"is_deafened,omitempty"`
 }
 
 // VoiceStateUpdateRequestData — nil pointer = no change (partial update).

@@ -268,7 +268,7 @@ function AppLayout() {
 
   // Mobile layout
   if (isMobile) {
-    return (
+    const mobileContent = (
       <VoiceProvider>
         <MobileAppLayout
           sidebarProps={sidebarProps}
@@ -278,6 +278,17 @@ function AppLayout() {
         {overlays}
       </VoiceProvider>
     );
+
+    if (isElectron()) {
+      return (
+        <div className="electron-app-wrapper">
+          <CustomTitleBar />
+          {mobileContent}
+        </div>
+      );
+    }
+
+    return mobileContent;
   }
 
   // Desktop layout

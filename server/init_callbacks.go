@@ -123,8 +123,8 @@ func registerHubCallbacks(
 
 	// ─── Voice Callbacks ───
 
-	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string) {
-		if err := voiceService.JoinChannel(userID, username, displayName, avatarURL, channelID); err != nil {
+	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) {
+		if err := voiceService.JoinChannel(userID, username, displayName, avatarURL, channelID, isMuted, isDeafened); err != nil {
 			log.Printf("[voice] join error user=%s channel=%s: %v", userID, channelID, err)
 			return
 		}

@@ -56,7 +56,11 @@ function MessageInput() {
     };
   }, [addFilesRef]);
 
-  /** Auto-focus textarea when reply is selected */
+  /** Auto-focus textarea when channel changes or reply is selected */
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, [channelId]);
+
   useEffect(() => {
     if (replyingTo) {
       textareaRef.current?.focus();
