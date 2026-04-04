@@ -116,17 +116,17 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 
 	var users []models.User
 	for rows.Next() {
-		var u models.User
+		var user models.User
 		if err := rows.Scan(
-			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
-			&u.PasswordHash, &u.Status, &u.PrefStatus, &u.CustomStatus, &u.Email,
-			&u.Language, &u.IsPlatformAdmin, &u.IsPlatformBanned, &u.HasSeenDownloadPrompt, &u.HasSeenWelcome,
-			&u.PlatformBanReason, &u.PlatformBannedBy, &u.PlatformBannedAt,
-			&u.CreatedAt,
+			&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
+			&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
+			&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
+			&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
+			&user.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan user row: %w", err)
 		}
-		users = append(users, u)
+		users = append(users, user)
 	}
 
 	if err := rows.Err(); err != nil {
