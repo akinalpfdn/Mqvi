@@ -14,15 +14,24 @@ type DMChannel struct {
 	User1ID       string     `json:"user1_id"`
 	User2ID       string     `json:"user2_id"`
 	E2EEEnabled   bool       `json:"e2ee_enabled"`
+	Status        string     `json:"status"`       // "accepted" or "pending"
+	InitiatedBy   *string    `json:"initiated_by"` // user ID who sent the request (only for pending)
 	CreatedAt     time.Time  `json:"created_at"`
 	LastMessageAt *time.Time `json:"last_message_at"`
 }
+
+const (
+	DMStatusAccepted = "accepted"
+	DMStatusPending  = "pending"
+)
 
 // DMChannelWithUser includes the other participant's info for sidebar rendering.
 type DMChannelWithUser struct {
 	ID            string     `json:"id"`
 	OtherUser     *User      `json:"other_user"`
 	E2EEEnabled   bool       `json:"e2ee_enabled"`
+	Status        string     `json:"status"`
+	InitiatedBy   *string    `json:"initiated_by"`
 	CreatedAt     time.Time  `json:"created_at"`
 	LastMessageAt *time.Time `json:"last_message_at"`
 	IsPinned      bool       `json:"is_pinned"`

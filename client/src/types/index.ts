@@ -279,6 +279,8 @@ export type DMChannelWithUser = {
   id: string;
   other_user: User;
   e2ee_enabled: boolean;
+  status: "accepted" | "pending";
+  initiated_by: string | null;
   created_at: string;
   last_message_at: string | null;
   is_pinned: boolean;

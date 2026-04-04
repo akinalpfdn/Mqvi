@@ -183,6 +183,13 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
       useDMStore.getState().handleDMSettingsUpdate(msg.d as { dm_channel_id: string; action: string });
       return true;
 
+    case "dm_request_accept":
+      useDMStore.getState().handleDMRequestAccept(msg.d as { dm_channel_id: string });
+      return true;
+    case "dm_request_decline":
+      useDMStore.getState().handleDMRequestDecline(msg.d as { dm_channel_id: string });
+      return true;
+
     default:
       return false;
   }

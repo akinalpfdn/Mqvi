@@ -118,10 +118,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// DMSettingsService before DMService (DMService uses it as DMSettingsUnhider)
 	dmSettingsService := services.NewDMSettingsService(repos.DMSettings, repos.DM, hub)
 
-	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, dmSettingsService)
+	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
+	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, friendshipService, dmSettingsService)
+	friendshipService.SetDMAcceptor(dmService) // auto-accept pending DMs when friendship is accepted
 	dmUploadService := services.NewDMUploadService(repos.DM, cfg.Upload.Dir, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, hub, channelPermService)
-	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
 	reportService := services.NewReportService(repos.Report, repos.User)

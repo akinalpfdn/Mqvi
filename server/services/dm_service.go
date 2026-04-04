@@ -20,6 +20,10 @@ type DMService interface {
 	EditMessage(ctx context.Context, userID, messageID string, req *models.UpdateDMMessageRequest) (*models.DMMessage, error)
 	DeleteMessage(ctx context.Context, userID, messageID string) error
 
+	AcceptRequest(ctx context.Context, userID, channelID string) error
+	DeclineRequest(ctx context.Context, userID, channelID string) error
+	AcceptPendingChannels(ctx context.Context, userA, userB string) error
+
 	ToggleReaction(ctx context.Context, userID, messageID, emoji string) error
 	PinMessage(ctx context.Context, userID, messageID string) error
 	UnpinMessage(ctx context.Context, userID, messageID string) error
@@ -28,12 +32,18 @@ type DMService interface {
 	ToggleE2EE(ctx context.Context, userID, channelID string, enabled bool) (*models.DMChannel, error)
 }
 
+// FriendshipChecker is a minimal ISP interface for friend checks (used by dmService).
+type FriendshipChecker interface {
+	AreFriends(ctx context.Context, userA, userB string) (bool, error)
+}
+
 type dmService struct {
-	dmRepo       repository.DMRepository
-	userRepo     repository.UserRepository
-	hub          ws.Broadcaster
-	blockChecker BlockChecker
-	unhider      DMSettingsUnhider
+	dmRepo        repository.DMRepository
+	userRepo      repository.UserRepository
+	hub           ws.Broadcaster
+	blockChecker  BlockChecker
+	friendChecker FriendshipChecker
+	unhider       DMSettingsUnhider
 }
 
 func NewDMService(
@@ -41,14 +51,16 @@ func NewDMService(
 	userRepo repository.UserRepository,
 	hub ws.Broadcaster,
 	blockChecker BlockChecker,
+	friendshipChecker FriendshipChecker,
 	unhider DMSettingsUnhider,
 ) DMService {
 	return &dmService{
-		dmRepo:       dmRepo,
-		userRepo:     userRepo,
-		hub:          hub,
-		blockChecker: blockChecker,
-		unhider:      unhider,
+		dmRepo:        dmRepo,
+		userRepo:      userRepo,
+		hub:           hub,
+		blockChecker:  blockChecker,
+		friendChecker: friendshipChecker,
+		unhider:       unhider,
 	}
 }
 
@@ -151,14 +163,32 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		return &models.DMChannelWithUser{
 			ID:            existing.ID,
 			OtherUser:     otherUser,
+			Status:        existing.Status,
+			InitiatedBy:   existing.InitiatedBy,
 			CreatedAt:     existing.CreatedAt,
 			LastMessageAt: existing.LastMessageAt,
 		}, nil
 	}
 
+	// Determine channel status based on friendship
+	status := models.DMStatusAccepted
+	var initiatedBy *string
+	if s.friendChecker != nil {
+		friends, err := s.friendChecker.AreFriends(ctx, userID, otherUserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check friendship: %w", err)
+		}
+		if !friends {
+			status = models.DMStatusPending
+			initiatedBy = &userID
+		}
+	}
+
 	channel := &models.DMChannel{
-		User1ID: user1,
-		User2ID: user2,
+		User1ID:     user1,
+		User2ID:     user2,
+		Status:      status,
+		InitiatedBy: initiatedBy,
 	}
 	if err := s.dmRepo.CreateChannel(ctx, channel); err != nil {
 		return nil, fmt.Errorf("failed to create DM channel: %w", err)
@@ -167,6 +197,8 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 	result := &models.DMChannelWithUser{
 		ID:            channel.ID,
 		OtherUser:     otherUser,
+		Status:        channel.Status,
+		InitiatedBy:   channel.InitiatedBy,
 		CreatedAt:     channel.CreatedAt,
 		LastMessageAt: channel.LastMessageAt,
 	}
@@ -262,6 +294,22 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		if blocked {
 			return nil, fmt.Errorf("%w: cannot send message to blocked user", pkg.ErrForbidden)
 		}
+	}
+
+	// DM request enforcement: pending channels allow only 1 message from the initiator
+	if channel.Status == models.DMStatusPending && channel.InitiatedBy != nil && *channel.InitiatedBy == userID {
+		count, err := s.dmRepo.CountMessagesBySender(ctx, channelID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count messages: %w", err)
+		}
+		if count >= 1 {
+			return nil, fmt.Errorf("%w: dm_request_pending", pkg.ErrForbidden)
+		}
+	}
+
+	// Recipient of a pending request cannot send messages until they accept
+	if channel.Status == models.DMStatusPending && channel.InitiatedBy != nil && *channel.InitiatedBy != userID {
+		return nil, fmt.Errorf("%w: dm_request_not_accepted", pkg.ErrForbidden)
 	}
 
 	// Reply validation
@@ -403,6 +451,91 @@ func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string)
 		Data: map[string]string{
 			"id":            messageID,
 			"dm_channel_id": msg.DMChannelID,
+		},
+	})
+
+	return nil
+}
+
+// ─── DM Request Operations ───
+
+func (s *dmService) AcceptRequest(ctx context.Context, userID, channelID string) error {
+	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
+	if err != nil {
+		return err
+	}
+
+	if channel.Status != models.DMStatusPending {
+		return fmt.Errorf("%w: channel is not pending", pkg.ErrBadRequest)
+	}
+
+	// Only the recipient (non-initiator) can accept
+	if channel.InitiatedBy != nil && *channel.InitiatedBy == userID {
+		return fmt.Errorf("%w: only the recipient can accept a DM request", pkg.ErrForbidden)
+	}
+
+	if err := s.dmRepo.UpdateChannelStatus(ctx, channelID, models.DMStatusAccepted); err != nil {
+		return fmt.Errorf("failed to accept DM request: %w", err)
+	}
+
+	s.broadcastToBothUsers(channel, ws.Event{
+		Op: ws.OpDMRequestAccept,
+		Data: map[string]string{
+			"dm_channel_id": channelID,
+		},
+	})
+
+	return nil
+}
+
+func (s *dmService) DeclineRequest(ctx context.Context, userID, channelID string) error {
+	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
+	if err != nil {
+		return err
+	}
+
+	if channel.Status != models.DMStatusPending {
+		return fmt.Errorf("%w: channel is not pending", pkg.ErrBadRequest)
+	}
+
+	// Only the recipient can decline
+	if channel.InitiatedBy != nil && *channel.InitiatedBy == userID {
+		return fmt.Errorf("%w: only the recipient can decline a DM request", pkg.ErrForbidden)
+	}
+
+	s.broadcastToBothUsers(channel, ws.Event{
+		Op: ws.OpDMRequestDecline,
+		Data: map[string]string{
+			"dm_channel_id": channelID,
+		},
+	})
+
+	if err := s.dmRepo.DeleteChannel(ctx, channelID); err != nil {
+		return fmt.Errorf("failed to decline DM request: %w", err)
+	}
+
+	return nil
+}
+
+// AcceptPendingChannels auto-accepts pending DMs when two users become friends.
+func (s *dmService) AcceptPendingChannels(ctx context.Context, userA, userB string) error {
+	u1, u2 := sortUserIDs(userA, userB)
+	ch, err := s.dmRepo.GetChannelByUsers(ctx, u1, u2)
+	if err != nil || ch == nil {
+		return nil // no channel exists, nothing to do
+	}
+	if ch.Status != models.DMStatusPending {
+		return nil
+	}
+
+	if err := s.dmRepo.UpdateChannelStatus(ctx, ch.ID, models.DMStatusAccepted); err != nil {
+		return fmt.Errorf("failed to auto-accept pending DM: %w", err)
+	}
+
+	s.broadcastToBothUsers(ch, ws.Event{
+		Op: ws.OpDMRequestAccept,
+		Data: map[string]string{
+			"dm_channel_id": ch.ID,
 		},
 	})
 

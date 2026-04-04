@@ -91,6 +91,10 @@ func initRoutes(
 	mux.Handle("POST /api/dms/channels/{channelId}/mute", auth(h.DMSettings.MuteDM))
 	mux.Handle("DELETE /api/dms/channels/{channelId}/mute", auth(h.DMSettings.UnmuteDM))
 
+	// DM Request accept/decline
+	mux.Handle("POST /api/dms/channels/{channelId}/accept", auth(h.DM.AcceptRequest))
+	mux.Handle("POST /api/dms/channels/{channelId}/decline", auth(h.DM.DeclineRequest))
+
 	// DM Messages
 	mux.Handle("GET /api/dms/{channelId}/messages", auth(h.DM.GetMessages))
 	mux.Handle("POST /api/dms/{channelId}/messages", auth(h.DM.SendMessage))

@@ -2007,6 +2007,73 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .e2ee-warning-banner { display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--yellow-s);border-bottom:1px solid var(--b1);color:var(--yellow);font-size:13px;flex-shrink:0; }
 .e2ee-warning-banner svg { color:var(--yellow); }
 
+/* DM Request Banner */
+.dm-request-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--accent-s);
+  border-bottom: 1px solid var(--b1);
+  color: var(--t1);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.dm-request-banner--waiting {
+  background: var(--bg-2);
+  color: var(--t2);
+  justify-content: center;
+}
+.dm-request-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.dm-request-accept {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dm-request-accept:hover { opacity: 0.9; }
+.dm-request-decline {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--b1);
+  background: transparent;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dm-request-decline:hover { background: var(--bg-1); color: var(--red); border-color: var(--red); }
+
+/* DM Request sidebar section */
+.ch-tree-dm-requests {
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--b1);
+}
+.ch-tree-dm-requests-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.ch-tree-dm--pending {
+  opacity: 0.85;
+}
+
 /* DM unread badge — per-channel */
 .dm-unread-badge {
   flex-shrink:0;

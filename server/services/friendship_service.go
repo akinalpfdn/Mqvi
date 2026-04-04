@@ -15,12 +15,19 @@ import (
 )
 
 type FriendshipService interface {
+	AreFriends(ctx context.Context, userA, userB string) (bool, error)
 	SendRequest(ctx context.Context, senderID string, req *models.SendFriendRequestRequest) (*models.FriendshipWithUser, error)
 	AcceptRequest(ctx context.Context, userID, requestID string) (*models.FriendshipWithUser, error)
 	DeclineRequest(ctx context.Context, userID, requestID string) error
 	RemoveFriend(ctx context.Context, userID, targetUserID string) error
 	ListFriends(ctx context.Context, userID string) ([]models.FriendshipWithUser, error)
 	ListRequests(ctx context.Context, userID string) (*FriendRequestsResponse, error)
+	SetDMAcceptor(acceptor DMRequestAcceptor)
+}
+
+// DMRequestAcceptor is a minimal ISP interface for auto-accepting pending DMs.
+type DMRequestAcceptor interface {
+	AcceptPendingChannels(ctx context.Context, userA, userB string) error
 }
 
 type FriendRequestsResponse struct {
@@ -29,9 +36,10 @@ type FriendRequestsResponse struct {
 }
 
 type friendshipService struct {
-	friendRepo repository.FriendshipRepository
-	userRepo   repository.UserRepository
-	hub        ws.Broadcaster
+	friendRepo  repository.FriendshipRepository
+	userRepo    repository.UserRepository
+	hub         ws.Broadcaster
+	dmAcceptor  DMRequestAcceptor
 }
 
 func NewFriendshipService(
@@ -44,6 +52,22 @@ func NewFriendshipService(
 		userRepo:   userRepo,
 		hub:        hub,
 	}
+}
+
+func (s *friendshipService) SetDMAcceptor(acceptor DMRequestAcceptor) {
+	s.dmAcceptor = acceptor
+}
+
+// AreFriends checks if two users have an accepted friendship. Satisfies FriendChecker ISP.
+func (s *friendshipService) AreFriends(ctx context.Context, userA, userB string) (bool, error) {
+	f, err := s.friendRepo.GetByPair(ctx, userA, userB)
+	if err != nil {
+		if errors.Is(err, pkg.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return f.Status == models.FriendshipStatusAccepted, nil
 }
 
 func (s *friendshipService) SendRequest(ctx context.Context, senderID string, req *models.SendFriendRequestRequest) (*models.FriendshipWithUser, error) {
@@ -165,6 +189,11 @@ func (s *friendshipService) acceptExisting(ctx context.Context, existing *models
 		},
 	})
 
+	// Auto-accept any pending DM requests between the two users
+	if s.dmAcceptor != nil {
+		_ = s.dmAcceptor.AcceptPendingChannels(ctx, existing.UserID, acceptorID)
+	}
+
 	return &models.FriendshipWithUser{
 		ID:               existing.ID,
 		Status:           models.FriendshipStatusAccepted,
@@ -222,6 +251,11 @@ func (s *friendshipService) AcceptRequest(ctx context.Context, userID, requestID
 			UserCustomStatus: acceptor.CustomStatus,
 		},
 	})
+
+	// Auto-accept any pending DM requests between the two users
+	if s.dmAcceptor != nil {
+		_ = s.dmAcceptor.AcceptPendingChannels(ctx, friendship.UserID, friendship.FriendID)
+	}
 
 	return &models.FriendshipWithUser{
 		ID:               friendship.ID,
