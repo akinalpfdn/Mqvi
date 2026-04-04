@@ -159,7 +159,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 }
 .lp-nav-link {
   color: var(--lp-text-muted);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   text-decoration: none;
   transition: color 0.2s;
@@ -182,7 +182,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   border: none;
   background: transparent;
   color: var(--lp-text-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
@@ -201,7 +201,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   background: var(--lp-accent-dim);
   color: var(--lp-accent);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   font-family: inherit;
   transition: background 0.2s;
@@ -244,11 +244,11 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 16px 6px 8px;
+  padding: 8px 18px 8px 10px;
   border-radius: 20px;
   background: var(--lp-accent-dim);
   border: 1px solid rgba(32, 219, 176, 0.2);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--lp-accent);
   margin-bottom: 16px;
@@ -265,7 +265,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -1.5px;
-  max-width: 900px;
+  max-width: 70vw;
   margin-bottom: 24px;
   animation: lp-fadeUp 0.8s ease 0.1s both;
 }
@@ -273,9 +273,9 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   color: var(--lp-accent);
 }
 .lp-hero p {
-  font-size: clamp(16px, 2vw, 20px);
+  font-size: clamp(18px, 2.2vw, 22px);
   color: var(--lp-text-muted);
-  max-width: 560px;
+  max-width: 45vw;
   line-height: 1.7;
   margin-bottom: 0;
   animation: lp-fadeUp 0.8s ease 0.2s both;
@@ -288,26 +288,26 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   animation: lp-fadeUp 0.8s ease 0.3s both;
 }
 .lp-btn-primary {
-  padding: 14px 36px;
+  padding: 16px 40px;
   border-radius: 12px;
   border: none;
   background: var(--lp-accent);
   color: var(--lp-bg);
   font-weight: 700;
-  font-size: 15px;
+  font-size: 17px;
   cursor: pointer;
   font-family: inherit;
   transition: opacity 0.2s;
 }
 .lp-btn-primary:hover { opacity: 0.9; }
 .lp-btn-secondary {
-  padding: 14px 36px;
+  padding: 16px 40px;
   border-radius: 12px;
   border: 1px solid var(--lp-border);
   background: var(--lp-surface);
   color: var(--lp-text);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 17px;
   cursor: pointer;
   font-family: inherit;
   transition: border-color 0.2s;
@@ -318,12 +318,12 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   align-items: center;
   gap: 10px;
   margin-top: 12px;
-  padding: 14px 40px;
+  padding: 16px 44px;
   border-radius: 12px;
   border: 2px solid var(--lp-accent);
   background: transparent;
   color: var(--lp-accent);
-  font-size: 16px;
+  font-size: 18px;
   font-family: inherit;
   cursor: pointer;
   font-weight: 700;
@@ -342,7 +342,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-hero-video-wrap {
   margin-top: 48px;
   width: 100%;
-  max-width: 900px;
+  max-width: 70vw;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--lp-border);
@@ -375,13 +375,13 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   flex: 1;
 }
 .lp-showcase-text h3 {
-  font-size: 24px;
+  font-size: 30px;
   font-weight: 700;
   margin-bottom: 14px;
   letter-spacing: -0.3px;
 }
 .lp-showcase-text p {
-  font-size: 16px;
+  font-size: 18px;
   color: var(--lp-text-muted);
   line-height: 1.7;
   margin: 0;
@@ -399,11 +399,11 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
    ═══════════════════════════════════════ */
 .lp-section {
   padding: 120px 40px;
-  max-width: 1200px;
+  max-width: 80vw;
   margin: 0 auto;
 }
 .lp-section-label {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -411,17 +411,17 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   margin-bottom: 16px;
 }
 .lp-section-title {
-  font-size: clamp(26px, 3.5vw, 38px);
+  font-size: clamp(32px, 4.5vw, 48px);
   font-weight: 700;
   letter-spacing: -0.5px;
   line-height: 1.2;
   margin-bottom: 20px;
 }
 .lp-section-desc {
-  font-size: 17px;
+  font-size: 20px;
   color: var(--lp-text-muted);
   line-height: 1.7;
-  max-width: 560px;
+  max-width: 45vw;
 }
 .lp-section--center { text-align: center; }
 .lp-section--center .lp-section-desc { margin: 0 auto; }
@@ -585,12 +585,12 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   color: var(--lp-accent);
 }
 .lp-feature-card h3 {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 700;
   margin-bottom: 10px;
 }
 .lp-feature-card p {
-  font-size: 13px;
+  font-size: 16px;
   color: var(--lp-text-muted);
   line-height: 1.65;
   margin: 0;
@@ -615,13 +615,13 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 }
 .lp-comp-cell {
   padding: 16px 24px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
   display: flex;
   align-items: center;
 }
 .lp-comp-cell--header {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   justify-content: center;
 }
@@ -640,7 +640,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   opacity: 0.6;
 }
 .lp-comp-text-bad {
-  font-size: 13px;
+  font-size: 16px;
   color: var(--lp-tertiary);
 }
 
@@ -707,7 +707,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-guide-os-tabs {
   display: flex;
   gap: 8px;
-  max-width: 780px;
+  max-width: 60vw;
   margin: 40px auto 0;
   padding: 6px;
   border-radius: 12px;
@@ -781,7 +781,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 /* ═══════════════════════════════════════
    SELF-HOST GUIDE
    ═══════════════════════════════════════ */
-.lp-guide { max-width: 780px; margin: 60px auto 0; display: flex; flex-direction: column; gap: 0; position: relative; }
+.lp-guide { max-width: 60vw; margin: 60px auto 0; display: flex; flex-direction: column; gap: 0; position: relative; }
 /* Sol taraftaki dikey bağlantı çizgisi */
 .lp-guide::before {
   content: "";
@@ -808,8 +808,8 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   z-index: 1;
 }
 .lp-guide-step-content { flex: 1; min-width: 0; }
-.lp-guide-step-title { font-size: 20px; font-weight: 700; color: var(--lp-text); margin-bottom: 8px; }
-.lp-guide-step-desc { font-size: 15px; color: var(--lp-text-muted); line-height: 1.7; margin-bottom: 16px; }
+.lp-guide-step-title { font-size: 22px; font-weight: 700; color: var(--lp-text); margin-bottom: 8px; }
+.lp-guide-step-desc { font-size: 16px; color: var(--lp-text-muted); line-height: 1.7; margin-bottom: 16px; }
 
 /* Provider tag'ları */
 .lp-guide-providers { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
@@ -916,7 +916,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   margin-bottom: 6px;
 }
 .lp-guide-ssl-desc {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--lp-text-secondary);
   line-height: 1.7;
 }
@@ -936,18 +936,18 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   border: 1px solid var(--lp-border);
 }
 .lp-guide-trouble-q {
-  font-size: 15px; font-weight: 600; color: var(--lp-text);
+  font-size: 17px; font-weight: 600; color: var(--lp-text);
   margin-bottom: 8px;
 }
 .lp-guide-trouble-a {
-  font-size: 14px; color: var(--lp-text-muted); line-height: 1.6;
+  font-size: 15px; color: var(--lp-text-muted); line-height: 1.6;
 }
 
 /* ═══════════════════════════════════════
    FAQ
    ═══════════════════════════════════════ */
 .lp-faq-grid {
-  max-width: 900px;
+  max-width: 70vw;
   margin: 0 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -963,13 +963,13 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 }
 .lp-faq-item:hover { border-color: var(--lp-accent); }
 .lp-faq-q {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--lp-text);
   margin-bottom: 8px;
 }
 .lp-faq-a {
-  font-size: 14px;
+  font-size: 16px;
   color: var(--lp-text-muted);
   line-height: 1.6;
 }
@@ -994,16 +994,16 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   pointer-events: none;
 }
 .lp-cta h2 {
-  font-size: clamp(28px, 4vw, 42px);
+  font-size: clamp(34px, 5vw, 52px);
   font-weight: 700;
   letter-spacing: -1px;
   margin-bottom: 20px;
 }
 .lp-cta p {
-  font-size: 18px;
+  font-size: 20px;
   color: var(--lp-text-muted);
   margin-bottom: 40px;
-  max-width: 480px;
+  max-width: 40vw;
   margin-left: auto;
   margin-right: auto;
   line-height: 1.7;
@@ -1024,7 +1024,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1200px;
+  max-width: 80vw;
   margin: 0 auto;
   flex-wrap: wrap;
   gap: 16px;
@@ -1046,7 +1046,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   color: #fff;
 }
 .lp-footer-copy {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--lp-text-dim);
 }
 .lp-footer-links {
@@ -1054,7 +1054,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   gap: 24px;
 }
 .lp-footer-link {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--lp-text-muted);
   text-decoration: none;
   transition: color 0.2s;
@@ -1065,7 +1065,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
    PRIVACY PAGE
    ═══════════════════════════════════════ */
 .privacy-content {
-  max-width: 720px;
+  max-width: 55vw;
   margin: 0 auto;
   padding: 120px 24px 80px;
   color: var(--lp-text);
@@ -1168,7 +1168,16 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   /* ── Sections ── */
   .lp-section {
     padding: 80px 20px;
+    max-width: 100%;
   }
+  .lp-section-desc { max-width: 100%; }
+  .lp-hero p { max-width: 100%; }
+  .lp-hero-video-wrap { max-width: 100%; }
+  .lp-guide-os-tabs { max-width: 100%; }
+  .lp-guide { max-width: 100%; }
+  .lp-faq-grid { max-width: 100%; }
+  .lp-cta p { max-width: 100%; }
+  .lp-footer { max-width: 100%; }
 
   /* ── Problem ── */
   .lp-problem {
