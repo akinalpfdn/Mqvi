@@ -22,6 +22,7 @@ import ConnectionsSettings from "./ConnectionsSettings";
 import EncryptionSettings from "./EncryptionSettings";
 import GeneralSettings from "./GeneralSettings";
 import FeedbackSettings from "./FeedbackSettings";
+import BlockedUsersSettings from "./BlockedUsersSettings";
 import AdminFeedbackList from "./AdminFeedbackList";
 
 function SettingsModal() {
@@ -118,6 +119,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "feedback":
       return <FeedbackSettings />;
+
+    case "blocked-users":
+      return <BlockedUsersSettings />;
 
     case "platform":
       return <PlatformSettings />;

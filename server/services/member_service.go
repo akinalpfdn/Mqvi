@@ -140,6 +140,9 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 	if req.Language != nil {
 		user.Language = *req.Language
 	}
+	if req.DMPrivacy != nil {
+		user.DMPrivacy = *req.DMPrivacy
+	}
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to update user profile: %w", err)

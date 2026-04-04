@@ -85,6 +85,40 @@ func (h *DMHandler) CreateOrGetChannel(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, channel)
 }
 
+// AcceptRequest handles POST /api/dms/{channelId}/accept
+func (h *DMHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("channelId")
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	if err := h.dmService.AcceptRequest(r.Context(), user.ID, channelID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeclineRequest handles POST /api/dms/{channelId}/decline
+func (h *DMHandler) DeclineRequest(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("channelId")
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	if err := h.dmService.DeclineRequest(r.Context(), user.ID, channelID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // GetMessages handles GET /api/dms/{channelId}/messages?before=&limit=
 func (h *DMHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")

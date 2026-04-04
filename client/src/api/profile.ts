@@ -12,6 +12,7 @@ type UpdateProfileRequest = {
   display_name?: string | null;
   custom_status?: string | null;
   language?: string;
+  dm_privacy?: string;
 };
 
 export async function updateProfile(data: UpdateProfileRequest) {

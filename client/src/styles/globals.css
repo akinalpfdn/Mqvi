@@ -1140,6 +1140,27 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .settings-select { width:100%;max-width:400px;height:40px;background:var(--bg-3);border:1px solid var(--b1);border-radius:8px;padding:0 12px;color:var(--t0);font-size:14px;font-family:var(--f-ui);outline:none;cursor:pointer;appearance:none; }
 .settings-field { margin-bottom:16px; }
 .settings-field-hint { display:block;margin-top:4px;font-size:13px;color:var(--t3); }
+.settings-separator { height:1px;background:var(--b1);margin:24px 0; }
+.settings-section-desc { font-size:14px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
+.settings-empty { font-size:14px;color:var(--t3);padding:24px 0;text-align:center; }
+.settings-loading { font-size:14px;color:var(--t3);padding:24px 0;text-align:center; }
+
+/* Blocked Users */
+.blocked-users-list { display:flex;flex-direction:column;gap:8px; }
+.blocked-user-item {
+  display:flex;align-items:center;gap:12px;padding:10px 14px;
+  border-radius:8px;background:var(--bg-3);border:1px solid var(--b1);
+}
+.blocked-user-info { flex:1;min-width:0; }
+.blocked-user-name { display:block;font-size:14px;font-weight:600;color:var(--t0); }
+.blocked-user-username { display:block;font-size:13px;color:var(--t3); }
+.blocked-user-unblock {
+  padding:6px 14px;border-radius:6px;border:1px solid var(--b1);
+  background:transparent;color:var(--t1);font-size:13px;font-weight:600;
+  cursor:pointer;font-family:inherit;transition:border-color .15s,color .15s;
+}
+.blocked-user-unblock:hover { border-color:var(--accent);color:var(--accent); }
+
 .settings-btn { height:36px;padding:0 20px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--f-ui);transition:background .15s; }
 .settings-btn:hover { background:var(--primary-h); }
 .settings-btn:disabled { opacity:.5;cursor:not-allowed; }
@@ -2006,6 +2027,92 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .dm-loading { flex:1;display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:13px; }
 .e2ee-warning-banner { display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--yellow-s);border-bottom:1px solid var(--b1);color:var(--yellow);font-size:13px;flex-shrink:0; }
 .e2ee-warning-banner svg { color:var(--yellow); }
+
+/* DM Request Banner */
+.dm-request-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--accent-s);
+  border-bottom: 1px solid var(--b1);
+  color: var(--t1);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.dm-request-banner--waiting {
+  background: var(--bg-2);
+  color: var(--t2);
+  justify-content: center;
+}
+.dm-request-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.dm-request-accept {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dm-request-accept:hover { opacity: 0.9; }
+.dm-request-decline {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--b1);
+  background: transparent;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dm-request-decline:hover { background: var(--bg-1); color: var(--red); border-color: var(--red); }
+.dm-request-block {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--red);
+  background: transparent;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dm-request-block:hover { background: var(--red); color: #fff; }
+
+/* DM Request sidebar section */
+.ch-tree-dm-requests {
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--b1);
+}
+.ch-tree-dm-requests-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.ch-tree-dm-requests-label:hover { color: var(--accent-h, var(--accent)); }
+.ch-tree-dm--pending {
+  opacity: 0.85;
+}
 
 /* DM unread badge — per-channel */
 .dm-unread-badge {

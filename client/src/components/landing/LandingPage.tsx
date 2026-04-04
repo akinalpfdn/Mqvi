@@ -10,6 +10,7 @@ import { FEATURES, COMPARISON_ROWS } from "./landingData";
 import "../../styles/landing.css";
 
 import { detectOS } from "../../utils/detectOS";
+import SmartScreenGuide from "./SmartScreenGuide";
 
 const LANDING_ASSETS = "/static/landing";
 
@@ -25,6 +26,7 @@ function LandingPage() {
   const navigate = useNavigate();
   const [totalUsers, setTotalUsers] = useState(0);
   const [guideOS, setGuideOS] = useState<"linux" | "windows">("linux");
+  const [showSmartScreen, setShowSmartScreen] = useState(false);
 
   useEffect(() => {
     getPublicStats().then((res) => {
@@ -37,7 +39,9 @@ function LandingPage() {
 
   const currentLang = i18n.language?.startsWith("tr") ? "tr" : "en";
   const lang = currentLang;
-  const { url: downloadUrl, i18nKey: downloadKey } = detectOS();
+  const osInfo = detectOS();
+  const { url: downloadUrl, i18nKey: downloadKey } = osInfo;
+  const isWindows = osInfo.os === "windows";
 
   return (
     <div className="landing-page">
@@ -101,14 +105,28 @@ function LandingPage() {
           </h1>
           <p className="lp-hero-sub">{t("hero_sub")}</p>
 
-          <a href={downloadUrl} className="lp-download-link" target="_blank" rel="noopener noreferrer">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            {t(downloadKey)}
-          </a>
+          {isWindows ? (
+            <button
+              className="lp-download-link"
+              onClick={() => setShowSmartScreen(true)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {t(downloadKey)}
+            </button>
+          ) : (
+            <a href={downloadUrl} className="lp-download-link" target="_blank" rel="noopener noreferrer">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {t(downloadKey)}
+            </a>
+          )}
 
           {/* Demo Video */}
           <div className="lp-hero-video-wrap">
@@ -431,6 +449,13 @@ function LandingPage() {
         </footer>
 
       </div>
+
+      {showSmartScreen && (
+        <SmartScreenGuide
+          onClose={() => setShowSmartScreen(false)}
+          downloadUrl={downloadUrl}
+        />
+      )}
     </div>
   );
 }

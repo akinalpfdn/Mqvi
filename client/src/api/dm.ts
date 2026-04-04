@@ -205,6 +205,16 @@ export function unmuteDM(channelId: string) {
   return apiClient<void>(`/dms/channels/${channelId}/mute`, { method: "DELETE" });
 }
 
+// ─── DM Requests ───
+
+export function acceptDMRequest(channelId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/accept`, { method: "POST" });
+}
+
+export function declineDMRequest(channelId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/decline`, { method: "POST" });
+}
+
 // ─── E2EE Toggle ───
 
 /** Toggle E2EE on a DM channel. Either participant can change it. */

@@ -20,6 +20,7 @@ import DMMuteDurationPicker from "../dm/DMMuteDurationPicker";
 import ReportModal from "../shared/ReportModal";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
+import { useAuthStore } from "../../stores/authStore";
 import type { DMChannelWithUser, User } from "../../types";
 
 type DMSectionProps = {
@@ -70,7 +71,17 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
   } | null>(null);
 
   const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const isExpanded = expandedSections["dms"] ?? true;
+  const [requestsExpanded, setRequestsExpanded] = useState(false);
+
+  const acceptedChannels = dmChannels.filter((dm) => dm.status !== "pending");
+  const pendingChannels = dmChannels.filter(
+    (dm) => dm.status === "pending" && dm.initiated_by !== currentUserId
+  );
+  const pendingOutgoing = dmChannels.filter(
+    (dm) => dm.status === "pending" && dm.initiated_by === currentUserId
+  );
 
   function handleDMClick(dmId: string, userName: string) {
     selectDM(dmId);
@@ -225,12 +236,40 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
 
         {isExpanded && (
           <div className="ch-tree-section-body">
-            {dmChannels.length === 0 ? (
+            {/* ── Message Requests (collapsible, default collapsed) ── */}
+            {pendingChannels.length > 0 && (
+              <div className="ch-tree-dm-requests">
+                <button
+                  className="ch-tree-dm-requests-label"
+                  onClick={() => setRequestsExpanded((v) => !v)}
+                >
+                  <span className={`ch-tree-chevron${requestsExpanded ? " expanded" : ""}`}>&#x276F;</span>
+                  <span>{tDM("messageRequests")}</span>
+                  <span className="ch-tree-badge">{pendingChannels.length}</span>
+                </button>
+                {requestsExpanded && pendingChannels.map((dm) => {
+                  const isActive = dm.id === selectedDMId;
+                  const name = dm.other_user.display_name || dm.other_user.username;
+                  return (
+                    <button
+                      key={dm.id}
+                      className={`ch-tree-item ch-tree-dm ch-tree-dm--pending${isActive ? " active" : ""}`}
+                      onClick={() => handleDMClick(dm.id, name)}
+                    >
+                      <Avatar name={name} avatarUrl={dm.other_user.avatar_url} size={24} isCircle />
+                      <span className="ch-tree-label">{name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/* ── Normal DMs + outgoing pending ── */}
+            {[...acceptedChannels, ...pendingOutgoing].length === 0 && pendingChannels.length === 0 ? (
               <div className="ch-tree-placeholder">
                 <span className="ch-tree-placeholder-text">—</span>
               </div>
             ) : (
-              dmChannels.map((dm) => {
+              [...acceptedChannels, ...pendingOutgoing].map((dm) => {
                 const isActive = dm.id === selectedDMId;
                 const unread = dmUnreadCounts[dm.id] ?? 0;
                 const name = dm.other_user.display_name || dm.other_user.username;

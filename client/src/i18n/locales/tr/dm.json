@@ -55,5 +55,11 @@
 
   "reportEvidenceLabel": "Kanıt (İsteğe Bağlı)",
   "reportEvidenceHint": "Ekran görüntülerini sürükleyin veya yapıştırın (max 4 resim)",
-  "reportMaxFiles": "En fazla 4 resim eklenebilir"
+  "reportMaxFiles": "En fazla 4 resim eklenebilir",
+
+  "messageRequests": "Mesaj İstekleri",
+  "dmRequestReceived": "{{name}} sana mesaj göndermek istiyor",
+  "dmRequestAccept": "Kabul Et",
+  "dmRequestDecline": "Reddet",
+  "dmRequestWaiting": "Alıcının mesaj isteğinizi kabul etmesi bekleniyor"
 }

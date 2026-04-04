@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { useToastStore } from "../../stores/toastStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -21,6 +22,7 @@ import DMSearchPanel from "./DMSearchPanel";
 import FileDropOverlay from "../shared/FileDropOverlay";
 import Avatar from "../shared/Avatar";
 import * as e2eeApi from "../../api/e2ee";
+import { useAuthStore } from "../../stores/authStore";
 import type { User } from "../../types";
 
 type DMChatProps = {
@@ -60,6 +62,7 @@ function DMChatContent({
   otherUser: User | null;
 }) {
   const { t } = useTranslation("chat");
+  const { t: tDM } = useTranslation("dm");
   const { t: tCommon } = useTranslation("common");
   const { t: tE2EE } = useTranslation("e2ee");
   const { addFilesRef } = useChatContext();
@@ -73,6 +76,15 @@ function DMChatContent({
   const channels = useDMStore((s) => s.channels);
   const dmE2EEEnabled = channels.find((ch) => ch.id === channelId)?.e2ee_enabled ?? false;
   const addToast = useToastStore((s) => s.addToast);
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const acceptDMRequest = useDMStore((s) => s.acceptDMRequest);
+  const declineDMRequest = useDMStore((s) => s.declineDMRequest);
+  const blockUser = useBlockStore((s) => s.blockUser);
+
+  const dmChannel = channels.find((ch) => ch.id === channelId);
+  const isPending = dmChannel?.status === "pending";
+  const isInitiator = isPending && dmChannel?.initiated_by === currentUserId;
+  const isRecipient = isPending && !isInitiator;
 
   const [showPins, setShowPins] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -251,6 +263,37 @@ function DMChatContent({
         </div>
       )}
 
+      {/* ─── DM Request Banner ─── */}
+      {isRecipient && (
+        <div className="dm-request-banner">
+          <span>{tDM("dmRequestReceived", { name: channelName })}</span>
+          <div className="dm-request-actions">
+            <button className="dm-request-accept" onClick={() => acceptDMRequest(channelId)}>
+              {tDM("dmRequestAccept")}
+            </button>
+            <button className="dm-request-decline" onClick={() => declineDMRequest(channelId)}>
+              {tDM("dmRequestDecline")}
+            </button>
+            <button
+              className="dm-request-block"
+              onClick={() => {
+                if (otherUser) {
+                  blockUser(otherUser.id);
+                  declineDMRequest(channelId);
+                }
+              }}
+            >
+              {tDM("blockUser")}
+            </button>
+          </div>
+        </div>
+      )}
+      {isInitiator && (
+        <div className="dm-request-banner dm-request-banner--waiting">
+          <span>{tDM("dmRequestWaiting")}</span>
+        </div>
+      )}
+
       {/* ─── DM Pinned Messages Panel ─── */}
       {showPins && (
         <DMPinnedMessages
@@ -274,7 +317,7 @@ function DMChatContent({
       <TypingIndicator />
 
       {/* ─── Message Input (shared component) ─── */}
-      <MessageInput />
+      {isPending ? null : <MessageInput />}
     </div>
   );
 }

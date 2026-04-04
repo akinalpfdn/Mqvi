@@ -13,6 +13,10 @@ type DMRepository interface {
 	GetChannelByID(ctx context.Context, id string) (*models.DMChannel, error)
 	ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error)
 	CreateChannel(ctx context.Context, channel *models.DMChannel) error
+	UpdateChannelStatus(ctx context.Context, channelID, status string) error
+	SetInitiatedBy(ctx context.Context, channelID, userID string) error
+	CountMessagesBySender(ctx context.Context, channelID, userID string) (int, error)
+	DeleteChannel(ctx context.Context, channelID string) error
 	SetE2EEEnabled(ctx context.Context, channelID string, enabled bool) error
 
 	// Message operations

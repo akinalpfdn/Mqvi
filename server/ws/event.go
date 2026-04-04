@@ -64,7 +64,10 @@ const (
 	OpDMTypingStart    = "dm_typing_start"
 	OpDMMessagePin     = "dm_message_pin"
 	OpDMMessageUnpin   = "dm_message_unpin"
-	OpDMSettingsUpdate = "dm_settings_update"
+	OpDMSettingsUpdate  = "dm_settings_update"
+	OpDMRequestAccept      = "dm_request_accept"
+	OpDMRequestDecline     = "dm_request_decline"
+	OpDMChannelStatusChange = "dm_channel_status_change"
 
 	// Block operations
 	OpUserBlock   = "user_block"

@@ -61,6 +61,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
               is_platform_admin: false,
               has_seen_download_prompt: false,
               has_seen_welcome: false,
+              dm_privacy: "message_request" as const,
               created_at: friend.created_at ?? new Date().toISOString(),
             },
             rect.top,

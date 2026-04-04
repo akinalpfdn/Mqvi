@@ -55,5 +55,11 @@
 
   "reportEvidenceLabel": "Evidence (Optional)",
   "reportEvidenceHint": "Drag & drop or paste screenshots (max 4 images)",
-  "reportMaxFiles": "Maximum 4 images allowed"
+  "reportMaxFiles": "Maximum 4 images allowed",
+
+  "messageRequests": "Message Requests",
+  "dmRequestReceived": "{{name}} wants to send you a message",
+  "dmRequestAccept": "Accept",
+  "dmRequestDecline": "Decline",
+  "dmRequestWaiting": "Waiting for the recipient to accept your message request"
 }

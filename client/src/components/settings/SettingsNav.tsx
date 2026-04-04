@@ -22,6 +22,7 @@ const USER_ITEMS: NavItem[] = [
   { id: "voice", labelKey: "voiceSettings" },
   { id: "security", labelKey: "security" },
   { id: "encryption", labelKey: "encryption" },
+  { id: "blocked-users", labelKey: "blockedUsers" },
   { id: "feedback", labelKey: "feedback" },
   // "general" is added conditionally below (Electron only)
 ];
@@ -137,7 +138,7 @@ function SettingsNav() {
 
       {/* App Version — desktop only */}
       {!isMobile && (
-        <p className="settings-nav-version">mqvi v2.9.1</p>
+        <p className="settings-nav-version">mqvi v2.10.0</p>
       )}
     </nav>
   );

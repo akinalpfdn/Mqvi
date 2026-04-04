@@ -78,6 +78,8 @@ type UIState = {
   // Members
   toggleMembers: () => void;
 
+  closeDMTab: (channelId: string) => void;
+
   // Tab label sync (WS channel_update)
   updateTabLabel: (channelId: string, newLabel: string) => void;
 
@@ -508,6 +510,18 @@ export const useUIStore = create<UIState>((set, get) => ({
     const tab = panel.tabs.find((t) => t.id === found.tabId);
     // Only close text tabs — voice tabs stay open (user may still be in voice)
     if (!tab || tab.type !== "text") return;
+
+    get().closeTab(found.panelId, found.tabId);
+  },
+
+  closeDMTab(channelId: string) {
+    const state = get();
+    const found = findTabAcrossPanels(state.panels, channelId);
+    if (!found) return;
+
+    const panel = state.panels[found.panelId];
+    const tab = panel.tabs.find((t) => t.id === found.tabId);
+    if (!tab || tab.type !== "dm") return;
 
     get().closeTab(found.panelId, found.tabId);
   },

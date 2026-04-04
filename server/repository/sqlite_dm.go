@@ -27,10 +27,11 @@ func NewSQLiteDMRepo(db database.TxQuerier) DMRepository {
 func (r *sqliteDMRepo) GetChannelByUsers(ctx context.Context, user1ID, user2ID string) (*models.DMChannel, error) {
 	var ch models.DMChannel
 	var lastMsgAt sql.NullTime
+	var initiatedBy sql.NullString
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id, user1_id, user2_id, e2ee_enabled, created_at, last_message_at FROM dm_channels WHERE user1_id = ? AND user2_id = ?",
+		"SELECT id, user1_id, user2_id, e2ee_enabled, status, initiated_by, created_at, last_message_at FROM dm_channels WHERE user1_id = ? AND user2_id = ?",
 		user1ID, user2ID,
-	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.E2EEEnabled, &ch.CreatedAt, &lastMsgAt)
+	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.E2EEEnabled, &ch.Status, &initiatedBy, &ch.CreatedAt, &lastMsgAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil // no channel exists
@@ -41,16 +42,20 @@ func (r *sqliteDMRepo) GetChannelByUsers(ctx context.Context, user1ID, user2ID s
 	if lastMsgAt.Valid {
 		ch.LastMessageAt = &lastMsgAt.Time
 	}
+	if initiatedBy.Valid {
+		ch.InitiatedBy = &initiatedBy.String
+	}
 	return &ch, nil
 }
 
 func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.DMChannel, error) {
 	var ch models.DMChannel
 	var lastMsgAt sql.NullTime
+	var initiatedBy sql.NullString
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id, user1_id, user2_id, e2ee_enabled, created_at, last_message_at FROM dm_channels WHERE id = ?",
+		"SELECT id, user1_id, user2_id, e2ee_enabled, status, initiated_by, created_at, last_message_at FROM dm_channels WHERE id = ?",
 		id,
-	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.E2EEEnabled, &ch.CreatedAt, &lastMsgAt)
+	).Scan(&ch.ID, &ch.User1ID, &ch.User2ID, &ch.E2EEEnabled, &ch.Status, &initiatedBy, &ch.CreatedAt, &lastMsgAt)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("%w: DM channel not found", pkg.ErrNotFound)
@@ -61,6 +66,9 @@ func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.D
 	if lastMsgAt.Valid {
 		ch.LastMessageAt = &lastMsgAt.Time
 	}
+	if initiatedBy.Valid {
+		ch.InitiatedBy = &initiatedBy.String
+	}
 	return &ch, nil
 }
 
@@ -69,7 +77,7 @@ func (r *sqliteDMRepo) GetChannelByID(ctx context.Context, id string) (*models.D
 // Sorted: pinned first (by activity), then unpinned by activity.
 func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error) {
 	query := `
-		SELECT dc.id, dc.e2ee_enabled, dc.created_at, dc.last_message_at,
+		SELECT dc.id, dc.e2ee_enabled, dc.status, dc.initiated_by, dc.created_at, dc.last_message_at,
 			u.id, u.username, u.display_name, u.avatar_url, u.status,
 			COALESCE(ds.is_pinned, 0),
 			CASE WHEN ds.muted_until IS NOT NULL AND ds.muted_until > datetime('now') THEN 1 ELSE 0 END
@@ -94,12 +102,12 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 	for rows.Next() {
 		var ch models.DMChannelWithUser
 		var user models.User
-		var displayName, avatarURL sql.NullString
+		var displayName, avatarURL, initiatedBy sql.NullString
 		var lastMsgAt sql.NullTime
 		var isPinned, isMuted int
 
 		if err := rows.Scan(
-			&ch.ID, &ch.E2EEEnabled, &ch.CreatedAt, &lastMsgAt,
+			&ch.ID, &ch.E2EEEnabled, &ch.Status, &initiatedBy, &ch.CreatedAt, &lastMsgAt,
 			&user.ID, &user.Username, &displayName, &avatarURL, &user.Status,
 			&isPinned, &isMuted,
 		); err != nil {
@@ -114,6 +122,9 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 		}
 		if avatarURL.Valid {
 			user.AvatarURL = &avatarURL.String
+		}
+		if initiatedBy.Valid {
+			ch.InitiatedBy = &initiatedBy.String
 		}
 
 		ch.OtherUser = &user
@@ -135,8 +146,8 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 func (r *sqliteDMRepo) CreateChannel(ctx context.Context, channel *models.DMChannel) error {
 	var lastMsgAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,
-		"INSERT INTO dm_channels (user1_id, user2_id) VALUES (?, ?) RETURNING id, created_at, last_message_at",
-		channel.User1ID, channel.User2ID,
+		"INSERT INTO dm_channels (user1_id, user2_id, status, initiated_by) VALUES (?, ?, ?, ?) RETURNING id, created_at, last_message_at",
+		channel.User1ID, channel.User2ID, channel.Status, channel.InitiatedBy,
 	).Scan(&channel.ID, &channel.CreatedAt, &lastMsgAt)
 
 	if err != nil {
@@ -144,6 +155,52 @@ func (r *sqliteDMRepo) CreateChannel(ctx context.Context, channel *models.DMChan
 	}
 	if lastMsgAt.Valid {
 		channel.LastMessageAt = &lastMsgAt.Time
+	}
+	return nil
+}
+
+func (r *sqliteDMRepo) UpdateChannelStatus(ctx context.Context, channelID, status string) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE dm_channels SET status = ? WHERE id = ?",
+		status, channelID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update DM channel status: %w", err)
+	}
+	return nil
+}
+
+func (r *sqliteDMRepo) SetInitiatedBy(ctx context.Context, channelID, userID string) error {
+	_, err := r.db.ExecContext(ctx,
+		"UPDATE dm_channels SET initiated_by = ? WHERE id = ?",
+		userID, channelID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set initiated_by: %w", err)
+	}
+	return nil
+}
+
+func (r *sqliteDMRepo) CountMessagesBySender(ctx context.Context, channelID, userID string) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM dm_messages WHERE dm_channel_id = ? AND user_id = ?",
+		channelID, userID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count messages: %w", err)
+	}
+	return count, nil
+}
+
+func (r *sqliteDMRepo) DeleteChannel(ctx context.Context, channelID string) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM dm_messages WHERE dm_channel_id = ?", channelID)
+	if err != nil {
+		return fmt.Errorf("failed to delete DM messages: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx, "DELETE FROM dm_channels WHERE id = ?", channelID)
+	if err != nil {
+		return fmt.Errorf("failed to delete DM channel: %w", err)
 	}
 	return nil
 }

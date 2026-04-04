@@ -17,6 +17,7 @@ export type User = {
   custom_status: string | null;
   email: string | null;
   language: string;
+  dm_privacy: "everyone" | "message_request" | "friends_only";
   is_platform_admin: boolean;
   has_seen_download_prompt: boolean;
   has_seen_welcome: boolean;
@@ -279,6 +280,8 @@ export type DMChannelWithUser = {
   id: string;
   other_user: User;
   e2ee_enabled: boolean;
+  status: "accepted" | "pending";
+  initiated_by: string | null;
   created_at: string;
   last_message_at: string | null;
   is_pinned: boolean;
