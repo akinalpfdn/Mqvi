@@ -89,6 +89,7 @@ function VoiceUserContextMenu({
 
   const isLocallyMuted = localMutedUsers[userId] ?? false;
   const currentVolume = userVolumes[userId] ?? 100;
+  const [preMuteVolume, setPreMuteVolume] = useState(currentVolume || 100);
   const isServerMuted = targetVoiceState?.is_server_muted ?? false;
   const isServerDeafened = targetVoiceState?.is_server_deafened ?? false;
 
@@ -143,10 +144,21 @@ function VoiceUserContextMenu({
 
   const handleVolumeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      setUserVolume(userId, Number(e.target.value));
+      const val = Number(e.target.value);
+      if (val > 0) setPreMuteVolume(val);
+      setUserVolume(userId, val);
     },
     [userId, setUserVolume]
   );
+
+  const handleToggleMute = useCallback(() => {
+    if (currentVolume > 0) {
+      setPreMuteVolume(currentVolume);
+      setUserVolume(userId, 0);
+    } else {
+      setUserVolume(userId, preMuteVolume);
+    }
+  }, [userId, currentVolume, preMuteVolume, setUserVolume]);
 
   const handleLocalMuteToggle = useCallback(() => {
     toggleLocalMute(userId);
@@ -202,8 +214,20 @@ function VoiceUserContextMenu({
       <div className="voice-ctx-body">
         {/* Volume Slider */}
         <div className="voice-ctx-slider">
-          <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+          <svg
+            style={{ width: 14, height: 14, cursor: "pointer", opacity: currentVolume === 0 ? 0.5 : 1 }}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            onClick={handleToggleMute}
+            title={currentVolume > 0 ? t("mute") : t("unmute")}
+          >
+            {currentVolume > 0 ? (
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 9l-6 6M11 9l6 6" />
+            )}
           </svg>
           <input
             type="range"
