@@ -132,7 +132,6 @@ function ScreenShareContextMenu({
             stroke="currentColor"
             strokeWidth={2}
             onClick={handleToggleMute}
-            title={currentVolume > 0 ? t("mute") : t("unmute")}
           >
             {currentVolume > 0 ? (
               <path

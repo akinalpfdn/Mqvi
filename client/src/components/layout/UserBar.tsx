@@ -207,32 +207,6 @@ function UserBar({
           </div>
           <div className="ub-voice-btns">
             <button
-              className={`ub-ctrl${isMuted ? " active" : ""}`}
-              onClick={onToggleMute}
-              title={isMuted ? t("unmute") : t("mute")}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                {isMuted ? (
-                  <path d="M12 1a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4zM2.7 2.7a1 1 0 0 1 1.4 0l17 17a1 1 0 0 1-1.4 1.4L2.7 4.1a1 1 0 0 1 0-1.4zM6 10a1 1 0 0 0-2 0 8 8 0 0 0 7 7.9V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.1A8 8 0 0 0 20 10a1 1 0 1 0-2 0 6 6 0 0 1-9.7 4.7" />
-                ) : (
-                  <path d="M12 1a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4zM6 10a1 1 0 0 0-2 0 8 8 0 0 0 7 7.9V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.1A8 8 0 0 0 20 10a1 1 0 1 0-2 0 6 6 0 0 1-12 0z" />
-                )}
-              </svg>
-            </button>
-            <button
-              className={`ub-ctrl${isDeafened ? " active" : ""}`}
-              onClick={onToggleDeafen}
-              title={isDeafened ? t("undeafen") : t("deafen")}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                {isDeafened ? (
-                  <path d="M3 12a9 9 0 0 1 18 0v5a4 4 0 0 1-4 4h-1a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h3v-1a7 7 0 0 0-14 0v1h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7a4 4 0 0 1-4-4v-5zM2.7 2.7a1 1 0 0 1 1.4 0l17 17a1 1 0 0 1-1.4 1.4L2.7 4.1a1 1 0 0 1 0-1.4z" />
-                ) : (
-                  <path d="M3 12a9 9 0 0 1 18 0v5a4 4 0 0 1-4 4h-1a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h3v-1a7 7 0 0 0-14 0v1h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7a4 4 0 0 1-4-4v-5z" />
-                )}
-              </svg>
-            </button>
-            <button
               className={`ub-ctrl${isStreaming ? " active" : ""}`}
               onClick={onToggleScreenShare}
               title={isStreaming ? t("stopScreenShare") : t("screenShare")}
@@ -317,6 +291,36 @@ function UserBar({
             </div>
           )}
         </div>
+
+        {/* Mic toggle — always visible (Discord-style) */}
+        <button
+          className={`ub-ctrl${isMuted ? " active" : ""}`}
+          onClick={onToggleMute}
+          title={isMuted ? t("unmute") : t("mute")}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            {isMuted ? (
+              <path d="M12 1a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4zM2.7 2.7a1 1 0 0 1 1.4 0l17 17a1 1 0 0 1-1.4 1.4L2.7 4.1a1 1 0 0 1 0-1.4zM6 10a1 1 0 0 0-2 0 8 8 0 0 0 7 7.9V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.1A8 8 0 0 0 20 10a1 1 0 1 0-2 0 6 6 0 0 1-9.7 4.7" />
+            ) : (
+              <path d="M12 1a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4zM6 10a1 1 0 0 0-2 0 8 8 0 0 0 7 7.9V21H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.1A8 8 0 0 0 20 10a1 1 0 1 0-2 0 6 6 0 0 1-12 0z" />
+            )}
+          </svg>
+        </button>
+
+        {/* Deafen toggle — always visible (Discord-style) */}
+        <button
+          className={`ub-ctrl${isDeafened ? " active" : ""}`}
+          onClick={onToggleDeafen}
+          title={isDeafened ? t("undeafen") : t("deafen")}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            {isDeafened ? (
+              <path d="M3 12a9 9 0 0 1 18 0v5a4 4 0 0 1-4 4h-1a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h3v-1a7 7 0 0 0-14 0v1h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7a4 4 0 0 1-4-4v-5zM2.7 2.7a1 1 0 0 1 1.4 0l17 17a1 1 0 0 1-1.4 1.4L2.7 4.1a1 1 0 0 1 0-1.4z" />
+            ) : (
+              <path d="M3 12a9 9 0 0 1 18 0v5a4 4 0 0 1-4 4h-1a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h3v-1a7 7 0 0 0-14 0v1h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7a4 4 0 0 1-4-4v-5z" />
+            )}
+          </svg>
+        </button>
 
         {/* Settings button */}
         <button

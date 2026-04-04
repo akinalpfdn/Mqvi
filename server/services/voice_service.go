@@ -47,7 +47,7 @@ type AFKTimeoutGetter interface {
 type VoiceService interface {
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
-	JoinChannel(userID, username, displayName, avatarURL, channelID string) error
+	JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error
 	LeaveChannel(userID string) error
 	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool) error
 	GetChannelParticipants(channelID string) []models.VoiceState
@@ -348,7 +348,7 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 
 // ─── Channel Join/Leave ───
 
-func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string) error {
+func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error {
 	var oldChannelID string
 
 	s.mu.Lock()
@@ -394,6 +394,8 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		Username:     username,
 		DisplayName:  displayName,
 		AvatarURL:    avatarURL,
+		IsMuted:      isMuted,
+		IsDeafened:   isDeafened,
 		LastActivity: time.Now(),
 	}
 
@@ -405,6 +407,8 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			Username:    username,
 			DisplayName: displayName,
 			AvatarURL:   avatarURL,
+			IsMuted:     isMuted,
+			IsDeafened:  isDeafened,
 			Action:      "join",
 		},
 	})

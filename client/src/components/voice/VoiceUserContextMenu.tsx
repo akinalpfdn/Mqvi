@@ -221,7 +221,6 @@ function VoiceUserContextMenu({
             stroke="currentColor"
             strokeWidth={2}
             onClick={handleToggleMute}
-            title={currentVolume > 0 ? t("mute") : t("unmute")}
           >
             {currentVolume > 0 ? (
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />

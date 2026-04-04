@@ -43,7 +43,7 @@ func TestVoiceJoinChannel(t *testing.T) {
 		broadcasts = append(broadcasts, event)
 	}
 
-	err := svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	err := svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,9 +78,9 @@ func TestVoiceJoinChannel_SwitchChannels(t *testing.T) {
 	}
 
 	// Join ch1
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 	// Switch to ch2
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch2")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch2", false, false)
 
 	state := svc.GetUserVoiceState("u1")
 	if state == nil {
@@ -105,11 +105,11 @@ func TestVoiceJoinChannel_SameChannelRejoin(t *testing.T) {
 	}
 
 	// Join ch1
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 	broadcasts = nil // reset
 
 	// Rejoin same channel (WS reconnect scenario)
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
 	// Should produce zero broadcasts — silent rejoin
 	if len(broadcasts) != 0 {
@@ -134,7 +134,7 @@ func TestVoiceLeaveChannel(t *testing.T) {
 		broadcasts = append(broadcasts, event)
 	}
 
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 	broadcasts = nil // reset
 
 	err := svc.LeaveChannel("u1")
@@ -166,7 +166,7 @@ func TestVoiceUpdateState(t *testing.T) {
 	svc, hub := newTestVoiceService()
 	hub.BroadcastToAllFn = func(_ ws.Event) {}
 
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
 	truev := true
 	falsev := false
@@ -217,9 +217,9 @@ func TestVoiceGetChannelParticipants(t *testing.T) {
 	svc, hub := newTestVoiceService()
 	hub.BroadcastToAllFn = func(_ ws.Event) {}
 
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
-	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch1")
-	_ = svc.JoinChannel("u3", "charlie", "Charlie", "", "ch2")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
+	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch1", false, false)
+	_ = svc.JoinChannel("u3", "charlie", "Charlie", "", "ch2", false, false)
 
 	ch1Participants := svc.GetChannelParticipants("ch1")
 	if len(ch1Participants) != 2 {
@@ -241,8 +241,8 @@ func TestVoiceGetAllVoiceStates(t *testing.T) {
 	svc, hub := newTestVoiceService()
 	hub.BroadcastToAllFn = func(_ ws.Event) {}
 
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
-	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch2")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
+	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch2", false, false)
 
 	all := svc.GetAllVoiceStates()
 	if len(all) != 2 {
@@ -254,7 +254,7 @@ func TestVoiceDisconnectUser(t *testing.T) {
 	svc, hub := newTestVoiceService()
 	hub.BroadcastToAllFn = func(_ ws.Event) {}
 
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
 	svc.DisconnectUser("u1")
 
@@ -268,8 +268,8 @@ func TestVoiceGetStreamCount(t *testing.T) {
 	svc, hub := newTestVoiceService()
 	hub.BroadcastToAllFn = func(_ ws.Event) {}
 
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
-	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
+	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch1", false, false)
 
 	if svc.GetStreamCount("ch1") != 0 {
 		t.Error("expected 0 streams initially")
@@ -298,7 +298,7 @@ func TestVoiceGetUserVoiceChannelID(t *testing.T) {
 		t.Error("expected empty channel ID for non-voice user")
 	}
 
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
 	if svc.GetUserVoiceChannelID("u1") != "ch1" {
 		t.Errorf("channel ID = %q, want %q", svc.GetUserVoiceChannelID("u1"), "ch1")
@@ -309,8 +309,8 @@ func TestVoiceScreenShareViewerTracking(t *testing.T) {
 	svc, hub := newTestVoiceService()
 	hub.BroadcastToAllFn = func(_ ws.Event) {}
 
-	_ = svc.JoinChannel("streamer", "alice", "Alice", "", "ch1")
-	_ = svc.JoinChannel("viewer1", "bob", "Bob", "", "ch1")
+	_ = svc.JoinChannel("streamer", "alice", "Alice", "", "ch1", false, false)
+	_ = svc.JoinChannel("viewer1", "bob", "Bob", "", "ch1", false, false)
 
 	// Start streaming
 	truev := true
@@ -333,7 +333,7 @@ func TestVoiceCleanupViewersForStreamer(t *testing.T) {
 	svc, hub := newTestVoiceService()
 	hub.BroadcastToAllFn = func(_ ws.Event) {}
 
-	_ = svc.JoinChannel("streamer", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("streamer", "alice", "Alice", "", "ch1", false, false)
 	truev := true
 	_ = svc.UpdateState("streamer", nil, nil, &truev)
 
@@ -355,7 +355,7 @@ func TestVoiceState_ServerMuteDeafen(t *testing.T) {
 	svc, hub := newTestVoiceService()
 	hub.BroadcastToAllFn = func(_ ws.Event) {}
 
-	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1")
+	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
 	state := svc.GetUserVoiceState("u1")
 	if state.IsServerMuted || state.IsServerDeafened {

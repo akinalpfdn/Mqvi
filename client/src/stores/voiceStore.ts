@@ -283,16 +283,16 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       // Token obtained — VoiceProvider will connect via LiveKitRoom props
 
-      // PTT mode starts muted (unmuted on key press)
-      const startMuted = get().inputMode === "push_to_talk";
+      // PTT mode forces muted (unmuted on key press), otherwise keep current state
+      const isPTT = get().inputMode === "push_to_talk";
 
       set({
         currentVoiceChannelId: channelId,
         livekitUrl: response.data.url,
         livekitToken: response.data.token,
         e2eePassphrase: response.data.e2ee_passphrase ?? null,
-        isMuted: startMuted,
-        isDeafened: false,
+        isMuted: isPTT ? true : get().isMuted,
+        // isDeafened preserved from current state
         isStreaming: false,
       });
 
@@ -323,8 +323,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       livekitUrl: null,
       livekitToken: null,
       e2eePassphrase: null,
-      isMuted: false,
-      isDeafened: false,
+      // isMuted/isDeafened intentionally NOT reset — they persist across sessions
       isStreaming: false,
       isServerMuted: false,
       isServerDeafened: false,
@@ -808,14 +807,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
   handleForceDisconnect: () => {
     // Admin force-disconnected us — same cleanup as leave but no WS event sent
-    // (server already cleared state).
+    // (server already cleared state). isMuted/isDeafened preserved.
     set({
       currentVoiceChannelId: null,
       livekitUrl: null,
       livekitToken: null,
       e2eePassphrase: null,
-      isMuted: false,
-      isDeafened: false,
       isStreaming: false,
       activeSpeakers: {},
       watchingScreenShares: {},
@@ -825,14 +822,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   handleAFKKick: (channelName: string, serverName: string) => {
-    // AFK kick — cleanup voice state + show popup
+    // AFK kick — cleanup voice state + show popup. isMuted/isDeafened preserved.
     set({
       currentVoiceChannelId: null,
       livekitUrl: null,
       livekitToken: null,
       e2eePassphrase: null,
-      isMuted: false,
-      isDeafened: false,
       isStreaming: false,
       activeSpeakers: {},
       watchingScreenShares: {},
@@ -845,15 +840,14 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   dismissAFKKick: () => set({ afkKickInfo: null }),
 
   handleVoiceReplaced: () => {
-    // Another session took over voice — leave silently, skip auto-rejoin
+    // Another session took over voice — leave silently, skip auto-rejoin.
+    // isMuted/isDeafened preserved.
     set({
       wasReplaced: true,
       currentVoiceChannelId: null,
       livekitUrl: null,
       livekitToken: null,
       e2eePassphrase: null,
-      isMuted: false,
-      isDeafened: false,
       isStreaming: false,
       activeSpeakers: {},
       watchingScreenShares: {},
