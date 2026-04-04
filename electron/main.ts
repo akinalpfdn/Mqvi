@@ -254,12 +254,10 @@ function persistWindowBounds(): void {
   boundsTimer = setTimeout(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const isMaximized = mainWindow.isMaximized();
-    // When maximized, keep the pre-maximized bounds so restore works correctly
-    const bounds = isMaximized
-      ? appSettings.windowBounds ?? { ...mainWindow.getBounds(), isMaximized: true }
-      : { ...mainWindow.getBounds(), isMaximized: false };
-    bounds.isMaximized = isMaximized;
-    appSettings.windowBounds = bounds;
+    // getNormalBounds() returns pre-maximize/fullscreen bounds — use it when
+    // maximized so restore position/size is preserved correctly
+    const rect = isMaximized ? mainWindow.getNormalBounds() : mainWindow.getBounds();
+    appSettings.windowBounds = { ...rect, isMaximized };
     saveAppSettings(appSettings);
   }, 500);
 }
@@ -288,9 +286,9 @@ function createWindow(): void {
   const useSaved = saved && boundsVisibleOnScreen(saved);
 
   mainWindow = new BrowserWindow({
-    width: useSaved ? saved!.width : 1280,
-    height: useSaved ? saved!.height : 800,
-    ...(useSaved ? { x: saved!.x, y: saved!.y } : {}),
+    // Default size — overridden by setBounds() below for saved position
+    width: 1280,
+    height: 800,
     minWidth: 940,
     minHeight: 560,
     icon: path.join(__dirname, "../icons/mqvi-icon.ico"),
@@ -308,10 +306,17 @@ function createWindow(): void {
     },
   });
 
+  // Two-step restore: move to target display first so Windows applies the
+  // correct DPI context, then set size. Single setBounds() interprets size
+  // in primary monitor's DPI which causes wrong dimensions on mixed-DPI.
+  if (useSaved) {
+    mainWindow.setPosition(saved!.x, saved!.y);
+    mainWindow.setSize(saved!.width, saved!.height);
+  }
+
   // Show window when ready (unless startMinimized is enabled)
   mainWindow.once("ready-to-show", () => {
     if (!appSettings.startMinimized) {
-      // Restore maximized state after showing
       if (useSaved && saved!.isMaximized) {
         mainWindow?.maximize();
       }
