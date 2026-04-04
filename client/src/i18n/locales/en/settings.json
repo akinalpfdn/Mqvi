@@ -256,6 +256,11 @@
 
   "security": "Security",
   "encryption": "Encryption",
+  "blockedUsers": "Blocked Users",
+  "blockedUsersDesc": "Users you have blocked cannot send you messages or friend requests.",
+  "noBlockedUsers": "You haven't blocked anyone",
+  "unblock": "Unblock",
+  "loading": "Loading...",
   "emailSection": "Email Address",
   "currentEmail": "Current Email",
   "newEmail": "New Email",

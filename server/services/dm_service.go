@@ -287,8 +287,11 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		otherUserID = channel.User2ID
 	}
 
-	// Bidirectional block check
-	if s.blockChecker != nil {
+	sender, _ := s.userRepo.GetByID(ctx, userID)
+	isPlatformAdmin := sender != nil && sender.IsPlatformAdmin
+
+	// Bidirectional block check — platform admins bypass
+	if !isPlatformAdmin && s.blockChecker != nil {
 		blocked, err := s.blockChecker.IsBlocked(ctx, userID, otherUserID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check block status: %w", err)
@@ -299,9 +302,6 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 	}
 
 	// DM privacy + request enforcement
-
-	sender, _ := s.userRepo.GetByID(ctx, userID)
-	isPlatformAdmin := sender != nil && sender.IsPlatformAdmin
 
 	if !isPlatformAdmin {
 		if channel.Status == models.DMStatusPending {

@@ -15,11 +15,13 @@ import { useActiveMembers } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useFriendStore } from "../../stores/friendStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
 import { useServerStore } from "../../stores/serverStore";
+import ReportModal from "../shared/ReportModal";
 
 const BADGE_ADMIN_USER_ID = "95a8b295072f98a5";
 
@@ -59,6 +61,11 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
 
   const [showRoleEditor, setShowRoleEditor] = useState(false);
   const [showBadgeAssign, setShowBadgeAssign] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+
+  const isBlocked = useBlockStore((s) => s.isBlocked)(userId);
+  const blockUser = useBlockStore((s) => s.blockUser);
+  const unblockUser = useBlockStore((s) => s.unblockUser);
 
   const userBadges = useUserBadges(userId);
 
@@ -74,7 +81,7 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
   const inReq = incoming.find((r) => r.user_id === userId);
 
   const childModalOpenRef = useRef(false);
-  childModalOpenRef.current = showBadgeAssign || showRoleEditor;
+  childModalOpenRef.current = showBadgeAssign || showRoleEditor || showReport;
 
   useLayoutEffect(() => {
     const card = cardRef.current;
@@ -313,6 +320,35 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
                     <span>{t("assignBadge")}</span>
                   </button>
                 )}
+                <button
+                  className={`mc-btn${isBlocked ? " mc-btn-default" : " mc-btn-danger"}`}
+                  onClick={async () => {
+                    if (isBlocked) {
+                      await unblockUser(userId);
+                    } else {
+                      const ok = await confirm({
+                        message: t("confirmBlock", { username }),
+                        confirmLabel: t("block"),
+                        danger: true,
+                      });
+                      if (ok) await blockUser(userId);
+                    }
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                  </svg>
+                  <span>{isBlocked ? t("unblock") : t("block")}</span>
+                </button>
+                <button
+                  className="mc-btn mc-btn-danger"
+                  onClick={() => setShowReport(true)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" />
+                  </svg>
+                  <span>{t("report")}</span>
+                </button>
               </div>
             </>
           )}
@@ -390,6 +426,14 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
         <BadgeAssignModal
           member={member ?? { id: userId, username, display_name: displayName, avatar_url: avatarUrl, custom_status: customStatus, created_at: createdAt, status: "online", roles: [], effective_permissions: 0 } as MemberWithRoles}
           onClose={() => setShowBadgeAssign(false)}
+        />
+      )}
+
+      {showReport && (
+        <ReportModal
+          userId={userId}
+          username={displayName ?? username}
+          onClose={() => setShowReport(false)}
         />
       )}
     </>

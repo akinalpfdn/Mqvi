@@ -256,6 +256,11 @@
 
   "security": "Güvenlik",
   "encryption": "Şifreleme",
+  "blockedUsers": "Engellenen Kullanıcılar",
+  "blockedUsersDesc": "Engellediğiniz kullanıcılar size mesaj veya arkadaşlık isteği gönderemez.",
+  "noBlockedUsers": "Kimseyi engellemediğiniz",
+  "unblock": "Engeli Kaldır",
+  "loading": "Yükleniyor...",
   "emailSection": "E-posta Adresi",
   "currentEmail": "Mevcut E-posta",
   "newEmail": "Yeni E-posta",

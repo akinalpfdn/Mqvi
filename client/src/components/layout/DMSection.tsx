@@ -73,6 +73,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
   const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
   const currentUserId = useAuthStore((s) => s.user?.id);
   const isExpanded = expandedSections["dms"] ?? true;
+  const [requestsExpanded, setRequestsExpanded] = useState(false);
 
   const acceptedChannels = dmChannels.filter((dm) => dm.status !== "pending");
   const pendingChannels = dmChannels.filter(
@@ -235,14 +236,18 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
 
         {isExpanded && (
           <div className="ch-tree-section-body">
-            {/* ── Message Requests ── */}
+            {/* ── Message Requests (collapsible, default collapsed) ── */}
             {pendingChannels.length > 0 && (
               <div className="ch-tree-dm-requests">
-                <span className="ch-tree-dm-requests-label">
-                  {tDM("messageRequests")}
+                <button
+                  className="ch-tree-dm-requests-label"
+                  onClick={() => setRequestsExpanded((v) => !v)}
+                >
+                  <span className={`ch-tree-chevron${requestsExpanded ? " expanded" : ""}`}>&#x276F;</span>
+                  <span>{tDM("messageRequests")}</span>
                   <span className="ch-tree-badge">{pendingChannels.length}</span>
-                </span>
-                {pendingChannels.map((dm) => {
+                </button>
+                {requestsExpanded && pendingChannels.map((dm) => {
                   const isActive = dm.id === selectedDMId;
                   const name = dm.other_user.display_name || dm.other_user.username;
                   return (
