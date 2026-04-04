@@ -146,5 +146,14 @@
 
   "footer_copy": "© 2026 mqvi — Açık kaynak, özgür iletişim.",
   "footer_privacy": "Gizlilik",
-  "footer_terms": "Koşullar"
+  "footer_terms": "Koşullar",
+
+  "ss_title": "Yüklemeden önce",
+  "ss_subtitle": "Windows bir SmartScreen uyarısı gösterebilir. Bu tamamen normaldir ve uygulama güvensiz olduğu anlamına gelmez. Sadece Microsoft'a kod imzalama sertifikası için ödeme yapmadığımız anlamına gelir.",
+  "ss_step1": "Bu ekranı gördüğünüzde, yükleme seçeneğini görmek için \"Ek bilgi\" bağlantısına tıklayın.",
+  "ss_step2": "Ardından yüklemeyi başlatmak için \"Çalıştırma\" butonuna tıklayın. Bu kadar!",
+  "ss_back": "Geri",
+  "ss_next": "İleri",
+  "ss_download": "Anladım, indir",
+  "ss_github_note": "mqvi tamamen açık kaynaklıdır. Tüm kaynak kodu inceleyebilirsiniz:"
 }

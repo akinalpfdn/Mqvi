@@ -146,5 +146,14 @@
 
   "footer_copy": "© 2026 mqvi — Open source, free communication.",
   "footer_privacy": "Privacy",
-  "footer_terms": "Terms"
+  "footer_terms": "Terms",
+
+  "ss_title": "Before you install",
+  "ss_subtitle": "Windows may show a SmartScreen warning. This is completely normal and does not mean the app is unsafe. It simply means we haven't paid Microsoft for a code signing certificate.",
+  "ss_step1": "When you see this screen, click \"More info\" to reveal the install option.",
+  "ss_step2": "Then click \"Run anyway\" to start the installation. That's it!",
+  "ss_back": "Back",
+  "ss_next": "Next",
+  "ss_download": "Got it, download",
+  "ss_github_note": "mqvi is fully open source. You can review every line of code on"
 }
