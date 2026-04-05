@@ -28,6 +28,7 @@ setLogLevel(LogLevel.error);
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
+import { useNativeVoice } from "../../utils/nativePlugins";
 import VoiceStateManager from "./VoiceStateManager";
 
 type VoiceProviderProps = {
@@ -43,7 +44,12 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   const leaveVoiceChannel = useVoiceStore((s) => s.leaveVoiceChannel);
   const inputDevice = useVoiceStore((s) => s.inputDevice);
 
-  const isConnected = !!livekitUrl && !!livekitToken;
+  const isInVoice = !!livekitUrl && !!livekitToken;
+
+  // iOS: native SDK handles voice connection — don't connect JS SDK.
+  // JS LiveKitRoom stays mounted (for context) but with connect=false.
+  const isNativeVoice = useNativeVoice();
+  const isConnected = isInVoice && !isNativeVoice;
 
   // ─── E2EE Key Provider ───
 
@@ -109,6 +115,9 @@ function VoiceProvider({ children }: VoiceProviderProps) {
    */
   const handleDisconnected = useCallback(
     (reason?: DisconnectReason) => {
+      // iOS native voice: JS SDK isn't used — ignore all JS disconnect events
+      if (isNativeVoice) return;
+
       const { currentVoiceChannelId, _wsSend, wasReplaced } = useVoiceStore.getState();
 
       // Another session took over voice — don't auto-rejoin (prevents ping-pong loop)
@@ -247,8 +256,8 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       onEncryptionError={handleEncryptionError}
       style={{ display: "contents" }}
     >
-      {isConnected && <RoomAudioRenderer />}
-      {isConnected && <VoiceStateManager />}
+      {isConnected && !isNativeVoice && <RoomAudioRenderer />}
+      {isConnected && !isNativeVoice && <VoiceStateManager />}
       {children}
     </LiveKitRoom>
   );

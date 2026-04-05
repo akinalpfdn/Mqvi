@@ -13,7 +13,11 @@
 import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
-import { startVoiceCallService, stopVoiceCallService } from "../utils/nativePlugins";
+import {
+  startVoiceCallService, stopVoiceCallService,
+  useNativeVoice, nativeVoiceConnect, nativeVoiceDisconnect,
+  nativeVoiceSetMic, nativeVoiceSetDeafened,
+} from "../utils/nativePlugins";
 import { ensureMicPermission } from "../utils/devicePermissions";
 import { ensureFreshToken } from "../api/client";
 import { usePreferencesStore } from "./preferencesStore";
@@ -295,20 +299,27 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         return null;
       }
 
-      // Token obtained — VoiceProvider will connect via LiveKitRoom props
+      // Token obtained
 
       // PTT mode forces muted (unmuted on key press), otherwise keep current state
       const isPTT = get().inputMode === "push_to_talk";
+      const initialMuted = isPTT ? true : get().isMuted;
+      const initialDeafened = get().isDeafened;
 
       set({
         currentVoiceChannelId: channelId,
         livekitUrl: response.data.url,
         livekitToken: response.data.token,
         e2eePassphrase: response.data.e2ee_passphrase ?? null,
-        isMuted: isPTT ? true : get().isMuted,
-        // isDeafened preserved from current state
+        isMuted: initialMuted,
         isStreaming: false,
       });
+
+      // iOS: connect natively (audio works in background)
+      // Other platforms: VoiceProvider connects via LiveKitRoom props
+      if (useNativeVoice()) {
+        await nativeVoiceConnect(response.data.url, response.data.token, initialMuted, initialDeafened);
+      }
 
       // Start native foreground service for background audio (mobile only)
       startVoiceCallService();
@@ -321,6 +332,11 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   leaveVoiceChannel: () => {
+    // iOS: disconnect native voice
+    if (useNativeVoice()) {
+      nativeVoiceDisconnect();
+    }
+
     // Stop native foreground service (mobile only)
     stopVoiceCallService();
 
@@ -357,8 +373,15 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
     if (isDeafened) {
       set({ isDeafened: false, isMuted: !isMuted });
+      if (useNativeVoice()) {
+        nativeVoiceSetDeafened(false);
+        nativeVoiceSetMic(isMuted); // was muted, now toggling
+      }
     } else {
       set({ isMuted: !isMuted });
+      if (useNativeVoice()) {
+        nativeVoiceSetMic(isMuted); // was muted → enable, was unmuted → disable
+      }
     }
   },
 
@@ -368,9 +391,17 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (!isDeafened) {
       // Deafen on -> mute also on (Discord behavior)
       set({ isDeafened: true, isMuted: true });
+      if (useNativeVoice()) {
+        nativeVoiceSetDeafened(true);
+        nativeVoiceSetMic(false);
+      }
     } else {
       // Deafen off -> unmute too (Discord behavior)
       set({ isDeafened: false, isMuted: false });
+      if (useNativeVoice()) {
+        nativeVoiceSetDeafened(false);
+        nativeVoiceSetMic(true);
+      }
     }
   },
 

@@ -20,12 +20,40 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 mode: .voiceChat,
                 options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .mixWithOthers]
             )
+            // Minimize audio latency — 0.005s (5ms) buffer duration.
+            // Default is ~0.023s (23ms). Lower = less delay, especially in background.
+            try audioSession.setPreferredIOBufferDuration(0.005)
             try audioSession.setActive(true)
         } catch {
             print("Failed to configure AVAudioSession: \(error.localizedDescription)")
         }
 
+        // Listen for audio session interruptions (phone calls, Siri, etc.)
+        // and reactivate when the interruption ends to resume WebRTC audio.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: audioSession
+        )
+
         return true
+    }
+
+    /// Reactivate audio session after interruption (e.g., phone call ends).
+    /// Without this, WebRTC audio stays muted after an interruption.
+    @objc private func handleAudioInterruption(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        if type == .ended {
+            do {
+                try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+            } catch {
+                print("Failed to reactivate audio session after interruption: \(error)")
+            }
+        }
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

@@ -19,22 +19,24 @@ interface VoiceCallServicePlugin {
 const VoiceCallService = registerPlugin<VoiceCallServicePlugin>("VoiceCallService");
 
 /**
- * Start the native foreground service for background audio.
+ * Start background voice call mode.
+ * - iOS: enables background mode (keeps WebView/WebRTC alive when backgrounded).
  * - Android: starts a foreground service with persistent notification.
- * - iOS: no-op (AVAudioSession + background modes handle this).
  * - Web/Electron: no-op.
  */
 export async function startVoiceCallService(): Promise<void> {
   if (!isCapacitor()) return;
+
   await VoiceCallService.start();
 }
 
 /**
- * Stop the native foreground service.
+ * Stop background voice call mode.
  * Called when the user leaves a voice channel.
  */
 export async function stopVoiceCallService(): Promise<void> {
   if (!isCapacitor()) return;
+
   await VoiceCallService.stop();
 }
 
@@ -130,6 +132,56 @@ export async function isNativeScreenShareActive(): Promise<boolean> {
 export async function onNativeScreenShareStopped(handler: () => void): Promise<() => void> {
   if (!isCapacitor()) return () => {};
   const listener = await ScreenShareNative.addListener("screenShareStopped", handler);
+  return () => listener.remove();
+}
+
+// ─── Native Voice Plugin (iOS only) ───
+
+interface NativeVoicePluginInterface {
+  connect(opts: { url: string; token: string; isMuted: boolean; isDeafened: boolean }): Promise<{ connected: boolean }>;
+  disconnect(): Promise<{ disconnected: boolean }>;
+  setMicEnabled(opts: { enabled: boolean }): Promise<{ micEnabled: boolean }>;
+  setDeafened(opts: { deafened: boolean }): Promise<{ deafened: boolean }>;
+  isConnected(): Promise<{ connected: boolean }>;
+  addListener(event: "nativeVoiceDisconnected", handler: (data: { error: string }) => void): Promise<{ remove: () => void }>;
+}
+
+const NativeVoice = registerPlugin<NativeVoicePluginInterface>("NativeVoice");
+
+/** Whether native voice should be used (iOS Capacitor only) */
+export function useNativeVoice(): boolean {
+  return isCapacitor() && getCapacitorPlatform() === "ios";
+}
+
+/** Connect to LiveKit room natively (iOS). Audio works in background. */
+export async function nativeVoiceConnect(url: string, token: string, isMuted: boolean, isDeafened: boolean): Promise<boolean> {
+  if (!useNativeVoice()) return false;
+  const result = await NativeVoice.connect({ url, token, isMuted, isDeafened });
+  return result.connected;
+}
+
+/** Disconnect native voice. */
+export async function nativeVoiceDisconnect(): Promise<void> {
+  if (!useNativeVoice()) return;
+  await NativeVoice.disconnect();
+}
+
+/** Set mic enabled/disabled on native voice. */
+export async function nativeVoiceSetMic(enabled: boolean): Promise<void> {
+  if (!useNativeVoice()) return;
+  await NativeVoice.setMicEnabled({ enabled });
+}
+
+/** Set deafened state on native voice. */
+export async function nativeVoiceSetDeafened(deafened: boolean): Promise<void> {
+  if (!useNativeVoice()) return;
+  await NativeVoice.setDeafened({ deafened });
+}
+
+/** Listen for unexpected native voice disconnect. */
+export async function onNativeVoiceDisconnected(handler: (error: string) => void): Promise<() => void> {
+  if (!useNativeVoice()) return () => {};
+  const listener = await NativeVoice.addListener("nativeVoiceDisconnected", (data) => handler(data.error));
   return () => listener.remove();
 }
 

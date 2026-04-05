@@ -3,10 +3,14 @@
 import { useConnectionState } from "@livekit/components-react";
 import { ConnectionState } from "livekit-client";
 import { useTranslation } from "react-i18next";
+import { useNativeVoice } from "../../utils/nativePlugins";
 
 function VoiceConnectionStatus() {
   const { t } = useTranslation("voice");
   const connectionState = useConnectionState();
+
+  // iOS native voice: connection is handled natively, JS SDK isn't connected — hide status
+  if (useNativeVoice()) return null;
 
   if (connectionState === ConnectionState.Connected) {
     return null;
