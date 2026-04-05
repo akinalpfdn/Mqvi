@@ -60,7 +60,6 @@ function App() {
         status={updater.status}
         version={updater.update?.version ?? ""}
         progress={updater.progress}
-        error={updater.error}
         onRestart={updater.restartAndInstall}
         onDismiss={updater.dismiss}
       />

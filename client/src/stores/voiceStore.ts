@@ -745,6 +745,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         noiseReduction: s.noiseReduction,
         screenShareVolumes: s.screenShareVolumes,
         screenShareAudio: s.screenShareAudio,
+        screenShareQuality: s.screenShareQuality,
       });
     } else {
       // Mute: save current volume, set to 0
@@ -774,6 +775,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         noiseReduction: s.noiseReduction,
         screenShareVolumes: s.screenShareVolumes,
         screenShareAudio: s.screenShareAudio,
+        screenShareQuality: s.screenShareQuality,
       });
     }
   },

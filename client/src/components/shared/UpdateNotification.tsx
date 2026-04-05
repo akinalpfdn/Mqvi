@@ -7,7 +7,6 @@ type Props = {
   status: "downloading" | "ready";
   version: string;
   progress: number;
-  error: string | null;
   onRestart: () => void;
   onDismiss: () => void;
 };
@@ -16,7 +15,6 @@ const UpdateNotification: FC<Props> = ({
   status,
   version,
   progress,
-  error,
   onRestart,
   onDismiss,
 }) => {

@@ -16,8 +16,7 @@ import { isElectron } from "../utils/constants";
 type UpdateStatus =
   | "idle"
   | "downloading"
-  | "ready"
-  | "error";
+  | "ready";
 
 type UpdateInfo = {
   version: string;
@@ -27,7 +26,6 @@ type UpdateChecker = {
   status: UpdateStatus;
   update: UpdateInfo | null;
   progress: number;
-  error: string | null;
   restartAndInstall: () => void;
   dismiss: () => void;
 };
@@ -36,7 +34,6 @@ export function useUpdateChecker(): UpdateChecker {
   const [status, setStatus] = useState<UpdateStatus>("idle");
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isElectron()) return;
@@ -78,5 +75,5 @@ export function useUpdateChecker(): UpdateChecker {
     setUpdate(null);
   }, []);
 
-  return { status, update, progress, error, restartAndInstall, dismiss };
+  return { status, update, progress, restartAndInstall, dismiss };
 }
