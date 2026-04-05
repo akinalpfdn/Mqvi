@@ -1019,16 +1019,40 @@ app.on("activate", () => {
   }
 });
 
-// Set isQuitting flag and clean up capture process + uIOhook before quit
-app.on("before-quit", () => {
+// Set isQuitting flag and clean up capture process + uIOhook before quit.
+// We wait for the capture child process to exit gracefully so that Windows
+// shutdown does not force-kill it mid-cleanup (which causes a visible
+// STATUS_BREAKPOINT crash dialog).
+let cleanupDone = false;
+app.on("before-quit", (e) => {
   isQuitting = true;
 
   stopUiohook();
   pttTargetKeycode = null;
 
-  if (captureProcess) {
-    captureGeneration++;
-    captureProcess.kill();
-    captureProcess = null;
+  if (!captureProcess || cleanupDone) {
+    // Nothing to wait for — let quit proceed
+    return;
   }
+
+  // Prevent quit until capture process exits (or timeout)
+  e.preventDefault();
+  cleanupDone = true;
+
+  const proc = captureProcess;
+  captureGeneration++;
+  captureProcess = null;
+
+  const finish = () => {
+    proc.removeAllListeners("exit");
+    app.quit();
+  };
+
+  // If the process exits within 2s, quit immediately
+  proc.on("exit", finish);
+
+  // Safety net: don't block shutdown longer than 2 seconds
+  setTimeout(finish, 2000);
+
+  proc.kill();
 });
