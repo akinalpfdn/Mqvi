@@ -92,7 +92,10 @@ button { font-family:inherit; }
    ═══════════════════════════════════════ */
 /* Electron custom titlebar wrapper — frameless window column layout */
 .electron-app-wrapper { display:flex;flex-direction:column;height:100%;overflow:hidden; }
-.electron-app-wrapper .mqvi-app { height:auto;flex:1;min-height:0; }
+/* All page-level children (mqvi-app, auth-page, landing, etc.) fill remaining space below titlebar */
+.electron-app-wrapper .mqvi-app,
+.electron-app-wrapper .auth-page,
+.electron-app-wrapper .landing-page { height:auto;flex:1;min-height:0; }
 
 .mqvi-app { display:flex;flex-direction:row;height:100%;background:var(--bg-0);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden; }
 /* Capacitor: mqvi-app must fill flex space between safe-area pseudo-elements, not 100vh */

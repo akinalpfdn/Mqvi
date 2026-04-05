@@ -12,8 +12,9 @@ import PrivacyPage from "./components/landing/PrivacyPage";
 import TermsPage from "./components/landing/TermsPage";
 import InviteJoinPage from "./components/servers/InviteJoinPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
+import CustomTitleBar from "./components/layout/CustomTitleBar";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
-import { isNativeApp } from "./utils/constants";
+import { isElectron, isNativeApp } from "./utils/constants";
 
 /**
  * App — Root component. Handles routing and auth initialization.
@@ -32,31 +33,40 @@ function App() {
   }, [initialize]);
 
   if (!isInitialized) {
-    return (
-      <div className="flex h-full items-center justify-center bg-background">
+    const spinner = (
+      <div className="flex h-full items-center justify-center bg-background" style={{ flex: 1, minHeight: 0 }}>
         <div className="text-center">
           <div className="mx-auto mb-6 h-14 w-14 animate-spin rounded-full border-4 border-surface border-t-brand" />
           <p className="text-base text-text-muted">{t("loading")}</p>
         </div>
       </div>
     );
+
+    if (isElectron()) {
+      return (
+        <div className="electron-app-wrapper">
+          <CustomTitleBar />
+          {spinner}
+        </div>
+      );
+    }
+
+    return spinner;
   }
 
-  return (
-    <>
-      {/* Auto-update banner */}
-      {(updater.status === "downloading" ||
-        updater.status === "ready" ||
-        updater.status === "error") && (
-        <UpdateNotification
-          status={updater.status}
-          version={updater.update?.version ?? ""}
-          progress={updater.progress}
-          error={updater.error}
-          onRestart={updater.restartAndInstall}
-          onDismiss={updater.dismiss}
-        />
-      )}
+  const updateBanner =
+    (updater.status === "downloading" || updater.status === "ready") ? (
+      <UpdateNotification
+        status={updater.status}
+        version={updater.update?.version ?? ""}
+        progress={updater.progress}
+        error={updater.error}
+        onRestart={updater.restartAndInstall}
+        onDismiss={updater.dismiss}
+      />
+    ) : null;
+
+  const routes = (
     <Routes>
       {/* Landing — native apps (Electron/Capacitor) skip to login directly */}
       <Route
@@ -111,8 +121,19 @@ function App() {
         }
       />
     </Routes>
-    </>
   );
+
+  if (isElectron()) {
+    return (
+      <div className="electron-app-wrapper">
+        <CustomTitleBar />
+        {updateBanner}
+        {routes}
+      </div>
+    );
+  }
+
+  return routes;
 }
 
 export default App;

@@ -59,8 +59,9 @@ export function useUpdateChecker(): UpdateChecker {
     });
 
     api.onUpdateError((message) => {
-      setError(message);
-      setStatus("error");
+      // Network errors (tunnel failures, no internet) are expected —
+      // don't show a banner, just log for debugging
+      console.warn("[updater] Update check failed:", message);
     });
 
     // Listeners persist for app lifetime — no cleanup needed

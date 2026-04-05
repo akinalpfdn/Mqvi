@@ -40,8 +40,6 @@ import QuickSwitcher from "../shared/QuickSwitcher";
 import ScreenPicker from "../voice/ScreenPicker";
 import AFKKickPopup from "../voice/AFKKickPopup";
 import ConnectionBanner from "../shared/ConnectionBanner";
-import CustomTitleBar from "./CustomTitleBar";
-import { isElectron } from "../../utils/constants";
 import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
@@ -279,15 +277,6 @@ function AppLayout() {
       </VoiceProvider>
     );
 
-    if (isElectron()) {
-      return (
-        <div className="electron-app-wrapper">
-          <CustomTitleBar />
-          {mobileContent}
-        </div>
-      );
-    }
-
     return mobileContent;
   }
 
@@ -314,16 +303,6 @@ function AppLayout() {
       {overlays}
     </div>
   );
-
-  // Electron: custom titlebar (frameless window)
-  if (isElectron()) {
-    return (
-      <div className="electron-app-wrapper">
-        <CustomTitleBar />
-        {desktopContent}
-      </div>
-    );
-  }
 
   return desktopContent;
 }

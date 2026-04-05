@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { FC } from "react";
 
 type Props = {
-  status: "downloading" | "ready" | "error";
+  status: "downloading" | "ready";
   version: string;
   progress: number;
   error: string | null;
@@ -25,11 +25,7 @@ const UpdateNotification: FC<Props> = ({
   return (
     <div
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 9999,
+        flexShrink: 0,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -105,26 +101,6 @@ const UpdateNotification: FC<Props> = ({
         </>
       )}
 
-      {status === "error" && (
-        <>
-          <span>{t("updateError")}: {error}</span>
-          <button
-            onClick={onDismiss}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 4,
-              border: "none",
-              background: "rgba(255,255,255,0.15)",
-              color: "#fff",
-              fontSize: 13,
-              cursor: "pointer",
-              fontFamily: "var(--f-s)",
-            }}
-          >
-            OK
-          </button>
-        </>
-      )}
     </div>
   );
 };
