@@ -35,6 +35,8 @@ type VoiceSettings = {
   soundsEnabled: boolean;
   /** Per-user local mute — only affects this client */
   localMutedUsers: Record<string, boolean>;
+  /** Mic input volume (0-200, default 100). Applied as GainNode before processing. */
+  inputVolume: number;
   /** RNNoise ML-based noise suppression */
   noiseReduction: boolean;
   /** Per-user screen share audio volume (0-200, default 100) */
@@ -53,6 +55,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   inputDevice: "",
   outputDevice: "",
   masterVolume: 100,
+  inputVolume: 100,
   soundsEnabled: true,
   localMutedUsers: {},
   noiseReduction: true,
@@ -118,6 +121,8 @@ type VoiceStore = {
   outputDevice: string;
   /** Master volume (0-100) */
   masterVolume: number;
+  /** Mic input volume (0-200, default 100). GainNode applied before processing. */
+  inputVolume: number;
   soundsEnabled: boolean;
   screenShareAudio: boolean;
   localMutedUsers: Record<string, boolean>;
@@ -163,6 +168,7 @@ type VoiceStore = {
   setInputDevice: (deviceId: string) => void;
   setOutputDevice: (deviceId: string) => void;
   setMasterVolume: (value: number) => void;
+  setInputVolume: (value: number) => void;
   setSoundsEnabled: (enabled: boolean) => void;
   setScreenShareAudio: (enabled: boolean) => void;
   setNoiseReduction: (enabled: boolean) => void;
@@ -222,6 +228,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   inputDevice: initialSettings.inputDevice,
   outputDevice: initialSettings.outputDevice,
   masterVolume: initialSettings.masterVolume,
+  inputVolume: initialSettings.inputVolume,
   soundsEnabled: initialSettings.soundsEnabled,
   screenShareAudio: initialSettings.screenShareAudio,
   localMutedUsers: initialSettings.localMutedUsers,
@@ -378,6 +385,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -397,6 +405,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -416,6 +425,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -436,6 +446,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -456,6 +467,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -475,6 +487,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: deviceId,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -494,6 +507,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: deviceId,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -513,6 +527,27 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: value,
+      inputVolume: s.inputVolume,
+      soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
+    });
+  },
+
+  setInputVolume: (value) => {
+    set({ inputVolume: value });
+    const s = get();
+    saveSettings({
+      inputMode: s.inputMode,
+      pttKey: s.pttKey,
+      micSensitivity: s.micSensitivity,
+      userVolumes: s.userVolumes,
+      inputDevice: s.inputDevice,
+      outputDevice: s.outputDevice,
+      masterVolume: s.masterVolume,
+      inputVolume: value,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -532,6 +567,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: enabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -551,6 +587,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: s.noiseReduction,
@@ -570,6 +607,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: s.inputDevice,
       outputDevice: s.outputDevice,
       masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
       soundsEnabled: s.soundsEnabled,
       localMutedUsers: s.localMutedUsers,
       noiseReduction: enabled,
@@ -890,6 +928,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputDevice: merged.inputDevice,
       outputDevice: merged.outputDevice,
       masterVolume: merged.masterVolume,
+      inputVolume: merged.inputVolume,
       soundsEnabled: merged.soundsEnabled,
       screenShareAudio: merged.screenShareAudio,
       localMutedUsers: merged.localMutedUsers,

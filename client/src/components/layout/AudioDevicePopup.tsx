@@ -33,10 +33,12 @@ function AudioDevicePopup({ kind, anchorEl, onClose }: AudioDevicePopupProps) {
   const inputDevice = useVoiceStore((s) => s.inputDevice);
   const outputDevice = useVoiceStore((s) => s.outputDevice);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
+  const inputVolume = useVoiceStore((s) => s.inputVolume);
   const micSensitivity = useVoiceStore((s) => s.micSensitivity);
   const setInputDevice = useVoiceStore((s) => s.setInputDevice);
   const setOutputDevice = useVoiceStore((s) => s.setOutputDevice);
   const setMasterVolume = useVoiceStore((s) => s.setMasterVolume);
+  const setInputVolume = useVoiceStore((s) => s.setInputVolume);
   const setMicSensitivity = useVoiceStore((s) => s.setMicSensitivity);
   const openSettings = useSettingsStore((s) => s.openSettings);
 
@@ -126,19 +128,26 @@ function AudioDevicePopup({ kind, anchorEl, onClose }: AudioDevicePopupProps) {
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  const volumeValue = kind === "input" ? micSensitivity : masterVolume;
-  const volumeMax = kind === "input" ? 100 : 100;
+  const volumeValue = kind === "input" ? inputVolume : masterVolume;
+  const volumeMax = kind === "input" ? 200 : 100;
 
   const handleVolumeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = Number(e.target.value);
       if (kind === "input") {
-        setMicSensitivity(val);
+        setInputVolume(val);
       } else {
         setMasterVolume(val);
       }
     },
-    [kind, setMasterVolume, setMicSensitivity]
+    [kind, setMasterVolume, setInputVolume]
+  );
+
+  const handleSensitivityChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setMicSensitivity(Number(e.target.value));
+    },
+    [setMicSensitivity]
   );
 
   const handleDeviceSelect = useCallback(
@@ -230,6 +239,27 @@ function AudioDevicePopup({ kind, anchorEl, onClose }: AudioDevicePopupProps) {
           <span className="adp-vol-value">{volumeValue}%</span>
         </div>
       </div>
+
+      {/* Mic sensitivity slider (input only) */}
+      {kind === "input" && (
+        <div className="adp-section">
+          <div className="adp-label">{t("micSensitivity")}</div>
+          <div className="adp-slider-row">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={micSensitivity}
+              onChange={handleSensitivityChange}
+              className="adp-range"
+              style={{
+                background: `linear-gradient(to right, var(--primary) ${micSensitivity}%, var(--bg-5) ${micSensitivity}%)`,
+              }}
+            />
+            <span className="adp-vol-value">{micSensitivity}%</span>
+          </div>
+        </div>
+      )}
 
       <div className="adp-divider" />
 

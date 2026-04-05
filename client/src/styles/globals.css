@@ -1125,6 +1125,25 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .vs-switch input:checked + .vs-switch-slider { background:var(--primary);border-color:var(--primary); }
 .vs-switch input:checked + .vs-switch-slider::before { transform:translateX(20px) translateY(-50%);background:#fff; }
 
+/* Mic Test */
+.vs-mic-test-row { display:flex;align-items:center;gap:12px; }
+.vs-mic-test-btn {
+  padding:8px 18px;border:none;border-radius:6px;
+  background:var(--primary);color:#fff;
+  font-size:14px;font-weight:600;font-family:var(--f-ui);
+  cursor:pointer;white-space:nowrap;flex-shrink:0;
+  transition:filter .15s;
+}
+.vs-mic-test-btn:hover { filter:brightness(1.1); }
+.vs-mic-test-btn.active { background:var(--red); }
+.vs-mic-meter { display:flex;align-items:center;gap:2px;flex:1;height:24px; }
+.vs-mic-bar {
+  flex:1;height:100%;border-radius:2px;
+  background:var(--bg-5);
+  transition:background .05s;
+}
+.vs-mic-bar.active { background:var(--green); }
+
 /* ═══════════════════════════════════════
    AUTH PAGES (Login / Register)
    ═══════════════════════════════════════ */

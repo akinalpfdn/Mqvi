@@ -813,6 +813,12 @@ function setupAutoUpdater(): void {
   autoUpdater.on("error", (err) => {
     mainWindow?.webContents.send("update-error", err.message);
   });
+
+  // Check for updates on launch + every 5 minutes
+  autoUpdater.checkForUpdates().catch(() => {});
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch(() => {});
+  }, 5 * 60 * 1000);
 }
 
 // ─── Single Instance Lock ───

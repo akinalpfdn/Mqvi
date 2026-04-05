@@ -78,7 +78,7 @@ function ensureWorkletRegistered(ctx: AudioContext, name: string, url: string): 
  *
  * Quadratic because human hearing is logarithmic — low sensitivity needs finer control.
  */
-function sensitivityToThreshold(sensitivity: number): number {
+export function sensitivityToThreshold(sensitivity: number): number {
   const clamped = Math.max(0, Math.min(100, sensitivity));
   const inverted = (100 - clamped) / 100;
   return 0.04 * inverted * inverted;
@@ -91,14 +91,17 @@ class RNNoiseProcessor
   processedTrack?: MediaStreamTrack;
 
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private gainNode: GainNode | null = null;
   private rnnoiseNode: RnnoiseWorkletNode | null = null;
   private vadGateNode: AudioWorkletNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
 
   private initialSensitivity: number;
+  private initialInputVolume: number;
 
-  constructor(micSensitivity = 50) {
+  constructor(micSensitivity = 50, inputVolume = 100) {
     this.initialSensitivity = micSensitivity;
+    this.initialInputVolume = inputVolume;
   }
 
   /**
@@ -120,6 +123,10 @@ class RNNoiseProcessor
     const inputStream = new MediaStream([track]);
     this.sourceNode = audioContext.createMediaStreamSource(inputStream);
 
+    // Input volume GainNode — applied before RNNoise processing
+    this.gainNode = audioContext.createGain();
+    this.gainNode.gain.value = this.initialInputVolume / 100;
+
     // maxChannels: 1 — mono mic input (stereo unnecessary, saves CPU)
     this.rnnoiseNode = new RnnoiseWorkletNode(audioContext, {
       wasmBinary,
@@ -131,7 +138,8 @@ class RNNoiseProcessor
 
     this.destinationNode = audioContext.createMediaStreamDestination();
 
-    this.sourceNode.connect(this.rnnoiseNode);
+    this.sourceNode.connect(this.gainNode);
+    this.gainNode.connect(this.rnnoiseNode);
     this.rnnoiseNode.connect(this.vadGateNode);
     this.vadGateNode.connect(this.destinationNode);
 
@@ -154,10 +162,24 @@ class RNNoiseProcessor
     }
   }
 
+  /** Updates input volume gain. 100 = unity, 200 = 2x amplification. */
+  setInputVolume(volume: number): void {
+    this.initialInputVolume = volume;
+    if (this.gainNode) {
+      this.gainNode.gain.value = volume / 100;
+    }
+  }
+
   /** Disconnects all audio nodes and frees WASM memory. */
   async destroy(): Promise<void> {
     try {
       this.sourceNode?.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+
+    try {
+      this.gainNode?.disconnect();
     } catch {
       /* already disconnected */
     }
@@ -182,6 +204,7 @@ class RNNoiseProcessor
     }
 
     this.sourceNode = null;
+    this.gainNode = null;
     this.rnnoiseNode = null;
     this.vadGateNode = null;
     this.destinationNode = null;

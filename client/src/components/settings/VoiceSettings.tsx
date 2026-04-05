@@ -1,10 +1,16 @@
 /** VoiceSettings — Voice & Audio settings tab. All settings persisted via voiceStore + localStorage. */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
 import type { InputMode } from "../../stores/voiceStore";
 import { isElectron } from "../../utils/constants";
+import { RnnoiseWorkletNode, loadRnnoise } from "@sapphi-red/web-noise-suppressor";
+import rnnoiseWorkletPath from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
+import rnnoiseWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
+import rnnoiseSimdWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
+import vadGateWorkletPath from "../../audio/vadGateWorklet.js?url";
+import { sensitivityToThreshold } from "../../audio/RNNoiseProcessor";
 
 
 /** Simplified MediaDeviceInfo for select options. */
@@ -62,6 +68,7 @@ function VoiceSettings() {
   const inputDevice = useVoiceStore((s) => s.inputDevice);
   const outputDevice = useVoiceStore((s) => s.outputDevice);
   const masterVolume = useVoiceStore((s) => s.masterVolume);
+  const inputVolume = useVoiceStore((s) => s.inputVolume);
   const soundsEnabled = useVoiceStore((s) => s.soundsEnabled);
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
 
@@ -71,6 +78,7 @@ function VoiceSettings() {
   const setInputDevice = useVoiceStore((s) => s.setInputDevice);
   const setOutputDevice = useVoiceStore((s) => s.setOutputDevice);
   const setMasterVolume = useVoiceStore((s) => s.setMasterVolume);
+  const setInputVolume = useVoiceStore((s) => s.setInputVolume);
   const setSoundsEnabled = useVoiceStore((s) => s.setSoundsEnabled);
   const setNoiseReduction = useVoiceStore((s) => s.setNoiseReduction);
 
@@ -79,6 +87,188 @@ function VoiceSettings() {
   const [audioInputs, setAudioInputs] = useState<DeviceOption[]>([]);
   const [audioOutputs, setAudioOutputs] = useState<DeviceOption[]>([]);
   const [isListeningKey, setIsListeningKey] = useState(false);
+
+  // ─── Mic Test ───
+  const [isTesting, setIsTesting] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const micTestRef = useRef<{
+    stream: MediaStream;
+    ctx: AudioContext;
+    analyser: AnalyserNode;
+    gainNode: GainNode;
+    raf: number;
+    rnnoiseNode: RnnoiseWorkletNode | null;
+    vadGateNode: AudioWorkletNode | null;
+    loopbackAudio: HTMLAudioElement | null;
+  } | null>(null);
+
+  const startMicTest = useCallback(async () => {
+    try {
+      // Match real voice pipeline constraints (browser AGC + AEC + NS)
+      const audioConstraints: MediaTrackConstraints = {
+        noiseSuppression: true,
+        autoGainControl: true,
+        echoCancellation: true,
+        ...(inputDevice ? { deviceId: { exact: inputDevice } } : {}),
+      };
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(stream);
+
+      // Read current settings
+      const nr = useVoiceStore.getState().noiseReduction;
+      const sens = useVoiceStore.getState().micSensitivity;
+      const inVol = useVoiceStore.getState().inputVolume;
+
+      // Input volume GainNode — applied before all processing (same as real pipeline)
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = inVol / 100;
+      source.connect(gainNode);
+
+      let lastNode: AudioNode = gainNode;
+      let rnnoiseNode: RnnoiseWorkletNode | null = null;
+      let vadGateNode: AudioWorkletNode | null = null;
+
+      if (nr) {
+        // Full pipeline: source -> RNNoise -> VAD gate
+        const wasmBinary = await loadRnnoise({
+          url: rnnoiseWasmPath,
+          simdUrl: rnnoiseSimdWasmPath,
+        });
+
+        await Promise.all([
+          ctx.audioWorklet.addModule(rnnoiseWorkletPath),
+          ctx.audioWorklet.addModule(vadGateWorkletPath),
+        ]);
+
+        rnnoiseNode = new RnnoiseWorkletNode(ctx, {
+          wasmBinary,
+          maxChannels: 1,
+        });
+
+        vadGateNode = new AudioWorkletNode(ctx, "vad-gate-processor");
+        vadGateNode.port.postMessage({
+          threshold: sensitivityToThreshold(sens),
+        });
+
+        gainNode.connect(rnnoiseNode);
+        rnnoiseNode.connect(vadGateNode);
+        lastNode = vadGateNode;
+      } else if (sens < 100) {
+        // VAD gate only (no noise reduction but sensitivity threshold active)
+        await ctx.audioWorklet.addModule(vadGateWorkletPath);
+        vadGateNode = new AudioWorkletNode(ctx, "vad-gate-processor");
+        vadGateNode.port.postMessage({
+          threshold: sensitivityToThreshold(sens),
+        });
+        gainNode.connect(vadGateNode);
+        lastNode = vadGateNode;
+      }
+
+      // Analyser after processing — shows post-pipeline levels
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      lastNode.connect(analyser);
+
+      // Loopback: route processed audio to selected output device
+      const loopbackDest = ctx.createMediaStreamDestination();
+      lastNode.connect(loopbackDest);
+      const loopbackAudio = new Audio();
+      loopbackAudio.srcObject = loopbackDest.stream;
+      if (outputDevice && typeof loopbackAudio.setSinkId === "function") {
+        await loopbackAudio.setSinkId(outputDevice).catch(() => {});
+      }
+      loopbackAudio.play().catch(() => {});
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      function tick() {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        const avg = sum / dataArray.length;
+        setMicLevel(Math.min(100, Math.round((avg / 128) * 100)));
+        if (micTestRef.current) {
+          micTestRef.current.raf = requestAnimationFrame(tick);
+        }
+      }
+
+      micTestRef.current = { stream, ctx, analyser, gainNode, raf: 0, rnnoiseNode, vadGateNode, loopbackAudio };
+      micTestRef.current.raf = requestAnimationFrame(tick);
+      setIsTesting(true);
+    } catch (err) {
+      console.error("[MicTest] Failed to start:", err);
+    }
+  }, [inputDevice, outputDevice]);
+
+  const stopMicTest = useCallback(() => {
+    if (!micTestRef.current) return;
+    const { stream, ctx, raf, rnnoiseNode, vadGateNode, loopbackAudio } = micTestRef.current;
+    cancelAnimationFrame(raf);
+    stream.getTracks().forEach((t) => t.stop());
+    if (loopbackAudio) {
+      loopbackAudio.pause();
+      loopbackAudio.srcObject = null;
+    }
+    try { rnnoiseNode?.disconnect(); rnnoiseNode?.destroy(); } catch {}
+    try { vadGateNode?.disconnect(); } catch {}
+    ctx.close().catch(() => {});
+    micTestRef.current = null;
+    setMicLevel(0);
+    setIsTesting(false);
+  }, []);
+
+  // Stop mic test on unmount
+  useEffect(() => {
+    return () => {
+      if (micTestRef.current) {
+        const { stream, ctx, raf, rnnoiseNode, loopbackAudio } = micTestRef.current;
+        cancelAnimationFrame(raf);
+        stream.getTracks().forEach((t) => t.stop());
+        if (loopbackAudio) {
+          loopbackAudio.pause();
+          loopbackAudio.srcObject = null;
+        }
+        try { rnnoiseNode?.disconnect(); rnnoiseNode?.destroy(); } catch {}
+        ctx.close().catch(() => {});
+        micTestRef.current = null;
+      }
+    };
+  }, []);
+
+  // Restart test if device changes while testing
+  useEffect(() => {
+    if (isTesting) {
+      stopMicTest();
+      startMicTest();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputDevice, outputDevice]);
+
+  // Update VAD gate threshold live when sensitivity changes during test
+  useEffect(() => {
+    if (micTestRef.current?.vadGateNode) {
+      micTestRef.current.vadGateNode.port.postMessage({
+        threshold: sensitivityToThreshold(micSensitivity),
+      });
+    }
+  }, [micSensitivity]);
+
+  // Update gain live when input volume changes during test
+  useEffect(() => {
+    if (micTestRef.current?.gainNode) {
+      micTestRef.current.gainNode.gain.value = inputVolume / 100;
+    }
+  }, [inputVolume]);
+
+  // Restart test when noise reduction toggles during test
+  useEffect(() => {
+    if (isTesting) {
+      stopMicTest();
+      startMicTest();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noiseReduction]);
 
   // ─── Device enumeration ───
   useEffect(() => {
@@ -232,6 +422,46 @@ function VoiceSettings() {
             </option>
           ))}
         </select>
+      </div>
+
+      {/* ─── Input Volume ─── */}
+      <div className="vs-section">
+        <div className="vs-label">{t("inputVolume")}</div>
+        <div className="vs-slider-row">
+          <input
+            type="range"
+            min={0}
+            max={200}
+            value={inputVolume}
+            onChange={(e) => setInputVolume(Number(e.target.value))}
+            className="vs-range"
+            style={sliderTrackStyle(inputVolume, 200)}
+          />
+          <span className="vs-slider-value">{inputVolume}%</span>
+        </div>
+      </div>
+
+      {/* ─── Mic Test ─── */}
+      <div className="vs-section">
+        <div className="vs-mic-test-row">
+          <button
+            className={`vs-mic-test-btn${isTesting ? " active" : ""}`}
+            onClick={isTesting ? stopMicTest : startMicTest}
+          >
+            {isTesting ? t("micTestStop") : t("micTest")}
+          </button>
+          <div className="vs-mic-meter">
+            {Array.from({ length: 40 }, (_, i) => {
+              const threshold = (i / 40) * 100;
+              return (
+                <div
+                  key={i}
+                  className={`vs-mic-bar${micLevel > threshold ? " active" : ""}`}
+                />
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* ─── Output Device ─── */}

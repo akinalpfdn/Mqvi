@@ -51,13 +51,16 @@ class VadGateProcessor
   processedTrack?: MediaStreamTrack;
 
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private gainNode: GainNode | null = null;
   private vadGateNode: AudioWorkletNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
 
   private initialSensitivity: number;
+  private initialInputVolume: number;
 
-  constructor(micSensitivity = 50) {
+  constructor(micSensitivity = 50, inputVolume = 100) {
     this.initialSensitivity = micSensitivity;
+    this.initialInputVolume = inputVolume;
   }
 
   /** Builds the audio graph (VAD gate only, no ML denoising — much lighter than RNNoiseProcessor). */
@@ -69,12 +72,17 @@ class VadGateProcessor
     const inputStream = new MediaStream([track]);
     this.sourceNode = audioContext.createMediaStreamSource(inputStream);
 
+    // Input volume GainNode — applied before VAD gate processing
+    this.gainNode = audioContext.createGain();
+    this.gainNode.gain.value = this.initialInputVolume / 100;
+
     this.vadGateNode = new AudioWorkletNode(audioContext, "vad-gate-processor");
     this.setMicSensitivity(this.initialSensitivity);
 
     this.destinationNode = audioContext.createMediaStreamDestination();
 
-    this.sourceNode.connect(this.vadGateNode);
+    this.sourceNode.connect(this.gainNode);
+    this.gainNode.connect(this.vadGateNode);
     this.vadGateNode.connect(this.destinationNode);
 
     this.processedTrack = this.destinationNode.stream.getAudioTracks()[0];
@@ -94,12 +102,22 @@ class VadGateProcessor
     }
   }
 
+  /** Updates input volume gain. 100 = unity, 200 = 2x amplification. */
+  setInputVolume(volume: number): void {
+    this.initialInputVolume = volume;
+    if (this.gainNode) {
+      this.gainNode.gain.value = volume / 100;
+    }
+  }
+
   async destroy(): Promise<void> {
     try { this.sourceNode?.disconnect(); } catch { /* already disconnected */ }
+    try { this.gainNode?.disconnect(); } catch { /* already disconnected */ }
     try { this.vadGateNode?.disconnect(); } catch { /* already disconnected */ }
     try { this.destinationNode?.disconnect(); } catch { /* already disconnected */ }
 
     this.sourceNode = null;
+    this.gainNode = null;
     this.vadGateNode = null;
     this.destinationNode = null;
     this.processedTrack = undefined;

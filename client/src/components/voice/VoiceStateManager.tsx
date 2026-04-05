@@ -27,7 +27,7 @@ import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopp
 import { getScreenShareToken } from "../../api/voice";
 import { useServerStore } from "../../stores/serverStore";
 
-/** Both processors expose setMicSensitivity */
+/** Both processors expose setMicSensitivity and setInputVolume */
 type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
 
 function VoiceStateManager() {
@@ -46,6 +46,7 @@ function VoiceStateManager() {
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
   const micSensitivity = useVoiceStore((s) => s.micSensitivity);
+  const inputVolume = useVoiceStore((s) => s.inputVolume);
 
   // Skip effects until initial connection sync is done
   const initialSyncDone = useRef(false);
@@ -489,6 +490,8 @@ function VoiceStateManager() {
   noiseReductionRef.current = noiseReduction;
   const micSensitivityRef = useRef(micSensitivity);
   micSensitivityRef.current = micSensitivity;
+  const inputVolumeRef = useRef(inputVolume);
+  inputVolumeRef.current = inputVolume;
 
   function getDesiredProcessor(nr: boolean, sens: number): "rnnoise" | "vadgate" | "none" {
     if (nr) return "rnnoise";
@@ -516,6 +519,7 @@ function VoiceStateManager() {
     if (desired === current) {
       if (processorRef.current && desired !== "none") {
         processorRef.current.setMicSensitivity(micSensitivity);
+        processorRef.current.setInputVolume(inputVolume);
       }
       return;
     }
@@ -534,12 +538,12 @@ function VoiceStateManager() {
       if (cancelled) return;
 
       if (desired === "rnnoise") {
-        const processor = new RNNoiseProcessor(micSensitivity);
+        const processor = new RNNoiseProcessor(micSensitivity, inputVolume);
         processorRef.current = processor;
         await audioTrack!.setProcessor(processor);
         // RNNoise + VAD gate active
       } else if (desired === "vadgate") {
-        const processor = new VadGateProcessor(micSensitivity);
+        const processor = new VadGateProcessor(micSensitivity, inputVolume);
         processorRef.current = processor;
         await audioTrack!.setProcessor(processor);
         // VAD gate active
@@ -553,7 +557,7 @@ function VoiceStateManager() {
     });
 
     return () => { cancelled = true; };
-  }, [noiseReduction, micSensitivity, localParticipant]);
+  }, [noiseReduction, micSensitivity, inputVolume, localParticipant]);
 
   // Apply processor when mic track is first published (settings already active on join).
   // The effect above won't catch this since noiseReduction/micSensitivity haven't changed.
@@ -570,9 +574,9 @@ function VoiceStateManager() {
 
       let processor: AudioProcessor;
       if (desired === "rnnoise") {
-        processor = new RNNoiseProcessor(micSensitivityRef.current);
+        processor = new RNNoiseProcessor(micSensitivityRef.current, inputVolumeRef.current);
       } else {
-        processor = new VadGateProcessor(micSensitivityRef.current);
+        processor = new VadGateProcessor(micSensitivityRef.current, inputVolumeRef.current);
       }
 
       processorRef.current = processor;
