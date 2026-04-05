@@ -14,7 +14,9 @@ import Avatar from "../shared/Avatar";
 import AudioDevicePopup from "./AudioDevicePopup";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import SoundboardPanel from "../soundboard/SoundboardPanel";
+import type { ScreenShareQuality } from "../../stores/voiceStore";
 import type { UserStatus } from "../../types";
+import { createPortal } from "react-dom";
 
 const STATUS_OPTIONS: {
   value: UserStatus;
@@ -68,7 +70,8 @@ function UserBar({
   // Audio device popup state
   const micChevronRef = useRef<HTMLButtonElement>(null);
   const speakerChevronRef = useRef<HTMLButtonElement>(null);
-  const [devicePopup, setDevicePopup] = useState<"input" | "output" | null>(null);
+  const screenShareChevronRef = useRef<HTMLButtonElement>(null);
+  const [devicePopup, setDevicePopup] = useState<"input" | "output" | "screenshare" | null>(null);
 
   // Connected voice channel name
   const categories = useChannelStore((s) => s.categories);
@@ -212,15 +215,29 @@ function UserBar({
             </button>
           </div>
           <div className="ub-voice-btns">
-            <button
-              className={`ub-ctrl${isStreaming ? " active" : ""}`}
-              onClick={onToggleScreenShare}
-              title={isStreaming ? t("stopScreenShare") : t("screenShare")}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6v2H7a1 1 0 1 0 0 2h10a1 1 0 1 0 0-2h-2v-2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3zm9 4a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H9a1 1 0 1 1 0-2h2V9a1 1 0 0 1 1-1z" />
-              </svg>
-            </button>
+            <div className="ub-ctrl-group">
+              <button
+                className={`ub-ctrl${isStreaming ? " active" : ""}`}
+                onClick={onToggleScreenShare}
+                title={isStreaming ? t("stopScreenShare") : t("screenShare")}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6v2H7a1 1 0 1 0 0 2h10a1 1 0 1 0 0-2h-2v-2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3zm9 4a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H9a1 1 0 1 1 0-2h2V9a1 1 0 0 1 1-1z" />
+                </svg>
+              </button>
+              <button
+                ref={screenShareChevronRef}
+                className={`ub-chevron${devicePopup === "screenshare" ? " active" : ""}`}
+                onClick={() => setDevicePopup(devicePopup === "screenshare" ? null : "screenshare")}
+              >
+                <svg width="12" height="12" viewBox="0 0 10 10" fill="currentColor">
+                  {devicePopup === "screenshare"
+                    ? <path d="M2 7l3-4 3 4H2z" />
+                    : <path d="M2 3l3 4 3-4H2z" />
+                  }
+                </svg>
+              </button>
+            </div>
             <button
               ref={sbBtnRef}
               className={`ub-ctrl${isPanelOpen ? " active" : ""}`}
@@ -384,6 +401,14 @@ function UserBar({
         />
       )}
 
+      {/* Screen share quality popup */}
+      {devicePopup === "screenshare" && screenShareChevronRef.current && (
+        <ScreenShareQualityPopup
+          anchorEl={screenShareChevronRef.current}
+          onClose={() => setDevicePopup(null)}
+        />
+      )}
+
       {/* Soundboard floating popup — fixed position, above button */}
       {isPanelOpen && sbPos && (
         <div
@@ -395,6 +420,72 @@ function UserBar({
         </div>
       )}
     </div>
+  );
+}
+
+/** Minimal popup for screen share quality selection. */
+function ScreenShareQualityPopup({
+  anchorEl,
+  onClose,
+}: {
+  anchorEl: HTMLElement;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("settings");
+  const quality = useVoiceStore((s) => s.screenShareQuality);
+  const setQuality = useVoiceStore((s) => s.setScreenShareQuality);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  const rect = anchorEl.getBoundingClientRect();
+  const top = rect.top - 6;
+  const left = rect.left;
+
+  const options: { value: ScreenShareQuality; label: string }[] = [
+    { value: "720p", label: "720p 30fps" },
+    { value: "1080p", label: "1080p 30fps" },
+  ];
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    }
+    requestAnimationFrame(() => document.addEventListener("mousedown", handleClick));
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [onClose]);
+
+  // Close on Escape
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={popupRef}
+      className="adp-popup"
+      style={{ top, left, transform: "translateY(-100%)" }}
+    >
+      <div className="adp-section">
+        <div className="adp-label">{t("screenShareQuality")}</div>
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            className={`adp-submenu-item${quality === opt.value ? " selected" : ""}`}
+            onClick={() => { setQuality(opt.value); onClose(); }}
+          >
+            <span className="adp-submenu-label">{opt.label}</span>
+            {quality === opt.value && <div className="adp-submenu-check" />}
+          </button>
+        ))}
+      </div>
+    </div>,
+    document.body
   );
 }
 

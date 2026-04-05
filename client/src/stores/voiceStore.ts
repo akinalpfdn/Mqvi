@@ -43,9 +43,12 @@ type VoiceSettings = {
   screenShareVolumes: Record<string, number>;
   /** Share system audio when screen sharing (default: false to avoid echo) */
   screenShareAudio: boolean;
+  /** Screen share quality preset */
+  screenShareQuality: ScreenShareQuality;
 };
 
 type InputMode = "voice_activity" | "push_to_talk";
+type ScreenShareQuality = "720p" | "1080p";
 
 const DEFAULT_SETTINGS: VoiceSettings = {
   inputMode: "voice_activity",
@@ -61,6 +64,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   noiseReduction: true,
   screenShareVolumes: {},
   screenShareAudio: false,
+  screenShareQuality: "720p",
 };
 
 /** Loads voice settings from localStorage with partial merge (new keys get defaults). */
@@ -88,7 +92,7 @@ function saveSettings(settings: VoiceSettings): void {
 
 const initialSettings = loadSettings();
 
-export type { InputMode };
+export type { InputMode, ScreenShareQuality };
 
 type VoiceStore = {
   /** channelId -> VoiceState[] mapping */
@@ -125,6 +129,7 @@ type VoiceStore = {
   inputVolume: number;
   soundsEnabled: boolean;
   screenShareAudio: boolean;
+  screenShareQuality: ScreenShareQuality;
   localMutedUsers: Record<string, boolean>;
   noiseReduction: boolean;
   screenShareVolumes: Record<string, number>;
@@ -171,6 +176,7 @@ type VoiceStore = {
   setInputVolume: (value: number) => void;
   setSoundsEnabled: (enabled: boolean) => void;
   setScreenShareAudio: (enabled: boolean) => void;
+  setScreenShareQuality: (quality: ScreenShareQuality) => void;
   setNoiseReduction: (enabled: boolean) => void;
   setRtt: (rtt: number) => void;
   setActiveSpeakers: (speakerIds: string[]) => void;
@@ -231,6 +237,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   inputVolume: initialSettings.inputVolume,
   soundsEnabled: initialSettings.soundsEnabled,
   screenShareAudio: initialSettings.screenShareAudio,
+  screenShareQuality: initialSettings.screenShareQuality,
   localMutedUsers: initialSettings.localMutedUsers,
   noiseReduction: initialSettings.noiseReduction,
   screenShareVolumes: initialSettings.screenShareVolumes,
@@ -391,6 +398,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -411,6 +419,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -431,6 +440,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -452,6 +462,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -473,6 +484,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: newVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -493,6 +505,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -513,6 +526,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -533,6 +547,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -553,6 +568,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -573,6 +589,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -593,6 +610,28 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: s.noiseReduction,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: enabled,
+      screenShareQuality: s.screenShareQuality,
+    });
+  },
+
+  setScreenShareQuality: (quality) => {
+    set({ screenShareQuality: quality });
+    const s = get();
+    saveSettings({
+      inputMode: s.inputMode,
+      pttKey: s.pttKey,
+      micSensitivity: s.micSensitivity,
+      userVolumes: s.userVolumes,
+      inputDevice: s.inputDevice,
+      outputDevice: s.outputDevice,
+      masterVolume: s.masterVolume,
+      inputVolume: s.inputVolume,
+      soundsEnabled: s.soundsEnabled,
+      localMutedUsers: s.localMutedUsers,
+      noiseReduction: s.noiseReduction,
+      screenShareVolumes: s.screenShareVolumes,
+      screenShareAudio: s.screenShareAudio,
+      screenShareQuality: quality,
     });
   },
 
@@ -613,6 +652,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       noiseReduction: enabled,
       screenShareVolumes: s.screenShareVolumes,
       screenShareAudio: s.screenShareAudio,
+      screenShareQuality: s.screenShareQuality,
     });
   },
 
@@ -933,6 +973,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       inputVolume: merged.inputVolume,
       soundsEnabled: merged.soundsEnabled,
       screenShareAudio: merged.screenShareAudio,
+      screenShareQuality: merged.screenShareQuality,
       localMutedUsers: merged.localMutedUsers,
       noiseReduction: merged.noiseReduction,
       screenShareVolumes: merged.screenShareVolumes,

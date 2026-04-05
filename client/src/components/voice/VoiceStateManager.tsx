@@ -113,9 +113,13 @@ function VoiceStateManager() {
           await startNativeScreenShare(response.data.url, response.data.token);
         } else if (isElectron() && screenShareAudio) {
           // Electron: video only via getDisplayMedia, audio via native capture
+          const ssq = useVoiceStore.getState().screenShareQuality;
+          const ssRes = ssq === "720p"
+            ? { width: 1280, height: 720, frameRate: 30 }
+            : { width: 1920, height: 1080, frameRate: 30 };
           await localParticipant.setScreenShareEnabled(true, {
             audio: false,
-            resolution: { width: 1920, height: 1080, frameRate: 30 },
+            resolution: ssRes,
             contentHint: "motion",
           });
 
@@ -133,9 +137,13 @@ function VoiceStateManager() {
           customAudioPubRef.current = pub;
         } else {
           // Browser: standard getDisplayMedia
+          const ssq = useVoiceStore.getState().screenShareQuality;
+          const ssRes = ssq === "720p"
+            ? { width: 1280, height: 720, frameRate: 30 }
+            : { width: 1920, height: 1080, frameRate: 30 };
           await localParticipant.setScreenShareEnabled(true, {
             audio: screenShareAudio,
-            resolution: { width: 1920, height: 1080, frameRate: 30 },
+            resolution: ssRes,
             contentHint: "motion",
           });
         }

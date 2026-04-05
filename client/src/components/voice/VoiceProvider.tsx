@@ -189,25 +189,27 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     [inputDevice]
   );
 
-  /**
-   * Screen share publish defaults:
-   * - 1080p/30fps main layer, 3 Mbps
-   * - Simulcast: 720p/30fps (1.5M), 720p/15fps (800K) for bandwidth adaptation
-   * - VP9: ~30-40% better compression than H264 at same bitrate
-   */
+  const screenShareQuality = useVoiceStore((s) => s.screenShareQuality);
+
+  /** Screen share publish defaults — adapts to quality setting. */
   const publishDefaults = useMemo(
-    () => ({
-      screenShareEncoding: {
-        maxBitrate: 3_000_000,
-        maxFramerate: 30,
-      },
-      screenShareSimulcastLayers: [
-        new VideoPreset(1280, 720, 1_500_000, 30),
-        new VideoPreset(1280, 720, 800_000, 15),
-      ],
-      videoCodec: "vp9" as const,
-    }),
-    []
+    () => {
+      const is720 = screenShareQuality === "720p";
+      return {
+        screenShareEncoding: {
+          maxBitrate: is720 ? 1_500_000 : 3_000_000,
+          maxFramerate: 30,
+        },
+        screenShareSimulcastLayers: is720
+          ? [new VideoPreset(1280, 720, 800_000, 15)]
+          : [
+              new VideoPreset(1280, 720, 1_500_000, 30),
+              new VideoPreset(1280, 720, 800_000, 15),
+            ],
+        videoCodec: "vp9" as const,
+      };
+    },
+    [screenShareQuality]
   );
 
   // Attach E2EE config when passphrase + worker are available

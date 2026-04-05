@@ -185,6 +185,7 @@
   "noiseReductionDesc": "ML tabanlı gürültü bastırma (RNNoise). Mikrofondaki arka plan sesi, fan ve klavye seslerini temizler.",
   "joinLeaveSounds": "Giriş/Çıkış Sesleri",
   "joinLeaveSoundsDesc": "Biri ses kanalına girip çıktığında ses çal",
+  "screenShareQuality": "Ekran Paylaşım Kalitesi",
   "screenShareAudio": "Ekran Paylaşımı Sesi",
   "screenShareAudioDesc": "Ekran paylaşırken sistem sesini paylaş (oyun, müzik). Ses sohbeti otomatik olarak hariç tutulur.",
   "screenShareAudioDescBrowser": "Ekran paylaşırken sistem sesini paylaş. Ses kanalında yankıya neden olabilir.",

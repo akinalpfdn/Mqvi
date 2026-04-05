@@ -185,6 +185,7 @@
   "noiseReductionDesc": "ML-based noise suppression (RNNoise). Removes background noise, fans, and keyboard clicks from your mic.",
   "joinLeaveSounds": "Join/Leave Sounds",
   "joinLeaveSoundsDesc": "Play a sound when someone joins or leaves voice",
+  "screenShareQuality": "Screen Share Quality",
   "screenShareAudio": "Screen Share Audio",
   "screenShareAudioDesc": "Share system audio when screen sharing (game, music). Voice chat audio is automatically excluded.",
   "screenShareAudioDescBrowser": "Share system audio when screen sharing. May cause echo in voice chat.",
