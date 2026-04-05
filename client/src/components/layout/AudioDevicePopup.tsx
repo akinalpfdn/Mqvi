@@ -87,7 +87,6 @@ function AudioDevicePopup({ kind, anchorEl, onClose }: AudioDevicePopupProps) {
     const menu = popupRef.current;
     const rect = menu.getBoundingClientRect();
     const vw = window.innerWidth;
-    const vh = window.innerHeight;
 
     let x = pos.left;
     let y = pos.top;
