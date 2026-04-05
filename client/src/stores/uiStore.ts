@@ -68,7 +68,7 @@ type UIState = {
   closeTextTabByChannel: (channelId: string) => void;
 
   // Split actions
-  splitPanel: (panelId: string, direction: SplitDirection, tabId: string, position?: "before" | "after") => void;
+  splitPanel: (panelId: string, direction: SplitDirection, tabId: string, position?: "before" | "after", fromPanelId?: string) => void;
   moveTab: (fromPanelId: string, toPanelId: string, tabId: string) => void;
   setSplitRatio: (path: number[], ratio: number) => void;
 
@@ -340,22 +340,27 @@ export const useUIStore = create<UIState>((set, get) => ({
     });
   },
 
-  splitPanel(panelId, direction, tabId, position = "after") {
+  splitPanel(panelId, direction, tabId, position = "after", fromPanelId?) {
     const state = get();
-    const sourcePanel = state.panels[panelId];
-    if (!sourcePanel) return;
+    const targetPanel = state.panels[panelId];
+    if (!targetPanel) return;
 
-    const tab = sourcePanel.tabs.find((t) => t.id === tabId);
+    // Tab can come from target panel (same-panel split) or another panel (cross-panel)
+    const actualFromId = fromPanelId ?? panelId;
+    const fromPanel = state.panels[actualFromId];
+    if (!fromPanel) return;
+
+    const tab = fromPanel.tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
     // Remove tab from source panel
-    const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== tabId);
-    const sourceActiveTabId =
-      sourcePanel.activeTabId === tabId
+    const remainingTabs = fromPanel.tabs.filter((t) => t.id !== tabId);
+    const fromActiveTabId =
+      fromPanel.activeTabId === tabId
         ? remainingTabs[0]?.id ?? null
-        : sourcePanel.activeTabId;
+        : fromPanel.activeTabId;
 
-    // Create new panel
+    // Create new panel for the dragged tab
     const newPanelId = nextPanelId();
     const newPanel: Panel = {
       id: newPanelId,
@@ -363,7 +368,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       activeTabId: tab.id,
     };
 
-    // Replace source leaf with split node
+    // Replace target leaf with split node
     function insertSplit(node: LayoutNode): LayoutNode {
       if (node.type === "leaf" && node.panelId === panelId) {
         const first: LayoutNode = position === "before"
@@ -391,17 +396,27 @@ export const useUIStore = create<UIState>((set, get) => ({
       return node;
     }
 
+    const newPanels = { ...state.panels };
+    let newLayout = insertSplit(state.layout);
+
+    // Source panel: remove tab (or remove entire panel if empty)
+    if (remainingTabs.length === 0 && actualFromId !== panelId) {
+      // Source panel becomes empty — remove it from layout
+      delete newPanels[actualFromId];
+      newLayout = removeLeafFromLayout(newLayout, actualFromId) ?? newLayout;
+    } else {
+      newPanels[actualFromId] = {
+        ...fromPanel,
+        tabs: remainingTabs,
+        activeTabId: fromActiveTabId,
+      };
+    }
+
+    newPanels[newPanelId] = newPanel;
+
     set({
-      panels: {
-        ...state.panels,
-        [panelId]: {
-          ...sourcePanel,
-          tabs: remainingTabs,
-          activeTabId: sourceActiveTabId,
-        },
-        [newPanelId]: newPanel,
-      },
-      layout: insertSplit(state.layout),
+      panels: newPanels,
+      layout: newLayout,
       activePanelId: newPanelId,
     });
   },

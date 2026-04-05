@@ -131,16 +131,16 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
           moveTab(fromPanelId, panelId, tabId);
           break;
         case "left":
-          splitPanel(panelId, "horizontal", tabId, "before");
+          splitPanel(panelId, "horizontal", tabId, "before", fromPanelId);
           break;
         case "right":
-          splitPanel(panelId, "horizontal", tabId, "after");
+          splitPanel(panelId, "horizontal", tabId, "after", fromPanelId);
           break;
         case "top":
-          splitPanel(panelId, "vertical", tabId, "before");
+          splitPanel(panelId, "vertical", tabId, "before", fromPanelId);
           break;
         case "bottom":
-          splitPanel(panelId, "vertical", tabId, "after");
+          splitPanel(panelId, "vertical", tabId, "after", fromPanelId);
           break;
       }
     },
