@@ -245,8 +245,8 @@ function VoiceStateManager() {
           console.error("[VoiceStateManager] Failed to restore mic after reconnect:", err);
         });
 
-        // Re-apply volumes — RemoteParticipant objects may have been recreated
-        const { userVolumes: vols, screenShareVolumes: ssVols, masterVolume: master, isDeafened: deaf, isServerDeafened: srvDeaf } =
+        // Re-apply volumes and screen share subscriptions — RemoteParticipant objects may have been recreated
+        const { userVolumes: vols, screenShareVolumes: ssVols, masterVolume: master, isDeafened: deaf, isServerDeafened: srvDeaf, watchingScreenShares: wsShares } =
           useVoiceStore.getState();
         const masterFactor = master / 100;
         const fullyDeaf = deaf || srvDeaf;
@@ -257,6 +257,17 @@ function VoiceStateManager() {
 
           const ssVol = ssVols[participant.identity] ?? 100;
           participant.setVolume(fullyDeaf ? 0 : (ssVol / 100) * masterFactor, Track.Source.ScreenShareAudio);
+
+          // Restore screen share subscription state
+          const watching = wsShares[resolveUserId(participant.identity)] ?? false;
+          participant.trackPublications.forEach((pub) => {
+            if (
+              pub.source === Track.Source.ScreenShare ||
+              pub.source === Track.Source.ScreenShareAudio
+            ) {
+              (pub as RemoteTrackPublication).setSubscribed(watching);
+            }
+          });
         });
       }, 1000);
     }
