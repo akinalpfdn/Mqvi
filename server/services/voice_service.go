@@ -88,6 +88,7 @@ type voiceService struct {
 	roomPassphrases    map[string]string             // roomName -> E2EE SFrame passphrase
 	screenShareViewers map[string]map[string]bool    // streamerUserID -> set of viewerUserIDs
 	forceMoveGrants    map[string]forceMoveGrant     // userID -> one-time bypass (consumed on token gen)
+	offlineSince       map[string]time.Time          // userID -> first seen offline (grace period tracking)
 	mu                 sync.RWMutex
 
 	channelGetter    ChannelGetter
@@ -134,6 +135,7 @@ func NewVoiceService(
 		roomPassphrases:    make(map[string]string),
 		screenShareViewers: make(map[string]map[string]bool),
 		forceMoveGrants:    make(map[string]forceMoveGrant),
+		offlineSince:       make(map[string]time.Time),
 		channelGetter:      channelGetter,
 		livekitGetter:      livekitGetter,
 		permResolver:       permResolver,
@@ -1001,11 +1003,19 @@ func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
 	}
 }
 
-// StartOrphanCleanup periodically removes voice states for disconnected users.
-// Runs every 30s — enough time for WS reconnects during brief disconnections.
+// orphanGracePeriod is the guaranteed minimum time a user must be offline
+// before their voice state is cleaned up. Prevents false leave/join broadcasts
+// (and sounds) during brief WS reconnects. The old fixed-ticker approach gave
+// 0–30s of grace depending on phase alignment; per-user timestamps guarantee
+// the full duration regardless of when the disconnect happens.
+const orphanGracePeriod = 35 * time.Second
+
+// StartOrphanCleanup periodically removes voice states for users who have been
+// disconnected longer than orphanGracePeriod. Runs every 5s for responsive
+// cleanup after grace expires — per-user timestamps prevent premature removal.
 func (s *voiceService) StartOrphanCleanup() {
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
@@ -1019,8 +1029,12 @@ type orphanEntry struct {
 	channelID string
 }
 
-// sweepOrphanStates removes voice states for users no longer connected to the Hub.
-// Two-phase: delete+broadcast under lock, then LiveKit cleanup outside lock.
+// sweepOrphanStates uses two-phase per-user tracking:
+//  1. First time a user with voice state is seen offline → record offlineSince timestamp
+//  2. User comes back online before grace expires → clear tracking, no broadcast
+//  3. Grace period expires → broadcast leave, remove state, cleanup LiveKit
+//
+// This guarantees orphanGracePeriod of grace regardless of ticker phase.
 func (s *voiceService) sweepOrphanStates() {
 	onlineIDs := s.onlineChecker.GetOnlineUserIDs()
 	onlineSet := make(map[string]bool, len(onlineIDs))
@@ -1028,37 +1042,71 @@ func (s *voiceService) sweepOrphanStates() {
 		onlineSet[id] = true
 	}
 
+	now := time.Now()
 	var orphans []orphanEntry
 
 	s.mu.Lock()
-	for userID, state := range s.states {
-		if !onlineSet[userID] {
-			channelID := state.ChannelID
-			username := state.Username
-			displayName := state.DisplayName
-			avatarURL := state.AvatarURL
-			delete(s.states, userID)
 
-			s.hub.BroadcastToAll(ws.Event{
-				Op: ws.OpVoiceStateUpdate,
-				Data: ws.VoiceStateUpdateBroadcast{
-					UserID:      userID,
-					ChannelID:   channelID,
-					Username:    username,
-					DisplayName: displayName,
-					AvatarURL:   avatarURL,
-					Action:      "leave",
-				},
-			})
-
-			s.cleanupRoomPassphraseIfEmpty(channelID)
-			orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID})
-			log.Printf("[voice] orphan cleanup: removed user %s from channel %s", userID, channelID)
-			s.logWarn(models.LogCategoryVoice, &userID, "orphan cleanup: stale voice state removed", map[string]string{
-				"channel_id": channelID,
-			})
+	// Phase 1: Track newly offline users, clear returned-online users
+	for userID := range s.states {
+		if onlineSet[userID] {
+			// Back online — clear any pending offline tracking
+			delete(s.offlineSince, userID)
+		} else if _, tracked := s.offlineSince[userID]; !tracked {
+			// First time seeing this user offline — start grace timer
+			s.offlineSince[userID] = now
 		}
 	}
+
+	// Phase 2: Only remove users who exceeded the grace period
+	for userID, offlineTime := range s.offlineSince {
+		if now.Sub(offlineTime) < orphanGracePeriod {
+			continue // Still within grace — do not touch
+		}
+
+		state, ok := s.states[userID]
+		if !ok {
+			// Voice state already removed (explicit leave during grace) — clean tracker
+			delete(s.offlineSince, userID)
+			continue
+		}
+
+		// Grace expired — confirmed abandoned session
+		channelID := state.ChannelID
+		username := state.Username
+		displayName := state.DisplayName
+		avatarURL := state.AvatarURL
+		delete(s.states, userID)
+		delete(s.offlineSince, userID)
+
+		s.hub.BroadcastToAll(ws.Event{
+			Op: ws.OpVoiceStateUpdate,
+			Data: ws.VoiceStateUpdateBroadcast{
+				UserID:      userID,
+				ChannelID:   channelID,
+				Username:    username,
+				DisplayName: displayName,
+				AvatarURL:   avatarURL,
+				Action:      "leave",
+			},
+		})
+
+		s.cleanupRoomPassphraseIfEmpty(channelID)
+		orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID})
+		log.Printf("[voice] orphan cleanup: removed user %s from channel %s (offline for %s)", userID, channelID, now.Sub(offlineTime).Round(time.Second))
+		s.logWarn(models.LogCategoryVoice, &userID, "orphan cleanup: stale voice state removed", map[string]string{
+			"channel_id":      channelID,
+			"offline_seconds": fmt.Sprintf("%.0f", now.Sub(offlineTime).Seconds()),
+		})
+	}
+
+	// Clean stale trackers (user left voice explicitly during grace)
+	for userID := range s.offlineSince {
+		if _, ok := s.states[userID]; !ok {
+			delete(s.offlineSince, userID)
+		}
+	}
+
 	s.mu.Unlock()
 
 	// LiveKit cleanup outside lock (involves DB calls)

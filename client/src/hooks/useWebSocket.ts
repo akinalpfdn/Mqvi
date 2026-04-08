@@ -32,11 +32,17 @@ import { handleVoiceEvent } from "./ws/voiceEventHandlers";
 import { handleSystemEvent } from "./ws/systemEventHandlers";
 import type { WSHandlerContext } from "./ws/types";
 
-/** Fixed reconnect delay (ms) */
-const RECONNECT_DELAY = 10_000;
+/**
+ * Exponential backoff reconnect schedule (ms).
+ * Fast first attempt catches brief network blips before the server-side
+ * orphan grace period (35s) expires. Later attempts back off to avoid
+ * thundering herd during server outages.
+ */
+const RECONNECT_BASE_DELAY = 1_500;
+const RECONNECT_MAX_DELAY = 20_000;
 
 /** Max reconnect attempts before showing "disconnected" */
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = 7;
 
 /** Typing throttle (ms) — prevents flooding same channel */
 const TYPING_THROTTLE = 3_000;
@@ -109,9 +115,16 @@ export function useWebSocket() {
     }
   }
 
-  /** Fixed 10s reconnect delay. 5 attempts x 10s = 50s before giving up. */
+  /**
+   * Exponential backoff with jitter. Attempt 1 ≈ 1.5s, then 3s, 6s, ...
+   * Jitter (±25%) prevents synchronized reconnects after server restart.
+   * 7 attempts covers ~60s total — well beyond the 35s orphan grace period.
+   */
   function getReconnectDelay(): number {
-    return RECONNECT_DELAY;
+    const attempt = reconnectAttemptRef.current;
+    const base = Math.min(RECONNECT_BASE_DELAY * Math.pow(2, attempt), RECONNECT_MAX_DELAY);
+    const jitter = base * 0.25 * (Math.random() * 2 - 1); // ±25%
+    return Math.round(base + jitter);
   }
 
   /**
@@ -227,7 +240,7 @@ export function useWebSocket() {
     const myId = ++activeConnectionIdRef.current;
 
     /**
-     * scheduleReconnect — Fixed 10s delay, max 5 attempts.
+     * scheduleReconnect — Exponential backoff, max 7 attempts (~60s total).
      * Shows "disconnected" banner after limit is reached.
      */
     function scheduleReconnect() {

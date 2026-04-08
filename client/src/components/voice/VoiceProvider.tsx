@@ -229,6 +229,12 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       audioCaptureDefaults,
       publishDefaults,
       webAudioMix: true,
+      // adaptiveStream: SFU sends lower quality layer when subscriber viewport is small.
+      // Without this, full-res is sent regardless of viewer size → bandwidth waste → packet loss.
+      adaptiveStream: true,
+      // dynacast: Pauses video encoding when no subscriber is watching a track.
+      // Saves upstream bandwidth when e.g. screen share has 0 viewers.
+      dynacast: true,
     };
 
     if (e2eePassphrase && e2eeWorker) {
