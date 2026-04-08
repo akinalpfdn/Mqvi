@@ -555,6 +555,7 @@
   "platformLogsCategoryAuth": "Auth",
   "platformLogsCategoryGeneral": "General",
   "platformLogsCategoryFeedback": "Feedback",
+  "platformLogsCategoryLiveKit": "LiveKit",
   "platformLogsPage": "Page {{current}} of {{total}}",
 
   "feedback": "Feedback",

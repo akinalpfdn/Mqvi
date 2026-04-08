@@ -114,7 +114,7 @@ func main() {
 	svcs.AppLog.Start()
 
 	// 11. Handler layer
-	h := initHandlers(svcs, repos, limiters, hub, cfg)
+	h := initHandlers(svcs, repos, limiters, hub, cfg, encryptionKey)
 
 	// 12. HTTP router + routes
 	mux := http.NewServeMux()

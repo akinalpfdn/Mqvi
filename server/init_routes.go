@@ -203,6 +203,9 @@ func initRoutes(
 	mux.Handle("GET /api/admin/logs", authAdmin(h.Admin.ListAppLogs))
 	mux.Handle("DELETE /api/admin/logs", authAdmin(h.Admin.ClearAppLogs))
 
+	// LiveKit Webhook — no auth middleware, verified via HMAC signature
+	mux.HandleFunc("POST /api/livekit/webhook", h.LiveKitWebhook.HandleWebhook)
+
 	// Stats — public
 	mux.HandleFunc("GET /api/stats", h.Stats.GetPublicStats)
 

@@ -1389,6 +1389,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .role-list-item.active .platform-instance-capacity { color:var(--t2); }
 
 /* ── Admin Logs Panel ── */
+.settings-content:has(.admin-logs-panel) { max-width:none; }
 .admin-logs-panel { display:flex;flex-direction:column;height:100%;padding:24px;gap:16px; }
 .admin-logs-header { display:flex;align-items:center;justify-content:space-between; }
 .admin-logs-header .settings-section-title { margin:0; }
@@ -1406,6 +1407,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .log-badge-warn { background:var(--yellow-s);color:var(--yellow); }
 .log-badge-info { background:var(--primary-s);color:var(--primary); }
 .admin-log-category { font-size:13px;color:var(--t3);flex-shrink:0;min-width:80px; }
+.admin-log-user { font-size:13px;color:var(--primary);font-weight:600;flex-shrink:0;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default; }
 .admin-log-message { font-size:13px;color:var(--t1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .admin-log-time { font-size:13px;color:var(--t3);flex-shrink:0;white-space:nowrap; }
 .admin-log-metadata { padding:8px 0 4px 0;display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--bg-4);margin-top:8px; }

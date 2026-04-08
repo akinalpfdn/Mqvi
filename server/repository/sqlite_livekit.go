@@ -236,6 +236,26 @@ func (r *sqliteLiveKitRepo) ListPlatformInstances(ctx context.Context) ([]models
 	return instances, nil
 }
 
+// ListAllInstances returns all LiveKit instances regardless of platform-managed flag.
+// Only id, api_key, api_secret are needed — used by webhook HMAC verification.
+func (r *sqliteLiveKitRepo) ListAllInstances(ctx context.Context) ([]models.LiveKitInstance, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, api_key, api_secret FROM livekit_instances`)
+	if err != nil {
+		return nil, fmt.Errorf("list all livekit instances: %w", err)
+	}
+	defer rows.Close()
+
+	var instances []models.LiveKitInstance
+	for rows.Next() {
+		var inst models.LiveKitInstance
+		if err := rows.Scan(&inst.ID, &inst.APIKey, &inst.APISecret); err != nil {
+			return nil, fmt.Errorf("scan livekit instance: %w", err)
+		}
+		instances = append(instances, inst)
+	}
+	return instances, nil
+}
+
 // MigrateServers moves all servers from one instance to another within a transaction.
 func (r *sqliteLiveKitRepo) MigrateServers(ctx context.Context, fromInstanceID, toInstanceID string) (int64, error) {
 	sqlDB, ok := r.db.(*sql.DB)

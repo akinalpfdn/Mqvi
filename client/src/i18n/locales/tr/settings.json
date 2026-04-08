@@ -555,6 +555,7 @@
   "platformLogsCategoryAuth": "Kimlik Doğrulama",
   "platformLogsCategoryGeneral": "Genel",
   "platformLogsCategoryFeedback": "Geri Bildirim",
+  "platformLogsCategoryLiveKit": "LiveKit",
   "platformLogsPage": "Sayfa {{current}} / {{total}}",
 
   "feedback": "Geri Bildirim",

@@ -38,16 +38,16 @@ func (r *sqliteAppLogRepo) List(ctx context.Context, filter models.AppLogFilter)
 	var args []interface{}
 
 	if filter.Level != "" {
-		conditions = append(conditions, "level = ?")
+		conditions = append(conditions, "a.level = ?")
 		args = append(args, filter.Level)
 	}
 	if filter.Category != "" {
-		conditions = append(conditions, "category = ?")
+		conditions = append(conditions, "a.category = ?")
 		args = append(args, filter.Category)
 	}
 	if filter.Search != "" {
-		conditions = append(conditions, "message LIKE ?")
-		args = append(args, "%"+filter.Search+"%")
+		conditions = append(conditions, "(a.message LIKE ? OR u.username LIKE ? OR u.display_name LIKE ?)")
+		args = append(args, "%"+filter.Search+"%", "%"+filter.Search+"%", "%"+filter.Search+"%")
 	}
 
 	where := ""
@@ -55,14 +55,14 @@ func (r *sqliteAppLogRepo) List(ctx context.Context, filter models.AppLogFilter)
 		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	// Count total
-	countQuery := "SELECT COUNT(*) FROM app_logs" + where
+	// Count total (JOIN needed for username/display_name search)
+	countQuery := "SELECT COUNT(*) FROM app_logs a LEFT JOIN users u ON a.user_id = u.id" + where
 	var total int
 	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count app logs: %w", err)
 	}
 
-	// Fetch page
+	// Fetch page with username resolution via LEFT JOIN
 	limit := filter.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -72,8 +72,10 @@ func (r *sqliteAppLogRepo) List(ctx context.Context, filter models.AppLogFilter)
 		offset = 0
 	}
 
-	query := "SELECT id, level, category, user_id, server_id, message, metadata, created_at FROM app_logs" +
-		where + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	query := `SELECT a.id, a.level, a.category, a.user_id, a.server_id, a.message, a.metadata, a.created_at,
+		u.username, u.display_name
+		FROM app_logs a LEFT JOIN users u ON a.user_id = u.id` +
+		where + " ORDER BY a.created_at DESC LIMIT ? OFFSET ?"
 
 	pageArgs := append(args, limit, offset)
 	rows, err := r.db.QueryContext(ctx, query, pageArgs...)
@@ -85,7 +87,8 @@ func (r *sqliteAppLogRepo) List(ctx context.Context, filter models.AppLogFilter)
 	var logs []models.AppLog
 	for rows.Next() {
 		var l models.AppLog
-		if err := rows.Scan(&l.ID, &l.Level, &l.Category, &l.UserID, &l.ServerID, &l.Message, &l.Metadata, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.Level, &l.Category, &l.UserID, &l.ServerID, &l.Message, &l.Metadata, &l.CreatedAt,
+			&l.Username, &l.DisplayName); err != nil {
 			return nil, 0, fmt.Errorf("scan app log: %w", err)
 		}
 		logs = append(logs, l)

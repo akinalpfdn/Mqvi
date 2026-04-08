@@ -23,6 +23,7 @@ const LEVEL_OPTIONS: { value: string; labelKey: string }[] = [
 const CATEGORY_OPTIONS: { value: string; labelKey: string }[] = [
   { value: "", labelKey: "platformLogsAllCategories" },
   { value: "voice", labelKey: "platformLogsCategoryVoice" },
+  { value: "livekit", labelKey: "platformLogsCategoryLiveKit" },
   { value: "video", labelKey: "platformLogsCategoryVideo" },
   { value: "screen_share", labelKey: "platformLogsCategoryScreenShare" },
   { value: "ws", labelKey: "platformLogsCategoryWs" },
@@ -243,6 +244,11 @@ function AdminLogsPanel() {
                     {log.level.toUpperCase()}
                   </span>
                   <span className="admin-log-category">{log.category}</span>
+                  {log.user_id && (
+                    <span className="admin-log-user" title={log.user_id}>
+                      {log.display_name || log.username || log.user_id.slice(0, 8)}
+                    </span>
+                  )}
                   <span className="admin-log-message">{log.message}</span>
                   <span className="admin-log-time">
                     {formatTimestamp(log.created_at)}

@@ -41,10 +41,11 @@ type Handlers struct {
 	DownloadPrompt    *handlers.DownloadPromptHandler
 	Feedback          *handlers.FeedbackHandler
 	Soundboard        *handlers.SoundboardHandler
+	LiveKitWebhook    *handlers.LiveKitWebhookHandler
 	WS                *ws.Handler
 }
 
-func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, hub *ws.Hub, cfg *config.Config) *Handlers {
+func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, hub *ws.Hub, cfg *config.Config, encryptionKey []byte) *Handlers {
 	return &Handlers{
 		Auth:              handlers.NewAuthHandler(svcs.Auth, limiters.Login, limiters.Register, limiters.ForgotPwd, limiters.ResetPwd),
 		Channel:           handlers.NewChannelHandler(svcs.Channel),
@@ -79,6 +80,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		DownloadPrompt:    handlers.NewDownloadPromptHandler(repos.User),
 		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback, svcs.FeedbackUpload, cfg.Upload.MaxSize, limiters.Feedback, svcs.AppLog),
 		Soundboard:        handlers.NewSoundboardHandler(svcs.Soundboard, cfg.Upload.MaxSize),
+		LiveKitWebhook:    handlers.NewLiveKitWebhookHandler(repos.LiveKit, encryptionKey, svcs.AppLog),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute),
 	}
 }

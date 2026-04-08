@@ -580,7 +580,7 @@ export type FeedbackReply = {
 
 // ──────────────────────────────────
 export type AppLogLevel = "error" | "warn" | "info";
-export type AppLogCategory = "voice" | "video" | "screen_share" | "ws" | "auth" | "general";
+export type AppLogCategory = "voice" | "video" | "screen_share" | "ws" | "auth" | "general" | "feedback" | "livekit";
 
 export type AppLog = {
   id: string;
@@ -591,6 +591,8 @@ export type AppLog = {
   message: string;
   metadata: string;
   created_at: string;
+  username: string | null;
+  display_name: string | null;
 };
 
 // ──────────────────────────────────

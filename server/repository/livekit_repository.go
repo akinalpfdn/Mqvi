@@ -19,6 +19,9 @@ type LiveKitRepository interface {
 	Update(ctx context.Context, instance *models.LiveKitInstance) error
 	Delete(ctx context.Context, id string) error
 	ListPlatformInstances(ctx context.Context) ([]models.LiveKitInstance, error)
+	// ListAllInstances returns all LiveKit instances (both platform-managed and self-hosted).
+	// Used by webhook handler to verify HMAC signatures from any known instance.
+	ListAllInstances(ctx context.Context) ([]models.LiveKitInstance, error)
 	// MigrateServers moves all servers from one instance to another. Returns count of migrated servers.
 	MigrateServers(ctx context.Context, fromInstanceID, toInstanceID string) (int64, error)
 	// MigrateOneServer moves a single server to a new instance (adjusts server_count on both).
