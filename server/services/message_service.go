@@ -260,9 +260,17 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 
 // allowedViewers returns online user IDs that have both ViewChannel and ReadMessages
 // permission on the given channel. Used to filter all channel-scoped WS broadcasts.
+// Scoped to the channel's server members so permission checks don't iterate every
+// user on the platform.
 func (s *messageService) allowedViewers(channelID string) []string {
-	onlineUsers := s.hub.GetOnlineUserIDs()
 	ctx := context.Background()
+
+	channel, err := s.channelRepo.GetByID(ctx, channelID)
+	if err != nil || channel == nil {
+		return nil
+	}
+
+	onlineUsers := s.hub.GetOnlineUserIDsForServer(channel.ServerID)
 	var allowed []string
 
 	for _, userID := range onlineUsers {

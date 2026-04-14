@@ -20,6 +20,7 @@ func registerHubCallbacks(
 	p2pCallService services.P2PCallService,
 	channelRepo repository.ChannelRepository,
 	serverRepo repository.ServerRepository,
+	channelPermResolver services.ChannelPermResolver,
 ) {
 	// ─── Presence Callbacks ───
 
@@ -209,14 +210,30 @@ func registerHubCallbacks(
 	// Validates sender has ReadMessages permission, then broadcasts to server members only.
 
 	hub.OnChannelTyping(func(senderUserID, senderUsername, channelID string) {
-		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
+		ctx := context.Background()
+		ch, chErr := channelRepo.GetByID(ctx, channelID)
 		if chErr != nil {
 			return
 		}
 
-		// Verify sender is a server member by checking if client has this server
-		// (serverIDs are populated from DB at WS connect and kept in sync)
-		hub.BroadcastToServerExcept(ch.ServerID, senderUserID, ws.Event{
+		// Filter recipients to server members who have ViewChannel + ReadMessages
+		// on this channel (respects per-channel permission overrides).
+		onlineUsers := hub.GetOnlineUserIDsForServer(ch.ServerID)
+		recipients := make([]string, 0, len(onlineUsers))
+		for _, uid := range onlineUsers {
+			if uid == senderUserID {
+				continue
+			}
+			perms, err := channelPermResolver.ResolveChannelPermissions(ctx, uid, channelID)
+			if err != nil {
+				continue
+			}
+			if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
+				recipients = append(recipients, uid)
+			}
+		}
+
+		hub.BroadcastToUsers(recipients, ws.Event{
 			Op: ws.OpTypingStart,
 			Data: ws.TypingStartData{
 				UserID:    senderUserID,

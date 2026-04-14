@@ -22,6 +22,7 @@ type ReactionService interface {
 type reactionService struct {
 	reactionRepo repository.ReactionRepository
 	messageRepo  repository.MessageRepository
+	channelRepo  repository.ChannelRepository
 	hub          ws.BroadcastAndOnline
 	permResolver ChannelPermResolver
 }
@@ -29,12 +30,14 @@ type reactionService struct {
 func NewReactionService(
 	reactionRepo repository.ReactionRepository,
 	messageRepo repository.MessageRepository,
+	channelRepo repository.ChannelRepository,
 	hub ws.BroadcastAndOnline,
 	permResolver ChannelPermResolver,
 ) ReactionService {
 	return &reactionService{
 		reactionRepo: reactionRepo,
 		messageRepo:  messageRepo,
+		channelRepo:  channelRepo,
 		hub:          hub,
 		permResolver: permResolver,
 	}
@@ -79,7 +82,13 @@ func (s *reactionService) ToggleReaction(ctx context.Context, messageID, userID,
 		},
 	}
 
-	onlineUsers := s.hub.GetOnlineUserIDs()
+	// Scope permission checks to the channel's server members.
+	channel, chErr := s.channelRepo.GetByID(ctx, message.ChannelID)
+	if chErr != nil || channel == nil {
+		return nil
+	}
+
+	onlineUsers := s.hub.GetOnlineUserIDsForServer(channel.ServerID)
 	var allowed []string
 	for _, uid := range onlineUsers {
 		perms, permErr := s.permResolver.ResolveChannelPermissions(ctx, uid, message.ChannelID)

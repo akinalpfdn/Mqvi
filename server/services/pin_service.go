@@ -23,6 +23,7 @@ type PinService interface {
 type pinService struct {
 	pinRepo      repository.PinRepository
 	messageRepo  repository.MessageRepository
+	channelRepo  repository.ChannelRepository
 	hub          ws.BroadcastAndOnline
 	permResolver ChannelPermResolver
 }
@@ -30,21 +31,30 @@ type pinService struct {
 func NewPinService(
 	pinRepo repository.PinRepository,
 	messageRepo repository.MessageRepository,
+	channelRepo repository.ChannelRepository,
 	hub ws.BroadcastAndOnline,
 	permResolver ChannelPermResolver,
 ) PinService {
 	return &pinService{
 		pinRepo:      pinRepo,
 		messageRepo:  messageRepo,
+		channelRepo:  channelRepo,
 		hub:          hub,
 		permResolver: permResolver,
 	}
 }
 
 // allowedViewers returns online user IDs that have ViewChannel + ReadMessages on the channel.
+// Scoped to the channel's server members.
 func (s *pinService) allowedViewers(channelID string) []string {
-	onlineUsers := s.hub.GetOnlineUserIDs()
 	ctx := context.Background()
+
+	channel, err := s.channelRepo.GetByID(ctx, channelID)
+	if err != nil || channel == nil {
+		return nil
+	}
+
+	onlineUsers := s.hub.GetOnlineUserIDsForServer(channel.ServerID)
 	var allowed []string
 	for _, uid := range onlineUsers {
 		perms, err := s.permResolver.ResolveChannelPermissions(ctx, uid, channelID)

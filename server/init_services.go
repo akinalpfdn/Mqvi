@@ -108,7 +108,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.LiveKit, repos.Server, repos.User, repos.Channel,
 		voiceService, encryptionKey, cfg.HetznerAPIToken,
 	)
-	pinService := services.NewPinService(repos.Pin, repos.Message, hub, channelPermService)
+	pinService := services.NewPinService(repos.Pin, repos.Message, repos.Channel, hub, channelPermService)
 	searchService := services.NewSearchService(repos.Search)
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)
 
@@ -122,7 +122,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, friendshipService, dmSettingsService)
 	friendshipService.SetDMAcceptor(dmService) // auto-accept pending DMs when friendship is accepted
 	dmUploadService := services.NewDMUploadService(repos.DM, cfg.Upload.Dir, cfg.Upload.MaxSize)
-	reactionService := services.NewReactionService(repos.Reaction, repos.Message, hub, channelPermService)
+	reactionService := services.NewReactionService(repos.Reaction, repos.Message, repos.Channel, hub, channelPermService)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
 	reportService := services.NewReportService(repos.Report, repos.User)
