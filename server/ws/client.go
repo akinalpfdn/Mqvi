@@ -76,52 +76,49 @@ func (c *Client) ReadPump() {
 	}
 }
 
-// handleEvent dispatches an incoming event by operation type.
-func (c *Client) handleEvent(event Event) {
-	switch event.Op {
-	case OpHeartbeat:
-		if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
-			log.Printf("[ws] failed to set read deadline for user %s: %v", c.userID, err)
-			return
-		}
-		c.sendEvent(Event{Op: OpHeartbeatAck})
+// eventHandlers maps WS operation codes to client handler functions.
+// Populated once in init() — read-only after startup, no concurrency concern.
+// To add a new event type, add a method on *Client and register it here.
+var eventHandlers map[string]func(c *Client, event Event)
 
-	case OpTyping:
-		c.handleTyping(event)
-	case OpPresenceUpdate:
-		c.handlePresenceUpdate(event)
-	case OpVoiceJoin:
-		c.handleVoiceJoin(event)
-	case OpVoiceLeave:
-		c.handleVoiceLeave()
-	case OpVoiceStateUpdateReq:
-		c.handleVoiceStateUpdate(event)
-	case OpVoiceAdminStateUpdate:
-		c.handleVoiceAdminStateUpdate(event)
-	case OpVoiceMoveUser:
-		c.handleVoiceMoveUser(event)
-	case OpVoiceDisconnectUser:
-		c.handleVoiceDisconnectUser(event)
-	case OpScreenShareWatch:
-		c.handleScreenShareWatch(event)
-	case OpVoiceActivity:
-		c.handleVoiceActivity()
-	case OpDMTypingStart:
-		c.handleDMTyping(event)
-	case OpP2PCallInitiate:
-		c.handleP2PCallInitiate(event)
-	case OpP2PCallAccept:
-		c.handleP2PCallAccept(event)
-	case OpP2PCallDecline:
-		c.handleP2PCallDecline(event)
-	case OpP2PCallEnd:
-		c.handleP2PCallEnd()
-	case OpP2PSignal:
-		c.handleP2PSignal(event)
-
-	default:
-		log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
+func init() {
+	eventHandlers = map[string]func(c *Client, event Event){
+		OpHeartbeat:             (*Client).handleHeartbeat,
+		OpTyping:                (*Client).handleTyping,
+		OpPresenceUpdate:        (*Client).handlePresenceUpdate,
+		OpVoiceJoin:             (*Client).handleVoiceJoin,
+		OpVoiceLeave:            func(c *Client, _ Event) { c.handleVoiceLeave() },
+		OpVoiceStateUpdateReq:   (*Client).handleVoiceStateUpdate,
+		OpVoiceAdminStateUpdate: (*Client).handleVoiceAdminStateUpdate,
+		OpVoiceMoveUser:         (*Client).handleVoiceMoveUser,
+		OpVoiceDisconnectUser:   (*Client).handleVoiceDisconnectUser,
+		OpScreenShareWatch:      (*Client).handleScreenShareWatch,
+		OpVoiceActivity:         func(c *Client, _ Event) { c.handleVoiceActivity() },
+		OpDMTypingStart:         (*Client).handleDMTyping,
+		OpP2PCallInitiate:       (*Client).handleP2PCallInitiate,
+		OpP2PCallAccept:         (*Client).handleP2PCallAccept,
+		OpP2PCallDecline:        (*Client).handleP2PCallDecline,
+		OpP2PCallEnd:            func(c *Client, _ Event) { c.handleP2PCallEnd() },
+		OpP2PSignal:             (*Client).handleP2PSignal,
 	}
+}
+
+// handleEvent dispatches an incoming event to its registered handler.
+func (c *Client) handleEvent(event Event) {
+	if handler, ok := eventHandlers[event.Op]; ok {
+		handler(c, event)
+		return
+	}
+	log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
+}
+
+// handleHeartbeat resets the read deadline and acks the client's heartbeat.
+func (c *Client) handleHeartbeat(_ Event) {
+	if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		log.Printf("[ws] failed to set read deadline for user %s: %v", c.userID, err)
+		return
+	}
+	c.sendEvent(Event{Op: OpHeartbeatAck})
 }
 
 // handlePresenceUpdate processes a client presence change.
