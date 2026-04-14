@@ -35,6 +35,7 @@ type Broadcaster interface {
 type UserStateProvider interface {
 	GetOnlineUserIDs() []string
 	GetVisibleOnlineUserIDs() []string
+	GetOnlineUserIDsForServer(serverID string) []string
 }
 
 // ClientManager manages WebSocket client connections.
@@ -134,7 +135,14 @@ type cachedUserInfo struct {
 type Hub struct {
 	// clients: userID -> set of Client connections (multi-tab support)
 	clients map[string]map[*Client]bool
-	mu      sync.RWMutex
+
+	// serverClients: serverID -> set of Client connections for that server's members.
+	// Maintained in sync with client.serverIDs and h.clients.
+	// Enables O(server_size) BroadcastToServer instead of O(total_clients).
+	// Protected by mu (same lock as clients).
+	serverClients map[string]map[*Client]bool
+
+	mu sync.RWMutex
 
 	register   chan *Client
 	unregister chan *Client
@@ -190,10 +198,31 @@ type Hub struct {
 func NewHub() *Hub {
 	return &Hub{
 		clients:        make(map[string]map[*Client]bool),
+		serverClients:  make(map[string]map[*Client]bool),
 		register:       make(chan *Client),
 		unregister:     make(chan *Client),
 		userInfos:      make(map[string]cachedUserInfo),
 		invisibleUsers: make(map[string]bool),
+	}
+}
+
+// addClientToServerIndex adds a client to the serverClients index for serverID.
+// MUST be called under h.mu Lock.
+func (h *Hub) addClientToServerIndex(client *Client, serverID string) {
+	if _, ok := h.serverClients[serverID]; !ok {
+		h.serverClients[serverID] = make(map[*Client]bool)
+	}
+	h.serverClients[serverID][client] = true
+}
+
+// removeClientFromServerIndex removes a client from the serverClients index.
+// MUST be called under h.mu Lock.
+func (h *Hub) removeClientFromServerIndex(client *Client, serverID string) {
+	if clients, ok := h.serverClients[serverID]; ok {
+		delete(clients, client)
+		if len(clients) == 0 {
+			delete(h.serverClients, serverID)
+		}
 	}
 }
 
@@ -231,6 +260,11 @@ func (h *Hub) addClient(client *Client) {
 	}
 	h.clients[client.userID][client] = true
 
+	// Index this client by its serverIDs (set by handler.go before register).
+	for _, sid := range client.serverIDs {
+		h.addClientToServerIndex(client, sid)
+	}
+
 	// New connection may change aggregate (e.g. existing idle + new online = online)
 	var aggregateForExisting string
 	if !isFirstConnection {
@@ -267,6 +301,11 @@ func (h *Hub) removeClient(client *Client) {
 		if _, exists := clients[client]; exists {
 			delete(clients, client)
 			close(client.send)
+
+			// Remove this client from all server indexes it belonged to.
+			for _, sid := range client.serverIDs {
+				h.removeClientFromServerIndex(client, sid)
+			}
 
 			if len(clients) == 0 {
 				delete(h.clients, client.userID)
@@ -491,6 +530,28 @@ func (h *Hub) GetVisibleOnlineUserIDs() []string {
 	return ids
 }
 
+// GetOnlineUserIDsForServer returns deduplicated user IDs of clients in the given server.
+// Used by services to scope permission checks to server members only.
+func (h *Hub) GetOnlineUserIDsForServer(serverID string) []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	clients, ok := h.serverClients[serverID]
+	if !ok {
+		return nil
+	}
+
+	seen := make(map[string]bool, len(clients))
+	for client := range clients {
+		seen[client.userID] = true
+	}
+	ids := make([]string, 0, len(seen))
+	for uid := range seen {
+		ids = append(ids, uid)
+	}
+	return ids
+}
+
 // SetInvisible marks a user as invisible (connected but hidden from online lists).
 func (h *Hub) SetInvisible(userID string, invisible bool) {
 	h.mu.Lock()
@@ -641,6 +702,7 @@ func (h *Hub) Shutdown() {
 		}
 	}
 	h.clients = make(map[string]map[*Client]bool)
+	h.serverClients = make(map[string]map[*Client]bool)
 	log.Println("[ws] hub shut down, all connections closed")
 }
 
@@ -648,6 +710,7 @@ func (h *Hub) Shutdown() {
 
 // BroadcastToServer sends an event to all connected members of a specific server.
 // Automatically injects server_id into the event so clients can route to the correct cache.
+// Uses serverClients index for O(server_size) lookup instead of scanning all clients.
 func (h *Hub) BroadcastToServer(serverID string, event Event) {
 	event.Seq = h.seq.Add(1)
 	event.ServerID = serverID
@@ -661,16 +724,11 @@ func (h *Hub) BroadcastToServer(serverID string, event Event) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for _, clients := range h.clients {
-		for client := range clients {
-			if !clientHasServer(client, serverID) {
-				continue
-			}
-			select {
-			case client.send <- data:
-			default:
-				go func(c *Client) { h.unregister <- c }(client)
-			}
+	for client := range h.serverClients[serverID] {
+		select {
+		case client.send <- data:
+		default:
+			go func(c *Client) { h.unregister <- c }(client)
 		}
 	}
 }
@@ -689,19 +747,14 @@ func (h *Hub) BroadcastToServerExcept(serverID, excludeUserID string, event Even
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for userID, clients := range h.clients {
-		if userID == excludeUserID {
+	for client := range h.serverClients[serverID] {
+		if client.userID == excludeUserID {
 			continue
 		}
-		for client := range clients {
-			if !clientHasServer(client, serverID) {
-				continue
-			}
-			select {
-			case client.send <- data:
-			default:
-				go func(c *Client) { h.unregister <- c }(client)
-			}
+		select {
+		case client.send <- data:
+		default:
+			go func(c *Client) { h.unregister <- c }(client)
 		}
 	}
 }
@@ -715,6 +768,7 @@ func (h *Hub) AddClientServerID(userID, serverID string) {
 		for client := range clients {
 			if !clientHasServer(client, serverID) {
 				client.serverIDs = append(client.serverIDs, serverID)
+				h.addClientToServerIndex(client, serverID)
 			}
 		}
 	}
@@ -730,6 +784,7 @@ func (h *Hub) RemoveClientServerID(userID, serverID string) {
 			for i, id := range client.serverIDs {
 				if id == serverID {
 					client.serverIDs = append(client.serverIDs[:i], client.serverIDs[i+1:]...)
+					h.removeClientFromServerIndex(client, serverID)
 					break
 				}
 			}
@@ -738,10 +793,18 @@ func (h *Hub) RemoveClientServerID(userID, serverID string) {
 }
 
 // SetClientServerIDs sets all server IDs for a client (at WS connect, from DB).
+// Removes the client from any previously-indexed servers and re-indexes for the new set.
 func (h *Hub) SetClientServerIDs(client *Client, serverIDs []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	for _, sid := range client.serverIDs {
+		h.removeClientFromServerIndex(client, sid)
+	}
 	client.serverIDs = serverIDs
+	for _, sid := range serverIDs {
+		h.addClientToServerIndex(client, sid)
+	}
 }
 
 // clientHasServer checks if a client is a member of the given server.

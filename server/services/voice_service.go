@@ -350,14 +350,32 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 
 // ─── Channel Join/Leave ───
 
+// broadcastToServer publishes a voice-related event to all members of serverID.
+// No-op on empty serverID (e.g. channel lookup failed).
+func (s *voiceService) broadcastToServer(serverID string, event ws.Event) {
+	if serverID == "" {
+		return
+	}
+	s.hub.BroadcastToServer(serverID, event)
+}
+
 func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error {
+	// Resolve channel's parent server before locking — all voice broadcasts are server-scoped.
+	channel, err := s.channelGetter.GetByID(context.Background(), channelID)
+	if err != nil {
+		return fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
+	}
+	serverID := channel.ServerID
+
 	var oldChannelID string
+	var oldServerID string
 
 	s.mu.Lock()
 
 	// Leave current channel if in one
 	if existing, ok := s.states[userID]; ok {
 		oldChannelID = existing.ChannelID
+		oldServerID = existing.ServerID
 
 		// Same-channel rejoin (WS reconnect) — silently refresh state, no broadcast.
 		// This prevents false leave/join sounds for everyone in the channel.
@@ -373,7 +391,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 
 		delete(s.states, userID)
 
-		s.hub.BroadcastToAll(ws.Event{
+		s.broadcastToServer(oldServerID, ws.Event{
 			Op: ws.OpVoiceStateUpdate,
 			Data: ws.VoiceStateUpdateBroadcast{
 				UserID:           userID,
@@ -393,6 +411,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	s.states[userID] = &models.VoiceState{
 		UserID:       userID,
 		ChannelID:    channelID,
+		ServerID:     serverID,
 		Username:     username,
 		DisplayName:  displayName,
 		AvatarURL:    avatarURL,
@@ -401,7 +420,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		LastActivity: time.Now(),
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.broadcastToServer(serverID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:      userID,
@@ -436,13 +455,14 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	}
 
 	channelID := state.ChannelID
+	serverID := state.ServerID
 	username := state.Username
 	displayName := state.DisplayName
 	avatarURL := state.AvatarURL
 	wasStreaming := state.IsStreaming
 	delete(s.states, userID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.broadcastToServer(serverID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:      userID,
@@ -458,7 +478,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	if wasStreaming {
 		// User was streaming — clear their viewer set and broadcast final update
 		delete(s.screenShareViewers, userID)
-		s.hub.BroadcastToAll(ws.Event{
+		s.broadcastToServer(serverID, ws.Event{
 			Op: ws.OpScreenShareViewerUpdate,
 			Data: ws.ScreenShareViewerUpdateData{
 				StreamerUserID: userID,
@@ -479,7 +499,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 			}
 			// Find streamer's channel for broadcast
 			if streamerState, ok := s.states[streamerID]; ok {
-				s.hub.BroadcastToAll(ws.Event{
+				s.broadcastToServer(streamerState.ServerID, ws.Event{
 					Op: ws.OpScreenShareViewerUpdate,
 					Data: ws.ScreenShareViewerUpdateData{
 						StreamerUserID: streamerID,
@@ -540,7 +560,7 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 		state.IsStreaming = *isStreaming
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.broadcastToServer(state.ServerID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:           state.UserID,
@@ -560,7 +580,7 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 	// Streamer stopped streaming — clean up viewer tracking and broadcast final update
 	if wasStreaming && !state.IsStreaming {
 		delete(s.screenShareViewers, userID)
-		s.hub.BroadcastToAll(ws.Event{
+		s.broadcastToServer(state.ServerID, ws.Event{
 			Op: ws.OpScreenShareViewerUpdate,
 			Data: ws.ScreenShareViewerUpdateData{
 				StreamerUserID: userID,
@@ -676,7 +696,7 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 		state.IsServerDeafened = *isServerDeafened
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.broadcastToServer(state.ServerID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:           state.UserID,
@@ -772,12 +792,17 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		}
 	}
 
+	sourceServerID := state.ServerID
+	targetServerID := channel.ServerID
+
 	state.ChannelID = targetChannelID
+	state.ServerID = targetServerID
 
 	s.cleanupRoomPassphraseIfEmpty(sourceChannelID)
 
-	// Broadcast leave(source) + join(target)
-	s.hub.BroadcastToAll(ws.Event{
+	// Broadcast leave(source) + join(target). If both channels are on the same
+	// server, one BroadcastToServer covers both events' audiences.
+	s.broadcastToServer(sourceServerID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:           state.UserID,
@@ -790,7 +815,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 			Action:           "leave",
 		},
 	})
-	s.hub.BroadcastToAll(ws.Event{
+	s.broadcastToServer(targetServerID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:           state.UserID,
@@ -855,12 +880,13 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 	}
 
 	channelID := state.ChannelID
+	serverID := state.ServerID
 	username := state.Username
 	displayName := state.DisplayName
 	avatarURL := state.AvatarURL
 	delete(s.states, targetUserID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.broadcastToServer(serverID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:      targetUserID,
@@ -915,6 +941,7 @@ func (s *voiceService) WatchScreenShare(viewerUserID, streamerUserID string, wat
 
 	viewerCount := len(s.screenShareViewers[streamerUserID])
 	channelID := streamerState.ChannelID
+	serverID := streamerState.ServerID
 	s.mu.Unlock()
 
 	action := "leave"
@@ -922,7 +949,7 @@ func (s *voiceService) WatchScreenShare(viewerUserID, streamerUserID string, wat
 		action = "join"
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.broadcastToServer(serverID, ws.Event{
 		Op: ws.OpScreenShareViewerUpdate,
 		Data: ws.ScreenShareViewerUpdateData{
 			StreamerUserID: streamerUserID,
@@ -1073,13 +1100,14 @@ func (s *voiceService) sweepOrphanStates() {
 
 		// Grace expired — confirmed abandoned session
 		channelID := state.ChannelID
+		serverID := state.ServerID
 		username := state.Username
 		displayName := state.DisplayName
 		avatarURL := state.AvatarURL
 		delete(s.states, userID)
 		delete(s.offlineSince, userID)
 
-		s.hub.BroadcastToAll(ws.Event{
+		s.broadcastToServer(serverID, ws.Event{
 			Op: ws.OpVoiceStateUpdate,
 			Data: ws.VoiceStateUpdateBroadcast{
 				UserID:      userID,

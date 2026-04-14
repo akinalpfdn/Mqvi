@@ -151,9 +151,9 @@ func (r *sqliteServerRepo) AddMember(ctx context.Context, serverID, userID strin
 }
 
 func (r *sqliteServerRepo) RemoveMember(ctx context.Context, serverID, userID string) error {
-	query := `DELETE FROM server_members WHERE server_id = ? AND user_id = ?`
-
-	result, err := r.db.ExecContext(ctx, query, serverID, userID)
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM server_members WHERE server_id = ? AND user_id = ?`,
+		serverID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to remove server member: %w", err)
 	}
@@ -164,6 +164,15 @@ func (r *sqliteServerRepo) RemoveMember(ctx context.Context, serverID, userID st
 	}
 	if affected == 0 {
 		return pkg.ErrNotFound
+	}
+
+	// Hard-delete all role assignments for this user in this server.
+	// Without this, leftover user_roles let the user pass permission checks
+	// (e.g. allowedViewers) and keep receiving broadcasts after leaving.
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM user_roles WHERE user_id = ? AND server_id = ?`,
+		userID, serverID); err != nil {
+		return fmt.Errorf("failed to clean up user roles on member removal: %w", err)
 	}
 
 	return nil

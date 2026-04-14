@@ -267,12 +267,22 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	// Send voice states sync so frontend can initialize voiceStore
+	// Send voice states sync so frontend can initialize voiceStore.
+	// Filter to servers the user belongs to — voice events are server-scoped,
+	// so leaking states from foreign servers would be inconsistent with runtime broadcasts.
 	if h.voiceStatesProvider != nil {
+		userServers := make(map[string]bool, len(serverIDs))
+		for _, id := range serverIDs {
+			userServers[id] = true
+		}
+
 		allStates := h.voiceStatesProvider.GetAllVoiceStates()
-		items := make([]VoiceStateItem, len(allStates))
-		for i, s := range allStates {
-			items[i] = VoiceStateItem{
+		items := make([]VoiceStateItem, 0, len(allStates))
+		for _, s := range allStates {
+			if !userServers[s.ServerID] {
+				continue
+			}
+			items = append(items, VoiceStateItem{
 				UserID:           s.UserID,
 				ChannelID:        s.ChannelID,
 				Username:         s.Username,
@@ -283,7 +293,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 				IsStreaming:      s.IsStreaming,
 				IsServerMuted:    s.IsServerMuted,
 				IsServerDeafened: s.IsServerDeafened,
-			}
+			})
 		}
 		client.sendEvent(Event{
 			Op:   OpVoiceStatesSync,
