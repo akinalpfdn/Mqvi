@@ -109,8 +109,9 @@ function AppLayout() {
   // Cascade refetch on server change (deduplicated via prevServerRef)
   const prevServerRef = useRef<string | null>(null);
   useEffect(() => {
-    if (activeServerId && activeServerId !== prevServerRef.current) {
-      prevServerRef.current = activeServerId;
+    if (activeServerId === prevServerRef.current) return;
+    prevServerRef.current = activeServerId;
+    if (activeServerId) {
       cascadeRefetch();
     }
   }, [activeServerId, cascadeRefetch]);

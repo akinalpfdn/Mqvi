@@ -67,6 +67,9 @@ type UIState = {
   // Permission-based tab cleanup (text channels only)
   closeTextTabByChannel: (channelId: string) => void;
 
+  // Close all tabs that belong to a given server (on leave / kick / delete)
+  closeTabsForServer: (serverId: string) => void;
+
   // Split actions
   splitPanel: (panelId: string, direction: SplitDirection, tabId: string, position?: "before" | "after", fromPanelId?: string) => void;
   moveTab: (fromPanelId: string, toPanelId: string, tabId: string) => void;
@@ -539,5 +542,22 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (!tab || tab.type !== "dm") return;
 
     get().closeTab(found.panelId, found.tabId);
+  },
+
+  closeTabsForServer(serverId: string) {
+    // Collect every tab scoped to this server first, then close them one-by-one.
+    // closeTab mutates the panel state, so we cannot iterate and close inline.
+    const state = get();
+    const tabsToClose: { panelId: string; tabId: string }[] = [];
+    for (const [pId, panel] of Object.entries(state.panels)) {
+      for (const tab of panel.tabs) {
+        if (tab.serverInfo?.serverId === serverId) {
+          tabsToClose.push({ panelId: pId, tabId: tab.id });
+        }
+      }
+    }
+    for (const { panelId, tabId } of tabsToClose) {
+      get().closeTab(panelId, tabId);
+    }
   },
 }));

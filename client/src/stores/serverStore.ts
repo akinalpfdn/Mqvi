@@ -7,6 +7,8 @@ import * as serversApi from "../api/servers";
 import { useChannelStore } from "./channelStore";
 import { useReadStateStore } from "./readStateStore";
 import { useE2EEStore } from "./e2eeStore";
+import { useVoiceStore } from "./voiceStore";
+import { useUIStore } from "./uiStore";
 import type { Server, ServerListItem, CreateServerRequest } from "../types";
 
 /** Persist last active server across page reloads */
@@ -154,20 +156,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
   leaveServer: async (serverId) => {
     const res = await serversApi.leaveServer(serverId);
     if (res.success) {
-      // WS event will also come
-      set((state) => {
-        const servers = state.servers.filter((s) => s.id !== serverId);
-        let activeServerId = state.activeServerId;
-        if (activeServerId === serverId) {
-          activeServerId = servers[0]?.id ?? null;
-          if (activeServerId) {
-            localStorage.setItem(LAST_SERVER_KEY, activeServerId);
-          } else {
-            localStorage.removeItem(LAST_SERVER_KEY);
-          }
-        }
-        return { servers, activeServerId, activeServer: null };
-      });
+      // Delegate to handleServerDelete for full cleanup (voice + server-scoped stores).
+      // The matching WS server_delete event is idempotent against this call.
+      get().handleServerDelete(serverId);
       return true;
     }
     return false;
@@ -176,20 +167,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   deleteServer: async (serverId) => {
     const res = await serversApi.deleteServer(serverId);
     if (res.success) {
-      // WS event will also come
-      set((state) => {
-        const servers = state.servers.filter((s) => s.id !== serverId);
-        let activeServerId = state.activeServerId;
-        if (activeServerId === serverId) {
-          activeServerId = servers[0]?.id ?? null;
-          if (activeServerId) {
-            localStorage.setItem(LAST_SERVER_KEY, activeServerId);
-          } else {
-            localStorage.removeItem(LAST_SERVER_KEY);
-          }
-        }
-        return { servers, activeServerId, activeServer: null };
-      });
+      get().handleServerDelete(serverId);
       return true;
     }
     return false;
@@ -243,6 +221,20 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   handleServerDelete: (serverId) => {
+    // Leave voice first if we were in a voice channel of this server.
+    // Notify backend so other members see us drop out immediately — otherwise
+    // orphan cleanup (35s grace) would leave a ghost participant in the sidebar.
+    const voiceState = useVoiceStore.getState();
+    if (voiceState.currentVoiceServerId === serverId) {
+      voiceState._wsSend?.("voice_leave", {});
+      voiceState.leaveVoiceChannel();
+    }
+
+    // Close any open tabs (text / voice / screen) that belong to this server.
+    useUIStore.getState().closeTabsForServer(serverId);
+
+    const prevActive = get().activeServerId;
+
     set((state) => {
       const servers = state.servers.filter((s) => s.id !== serverId);
       let activeServerId = state.activeServerId;
@@ -256,6 +248,13 @@ export const useServerStore = create<ServerState>((set, get) => ({
       }
       return { servers, activeServerId, activeServer: null };
     });
+
+    // If we were viewing the deleted server, cascade-clear server-scoped stores
+    // so the open channel/messages UI doesn't linger with stale data.
+    if (prevActive === serverId) {
+      useChannelStore.getState().clearForServerSwitch();
+      useReadStateStore.getState().clearForServerSwitch();
+    }
   },
 
   // ─── Mute Actions ───

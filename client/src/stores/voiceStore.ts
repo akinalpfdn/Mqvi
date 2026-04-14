@@ -102,6 +102,8 @@ type VoiceStore = {
   /** channelId -> VoiceState[] mapping */
   voiceStates: Record<string, VoiceState[]>;
   currentVoiceChannelId: string | null;
+  /** Server owning the current voice channel — used to disconnect on server leave/delete. */
+  currentVoiceServerId: string | null;
   isMuted: boolean;
   isDeafened: boolean;
   isStreaming: boolean;
@@ -220,6 +222,7 @@ type VoiceStore = {
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
   voiceStates: {},
   currentVoiceChannelId: null,
+  currentVoiceServerId: null,
   isMuted: false,
   isDeafened: false,
   isStreaming: false,
@@ -308,6 +311,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       set({
         currentVoiceChannelId: channelId,
+        currentVoiceServerId: serverId,
         livekitUrl: response.data.url,
         livekitToken: response.data.token,
         e2eePassphrase: response.data.e2ee_passphrase ?? null,
@@ -350,6 +354,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
     set({
       currentVoiceChannelId: null,
+      currentVoiceServerId: null,
       livekitUrl: null,
       livekitToken: null,
       e2eePassphrase: null,
@@ -923,6 +928,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     // (server already cleared state). isMuted/isDeafened preserved.
     set({
       currentVoiceChannelId: null,
+      currentVoiceServerId: null,
       livekitUrl: null,
       livekitToken: null,
       e2eePassphrase: null,
@@ -938,6 +944,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     // AFK kick — cleanup voice state + show popup. isMuted/isDeafened preserved.
     set({
       currentVoiceChannelId: null,
+      currentVoiceServerId: null,
       livekitUrl: null,
       livekitToken: null,
       e2eePassphrase: null,
@@ -958,6 +965,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     set({
       wasReplaced: true,
       currentVoiceChannelId: null,
+      currentVoiceServerId: null,
       livekitUrl: null,
       livekitToken: null,
       e2eePassphrase: null,
