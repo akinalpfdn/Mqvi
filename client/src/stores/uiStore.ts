@@ -4,6 +4,8 @@
 
 import { create } from "zustand";
 import { useVoiceStore } from "./voiceStore";
+import { useMessageStore } from "./messageStore";
+import { useReadStateStore } from "./readStateStore";
 
 // ──────────────────────────────────
 // Types
@@ -341,6 +343,18 @@ export const useUIStore = create<UIState>((set, get) => ({
         [panelId]: { ...panel, activeTabId: tabId },
       },
     });
+
+    // Mark-as-read when switching to a text tab — sidebar-selection isn't the
+    // only path into a channel; tab-switching needs to clear the unread badge too.
+    const tab = panel.tabs.find((t) => t.id === tabId);
+    if (tab && tab.type === "text") {
+      const messages = useMessageStore.getState().messagesByChannel[tab.channelId];
+      if (messages && messages.length > 0) {
+        useReadStateStore.getState().markAsRead(tab.channelId, messages[messages.length - 1].id);
+      } else {
+        useReadStateStore.getState().clearUnread(tab.channelId);
+      }
+    }
   },
 
   splitPanel(panelId, direction, tabId, position = "after", fromPanelId?) {

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 
 	"github.com/akinalp/mqvi/models"
@@ -32,6 +33,7 @@ type messageService struct {
 	roleMentionRepo repository.RoleMentionRepository
 	roleRepo        repository.RoleRepository
 	reactionRepo    repository.ReactionRepository
+	readStateRepo   repository.ReadStateRepository
 	hub             ws.BroadcastAndOnline
 	permResolver    ChannelPermResolver
 }
@@ -45,6 +47,7 @@ func NewMessageService(
 	roleMentionRepo repository.RoleMentionRepository,
 	roleRepo repository.RoleRepository,
 	reactionRepo repository.ReactionRepository,
+	readStateRepo repository.ReadStateRepository,
 	hub ws.BroadcastAndOnline,
 	permResolver ChannelPermResolver,
 ) MessageService {
@@ -57,6 +60,7 @@ func NewMessageService(
 		roleMentionRepo: roleMentionRepo,
 		roleRepo:        roleRepo,
 		reactionRepo:    reactionRepo,
+		readStateRepo:   readStateRepo,
 		hub:             hub,
 		permResolver:    permResolver,
 	}
@@ -203,6 +207,13 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 
 	if err := s.messageRepo.Create(ctx, message); err != nil {
 		return nil, fmt.Errorf("failed to create message: %w", err)
+	}
+
+	// Bump denormalized unread_count for every user with a read-state row in
+	// this channel (author excluded). Non-fatal: unread badges may briefly
+	// diverge but the message itself is already persisted and delivered.
+	if err := s.readStateRepo.IncrementUnreadCounts(ctx, channelID, userID); err != nil {
+		log.Printf("[message] failed to increment unread counts for channel %s: %v", channelID, err)
 	}
 
 	author, err := s.userRepo.GetByID(ctx, userID)
@@ -387,6 +398,12 @@ func (s *messageService) Delete(ctx context.Context, id string, userID string, u
 
 	if err := s.messageRepo.Delete(ctx, id); err != nil {
 		return err
+	}
+
+	// Decrement unread_count for every user who had this message as unread.
+	// Uses the message's CreatedAt (captured before delete) as the watermark.
+	if err := s.readStateRepo.DecrementUnreadForDeleted(ctx, message.ChannelID, message.UserID, message.CreatedAt); err != nil {
+		log.Printf("[message] failed to decrement unread counts on delete for channel %s: %v", message.ChannelID, err)
 	}
 
 	s.hub.BroadcastToUsers(s.allowedViewers(message.ChannelID), ws.Event{

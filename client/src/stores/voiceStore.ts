@@ -22,7 +22,14 @@ import { ensureMicPermission } from "../utils/devicePermissions";
 import { ensureFreshToken } from "../api/client";
 import { usePreferencesStore } from "./preferencesStore";
 import { useServerStore } from "./serverStore";
+import { useAuthStore } from "./authStore";
 import { playJoinSound, playLeaveSound, closeAudioContext } from "../utils/sounds";
+
+// Lazy getter for the current user's id. Used to scrub our own voice entry
+// on leave — the store is loaded, but the import is circular so we read via getState.
+function getOwnUserId(): string | null {
+  return useAuthStore.getState().user?.id ?? null;
+}
 
 // ─── localStorage Persistence ───
 
@@ -345,14 +352,34 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     stopVoiceCallService();
 
     // Send unwatch WS events for all active screen share watches before clearing
-    const { watchingScreenShares, _wsSend } = get();
+    const { watchingScreenShares, _wsSend, currentVoiceChannelId, voiceStates } = get();
     if (_wsSend) {
       for (const streamerId of Object.keys(watchingScreenShares)) {
         _wsSend("screen_share_watch", { streamer_user_id: streamerId, watching: false });
       }
     }
 
+    // Proactively scrub our own entry from the participant map. The server's
+    // voice_state_update(leave) may never reach us — e.g. when leaving a server
+    // removes us from that server's broadcast index before the voice leave fires.
+    // Without this, rejoining the server would show ourselves as a phantom voice
+    // participant until another event rebuilds the map.
+    let newVoiceStates = voiceStates;
+    if (currentVoiceChannelId && voiceStates[currentVoiceChannelId]) {
+      const ownId = getOwnUserId();
+      if (ownId) {
+        const filtered = voiceStates[currentVoiceChannelId].filter((s) => s.user_id !== ownId);
+        newVoiceStates = { ...voiceStates };
+        if (filtered.length === 0) {
+          delete newVoiceStates[currentVoiceChannelId];
+        } else {
+          newVoiceStates[currentVoiceChannelId] = filtered;
+        }
+      }
+    }
+
     set({
+      voiceStates: newVoiceStates,
       currentVoiceChannelId: null,
       currentVoiceServerId: null,
       livekitUrl: null,
