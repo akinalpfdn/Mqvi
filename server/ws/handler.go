@@ -285,6 +285,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			items = append(items, VoiceStateItem{
 				UserID:           s.UserID,
 				ChannelID:        s.ChannelID,
+				ServerID:         s.ServerID,
 				Username:         s.Username,
 				DisplayName:      s.DisplayName,
 				AvatarURL:        s.AvatarURL,

@@ -127,11 +127,16 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       }
 
       if (reason === DisconnectReason.CLIENT_INITIATED) {
-        if (currentVoiceChannelId) return; // Transition disconnect — ignore
+        // Client-initiated disconnect means our own code triggered it (explicit
+        // leave, force-move token swap, auto-rejoin, admin/AFK kick handler).
+        // Every caller clears state before firing — a second cleanup here bumps
+        // _joinGeneration and races any in-flight join (force-move repro).
+        return;
       }
 
       // Server-initiated disconnect while user was in voice — attempt auto-rejoin
-      if (currentVoiceChannelId && reason !== DisconnectReason.CLIENT_INITIATED) {
+      // (CLIENT_INITIATED already returned above).
+      if (currentVoiceChannelId) {
         if (rejoinAttemptsRef.current < MAX_REJOIN_ATTEMPTS) {
           rejoinAttemptsRef.current++;
           const channelToRejoin = currentVoiceChannelId;

@@ -235,6 +235,8 @@ export type PinnedMessage = {
 export type VoiceState = {
   user_id: string;
   channel_id: string;
+  /** Parent server — used for F5 recovery and server-scoped filtering. */
+  server_id?: string;
   username: string;
   display_name: string;
   avatar_url: string;

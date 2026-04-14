@@ -240,6 +240,7 @@ type VoiceStatesSyncData struct {
 type VoiceStateItem struct {
 	UserID           string `json:"user_id"`
 	ChannelID        string `json:"channel_id"`
+	ServerID         string `json:"server_id"`
 	Username         string `json:"username"`
 	DisplayName      string `json:"display_name"`
 	AvatarURL        string `json:"avatar_url"`

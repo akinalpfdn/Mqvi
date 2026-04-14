@@ -71,14 +71,36 @@ export async function handleVoiceEvent(
       vs.handleVoiceStatesSync(syncData.states);
 
       const myId = useAuthStore.getState().user?.id;
+      if (!myId) return true;
+
       const myVoiceChannel = vs.currentVoiceChannelId;
-      if (myId && myVoiceChannel) {
-        const isSelfInSync = syncData.states.some(
-          (s) => s.user_id === myId && s.channel_id === myVoiceChannel
-        );
-        if (!isSelfInSync) {
+      const selfEntry = syncData.states.find((s) => s.user_id === myId);
+
+      if (myVoiceChannel) {
+        // Client already thinks it's in voice — re-assert membership if the
+        // server forgot us (e.g. missed our voice_join during a WS blip).
+        const matches = selfEntry?.channel_id === myVoiceChannel;
+        if (!matches) {
           ctx.sendVoiceJoin(myVoiceChannel);
         }
+      } else if (selfEntry) {
+        // F5 recovery: backend still has us in voice (within the 35s orphan
+        // grace) but our in-memory state was wiped by the reload. Re-acquire
+        // a LiveKit token and resume — other users never saw us leave.
+        void (async () => {
+          // joinVoiceChannel scopes the token request to activeServerId;
+          // jump to the correct server first if different.
+          if (selfEntry.server_id) {
+            const srvStore = useServerStore.getState();
+            if (srvStore.activeServerId !== selfEntry.server_id) {
+              srvStore.setActiveServer(selfEntry.server_id);
+            }
+          }
+          const tokenResp = await vs.joinVoiceChannel(selfEntry.channel_id);
+          if (tokenResp) {
+            ctx.sendVoiceJoin(selfEntry.channel_id);
+          }
+        })();
       }
       return true;
     }
