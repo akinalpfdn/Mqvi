@@ -2506,11 +2506,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .fi-btn-accept:hover { background:rgba(61,145,64,0.3); }
 .fi-btn-decline { background:rgba(220,53,69,0.1);color:var(--red); }
 .fi-btn-decline:hover { background:rgba(220,53,69,0.2); }
-.fi-btn-msg { opacity:0; }
-.fi-item:hover .fi-btn-msg { opacity:1; }
 .fi-btn-msg:hover { background:var(--primary-s);color:var(--primary); }
-.fi-btn-remove { opacity:0; }
-.fi-item:hover .fi-btn-remove { opacity:1; }
 .fi-btn-remove:hover { background:rgba(220,53,69,0.15);color:var(--red); }
 
 /* FriendRequestForm */
