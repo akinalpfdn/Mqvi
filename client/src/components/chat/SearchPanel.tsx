@@ -24,6 +24,10 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
   const { t } = useTranslation("chat");
   const { t: tE2ee } = useTranslation("e2ee");
   const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
+  // E2EE is per-server. Plaintext servers can use backend FTS5; only route
+  // through the IndexedDB cache when the active server is actually encrypted.
+  const serverE2eeEnabled = useServerStore((s) => s.activeServer?.e2ee_enabled ?? false);
+  const useLocalSearch = serverE2eeEnabled && isE2EEReady;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -48,7 +52,7 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
       setIsSearching(true);
 
       // E2EE active — client-side IndexedDB search (server has NULL content)
-      if (isE2EEReady && channelId) {
+      if (useLocalSearch && channelId) {
         try {
           const cached = await searchCachedMessages(channelId, searchQuery.trim());
           // Simulate pagination (IndexedDB returns all results)
@@ -94,7 +98,7 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
       }
       setIsSearching(false);
     },
-    [channelId, isE2EEReady]
+    [channelId, useLocalSearch]
   );
 
   /** Debounced search on input change */
@@ -164,8 +168,8 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
         />
       </div>
 
-      {/* E2EE client-side search note */}
-      {isE2EEReady && (
+      {/* E2EE client-side search note — only when server is actually encrypted */}
+      {useLocalSearch && (
         <p className="search-e2ee-note">{tE2ee("clientSearchNote")}</p>
       )}
 

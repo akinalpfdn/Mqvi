@@ -30,6 +30,12 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
   const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
   const searchMessages = useDMStore((s) => s.searchMessages);
   const setScrollToMessageId = useDMStore((s) => s.setScrollToMessageId);
+  // E2EE is per-channel (toggleable). Only route through the IndexedDB cache
+  // when THIS channel is encrypted — plaintext channels can use server FTS5.
+  const channelE2eeEnabled = useDMStore((s) =>
+    s.channels.find((c) => c.id === channelId)?.e2ee_enabled ?? false
+  );
+  const useLocalSearch = channelE2eeEnabled && isE2EEReady;
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchState>(null);
@@ -53,7 +59,7 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
       setIsSearching(true);
 
       // E2EE active — client-side IndexedDB search
-      if (isE2EEReady) {
+      if (useLocalSearch) {
         try {
           const cached = await searchCachedDMMessages(channelId, searchQuery.trim());
           const total = cached.length;
@@ -94,7 +100,7 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
       });
       setIsSearching(false);
     },
-    [channelId, searchMessages, isE2EEReady]
+    [channelId, searchMessages, useLocalSearch]
   );
 
   /** Debounced search on input change */
@@ -171,8 +177,8 @@ function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
         />
       </div>
 
-      {/* E2EE client-side search note */}
-      {isE2EEReady && (
+      {/* E2EE client-side search note — only when THIS channel is encrypted */}
+      {useLocalSearch && (
         <p className="search-e2ee-note">{tE2ee("clientSearchNote")}</p>
       )}
 

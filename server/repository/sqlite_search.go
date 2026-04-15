@@ -134,7 +134,10 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID st
 	}, nil
 }
 
-// sanitizeFTSQuery wraps each word in quotes with prefix match to prevent FTS5 injection.
+// sanitizeFTSQuery wraps each word in quotes for FTS5 MATCH. With the trigram
+// tokenizer (migration 057) each quoted phrase is matched as a substring — no
+// prefix wildcard needed. Quoting neutralises FTS5 operators in user input.
+// Trigram requires at least 3 characters to match; shorter tokens are dropped.
 func sanitizeFTSQuery(query string) string {
 	words := strings.Fields(query)
 	if len(words) == 0 {
@@ -145,10 +148,10 @@ func sanitizeFTSQuery(query string) string {
 	for _, w := range words {
 		cleaned := strings.ReplaceAll(w, "\"", "")
 		cleaned = strings.ReplaceAll(cleaned, "*", "")
-		if len(cleaned) < 1 {
+		if len([]rune(cleaned)) < 3 {
 			continue
 		}
-		safe = append(safe, "\""+cleaned+"\"*")
+		safe = append(safe, "\""+cleaned+"\"")
 	}
 
 	if len(safe) == 0 {
