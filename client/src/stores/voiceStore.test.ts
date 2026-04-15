@@ -243,8 +243,9 @@ describe("voiceStore", () => {
       expect(state.currentVoiceChannelId).toBeNull();
       expect(state.livekitUrl).toBeNull();
       expect(state.livekitToken).toBeNull();
-      expect(state.isMuted).toBe(false);
-      expect(state.isDeafened).toBe(false);
+      // isMuted/isDeafened are intentionally preserved across sessions (Discord-like).
+      expect(state.isMuted).toBe(true);
+      expect(state.isDeafened).toBe(true);
       expect(state.isStreaming).toBe(false);
     });
   });
@@ -360,8 +361,9 @@ describe("voiceStore", () => {
       expect(state.currentVoiceChannelId).toBeNull();
       expect(state.livekitUrl).toBeNull();
       expect(state.livekitToken).toBeNull();
-      expect(state.isMuted).toBe(false);
-      expect(state.isDeafened).toBe(false);
+      // isMuted/isDeafened are intentionally preserved across sessions (Discord-like).
+      expect(state.isMuted).toBe(true);
+      expect(state.isDeafened).toBe(true);
       expect(state.isStreaming).toBe(false);
       expect(state.activeSpeakers).toEqual({});
       expect(state.watchingScreenShares).toEqual({});

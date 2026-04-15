@@ -1,8 +1,12 @@
 /**
  * voiceStore — Voice channel state management.
  *
- * Handles voice states, LiveKit connection info, local controls (mute/deafen/stream),
- * and persisted voice settings (input mode, PTT key, mic sensitivity, volumes, devices).
+ * Composes three slices:
+ * - voiceSettingsSlice: persisted voice settings (input mode, PTT, volumes, devices)
+ * - voiceWsSlice: WebSocket event handlers (voice state sync/update, force disconnect)
+ * - voiceScreenShareSlice: screen share watch/focus actions
+ *
+ * This file keeps the core connection + controls (join/leave/mute/deafen/stream).
  *
  * Discord-like behaviors:
  * - Mute toggle: if deafened, deafen is disabled first
@@ -20,92 +24,63 @@ import {
 } from "../utils/nativePlugins";
 import { ensureMicPermission } from "../utils/devicePermissions";
 import { ensureFreshToken } from "../api/client";
-import { usePreferencesStore } from "./preferencesStore";
 import { useServerStore } from "./serverStore";
 import { useAuthStore } from "./authStore";
-import { playJoinSound, playLeaveSound, closeAudioContext } from "../utils/sounds";
+import { closeAudioContext } from "../utils/sounds";
+import {
+  createVoiceSettingsSlice,
+  type VoiceSettingsSlice,
+  type InputMode,
+  type ScreenShareQuality,
+} from "./slices/voiceSettingsSlice";
+import {
+  createVoiceWsSlice,
+  type VoiceWsSlice,
+} from "./slices/voiceWsSlice";
+import {
+  createVoiceScreenShareSlice,
+  type VoiceScreenShareSlice,
+} from "./slices/voiceScreenShareSlice";
+
+export type { InputMode, ScreenShareQuality };
 
 // Lazy getter for the current user's id. Used to scrub our own voice entry
-// on leave — the store is loaded, but the import is circular so we read via getState.
+// on leave — circular import avoided via getState().
 function getOwnUserId(): string | null {
   return useAuthStore.getState().user?.id ?? null;
 }
 
-// ─── localStorage Persistence ───
+// ─── Mute/Deafen persistence ───
+// Stored separately from voice settings: per-device, never synced to server.
+// Without this, reload resets to unmuted — a privacy risk for anyone who
+// intentionally joined muted and briefly disconnects.
+const MUTE_STATE_KEY = "mqvi_voice_mute_state";
 
-const STORAGE_KEY = "mqvi_voice_settings";
-
-type VoiceSettings = {
-  inputMode: InputMode;
-  pttKey: string;
-  micSensitivity: number;
-  userVolumes: Record<string, number>;
-  inputDevice: string;
-  outputDevice: string;
-  masterVolume: number;
-  soundsEnabled: boolean;
-  /** Per-user local mute — only affects this client */
-  localMutedUsers: Record<string, boolean>;
-  /** Mic input volume (0-200, default 100). Applied as GainNode before processing. */
-  inputVolume: number;
-  /** RNNoise ML-based noise suppression */
-  noiseReduction: boolean;
-  /** Per-user screen share audio volume (0-200, default 100) */
-  screenShareVolumes: Record<string, number>;
-  /** Share system audio when screen sharing (default: false to avoid echo) */
-  screenShareAudio: boolean;
-  /** Screen share quality preset */
-  screenShareQuality: ScreenShareQuality;
-};
-
-type InputMode = "voice_activity" | "push_to_talk";
-type ScreenShareQuality = "720p" | "1080p";
-
-const DEFAULT_SETTINGS: VoiceSettings = {
-  inputMode: "voice_activity",
-  pttKey: "Space",
-  micSensitivity: 50,
-  userVolumes: {},
-  inputDevice: "",
-  outputDevice: "",
-  masterVolume: 100,
-  inputVolume: 100,
-  soundsEnabled: true,
-  localMutedUsers: {},
-  noiseReduction: true,
-  screenShareVolumes: {},
-  screenShareAudio: false,
-  screenShareQuality: "720p",
-};
-
-/** Loads voice settings from localStorage with partial merge (new keys get defaults). */
-function loadSettings(): VoiceSettings {
+function loadMuteState(): { isMuted: boolean; isDeafened: boolean } {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
-
-    const parsed = JSON.parse(raw) as Partial<VoiceSettings>;
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    const raw = localStorage.getItem(MUTE_STATE_KEY);
+    if (!raw) return { isMuted: false, isDeafened: false };
+    const parsed = JSON.parse(raw) as { isMuted?: boolean; isDeafened?: boolean };
+    return {
+      isMuted: !!parsed.isMuted,
+      isDeafened: !!parsed.isDeafened,
+    };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return { isMuted: false, isDeafened: false };
   }
 }
 
-function saveSettings(settings: VoiceSettings): void {
+function saveMuteState(state: { isMuted: boolean; isDeafened: boolean }): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    localStorage.setItem(MUTE_STATE_KEY, JSON.stringify(state));
   } catch {
     /* localStorage full or inaccessible */
   }
-  // Sync to server (debounced via preferencesStore)
-  usePreferencesStore.getState().set({ voice_settings: settings });
 }
 
-const initialSettings = loadSettings();
+const initialMuteState = loadMuteState();
 
-export type { InputMode, ScreenShareQuality };
-
-type VoiceStore = {
+type VoiceCoreState = {
   /** channelId -> VoiceState[] mapping */
   voiceStates: Record<string, VoiceState[]>;
   currentVoiceChannelId: string | null;
@@ -125,42 +100,8 @@ type VoiceStore = {
   /** Monotonically increasing — discards stale API responses */
   _joinGeneration: number;
 
-  // ─── Voice Settings (persisted) ───
-
-  inputMode: InputMode;
-  /** PTT key — uses KeyboardEvent.code (layout-independent) */
-  pttKey: string;
-  /** Mic sensitivity (0-100) */
-  micSensitivity: number;
-  /** Per-user volume: userId -> volume (0-200, default 100) */
-  userVolumes: Record<string, number>;
-  inputDevice: string;
-  outputDevice: string;
-  /** Master volume (0-100) */
-  masterVolume: number;
-  /** Mic input volume (0-200, default 100). GainNode applied before processing. */
-  inputVolume: number;
-  soundsEnabled: boolean;
-  screenShareAudio: boolean;
-  screenShareQuality: ScreenShareQuality;
-  localMutedUsers: Record<string, boolean>;
-  noiseReduction: boolean;
-  screenShareVolumes: Record<string, number>;
-
   /** Currently speaking users — transient, not persisted */
   activeSpeakers: Record<string, boolean>;
-
-  /**
-   * Users whose screen shares we're watching.
-   * Default is none — subscribe on sidebar click for bandwidth savings.
-   */
-  watchingScreenShares: Record<string, boolean>;
-
-  /** Screen share viewer counts: streamerUserID -> viewer count */
-  screenShareViewers: Record<string, number>;
-
-  /** Pre-mute volume values for local mute restore */
-  preMuteVolumes: Record<string, number>;
 
   /** LiveKit signal server round-trip time (ms) */
   rtt: number;
@@ -168,70 +109,46 @@ type VoiceStore = {
   /** Set when another session takes over voice — prevents auto-rejoin loop */
   wasReplaced: boolean;
 
-  // ─── Actions ───
+  /** Tab close voice leave callback — registered by useVoice hook */
+  _onLeaveCallback: (() => void) | null;
+  /** Generic WS send callback — avoids prop drilling for deep components */
+  _wsSend: ((op: string, data?: unknown) => void) | null;
+};
 
+type VoiceCoreActions = {
   joinVoiceChannel: (channelId: string) => Promise<VoiceTokenResponse | null>;
   leaveVoiceChannel: () => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
   setStreaming: (isStreaming: boolean) => void;
-
-  // ─── Voice Settings Actions ───
-
-  setInputMode: (mode: InputMode) => void;
-  setPTTKey: (key: string) => void;
-  setMicSensitivity: (value: number) => void;
-  setUserVolume: (userId: string, volume: number) => void;
-  setScreenShareVolume: (userId: string, volume: number) => void;
-  setInputDevice: (deviceId: string) => void;
-  setOutputDevice: (deviceId: string) => void;
-  setMasterVolume: (value: number) => void;
-  setInputVolume: (value: number) => void;
-  setSoundsEnabled: (enabled: boolean) => void;
-  setScreenShareAudio: (enabled: boolean) => void;
-  setScreenShareQuality: (quality: ScreenShareQuality) => void;
-  setNoiseReduction: (enabled: boolean) => void;
   setRtt: (rtt: number) => void;
   setActiveSpeakers: (speakerIds: string[]) => void;
-  toggleWatchScreenShare: (userId: string) => void;
-  /** Double-click focus — keep only this user's stream, close all others */
-  focusScreenShare: (userId: string) => void;
-  toggleLocalMute: (userId: string) => void;
-
-  // ─── Cross-store Callback ───
-
-  /** Tab close voice leave callback — registered by useVoice hook */
-  _onLeaveCallback: (() => void) | null;
   registerOnLeave: (fn: (() => void) | null) => void;
-
-  /** Generic WS send callback — avoids prop drilling for deep components */
-  _wsSend: ((op: string, data?: unknown) => void) | null;
   registerWsSend: (fn: ((op: string, data?: unknown) => void) | null) => void;
-
-  // ─── WS Event Handlers ───
-
-  handleVoiceStateUpdate: (data: VoiceStateUpdateData) => void;
-  handleVoiceStatesSync: (states: VoiceState[]) => void;
-  updateUserInfo: (userId: string, displayName: string, avatarUrl: string) => void;
-  handleForceDisconnect: () => void;
-  handleAFKKick: (channelName: string, serverName: string) => void;
-  handleVoiceReplaced: () => void;
-  handleScreenShareViewerUpdate: (data: { streamer_user_id: string; channel_id: string; viewer_count: number; viewer_user_id: string; action: string }) => void;
-
-  // AFK kick popup state
-  afkKickInfo: { channelName: string; serverName: string } | null;
-  dismissAFKKick: () => void;
-
-  /** Apply voice settings from server preferences (no re-sync to server) */
-  applyFromServer: (settings: Record<string, unknown>) => void;
 };
 
-export const useVoiceStore = create<VoiceStore>((set, get) => ({
+export type VoiceStore =
+  & VoiceCoreState
+  & VoiceCoreActions
+  & VoiceSettingsSlice
+  & VoiceWsSlice
+  & VoiceScreenShareSlice;
+
+// Re-export so legacy direct imports still resolve
+export type { VoiceStateUpdateData };
+
+export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
+  // ─── Slices ───
+  ...createVoiceSettingsSlice(set, get, store),
+  ...createVoiceWsSlice(set, get, store),
+  ...createVoiceScreenShareSlice(set, get, store),
+
+  // ─── Core State ───
   voiceStates: {},
   currentVoiceChannelId: null,
   currentVoiceServerId: null,
-  isMuted: false,
-  isDeafened: false,
+  isMuted: initialMuteState.isMuted,
+  isDeafened: initialMuteState.isDeafened,
   isStreaming: false,
   isServerMuted: false,
   isServerDeafened: false,
@@ -239,37 +156,16 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   livekitToken: null,
   e2eePassphrase: null,
   _joinGeneration: 0,
-
-  // ─── Voice Settings (loaded from localStorage) ───
-  inputMode: initialSettings.inputMode,
-  pttKey: initialSettings.pttKey,
-  micSensitivity: initialSettings.micSensitivity,
-  userVolumes: initialSettings.userVolumes,
-  inputDevice: initialSettings.inputDevice,
-  outputDevice: initialSettings.outputDevice,
-  masterVolume: initialSettings.masterVolume,
-  inputVolume: initialSettings.inputVolume,
-  soundsEnabled: initialSettings.soundsEnabled,
-  screenShareAudio: initialSettings.screenShareAudio,
-  screenShareQuality: initialSettings.screenShareQuality,
-  localMutedUsers: initialSettings.localMutedUsers,
-  noiseReduction: initialSettings.noiseReduction,
-  screenShareVolumes: initialSettings.screenShareVolumes,
   activeSpeakers: {},
-  watchingScreenShares: {},
-  screenShareViewers: {},
-  preMuteVolumes: {},
   rtt: 0,
   wasReplaced: false,
-  afkKickInfo: null,
-
-  // ─── Cross-store Callback ───
   _onLeaveCallback: null,
-  registerOnLeave: (fn) => set({ _onLeaveCallback: fn }),
   _wsSend: null,
-  registerWsSend: (fn) => set({ _wsSend: fn }),
 
-  // ─── Actions ───
+  // ─── Core Actions ───
+
+  registerOnLeave: (fn) => set({ _onLeaveCallback: fn }),
+  registerWsSend: (fn) => set({ _wsSend: fn }),
 
   joinVoiceChannel: async (channelId: string) => {
     try {
@@ -308,8 +204,6 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         console.error("[voiceStore] Failed to get voice token:", response.error);
         return null;
       }
-
-      // Token obtained
 
       // PTT mode forces muted (unmuted on key press), otherwise keep current state
       const isPTT = get().inputMode === "push_to_talk";
@@ -415,6 +309,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         nativeVoiceSetMic(isMuted); // was muted → enable, was unmuted → disable
       }
     }
+    saveMuteState({ isMuted: get().isMuted, isDeafened: get().isDeafened });
   },
 
   toggleDeafen: () => {
@@ -435,288 +330,11 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         nativeVoiceSetMic(true);
       }
     }
+    saveMuteState({ isMuted: get().isMuted, isDeafened: get().isDeafened });
   },
 
   setStreaming: (isStreaming: boolean) => {
     set({ isStreaming });
-  },
-
-  // ─── Voice Settings Actions ───
-  // Each setter reads current settings and persists atomically.
-
-  setInputMode: (mode) => {
-    set({ inputMode: mode });
-    const s = get();
-    saveSettings({
-      inputMode: mode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setPTTKey: (key) => {
-    set({ pttKey: key });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: key,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setMicSensitivity: (value) => {
-    set({ micSensitivity: value });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: value,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setUserVolume: (userId, volume) => {
-    const newVolumes = { ...get().userVolumes, [userId]: volume };
-    set({ userVolumes: newVolumes });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: newVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setScreenShareVolume: (userId, volume) => {
-    const newVolumes = { ...get().screenShareVolumes, [userId]: volume };
-    set({ screenShareVolumes: newVolumes });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: newVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setInputDevice: (deviceId) => {
-    set({ inputDevice: deviceId });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: deviceId,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setOutputDevice: (deviceId) => {
-    set({ outputDevice: deviceId });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: deviceId,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setMasterVolume: (value) => {
-    set({ masterVolume: value });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: value,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setInputVolume: (value) => {
-    set({ inputVolume: value });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: value,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setSoundsEnabled: (enabled) => {
-    set({ soundsEnabled: enabled });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: enabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setScreenShareAudio: (enabled) => {
-    set({ screenShareAudio: enabled });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: enabled,
-      screenShareQuality: s.screenShareQuality,
-    });
-  },
-
-  setScreenShareQuality: (quality) => {
-    set({ screenShareQuality: quality });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: s.noiseReduction,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: quality,
-    });
-  },
-
-  setNoiseReduction: (enabled) => {
-    set({ noiseReduction: enabled });
-    const s = get();
-    saveSettings({
-      inputMode: s.inputMode,
-      pttKey: s.pttKey,
-      micSensitivity: s.micSensitivity,
-      userVolumes: s.userVolumes,
-      inputDevice: s.inputDevice,
-      outputDevice: s.outputDevice,
-      masterVolume: s.masterVolume,
-      inputVolume: s.inputVolume,
-      soundsEnabled: s.soundsEnabled,
-      localMutedUsers: s.localMutedUsers,
-      noiseReduction: enabled,
-      screenShareVolumes: s.screenShareVolumes,
-      screenShareAudio: s.screenShareAudio,
-      screenShareQuality: s.screenShareQuality,
-    });
   },
 
   setRtt: (rtt) => set({ rtt }),
@@ -727,324 +345,5 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       map[id] = true;
     }
     set({ activeSpeakers: map });
-  },
-
-  toggleWatchScreenShare: (userId: string) => {
-    const { watchingScreenShares, _wsSend } = get();
-    const isWatching = watchingScreenShares[userId] ?? false;
-
-    if (isWatching) {
-      const next = { ...watchingScreenShares };
-      delete next[userId];
-      set({ watchingScreenShares: next });
-      playLeaveSound();
-    } else {
-      set({ watchingScreenShares: { ...watchingScreenShares, [userId]: true } });
-      playJoinSound();
-    }
-
-    // Notify server about watch state change
-    if (_wsSend) {
-      _wsSend("screen_share_watch", {
-        streamer_user_id: userId,
-        watching: !isWatching,
-      });
-    }
-  },
-
-  focusScreenShare: (userId: string) => {
-    const { watchingScreenShares, _wsSend } = get();
-    const watchingIds = Object.keys(watchingScreenShares);
-
-    if (watchingIds.length === 1 && watchingScreenShares[userId]) return;
-
-    // Notify server: unwatch all others, watch this one
-    if (_wsSend) {
-      for (const id of watchingIds) {
-        if (id !== userId) {
-          _wsSend("screen_share_watch", { streamer_user_id: id, watching: false });
-        }
-      }
-      if (!watchingScreenShares[userId]) {
-        _wsSend("screen_share_watch", { streamer_user_id: userId, watching: true });
-      }
-    }
-
-    set({ watchingScreenShares: { [userId]: true } });
-    playLeaveSound();
-  },
-
-  toggleLocalMute: (userId: string) => {
-    const { localMutedUsers, preMuteVolumes, userVolumes } = get();
-    const isCurrentlyMuted = localMutedUsers[userId] ?? false;
-
-    if (isCurrentlyMuted) {
-      // Unmute: restore previous volume
-      const restoredVolume = preMuteVolumes[userId] ?? 100;
-      const newLocalMuted = { ...localMutedUsers };
-      delete newLocalMuted[userId];
-      const newPreMute = { ...preMuteVolumes };
-      delete newPreMute[userId];
-      const newVolumes = { ...userVolumes, [userId]: restoredVolume };
-
-      set({
-        localMutedUsers: newLocalMuted,
-        preMuteVolumes: newPreMute,
-        userVolumes: newVolumes,
-      });
-
-      const s = get();
-      saveSettings({
-        inputMode: s.inputMode,
-        pttKey: s.pttKey,
-        micSensitivity: s.micSensitivity,
-        userVolumes: newVolumes,
-        inputDevice: s.inputDevice,
-        outputDevice: s.outputDevice,
-        masterVolume: s.masterVolume,
-        inputVolume: s.inputVolume,
-        soundsEnabled: s.soundsEnabled,
-        localMutedUsers: newLocalMuted,
-        noiseReduction: s.noiseReduction,
-        screenShareVolumes: s.screenShareVolumes,
-        screenShareAudio: s.screenShareAudio,
-        screenShareQuality: s.screenShareQuality,
-      });
-    } else {
-      // Mute: save current volume, set to 0
-      const currentVolume = userVolumes[userId] ?? 100;
-      const newLocalMuted = { ...localMutedUsers, [userId]: true };
-      const newPreMute = { ...preMuteVolumes, [userId]: currentVolume };
-      const newVolumes = { ...userVolumes, [userId]: 0 };
-
-      set({
-        localMutedUsers: newLocalMuted,
-        preMuteVolumes: newPreMute,
-        userVolumes: newVolumes,
-      });
-
-      const s = get();
-      saveSettings({
-        inputMode: s.inputMode,
-        pttKey: s.pttKey,
-        micSensitivity: s.micSensitivity,
-        userVolumes: newVolumes,
-        inputDevice: s.inputDevice,
-        outputDevice: s.outputDevice,
-        masterVolume: s.masterVolume,
-        inputVolume: s.inputVolume,
-        soundsEnabled: s.soundsEnabled,
-        localMutedUsers: newLocalMuted,
-        noiseReduction: s.noiseReduction,
-        screenShareVolumes: s.screenShareVolumes,
-        screenShareAudio: s.screenShareAudio,
-        screenShareQuality: s.screenShareQuality,
-      });
-    }
-  },
-
-  // ─── WS Event Handlers ───
-
-  handleVoiceStateUpdate: (data: VoiceStateUpdateData) => {
-    set((state) => {
-      const newStates = { ...state.voiceStates };
-
-      switch (data.action) {
-        case "join": {
-          // Remove user from all channels (can only be in one)
-          for (const channelId of Object.keys(newStates)) {
-            newStates[channelId] = newStates[channelId].filter(
-              (s) => s.user_id !== data.user_id
-            );
-            if (newStates[channelId].length === 0) {
-              delete newStates[channelId];
-            }
-          }
-
-          const channelStates = newStates[data.channel_id] ?? [];
-          newStates[data.channel_id] = [
-            ...channelStates,
-            {
-              user_id: data.user_id,
-              channel_id: data.channel_id,
-              username: data.username,
-              display_name: data.display_name,
-              avatar_url: data.avatar_url,
-              is_muted: data.is_muted,
-              is_deafened: data.is_deafened,
-              is_streaming: data.is_streaming,
-              is_server_muted: data.is_server_muted,
-              is_server_deafened: data.is_server_deafened,
-            },
-          ];
-          break;
-        }
-
-        case "leave": {
-          if (newStates[data.channel_id]) {
-            newStates[data.channel_id] = newStates[data.channel_id].filter(
-              (s) => s.user_id !== data.user_id
-            );
-            if (newStates[data.channel_id].length === 0) {
-              delete newStates[data.channel_id];
-            }
-          }
-          break;
-        }
-
-        case "update": {
-          if (newStates[data.channel_id]) {
-            newStates[data.channel_id] = newStates[data.channel_id].map((s) =>
-              s.user_id === data.user_id
-                ? {
-                    ...s,
-                    is_muted: data.is_muted,
-                    is_deafened: data.is_deafened,
-                    is_streaming: data.is_streaming,
-                    is_server_muted: data.is_server_muted,
-                    is_server_deafened: data.is_server_deafened,
-                  }
-                : s
-            );
-          }
-          break;
-        }
-      }
-
-      return { voiceStates: newStates };
-    });
-  },
-
-  handleVoiceStatesSync: (states: VoiceState[]) => {
-    const grouped: Record<string, VoiceState[]> = {};
-
-    for (const state of states) {
-      if (!grouped[state.channel_id]) {
-        grouped[state.channel_id] = [];
-      }
-      grouped[state.channel_id].push(state);
-    }
-
-    set({ voiceStates: grouped });
-  },
-
-  updateUserInfo: (userId, displayName, avatarUrl) => {
-    set((state) => {
-      let changed = false;
-      const newStates = { ...state.voiceStates };
-
-      for (const channelId of Object.keys(newStates)) {
-        const idx = newStates[channelId].findIndex((s) => s.user_id === userId);
-        if (idx !== -1) {
-          const entry = newStates[channelId][idx];
-          if (entry.display_name !== displayName || entry.avatar_url !== avatarUrl) {
-            const newArr = [...newStates[channelId]];
-            newArr[idx] = { ...entry, display_name: displayName, avatar_url: avatarUrl };
-            newStates[channelId] = newArr;
-            changed = true;
-          }
-        }
-      }
-
-      return changed ? { voiceStates: newStates } : {};
-    });
-  },
-
-  handleForceDisconnect: () => {
-    // Admin force-disconnected us — same cleanup as leave but no WS event sent
-    // (server already cleared state). isMuted/isDeafened preserved.
-    set({
-      currentVoiceChannelId: null,
-      currentVoiceServerId: null,
-      livekitUrl: null,
-      livekitToken: null,
-      e2eePassphrase: null,
-      isStreaming: false,
-      activeSpeakers: {},
-      watchingScreenShares: {},
-      screenShareViewers: {},
-      rtt: 0,
-    });
-  },
-
-  handleAFKKick: (channelName: string, serverName: string) => {
-    // AFK kick — cleanup voice state + show popup. isMuted/isDeafened preserved.
-    set({
-      currentVoiceChannelId: null,
-      currentVoiceServerId: null,
-      livekitUrl: null,
-      livekitToken: null,
-      e2eePassphrase: null,
-      isStreaming: false,
-      activeSpeakers: {},
-      watchingScreenShares: {},
-      screenShareViewers: {},
-      rtt: 0,
-      afkKickInfo: { channelName, serverName },
-    });
-  },
-
-  dismissAFKKick: () => set({ afkKickInfo: null }),
-
-  handleVoiceReplaced: () => {
-    // Another session took over voice — leave silently, skip auto-rejoin.
-    // isMuted/isDeafened preserved.
-    set({
-      wasReplaced: true,
-      currentVoiceChannelId: null,
-      currentVoiceServerId: null,
-      livekitUrl: null,
-      livekitToken: null,
-      e2eePassphrase: null,
-      isStreaming: false,
-      activeSpeakers: {},
-      watchingScreenShares: {},
-      screenShareViewers: {},
-      rtt: 0,
-    });
-  },
-
-  handleScreenShareViewerUpdate: (data) => {
-    set((state) => {
-      const next = { ...state.screenShareViewers };
-      if (data.viewer_count > 0) {
-        next[data.streamer_user_id] = data.viewer_count;
-      } else {
-        delete next[data.streamer_user_id];
-      }
-      return { screenShareViewers: next };
-    });
-  },
-
-  applyFromServer: (settings) => {
-    // Merge server settings into current state + localStorage (no re-sync to server)
-    const merged: VoiceSettings = { ...DEFAULT_SETTINGS, ...loadSettings() };
-    const keys = Object.keys(settings) as (keyof VoiceSettings)[];
-    for (const key of keys) {
-      if (key in merged) {
-        (merged as Record<string, unknown>)[key] = settings[key];
-      }
-    }
-    // Persist to localStorage
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-    } catch { /* ignore */ }
-    // Update Zustand state
-    set({
-      inputMode: merged.inputMode,
-      pttKey: merged.pttKey,
-      micSensitivity: merged.micSensitivity,
-      userVolumes: merged.userVolumes,
-      inputDevice: merged.inputDevice,
-      outputDevice: merged.outputDevice,
-      masterVolume: merged.masterVolume,
-      inputVolume: merged.inputVolume,
-      soundsEnabled: merged.soundsEnabled,
-      screenShareAudio: merged.screenShareAudio,
-      screenShareQuality: merged.screenShareQuality,
-      localMutedUsers: merged.localMutedUsers,
-      noiseReduction: merged.noiseReduction,
-      screenShareVolumes: merged.screenShareVolumes,
-    });
   },
 }));

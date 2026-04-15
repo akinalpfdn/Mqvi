@@ -47,6 +47,7 @@ function VoiceStateManager() {
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
   const micSensitivity = useVoiceStore((s) => s.micSensitivity);
   const inputVolume = useVoiceStore((s) => s.inputVolume);
+  const outputDevice = useVoiceStore((s) => s.outputDevice);
 
   // Skip effects until initial connection sync is done
   const initialSyncDone = useRef(false);
@@ -285,6 +286,36 @@ function VoiceStateManager() {
       initialSyncDone.current = false;
     };
   }, [room, localParticipant]);
+
+  // Apply output device (sinkId) to all LiveKit audio elements.
+  // Runs on every outputDevice change and on (re)connect — switchActiveDevice
+  // stores the preference on the Room so new tracks also honor it.
+  useEffect(() => {
+    if (!outputDevice) return;
+
+    async function applyOutputDevice() {
+      try {
+        await room.switchActiveDevice("audiooutput", outputDevice);
+      } catch (err) {
+        console.error("[VoiceStateManager] Failed to switch output device:", err);
+      }
+    }
+
+    if (room.state === ConnectionState.Connected) {
+      applyOutputDevice();
+    }
+
+    function handleConnected() {
+      applyOutputDevice();
+    }
+    room.on(RoomEvent.Connected, handleConnected);
+    room.on(RoomEvent.Reconnected, handleConnected);
+
+    return () => {
+      room.off(RoomEvent.Connected, handleConnected);
+      room.off(RoomEvent.Reconnected, handleConnected);
+    };
+  }, [room, outputDevice]);
 
   // RTT polling: try signaling RTT first, fall back to WebRTC stats ICE candidate-pair
   useEffect(() => {
