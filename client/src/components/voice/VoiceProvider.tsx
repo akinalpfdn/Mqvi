@@ -262,6 +262,8 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       audio={false}
       video={false}
       options={roomOptions}
+      // Subscriptions are managed explicitly in VoiceStateManager.
+      connectOptions={{ autoSubscribe: false }}
       onDisconnected={handleDisconnected}
       onError={handleError}
       onEncryptionError={handleEncryptionError}

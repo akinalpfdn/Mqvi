@@ -212,21 +212,30 @@ function VoiceStateManager() {
   useEffect(() => {
     function handleConnected() {
       // PTT: mic starts disabled. Voice activity: respect store isMuted + server mute.
-      const { isMuted: currentMuted, inputMode: currentMode, isServerMuted: srvMuted } = useVoiceStore.getState();
+      const { isMuted: currentMuted, inputMode: currentMode, isServerMuted: srvMuted,
+              isDeafened: deaf, isServerDeafened: srvDeaf,
+              watchingScreenShares: wsShares } = useVoiceStore.getState();
       const shouldEnable = currentMode === "push_to_talk" ? false : (!currentMuted && !srvMuted);
+      const fullyDeaf = deaf || srvDeaf;
 
       localParticipant.setMicrophoneEnabled(shouldEnable).catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to set initial mic state:", err);
       });
 
-      // Unsubscribe auto-subscribed screen shares — user opts in via sidebar
+      // With autoSubscribe=false, nothing is subscribed by default. Subscribe
+      // existing participants' mic (if not deafened) and any screen shares the
+      // user has opted into. Screen share stays unsubscribed by default.
       room.remoteParticipants.forEach((p) => {
+        const watching = wsShares[resolveUserId(p.identity)] ?? false;
         p.trackPublications.forEach((pub) => {
-          if (
+          const rpub = pub as RemoteTrackPublication;
+          if (pub.source === Track.Source.Microphone) {
+            rpub.setSubscribed(!fullyDeaf);
+          } else if (
             pub.source === Track.Source.ScreenShare ||
             pub.source === Track.Source.ScreenShareAudio
           ) {
-            (pub as RemoteTrackPublication).setSubscribed(false);
+            rpub.setSubscribed(watching);
           }
         });
       });
@@ -259,10 +268,13 @@ function VoiceStateManager() {
           const ssVol = ssVols[participant.identity] ?? 100;
           participant.setVolume(fullyDeaf ? 0 : (ssVol / 100) * masterFactor, Track.Source.ScreenShareAudio);
 
-          // Restore screen share subscription state
+          // Restore subscription state.
+          // Mic: follow deafen. Screen share: follow user opt-in.
           const watching = wsShares[resolveUserId(participant.identity)] ?? false;
           participant.trackPublications.forEach((pub) => {
-            if (
+            if (pub.source === Track.Source.Microphone) {
+              (pub as RemoteTrackPublication).setSubscribed(!fullyDeaf);
+            } else if (
               pub.source === Track.Source.ScreenShare ||
               pub.source === Track.Source.ScreenShareAudio
             ) {
@@ -645,10 +657,14 @@ function VoiceStateManager() {
   // autoSubscribe stays true (audio tracks auto-subscribe).
   // Screen share tracks are manually controlled: unsubscribe on publish,
   // subscribe when user clicks in sidebar.
+  //
+  // Microphone tracks are also controlled: when deafened we refuse the
+  // subscription entirely — setting volume=0 has a ~1s window where the
+  // audio element plays at its native volume before webAudioMix attaches.
 
-  // Effect A: Unsubscribe newly published screen share tracks.
-  // RoomEvent.TrackPublished fires BEFORE autoSubscribe —
-  // setSubscribed(false) cancels the SDK subscribe request.
+  // Effect A: Explicitly subscribe newly published tracks.
+  // With autoSubscribe=false, nothing subscribes unless we say so.
+  // Mic follows deafen state; screen share follows user opt-in.
   useEffect(() => {
     function handleTrackPublished(
       publication: RemoteTrackPublication,
@@ -658,10 +674,11 @@ function VoiceStateManager() {
         publication.source === Track.Source.ScreenShare ||
         publication.source === Track.Source.ScreenShareAudio
       ) {
-        const watching = useVoiceStore.getState().watchingScreenShares[resolveUserId(participant.identity)];
-        if (!watching) {
-          publication.setSubscribed(false);
-        }
+        const watching = useVoiceStore.getState().watchingScreenShares[resolveUserId(participant.identity)] ?? false;
+        publication.setSubscribed(watching);
+      } else if (publication.source === Track.Source.Microphone) {
+        const { isDeafened: deaf, isServerDeafened: srvDeaf } = useVoiceStore.getState();
+        publication.setSubscribed(!(deaf || srvDeaf));
       }
     }
 
@@ -670,6 +687,19 @@ function VoiceStateManager() {
       room.off(RoomEvent.TrackPublished, handleTrackPublished);
     };
   }, [room]);
+
+  // Effect C: Toggle microphone subscriptions when deafen state changes.
+  // Also applies on (re)mount — handles the "join already deafened" case
+  // where existing participants' mic tracks would otherwise auto-subscribe.
+  useEffect(() => {
+    room.remoteParticipants.forEach((participant) => {
+      participant.trackPublications.forEach((pub) => {
+        if (pub.source === Track.Source.Microphone) {
+          (pub as RemoteTrackPublication).setSubscribed(!effectiveDeafened);
+        }
+      });
+    });
+  }, [effectiveDeafened, room]);
 
   // Effect B: Subscribe/unsubscribe when watchingScreenShares changes.
   useEffect(() => {
