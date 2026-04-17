@@ -18,7 +18,6 @@ import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { useMobileStore } from "../../stores/mobileStore";
-import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
 import MuteDurationPicker from "../servers/MuteDurationPicker";
@@ -35,6 +34,7 @@ import DMSection from "./DMSection";
 import ServerList from "./ServerList";
 import CategoryItem from "./CategoryItem";
 import ChannelItem from "./ChannelItem";
+import VoiceParticipantList from "./VoiceParticipantList";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 import * as channelApi from "../../api/channels";
@@ -45,7 +45,6 @@ type ChannelTreeProps = {
 };
 
 function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
-  const { t: tVoice } = useTranslation("voice");
   const toggleSection = useSidebarStore((s) => s.toggleSection);
   const expandedSections = useSidebarStore((s) => s.expandedSections);
 
@@ -133,11 +132,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const openTab = useUIStore((s) => s.openTab);
   const voiceStates = useVoiceStore((s) => s.voiceStates);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
-  const localMutedUsers = useVoiceStore((s) => s.localMutedUsers);
-  const activeSpeakers = useVoiceStore((s) => s.activeSpeakers);
-  const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
-  const screenShareViewers = useVoiceStore((s) => s.screenShareViewers);
-  const toggleWatchScreenShare = useVoiceStore((s) => s.toggleWatchScreenShare);
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
 
   const currentUser = useAuthStore((s) => s.user);
@@ -835,129 +829,18 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         onOpenRenameEmoji={openRenameEmojiPicker}
                       >
                         {!isText && participants.length > 0 && (
-                          <div className="ch-tree-voice-users">
-                            {participants.map((p) => {
-                              const isMe = p.user_id === currentUser?.id;
-                              const isLocalMuted = localMutedUsers[p.user_id] ?? false;
-                              const isSpeaking = activeSpeakers[p.user_id] ?? false;
-
-                              return (
-                                <div
-                                  key={p.user_id}
-                                  className={`ch-tree-voice-user${isSpeaking ? " speaking" : ""}${draggingVoiceUserId === p.user_id ? " vu-dragging" : ""}`}
-                                  draggable={isMe || canMoveMembers}
-                                  onDragStart={(e) => handleVoiceUserDragStart(e, p.user_id, ch.id)}
-                                  onDragEnd={handleVoiceUserDragEnd}
-                                  title={(isMe || canMoveMembers) ? tVoice("dragToMove") : undefined}
-                                  onContextMenu={(e) => {
-                                    if (isMe) return;
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setVoiceCtxMenu({
-                                      userId: p.user_id,
-                                      username: p.username,
-                                      displayName: p.display_name,
-                                      avatarUrl: p.avatar_url,
-                                      x: e.clientX,
-                                      y: e.clientY,
-                                    });
-                                  }}
-                                >
-                                  <button
-                                    className="ch-tree-vu-avatar-btn"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                      setUserCardTarget({
-                                        user: {
-                                          id: p.user_id,
-                                          username: p.username,
-                                          display_name: p.display_name || null,
-                                          avatar_url: p.avatar_url || null,
-                                          status: "online" as const,
-                                          custom_status: null,
-                                          email: null,
-                                          language: "en",
-                                          is_platform_admin: false,
-                                          has_seen_download_prompt: false,
-                                          has_seen_welcome: false,
-                                          dm_privacy: "message_request" as const,
-                                          created_at: new Date().toISOString(),
-                                        },
-                                        top: rect.top,
-                                        left: rect.right + 8,
-                                      });
-                                    }}
-                                  >
-                                    <Avatar
-                                      name={p.display_name || p.username}
-                                      avatarUrl={p.avatar_url}
-                                      size={22}
-                                      isCircle
-                                    />
-                                  </button>
-                                  <span className="ch-tree-vu-name">{p.display_name || p.username}</span>
-                                  {/* Status icons (priority: server deafen > server mute > local mute > streaming > self deafen > self mute > dot) */}
-                                  <span className="ch-tree-vu-icons">
-                                    {p.is_server_deafened && (
-                                      <svg className="ch-tree-vu-icon ch-tree-vu-server-deafen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("serverDeafened")}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 18v-6a9 9 0 0118 0v6M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-                                      </svg>
-                                    )}
-                                    {p.is_server_muted && (
-                                      <svg className="ch-tree-vu-icon ch-tree-vu-server-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("serverMuted")}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-                                      </svg>
-                                    )}
-                                    {!isMe && isLocalMuted && (
-                                      <svg className="ch-tree-vu-icon ch-tree-vu-local-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("localMuted")}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                                      </svg>
-                                    )}
-                                    {p.is_streaming && (
-                                      <>
-                                        <button
-                                          className={`ch-tree-vu-icon ch-tree-vu-stream${watchingScreenShares[p.user_id] ? " watching" : ""}`}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const wasWatching = watchingScreenShares[p.user_id];
-                                            toggleWatchScreenShare(p.user_id);
-                                            if (!wasWatching && currentVoiceChannelId) {
-                                              openTab(currentVoiceChannelId, "voice", ch.name, getActiveServerInfo());
-                                            }
-                                          }}
-                                          title={watchingScreenShares[p.user_id] ? tVoice("stopWatching") : tVoice("watchScreenShare")}
-                                        >
-                                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                          </svg>
-                                        </button>
-                                        {screenShareViewers[p.user_id] > 0 && (
-                                          <span className="ch-tree-vu-viewer-count">
-                                            {screenShareViewers[p.user_id]}
-                                          </span>
-                                        )}
-                                      </>
-                                    )}
-                                    {p.is_deafened ? (
-                                      <svg className="ch-tree-vu-icon ch-tree-vu-deafen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 18v-6a9 9 0 0118 0v6M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-                                      </svg>
-                                    ) : p.is_muted ? (
-                                      <svg className="ch-tree-vu-icon ch-tree-vu-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-label={tVoice("muted")}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-                                      </svg>
-                                    ) : null}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
+                          <VoiceParticipantList
+                            participants={participants}
+                            channelId={ch.id}
+                            channelName={ch.name}
+                            canMoveMembers={canMoveMembers}
+                            draggingVoiceUserId={draggingVoiceUserId}
+                            onDragStart={handleVoiceUserDragStart}
+                            onDragEnd={handleVoiceUserDragEnd}
+                            onContextMenu={setVoiceCtxMenu}
+                            onShowUserCard={handleShowUserCard}
+                            getActiveServerInfo={getActiveServerInfo}
+                          />
                         )}
                       </ChannelItem>
                     );
