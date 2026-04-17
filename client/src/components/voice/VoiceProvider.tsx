@@ -141,13 +141,12 @@ function VoiceProvider({ children }: VoiceProviderProps) {
           rejoinAttemptsRef.current++;
           const channelToRejoin = currentVoiceChannelId;
 
-          // Preserve mute/deafen state across auto-rejoin
-          const { isMuted: prevMuted, isDeafened: prevDeafened } = useVoiceStore.getState();
+          const { isMuted: prevMuted, isDeafened: prevDeafened, isStreaming: prevStreaming } = useVoiceStore.getState();
 
           leaveVoiceChannel();
           useVoiceStore.getState().joinVoiceChannel(channelToRejoin).then((tokenResp) => {
             if (tokenResp && _wsSend) {
-              useVoiceStore.setState({ isMuted: prevMuted, isDeafened: prevDeafened });
+              useVoiceStore.setState({ isMuted: prevMuted, isDeafened: prevDeafened, isStreaming: prevStreaming });
               _wsSend("voice_join", { channel_id: channelToRejoin });
             } else {
               console.warn("[VoiceProvider] Auto-rejoin failed");

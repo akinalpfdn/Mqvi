@@ -169,6 +169,9 @@ function VoiceStateManager() {
     toggleScreenShare().catch((err: unknown) => {
       if (!cancelled) {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
+        if (isStreaming) {
+          useVoiceStore.getState().setStreaming(false);
+        }
       }
     });
 
@@ -700,6 +703,24 @@ function VoiceStateManager() {
       });
     });
   }, [effectiveDeafened, room]);
+
+  // Sync isStreaming when screen share track is lost (reconnect, SFU drop).
+  // Without this, store stays isStreaming=true but track is gone — user has
+  // to stop+start instead of just clicking start once.
+  useEffect(() => {
+    function handleLocalTrackUnpublished(pub: LocalTrackPublication) {
+      if (pub.source !== Track.Source.ScreenShare) return;
+      const { isStreaming: streaming } = useVoiceStore.getState();
+      if (streaming) {
+        useVoiceStore.getState().setStreaming(false);
+      }
+    }
+
+    room.on(RoomEvent.LocalTrackUnpublished, handleLocalTrackUnpublished);
+    return () => {
+      room.off(RoomEvent.LocalTrackUnpublished, handleLocalTrackUnpublished);
+    };
+  }, [room]);
 
   // Effect B: Subscribe/unsubscribe when watchingScreenShares changes.
   useEffect(() => {
