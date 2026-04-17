@@ -34,6 +34,7 @@ import FriendsSection from "./FriendsSection";
 import DMSection from "./DMSection";
 import ServerList from "./ServerList";
 import CategoryItem from "./CategoryItem";
+import ChannelItem from "./ChannelItem";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 import * as channelApi from "../../api/channels";
@@ -790,100 +791,49 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                       >
                         {cg.channels.map((ch) => {
                     const isText = ch.type === "text";
-                    const isActive = isText
+                    const chActive = isText
                       ? ch.id === selectedChannelId
                       : ch.id === currentVoiceChannelId;
                     const unread = unreadCounts[ch.id] ?? 0;
                     const participants = voiceStates[ch.id] ?? [];
-                    const isDragging = dragChannelIdRef.current === ch.id;
-                    const dropPos = dropIndicator?.channelId === ch.id ? dropIndicator.position : null;
-
-                    // Muted channels appear dimmed
                     const isServerMuted = mutedServerIds.has(srvId);
                     const isChannelMuted = mutedChannelIds.has(ch.id);
                     const isEffectivelyMuted = isServerMuted || isChannelMuted;
-                    const mutedClass = isEffectivelyMuted ? " muted" : "";
-
-                    // Voice channel locked check (no ConnectVoice permission)
                     const isVoiceLocked = !isText && !canConnectVoice(ch.id);
 
                     return (
-                      <div
+                      <ChannelItem
                         key={ch.id}
-                        className={`ch-tree-drag-wrap${isDragging ? " dragging" : ""}${dropPos === "above" ? " drop-above" : ""}${dropPos === "below" ? " drop-below" : ""}`}
-                        draggable={canManageChannels}
+                        channel={ch}
+                        isActive={chActive}
+                        unread={unread}
+                        isEffectivelyMuted={isEffectivelyMuted}
+                        isVoiceLocked={isVoiceLocked}
+                        voiceDropTarget={voiceDropTargetId === ch.id}
+                        canManageChannels={canManageChannels}
+                        isDragging={dragChannelIdRef.current === ch.id}
+                        dropPos={dropIndicator?.channelId === ch.id ? dropIndicator.position : null}
+                        onClick={() => {
+                          if (isVoiceLocked) return;
+                          isText
+                            ? handleTextChannelClick(ch.id, ch.name)
+                            : handleVoiceChannelClick(ch.id, ch.name);
+                        }}
+                        onContextMenu={(e) => handleChannelContextMenu(e, ch)}
                         onDragStart={() => handleDragStart(ch.id, cg.category.id)}
                         onDragOver={(e) => handleChannelDragOver(e, ch.id, ch.type, cg.category.id)}
                         onDragLeave={handleChannelDragLeave}
                         onDrop={(e) => handleChannelDrop(e, ch.id, cg.category.id)}
                         onDragEnd={handleDragEnd}
+                        isRenaming={renamingChannelId === ch.id}
+                        renameValue={renameValue}
+                        onRenameChange={setRenameValue}
+                        onRenameSubmit={() => { setShowRenameEmoji(false); handleChannelRenameSubmit(); }}
+                        onRenameCancel={() => { setShowRenameEmoji(false); setRenamingChannelId(null); }}
+                        showRenameEmoji={showRenameEmoji}
+                        renameEmojiBtnRef={renameEmojiBtnRef}
+                        onOpenRenameEmoji={openRenameEmojiPicker}
                       >
-                        <button
-                          className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${isVoiceLocked ? " locked" : ""}${unread > 0 && !isEffectivelyMuted ? " has-unread" : ""}${voiceDropTargetId === ch.id ? " voice-drop-target" : ""}${mutedClass}`}
-                          onClick={() => {
-                            if (isVoiceLocked) return;
-                            isText
-                              ? handleTextChannelClick(ch.id, ch.name)
-                              : handleVoiceChannelClick(ch.id, ch.name);
-                          }}
-                          onContextMenu={(e) => handleChannelContextMenu(e, ch)}
-                          title={
-                            isVoiceLocked
-                              ? `${ch.name} — ${tVoice("voiceChannelLocked")}`
-                              : isText
-                                ? `#${ch.name}`
-                                : `${ch.name} — ${tVoice("joinVoice")}`
-                          }
-                        >
-                          <span className="ch-tree-icon">
-                            {isText ? "#" : isVoiceLocked ? (
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>
-                              </svg>
-                            ) : "\uD83D\uDD0A"}
-                          </span>
-                          {renamingChannelId === ch.id ? (
-                            <div className="ch-tree-rename-wrap" onClick={(e) => e.stopPropagation()}>
-                              <input
-                                className="ch-tree-inline-rename"
-                                value={renameValue}
-                                autoFocus
-                                onChange={(e) => setRenameValue(e.target.value)}
-                                maxLength={50}
-                                onKeyDown={(e) => {
-                                  e.stopPropagation();
-                                  if (e.key === "Enter") { setShowRenameEmoji(false); handleChannelRenameSubmit(); }
-                                  if (e.key === "Escape") { setShowRenameEmoji(false); setRenamingChannelId(null); }
-                                }}
-                                onBlur={(e) => {
-                                  if (e.relatedTarget && (e.relatedTarget as HTMLElement).closest(".ch-tree-rename-picker")) return;
-                                  if (!showRenameEmoji) handleChannelRenameSubmit();
-                                }}
-                              />
-                              <button
-                                type="button"
-                                className="ch-tree-rename-emoji"
-                                ref={renameEmojiBtnRef}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={openRenameEmojiPicker}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <circle cx="12" cy="12" r="10" />
-                                  <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-                                  <line x1="9" y1="9" x2="9.01" y2="9" />
-                                  <line x1="15" y1="9" x2="15.01" y2="9" />
-                                </svg>
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="ch-tree-label">{ch.name}</span>
-                          )}
-                          {unread > 0 && !isEffectivelyMuted && (
-                            <span className="ch-tree-unread-dot" title={`${unread}`} />
-                          )}
-                        </button>
-
-                        {/* Voice channel participants */}
                         {!isText && participants.length > 0 && (
                           <div className="ch-tree-voice-users">
                             {participants.map((p) => {
@@ -1009,7 +959,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                             })}
                           </div>
                         )}
-                      </div>
+                      </ChannelItem>
                     );
                   })}
                 </CategoryItem>
