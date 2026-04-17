@@ -33,6 +33,7 @@ import EmojiPicker from "../shared/EmojiPicker";
 import FriendsSection from "./FriendsSection";
 import DMSection from "./DMSection";
 import ServerList from "./ServerList";
+import CategoryItem from "./CategoryItem";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 import * as channelApi from "../../api/channels";
@@ -306,6 +307,22 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   function handleCatDragEnd() {
     dragCatReorderIdRef.current = null;
     setCatDropIndicator(null);
+  }
+
+  function handleCatRowDragOver(e: React.DragEvent, categoryId: string) {
+    if (dragCatReorderIdRef.current) {
+      handleCatDragOver(e, categoryId);
+    } else {
+      handleCategoryHeaderDragOver(e);
+    }
+  }
+
+  function handleCatRowDrop(e: React.DragEvent, categoryId: string) {
+    if (dragCatReorderIdRef.current) {
+      handleCatDrop(e, categoryId);
+    } else {
+      handleCategoryHeaderDrop(e, categoryId);
+    }
   }
 
   function handleDragStart(channelId: string, categoryId: string) {
@@ -705,16 +722,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     }
   }
 
-  // ─── Render helpers ───
-
-  function Chevron({ expanded }: { expanded: boolean }) {
-    return (
-      <span className={`ch-tree-chevron${expanded ? " expanded" : ""}`}>
-        &#x276F;
-      </span>
-    );
-  }
-
   return (
     <div className="ch-tree">
       <FriendsSection onShowUserCard={handleShowUserCard} />
@@ -744,105 +751,44 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     const isUncategorized = cg.category.id === "";
                     const catKey = isUncategorized ? "cat:__uncategorized__" : `cat:${cg.category.id}`;
                     const catExpanded = isUncategorized ? true : isSectionExpanded(catKey);
+                    const catId = cg.category.id;
+                    const catDropClass =
+                      catDropIndicator?.categoryId === catId && catDropIndicator.position === "above" ? " cat-drop-above"
+                      : catDropIndicator?.categoryId === catId && catDropIndicator.position === "below" ? " cat-drop-below"
+                      : "";
 
                     return (
-                      <div key={cg.category.id || "__uncategorized__"} className="ch-tree-category">
-                        {/* Category header / uncategorized drop zone */}
-                        {isUncategorized ? (
-                          canManageChannels && (
-                            <div
-                              className="ch-tree-uncat-drop"
-                              onDragOver={handleCategoryHeaderDragOver}
-                              onDrop={(e) => handleCategoryHeaderDrop(e, "")}
-                            />
-                          )
-                        ) : (
-                          <div
-                            className={`ch-tree-cat-row${catDropIndicator?.categoryId === cg.category.id && catDropIndicator.position === "above" ? " cat-drop-above" : ""}${catDropIndicator?.categoryId === cg.category.id && catDropIndicator.position === "below" ? " cat-drop-below" : ""}`}
-                            draggable={canManageChannels}
-                            onDragStart={canManageChannels ? (e) => handleCatDragStart(e, cg.category.id) : undefined}
-                            onDragOver={canManageChannels ? (e) => {
-                              // Category reorder takes priority over channel-to-category drop
-                              if (dragCatReorderIdRef.current) {
-                                handleCatDragOver(e, cg.category.id);
-                              } else {
-                                handleCategoryHeaderDragOver(e);
-                              }
-                            } : undefined}
-                            onDragLeave={canManageChannels ? () => {
-                              handleCatDragLeave();
-                            } : undefined}
-                            onDrop={canManageChannels ? (e) => {
-                              if (dragCatReorderIdRef.current) {
-                                handleCatDrop(e, cg.category.id);
-                              } else {
-                                handleCategoryHeaderDrop(e, cg.category.id);
-                              }
-                            } : undefined}
-                            onDragEnd={canManageChannels ? handleCatDragEnd : undefined}
-                          >
-                            <button
-                              className="ch-tree-cat-header"
-                              onClick={() => toggleSection(catKey)}
-                              onContextMenu={(e) => handleCategoryContextMenu(e, cg.category.id, cg.category.name)}
-                            >
-                              <Chevron expanded={catExpanded} />
-                              {renamingCategoryId === cg.category.id ? (
-                                <div className="ch-tree-rename-wrap" onClick={(e) => e.stopPropagation()}>
-                                  <input
-                                    className="ch-tree-inline-rename"
-                                    value={renameValue}
-                                    autoFocus
-                                    onChange={(e) => setRenameValue(e.target.value)}
-                                    maxLength={50}
-                                    onKeyDown={(e) => {
-                                      e.stopPropagation();
-                                      if (e.key === "Enter") { setShowRenameEmoji(false); handleCategoryRenameSubmit(); }
-                                      if (e.key === "Escape") { setShowRenameEmoji(false); setRenamingCategoryId(null); }
-                                    }}
-                                    onBlur={(e) => {
-                                      // Don't submit on blur when emoji picker is open
-                                      if (e.relatedTarget && (e.relatedTarget as HTMLElement).closest(".ch-tree-rename-picker")) return;
-                                      if (!showRenameEmoji) handleCategoryRenameSubmit();
-                                    }}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="ch-tree-rename-emoji"
-                                    ref={renameEmojiBtnRef}
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={openRenameEmojiPicker}
-                                  >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                      <circle cx="12" cy="12" r="10" />
-                                      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-                                      <line x1="9" y1="9" x2="9.01" y2="9" />
-                                      <line x1="15" y1="9" x2="15.01" y2="9" />
-                                    </svg>
-                                  </button>
-                                </div>
-                              ) : (
-                                <span>{cg.category.name}</span>
-                              )}
-                            </button>
-                            {canManageChannels && (
-                              <button
-                                className="ch-tree-cat-add"
-                                title={tCh("createChannel")}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCreateModalMode("channel");
-                                  setCreateModalCategoryId(cg.category.id);
-                                  setShowCreateModal(true);
-                                }}
-                              >
-                                +
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        {catExpanded && cg.channels.map((ch) => {
+                      <CategoryItem
+                        key={catId || "__uncategorized__"}
+                        category={cg.category}
+                        isUncategorized={isUncategorized}
+                        expanded={catExpanded}
+                        canManageChannels={canManageChannels}
+                        onToggle={() => toggleSection(catKey)}
+                        onContextMenu={(e) => handleCategoryContextMenu(e, catId, cg.category.name)}
+                        onCreateChannel={() => {
+                          setCreateModalMode("channel");
+                          setCreateModalCategoryId(catId);
+                          setShowCreateModal(true);
+                        }}
+                        catDropClass={catDropClass}
+                        onCatDragStart={(e) => handleCatDragStart(e, catId)}
+                        onCatRowDragOver={(e) => handleCatRowDragOver(e, catId)}
+                        onCatDragLeave={handleCatDragLeave}
+                        onCatRowDrop={(e) => handleCatRowDrop(e, catId)}
+                        onCatDragEnd={handleCatDragEnd}
+                        onUncatDragOver={handleCategoryHeaderDragOver}
+                        onUncatDrop={(e) => handleCategoryHeaderDrop(e, "")}
+                        isRenaming={renamingCategoryId === catId}
+                        renameValue={renameValue}
+                        onRenameChange={setRenameValue}
+                        onRenameSubmit={() => { setShowRenameEmoji(false); handleCategoryRenameSubmit(); }}
+                        onRenameCancel={() => { setShowRenameEmoji(false); setRenamingCategoryId(null); }}
+                        showRenameEmoji={showRenameEmoji}
+                        renameEmojiBtnRef={renameEmojiBtnRef}
+                        onOpenRenameEmoji={openRenameEmojiPicker}
+                      >
+                        {cg.channels.map((ch) => {
                     const isText = ch.type === "text";
                     const isActive = isText
                       ? ch.id === selectedChannelId
@@ -1066,7 +1012,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                       </div>
                     );
                   })}
-                </div>
+                </CategoryItem>
               );
             })}
           </>
