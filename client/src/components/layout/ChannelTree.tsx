@@ -17,7 +17,6 @@ import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
-import { resolveAssetUrl } from "../../utils/constants";
 import { useMobileStore } from "../../stores/mobileStore";
 import Avatar from "../shared/Avatar";
 import ContextMenu from "../shared/ContextMenu";
@@ -33,9 +32,9 @@ import Modal from "../shared/Modal";
 import EmojiPicker from "../shared/EmojiPicker";
 import FriendsSection from "./FriendsSection";
 import DMSection from "./DMSection";
+import ServerList from "./ServerList";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
-import { useSettingsStore } from "../../stores/settingsStore";
 import * as channelApi from "../../api/channels";
 import type { Channel, User } from "../../types";
 
@@ -45,15 +44,9 @@ type ChannelTreeProps = {
 
 function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const { t: tVoice } = useTranslation("voice");
-  const { t: tServers } = useTranslation("servers");
-  const { t: tE2EE } = useTranslation("e2ee");
-
   const toggleSection = useSidebarStore((s) => s.toggleSection);
-  const expandSection = useSidebarStore((s) => s.expandSection);
-  // Subscribe to the map (not a function) so toggleSection triggers re-render
   const expandedSections = useSidebarStore((s) => s.expandedSections);
 
-  /** Returns true if section is expanded (default: true) */
   function isSectionExpanded(key: string): boolean {
     return expandedSections[key] ?? true;
   }
@@ -65,22 +58,10 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const selectChannel = useChannelStore((s) => s.selectChannel);
   const servers = useServerStore((s) => s.servers);
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const setActiveServer = useServerStore((s) => s.setActiveServer);
-  const reorderServers = useServerStore((s) => s.reorderServers);
   const mutedServerIds = useServerStore((s) => s.mutedServerIds);
-  const unmuteServer = useServerStore((s) => s.unmuteServer);
-  const activeServer = useServerStore((s) => s.activeServer);
-  const leaveServer = useServerStore((s) => s.leaveServer);
-  const toggleServerE2EE = useServerStore((s) => s.toggleE2EE);
-  const markAllAsRead = useReadStateStore((s) => s.markAllAsRead);
-  const openSettings = useSettingsStore((s) => s.openSettings);
 
   const confirmDialog = useConfirm();
 
-  // Server context menu
-  const { menuState: serverMenuState, openMenu: openServerMenu, closeMenu: closeServerMenu } = useContextMenu();
-
-  // Category context menu
   const { menuState: catMenuState, openMenu: openCatMenu, closeMenu: closeCatMenu } = useContextMenu();
 
   // Channel context menu
@@ -156,7 +137,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const screenShareViewers = useVoiceStore((s) => s.screenShareViewers);
   const toggleWatchScreenShare = useVoiceStore((s) => s.toggleWatchScreenShare);
   const unreadCounts = useReadStateStore((s) => s.unreadCounts);
-  const getServerUnreadTotal = useReadStateStore((s) => s.getServerUnreadTotal);
 
   const currentUser = useAuthStore((s) => s.user);
   const members = useActiveMembers();
@@ -174,11 +154,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   // MOVE_MEMBERS permission (voice user drag & drop)
   const canMoveMembers = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.MoveMembers)
-    : false;
-
-  // MANAGE_INVITES permission
-  const canManageInvites = currentMember
-    ? hasPermission(currentMember.effective_permissions, Permissions.ManageInvites)
     : false;
 
   // Channel permission overrides for ConnectVoice check
@@ -253,84 +228,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const [draggingVoiceUserId, setDraggingVoiceUserId] = useState<string | null>(null);
   /** Hovered voice channel drop target ID */
   const [voiceDropTargetId, setVoiceDropTargetId] = useState<string | null>(null);
-
-  // ─── Server Drag & Drop State ───
-
-  /** Dragged server ID */
-  const dragServerIdRef = useRef<string | null>(null);
-  /** Server drop indicator position */
-  const [serverDropIndicator, setServerDropIndicator] = useState<{
-    serverId: string;
-    position: "above" | "below";
-  } | null>(null);
-
-  function handleServerDragStart(e: React.DragEvent, serverId: string) {
-    e.stopPropagation();
-    dragServerIdRef.current = serverId;
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/server", serverId);
-  }
-
-  function handleServerDragOver(e: React.DragEvent, serverId: string) {
-    if (!dragServerIdRef.current) return;
-    // Ignore self-drop
-    if (dragServerIdRef.current === serverId) {
-      e.preventDefault();
-      setServerDropIndicator(null);
-      return;
-    }
-
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    const pos: "above" | "below" = e.clientY < midY ? "above" : "below";
-    setServerDropIndicator({ serverId, position: pos });
-  }
-
-  function handleServerDragLeave() {
-    setServerDropIndicator(null);
-  }
-
-  function handleServerDrop(e: React.DragEvent, targetServerId: string) {
-    e.preventDefault();
-    setServerDropIndicator(null);
-
-    const dragId = dragServerIdRef.current;
-    dragServerIdRef.current = null;
-
-    if (!dragId || dragId === targetServerId) return;
-
-    const ordered = [...servers];
-    const dragIdx = ordered.findIndex((s) => s.id === dragId);
-    const targetIdx = ordered.findIndex((s) => s.id === targetServerId);
-    if (dragIdx === -1 || targetIdx === -1) return;
-
-    const [dragged] = ordered.splice(dragIdx, 1);
-
-    // Recalculate target index after splice
-    let insertIdx = ordered.findIndex((s) => s.id === targetServerId);
-    if (insertIdx === -1) insertIdx = ordered.length;
-
-    // Insert above or below based on mouse position
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    if (e.clientY >= midY) insertIdx += 1;
-
-    ordered.splice(insertIdx, 0, dragged);
-
-    // Assign sequential positions
-    const items = ordered.map((s, idx) => ({ id: s.id, position: idx }));
-    reorderServers(items).then((ok) => {
-      if (!ok) addToast("error", tServers("reorderError"));
-    });
-  }
-
-  function handleServerDragEnd() {
-    dragServerIdRef.current = null;
-    setServerDropIndicator(null);
-  }
 
   // ─── Category Drag & Drop State ───
 
@@ -674,108 +571,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
     setUserCardTarget({ user, top, left });
   }, []);
 
-  function handleServerClick(serverId: string) {
-    if (serverId === activeServerId) return;
-    setActiveServer(serverId);
-  }
-
-  function handleServerContextMenu(e: React.MouseEvent, serverId: string, serverName: string) {
-    const isMuted = mutedServerIds.has(serverId);
-    // activeServer (full Server object) only available for the active server
-    const isOwner = activeServer?.owner_id === currentUser?.id && activeServer?.id === serverId;
-
-    // ManageInvites only checkable for active server; show for others, backend enforces
-    const canInvite = serverId !== activeServerId || canManageInvites;
-
-    // Admin permission only checkable for active server
-    const canAccessSettings = serverId === activeServerId && currentMember
-      ? hasPermission(currentMember.effective_permissions, Permissions.Admin)
-      : false;
-
-    const items: ContextMenuItem[] = [
-      ...(canAccessSettings
-        ? [
-            {
-              label: tServers("serverSettings"),
-              onClick: () => {
-                openSettings("server-general");
-              },
-            },
-          ]
-        : []),
-      {
-        label: tServers("markAllAsRead"),
-        onClick: async () => {
-          const ok = await markAllAsRead(serverId);
-          if (ok) addToast("success", tServers("allMarkedAsRead"));
-        },
-      },
-      ...(canInvite
-        ? [
-            {
-              label: tServers("inviteFriends"),
-              onClick: () => {
-                setInviteTarget({ serverId, serverName });
-              },
-            },
-          ]
-        : []),
-      ...(isOwner
-        ? [
-            {
-              label: activeServer?.e2ee_enabled ? tE2EE("disableE2EE") : tE2EE("enableE2EE"),
-              onClick: async () => {
-                const newState = !activeServer?.e2ee_enabled;
-                const confirmed = await confirmDialog({
-                  title: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
-                  message: newState ? tE2EE("enableE2EEConfirmServer") : tE2EE("disableE2EEConfirmServer"),
-                  confirmLabel: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
-                  danger: !newState,
-                });
-                if (!confirmed) return;
-                const ok = await toggleServerE2EE(serverId, newState);
-                if (ok) {
-                  addToast("success", newState ? tE2EE("e2eeEnabled") : tE2EE("e2eeDisabled"));
-                } else {
-                  addToast("error", tE2EE("e2eeToggleFailed"));
-                }
-              },
-            },
-          ]
-        : []),
-      isMuted
-        ? {
-            label: tServers("unmuteServer"),
-            onClick: async () => {
-              const ok = await unmuteServer(serverId);
-              if (ok) addToast("success", tServers("serverUnmuted"));
-            },
-            separator: true,
-          }
-        : {
-            label: tServers("muteServer"),
-            onClick: () => {
-              setMutePicker({ serverId, x: e.clientX, y: e.clientY });
-            },
-            separator: true,
-          },
-      {
-        label: tServers("leaveServer"),
-        danger: true,
-        disabled: isOwner,
-        onClick: async () => {
-          if (isOwner) return;
-          if (!confirm(tServers("leaveServerConfirmDesc"))) return;
-          const ok = await leaveServer(serverId);
-          if (ok) addToast("success", tServers("serverLeft"));
-        },
-        separator: true,
-      },
-    ];
-
-    openServerMenu(e, items);
-  }
-
   // ─── Category Context Menu ───
 
   function handleCategoryContextMenu(e: React.MouseEvent, categoryId: string, categoryName: string) {
@@ -925,113 +720,27 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       <FriendsSection onShowUserCard={handleShowUserCard} />
       <DMSection onShowUserCard={handleShowUserCard} />
 
-      {/* ═══ Servers Section ═══ */}
-      <div className="ch-tree-section">
-        <button
-          className="ch-tree-section-header"
-          onClick={() => toggleSection("servers")}
-        >
-          <Chevron expanded={isSectionExpanded("servers")} />
-          <span>{tServers("servers")}</span>
-        </button>
+      <ServerList
+        onAddServer={() => setShowAddServer(true)}
+        onCreateChannel={() => {
+          setCreateModalMode(undefined);
+          setCreateModalCategoryId(undefined);
+          setShowCreateModal(true);
+        }}
+        onInviteServer={(serverId, serverName) => setInviteTarget({ serverId, serverName })}
+        onMuteServer={(serverId, x, y) => setMutePicker({ serverId, x, y })}
+        renderServerBody={(srvId) => (
+          <>
+            {canManageChannels &&
+              categories.length > 0 && !categories.some((c) => c.category.id === "") && (
+              <div
+                className="ch-tree-uncat-drop"
+                onDragOver={handleCategoryHeaderDragOver}
+                onDrop={(e) => handleCategoryHeaderDrop(e, "")}
+              />
+            )}
 
-        {isSectionExpanded("servers") && (
-          <div className="ch-tree-section-body">
-            {/* Add Server button — always at top for easy access */}
-            <button
-              className="ch-tree-item ch-tree-add-server"
-              onClick={() => setShowAddServer(true)}
-            >
-              <span className="ch-tree-icon">+</span>
-              <span className="ch-tree-label">{tServers("addServer")}</span>
-            </button>
-
-            {servers.map((srv) => {
-              const srvKey = `srv:${srv.id}`;
-              const isActive = srv.id === activeServerId;
-              const srvExpanded = isSectionExpanded(srvKey);
-
-              // If not active: activate + expand (not toggle — avoids collapsing on first click)
-              // If active: toggle expand/collapse
-              function handleSrvHeaderClick() {
-                if (!isActive) {
-                  handleServerClick(srv.id);
-                  expandSection(srvKey);
-                } else {
-                  toggleSection(srvKey);
-                }
-              }
-
-              const srvDropPos = serverDropIndicator?.serverId === srv.id ? serverDropIndicator.position : null;
-              const isSrvDragging = dragServerIdRef.current === srv.id;
-
-              return (
-                <div
-                  key={srv.id}
-                  className={`ch-tree-server-group${isSrvDragging ? " srv-dragging" : ""}${srvDropPos === "above" ? " srv-drop-above" : ""}${srvDropPos === "below" ? " srv-drop-below" : ""}`}
-                  draggable
-                  onDragStart={(e) => handleServerDragStart(e, srv.id)}
-                  onDragOver={(e) => handleServerDragOver(e, srv.id)}
-                  onDragLeave={handleServerDragLeave}
-                  onDrop={(e) => handleServerDrop(e, srv.id)}
-                  onDragEnd={handleServerDragEnd}
-                >
-                  {/* Server header — icon + name + unread badge + create button */}
-                  <div className="ch-tree-server-header-row">
-                    <button
-                      className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
-                      onClick={handleSrvHeaderClick}
-                      onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
-                    >
-                      <Chevron expanded={srvExpanded && isActive} />
-                      {srv.icon_url ? (
-                        <img
-                          src={resolveAssetUrl(srv.icon_url)}
-                          alt={srv.name}
-                          className="ch-tree-server-icon"
-                        />
-                      ) : (
-                        <span className="ch-tree-server-icon-fallback">
-                          {srv.name.charAt(0).toUpperCase()}
-                        </span>
-                      )}
-                      <span className="ch-tree-server-name">{srv.name}</span>
-                      {/* Server-level unread badge (all servers, excludes muted) */}
-                      {!mutedServerIds.has(srv.id) && (() => {
-                        const total = getServerUnreadTotal(srv.id);
-                        return total > 0 ? (
-                          <span className="ch-tree-server-badge">{total > 99 ? "99+" : total}</span>
-                        ) : null;
-                      })()}
-                    </button>
-                    {isActive && canManageChannels && (
-                      <button
-                        className="ch-tree-server-add"
-                        title={tCh("createChannelOrCategory")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCreateModalMode(undefined);
-                          setCreateModalCategoryId(undefined);
-                          setShowCreateModal(true);
-                        }}
-                      >
-                        +
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Uncategorized drop zone */}
-                  {isActive && srvExpanded && canManageChannels &&
-                    categories.length > 0 && !categories.some((c) => c.category.id === "") && (
-                    <div
-                      className="ch-tree-uncat-drop"
-                      onDragOver={handleCategoryHeaderDragOver}
-                      onDrop={(e) => handleCategoryHeaderDrop(e, "")}
-                    />
-                  )}
-
-                  {/* Categories + channels (active server only) */}
-                  {isActive && srvExpanded && categories.map((cg) => {
+            {categories.map((cg) => {
                     const isUncategorized = cg.category.id === "";
                     const catKey = isUncategorized ? "cat:__uncategorized__" : `cat:${cg.category.id}`;
                     const catExpanded = isUncategorized ? true : isSectionExpanded(catKey);
@@ -1144,7 +853,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     const dropPos = dropIndicator?.channelId === ch.id ? dropIndicator.position : null;
 
                     // Muted channels appear dimmed
-                    const isServerMuted = mutedServerIds.has(srv.id);
+                    const isServerMuted = mutedServerIds.has(srvId);
                     const isChannelMuted = mutedChannelIds.has(ch.id);
                     const isEffectivelyMuted = isServerMuted || isChannelMuted;
                     const mutedClass = isEffectivelyMuted ? " muted" : "";
@@ -1360,13 +1069,9 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                 </div>
               );
             })}
-                </div>
-              );
-            })}
-
-          </div>
+          </>
         )}
-      </div>
+      />
 
       {/* Add Server Modal */}
       {showAddServer && (
@@ -1383,9 +1088,6 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
           onClose={() => setUserCardTarget(null)}
         />
       )}
-
-      {/* Server Context Menu */}
-      <ContextMenu state={serverMenuState} onClose={closeServerMenu} />
 
       {/* Mute Duration Picker */}
       {mutePicker && (
