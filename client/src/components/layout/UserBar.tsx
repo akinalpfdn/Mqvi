@@ -125,13 +125,10 @@ function UserBar({
       {isInVoice && (
         <div className="ub-voice-row">
           <div className="ub-voice-info">
-            <span className="ub-voice-pulse" />
             <span className="ub-voice-label">{t("voiceConnected")}</span>
-            {/* Ping tooltip */}
             {rtt > 0 && (
               <div className="ub-ping-tooltip">
-                <div className={`ub-ping-dot ${pingColor}`} />
-                <span className="ub-ping-value">{rtt} ms</span>
+                <span className={`ub-ping-value ${pingColor}`}>{rtt} ms</span>
               </div>
             )}
           </div>

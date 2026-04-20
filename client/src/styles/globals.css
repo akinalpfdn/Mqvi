@@ -339,12 +339,11 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ub-voice-label { font-size:13px;font-weight:600;color:var(--green);font-family:var(--f-d); }
 /* Ping tooltip — visible on hover */
 .ub-ping-tooltip { display:flex;align-items:center;gap:6px;margin-left:auto;white-space:nowrap; }
-.ub-ping-dot { width:8px;height:8px;border-radius:999px;flex-shrink:0;background:var(--t3); }
 .ub-ping-value { font-size:13px;font-weight:600;font-family:var(--f-m);color:var(--t1); }
-.ub-ping-dot.ub-ping-good { background:var(--green); }
-.ub-ping-dot.ub-ping-mid { background:var(--yellow); }
-.ub-ping-dot.ub-ping-bad { background:var(--red); }
-.ub-voice-btns { display:flex;gap:3px;padding:2px 10px;justify-content:center; }
+.ub-ping-value.ub-ping-good { color:var(--green); }
+.ub-ping-value.ub-ping-mid { color:var(--yellow); }
+.ub-ping-value.ub-ping-bad { color:var(--red); }
+.ub-voice-btns { display:flex;gap:3px;padding:2px 10px;justify-content:flex-end; }
 
 .ub-main { display:flex;align-items:center;gap:8px;padding:8px 10px; }
 .ub-user-wrap { position:relative;flex:1;min-width:0; }
@@ -527,7 +526,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ═══════════════════════════════════════
    MESSAGES
    ═══════════════════════════════════════ */
-.messages-scroll { flex:1;overflow-y:auto;overflow-x:hidden;padding:8px 0;scrollbar-width:thin;scrollbar-color:var(--bg-5) transparent;mask-image:linear-gradient(to bottom,transparent,black 3%,black); }
+.messages-scroll { flex:1;overflow-y:auto;overflow-x:hidden;padding:8px 0;scrollbar-width:thin;scrollbar-color:var(--bg-5) transparent; }
 .date-divider { display:flex;align-items:center;gap:10px;padding:6px 14px;margin:4px 0; }
 .date-divider::before,.date-divider::after { content:'';flex:1;height:1px;background:var(--b1); }
 .date-divider span { font-size:13px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.04em;font-family:var(--f-d);white-space:nowrap; }
@@ -543,7 +542,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .msg-avatar { flex-shrink:0; }
 .msg-avatar-btn { all:unset;cursor:pointer;display:flex;border-radius:50%; }
 .msg-avatar-btn:hover { opacity:.8; }
-.msg-body { min-width:0;flex:1; }
+.msg-body { min-width:0;max-width:75%;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:12px;padding:6px 10px;box-shadow:var(--panel-inset); }
 .msg-meta { display:flex;align-items:baseline;gap:6px;margin-bottom:1px; }
 .msg-name { font-size:13px;font-weight:600;cursor:pointer;color:var(--t0); }
 .msg-name:hover { opacity:.75; }
@@ -2007,9 +2006,9 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 /* Participant — full mode */
 .voice-participant { display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px; }
-.voice-participant-avatar { width:64px;height:64px;border-radius:999px;background:linear-gradient(135deg,var(--primary),var(--secondary));display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;font-family:var(--f-d);transition:box-shadow .15s;position:relative; }
-.voice-participant-avatar.speaking { box-shadow:0 0 0 2px var(--bg-2),0 0 0 4px var(--green); }
-.voice-participant-name { font-size:13px;font-weight:500;color:var(--t0);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.voice-participant-avatar { width:128px;height:128px;border-radius:999px;background:linear-gradient(135deg,var(--primary),var(--secondary));display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:700;color:#fff;font-family:var(--f-d);transition:box-shadow .15s;position:relative; }
+.voice-participant-avatar.speaking { box-shadow:0 0 0 3px var(--bg-2),0 0 0 6px var(--green); }
+.voice-participant-name { font-size:22px;font-weight:500;color:var(--t0);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .voice-participant-overlay { position:absolute;bottom:-2px;right:-2px;width:22px;height:22px;border-radius:999px;background:var(--bg-3);display:flex;align-items:center;justify-content:center; }
 .voice-participant-overlay svg { width:13px;height:13px;color:var(--red); }
 
