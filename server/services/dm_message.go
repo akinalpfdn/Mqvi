@@ -104,18 +104,27 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 					return nil, fmt.Errorf("failed to check friendship: %w", err)
 				}
 				if !friends {
-					msgCount, err := s.dmRepo.CountMessagesBySender(ctx, channelID, userID)
+					// Skip request flow if the conversation is already established:
+					// the other party has sent messages, meaning the request was
+					// previously accepted and a back-and-forth is in progress.
+					otherMsgCount, err := s.dmRepo.CountMessagesBySender(ctx, channelID, otherUserID)
 					if err != nil {
 						return nil, fmt.Errorf("failed to count messages: %w", err)
 					}
-					if msgCount == 0 {
-						// First message: transition channel to pending
-						_ = s.dmRepo.UpdateChannelStatus(ctx, channelID, models.DMStatusPending)
-						channel.Status = models.DMStatusPending
-						channel.InitiatedBy = &userID
-						_ = s.dmRepo.SetInitiatedBy(ctx, channelID, userID)
-					} else {
-						return nil, fmt.Errorf("%w: dm_request_pending", pkg.ErrForbidden)
+					if otherMsgCount == 0 {
+						msgCount, err := s.dmRepo.CountMessagesBySender(ctx, channelID, userID)
+						if err != nil {
+							return nil, fmt.Errorf("failed to count messages: %w", err)
+						}
+						if msgCount == 0 {
+							// First message: transition channel to pending
+							_ = s.dmRepo.UpdateChannelStatus(ctx, channelID, models.DMStatusPending)
+							channel.Status = models.DMStatusPending
+							channel.InitiatedBy = &userID
+							_ = s.dmRepo.SetInitiatedBy(ctx, channelID, userID)
+						} else {
+							return nil, fmt.Errorf("%w: dm_request_pending", pkg.ErrForbidden)
+						}
 					}
 				}
 			}
