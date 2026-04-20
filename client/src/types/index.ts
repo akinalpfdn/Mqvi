@@ -13,6 +13,7 @@ export type User = {
   username: string;
   display_name: string | null;
   avatar_url: string | null;
+  wallpaper_url?: string | null;
   status: UserStatus;
   custom_status: string | null;
   email: string | null;

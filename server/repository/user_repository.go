@@ -18,6 +18,7 @@ type UserRepository interface {
 	UpdatePassword(ctx context.Context, userID string, newPasswordHash string) error
 	// UpdateEmail sets or clears the user's email. nil removes, *string sets.
 	UpdateEmail(ctx context.Context, userID string, email *string) error
+	UpdateWallpaper(ctx context.Context, userID string, wallpaperURL *string) error
 	GetByEmail(ctx context.Context, email string) (*models.User, error)
 	Count(ctx context.Context) (int, error)
 	// Delete removes a user. FK cascade handles user_roles, sessions, etc.

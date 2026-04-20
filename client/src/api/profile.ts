@@ -32,3 +32,17 @@ export async function uploadAvatar(file: File) {
     body: formData,
   });
 }
+
+export async function uploadWallpaper(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return apiClient<{ wallpaper_url: string }>("/users/me/wallpaper", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function deleteWallpaper() {
+  return apiClient<void>("/users/me/wallpaper", { method: "DELETE" });
+}

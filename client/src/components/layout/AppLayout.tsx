@@ -40,6 +40,9 @@ import QuickSwitcher from "../shared/QuickSwitcher";
 import ScreenPicker from "../voice/ScreenPicker";
 import AFKKickPopup from "../voice/AFKKickPopup";
 import ConnectionBanner from "../shared/ConnectionBanner";
+import { useAuthStore } from "../../stores/authStore";
+import { resolveAssetUrl } from "../../utils/constants";
+import { resolveWallpaperBlobUrl } from "../../utils/wallpaperCache";
 import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useMemberStore } from "../../stores/memberStore";
@@ -76,6 +79,35 @@ function AppLayout() {
     document.body.classList.toggle("blur-enabled", blurEnabled);
     document.body.classList.toggle("blur-disabled", !blurEnabled);
   }, [blurEnabled]);
+
+  const wallpaperUrl = useAuthStore((s) => s.user?.wallpaper_url ?? null);
+  const wallpaperEnabled = useSettingsStore((s) => s.wallpaperEnabled);
+  const pendingWallpaperPreviewUrl = useSettingsStore((s) => s.pendingWallpaperPreviewUrl);
+  useEffect(() => {
+    if (pendingWallpaperPreviewUrl) {
+      document.documentElement.style.setProperty("--wallpaper", `url(${pendingWallpaperPreviewUrl})`);
+      return;
+    }
+
+    let previousObjectUrl: string | null = null;
+    let cancelled = false;
+
+    const remoteUrl = wallpaperEnabled && wallpaperUrl ? resolveAssetUrl(wallpaperUrl) : null;
+
+    resolveWallpaperBlobUrl(remoteUrl).then((blobUrl) => {
+      if (cancelled) {
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        return;
+      }
+      previousObjectUrl = blobUrl;
+      document.documentElement.style.setProperty("--wallpaper", blobUrl ? `url(${blobUrl})` : "none");
+    });
+
+    return () => {
+      cancelled = true;
+      if (previousObjectUrl) URL.revokeObjectURL(previousObjectUrl);
+    };
+  }, [wallpaperUrl, wallpaperEnabled, pendingWallpaperPreviewUrl]);
 
   const activeServerId = useServerStore((s) => s.activeServerId);
   const servers = useServerStore((s) => s.servers);

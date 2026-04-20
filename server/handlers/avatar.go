@@ -81,6 +81,51 @@ func (h *AvatarHandler) UploadUserAvatar(w http.ResponseWriter, r *http.Request)
 	pkg.JSON(w, http.StatusOK, member)
 }
 
+// UploadUserWallpaper uploads the current user's wallpaper.
+// Deletes the old wallpaper file from disk if present.
+// POST /api/users/me/wallpaper (multipart/form-data)
+func (h *AvatarHandler) UploadUserWallpaper(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	fileURL, err := h.processUpload(r)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	h.deleteOldFile(user.WallpaperURL)
+
+	if err := h.userRepo.UpdateWallpaper(r.Context(), user.ID, &fileURL); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"wallpaper_url": fileURL})
+}
+
+// DeleteUserWallpaper removes the current user's wallpaper (file + DB column).
+// DELETE /api/users/me/wallpaper
+func (h *AvatarHandler) DeleteUserWallpaper(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	h.deleteOldFile(user.WallpaperURL)
+
+	if err := h.userRepo.UpdateWallpaper(r.Context(), user.ID, nil); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // UploadServerIcon uploads the server icon. Requires admin permission.
 // Deletes the old icon file from disk if present.
 // POST /api/servers/{serverId}/icon (multipart/form-data)

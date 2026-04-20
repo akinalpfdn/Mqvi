@@ -28,6 +28,7 @@ type User struct {
 	Username        string     `json:"username"`
 	DisplayName     *string    `json:"display_name"`
 	AvatarURL       *string    `json:"avatar_url"`
+	WallpaperURL    *string    `json:"wallpaper_url"`
 	PasswordHash    string     `json:"-"`
 	Status          UserStatus `json:"status"`
 	PrefStatus      UserStatus `json:"pref_status"`

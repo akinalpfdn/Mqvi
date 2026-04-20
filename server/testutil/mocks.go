@@ -75,6 +75,9 @@ func (m *MockUserRepo) UpdateEmail(ctx context.Context, userID string, email *st
 	}
 	return nil
 }
+func (m *MockUserRepo) UpdateWallpaper(_ context.Context, _ string, _ *string) error {
+	return nil
+}
 func (m *MockUserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	if m.GetByEmailFn != nil {
 		return m.GetByEmailFn(ctx, email)

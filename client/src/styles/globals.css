@@ -48,6 +48,7 @@
   --panel-shadow:0 20px 60px rgba(0,0,0,0.35);
   --input-bg:rgba(255,255,255,0.05);
   --input-border:rgba(255,255,255,0.10);
+  --wallpaper:none;
 }
 
 /* Blur on: translucent gradient + backdrop-filter */
@@ -128,7 +129,7 @@ button { font-family:inherit; }
 .electron-app-wrapper .auth-page,
 .electron-app-wrapper .landing-page { height:auto;flex:1;min-height:0; }
 
-.mqvi-app { display:flex;flex-direction:row;height:100%;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),url('/wallpaper-test.jpg') center/cover no-repeat,var(--bg-0);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden;padding:var(--panel-gap);gap:var(--panel-gap); }
+.mqvi-app { display:flex;flex-direction:row;height:100%;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),var(--wallpaper) center/cover no-repeat,var(--bg-0);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden;padding:var(--panel-gap);gap:var(--panel-gap); }
 /* Capacitor: mqvi-app must fill flex space between safe-area pseudo-elements, not 100vh */
 .app-body { display:flex;flex-direction:column;flex:1;min-width:0;min-height:0; }
 
@@ -1263,7 +1264,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ═══════════════════════════════════════
    SETTINGS MODAL
    ═══════════════════════════════════════ */
-.settings-overlay { position:fixed;top:var(--safe-area-inset-top);left:0;right:0;bottom:var(--safe-area-inset-bottom);z-index:50;display:flex;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),url('/wallpaper-test.jpg') center/cover no-repeat,var(--bg-0);padding:var(--panel-gap);gap:var(--panel-gap); }
+.settings-overlay { position:fixed;top:var(--safe-area-inset-top);left:0;right:0;bottom:var(--safe-area-inset-bottom);z-index:50;display:flex;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),var(--wallpaper) center/cover no-repeat,var(--bg-0);padding:var(--panel-gap);gap:var(--panel-gap); }
 .settings-nav { width:218px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:var(--panel-radius);box-shadow:var(--panel-inset),var(--panel-shadow);display:flex;flex-direction:column;padding:16px 10px;overflow-y:auto;flex-shrink:0; }
 .settings-nav-label { font-size:13px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;padding:12px 8px 4px;font-family:var(--f-d); }
 .settings-nav-item { display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--t2);border:none;background:transparent;width:100%;text-align:left;font-family:var(--f-ui);transition:background .08s; }
@@ -1351,6 +1352,9 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* Theme picker (AppearanceSettings) */
 .theme-section-desc { font-size:13px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
 .settings-toggle-row { display:flex;align-items:center;justify-content:space-between;padding:10px 0;font-size:14px;color:var(--t0); }
+.wallpaper-row { display:flex;flex-direction:column;gap:12px;margin-bottom:8px; }
+.wallpaper-preview { width:100%;max-width:400px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--panel-border); }
+.wallpaper-actions { display:flex;gap:8px; }
 .theme-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;max-width:660px; }
 .theme-card { position:relative;display:flex;flex-direction:column;gap:8px;padding:16px;background:var(--input-bg);border:2px solid var(--input-border);border-radius:10px;cursor:pointer;transition:border-color .15s,background .15s;text-align:left;font-family:inherit; }
 .theme-card:hover { background:var(--bg-4);border-color:var(--b2); }

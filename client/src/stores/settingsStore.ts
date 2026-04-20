@@ -12,6 +12,7 @@ import { usePreferencesStore } from "./preferencesStore";
 
 const THEME_STORAGE_KEY = "mqvi_theme";
 const BLUR_STORAGE_KEY = "mqvi_blur_enabled";
+const WALLPAPER_ENABLED_KEY = "mqvi_wallpaper_enabled";
 
 function loadPersistedTheme(): ThemeId {
   try {
@@ -43,6 +44,16 @@ function loadPersistedBlur(): boolean {
   return true;
 }
 
+function loadPersistedWallpaperEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(WALLPAPER_ENABLED_KEY);
+    if (stored === "0") return false;
+  } catch {
+    /* localStorage access error */
+  }
+  return true;
+}
+
 type SettingsTab =
   | "profile"
   | "appearance"
@@ -70,12 +81,17 @@ type SettingsState = {
   activeTab: SettingsTab;
   themeId: ThemeId;
   blurEnabled: boolean;
+  wallpaperEnabled: boolean;
+  /** Live preview blob URL — applied to the app background without persisting. */
+  pendingWallpaperPreviewUrl: string | null;
 
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
   setActiveTab: (tab: SettingsTab) => void;
   setTheme: (id: ThemeId) => void;
   setBlurEnabled: (enabled: boolean) => void;
+  setWallpaperEnabled: (enabled: boolean) => void;
+  setPendingWallpaperPreviewUrl: (url: string | null) => void;
   /** Apply theme from server preferences (no re-sync to server) */
   applyFromServer: (themeId: string) => void;
 };
@@ -84,12 +100,15 @@ export type { SettingsTab };
 
 const initialTheme = loadPersistedTheme();
 const initialBlur = loadPersistedBlur();
+const initialWallpaperEnabled = loadPersistedWallpaperEnabled();
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   isOpen: false,
   activeTab: "profile",
   themeId: initialTheme,
   blurEnabled: initialBlur,
+  wallpaperEnabled: initialWallpaperEnabled,
+  pendingWallpaperPreviewUrl: null,
 
   openSettings: (tab = "profile") => set({ isOpen: true, activeTab: tab }),
   closeSettings: () => set({ isOpen: false }),
@@ -115,6 +134,17 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     }
     set({ blurEnabled: enabled });
   },
+
+  setWallpaperEnabled: (enabled) => {
+    try {
+      localStorage.setItem(WALLPAPER_ENABLED_KEY, enabled ? "1" : "0");
+    } catch {
+      /* localStorage full or inaccessible */
+    }
+    set({ wallpaperEnabled: enabled });
+  },
+
+  setPendingWallpaperPreviewUrl: (url) => set({ pendingWallpaperPreviewUrl: url }),
 
   applyFromServer: (themeId: string) => {
     if (themeId in THEMES) {

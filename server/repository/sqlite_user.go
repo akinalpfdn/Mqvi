@@ -51,14 +51,14 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 
 func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
+		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
 			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE id = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
+		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
 		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
 		&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
 		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
@@ -77,14 +77,14 @@ func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, 
 
 func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
+		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
 			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE username = ? COLLATE NOCASE`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
+		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
 		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
 		&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
 		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
@@ -103,7 +103,7 @@ func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*m
 
 func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
+		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
 			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users ORDER BY username`
@@ -118,7 +118,7 @@ func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 	for rows.Next() {
 		var user models.User
 		if err := rows.Scan(
-			&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
+			&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
 			&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
 			&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
 			&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
@@ -239,16 +239,24 @@ func (r *sqliteUserRepo) UpdateEmail(ctx context.Context, userID string, email *
 	return nil
 }
 
+func (r *sqliteUserRepo) UpdateWallpaper(ctx context.Context, userID string, wallpaperURL *string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET wallpaper_url = ? WHERE id = ?`, wallpaperURL, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update wallpaper: %w", err)
+	}
+	return nil
+}
+
 func (r *sqliteUserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, password_hash, status, pref_status, custom_status,
+		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
 			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
 			platform_ban_reason, platform_banned_by, platform_banned_at, created_at
 		FROM users WHERE email = ?`
 
 	user := &models.User{}
 	err := r.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL,
+		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
 		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
 		&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
 		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
