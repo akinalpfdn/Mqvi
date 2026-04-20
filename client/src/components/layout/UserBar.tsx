@@ -317,14 +317,15 @@ function UserBar({
       )}
 
       {/* Soundboard floating popup — fixed position, above button */}
-      {isPanelOpen && sbPos && (
+      {isPanelOpen && sbPos && createPortal(
         <div
           ref={sbRef}
           className="sb-float-popup"
           style={{ top: sbPos.top, left: sbPos.left, transform: "translateY(-100%)" }}
         >
           <SoundboardPanel />
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Own profile card — status picker lives here */}

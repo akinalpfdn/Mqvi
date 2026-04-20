@@ -382,9 +382,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .adp-popup {
   position:fixed;z-index:200;
   width:260px;
-  background:var(--bg-2);border:1px solid var(--b1);
-  border-radius:8px;padding:8px 0;
-  box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);
+  border:1px solid var(--panel-border);
+  border-radius:10px;padding:8px 0;
+  box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.4);
   font-family:var(--f-ui);
 }
 .adp-device-header {
@@ -3501,7 +3502,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ─── Soundboard ─── */
 
 .sb-float-wrap { position:relative; }
-.sb-float-popup { position:fixed;width:320px;background:var(--bg-1);border:1px solid var(--b1);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:9999;animation:ub-sp-in .12s ease-out; }
+.sb-float-popup { position:fixed;width:320px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:10px;box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.5);z-index:9999;animation:ub-sp-in .12s ease-out; }
 .sb-panel { padding:10px;max-height:340px;overflow-y:auto; }
 
 .sb-header {
