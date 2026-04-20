@@ -420,14 +420,14 @@ function RoleSettings() {
             </div>
 
             {selectedRole.is_default && (
-              <div style={{ background: "var(--bg-4)", borderRadius: 8, padding: 12, fontSize: 13, color: "var(--t2)", marginBottom: 16 }}>
+              <div style={{ background: "var(--input-bg)", border: "1px solid var(--input-border)", borderRadius: 8, padding: 12, fontSize: 13, color: "var(--t2)", marginBottom: 16 }}>
                 {t("defaultRoleWarning")}
               </div>
             )}
 
             <div className="settings-field">
               <label className="settings-label">{t("permissions")}</label>
-              <div style={{ background: "var(--bg-1)", borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ background: "var(--input-bg)", border: "1px solid var(--input-border)", borderRadius: 8, overflow: "hidden" }}>
                 {PERMISSION_DEFS.map((perm) => {
                   // Prevent privilege escalation: only admins can grant Admin
                   const isAdminPerm = perm.bit === Permissions.Admin;

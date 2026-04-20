@@ -4,6 +4,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -162,7 +163,7 @@ function AddServerModal({ onClose }: AddServerModalProps) {
 
   // ─── Render ───
 
-  return (
+  return createPortal(
     <div className="add-server-overlay" ref={overlayRef} onClick={handleOverlayClick}>
       <div className="add-server-modal">
         {/* Header */}
@@ -392,7 +393,8 @@ function AddServerModal({ onClose }: AddServerModalProps) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

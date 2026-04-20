@@ -4,6 +4,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useChannelStore } from "../../stores/channelStore";
 import { useServerStore } from "../../stores/serverStore";
@@ -130,7 +131,7 @@ function CreateChannelModal({
 
   // ─── Render ───
 
-  return (
+  return createPortal(
     <div
       className="add-server-overlay"
       ref={overlayRef}
@@ -352,7 +353,8 @@ function CreateChannelModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

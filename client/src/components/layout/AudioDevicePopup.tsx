@@ -105,18 +105,19 @@ function AudioDevicePopup({ kind, anchorEl, onClose }: AudioDevicePopupProps) {
     }
   }, [pos]);
 
-  // Close on outside click
+  // Close on outside click (but ignore clicks on the anchor button — chevron toggles itself)
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      const target = e.target as Node;
+      if (popupRef.current?.contains(target)) return;
+      if (anchorEl.contains(target)) return;
+      onClose();
     }
     requestAnimationFrame(() => {
       document.addEventListener("mousedown", handleClick);
     });
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [onClose]);
+  }, [onClose, anchorEl]);
 
   // Close on Escape
   useEffect(() => {

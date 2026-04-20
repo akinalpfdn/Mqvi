@@ -1,6 +1,7 @@
 /** ConfirmDialog — Custom confirm dialog replacing window.confirm(). Reads from confirmStore, renders nothing when null. */
 
 import { useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useConfirmStore } from "../../stores/confirmStore";
 
@@ -29,7 +30,7 @@ function ConfirmDialog() {
   const confirmLabel = options.confirmLabel ?? t("confirm");
   const cancelLabel = options.cancelLabel ?? t("cancel");
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={cancelAction}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         {/* Title */}
@@ -59,7 +60,8 @@ function ConfirmDialog() {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

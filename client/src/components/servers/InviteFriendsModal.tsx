@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useFriendStore } from "../../stores/friendStore";
 import { useInviteStore } from "../../stores/inviteStore";
@@ -153,7 +154,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     );
   }
 
-  return (
+  return createPortal(
     <div
       className="modal-backdrop"
       onClick={(e) => {
@@ -250,7 +251,8 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

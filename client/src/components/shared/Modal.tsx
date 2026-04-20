@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useCallback, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type ModalProps = {
   isOpen: boolean;
@@ -33,7 +34,7 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       {/* Stop click propagation to backdrop */}
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -48,7 +49,8 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
         {/* Body */}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
