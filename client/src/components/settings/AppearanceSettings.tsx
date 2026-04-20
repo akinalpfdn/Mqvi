@@ -8,6 +8,8 @@ function AppearanceSettings() {
   const { t } = useTranslation("settings");
   const themeId = useSettingsStore((s) => s.themeId);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const blurEnabled = useSettingsStore((s) => s.blurEnabled);
+  const setBlurEnabled = useSettingsStore((s) => s.setBlurEnabled);
 
   function handleSelectTheme(id: ThemeId) {
     setTheme(id);
@@ -15,7 +17,22 @@ function AppearanceSettings() {
 
   return (
     <div>
-      <h2 className="settings-section-title">{t("themeTitle")}</h2>
+      <h2 className="settings-section-title">{t("blurTitle")}</h2>
+      <p className="theme-section-desc">{t("blurDescription")}</p>
+      <label className="settings-toggle-row">
+        <span>{t("blurTitle")}</span>
+        <button
+          className={`ub-switch${blurEnabled ? " active" : ""}`}
+          onClick={() => setBlurEnabled(!blurEnabled)}
+          role="switch"
+          aria-checked={blurEnabled}
+          type="button"
+        >
+          <span className="ub-switch-thumb" />
+        </button>
+      </label>
+
+      <h2 className="settings-section-title" style={{ marginTop: 24 }}>{t("themeTitle")}</h2>
       <p className="theme-section-desc">{t("themeDescription")}</p>
 
       <div className="theme-grid">

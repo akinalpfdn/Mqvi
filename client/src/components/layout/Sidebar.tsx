@@ -52,9 +52,11 @@ function Sidebar({
 
   return (
     <div className="sidebar" style={{ width }}>
-      <div className="sidebar-inner" style={{ width }}>
+      <div className="sb-main app-panel">
         <SidebarHeader />
         <ChannelTree onJoinVoice={onJoinVoice} />
+      </div>
+      <div className="sb-dock app-panel">
         <UserBar
           onToggleMute={onToggleMute}
           onToggleDeafen={onToggleDeafen}

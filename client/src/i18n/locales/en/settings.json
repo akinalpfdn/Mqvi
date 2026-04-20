@@ -203,6 +203,8 @@
 
   "themeTitle": "Theme",
   "themeDescription": "Choose a color palette for the interface",
+  "blurTitle": "Background blur",
+  "blurDescription": "Frosted glass effect on sidebar panels. Disable on low-end hardware if you notice stuttering.",
   "themeOcean": "Ocean",
   "themeOceanDesc": "Cyan-teal palette with cool tones",
   "themeAurora": "Aurora Borealis",

@@ -203,6 +203,8 @@
 
   "themeTitle": "Tema",
   "themeDescription": "Arayüz için bir renk paleti seçin",
+  "blurTitle": "Arka plan bulanıklığı",
+  "blurDescription": "Kenar çubuğu panellerinde buzlu cam efekti. Düşük donanımlarda takılma yaşıyorsanız kapatın.",
   "themeOcean": "Okyanus",
   "themeOceanDesc": "Soğuk tonlarda camgöbeği-teal paleti",
   "themeAurora": "Aurora Borealis",

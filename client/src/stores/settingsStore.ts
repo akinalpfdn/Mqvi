@@ -11,6 +11,7 @@ import { type ThemeId, DEFAULT_THEME, THEMES, applyTheme } from "../styles/theme
 import { usePreferencesStore } from "./preferencesStore";
 
 const THEME_STORAGE_KEY = "mqvi_theme";
+const BLUR_STORAGE_KEY = "mqvi_blur_enabled";
 
 function loadPersistedTheme(): ThemeId {
   try {
@@ -22,6 +23,24 @@ function loadPersistedTheme(): ThemeId {
     /* localStorage access error */
   }
   return DEFAULT_THEME;
+}
+
+function loadPersistedBlur(): boolean {
+  try {
+    const stored = localStorage.getItem(BLUR_STORAGE_KEY);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+    /* localStorage access error */
+  }
+  // Heuristic default: disable blur on low-end hardware or when user requests reduced transparency
+  if (typeof navigator !== "undefined" && typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency < 4) {
+    return false;
+  }
+  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-transparency: reduce)").matches) {
+    return false;
+  }
+  return true;
 }
 
 type SettingsTab =
@@ -50,11 +69,13 @@ type SettingsState = {
   isOpen: boolean;
   activeTab: SettingsTab;
   themeId: ThemeId;
+  blurEnabled: boolean;
 
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
   setActiveTab: (tab: SettingsTab) => void;
   setTheme: (id: ThemeId) => void;
+  setBlurEnabled: (enabled: boolean) => void;
   /** Apply theme from server preferences (no re-sync to server) */
   applyFromServer: (themeId: string) => void;
 };
@@ -62,11 +83,13 @@ type SettingsState = {
 export type { SettingsTab };
 
 const initialTheme = loadPersistedTheme();
+const initialBlur = loadPersistedBlur();
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   isOpen: false,
   activeTab: "profile",
   themeId: initialTheme,
+  blurEnabled: initialBlur,
 
   openSettings: (tab = "profile") => set({ isOpen: true, activeTab: tab }),
   closeSettings: () => set({ isOpen: false }),
@@ -82,6 +105,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set({ themeId: id });
     // Sync to server
     usePreferencesStore.getState().set({ theme: id });
+  },
+
+  setBlurEnabled: (enabled) => {
+    try {
+      localStorage.setItem(BLUR_STORAGE_KEY, enabled ? "1" : "0");
+    } catch {
+      /* localStorage full or inaccessible */
+    }
+    set({ blurEnabled: enabled });
   },
 
   applyFromServer: (themeId: string) => {

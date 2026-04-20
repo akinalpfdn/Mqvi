@@ -116,7 +116,7 @@ function MemberList() {
           onMouseDown={handleMouseDown}
         />
       )}
-      <div className="members-inner" style={{ width }}>
+      <div className="members-inner app-panel" style={{ width }}>
         {/* ─── Header ─── */}
         <div className="members-header">
           <h3>{t("members")}</h3>

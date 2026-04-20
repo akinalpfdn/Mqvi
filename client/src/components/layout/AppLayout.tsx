@@ -49,6 +49,7 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useInviteStore } from "../../stores/inviteStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useNotificationBadge } from "../../hooks/useNotificationBadge";
 
@@ -68,6 +69,7 @@ function AppLayout() {
   // E2EE device identity check + key init
   useE2EE();
   const showRecoveryPrompt = useE2EEStore((s) => s.showRecoveryPrompt);
+  const blurEnabled = useSettingsStore((s) => s.blurEnabled);
 
   const activeServerId = useServerStore((s) => s.activeServerId);
   const servers = useServerStore((s) => s.servers);
@@ -283,7 +285,7 @@ function AppLayout() {
 
   // Desktop layout
   const desktopContent = (
-    <div className="mqvi-app">
+    <div className={`mqvi-app ${blurEnabled ? "blur-enabled" : "blur-disabled"}`}>
       {/* Sidebar */}
       <Sidebar {...sidebarProps} />
 
