@@ -21,8 +21,6 @@ import MobileDrawer from "./MobileDrawer";
 import Sidebar from "./Sidebar";
 import MemberList from "./MemberList";
 import SplitPaneContainer from "./SplitPaneContainer";
-import type { UserStatus } from "../../types";
-
 type MobileAppLayoutProps = {
   sidebarProps: {
     onJoinVoice: (channelId: string) => void;
@@ -30,7 +28,6 @@ type MobileAppLayoutProps = {
     onToggleDeafen: () => void;
     onToggleScreenShare: () => void;
     onDisconnect: () => void;
-    sendPresenceUpdate: (status: UserStatus) => void;
   };
   sendTyping: (channelId: string) => void;
   sendDMTyping: (dmChannelId: string) => void;

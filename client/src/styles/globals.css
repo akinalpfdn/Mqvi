@@ -17,9 +17,9 @@
   --b1:rgba(255,255,255,0.06);
   --b2:rgba(255,255,255,0.10);
   --t0:#e8e8e8;
-  --t1:#a3a3a3;
-  --t2:#737373;
-  --t3:#525252;
+  --t1:#c0c0c0;
+  --t2:#9a9a9a;
+  --t3:#adadad;
   --primary:#3b82f6;
   --primary-s:rgba(59,130,246,0.10);
   --primary-m:rgba(59,130,246,0.22);
@@ -338,8 +338,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .ub-voice-pulse { width:8px;height:8px;background:var(--green);border-radius:999px;animation:pulse 2s ease-in-out infinite;flex-shrink:0; }
 .ub-voice-label { font-size:13px;font-weight:600;color:var(--green);font-family:var(--f-d); }
 /* Ping tooltip — visible on hover */
-.ub-ping-tooltip { position:absolute;bottom:calc(100% + 8px);left:0;display:flex;align-items:center;gap:6px;background:var(--bg-1);border:1px solid var(--b1);border-radius:6px;padding:6px 10px;box-shadow:0 4px 12px rgba(0,0,0,0.3);opacity:0;pointer-events:none;transition:opacity 0.15s;white-space:nowrap;z-index:50; }
-.ub-voice-info:hover .ub-ping-tooltip { opacity:1;pointer-events:auto; }
+.ub-ping-tooltip { display:flex;align-items:center;gap:6px;margin-left:auto;white-space:nowrap; }
 .ub-ping-dot { width:8px;height:8px;border-radius:999px;flex-shrink:0;background:var(--t3); }
 .ub-ping-value { font-size:13px;font-weight:600;font-family:var(--f-m);color:var(--t1); }
 .ub-ping-dot.ub-ping-good { background:var(--green); }
@@ -484,7 +483,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .members-panel > .resize-handle { left:0; }
 
 /* Collapsed sidebar — 52px */
-.sb-collapsed { width:52px;background:var(--bg-1);border-right:1px solid var(--b1);display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:6px;flex-shrink:0;transition:width .2s cubic-bezier(.22,1,.36,1); }
+.sb-collapsed { width:52px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:var(--panel-radius);box-shadow:var(--panel-inset),var(--panel-shadow);display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:6px;flex-shrink:0;transition:width .2s cubic-bezier(.22,1,.36,1); }
 .sb-collapsed-btn { width:36px;height:36px;border:none;background:var(--bg-3);color:var(--t1);cursor:pointer;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .15s;position:relative; }
 .sb-collapsed-btn:hover { background:var(--bg-4);color:var(--t0); }
 .sb-collapsed-expand { background:transparent;font-size:13px; }
@@ -766,7 +765,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .members-header button { width:22px;height:22px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px; }
 .members-header button:hover { color:var(--t1);background:var(--bg-h); }
 .members-list { flex:1;overflow-y:auto;padding:4px 6px;scrollbar-width:thin;scrollbar-color:var(--bg-5) transparent; }
-.member-label { font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:rgba(255,255,255,0.75);padding:9px 6px 3px;font-family:var(--f-d); }
+.member-label { font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--t1);padding:9px 6px 3px;font-family:var(--f-d); }
 .member { display:flex;align-items:center;gap:9px;padding:5px 6px;border-radius:7px;cursor:pointer;transition:background .08s; }
 .member:hover { background:var(--bg-h); }
 .member-info { display:flex;flex-direction:column;min-width:0; }
@@ -825,6 +824,12 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 /* ── MC Action Buttons ── */
 .mc-actions { display:grid;grid-template-columns:1fr 1fr;gap:5px; }
+.mc-status-list { display:flex;flex-direction:column;gap:2px; }
+.mc-status-item { display:flex;align-items:center;gap:10px;padding:8px 10px;border:none;background:transparent;border-radius:6px;cursor:pointer;color:var(--t1);font-size:13px;font-family:var(--f-ui);text-align:left;transition:background .1s,color .1s; }
+.mc-status-item:hover { background:var(--bg-h);color:var(--t0); }
+.mc-status-item.active { background:var(--primary-s);color:var(--t0); }
+.mc-status-label { flex:1; }
+.mc-status-check { color:var(--primary);flex-shrink:0; }
 .mc-btn { height:34px;border:none;border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;font-family:var(--f-ui);display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,color .15s,transform .1s;padding:0 12px; }
 .mc-btn:hover { transform:translateY(-1px); }
 .mc-btn:active { transform:translateY(0); }
@@ -1995,7 +2000,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ═══════════════════════════════════════
    VOICE ROOM (LiveKit)
    ═══════════════════════════════════════ */
-.voice-room { display:flex;flex-direction:column;flex:1;min-height:0;background:var(--bg-2); }
+.voice-room { display:flex;flex-direction:column;flex:1;min-height:0; }
 .voice-room-loading { flex:1;display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:13px; }
 .voice-room-grid { flex:1;display:flex;flex-wrap:wrap;gap:16px;padding:24px;align-content:center;justify-content:center;overflow-y:auto; }
 .voice-grid-strip { flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:16px;padding:12px 16px;border-top:1px solid var(--b1); }

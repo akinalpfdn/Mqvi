@@ -230,9 +230,8 @@ function AppLayout() {
       onToggleDeafen: toggleDeafen,
       onToggleScreenShare: toggleScreenShare,
       onDisconnect: leaveVoice,
-      sendPresenceUpdate,
     }),
-    [joinVoice, toggleMute, toggleDeafen, toggleScreenShare, leaveVoice, sendPresenceUpdate]
+    [joinVoice, toggleMute, toggleDeafen, toggleScreenShare, leaveVoice]
   );
 
   // Shared overlays rendered in both mobile and desktop layouts

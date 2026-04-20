@@ -10,8 +10,6 @@ import SidebarHeader from "./SidebarHeader";
 import ChannelTree from "./ChannelTree";
 import CollapsedSidebar from "./CollapsedSidebar";
 import UserBar from "./UserBar";
-import type { UserStatus } from "../../types";
-
 /** Sidebar width bounds (px) */
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 400;
@@ -23,7 +21,6 @@ type SidebarProps = {
   onToggleDeafen: () => void;
   onToggleScreenShare: () => void;
   onDisconnect: () => void;
-  sendPresenceUpdate: (status: UserStatus) => void;
 };
 
 function Sidebar({
@@ -32,7 +29,6 @@ function Sidebar({
   onToggleDeafen,
   onToggleScreenShare,
   onDisconnect,
-  sendPresenceUpdate,
 }: SidebarProps) {
   const isExpanded = useSidebarStore((s) => s.isExpanded);
   const isMobile = useIsMobile();
@@ -62,7 +58,6 @@ function Sidebar({
           onToggleDeafen={onToggleDeafen}
           onToggleScreenShare={onToggleScreenShare}
           onDisconnect={onDisconnect}
-          sendPresenceUpdate={sendPresenceUpdate}
         />
       </div>
 

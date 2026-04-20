@@ -2,6 +2,7 @@
  *  and global context (DM sidebar, friend list — no server-specific sections). */
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { MemberWithRoles, User } from "../../types";
 import Avatar from "../shared/Avatar";
@@ -11,6 +12,7 @@ import BadgeAssignModal from "./BadgeAssignModal";
 import BadgePill from "../shared/BadgePill";
 import { useUserBadges } from "../../hooks/useUserBadges";
 import { useAuthStore } from "../../stores/authStore";
+import { useVoiceStore } from "../../stores/voiceStore";
 import { useActiveMembers } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
@@ -24,6 +26,17 @@ import { useServerStore } from "../../stores/serverStore";
 import ReportModal from "../shared/ReportModal";
 
 const BADGE_ADMIN_USER_ID = "95a8b295072f98a5";
+
+const SELF_STATUS_OPTIONS: {
+  value: "online" | "idle" | "dnd" | "offline";
+  labelKey: string;
+  colorClass: string;
+}[] = [
+  { value: "online", labelKey: "online", colorClass: "ub-sp-green" },
+  { value: "idle", labelKey: "idle", colorClass: "ub-sp-yellow" },
+  { value: "dnd", labelKey: "dnd", colorClass: "ub-sp-red" },
+  { value: "offline", labelKey: "invisible", colorClass: "ub-sp-gray" },
+];
 
 type MemberCardProps = {
   member?: MemberWithRoles;
@@ -70,6 +83,14 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
   const userBadges = useUserBadges(userId);
 
   const isMe = currentUser?.id === userId;
+  const manualStatus = useAuthStore((s) => s.manualStatus);
+  const setManualStatus = useAuthStore((s) => s.setManualStatus);
+
+  function handleSetStatus(status: "online" | "idle" | "dnd" | "offline") {
+    setManualStatus(status);
+    useVoiceStore.getState()._wsSend?.("presence_update", { status, is_auto: false });
+    onClose();
+  }
   const canKick = isServerContext && !isMe && hasPermission(myPerms, Permissions.KickMembers);
   const canBan = isServerContext && !isMe && hasPermission(myPerms, Permissions.BanMembers);
   const canManageRoles = isServerContext && !isMe && hasPermission(myPerms, Permissions.ManageRoles);
@@ -210,7 +231,7 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
     );
   }
 
-  return (
+  return createPortal(
     <>
       <div className="member-card-backdrop" onClick={onClose} />
 
@@ -276,6 +297,35 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
                 <RoleBadge key={role.id} role={role} />
               ))}
             </div>
+          )}
+
+          {/* Self status picker */}
+          {isMe && (
+            <>
+              <div className="mc-divider" />
+              <div className="mc-section-title">{t("setStatus")}</div>
+              <div className="mc-status-list">
+                {SELF_STATUS_OPTIONS.map((opt) => {
+                  const isActive = manualStatus === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      className={`mc-status-item${isActive ? " active" : ""}`}
+                      onClick={() => handleSetStatus(opt.value)}
+                      type="button"
+                    >
+                      <span className={`ub-sp-dot ${opt.colorClass}`} />
+                      <span className="mc-status-label">{t(opt.labelKey)}</span>
+                      {isActive && (
+                        <svg className="mc-status-check" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           {/* User Actions */}
@@ -436,7 +486,8 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
           onClose={() => setShowReport(false)}
         />
       )}
-    </>
+    </>,
+    document.body
   );
 }
 

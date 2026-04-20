@@ -3,7 +3,7 @@
  * Shows mic/deafen/screen/disconnect when in voice, status picker on avatar click.
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
@@ -11,31 +11,18 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useServerStore } from "../../stores/serverStore";
 import Avatar from "../shared/Avatar";
+import MemberCard from "../members/MemberCard";
 import AudioDevicePopup from "./AudioDevicePopup";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import SoundboardPanel from "../soundboard/SoundboardPanel";
 import type { ScreenShareQuality } from "../../stores/voiceStore";
-import type { UserStatus } from "../../types";
 import { createPortal } from "react-dom";
-
-const STATUS_OPTIONS: {
-  value: UserStatus;
-  labelKey: string;
-  descKey: string;
-  colorClass: string;
-}[] = [
-  { value: "online", labelKey: "online", descKey: "onlineDesc", colorClass: "ub-sp-green" },
-  { value: "idle", labelKey: "idle", descKey: "idleDesc", colorClass: "ub-sp-yellow" },
-  { value: "dnd", labelKey: "dnd", descKey: "dndDesc", colorClass: "ub-sp-red" },
-  { value: "offline", labelKey: "invisible", descKey: "invisibleDesc", colorClass: "ub-sp-gray" },
-];
 
 type UserBarProps = {
   onToggleMute: () => void;
   onToggleDeafen: () => void;
   onToggleScreenShare: () => void;
   onDisconnect: () => void;
-  sendPresenceUpdate: (status: UserStatus) => void;
 };
 
 function UserBar({
@@ -43,13 +30,11 @@ function UserBar({
   onToggleDeafen,
   onToggleScreenShare,
   onDisconnect,
-  sendPresenceUpdate,
 }: UserBarProps) {
   const { t } = useTranslation("voice");
   const { t: tc } = useTranslation("common");
   const user = useAuthStore((s) => s.user);
   const manualStatus = useAuthStore((s) => s.manualStatus);
-  const setManualStatus = useAuthStore((s) => s.setManualStatus);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const isMuted = useVoiceStore((s) => s.isMuted);
   const isDeafened = useVoiceStore((s) => s.isDeafened);
@@ -80,58 +65,18 @@ function UserBar({
     ? categories.flatMap((cg) => cg.channels).find((ch) => ch.id === currentVoiceChannelId)?.name
     : undefined;
 
-  // Status picker popup state
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
+  // Own profile card state
   const userRowRef = useRef<HTMLDivElement>(null);
-  const [spPos, setSpPos] = useState<{ top: number; left: number } | null>(null);
+  const [ownCardPos, setOwnCardPos] = useState<{ top: number; left: number } | null>(null);
 
   // Ping color: green < 100ms, yellow 100-200ms, red > 200ms
   const pingColor = rtt <= 0 ? "" : rtt < 100 ? "ub-ping-good" : rtt < 200 ? "ub-ping-mid" : "ub-ping-bad";
 
-  const handleStatusSelect = useCallback(
-    (status: UserStatus) => {
-      setManualStatus(status);
-      sendPresenceUpdate(status);
-      setIsPickerOpen(false);
-    },
-    [setManualStatus, sendPresenceUpdate],
-  );
-
-  // Compute status picker position
-  useEffect(() => {
-    if (!isPickerOpen || !userRowRef.current) return;
+  function openOwnCard() {
+    if (!userRowRef.current) return;
     const rect = userRowRef.current.getBoundingClientRect();
-    setSpPos({ top: rect.top - 6, left: rect.left });
-  }, [isPickerOpen]);
-
-  // Close picker on click-outside
-  useEffect(() => {
-    if (!isPickerOpen) return;
-
-    function handleClickOutside(e: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setIsPickerOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isPickerOpen]);
-
-  // Close picker on Escape
-  useEffect(() => {
-    if (!isPickerOpen) return;
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setIsPickerOpen(false);
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isPickerOpen]);
+    setOwnCardPos({ top: rect.top - 6, left: rect.left });
+  }
 
   // Compute soundboard popup position from button rect
   useEffect(() => {
@@ -261,58 +206,23 @@ function UserBar({
         </div>
       )}
 
-      {/* User info + settings */}
+      {/* User avatar + settings */}
       <div className="ub-main">
-        <div className="ub-user-wrap" ref={pickerRef}>
-          <div
-            ref={userRowRef}
-            className="ub-user"
-            onClick={() => setIsPickerOpen((prev) => !prev)}
-            title={tc("setStatus")}
-          >
-            <div className="ub-avatar-wrap">
-              <Avatar
-                name={user.display_name || user.username}
-                avatarUrl={user.avatar_url}
-                size={32}
-                isCircle
-              />
-              <span className={`ub-status-dot ${statusDotClass}`} />
-            </div>
-            <div className="ub-info">
-              <span className="ub-name">{user.display_name || user.username}</span>
-              <span className="ub-status">#{user.username}</span>
-            </div>
+        <div
+          ref={userRowRef}
+          className="ub-user"
+          onClick={openOwnCard}
+          title={tc("userProfile")}
+        >
+          <div className="ub-avatar-wrap">
+            <Avatar
+              name={user.display_name || user.username}
+              avatarUrl={user.avatar_url}
+              size={32}
+              isCircle
+            />
+            <span className={`ub-status-dot ${statusDotClass}`} />
           </div>
-
-          {/* Status picker popup — fixed position above user row */}
-          {isPickerOpen && spPos && (
-            <div className="ub-sp" style={{ top: spPos.top, left: spPos.left, transform: "translateY(-100%)" }}>
-              <div className="ub-sp-header">{tc("setStatus")}</div>
-              <div className="ub-sp-divider" />
-              {STATUS_OPTIONS.map((opt) => {
-                const isActive = manualStatus === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    className={`ub-sp-item${isActive ? " active" : ""}`}
-                    onClick={() => handleStatusSelect(opt.value)}
-                  >
-                    <span className={`ub-sp-dot ${opt.colorClass}`} />
-                    <div className="ub-sp-text">
-                      <span className="ub-sp-label">{tc(opt.labelKey)}</span>
-                      <span className="ub-sp-desc">{tc(opt.descKey)}</span>
-                    </div>
-                    {isActive && (
-                      <svg className="ub-sp-check" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
-                      </svg>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
 
         {/* Mic toggle + device chevron */}
@@ -418,6 +328,15 @@ function UserBar({
         >
           <SoundboardPanel />
         </div>
+      )}
+
+      {/* Own profile card — status picker lives here */}
+      {ownCardPos && (
+        <MemberCard
+          user={user}
+          position={ownCardPos}
+          onClose={() => setOwnCardPos(null)}
+        />
       )}
     </div>
   );
