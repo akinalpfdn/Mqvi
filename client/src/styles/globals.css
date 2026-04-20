@@ -41,7 +41,7 @@
   --f-m:'Source Code Pro',monospace;
 
   /* Frosted panel tokens (shared) */
-  --panel-gap:10px;
+  --panel-gap:14px;
   --panel-radius:14px;
   --panel-border:rgba(255,255,255,0.10);
   --panel-inset:inset 0 1px 0 rgba(255,255,255,0.10);
@@ -49,13 +49,13 @@
 }
 
 /* Blur on: translucent gradient + backdrop-filter */
-.mqvi-app.blur-enabled {
+body.blur-enabled {
   --panel-bg:linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.035) 100%);
   --panel-backdrop:blur(28px) saturate(170%);
 }
 
 /* Blur off: solid fallback for low-end / reduced-transparency */
-.mqvi-app.blur-disabled {
+body.blur-disabled {
   --panel-bg:var(--bg-1);
   --panel-backdrop:none;
 }
@@ -126,7 +126,7 @@ button { font-family:inherit; }
 .electron-app-wrapper .auth-page,
 .electron-app-wrapper .landing-page { height:auto;flex:1;min-height:0; }
 
-.mqvi-app { display:flex;flex-direction:row;height:100%;background:var(--bg-0);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden;padding:var(--panel-gap);gap:var(--panel-gap); }
+.mqvi-app { display:flex;flex-direction:row;height:100%;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),url('/wallpaper-test.jpg') center/cover no-repeat,var(--bg-0);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden;padding:var(--panel-gap);gap:var(--panel-gap); }
 /* Capacitor: mqvi-app must fill flex space between safe-area pseudo-elements, not 100vh */
 .app-body { display:flex;flex-direction:column;flex:1;min-width:0;min-height:0; }
 
@@ -509,13 +509,13 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
    MAIN AREA
    ═══════════════════════════════════════ */
 .main-area { flex:1;display:flex;min-height:0;position:relative;overflow-x:hidden;gap:var(--panel-gap); }
-.chat-area { flex:1;display:flex;flex-direction:column;background:var(--bg-2);min-width:0;min-height:0;position:relative;overflow-x:hidden; }
+.chat-area { flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative;overflow-x:hidden; }
 /* gradient overlay removed — flat background */
 
 /* ═══════════════════════════════════════
    CHANNEL BAR
    ═══════════════════════════════════════ */
-.channel-bar { height:32px;padding:0 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.03);flex-shrink:0; }
+.channel-bar { height:32px;padding:0 14px;display:flex;align-items:center;gap:8px;flex-shrink:0;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-top:none;border-radius:0 0 var(--panel-radius) var(--panel-radius);box-shadow:var(--panel-shadow);margin-bottom:var(--panel-gap); }
 .ch-hash { color:var(--t3);font-size:14px; }
 .ch-name { font-family:var(--f-d);font-size:13px;font-weight:600;color:var(--t0); }
 .ch-divider { width:1px;height:12px;background:var(--b1); }
@@ -703,7 +703,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ═══════════════════════════════════════
    INPUT AREA
    ═══════════════════════════════════════ */
-.input-area { padding:0 10px 10px;flex-shrink:0;position:relative;z-index:2; }
+.input-area { padding:0;flex-shrink:0;position:relative;z-index:2; }
 
 /* Reply bar (above input — preview of replied message) */
 .reply-bar { display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-3);border-radius:8px 8px 0 0;border:1px solid var(--b1);border-bottom:none;margin-bottom:-1px; }
@@ -714,7 +714,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .reply-bar-close:hover { color:var(--t1);background:var(--bg-h); }
 .reply-bar + .input-box { border-radius:0 0 10px 10px; }
 
-.input-box { background:var(--bg-3);border:1px solid var(--b1);border-radius:10px;display:flex;align-items:flex-end;padding:4px;transition:border-color .15s; }
+.input-box { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:var(--panel-radius);box-shadow:var(--panel-inset),var(--panel-shadow);display:flex;align-items:flex-end;padding:4px;transition:border-color .15s; }
 .input-box:focus-within { border-color:var(--primary); }
 .input-action-btn { width:36px;height:36px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .1s,background .1s; }
 .input-action-btn:hover { color:var(--t0);background:var(--bg-h); }
@@ -766,7 +766,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .members-header button { width:22px;height:22px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px; }
 .members-header button:hover { color:var(--t1);background:var(--bg-h); }
 .members-list { flex:1;overflow-y:auto;padding:4px 6px;scrollbar-width:thin;scrollbar-color:var(--bg-5) transparent; }
-.member-label { font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--t3);padding:9px 6px 3px;font-family:var(--f-d); }
+.member-label { font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:rgba(255,255,255,0.75);padding:9px 6px 3px;font-family:var(--f-d); }
 .member { display:flex;align-items:center;gap:9px;padding:5px 6px;border-radius:7px;cursor:pointer;transition:background .08s; }
 .member:hover { background:var(--bg-h); }
 .member-info { display:flex;flex-direction:column;min-width:0; }
@@ -779,24 +779,24 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .member-name { font-size:13px;font-weight:500;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .member:hover .member-name { color:var(--t0); }
 .member-activity { font-size:13px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.member.offline { opacity:.4; }
+.member.offline { opacity:.75; }
 
 /* Member Card (portal popup) */
 .member-card-backdrop { position:fixed;inset:0;z-index:50; }
-.member-card { position:fixed;width:340px;background:var(--bg-1);border:1px solid var(--b2);border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,0.55);z-index:51;overflow:hidden;display:flex;flex-direction:column; }
+.member-card { position:fixed;width:340px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:var(--panel-radius);box-shadow:var(--panel-inset),0 12px 48px rgba(0,0,0,0.55);z-index:51;overflow:hidden;display:flex;flex-direction:column; }
 
 /* ── MC Header ── */
-.mc-header { display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--b1);background:var(--bg-2); }
+.mc-header { display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--b1);background:transparent; }
 .mc-header-icon { color:var(--t2);flex-shrink:0; }
 .mc-header-title { font-size:14px;font-weight:700;color:var(--t0);font-family:var(--f-ui);flex:1; }
 .mc-header-close { background:none;border:none;color:var(--t3);cursor:pointer;padding:4px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:color .15s,background .15s; }
 .mc-header-close:hover { color:var(--t0);background:var(--bg-4); }
 
 /* ── MC Badges (above avatar) ── */
-.mc-badges-top { display:flex;flex-wrap:wrap;gap:5px;justify-content:center;padding:8px 16px 0;background:var(--bg-2); }
+.mc-badges-top { display:flex;flex-wrap:wrap;gap:5px;justify-content:center;padding:8px 16px 0;background:transparent; }
 
 /* ── MC Avatar Area ── */
-.mc-avatar-area { display:flex;justify-content:center;padding:16px 0 8px;background:linear-gradient(180deg,var(--bg-2) 0%,var(--bg-1) 100%); }
+.mc-avatar-area { display:flex;justify-content:center;padding:16px 0 8px;background:transparent; }
 .mc-avatar-ring { display:flex;align-items:center;justify-content:center; }
 
 /* ── MC Body ── */
@@ -1006,9 +1006,9 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .split-handle:hover .split-handle-dot { opacity:1; }
 
 /* Panel Tab Bar — VS Code style, always visible */
-.panel-tab-bar { display:flex;align-items:stretch;background:var(--bg-1);border-bottom:1px solid var(--b1);min-height:36px;overflow-x:auto;flex-shrink:0; }
+.panel-tab-bar { display:flex;align-items:stretch;min-height:36px;overflow-x:auto;flex-shrink:0;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-bottom:none;border-radius:var(--panel-radius) var(--panel-radius) 0 0;box-shadow:var(--panel-inset); }
 .panel-tab-bar::-webkit-scrollbar { display:none; }
-.panel-tab-bar.active-panel { background:var(--bg-2); }
+.panel-tab-bar.active-panel { background:var(--panel-bg); }
 .panel-tab-bar.drop-hover { border-bottom:2px solid var(--primary); }
 .panel-tab { display:flex;align-items:center;gap:5px;padding:0 12px;cursor:pointer;font-size:13px;color:var(--t2);position:relative;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.03);transition:background .1s;max-width:210px; }
 .panel-tab:hover { background:var(--bg-h); }
@@ -2293,7 +2293,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ═══════════════════════════════════════
    CONTEXT MENU
    ═══════════════════════════════════════ */
-.ctx-menu { position:fixed;z-index:70;min-width:160px;max-width:240px;background:var(--bg-2);border:1px solid var(--b1);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:4px;animation:vpIn .1s ease-out; }
+.ctx-menu { position:fixed;z-index:70;min-width:160px;max-width:240px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:10px;box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.5);padding:4px;animation:vpIn .1s ease-out; }
 .ctx-item { display:block;width:100%;padding:7px 10px;border:none;background:transparent;color:var(--t1);font-size:13px;font-family:var(--f-ui);text-align:left;border-radius:4px;cursor:pointer;transition:background .08s; }
 .ctx-item:hover { background:var(--bg-h);color:var(--t0); }
 .ctx-danger { color:var(--red); }

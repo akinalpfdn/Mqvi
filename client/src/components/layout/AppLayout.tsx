@@ -71,6 +71,12 @@ function AppLayout() {
   const showRecoveryPrompt = useE2EEStore((s) => s.showRecoveryPrompt);
   const blurEnabled = useSettingsStore((s) => s.blurEnabled);
 
+  // Apply blur class to body so portaled popups inherit the token overrides
+  useEffect(() => {
+    document.body.classList.toggle("blur-enabled", blurEnabled);
+    document.body.classList.toggle("blur-disabled", !blurEnabled);
+  }, [blurEnabled]);
+
   const activeServerId = useServerStore((s) => s.activeServerId);
   const servers = useServerStore((s) => s.servers);
   const fetchActiveServer = useServerStore((s) => s.fetchActiveServer);
@@ -285,7 +291,7 @@ function AppLayout() {
 
   // Desktop layout
   const desktopContent = (
-    <div className={`mqvi-app ${blurEnabled ? "blur-enabled" : "blur-disabled"}`}>
+    <div className="mqvi-app">
       {/* Sidebar */}
       <Sidebar {...sidebarProps} />
 
