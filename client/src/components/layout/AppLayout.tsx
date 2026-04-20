@@ -89,10 +89,16 @@ function AppLayout() {
       return;
     }
 
+    const remoteUrl = wallpaperEnabled && wallpaperUrl ? resolveAssetUrl(wallpaperUrl) : null;
+
+    // Clear immediately (sync) when nothing to show — avoids stale frame during async fetch
+    if (!remoteUrl) {
+      document.documentElement.style.setProperty("--wallpaper", "none");
+      return;
+    }
+
     let previousObjectUrl: string | null = null;
     let cancelled = false;
-
-    const remoteUrl = wallpaperEnabled && wallpaperUrl ? resolveAssetUrl(wallpaperUrl) : null;
 
     resolveWallpaperBlobUrl(remoteUrl).then((blobUrl) => {
       if (cancelled) {

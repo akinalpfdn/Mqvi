@@ -85,7 +85,7 @@ body.blur-disabled {
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
 }
-html, body { height:100%; width:100%; overflow:hidden;color-scheme:dark; }
+html, body { height:100%; width:100%; overflow:hidden;color-scheme:dark;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),var(--wallpaper) center/cover no-repeat,var(--bg-0); }
 #root {
   height: 100%;
   width: 100%;
@@ -129,14 +129,17 @@ button { font-family:inherit; }
 .electron-app-wrapper .auth-page,
 .electron-app-wrapper .landing-page { height:auto;flex:1;min-height:0; }
 
-.mqvi-app { display:flex;flex-direction:row;height:100%;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),var(--wallpaper) center/cover no-repeat,var(--bg-0);color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden;padding:var(--panel-gap);gap:var(--panel-gap); }
+.mqvi-app { display:flex;flex-direction:row;height:100%;background:transparent;color:var(--t0);font-family:var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden;padding:var(--panel-gap);gap:var(--panel-gap); }
 /* Capacitor: mqvi-app must fill flex space between safe-area pseudo-elements, not 100vh */
 .app-body { display:flex;flex-direction:column;flex:1;min-width:0;min-height:0; }
 
 /* ── Custom Titlebar (Electron) ── */
 .custom-titlebar {
   height:32px;flex-shrink:0;
-  background:var(--bg-0);
+  background:var(--panel-bg);
+  backdrop-filter:var(--panel-backdrop);
+  -webkit-backdrop-filter:var(--panel-backdrop);
+  border-bottom:1px solid var(--panel-border);
   display:flex;align-items:center;
   -webkit-app-region:drag;
   user-select:none;
@@ -1264,7 +1267,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ═══════════════════════════════════════
    SETTINGS MODAL
    ═══════════════════════════════════════ */
-.settings-overlay { position:fixed;top:var(--safe-area-inset-top);left:0;right:0;bottom:var(--safe-area-inset-bottom);z-index:50;display:flex;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),var(--wallpaper) center/cover no-repeat,var(--bg-0);padding:var(--panel-gap);gap:var(--panel-gap); }
+.settings-overlay { position:fixed;top:var(--safe-area-inset-top);left:0;right:0;bottom:var(--safe-area-inset-bottom);z-index:50;display:flex;background:transparent;padding:var(--panel-gap);gap:var(--panel-gap); }
 .settings-nav { width:218px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:var(--panel-radius);box-shadow:var(--panel-inset),var(--panel-shadow);display:flex;flex-direction:column;padding:16px 10px;overflow-y:auto;flex-shrink:0; }
 .settings-nav-label { font-size:13px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;padding:12px 8px 4px;font-family:var(--f-d); }
 .settings-nav-item { display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--t2);border:none;background:transparent;width:100%;text-align:left;font-family:var(--f-ui);transition:background .08s; }
@@ -1923,9 +1926,9 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .member-settings-detail-name { font-size:18px;font-weight:600; }
 .member-settings-detail-username { font-size:13px;color:var(--t2);margin-top:2px; }
 .member-settings-role-tags { display:flex;flex-wrap:wrap;gap:6px; }
-.member-settings-role-tag { display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:13px;color:var(--t1);border:1px solid var(--t2);background:var(--bg-3); }
+.member-settings-role-tag { display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:13px;color:var(--t1);border:1px solid var(--input-border);background:var(--input-bg); }
 .member-settings-no-roles { font-size:13px;color:var(--t2); }
-.member-settings-role-checkboxes { display:flex;flex-direction:column;gap:6px;background:var(--bg-1);border-radius:8px;padding:8px 12px; }
+.member-settings-role-checkboxes { display:flex;flex-direction:column;gap:6px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;padding:8px 12px; }
 .member-settings-role-checkbox { display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t1);cursor:pointer;padding:4px 0; }
 .member-settings-role-checkbox input[type="checkbox"] { accent-color:var(--primary); }
 .member-settings-actions { display:flex;align-items:center;gap:12px;margin-top:8px; }

@@ -59,8 +59,14 @@ function SettingsModal() {
 
   if (!isOpen) return null;
 
+  function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.target === e.currentTarget) {
+      closeSettings();
+    }
+  }
+
   return (
-    <div className="settings-overlay">
+    <div className="settings-overlay" onClick={handleOverlayClick}>
       {/* Nav sidebar */}
       <SettingsNav />
 

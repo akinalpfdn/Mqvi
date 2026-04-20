@@ -64,12 +64,10 @@ async function clear(): Promise<void> {
  * Resolves the wallpaper blob URL for the given remote URL.
  * Uses cached blob when the URL matches; otherwise downloads and caches.
  * Returns null on network failure or when url is empty.
+ * Does NOT clear the cache — call clearWallpaperCache() explicitly on remove.
  */
 export async function resolveWallpaperBlobUrl(url: string | null): Promise<string | null> {
-  if (!url) {
-    await clear();
-    return null;
-  }
+  if (!url) return null;
 
   const cached = await read();
   if (cached && cached.url === url) {
