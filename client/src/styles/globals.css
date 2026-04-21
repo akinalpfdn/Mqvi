@@ -85,6 +85,7 @@ body.blur-disabled {
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
 }
 html, body { height:100%; width:100%; overflow:hidden;color-scheme:dark;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),var(--wallpaper) center/cover no-repeat,var(--bg-0); }
+.transparent-bg { background:rgba(5,6,11,0.55) !important; }
 #root {
   height: 100%;
   width: 100%;

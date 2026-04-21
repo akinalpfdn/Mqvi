@@ -82,7 +82,14 @@ function AppLayout() {
 
   const wallpaperUrl = useAuthStore((s) => s.user?.wallpaper_url ?? null);
   const wallpaperEnabled = useSettingsStore((s) => s.wallpaperEnabled);
+  const transparentBackground = useSettingsStore((s) => s.transparentBackground);
   const pendingWallpaperPreviewUrl = useSettingsStore((s) => s.pendingWallpaperPreviewUrl);
+
+  // Transparent mode — html+body become see-through (Electron transparent window)
+  useEffect(() => {
+    document.documentElement.classList.toggle("transparent-bg", transparentBackground);
+    document.body.classList.toggle("transparent-bg", transparentBackground);
+  }, [transparentBackground]);
   useEffect(() => {
     if (pendingWallpaperPreviewUrl) {
       document.documentElement.style.setProperty("--wallpaper", `url(${pendingWallpaperPreviewUrl})`);

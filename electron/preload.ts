@@ -135,7 +135,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ─── App Settings (General / Windows Settings) ───
 
   /** Read all app settings */
-  getAppSettings: (): Promise<{ openAtLogin: boolean; startMinimized: boolean; closeToTray: boolean }> =>
+  getAppSettings: (): Promise<{ openAtLogin: boolean; startMinimized: boolean; closeToTray: boolean; transparentBackground: boolean }> =>
     ipcRenderer.invoke("get-app-settings"),
 
   /** Update a single app setting */

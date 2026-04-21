@@ -74,8 +74,8 @@ interface ElectronAPI {
   loadCredentials: () => Promise<{ username: string; password: string } | null>;
   clearCredentials: () => Promise<void>;
 
-  /** Read all app settings (openAtLogin, startMinimized, closeToTray) */
-  getAppSettings: () => Promise<{ openAtLogin: boolean; startMinimized: boolean; closeToTray: boolean }>;
+  /** Read all app settings */
+  getAppSettings: () => Promise<{ openAtLogin: boolean; startMinimized: boolean; closeToTray: boolean; transparentBackground: boolean }>;
   setAppSetting: (key: string, value: boolean) => Promise<void>;
 
   /** Custom titlebar window controls */

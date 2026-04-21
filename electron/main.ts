@@ -47,6 +47,8 @@ interface AppSettings {
   startMinimized: boolean;
   /** Minimize to tray instead of closing on X button */
   closeToTray: boolean;
+  /** Transparent window background — desktop shows through (requires restart) */
+  transparentBackground: boolean;
   /** Persisted window position and size */
   windowBounds?: WindowBounds;
 }
@@ -55,6 +57,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   openAtLogin: false,
   startMinimized: false,
   closeToTray: true,
+  transparentBackground: false,
 };
 
 /** Load settings from disk, falling back to defaults if missing or corrupt. */
@@ -285,6 +288,8 @@ function createWindow(): void {
   const saved = appSettings.windowBounds;
   const useSaved = saved && boundsVisibleOnScreen(saved);
 
+  const isTransparent = appSettings.transparentBackground;
+
   mainWindow = new BrowserWindow({
     // Default size — overridden by setBounds() below for saved position
     width: 1280,
@@ -292,8 +297,10 @@ function createWindow(): void {
     minWidth: 940,
     minHeight: 560,
     icon: path.join(__dirname, "../icons/mqvi-icon.ico"),
-    // Prevent white flash before CSS loads (matches --bg-0)
-    backgroundColor: "#111111",
+    // Transparent mode: fully transparent background, desktop shows through.
+    // Normal mode: dark background to prevent white flash before CSS loads.
+    transparent: isTransparent,
+    ...(isTransparent ? {} : { backgroundColor: "#111111" }),
     // Frameless window — custom titlebar with -webkit-app-region: drag
     frame: false,
     // Hide until ready-to-show to avoid partially loaded content

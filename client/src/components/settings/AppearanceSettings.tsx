@@ -9,6 +9,7 @@ import { uploadWallpaper, deleteWallpaper } from "../../api/profile";
 import { resolveAssetUrl } from "../../utils/constants";
 import { clearWallpaperCache } from "../../utils/wallpaperCache";
 import { THEMES, THEME_ORDER, type ThemeId } from "../../styles/themes";
+import { isElectron } from "../../utils/constants";
 
 function AppearanceSettings() {
   const { t } = useTranslation("settings");
@@ -18,6 +19,8 @@ function AppearanceSettings() {
   const setBlurEnabled = useSettingsStore((s) => s.setBlurEnabled);
   const wallpaperEnabled = useSettingsStore((s) => s.wallpaperEnabled);
   const setWallpaperEnabled = useSettingsStore((s) => s.setWallpaperEnabled);
+  const transparentBackground = useSettingsStore((s) => s.transparentBackground);
+  const setTransparentBackground = useSettingsStore((s) => s.setTransparentBackground);
   const setPendingWallpaperPreviewUrl = useSettingsStore((s) => s.setPendingWallpaperPreviewUrl);
   const user = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
@@ -98,6 +101,28 @@ function AppearanceSettings() {
           <span className="ub-switch-thumb" />
         </button>
       </label>
+
+      {isElectron() && (
+        <>
+          <h2 className="settings-section-title" style={{ marginTop: 24 }}>{t("transparentTitle")}</h2>
+          <p className="theme-section-desc">{t("transparentDescription")}</p>
+          <label className="settings-toggle-row">
+            <span>{t("transparentEnable")}</span>
+            <button
+              className={`ub-switch${transparentBackground ? " active" : ""}`}
+              onClick={() => setTransparentBackground(!transparentBackground)}
+              role="switch"
+              aria-checked={transparentBackground}
+              type="button"
+            >
+              <span className="ub-switch-thumb" />
+            </button>
+          </label>
+          {transparentBackground && (
+            <p className="theme-section-desc" style={{ color: "var(--yellow)", marginTop: 4 }}>{t("transparentRestart")}</p>
+          )}
+        </>
+      )}
 
       <h2 className="settings-section-title" style={{ marginTop: 24 }}>{t("wallpaperTitle")}</h2>
       <p className="theme-section-desc">{t("wallpaperDescription")}</p>

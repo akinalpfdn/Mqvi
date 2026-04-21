@@ -13,6 +13,7 @@ import { usePreferencesStore } from "./preferencesStore";
 const THEME_STORAGE_KEY = "mqvi_theme";
 const BLUR_STORAGE_KEY = "mqvi_blur_enabled";
 const WALLPAPER_ENABLED_KEY = "mqvi_wallpaper_enabled";
+const TRANSPARENT_KEY = "mqvi_transparent_bg";
 
 function loadPersistedTheme(): ThemeId {
   try {
@@ -54,6 +55,16 @@ function loadPersistedWallpaperEnabled(): boolean {
   return true;
 }
 
+function loadPersistedTransparent(): boolean {
+  try {
+    const stored = localStorage.getItem(TRANSPARENT_KEY);
+    if (stored === "1") return true;
+  } catch {
+    /* localStorage access error */
+  }
+  return false;
+}
+
 type SettingsTab =
   | "profile"
   | "appearance"
@@ -82,6 +93,8 @@ type SettingsState = {
   themeId: ThemeId;
   blurEnabled: boolean;
   wallpaperEnabled: boolean;
+  /** Transparent window background — desktop shows through */
+  transparentBackground: boolean;
   /** Live preview blob URL — applied to the app background without persisting. */
   pendingWallpaperPreviewUrl: string | null;
 
@@ -91,6 +104,7 @@ type SettingsState = {
   setTheme: (id: ThemeId) => void;
   setBlurEnabled: (enabled: boolean) => void;
   setWallpaperEnabled: (enabled: boolean) => void;
+  setTransparentBackground: (enabled: boolean) => void;
   setPendingWallpaperPreviewUrl: (url: string | null) => void;
   /** Apply theme from server preferences (no re-sync to server) */
   applyFromServer: (themeId: string) => void;
@@ -101,6 +115,7 @@ export type { SettingsTab };
 const initialTheme = loadPersistedTheme();
 const initialBlur = loadPersistedBlur();
 const initialWallpaperEnabled = loadPersistedWallpaperEnabled();
+const initialTransparent = loadPersistedTransparent();
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   isOpen: false,
@@ -108,6 +123,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   themeId: initialTheme,
   blurEnabled: initialBlur,
   wallpaperEnabled: initialWallpaperEnabled,
+  transparentBackground: initialTransparent,
   pendingWallpaperPreviewUrl: null,
 
   openSettings: (tab = "profile") => set({ isOpen: true, activeTab: tab }),
@@ -142,6 +158,25 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       /* localStorage full or inaccessible */
     }
     set({ wallpaperEnabled: enabled });
+  },
+
+  setTransparentBackground: (enabled) => {
+    try {
+      localStorage.setItem(TRANSPARENT_KEY, enabled ? "1" : "0");
+    } catch {
+      /* localStorage full or inaccessible */
+    }
+    // Sync to Electron app settings (requires restart to take effect)
+    if (window.electronAPI?.setAppSetting) {
+      window.electronAPI.setAppSetting("transparentBackground", enabled);
+    }
+    // When enabling transparent, disable wallpaper
+    if (enabled) {
+      try { localStorage.setItem(WALLPAPER_ENABLED_KEY, "0"); } catch { /* */ }
+      set({ transparentBackground: true, wallpaperEnabled: false });
+    } else {
+      set({ transparentBackground: enabled });
+    }
   },
 
   setPendingWallpaperPreviewUrl: (url) => set({ pendingWallpaperPreviewUrl: url }),
