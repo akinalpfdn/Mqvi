@@ -101,7 +101,6 @@ const (
 const (
 	OpVoiceForceMove       = "voice_force_move"
 	OpVoiceForceDisconnect = "voice_force_disconnect"
-	OpVoiceReplaced        = "voice_replaced"
 	OpVoiceAFKKick         = "voice_afk_kick" // user kicked for inactivity
 )
 

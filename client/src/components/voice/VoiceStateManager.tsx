@@ -549,6 +549,51 @@ function VoiceStateManager() {
     };
   }, [room, applyVolumeToParticipant]);
 
+  // [DEBUG] Trace every LiveKit connection lifecycle event for disconnect investigation.
+  // Remove once root cause of sporadic disconnects is identified.
+  useEffect(() => {
+    function stamp(event: string, extra?: Record<string, unknown>) {
+      console.warn(`[LKDebug] ${event}`, {
+        timestamp: new Date().toISOString(),
+        roomState: room.state,
+        sid: room.localParticipant?.sid,
+        identity: room.localParticipant?.identity,
+        remoteCount: room.remoteParticipants.size,
+        ...extra,
+      });
+    }
+
+    const onConnStateChanged = (state: ConnectionState) => stamp("ConnectionStateChanged", { newState: state });
+    const onSignalConnected = () => stamp("SignalConnected");
+    const onReconnecting = () => stamp("Reconnecting");
+    const onReconnected = () => stamp("Reconnected");
+    const onDisconnected = (reason?: unknown) => stamp("Disconnected (room event)", { reason });
+    const onMediaDevicesError = (err: Error) => stamp("MediaDevicesError", { message: err.message });
+    const onConnectionQualityChanged = (quality: unknown, participant?: Participant) => {
+      if (participant?.isLocal) stamp("LocalConnectionQualityChanged", { quality });
+    };
+
+    room.on(RoomEvent.ConnectionStateChanged, onConnStateChanged);
+    room.on(RoomEvent.SignalConnected, onSignalConnected);
+    room.on(RoomEvent.Reconnecting, onReconnecting);
+    room.on(RoomEvent.Reconnected, onReconnected);
+    room.on(RoomEvent.Disconnected, onDisconnected);
+    room.on(RoomEvent.MediaDevicesError, onMediaDevicesError);
+    room.on(RoomEvent.ConnectionQualityChanged, onConnectionQualityChanged);
+
+    stamp("Listeners attached");
+
+    return () => {
+      room.off(RoomEvent.ConnectionStateChanged, onConnStateChanged);
+      room.off(RoomEvent.SignalConnected, onSignalConnected);
+      room.off(RoomEvent.Reconnecting, onReconnecting);
+      room.off(RoomEvent.Reconnected, onReconnected);
+      room.off(RoomEvent.Disconnected, onDisconnected);
+      room.off(RoomEvent.MediaDevicesError, onMediaDevicesError);
+      room.off(RoomEvent.ConnectionQualityChanged, onConnectionQualityChanged);
+    };
+  }, [room]);
+
   // Audio processor management: NR on -> RNNoise, NR off + sens<100 -> VadGate, else none
   const processorRef = useRef<AudioProcessor | null>(null);
   const noiseReductionRef = useRef(noiseReduction);

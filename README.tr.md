@@ -48,8 +48,15 @@ Populer iletisim platformlari kullanicilarindan giderek daha fazla resmi kimlik 
 - **Metin Kanallari** — Dosya/gorsel paylasimi, yazma gostergesi ve mesaj duzenleme ile anlik mesajlasma
 - **Ses & Video** — [LiveKit](https://livekit.io) SFU ile dusuk gecikmeli ses ve video
 - **Ekran Paylasimi** — VP9 codec ve uyarlanabilir bitrate ile 1080p/30fps
-- **Direkt Mesajlar** — Arkadas sistemi ile bire bir ozel konusmalar
+- **Direkt Mesajlar** — Arkadas sistemi ile bire bir ozel konusmalar, tanimadigin kullanicilardan DM istegi kabul/red
 - **Emoji Tepkileri** — Mesajlara emoji ile tepki ver
+- **Soundboard** — Ses kanallarinda paylasilan ses kliplerini yukle ve oynat
+
+### Gizlilik & Sifreleme
+- **Uctan uca sesli sifreleme** — Her zaman acik. Sunucu tarafindan her oda icin uretilen parola ile LiveKit SFrame — ses ve video makinenden cikmadan once sifrelenir.
+- **Opsiyonel mesaj E2EE'si** — DM bazinda veya sunucu bazinda ac. DM'ler icin Signal Protokolu (X3DH + Double Ratchet), kanallar icin Sender Key Protokolu.
+- **Sifreli dosya paylasimi** — E2EE konusmalarinda AES-256-GCM dosya sifrelemesi.
+- **Cihaz kimligi & anahtar kurtarma** — Cihaz basi kimlik anahtarlari ve cihazlar arasi geri yukleme icin kurtarma parolasi.
 
 ### Organizasyon
 - **Coklu Sunucu** — Tek hesapla birden fazla sunucuya katil ve yonet (Discord tarzi)
@@ -57,22 +64,26 @@ Populer iletisim platformlari kullanicilarindan giderek daha fazla resmi kimlik 
 - **Roller & Izinler** — Kanal seviyesinde override'lar ile detayli izin sistemi
 - **Davet Sistemi** — Davet kodlari ile sunucuya katilimi kontrol et
 - **Mesaj Sabitleme** — Onemli mesajlari kanala sabitle
-- **Tam Metin Arama** — Mesaj gecmisinde arama (FTS5)
+- **Tam Metin Arama** — Mesaj gecmisinde arama (FTS5 trigram tokenizer)
 
 ### Ses Ozellikleri
 - **Bas-Konus & Ses Aktivitesi Algilama**
 - **Kullanici Basi Ses Kontrolu** — Bireysel kullanici ses seviyelerini ayarla (%0–200)
 - **Mikrofon Hassasiyeti** — Ayarlanabilir VAD esigi
 - **Gurultu Bastirma** — LiveKit uzerinden dahili
+- **Yerel WASAPI loopback capture** (Windows) — Echo'suz process-exclusive ekran paylasimi sesi
 - **Giris/Cikis Sesleri**
+- **AFK Otomatik Cikis** — Bosta kullanicilari ses kanalindan ayarlanabilir sure sonra at
 
 ### Kullanici Deneyimi
-- **Masaustu Uygulamasi** — Otomatik guncelleme ile Electron uygulamasi
-- **Durum Sistemi** — Cevrimici, bosta, rahatsiz etme durumu ve otomatik bosta algilama
-- **Okunmamis Takibi** — Kanal basi okunmamis mesaj sayilari ve @bahsetme rozetleri
+- **Masaustu Uygulamasi** — Windows, macOS ve Linux icin otomatik guncellemeli Electron uygulamasi
+- **Frosted Glass Arayuz** — Ozel duvar kagitlari (hizli yeniden yukleme icin IndexedDB'de yerel olarak cache'lenir) ile modern seffaf arayuz
+- **Durum Sistemi** — Cevrimici, bosta, rahatsiz etme, gorunmez durumu ve otomatik bosta algilama
+- **Okunmamis Takibi** — Kanal basi okunmamis sayilari ve @bahsetme rozetleri
 - **Klavye Kisayollari** — Fareye dokunmadan gezin
 - **Sag Tik Menuleri** — Her yerde sag tik islemleri
 - **Ozel Temalar** — Birden fazla renk temasi
+- **Uygulama Ici Geri Bildirim** — Ekran goruntusu ekleyerek hata bildirimi ve ozellik onerisi gonder
 - **Coklu Dil** — Turkce ve Ingilizce, daha fazla dil icin altyapi hazir
 
 ---
@@ -83,11 +94,12 @@ Populer iletisim platformlari kullanicilarindan giderek daha fazla resmi kimlik 
 |--------|-----------|
 | Backend | Go (net/http + gorilla/websocket) |
 | Frontend | React + TypeScript + Vite + Tailwind CSS |
-| Masaustu | Electron |
+| Masaustu | Electron (Windows, macOS, Linux) |
 | State | Zustand |
-| Ses/Video | LiveKit (self-hosted SFU) |
-| Veritabani | SQLite (modernc.org/sqlite, saf Go) |
+| Ses/Video | LiveKit (self-hosted SFU), SFrame E2EE ile |
+| Veritabani | SQLite (modernc.org/sqlite, saf Go), FTS5 trigram arama |
 | Kimlik Dogrulama | JWT (access + refresh token) |
+| E2EE | Signal Protokolu (X3DH + Double Ratchet), Sender Key, `@noble/curves` |
 
 ---
 
@@ -189,57 +201,51 @@ mqvi platformunun tamamini kendi altyapinda calistir. mqvi.net'ten tamamen bagim
 
 ### Gereksinimler
 
-- Linux sunucu (Ubuntu 22.04+ onerilir)
+- Linux sunucu (Ubuntu 22.04+ / Debian 12+ onerilir), x86_64 veya arm64
 - Minimum 2 vCPU, 4 GB RAM
 - Alan adi (opsiyonel — IP adresi de calisiyor)
 
-### Hizli Baslangic
+### Tek Komutla Kurulum
+
+Sunucuna SSH ile baglan ve calistir:
 
 ```bash
-mkdir -p ~/mqvi && cd ~/mqvi
-
-# En son surumu indir
-curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-server -o mqvi-server
-curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/start.sh -o start.sh
-curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/livekit.yaml -o livekit.yaml
-curl -fsSL https://github.com/akinalpfdn/Mqvi/releases/latest/download/.env.example -o .env
-
-chmod +x mqvi-server start.sh
+curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/install.sh | sudo bash
 ```
 
-`mqvi-server` binary'si (~40 MB) frontend, veritabani migration'lari ve i18n dosyalarinin tumunu iceren tek bir calistirilabilir dosyadir. Go, Node.js veya baska bir runtime gerekmez.
+Bu kadar. Script:
 
-### Yapilandirma
+1. `mqvi` adinda ozel bir sistem kullanicisi ve `/opt/mqvi` dizini olusturur
+2. Mimarin icin hazir `mqvi-server` binary'sini indirir (~40 MB, frontend + migration'lar + i18n hepsi gomulu — Go, Node.js veya Docker gerekmez)
+3. LiveKit SFU binary'sini indirir
+4. Rastgele sirlarla `.env` ve `livekit.yaml` uretir
+5. Her iki servis icin systemd unit'lerini sertlestirilmis ayarlarla kurar (`ProtectSystem=strict`, `NoNewPrivileges`, ozel kullanici)
+6. Firewall portlarini acar (UFW / firewalld varsa)
+7. Her iki servisi baslatir, acilista otomatik calisacak sekilde ayarlar
 
-`.env` dosyasini duzenle ve en az bu 3 sirri ayarla:
+Scripti tekrar calistirmak guvenli — mevcut `.env` ve `livekit.yaml` korunur, sirlarin degismez.
+
+Kurulum bittiginde tarayicinda `http://SUNUCU_IP:9090` adresini ac. Kayit olan ilk kullanici sunucu sahibi olur.
+
+### Servisleri yonetmek
 
 ```bash
-nano .env
+# Loglar
+journalctl -u mqvi-server -f
+journalctl -u mqvi-livekit -f
+
+# Yeniden baslat / durdur
+systemctl restart mqvi-server
+systemctl stop mqvi-server mqvi-livekit
+
+# Yeni bir surume guncelle
+curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/install.sh | sudo bash
+systemctl restart mqvi-server
 ```
 
-| Degisken | Nasil uretilir |
-|----------|----------------|
-| `JWT_SECRET` | `openssl rand -hex 32` |
-| `LIVEKIT_API_SECRET` | `openssl rand -hex 32` |
-| `ENCRYPTION_KEY` | `openssl rand -hex 32` |
+Verilerin `/opt/mqvi/data/` altinda tutulur (SQLite veritabani + yuklenen dosyalar). Yedegini al.
 
-`.env` dosyasindaki `LIVEKIT_API_SECRET` degerinin `livekit.yaml` dosyasindaki `keys.devkey` degeri ile eslestiginden emin ol.
-
-### Baslat
-
-```bash
-./start.sh
-```
-
-`start.sh` LiveKit binary'sini otomatik indirir (yoksa), veri dizinlerini olusturur ve hem LiveKit hem mqvi'yi baslatir. Arka planda calistirmak icin:
-
-```bash
-nohup ./start.sh > output.log 2>&1 &
-```
-
-Tarayicinda `http://SUNUCU_IP:9090` adresini ac. Kayit olan ilk kullanici sunucu sahibi olur.
-
-### Caddy ile SSL (opsiyonel)
+### Caddy ile SSL (production icin onerilir)
 
 ```bash
 apt install caddy
@@ -261,35 +267,35 @@ lk.alanadın.com {
 systemctl restart caddy
 ```
 
-Caddy, Let's Encrypt uzerinden SSL sertifikalari otomatik alir ve yeniler. `.env` dosyasindaki `LIVEKIT_URL` degerini `wss://lk.alanadın.com` olarak guncelle.
+Caddy, Let's Encrypt uzerinden SSL sertifikalari otomatik alir ve yeniler. SSL acildiktan sonra `/opt/mqvi/.env` icindeki `LIVEKIT_URL` degerini `wss://lk.alanadın.com` olarak guncelle ve `systemctl restart mqvi-server`.
 
-### Firewall
+### Firewall portlari
 
-Bu portlarin acik oldugundan emin ol:
+Install scripti UFW veya firewalld aktifse bunlari otomatik acar. Bulut saglayici firewall'u kullaniyorsan (AWS Security Group, Hetzner Cloud Firewall gibi), orada da ac:
 
 | Port | Protokol | Amac |
 |------|----------|------|
-| `9090` | TCP | Web Arayuzu + API |
+| `9090` | TCP | Web Arayuzu + API (Caddy kullaniliyorsa `443`) |
 | `7880` | TCP | LiveKit sinyal |
 | `7881` | TCP | LiveKit TURN aktarma |
 | `7882` | UDP | LiveKit medya |
-| `50000–60000` | UDP | LiveKit ICE adaylari |
+| `50000–50200` | UDP | LiveKit ICE adaylari |
 
-### Ortam Degiskenleri
+### Ortam degiskenleri
 
-Tum secenekler icin [`.env.example`](deploy/.env.example) dosyasina bak. Onemli ayarlar:
+Install scripti makul varsayilanlar uretir. Degistirmek istersen `/opt/mqvi/.env` dosyasini duzenle ve `systemctl restart mqvi-server`. Tum secenekler icin [`.env.example`](deploy/.env.example) dosyasina bak:
 
 | Degisken | Varsayilan | Aciklama |
 |----------|-----------|----------|
 | `SERVER_PORT` | `9090` | HTTP portu |
-| `JWT_SECRET` | — | **Zorunlu.** Token imzalama icin rastgele string |
-| `LIVEKIT_URL` | `ws://localhost:7880` | LiveKit sunucu URL'i (Caddy ile `wss://` kullan) |
-| `LIVEKIT_API_KEY` | `devkey` | LiveKit API anahtari (livekit.yaml ile eslesmeli) |
-| `LIVEKIT_API_SECRET` | — | **Zorunlu.** livekit.yaml ile eslesmeli |
-| `ENCRYPTION_KEY` | — | **Zorunlu.** Saklanan kimlik bilgilerini sifrelemek icin AES-256 anahtar |
-| `DATABASE_PATH` | `./data/mqvi.db` | SQLite veritabani yolu |
-| `UPLOAD_DIR` | `./data/uploads` | Dosya yukleme dizini |
+| `JWT_SECRET` | *uretilir* | Token imzalama icin rastgele string |
+| `ENCRYPTION_KEY` | *uretilir* | Saklanan LiveKit kimlik bilgilerini sifrelemek icin AES-256 anahtar |
+| `DATABASE_PATH` | `/opt/mqvi/data/mqvi.db` | SQLite veritabani yolu |
+| `UPLOAD_DIR` | `/opt/mqvi/data/uploads` | Dosya yukleme dizini |
 | `UPLOAD_MAX_SIZE` | `26214400` | Maksimum yukleme boyutu (25 MB) |
+| `LIVEKIT_URL` | `ws://127.0.0.1:7880` | Otomatik olusturulan yerel LiveKit instance |
+| `LIVEKIT_API_KEY` | *uretilir* | `livekit.yaml` ile eslesir |
+| `LIVEKIT_API_SECRET` | *uretilir* | `livekit.yaml` ile eslesir |
 
 ---
 
@@ -420,27 +426,27 @@ middleware    ws/hub (WebSocket broadcast)
 
 ### Tamamlandi
 - Anlik mesajlasma ile metin kanallari
-- Ses & goruntulu gorusmeler (LiveKit)
-- Ekran paylasimi (1080p/30fps)
-- Kanal override'lari ile rol & izin sistemi
-- Emoji tepkileri
-- Direkt mesajlar & arkadas sistemi
-- Mesaj sabitleme & arama
+- Her zaman acik SFrame E2EE ile ses & goruntulu gorusmeler (LiveKit)
+- Windows'ta yerel WASAPI loopback capture ile ekran paylasimi (1080p/30fps)
+- Kanal bazli override'lar ile rol & izin sistemi
+- Emoji tepkileri & soundboard
+- Direkt mesajlar, arkadas sistemi, DM istekleri
+- Mesaj sabitleme & tam metin arama (FTS5 trigram)
 - Davet sistemi
-- Durum & otomatik bosta algilama
-- Klavye kisayollari
-- Ozel temalar
+- Durum, otomatik bosta algilama, AFK otomatik cikis
+- Klavye kisayollari & sag tik menuleri
+- Ozel temalar, duvar kagitlari, frosted glass arayuz
 - Coklu dil destegi (EN + TR)
-- Masaustu uygulamasi (Electron, otomatik guncelleme)
+- Windows, macOS ve Linux icin masaustu uygulamasi (Electron, otomatik guncelleme)
 - Coklu sunucu mimarisi
-- Tek tikla self-host kurulumu (LiveKit)
+- Tek komutla self-host kurulumu (tam sunucu)
+- Uctan uca sifreleme: DM (Signal Protokolu), kanal (Sender Key), ses (SFrame), dosya sifreleme, anahtar yedekleme & kurtarma
+- Ekran goruntulu uygulama ici geri bildirim
 
 ### Planlanan
-- Uctan uca sifreleme (E2EE)
 - Mobil uygulamalar (iOS & Android)
 - Plugin / bot API
 - Sunucular arasi federasyon
-- Sifreli dosya paylasimi
 
 ---
 

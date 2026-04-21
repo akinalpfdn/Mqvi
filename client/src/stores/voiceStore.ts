@@ -182,26 +182,58 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       const gen = get()._joinGeneration + 1;
       set({ _joinGeneration: gen });
 
+      // [DEBUG] Token state before fetch
+      const preAccessToken = localStorage.getItem("access_token");
+      const preRefreshToken = localStorage.getItem("refresh_token");
+      console.warn("[voiceStore] joinVoiceChannel START", {
+        timestamp: new Date().toISOString(),
+        channelId,
+        serverId,
+        gen,
+        hasAccessToken: !!preAccessToken,
+        hasRefreshToken: !!preRefreshToken,
+        accessTokenLen: preAccessToken?.length ?? 0,
+      });
+
       // Ensure fresh JWT before requesting LiveKit token
-      await ensureFreshToken();
+      const freshResult = await ensureFreshToken();
+      const postAccessToken = localStorage.getItem("access_token");
+      console.warn("[voiceStore] ensureFreshToken returned", {
+        result: freshResult,
+        hasAccessTokenAfter: !!postAccessToken,
+        tokenChanged: preAccessToken !== postAccessToken,
+      });
 
       let response = await voiceApi.getVoiceToken(serverId, channelId);
+      console.warn("[voiceStore] getVoiceToken response", {
+        success: response.success,
+        error: response.error,
+        hasData: !!response.data,
+      });
 
       // Retry once on auth failure — token may have expired mid-request
       if (!response.success && response.error?.includes("401")) {
+        console.warn("[voiceStore] 401 retry path entered");
         const refreshed = await ensureFreshToken();
         if (refreshed) {
           response = await voiceApi.getVoiceToken(serverId, channelId);
+          console.warn("[voiceStore] retry response", { success: response.success, error: response.error });
+        } else {
+          console.warn("[voiceStore] ensureFreshToken returned null on retry — tokens likely cleared");
         }
       }
 
       // Discard stale response if generation changed (leave/join interleaved)
       if (get()._joinGeneration !== gen) {
+        console.warn("[voiceStore] Stale response discarded", { expectedGen: gen, currentGen: get()._joinGeneration });
         return null;
       }
 
       if (!response.success || !response.data) {
-        console.error("[voiceStore] Failed to get voice token:", response.error);
+        console.error("[voiceStore] Failed to get voice token:", response.error, {
+          finalHasAccessToken: !!localStorage.getItem("access_token"),
+          finalHasRefreshToken: !!localStorage.getItem("refresh_token"),
+        });
         return null;
       }
 
@@ -237,6 +269,15 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   },
 
   leaveVoiceChannel: () => {
+    const _dbg = get();
+    console.warn("[voiceStore] leaveVoiceChannel CALLED", {
+      timestamp: new Date().toISOString(),
+      currentVoiceChannelId: _dbg.currentVoiceChannelId,
+      currentVoiceServerId: _dbg.currentVoiceServerId,
+      hadLivekitToken: !!_dbg.livekitToken,
+      stack: new Error().stack?.split("\n").slice(2, 8).join("\n"),
+    });
+
     // iOS: disconnect native voice
     if (useNativeVoice()) {
       nativeVoiceDisconnect();

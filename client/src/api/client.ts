@@ -60,7 +60,12 @@ async function doRefresh(): Promise<boolean> {
       // Only clear tokens on explicit auth rejection — 5xx/429/network errors
       // don't mean the token is invalid, just that the server/network failed.
       if (res.status === 401 || res.status === 403) {
+        console.warn(`[apiClient] refresh endpoint returned ${res.status} — CLEARING TOKENS`, {
+          timestamp: new Date().toISOString(),
+        });
         clearTokens();
+      } else {
+        console.warn(`[apiClient] refresh endpoint returned ${res.status} — tokens preserved`);
       }
       return false;
     }
@@ -135,7 +140,15 @@ export async function apiClient<T>(
 
   // 401 — attempt token refresh
   if (res.status === 401 && getRefreshToken()) {
+    console.warn(`[apiClient] 401 on ${method} ${endpoint} — attempting refresh`, {
+      timestamp: new Date().toISOString(),
+      hadAuthHeader: !!token,
+    });
     const refreshed = await refreshAccessToken();
+    console.warn(`[apiClient] refresh result: ${refreshed}`, {
+      hasAccessTokenAfter: !!getAccessToken(),
+      hasRefreshTokenAfter: !!getRefreshToken(),
+    });
     if (refreshed) {
       headers["Authorization"] = `Bearer ${getAccessToken()}`;
       try {
@@ -143,13 +156,20 @@ export async function apiClient<T>(
           ...fetchOptions,
           headers,
         });
+        console.warn(`[apiClient] retry after refresh: ${method} ${endpoint} status=${res.status}`);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Network request failed";
         console.error(`[apiClient] ${method} ${endpoint} (retry):`, message);
         return { success: false, error: message } as APIResponse<T>;
       }
+    } else {
+      console.warn(`[apiClient] refresh FAILED on ${method} ${endpoint} — returning original 401`);
     }
+  } else if (res.status === 401) {
+    console.warn(`[apiClient] 401 on ${method} ${endpoint} but NO refresh_token in storage`, {
+      hadAuthHeader: !!token,
+    });
   }
 
   // 204 No Content — no body to parse

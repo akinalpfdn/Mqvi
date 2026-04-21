@@ -75,18 +75,34 @@ export async function handleVoiceEvent(
 
       const myVoiceChannel = vs.currentVoiceChannelId;
       const selfEntry = syncData.states.find((s) => s.user_id === myId);
+      const liveKitStillConnected = !!vs.livekitToken;
+
+      console.warn("[ws] voice_states_sync handler", {
+        timestamp: new Date().toISOString(),
+        myVoiceChannel,
+        selfEntryChannel: selfEntry?.channel_id,
+        liveKitStillConnected,
+        willReassert: !!(myVoiceChannel && selfEntry?.channel_id !== myVoiceChannel && !liveKitStillConnected),
+        willRecover: !myVoiceChannel && !!selfEntry,
+      });
 
       if (myVoiceChannel) {
         // Client already thinks it's in voice — re-assert membership if the
-        // server forgot us (e.g. missed our voice_join during a WS blip).
+        // server forgot us AND LiveKit is actually gone. If LiveKit is still
+        // connected, re-asserting triggers a backend voice_replaced broadcast
+        // that disconnects this very session (ghost-pointer race).
         const matches = selfEntry?.channel_id === myVoiceChannel;
-        if (!matches) {
+        if (!matches && !liveKitStillConnected) {
+          console.warn("[ws] voice_states_sync RE-ASSERT sendVoiceJoin", { channel: myVoiceChannel });
           ctx.sendVoiceJoin(myVoiceChannel);
+        } else if (!matches && liveKitStillConnected) {
+          console.warn("[ws] voice_states_sync SKIP re-assert — LiveKit still connected");
         }
       } else if (selfEntry) {
         // F5 recovery: backend still has us in voice (within the 35s orphan
         // grace) but our in-memory state was wiped by the reload. Re-acquire
         // a LiveKit token and resume — other users never saw us leave.
+        console.warn("[ws] voice_states_sync F5 RECOVERY path", { channel: selfEntry.channel_id });
         void (async () => {
           // joinVoiceChannel scopes the token request to activeServerId;
           // jump to the correct server first if different.
@@ -138,16 +154,19 @@ export async function handleVoiceEvent(
     }
 
     case "voice_force_disconnect":
+      console.warn("[ws] voice_force_disconnect RECEIVED", { timestamp: new Date().toISOString() });
       useVoiceStore.getState().handleForceDisconnect();
       return true;
 
     case "voice_afk_kick": {
+      console.warn("[ws] voice_afk_kick RECEIVED", { timestamp: new Date().toISOString() });
       const afkData = msg.d as { channel_name: string; server_name: string };
       useVoiceStore.getState().handleAFKKick(afkData.channel_name, afkData.server_name);
       return true;
     }
 
     case "voice_replaced":
+      console.warn("[ws] voice_replaced RECEIVED", { timestamp: new Date().toISOString() });
       useVoiceStore.getState().handleVoiceReplaced();
       return true;
 

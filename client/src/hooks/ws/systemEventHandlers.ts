@@ -67,11 +67,18 @@ export async function handleSystemEvent(
 
       setConnectionStatus("connected");
 
-      // Voice auto-rejoin — preserve mute/deafen across reconnect
+      // Voice resume on WS reconnect — only when LiveKit actually dropped.
+      // LiveKit is a separate connection; a WS blip doesn't take it down. Sending
+      // voice_join here on every reconnect triggers a ghost-pointer race in the
+      // backend: stale Client struct still in the hub map receives voice_replaced,
+      // which disconnects this very session.
       {
         const voiceState = useVoiceStore.getState();
         const previousChannel = voiceState.currentVoiceChannelId;
-        if (previousChannel) {
+        const liveKitStillConnected = !!voiceState.livekitToken;
+
+        if (previousChannel && !liveKitStillConnected) {
+          console.warn("[ws ready] Voice resume — LiveKit dropped, rejoining", { channel: previousChannel });
           const prevMuted = voiceState.isMuted;
           const prevDeafened = voiceState.isDeafened;
           voiceState.leaveVoiceChannel();
@@ -83,6 +90,8 @@ export async function handleSystemEvent(
               console.warn("[useWebSocket] Voice auto-rejoin failed — user needs to rejoin manually");
             }
           });
+        } else if (previousChannel && liveKitStillConnected) {
+          console.warn("[ws ready] Voice skip-resume — LiveKit still connected", { channel: previousChannel });
         }
       }
       return true;

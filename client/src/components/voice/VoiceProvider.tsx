@@ -22,9 +22,9 @@ import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
 import { DisconnectReason, ExternalE2EEKeyProvider, LogLevel, setLogLevel, VideoPreset } from "livekit-client";
 import type { AudioCaptureOptions, RoomOptions } from "livekit-client";
 
-// Suppress noisy SDK logs (transition disconnects, internal WS lifecycle).
-// Only real errors will appear in the console.
-setLogLevel(LogLevel.error);
+// DEBUG: surface SDK internal reconnect attempts for disconnect investigation.
+// Revert to LogLevel.error once root cause is identified.
+setLogLevel(LogLevel.debug);
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
@@ -84,6 +84,24 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     }
   }, [e2eePassphrase, keyProvider, tE2ee]);
 
+  // [DEBUG] Track livekitToken transitions — fires whenever state is cleared,
+  // regardless of which code path did it. Helps identify the culprit when
+  // onDisconnected doesn't fire.
+  const prevLivekitTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    const had = !!prevLivekitTokenRef.current;
+    const has = !!livekitToken;
+    if (had && !has) {
+      console.warn("[VoiceProvider] livekitToken CLEARED", {
+        timestamp: new Date().toISOString(),
+        stack: new Error().stack?.split("\n").slice(2, 10).join("\n"),
+      });
+    } else if (!had && has) {
+      console.warn("[VoiceProvider] livekitToken SET", { timestamp: new Date().toISOString() });
+    }
+    prevLivekitTokenRef.current = livekitToken;
+  }, [livekitToken]);
+
   // Track rejoin attempts to prevent infinite loops
   const rejoinAttemptsRef = useRef(0);
   const MAX_REJOIN_ATTEMPTS = 2;
@@ -120,8 +138,20 @@ function VoiceProvider({ children }: VoiceProviderProps) {
 
       const { currentVoiceChannelId, _wsSend, wasReplaced } = useVoiceStore.getState();
 
+      // [DEBUG] Disconnect investigation — trace every disconnect path
+      console.warn("[VoiceProvider] onDisconnected fired", {
+        reason,
+        reasonName: reason !== undefined ? DisconnectReason[reason] : "undefined",
+        timestamp: new Date().toISOString(),
+        currentVoiceChannelId,
+        wasReplaced,
+        rejoinAttempts: rejoinAttemptsRef.current,
+        maxAttempts: MAX_REJOIN_ATTEMPTS,
+      });
+
       // Another session took over voice — don't auto-rejoin (prevents ping-pong loop)
       if (wasReplaced) {
+        console.warn("[VoiceProvider] wasReplaced=true -> skip rejoin");
         useVoiceStore.setState({ wasReplaced: false });
         return;
       }
@@ -131,25 +161,37 @@ function VoiceProvider({ children }: VoiceProviderProps) {
         // leave, force-move token swap, auto-rejoin, admin/AFK kick handler).
         // Every caller clears state before firing — a second cleanup here bumps
         // _joinGeneration and races any in-flight join (force-move repro).
+        console.warn("[VoiceProvider] CLIENT_INITIATED -> ignore");
+        return;
+      }
+
+      if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
+        // Another session joined voice as this same user; SFU evicted us.
+        // Auto-rejoining would steal voice back and ping-pong between devices.
+        // Clean up and let the user re-enter manually if they actually want this device.
+        console.warn("[VoiceProvider] DUPLICATE_IDENTITY -> skip rejoin, another session took over");
+        leaveVoiceChannel();
         return;
       }
 
       // Server-initiated disconnect while user was in voice — attempt auto-rejoin
-      // (CLIENT_INITIATED already returned above).
+      // (CLIENT_INITIATED and DUPLICATE_IDENTITY already returned above).
       if (currentVoiceChannelId) {
         if (rejoinAttemptsRef.current < MAX_REJOIN_ATTEMPTS) {
           rejoinAttemptsRef.current++;
           const channelToRejoin = currentVoiceChannelId;
+          console.warn(`[VoiceProvider] Auto-rejoin attempt ${rejoinAttemptsRef.current}/${MAX_REJOIN_ATTEMPTS} -> ${channelToRejoin}`);
 
           const { isMuted: prevMuted, isDeafened: prevDeafened, isStreaming: prevStreaming } = useVoiceStore.getState();
 
           leaveVoiceChannel();
           useVoiceStore.getState().joinVoiceChannel(channelToRejoin).then((tokenResp) => {
             if (tokenResp && _wsSend) {
+              console.warn("[VoiceProvider] Auto-rejoin SUCCESS");
               useVoiceStore.setState({ isMuted: prevMuted, isDeafened: prevDeafened, isStreaming: prevStreaming });
               _wsSend("voice_join", { channel_id: channelToRejoin });
             } else {
-              console.warn("[VoiceProvider] Auto-rejoin failed");
+              console.warn("[VoiceProvider] Auto-rejoin FAILED (no tokenResp or no wsSend)", { hasTokenResp: !!tokenResp, hasWsSend: !!_wsSend });
             }
           });
           return;
@@ -158,14 +200,22 @@ function VoiceProvider({ children }: VoiceProviderProps) {
         console.warn("[VoiceProvider] Max rejoin attempts reached, giving up");
       }
 
+      console.warn("[VoiceProvider] Falling through to leaveVoiceChannel()");
       leaveVoiceChannel();
     },
     [leaveVoiceChannel]
   );
 
-  // Filter out expected "Client initiated" errors during connect prop transitions
+  // DEBUG: log every error including the suppressed "Client initiated" cases
   const handleError = useCallback(
     (err: Error) => {
+      console.warn("[VoiceProvider] LiveKit error event", {
+        message: err.message,
+        name: err.name,
+        stack: err.stack?.split("\n").slice(0, 5).join("\n"),
+        timestamp: new Date().toISOString(),
+      });
+
       if (err.message?.includes("Client initiated")) return;
 
       console.error("[VoiceProvider] LiveKit error:", err);

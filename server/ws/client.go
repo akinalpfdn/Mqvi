@@ -220,9 +220,12 @@ func (c *Client) handleVoiceJoin(event Event) {
 		return
 	}
 
-	// Notify other sessions of same user: "voice replaced by another session"
-	// Prevents auto-rejoin ping-pong when same account joins from multiple tabs
-	c.hub.broadcastToUserExcept(c.userID, c, Event{Op: OpVoiceReplaced})
+	// Note: no voice_replaced broadcast here. Real multi-session handover is
+	// already signaled by the SFU's DUPLICATE_IDENTITY disconnect on the
+	// superseded session; adding a WS broadcast caused a ghost-pointer race
+	// (stale Client struct in the hub map received the event after reconnect,
+	// disconnecting the live session). Client handles DUPLICATE_IDENTITY
+	// directly in VoiceProvider.handleDisconnected.
 
 	if c.hub.onVoiceJoin != nil {
 		info := c.hub.getUserInfo(c.userID)
