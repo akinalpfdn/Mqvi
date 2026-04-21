@@ -1,6 +1,6 @@
 /** AppearanceSettings — Theme selection grid with color swatch previews. */
 
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -26,6 +26,8 @@ function AppearanceSettings() {
   const updateUser = useAuthStore((s) => s.updateUser);
   const addToast = useToastStore((s) => s.addToast);
 
+  // Track initial value to detect change — restart needed in either direction
+  const initialTransparent = useMemo(() => transparentBackground, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -118,7 +120,7 @@ function AppearanceSettings() {
               <span className="ub-switch-thumb" />
             </button>
           </label>
-          {transparentBackground && (
+          {transparentBackground !== initialTransparent && (
             <p className="theme-section-desc" style={{ color: "var(--yellow)", marginTop: 4 }}>{t("transparentRestart")}</p>
           )}
         </>
