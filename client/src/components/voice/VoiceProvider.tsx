@@ -186,16 +186,17 @@ function VoiceProvider({ children }: VoiceProviderProps) {
           const channelToRejoin = currentVoiceChannelId;
           console.warn(`[VoiceProvider] Auto-rejoin attempt ${rejoinAttemptsRef.current}/${MAX_REJOIN_ATTEMPTS} -> ${channelToRejoin}`);
 
-          const { isMuted: prevMuted, isDeafened: prevDeafened, isStreaming: prevStreaming } = useVoiceStore.getState();
-
-          leaveVoiceChannel();
-          useVoiceStore.getState().joinVoiceChannel(channelToRejoin).then((tokenResp) => {
+          // Hot-swap token — keeps connect=true the whole time.
+          // leaveVoiceChannel+joinVoiceChannel caused connect=false→true thrash
+          // which made LiveKitRoom create 2 Room instances, each triggering
+          // DUPLICATE_IDENTITY on the SFU and consuming rejoin attempts.
+          useVoiceStore.getState().refreshVoiceToken(channelToRejoin).then((tokenResp) => {
             if (tokenResp && _wsSend) {
               console.warn("[VoiceProvider] Auto-rejoin SUCCESS");
-              useVoiceStore.setState({ isMuted: prevMuted, isDeafened: prevDeafened, isStreaming: prevStreaming });
               _wsSend("voice_join", { channel_id: channelToRejoin });
             } else {
               console.warn("[VoiceProvider] Auto-rejoin FAILED (no tokenResp or no wsSend)", { hasTokenResp: !!tokenResp, hasWsSend: !!_wsSend });
+              leaveVoiceChannel();
             }
           });
           return;

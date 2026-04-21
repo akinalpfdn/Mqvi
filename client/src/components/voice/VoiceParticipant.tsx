@@ -18,6 +18,7 @@ import type { Participant } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
+import { IconHeadphonesMuted, IconSpeakerMuted } from "../shared/Icons";
 import VoiceUserContextMenu from "./VoiceUserContextMenu";
 import { resolveAssetUrl } from "../../utils/constants";
 
@@ -100,17 +101,10 @@ function VoiceParticipant({ participant, compact = false }: VoiceParticipantProp
 
   const overlay = (isMuted || isDeafened) ? (
     <div className="voice-participant-overlay">
-      {isDeafened ? (
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 18v-6a9 9 0 0118 0v6M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-        </svg>
-      ) : (
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-        </svg>
-      )}
+      {isDeafened
+        ? <IconHeadphonesMuted strokeWidth={2.5} />
+        : <IconSpeakerMuted strokeWidth={2.5} />
+      }
     </div>
   ) : null;
 

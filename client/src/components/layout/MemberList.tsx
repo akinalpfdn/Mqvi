@@ -11,6 +11,7 @@ import { useIsMobile } from "../../hooks/useMediaQuery";
 import { useResizeHandle } from "../../hooks/useResizeHandle";
 import MemberItem from "../members/MemberItem";
 import { MemberSkeleton } from "../shared/Skeleton";
+import { IconMembers } from "../shared/Icons";
 import type { MemberWithRoles, Role } from "../../types";
 
 /** Member panel width bounds (px) */
@@ -109,6 +110,16 @@ function MemberList() {
       className={`members-panel${membersOpen ? " open" : ""}`}
       style={membersOpen ? { width: panelWidth } : undefined}
     >
+      {/* FAB to re-open member list when collapsed */}
+      {!membersOpen && !isMobile && (
+        <button
+          className="members-fab"
+          onClick={toggleMembers}
+          title={t("members")}
+        >
+          <IconMembers width={16} height={16} />
+        </button>
+      )}
       {/* Resize handle — left edge, only when open */}
       {membersOpen && (
         <div

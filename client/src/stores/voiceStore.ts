@@ -119,6 +119,8 @@ type VoiceCoreState = {
 
 type VoiceCoreActions = {
   joinVoiceChannel: (channelId: string) => Promise<VoiceTokenResponse | null>;
+  /** Hot-swap LiveKit token without disconnect cycle — used for auto-rejoin. */
+  refreshVoiceToken: (channelId: string) => Promise<VoiceTokenResponse | null>;
   leaveVoiceChannel: () => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
@@ -270,6 +272,42 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       return response.data;
     } catch (err) {
       console.error("[voiceStore] Voice join error:", err);
+      return null;
+    }
+  },
+
+  refreshVoiceToken: async (channelId: string) => {
+    try {
+      const serverId = get().currentVoiceServerId ?? useServerStore.getState().activeServerId;
+      if (!serverId) return null;
+
+      console.warn("[voiceStore] refreshVoiceToken START", {
+        timestamp: new Date().toISOString(),
+        channelId,
+        serverId,
+      });
+
+      await ensureFreshToken();
+      const response = await voiceApi.getVoiceToken(serverId, channelId);
+
+      if (!response.success || !response.data) {
+        console.warn("[voiceStore] refreshVoiceToken FAILED", { error: response.error });
+        return null;
+      }
+
+      // Hot-swap only connection credentials — keep all other state intact.
+      // This avoids the connect=false→true transition that causes LiveKitRoom
+      // to create multiple Room instances (the DUPLICATE_IDENTITY ping-pong).
+      set({
+        livekitUrl: response.data.url,
+        livekitToken: response.data.token,
+        e2eePassphrase: response.data.e2ee_passphrase ?? null,
+      });
+
+      console.warn("[voiceStore] refreshVoiceToken SUCCESS");
+      return response.data;
+    } catch (err) {
+      console.error("[voiceStore] refreshVoiceToken error:", err);
       return null;
     }
   },

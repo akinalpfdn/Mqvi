@@ -597,29 +597,29 @@ function Message({ message, isCompact }: MessageProps) {
             onReaction={handleReaction}
           />
         </div>
+
+        {!isEditing && (
+          <MessageHoverActions
+            isOwner={isOwner}
+            isPinned={isPinned}
+            canManageMessages={canManageMessages}
+            pickerSource={pickerSource}
+            onReply={handleReply}
+            onReaction={handleReaction}
+            onPickerOpen={() => setPickerSource("hover")}
+            onPickerClose={() => setPickerSource(null)}
+            onPinToggle={handlePinToggle}
+            onEditStart={() => {
+              setEditContent(message.content ?? "");
+              setIsEditing(true);
+            }}
+            onDelete={handleDelete}
+          />
+        )}
       </div>
 
-      {/* Hover actions + Context Menu */}
+      {/* Context Menu */}
       <ContextMenu state={menuState} onClose={closeMenu} />
-
-      {!isEditing && (
-        <MessageHoverActions
-          isOwner={isOwner}
-          isPinned={isPinned}
-          canManageMessages={canManageMessages}
-          pickerSource={pickerSource}
-          onReply={handleReply}
-          onReaction={handleReaction}
-          onPickerOpen={() => setPickerSource("hover")}
-          onPickerClose={() => setPickerSource(null)}
-          onPinToggle={handlePinToggle}
-          onEditStart={() => {
-            setEditContent(message.content ?? "");
-            setIsEditing(true);
-          }}
-          onDelete={handleDelete}
-        />
-      )}
 
       {/* Mobile message actions bottom sheet — opens on long-press */}
       {isMobile && (

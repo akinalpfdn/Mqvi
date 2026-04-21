@@ -13,6 +13,7 @@ import { useChannelStore } from "../../stores/channelStore";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
 import Avatar from "../shared/Avatar";
+import { IconSpeaker, IconSpeakerOff, IconSpeakerMuted, IconMic, IconMicMuted, IconHeadphones, IconHeadphonesMuted } from "../shared/Icons";
 
 type VoiceUserContextMenuProps = {
   userId: string;
@@ -214,20 +215,10 @@ function VoiceUserContextMenu({
       <div className="voice-ctx-body">
         {/* Volume Slider */}
         <div className="voice-ctx-slider">
-          <svg
-            style={{ width: 14, height: 14, cursor: "pointer", opacity: currentVolume === 0 ? 0.5 : 1 }}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-            onClick={handleToggleMute}
-          >
-            {currentVolume > 0 ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 9l-6 6M11 9l6 6" />
-            )}
-          </svg>
+          {currentVolume > 0
+            ? <IconSpeaker style={{ width: 14, height: 14, cursor: "pointer" }} onClick={handleToggleMute} />
+            : <IconSpeakerOff style={{ width: 14, height: 14, cursor: "pointer", opacity: 0.5 }} onClick={handleToggleMute} />
+          }
           <input
             type="range"
             min={0}
@@ -249,14 +240,7 @@ function VoiceUserContextMenu({
           className={`voice-ctx-item${isLocallyMuted ? " active" : ""}`}
           onClick={handleLocalMuteToggle}
         >
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-            {isLocallyMuted ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072" />
-            )}
-          </svg>
+          {isLocallyMuted ? <IconSpeakerMuted /> : <IconSpeaker />}
           {isLocallyMuted ? t("localUnmute") : t("localMute")}
         </button>
 
@@ -270,12 +254,7 @@ function VoiceUserContextMenu({
                 className={`voice-ctx-item danger${isServerMuted ? " active" : ""}`}
                 onClick={handleServerMuteToggle}
               >
-                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" />
-                  {isServerMuted && (
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-                  )}
-                </svg>
+                {isServerMuted ? <IconMicMuted /> : <IconMic />}
                 {isServerMuted ? t("serverUnmute") : t("serverMute")}
               </button>
             )}
@@ -285,12 +264,7 @@ function VoiceUserContextMenu({
                 className={`voice-ctx-item danger${isServerDeafened ? " active" : ""}`}
                 onClick={handleServerDeafenToggle}
               >
-                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 18v-6a9 9 0 0118 0v6M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
-                  {isServerDeafened && (
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
-                  )}
-                </svg>
+                {isServerDeafened ? <IconHeadphonesMuted /> : <IconHeadphones />}
                 {isServerDeafened ? t("serverUndeafen") : t("serverDeafen")}
               </button>
             )}

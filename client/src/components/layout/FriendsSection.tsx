@@ -11,6 +11,7 @@ import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import Avatar from "../shared/Avatar";
+import { IconFriends } from "../shared/Icons";
 import ContextMenu from "../shared/ContextMenu";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import type { FriendshipWithUser, User } from "../../types";
@@ -117,7 +118,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
         {isExpanded && (
           <div className="ch-tree-section-body">
             <button className="ch-tree-item" onClick={handleFriendsClick}>
-              <span className="ch-tree-icon">&#128101;</span>
+              <IconFriends className="ch-tree-icon" width={15} height={15} />
               <span className="ch-tree-label">{t("friends")}</span>
               {incoming.length > 0 && (
                 <span className="ch-tree-badge">{incoming.length}</span>

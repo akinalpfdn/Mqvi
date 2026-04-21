@@ -81,17 +81,14 @@ export async function handleSystemEvent(
         const liveKitStillConnected = !!voiceState.livekitToken;
 
         if (previousChannel && !liveKitStillConnected) {
-          // LiveKit also dropped — need a fresh token, do full leave+join cycle
-          console.warn("[ws ready] Voice resume — LiveKit dropped, rejoining", { channel: previousChannel });
-          const prevMuted = voiceState.isMuted;
-          const prevDeafened = voiceState.isDeafened;
-          voiceState.leaveVoiceChannel();
-          voiceState.joinVoiceChannel(previousChannel).then((tokenResp) => {
+          // LiveKit also dropped — hot-swap token to avoid connect=false→true thrash
+          console.warn("[ws ready] Voice resume — LiveKit dropped, refreshing token", { channel: previousChannel });
+          voiceState.refreshVoiceToken(previousChannel).then((tokenResp) => {
             if (tokenResp) {
-              useVoiceStore.setState({ isMuted: prevMuted, isDeafened: prevDeafened });
               ctx.sendVoiceJoin(previousChannel);
             } else {
-              console.warn("[useWebSocket] Voice auto-rejoin failed — user needs to rejoin manually");
+              console.warn("[ws ready] Voice token refresh failed — user needs to rejoin manually");
+              voiceState.leaveVoiceChannel();
             }
           });
         } else if (previousChannel && liveKitStillConnected) {
