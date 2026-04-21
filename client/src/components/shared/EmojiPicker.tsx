@@ -66,6 +66,17 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
     [onSelect, onClose]
   );
 
+  // Pierce shadow DOM to make internal background transparent for frosted glass
+  useEffect(() => {
+    if (!pickerRef.current) return;
+    const el = pickerRef.current.querySelector("em-emoji-picker");
+    if (!el?.shadowRoot) return;
+    const style = document.createElement("style");
+    style.textContent = "#root { background-color: transparent !important; } .sticky { background-color: transparent !important; }";
+    el.shadowRoot.appendChild(style);
+    return () => { style.remove(); };
+  }, []);
+
   return (
     <div
       className={`emoji-picker${flipped ? " emoji-picker-flipped" : ""}`}

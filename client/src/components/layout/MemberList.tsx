@@ -3,12 +3,15 @@
  * Panel width is CSS-transitioned via .members-panel.open toggle.
  */
 
+import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useMemberStore, useActiveMembers } from "../../stores/memberStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useMobileStore } from "../../stores/mobileStore";
+import { useServerStore } from "../../stores/serverStore";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import { useResizeHandle } from "../../hooks/useResizeHandle";
+import { resolveAssetUrl } from "../../utils/constants";
 import MemberItem from "../members/MemberItem";
 import { MemberSkeleton } from "../shared/Skeleton";
 import { IconMembers } from "../shared/Icons";
@@ -18,6 +21,25 @@ import type { MemberWithRoles, Role } from "../../types";
 const MEMBERS_MIN = 160;
 const MEMBERS_MAX = 360;
 const MEMBERS_DEFAULT = 240;
+
+/** localStorage key for collapsed section IDs */
+const COLLAPSED_KEY = "mqvi_members_collapsed";
+
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    if (!raw) return new Set(["offline"]); // offline collapsed by default
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set(["offline"]);
+  }
+}
+
+function saveCollapsed(collapsed: Set<string>): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+  } catch { /* localStorage full */ }
+}
 
 /** Returns the member's highest-position role (used for grouping). */
 function getHighestRole(member: MemberWithRoles): Role | null {
@@ -74,6 +96,20 @@ function MemberList() {
   const membersOpen = useUIStore((s) => s.membersOpen);
   const closeRightDrawer = useMobileStore((s) => s.closeRightDrawer);
   const isMobile = useIsMobile();
+  const activeServer = useServerStore((s) => s.activeServer);
+
+  // Collapsible sections — persisted in localStorage
+  const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
+
+  const toggleSection = useCallback((sectionId: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
+      saveCollapsed(next);
+      return next;
+    });
+  }, []);
 
   const { width, handleMouseDown, isDragging } = useResizeHandle({
     initialWidth: MEMBERS_DEFAULT,
@@ -130,7 +166,20 @@ function MemberList() {
       <div className="members-inner app-panel" style={{ width }}>
         {/* ─── Header ─── */}
         <div className="members-header">
-          <h3>{t("members")}</h3>
+          <div className="members-header-left">
+            {activeServer?.icon_url ? (
+              <img
+                src={resolveAssetUrl(activeServer.icon_url)}
+                alt={activeServer.name}
+                className="members-header-icon"
+              />
+            ) : activeServer ? (
+              <span className="members-header-icon-fallback">
+                {activeServer.name.charAt(0).toUpperCase()}
+              </span>
+            ) : null}
+            <h3>{t("members")}</h3>
+          </div>
           <button onClick={isMobile ? closeRightDrawer : toggleMembers}>✕</button>
         </div>
 
@@ -142,28 +191,44 @@ function MemberList() {
           )}
 
           {/* Online — grouped by role */}
-          {onlineGroups.map((group) => (
-            <div key={group.role.id}>
-              <div className="member-label">
-                {group.role.name} — {group.members.length}
+          {onlineGroups.map((group) => {
+            const sectionId = `role-${group.role.id}`;
+            const isCollapsed = collapsed.has(sectionId);
+            return (
+              <div key={group.role.id}>
+                <button
+                  className="member-label member-label-toggle"
+                  onClick={() => toggleSection(sectionId)}
+                >
+                  <svg className={`member-label-chevron${isCollapsed ? " collapsed" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                  {group.role.name} — {group.members.length}
+                </button>
+                {!isCollapsed && group.members.map((member) => (
+                  <MemberItem
+                    key={member.id}
+                    member={member}
+                    isOnline={true}
+                  />
+                ))}
               </div>
-              {group.members.map((member) => (
-                <MemberItem
-                  key={member.id}
-                  member={member}
-                  isOnline={true}
-                />
-              ))}
-            </div>
-          ))}
+            );
+          })}
 
           {/* Ungrouped online members */}
           {ungroupedOnline.length > 0 && (
             <div>
-              <div className="member-label">
+              <button
+                className="member-label member-label-toggle"
+                onClick={() => toggleSection("online")}
+              >
+                <svg className={`member-label-chevron${collapsed.has("online") ? " collapsed" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
                 {t("online")} — {ungroupedOnline.length}
-              </div>
-              {ungroupedOnline.map((member) => (
+              </button>
+              {!collapsed.has("online") && ungroupedOnline.map((member) => (
                 <MemberItem
                   key={member.id}
                   member={member}
@@ -176,10 +241,16 @@ function MemberList() {
           {/* Offline section */}
           {sortedOffline.length > 0 && (
             <div>
-              <div className="member-label">
+              <button
+                className="member-label member-label-toggle"
+                onClick={() => toggleSection("offline")}
+              >
+                <svg className={`member-label-chevron${collapsed.has("offline") ? " collapsed" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
                 {t("offline")} — {sortedOffline.length}
-              </div>
-              {sortedOffline.map((member) => (
+              </button>
+              {!collapsed.has("offline") && sortedOffline.map((member) => (
                 <MemberItem
                   key={member.id}
                   member={member}

@@ -290,7 +290,7 @@ button { font-family:inherit; }
 /* Channel icon */
 .ch-tree-icon { font-size:15px;color:var(--t3);min-width:16px;text-align:center;flex-shrink:0; }
 .ch-tree-item.active .ch-tree-icon { color:var(--primary); }
-.ch-tree-item.voice .ch-tree-icon { color:var(--green); }
+.ch-tree-item.voice .ch-tree-icon { color:var(--t3); }
 
 /* Channel label */
 .ch-tree-label { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
@@ -690,7 +690,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 
 /* Edit mode */
 .msg-edit-area { margin-top:4px; }
-.msg-edit-textarea { width:100%;resize:none;border-radius:8px;background:var(--input-bg);border:1px solid var(--input-border);padding:8px;font-size:13px;color:var(--t0);outline:none; }
+.msg-edit-textarea { width:100%;resize:none;border-radius:8px;background:var(--input-bg);border:1px solid var(--input-border);padding:8px;font-family:inherit;font-size:13px;color:var(--t0);outline:none; }
 .msg-edit-textarea:focus { background:var(--bg-4); }
 .msg-edit-hint { font-size:13px;color:var(--t3);margin-top:4px; }
 
@@ -733,7 +733,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .input-box button { width:36px;height:36px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px; }
 .input-box button:hover { color:var(--t1);background:var(--bg-h); }
 .send-btn { color:var(--primary) !important; }
-.input-box textarea { flex:1;background:transparent;border:none;outline:none;color:var(--t0);font-size:14px;padding:8px 6px;resize:none;max-height:100px;line-height:1.4; }
+.input-box textarea { flex:1;background:transparent;border:none;outline:none;color:var(--t0);font-family:inherit;font-size:14px;padding:8px 6px;resize:none;max-height:100px;line-height:1.4; }
 .input-box textarea::placeholder { color:var(--t3); }
 .input-box-disabled { justify-content:center;padding:10px;cursor:not-allowed;opacity:0.6; }
 .input-no-perm { font-size:13px;color:var(--t3);font-style:italic;user-select:none; }
@@ -770,17 +770,25 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 /* ═══════════════════════════════════════
    MEMBERS PANEL
    ═══════════════════════════════════════ */
-.members-panel { width:0;flex-shrink:0;position:relative;background:transparent;border:none;overflow:visible; }
+.members-panel { flex-shrink:0;position:relative;background:transparent;border:none;overflow:visible;display:flex;align-items:flex-start;justify-content:center;width:36px; }
 .members-panel.open { overflow:hidden; }
-.members-fab { position:absolute;top:8px;left:-40px;width:32px;height:32px;border-radius:10px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);box-shadow:var(--panel-inset),0 4px 12px rgba(0,0,0,0.3);color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color .15s,background .15s;z-index:5; }
+.members-fab { width:32px;height:32px;border-radius:10px;margin-top:8px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);box-shadow:var(--panel-inset),0 4px 12px rgba(0,0,0,0.3);color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color .15s,background .15s;flex-shrink:0; }
 .members-fab:hover { color:var(--t0);background:var(--bg-3);border-color:var(--b2); }
-.members-inner { height:100%;display:flex;flex-direction:column; }
+.members-inner { height:100%;display:none;flex-direction:column; }
+.members-panel.open .members-inner { display:flex; }
 .members-header { height:38px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--b1); }
+.members-header-left { display:flex;align-items:center;gap:8px;min-width:0; }
+.members-header-icon { width:20px;height:20px;border-radius:5px;flex-shrink:0;object-fit:cover; }
+.members-header-icon-fallback { width:20px;height:20px;border-radius:5px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0; }
 .members-header h3 { font-size:13px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.04em; }
 .members-header button { width:22px;height:22px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px; }
 .members-header button:hover { color:var(--t1);background:var(--bg-h); }
 .members-list { flex:1;overflow-y:auto;padding:4px 6px;scrollbar-width:thin;scrollbar-color:var(--bg-5) transparent; }
 .member-label { font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--t1);padding:9px 6px 3px; }
+.member-label-toggle { display:flex;align-items:center;gap:4px;width:100%;border:none;background:transparent;cursor:pointer;font:inherit;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--t1);padding:9px 6px 3px; }
+.member-label-toggle:hover { color:var(--t2); }
+.member-label-chevron { width:12px;height:12px;flex-shrink:0;transition:transform .15s ease; }
+.member-label-chevron.collapsed { transform:rotate(-90deg); }
 .member { display:flex;align-items:center;gap:9px;padding:5px 6px;border-radius:7px;cursor:pointer;transition:background .08s; }
 .member:hover { background:var(--bg-h); }
 .member-info { display:flex;flex-direction:column;min-width:0; }
@@ -2433,7 +2441,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .invite-friends-progress-fill { height:100%;background:var(--primary);border-radius:2px;transition:width .2s; }
 
 /* ─── Invite Card (message inline) ─── */
-.invite-card { display:inline-flex;align-items:center;gap:10px;padding:10px 14px;margin:4px 0;border:1px solid var(--b1);border-radius:10px;background:var(--bg-3);max-width:360px; }
+.invite-card { display:inline-flex;align-items:center;gap:10px;padding:10px 14px;margin:4px 0;border:1px solid var(--panel-border);border-radius:var(--panel-radius);background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);box-shadow:var(--panel-inset);max-width:360px; }
 .invite-card-icon { display:flex;align-items:center;flex-shrink:0; }
 .invite-card-img { width:36px;height:36px;border-radius:8px;object-fit:cover; }
 .invite-card-info { display:flex;flex-direction:column;min-width:0;flex:1;gap:2px; }

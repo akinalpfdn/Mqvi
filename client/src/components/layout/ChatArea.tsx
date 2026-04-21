@@ -11,7 +11,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { useUIStore } from "../../stores/uiStore";
 import { usePinStore } from "../../stores/pinStore";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { useChatContext } from "../../hooks/useChatContext";
@@ -23,7 +22,6 @@ import TypingIndicator from "../chat/TypingIndicator";
 import PinnedMessages from "../chat/PinnedMessages";
 import SearchPanel from "../chat/SearchPanel";
 import FileDropOverlay from "../shared/FileDropOverlay";
-import { IconMembers } from "../shared/Icons";
 import type { Channel } from "../../types";
 
 type ChatAreaProps = {
@@ -59,8 +57,6 @@ function ChatAreaContent({
 }) {
   const { t } = useTranslation("chat");
   const { addFilesRef } = useChatContext();
-  const toggleMembers = useUIStore((s) => s.toggleMembers);
-  const membersOpen = useUIStore((s) => s.membersOpen);
   const getPinsForChannel = usePinStore((s) => s.getPinsForChannel);
   const fetchPins = usePinStore((s) => s.fetchPins);
   const fetchOverrides = useChannelPermissionStore((s) => s.fetchOverrides);
@@ -124,13 +120,6 @@ function ChatAreaContent({
                 <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-              </button>
-              {/* Member list toggle */}
-              <button
-                className={membersOpen ? "active" : ""}
-                onClick={toggleMembers}
-              >
-                <IconMembers style={{ width: 16, height: 16 }} />
               </button>
             </div>
           </>
