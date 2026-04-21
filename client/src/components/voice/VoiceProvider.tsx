@@ -166,16 +166,20 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       }
 
       if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
-        // Another session joined voice as this same user; SFU evicted us.
-        // Auto-rejoining would steal voice back and ping-pong between devices.
-        // Clean up and let the user re-enter manually if they actually want this device.
-        console.warn("[VoiceProvider] DUPLICATE_IDENTITY -> skip rejoin, another session took over");
-        leaveVoiceChannel();
-        return;
+        // DUPLICATE_IDENTITY fires when the SFU sees a second connection with our
+        // identity. In single-tab usage, this is almost always the LiveKit SDK's own
+        // full reconnect: signal WS dropped → resume failed → SDK opens a new
+        // connection → SFU evicts the old one → we receive this event.
+        //
+        // If wasReplaced was set by a WS "voice_replaced" event (true multi-device),
+        // we already returned above. Reaching here means no explicit replacement —
+        // treat it as a server-initiated disconnect and auto-rejoin.
+        console.warn("[VoiceProvider] DUPLICATE_IDENTITY -> treating as server-initiated disconnect, will auto-rejoin");
+        // Fall through to the auto-rejoin path below (same as any other disconnect)
       }
 
-      // Server-initiated disconnect while user was in voice — attempt auto-rejoin
-      // (CLIENT_INITIATED and DUPLICATE_IDENTITY already returned above).
+      // Server-initiated or SDK-internal disconnect while user was in voice.
+      // CLIENT_INITIATED returned above. DUPLICATE_IDENTITY falls through here.
       if (currentVoiceChannelId) {
         if (rejoinAttemptsRef.current < MAX_REJOIN_ATTEMPTS) {
           rejoinAttemptsRef.current++;

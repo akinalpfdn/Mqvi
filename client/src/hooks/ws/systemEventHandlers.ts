@@ -67,17 +67,21 @@ export async function handleSystemEvent(
 
       setConnectionStatus("connected");
 
-      // Voice resume on WS reconnect — only when LiveKit actually dropped.
-      // LiveKit is a separate connection; a WS blip doesn't take it down. Sending
-      // voice_join here on every reconnect triggers a ghost-pointer race in the
-      // backend: stale Client struct still in the hub map receives voice_replaced,
-      // which disconnects this very session.
+      // Voice re-registration on WS reconnect.
+      // LiveKit (WebRTC/UDP) is independent from WS (TCP). A WS blip doesn't
+      // take LiveKit down, but the backend's orphan cleanup tracks presence via
+      // the Hub (WS). Without re-registering voice_join, the backend removes our
+      // voice state after 35s of WS absence — even if LiveKit audio is flowing.
+      //
+      // Server's JoinChannel has a same-channel rejoin path that silently refreshes
+      // state without any broadcast (no leave/join sounds). Safe to always send.
       {
         const voiceState = useVoiceStore.getState();
         const previousChannel = voiceState.currentVoiceChannelId;
         const liveKitStillConnected = !!voiceState.livekitToken;
 
         if (previousChannel && !liveKitStillConnected) {
+          // LiveKit also dropped — need a fresh token, do full leave+join cycle
           console.warn("[ws ready] Voice resume — LiveKit dropped, rejoining", { channel: previousChannel });
           const prevMuted = voiceState.isMuted;
           const prevDeafened = voiceState.isDeafened;
@@ -91,7 +95,10 @@ export async function handleSystemEvent(
             }
           });
         } else if (previousChannel && liveKitStillConnected) {
-          console.warn("[ws ready] Voice skip-resume — LiveKit still connected", { channel: previousChannel });
+          // LiveKit still connected — just re-register with backend so orphan
+          // cleanup doesn't remove our state. Server silently refreshes (no broadcast).
+          console.warn("[ws ready] Voice re-register — LiveKit still connected", { channel: previousChannel });
+          ctx.sendVoiceJoin(previousChannel);
         }
       }
       return true;

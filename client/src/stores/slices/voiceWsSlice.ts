@@ -9,6 +9,7 @@
 import type { StateCreator } from "zustand";
 import type { VoiceState, VoiceStateUpdateData } from "../../types";
 import type { VoiceStore } from "../voiceStore";
+import { clearVoiceRecoveryMark } from "../shared/voiceRecovery";
 
 export type VoiceWsSlice = {
   afkKickInfo: { channelName: string; serverName: string } | null;
@@ -144,6 +145,7 @@ export const createVoiceWsSlice: StateCreator<
 
   handleForceDisconnect: () => {
     console.warn("[voiceStore] handleForceDisconnect CALLED", { timestamp: new Date().toISOString() });
+    clearVoiceRecoveryMark();
     // Admin force-disconnected us — same cleanup as leave but no WS event sent
     // (server already cleared state). isMuted/isDeafened preserved.
     set({
@@ -162,6 +164,7 @@ export const createVoiceWsSlice: StateCreator<
 
   handleAFKKick: (channelName: string, serverName: string) => {
     console.warn("[voiceStore] handleAFKKick CALLED", { timestamp: new Date().toISOString(), channelName, serverName });
+    clearVoiceRecoveryMark();
     set({
       currentVoiceChannelId: null,
       currentVoiceServerId: null,
@@ -181,6 +184,7 @@ export const createVoiceWsSlice: StateCreator<
 
   handleVoiceReplaced: () => {
     console.warn("[voiceStore] handleVoiceReplaced CALLED", { timestamp: new Date().toISOString() });
+    clearVoiceRecoveryMark();
     // Another session took over voice — leave silently, skip auto-rejoin.
     set({
       wasReplaced: true,

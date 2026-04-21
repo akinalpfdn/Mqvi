@@ -27,6 +27,7 @@ import { ensureFreshToken } from "../api/client";
 import { useServerStore } from "./serverStore";
 import { useAuthStore } from "./authStore";
 import { closeAudioContext } from "../utils/sounds";
+import { markVoiceActive, clearVoiceRecoveryMark } from "./shared/voiceRecovery";
 import {
   createVoiceSettingsSlice,
   type VoiceSettingsSlice,
@@ -55,6 +56,7 @@ function getOwnUserId(): string | null {
 // Without this, reload resets to unmuted — a privacy risk for anyone who
 // intentionally joined muted and briefly disconnects.
 const MUTE_STATE_KEY = "mqvi_voice_mute_state";
+
 
 function loadMuteState(): { isMuted: boolean; isDeafened: boolean } {
   try {
@@ -252,6 +254,10 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
         isStreaming: false,
       });
 
+      // Remember this tab owns the voice session — enables F5 recovery
+      // for THIS tab only, prevents unrelated tabs/windows from auto-joining.
+      markVoiceActive(channelId);
+
       // iOS: connect natively (audio works in background)
       // Other platforms: VoiceProvider connects via LiveKitRoom props
       if (useNativeVoice()) {
@@ -269,6 +275,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   },
 
   leaveVoiceChannel: () => {
+    clearVoiceRecoveryMark();
     const _dbg = get();
     console.warn("[voiceStore] leaveVoiceChannel CALLED", {
       timestamp: new Date().toISOString(),

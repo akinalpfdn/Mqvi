@@ -11,6 +11,7 @@ import { useUIStore } from "../../stores/uiStore";
 import { playJoinSound, playLeaveSound } from "../../utils/sounds";
 import type { WSMessage, VoiceState, VoiceStateUpdateData } from "../../types";
 import type { WSHandlerContext } from "./types";
+import { isVoiceRecoveryAllowed } from "../../stores/shared/voiceRecovery";
 
 export async function handleVoiceEvent(
   msg: WSMessage,
@@ -82,26 +83,32 @@ export async function handleVoiceEvent(
         myVoiceChannel,
         selfEntryChannel: selfEntry?.channel_id,
         liveKitStillConnected,
-        willReassert: !!(myVoiceChannel && selfEntry?.channel_id !== myVoiceChannel && !liveKitStillConnected),
+        willReassert: !!(myVoiceChannel && selfEntry?.channel_id !== myVoiceChannel),
         willRecover: !myVoiceChannel && !!selfEntry,
       });
 
       if (myVoiceChannel) {
-        // Client already thinks it's in voice — re-assert membership if the
-        // server forgot us AND LiveKit is actually gone. If LiveKit is still
-        // connected, re-asserting triggers a backend voice_replaced broadcast
-        // that disconnects this very session (ghost-pointer race).
+        // Client thinks it's in voice — re-assert if server doesn't agree.
+        // Server's JoinChannel has a same-channel rejoin path that silently
+        // refreshes state (no broadcast, no leave/join sounds). Always safe
+        // to re-assert regardless of LiveKit connection state.
         const matches = selfEntry?.channel_id === myVoiceChannel;
-        if (!matches && !liveKitStillConnected) {
-          console.warn("[ws] voice_states_sync RE-ASSERT sendVoiceJoin", { channel: myVoiceChannel });
+        if (!matches) {
+          console.warn("[ws] voice_states_sync RE-ASSERT sendVoiceJoin", { channel: myVoiceChannel, liveKitStillConnected });
           ctx.sendVoiceJoin(myVoiceChannel);
-        } else if (!matches && liveKitStillConnected) {
-          console.warn("[ws] voice_states_sync SKIP re-assert — LiveKit still connected");
         }
       } else if (selfEntry) {
         // F5 recovery: backend still has us in voice (within the 35s orphan
         // grace) but our in-memory state was wiped by the reload. Re-acquire
         // a LiveKit token and resume — other users never saw us leave.
+        // Tab-scoped flag check: only the ORIGINAL tab that joined voice should
+        // auto-recover. A fresh tab/window must never claim voice just because
+        // the backend still remembers the user being in voice from another tab.
+        const recoveryAllowed = isVoiceRecoveryAllowed(selfEntry.channel_id);
+        if (!recoveryAllowed) {
+          console.warn("[ws] voice_states_sync F5 RECOVERY skipped — not the owning tab", { channel: selfEntry.channel_id });
+          return true;
+        }
         console.warn("[ws] voice_states_sync F5 RECOVERY path", { channel: selfEntry.channel_id });
         void (async () => {
           // joinVoiceChannel scopes the token request to activeServerId;
@@ -138,8 +145,8 @@ export async function handleVoiceEvent(
 
           const channelName = forceMoveData.channel_name
             ?? useChannelStore.getState().categories
-                .flatMap((cg) => cg.channels)
-                .find((ch) => ch.id === forceMoveData.channel_id)?.name
+              .flatMap((cg) => cg.channels)
+              .find((ch) => ch.id === forceMoveData.channel_id)?.name
             ?? "";
           const srvState = useServerStore.getState();
           const activeSrv = srvState.activeServer
