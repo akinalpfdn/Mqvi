@@ -333,10 +333,9 @@ function ServerGeneralSettings() {
               {/* Current URL display */}
               <div className="settings-field">
                 <label className="settings-label">{t("livekitCurrentUrl")}</label>
-                <p style={{
+                <p className="mono" style={{
                   fontSize: 14,
                   color: "var(--t0)",
-                  fontFamily: "var(--font-mono)",
                   background: "var(--b0)",
                   padding: "8px 12px",
                   borderRadius: 6,

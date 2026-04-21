@@ -71,6 +71,9 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
   );
 
   if (!panel) return null;
+  // Hide empty tab bar when nothing is selected — still mount briefly while
+  // a tab is being dragged over (dropHover keeps it visible for drop feedback).
+  if (panel.tabs.length === 0 && !dropHover) return null;
 
   const isActivePanel = activePanelId === panelId;
   let barClass = "panel-tab-bar";

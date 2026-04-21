@@ -32,7 +32,6 @@ const UpdateNotification: FC<Props> = ({
         background: "var(--primary)",
         color: "#fff",
         fontSize: 14,
-        fontFamily: "var(--f-s)",
       }}
     >
       {status === "downloading" && (
@@ -76,8 +75,7 @@ const UpdateNotification: FC<Props> = ({
               color: "#fff",
               fontSize: 13,
               cursor: "pointer",
-              fontFamily: "var(--f-s)",
-            }}
+                  }}
           >
             {t("updateRestart")}
           </button>
@@ -91,8 +89,7 @@ const UpdateNotification: FC<Props> = ({
               color: "rgba(255,255,255,0.7)",
               fontSize: 13,
               cursor: "pointer",
-              fontFamily: "var(--f-s)",
-            }}
+                  }}
           >
             {t("updateLater")}
           </button>

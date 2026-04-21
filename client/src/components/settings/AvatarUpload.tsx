@@ -118,7 +118,7 @@ function AvatarUpload({
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
-          <span style={{ fontSize: 24, fontWeight: 700, color: "#fff", fontFamily: "var(--f-d)" }}>
+          <span style={{ fontSize: 24, fontWeight: 700, color: "#fff" }}>
             {firstLetter}
           </span>
         )}

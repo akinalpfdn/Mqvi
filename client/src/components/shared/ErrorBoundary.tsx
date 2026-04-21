@@ -52,7 +52,6 @@ class ErrorBoundary extends Component<Props, State> {
             height: "100vh",
             backgroundColor: "var(--color-background)",
             color: "var(--color-text-primary)",
-            fontFamily: "var(--font-sans)",
             fontSize: "15px",
           }}
         >

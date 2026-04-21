@@ -240,8 +240,8 @@ function InviteItem({ invite, onCopyCode, onCopyLink, onDelete }: InviteItemProp
     >
       <div style={{ minWidth: 0 }}>
         <div
+          className="mono"
           style={{
-            fontFamily: "var(--f-m)",
             fontSize: 14,
             fontWeight: 500,
             color: "var(--t0)",
