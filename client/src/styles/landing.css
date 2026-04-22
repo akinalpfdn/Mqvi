@@ -43,10 +43,8 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   --lp-panel-shadow: 0 10px 32px rgba(0,0,0,0.45), var(--lp-panel-inset);
 
   font-family: 'Manrope', system-ui, sans-serif;
-  background:
-    radial-gradient(ellipse at 20% -10%, rgba(212,165,116,0.10), transparent 55%),
-    radial-gradient(ellipse at 110% 30%, rgba(212,107,140,0.08), transparent 55%),
-    linear-gradient(180deg, #110F14 0%, #0B0A0E 100%);
+  /* Solid base under ::before screenshot layer so we never paint onto nothing */
+  background: #110F14;
   color: var(--lp-text);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
@@ -81,6 +79,21 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-reveal--visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* ── Screenshot Background ──
+   Heavily blurred in-app screenshot as an abstract color field.
+   Overscan so blur feather doesn't expose hard edges. */
+.landing-page::before {
+  content: "";
+  position: fixed;
+  inset: -120px;
+  background:
+    linear-gradient(180deg, rgba(17, 15, 20, 0.5), rgba(11,10,14,0.65)),
+    url("/bg.png?v=2") center/cover no-repeat;
+  filter: blur(20px) saturate(1.2);
+  z-index: 0;
+  pointer-events: none;
 }
 
 /* ── Aurora Background ── */
@@ -139,6 +152,39 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   position: relative;
   z-index: 2;
 }
+
+/* ── Text Frost Utility ──
+   Wraps free-floating text groups (hero copy, section intros, CTA) in a
+   subtle frosted panel so they stay readable over the blurred screenshot
+   background. Use only where text is NOT already inside a card. */
+.lp-text-frost {
+  display: inline-block;
+  padding: 36px 44px;
+  background: var(--lp-panel);
+  backdrop-filter: var(--lp-panel-blur);
+  -webkit-backdrop-filter: var(--lp-panel-blur);
+  border: var(--lp-panel-border);
+  border-radius: 18px;
+  box-shadow: var(--lp-panel-shadow);
+  max-width: 100%;
+}
+.lp-text-frost--center {
+  display: block;
+  max-width: 820px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+}
+/* Hero copy needs more breathing room for the large display h1 */
+.lp-hero-copy { max-width: 1200px; margin-bottom: 32px; }
+.lp-hero-copy h1,
+.lp-hero-copy .lp-hero-sub { max-width: 100%; }
+/* Section intros inside --center sections */
+.lp-section-intro { margin-bottom: 48px; }
+/* CTA copy spacing — pair with the existing glow + actions below */
+.lp-cta-copy { margin-bottom: 40px; }
+.lp-cta-copy h2 { margin-bottom: 20px; }
+.lp-cta-copy p { max-width: 100%; margin: 0; }
 
 /* ═══════════════════════════════════════
    NAVIGATION
@@ -419,6 +465,13 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 }
 .lp-showcase-text {
   flex: 1;
+  padding: 28px 32px;
+  background: var(--lp-panel);
+  backdrop-filter: var(--lp-panel-blur);
+  -webkit-backdrop-filter: var(--lp-panel-blur);
+  border: var(--lp-panel-border);
+  border-radius: 14px;
+  box-shadow: var(--lp-panel-shadow);
 }
 .lp-showcase-text h3 {
   font-size: 30px;
@@ -575,6 +628,16 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-features-header {
   text-align: center;
   margin-bottom: 64px;
+  padding: 40px 48px;
+  background: var(--lp-panel);
+  backdrop-filter: var(--lp-panel-blur);
+  -webkit-backdrop-filter: var(--lp-panel-blur);
+  border: var(--lp-panel-border);
+  border-radius: 16px;
+  box-shadow: var(--lp-panel-shadow);
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .lp-features-header .lp-section-desc {
   margin: 0 auto;
@@ -1005,9 +1068,19 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-guide-troubleshoot { margin-top: 48px; margin-left: 64px; }
 .lp-guide-troubleshoot-title {
   font-size: 20px; font-weight: 700; color: var(--lp-text);
-  margin-bottom: 20px;
+  margin: 0 auto 20px;
   text-align: center;
+  display: inline-block;
+  padding: 14px 28px;
+  background: var(--lp-panel);
+  backdrop-filter: var(--lp-panel-blur);
+  -webkit-backdrop-filter: var(--lp-panel-blur);
+  border: var(--lp-panel-border);
+  border-radius: 12px;
+  box-shadow: var(--lp-panel-shadow);
 }
+.lp-guide-troubleshoot { text-align: center; }
+.lp-guide-troubleshoot .lp-guide-trouble-grid { text-align: left; }
 .lp-guide-trouble-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .lp-guide-trouble-card {
   padding: 20px;

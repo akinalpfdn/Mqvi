@@ -92,18 +92,20 @@ function LandingPage() {
 
         {/* ═══ HERO ═══ */}
         <section className="lp-hero">
-          {totalUsers > 0 && (
-            <div className="lp-hero-user-count">
-              <div className="lp-hero-user-dot" />
-              {t("hero_userCount", { count: totalUsers })}
-            </div>
-          )}
+          <div className="lp-text-frost lp-text-frost--center lp-hero-copy">
+            {totalUsers > 0 && (
+              <div className="lp-hero-user-count">
+                <div className="lp-hero-user-dot" />
+                {t("hero_userCount", { count: totalUsers })}
+              </div>
+            )}
 
-          <h1>
-            {t("hero_h1_1")}<br />
-            <span className="lp-hero-gradient">{t("hero_h1_2")}</span>
-          </h1>
-          <p className="lp-hero-sub">{t("hero_sub")}</p>
+            <h1>
+              {t("hero_h1_1")}<br />
+              <span className="lp-hero-gradient">{t("hero_h1_2")}</span>
+            </h1>
+            <p className="lp-hero-sub">{t("hero_sub")}</p>
+          </div>
 
           {isWindows ? (
             <button
@@ -194,9 +196,11 @@ function LandingPage() {
         {/* ═══ COMPARISON ═══ */}
         <RevealOnScroll>
           <section id="comparison" className="lp-section lp-section--center">
-            <div className="lp-section-label">{t("comp_label")}</div>
-            <h2 className="lp-section-title">{t("comp_title")}</h2>
-            <p className="lp-section-desc">{t("comp_desc")}</p>
+            <div className="lp-text-frost lp-text-frost--center lp-section-intro">
+              <div className="lp-section-label">{t("comp_label")}</div>
+              <h2 className="lp-section-title">{t("comp_title")}</h2>
+              <p className="lp-section-desc">{t("comp_desc")}</p>
+            </div>
 
             <div className="lp-comparison-table">
               <div className="lp-comp-header">
@@ -399,8 +403,10 @@ function LandingPage() {
         {/* ═══ FAQ ═══ */}
         <RevealOnScroll>
           <section id="faq" className="lp-section lp-section--center">
-            <span className="lp-section-label">{t("faq_label")}</span>
-            <h2 className="lp-section-title">{t("faq_title")}</h2>
+            <div className="lp-text-frost lp-text-frost--center lp-section-intro">
+              <span className="lp-section-label">{t("faq_label")}</span>
+              <h2 className="lp-section-title">{t("faq_title")}</h2>
+            </div>
             <div className="lp-faq-grid">
               {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
                 <div key={n} className="lp-faq-item">
@@ -416,11 +422,13 @@ function LandingPage() {
         <RevealOnScroll>
           <section id="cta" className="lp-cta">
             <div className="lp-cta-glow" />
-            <h2>
-              {t("cta_t1")}<br />
-              <span className="lp-hero-gradient">{t("cta_t2")}</span>
-            </h2>
-            <p>{t("cta_desc")}</p>
+            <div className="lp-text-frost lp-text-frost--center lp-cta-copy">
+              <h2>
+                {t("cta_t1")}<br />
+                <span className="lp-hero-gradient">{t("cta_t2")}</span>
+              </h2>
+              <p>{t("cta_desc")}</p>
+            </div>
             <div className="lp-cta-actions">
               <button className="lp-btn-primary" onClick={() => navigate("/register")}>
                 {t("cta_btn1")}
