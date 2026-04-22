@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/authStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import LoginPage from "./components/auth/LoginPage";
 import RegisterPage from "./components/auth/RegisterPage";
 import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
@@ -27,10 +28,24 @@ function App() {
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const user = useAuthStore((s) => s.user);
   const updater = useUpdateChecker();
+  const blurEnabled = useSettingsStore((s) => s.blurEnabled);
+  const transparentBackground = useSettingsStore((s) => s.transparentBackground);
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  // Apply blur + transparent classes at root level so they also affect
+  // pre-auth pages (login, register, landing).
+  useEffect(() => {
+    document.body.classList.toggle("blur-enabled", blurEnabled);
+    document.body.classList.toggle("blur-disabled", !blurEnabled);
+  }, [blurEnabled]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("transparent-bg", transparentBackground);
+    document.body.classList.toggle("transparent-bg", transparentBackground);
+  }, [transparentBackground]);
 
   if (!isInitialized) {
     const spinner = (

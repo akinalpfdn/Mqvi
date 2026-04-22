@@ -87,8 +87,9 @@ body.blur-disabled {
 html, body { height:100%; width:100%; overflow:hidden;color-scheme:dark;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),var(--wallpaper) center/cover no-repeat,var(--bg-0); }
 .transparent-bg { background:transparent !important; }
 .transparent-bg #root { background:rgba(5,6,11,0.55);border:1px solid var(--panel-border);border-radius:12px; }
-.transparent-bg .app-panel { background:rgba(10,12,18,0.82); }
 .transparent-bg .settings-overlay { background:rgba(5,6,11,0.6); }
+.transparent-bg .auth-page,
+.transparent-bg .landing-page { background:transparent !important; }
 #root {
   height: 100%;
   width: 100%;

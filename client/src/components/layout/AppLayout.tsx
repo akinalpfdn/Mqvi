@@ -72,24 +72,13 @@ function AppLayout() {
   // E2EE device identity check + key init
   useE2EE();
   const showRecoveryPrompt = useE2EEStore((s) => s.showRecoveryPrompt);
-  const blurEnabled = useSettingsStore((s) => s.blurEnabled);
 
-  // Apply blur class to body so portaled popups inherit the token overrides
-  useEffect(() => {
-    document.body.classList.toggle("blur-enabled", blurEnabled);
-    document.body.classList.toggle("blur-disabled", !blurEnabled);
-  }, [blurEnabled]);
-
+  // Blur + transparent classes are applied at App root level so they also
+  // affect pre-auth pages. Wallpaper stays here because it depends on auth
+  // (user.wallpaper_url) and must not leak to login screens.
   const wallpaperUrl = useAuthStore((s) => s.user?.wallpaper_url ?? null);
   const wallpaperEnabled = useSettingsStore((s) => s.wallpaperEnabled);
-  const transparentBackground = useSettingsStore((s) => s.transparentBackground);
   const pendingWallpaperPreviewUrl = useSettingsStore((s) => s.pendingWallpaperPreviewUrl);
-
-  // Transparent mode — html+body become see-through (Electron transparent window)
-  useEffect(() => {
-    document.documentElement.classList.toggle("transparent-bg", transparentBackground);
-    document.body.classList.toggle("transparent-bg", transparentBackground);
-  }, [transparentBackground]);
   useEffect(() => {
     if (pendingWallpaperPreviewUrl) {
       document.documentElement.style.setProperty("--wallpaper", `url(${pendingWallpaperPreviewUrl})`);
