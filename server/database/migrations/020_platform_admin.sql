@@ -1,11 +1,11 @@
 -- 020_platform_admin.sql
--- Platform admin + çoklu LiveKit instance kapasite desteği.
+-- Platform admin flag + multi-instance LiveKit capacity support.
 --
--- is_platform_admin: Platform yöneticisi bayrağı.
--- SQL ile manual atanır: UPDATE users SET is_platform_admin = 1 WHERE id = '...';
+-- is_platform_admin: Platform administrator flag.
+-- Assigned manually via SQL: UPDATE users SET is_platform_admin = 1 WHERE id = '...';
 --
--- max_servers: LiveKit instance başına maksimum sunucu kapasitesi.
--- 0 = sınırsız (mevcut instance'lar etkilenmez).
+-- max_servers: Maximum server capacity per LiveKit instance.
+-- 0 = unlimited (existing instances are not affected).
 
 ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 

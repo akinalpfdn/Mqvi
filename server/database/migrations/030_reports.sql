@@ -1,7 +1,7 @@
 -- 030_reports.sql
--- Kullanıcı raporlama sistemi.
--- Predefined reason + zorunlu açıklama ile rapor oluşturulur.
--- Admin panelinden raporlar yönetilir (status: pending → reviewed → resolved/dismissed).
+-- User reporting system.
+-- A report is created with a predefined reason + a required description.
+-- Reports are managed from the admin panel (status: pending → reviewed → resolved/dismissed).
 
 CREATE TABLE IF NOT EXISTS reports (
     id               TEXT PRIMARY KEY,

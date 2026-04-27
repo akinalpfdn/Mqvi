@@ -1,9 +1,9 @@
--- 032: Channel mute — kullanıcı bazlı kanal sessize alma.
+-- 032: Channel mute — per-user channel muting.
 --
--- muted_until: NULL = sonsuza kadar (unmute edilene kadar)
---              DATETIME = belirli bir zamana kadar (1h, 8h, 7d)
--- Süresi dolan mute'lar lazy olarak temizlenir: okunurken kontrol edilir.
--- server_id sorgu optimizasyonu için tutulur (FK cascade channel üzerinden zaten çalışır).
+-- muted_until: NULL = forever (until explicitly unmuted)
+--              DATETIME = until a specific time (1h, 8h, 7d)
+-- Expired mutes are cleaned up lazily — checked on read.
+-- server_id is denormalized for query optimization (FK cascade still works through channel).
 
 CREATE TABLE IF NOT EXISTS channel_mutes (
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

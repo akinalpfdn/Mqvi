@@ -1,6 +1,6 @@
--- 022: servers tablosuna last_voice_activity sütunu ekle.
+-- 022: Add last_voice_activity column to the servers table.
 --
--- Ses kanalına katılım aktivitesini takip etmek için kullanılır.
--- Platform admin panelde "Son Aktivite" gösterilirken hem mesaj hem ses
--- aktivitesi birlikte değerlendirilir.
+-- Used to track voice channel join activity.
+-- When the platform admin panel shows "Last Activity", both message and
+-- voice activity are considered together.
 ALTER TABLE servers ADD COLUMN last_voice_activity TEXT;

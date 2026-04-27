@@ -1,4 +1,4 @@
--- Migration 023: Kullanıcı bazında son ses aktivitesi takibi.
--- Platform admin panelde kullanıcının last_activity'sinde
--- hem mesaj hem ses kanalı katılımı gösterilir.
+-- Migration 023: Per-user last voice activity tracking.
+-- The platform admin panel shows the user's last_activity based on
+-- both message and voice channel participation.
 ALTER TABLE users ADD COLUMN last_voice_activity TEXT;

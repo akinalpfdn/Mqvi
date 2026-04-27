@@ -858,25 +858,25 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .mc-status-item.active { background:var(--primary-s);color:var(--t0); }
 .mc-status-label { flex:1; }
 .mc-status-check { color:var(--primary);flex-shrink:0; }
-.mc-btn { height:34px;border:none;border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,color .15s,transform .1s;padding:0 12px; }
+.mc-btn { height:34px;border:1px solid var(--panel-border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,border-color .15s,color .15s,transform .1s;padding:0 12px;background:rgba(255,255,255,0.04);backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05); }
 .mc-btn:hover { transform:translateY(-1px); }
 .mc-btn:active { transform:translateY(0); }
 .mc-btn svg { flex-shrink:0; }
 
-.mc-btn-primary { background:var(--primary-s);color:var(--primary); }
-.mc-btn-primary:hover { background:var(--primary);color:#fff; }
+.mc-btn-primary { background:var(--primary-s);color:var(--primary);border-color:color-mix(in srgb, var(--primary) 28%, transparent); }
+.mc-btn-primary:hover { background:var(--primary-m);border-color:var(--primary);color:var(--primary-h); }
 
-.mc-btn-default { background:var(--bg-4);color:var(--t1); }
-.mc-btn-default:hover { background:var(--bg-5);color:var(--t0); }
+.mc-btn-default { color:var(--t1); }
+.mc-btn-default:hover { background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.18);color:var(--t0); }
 
-.mc-btn-danger { background:var(--red-s);color:var(--red); }
-.mc-btn-danger:hover { background:var(--red);color:#fff; }
+.mc-btn-danger { background:var(--red-s);color:var(--red);border-color:color-mix(in srgb, var(--red) 28%, transparent); }
+.mc-btn-danger:hover { background:color-mix(in srgb, var(--red) 18%, transparent);border-color:var(--red);color:var(--red); }
 
-.mc-btn-ban { background:var(--red-s);color:var(--red); }
-.mc-btn-ban:hover { background:var(--red);color:#fff; }
+.mc-btn-ban { background:var(--red-s);color:var(--red);border-color:color-mix(in srgb, var(--red) 28%, transparent); }
+.mc-btn-ban:hover { background:color-mix(in srgb, var(--red) 18%, transparent);border-color:var(--red);color:var(--red); }
 
-.mc-btn-roles-full { grid-column:1/-1;height:34px;border:none;border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;background:var(--bg-4);color:var(--t1);transition:background .15s,color .15s,transform .1s;padding:0 12px; }
-.mc-btn-roles-full:hover { background:var(--bg-5);color:var(--t0);transform:translateY(-1px); }
+.mc-btn-roles-full { grid-column:1/-1;height:34px;border:1px solid var(--panel-border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;background:rgba(255,255,255,0.04);backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);color:var(--t1);transition:background .15s,border-color .15s,color .15s,transform .1s;padding:0 12px; }
+.mc-btn-roles-full:hover { background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.18);color:var(--t0);transform:translateY(-1px); }
 .mc-btn-roles-full:active { transform:translateY(0); }
 
 /* ── Badge Assign Modal ── */
@@ -2113,7 +2113,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .screen-share-grid { display:grid;grid-template-columns:repeat(2,1fr);flex:1;min-height:0;gap:4px; }
 
 /* Screen share panel (video container) */
-.screen-share-panel { width:100%;height:100%;position:relative;overflow:hidden;border-radius:8px;background:var(--bg-1); }
+.screen-share-panel { width:100%;height:100%;position:relative;overflow:hidden;border-radius:8px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);box-shadow:inset 0 1px 0 rgba(255,255,255,0.04); }
 .screen-share-panel video { width:100%;height:100%;object-fit:contain; }
 .screen-share-panel-overlay { position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.4),transparent 40%);opacity:0;transition:opacity .2s;pointer-events:none; }
 .screen-share-panel:hover .screen-share-panel-overlay { opacity:1; }

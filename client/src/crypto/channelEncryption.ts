@@ -1,25 +1,25 @@
 /**
- * Channel Encryption — Kanal/grup mesajlari icin E2EE sifreleme/cozme katmani.
+ * Channel Encryption — E2EE encrypt/decrypt layer for channel/group messages.
  *
- * Bu modul messageStore (gonderme) ve useWebSocket (alma) tarafindan
- * cagirilir. Sender Key Protocol primitive'lerini kullanarak:
- * - Gonderme: plaintext → SenderKeyMessage (tek ciphertext, tum uyeler ayni)
- * - Alma: SenderKeyMessage → plaintext
+ * This module is called by messageStore (sending) and useWebSocket (receiving).
+ * Using Sender Key Protocol primitives:
+ * - Send: plaintext → SenderKeyMessage (single ciphertext, all members share)
+ * - Receive: SenderKeyMessage → plaintext
  *
  * Sender Key vs Signal (DM):
- * - DM'de her alici cihaz icin ayri sifreleme yapilir (N ciphertext)
- * - Kanal'da tek sifreleme yapilir, tum uyeler ayni ciphertext'i cozer
- * - Performans avantaji: 100 uyeli kanalda 1 encrypt vs 100 encrypt
+ * - In DM, separate encryption is performed for each recipient device (N ciphertexts)
+ * - In a channel, a single encryption is performed and all members decrypt the same ciphertext
+ * - Performance benefit: in a 100-member channel, 1 encrypt vs 100 encrypts
  *
- * Sender Key dagitimi:
- * Gonderici ilk mesajda (veya key rotation'da) yeni Sender Key olusturur
- * ve dagitim mesajini sunucuya yukler. Uyeler sender key'i sunucudan
- * ceker ve inbound olarak kaydeder.
+ * Sender Key distribution:
+ * The sender creates a new Sender Key on the first message (or on key rotation)
+ * and uploads the distribution message to the server. Members fetch the sender
+ * key from the server and store it as inbound.
  *
  * Key rotation:
- * - Her 100 mesajda otomatik rotation
- * - Her 7 gunde otomatik rotation
- * - Uye cikarilinca rotation (gelecekte)
+ * - Automatic rotation every 100 messages
+ * - Automatic rotation every 7 days
+ * - Rotation when a member is removed (future)
  */
 
 import * as senderKeyProtocol from "./senderKeyProtocol.js";
@@ -37,18 +37,18 @@ import type { Message } from "../types/index.js";
 // ──────────────────────────────────
 
 /**
- * Kanal mesajini Sender Key ile sifreler.
+ * Encrypts a channel message with the Sender Key.
  *
- * Akis:
- * 1. Bu kanal icin outbound sender key var mi kontrol et
- * 2. Yoksa veya rotation gerekiyorsa → yeni distribution olustur + sunucuya yukle
- * 3. encryptGroupMessage ile sifrele
- * 4. SenderKeyMessage doner — JSON.stringify ile ciphertext alanina yazilir
+ * Flow:
+ * 1. Check whether an outbound sender key exists for this channel
+ * 2. If missing or rotation is needed → create a new distribution + upload to server
+ * 3. Encrypt with encryptGroupMessage
+ * 4. Returns a SenderKeyMessage — JSON.stringify is written into the ciphertext field
  *
- * @param channelId - Kanal ID'si
- * @param userId - Gonderici kullanici ID
- * @param deviceId - Bu cihazin device ID'si
- * @param plaintext - Sifrelenmemis mesaj metni
+ * @param channelId - Channel ID
+ * @param userId - Sender user ID
+ * @param deviceId - This device's ID
+ * @param plaintext - Unencrypted message text
  */
 export async function encryptChannelMessage(
   channelId: string,
@@ -56,7 +56,7 @@ export async function encryptChannelMessage(
   deviceId: string,
   plaintext: string
 ): Promise<SenderKeyMessage> {
-  // Rotation gerekli mi kontrol et
+  // Check whether rotation is needed
   const needsRotation = await senderKeyProtocol.needsSenderKeyRotation(
     channelId,
     userId,
@@ -64,11 +64,11 @@ export async function encryptChannelMessage(
   );
 
   if (needsRotation) {
-    // Yeni Sender Key olustur ve sunucuya yukle
+    // Create a new Sender Key and upload it to the server
     await createAndUploadDistribution(channelId, userId, deviceId);
   }
 
-  // Sender Key ile sifrele — tek ciphertext, tum uyeler cozer
+  // Encrypt with Sender Key — single ciphertext, all members decrypt
   return senderKeyProtocol.encryptGroupMessage(
     channelId,
     userId,
@@ -78,10 +78,10 @@ export async function encryptChannelMessage(
 }
 
 /**
- * Yeni Sender Key distribution olusturur ve sunucuya yukler.
+ * Creates a new Sender Key distribution and uploads it to the server.
  *
- * Sunucu distribution'i saklar ve kanal uyelerine dagitir.
- * Uyeler fetchAndProcessDistributions ile bu distribution'i alir.
+ * The server stores the distribution and dispatches it to channel members.
+ * Members retrieve this distribution via fetchAndProcessDistributions.
  */
 async function createAndUploadDistribution(
   channelId: string,
@@ -108,17 +108,17 @@ async function createAndUploadDistribution(
 // ──────────────────────────────────
 
 /**
- * Alinan E2EE kanal mesajini cozer ve structured payload'i parse eder.
+ * Decrypts an incoming E2EE channel message and parses the structured payload.
  *
- * Ciphertext alani JSON-serialized SenderKeyMessage icerir.
- * Gondericinin sender key'i ile decrypt edilir.
- * Decrypt sonrasi decodePayload ile content + file_keys ayristirilir.
+ * The ciphertext field contains a JSON-serialized SenderKeyMessage.
+ * It is decrypted with the sender's sender key.
+ * After decryption, decodePayload separates content + file_keys.
  *
- * @param senderUserId - Gonderici kullanici ID
- * @param channelId - Kanal ID'si
+ * @param senderUserId - Sender user ID
+ * @param channelId - Channel ID
  * @param ciphertext - JSON string SenderKeyMessage
- * @param senderDeviceId - Gonderici cihaz ID'si
- * @returns Cozulmus payload (content + file_keys) veya null
+ * @param senderDeviceId - Sender device ID
+ * @returns Decrypted payload (content + file_keys) or null
  */
 export async function decryptChannelMessage(
   senderUserId: string,
@@ -126,7 +126,7 @@ export async function decryptChannelMessage(
   ciphertext: string,
   senderDeviceId: string
 ): Promise<E2EEPayload | null> {
-  // Sender Key message parse et
+  // Parse the Sender Key message
   let senderKeyMsg: SenderKeyMessage;
   try {
     senderKeyMsg = JSON.parse(ciphertext);
@@ -135,7 +135,7 @@ export async function decryptChannelMessage(
     return null;
   }
 
-  // Gondericinin sender key'i yoksa sunucudan cek
+  // If we don't have the sender's sender key, fetch it from the server
   try {
     await ensureSenderKeyForDecryption(
       channelId,
@@ -151,7 +151,7 @@ export async function decryptChannelMessage(
     return null;
   }
 
-  // Sender Key ile decrypt
+  // Decrypt with Sender Key
   const plaintext = await senderKeyProtocol.decryptGroupMessage(
     channelId,
     senderUserId,
@@ -161,18 +161,18 @@ export async function decryptChannelMessage(
 
   if (plaintext === null) return null;
 
-  // Structured payload parse — content + file_keys ayristir
+  // Parse structured payload — separate content + file_keys
   return decodePayload(plaintext);
 }
 
 /**
- * Gondericinin sender key'inin mevcut oldugundan emin olur.
- * Yoksa sunucudan distribution'i ceker ve isle.
+ * Ensures the sender's sender key is available.
+ * If missing, fetches the distribution from the server and processes it.
  *
- * Ayrica initialChainKey migration'i yapar: Eski format sender key'lerde
- * (initialChainKey yok) distribution'dan orijinal chainKey alinip
- * initialChainKey olarak set edilir. Bu sayede out-of-order mesajlar
- * (fetchMessages ile gelen eski iterasyonlar) decrypt edilebilir.
+ * Also performs initialChainKey migration: For old-format sender keys
+ * (no initialChainKey), the original chainKey is taken from the distribution
+ * and set as initialChainKey. This allows out-of-order messages
+ * (older iterations arriving via fetchMessages) to be decrypted.
  */
 async function ensureSenderKeyForDecryption(
   channelId: string,
@@ -180,7 +180,7 @@ async function ensureSenderKeyForDecryption(
   senderDeviceId: string,
   distributionId: string
 ): Promise<void> {
-  // Mevcut sender key var mi ve dogru distribution mi kontrol et
+  // Check whether a sender key exists and matches the correct distribution
   const existingKey = await keyStorage.getSenderKey(
     channelId,
     senderUserId,
@@ -189,7 +189,7 @@ async function ensureSenderKeyForDecryption(
 
   const needsKey = !existingKey || senderKeyProtocol.needsRotationCheck(existingKey);
 
-  // initialChainKey yoksa migration gerekli — distribution'dan alinacak
+  // Migration is needed if initialChainKey is missing — will be taken from the distribution
   const needsInitialKeyMigration =
     existingKey &&
     !existingKey.initialChainKey &&
@@ -197,14 +197,14 @@ async function ensureSenderKeyForDecryption(
 
   if (!needsKey && !needsInitialKeyMigration) return;
 
-  // Sunucudan distribution'lari cek
+  // Fetch distributions from the server
   const serverId = useServerStore.getState().activeServerId;
   if (!serverId) return;
 
   const res = await e2eeApi.fetchGroupSessions(serverId, channelId);
   if (!res.success || !res.data) return;
 
-  // Bu gondericinin distribution'ini bul ve isle
+  // Find this sender's distribution and process it
   for (const session of res.data) {
     if (
       session.sender_user_id === senderUserId &&
@@ -217,7 +217,7 @@ async function ensureSenderKeyForDecryption(
 
         if (distribution.distributionId === distributionId) {
           if (needsInitialKeyMigration && existingKey) {
-            // Migration: Mevcut key'e initialChainKey ekle (iteration/chainKey koru)
+            // Migration: Add initialChainKey to existing key (preserve iteration/chainKey)
             existingKey.initialChainKey = fromBase64(distribution.chainKey);
             await keyStorage.saveSenderKey(existingKey);
           } else if (needsKey) {
@@ -240,18 +240,18 @@ async function ensureSenderKeyForDecryption(
 }
 
 /**
- * Message dizisindeki E2EE mesajlari toplu decrypt eder.
+ * Bulk-decrypts E2EE messages in a Message array.
  *
- * fetchMessages/fetchOlderMessages sonrasi cagrilir.
- * Plaintext mesajlar (encryption_version=0) olduklari gibi birakilir.
- * Decrypt edilemeyen mesajlar content=null olarak isaretlenir.
+ * Called after fetchMessages/fetchOlderMessages.
+ * Plaintext messages (encryption_version=0) are left untouched.
+ * Messages that fail to decrypt are marked with content=null.
  *
- * Basarili decrypt sonrasi:
- * - content + e2ee_file_keys mesaja set edilir
- * - Mesaj IndexedDB cache'e yazilir (client-side search icin)
+ * After successful decryption:
+ * - content + e2ee_file_keys are set on the message
+ * - The message is written to the IndexedDB cache (for client-side search)
  *
- * @param messages - Backend'den gelen ham mesaj dizisi
- * @returns Decrypt edilmis mesaj dizisi (ayni sira)
+ * @param messages - Raw message array from the backend
+ * @returns Decrypted message array (same order)
  */
 export async function decryptChannelMessages(
   messages: Message[]
@@ -287,7 +287,7 @@ export async function decryptChannelMessages(
           e2ee_file_keys: payload?.file_keys,
         });
 
-        // Basarili decrypt → IndexedDB cache'e yaz (search icin)
+        // Successful decrypt → write to IndexedDB cache (for search)
         if (payload?.content) {
           toCache.push({
             messageId: msg.id,
@@ -302,7 +302,7 @@ export async function decryptChannelMessages(
           `[channelEncryption] Failed to decrypt msg ${msg.id}:`,
           err
         );
-        // Decrypt basarisiz — decryption error olarak kaydet
+        // Decrypt failed — record as a decryption error
         useE2EEStore.getState().addDecryptionError({
           messageId: msg.id,
           channelId: msg.channel_id,
@@ -312,12 +312,12 @@ export async function decryptChannelMessages(
         result.push({ ...msg, content: null });
       }
     } else {
-      // Plaintext mesaj — oldugu gibi birak
+      // Plaintext message — leave as-is
       result.push(msg);
     }
   }
 
-  // Toplu cache yazimi — tek transaction ile performansli
+  // Bulk cache write — performant via a single transaction
   if (toCache.length > 0) {
     keyStorage.cacheDecryptedMessages(toCache).catch((err) => {
       console.error("[channelEncryption] Failed to cache messages:", err);

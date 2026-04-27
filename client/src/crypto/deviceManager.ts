@@ -1,18 +1,18 @@
 /**
- * Device Manager — Cihaz yasam dongusu yonetimi.
+ * Device Manager — device lifecycle management.
  *
- * Her tarayici/Electron instance bagimsiz bir kriptografik cihazdir.
- * Bu modul cihaz kaydi, anahtar yukleme ve prekey yenileme islerini yonetir.
+ * Each browser/Electron instance is an independent cryptographic device.
+ * This module manages device registration, key upload, and prekey refresh.
  *
- * Yasam dongusu:
- * 1. App acilir → getLocalDeviceId() ile mevcut cihaz kontrol edilir
- * 2. Cihaz yoksa → registerNewDevice() ile yeni cihaz kaydedilir
- * 3. Cihaz varsa → refreshPreKeys() ile prekey havuzu kontrol edilir
- * 4. Logout → clearDevice() ile tum E2EE verisi temizlenir
+ * Lifecycle:
+ * 1. App opens → existing device is checked via getLocalDeviceId()
+ * 2. If no device → registerNewDevice() registers a new device
+ * 3. If device exists → refreshPreKeys() checks the prekey pool
+ * 4. Logout → clearDevice() wipes all E2EE data
  *
  * Device ID:
- * 16-byte rastgele hex string, IndexedDB metadata store'unda saklanir.
- * Ayni kullanicinin farkli cihazlari farkli device ID'lere sahiptir.
+ * 16-byte random hex string, stored in the IndexedDB metadata store.
+ * Different devices of the same user have different device IDs.
  */
 
 import * as keyStorage from "./keyStorage";
@@ -26,18 +26,18 @@ import { PREKEY_BATCH_SIZE, PREKEY_LOW_THRESHOLD } from "./types";
 // ──────────────────────────────────
 
 /**
- * Bu cihazin device ID'sini doner.
- * IndexedDB metadata store'unda "deviceId" key'i altinda saklanir.
+ * Returns this device's device ID.
+ * Stored in the IndexedDB metadata store under the "deviceId" key.
  *
- * @returns Device ID veya null (henuz kaydedilmemis cihaz)
+ * @returns Device ID, or null (device not yet registered)
  */
 export async function getLocalDeviceId(): Promise<string | null> {
   return keyStorage.getMetadata<string>("deviceId");
 }
 
 /**
- * 16-byte rastgele device ID uretir.
- * Ornek: "a3b4c5d6e7f8a1b2c3d4e5f6a7b8c9d0"
+ * Generates a 16-byte random device ID.
+ * Example: "a3b4c5d6e7f8a1b2c3d4e5f6a7b8c9d0"
  */
 function generateDeviceId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -51,29 +51,29 @@ function generateDeviceId(): string {
 // ──────────────────────────────────
 
 /**
- * Yeni cihaz kaydeder.
+ * Registers a new device.
  *
- * Tam akis:
- * 1. Device ID uret
- * 2. Tum E2EE anahtarlarini uret (identity, signed prekey, OTP keys)
- * 3. Sunucuya kaydet (prekey bundle upload)
- * 4. Lokal metadata kaydet
+ * Full flow:
+ * 1. Generate a device ID
+ * 2. Generate all E2EE keys (identity, signed prekey, OTP keys)
+ * 3. Register with the server (prekey bundle upload)
+ * 4. Save local metadata
  *
- * @param userId - Kullanicinin ID'si
- * @param displayName - Cihaz adi (opsiyonel, "Chrome - Windows" gibi)
+ * @param userId - User's ID
+ * @param displayName - Device name (optional, e.g. "Chrome - Windows")
  * @returns Device ID
  */
 export async function registerNewDevice(
   userId: string,
   displayName?: string
 ): Promise<string> {
-  // 1. Device ID uret
+  // 1. Generate device ID
   const deviceId = generateDeviceId();
 
-  // 2. E2EE anahtarlarini uret
+  // 2. Generate E2EE keys
   const keys = await signalProtocol.generateAllKeys();
 
-  // 3. Sunucuya kaydet
+  // 3. Register with the server
   const response = await e2eeApi.registerDevice({
     device_id: deviceId,
     display_name: displayName ?? getDefaultDeviceName(),
@@ -95,7 +95,7 @@ export async function registerNewDevice(
     );
   }
 
-  // 4. Lokal metadata kaydet
+  // 4. Save local metadata
   await keyStorage.setMetadata("deviceId", deviceId);
   await keyStorage.saveRegistrationData({
     registrationId: keys.registrationId,
@@ -104,7 +104,7 @@ export async function registerNewDevice(
     createdAt: Date.now(),
   });
 
-  // Sonraki prekey batch icin baslangic ID'sini kaydet
+  // Save the starting ID for the next prekey batch
   await keyStorage.setMetadata(
     "nextPrekeyId",
     PREKEY_BATCH_SIZE + 1
@@ -118,12 +118,12 @@ export async function registerNewDevice(
 // ──────────────────────────────────
 
 /**
- * IndexedDB'deki mevcut anahtarlarla sunucuya cihaz kaydeder.
+ * Registers the device with the server using the existing keys in IndexedDB.
  *
- * reRegisterDevice tarafindan kullanilir:
- * Ayni device ID ile yeniden kayit (sunucu DB kaybi veya recovery restore)
+ * Used by reRegisterDevice:
+ * Re-registration with the same device ID (server DB loss or recovery restore)
  *
- * @param deviceId - Kaydedilecek device ID
+ * @param deviceId - Device ID to register
  */
 async function registerExistingKeys(deviceId: string): Promise<void> {
   const identityKeyPair = await keyStorage.getIdentityKeyPair();
@@ -158,35 +158,35 @@ async function registerExistingKeys(deviceId: string): Promise<void> {
 }
 
 /**
- * Mevcut anahtarlarla cihazi sunucuya yeniden kaydeder.
+ * Re-registers the device with the server using existing keys.
  *
- * IndexedDB'de cihaz kayitli ama sunucu tanimiyor durumunda cagrilir.
- * Mevcut identity + signed prekey anahtarlari IndexedDB'den okunur ve
- * sunucuya tekrar yuklenir (UPSERT — ayni device_id varsa gunceller).
+ * Called when the device is registered in IndexedDB but unknown to the server.
+ * The existing identity + signed prekey are read from IndexedDB and uploaded
+ * to the server again (UPSERT — updates if the same device_id exists).
  *
- * @param deviceId - Lokal cihaz ID'si (IndexedDB'den)
+ * @param deviceId - Local device ID (from IndexedDB)
  */
 export async function reRegisterDevice(deviceId: string): Promise<void> {
   await registerExistingKeys(deviceId);
 }
 
 /**
- * Recovery restore sonrasi yeni device ID ile sunucuya kaydeder.
+ * After a recovery restore, registers with the server using a new device ID.
  *
- * Neden yeni device ID:
- * Ayni device ID'yi paylasan iki cihaz self-fanout yapaMAZ
- * (gonderici kendi device ID'sini atlar → diger cihaz envelope alamaz).
- * Yeni device ID ile her cihaz bagimsiz calisir.
+ * Why a new device ID:
+ * Two devices sharing the same device ID CANNOT do self-fanout
+ * (the sender skips its own device ID → the other device receives no envelope).
+ * With a new device ID, each device works independently.
  *
- * Eski mesajlar icin legacy device ID:
- * Backup'taki (eski) device ID "legacyDeviceIds" listesine eklenir.
- * Envelope matching sirasinda hem current hem legacy ID'ler denenir.
- * Boylece eski mesajlar da okunabilir (+ messageCache backup'tan gelir).
+ * Legacy device ID for old messages:
+ * The (old) device ID from the backup is added to the "legacyDeviceIds" list.
+ * During envelope matching, both current and legacy IDs are tried.
+ * This way, old messages can also be read (+ messageCache comes from the backup).
  *
- * @returns Yeni device ID
+ * @returns New device ID
  */
 export async function registerRestoredDevice(): Promise<string> {
-  // Backup'tan gelen eski device ID'yi legacy olarak sakla
+  // Store the old device ID from the backup as legacy
   const oldDeviceId = await keyStorage.getMetadata<string>("deviceId");
   if (oldDeviceId) {
     const existing = await keyStorage.getMetadata<string[]>("legacyDeviceIds") ?? [];
@@ -197,7 +197,7 @@ export async function registerRestoredDevice(): Promise<string> {
 
   const newDeviceId = generateDeviceId();
 
-  // IndexedDB'deki device ID'yi guncelle
+  // Update the device ID in IndexedDB
   await keyStorage.setMetadata("deviceId", newDeviceId);
 
   const registration = await keyStorage.getRegistrationData();
@@ -209,18 +209,18 @@ export async function registerRestoredDevice(): Promise<string> {
     });
   }
 
-  // Eski session'lari temizle — farkli device ID ile gecersiz.
-  // Yeni cihaz, diger cihazlarla PreKey mesaji ile yeni session kuracak.
+  // Clear old sessions — invalid with a different device ID.
+  // The new device will establish fresh sessions with other devices via PreKey messages.
   await keyStorage.clearAllSessions();
 
-  // Sunucuya kaydet
+  // Register with the server
   await registerExistingKeys(newDeviceId);
 
-  // Prekey ID counter: backup'tan gelen deger korunmali.
-  // Backup metadata "nextPrekeyId" zaten dogru degeri iceriyor.
-  // Eger PREKEY_BATCH_SIZE + 1 ile ezersek, refreshPreKeys yeni prekey'ler
-  // uretirken eski ID'lere denk gelir ve backup'taki private key'leri
-  // uzerine yazar → X3DH shared secret uyumsuzlugu → OperationError.
+  // Prekey ID counter: the value from the backup must be preserved.
+  // The backup metadata "nextPrekeyId" already contains the correct value.
+  // If we overwrite it with PREKEY_BATCH_SIZE + 1, refreshPreKeys generates
+  // new prekeys colliding with old IDs and overwrites the backup's private
+  // keys → X3DH shared secret mismatch → OperationError.
   const restoredNextId = await keyStorage.getMetadata<number>("nextPrekeyId");
   if (!restoredNextId || restoredNextId < PREKEY_BATCH_SIZE + 1) {
     await keyStorage.setMetadata("nextPrekeyId", PREKEY_BATCH_SIZE + 1);
@@ -230,9 +230,9 @@ export async function registerRestoredDevice(): Promise<string> {
 }
 
 /**
- * Legacy device ID'lerini doner.
- * Recovery restore sonrasi eski device ID'ler burada saklanir.
- * Envelope matching'te current + legacy ID'ler birlikte denenir.
+ * Returns the legacy device IDs.
+ * After a recovery restore, old device IDs are stored here.
+ * In envelope matching, current + legacy IDs are tried together.
  */
 export async function getLegacyDeviceIds(): Promise<string[]> {
   return (await keyStorage.getMetadata<string[]>("legacyDeviceIds")) ?? [];
@@ -243,25 +243,25 @@ export async function getLegacyDeviceIds(): Promise<string[]> {
 // ──────────────────────────────────
 
 /**
- * Prekey havuzunu kontrol eder ve gerekirse yeniler.
+ * Checks the prekey pool and refreshes it if needed.
  *
- * Sunucudan prekey_low event'i geldiginde veya periyodik olarak cagrilir.
- * Sunucudaki prekey sayisi threshold'un altindaysa yeni batch yukler.
+ * Called when a prekey_low event arrives from the server, or periodically.
+ * If the prekey count on the server is below the threshold, uploads a new batch.
  *
- * @param deviceId - Bu cihazin device ID'si
+ * @param deviceId - This device's device ID
  */
 export async function refreshPreKeys(deviceId: string): Promise<void> {
-  // Sunucudaki prekey sayisini kontrol et
+  // Check the prekey count on the server
   const countResponse = await e2eeApi.getPrekeyCount(deviceId);
   if (!countResponse.success || !countResponse.data) return;
 
   const serverCount = countResponse.data.count;
 
   if (serverCount >= PREKEY_LOW_THRESHOLD) {
-    return; // Yeterli prekey var
+    return; // Enough prekeys available
   }
 
-  // Yeni batch uret
+  // Generate a new batch
   const nextId =
     (await keyStorage.getMetadata<number>("nextPrekeyId")) ??
     PREKEY_BATCH_SIZE + 1;
@@ -271,7 +271,7 @@ export async function refreshPreKeys(deviceId: string): Promise<void> {
     PREKEY_BATCH_SIZE
   );
 
-  // Sunucuya yukle
+  // Upload to the server
   const uploadResponse = await e2eeApi.uploadPrekeys(deviceId, {
     one_time_prekeys: newPreKeys.map((pk) => ({
       prekey_id: pk.id,
@@ -284,20 +284,20 @@ export async function refreshPreKeys(deviceId: string): Promise<void> {
     return;
   }
 
-  // Sonraki batch icin ID guncelle
+  // Update the ID for the next batch
   await keyStorage.setMetadata("nextPrekeyId", nextId + PREKEY_BATCH_SIZE);
 }
 
 /**
- * Signed prekey rotate eder.
+ * Rotates the signed prekey.
  *
- * Periyodik olarak cagrilir (ornegin haftada bir).
- * Yeni signed prekey uretir, sunucuya yukler, eski key'i siler.
+ * Called periodically (for example, weekly).
+ * Generates a new signed prekey, uploads it to the server, and deletes the old key.
  *
- * @param deviceId - Bu cihazin device ID'si
+ * @param deviceId - This device's device ID
  */
 export async function rotateSignedPreKey(deviceId: string): Promise<void> {
-  // Mevcut signed prekey ID'sini bul
+  // Find the current signed prekey ID
   const allSignedPreKeys = await keyStorage.getAllSignedPreKeys();
   const currentMaxId = allSignedPreKeys.reduce(
     (max, spk) => Math.max(max, spk.id),
@@ -305,10 +305,10 @@ export async function rotateSignedPreKey(deviceId: string): Promise<void> {
   );
   const newId = currentMaxId + 1;
 
-  // Yeni signed prekey uret
+  // Generate a new signed prekey
   const newSignedPreKey = await signalProtocol.rotateSignedPreKey(newId);
 
-  // Sunucuya yukle
+  // Upload to the server
   const response = await e2eeApi.updateSignedPrekey(deviceId, {
     signed_prekey: newSignedPreKey.publicKey,
     signed_prekey_id: newSignedPreKey.id,
@@ -320,7 +320,7 @@ export async function rotateSignedPreKey(deviceId: string): Promise<void> {
     return;
   }
 
-  // Eski signed prekey'leri temizle (son 2'yi tut — transit mesajlar icin)
+  // Clean up old signed prekeys (keep the last 2 — for in-flight messages)
   const sortedKeys = allSignedPreKeys.sort((a, b) => b.id - a.id);
   for (let i = 2; i < sortedKeys.length; i++) {
     await keyStorage.deleteSignedPreKey(sortedKeys[i].id);
@@ -332,12 +332,12 @@ export async function rotateSignedPreKey(deviceId: string): Promise<void> {
 // ──────────────────────────────────
 
 /**
- * Bu cihazi sunucudan siler.
+ * Removes this device from the server.
  *
- * Logout'ta cagrilir — sunucudaki device kaydini ve prekey'leri siler.
- * Lokal E2EE verisi ayri olarak clearDevice() ile temizlenir.
+ * Called on logout — deletes the device record and prekeys on the server.
+ * Local E2EE data is wiped separately via clearDevice().
  *
- * @param deviceId - Silinecek cihaz ID'si
+ * @param deviceId - Device ID to delete
  */
 export async function removeDeviceFromServer(
   deviceId: string
@@ -349,11 +349,10 @@ export async function removeDeviceFromServer(
 }
 
 /**
- * Tum lokal E2EE verisini temizler.
+ * Clears all local E2EE data.
  *
- * Logout'ta cagrilir. IndexedDB'deki tum anahtarlar,
- * session'lar, sender key'ler ve cache temizlenir.
- * Bu islem geri alinamaz.
+ * Called on logout. All keys, sessions, sender keys, and cache in
+ * IndexedDB are cleared. This operation is irreversible.
  */
 export async function clearDevice(): Promise<void> {
   await keyStorage.clearAllE2EEData();
@@ -364,15 +363,15 @@ export async function clearDevice(): Promise<void> {
 // ──────────────────────────────────
 
 /**
- * Varsayilan cihaz adi uretir.
+ * Generates a default device name.
  *
- * Browser/OS bilgisinden anlamli bir isim cikarir.
- * Ornek: "Chrome - Windows", "Firefox - macOS", "Electron - Windows"
+ * Derives a meaningful name from browser/OS info.
+ * Examples: "Chrome - Windows", "Firefox - macOS", "Electron - Windows"
  */
 function getDefaultDeviceName(): string {
   const ua = navigator.userAgent;
 
-  // Electron mu?
+  // Electron?
   if ("electronAPI" in window) {
     if (ua.includes("Windows")) return "mqvi Desktop - Windows";
     if (ua.includes("Mac")) return "mqvi Desktop - macOS";

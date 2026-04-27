@@ -1,5 +1,5 @@
 -- 014_view_channel.sql
--- PermViewChannel (bit 4096) yetkisini tüm mevcut rollere ekler.
--- Bu yetki kanal görünürlüğünü kontrol eder — deny edilirse kanal sidebar'da gizlenir.
--- Tüm mevcut roller varsayılan olarak kanalları görebilmeli.
+-- Adds the PermViewChannel (bit 4096) permission to all existing roles.
+-- This permission controls channel visibility — when denied, the channel is hidden from the sidebar.
+-- All existing roles should be able to view channels by default.
 UPDATE roles SET permissions = permissions | 4096;

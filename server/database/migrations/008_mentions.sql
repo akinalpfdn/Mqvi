@@ -1,11 +1,11 @@
 -- 008_mentions.sql
--- Mesaj mention (bahsetme) takibi.
+-- Message mention tracking.
 --
--- Bir mesajda @username ile bahsedilen kullanıcılar bu tabloda tutulur.
--- Bu sayede:
--- 1. Bir kullanıcının mention aldığı mesajlar sorgulanabilir
--- 2. Unread badge'e mention sayısı eklenebilir
--- 3. Mention bildirimleri gönderilebilir
+-- Users mentioned in a message via @username are stored in this table.
+-- This allows us to:
+-- 1. Query messages where a user was mentioned
+-- 2. Add a mention count to the unread badge
+-- 3. Send mention notifications
 
 CREATE TABLE IF NOT EXISTS message_mentions (
     message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,

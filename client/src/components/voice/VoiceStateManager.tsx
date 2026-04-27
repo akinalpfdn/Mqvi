@@ -767,6 +767,30 @@ function VoiceStateManager() {
     };
   }, [room]);
 
+  // Clear watch state when a remote streamer stops sharing or disconnects.
+  // Without this, watchingScreenShares keeps the entry → grid stays in compact
+  // mode (icons stuck top-aligned + small) even though no share is visible.
+  useEffect(() => {
+    function handleRemoteTrackUnpublished(
+      publication: RemoteTrackPublication,
+      participant: RemoteParticipant
+    ) {
+      if (publication.source !== Track.Source.ScreenShare) return;
+      useVoiceStore.getState().removeWatchScreenShare(resolveUserId(participant.identity));
+    }
+
+    function handleParticipantDisconnected(participant: RemoteParticipant) {
+      useVoiceStore.getState().removeWatchScreenShare(resolveUserId(participant.identity));
+    }
+
+    room.on(RoomEvent.TrackUnpublished, handleRemoteTrackUnpublished);
+    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+    return () => {
+      room.off(RoomEvent.TrackUnpublished, handleRemoteTrackUnpublished);
+      room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+    };
+  }, [room]);
+
   // Effect B: Subscribe/unsubscribe when watchingScreenShares changes.
   useEffect(() => {
     room.remoteParticipants.forEach((participant) => {

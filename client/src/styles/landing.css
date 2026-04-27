@@ -1,22 +1,22 @@
 /* ═══════════════════════════════════════
    LANDING PAGE — mqvi Public Landing
    ═══════════════════════════════════════
-   Bu dosya sadece landing page'e özeldir.
-   Uygulama temasını (globals.css) etkilemez.
+   Scoped to the landing page only.
+   Does not affect the in-app theme (globals.css).
    Prefix: .lp- (landing page)
 */
 
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ── Scroll override ──
-   globals.css'deki overflow:hidden'ı landing page için geçersiz kılar.
-   :has() modern tarayıcılarda desteklenir (Chrome 105+, Firefox 121+). */
+   Overrides the overflow:hidden from globals.css for the landing page.
+   :has() is supported in modern browsers (Chrome 105+, Firefox 121+). */
 body:has(.landing-page) { overflow-y: auto !important; }
 body:has(.landing-page) #root { overflow-y: auto !important; height: auto !important; }
 
 /* ── Color Palette ──
-   Landing page kendi renk paletini kullanır (uygulama temasından bağımsız).
-   --lp- prefix ile namespace çakışması önlenir. */
+   The landing page uses its own palette, independent of the in-app theme.
+   The --lp- prefix prevents namespace collisions. */
 .landing-page {
   /* Obsidian Rose — luxury dark with gold + rose accents.
      Fixed palette: landing does NOT follow the in-app theme switcher. */
@@ -913,7 +913,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
    SELF-HOST GUIDE
    ═══════════════════════════════════════ */
 .lp-guide { max-width: 60vw; margin: 60px auto 0; display: flex; flex-direction: column; gap: 0; position: relative; }
-/* Sol taraftaki dikey bağlantı çizgisi */
+/* Vertical connector line on the left */
 .lp-guide::before {
   content: "";
   position: absolute;
@@ -925,7 +925,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   border-radius: 1px;
 }
 
-/* Her adım */
+/* Each step */
 .lp-guide-step { display: flex; gap: 24px; padding: 24px 0; position: relative; }
 .lp-guide-step-num {
   width: 40px; height: 40px;
@@ -945,7 +945,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-guide-step-title { font-size: 22px; font-weight: 700; color: var(--lp-text); margin-bottom: 8px; }
 .lp-guide-step-desc { font-size: 16px; color: var(--lp-text-muted); line-height: 1.7; margin-bottom: 16px; }
 
-/* Provider tag'ları */
+/* Provider tags */
 .lp-guide-providers { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .lp-guide-provider-tag {
   padding: 6px 14px;
@@ -958,7 +958,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   font-size: 13px; font-weight: 600;
 }
 
-/* Spec satırları (OS, RAM, CPU) */
+/* Spec rows (OS, RAM, CPU) */
 .lp-guide-specs { display: flex; flex-direction: column; gap: 6px; }
 .lp-guide-spec { display: flex; align-items: center; gap: 12px; font-size: 14px; }
 .lp-guide-spec-label { color: var(--lp-text-muted); min-width: 140px; }
@@ -994,7 +994,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 }
 .lp-guide-port-num { color: var(--lp-accent); font-weight: 600; font-family: 'JetBrains Mono', monospace; }
 
-/* Tip/uyarı kutuları */
+/* Tip / warning boxes */
 .lp-guide-tip {
   display: flex;
   align-items: flex-start;
@@ -1017,7 +1017,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   color: var(--lp-accent);
 }
 
-/* Adım 6: mqvi'ye bağla — mock field'lar */
+/* Step 6: connect to mqvi — mock fields */
 .lp-guide-fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .lp-guide-field {
   display: flex;
@@ -1034,7 +1034,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 .lp-guide-field-label { color: var(--lp-text-muted); font-size: 13px; font-weight: 600; min-width: 100px; }
 .lp-guide-field-val { color: var(--lp-accent); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
 
-/* SSL Uyarısı */
+/* SSL warning */
 .lp-guide-ssl-warning {
   display: flex;
   align-items: flex-start;
@@ -1064,7 +1064,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   line-height: 1.7;
 }
 
-/* Troubleshoot bölümü */
+/* Troubleshoot section */
 .lp-guide-troubleshoot { margin-top: 48px; margin-left: 64px; }
 .lp-guide-troubleshoot-title {
   font-size: 20px; font-weight: 700; color: var(--lp-text);
@@ -1278,8 +1278,8 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 /* ═══════════════════════════════════════
    RESPONSIVE — Tablet (≤ 768px)
    ═══════════════════════════════════════
-   Orta boy ekranlar: grid'ler 2 sütuna düşer,
-   padding'ler azalır, side-by-side layout'lar yığılır.
+   Mid-size screens: grids collapse to 2 columns,
+   paddings shrink, side-by-side layouts stack.
 */
 @media (max-width: 768px) {
   /* ── Nav ── */
@@ -1410,7 +1410,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   .lp-guide-spec-label { min-width: auto; }
   .lp-guide-port-row { grid-template-columns: 120px 60px 1fr; padding: 8px 12px; font-size: 13px; }
 
-  /* Terminal — uzun URL'ler taşmasın */
+  /* Terminal — keep long URLs from overflowing */
   .lp-terminal-body {
     overflow-x: auto;
     white-space: nowrap;
@@ -1459,8 +1459,8 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
 /* ═══════════════════════════════════════
    RESPONSIVE — Telefon (≤ 480px)
    ═══════════════════════════════════════
-   Küçük ekranlar: grid'ler tek sütuna düşer,
-   font boyutları azalır, tüm kartlar yığılır.
+   Small screens: grids collapse to a single column,
+   font sizes shrink, all cards stack.
 */
 @media (max-width: 480px) {
   /* ── Nav ── */
@@ -1486,7 +1486,7 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   }
   .lp-section-desc { font-size: 15px; }
 
-  /* ── Features Grid — tek sütun ── */
+  /* ── Features Grid — single column ── */
   .lp-features-grid {
     grid-template-columns: 1fr;
   }

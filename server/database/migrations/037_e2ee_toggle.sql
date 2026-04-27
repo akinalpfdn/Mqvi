@@ -1,8 +1,8 @@
--- E2EE toggle: Server ve DM bazinda E2EE acma/kapatma.
--- Default kapali — kullanicilar isterse acar.
+-- E2EE toggle: Enable/disable E2EE per server and per DM.
+-- Off by default — users opt in if they want it.
 
--- Server bazli E2EE toggle — owner/admin degistirebilir
+-- Per-server E2EE toggle — owner/admin can change it
 ALTER TABLE servers ADD COLUMN e2ee_enabled BOOLEAN NOT NULL DEFAULT 0;
 
--- DM bazli E2EE toggle — kanal bazinda, her iki taraf degistirebilir
+-- Per-DM E2EE toggle — per channel, either party can change it
 ALTER TABLE dm_channels ADD COLUMN e2ee_enabled BOOLEAN NOT NULL DEFAULT 0;

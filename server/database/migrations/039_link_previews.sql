@@ -1,6 +1,6 @@
 -- Link preview cache — Open Graph metadata.
--- URL bazlı deduplicated cache, tekrar fetch önlenir.
--- error=1 olan kayıtlar başarısız fetch'leri temsil eder (refetch engelleme).
+-- Deduplicated cache keyed by URL, prevents repeated fetches.
+-- Rows with error=1 represent failed fetches (suppresses refetch).
 CREATE TABLE IF NOT EXISTS link_previews (
     url         TEXT PRIMARY KEY,
     title       TEXT,

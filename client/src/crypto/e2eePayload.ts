@@ -1,19 +1,20 @@
 /**
- * E2EE Payload — Sifreli mesaj payload encode/decode.
+ * E2EE Payload — encode/decode for encrypted message payloads.
  *
- * E2EE mesajlarda plaintext sadece bir string degildir — dosya anahtarlari
- * da tasinir. Bu modul plaintext'i structured JSON olarak encode/decode eder.
+ * In E2EE messages, the plaintext is not just a string — file keys
+ * are also carried. This module encodes/decodes the plaintext as
+ * structured JSON.
  *
- * Payload formati:
+ * Payload format:
  * {
- *   "content": "mesaj metni",
+ *   "content": "message text",
  *   "file_keys": [{ key, iv, filename, mimeType, originalSize, digest }]
  * }
  *
- * Backward-compatible: Eger plaintext JSON parse edilemezse veya
- * "content" alani yoksa, plaintext dogrudan mesaj metni olarak kabul edilir.
- * Bu, dosya icermeyen eski E2EE mesajlarin (plain string) calismaya
- * devam etmesini saglar.
+ * Backward-compatible: If the plaintext cannot be JSON parsed or has
+ * no "content" field, the plaintext is treated directly as the message
+ * text. This ensures older E2EE messages without files (plain string)
+ * continue to work.
  */
 
 import type { EncryptedFileMeta } from "./fileEncryption.js";
@@ -23,13 +24,13 @@ import type { EncryptedFileMeta } from "./fileEncryption.js";
 // ──────────────────────────────────
 
 /**
- * E2EE plaintext payload yapisi.
- * Sifrelenmeden once mesaj + dosya anahtarlari birlikte JSON'a cevirilir.
+ * E2EE plaintext payload structure.
+ * Before encryption, message + file keys are combined into JSON.
  */
 export type E2EEPayload = {
-  /** Mesaj metni */
+  /** Message text */
   content: string;
-  /** Dosya sifreleme anahtarlari (her dosya icin bir adet, index sirasina gore eslenir) */
+  /** File encryption keys (one per file, matched by index order) */
   file_keys?: EncryptedFileMeta[];
 };
 
@@ -38,13 +39,13 @@ export type E2EEPayload = {
 // ──────────────────────────────────
 
 /**
- * Plaintext payload olusturur (sifreleme oncesi).
+ * Builds the plaintext payload (before encryption).
  *
- * Dosya yoksa bile JSON formatinda encode eder — tutarlilik icin.
+ * Encodes as JSON even when there are no files — for consistency.
  *
- * @param content - Mesaj metni
- * @param fileKeys - Dosya sifreleme anahtarlari (opsiyonel)
- * @returns JSON string (sifrelemeye hazir)
+ * @param content - Message text
+ * @param fileKeys - File encryption keys (optional)
+ * @returns JSON string (ready for encryption)
  */
 export function encodePayload(
   content: string,
@@ -58,19 +59,19 @@ export function encodePayload(
 }
 
 /**
- * Decrypt edilmis plaintext'i parse eder.
+ * Parses the decrypted plaintext.
  *
  * Backward-compatible:
- * - JSON parse basarili ve "content" alani varsa → structured payload
- * - JSON parse basarisiz veya "content" yoksa → plain string (eski format)
+ * - JSON parse succeeds and "content" field exists → structured payload
+ * - JSON parse fails or no "content" → plain string (old format)
  *
- * @param plaintext - Decrypt edilmis metin
- * @returns Content + opsiyonel file_keys
+ * @param plaintext - Decrypted text
+ * @returns Content + optional file_keys
  */
 export function decodePayload(plaintext: string): E2EEPayload {
   try {
     const parsed = JSON.parse(plaintext);
-    // Structured payload mi kontrol et
+    // Check whether this is a structured payload
     if (
       parsed !== null &&
       typeof parsed === "object" &&
@@ -84,9 +85,9 @@ export function decodePayload(plaintext: string): E2EEPayload {
       };
     }
   } catch {
-    // JSON parse basarisiz — plain string
+    // JSON parse failed — plain string
   }
 
-  // Eski format: plaintext dogrudan mesaj metni
+  // Old format: plaintext is the message text directly
   return { content: plaintext };
 }

@@ -1,17 +1,17 @@
 -- 011_reply_to.sql
--- Reply (yanıt) sistemi: mesajlar başka bir mesaja yanıt olarak gönderilebilir.
+-- Reply system: a message can be sent as a reply to another message.
 --
--- reply_to_id NULL → normal mesaj
--- reply_to_id dolu → yanıt mesajı (referans mesajın ID'si)
+-- reply_to_id NULL → regular message
+-- reply_to_id set → reply message (ID of the referenced message)
 --
--- FK constraint KULLANILMIYOR: Referans mesaj silindiğinde reply_to_id korunur.
--- LEFT JOIN ile referans mesaj sorgulanır:
---   - reply_to_id NOT NULL, JOIN sonucu var → tam referans göster
---   - reply_to_id NOT NULL, JOIN sonucu NULL → "Orijinal mesaj silindi" göster
---   - reply_to_id NULL → yanıt değil, referans gösterme
+-- FK constraint is NOT used: reply_to_id is preserved when the referenced message is deleted.
+-- The referenced message is fetched via LEFT JOIN:
+--   - reply_to_id NOT NULL, JOIN result present → show the full reference
+--   - reply_to_id NOT NULL, JOIN result NULL → show "Original message was deleted"
+--   - reply_to_id NULL → not a reply, no reference shown
 --
--- Bu yaklaşım Discord'un davranışını taklit eder: silinen mesaja verilen
--- yanıtlarda "Original message was deleted" görüntülenir.
+-- This mirrors Discord's behavior: replies to deleted messages display
+-- "Original message was deleted".
 
 ALTER TABLE messages ADD COLUMN reply_to_id TEXT;
 

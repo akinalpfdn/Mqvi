@@ -1,11 +1,11 @@
 -- 009_dm.sql
--- Direct Messages (DM) — kullanıcılar arası özel mesajlaşma.
+-- Direct Messages (DM) — private messaging between users.
 --
--- DM kanalları server kanallarından bağımsızdır.
--- Her kullanıcı çifti için benzersiz bir DM kanalı oluşturulur.
--- user1_id < user2_id sıralaması service katmanında sağlanır.
+-- DM channels are independent of server channels.
+-- A unique DM channel is created for each pair of users.
+-- The user1_id < user2_id ordering is enforced at the service layer.
 
--- DM kanalları
+-- DM channels
 CREATE TABLE IF NOT EXISTS dm_channels (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     user1_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS dm_channels (
     UNIQUE(user1_id, user2_id)
 );
 
--- DM mesajları
+-- DM messages
 CREATE TABLE IF NOT EXISTS dm_messages (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     dm_channel_id TEXT NOT NULL REFERENCES dm_channels(id) ON DELETE CASCADE,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS dm_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_dm_messages_channel ON dm_messages(dm_channel_id, created_at DESC);
 
--- DM ekleri
+-- DM attachments
 CREATE TABLE IF NOT EXISTS dm_attachments (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     dm_message_id TEXT NOT NULL REFERENCES dm_messages(id) ON DELETE CASCADE,

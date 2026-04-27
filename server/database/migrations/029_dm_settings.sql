@@ -1,7 +1,7 @@
 -- 029_dm_settings.sql
--- Kullanıcı bazlı DM kanalı ayarları: gizleme (hide), sabitleme (pin), sessize alma (mute).
--- Tek tablo ile 3 özellik birleştirilir — aynı PK (user_id, dm_channel_id).
--- UPSERT pattern kullanılır (INSERT ... ON CONFLICT DO UPDATE).
+-- Per-user DM channel settings: hide, pin and mute.
+-- One table combines all three features — same PK (user_id, dm_channel_id).
+-- Uses an UPSERT pattern (INSERT ... ON CONFLICT DO UPDATE).
 
 CREATE TABLE IF NOT EXISTS user_dm_settings (
     user_id       TEXT NOT NULL,

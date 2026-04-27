@@ -1,14 +1,14 @@
 -- 013_friends.sql
--- Arkadaşlık sistemi tablosu.
+-- Friendship system table.
 --
--- Tek tablo, status ile ayrım:
---   "pending"  → istek gönderildi, henüz kabul edilmedi
---   "accepted" → arkadaşlık aktif
---   "blocked"  → kullanıcı engellendi
+-- Single table differentiated by status:
+--   "pending"  → request sent, not yet accepted
+--   "accepted" → friendship is active
+--   "blocked"  → user is blocked
 --
--- user_id: isteği gönderen / engeli koyan
--- friend_id: hedef kullanıcı
--- Accepted durumda çift yönlü sorgu yapılır (user_id VEYA friend_id).
+-- user_id: the requester / the user who blocked
+-- friend_id: the target user
+-- For "accepted" status the query is bidirectional (user_id OR friend_id).
 
 CREATE TABLE IF NOT EXISTS friendships (
     id         TEXT PRIMARY KEY,
@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS friendships (
     UNIQUE(user_id, friend_id)
 );
 
--- Sorgularda performans için index'ler:
--- Kullanıcının gelen isteklerini hızlı bulmak (friend_id = me AND status = 'pending')
+-- Indexes for query performance:
+-- Quickly find a user's incoming requests (friend_id = me AND status = 'pending')
 CREATE INDEX IF NOT EXISTS idx_friendships_friend_status ON friendships(friend_id, status);
--- Kullanıcının gönderdiği istekleri ve arkadaşlarını bulmak
+-- Find a user's outgoing requests and friends
 CREATE INDEX IF NOT EXISTS idx_friendships_user_status ON friendships(user_id, status);

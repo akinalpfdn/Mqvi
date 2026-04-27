@@ -17,6 +17,8 @@ export type VoiceScreenShareSlice = {
 
   toggleWatchScreenShare: (userId: string) => void;
   focusScreenShare: (userId: string) => void;
+  /** Clear watch state for a streamer who has stopped sharing or disconnected. */
+  removeWatchScreenShare: (userId: string) => void;
 };
 
 export const createVoiceScreenShareSlice: StateCreator<
@@ -48,6 +50,14 @@ export const createVoiceScreenShareSlice: StateCreator<
         watching: !isWatching,
       });
     }
+  },
+
+  removeWatchScreenShare: (userId: string) => {
+    const { watchingScreenShares } = get();
+    if (!watchingScreenShares[userId]) return;
+    const next = { ...watchingScreenShares };
+    delete next[userId];
+    set({ watchingScreenShares: next });
   },
 
   focusScreenShare: (userId: string) => {

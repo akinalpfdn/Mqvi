@@ -203,7 +203,7 @@ Run the entire mqvi platform on your own infrastructure. Completely independent 
 
 - Linux server (Ubuntu 22.04+ / Debian 12+ recommended), x86_64 or arm64
 - 2 vCPU, 4 GB RAM minimum
-- Domain name (optional — an IP address works fine)
+- A domain is optional — if you don't have one, the installer falls back to a free `sslip.io` hostname so HTTPS still works (browsers block voice/video over plain HTTP).
 
 ### One-Command Install
 
@@ -213,19 +213,43 @@ SSH into your server and run:
 curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/install.sh | sudo bash
 ```
 
-That's it. The script:
+You'll be asked how to expose mqvi:
+
+1. **HTTPS via your own domain** (recommended) — installer sets up Caddy + Let's Encrypt automatically.
+2. **HTTPS via sslip.io** — no domain required. The installer derives a hostname like `1-2-3-4.sslip.io` from your public IP and gets a real Let's Encrypt certificate for it. Voice/video work out of the box.
+3. **HTTP only** — for testing. Browsers will block microphone, camera, and screen-share.
+
+Need a non-interactive run? Pass flags:
+
+```bash
+# Your own domain, custom internal port
+sudo bash install.sh --domain demo.example.com --port 9092 -y
+
+# sslip.io fallback, all defaults
+sudo bash install.sh -y
+
+# Already have Caddy serving other sites — installer detects this automatically
+# and prints a Caddyfile snippet for you instead of installing its own Caddy
+sudo bash install.sh --domain demo.example.com --port 9092 -y
+
+# HTTP only on a custom port
+sudo bash install.sh --no-tls --port 8080 -y
+```
+
+What the script does:
 
 1. Creates a dedicated `mqvi` system user and `/opt/mqvi` install directory
 2. Downloads the prebuilt `mqvi-server` binary for your architecture (~40 MB, everything embedded — no Go, Node.js, or Docker required)
 3. Downloads the LiveKit SFU binary
 4. Generates `.env` and `livekit.yaml` with random secrets
 5. Installs systemd units for both services with hardening (`ProtectSystem=strict`, `NoNewPrivileges`, dedicated user)
-6. Opens firewall ports (UFW / firewalld if present)
-7. Starts both services, enabled on boot
+6. (TLS modes) Installs and configures Caddy, or — if Caddy is already present — leaves it alone and prints a snippet
+7. Opens firewall ports (UFW / firewalld if present)
+8. Starts everything, enabled on boot
 
-Re-running the script is safe — existing `.env` and `livekit.yaml` are preserved so your secrets don't change.
+Re-running the script is safe — existing `.env` and `livekit.yaml` are preserved so your secrets don't change. Flags don't overwrite an existing `.env`.
 
-When it's done, open `http://YOUR_SERVER_IP:9090` in your browser. The first user to register becomes the server owner.
+When it's done, the installer prints the public URL — `https://yourdomain` or `https://1-2-3-4.sslip.io`. The first user to register becomes the server owner.
 
 ### Managing the services
 
@@ -245,29 +269,21 @@ systemctl restart mqvi-server
 
 Your data lives in `/opt/mqvi/data/` (SQLite database + uploaded files). Back it up.
 
-### SSL with Caddy (recommended for production)
+### Manual Caddy snippet (existing-Caddy mode)
 
-```bash
-apt install caddy
-```
-
-Add to `/etc/caddy/Caddyfile`:
+If you already run Caddy for other sites, the installer detects it and skips installing its own copy. You'll see a snippet like this in the final output — paste it into your `Caddyfile`:
 
 ```
-yourdomain.com {
-    reverse_proxy localhost:9090
-}
-
-lk.yourdomain.com {
-    reverse_proxy localhost:7880
+demo.example.com {
+    reverse_proxy 127.0.0.1:9092
+    encode zstd gzip
+    request_body {
+        max_size 30MB
+    }
 }
 ```
 
-```bash
-systemctl restart caddy
-```
-
-Caddy automatically obtains and renews SSL certificates via Let's Encrypt. After enabling SSL, update `LIVEKIT_URL` in `/opt/mqvi/.env` to `wss://lk.yourdomain.com` and `systemctl restart mqvi-server`.
+Then `sudo systemctl reload caddy`.
 
 ### Firewall ports
 
@@ -275,7 +291,9 @@ The install script opens these automatically if UFW or firewalld is active. If y
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
-| `9090` | TCP | Web UI + API (or `443` if using Caddy) |
+| `80` | TCP | HTTP (Let's Encrypt challenge, redirect to HTTPS) — TLS modes only |
+| `443` | TCP | HTTPS — TLS modes only |
+| `<your --port>` | TCP | Web UI + API — only opened publicly in `--no-tls` mode (otherwise localhost-only behind Caddy) |
 | `7880` | TCP | LiveKit signaling |
 | `7881` | TCP | LiveKit TURN relay |
 | `7882` | UDP | LiveKit media |
@@ -287,7 +305,9 @@ The install script generates sensible defaults. If you need to tweak them, edit 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SERVER_PORT` | `9090` | HTTP port |
+| `SERVER_HOST` | `127.0.0.1` (TLS) / `0.0.0.0` (no-TLS) | Bind address — localhost when Caddy fronts the app, public otherwise |
+| `SERVER_PORT` | `9090` | Internal HTTP port (configurable via `--port` at install) |
+| `CORS_ORIGINS` | *generated* | Auto-set to your public URL (`https://yourdomain` or `https://<ip>.sslip.io`) |
 | `JWT_SECRET` | *generated* | Random string for token signing |
 | `ENCRYPTION_KEY` | *generated* | AES-256 key for encrypting stored LiveKit credentials |
 | `DATABASE_PATH` | `/opt/mqvi/data/mqvi.db` | SQLite database path |

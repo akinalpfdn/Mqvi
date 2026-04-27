@@ -1,10 +1,10 @@
 -- 015_voice_moderation_perms.sql
--- 3 yeni voice moderation yetkisi:
---   PermMoveMembers   = 8192  (üyeleri voice kanallar arası taşıma + voice'tan atma)
---   PermMuteMembers   = 16384 (üyeleri sunucu genelinde susturma)
---   PermDeafenMembers = 32768 (üyeleri sunucu genelinde sağırlaştırma)
+-- 3 new voice moderation permissions:
+--   PermMoveMembers   = 8192  (move members between voice channels + disconnect from voice)
+--   PermMuteMembers   = 16384 (server-wide mute members)
+--   PermDeafenMembers = 32768 (server-wide deafen members)
 --
--- Owner/Admin zaten PermAdmin (512) ile tüm yetkilere sahip (Has() bypass).
--- Moderator rolüne explicit ekliyoruz.
+-- Owner/Admin already have all permissions via PermAdmin (512) (Has() bypass).
+-- We add them explicitly to the Moderator role.
 UPDATE roles SET permissions = permissions | 8192 | 16384 | 32768
   WHERE id IN ('owner', 'admin', 'moderator');

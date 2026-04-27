@@ -4,10 +4,10 @@ import react from "@vitejs/plugin-react";
 // https://vite.dev/config/
 // command: "serve" → dev server (vite dev), "build" → production build (vite build)
 //
-// base farkı neden gerekli?
+// Why does base differ between dev and build?
 // - Dev (serve): base "/" → script src="/src/main.tsx" (absolute)
-//   SPA routing ile /invite/abc gibi nested path'lerde JS modülleri doğru yüklenir.
-//   Eğer "./" olursa → tarayıcı ./src/main.tsx'i /invite/src/main.tsx olarak çözer → 404.
+//   With SPA routing, nested paths like /invite/abc resolve JS modules correctly.
+//   If "./" → browser resolves ./src/main.tsx as /invite/src/main.tsx → 404.
 //
 // - Build: base "./" → script src="./assets/index-xxx.js" (relative)
 //   Electron file:// and Capacitor capacitor:// use relative paths.

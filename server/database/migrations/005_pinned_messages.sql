@@ -1,9 +1,9 @@
 -- 005_pinned_messages.sql
--- Mesaj sabitleme (pin) sistemi için tablo.
+-- Table for the message pinning system.
 --
--- Bir mesaj sadece bir kez pinlenebilir (UNIQUE constraint).
--- Pin kaldırıldığında satır silinir (soft delete yok).
--- Mesaj veya kanal silindiğinde CASCADE ile pin de silinir.
+-- A message can be pinned only once (UNIQUE constraint).
+-- Unpinning deletes the row (no soft delete).
+-- When a message or channel is deleted, the pin is removed via CASCADE.
 
 CREATE TABLE IF NOT EXISTS pinned_messages (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),

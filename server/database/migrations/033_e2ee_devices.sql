@@ -1,27 +1,27 @@
--- 033: E2EE cihaz kaydi — Signal Protocol icin device identity ve prekey yonetimi.
+-- 033: E2EE device registration — device identity and prekey management for Signal Protocol.
 --
--- E2EE (End-to-End Encryption) icin her cihaz (browser, Electron) bagimsiz bir
--- kriptografik kimlige sahip olmalidir. Signal Protocol'un X3DH (Extended Triple
--- Diffie-Hellman) akisi soyle calisir:
+-- For E2EE (End-to-End Encryption) every device (browser, Electron) must have an
+-- independent cryptographic identity. The Signal Protocol's X3DH (Extended Triple
+-- Diffie-Hellman) flow works as follows:
 --
--- 1. Her cihaz kayit olurken bir "prekey bundle" yuklenir:
---    - identity_key: Uzun omurlu Curve25519 public key (cihaz kimligini temsil eder)
---    - signed_prekey: Orta vadeli key, identity_key ile imzalanir (periyodik rotasyon)
---    - one_time_prekeys: Tek kullanimlik ephemeral key'ler (ilk mesajda tuketilir)
+-- 1. Each device uploads a "prekey bundle" upon registration:
+--    - identity_key: Long-lived Curve25519 public key (represents the device identity)
+--    - signed_prekey: Medium-term key, signed with identity_key (rotated periodically)
+--    - one_time_prekeys: Single-use ephemeral keys (consumed on first message)
 --
--- 2. Alice Bob'a ilk mesajini gondermek istediginde:
---    - Bob'un prekey bundle'ini sunucudan ceker
---    - X3DH ile paylasilan gizli anahtar turetir
---    - Double Ratchet ile mesaji sifreler
---    - Sunucu sifrelenmis blob'u depolar, icerigini ASLA goremez
+-- 2. When Alice wants to send her first message to Bob:
+--    - Fetches Bob's prekey bundle from the server
+--    - Derives a shared secret via X3DH
+--    - Encrypts the message with Double Ratchet
+--    - Server stores the encrypted blob and NEVER sees its contents
 --
--- 3. Tek kullanimlik prekey tuketildikten sonra silinir.
---    Havuz azaldiginda sunucu istemciye WS uzerinden bildirim gonderir.
+-- 3. A one-time prekey is deleted once consumed.
+--    When the pool runs low the server notifies the client over WS.
 
 -- ═══════════════════════════════════════════════════════════
--- user_devices: Her kullanicinin bagimsiz cihaz kayitlari.
--- Bir kullanici birden fazla cihazdan girebilir (web + desktop).
--- Her cihaz icin ayri Signal session olusturulur.
+-- user_devices: Independent device records for each user.
+-- A user may sign in from multiple devices (web + desktop).
+-- A separate Signal session is created for each device.
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS user_devices (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
@@ -41,9 +41,9 @@ CREATE TABLE IF NOT EXISTS user_devices (
 CREATE INDEX IF NOT EXISTS idx_user_devices_user ON user_devices(user_id);
 
 -- ═══════════════════════════════════════════════════════════
--- device_one_time_prekeys: Her cihaz icin tek kullanimlik prekey havuzu.
--- X3DH sirasinda bir tanesi tuketilir (atomik DELETE ... RETURNING).
--- Havuz 10'un altina dustugunde sunucu istemciye "prekey_low" WS event'i gonderir.
+-- device_one_time_prekeys: One-time prekey pool for each device.
+-- One is consumed during X3DH (atomic DELETE ... RETURNING).
+-- When the pool drops below 10 the server emits a "prekey_low" WS event to the client.
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS device_one_time_prekeys (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),

@@ -1,16 +1,16 @@
 # LiveKit Server Configuration
-# mqvi voice/video chat için SFU sunucusu.
+# SFU server for mqvi voice/video chat.
 
 port: 7880
 
 rtc:
-  # UDP port aralığı — firewall'da bu portları açmalısın
+  # UDP port range — these ports must be opened on the firewall
   port_range_start: 50000
   port_range_end: 50200
-  # Sunucunun public IP'sini kullan (NAT arkasındaysa gerekli)
+  # Use the server's public IP (required when behind NAT)
   use_external_ip: true
 
-# API key/secret — .env'deki LIVEKIT_API_KEY ve LIVEKIT_API_SECRET ile eşleşmeli
+# API key / secret — must match LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env
 keys:
   devkey: secret
 

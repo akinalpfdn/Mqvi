@@ -1,7 +1,7 @@
 -- 010_reactions.sql
--- Emoji reaction sistemi.
--- Bir kullanıcı bir mesaja aynı emojiyi sadece bir kez ekleyebilir (UNIQUE constraint).
--- Mesaj silindiğinde ilişkili reaction'lar otomatik silinir (ON DELETE CASCADE).
+-- Emoji reaction system.
+-- A user can add the same emoji to a message only once (UNIQUE constraint).
+-- When a message is deleted, related reactions are removed automatically (ON DELETE CASCADE).
 
 CREATE TABLE IF NOT EXISTS reactions (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),

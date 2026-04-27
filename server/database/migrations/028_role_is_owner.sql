@@ -1,20 +1,20 @@
 -- 028_role_is_owner.sql
--- Owner rolünü ID yerine is_owner flag'i ile tanımlama.
+-- Identify the owner role by an is_owner flag instead of by ID.
 --
--- Problem: Default server'ın owner rolü 'owner' ID'si ile oluşturulmuşken,
--- yeni oluşturulan sunuculardaki owner rolleri rastgele ID alıyor.
--- Tüm owner kontrolleri (HasOwnerRole, role_service, frontend) role.ID == "owner"
--- karşılaştırması yapıyordu ve bu yeni sunucularda çalışmıyordu.
+-- Problem: The default server's owner role was created with the ID 'owner',
+-- but owner roles in newly created servers receive random IDs.
+-- All owner checks (HasOwnerRole, role_service, frontend) compared role.ID == "owner",
+-- which failed for those new servers.
 --
--- Çözüm: is_owner kolonu ekleniyor. Bu kolon ID'den bağımsız olarak
--- owner rolünü tanımlar.
+-- Solution: Add an is_owner column. It identifies the owner role
+-- independently of its ID.
 
 ALTER TABLE roles ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0;
 
--- Mevcut "owner" ID'li rolü işaretle (default server'ın owner rolü)
+-- Flag the existing role with ID "owner" (default server's owner role)
 UPDATE roles SET is_owner = 1 WHERE id = 'owner';
 
--- Yeni oluşturulmuş sunuculardaki owner rolleri de işaretle.
--- Owner rolü: PermAll ((1<<16)-1 = 65535) ve position >= 100
+-- Flag owner roles in newly created servers as well.
+-- Owner role: PermAll ((1<<16)-1 = 65535) and position >= 100
 UPDATE roles SET is_owner = 1
 WHERE permissions = 65535 AND position >= 100 AND is_owner = 0;

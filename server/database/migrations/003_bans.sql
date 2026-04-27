@@ -1,9 +1,9 @@
 -- 003_bans.sql
--- Ban sistemi: yasaklanmış kullanıcılar tablosu.
+-- Ban system: table of banned users.
 --
--- Bir kullanıcı banlandığında bu tabloya kayıt oluşturulur.
--- Login ve WS bağlantısı sırasında bu tablo kontrol edilir.
--- Unban = kayıt silinir.
+-- A row is created here when a user is banned.
+-- This table is checked during login and on WS connect.
+-- Unban = row is deleted.
 
 CREATE TABLE IF NOT EXISTS bans (
     user_id    TEXT PRIMARY KEY,

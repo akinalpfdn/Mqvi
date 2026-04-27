@@ -1,12 +1,12 @@
 -- 007_channel_reads.sql
--- Kanal okuma durumu takibi — okunmamış mesaj badge'i için.
+-- Channel read state tracking — used for the unread message badge.
 --
--- Her kullanıcı-kanal çifti için son okunan mesaj ID'si tutulur.
--- Bu sayede okunmamış mesaj sayısı = bu ID'den sonraki mesaj sayısı olarak hesaplanır.
+-- Stores the last-read message ID for each user-channel pair.
+-- The unread count is then computed as the number of messages after that ID.
 --
--- Neden last_read_message_id?
--- Her mesajı "okundu/okunmadı" olarak işaretlemek çok pahalı olurdu.
--- "Bu noktaya kadar okudum" şeklinde watermark tutmak çok daha verimli.
+-- Why last_read_message_id?
+-- Marking every individual message as read/unread would be very expensive.
+-- A watermark ("I have read up to this point") is much more efficient.
 
 CREATE TABLE IF NOT EXISTS channel_reads (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

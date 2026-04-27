@@ -1,16 +1,16 @@
--- 035: E2EE grup oturum takibi + sifreli anahtar yedegi.
+-- 035: E2EE group session tracking + encrypted key backup.
 --
--- channel_group_sessions: Megolm/Sender Key grup oturumlarini takip eder.
--- Her kanal icin her gonderici cihaz bir "outbound session" olusturur.
--- Diger uyeler bu session'in "inbound" kopyasini alarak mesajlari cozer.
--- session_data sunucuda opak blob olarak saklanir — sunucu okuyamaz.
+-- channel_group_sessions: Tracks Megolm/Sender Key group sessions.
+-- Each sender device creates an "outbound session" for each channel.
+-- Other members receive the "inbound" copy of that session to decrypt messages.
+-- session_data is stored on the server as an opaque blob — the server cannot read it.
 --
--- e2ee_key_backups: Kullanicinin opsiyonel anahtar yedegi.
--- Recovery password ile sifrelenmis blob. Sunucu sifresini bilmez.
--- Yeni cihazda recovery password girilirse tum anahtar gecmisi yuklenebilir.
+-- e2ee_key_backups: The user's optional key backup.
+-- A blob encrypted with the recovery password. The server does not know the password.
+-- On a new device, entering the recovery password lets the entire key history be loaded.
 
 -- ═══════════════════════════════════════════════════════════
--- channel_group_sessions: Kanal bazli Sender Key oturumlari.
+-- channel_group_sessions: Per-channel Sender Key sessions.
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS channel_group_sessions (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
@@ -28,13 +28,13 @@ CREATE INDEX IF NOT EXISTS idx_cgs_channel ON channel_group_sessions(channel_id)
 CREATE INDEX IF NOT EXISTS idx_cgs_sender ON channel_group_sessions(sender_user_id, sender_device_id);
 
 -- ═══════════════════════════════════════════════════════════
--- e2ee_key_backups: Sifreli anahtar yedegi (kullanici basina tek kayit).
+-- e2ee_key_backups: Encrypted key backup (one record per user).
 --
--- algorithm: Sifreleme algoritmasi (varsayilan aes-256-gcm)
--- encrypted_data: Base64 ciphertext (tum anahtarlar — identity, signed prekey,
---                 Signal sessions, Sender Key sessions, guvenilen kimlikler)
--- nonce: Base64 AES-GCM nonce (12 byte)
--- salt: Base64 PBKDF2 tuzu (32 byte) — recovery password'den anahtar turetmek icin
+-- algorithm: Encryption algorithm (default aes-256-gcm)
+-- encrypted_data: Base64 ciphertext (all keys — identity, signed prekey,
+--                 Signal sessions, Sender Key sessions, trusted identities)
+-- nonce: Base64 AES-GCM nonce (12 bytes)
+-- salt: Base64 PBKDF2 salt (32 bytes) — used to derive a key from the recovery password
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS e2ee_key_backups (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),

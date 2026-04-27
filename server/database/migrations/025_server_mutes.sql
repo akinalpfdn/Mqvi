@@ -1,8 +1,8 @@
--- 025: Server mute — kullanıcı bazlı sunucu bildirim sessize alma.
+-- 025: Server mute — per-user server notification muting.
 --
--- muted_until: NULL = sonsuza kadar (unmute edilene kadar)
---              DATETIME = belirli bir zamana kadar (1h, 8h, 7d)
--- Süresi dolan mute'lar lazy olarak temizlenir: okunurken kontrol edilir.
+-- muted_until: NULL = forever (until explicitly unmuted)
+--              DATETIME = until a specific time (1h, 8h, 7d)
+-- Expired mutes are cleaned up lazily — checked on read.
 
 CREATE TABLE IF NOT EXISTS server_mutes (
     user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

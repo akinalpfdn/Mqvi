@@ -1,13 +1,13 @@
--- 026: dm_channels tablosuna last_message_at sütunu ekle.
+-- 026: Add a last_message_at column to dm_channels.
 --
--- DM kanallarını son mesaj aktivitesine göre sıralamak için kullanılır.
--- NULL = henüz mesaj yok (created_at'e fallback edilir).
--- SQLite trigger ile otomatik güncellenir.
+-- Used to sort DM channels by last message activity.
+-- NULL = no messages yet (fallback to created_at).
+-- Kept up to date automatically via SQLite triggers.
 
--- 1. Yeni sütun
+-- 1. New column
 ALTER TABLE dm_channels ADD COLUMN last_message_at DATETIME;
 
--- 2. Mevcut verileri backfill — her kanalın son mesajının created_at'ini ata
+-- 2. Backfill existing data — set each channel's last message created_at
 UPDATE dm_channels
 SET last_message_at = (
     SELECT MAX(dm_messages.created_at)
@@ -15,7 +15,7 @@ SET last_message_at = (
     WHERE dm_messages.dm_channel_id = dm_channels.id
 );
 
--- 3. Yeni DM mesajı eklendiğinde last_message_at güncelle
+-- 3. Update last_message_at when a new DM message is inserted
 CREATE TRIGGER IF NOT EXISTS dm_channels_update_last_message_ai
 AFTER INSERT ON dm_messages
 BEGIN
@@ -24,7 +24,7 @@ BEGIN
     WHERE id = NEW.dm_channel_id;
 END;
 
--- 4. DM mesajı silindiğinde last_message_at'i yeniden hesapla
+-- 4. Recompute last_message_at when a DM message is deleted
 CREATE TRIGGER IF NOT EXISTS dm_channels_update_last_message_ad
 AFTER DELETE ON dm_messages
 BEGIN

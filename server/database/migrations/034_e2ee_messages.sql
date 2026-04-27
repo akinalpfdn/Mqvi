@@ -1,32 +1,32 @@
--- 034: E2EE mesaj alani degisiklikleri + FTS5 trigger guncellemeleri.
+-- 034: E2EE message field changes + FTS5 trigger updates.
 --
--- Mevcut messages ve dm_messages tablolarina E2EE alanlari eklenir:
+-- E2EE fields are added to the existing messages and dm_messages tables:
 -- - encryption_version: 0=plaintext (legacy), 1=E2EE
--- - ciphertext: Base64 sifrelenmis icerik (sunucu bunu OKUYAMAZ)
--- - sender_device_id: Mesaji gonderen cihazin ID'si
--- - e2ee_metadata: JSON — session_id, message_index vb. protokol meta verisi
+-- - ciphertext: Base64-encrypted content (server CANNOT read this)
+-- - sender_device_id: ID of the device that sent the message
+-- - e2ee_metadata: JSON — protocol metadata such as session_id, message_index, etc.
 --
--- FTS5 trigger'lari guncellenir: Sadece encryption_version=0 (plaintext) mesajlar
--- indexlenir. E2EE mesajlarin content'i NULL olacagindan FTS5 bunlari zaten
--- indexleyemez, ama trigger kosulu eklenerek explicit hale getirilir.
+-- FTS5 triggers are updated: only encryption_version=0 (plaintext) messages
+-- are indexed. Because E2EE messages have NULL content FTS5 cannot index them
+-- anyway, but the trigger condition is added to make this explicit.
 --
--- sessions tablosuna device_id eklenir — login session'i cihaza baglanir.
+-- device_id is added to the sessions table — a login session is bound to a device.
 
--- ─── messages tablosu ───
+-- ─── messages table ───
 ALTER TABLE messages ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE messages ADD COLUMN ciphertext TEXT;
 ALTER TABLE messages ADD COLUMN sender_device_id TEXT;
 ALTER TABLE messages ADD COLUMN e2ee_metadata TEXT;
 
--- ─── dm_messages tablosu ───
+-- ─── dm_messages table ───
 ALTER TABLE dm_messages ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE dm_messages ADD COLUMN ciphertext TEXT;
 ALTER TABLE dm_messages ADD COLUMN sender_device_id TEXT;
 ALTER TABLE dm_messages ADD COLUMN e2ee_metadata TEXT;
 
--- ─── FTS5 trigger guncellemeleri ───
--- Mevcut trigger'lari kaldir ve E2EE-aware versiyonlarini olustur.
--- encryption_version=0 (plaintext) ise indexle, degilse indexleme.
+-- ─── FTS5 trigger updates ───
+-- Drop the existing triggers and create E2EE-aware versions.
+-- Index when encryption_version=0 (plaintext); otherwise skip indexing.
 
 DROP TRIGGER IF EXISTS messages_ai;
 CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages
@@ -60,5 +60,5 @@ BEGIN
     SELECT NEW.rowid, NEW.content WHERE NEW.content IS NOT NULL AND NEW.encryption_version = 0;
 END;
 
--- ─── sessions tablosuna device_id baglantisi ───
+-- ─── device_id link added to sessions table ───
 ALTER TABLE sessions ADD COLUMN device_id TEXT;

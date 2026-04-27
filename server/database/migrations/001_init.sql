@@ -1,15 +1,15 @@
 -- 001_init.sql
--- Temel veritabanı şeması: users, channels, messages ve ilişkili tablolar.
--- Her migration idempotent olmalı: IF NOT EXISTS kullanarak tekrar çalıştırılabilir.
+-- Base database schema: users, channels, messages and related tables.
+-- Every migration must be idempotent: use IF NOT EXISTS so it can be re-run.
 
--- WAL mode: Write-Ahead Logging — SQLite'ın eşzamanlı okuma/yazma performansını artırır.
--- Normal modda yazma sırasında tüm DB kilitlenir, WAL modunda okumalar yazma sırasında da devam eder.
+-- WAL mode: Write-Ahead Logging — improves SQLite concurrent read/write performance.
+-- In normal mode the entire DB is locked during writes; in WAL mode reads continue during writes.
 PRAGMA journal_mode=WAL;
 
--- Foreign key desteğini aç — SQLite'ta varsayılan olarak KAPALI gelir!
+-- Enable foreign key support — disabled by default in SQLite!
 PRAGMA foreign_keys=ON;
 
--- Sunucu (her deployment bir sunucu)
+-- Server (each deployment is one server)
 CREATE TABLE IF NOT EXISTS server (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     name TEXT NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS server (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Kullanıcılar
+-- Users
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     username TEXT NOT NULL UNIQUE,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Roller
+-- Roles
 CREATE TABLE IF NOT EXISTS roles (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     name TEXT NOT NULL,
@@ -51,16 +51,16 @@ CREATE TABLE IF NOT EXISTS roles (
 --   64  = CONNECT_VOICE
 --   128 = SPEAK
 --   256 = STREAM (screen share)
---   512 = ADMIN (tüm yetkiler)
+--   512 = ADMIN (all permissions)
 
--- Kullanıcı-Rol ilişkisi (many-to-many)
+-- User-Role relation (many-to-many)
 CREATE TABLE IF NOT EXISTS user_roles (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, role_id)
 );
 
--- Kategoriler (channel grouping — Discord'taki "TEXT CHANNELS", "VOICE CHANNELS" gibi)
+-- Categories (channel grouping — like Discord's "TEXT CHANNELS", "VOICE CHANNELS")
 CREATE TABLE IF NOT EXISTS categories (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     name TEXT NOT NULL,
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS categories (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Kanallar (text + voice)
+-- Channels (text + voice)
 CREATE TABLE IF NOT EXISTS channels (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     name TEXT NOT NULL,
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS channels (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Kanal bazlı yetki override (Discord'taki per-channel permission override)
+-- Per-channel permission overrides (like Discord's per-channel permission override)
 CREATE TABLE IF NOT EXISTS channel_permissions (
     channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
     role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS channel_permissions (
     PRIMARY KEY (channel_id, role_id)
 );
 
--- Mesajlar
+-- Messages
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Dosya ekleri
+-- File attachments
 CREATE TABLE IF NOT EXISTS attachments (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS attachments (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Davet kodları
+-- Invite codes
 CREATE TABLE IF NOT EXISTS invites (
     code TEXT PRIMARY KEY,
     created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS invites (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Oturum takibi (JWT refresh token)
+-- Session tracking (JWT refresh token)
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Performance indexleri
+-- Performance indexes
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);

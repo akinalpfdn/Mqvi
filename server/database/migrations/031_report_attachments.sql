@@ -1,6 +1,6 @@
--- Report attachments — rapor delili olarak eklenen dosyalar (sadece resimler).
--- Mevcut attachments / dm_attachments tabloları ile paralel yapı.
--- FK: reports(id) CASCADE — rapor silinince ekleri de silinir.
+-- Report attachments — files attached as evidence for a report (images only).
+-- Same shape as the existing attachments / dm_attachments tables.
+-- FK: reports(id) CASCADE — when a report is deleted, its attachments are deleted too.
 CREATE TABLE IF NOT EXISTS report_attachments (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,

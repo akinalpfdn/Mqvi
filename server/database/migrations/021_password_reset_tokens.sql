@@ -1,15 +1,15 @@
--- 021: Password Reset Tokens tablosu.
+-- 021: Password Reset Tokens table.
 --
--- Şifre sıfırlama akışı:
--- 1. Kullanıcı email girer → backend token üretir
--- 2. Token'ın SHA256 hash'i bu tabloya kaydedilir (güvenlik: plaintext saklanmaz)
--- 3. Plaintext token email ile gönderilir
--- 4. Kullanıcı token'ı geri gönderir → backend hash'leyip karşılaştırır
--- 5. Eşleşme varsa ve süresi dolmamışsa → şifre güncellenir, token silinir
+-- Password reset flow:
+-- 1. User submits email → backend generates a token
+-- 2. SHA256 hash of the token is stored in this table (security: never store plaintext)
+-- 3. Plaintext token is sent via email
+-- 4. User submits the token → backend hashes it and compares
+-- 5. If it matches and is not expired → password is updated, token is deleted
 --
--- user_id CASCADE: Kullanıcı silinirse token'ları da silinir.
--- token_hash UNIQUE: Aynı hash iki kez kaydedilemez (collision koruması).
--- expires_at: Token'ın geçerlilik süresi (20 dakika).
+-- user_id CASCADE: When the user is deleted, their tokens are deleted too.
+-- token_hash UNIQUE: The same hash cannot be stored twice (collision protection).
+-- expires_at: Token validity duration (20 minutes).
 
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),

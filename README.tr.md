@@ -203,7 +203,7 @@ mqvi platformunun tamamini kendi altyapinda calistir. mqvi.net'ten tamamen bagim
 
 - Linux sunucu (Ubuntu 22.04+ / Debian 12+ onerilir), x86_64 veya arm64
 - Minimum 2 vCPU, 4 GB RAM
-- Alan adi (opsiyonel — IP adresi de calisiyor)
+- Alan adi opsiyonel — yoksa kurulum otomatik olarak ucretsiz `sslip.io` hostname'ine duser ve yine HTTPS calisir (tarayicilar duz HTTP'de ses/video'yu engeller).
 
 ### Tek Komutla Kurulum
 
@@ -213,19 +213,43 @@ Sunucuna SSH ile baglan ve calistir:
 curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/install.sh | sudo bash
 ```
 
-Bu kadar. Script:
+Script sana mqvi'nin nasil yayinlanacagini sorar:
+
+1. **Kendi alan adinla HTTPS** (onerilir) — Caddy ve Let's Encrypt'i otomatik kurar.
+2. **sslip.io ile HTTPS** — alan adi gerekmez. Public IP'nden `1-2-3-4.sslip.io` gibi bir hostname uretir ve buna gercek Let's Encrypt sertifikasi alir. Ses/video kutudan cikar cikmaz calisir.
+3. **Sadece HTTP** — test amacli. Tarayici mikrofon, kamera ve ekran paylasimini engeller.
+
+Interaktif olmayan kurulum istiyorsan flag'lerle:
+
+```bash
+# Kendi alan adin, ozel internal port
+sudo bash install.sh --domain demo.example.com --port 9092 -y
+
+# sslip.io ile her sey default
+sudo bash install.sh -y
+
+# Sunucunda zaten Caddy var ve baska siteleri sunuyor — script bunu otomatik
+# algilar, kendi Caddy'sini kurmaz, yapistirmak icin Caddyfile snippet'i basar
+sudo bash install.sh --domain demo.example.com --port 9092 -y
+
+# Ozel portta sadece HTTP
+sudo bash install.sh --no-tls --port 8080 -y
+```
+
+Script ne yapar:
 
 1. `mqvi` adinda ozel bir sistem kullanicisi ve `/opt/mqvi` dizini olusturur
 2. Mimarin icin hazir `mqvi-server` binary'sini indirir (~40 MB, frontend + migration'lar + i18n hepsi gomulu — Go, Node.js veya Docker gerekmez)
 3. LiveKit SFU binary'sini indirir
 4. Rastgele sirlarla `.env` ve `livekit.yaml` uretir
 5. Her iki servis icin systemd unit'lerini sertlestirilmis ayarlarla kurar (`ProtectSystem=strict`, `NoNewPrivileges`, ozel kullanici)
-6. Firewall portlarini acar (UFW / firewalld varsa)
-7. Her iki servisi baslatir, acilista otomatik calisacak sekilde ayarlar
+6. (TLS modlarinda) Caddy'i kurar ve yapilandirir, ya da Caddy zaten varsa dokunmaz ve snippet basar
+7. Firewall portlarini acar (UFW / firewalld varsa)
+8. Her seyi baslatir, acilista otomatik calisacak sekilde ayarlar
 
-Scripti tekrar calistirmak guvenli — mevcut `.env` ve `livekit.yaml` korunur, sirlarin degismez.
+Scripti tekrar calistirmak guvenli — mevcut `.env` ve `livekit.yaml` korunur, sirlarin degismez. Flag'ler mevcut `.env`'i ezmez.
 
-Kurulum bittiginde tarayicinda `http://SUNUCU_IP:9090` adresini ac. Kayit olan ilk kullanici sunucu sahibi olur.
+Kurulum bittiginde script public URL'i basar — `https://alanadin` veya `https://1-2-3-4.sslip.io`. Kayit olan ilk kullanici sunucu sahibi olur.
 
 ### Servisleri yonetmek
 
@@ -245,29 +269,21 @@ systemctl restart mqvi-server
 
 Verilerin `/opt/mqvi/data/` altinda tutulur (SQLite veritabani + yuklenen dosyalar). Yedegini al.
 
-### Caddy ile SSL (production icin onerilir)
+### Manuel Caddy snippet (existing-Caddy modu)
 
-```bash
-apt install caddy
-```
-
-`/etc/caddy/Caddyfile` dosyasina ekle:
+Sunucunda baska siteler icin zaten Caddy calisiyorsa, kurulum bunu algilar ve kendi kopyasini kurmaz. Script ciktisinda asagidaki gibi bir snippet gorursun — `Caddyfile`'ina yapistir:
 
 ```
-alanadın.com {
-    reverse_proxy localhost:9090
-}
-
-lk.alanadın.com {
-    reverse_proxy localhost:7880
+demo.example.com {
+    reverse_proxy 127.0.0.1:9092
+    encode zstd gzip
+    request_body {
+        max_size 30MB
+    }
 }
 ```
 
-```bash
-systemctl restart caddy
-```
-
-Caddy, Let's Encrypt uzerinden SSL sertifikalari otomatik alir ve yeniler. SSL acildiktan sonra `/opt/mqvi/.env` icindeki `LIVEKIT_URL` degerini `wss://lk.alanadın.com` olarak guncelle ve `systemctl restart mqvi-server`.
+Sonra `sudo systemctl reload caddy`.
 
 ### Firewall portlari
 
@@ -275,7 +291,9 @@ Install scripti UFW veya firewalld aktifse bunlari otomatik acar. Bulut saglayic
 
 | Port | Protokol | Amac |
 |------|----------|------|
-| `9090` | TCP | Web Arayuzu + API (Caddy kullaniliyorsa `443`) |
+| `80` | TCP | HTTP (Let's Encrypt challenge, HTTPS yonlendirme) — sadece TLS modlarinda |
+| `443` | TCP | HTTPS — sadece TLS modlarinda |
+| `<--port degerin>` | TCP | Web Arayuzu + API — yalnizca `--no-tls` modunda public; TLS modlarinda Caddy arkasinda localhost-only |
 | `7880` | TCP | LiveKit sinyal |
 | `7881` | TCP | LiveKit TURN aktarma |
 | `7882` | UDP | LiveKit medya |
@@ -287,7 +305,9 @@ Install scripti makul varsayilanlar uretir. Degistirmek istersen `/opt/mqvi/.env
 
 | Degisken | Varsayilan | Aciklama |
 |----------|-----------|----------|
-| `SERVER_PORT` | `9090` | HTTP portu |
+| `SERVER_HOST` | `127.0.0.1` (TLS) / `0.0.0.0` (TLS yok) | Bind adresi — Caddy on tarafsa localhost, degilse public |
+| `SERVER_PORT` | `9090` | Internal HTTP portu (kurulumda `--port` ile degistirilebilir) |
+| `CORS_ORIGINS` | *uretilir* | Public URL'ine otomatik atanir (`https://alanadin` veya `https://<ip>.sslip.io`) |
 | `JWT_SECRET` | *uretilir* | Token imzalama icin rastgele string |
 | `ENCRYPTION_KEY` | *uretilir* | Saklanan LiveKit kimlik bilgilerini sifrelemek icin AES-256 anahtar |
 | `DATABASE_PATH` | `/opt/mqvi/data/mqvi.db` | SQLite veritabani yolu |

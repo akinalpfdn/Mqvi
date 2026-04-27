@@ -1,26 +1,26 @@
 /**
  * E2EE Key Storage — IndexedDB wrapper.
  *
- * Tum E2EE anahtar materiali IndexedDB'de saklanir.
- * `idb` kutuphanesi IndexedDB'nin callback-based API'sini
- * Promise-based API'ye cevirir (async/await kullanilabilir).
+ * All E2EE key material is stored in IndexedDB.
+ * The `idb` library converts the callback-based IndexedDB API
+ * into a Promise-based API (so async/await can be used).
  *
- * Object store'lar:
- * - identity: Identity key pair (tek kayit, cihaz basina)
- * - signing: Ed25519 signing key pair (identity key'den turetilmis)
- * - registration: Cihaz kayit bilgileri (deviceId, registrationId)
- * - signedPreKeys: Signed prekey'ler (id bazli)
- * - preKeys: One-time prekey'ler (id bazli)
- * - sessions: Signal Double Ratchet session'lari (userId+deviceId bazli)
- * - senderKeys: Sender Key session'lari (channelId+userId+deviceId bazli)
- * - trustedIdentities: Guvenilen cihaz kimlikleri (userId+deviceId bazli)
- * - messageCache: Decrypt edilmis mesaj cache'i (channelId index'li)
- * - metadata: Genel metadata (key-value)
+ * Object stores:
+ * - identity: Identity key pair (single record per device)
+ * - signing: Ed25519 signing key pair (derived from the identity key)
+ * - registration: Device registration info (deviceId, registrationId)
+ * - signedPreKeys: Signed prekeys (by id)
+ * - preKeys: One-time prekeys (by id)
+ * - sessions: Signal Double Ratchet sessions (by userId+deviceId)
+ * - senderKeys: Sender Key sessions (by channelId+userId+deviceId)
+ * - trustedIdentities: Trusted device identities (by userId+deviceId)
+ * - messageCache: Decrypted message cache (indexed by channelId)
+ * - metadata: General metadata (key-value)
  *
- * Guvenlik notu:
- * IndexedDB browser'in sandboxed storage'idir. Veriler disk'e sifrelenmeden
- * yazilir, ancak OS-level FDE (Full Disk Encryption) ile korunur.
- * Bu, Signal Desktop ve Element'in de kullandigi yaklasimdir.
+ * Security note:
+ * IndexedDB is the browser's sandboxed storage. Data is written to disk
+ * unencrypted, but is protected by OS-level FDE (Full Disk Encryption).
+ * This is the same approach used by Signal Desktop and Element.
  */
 
 import { openDB, type IDBPDatabase } from "idb";
@@ -44,10 +44,10 @@ const DB_NAME = "mqvi_e2ee";
 const DB_VERSION = 1;
 
 /**
- * IndexedDB baglantisi — lazy initialization.
+ * IndexedDB connection — lazy initialization.
  *
- * openDB sadece ilk erisimde cagrilir, sonraki erisimler
- * ayni db instance'ini kullanir. Singleton pattern.
+ * openDB is only called on first access; subsequent accesses
+ * use the same db instance. Singleton pattern.
  */
 let dbInstance: IDBPDatabase | null = null;
 
@@ -56,14 +56,14 @@ async function getDB(): Promise<IDBPDatabase> {
 
   dbInstance = await openDB(DB_NAME, DB_VERSION, {
     /**
-     * upgrade callback — DB ilk olusturulurken veya versiyon arttiginda calisir.
+     * upgrade callback — runs when the DB is first created or the version is bumped.
      *
-     * IndexedDB'de schema degisiklikleri sadece upgrade transaction icinde yapilabilir.
-     * Her object store bir tablo gibidir. keyPath primary key'i belirtir.
-     * Index'ler sorgu performansi icin eklenir (SQL INDEX gibi).
+     * In IndexedDB, schema changes can only be made inside an upgrade transaction.
+     * Each object store is like a table. keyPath specifies the primary key.
+     * Indexes are added for query performance (similar to a SQL INDEX).
      */
     upgrade(db) {
-      // Identity key pair — tek kayit, "primary" key ile
+      // Identity key pair — single record under the "primary" key
       if (!db.objectStoreNames.contains("identity")) {
         db.createObjectStore("identity");
       }
@@ -73,37 +73,37 @@ async function getDB(): Promise<IDBPDatabase> {
         db.createObjectStore("signing");
       }
 
-      // Cihaz kayit bilgileri
+      // Device registration info
       if (!db.objectStoreNames.contains("registration")) {
         db.createObjectStore("registration");
       }
 
-      // Signed prekey'ler — id bazli
+      // Signed prekeys — keyed by id
       if (!db.objectStoreNames.contains("signedPreKeys")) {
         db.createObjectStore("signedPreKeys", { keyPath: "id" });
       }
 
-      // One-time prekey'ler — id bazli
+      // One-time prekeys — keyed by id
       if (!db.objectStoreNames.contains("preKeys")) {
         db.createObjectStore("preKeys", { keyPath: "id" });
       }
 
-      // Signal session'lari — compositeKey fonksiyonu ile out-of-line key
+      // Signal sessions — out-of-line key built by compositeKey function
       if (!db.objectStoreNames.contains("sessions")) {
         db.createObjectStore("sessions");
       }
 
-      // Sender Key session'lari — out-of-line key
+      // Sender Key sessions — out-of-line key
       if (!db.objectStoreNames.contains("senderKeys")) {
         db.createObjectStore("senderKeys");
       }
 
-      // Guvenilen cihaz kimlikleri — out-of-line key
+      // Trusted device identities — out-of-line key
       if (!db.objectStoreNames.contains("trustedIdentities")) {
         db.createObjectStore("trustedIdentities");
       }
 
-      // Decrypt edilmis mesaj cache'i — messageId bazli, channelId index'li
+      // Decrypted message cache — keyed by messageId, indexed by channelId
       if (!db.objectStoreNames.contains("messageCache")) {
         const store = db.createObjectStore("messageCache", {
           keyPath: "messageId",
@@ -112,7 +112,7 @@ async function getDB(): Promise<IDBPDatabase> {
         store.createIndex("byDMChannel", "dmChannelId", { unique: false });
       }
 
-      // Genel metadata (key-value)
+      // General metadata (key-value)
       if (!db.objectStoreNames.contains("metadata")) {
         db.createObjectStore("metadata");
       }
@@ -127,16 +127,16 @@ async function getDB(): Promise<IDBPDatabase> {
 // ──────────────────────────────────
 
 /**
- * Signal session icin composite key uretir.
- * userId ve deviceId birlestirilerek benzersiz anahtar olusturur.
+ * Builds a composite key for a Signal session.
+ * Combines userId and deviceId into a unique key.
  */
 function sessionKey(userId: string, deviceId: string): string {
   return `${userId}:${deviceId}`;
 }
 
 /**
- * Sender Key icin composite key uretir.
- * channelId, userId ve deviceId birlestirilerek benzersiz anahtar olusturur.
+ * Builds a composite key for a Sender Key.
+ * Combines channelId, userId, and deviceId into a unique key.
  */
 function senderKeyKey(
   channelId: string,
@@ -147,7 +147,7 @@ function senderKeyKey(
 }
 
 /**
- * Trusted identity icin composite key uretir.
+ * Builds a composite key for a trusted identity.
  */
 function trustedIdentityKey(userId: string, deviceId: string): string {
   return `${userId}:${deviceId}`;
@@ -158,8 +158,8 @@ function trustedIdentityKey(userId: string, deviceId: string): string {
 // ──────────────────────────────────
 
 /**
- * Identity key pair'i IndexedDB'ye kaydeder.
- * Cihaz basina tek kayit — "primary" key ile saklanir.
+ * Saves the identity key pair to IndexedDB.
+ * One record per device — stored under the "primary" key.
  */
 export async function saveIdentityKeyPair(
   keyPair: StoredIdentityKeyPair
@@ -169,8 +169,8 @@ export async function saveIdentityKeyPair(
 }
 
 /**
- * Identity key pair'i IndexedDB'den okur.
- * Yoksa null doner (yeni cihaz, henuz key uretilmemis).
+ * Reads the identity key pair from IndexedDB.
+ * Returns null if missing (new device, keys not yet generated).
  */
 export async function getIdentityKeyPair(): Promise<StoredIdentityKeyPair | null> {
   const db = await getDB();
@@ -183,8 +183,8 @@ export async function getIdentityKeyPair(): Promise<StoredIdentityKeyPair | null
 // ──────────────────────────────────
 
 /**
- * Ed25519 signing key pair'i kaydeder.
- * Identity key ile ayni seed'den turetilir.
+ * Saves the Ed25519 signing key pair.
+ * Derived from the same seed as the identity key.
  */
 export async function saveSigningKeyPair(
   keyPair: StoredSigningKeyPair
@@ -194,7 +194,7 @@ export async function saveSigningKeyPair(
 }
 
 /**
- * Ed25519 signing key pair'i okur.
+ * Reads the Ed25519 signing key pair.
  */
 export async function getSigningKeyPair(): Promise<StoredSigningKeyPair | null> {
   const db = await getDB();
@@ -207,7 +207,7 @@ export async function getSigningKeyPair(): Promise<StoredSigningKeyPair | null> 
 // ──────────────────────────────────
 
 /**
- * Cihaz kayit bilgilerini kaydeder.
+ * Saves device registration info.
  */
 export async function saveRegistrationData(
   data: RegistrationData
@@ -217,7 +217,7 @@ export async function saveRegistrationData(
 }
 
 /**
- * Cihaz kayit bilgilerini okur.
+ * Reads device registration info.
  */
 export async function getRegistrationData(): Promise<RegistrationData | null> {
   const db = await getDB();
@@ -230,7 +230,7 @@ export async function getRegistrationData(): Promise<RegistrationData | null> {
 // ──────────────────────────────────
 
 /**
- * Signed prekey kaydeder.
+ * Saves a signed prekey.
  */
 export async function saveSignedPreKey(
   preKey: StoredSignedPreKey
@@ -240,7 +240,7 @@ export async function saveSignedPreKey(
 }
 
 /**
- * Signed prekey okur (ID bazli).
+ * Reads a signed prekey by ID.
  */
 export async function getSignedPreKey(
   id: number
@@ -251,7 +251,7 @@ export async function getSignedPreKey(
 }
 
 /**
- * Tum signed prekey'leri listeler.
+ * Lists all signed prekeys.
  */
 export async function getAllSignedPreKeys(): Promise<StoredSignedPreKey[]> {
   const db = await getDB();
@@ -259,7 +259,7 @@ export async function getAllSignedPreKeys(): Promise<StoredSignedPreKey[]> {
 }
 
 /**
- * Signed prekey siler (rotation sonrasi eski key'i temizlemek icin).
+ * Deletes a signed prekey (used to clean up the old key after rotation).
  */
 export async function deleteSignedPreKey(id: number): Promise<void> {
   const db = await getDB();
@@ -271,10 +271,10 @@ export async function deleteSignedPreKey(id: number): Promise<void> {
 // ──────────────────────────────────
 
 /**
- * Birden fazla one-time prekey kaydeder (batch upload sonrasi).
+ * Saves multiple one-time prekeys (after a batch upload).
  *
- * IndexedDB transaction icinde yapilir — ya hepsi basarir ya hicbiri.
- * Bu, prekey ID'lerinin tutarli kalmasini saglar.
+ * Performed inside an IndexedDB transaction — all-or-nothing.
+ * This keeps prekey IDs consistent.
  */
 export async function savePreKeys(preKeys: StoredPreKey[]): Promise<void> {
   const db = await getDB();
@@ -286,7 +286,7 @@ export async function savePreKeys(preKeys: StoredPreKey[]): Promise<void> {
 }
 
 /**
- * One-time prekey okur (ID bazli).
+ * Reads a one-time prekey by ID.
  */
 export async function getPreKey(id: number): Promise<StoredPreKey | null> {
   const db = await getDB();
@@ -295,7 +295,7 @@ export async function getPreKey(id: number): Promise<StoredPreKey | null> {
 }
 
 /**
- * One-time prekey siler (X3DH'da tuketildikten sonra).
+ * Deletes a one-time prekey (after it has been consumed in X3DH).
  */
 export async function deletePreKey(id: number): Promise<void> {
   const db = await getDB();
@@ -303,7 +303,7 @@ export async function deletePreKey(id: number): Promise<void> {
 }
 
 /**
- * Mevcut one-time prekey sayisini doner.
+ * Returns the current number of one-time prekeys.
  */
 export async function countPreKeys(): Promise<number> {
   const db = await getDB();
@@ -311,7 +311,7 @@ export async function countPreKeys(): Promise<number> {
 }
 
 /**
- * Tum one-time prekey'leri listeler.
+ * Lists all one-time prekeys.
  */
 export async function getAllPreKeys(): Promise<StoredPreKey[]> {
   const db = await getDB();
@@ -323,7 +323,7 @@ export async function getAllPreKeys(): Promise<StoredPreKey[]> {
 // ──────────────────────────────────
 
 /**
- * Signal session kaydeder/gunceller.
+ * Saves/updates a Signal session.
  */
 export async function saveSession(session: StoredSession): Promise<void> {
   const db = await getDB();
@@ -332,7 +332,7 @@ export async function saveSession(session: StoredSession): Promise<void> {
 }
 
 /**
- * Signal session okur.
+ * Reads a Signal session.
  */
 export async function getSession(
   userId: string,
@@ -344,7 +344,7 @@ export async function getSession(
 }
 
 /**
- * Signal session siler.
+ * Deletes a Signal session.
  */
 export async function deleteSession(
   userId: string,
@@ -355,8 +355,8 @@ export async function deleteSession(
 }
 
 /**
- * Bir kullanicinin tum session'larini siler.
- * Kullanici cihaz degistirdiginde veya identity key rotasyonunda kullanilir.
+ * Deletes all sessions for a user.
+ * Used when the user changes device or rotates the identity key.
  */
 export async function deleteAllSessionsForUser(
   userId: string
@@ -375,7 +375,7 @@ export async function deleteAllSessionsForUser(
 }
 
 /**
- * Belirli bir kullanici icin session var mi kontrol eder.
+ * Checks whether a session exists for the given user/device.
  */
 export async function hasSession(
   userId: string,
@@ -386,7 +386,7 @@ export async function hasSession(
 }
 
 /**
- * Tum session'lari listeler.
+ * Lists all sessions.
  */
 export async function getAllSessions(): Promise<StoredSession[]> {
   const db = await getDB();
@@ -394,8 +394,8 @@ export async function getAllSessions(): Promise<StoredSession[]> {
 }
 
 /**
- * Tum Signal Protocol session'larini siler.
- * Recovery restore sonrasi cagrilir — eski session'lar yeni device ID ile gecersiz.
+ * Deletes all Signal Protocol sessions.
+ * Called after a recovery restore — old sessions are invalid with the new device ID.
  */
 export async function clearAllSessions(): Promise<void> {
   const db = await getDB();
@@ -407,7 +407,7 @@ export async function clearAllSessions(): Promise<void> {
 // ──────────────────────────────────
 
 /**
- * Sender Key kaydeder/gunceller.
+ * Saves/updates a Sender Key.
  */
 export async function saveSenderKey(senderKey: StoredSenderKey): Promise<void> {
   const db = await getDB();
@@ -420,7 +420,7 @@ export async function saveSenderKey(senderKey: StoredSenderKey): Promise<void> {
 }
 
 /**
- * Sender Key okur.
+ * Reads a Sender Key.
  */
 export async function getSenderKey(
   channelId: string,
@@ -436,8 +436,8 @@ export async function getSenderKey(
 }
 
 /**
- * Belirli bir kanalin tum sender key'lerini siler.
- * Kanal silindiginde veya key rotasyonunda kullanilir.
+ * Deletes all sender keys for a given channel.
+ * Used when the channel is deleted or on key rotation.
  */
 export async function deleteAllSenderKeysForChannel(
   channelId: string
@@ -456,7 +456,7 @@ export async function deleteAllSenderKeysForChannel(
 }
 
 /**
- * Tum sender key'leri listeler.
+ * Lists all sender keys.
  */
 export async function getAllSenderKeys(): Promise<StoredSenderKey[]> {
   const db = await getDB();
@@ -468,7 +468,7 @@ export async function getAllSenderKeys(): Promise<StoredSenderKey[]> {
 // ──────────────────────────────────
 
 /**
- * Guvenilen kimlik kaydeder/gunceller.
+ * Saves/updates a trusted identity.
  */
 export async function saveTrustedIdentity(
   identity: TrustedIdentity
@@ -479,7 +479,7 @@ export async function saveTrustedIdentity(
 }
 
 /**
- * Guvenilen kimlik okur.
+ * Reads a trusted identity.
  */
 export async function getTrustedIdentity(
   userId: string,
@@ -494,7 +494,7 @@ export async function getTrustedIdentity(
 }
 
 /**
- * Tum guvenilen kimlikleri listeler.
+ * Lists all trusted identities.
  */
 export async function getAllTrustedIdentities(): Promise<TrustedIdentity[]> {
   const db = await getDB();
@@ -506,7 +506,7 @@ export async function getAllTrustedIdentities(): Promise<TrustedIdentity[]> {
 // ──────────────────────────────────
 
 /**
- * Decrypt edilmis mesaji cache'e yazar.
+ * Writes a decrypted message to the cache.
  */
 export async function cacheDecryptedMessage(
   message: CachedDecryptedMessage
@@ -516,11 +516,11 @@ export async function cacheDecryptedMessage(
 }
 
 /**
- * Tek bir decrypt edilmis mesaji ID ile okur.
+ * Reads a single decrypted message by ID.
  *
- * DM self-decrypt icin kullanilir: Signal Protocol, gondericinin
- * kendi cihazina envelope olusturmaz. Gonderi aninda plaintext
- * IndexedDB'ye yazilir ve sonradan bu fonksiyonla okunur.
+ * Used for DM self-decrypt: Signal Protocol does not produce an envelope
+ * for the sender's own device. At send time the plaintext is written to
+ * IndexedDB and read back later via this function.
  */
 export async function getCachedDecryptedMessage(
   messageId: string
@@ -531,7 +531,7 @@ export async function getCachedDecryptedMessage(
 }
 
 /**
- * Birden fazla decrypt edilmis mesaji cache'e yazar.
+ * Writes multiple decrypted messages to the cache.
  */
 export async function cacheDecryptedMessages(
   messages: CachedDecryptedMessage[]
@@ -545,14 +545,14 @@ export async function cacheDecryptedMessages(
 }
 
 /**
- * Client-side mesaj arama.
+ * Client-side message search.
  *
- * E2EE mesajlar sunucuda sifreli oldugundan, arama client-side yapilir.
- * IndexedDB'deki decrypt edilmis mesaj cache'i uzerinde string matching.
+ * Since E2EE messages are encrypted on the server, search is performed client-side.
+ * String matching over the decrypted message cache in IndexedDB.
  *
- * @param channelId - Aranacak kanal ID'si
- * @param query - Arama terimi
- * @returns Eslesenlerin mesaj ID'leri
+ * @param channelId - Channel ID to search in
+ * @param query - Search term
+ * @returns Message IDs of matches
  */
 export async function searchCachedMessages(
   channelId: string,
@@ -578,9 +578,8 @@ export async function searchCachedMessages(
 }
 
 /**
- * Tum decrypt edilmis mesaj cache'ini doner.
- * Backup'a dahil etmek icin kullanilir — restore sonrasi
- * eski mesajlar cache'den okunabilir.
+ * Returns the entire decrypted message cache.
+ * Used for inclusion in a backup — after restore, old messages can be read from the cache.
  */
 export async function getAllCachedMessages(): Promise<CachedDecryptedMessage[]> {
   const db = await getDB();
@@ -588,7 +587,7 @@ export async function getAllCachedMessages(): Promise<CachedDecryptedMessage[]> 
 }
 
 /**
- * DM kanali icin client-side mesaj arama.
+ * Client-side message search for a DM channel.
  */
 export async function searchCachedDMMessages(
   dmChannelId: string,
@@ -618,7 +617,7 @@ export async function searchCachedDMMessages(
 // ──────────────────────────────────
 
 /**
- * Metadata degeri kaydeder (key-value).
+ * Saves a metadata value (key-value).
  */
 export async function setMetadata(key: string, value: unknown): Promise<void> {
   const db = await getDB();
@@ -626,7 +625,7 @@ export async function setMetadata(key: string, value: unknown): Promise<void> {
 }
 
 /**
- * Metadata degeri okur.
+ * Reads a metadata value.
  */
 export async function getMetadata<T>(key: string): Promise<T | null> {
   const db = await getDB();
@@ -639,11 +638,11 @@ export async function getMetadata<T>(key: string): Promise<T | null> {
 // ──────────────────────────────────
 
 /**
- * Tum E2EE verisini siler.
+ * Deletes all E2EE data.
  *
- * Logout'ta cagrilir — cihazin tum kriptografik materyali temizlenir.
- * Bu islem geri alinamaz. Kullanicinin recovery password'u varsa
- * yeni cihazda backup'tan geri yukleyebilir.
+ * Called on logout — all cryptographic material on the device is wiped.
+ * This operation is irreversible. If the user has a recovery password,
+ * they can restore from backup on a new device.
  */
 export async function clearAllE2EEData(): Promise<void> {
   const db = await getDB();
@@ -661,7 +660,7 @@ export async function clearAllE2EEData(): Promise<void> {
     "metadata",
   ] as const;
 
-  // Her store'u ayri transaction'da temizle
+  // Clear each store in its own transaction
   for (const storeName of storeNames) {
     const tx = db.transaction(storeName, "readwrite");
     await tx.store.clear();
@@ -670,11 +669,11 @@ export async function clearAllE2EEData(): Promise<void> {
 }
 
 /**
- * Lokal E2EE anahtarlarinin var olup olmadigini kontrol eder.
+ * Checks whether local E2EE keys exist.
  *
- * App baslatildiginda cagrilir:
- * - true: Anahtarlar var → E2EE hazir
- * - false: Anahtarlar yok → yeni cihaz kurulumu gerekli
+ * Called on app startup:
+ * - true: Keys exist → E2EE is ready
+ * - false: No keys → new device setup required
  */
 export async function hasLocalKeys(): Promise<boolean> {
   const identity = await getIdentityKeyPair();
@@ -683,8 +682,8 @@ export async function hasLocalKeys(): Promise<boolean> {
 }
 
 /**
- * DB baglantisini kapatir.
- * Test ve cleanup icin kullanilir.
+ * Closes the DB connection.
+ * Used for tests and cleanup.
  */
 export async function closeDB(): Promise<void> {
   if (dbInstance) {
