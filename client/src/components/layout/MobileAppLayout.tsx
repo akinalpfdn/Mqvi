@@ -5,7 +5,7 @@
  * this component only manages mobile layout structure.
  *
  * Structure:
- * - MobileHeader (top bar: hamburger + channel name + members)
+ * - Hamburger + members buttons live inside PanelTabBar (mobile-only) — saves a row
  * - MobileDrawer left (Sidebar) / right (MemberList)
  * - SplitPaneContainer (single panel, no split)
  *
@@ -16,7 +16,6 @@ import { useUIStore } from "../../stores/uiStore";
 import { useMobileStore } from "../../stores/mobileStore";
 import { useSwipeGesture } from "../../hooks/useSwipeGesture";
 import { getCapacitorPlatform } from "../../utils/constants";
-import MobileHeader from "./MobileHeader";
 import MobileDrawer from "./MobileDrawer";
 import Sidebar from "./Sidebar";
 import MemberList from "./MemberList";
@@ -62,8 +61,6 @@ function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLa
 
   return (
     <div className="mqvi-app mobile" {...swipeHandlers}>
-      <MobileHeader />
-
       {/* Left drawer — Sidebar */}
       <MobileDrawer
         isOpen={leftDrawerOpen}

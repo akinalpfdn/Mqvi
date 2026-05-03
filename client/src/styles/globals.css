@@ -2942,6 +2942,38 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   height: 24px;
 }
 
+/* Mobile-only nav buttons (hamburger / members) inside the tab bar.
+   Sticky so they stay visible while the tab list scrolls horizontally. */
+.panel-tab-nav-btn {
+  display: none;
+}
+.panel-tab-bar.mobile .panel-tab-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mobile-touch-target);
+  height: var(--mobile-touch-target);
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--t1);
+  cursor: pointer;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--panel-bg);
+  backdrop-filter: var(--panel-backdrop);
+  -webkit-backdrop-filter: var(--panel-backdrop);
+}
+.panel-tab-bar.mobile .panel-tab-nav-btn:active {
+  color: var(--t0);
+}
+.panel-tab-bar.mobile .panel-tab-nav-btn-end {
+  left: auto;
+  right: 0;
+  margin-left: auto; /* push to right when there's free space; sticky takes over when scrolling */
+}
+
 /* ═══════════════════════════════════════
    MOBILE TOUCH TARGETS (@media 768px)
    ═══════════════════════════════════════ */

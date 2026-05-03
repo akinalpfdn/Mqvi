@@ -7,6 +7,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useUIStore } from "../../stores/uiStore";
+import { useMobileStore } from "../../stores/mobileStore";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import { resolveAssetUrl } from "../../utils/constants";
 
@@ -22,6 +23,15 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
   const setActiveTab = useUIStore((s) => s.setActiveTab);
   const closeTab = useUIStore((s) => s.closeTab);
   const moveTab = useUIStore((s) => s.moveTab);
+
+  // Mobile-only: hamburger (sidebar) + members drawer toggles inside the tab bar.
+  // On desktop these come from the regular sidebar layout.
+  const leftDrawerOpen = useMobileStore((s) => s.leftDrawerOpen);
+  const rightDrawerOpen = useMobileStore((s) => s.rightDrawerOpen);
+  const openLeftDrawer = useMobileStore((s) => s.openLeftDrawer);
+  const closeLeftDrawer = useMobileStore((s) => s.closeLeftDrawer);
+  const openRightDrawer = useMobileStore((s) => s.openRightDrawer);
+  const closeRightDrawer = useMobileStore((s) => s.closeRightDrawer);
 
   // Highlight when a tab is dragged over the bar
   const [dropHover, setDropHover] = useState(false);
@@ -93,6 +103,21 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
 
   return (
     <div className={barClass} {...dragHandlers}>
+      {/* Mobile-only: hamburger to open sidebar drawer */}
+      {isMobile && (
+        <button
+          className="panel-tab-nav-btn"
+          onClick={leftDrawerOpen ? closeLeftDrawer : openLeftDrawer}
+          title={t("openSidebar")}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+      )}
+
       {panel.tabs.map((tab) => {
         const isActive = tab.id === panel.activeTabId;
         const isVoice = tab.type === "voice";
@@ -192,6 +217,22 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
           </div>
         );
       })}
+
+      {/* Mobile-only: members drawer toggle */}
+      {isMobile && (
+        <button
+          className="panel-tab-nav-btn panel-tab-nav-btn-end"
+          onClick={rightDrawerOpen ? closeRightDrawer : openRightDrawer}
+          title={rightDrawerOpen ? t("closeMembers") : t("openMembers")}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
