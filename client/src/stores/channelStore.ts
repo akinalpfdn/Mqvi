@@ -62,17 +62,11 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
       const allVisible = res.data.flatMap((cg) => cg.channels);
 
-      if (selectedChannelId) {
-        const stillVisible = allVisible.some((ch) => ch.id === selectedChannelId);
-        if (!stillVisible) {
-          const firstText = allVisible.find((ch) => ch.type === "text");
-          selectedChannelId = firstText?.id ?? null;
-        }
-      } else {
-        const firstText = allVisible.find((ch) => ch.type === "text");
-        if (firstText) {
-          selectedChannelId = firstText.id;
-        }
+      // Drop selection if the channel is no longer visible (deleted, hidden, or
+      // belongs to a different server). Don't auto-select a default — the user
+      // chooses which channel to open.
+      if (selectedChannelId && !allVisible.some((ch) => ch.id === selectedChannelId)) {
+        selectedChannelId = null;
       }
 
       set({ categories: res.data, isLoading: false, selectedChannelId });
