@@ -2,17 +2,16 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/google/uuid"
 )
@@ -23,18 +22,18 @@ type FeedbackUploadService interface {
 
 type feedbackUploadService struct {
 	feedbackRepo repository.FeedbackRepository
-	uploadDir    string
+	locator      *files.Locator
 	maxSize      int64
 }
 
 func NewFeedbackUploadService(
 	feedbackRepo repository.FeedbackRepository,
-	uploadDir string,
+	locator *files.Locator,
 	maxSize int64,
 ) FeedbackUploadService {
 	return &feedbackUploadService{
 		feedbackRepo: feedbackRepo,
-		uploadDir:    uploadDir,
+		locator:      locator,
 		maxSize:      maxSize,
 	}
 }
@@ -61,23 +60,22 @@ func (s *feedbackUploadService) Upload(ctx context.Context, ticketID string, rep
 		return nil, fmt.Errorf("%w: only images are allowed (got: %s)", pkg.ErrBadRequest, mimeBase)
 	}
 
-	randomBytes := make([]byte, 8)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate random filename: %w", err)
-	}
-	safeFilename := sanitizeFilename(header.Filename)
-	diskFilename := hex.EncodeToString(randomBytes) + "_" + safeFilename
-
-	destPath := filepath.Join(s.uploadDir, diskFilename)
-	destFile, err := os.Create(destPath)
+	diskFilename, err := files.GenerateDiskFilename(header.Filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create file: %w", err)
+		return nil, err
 	}
-	defer destFile.Close()
 
-	if _, err := io.Copy(destFile, file); err != nil {
-		os.Remove(destPath)
-		return nil, fmt.Errorf("failed to save file: %w", err)
+	relURL, err := s.locator.SaveFile(files.KindFeedback, ticketID, diskFilename, func(dst *os.File) error {
+		if _, err := io.Copy(dst, file); err != nil {
+			return fmt.Errorf("failed to save file: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, files.ErrInvalidSegment) {
+			return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
+		}
+		return nil, err
 	}
 
 	fileSize := header.Size
@@ -86,13 +84,13 @@ func (s *feedbackUploadService) Upload(ctx context.Context, ticketID string, rep
 		TicketID: ticketID,
 		ReplyID:  replyID,
 		Filename: header.Filename,
-		FileURL:  "/api/uploads/" + diskFilename,
+		FileURL:  relURL,
 		FileSize: &fileSize,
 		MimeType: &mimeBase,
 	}
 
 	if err := s.feedbackRepo.CreateAttachment(ctx, att); err != nil {
-		os.Remove(destPath)
+		s.locator.DeleteFromURL(relURL)
 		return nil, fmt.Errorf("failed to create feedback attachment record: %w", err)
 	}
 

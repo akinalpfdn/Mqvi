@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/akinalp/mqvi/config"
 	"github.com/akinalp/mqvi/handlers"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/ws"
 )
 
@@ -46,6 +47,7 @@ type Handlers struct {
 }
 
 func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, hub *ws.Hub, cfg *config.Config, encryptionKey []byte) *Handlers {
+	fileLocator := files.NewLocator(cfg.Upload.Dir, cfg.Upload.PublicURL)
 	return &Handlers{
 		Auth:              handlers.NewAuthHandler(svcs.Auth, limiters.Login, limiters.Register, limiters.ForgotPwd, limiters.ResetPwd),
 		Channel:           handlers.NewChannelHandler(svcs.Channel),
@@ -63,7 +65,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Reaction:          handlers.NewReactionHandler(svcs.Reaction),
 		ChannelPermission: handlers.NewChannelPermissionHandler(svcs.ChannelPermission),
 		Friendship:        handlers.NewFriendshipHandler(svcs.Friendship),
-		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, cfg.Upload.Dir),
+		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, fileLocator),
 		Stats:             handlers.NewStatsHandler(repos.User),
 		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer, svcs.Report, svcs.AppLog, svcs.Voice),
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),

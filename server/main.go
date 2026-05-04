@@ -20,6 +20,7 @@ import (
 	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/crypto"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/services"
 	"github.com/akinalp/mqvi/static"
@@ -351,6 +352,36 @@ func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config) {
 		http.FileServer(http.Dir(cfg.Upload.Dir)).ServeHTTP(w, r)
 	}))
 	mux.Handle("GET /api/uploads/", uploadsHandler)
+
+	// New segregated file endpoint (PHASE-10). Path format:
+	//   /api/files/<kind>/<scopeID>/<filename>
+	// No ACL or signature verification yet — those land in PHASE-11 + PHASE-12.
+	// All path validation lives in Locator.ResolveServePath so the same rules
+	// apply everywhere (write, delete, serve).
+	fileLocator := files.NewLocator(cfg.Upload.Dir, cfg.Upload.PublicURL)
+	filesHandler := http.StripPrefix(files.URLPathPrefix+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Use RawPath when available to avoid double-decode: Go's net/http
+		// already decodes r.URL.Path, but ResolveServePath also calls
+		// url.PathUnescape. Feeding the raw (still-encoded) path ensures
+		// exactly one decode pass so literal '%' in scope/filename cannot
+		// be misinterpreted.
+		rawPath := r.URL.RawPath
+		if rawPath == "" {
+			rawPath = r.URL.Path
+		}
+		disk, err := fileLocator.ResolveServePath(rawPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		info, err := os.Stat(disk)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, disk)
+	}))
+	mux.Handle("GET "+files.URLPathPrefix+"/", filesHandler)
 
 	// Landing page assets (video, screenshots) — public, no auth
 	landingDir := cfg.Upload.Dir + "/../landing"

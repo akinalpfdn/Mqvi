@@ -7,6 +7,7 @@ import (
 
 	"github.com/akinalp/mqvi/config"
 	"github.com/akinalp/mqvi/pkg/email"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 	"github.com/akinalp/mqvi/ws"
@@ -67,6 +68,9 @@ type RateLimiters struct {
 // channelPermService -> voiceService/messageService (dependency)
 // voiceService/p2pCallService -> before Hub callbacks (closure scoping)
 func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte) (*Services, *RateLimiters, services.MetricsCollector) {
+	// File locator: single source of truth for upload paths and URLs.
+	fileLocator := files.NewLocator(cfg.Upload.Dir, cfg.Upload.PublicURL)
+
 	// Order-sensitive services
 	channelPermService := services.NewChannelPermissionService(
 		repos.ChannelPermission, repos.Role, repos.Channel, hub,
@@ -98,7 +102,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.Mention, repos.RoleMention, repos.Role, repos.Reaction, repos.ReadState,
 		hub, channelPermService,
 	)
-	uploadService := services.NewUploadService(repos.Attachment, cfg.Upload.Dir, cfg.Upload.MaxSize)
+	uploadService := services.NewUploadService(repos.Attachment, fileLocator, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(repos.User, repos.Role, repos.Ban, repos.Server, hub, voiceService)
 	roleService := services.NewRoleService(repos.Role, repos.User, hub)
 	serverService := services.NewServerService(
@@ -122,12 +126,12 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
 	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, friendshipService, dmSettingsService)
 	friendshipService.SetDMAcceptor(dmService) // auto-accept pending DMs when friendship is accepted
-	dmUploadService := services.NewDMUploadService(repos.DM, cfg.Upload.Dir, cfg.Upload.MaxSize)
+	dmUploadService := services.NewDMUploadService(repos.DM, fileLocator, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, repos.Channel, hub, channelPermService)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
 	reportService := services.NewReportService(repos.Report, repos.User)
-	reportUploadService := services.NewReportUploadService(repos.Report, cfg.Upload.Dir, cfg.Upload.MaxSize)
+	reportUploadService := services.NewReportUploadService(repos.Report, fileLocator, cfg.Upload.MaxSize)
 
 	deviceService := services.NewDeviceService(repos.Device, hub)
 	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, hub)
@@ -142,9 +146,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
 	feedbackService := services.NewFeedbackService(repos.Feedback)
-	feedbackUploadService := services.NewFeedbackUploadService(repos.Feedback, cfg.Upload.Dir, cfg.Upload.MaxSize)
+	feedbackUploadService := services.NewFeedbackUploadService(repos.Feedback, fileLocator, cfg.Upload.MaxSize)
 	soundboardService := services.NewSoundboardService(
-		repos.Soundboard, repos.User, hub, voiceService, cfg.Upload.Dir, cfg.Upload.MaxSize,
+		repos.Soundboard, repos.User, hub, voiceService, fileLocator, cfg.Upload.MaxSize,
 	)
 	metricsCollector := services.NewMetricsCollector(
 		repos.LiveKit, repos.MetricsHistory,

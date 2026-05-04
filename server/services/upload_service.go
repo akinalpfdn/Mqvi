@@ -2,17 +2,16 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/repository"
 )
 
@@ -25,18 +24,18 @@ type UploadService interface {
 
 type uploadService struct {
 	attachmentRepo repository.AttachmentRepository
-	uploadDir      string
+	locator        *files.Locator
 	maxSize        int64
 }
 
 func NewUploadService(
 	attachmentRepo repository.AttachmentRepository,
-	uploadDir string,
+	locator *files.Locator,
 	maxSize int64,
 ) UploadService {
 	return &uploadService{
 		attachmentRepo: attachmentRepo,
-		uploadDir:      uploadDir,
+		locator:        locator,
 		maxSize:        maxSize,
 	}
 }
@@ -71,57 +70,37 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 		return nil, fmt.Errorf("%w: file type not allowed: %s", pkg.ErrBadRequest, mimeBase)
 	}
 
-	// Generate unique filename: {random_hex}_{original_filename}
-	randomBytes := make([]byte, 8)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate random filename: %w", err)
-	}
-	safeFilename := sanitizeFilename(header.Filename)
-	diskFilename := hex.EncodeToString(randomBytes) + "_" + safeFilename
-
-	destPath := filepath.Join(s.uploadDir, diskFilename)
-	destFile, err := os.Create(destPath)
+	diskFilename, err := files.GenerateDiskFilename(header.Filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create file: %w", err)
+		return nil, err
 	}
-	defer destFile.Close()
 
-	if _, err := io.Copy(destFile, file); err != nil {
-		os.Remove(destPath)
-		return nil, fmt.Errorf("failed to save file: %w", err)
+	relURL, err := s.locator.SaveFile(files.KindMessage, messageID, diskFilename, func(dst *os.File) error {
+		if _, err := io.Copy(dst, file); err != nil {
+			return fmt.Errorf("failed to save file: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, files.ErrInvalidSegment) {
+			return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
+		}
+		return nil, err
 	}
 
 	fileSize := header.Size
 	attachment := &models.Attachment{
 		MessageID: messageID,
 		Filename:  header.Filename,
-		FileURL:   "/api/uploads/" + diskFilename,
+		FileURL:   relURL,
 		FileSize:  &fileSize,
 		MimeType:  &mimeBase,
 	}
 
 	if err := s.attachmentRepo.Create(ctx, attachment); err != nil {
-		os.Remove(destPath)
+		s.locator.DeleteFromURL(relURL)
 		return nil, fmt.Errorf("failed to create attachment record: %w", err)
 	}
 
 	return attachment, nil
-}
-
-// sanitizeFilename strips path components and dangerous characters to prevent path traversal.
-func sanitizeFilename(name string) string {
-	name = filepath.Base(name)
-
-	name = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == '\x00' {
-			return -1
-		}
-		return r
-	}, name)
-
-	if name == "" || name == "." || name == ".." {
-		name = "unnamed"
-	}
-
-	return name
 }

@@ -1,20 +1,19 @@
 // Package services — ReportUploadService: evidence file upload for reports.
-// Only image files accepted. Stored in same upload directory, served via /api/uploads/.
+// Only image files accepted.
 package services
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/repository"
 )
 
@@ -25,18 +24,18 @@ type ReportUploadService interface {
 
 type reportUploadService struct {
 	reportRepo repository.ReportRepository
-	uploadDir  string
+	locator    *files.Locator
 	maxSize    int64
 }
 
 func NewReportUploadService(
 	reportRepo repository.ReportRepository,
-	uploadDir string,
+	locator *files.Locator,
 	maxSize int64,
 ) ReportUploadService {
 	return &reportUploadService{
 		reportRepo: reportRepo,
-		uploadDir:  uploadDir,
+		locator:    locator,
 		maxSize:    maxSize,
 	}
 }
@@ -64,37 +63,35 @@ func (s *reportUploadService) Upload(ctx context.Context, reportID string, file 
 		return nil, fmt.Errorf("%w: only images are allowed for report evidence (got: %s)", pkg.ErrBadRequest, mimeBase)
 	}
 
-	// Generate unique filename — sanitizeFilename defined in upload_service.go (same package)
-	randomBytes := make([]byte, 8)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate random filename: %w", err)
-	}
-	safeFilename := sanitizeFilename(header.Filename)
-	diskFilename := hex.EncodeToString(randomBytes) + "_" + safeFilename
-
-	destPath := filepath.Join(s.uploadDir, diskFilename)
-	destFile, err := os.Create(destPath)
+	diskFilename, err := files.GenerateDiskFilename(header.Filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create file: %w", err)
+		return nil, err
 	}
-	defer destFile.Close()
 
-	if _, err := io.Copy(destFile, file); err != nil {
-		os.Remove(destPath)
-		return nil, fmt.Errorf("failed to save file: %w", err)
+	relURL, err := s.locator.SaveFile(files.KindReport, reportID, diskFilename, func(dst *os.File) error {
+		if _, err := io.Copy(dst, file); err != nil {
+			return fmt.Errorf("failed to save file: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, files.ErrInvalidSegment) {
+			return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
+		}
+		return nil, err
 	}
 
 	fileSize := header.Size
 	att := &models.ReportAttachment{
 		ReportID: reportID,
 		Filename: header.Filename,
-		FileURL:  "/api/uploads/" + diskFilename,
+		FileURL:  relURL,
 		FileSize: &fileSize,
 		MimeType: &mimeBase,
 	}
 
 	if err := s.reportRepo.CreateAttachment(ctx, att); err != nil {
-		os.Remove(destPath)
+		s.locator.DeleteFromURL(relURL)
 		return nil, fmt.Errorf("failed to create report attachment record: %w", err)
 	}
 

@@ -56,6 +56,11 @@ type LiveKitConfig struct {
 type UploadConfig struct {
 	Dir     string
 	MaxSize int64 // bytes (default: 25MB)
+	// PublicURL is the absolute base URL prepended to file URLs when they need
+	// to be served cross-origin or via CDN, e.g. "https://files.mqvi.net".
+	// Empty means file URLs are returned as relative paths (current behaviour).
+	// Wired in PHASE-10; first consumer is the signed-URL generator (PHASE-11).
+	PublicURL string
 }
 
 // Load reads configuration from environment variables.
@@ -112,8 +117,9 @@ func Load() (*Config, error) {
 			APISecret: getEnv("LIVEKIT_API_SECRET", ""),
 		},
 		Upload: UploadConfig{
-			Dir:     getEnv("UPLOAD_DIR", "./data/uploads"),
-			MaxSize: maxSize,
+			Dir:       getEnv("UPLOAD_DIR", "./data/uploads"),
+			MaxSize:   maxSize,
+			PublicURL: getEnv("MQVI_PUBLIC_FILE_URL", ""),
 		},
 		Email: EmailConfig{
 			ResendAPIKey: getEnv("RESEND_API_KEY", ""),

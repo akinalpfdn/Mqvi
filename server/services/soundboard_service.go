@@ -2,17 +2,16 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
 	"github.com/google/uuid"
@@ -21,7 +20,6 @@ import (
 const (
 	maxSoundDurationMs = 7000 // 7 seconds
 	maxSoundsPerServer = 50
-	soundboardSubdir   = "soundboard"
 )
 
 var soundAllowedMimeTypes = map[string]bool{
@@ -52,12 +50,12 @@ type SoundboardService interface {
 }
 
 type soundboardService struct {
-	repo      repository.SoundboardRepository
-	userRepo  repository.UserRepository
-	hub       ws.Broadcaster
-	voice     VoiceStateGetter
-	uploadDir string
-	maxSize   int64
+	repo     repository.SoundboardRepository
+	userRepo repository.UserRepository
+	hub      ws.Broadcaster
+	voice    VoiceStateGetter
+	locator  *files.Locator
+	maxSize  int64
 }
 
 func NewSoundboardService(
@@ -65,20 +63,16 @@ func NewSoundboardService(
 	userRepo repository.UserRepository,
 	hub ws.Broadcaster,
 	voice VoiceStateGetter,
-	uploadDir string,
+	locator *files.Locator,
 	maxSize int64,
 ) SoundboardService {
-	// Ensure soundboard upload directory exists
-	dir := filepath.Join(uploadDir, soundboardSubdir)
-	os.MkdirAll(dir, 0o755)
-
 	return &soundboardService{
-		repo:      repo,
-		userRepo:  userRepo,
-		hub:       hub,
-		voice:     voice,
-		uploadDir: uploadDir,
-		maxSize:   maxSize,
+		repo:     repo,
+		userRepo: userRepo,
+		hub:      hub,
+		voice:    voice,
+		locator:  locator,
+		maxSize:  maxSize,
 	}
 }
 
@@ -132,25 +126,22 @@ func (s *soundboardService) Create(
 		return nil, fmt.Errorf("%w: server has reached the maximum of %d sounds", pkg.ErrBadRequest, maxSoundsPerServer)
 	}
 
-	// Save file to disk
-	randomBytes := make([]byte, 8)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return nil, fmt.Errorf("generate random filename: %w", err)
-	}
-	safeFilename := sanitizeFilename(header.Filename)
-	diskFilename := hex.EncodeToString(randomBytes) + "_" + safeFilename
-	dir := filepath.Join(s.uploadDir, soundboardSubdir)
-	destPath := filepath.Join(dir, diskFilename)
-
-	destFile, err := os.Create(destPath)
+	diskFilename, err := files.GenerateDiskFilename(header.Filename)
 	if err != nil {
-		return nil, fmt.Errorf("create file: %w", err)
+		return nil, err
 	}
-	defer destFile.Close()
 
-	if _, err := io.Copy(destFile, file); err != nil {
-		os.Remove(destPath)
-		return nil, fmt.Errorf("save file: %w", err)
+	relURL, err := s.locator.SaveFile(files.KindSoundboard, serverID, diskFilename, func(dst *os.File) error {
+		if _, err := io.Copy(dst, file); err != nil {
+			return fmt.Errorf("save file: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, files.ErrInvalidSegment) {
+			return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
+		}
+		return nil, err
 	}
 
 	sound := &models.SoundboardSound{
@@ -158,14 +149,14 @@ func (s *soundboardService) Create(
 		ServerID:   serverID,
 		Name:       strings.TrimSpace(req.Name),
 		Emoji:      req.Emoji,
-		FileURL:    "/api/uploads/" + soundboardSubdir + "/" + diskFilename,
+		FileURL:    relURL,
 		FileSize:   header.Size,
 		DurationMs: durationMs,
 		UploadedBy: userID,
 	}
 
 	if err := s.repo.Create(ctx, sound); err != nil {
-		os.Remove(destPath)
+		s.locator.DeleteFromURL(relURL)
 		return nil, fmt.Errorf("create sound record: %w", err)
 	}
 
@@ -223,12 +214,7 @@ func (s *soundboardService) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Delete file from disk
-	if sound.FileURL != "" {
-		relPath := strings.TrimPrefix(sound.FileURL, "/api/uploads/")
-		diskPath := filepath.Join(s.uploadDir, relPath)
-		os.Remove(diskPath)
-	}
+	s.locator.DeleteFromURL(sound.FileURL)
 
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("delete sound: %w", err)

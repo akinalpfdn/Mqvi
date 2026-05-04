@@ -1,21 +1,20 @@
-// Package handlers -- AvatarHandler: user avatar and server icon upload endpoints.
+// Package handlers -- AvatarHandler: user avatar, user wallpaper and server icon upload endpoints.
 //
 // Separate from UploadService because avatar uploads update User/Server records
 // directly (no messageID or Attachment record), and only image MIME types are accepted.
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
 )
@@ -29,25 +28,25 @@ var allowedImageMimes = map[string]bool{
 	"image/webp": true,
 }
 
-// AvatarHandler handles avatar and icon upload endpoints.
+// AvatarHandler handles avatar, wallpaper and icon upload endpoints.
 type AvatarHandler struct {
 	userRepo      repository.UserRepository
 	memberService services.MemberService
 	serverService services.ServerService
-	uploadDir     string
+	locator       *files.Locator
 }
 
 func NewAvatarHandler(
 	userRepo repository.UserRepository,
 	memberService services.MemberService,
 	serverService services.ServerService,
-	uploadDir string,
+	locator *files.Locator,
 ) *AvatarHandler {
 	return &AvatarHandler{
 		userRepo:      userRepo,
 		memberService: memberService,
 		serverService: serverService,
-		uploadDir:     uploadDir,
+		locator:       locator,
 	}
 }
 
@@ -61,13 +60,13 @@ func (h *AvatarHandler) UploadUserAvatar(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	fileURL, err := h.processUpload(r)
+	fileURL, err := h.processUpload(r, files.KindAvatar, user.ID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
 	}
 
-	h.deleteOldFile(user.AvatarURL)
+	h.locator.DeleteFromURL(derefStr(user.AvatarURL))
 
 	// Update via MemberService to get WS broadcast for free
 	member, err := h.memberService.UpdateProfile(r.Context(), user.ID, &models.UpdateProfileRequest{
@@ -91,13 +90,13 @@ func (h *AvatarHandler) UploadUserWallpaper(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	fileURL, err := h.processUpload(r)
+	fileURL, err := h.processUpload(r, files.KindWallpaper, user.ID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
 	}
 
-	h.deleteOldFile(user.WallpaperURL)
+	h.locator.DeleteFromURL(derefStr(user.WallpaperURL))
 
 	if err := h.userRepo.UpdateWallpaper(r.Context(), user.ID, &fileURL); err != nil {
 		pkg.Error(w, err)
@@ -116,7 +115,7 @@ func (h *AvatarHandler) DeleteUserWallpaper(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.deleteOldFile(user.WallpaperURL)
+	h.locator.DeleteFromURL(derefStr(user.WallpaperURL))
 
 	if err := h.userRepo.UpdateWallpaper(r.Context(), user.ID, nil); err != nil {
 		pkg.Error(w, err)
@@ -136,7 +135,7 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	fileURL, err := h.processUpload(r)
+	fileURL, err := h.processUpload(r, files.KindServerIcon, serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -148,7 +147,7 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	h.deleteOldFile(currentServer.IconURL)
+	h.locator.DeleteFromURL(derefStr(currentServer.IconURL))
 
 	server, err := h.serverService.UpdateIcon(r.Context(), serverID, fileURL)
 	if err != nil {
@@ -159,9 +158,9 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 	pkg.JSON(w, http.StatusOK, server)
 }
 
-// processUpload parses the multipart form, validates the file, and saves it to disk.
-// Returns the URL path (e.g. "/api/uploads/a1b2c3d4_avatar.png").
-func (h *AvatarHandler) processUpload(r *http.Request) (string, error) {
+// processUpload parses the multipart form, validates the file, saves it via the
+// Locator, and returns the relative URL stored in DB.
+func (h *AvatarHandler) processUpload(r *http.Request, kind files.Kind, scopeID string) (string, error) {
 	if err := r.ParseMultipartForm(avatarMaxSize); err != nil {
 		return "", fmt.Errorf("%w: failed to parse multipart form", pkg.ErrBadRequest)
 	}
@@ -187,59 +186,29 @@ func (h *AvatarHandler) processUpload(r *http.Request) (string, error) {
 		return "", fmt.Errorf("%w: only image files are allowed (jpeg, png, gif, webp)", pkg.ErrBadRequest)
 	}
 
-	randomBytes := make([]byte, 8)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return "", fmt.Errorf("failed to generate random filename: %w", err)
-	}
-	safeFilename := sanitizeAvatarFilename(header.Filename)
-	diskFilename := hex.EncodeToString(randomBytes) + "_" + safeFilename
-
-	destPath := filepath.Join(h.uploadDir, diskFilename)
-	destFile, err := os.Create(destPath)
+	diskFilename, err := files.GenerateDiskFilename(header.Filename)
 	if err != nil {
-		return "", fmt.Errorf("failed to create file: %w", err)
-	}
-	defer destFile.Close()
-
-	if _, err := io.Copy(destFile, file); err != nil {
-		os.Remove(destPath)
-		return "", fmt.Errorf("failed to save file: %w", err)
+		return "", err
 	}
 
-	return "/api/uploads/" + diskFilename, nil
-}
-
-// deleteOldFile removes a previous avatar/icon file from disk.
-// Silently ignores missing files -- not critical.
-func (h *AvatarHandler) deleteOldFile(fileURL *string) {
-	if fileURL == nil || *fileURL == "" {
-		return
-	}
-
-	filename := filepath.Base(*fileURL)
-	if filename == "." || filename == "/" {
-		return
-	}
-
-	oldPath := filepath.Join(h.uploadDir, filename)
-	os.Remove(oldPath)
-}
-
-// sanitizeAvatarFilename strips path traversal characters.
-// Same logic as upload_service.go's sanitizeFilename (package-private, defined separately).
-func sanitizeAvatarFilename(name string) string {
-	name = filepath.Base(name)
-
-	name = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == '\x00' {
-			return -1
+	relURL, err := h.locator.SaveFile(kind, scopeID, diskFilename, func(dst *os.File) error {
+		if _, err := io.Copy(dst, file); err != nil {
+			return fmt.Errorf("failed to save file: %w", err)
 		}
-		return r
-	}, name)
-
-	if name == "" || name == "." || name == ".." {
-		name = "unnamed"
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, files.ErrInvalidSegment) {
+			return "", fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
+		}
+		return "", err
 	}
+	return relURL, nil
+}
 
-	return name
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

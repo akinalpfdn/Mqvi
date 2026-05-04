@@ -2,17 +2,16 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/repository"
 )
 
@@ -22,20 +21,20 @@ type DMUploadService interface {
 }
 
 type dmUploadService struct {
-	dmRepo    repository.DMRepository
-	uploadDir string
-	maxSize   int64
+	dmRepo  repository.DMRepository
+	locator *files.Locator
+	maxSize int64
 }
 
 func NewDMUploadService(
 	dmRepo repository.DMRepository,
-	uploadDir string,
+	locator *files.Locator,
 	maxSize int64,
 ) DMUploadService {
 	return &dmUploadService{
-		dmRepo:    dmRepo,
-		uploadDir: uploadDir,
-		maxSize:   maxSize,
+		dmRepo:  dmRepo,
+		locator: locator,
+		maxSize: maxSize,
 	}
 }
 
@@ -56,36 +55,35 @@ func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file m
 		return nil, fmt.Errorf("%w: file type not allowed: %s", pkg.ErrBadRequest, mimeBase)
 	}
 
-	randomBytes := make([]byte, 8)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate random filename: %w", err)
-	}
-	safeFilename := sanitizeFilename(header.Filename)
-	diskFilename := hex.EncodeToString(randomBytes) + "_" + safeFilename
-
-	destPath := filepath.Join(s.uploadDir, diskFilename)
-	destFile, err := os.Create(destPath)
+	diskFilename, err := files.GenerateDiskFilename(header.Filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create file: %w", err)
+		return nil, err
 	}
-	defer destFile.Close()
 
-	if _, err := io.Copy(destFile, file); err != nil {
-		os.Remove(destPath)
-		return nil, fmt.Errorf("failed to save file: %w", err)
+	relURL, err := s.locator.SaveFile(files.KindDM, dmMessageID, diskFilename, func(dst *os.File) error {
+		if _, err := io.Copy(dst, file); err != nil {
+			return fmt.Errorf("failed to save file: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, files.ErrInvalidSegment) {
+			return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
+		}
+		return nil, err
 	}
 
 	fileSize := header.Size
 	attachment := &models.DMAttachment{
 		DMMessageID: dmMessageID,
 		Filename:    header.Filename,
-		FileURL:     "/api/uploads/" + diskFilename,
+		FileURL:     relURL,
 		FileSize:    &fileSize,
 		MimeType:    &mimeBase,
 	}
 
 	if err := s.dmRepo.CreateAttachment(ctx, attachment); err != nil {
-		os.Remove(destPath)
+		s.locator.DeleteFromURL(relURL)
 		return nil, fmt.Errorf("failed to create DM attachment record: %w", err)
 	}
 
