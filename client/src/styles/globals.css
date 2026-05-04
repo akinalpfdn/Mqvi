@@ -551,10 +551,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .msg-avatar-btn { all:unset;cursor:pointer;display:flex;border-radius:50%; }
 .msg-avatar-btn:hover { opacity:.8; }
 .msg-body { min-width:0;max-width:75%;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:12px;padding:6px 10px;box-shadow:var(--panel-inset); }
-.msg-meta { display:flex;align-items:baseline;gap:6px;margin-bottom:1px; }
+.msg-meta { display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 6px;margin-bottom:1px; }
 .msg-name { font-size:13px;font-weight:600;cursor:pointer;color:var(--t0); }
 .msg-name:hover { opacity:.75; }
-.msg-time { font-size:13px;color:var(--t3);font-family:var(--f-m); }
+.msg-time { font-size:13px;color:var(--t3);font-family:var(--f-m);white-space:nowrap; }
 .msg-text { font-size:13px;line-height:1.45;color:var(--t0);white-space:pre-wrap;word-break:break-word; }
 .msg-text code { font-family:var(--f-m);font-size:13px;background:var(--bg-0);padding:1px 5px;border-radius:3px;border:1px solid var(--b1);color:var(--teal); }
 .msg-edited { font-size:13px;color:var(--t3);margin-left:4px; }
@@ -987,8 +987,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .badge-pill-md .badge-pill-custom-img { width:14px;height:14px; }
 .badge-pill-text { line-height:1; }
 
-/* Message badges (inline next to username) */
-.msg-badges { display:inline-flex;align-items:center;gap:4px;margin-left:4px;vertical-align:middle; }
+.msg-badges { display:contents; }
 
 /* DM profile badges */
 .dm-profile-badges { display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:8px; }
@@ -2446,10 +2445,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .invite-friends-progress-fill { height:100%;background:var(--primary);border-radius:2px;transition:width .2s; }
 
 /* ─── Invite Card (message inline) ─── */
-.invite-card { display:inline-flex;align-items:center;gap:10px;padding:10px 14px;margin:4px 0;border:1px solid var(--panel-border);border-radius:var(--panel-radius);background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);box-shadow:var(--panel-inset);max-width:360px; }
+.invite-card { display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 14px;margin:4px 0;border:1px solid var(--panel-border);border-radius:var(--panel-radius);background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);box-shadow:var(--panel-inset);max-width:360px; }
 .invite-card-icon { display:flex;align-items:center;flex-shrink:0; }
 .invite-card-img { width:36px;height:36px;border-radius:8px;object-fit:cover; }
-.invite-card-info { display:flex;flex-direction:column;min-width:0;flex:1;gap:2px; }
+.invite-card-info { display:flex;flex-direction:column;min-width:0;flex:1 1 150px;gap:2px; }
 .invite-card-name { font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .invite-card-meta { font-size:13px;color:var(--t3); }
 .invite-card-btn { padding:6px 14px;border:none;border-radius:6px;background:var(--primary);color:var(--text-white, #fff);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;transition:opacity .1s; }
@@ -3046,9 +3045,10 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   ::-webkit-scrollbar { display: none; }
   * { scrollbar-width: none; }
 
-  /* Input area — safe area padding */
+  /* Input area — small padding only.
+     Safe-area-inset-bottom is already applied on #root, don't double it here. */
   .input-area {
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding-bottom: 8px;
   }
 
   /* Message input — larger */
@@ -3308,7 +3308,7 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
   }
 
   /* ─── Invite Modal ─── */
-  .invite-card {
+  .invite-join-page .invite-card {
     width: 90vw !important;
     max-width: 400px;
   }
