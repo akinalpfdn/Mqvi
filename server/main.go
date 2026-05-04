@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -335,6 +336,18 @@ func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config) {
 			http.NotFound(w, r)
 			return
 		}
+		// Reject any request that targets a directory — prevents directory listing
+		// disclosure (Go's http.FileServer auto-renders index of files otherwise).
+		if r.URL.Path == "" || r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		fullPath := filepath.Join(cfg.Upload.Dir, filepath.FromSlash(r.URL.Path))
+		info, err := os.Stat(fullPath)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
 		http.FileServer(http.Dir(cfg.Upload.Dir)).ServeHTTP(w, r)
 	}))
 	mux.Handle("GET /api/uploads/", uploadsHandler)
@@ -342,7 +355,7 @@ func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config) {
 	// Landing page assets (video, screenshots) — public, no auth
 	landingDir := cfg.Upload.Dir + "/../landing"
 	landingHandler := http.StripPrefix("/static/landing/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/") || strings.Contains(r.URL.Path, "\\") {
+		if r.URL.Path == "" || strings.Contains(r.URL.Path, "/") || strings.Contains(r.URL.Path, "\\") {
 			http.NotFound(w, r)
 			return
 		}
