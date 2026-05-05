@@ -21,15 +21,18 @@ type ReportService interface {
 type reportService struct {
 	reportRepo repository.ReportRepository
 	userRepo   repository.UserRepository
+	urlSigner  FileURLSigner
 }
 
 func NewReportService(
 	reportRepo repository.ReportRepository,
 	userRepo repository.UserRepository,
+	urlSigner FileURLSigner,
 ) ReportService {
 	return &reportService{
 		reportRepo: reportRepo,
 		userRepo:   userRepo,
+		urlSigner:  urlSigner,
 	}
 }
 
@@ -94,6 +97,9 @@ func (s *reportService) ListReports(ctx context.Context, status string, limit, o
 		if attErr != nil {
 			reports[i].Attachments = []models.ReportAttachment{}
 			continue
+		}
+		for j := range attachments {
+			attachments[j].FileURL = s.urlSigner.SignURL(attachments[j].FileURL)
 		}
 		reports[i].Attachments = attachments
 	}

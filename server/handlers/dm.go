@@ -19,6 +19,7 @@ type DMHandler struct {
 	dmUploadService services.DMUploadService
 	maxUploadSize   int64
 	messageLimiter  *ratelimit.MessageRateLimiter
+	urlSigner       services.FileURLSigner
 }
 
 func NewDMHandler(
@@ -26,12 +27,14 @@ func NewDMHandler(
 	dmUploadService services.DMUploadService,
 	maxUploadSize int64,
 	messageLimiter *ratelimit.MessageRateLimiter,
+	urlSigner services.FileURLSigner,
 ) *DMHandler {
 	return &DMHandler{
 		dmService:       dmService,
 		dmUploadService: dmUploadService,
 		maxUploadSize:   maxUploadSize,
 		messageLimiter:  messageLimiter,
+		urlSigner:       urlSigner,
 	}
 }
 
@@ -223,6 +226,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
 			msg.Attachments = append(msg.Attachments, *attachment)
 		}
 	}

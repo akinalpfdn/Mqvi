@@ -19,10 +19,11 @@ type FeedbackHandler struct {
 	maxUploadSize int64
 	limiter       *ratelimit.MessageRateLimiter
 	appLog        services.AppLogService
+	urlSigner     services.FileURLSigner
 }
 
-func NewFeedbackHandler(service services.FeedbackService, uploadService services.FeedbackUploadService, maxUploadSize int64, limiter *ratelimit.MessageRateLimiter, appLog services.AppLogService) *FeedbackHandler {
-	return &FeedbackHandler{service: service, uploadService: uploadService, maxUploadSize: maxUploadSize, limiter: limiter, appLog: appLog}
+func NewFeedbackHandler(service services.FeedbackService, uploadService services.FeedbackUploadService, maxUploadSize int64, limiter *ratelimit.MessageRateLimiter, appLog services.AppLogService, urlSigner services.FileURLSigner) *FeedbackHandler {
+	return &FeedbackHandler{service: service, uploadService: uploadService, maxUploadSize: maxUploadSize, limiter: limiter, appLog: appLog, urlSigner: urlSigner}
 }
 
 // CreateTicket -- POST /api/feedback
@@ -87,6 +88,7 @@ func (h *FeedbackHandler) CreateTicket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	h.signFeedbackAttachments(ticket.Attachments)
 	pkg.JSON(w, http.StatusCreated, ticket)
 }
 
@@ -105,6 +107,9 @@ func (h *FeedbackHandler) ListMyTickets(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	for i := range tickets {
+		h.signFeedbackAttachments(tickets[i].Attachments)
+	}
 	pkg.JSON(w, http.StatusOK, map[string]any{
 		"tickets": tickets,
 		"total":   total,
@@ -126,6 +131,10 @@ func (h *FeedbackHandler) GetTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.signFeedbackAttachments(ticket.Attachments)
+	for i := range replies {
+		h.signFeedbackAttachments(replies[i].Attachments)
+	}
 	pkg.JSON(w, http.StatusOK, map[string]any{
 		"ticket":  ticket,
 		"replies": replies,
@@ -190,6 +199,9 @@ func (h *FeedbackHandler) AdminListTickets(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	for i := range tickets {
+		h.signFeedbackAttachments(tickets[i].Attachments)
+	}
 	pkg.JSON(w, http.StatusOK, map[string]any{
 		"tickets": tickets,
 		"total":   total,
@@ -206,6 +218,10 @@ func (h *FeedbackHandler) AdminGetTicket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	h.signFeedbackAttachments(ticket.Attachments)
+	for i := range replies {
+		h.signFeedbackAttachments(replies[i].Attachments)
+	}
 	pkg.JSON(w, http.StatusOK, map[string]any{
 		"ticket":  ticket,
 		"replies": replies,
@@ -290,7 +306,14 @@ func (h *FeedbackHandler) parseAndCreateReply(r *http.Request, ticketID, userID 
 		}
 	}
 
+	h.signFeedbackAttachments(reply.Attachments)
 	return reply, nil
+}
+
+func (h *FeedbackHandler) signFeedbackAttachments(atts []models.FeedbackAttachment) {
+	for i := range atts {
+		atts[i].FileURL = h.urlSigner.SignURL(atts[i].FileURL)
+	}
 }
 
 func parsePagination(r *http.Request) (limit, offset int) {

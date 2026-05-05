@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"html"
 	"io/fs"
@@ -22,6 +23,7 @@ import (
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/pkg/i18n"
+	"github.com/akinalp/mqvi/pkg/signedurl"
 	"github.com/akinalp/mqvi/services"
 	"github.com/akinalp/mqvi/static"
 	"github.com/akinalp/mqvi/ws"
@@ -86,19 +88,27 @@ func main() {
 	// 7. Startup cleanup + presence reset + LiveKit seed
 	runStartupCleanup(db, repos, cfg, encryptionKey)
 
-	// 8. WebSocket Hub
+	// 8. Signed URL signer (before services — services need it to sign URLs)
+	fileSigner := initFileSigner(cfg)
+	urlSigner := &fileSignerAdapter{
+		signer: fileSigner,
+		prefix: files.URLPathPrefix,
+		ttl:    time.Hour,
+	}
+
+	// 9. WebSocket Hub
 	hub := ws.NewHub()
 
-	// 9. Service layer (order matters: channelPerm -> voice -> p2pCall -> rest)
-	svcs, limiters, metricsCollector := initServices(db.Conn, repos, hub, cfg, encryptionKey)
+	// 10. Service layer (order matters: channelPerm -> voice -> p2pCall -> rest)
+	svcs, limiters, metricsCollector := initServices(db.Conn, repos, hub, cfg, encryptionKey, urlSigner)
 
-	// 9b. Wire structured app logger into Hub and services
+	// 10b. Wire structured app logger into Hub and services
 	hub.SetAppLogger(svcs.AppLog)
 	svcs.Voice.SetAppLogger(svcs.AppLog)
 	svcs.P2PCall.SetAppLogger(svcs.AppLog)
 	svcs.Auth.SetAppLogger(svcs.AppLog)
 
-	// 10. Hub callbacks (must be after services, before hub.Run)
+	// 11. Hub callbacks (must be after services, before hub.Run)
 	registerHubCallbacks(hub, repos.User, repos.DM, svcs.Voice, svcs.P2PCall, repos.Channel, repos.Server, svcs.ChannelPermission)
 
 	go hub.Run()
@@ -115,17 +125,17 @@ func main() {
 	// 10c. App log service — async writer + auto-purge (30 days)
 	svcs.AppLog.Start()
 
-	// 11. Handler layer
-	h := initHandlers(svcs, repos, limiters, hub, cfg, encryptionKey)
+	// 12. Handler layer
+	h := initHandlers(svcs, repos, limiters, hub, cfg, encryptionKey, urlSigner)
 
-	// 12. HTTP router + routes
+	// 13. HTTP router + routes
 	mux := http.NewServeMux()
-	initRoutes(mux, h, svcs.Auth, repos.User, repos.Role, repos.Server)
+	initRoutes(mux, h, svcs.Auth, repos.User, repos.Role, repos.Server, fileSigner)
 
-	// 13. Static file serving
-	registerStaticAndUploads(mux, cfg)
+	// 14. Static file serving
+	registerStaticAndUploads(mux, cfg, fileSigner)
 
-	// 14. SPA frontend serving
+	// 15. SPA frontend serving
 	frontendFS, hasFrontend := initFrontendFS()
 
 	// Rewrite relative paths in index.html for web serving.
@@ -230,6 +240,52 @@ func main() {
 
 // ─── Startup Helpers ───
 
+// initFileSigner creates the HMAC signer from config. Fails fast if the
+// secret is missing or malformed — signed URLs are mandatory in production.
+func initFileSigner(cfg *config.Config) *signedurl.Signer {
+	secret := cfg.Upload.SignedURLSecret
+	if secret == "" {
+		log.Fatal("[main] MQVI_SIGNED_URL_SECRET is required (base64-encoded, 32 bytes). Generate with: openssl rand -base64 32")
+	}
+	active, err := base64.StdEncoding.DecodeString(secret)
+	if err != nil {
+		log.Fatalf("[main] MQVI_SIGNED_URL_SECRET is not valid base64: %v", err)
+	}
+	if len(active) < 32 {
+		log.Fatalf("[main] MQVI_SIGNED_URL_SECRET too short (%d bytes, need 32)", len(active))
+	}
+
+	var prev []byte
+	if cfg.Upload.SignedURLSecretPrev != "" {
+		prev, err = base64.StdEncoding.DecodeString(cfg.Upload.SignedURLSecretPrev)
+		if err != nil {
+			log.Fatalf("[main] MQVI_SIGNED_URL_SECRET_PREV is not valid base64: %v", err)
+		}
+		if len(prev) < 32 {
+			log.Fatalf("[main] MQVI_SIGNED_URL_SECRET_PREV too short (%d bytes, need 32)", len(prev))
+		}
+	}
+
+	log.Println("[main] file URL signer initialized")
+	return signedurl.NewSigner(active, prev)
+}
+
+// fileSignerAdapter wraps signedurl.Signer to satisfy services.FileURLSigner.
+// Binds the URL prefix and TTL so services don't need to know these details.
+type fileSignerAdapter struct {
+	signer *signedurl.Signer
+	prefix string
+	ttl    time.Duration
+}
+
+func (a *fileSignerAdapter) SignURL(fileURL string) string {
+	return a.signer.SignIfNeeded(fileURL, a.prefix, a.ttl)
+}
+
+func (a *fileSignerAdapter) SignURLPtr(fileURL *string) *string {
+	return a.signer.SignPtr(fileURL, a.prefix, a.ttl)
+}
+
 // runStartupCleanup handles one-time DB cleanup and seeding at boot.
 func runStartupCleanup(db *database.DB, repos *Repositories, cfg *config.Config, encryptionKey []byte) {
 	// Fix empty-ID LiveKit instances
@@ -330,7 +386,7 @@ func runStartupCleanup(db *database.DB, repos *Repositories, cfg *config.Config,
 }
 
 // registerStaticAndUploads sets up the upload file serving endpoint.
-func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config) {
+func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config, signer *signedurl.Signer) {
 	uploadsHandler := http.StripPrefix("/api/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Block path traversal but allow one level of subdirectory (e.g. soundboard/)
 		if strings.Contains(r.URL.Path, "\\") || strings.Contains(r.URL.Path, "..") {
@@ -353,23 +409,29 @@ func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config) {
 	}))
 	mux.Handle("GET /api/uploads/", uploadsHandler)
 
-	// New segregated file endpoint (PHASE-10). Path format:
-	//   /api/files/<kind>/<scopeID>/<filename>
-	// No ACL or signature verification yet — those land in PHASE-11 + PHASE-12.
-	// All path validation lives in Locator.ResolveServePath so the same rules
-	// apply everywhere (write, delete, serve).
+	// New segregated file endpoint. Path format:
+	//   /api/files/<kind>/<scopeID>/<filename>?exp=<unix>&sig=<base64url>
+	// Signature verified before serving. Path validation in Locator.ResolveServePath.
 	fileLocator := files.NewLocator(cfg.Upload.Dir, cfg.Upload.PublicURL)
-	filesHandler := http.StripPrefix(files.URLPathPrefix+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Use RawPath when available to avoid double-decode: Go's net/http
-		// already decodes r.URL.Path, but ResolveServePath also calls
-		// url.PathUnescape. Feeding the raw (still-encoded) path ensures
-		// exactly one decode pass so literal '%' in scope/filename cannot
-		// be misinterpreted.
-		rawPath := r.URL.RawPath
-		if rawPath == "" {
-			rawPath = r.URL.Path
+	filesHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract the portion after /api/files/ using the escaped path so
+		// the signature matches exactly what was signed (percent-encoded).
+		escaped := r.URL.EscapedPath()
+		after, found := strings.CutPrefix(escaped, files.URLPathPrefix+"/")
+		if !found || after == "" {
+			http.NotFound(w, r)
+			return
 		}
-		disk, err := fileLocator.ResolveServePath(rawPath)
+
+		// Verify HMAC signature against the full escaped path (what was signed).
+		signedPath := files.URLPathPrefix + "/" + after
+		if err := signer.Verify(signedPath, r.URL.Query().Get("exp"), r.URL.Query().Get("sig")); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// ResolveServePath expects encoded segments — it does its own decode.
+		disk, err := fileLocator.ResolveServePath(after)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -379,8 +441,9 @@ func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config) {
 			http.NotFound(w, r)
 			return
 		}
+		w.Header().Set("Cache-Control", "private, max-age=3600")
 		http.ServeFile(w, r, disk)
-	}))
+	})
 	mux.Handle("GET "+files.URLPathPrefix+"/", filesHandler)
 
 	// Landing page assets (video, screenshots) — public, no auth

@@ -54,6 +54,7 @@ type dmService struct {
 	blockChecker  BlockChecker
 	friendChecker FriendshipChecker
 	unhider       DMSettingsUnhider
+	urlSigner     FileURLSigner
 }
 
 func NewDMService(
@@ -63,6 +64,7 @@ func NewDMService(
 	blockChecker BlockChecker,
 	friendshipChecker FriendshipChecker,
 	unhider DMSettingsUnhider,
+	urlSigner FileURLSigner,
 ) DMService {
 	return &dmService{
 		dmRepo:        dmRepo,
@@ -71,6 +73,7 @@ func NewDMService(
 		blockChecker:  blockChecker,
 		friendChecker: friendshipChecker,
 		unhider:       unhider,
+		urlSigner:     urlSigner,
 	}
 }
 
@@ -138,7 +141,17 @@ func (s *dmService) enrichMessages(ctx context.Context, messages []models.DMMess
 	}
 
 	for i := range messages {
-		messages[i].Attachments = attachmentMap[messages[i].ID]
+		if messages[i].Author != nil {
+			messages[i].Author.AvatarURL = s.urlSigner.SignURLPtr(messages[i].Author.AvatarURL)
+		}
+		if messages[i].ReferencedMessage != nil && messages[i].ReferencedMessage.Author != nil {
+			messages[i].ReferencedMessage.Author.AvatarURL = s.urlSigner.SignURLPtr(messages[i].ReferencedMessage.Author.AvatarURL)
+		}
+		atts := attachmentMap[messages[i].ID]
+		for j := range atts {
+			atts[j].FileURL = s.urlSigner.SignURL(atts[j].FileURL)
+		}
+		messages[i].Attachments = atts
 		if messages[i].Attachments == nil {
 			messages[i].Attachments = []models.DMAttachment{}
 		}

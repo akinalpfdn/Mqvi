@@ -23,6 +23,9 @@ type LiveKitSettings struct {
 type ServerService interface {
 	CreateServer(ctx context.Context, ownerID string, req *models.CreateServerRequest) (*models.Server, error)
 	GetServer(ctx context.Context, serverID string) (*models.Server, error)
+	// GetServerRaw returns the server without signing file URLs. Used for internal
+	// operations like file deletion where the raw DB path is needed.
+	GetServerRaw(ctx context.Context, serverID string) (*models.Server, error)
 	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
 	UpdateServer(ctx context.Context, serverID string, req *models.UpdateServerRequest) (*models.Server, error)
 	UpdateIcon(ctx context.Context, serverID, iconURL string) (*models.Server, error)
@@ -45,6 +48,7 @@ type serverService struct {
 	inviteService InviteService
 	hub           ws.BroadcastAndManage
 	encryptionKey []byte // AES-256-GCM for LiveKit credentials
+	urlSigner     FileURLSigner
 }
 
 func NewServerService(
@@ -58,6 +62,7 @@ func NewServerService(
 	inviteService InviteService,
 	hub ws.BroadcastAndManage,
 	encryptionKey []byte,
+	urlSigner FileURLSigner,
 ) ServerService {
 	return &serverService{
 		db:            db,
@@ -70,6 +75,7 @@ func NewServerService(
 		inviteService: inviteService,
 		hub:           hub,
 		encryptionKey: encryptionKey,
+		urlSigner:     urlSigner,
 	}
 }
 
@@ -258,7 +264,7 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		Data: models.ServerListItem{
 			ID:      server.ID,
 			Name:    server.Name,
-			IconURL: server.IconURL,
+			IconURL: s.urlSigner.SignURLPtr(server.IconURL),
 		},
 	})
 
@@ -269,11 +275,27 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 }
 
 func (s *serverService) GetServer(ctx context.Context, serverID string) (*models.Server, error) {
+	server, err := s.serverRepo.GetByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	return server, nil
+}
+
+func (s *serverService) GetServerRaw(ctx context.Context, serverID string) (*models.Server, error) {
 	return s.serverRepo.GetByID(ctx, serverID)
 }
 
 func (s *serverService) GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error) {
-	return s.serverRepo.GetUserServers(ctx, userID)
+	servers, err := s.serverRepo.GetUserServers(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range servers {
+		servers[i].IconURL = s.urlSigner.SignURLPtr(servers[i].IconURL)
+	}
+	return servers, nil
 }
 
 func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *models.UpdateServerRequest) (*models.Server, error) {
@@ -337,6 +359,7 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 		log.Printf("[server] livekit credentials updated for server %s", serverID)
 	}
 
+	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerUpdate,
 		Data: server,
@@ -357,6 +380,7 @@ func (s *serverService) UpdateIcon(ctx context.Context, serverID, iconURL string
 		return nil, fmt.Errorf("failed to update server icon: %w", err)
 	}
 
+	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerUpdate,
 		Data: server,
@@ -450,7 +474,7 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		Data: models.ServerListItem{
 			ID:      server.ID,
 			Name:    server.Name,
-			IconURL: server.IconURL,
+			IconURL: s.urlSigner.SignURLPtr(server.IconURL),
 		},
 	})
 
@@ -461,6 +485,7 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 	} else {
 		roles, _ := s.roleRepo.GetByUserIDAndServer(ctx, userID, serverID)
 		member := models.ToMemberWithRoles(user, roles)
+		member.AvatarURL = s.urlSigner.SignURLPtr(member.AvatarURL)
 		s.hub.BroadcastToServer(serverID, ws.Event{
 			Op:   ws.OpMemberJoin,
 			Data: member,
@@ -468,6 +493,7 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 	}
 
 	log.Printf("[server] user %s joined server %s via invite", userID, serverID)
+	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
 	return server, nil
 }
 
@@ -543,6 +569,8 @@ func (s *serverService) ReorderServers(ctx context.Context, userID string, req *
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload servers after reorder: %w", err)
 	}
-
+	for i := range servers {
+		servers[i].IconURL = s.urlSigner.SignURLPtr(servers[i].IconURL)
+	}
 	return servers, nil
 }

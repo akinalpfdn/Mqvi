@@ -13,10 +13,11 @@ import (
 type SoundboardHandler struct {
 	service   services.SoundboardService
 	maxUpload int64
+	urlSigner services.FileURLSigner
 }
 
-func NewSoundboardHandler(service services.SoundboardService, maxUpload int64) *SoundboardHandler {
-	return &SoundboardHandler{service: service, maxUpload: maxUpload}
+func NewSoundboardHandler(service services.SoundboardService, maxUpload int64, urlSigner services.FileURLSigner) *SoundboardHandler {
+	return &SoundboardHandler{service: service, maxUpload: maxUpload, urlSigner: urlSigner}
 }
 
 // List returns all sounds for a server.
@@ -31,6 +32,9 @@ func (h *SoundboardHandler) List(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		pkg.Error(w, err)
 		return
+	}
+	for i := range sounds {
+		sounds[i].FileURL = h.urlSigner.SignURL(sounds[i].FileURL)
 	}
 	pkg.JSON(w, http.StatusOK, sounds)
 }
@@ -82,6 +86,7 @@ func (h *SoundboardHandler) Create(w http.ResponseWriter, r *http.Request) {
 		pkg.Error(w, err)
 		return
 	}
+	sound.FileURL = h.urlSigner.SignURL(sound.FileURL)
 	pkg.JSON(w, http.StatusCreated, sound)
 }
 
@@ -104,6 +109,7 @@ func (h *SoundboardHandler) Update(w http.ResponseWriter, r *http.Request) {
 		pkg.Error(w, err)
 		return
 	}
+	sound.FileURL = h.urlSigner.SignURL(sound.FileURL)
 	pkg.JSON(w, http.StatusOK, sound)
 }
 

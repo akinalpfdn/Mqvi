@@ -233,6 +233,7 @@ if [ ! -f "${INSTALL_DIR}/.env" ]; then
     log "Generating .env with random secrets..."
     JWT_SECRET="$(openssl rand -hex 32)"
     ENCRYPTION_KEY="$(openssl rand -hex 32)"
+    SIGNED_URL_SECRET="$(openssl rand -base64 32)"
     PUBLIC_URL=""
     if [ "$MODE" != "plain" ]; then
         PUBLIC_URL="https://${DOMAIN}"
@@ -256,6 +257,9 @@ ENCRYPTION_KEY=${ENCRYPTION_KEY}
 
 UPLOAD_DIR=${DATA_DIR}/uploads
 UPLOAD_MAX_SIZE=26214400
+
+# HMAC secret for signed file URLs (base64-encoded, 32 bytes)
+MQVI_SIGNED_URL_SECRET=${SIGNED_URL_SECRET}
 EOF
 
     if [ -n "$PUBLIC_URL" ]; then

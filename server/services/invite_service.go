@@ -29,15 +29,18 @@ type InviteService interface {
 type inviteService struct {
 	inviteRepo repository.InviteRepository
 	serverRepo repository.ServerRepository
+	urlSigner  FileURLSigner
 }
 
 func NewInviteService(
 	inviteRepo repository.InviteRepository,
 	serverRepo repository.ServerRepository,
+	urlSigner FileURLSigner,
 ) InviteService {
 	return &inviteService{
 		inviteRepo: inviteRepo,
 		serverRepo: serverRepo,
+		urlSigner:  urlSigner,
 	}
 }
 
@@ -145,7 +148,7 @@ func (s *inviteService) GetPreview(ctx context.Context, code string) (*models.In
 
 	return &models.InvitePreview{
 		ServerName:    server.Name,
-		ServerIconURL: server.IconURL,
+		ServerIconURL: s.urlSigner.SignURLPtr(server.IconURL),
 		MemberCount:   memberCount,
 	}, nil
 }

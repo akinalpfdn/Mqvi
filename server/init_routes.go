@@ -1,10 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/akinalp/mqvi/middleware"
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/files"
+	"github.com/akinalp/mqvi/pkg/signedurl"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
 )
@@ -19,6 +24,7 @@ func initRoutes(
 	userRepo repository.UserRepository,
 	roleRepo repository.RoleRepository,
 	serverRepo repository.ServerRepository,
+	fileSigner *signedurl.Signer,
 ) {
 	// Middleware
 	authMw := middleware.NewAuthMiddleware(authService, userRepo)
@@ -79,6 +85,36 @@ func initRoutes(
 
 	// Upload
 	mux.Handle("POST /api/upload", auth(h.Message.Upload))
+
+	// File URL refresh — re-signs a path the user already has a valid signature for.
+	// Accepts POST with {"url":"/api/files/...?exp=...&sig=..."} body.
+	// The existing signature must still be valid — this is a refresh, not a grant.
+	mux.Handle("POST /api/files/refresh", auth(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+			http.Error(w, "url required", http.StatusBadRequest)
+			return
+		}
+		// Verify the caller actually has a valid (non-expired) signed URL.
+		if err := fileSigner.VerifyURL(req.URL); err != nil {
+			http.Error(w, "invalid or expired signed URL", http.StatusForbidden)
+			return
+		}
+		// Extract path portion and re-sign with fresh TTL.
+		path := req.URL
+		if idx := strings.IndexByte(path, '?'); idx != -1 {
+			path = path[:idx]
+		}
+		if !strings.HasPrefix(path, files.URLPathPrefix+"/") {
+			http.Error(w, "invalid file path", http.StatusBadRequest)
+			return
+		}
+		signed := fileSigner.Sign(path, time.Hour)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"url": signed})
+	}))
 
 	// DMs — literal paths before parametric
 	mux.Handle("GET /api/dms/settings", auth(h.DMSettings.GetSettings))

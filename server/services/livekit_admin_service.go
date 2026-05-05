@@ -54,6 +54,7 @@ type livekitAdminService struct {
 	voiceProvider ActiveVoiceProvider
 	encryptionKey []byte
 	httpClient    *http.Client
+	urlSigner     FileURLSigner
 
 	hetznerClient *hcloud.Client // optional (nil = disabled)
 	vcpuCache     map[int64]int
@@ -67,6 +68,7 @@ func NewLiveKitAdminService(
 	voiceProvider ActiveVoiceProvider,
 	encryptionKey []byte,
 	hetznerToken string,
+	urlSigner FileURLSigner,
 ) LiveKitAdminService {
 	svc := &livekitAdminService{
 		livekitRepo:   livekitRepo,
@@ -75,6 +77,7 @@ func NewLiveKitAdminService(
 		channelRepo:   channelRepo,
 		voiceProvider: voiceProvider,
 		encryptionKey: encryptionKey,
+		urlSigner:     urlSigner,
 		vcpuCache:     make(map[int64]int),
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
@@ -254,6 +257,9 @@ func (s *livekitAdminService) ListServers(ctx context.Context) ([]models.AdminSe
 		}
 	}
 
+	for i := range servers {
+		servers[i].IconURL = s.urlSigner.SignURLPtr(servers[i].IconURL)
+	}
 	return servers, nil
 }
 
@@ -312,6 +318,10 @@ func (s *livekitAdminService) ListUsers(ctx context.Context) ([]models.AdminUser
 				users[i].LastActivity = &now
 			}
 		}
+	}
+
+	for i := range users {
+		users[i].AvatarURL = s.urlSigner.SignURLPtr(users[i].AvatarURL)
 	}
 
 	return users, nil

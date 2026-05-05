@@ -16,10 +16,11 @@ type SearchService interface {
 
 type searchService struct {
 	searchRepo repository.SearchRepository
+	urlSigner  FileURLSigner
 }
 
-func NewSearchService(searchRepo repository.SearchRepository) SearchService {
-	return &searchService{searchRepo: searchRepo}
+func NewSearchService(searchRepo repository.SearchRepository, urlSigner FileURLSigner) SearchService {
+	return &searchService{searchRepo: searchRepo, urlSigner: urlSigner}
 }
 
 func (s *searchService) Search(ctx context.Context, serverID, query string, channelID *string, limit, offset int) (*repository.SearchResult, error) {
@@ -38,5 +39,14 @@ func (s *searchService) Search(ctx context.Context, serverID, query string, chan
 		offset = 0
 	}
 
-	return s.searchRepo.Search(ctx, query, serverID, channelID, limit, offset)
+	result, err := s.searchRepo.Search(ctx, query, serverID, channelID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	for i := range result.Messages {
+		if result.Messages[i].Author != nil {
+			result.Messages[i].Author.AvatarURL = s.urlSigner.SignURLPtr(result.Messages[i].Author.AvatarURL)
+		}
+	}
+	return result, nil
 }

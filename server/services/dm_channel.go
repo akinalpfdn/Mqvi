@@ -31,6 +31,7 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 
 	if existing != nil {
 		otherUser.PasswordHash = ""
+		otherUser.AvatarURL = s.urlSigner.SignURLPtr(otherUser.AvatarURL)
 		return &models.DMChannelWithUser{
 			ID:            existing.ID,
 			OtherUser:     otherUser,
@@ -66,6 +67,7 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		return nil, fmt.Errorf("failed to create DM channel: %w", err)
 	}
 
+	otherUser.AvatarURL = s.urlSigner.SignURLPtr(otherUser.AvatarURL)
 	result := &models.DMChannelWithUser{
 		ID:            channel.ID,
 		OtherUser:     otherUser,
@@ -79,6 +81,7 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 	currentUser, err := s.userRepo.GetByID(ctx, userID)
 	if err == nil {
 		currentUser.PasswordHash = ""
+		currentUser.AvatarURL = s.urlSigner.SignURLPtr(currentUser.AvatarURL)
 		s.hub.BroadcastToUser(otherUserID, ws.Event{
 			Op: ws.OpDMChannelCreate,
 			Data: models.DMChannelWithUser{
@@ -99,5 +102,14 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 }
 
 func (s *dmService) ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error) {
-	return s.dmRepo.ListChannels(ctx, userID)
+	channels, err := s.dmRepo.ListChannels(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range channels {
+		if channels[i].OtherUser != nil {
+			channels[i].OtherUser.AvatarURL = s.urlSigner.SignURLPtr(channels[i].OtherUser.AvatarURL)
+		}
+	}
+	return channels, nil
 }

@@ -177,6 +177,7 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		return nil, fmt.Errorf("failed to get message author: %w", err)
 	}
 	author.PasswordHash = ""
+	author.AvatarURL = s.urlSigner.SignURLPtr(author.AvatarURL)
 	msg.Author = author
 
 	// Load reply reference
@@ -189,6 +190,7 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 			}
 			if refMsg.Author != nil {
 				refMsg.Author.PasswordHash = ""
+				refMsg.Author.AvatarURL = s.urlSigner.SignURLPtr(refMsg.Author.AvatarURL)
 				ref.Author = refMsg.Author
 			}
 			msg.ReferencedMessage = ref

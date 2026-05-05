@@ -67,7 +67,7 @@ type RateLimiters struct {
 // initServices creates all services. Order matters:
 // channelPermService -> voiceService/messageService (dependency)
 // voiceService/p2pCallService -> before Hub callbacks (closure scoping)
-func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte) (*Services, *RateLimiters, services.MetricsCollector) {
+func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte, urlSigner services.FileURLSigner) (*Services, *RateLimiters, services.MetricsCollector) {
 	// File locator: single source of truth for upload paths and URLs.
 	fileLocator := files.NewLocator(cfg.Upload.Dir, cfg.Upload.PublicURL)
 
@@ -76,9 +76,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.ChannelPermission, repos.Role, repos.Channel, hub,
 	)
 	voiceService := services.NewVoiceService(
-		repos.Channel, repos.LiveKit, channelPermService, hub, hub, repos.Server, encryptionKey,
+		repos.Channel, repos.LiveKit, channelPermService, hub, hub, repos.Server, encryptionKey, urlSigner,
 	)
-	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub)
+	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner)
 
 	// Email service (optional)
 	var emailSender email.EmailSender
@@ -90,7 +90,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	}
 
 	// Remaining services (order-independent)
-	inviteService := services.NewInviteService(repos.Invite, repos.Server)
+	inviteService := services.NewInviteService(repos.Invite, repos.Server, urlSigner)
 	authService := services.NewAuthService(
 		repos.User, repos.Session, repos.ResetToken, hub, emailSender,
 		cfg.JWT.Secret, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry,
@@ -100,37 +100,37 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	messageService := services.NewMessageService(
 		repos.Message, repos.Attachment, repos.Channel, repos.User,
 		repos.Mention, repos.RoleMention, repos.Role, repos.Reaction, repos.ReadState,
-		hub, channelPermService,
+		hub, channelPermService, urlSigner,
 	)
 	uploadService := services.NewUploadService(repos.Attachment, fileLocator, cfg.Upload.MaxSize)
-	memberService := services.NewMemberService(repos.User, repos.Role, repos.Ban, repos.Server, hub, voiceService)
+	memberService := services.NewMemberService(repos.User, repos.Role, repos.Ban, repos.Server, hub, voiceService, urlSigner)
 	roleService := services.NewRoleService(repos.Role, repos.User, hub)
 	serverService := services.NewServerService(
 		db, repos.Server, repos.LiveKit, repos.Role, repos.Channel,
-		repos.Category, repos.User, inviteService, hub, encryptionKey,
+		repos.Category, repos.User, inviteService, hub, encryptionKey, urlSigner,
 	)
 	livekitAdminService := services.NewLiveKitAdminService(
 		repos.LiveKit, repos.Server, repos.User, repos.Channel,
-		voiceService, encryptionKey, cfg.HetznerAPIToken,
+		voiceService, encryptionKey, cfg.HetznerAPIToken, urlSigner,
 	)
-	pinService := services.NewPinService(repos.Pin, repos.Message, repos.Channel, hub, channelPermService)
-	searchService := services.NewSearchService(repos.Search)
+	pinService := services.NewPinService(repos.Pin, repos.Message, repos.Channel, hub, channelPermService, urlSigner)
+	searchService := services.NewSearchService(repos.Search, urlSigner)
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)
 
 	// BlockService before DMService (DMService uses it as BlockChecker)
-	blockService := services.NewBlockService(repos.Friendship, repos.User, hub)
+	blockService := services.NewBlockService(repos.Friendship, repos.User, hub, urlSigner)
 
 	// DMSettingsService before DMService (DMService uses it as DMSettingsUnhider)
 	dmSettingsService := services.NewDMSettingsService(repos.DMSettings, repos.DM, hub)
 
-	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub)
-	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, friendshipService, dmSettingsService)
+	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub, urlSigner)
+	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, friendshipService, dmSettingsService, urlSigner)
 	friendshipService.SetDMAcceptor(dmService) // auto-accept pending DMs when friendship is accepted
 	dmUploadService := services.NewDMUploadService(repos.DM, fileLocator, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, repos.Channel, hub, channelPermService)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
-	reportService := services.NewReportService(repos.Report, repos.User)
+	reportService := services.NewReportService(repos.Report, repos.User, urlSigner)
 	reportUploadService := services.NewReportUploadService(repos.Report, fileLocator, cfg.Upload.MaxSize)
 
 	deviceService := services.NewDeviceService(repos.Device, hub)
@@ -148,7 +148,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	feedbackService := services.NewFeedbackService(repos.Feedback)
 	feedbackUploadService := services.NewFeedbackUploadService(repos.Feedback, fileLocator, cfg.Upload.MaxSize)
 	soundboardService := services.NewSoundboardService(
-		repos.Soundboard, repos.User, hub, voiceService, fileLocator, cfg.Upload.MaxSize,
+		repos.Soundboard, repos.User, hub, voiceService, fileLocator, cfg.Upload.MaxSize, urlSigner,
 	)
 	metricsCollector := services.NewMetricsCollector(
 		repos.LiveKit, repos.MetricsHistory,

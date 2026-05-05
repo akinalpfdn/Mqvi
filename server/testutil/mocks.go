@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"context"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/ws"
@@ -142,6 +143,15 @@ func (m *MockUserRepo) SetPlatformAdmin(ctx context.Context, userID string, isAd
 	if m.SetPlatformAdminFn != nil {
 		return m.SetPlatformAdminFn(ctx, userID, isAdmin)
 	}
+	return nil
+}
+func (m *MockUserRepo) UpdatePrefStatus(_ context.Context, _ string, _ models.UserStatus) error {
+	return nil
+}
+func (m *MockUserRepo) SetDownloadPromptSeen(_ context.Context, _ string) error {
+	return nil
+}
+func (m *MockUserRepo) SetWelcomeSeen(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -754,3 +764,51 @@ func (m *MockChannelPermResolver) ResolveChannelPermissions(ctx context.Context,
 	}
 	return 0, nil
 }
+
+// ─── ReadStateRepository mock ───
+
+type MockReadStateRepo struct {
+	UpsertFn                   func(ctx context.Context, userID, channelID, messageID string) error
+	GetUnreadCountsFn          func(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error)
+	MarkAllReadFn              func(ctx context.Context, userID, serverID string) error
+	IncrementUnreadCountsFn    func(ctx context.Context, channelID, excludeUserID string) error
+	DecrementUnreadForDeletedFn func(ctx context.Context, channelID, authorID string, deletedAt time.Time) error
+}
+
+func (m *MockReadStateRepo) Upsert(ctx context.Context, userID, channelID, messageID string) error {
+	if m.UpsertFn != nil {
+		return m.UpsertFn(ctx, userID, channelID, messageID)
+	}
+	return nil
+}
+func (m *MockReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error) {
+	if m.GetUnreadCountsFn != nil {
+		return m.GetUnreadCountsFn(ctx, userID, serverID)
+	}
+	return nil, nil
+}
+func (m *MockReadStateRepo) MarkAllRead(ctx context.Context, userID, serverID string) error {
+	if m.MarkAllReadFn != nil {
+		return m.MarkAllReadFn(ctx, userID, serverID)
+	}
+	return nil
+}
+func (m *MockReadStateRepo) IncrementUnreadCounts(ctx context.Context, channelID, excludeUserID string) error {
+	if m.IncrementUnreadCountsFn != nil {
+		return m.IncrementUnreadCountsFn(ctx, channelID, excludeUserID)
+	}
+	return nil
+}
+func (m *MockReadStateRepo) DecrementUnreadForDeleted(ctx context.Context, channelID, authorID string, deletedAt time.Time) error {
+	if m.DecrementUnreadForDeletedFn != nil {
+		return m.DecrementUnreadForDeletedFn(ctx, channelID, authorID, deletedAt)
+	}
+	return nil
+}
+
+// ─── FileURLSigner mock (no-op, returns URLs unchanged) ───
+
+type MockFileURLSigner struct{}
+
+func (m *MockFileURLSigner) SignURL(fileURL string) string    { return fileURL }
+func (m *MockFileURLSigner) SignURLPtr(p *string) *string     { return p }

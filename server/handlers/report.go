@@ -15,17 +15,20 @@ type ReportHandler struct {
 	service             services.ReportService
 	reportUploadService services.ReportUploadService
 	maxUploadSize       int64
+	urlSigner           services.FileURLSigner
 }
 
 func NewReportHandler(
 	service services.ReportService,
 	reportUploadService services.ReportUploadService,
 	maxUploadSize int64,
+	urlSigner services.FileURLSigner,
 ) *ReportHandler {
 	return &ReportHandler{
 		service:             service,
 		reportUploadService: reportUploadService,
 		maxUploadSize:       maxUploadSize,
+		urlSigner:           urlSigner,
 	}
 }
 
@@ -90,5 +93,8 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	for i := range report.Attachments {
+		report.Attachments[i].FileURL = h.urlSigner.SignURL(report.Attachments[i].FileURL)
+	}
 	pkg.JSON(w, http.StatusCreated, report)
 }

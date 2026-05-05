@@ -47,6 +47,7 @@ type p2pCallService struct {
 	userGetter    UserInfoGetter
 	hub           ws.BroadcastAndOnline
 	appLogger     P2PAppLogger
+	urlSigner     FileURLSigner
 
 	// In-memory state, cleared on server restart.
 	activeCalls map[string]*models.P2PCall // callID -> call
@@ -68,11 +69,13 @@ func NewP2PCallService(
 	friendChecker FriendChecker,
 	userGetter UserInfoGetter,
 	hub ws.BroadcastAndOnline,
+	urlSigner FileURLSigner,
 ) P2PCallService {
 	return &p2pCallService{
 		friendChecker: friendChecker,
 		userGetter:    userGetter,
 		hub:           hub,
+		urlSigner:     urlSigner,
 		activeCalls:   make(map[string]*models.P2PCall),
 		userCalls:     make(map[string]string),
 	}
@@ -365,11 +368,11 @@ func (s *p2pCallService) buildBroadcast(call *models.P2PCall, caller, receiver *
 		CallerID:            call.CallerID,
 		CallerUsername:      caller.Username,
 		CallerDisplayName:   caller.DisplayName,
-		CallerAvatarURL:     caller.AvatarURL,
+		CallerAvatarURL:     s.urlSigner.SignURLPtr(caller.AvatarURL),
 		ReceiverID:          call.ReceiverID,
 		ReceiverUsername:    receiver.Username,
 		ReceiverDisplayName: receiver.DisplayName,
-		ReceiverAvatarURL:   receiver.AvatarURL,
+		ReceiverAvatarURL:   s.urlSigner.SignURLPtr(receiver.AvatarURL),
 		CallType:            call.CallType,
 		Status:              call.Status,
 		CreatedAt:           call.CreatedAt,

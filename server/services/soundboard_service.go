@@ -50,12 +50,13 @@ type SoundboardService interface {
 }
 
 type soundboardService struct {
-	repo     repository.SoundboardRepository
-	userRepo repository.UserRepository
-	hub      ws.Broadcaster
-	voice    VoiceStateGetter
-	locator  *files.Locator
-	maxSize  int64
+	repo      repository.SoundboardRepository
+	userRepo  repository.UserRepository
+	hub       ws.Broadcaster
+	voice     VoiceStateGetter
+	locator   *files.Locator
+	maxSize   int64
+	urlSigner FileURLSigner
 }
 
 func NewSoundboardService(
@@ -65,14 +66,16 @@ func NewSoundboardService(
 	voice VoiceStateGetter,
 	locator *files.Locator,
 	maxSize int64,
+	urlSigner FileURLSigner,
 ) SoundboardService {
 	return &soundboardService{
-		repo:     repo,
-		userRepo: userRepo,
-		hub:      hub,
-		voice:    voice,
-		locator:  locator,
-		maxSize:  maxSize,
+		repo:      repo,
+		userRepo:  userRepo,
+		hub:       hub,
+		voice:     voice,
+		locator:   locator,
+		maxSize:   maxSize,
+		urlSigner: urlSigner,
 	}
 }
 
@@ -166,9 +169,12 @@ func (s *soundboardService) Create(
 		return sound, nil
 	}
 
+	// Sign for broadcast — clients consume the URL directly from the event
+	broadcast := *created
+	broadcast.FileURL = s.urlSigner.SignURL(broadcast.FileURL)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpSoundboardCreate,
-		Data: created,
+		Data: &broadcast,
 	})
 
 	return created, nil
@@ -200,9 +206,12 @@ func (s *soundboardService) Update(ctx context.Context, id string, req *models.U
 		updated = sound
 	}
 
+	// Sign for broadcast
+	broadcast := *updated
+	broadcast.FileURL = s.urlSigner.SignURL(broadcast.FileURL)
 	s.hub.BroadcastToServer(sound.ServerID, ws.Event{
 		Op:   ws.OpSoundboardUpdate,
-		Data: updated,
+		Data: &broadcast,
 	})
 
 	return updated, nil
@@ -256,7 +265,7 @@ func (s *soundboardService) Play(ctx context.Context, serverID, soundID, userID,
 		Data: models.SoundboardPlayEvent{
 			SoundID:   sound.ID,
 			SoundName: sound.Name,
-			SoundURL:  sound.FileURL,
+			SoundURL:  s.urlSigner.SignURL(sound.FileURL),
 			UserID:    userID,
 			Username:  username,
 			ServerID:  serverID,

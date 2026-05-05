@@ -39,6 +39,7 @@ type memberService struct {
 	serverRepo repository.ServerRepository
 	hub        ws.BroadcastAndManage
 	voiceKick  VoiceDisconnecter
+	urlSigner  FileURLSigner
 }
 
 func NewMemberService(
@@ -48,6 +49,7 @@ func NewMemberService(
 	serverRepo repository.ServerRepository,
 	hub ws.BroadcastAndManage,
 	voiceKick VoiceDisconnecter,
+	urlSigner FileURLSigner,
 ) MemberService {
 	return &memberService{
 		userRepo:   userRepo,
@@ -56,6 +58,7 @@ func NewMemberService(
 		serverRepo: serverRepo,
 		hub:        hub,
 		voiceKick:  voiceKick,
+		urlSigner:  urlSigner,
 	}
 }
 
@@ -79,7 +82,9 @@ func (s *memberService) GetAll(ctx context.Context, serverID string) ([]models.M
 		if err != nil {
 			return nil, fmt.Errorf("failed to get roles for user %s: %w", users[i].ID, err)
 		}
-		members = append(members, models.ToMemberWithRoles(&users[i], roles))
+		m := models.ToMemberWithRoles(&users[i], roles)
+		m.AvatarURL = s.urlSigner.SignURLPtr(m.AvatarURL)
+		members = append(members, m)
 	}
 
 	return members, nil
@@ -97,6 +102,7 @@ func (s *memberService) GetByID(ctx context.Context, serverID, userID string) (*
 	}
 
 	member := models.ToMemberWithRoles(user, roles)
+	member.AvatarURL = s.urlSigner.SignURLPtr(member.AvatarURL)
 	return &member, nil
 }
 
@@ -150,6 +156,7 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 
 	// Broadcast to all servers the user belongs to (not BroadcastToAll)
 	member := models.ToMemberWithRoles(user, nil)
+	member.AvatarURL = s.urlSigner.SignURLPtr(member.AvatarURL)
 	servers, srvErr := s.serverRepo.GetUserServers(ctx, userID)
 	if srvErr == nil {
 		for _, srv := range servers {

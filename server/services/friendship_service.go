@@ -40,17 +40,20 @@ type friendshipService struct {
 	userRepo    repository.UserRepository
 	hub         ws.Broadcaster
 	dmAcceptor  DMRequestAcceptor
+	urlSigner   FileURLSigner
 }
 
 func NewFriendshipService(
 	friendRepo repository.FriendshipRepository,
 	userRepo repository.UserRepository,
 	hub ws.Broadcaster,
+	urlSigner FileURLSigner,
 ) FriendshipService {
 	return &friendshipService{
 		friendRepo: friendRepo,
 		userRepo:   userRepo,
 		hub:        hub,
+		urlSigner:  urlSigner,
 	}
 }
 
@@ -134,7 +137,7 @@ func (s *friendshipService) SendRequest(ctx context.Context, senderID string, re
 		UserID:           target.ID,
 		Username:         target.Username,
 		DisplayName:      target.DisplayName,
-		AvatarURL:        target.AvatarURL,
+		AvatarURL:        s.urlSigner.SignURLPtr(target.AvatarURL),
 		UserStatus:       string(target.Status),
 		UserCustomStatus: target.CustomStatus,
 	}
@@ -149,7 +152,7 @@ func (s *friendshipService) SendRequest(ctx context.Context, senderID string, re
 			UserID:           sender.ID,
 			Username:         sender.Username,
 			DisplayName:      sender.DisplayName,
-			AvatarURL:        sender.AvatarURL,
+			AvatarURL:        s.urlSigner.SignURLPtr(sender.AvatarURL),
 			UserStatus:       string(sender.Status),
 			UserCustomStatus: sender.CustomStatus,
 		},
@@ -183,7 +186,7 @@ func (s *friendshipService) acceptExisting(ctx context.Context, existing *models
 			UserID:           acceptor.ID,
 			Username:         acceptor.Username,
 			DisplayName:      acceptor.DisplayName,
-			AvatarURL:        acceptor.AvatarURL,
+			AvatarURL:        s.urlSigner.SignURLPtr(acceptor.AvatarURL),
 			UserStatus:       string(acceptor.Status),
 			UserCustomStatus: acceptor.CustomStatus,
 		},
@@ -201,7 +204,7 @@ func (s *friendshipService) acceptExisting(ctx context.Context, existing *models
 		UserID:           sender.ID,
 		Username:         sender.Username,
 		DisplayName:      sender.DisplayName,
-		AvatarURL:        sender.AvatarURL,
+		AvatarURL:        s.urlSigner.SignURLPtr(sender.AvatarURL),
 		UserStatus:       string(sender.Status),
 		UserCustomStatus: sender.CustomStatus,
 	}, nil
@@ -246,7 +249,7 @@ func (s *friendshipService) AcceptRequest(ctx context.Context, userID, requestID
 			UserID:           acceptor.ID,
 			Username:         acceptor.Username,
 			DisplayName:      acceptor.DisplayName,
-			AvatarURL:        acceptor.AvatarURL,
+			AvatarURL:        s.urlSigner.SignURLPtr(acceptor.AvatarURL),
 			UserStatus:       string(acceptor.Status),
 			UserCustomStatus: acceptor.CustomStatus,
 		},
@@ -264,7 +267,7 @@ func (s *friendshipService) AcceptRequest(ctx context.Context, userID, requestID
 		UserID:           sender.ID,
 		Username:         sender.Username,
 		DisplayName:      sender.DisplayName,
-		AvatarURL:        sender.AvatarURL,
+		AvatarURL:        s.urlSigner.SignURLPtr(sender.AvatarURL),
 		UserStatus:       string(sender.Status),
 		UserCustomStatus: sender.CustomStatus,
 	}, nil
@@ -339,6 +342,9 @@ func (s *friendshipService) ListFriends(ctx context.Context, userID string) ([]m
 	if friends == nil {
 		friends = []models.FriendshipWithUser{}
 	}
+	for i := range friends {
+		friends[i].AvatarURL = s.urlSigner.SignURLPtr(friends[i].AvatarURL)
+	}
 	return friends, nil
 }
 
@@ -358,6 +364,12 @@ func (s *friendshipService) ListRequests(ctx context.Context, userID string) (*F
 	}
 	if outgoing == nil {
 		outgoing = []models.FriendshipWithUser{}
+	}
+	for i := range incoming {
+		incoming[i].AvatarURL = s.urlSigner.SignURLPtr(incoming[i].AvatarURL)
+	}
+	for i := range outgoing {
+		outgoing[i].AvatarURL = s.urlSigner.SignURLPtr(outgoing[i].AvatarURL)
 	}
 
 	return &FriendRequestsResponse{

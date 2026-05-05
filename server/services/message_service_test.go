@@ -26,7 +26,9 @@ func newTestMessageService(
 	return NewMessageService(
 		msgRepo, attachRepo, chanRepo, userRepo,
 		mentionRepo, roleMentionRepo, roleRepo, reactionRepo,
+		&testutil.MockReadStateRepo{},
 		hub, permResolver,
+		&testutil.MockFileURLSigner{},
 	)
 }
 

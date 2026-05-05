@@ -36,6 +36,7 @@ type messageService struct {
 	readStateRepo   repository.ReadStateRepository
 	hub             ws.BroadcastAndOnline
 	permResolver    ChannelPermResolver
+	urlSigner       FileURLSigner
 }
 
 func NewMessageService(
@@ -50,6 +51,7 @@ func NewMessageService(
 	readStateRepo repository.ReadStateRepository,
 	hub ws.BroadcastAndOnline,
 	permResolver ChannelPermResolver,
+	urlSigner FileURLSigner,
 ) MessageService {
 	return &messageService{
 		messageRepo:     messageRepo,
@@ -63,6 +65,7 @@ func NewMessageService(
 		readStateRepo:   readStateRepo,
 		hub:             hub,
 		permResolver:    permResolver,
+		urlSigner:       urlSigner,
 	}
 }
 
@@ -111,6 +114,7 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 
 		attachmentMap := make(map[string][]models.Attachment)
 		for _, a := range attachments {
+			a.FileURL = s.urlSigner.SignURL(a.FileURL)
 			attachmentMap[a.MessageID] = append(attachmentMap[a.MessageID], a)
 		}
 
@@ -130,6 +134,7 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 		}
 
 		for i := range messages {
+			s.signMessageAvatars(&messages[i])
 			messages[i].Attachments = attachmentMap[messages[i].ID]
 			if messages[i].Attachments == nil {
 				messages[i].Attachments = []models.Attachment{}
@@ -221,6 +226,7 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		return nil, fmt.Errorf("failed to get message author: %w", err)
 	}
 	author.PasswordHash = ""
+	author.AvatarURL = s.urlSigner.SignURLPtr(author.AvatarURL)
 	message.Author = author
 	message.Attachments = []models.Attachment{}
 	message.Reactions = []models.ReactionGroup{}
@@ -229,6 +235,9 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	if message.ReplyToID != nil {
 		refMsg, err := s.messageRepo.GetByID(ctx, *message.ReplyToID)
 		if err == nil && refMsg != nil {
+			if refMsg.Author != nil {
+				refMsg.Author.AvatarURL = s.urlSigner.SignURLPtr(refMsg.Author.AvatarURL)
+			}
 			message.ReferencedMessage = &models.MessageReference{
 				ID:      refMsg.ID,
 				Author:  refMsg.Author,
@@ -334,9 +343,14 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		return nil, err
 	}
 
+	s.signMessageAvatars(message)
+
 	attachments, err := s.attachmentRepo.GetByMessageID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get attachments: %w", err)
+	}
+	for i := range attachments {
+		attachments[i].FileURL = s.urlSigner.SignURL(attachments[i].FileURL)
 	}
 	message.Attachments = attachments
 	if message.Attachments == nil {
@@ -415,6 +429,16 @@ func (s *messageService) Delete(ctx context.Context, id string, userID string, u
 	})
 
 	return nil
+}
+
+// signMessageAvatars signs all avatar URLs embedded in a message (author + referenced message author).
+func (s *messageService) signMessageAvatars(msg *models.Message) {
+	if msg.Author != nil {
+		msg.Author.AvatarURL = s.urlSigner.SignURLPtr(msg.Author.AvatarURL)
+	}
+	if msg.ReferencedMessage != nil && msg.ReferencedMessage.Author != nil {
+		msg.ReferencedMessage.Author.AvatarURL = s.urlSigner.SignURLPtr(msg.ReferencedMessage.Author.AvatarURL)
+	}
 }
 
 // extractRoleMentions parses <@&roleId> tokens from content and returns role IDs.

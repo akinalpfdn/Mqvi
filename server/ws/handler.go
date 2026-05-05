@@ -49,6 +49,13 @@ type ChannelMuteChecker interface {
 	GetMutedChannelIDs(ctx context.Context, userID string) ([]string, error)
 }
 
+// URLSigner signs file URLs before they reach the client.
+// ISP interface to avoid circular ws -> services dependency.
+type URLSigner interface {
+	SignURL(fileURL string) string
+	SignURLPtr(fileURL *string) *string
+}
+
 // AppLogger writes structured app logs asynchronously. ISP interface to avoid circular dependency.
 type AppLogger interface {
 	Log(level models.LogLevel, category models.LogCategory, userID, serverID *string, message string, metadata map[string]string)
@@ -97,6 +104,7 @@ type Handler struct {
 	serverListProvider  ServerListProvider
 	muteChecker         MuteChecker
 	channelMuteChecker  ChannelMuteChecker
+	urlSigner           URLSigner
 }
 
 func NewHandler(
@@ -108,6 +116,7 @@ func NewHandler(
 	serverListProvider ServerListProvider,
 	muteChecker MuteChecker,
 	channelMuteChecker ChannelMuteChecker,
+	urlSigner URLSigner,
 ) *Handler {
 	return &Handler{
 		hub:                 hub,
@@ -118,6 +127,7 @@ func NewHandler(
 		serverListProvider:  serverListProvider,
 		muteChecker:         muteChecker,
 		channelMuteChecker:  channelMuteChecker,
+		urlSigner:           urlSigner,
 	}
 }
 
@@ -219,7 +229,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 				readyServers[i] = ReadyServerItem{
 					ID:      s.ID,
 					Name:    s.Name,
-					IconURL: s.IconURL,
+					IconURL: h.urlSigner.SignURLPtr(s.IconURL),
 				}
 				serverIDs[i] = s.ID
 			}

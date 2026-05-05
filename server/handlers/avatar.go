@@ -34,6 +34,7 @@ type AvatarHandler struct {
 	memberService services.MemberService
 	serverService services.ServerService
 	locator       *files.Locator
+	urlSigner     services.FileURLSigner
 }
 
 func NewAvatarHandler(
@@ -41,12 +42,14 @@ func NewAvatarHandler(
 	memberService services.MemberService,
 	serverService services.ServerService,
 	locator *files.Locator,
+	urlSigner services.FileURLSigner,
 ) *AvatarHandler {
 	return &AvatarHandler{
 		userRepo:      userRepo,
 		memberService: memberService,
 		serverService: serverService,
 		locator:       locator,
+		urlSigner:     urlSigner,
 	}
 }
 
@@ -77,6 +80,7 @@ func (h *AvatarHandler) UploadUserAvatar(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// AvatarURL already signed by memberService.UpdateProfile
 	pkg.JSON(w, http.StatusOK, member)
 }
 
@@ -103,7 +107,7 @@ func (h *AvatarHandler) UploadUserWallpaper(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	pkg.JSON(w, http.StatusOK, map[string]string{"wallpaper_url": fileURL})
+	pkg.JSON(w, http.StatusOK, map[string]string{"wallpaper_url": h.urlSigner.SignURL(fileURL)})
 }
 
 // DeleteUserWallpaper removes the current user's wallpaper (file + DB column).
@@ -141,7 +145,7 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	currentServer, err := h.serverService.GetServer(r.Context(), serverID)
+	currentServer, err := h.serverService.GetServerRaw(r.Context(), serverID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -155,6 +159,7 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// IconURL already signed by serverService.UpdateIcon
 	pkg.JSON(w, http.StatusOK, server)
 }
 

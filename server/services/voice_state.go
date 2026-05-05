@@ -25,6 +25,9 @@ func (s *voiceService) broadcastToServer(serverID string, event ws.Event) {
 }
 
 func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error {
+	// Sign avatar URL so all broadcasts carry a valid signed URL.
+	avatarURL = s.urlSigner.SignURL(avatarURL)
+
 	// Resolve channel's parent server before locking — all voice broadcasts are server-scoped.
 	channel, err := s.channelGetter.GetByID(context.Background(), channelID)
 	if err != nil {

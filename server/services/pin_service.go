@@ -26,6 +26,7 @@ type pinService struct {
 	channelRepo  repository.ChannelRepository
 	hub          ws.BroadcastAndOnline
 	permResolver ChannelPermResolver
+	urlSigner    FileURLSigner
 }
 
 func NewPinService(
@@ -34,6 +35,7 @@ func NewPinService(
 	channelRepo repository.ChannelRepository,
 	hub ws.BroadcastAndOnline,
 	permResolver ChannelPermResolver,
+	urlSigner FileURLSigner,
 ) PinService {
 	return &pinService{
 		pinRepo:      pinRepo,
@@ -41,6 +43,7 @@ func NewPinService(
 		channelRepo:  channelRepo,
 		hub:          hub,
 		permResolver: permResolver,
+		urlSigner:    urlSigner,
 	}
 }
 
@@ -94,6 +97,8 @@ func (s *pinService) Pin(ctx context.Context, messageID string, channelID string
 		return nil, err
 	}
 
+	s.signPinnedMessage(message)
+
 	result := &models.PinnedMessageWithDetails{
 		PinnedMessage: *pin,
 		Message:       message,
@@ -134,5 +139,28 @@ func (s *pinService) Unpin(ctx context.Context, messageID string, channelID stri
 }
 
 func (s *pinService) GetPinnedMessages(ctx context.Context, channelID string) ([]models.PinnedMessageWithDetails, error) {
-	return s.pinRepo.GetByChannelID(ctx, channelID)
+	pins, err := s.pinRepo.GetByChannelID(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range pins {
+		s.signPinnedMessage(pins[i].Message)
+		if pins[i].PinnedByUser != nil {
+			pins[i].PinnedByUser.AvatarURL = s.urlSigner.SignURLPtr(pins[i].PinnedByUser.AvatarURL)
+		}
+	}
+	return pins, nil
+}
+
+// signPinnedMessage signs avatar URLs in a message's Author and ReferencedMessage.Author.
+func (s *pinService) signPinnedMessage(msg *models.Message) {
+	if msg == nil {
+		return
+	}
+	if msg.Author != nil {
+		msg.Author.AvatarURL = s.urlSigner.SignURLPtr(msg.Author.AvatarURL)
+	}
+	if msg.ReferencedMessage != nil && msg.ReferencedMessage.Author != nil {
+		msg.ReferencedMessage.Author.AvatarURL = s.urlSigner.SignURLPtr(msg.ReferencedMessage.Author.AvatarURL)
+	}
 }

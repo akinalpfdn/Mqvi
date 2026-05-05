@@ -17,6 +17,7 @@ type AuthHandler struct {
 	registerLimiter  *ratelimit.LoginRateLimiter
 	forgotPwdLimiter *ratelimit.LoginRateLimiter
 	resetPwdLimiter  *ratelimit.LoginRateLimiter
+	urlSigner        services.FileURLSigner
 }
 
 // NewAuthHandler creates a new AuthHandler. All limiters may be nil to disable rate limiting.
@@ -26,6 +27,7 @@ func NewAuthHandler(
 	registerLimiter *ratelimit.LoginRateLimiter,
 	forgotPwdLimiter *ratelimit.LoginRateLimiter,
 	resetPwdLimiter *ratelimit.LoginRateLimiter,
+	urlSigner services.FileURLSigner,
 ) *AuthHandler {
 	return &AuthHandler{
 		authService:      authService,
@@ -33,6 +35,7 @@ func NewAuthHandler(
 		registerLimiter:  registerLimiter,
 		forgotPwdLimiter: forgotPwdLimiter,
 		resetPwdLimiter:  resetPwdLimiter,
+		urlSigner:        urlSigner,
 	}
 }
 
@@ -151,6 +154,8 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user.AvatarURL = h.urlSigner.SignURLPtr(user.AvatarURL)
+	user.WallpaperURL = h.urlSigner.SignURLPtr(user.WallpaperURL)
 	pkg.JSON(w, http.StatusOK, user)
 }
 

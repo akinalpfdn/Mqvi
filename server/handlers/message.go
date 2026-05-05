@@ -19,6 +19,7 @@ type MessageHandler struct {
 	uploadService  services.UploadService
 	maxUploadSize  int64
 	messageLimiter *ratelimit.MessageRateLimiter
+	urlSigner      services.FileURLSigner
 }
 
 func NewMessageHandler(
@@ -26,12 +27,14 @@ func NewMessageHandler(
 	uploadService services.UploadService,
 	maxUploadSize int64,
 	messageLimiter *ratelimit.MessageRateLimiter,
+	urlSigner services.FileURLSigner,
 ) *MessageHandler {
 	return &MessageHandler{
 		messageService: messageService,
 		uploadService:  uploadService,
 		maxUploadSize:  maxUploadSize,
 		messageLimiter: messageLimiter,
+		urlSigner:      urlSigner,
 	}
 }
 
@@ -145,6 +148,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
 			message.Attachments = append(message.Attachments, *attachment)
 		}
 	}
@@ -226,6 +230,7 @@ func (h *MessageHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
 	pkg.JSON(w, http.StatusCreated, attachment)
 }
 

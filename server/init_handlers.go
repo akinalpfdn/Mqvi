@@ -4,6 +4,7 @@ import (
 	"github.com/akinalp/mqvi/config"
 	"github.com/akinalp/mqvi/handlers"
 	"github.com/akinalp/mqvi/pkg/files"
+	"github.com/akinalp/mqvi/services"
 	"github.com/akinalp/mqvi/ws"
 )
 
@@ -46,13 +47,13 @@ type Handlers struct {
 	WS                *ws.Handler
 }
 
-func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, hub *ws.Hub, cfg *config.Config, encryptionKey []byte) *Handlers {
+func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, hub *ws.Hub, cfg *config.Config, encryptionKey []byte, urlSigner services.FileURLSigner) *Handlers {
 	fileLocator := files.NewLocator(cfg.Upload.Dir, cfg.Upload.PublicURL)
 	return &Handlers{
-		Auth:              handlers.NewAuthHandler(svcs.Auth, limiters.Login, limiters.Register, limiters.ForgotPwd, limiters.ResetPwd),
+		Auth:              handlers.NewAuthHandler(svcs.Auth, limiters.Login, limiters.Register, limiters.ForgotPwd, limiters.ResetPwd, urlSigner),
 		Channel:           handlers.NewChannelHandler(svcs.Channel),
 		Category:          handlers.NewCategoryHandler(svcs.Category),
-		Message:           handlers.NewMessageHandler(svcs.Message, svcs.Upload, cfg.Upload.MaxSize, limiters.Message),
+		Message:           handlers.NewMessageHandler(svcs.Message, svcs.Upload, cfg.Upload.MaxSize, limiters.Message, urlSigner),
 		Member:            handlers.NewMemberHandler(svcs.Member),
 		Role:              handlers.NewRoleHandler(svcs.Role),
 		Voice:             handlers.NewVoiceHandler(svcs.Voice),
@@ -61,18 +62,18 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Pin:               handlers.NewPinHandler(svcs.Pin),
 		Search:            handlers.NewSearchHandler(svcs.Search),
 		ReadState:         handlers.NewReadStateHandler(svcs.ReadState),
-		DM:                handlers.NewDMHandler(svcs.DM, svcs.DMUpload, cfg.Upload.MaxSize, limiters.Message),
+		DM:                handlers.NewDMHandler(svcs.DM, svcs.DMUpload, cfg.Upload.MaxSize, limiters.Message, urlSigner),
 		Reaction:          handlers.NewReactionHandler(svcs.Reaction),
 		ChannelPermission: handlers.NewChannelPermissionHandler(svcs.ChannelPermission),
 		Friendship:        handlers.NewFriendshipHandler(svcs.Friendship),
-		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, fileLocator),
+		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, fileLocator, urlSigner),
 		Stats:             handlers.NewStatsHandler(repos.User),
 		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer, svcs.Report, svcs.AppLog, svcs.Voice),
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
 		ChannelMute:       handlers.NewChannelMuteHandler(svcs.ChannelMute),
 		DMSettings:        handlers.NewDMSettingsHandler(svcs.DMSettings),
 		Block:             handlers.NewBlockHandler(svcs.Block),
-		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, cfg.Upload.MaxSize),
+		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, cfg.Upload.MaxSize, urlSigner),
 		Gif:               handlers.NewGifHandler(cfg.Klipy.APIKey),
 		Device:            handlers.NewDeviceHandler(svcs.Device),
 		E2EE:              handlers.NewE2EEHandler(svcs.E2EE),
@@ -80,9 +81,9 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Badge:             handlers.NewBadgeHandler(svcs.Badge, cfg.Upload.Dir),
 		Preferences:       handlers.NewPreferencesHandler(svcs.Preferences),
 		DownloadPrompt:    handlers.NewDownloadPromptHandler(repos.User),
-		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback, svcs.FeedbackUpload, cfg.Upload.MaxSize, limiters.Feedback, svcs.AppLog),
-		Soundboard:        handlers.NewSoundboardHandler(svcs.Soundboard, cfg.Upload.MaxSize),
+		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback, svcs.FeedbackUpload, cfg.Upload.MaxSize, limiters.Feedback, svcs.AppLog, urlSigner),
+		Soundboard:        handlers.NewSoundboardHandler(svcs.Soundboard, cfg.Upload.MaxSize, urlSigner),
 		LiveKitWebhook:    handlers.NewLiveKitWebhookHandler(repos.LiveKit, encryptionKey, svcs.AppLog),
-		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute),
+		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute, urlSigner),
 	}
 }

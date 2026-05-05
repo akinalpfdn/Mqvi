@@ -59,8 +59,13 @@ type UploadConfig struct {
 	// PublicURL is the absolute base URL prepended to file URLs when they need
 	// to be served cross-origin or via CDN, e.g. "https://files.mqvi.net".
 	// Empty means file URLs are returned as relative paths (current behaviour).
-	// Wired in PHASE-10; first consumer is the signed-URL generator (PHASE-11).
 	PublicURL string
+	// SignedURLSecret is the HMAC-SHA256 key for signing file URLs (32 bytes, base64-encoded).
+	// Required in production. If empty, server refuses to start.
+	SignedURLSecret string
+	// SignedURLSecretPrev is the previous signing key, still accepted for verification
+	// during key rotation. URLs are only signed with the active key.
+	SignedURLSecretPrev string
 }
 
 // Load reads configuration from environment variables.
@@ -117,9 +122,11 @@ func Load() (*Config, error) {
 			APISecret: getEnv("LIVEKIT_API_SECRET", ""),
 		},
 		Upload: UploadConfig{
-			Dir:       getEnv("UPLOAD_DIR", "./data/uploads"),
-			MaxSize:   maxSize,
-			PublicURL: getEnv("MQVI_PUBLIC_FILE_URL", ""),
+			Dir:                 getEnv("UPLOAD_DIR", "./data/uploads"),
+			MaxSize:             maxSize,
+			PublicURL:           getEnv("MQVI_PUBLIC_FILE_URL", ""),
+			SignedURLSecret:     getEnv("MQVI_SIGNED_URL_SECRET", ""),
+			SignedURLSecretPrev: getEnv("MQVI_SIGNED_URL_SECRET_PREV", ""),
 		},
 		Email: EmailConfig{
 			ResendAPIKey: getEnv("RESEND_API_KEY", ""),

@@ -31,6 +31,7 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 		nil, // onlineChecker
 		nil, // afkTimeoutGetter
 		nil, // encryptionKey
+		&testutil.MockFileURLSigner{},
 	)
 	return svc, hub
 }

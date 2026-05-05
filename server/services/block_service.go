@@ -40,17 +40,20 @@ type blockService struct {
 	friendRepo repository.FriendshipRepository
 	userRepo   repository.UserRepository
 	hub        ws.Broadcaster
+	urlSigner  FileURLSigner
 }
 
 func NewBlockService(
 	friendRepo repository.FriendshipRepository,
 	userRepo repository.UserRepository,
 	hub ws.Broadcaster,
+	urlSigner FileURLSigner,
 ) BlockService {
 	return &blockService{
 		friendRepo: friendRepo,
 		userRepo:   userRepo,
 		hub:        hub,
+		urlSigner:  urlSigner,
 	}
 }
 
@@ -165,6 +168,9 @@ func (s *blockService) ListBlocked(ctx context.Context, userID string) ([]models
 
 	if blocked == nil {
 		blocked = []models.FriendshipWithUser{}
+	}
+	for i := range blocked {
+		blocked[i].AvatarURL = s.urlSigner.SignURLPtr(blocked[i].AvatarURL)
 	}
 	return blocked, nil
 }

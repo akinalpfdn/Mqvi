@@ -104,6 +104,7 @@ type voiceService struct {
 	afkTimeoutGetter AFKTimeoutGetter
 	encryptionKey    []byte // AES-256-GCM for LiveKit credential decryption
 	appLogger        VoiceAppLogger
+	urlSigner        FileURLSigner
 }
 
 func NewVoiceService(
@@ -114,6 +115,7 @@ func NewVoiceService(
 	onlineChecker OnlineUserChecker,
 	afkTimeoutGetter AFKTimeoutGetter,
 	encryptionKey []byte,
+	urlSigner FileURLSigner,
 ) VoiceService {
 	return &voiceService{
 		states:             make(map[string]*models.VoiceState),
@@ -128,6 +130,7 @@ func NewVoiceService(
 		onlineChecker:      onlineChecker,
 		afkTimeoutGetter:   afkTimeoutGetter,
 		encryptionKey:      encryptionKey,
+		urlSigner:          urlSigner,
 	}
 }
 
