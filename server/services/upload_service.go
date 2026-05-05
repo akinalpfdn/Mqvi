@@ -40,18 +40,8 @@ func NewUploadService(
 	}
 }
 
-var allowedMimeTypes = map[string]bool{
-	"image/jpeg":      true,
-	"image/png":       true,
-	"image/gif":       true,
-	"image/webp":      true,
-	"video/mp4":       true,
-	"video/webm":      true,
-	"audio/mpeg":      true,
-	"audio/ogg":       true,
-	"application/pdf": true,
-	"text/plain":      true,
-}
+// All file types are accepted on upload. XSS protection is handled at serve-time
+// via Content-Disposition: attachment for non-media types (see pkg/files/safemime.go).
 
 func (s *uploadService) Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.Attachment, error) {
 	if header.Size > s.maxSize {
@@ -65,10 +55,8 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 	mimeBase := strings.Split(contentType, ";")[0]
 	mimeBase = strings.TrimSpace(mimeBase)
 
-	// Skip MIME whitelist for E2EE files (opaque blobs on server)
-	if !isEncrypted && !allowedMimeTypes[mimeBase] {
-		return nil, fmt.Errorf("%w: file type not allowed: %s", pkg.ErrBadRequest, mimeBase)
-	}
+	// No upload-time MIME restriction — serve-time handles XSS prevention.
+	_ = isEncrypted
 
 	diskFilename, err := files.GenerateDiskFilename(header.Filename)
 	if err != nil {

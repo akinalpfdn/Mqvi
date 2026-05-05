@@ -207,32 +207,6 @@ func (h *MessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "message deleted"})
 }
 
-// Upload handles POST /api/upload (standalone file upload).
-func (h *MessageHandler) Upload(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(h.maxUploadSize); err != nil {
-		pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to parse multipart form")
-		return
-	}
-
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		pkg.ErrorWithMessage(w, http.StatusBadRequest, "file is required")
-		return
-	}
-	defer file.Close()
-
-	messageID := r.FormValue("message_id")
-
-	isEncrypted := r.FormValue("encryption_version") == "1"
-	attachment, err := h.uploadService.Upload(r.Context(), messageID, file, header, isEncrypted)
-	if err != nil {
-		pkg.Error(w, err)
-		return
-	}
-
-	attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
-	pkg.JSON(w, http.StatusCreated, attachment)
-}
 
 // PermissionsContextKey carries the user's effective permissions in request context.
 const PermissionsContextKey contextKey = "permissions"

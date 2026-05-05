@@ -582,6 +582,8 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .msg-attachment-file-name { font-size:13px;font-weight:500;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .msg-attachment-file-name:hover { text-decoration:underline; }
 .msg-attachment-file-size { font-size:13px;color:var(--t3); }
+.msg-attachment-video { max-width:100%;max-height:360px;border-radius:8px; }
+.msg-attachment-audio { width:100%;max-width:400px;height:36px;margin:4px 0; }
 
 /* Reactions */
 .msg-reactions { display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center; }

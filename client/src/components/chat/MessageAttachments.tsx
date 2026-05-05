@@ -31,7 +31,10 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
         }
 
         // Plaintext file — render directly
-        const isImage = attachment.mime_type?.startsWith("image/");
+        const mime = attachment.mime_type ?? "";
+        const isImage = mime.startsWith("image/");
+        const isVideo = mime.startsWith("video/");
+        const isAudio = mime.startsWith("audio/");
 
         if (isImage) {
           return (
@@ -51,12 +54,35 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
           );
         }
 
+        if (isVideo) {
+          return (
+            <video
+              key={attachment.id}
+              src={resolveAssetUrl(attachment.file_url)}
+              controls
+              className="msg-attachment-video"
+              preload="metadata"
+            />
+          );
+        }
+
+        if (isAudio) {
+          return (
+            <audio
+              key={attachment.id}
+              src={resolveAssetUrl(attachment.file_url)}
+              controls
+              className="msg-attachment-audio"
+              preload="metadata"
+            />
+          );
+        }
+
         return (
           <a
             key={attachment.id}
             href={resolveAssetUrl(attachment.file_url)}
-            target="_blank"
-            rel="noopener noreferrer"
+            download={attachment.filename}
             className="msg-attachment-file"
           >
             <svg

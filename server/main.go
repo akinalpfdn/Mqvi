@@ -22,6 +22,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/files"
+	"github.com/akinalp/mqvi/pkg/fileacl"
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/pkg/signedurl"
 	"github.com/akinalp/mqvi/services"
@@ -129,8 +130,11 @@ func main() {
 	h := initHandlers(svcs, repos, limiters, hub, cfg, encryptionKey, urlSigner)
 
 	// 13. HTTP router + routes
+	fileACL := fileacl.NewChecker(
+		svcs.ChannelPermission, repos.Server, repos.Message, repos.DM, repos.DM, repos.Feedback, repos.Report,
+	)
 	mux := http.NewServeMux()
-	initRoutes(mux, h, svcs.Auth, repos.User, repos.Role, repos.Server, fileSigner)
+	initRoutes(mux, h, svcs.Auth, repos.User, repos.Role, repos.Server, fileSigner, fileACL)
 
 	// 14. Static file serving
 	registerStaticAndUploads(mux, cfg, fileSigner)
@@ -441,8 +445,29 @@ func registerStaticAndUploads(mux *http.ServeMux, cfg *config.Config, signer *si
 			http.NotFound(w, r)
 			return
 		}
+
+		// Extract filename from URL path (last segment)
+		urlParts := strings.Split(after, "/")
+		urlFilename := urlParts[len(urlParts)-1]
+
+		// Safe-serve: inline only for known-safe media types, force download for everything else
+		contentType, disposition := files.ServeDisposition(disk, urlFilename)
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
 		w.Header().Set("Cache-Control", "private, max-age=3600")
-		http.ServeFile(w, r, disk)
+		if disposition != "" {
+			w.Header().Set("Content-Disposition", disposition)
+		}
+		f, err := os.Open(disk)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		// ServeContent handles Range requests and does not override Content-Type.
+		// Empty name parameter prevents auto-detection from overriding our headers.
+		http.ServeContent(w, r, "", info.ModTime(), f)
 	})
 	mux.Handle("GET "+files.URLPathPrefix+"/", filesHandler)
 

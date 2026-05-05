@@ -55,7 +55,7 @@ type LiveKitConfig struct {
 
 type UploadConfig struct {
 	Dir     string
-	MaxSize int64 // bytes (default: 25MB)
+	MaxSize int64 // bytes (default: 500MB)
 	// PublicURL is the absolute base URL prepended to file URLs when they need
 	// to be served cross-origin or via CDN, e.g. "https://files.mqvi.net".
 	// Empty means file URLs are returned as relative paths (current behaviour).
@@ -88,7 +88,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid JWT_REFRESH_EXPIRY_DAYS: %w", err)
 	}
 
-	maxSize, err := strconv.ParseInt(getEnv("UPLOAD_MAX_SIZE", "26214400"), 10, 64) // 25MB
+	maxSize, err := strconv.ParseInt(getEnv("UPLOAD_MAX_SIZE", "524288000"), 10, 64) // 500MB
 	if err != nil {
 		return nil, fmt.Errorf("invalid UPLOAD_MAX_SIZE: %w", err)
 	}

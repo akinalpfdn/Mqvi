@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akinalp/mqvi/handlers"
 	"github.com/akinalp/mqvi/middleware"
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/fileacl"
 	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/pkg/signedurl"
 	"github.com/akinalp/mqvi/repository"
@@ -25,6 +27,7 @@ func initRoutes(
 	roleRepo repository.RoleRepository,
 	serverRepo repository.ServerRepository,
 	fileSigner *signedurl.Signer,
+	fileACL *fileacl.Checker,
 ) {
 	// Middleware
 	authMw := middleware.NewAuthMiddleware(authService, userRepo)
@@ -83,12 +86,10 @@ func initRoutes(
 	// Server mutes — literal path before {serverId} wildcard
 	mux.Handle("GET /api/servers/mutes", auth(h.ServerMute.ListMuted))
 
-	// Upload
-	mux.Handle("POST /api/upload", auth(h.Message.Upload))
 
 	// File URL refresh — re-signs a path the user already has a valid signature for.
 	// Accepts POST with {"url":"/api/files/...?exp=...&sig=..."} body.
-	// The existing signature must still be valid — this is a refresh, not a grant.
+	// The existing signature must still be valid AND the user must still have ACL access.
 	mux.Handle("POST /api/files/refresh", auth(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			URL string `json:"url"`
@@ -102,13 +103,19 @@ func initRoutes(
 			http.Error(w, "invalid or expired signed URL", http.StatusForbidden)
 			return
 		}
-		// Extract path portion and re-sign with fresh TTL.
+		// Extract path portion.
 		path := req.URL
 		if idx := strings.IndexByte(path, '?'); idx != -1 {
 			path = path[:idx]
 		}
 		if !strings.HasPrefix(path, files.URLPathPrefix+"/") {
 			http.Error(w, "invalid file path", http.StatusBadRequest)
+			return
+		}
+		// ACL check: verify user still has permission to access this file.
+		user, _ := r.Context().Value(handlers.UserContextKey).(*models.User)
+		if err := fileACL.Check(r.Context(), user, path); err != nil {
+			http.Error(w, "access denied", http.StatusForbidden)
 			return
 		}
 		signed := fileSigner.Sign(path, time.Hour)

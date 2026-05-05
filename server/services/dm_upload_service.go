@@ -50,10 +50,8 @@ func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file m
 	mimeBase := strings.Split(contentType, ";")[0]
 	mimeBase = strings.TrimSpace(mimeBase)
 
-	// E2EE files arrive as application/octet-stream — skip MIME whitelist
-	if !isEncrypted && !allowedMimeTypes[mimeBase] {
-		return nil, fmt.Errorf("%w: file type not allowed: %s", pkg.ErrBadRequest, mimeBase)
-	}
+	// No upload-time MIME restriction — serve-time handles XSS prevention.
+	_ = isEncrypted
 
 	diskFilename, err := files.GenerateDiskFilename(header.Filename)
 	if err != nil {
