@@ -1320,6 +1320,14 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .settings-empty { font-size:14px;color:var(--t3);padding:24px 0;text-align:center; }
 .settings-loading { font-size:14px;color:var(--t3);padding:24px 0;text-align:center; }
 
+/* Storage usage bar */
+.storage-usage-section { margin:8px 0; }
+.storage-bar-container { height:8px;border-radius:4px;background:var(--b1);overflow:hidden;margin:8px 0; }
+.storage-bar-fill { height:100%;border-radius:4px;background:var(--primary);transition:width 0.3s ease; }
+.storage-bar-fill.storage-bar-warning { background:var(--warning, #f59e0b); }
+.storage-bar-fill.storage-bar-critical { background:var(--danger, #ef4444); }
+.storage-usage-text { font-size:13px;color:var(--t2); }
+
 /* Blocked Users */
 .blocked-users-list { display:flex;flex-direction:column;gap:8px; }
 .blocked-user-item {

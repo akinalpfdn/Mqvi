@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -21,11 +22,17 @@ type FeedbackService interface {
 }
 
 type feedbackService struct {
-	feedbackRepo repository.FeedbackRepository
+	feedbackRepo   repository.FeedbackRepository
+	fileDeleter    FileDeleter
+	storageService StorageService
 }
 
-func NewFeedbackService(feedbackRepo repository.FeedbackRepository) FeedbackService {
-	return &feedbackService{feedbackRepo: feedbackRepo}
+func NewFeedbackService(feedbackRepo repository.FeedbackRepository, fileDeleter FileDeleter, storageService StorageService) FeedbackService {
+	return &feedbackService{
+		feedbackRepo:   feedbackRepo,
+		fileDeleter:    fileDeleter,
+		storageService: storageService,
+	}
 }
 
 func (s *feedbackService) CreateTicket(ctx context.Context, userID string, req *models.CreateFeedbackRequest) (*models.FeedbackTicket, error) {
@@ -143,6 +150,23 @@ func (s *feedbackService) DeleteTicket(ctx context.Context, id, userID string) e
 	if ticket.UserID != userID {
 		return fmt.Errorf("%w: you can only delete your own feedback", pkg.ErrForbidden)
 	}
+
+	// Delete physical files and release quota before CASCADE removes rows
+	if atts, err := s.feedbackRepo.GetAttachmentsByTicketID(ctx, id); err == nil {
+		var totalBytes int64
+		for _, a := range atts {
+			s.fileDeleter.DeleteFromURL(a.FileURL)
+			if a.FileSize != nil {
+				totalBytes += *a.FileSize
+			}
+		}
+		if totalBytes > 0 {
+			if err := s.storageService.Release(ctx, userID, totalBytes); err != nil {
+				log.Printf("[feedback] failed to release storage quota for user %s: %v", userID, err)
+			}
+		}
+	}
+
 	return s.feedbackRepo.DeleteTicket(ctx, id)
 }
 

@@ -17,6 +17,7 @@ import (
 type DMHandler struct {
 	dmService       services.DMService
 	dmUploadService services.DMUploadService
+	storageService  services.StorageService
 	maxUploadSize   int64
 	messageLimiter  *ratelimit.MessageRateLimiter
 	urlSigner       services.FileURLSigner
@@ -25,6 +26,7 @@ type DMHandler struct {
 func NewDMHandler(
 	dmService services.DMService,
 	dmUploadService services.DMUploadService,
+	storageService services.StorageService,
 	maxUploadSize int64,
 	messageLimiter *ratelimit.MessageRateLimiter,
 	urlSigner services.FileURLSigner,
@@ -32,6 +34,7 @@ func NewDMHandler(
 	return &DMHandler{
 		dmService:       dmService,
 		dmUploadService: dmUploadService,
+		storageService:  storageService,
 		maxUploadSize:   maxUploadSize,
 		messageLimiter:  messageLimiter,
 		urlSigner:       urlSigner,
@@ -205,15 +208,32 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Reserve storage quota before creating the DM message
+	var reservedBytes int64
+	if isMultipart(contentType) && r.MultipartForm != nil && len(r.MultipartForm.File["files"]) > 0 {
+		for _, fh := range r.MultipartForm.File["files"] {
+			reservedBytes += fh.Size
+		}
+		if err := h.storageService.Reserve(r.Context(), user.ID, reservedBytes); err != nil {
+			pkg.Error(w, err)
+			return
+		}
+	}
+
 	msg, err := h.dmService.SendMessage(r.Context(), user.ID, channelID, &req)
 	if err != nil {
+		if reservedBytes > 0 {
+			_ = h.storageService.Release(r.Context(), user.ID, reservedBytes)
+		}
 		pkg.Error(w, err)
 		return
 	}
 
-	if isMultipart(contentType) && r.MultipartForm != nil {
+	if reservedBytes > 0 {
 		isEncrypted := req.EncryptionVersion == 1
 		files := r.MultipartForm.File["files"]
+
+		var uploadedBytes int64
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
@@ -226,8 +246,13 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			uploadedBytes += fileHeader.Size
 			attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
 			msg.Attachments = append(msg.Attachments, *attachment)
+		}
+
+		if unused := reservedBytes - uploadedBytes; unused > 0 {
+			_ = h.storageService.Release(r.Context(), user.ID, unused)
 		}
 	}
 

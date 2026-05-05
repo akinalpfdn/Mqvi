@@ -53,6 +53,7 @@ type Services struct {
 	Feedback          services.FeedbackService
 	FeedbackUpload    services.FeedbackUploadService
 	Soundboard        services.SoundboardService
+	Storage           services.StorageService
 }
 
 type RateLimiters struct {
@@ -70,6 +71,9 @@ type RateLimiters struct {
 func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte, urlSigner services.FileURLSigner) (*Services, *RateLimiters, services.MetricsCollector) {
 	// File locator: single source of truth for upload paths and URLs.
 	fileLocator := files.NewLocator(cfg.Upload.Dir, cfg.Upload.PublicURL)
+
+	// Storage quota service
+	storageService := services.NewStorageService(repos.Storage, cfg.Upload.DefaultQuotaBytes)
 
 	// Order-sensitive services
 	channelPermService := services.NewChannelPermissionService(
@@ -100,7 +104,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	messageService := services.NewMessageService(
 		repos.Message, repos.Attachment, repos.Channel, repos.User,
 		repos.Mention, repos.RoleMention, repos.Role, repos.Reaction, repos.ReadState,
-		hub, channelPermService, urlSigner,
+		hub, channelPermService, urlSigner, fileLocator, storageService,
 	)
 	uploadService := services.NewUploadService(repos.Attachment, fileLocator, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(repos.User, repos.Role, repos.Ban, repos.Server, hub, voiceService, urlSigner)
@@ -124,7 +128,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	dmSettingsService := services.NewDMSettingsService(repos.DMSettings, repos.DM, hub)
 
 	friendshipService := services.NewFriendshipService(repos.Friendship, repos.User, hub, urlSigner)
-	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, friendshipService, dmSettingsService, urlSigner)
+	dmService := services.NewDMService(repos.DM, repos.User, hub, blockService, friendshipService, dmSettingsService, urlSigner, fileLocator, storageService)
 	friendshipService.SetDMAcceptor(dmService) // auto-accept pending DMs when friendship is accepted
 	dmUploadService := services.NewDMUploadService(repos.DM, fileLocator, cfg.Upload.MaxSize)
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, repos.Channel, hub, channelPermService)
@@ -145,10 +149,10 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	appLogService := services.NewAppLogService(repos.AppLog)
 
 	metricsHistoryService := services.NewMetricsHistoryService(repos.MetricsHistory, repos.LiveKit)
-	feedbackService := services.NewFeedbackService(repos.Feedback)
+	feedbackService := services.NewFeedbackService(repos.Feedback, fileLocator, storageService)
 	feedbackUploadService := services.NewFeedbackUploadService(repos.Feedback, fileLocator, cfg.Upload.MaxSize)
 	soundboardService := services.NewSoundboardService(
-		repos.Soundboard, repos.User, hub, voiceService, fileLocator, cfg.Upload.MaxSize, urlSigner,
+		repos.Soundboard, repos.User, hub, voiceService, fileLocator, cfg.Upload.MaxSize, urlSigner, storageService,
 	)
 	metricsCollector := services.NewMetricsCollector(
 		repos.LiveKit, repos.MetricsHistory,
@@ -205,6 +209,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Feedback:          feedbackService,
 		FeedbackUpload:    feedbackUploadService,
 		Soundboard:        soundboardService,
+		Storage:           storageService,
 	}
 
 	limiters := &RateLimiters{

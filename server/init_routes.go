@@ -76,6 +76,7 @@ func initRoutes(
 	mux.Handle("POST /api/users/me/dismiss-download-prompt", auth(h.DownloadPrompt.Dismiss))
 	mux.Handle("POST /api/users/me/dismiss-welcome", auth(h.DownloadPrompt.DismissWelcome))
 	mux.Handle("PATCH /api/users/me/preferences", auth(h.Preferences.Update))
+	mux.Handle("GET /api/users/me/storage", auth(h.Storage.GetUsage))
 
 	// Servers
 	mux.Handle("GET /api/servers", auth(h.Server.ListMyServers))
@@ -243,6 +244,7 @@ func initRoutes(
 	mux.Handle("DELETE /api/admin/users/{id}/ban", authAdmin(h.Admin.PlatformUnbanUser))
 	mux.Handle("DELETE /api/admin/users/{id}", authAdmin(h.Admin.HardDeleteUser))
 	mux.Handle("PATCH /api/admin/users/{id}/platform-admin", authAdmin(h.Admin.SetUserPlatformAdmin))
+	mux.Handle("PATCH /api/admin/users/{id}/quota", authAdmin(h.Storage.AdminSetQuota))
 
 	// Platform Admin — App Logs
 	mux.Handle("GET /api/admin/logs", authAdmin(h.Admin.ListAppLogs))

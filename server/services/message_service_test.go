@@ -29,6 +29,8 @@ func newTestMessageService(
 		&testutil.MockReadStateRepo{},
 		hub, permResolver,
 		&testutil.MockFileURLSigner{},
+		&testutil.MockFileDeleter{},
+		&testutil.MockStorageService{},
 	)
 }
 
@@ -282,7 +284,11 @@ func TestMessageDelete(t *testing.T) {
 					},
 				},
 				&testutil.MockAttachmentRepo{},
-				&testutil.MockChannelRepo{},
+				&testutil.MockChannelRepo{
+					GetByIDFn: func(_ context.Context, _ string) (*models.Channel, error) {
+						return &models.Channel{ID: "ch1", ServerID: "srv1"}, nil
+					},
+				},
 				&testutil.MockUserRepo{},
 				&testutil.MockMentionRepo{},
 				&testutil.MockRoleMentionRepo{},
@@ -290,10 +296,17 @@ func TestMessageDelete(t *testing.T) {
 				&testutil.MockReactionRepo{},
 				&testutil.MockBroadcastAndOnline{
 					MockBroadcaster: testutil.MockBroadcaster{
-						BroadcastToAllFn: func(_ ws.Event) { broadcastCalled = true },
+						BroadcastToUsersFn: func(_ []string, _ ws.Event) { broadcastCalled = true },
+					},
+					GetOnlineUserIDsForServerFn: func(_ string) []string {
+						return []string{"u1", "u2"}
 					},
 				},
-				&testutil.MockChannelPermResolver{},
+				&testutil.MockChannelPermResolver{
+					ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+						return models.PermViewChannel | models.PermReadMessages, nil
+					},
+				},
 			)
 
 			err := svc.Delete(context.Background(), "m1", tt.delUserID, tt.delPerms)

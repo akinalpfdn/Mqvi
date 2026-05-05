@@ -37,6 +37,8 @@ type messageService struct {
 	hub             ws.BroadcastAndOnline
 	permResolver    ChannelPermResolver
 	urlSigner       FileURLSigner
+	fileDeleter     FileDeleter
+	storageService  StorageService
 }
 
 func NewMessageService(
@@ -52,6 +54,8 @@ func NewMessageService(
 	hub ws.BroadcastAndOnline,
 	permResolver ChannelPermResolver,
 	urlSigner FileURLSigner,
+	fileDeleter FileDeleter,
+	storageService StorageService,
 ) MessageService {
 	return &messageService{
 		messageRepo:     messageRepo,
@@ -66,6 +70,8 @@ func NewMessageService(
 		hub:             hub,
 		permResolver:    permResolver,
 		urlSigner:       urlSigner,
+		fileDeleter:     fileDeleter,
+		storageService:  storageService,
 	}
 }
 
@@ -410,8 +416,28 @@ func (s *messageService) Delete(ctx context.Context, id string, userID string, u
 		return fmt.Errorf("%w: you can only delete your own messages", pkg.ErrForbidden)
 	}
 
+	// Collect attachment info before delete (CASCADE removes attachment rows)
+	var attachmentBytes int64
+	atts, attErr := s.attachmentRepo.GetByMessageID(ctx, id)
+	if attErr != nil {
+		log.Printf("[message] failed to fetch attachments for message %s (orphan files may remain): %v", id, attErr)
+	}
+	for _, a := range atts {
+		s.fileDeleter.DeleteFromURL(a.FileURL)
+		if a.FileSize != nil {
+			attachmentBytes += *a.FileSize
+		}
+	}
+
 	if err := s.messageRepo.Delete(ctx, id); err != nil {
 		return err
+	}
+
+	// Release storage quota for deleted attachments
+	if attachmentBytes > 0 {
+		if err := s.storageService.Release(ctx, message.UserID, attachmentBytes); err != nil {
+			log.Printf("[message] failed to release storage quota for user %s: %v", message.UserID, err)
+		}
 	}
 
 	// Decrement unread_count for every user who had this message as unread.

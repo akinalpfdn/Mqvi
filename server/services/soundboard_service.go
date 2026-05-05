@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"os"
 	"strings"
@@ -50,13 +51,14 @@ type SoundboardService interface {
 }
 
 type soundboardService struct {
-	repo      repository.SoundboardRepository
-	userRepo  repository.UserRepository
-	hub       ws.Broadcaster
-	voice     VoiceStateGetter
-	locator   *files.Locator
-	maxSize   int64
-	urlSigner FileURLSigner
+	repo           repository.SoundboardRepository
+	userRepo       repository.UserRepository
+	hub            ws.Broadcaster
+	voice          VoiceStateGetter
+	locator        *files.Locator
+	maxSize        int64
+	urlSigner      FileURLSigner
+	storageService StorageService
 }
 
 func NewSoundboardService(
@@ -67,15 +69,17 @@ func NewSoundboardService(
 	locator *files.Locator,
 	maxSize int64,
 	urlSigner FileURLSigner,
+	storageService StorageService,
 ) SoundboardService {
 	return &soundboardService{
-		repo:      repo,
-		userRepo:  userRepo,
-		hub:       hub,
-		voice:     voice,
-		locator:   locator,
-		maxSize:   maxSize,
-		urlSigner: urlSigner,
+		repo:           repo,
+		userRepo:       userRepo,
+		hub:            hub,
+		voice:          voice,
+		locator:        locator,
+		maxSize:        maxSize,
+		urlSigner:      urlSigner,
+		storageService: storageService,
 	}
 }
 
@@ -227,6 +231,13 @@ func (s *soundboardService) Delete(ctx context.Context, id string) error {
 
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("delete sound: %w", err)
+	}
+
+	// Release storage quota for the deleted sound file
+	if sound.FileSize > 0 {
+		if err := s.storageService.Release(ctx, sound.UploadedBy, sound.FileSize); err != nil {
+			log.Printf("[soundboard] failed to release storage quota for user %s: %v", sound.UploadedBy, err)
+		}
 	}
 
 	s.hub.BroadcastToServer(sound.ServerID, ws.Event{

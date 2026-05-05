@@ -14,16 +14,17 @@ import (
 )
 
 type FeedbackHandler struct {
-	service       services.FeedbackService
-	uploadService services.FeedbackUploadService
-	maxUploadSize int64
-	limiter       *ratelimit.MessageRateLimiter
-	appLog        services.AppLogService
-	urlSigner     services.FileURLSigner
+	service        services.FeedbackService
+	uploadService  services.FeedbackUploadService
+	storageService services.StorageService
+	maxUploadSize  int64
+	limiter        *ratelimit.MessageRateLimiter
+	appLog         services.AppLogService
+	urlSigner      services.FileURLSigner
 }
 
-func NewFeedbackHandler(service services.FeedbackService, uploadService services.FeedbackUploadService, maxUploadSize int64, limiter *ratelimit.MessageRateLimiter, appLog services.AppLogService, urlSigner services.FileURLSigner) *FeedbackHandler {
-	return &FeedbackHandler{service: service, uploadService: uploadService, maxUploadSize: maxUploadSize, limiter: limiter, appLog: appLog, urlSigner: urlSigner}
+func NewFeedbackHandler(service services.FeedbackService, uploadService services.FeedbackUploadService, storageService services.StorageService, maxUploadSize int64, limiter *ratelimit.MessageRateLimiter, appLog services.AppLogService, urlSigner services.FileURLSigner) *FeedbackHandler {
+	return &FeedbackHandler{service: service, uploadService: uploadService, storageService: storageService, maxUploadSize: maxUploadSize, limiter: limiter, appLog: appLog, urlSigner: urlSigner}
 }
 
 // CreateTicket -- POST /api/feedback
@@ -70,21 +71,39 @@ func (h *FeedbackHandler) CreateTicket(w http.ResponseWriter, r *http.Request) {
 
 	// Handle file uploads (optional, failures don't block ticket creation)
 	if r.MultipartForm != nil && r.MultipartForm.File["files"] != nil {
-		for _, fh := range r.MultipartForm.File["files"] {
-			f, openErr := fh.Open()
-			if openErr != nil {
-				h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &user.ID, nil,
-					fmt.Sprintf("failed to open uploaded file %s: %v", fh.Filename, openErr), nil)
-				continue
+		fileHeaders := r.MultipartForm.File["files"]
+		var totalSize int64
+		for _, fh := range fileHeaders {
+			totalSize += fh.Size
+		}
+		quotaOK := true
+		if totalSize > 0 {
+			if qErr := h.storageService.Reserve(r.Context(), user.ID, totalSize); qErr != nil {
+				quotaOK = false
 			}
-			att, uploadErr := h.uploadService.Upload(r.Context(), ticket.ID, nil, f, fh)
-			f.Close()
-			if uploadErr != nil {
-				h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &user.ID, nil,
-					fmt.Sprintf("failed to upload file %s for ticket %s: %v", fh.Filename, ticket.ID, uploadErr), nil)
-				continue
+		}
+		if quotaOK {
+			var uploadedBytes int64
+			for _, fh := range fileHeaders {
+				f, openErr := fh.Open()
+				if openErr != nil {
+					h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &user.ID, nil,
+						fmt.Sprintf("failed to open uploaded file %s: %v", fh.Filename, openErr), nil)
+					continue
+				}
+				att, uploadErr := h.uploadService.Upload(r.Context(), ticket.ID, nil, f, fh)
+				f.Close()
+				if uploadErr != nil {
+					h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &user.ID, nil,
+						fmt.Sprintf("failed to upload file %s for ticket %s: %v", fh.Filename, ticket.ID, uploadErr), nil)
+					continue
+				}
+				uploadedBytes += fh.Size
+				ticket.Attachments = append(ticket.Attachments, *att)
 			}
-			ticket.Attachments = append(ticket.Attachments, *att)
+			if unused := totalSize - uploadedBytes; unused > 0 {
+				_ = h.storageService.Release(r.Context(), user.ID, unused)
+			}
 		}
 	}
 
@@ -288,21 +307,39 @@ func (h *FeedbackHandler) parseAndCreateReply(r *http.Request, ticketID, userID 
 
 	// Handle file uploads
 	if r.MultipartForm != nil && r.MultipartForm.File["files"] != nil {
-		for _, fh := range r.MultipartForm.File["files"] {
-			f, openErr := fh.Open()
-			if openErr != nil {
-				h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &userID, nil,
-					fmt.Sprintf("failed to open reply attachment %s: %v", fh.Filename, openErr), nil)
-				continue
+		fileHeaders := r.MultipartForm.File["files"]
+		var totalSize int64
+		for _, fh := range fileHeaders {
+			totalSize += fh.Size
+		}
+		quotaOK := true
+		if totalSize > 0 {
+			if qErr := h.storageService.Reserve(r.Context(), userID, totalSize); qErr != nil {
+				quotaOK = false
 			}
-			att, uploadErr := h.uploadService.Upload(r.Context(), ticketID, &reply.ID, f, fh)
-			f.Close()
-			if uploadErr != nil {
-				h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &userID, nil,
-					fmt.Sprintf("failed to upload reply attachment %s: %v", fh.Filename, uploadErr), nil)
-				continue
+		}
+		if quotaOK {
+			var uploadedBytes int64
+			for _, fh := range fileHeaders {
+				f, openErr := fh.Open()
+				if openErr != nil {
+					h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &userID, nil,
+						fmt.Sprintf("failed to open reply attachment %s: %v", fh.Filename, openErr), nil)
+					continue
+				}
+				att, uploadErr := h.uploadService.Upload(r.Context(), ticketID, &reply.ID, f, fh)
+				f.Close()
+				if uploadErr != nil {
+					h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &userID, nil,
+						fmt.Sprintf("failed to upload reply attachment %s: %v", fh.Filename, uploadErr), nil)
+					continue
+				}
+				uploadedBytes += fh.Size
+				reply.Attachments = append(reply.Attachments, *att)
 			}
-			reply.Attachments = append(reply.Attachments, *att)
+			if unused := totalSize - uploadedBytes; unused > 0 {
+				_ = h.storageService.Release(r.Context(), userID, unused)
+			}
 		}
 	}
 

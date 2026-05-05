@@ -70,6 +70,8 @@ func mapErrorToStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, ErrBadRequest):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrQuotaExceeded):
+		return http.StatusRequestEntityTooLarge
 	default:
 		return http.StatusInternalServerError
 	}

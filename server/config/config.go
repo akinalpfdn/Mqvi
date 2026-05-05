@@ -54,8 +54,9 @@ type LiveKitConfig struct {
 }
 
 type UploadConfig struct {
-	Dir     string
-	MaxSize int64 // bytes (default: 500MB)
+	Dir              string
+	MaxSize          int64 // bytes (default: 500MB)
+	DefaultQuotaBytes int64 // per-user storage quota (default: 10GB)
 	// PublicURL is the absolute base URL prepended to file URLs when they need
 	// to be served cross-origin or via CDN, e.g. "https://files.mqvi.net".
 	// Empty means file URLs are returned as relative paths (current behaviour).
@@ -93,6 +94,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid UPLOAD_MAX_SIZE: %w", err)
 	}
 
+	defaultQuota, err := strconv.ParseInt(getEnv("MQVI_DEFAULT_QUOTA_BYTES", "10737418240"), 10, 64) // 10GB
+	if err != nil {
+		return nil, fmt.Errorf("invalid MQVI_DEFAULT_QUOTA_BYTES: %w", err)
+	}
+
 	jwtSecret := getEnv("JWT_SECRET", "")
 	if jwtSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET environment variable is required")
@@ -124,6 +130,7 @@ func Load() (*Config, error) {
 		Upload: UploadConfig{
 			Dir:                 getEnv("UPLOAD_DIR", "./data/uploads"),
 			MaxSize:             maxSize,
+			DefaultQuotaBytes:   defaultQuota,
 			PublicURL:           getEnv("MQVI_PUBLIC_FILE_URL", ""),
 			SignedURLSecret:     getEnv("MQVI_SIGNED_URL_SECRET", ""),
 			SignedURLSecretPrev: getEnv("MQVI_SIGNED_URL_SECRET_PREV", ""),

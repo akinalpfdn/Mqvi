@@ -17,6 +17,7 @@ import (
 type MessageHandler struct {
 	messageService services.MessageService
 	uploadService  services.UploadService
+	storageService services.StorageService
 	maxUploadSize  int64
 	messageLimiter *ratelimit.MessageRateLimiter
 	urlSigner      services.FileURLSigner
@@ -25,6 +26,7 @@ type MessageHandler struct {
 func NewMessageHandler(
 	messageService services.MessageService,
 	uploadService services.UploadService,
+	storageService services.StorageService,
 	maxUploadSize int64,
 	messageLimiter *ratelimit.MessageRateLimiter,
 	urlSigner services.FileURLSigner,
@@ -32,6 +34,7 @@ func NewMessageHandler(
 	return &MessageHandler{
 		messageService: messageService,
 		uploadService:  uploadService,
+		storageService: storageService,
 		maxUploadSize:  maxUploadSize,
 		messageLimiter: messageLimiter,
 		urlSigner:      urlSigner,
@@ -126,16 +129,34 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Reserve storage quota before creating the message so a 413 doesn't
+	// leave an orphan message in the DB.
+	var reservedBytes int64
+	if isMultipart(contentType) && r.MultipartForm != nil && len(r.MultipartForm.File["files"]) > 0 {
+		for _, fh := range r.MultipartForm.File["files"] {
+			reservedBytes += fh.Size
+		}
+		if err := h.storageService.Reserve(r.Context(), user.ID, reservedBytes); err != nil {
+			pkg.Error(w, err)
+			return
+		}
+	}
+
 	message, err := h.messageService.Create(r.Context(), channelID, user.ID, &req)
 	if err != nil {
+		if reservedBytes > 0 {
+			_ = h.storageService.Release(r.Context(), user.ID, reservedBytes)
+		}
 		pkg.Error(w, err)
 		return
 	}
 
 	// Upload files after message creation
-	if isMultipart(contentType) && r.MultipartForm != nil {
+	if reservedBytes > 0 {
 		isEncrypted := req.EncryptionVersion == 1
 		files := r.MultipartForm.File["files"]
+
+		var uploadedBytes int64
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
@@ -148,8 +169,14 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			uploadedBytes += fileHeader.Size
 			attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
 			message.Attachments = append(message.Attachments, *attachment)
+		}
+
+		// Release unused reservation (files that failed to upload)
+		if unused := reservedBytes - uploadedBytes; unused > 0 {
+			_ = h.storageService.Release(r.Context(), user.ID, unused)
 		}
 	}
 

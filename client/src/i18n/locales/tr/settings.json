@@ -619,5 +619,6 @@
   "adminFeedbackAllStatuses": "Tüm Durumlar",
   "adminFeedbackAllTypes": "Tüm Türler",
   "adminFeedbackStatusUpdated": "Durum güncellendi",
-  "adminFeedbackStatusError": "Durum güncellenemedi"
+  "adminFeedbackStatusError": "Durum güncellenemedi",
+  "storageUsage": "Depolama"
 }

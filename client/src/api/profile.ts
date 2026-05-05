@@ -46,3 +46,12 @@ export async function uploadWallpaper(file: File) {
 export async function deleteWallpaper() {
   return apiClient<void>("/users/me/wallpaper", { method: "DELETE" });
 }
+
+export type StorageUsage = {
+  bytes_used: number;
+  quota_bytes: number;
+};
+
+export async function getStorageUsage() {
+  return apiClient<StorageUsage>("/users/me/storage");
+}

@@ -48,13 +48,15 @@ type FriendshipChecker interface {
 }
 
 type dmService struct {
-	dmRepo        repository.DMRepository
-	userRepo      repository.UserRepository
-	hub           ws.Broadcaster
-	blockChecker  BlockChecker
-	friendChecker FriendshipChecker
-	unhider       DMSettingsUnhider
-	urlSigner     FileURLSigner
+	dmRepo         repository.DMRepository
+	userRepo       repository.UserRepository
+	hub            ws.Broadcaster
+	blockChecker   BlockChecker
+	friendChecker  FriendshipChecker
+	unhider        DMSettingsUnhider
+	urlSigner      FileURLSigner
+	fileDeleter    FileDeleter
+	storageService StorageService
 }
 
 func NewDMService(
@@ -65,15 +67,19 @@ func NewDMService(
 	friendshipChecker FriendshipChecker,
 	unhider DMSettingsUnhider,
 	urlSigner FileURLSigner,
+	fileDeleter FileDeleter,
+	storageService StorageService,
 ) DMService {
 	return &dmService{
-		dmRepo:        dmRepo,
-		userRepo:      userRepo,
-		hub:           hub,
-		blockChecker:  blockChecker,
-		friendChecker: friendshipChecker,
-		unhider:       unhider,
-		urlSigner:     urlSigner,
+		dmRepo:         dmRepo,
+		userRepo:       userRepo,
+		hub:            hub,
+		blockChecker:   blockChecker,
+		friendChecker:  friendshipChecker,
+		unhider:        unhider,
+		urlSigner:      urlSigner,
+		fileDeleter:    fileDeleter,
+		storageService: storageService,
 	}
 }
 

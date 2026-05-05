@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
 )
 
@@ -812,3 +813,49 @@ type MockFileURLSigner struct{}
 
 func (m *MockFileURLSigner) SignURL(fileURL string) string    { return fileURL }
 func (m *MockFileURLSigner) SignURLPtr(p *string) *string     { return p }
+
+// ─── FileDeleter mock (no-op) ───
+
+type MockFileDeleter struct {
+	DeleteFromURLFn func(storedURL string)
+}
+
+func (m *MockFileDeleter) DeleteFromURL(storedURL string) {
+	if m.DeleteFromURLFn != nil {
+		m.DeleteFromURLFn(storedURL)
+	}
+}
+
+// ─── StorageService mock (no-op, always succeeds) ───
+
+type MockStorageService struct {
+	ReserveFn  func(ctx context.Context, userID string, bytes int64) error
+	ReleaseFn  func(ctx context.Context, userID string, bytes int64) error
+	GetUsageFn func(ctx context.Context, userID string) (*repository.UserStorage, error)
+	SetQuotaFn func(ctx context.Context, userID string, quotaBytes int64) error
+}
+
+func (m *MockStorageService) Reserve(ctx context.Context, userID string, bytes int64) error {
+	if m.ReserveFn != nil {
+		return m.ReserveFn(ctx, userID, bytes)
+	}
+	return nil
+}
+func (m *MockStorageService) Release(ctx context.Context, userID string, bytes int64) error {
+	if m.ReleaseFn != nil {
+		return m.ReleaseFn(ctx, userID, bytes)
+	}
+	return nil
+}
+func (m *MockStorageService) GetUsage(ctx context.Context, userID string) (*repository.UserStorage, error) {
+	if m.GetUsageFn != nil {
+		return m.GetUsageFn(ctx, userID)
+	}
+	return &repository.UserStorage{UserID: userID, QuotaBytes: 10737418240}, nil
+}
+func (m *MockStorageService) SetQuota(ctx context.Context, userID string, quotaBytes int64) error {
+	if m.SetQuotaFn != nil {
+		return m.SetQuotaFn(ctx, userID, quotaBytes)
+	}
+	return nil
+}

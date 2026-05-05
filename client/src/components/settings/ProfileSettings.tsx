@@ -7,6 +7,7 @@ import { useToastStore } from "../../stores/toastStore";
 import * as profileApi from "../../api/profile";
 import AvatarUpload from "./AvatarUpload";
 import LanguageSelector from "./LanguageSelector";
+import StorageUsageBar from "./StorageUsage";
 
 function ProfileSettings() {
   const { t } = useTranslation("settings");
@@ -220,6 +221,12 @@ function ProfileSettings() {
         </select>
         <span className="settings-field-hint">{t("dmPrivacyHint")}</span>
       </div>
+
+      {/* Separator */}
+      <div className="settings-separator" />
+
+      {/* Storage Usage */}
+      <StorageUsageBar />
 
       {/* Separator */}
       <div className="settings-separator" />

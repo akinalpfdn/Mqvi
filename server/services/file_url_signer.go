@@ -9,3 +9,9 @@ type FileURLSigner interface {
 	// SignURLPtr is like SignURL but for *string fields (avatar_url, icon_url, etc.).
 	SignURLPtr(fileURL *string) *string
 }
+
+// FileDeleter removes a file from disk given its stored URL.
+// ISP interface wrapping files.Locator.DeleteFromURL.
+type FileDeleter interface {
+	DeleteFromURL(storedURL string)
+}

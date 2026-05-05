@@ -43,6 +43,7 @@ type Handlers struct {
 	DownloadPrompt    *handlers.DownloadPromptHandler
 	Feedback          *handlers.FeedbackHandler
 	Soundboard        *handlers.SoundboardHandler
+	Storage           *handlers.StorageHandler
 	LiveKitWebhook    *handlers.LiveKitWebhookHandler
 	WS                *ws.Handler
 }
@@ -53,7 +54,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Auth:              handlers.NewAuthHandler(svcs.Auth, limiters.Login, limiters.Register, limiters.ForgotPwd, limiters.ResetPwd, urlSigner),
 		Channel:           handlers.NewChannelHandler(svcs.Channel),
 		Category:          handlers.NewCategoryHandler(svcs.Category),
-		Message:           handlers.NewMessageHandler(svcs.Message, svcs.Upload, cfg.Upload.MaxSize, limiters.Message, urlSigner),
+		Message:           handlers.NewMessageHandler(svcs.Message, svcs.Upload, svcs.Storage, cfg.Upload.MaxSize, limiters.Message, urlSigner),
 		Member:            handlers.NewMemberHandler(svcs.Member),
 		Role:              handlers.NewRoleHandler(svcs.Role),
 		Voice:             handlers.NewVoiceHandler(svcs.Voice),
@@ -62,7 +63,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Pin:               handlers.NewPinHandler(svcs.Pin),
 		Search:            handlers.NewSearchHandler(svcs.Search),
 		ReadState:         handlers.NewReadStateHandler(svcs.ReadState),
-		DM:                handlers.NewDMHandler(svcs.DM, svcs.DMUpload, cfg.Upload.MaxSize, limiters.Message, urlSigner),
+		DM:                handlers.NewDMHandler(svcs.DM, svcs.DMUpload, svcs.Storage, cfg.Upload.MaxSize, limiters.Message, urlSigner),
 		Reaction:          handlers.NewReactionHandler(svcs.Reaction),
 		ChannelPermission: handlers.NewChannelPermissionHandler(svcs.ChannelPermission),
 		Friendship:        handlers.NewFriendshipHandler(svcs.Friendship),
@@ -73,7 +74,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		ChannelMute:       handlers.NewChannelMuteHandler(svcs.ChannelMute),
 		DMSettings:        handlers.NewDMSettingsHandler(svcs.DMSettings),
 		Block:             handlers.NewBlockHandler(svcs.Block),
-		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, cfg.Upload.MaxSize, urlSigner),
+		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, svcs.Storage, cfg.Upload.MaxSize, urlSigner),
 		Gif:               handlers.NewGifHandler(cfg.Klipy.APIKey),
 		Device:            handlers.NewDeviceHandler(svcs.Device),
 		E2EE:              handlers.NewE2EEHandler(svcs.E2EE),
@@ -81,8 +82,9 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Badge:             handlers.NewBadgeHandler(svcs.Badge, cfg.Upload.Dir),
 		Preferences:       handlers.NewPreferencesHandler(svcs.Preferences),
 		DownloadPrompt:    handlers.NewDownloadPromptHandler(repos.User),
-		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback, svcs.FeedbackUpload, cfg.Upload.MaxSize, limiters.Feedback, svcs.AppLog, urlSigner),
-		Soundboard:        handlers.NewSoundboardHandler(svcs.Soundboard, cfg.Upload.MaxSize, urlSigner),
+		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback, svcs.FeedbackUpload, svcs.Storage, cfg.Upload.MaxSize, limiters.Feedback, svcs.AppLog, urlSigner),
+		Soundboard:        handlers.NewSoundboardHandler(svcs.Soundboard, svcs.Storage, cfg.Upload.MaxSize, urlSigner),
+		Storage:           handlers.NewStorageHandler(svcs.Storage),
 		LiveKitWebhook:    handlers.NewLiveKitWebhookHandler(repos.LiveKit, encryptionKey, svcs.AppLog),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute, urlSigner),
 	}

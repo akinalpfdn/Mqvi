@@ -7,6 +7,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -281,8 +282,31 @@ func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string)
 		return fmt.Errorf("%w: you can only delete your own messages", pkg.ErrForbidden)
 	}
 
+	// Collect attachment info before delete (CASCADE removes attachment rows)
+	var attachmentBytes int64
+	var dmAtts []models.DMAttachment
+	attMap, attErr := s.dmRepo.GetAttachmentsByMessageIDs(ctx, []string{messageID})
+	if attErr != nil {
+		log.Printf("[dm] failed to fetch attachments for message %s (orphan files may remain): %v", messageID, attErr)
+	} else {
+		dmAtts = attMap[messageID]
+	}
+	for _, a := range dmAtts {
+		s.fileDeleter.DeleteFromURL(a.FileURL)
+		if a.FileSize != nil {
+			attachmentBytes += *a.FileSize
+		}
+	}
+
 	if err := s.dmRepo.DeleteMessage(ctx, messageID); err != nil {
 		return err
+	}
+
+	// Release storage quota for deleted attachments
+	if attachmentBytes > 0 {
+		if err := s.storageService.Release(ctx, msg.UserID, attachmentBytes); err != nil {
+			log.Printf("[dm] failed to release storage quota for user %s: %v", msg.UserID, err)
+		}
 	}
 
 	s.broadcastToBothUsers(channel, ws.Event{

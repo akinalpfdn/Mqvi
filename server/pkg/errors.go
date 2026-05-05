@@ -11,6 +11,7 @@ var (
 	ErrAlreadyExists = errors.New("already exists")
 	ErrBadRequest    = errors.New("bad request")
 	ErrInternal      = errors.New("internal error")
+	ErrQuotaExceeded = errors.New("storage quota exceeded")
 
 	// E2EE errors
 	ErrDeviceNotFound   = errors.New("device not found")

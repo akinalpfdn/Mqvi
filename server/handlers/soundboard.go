@@ -11,13 +11,14 @@ import (
 )
 
 type SoundboardHandler struct {
-	service   services.SoundboardService
-	maxUpload int64
-	urlSigner services.FileURLSigner
+	service        services.SoundboardService
+	storageService services.StorageService
+	maxUpload      int64
+	urlSigner      services.FileURLSigner
 }
 
-func NewSoundboardHandler(service services.SoundboardService, maxUpload int64, urlSigner services.FileURLSigner) *SoundboardHandler {
-	return &SoundboardHandler{service: service, maxUpload: maxUpload, urlSigner: urlSigner}
+func NewSoundboardHandler(service services.SoundboardService, storageService services.StorageService, maxUpload int64, urlSigner services.FileURLSigner) *SoundboardHandler {
+	return &SoundboardHandler{service: service, storageService: storageService, maxUpload: maxUpload, urlSigner: urlSigner}
 }
 
 // List returns all sounds for a server.
@@ -74,6 +75,11 @@ func (h *SoundboardHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	if err := h.storageService.Reserve(r.Context(), user.ID, header.Size); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
 	req := &models.CreateSoundboardSoundRequest{
 		Name: name,
 	}
@@ -83,6 +89,7 @@ func (h *SoundboardHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	sound, err := h.service.Create(r.Context(), serverID, user.ID, req, file, header, durationMs)
 	if err != nil {
+		_ = h.storageService.Release(r.Context(), user.ID, header.Size)
 		pkg.Error(w, err)
 		return
 	}

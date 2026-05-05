@@ -619,5 +619,6 @@
   "adminFeedbackAllStatuses": "All Statuses",
   "adminFeedbackAllTypes": "All Types",
   "adminFeedbackStatusUpdated": "Status updated",
-  "adminFeedbackStatusError": "Failed to update status"
+  "adminFeedbackStatusError": "Failed to update status",
+  "storageUsage": "Storage"
 }
