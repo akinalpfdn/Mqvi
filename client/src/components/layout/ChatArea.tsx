@@ -32,7 +32,12 @@ type ChatAreaProps = {
 };
 
 /** Provider wrapper — delegates content to ChatAreaContent. */
-function ChatArea({ channelId, channel, serverId, sendTyping }: ChatAreaProps) {
+function ChatArea({
+  channelId,
+  channel,
+  serverId,
+  sendTyping,
+}: ChatAreaProps) {
   return (
     <ChannelChatProvider
       channelId={channelId}
@@ -40,7 +45,11 @@ function ChatArea({ channelId, channel, serverId, sendTyping }: ChatAreaProps) {
       serverId={serverId}
       sendTyping={sendTyping}
     >
-      <ChatAreaContent channelId={channelId} channel={channel} serverId={serverId} />
+      <ChatAreaContent
+        channelId={channelId}
+        channel={channel}
+        serverId={serverId}
+      />
     </ChannelChatProvider>
   );
 }
@@ -63,6 +72,7 @@ function ChatAreaContent({
 
   const [showPins, setShowPins] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch pins and permission overrides when channel changes
   useEffect(() => {
@@ -114,7 +124,10 @@ function ChatAreaContent({
               {/* Search icon */}
               <button
                 className={showSearch ? "active" : ""}
-                onClick={() => setShowSearch((prev) => !prev)}
+                onClick={() => {
+                  setSearchQuery("");
+                  setShowSearch((prev) => !prev);
+                }}
                 title={t("searchMessages")}
               >
                 <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -141,7 +154,9 @@ function ChatAreaContent({
       {/* ─── Search Panel (overlay) ─── */}
       {showSearch && (
         <SearchPanel
+          key={searchQuery}
           channelId={channelId}
+          initialQuery={searchQuery}
           onClose={() => setShowSearch(false)}
         />
       )}
@@ -153,7 +168,12 @@ function ChatAreaContent({
       <TypingIndicator />
 
       {/* ─── Message Input ─── */}
-      <MessageInput />
+      <MessageInput
+        openSearch={(query) => {
+          setSearchQuery(query);
+          setShowSearch(true);
+        }}
+      />
     </div>
   );
 }

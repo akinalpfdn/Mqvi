@@ -1,18 +1,40 @@
 /** MessageInput — Message compose area. Works in both channel and DM via ChatContext. */
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
+import { useChatCommandActions } from "../../hooks/useChatCommandActions";
+import { useToastStore } from "../../stores/toastStore";
+import { useDMStore } from "../../stores/dmStore";
+import { useUIStore } from "../../stores/uiStore";
+import { useP2PCallStore } from "../../stores/p2pCallStore";
+import { useAuthStore } from "../../stores/authStore";
+import { useVoiceStore } from "../../stores/voiceStore";
+import { useChannelStore } from "../../stores/channelStore";
 import { validateFiles } from "../../utils/fileValidation";
 import { MAX_MESSAGE_LENGTH } from "../../utils/constants";
+import {
+  executeChatCommand,
+  getCommandQuery,
+  hasCommandSuggestion,
+  isChatCommand,
+  type ChatCommandResult,
+} from "../../utils/chatCommands";
+import type { MemberWithRoles } from "../../types";
 import EmojiPicker from "../shared/EmojiPicker";
 import GifPicker from "../shared/GifPicker";
 import FilePreview from "./FilePreview";
 import MentionAutocomplete, { type MentionSelection } from "./MentionAutocomplete";
+import CommandAutocomplete from "./CommandAutocomplete";
 import ReplyBar from "./ReplyBar";
 
-function MessageInput() {
+type MessageInputProps = {
+  openSearch: (query: string) => void;
+};
+
+function MessageInput({ openSearch }: MessageInputProps) {
   const { t } = useTranslation("chat");
+  const { sendPresenceUpdate, toggleMute, toggleDeafen } = useChatCommandActions();
   const {
     mode,
     channelId,
@@ -24,29 +46,25 @@ function MessageInput() {
     setReplyingTo,
     sendTyping,
     addFilesRef,
+    members,
   } = useChatContext();
+  const addToast = useToastStore((s) => s.addToast);
 
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
 
-  // Emoji picker state
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-
-  // GIF picker state
   const [showGifPicker, setShowGifPicker] = useState(false);
 
-  // Mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  /** Character index where the @ trigger starts */
+  const [commandQuery, setCommandQuery] = useState<string | null>(null);
   const mentionStartRef = useRef<number>(-1);
-  /** Tracked mention selections for token conversion on send */
   const mentionSelectionsRef = useRef<MentionSelection[]>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Register callback for drag-drop file forwarding from ChatArea/DMChat
   useEffect(() => {
     addFilesRef.current = (newFiles: File[]) => {
       setFiles((prev) => [...prev, ...newFiles]);
@@ -56,7 +74,6 @@ function MessageInput() {
     };
   }, [addFilesRef]);
 
-  /** Auto-focus textarea when channel changes or reply is selected */
   useEffect(() => {
     textareaRef.current?.focus();
   }, [channelId]);
@@ -67,57 +84,185 @@ function MessageInput() {
     }
   }, [replyingTo]);
 
-  /** Convert @name mentions to <@id>/<@&id> tokens before sending */
   function convertMentionTokens(text: string): string {
     let result = text;
-    // Sort longest name first to prevent partial matches
     const sorted = [...mentionSelectionsRef.current].sort((a, b) => b.name.length - a.name.length);
     for (const m of sorted) {
       const token = m.type === "role" ? `<@&${m.id}>` : `<@${m.id}>`;
-      // Replace all occurrences of @name (case-insensitive)
       const escaped = m.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       result = result.replace(new RegExp(`@${escaped}`, "gi"), token);
     }
     return result;
   }
 
-  /** Send message, passing replyToId if replying */
-  const handleSend = useCallback(async () => {
+  function findMemberByTarget(target: string): MemberWithRoles | null {
+    const normalized = target.replace(/^@/, "").toLowerCase();
+    return members.find((member) => {
+      const username = member.username.toLowerCase();
+      const displayName = member.display_name?.toLowerCase();
+      return username === normalized || displayName === normalized;
+    }) ?? null;
+  }
+
+  function clearInput() {
+    setContent("");
+    setFiles([]);
+    setReplyingTo(null);
+    setCommandQuery(null);
+    mentionSelectionsRef.current = [];
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+  }
+
+  async function executeCommandAction(commandResult: ChatCommandResult): Promise<boolean> {
+    if (!commandResult.ok) {
+      addToast("error", t(commandResult.errorKey));
+      return false;
+    }
+
+    if ("content" in commandResult) {
+      return false;
+    }
+
+    if (commandResult.action === "status") {
+      sendPresenceUpdate(commandResult.status);
+      useAuthStore.getState().updateUser({ status: commandResult.status });
+      addToast("success", t("statusUpdated", { status: commandResult.status }));
+      return true;
+    }
+
+    if (commandResult.action === "mute") {
+      toggleMute();
+      addToast("success", t("muteToggled"));
+      return true;
+    }
+
+    if (commandResult.action === "deafen") {
+      toggleDeafen();
+      addToast("success", t("deafenToggled"));
+      return true;
+    }
+
+    if (commandResult.action === "search") {
+      openSearch(commandResult.query);
+      return true;
+    }
+
+    if (commandResult.action === "help") {
+      addToast("info", t("commandHelpText"), 8000);
+      return true;
+    }
+
+    if (!("target" in commandResult)) {
+      return false;
+    }
+
+    const member = findMemberByTarget(commandResult.target);
+    if (!member) {
+      addToast("error", t("commandUserNotFound", { user: commandResult.target }));
+      return false;
+    }
+
+    const currentUserId = useAuthStore.getState().user?.id;
+    if (member.id === currentUserId) {
+      addToast("error", t("commandSelfTarget"));
+      return false;
+    }
+
+    if (commandResult.action === "dm") {
+      const dmChannelId = await useDMStore.getState().createOrGetChannel(member.id);
+      if (!dmChannelId) {
+        addToast("error", t("dmOpenError"));
+        return false;
+      }
+
+      const label = member.display_name ?? member.username;
+      useDMStore.getState().selectDM(dmChannelId);
+      useUIStore.getState().openTab(dmChannelId, "dm", label);
+      useDMStore.getState().fetchMessages(dmChannelId);
+      return true;
+    }
+
+    if (commandResult.action === "invite") {
+      const currentVoiceChannelId = useVoiceStore.getState().currentVoiceChannelId;
+      if (!currentVoiceChannelId) {
+        addToast("error", t("inviteNoVoiceChannel"));
+        return false;
+      }
+
+      const voiceChannel = useChannelStore
+        .getState()
+        .categories.flatMap((group) => group.channels)
+        .find((channel) => channel.id === currentVoiceChannelId);
+      if (!voiceChannel) {
+        addToast("error", t("inviteNoVoiceChannel"));
+        return false;
+      }
+
+      const inviteMessage = t("voiceInviteMessage", {
+        user: member.username,
+        channel: voiceChannel.name,
+      });
+      const success = await sendMessage(inviteMessage, [], replyingTo?.id);
+      if (!success) {
+        addToast("error", t("voiceInviteError"));
+        return false;
+      }
+
+      return true;
+    }
+
+    useP2PCallStore.getState().initiateCall(member.id, "voice");
+    addToast("success", t("callStarted", { user: member.display_name ?? member.username }));
+    return true;
+  }
+
+  async function handleSend() {
     if (!channelId) return;
     if (!content.trim() && files.length === 0) return;
     if (isSending) return;
 
+    const commandResult = files.length === 0 ? executeChatCommand(content) : null;
+    if (commandResult && !commandResult.ok) {
+      addToast("error", t(commandResult.errorKey));
+      return;
+    }
+
+    if (commandResult?.ok && !("content" in commandResult)) {
+      const success = await executeCommandAction(commandResult);
+      if (success) {
+        clearInput();
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      }
+      return;
+    }
+
+    const messageContent =
+      commandResult?.ok && "content" in commandResult
+        ? commandResult.content
+        : convertMentionTokens(content.trim());
+
     setIsSending(true);
     const replyToId = replyingTo?.id;
-    const tokenized = convertMentionTokens(content.trim());
-    const success = await sendMessage(tokenized, files, replyToId);
+    const success = await sendMessage(messageContent, files, replyToId);
     if (success) {
-      setContent("");
-      setFiles([]);
-      setReplyingTo(null);
-      mentionSelectionsRef.current = [];
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-      }
+      clearInput();
     }
     setIsSending(false);
 
-    // Restore focus after send — disabled={isSending} causes browser to drop focus
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-  }, [channelId, content, files, isSending, sendMessage, replyingTo, setReplyingTo]);
+  }
 
-  /** Keyboard event handler */
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Let mention popup handle navigation keys when open
-    if (mentionQuery !== null) {
+    if (mentionQuery !== null || hasCommandSuggestion(commandQuery)) {
       if (["Enter", "Tab", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) {
         return;
       }
     }
 
-    // Escape — cancel reply (when mention popup is closed)
     if (e.key === "Escape" && replyingTo) {
       e.preventDefault();
       setReplyingTo(null);
@@ -130,26 +275,23 @@ function MessageInput() {
     }
   }
 
-  /** Textarea change — typing trigger + auto-resize + mention detection */
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setContent(value);
+    setCommandQuery(getCommandQuery(value));
 
     if (channelId && value.length > 0) {
       sendTyping();
     }
 
-    // Mention detection — scan backwards from cursor for @
     const cursorPos = e.target.selectionStart ?? value.length;
     const textBeforeCursor = value.slice(0, cursorPos);
     const atIndex = textBeforeCursor.lastIndexOf("@");
 
-    if (atIndex >= 0) {
+    if (!isChatCommand(value) && atIndex >= 0) {
       const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : " ";
       if (charBeforeAt === " " || charBeforeAt === "\n" || atIndex === 0) {
         const query = textBeforeCursor.slice(atIndex + 1);
-        // Allow spaces in query (role names can contain spaces like "Level 3")
-        // Only close on newline — selection via Enter/Tab/click inserts and closes
         if (!query.includes("\n")) {
           mentionStartRef.current = atIndex;
           setMentionQuery(query);
@@ -169,7 +311,6 @@ function MessageInput() {
     }
   }
 
-  /** Insert selected mention into content and track for token conversion */
   function handleMentionSelect(mention: MentionSelection) {
     const start = mentionStartRef.current;
     if (start < 0) return;
@@ -196,13 +337,27 @@ function MessageInput() {
     });
   }
 
-  /** Close mention popup */
   function handleMentionClose() {
     setMentionQuery(null);
     mentionStartRef.current = -1;
   }
 
-  /** Insert emoji at cursor position */
+  function handleCommandSelect(usage: string) {
+    setContent(usage);
+    setCommandQuery(null);
+
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      textareaRef.current.selectionStart = usage.length;
+      textareaRef.current.selectionEnd = usage.length;
+    });
+  }
+
+  function handleCommandClose() {
+    setCommandQuery(null);
+  }
+
   function handleEmojiSelect(emoji: string) {
     const cursorPos = textareaRef.current?.selectionStart ?? content.length;
     const newContent = content.slice(0, cursorPos) + emoji + content.slice(cursorPos);
@@ -219,16 +374,13 @@ function MessageInput() {
     });
   }
 
-  /** Send GIF URL as message content immediately */
   async function handleGifSelect(url: string) {
     if (!channelId || isSending) return;
     setShowGifPicker(false);
     setIsSending(true);
     const success = await sendMessage(url, [], undefined);
     if (success) {
-      setContent("");
-      setFiles([]);
-      setReplyingTo(null);
+      clearInput();
     }
     setIsSending(false);
     requestAnimationFrame(() => {
@@ -236,7 +388,6 @@ function MessageInput() {
     });
   }
 
-  /** Paste handler — supports pasting images/files from clipboard */
   function handlePaste(e: React.ClipboardEvent) {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -258,7 +409,6 @@ function MessageInput() {
     }
   }
 
-  /** Add files with validation */
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
 
@@ -269,14 +419,12 @@ function MessageInput() {
     e.target.value = "";
   }
 
-  /** Remove file by index */
   function handleFileRemove(index: number) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   if (!channelId) return null;
 
-  // No send permission — show disabled state
   if (!canSend) {
     return (
       <div className="input-area">
@@ -287,14 +435,12 @@ function MessageInput() {
     );
   }
 
-  // Placeholder: "#channel" in channel mode, "@user" in DM mode
   const placeholder = mode === "dm"
     ? t("dmPlaceholder", { user: channelName })
     : t("messagePlaceholder", { channel: channelName });
 
   return (
     <div className="input-area">
-      {/* Mention autocomplete popup — shown above textarea */}
       {mentionQuery !== null && mode === "channel" && (
         <MentionAutocomplete
           query={mentionQuery}
@@ -304,7 +450,14 @@ function MessageInput() {
         />
       )}
 
-      {/* Reply bar — preview of the message being replied to */}
+      {commandQuery !== null && (
+        <CommandAutocomplete
+          query={commandQuery}
+          onSelect={handleCommandSelect}
+          onClose={handleCommandClose}
+        />
+      )}
+
       {replyingTo && (
         <ReplyBar
           message={replyingTo}
@@ -312,11 +465,9 @@ function MessageInput() {
         />
       )}
 
-      {/* File previews */}
       <FilePreview files={files} onRemove={handleFileRemove} />
 
       <div className="input-box">
-        {/* File upload button */}
         <button
           className="input-action-btn"
           onClick={() => fileInputRef.current?.click()}
@@ -329,7 +480,6 @@ function MessageInput() {
           </svg>
         </button>
 
-        {/* Hidden file input */}
         <input
           ref={fileInputRef}
           type="file"
@@ -338,7 +488,6 @@ function MessageInput() {
           onChange={handleFileSelect}
         />
 
-        {/* Textarea */}
         <textarea
           ref={textareaRef}
           value={content}
@@ -351,7 +500,6 @@ function MessageInput() {
           disabled={isSending}
         />
 
-        {/* Emoji button + picker */}
         <div style={{ position: "relative" }}>
           <button
             className="input-action-btn"
@@ -378,7 +526,6 @@ function MessageInput() {
           )}
         </div>
 
-        {/* GIF button + picker */}
         <div style={{ position: "relative" }}>
           <button
             className="input-action-btn input-gif-btn"
@@ -401,7 +548,6 @@ function MessageInput() {
         </div>
       </div>
 
-      {/* Character counter — visible when within 100 chars of limit */}
       {content.length > MAX_MESSAGE_LENGTH - 100 && (
         <span
           className="char-counter"

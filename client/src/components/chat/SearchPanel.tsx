@@ -16,11 +16,12 @@ const DEBOUNCE_MS = 300;
 type SearchPanelProps = {
   channelId?: string;
   onClose: () => void;
+  initialQuery?: string;
   /** Navigate to message's channel on result click */
   onSelectResult?: (message: Message) => void;
 };
 
-function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
+function SearchPanel({ channelId, onClose, initialQuery = "", onSelectResult }: SearchPanelProps) {
   const { t } = useTranslation("chat");
   const { t: tE2ee } = useTranslation("e2ee");
   const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
@@ -28,7 +29,7 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
   // through the IndexedDB cache when the active server is actually encrypted.
   const serverE2eeEnabled = useServerStore((s) => s.activeServer?.e2ee_enabled ?? false);
   const useLocalSearch = serverE2eeEnabled && isE2EEReady;
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -102,6 +103,12 @@ function SearchPanel({ channelId, onClose, onSelectResult }: SearchPanelProps) {
   );
 
   /** Debounced search on input change */
+  useEffect(() => {
+    if (!initialQuery.trim()) return;
+    const timer = setTimeout(() => doSearch(initialQuery, 0), 0);
+    return () => clearTimeout(timer);
+  }, [initialQuery, doSearch]);
+
   function handleInputChange(value: string) {
     setQuery(value);
     setOffset(0);

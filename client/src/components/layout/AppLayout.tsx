@@ -55,6 +55,7 @@ import { useInviteStore } from "../../stores/inviteStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useNotificationBadge } from "../../hooks/useNotificationBadge";
+import { ChatCommandActionsProvider } from "../../hooks/useChatCommandActions";
 
 function AppLayout() {
   const { sendTyping, sendDMTyping, sendPresenceUpdate, sendVoiceJoin, sendVoiceLeave, sendVoiceStateUpdate, sendWS, connectionStatus, reconnectAttempt } =
@@ -268,6 +269,15 @@ function AppLayout() {
     [joinVoice, toggleMute, toggleDeafen, toggleScreenShare, leaveVoice]
   );
 
+  const chatCommandActions = useMemo(
+    () => ({
+      sendPresenceUpdate,
+      toggleMute,
+      toggleDeafen,
+    }),
+    [sendPresenceUpdate, toggleMute, toggleDeafen]
+  );
+
   // Shared overlays rendered in both mobile and desktop layouts
   const overlays = (
     <>
@@ -310,11 +320,13 @@ function AppLayout() {
   if (isMobile) {
     const mobileContent = (
       <VoiceProvider>
-        <MobileAppLayout
-          sidebarProps={sidebarProps}
-          sendTyping={sendTyping}
-          sendDMTyping={sendDMTyping}
-        />
+        <ChatCommandActionsProvider value={chatCommandActions}>
+          <MobileAppLayout
+            sidebarProps={sidebarProps}
+            sendTyping={sendTyping}
+            sendDMTyping={sendDMTyping}
+          />
+        </ChatCommandActionsProvider>
         {overlays}
       </VoiceProvider>
     );
@@ -330,16 +342,21 @@ function AppLayout() {
 
       {/* VoiceProvider wraps body — keeps LiveKit connection alive across tab switches */}
       <VoiceProvider>
-        <div className="app-body">
-          {/* Main content area */}
-          <div className="main-area">
-            {/* Split pane container */}
-            <SplitPaneContainer node={layout} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
+        <ChatCommandActionsProvider value={chatCommandActions}>
+          <div className="app-body">
+            {/* Main content area */}
+            <div className="main-area">
+              <SplitPaneContainer
+                node={layout}
+                sendTyping={sendTyping}
+                sendDMTyping={sendDMTyping}
+              />
 
-            {/* Member list panel */}
-            <MemberList />
+              {/* Member list panel */}
+              <MemberList />
+            </div>
           </div>
-        </div>
+        </ChatCommandActionsProvider>
       </VoiceProvider>
 
       {overlays}

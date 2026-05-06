@@ -31,7 +31,10 @@ type DMChatProps = {
 };
 
 /** DMChat — Provider wrapper. Delegates content to DMChatContent. */
-function DMChat({ channelId, sendDMTyping }: DMChatProps) {
+function DMChat({
+  channelId,
+  sendDMTyping,
+}: DMChatProps) {
   const channels = useDMStore((s) => s.channels);
   const otherUser = channels.find((ch) => ch.id === channelId)?.other_user;
   const channelName = otherUser?.display_name ?? otherUser?.username ?? "DM";
@@ -40,6 +43,7 @@ function DMChat({ channelId, sendDMTyping }: DMChatProps) {
     <DMChatProvider
       channelId={channelId}
       channelName={channelName}
+      otherUser={otherUser ?? null}
       sendDMTyping={sendDMTyping}
     >
       <DMChatContent
@@ -317,7 +321,11 @@ function DMChatContent({
       <TypingIndicator />
 
       {/* ─── Message Input (shared component) ─── */}
-      {isPending ? null : <MessageInput />}
+      {isPending ? null : (
+        <MessageInput
+          openSearch={() => setShowSearch(true)}
+        />
+      )}
     </div>
   );
 }

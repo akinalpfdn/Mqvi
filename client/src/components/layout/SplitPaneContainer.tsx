@@ -24,7 +24,6 @@ function findActiveLeaf(node: LayoutNode, activePanelId: string): string {
   if (left) return activePanelId;
   const right = findLeafContaining(node.children[1], activePanelId);
   if (right) return activePanelId;
-  // Active panel not in this subtree — fall back to first leaf
   return firstLeaf(node);
 }
 
@@ -38,19 +37,34 @@ function firstLeaf(node: LayoutNode): string {
   return firstLeaf(node.children[0]);
 }
 
-function SplitPaneContainer({ node, path = [], sendTyping, sendDMTyping }: SplitPaneContainerProps) {
+function SplitPaneContainer({
+  node,
+  path = [],
+  sendTyping,
+  sendDMTyping,
+}: SplitPaneContainerProps) {
   const isMobile = useIsMobile();
 
-  // Mobile: render only the active panel, no splits
   if (isMobile) {
     const activePanelId = useUIStore.getState().activePanelId;
     const panelId = findActiveLeaf(node, activePanelId);
-    return <PanelView panelId={panelId} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />;
+    return (
+      <PanelView
+        panelId={panelId}
+        sendTyping={sendTyping}
+        sendDMTyping={sendDMTyping}
+      />
+    );
   }
 
-  // Desktop: recursive split
   if (node.type === "leaf") {
-    return <PanelView panelId={node.panelId} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />;
+    return (
+      <PanelView
+        panelId={node.panelId}
+        sendTyping={sendTyping}
+        sendDMTyping={sendDMTyping}
+      />
+    );
   }
 
   const isVertical = node.direction === "vertical";
@@ -59,7 +73,12 @@ function SplitPaneContainer({ node, path = [], sendTyping, sendDMTyping }: Split
     <div className={`split-container${isVertical ? " vertical" : ""}`}>
       {/* Left / Top panel */}
       <div className="split-pane" style={{ flex: node.ratio }}>
-        <SplitPaneContainer node={node.children[0]} path={[...path, 0]} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
+        <SplitPaneContainer
+          node={node.children[0]}
+          path={[...path, 0]}
+          sendTyping={sendTyping}
+          sendDMTyping={sendDMTyping}
+        />
       </div>
 
       {/* Resize handle */}
@@ -71,7 +90,12 @@ function SplitPaneContainer({ node, path = [], sendTyping, sendDMTyping }: Split
 
       {/* Right / Bottom panel */}
       <div className="split-pane" style={{ flex: 1 - node.ratio }}>
-        <SplitPaneContainer node={node.children[1]} path={[...path, 1]} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
+        <SplitPaneContainer
+          node={node.children[1]}
+          path={[...path, 1]}
+          sendTyping={sendTyping}
+          sendDMTyping={sendDMTyping}
+        />
       </div>
     </div>
   );

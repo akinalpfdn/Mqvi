@@ -28,7 +28,11 @@ type PanelViewProps = {
   sendDMTyping: (dmChannelId: string) => void;
 };
 
-function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
+function PanelView({
+  panelId,
+  sendTyping,
+  sendDMTyping,
+}: PanelViewProps) {
   const { t } = useTranslation("chat");
   const isMobile = useIsMobile();
   const panel = useUIStore((s) => s.panels[panelId]);
@@ -177,9 +181,17 @@ function PanelView({ panelId, sendTyping, sendDMTyping }: PanelViewProps) {
       {!activeTab ? (
         <div className="no-channel">{t("noChannel")}</div>
       ) : activeTab.type === "text" ? (
-        <ChatArea channelId={activeTab.channelId} channel={channel ?? null} serverId={activeTab.serverInfo?.serverId} sendTyping={sendTyping} />
+        <ChatArea
+          channelId={activeTab.channelId}
+          channel={channel ?? null}
+          serverId={activeTab.serverInfo?.serverId}
+          sendTyping={sendTyping}
+        />
       ) : activeTab.type === "dm" ? (
-        <DMChat channelId={activeTab.channelId} sendDMTyping={sendDMTyping} />
+        <DMChat
+          channelId={activeTab.channelId}
+          sendDMTyping={sendDMTyping}
+        />
       ) : activeTab.type === "friends" ? (
         <FriendsView />
       ) : activeTab.type === "p2p" ? (

@@ -3,7 +3,7 @@
 import { useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useDMStore } from "../../stores/dmStore";
-import type { DMMessage, MemberWithRoles } from "../../types";
+import type { DMMessage, MemberWithRoles, User } from "../../types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_MEMBERS: MemberWithRoles[] = [];
@@ -12,6 +12,7 @@ const EMPTY_STRINGS: string[] = [];
 type DMChatProviderProps = {
   channelId: string;
   channelName: string;
+  otherUser: User | null;
   sendDMTyping: (dmChannelId: string) => void;
   children: ReactNode;
 };
@@ -19,6 +20,7 @@ type DMChatProviderProps = {
 function DMChatProvider({
   channelId,
   channelName,
+  otherUser,
   sendDMTyping: sendDMTypingProp,
   children,
 }: DMChatProviderProps) {
@@ -125,6 +127,23 @@ function DMChatProvider({
     [channelId]
   );
 
+  const members = useMemo<MemberWithRoles[]>(
+    () => otherUser
+      ? [{
+          id: otherUser.id,
+          username: otherUser.username,
+          display_name: otherUser.display_name,
+          avatar_url: otherUser.avatar_url,
+          status: otherUser.status,
+          custom_status: otherUser.custom_status,
+          created_at: otherUser.created_at,
+          roles: [],
+          effective_permissions: 0,
+        }]
+      : EMPTY_MEMBERS,
+    [otherUser]
+  );
+
   // ─── Context Value (memoized) ───
   const value: ChatContextValue = useMemo(
     () => ({
@@ -153,7 +172,7 @@ function DMChatProvider({
       canSend: true,
       canManageMessages: true,
       showRoleColors: false,
-      members: EMPTY_MEMBERS,
+      members,
       addFilesRef,
     }),
     [
@@ -161,7 +180,7 @@ function DMChatProvider({
       replyingTo, scrollToMessageId, typingUsers,
       sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
-      pinMessage, unpinMessage, isMessagePinned, addFilesRef,
+      pinMessage, unpinMessage, isMessagePinned, members, addFilesRef,
     ]
   );
 

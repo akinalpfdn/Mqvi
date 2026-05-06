@@ -20,6 +20,7 @@ import MobileDrawer from "./MobileDrawer";
 import Sidebar from "./Sidebar";
 import MemberList from "./MemberList";
 import SplitPaneContainer from "./SplitPaneContainer";
+
 type MobileAppLayoutProps = {
   sidebarProps: {
     onJoinVoice: (channelId: string) => void;
@@ -32,7 +33,11 @@ type MobileAppLayoutProps = {
   sendDMTyping: (dmChannelId: string) => void;
 };
 
-function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLayoutProps) {
+function MobileAppLayout({
+  sidebarProps,
+  sendTyping,
+  sendDMTyping,
+}: MobileAppLayoutProps) {
   const layout = useUIStore((s) => s.layout);
 
   const leftDrawerOpen = useMobileStore((s) => s.leftDrawerOpen);
@@ -81,7 +86,11 @@ function MobileAppLayout({ sidebarProps, sendTyping, sendDMTyping }: MobileAppLa
 
       <div className="app-body">
         <div className="main-area">
-          <SplitPaneContainer node={layout} sendTyping={sendTyping} sendDMTyping={sendDMTyping} />
+          <SplitPaneContainer
+            node={layout}
+            sendTyping={sendTyping}
+            sendDMTyping={sendDMTyping}
+          />
         </div>
       </div>
     </div>

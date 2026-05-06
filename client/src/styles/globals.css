@@ -760,6 +760,18 @@ button.ch-tree-vu-stream svg { width:14px;height:14px; }
 .mention-role-dot { width:12px;height:12px;border-radius:50%;flex-shrink:0; }
 .mention-item-tag { font-size:13px;color:var(--t3);margin-left:auto;text-transform:uppercase;letter-spacing:0.5px; }
 
+/* Slash command autocomplete popup */
+.command-popup { position:absolute;bottom:100%;left:10px;right:10px;background:var(--bg-3);border:1px solid var(--b1);border-radius:8px;padding:4px;margin-bottom:4px;max-height:200px;overflow-y:auto;z-index:10;box-shadow:0 -4px 12px rgba(0,0,0,0.3); }
+.command-item { display:flex;align-items:center;gap:10px;width:100%;padding:8px;border:none;background:transparent;color:var(--t0);cursor:pointer;border-radius:6px;text-align:left;font-family:inherit; }
+.command-item:hover,.command-item.selected { background:var(--bg-h); }
+.command-item.selected .command-desc { color:var(--t0); }
+.command-item.selected .command-usage { color:var(--t1); }
+.command-name { min-width:54px;font-size:14px;font-weight:700;color:var(--primary);font-family:var(--f-m); }
+.command-option-name { color:var(--green); }
+.command-copy { min-width:0;display:flex;flex-direction:column;gap:2px; }
+.command-desc { min-width:0;font-size:13px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.command-usage { min-width:0;font-size:13px;color:var(--t3);font-family:var(--f-m);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+
 /* File preview */
 .file-preview { display:flex;flex-wrap:wrap;gap:8px;padding:0 10px 6px; }
 .file-preview-item { position:relative;width:80px;height:80px;border-radius:8px;overflow:hidden;background:var(--bg-3);border:1px solid var(--b1); }
