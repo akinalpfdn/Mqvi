@@ -500,6 +500,7 @@ export type AdminUserListItem = {
   last_activity: string | null;
   message_count: number;
   storage_mb: number;
+  quota_bytes: number;
   owned_self_servers: number;
   owned_mqvi_servers: number;
   member_server_count: number;

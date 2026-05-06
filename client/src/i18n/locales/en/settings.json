@@ -427,6 +427,15 @@
   "platformUnbanSuccess": "{{username}} has been unbanned",
   "platformUnbanError": "Failed to unban user",
 
+  "platformUserQuota": "Quota",
+  "platformUserSetQuota": "Set Storage Quota",
+  "platformQuotaTitle": "Storage Quota — {{username}}",
+  "platformQuotaCurrent": "Current usage",
+  "platformQuotaLabel": "New quota",
+  "platformQuotaInvalid": "Enter a valid quota value",
+  "platformQuotaSuccess": "Quota updated for {{username}}",
+  "platformQuotaError": "Failed to update quota",
+
   "platformServerDelete": "Delete Server",
   "platformServerSendDMOwner": "Send DM to Owner",
   "platformServerDeleteTitle": "Delete Server",

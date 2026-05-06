@@ -34,6 +34,7 @@ type AdminUserListItem struct {
 	LastActivity      *string `json:"last_activity"`
 	MessageCount      int     `json:"message_count"`
 	StorageMB         float64 `json:"storage_mb"`
+	QuotaBytes        int64   `json:"quota_bytes"`
 	OwnedSelfServers  int     `json:"owned_self_servers"`
 	OwnedMqviServers  int     `json:"owned_mqvi_servers"`
 	MemberServerCount int     `json:"member_server_count"`

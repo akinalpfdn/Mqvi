@@ -27,7 +27,7 @@ type UserRepository interface {
 	// ─── Admin ───
 
 	// ListAllUsersWithStats returns all users with aggregated stats (message count, storage, bans, etc.).
-	ListAllUsersWithStats(ctx context.Context) ([]models.AdminUserListItem, error)
+	ListAllUsersWithStats(ctx context.Context, defaultQuotaBytes int64) ([]models.AdminUserListItem, error)
 
 	UpdateLastVoiceActivity(ctx context.Context, userID string) error
 

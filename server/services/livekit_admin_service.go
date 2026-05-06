@@ -47,14 +47,15 @@ type LiveKitAdminService interface {
 }
 
 type livekitAdminService struct {
-	livekitRepo   repository.LiveKitRepository
-	serverRepo    repository.ServerRepository
-	userRepo      repository.UserRepository
-	channelRepo   repository.ChannelRepository
-	voiceProvider ActiveVoiceProvider
-	encryptionKey []byte
-	httpClient    *http.Client
-	urlSigner     FileURLSigner
+	livekitRepo       repository.LiveKitRepository
+	serverRepo        repository.ServerRepository
+	userRepo          repository.UserRepository
+	channelRepo       repository.ChannelRepository
+	voiceProvider     ActiveVoiceProvider
+	encryptionKey     []byte
+	httpClient        *http.Client
+	urlSigner         FileURLSigner
+	defaultQuotaBytes int64
 
 	hetznerClient *hcloud.Client // optional (nil = disabled)
 	vcpuCache     map[int64]int
@@ -69,16 +70,18 @@ func NewLiveKitAdminService(
 	encryptionKey []byte,
 	hetznerToken string,
 	urlSigner FileURLSigner,
+	defaultQuotaBytes int64,
 ) LiveKitAdminService {
 	svc := &livekitAdminService{
-		livekitRepo:   livekitRepo,
-		serverRepo:    serverRepo,
-		userRepo:      userRepo,
-		channelRepo:   channelRepo,
-		voiceProvider: voiceProvider,
-		encryptionKey: encryptionKey,
-		urlSigner:     urlSigner,
-		vcpuCache:     make(map[int64]int),
+		livekitRepo:       livekitRepo,
+		serverRepo:        serverRepo,
+		userRepo:          userRepo,
+		channelRepo:       channelRepo,
+		voiceProvider:     voiceProvider,
+		encryptionKey:     encryptionKey,
+		urlSigner:         urlSigner,
+		defaultQuotaBytes: defaultQuotaBytes,
+		vcpuCache:         make(map[int64]int),
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 			// TLS skip for self-signed certs on internal backend->LiveKit traffic
@@ -304,7 +307,7 @@ func (s *livekitAdminService) MigrateServerInstance(ctx context.Context, serverI
 }
 
 func (s *livekitAdminService) ListUsers(ctx context.Context) ([]models.AdminUserListItem, error) {
-	users, err := s.userRepo.ListAllUsersWithStats(ctx)
+	users, err := s.userRepo.ListAllUsersWithStats(ctx, s.defaultQuotaBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list all users: %w", err)
 	}

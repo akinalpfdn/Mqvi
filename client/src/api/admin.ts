@@ -137,6 +137,13 @@ export async function setUserPlatformAdmin(
   });
 }
 
+export async function setUserQuota(userId: string, quotaBytes: number) {
+  return apiClient<{ message: string }>(`/admin/users/${userId}/quota`, {
+    method: "PATCH",
+    body: { quota_bytes: quotaBytes },
+  });
+}
+
 export async function migrateServerInstance(
   serverId: string,
   livekitInstanceId: string

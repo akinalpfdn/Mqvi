@@ -427,6 +427,15 @@
   "platformUnbanSuccess": "{{username}} kullanıcısının yasağı kaldırıldı",
   "platformUnbanError": "Yasak kaldırılırken hata oluştu",
 
+  "platformUserQuota": "Kota",
+  "platformUserSetQuota": "Depolama Kotası Ayarla",
+  "platformQuotaTitle": "Depolama Kotası — {{username}}",
+  "platformQuotaCurrent": "Mevcut kullanım",
+  "platformQuotaLabel": "Yeni kota",
+  "platformQuotaInvalid": "Geçerli bir kota değeri girin",
+  "platformQuotaSuccess": "{{username}} için kota güncellendi",
+  "platformQuotaError": "Kota güncellenirken hata oluştu",
+
   "platformServerDelete": "Sunucuyu Sil",
   "platformServerSendDMOwner": "Sahibine Mesaj Gönder",
   "platformServerDeleteTitle": "Sunucuyu Sil",

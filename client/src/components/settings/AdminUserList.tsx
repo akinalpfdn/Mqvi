@@ -7,7 +7,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
-import { listAdminUsers, platformBanUser, platformUnbanUser, hardDeleteUser, setUserPlatformAdmin } from "../../api/admin";
+import { listAdminUsers, platformBanUser, platformUnbanUser, hardDeleteUser, setUserPlatformAdmin, setUserQuota } from "../../api/admin";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 import ContextMenu from "../shared/ContextMenu";
@@ -32,6 +32,7 @@ type SortKey =
   | "last_activity"
   | "message_count"
   | "storage_mb"
+  | "quota_bytes"
   | "owned_self_servers"
   | "owned_mqvi_servers"
   | "member_server_count"
@@ -56,6 +57,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "last_activity", labelKey: "platformUserLastActivity", defaultWidth: 110, minWidth: 80, sortable: true, align: "left" },
   { key: "message_count", labelKey: "platformUserMessages", defaultWidth: 90, minWidth: 70, sortable: true, align: "right" },
   { key: "storage_mb", labelKey: "platformUserStorage", defaultWidth: 85, minWidth: 65, sortable: true, align: "right" },
+  { key: "quota_bytes", labelKey: "platformUserQuota", defaultWidth: 90, minWidth: 70, sortable: true, align: "right" },
   { key: "owned_self_servers", labelKey: "platformUserSelfServers", defaultWidth: 100, minWidth: 70, sortable: true, align: "right" },
   { key: "owned_mqvi_servers", labelKey: "platformUserMqviServers", defaultWidth: 100, minWidth: 70, sortable: true, align: "right" },
   { key: "member_server_count", labelKey: "platformUserMemberServers", defaultWidth: 100, minWidth: 70, sortable: true, align: "right" },
@@ -116,6 +118,9 @@ function compareSortValue(
     case "storage_mb":
       result = a.storage_mb - b.storage_mb;
       break;
+    case "quota_bytes":
+      result = a.quota_bytes - b.quota_bytes;
+      break;
     case "owned_self_servers":
       result = a.owned_self_servers - b.owned_self_servers;
       break;
@@ -158,6 +163,10 @@ function AdminUserList() {
 
   // ─── Delete dialog state ───
   const [deleteTarget, setDeleteTarget] = useState<AdminUserListItem | null>(null);
+
+  // ─── Quota edit state ───
+  const [quotaTarget, setQuotaTarget] = useState<AdminUserListItem | null>(null);
+  const [quotaInputGB, setQuotaInputGB] = useState("");
 
   // ─── Table state ───
   const [searchQuery, setSearchQuery] = useState("");
@@ -258,6 +267,12 @@ function AdminUserList() {
       });
     }
 
+    items.push({
+      label: t("platformUserSetQuota"),
+      separator: items.length > 0,
+      onClick: () => openQuotaEdit(user),
+    });
+
     if (!isMe && !user.is_platform_banned) {
       items.push({
         label: t("platformUserBan"),
@@ -341,6 +356,29 @@ function AdminUserList() {
       await refetchUsers();
     } else {
       addToast("error", res.error ?? t("platformAdminError"));
+    }
+  }
+
+  function openQuotaEdit(user: AdminUserListItem) {
+    setQuotaTarget(user);
+    setQuotaInputGB((user.quota_bytes / (1024 * 1024 * 1024)).toFixed(1));
+  }
+
+  async function handleQuotaConfirm() {
+    if (!quotaTarget) return;
+    const gb = parseFloat(quotaInputGB);
+    if (isNaN(gb) || gb <= 0) {
+      addToast("error", t("platformQuotaInvalid"));
+      return;
+    }
+    const bytes = Math.round(gb * 1024 * 1024 * 1024);
+    const res = await setUserQuota(quotaTarget.id, bytes);
+    if (res.success) {
+      addToast("success", t("platformQuotaSuccess", { username: quotaTarget.username }));
+      setQuotaTarget(null);
+      await refetchUsers();
+    } else {
+      addToast("error", res.error ?? t("platformQuotaError"));
     }
   }
 
@@ -437,6 +475,12 @@ function AdminUserList() {
     }
   }
 
+  function formatQuota(bytes: number) {
+    const gb = bytes / (1024 * 1024 * 1024);
+    if (gb >= 1024) return `${(gb / 1024).toFixed(1)} TB`;
+    return `${gb.toFixed(gb < 10 ? 1 : 0)} GB`;
+  }
+
   function formatStorage(mb: number) {
     if (mb < 0.01) return "0 MB";
     if (mb < 1) return `${(mb * 1024).toFixed(0)} KB`;
@@ -525,6 +569,9 @@ function AdminUserList() {
 
       case "storage_mb":
         return formatStorage(user.storage_mb);
+
+      case "quota_bytes":
+        return formatQuota(user.quota_bytes);
 
       case "owned_self_servers":
         return user.owned_self_servers;
@@ -655,6 +702,42 @@ function AdminUserList() {
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteTarget(null)}
         />
+      )}
+
+      {/* Quota Edit Dialog */}
+      {quotaTarget && (
+        <div className="modal-overlay" onClick={() => setQuotaTarget(null)}>
+          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
+            <h3>{t("platformQuotaTitle", { username: quotaTarget.username })}</h3>
+            <p className="modal-description">
+              {t("platformQuotaCurrent")}: {formatStorage(quotaTarget.storage_mb)} / {formatQuota(quotaTarget.quota_bytes)}
+            </p>
+            <div className="form-group">
+              <label>{t("platformQuotaLabel")}</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="number"
+                  className="form-input"
+                  value={quotaInputGB}
+                  onChange={(e) => setQuotaInputGB(e.target.value)}
+                  min="0.1"
+                  step="0.1"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === "Enter") handleQuotaConfirm(); }}
+                />
+                <span>GB</span>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setQuotaTarget(null)}>
+                {tCommon("cancel")}
+              </button>
+              <button className="btn btn-primary" onClick={handleQuotaConfirm}>
+                {tCommon("save")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Badge Assign Modal */}

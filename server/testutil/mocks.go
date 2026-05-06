@@ -98,7 +98,7 @@ func (m *MockUserRepo) Delete(ctx context.Context, id string) error {
 	}
 	return nil
 }
-func (m *MockUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.AdminUserListItem, error) {
+func (m *MockUserRepo) ListAllUsersWithStats(ctx context.Context, defaultQuotaBytes int64) ([]models.AdminUserListItem, error) {
 	if m.ListAllUsersWithStatsFn != nil {
 		return m.ListAllUsersWithStatsFn(ctx)
 	}

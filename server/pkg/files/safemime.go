@@ -116,7 +116,7 @@ func ServeDisposition(diskPath string, urlFilename string) (contentType string, 
 	}
 
 	if inlineSafeMIME[mimeBase] {
-		return detected, ""
+		return detected, formatInlineDisposition(displayName)
 	}
 
 	// Everything else: force download
@@ -137,6 +137,30 @@ func extractDisplayName(urlFilename string) string {
 		return decoded[17:]
 	}
 	return decoded
+}
+
+// formatInlineDisposition returns an inline Content-Disposition with filename hint.
+// Browsers use this for "Save As" on inline-displayed files.
+func formatInlineDisposition(filename string) string {
+	filename = sanitizeDispositionFilename(filename)
+	if filename == "" {
+		filename = "download"
+	}
+	isASCII := true
+	for _, c := range filename {
+		if c > 127 {
+			isASCII = false
+			break
+		}
+	}
+	if isASCII {
+		escaped := strings.ReplaceAll(filename, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+		return `inline; filename="` + escaped + `"`
+	}
+	encoded := url.PathEscape(filename)
+	asciiName := sanitizeToASCII(filename)
+	return `inline; filename="` + asciiName + `"; filename*=UTF-8''` + encoded
 }
 
 // formatAttachmentDisposition returns a RFC 6266 compliant Content-Disposition header value.

@@ -7,8 +7,8 @@ func TestServeDisposition_InlineImage(t *testing.T) {
 	if ct != "image/jpeg" {
 		t.Fatalf("expected image/jpeg, got %s", ct)
 	}
-	if disp != "" {
-		t.Fatalf("expected no disposition for inline image, got %s", disp)
+	if disp != `inline; filename="photo.jpg"` {
+		t.Fatalf("expected inline disposition with display name, got %s", disp)
 	}
 }
 
@@ -17,8 +17,9 @@ func TestServeDisposition_InlineVideo(t *testing.T) {
 	if ct != "video/mp4" {
 		t.Fatalf("expected video/mp4, got %s", ct)
 	}
-	if disp != "" {
-		t.Fatalf("expected no disposition for inline video, got %s", disp)
+	// No 16-char hex prefix → display name is "abc_video.mp4" as-is
+	if disp != `inline; filename="abc_video.mp4"` {
+		t.Fatalf("expected inline disposition, got %s", disp)
 	}
 }
 
@@ -27,8 +28,8 @@ func TestServeDisposition_InlineAudio(t *testing.T) {
 	if ct != "audio/ogg" {
 		t.Fatalf("expected audio/ogg, got %s", ct)
 	}
-	if disp != "" {
-		t.Fatalf("expected no disposition for inline audio, got %s", disp)
+	if disp != `inline; filename="abc_song.ogg"` {
+		t.Fatalf("expected inline disposition, got %s", disp)
 	}
 }
 
@@ -77,8 +78,8 @@ func TestServeDisposition_InlinePDF(t *testing.T) {
 	if ct != "application/pdf" {
 		t.Fatalf("expected application/pdf, got %s", ct)
 	}
-	if disp != "" {
-		t.Fatalf("expected no disposition for inline PDF, got %s", disp)
+	if disp != `inline; filename="doc.pdf"` {
+		t.Fatalf("expected inline disposition with display name, got %s", disp)
 	}
 }
 
@@ -89,6 +90,24 @@ func TestServeDisposition_UnknownExtension(t *testing.T) {
 	}
 	if disp == "" {
 		t.Fatal("expected attachment disposition for unknown type")
+	}
+}
+
+func TestFormatInlineDisposition_ASCII(t *testing.T) {
+	got := formatInlineDisposition("photo.jpg")
+	expected := `inline; filename="photo.jpg"`
+	if got != expected {
+		t.Fatalf("expected %q, got %q", expected, got)
+	}
+}
+
+func TestFormatInlineDisposition_NonASCII(t *testing.T) {
+	got := formatInlineDisposition("фото.jpg")
+	if !containsStr(got, "inline;") {
+		t.Fatalf("expected inline disposition, got %q", got)
+	}
+	if !containsStr(got, "filename*=UTF-8''") {
+		t.Fatalf("expected UTF-8 filename*, got %q", got)
 	}
 }
 

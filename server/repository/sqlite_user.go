@@ -322,7 +322,7 @@ func searchString(s, substr string) bool {
 // ─── Admin ───
 
 // ListAllUsersWithStats returns all users with aggregated stats via correlated subqueries.
-func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.AdminUserListItem, error) {
+func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context, defaultQuotaBytes int64) ([]models.AdminUserListItem, error) {
 	query := `
 		SELECT
 			u.id,
@@ -339,11 +339,8 @@ func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.Ad
 				SELECT u.last_voice_activity
 			) sub WHERE val IS NOT NULL),
 			(SELECT COUNT(*) FROM messages m2 WHERE m2.user_id = u.id),
-			COALESCE(
-				(SELECT SUM(a.file_size) FROM attachments a
-				 INNER JOIN messages m3 ON a.message_id = m3.id
-				 WHERE m3.user_id = u.id), 0
-			) / 1048576.0,
+			COALESCE((SELECT us.bytes_used FROM user_storage us WHERE us.user_id = u.id), 0) / 1048576.0,
+			COALESCE((SELECT us.quota_bytes FROM user_storage us WHERE us.user_id = u.id), ?),
 			(SELECT COUNT(*) FROM servers sv
 			 LEFT JOIN livekit_instances li ON sv.livekit_instance_id = li.id
 			 WHERE sv.owner_id = u.id AND COALESCE(li.is_platform_managed, 0) = 0),
@@ -355,7 +352,7 @@ func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.Ad
 		FROM users u
 		ORDER BY u.created_at DESC`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, defaultQuotaBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list all users with stats: %w", err)
 	}
@@ -367,7 +364,7 @@ func (r *sqliteUserRepo) ListAllUsersWithStats(ctx context.Context) ([]models.Ad
 		if err := rows.Scan(
 			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL,
 			&u.IsPlatformAdmin, &u.IsPlatformBanned, &u.CreatedAt, &u.Status,
-			&u.LastActivity, &u.MessageCount, &u.StorageMB,
+			&u.LastActivity, &u.MessageCount, &u.StorageMB, &u.QuotaBytes,
 			&u.OwnedSelfServers, &u.OwnedMqviServers,
 			&u.MemberServerCount, &u.BanCount,
 		); err != nil {
