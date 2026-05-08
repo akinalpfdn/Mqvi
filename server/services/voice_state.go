@@ -25,8 +25,11 @@ func (s *voiceService) broadcastToServer(serverID string, event ws.Event) {
 }
 
 func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error {
-	// Sign avatar URL so all broadcasts carry a valid signed URL.
-	avatarURL = s.urlSigner.SignURL(avatarURL)
+	// avatarURL is the raw, unsigned URL from the DB. We store it unsigned in
+	// VoiceState (which lives as long as the user is in voice — could be hours)
+	// and re-sign at every broadcast egress. Storing an already-signed URL would
+	// expire mid-session and serve 401s to anyone who joined later via voice_states_sync.
+	signedAvatar := s.urlSigner.SignURL(avatarURL)
 
 	// Resolve channel's parent server before locking — all voice broadcasts are server-scoped.
 	channel, err := s.channelGetter.GetByID(context.Background(), channelID)
@@ -66,7 +69,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 				ChannelID:        oldChannelID,
 				Username:         username,
 				DisplayName:      displayName,
-				AvatarURL:        avatarURL,
+				AvatarURL:        signedAvatar,
 				IsServerMuted:    existing.IsServerMuted,
 				IsServerDeafened: existing.IsServerDeafened,
 				Action:           "leave",
@@ -82,7 +85,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		ServerID:     serverID,
 		Username:     username,
 		DisplayName:  displayName,
-		AvatarURL:    avatarURL,
+		AvatarURL:    avatarURL, // unsigned — see comment above
 		IsMuted:      isMuted,
 		IsDeafened:   isDeafened,
 		LastActivity: time.Now(),
@@ -95,7 +98,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			ChannelID:   channelID,
 			Username:    username,
 			DisplayName: displayName,
-			AvatarURL:   avatarURL,
+			AvatarURL:   signedAvatar,
 			IsMuted:     isMuted,
 			IsDeafened:  isDeafened,
 			Action:      "join",
@@ -126,7 +129,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	serverID := state.ServerID
 	username := state.Username
 	displayName := state.DisplayName
-	avatarURL := state.AvatarURL
+	avatarURL := s.urlSigner.SignURL(state.AvatarURL)
 	wasStreaming := state.IsStreaming
 	delete(s.states, userID)
 
@@ -233,7 +236,7 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 			ChannelID:        state.ChannelID,
 			Username:         state.Username,
 			DisplayName:      state.DisplayName,
-			AvatarURL:        state.AvatarURL,
+			AvatarURL:        s.urlSigner.SignURL(state.AvatarURL),
 			IsMuted:          state.IsMuted,
 			IsDeafened:       state.IsDeafened,
 			IsStreaming:      state.IsStreaming,

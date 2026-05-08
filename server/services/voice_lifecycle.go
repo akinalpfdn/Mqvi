@@ -108,7 +108,7 @@ func (s *voiceService) sweepOrphanStates() {
 		serverID := state.ServerID
 		username := state.Username
 		displayName := state.DisplayName
-		avatarURL := state.AvatarURL
+		avatarURL := s.urlSigner.SignURL(state.AvatarURL)
 		delete(s.states, userID)
 		delete(s.offlineSince, userID)
 

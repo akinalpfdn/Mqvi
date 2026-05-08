@@ -78,17 +78,19 @@ const URLPathPrefix = "/api/files"
 // reach disk or DB.
 var ErrInvalidSegment = errors.New("invalid path segment")
 
-// validateSegment rejects empty, ., .., embedded separators, NUL, and any path
+// ValidateSegment rejects empty, ., .., embedded separators, NUL, and any path
 // that would alter the directory hierarchy when joined. This is the single
-// gate every untrusted scopeID and filename must pass through.
-func validateSegment(s string) error {
+// gate every untrusted scopeID and filename must pass through. Exposed so other
+// packages enforcing file-path safety (e.g. profile-update avatar validation)
+// can mirror the same rules without re-implementing them.
+func ValidateSegment(s string) error {
 	if s == "" {
 		return fmt.Errorf("%w: empty", ErrInvalidSegment)
 	}
 	if s == "." || s == ".." {
 		return fmt.Errorf("%w: reserved name %q", ErrInvalidSegment, s)
 	}
-	if strings.ContainsAny(s, `/\` + "\x00") {
+	if strings.ContainsAny(s, `/\`+"\x00") {
 		return fmt.Errorf("%w: contains separator or NUL", ErrInvalidSegment)
 	}
 	// Reject any literal ".." appearing as a substring split by separators it
@@ -100,6 +102,9 @@ func validateSegment(s string) error {
 	}
 	return nil
 }
+
+// validateSegment is kept for backwards-compat with internal call sites.
+func validateSegment(s string) error { return ValidateSegment(s) }
 
 // Locator builds disk paths and public URLs for stored files.
 type Locator struct {

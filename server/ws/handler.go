@@ -304,7 +304,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 				ServerID:         s.ServerID,
 				Username:         s.Username,
 				DisplayName:      s.DisplayName,
-				AvatarURL:        s.AvatarURL,
+				AvatarURL:        h.urlSigner.SignURL(s.AvatarURL),
 				IsMuted:          s.IsMuted,
 				IsDeafened:       s.IsDeafened,
 				IsStreaming:      s.IsStreaming,

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
 )
@@ -149,7 +151,21 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 		}
 	}
 	if req.AvatarURL != nil {
-		user.AvatarURL = req.AvatarURL
+		// Lock avatar_url to a path the user actually owns. Without this gate
+		// any caller of PATCH /users/me/profile could point their avatar at an
+		// arbitrary /api/files/... URL — including private DM attachments —
+		// and the server would happily sign and serve it on every egress.
+		// Empty string clears the avatar; non-empty must be the canonical
+		// /api/files/avatars/<userID>/... path the upload handler produces.
+		clean, err := normalizeOwnAvatarURL(*req.AvatarURL, userID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
+		}
+		if clean == "" {
+			user.AvatarURL = nil
+		} else {
+			user.AvatarURL = &clean
+		}
 	}
 	if req.CustomStatus != nil {
 		if *req.CustomStatus == "" {
@@ -388,4 +404,52 @@ func (s *memberService) checkHierarchy(ctx context.Context, serverID, actorID, t
 	}
 
 	return nil
+}
+
+// normalizeOwnAvatarURL accepts the avatar_url field from a profile update and
+// either rejects it or returns a clean path safe to store. Rules:
+//   - empty string → returns "" (caller clears AvatarURL)
+//   - canonical own-avatar path produced by the upload handler
+//     ("/api/files/avatars/<userID>/<filename>", optionally with ?exp=&sig=) →
+//     returns the path with all query params stripped
+//   - anything else → error
+//
+// The filename segment is percent-decoded before validation and run through the
+// same files.ValidateSegment gate the locator uses on serve, so escaped slashes
+// (%2F), backslashes, NULs, and ".." cannot land in the DB even though they
+// would already be rejected at serve time. Without this normalization a profile
+// update could store junk URLs that confuse later UI/validation passes.
+//
+// Without the prefix gate, a profile-update caller could point their avatar at
+// any /api/files/... URL — including private message attachments — and the
+// server would sign and serve it on every egress as if it were the user's own.
+func normalizeOwnAvatarURL(raw, userID string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("avatar_url is unparseable")
+	}
+	// Must be a relative path on this origin — reject https://evil.example/...
+	// or //attacker.example/... that would otherwise prefix-match.
+	if u.Scheme != "" || u.Host != "" || u.Opaque != "" {
+		return "", fmt.Errorf("avatar_url must be a relative path on this server")
+	}
+	prefix := "/api/files/avatars/" + userID + "/"
+	// Use the parsed (un-escaped) Path so a literal "/" smuggled via %2F
+	// would already appear here and fail the prefix check. EscapedPath() would
+	// hide it. Either form is fine for the prefix because userID is ASCII.
+	if !strings.HasPrefix(u.Path, prefix) {
+		return "", fmt.Errorf("avatar_url must be uploaded via /api/users/me/avatar")
+	}
+	rest := u.Path[len(prefix):]
+	// rest is already percent-decoded by url.Parse. Run it through the same
+	// segment validator the locator applies on serve.
+	if err := files.ValidateSegment(rest); err != nil {
+		return "", fmt.Errorf("avatar_url has invalid filename: %v", err)
+	}
+	// DB stores the unsigned canonical path. Re-escape so the stored URL
+	// matches what the upload handler writes (url.PathEscape on the filename).
+	return "/api/files/avatars/" + userID + "/" + url.PathEscape(rest), nil
 }

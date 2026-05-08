@@ -54,7 +54,7 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 			ChannelID:        state.ChannelID,
 			Username:         state.Username,
 			DisplayName:      state.DisplayName,
-			AvatarURL:        state.AvatarURL,
+			AvatarURL:        s.urlSigner.SignURL(state.AvatarURL),
 			IsMuted:          state.IsMuted,
 			IsDeafened:       state.IsDeafened,
 			IsStreaming:      state.IsStreaming,
@@ -151,6 +151,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 
 	// Broadcast leave(source) + join(target). If both channels are on the same
 	// server, one BroadcastToServer covers both events' audiences.
+	signedAvatar := s.urlSigner.SignURL(state.AvatarURL)
 	s.broadcastToServer(sourceServerID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
@@ -158,7 +159,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 			ChannelID:        sourceChannelID,
 			Username:         state.Username,
 			DisplayName:      state.DisplayName,
-			AvatarURL:        state.AvatarURL,
+			AvatarURL:        signedAvatar,
 			IsServerMuted:    state.IsServerMuted,
 			IsServerDeafened: state.IsServerDeafened,
 			Action:           "leave",
@@ -171,7 +172,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 			ChannelID:        targetChannelID,
 			Username:         state.Username,
 			DisplayName:      state.DisplayName,
-			AvatarURL:        state.AvatarURL,
+			AvatarURL:        signedAvatar,
 			IsMuted:          state.IsMuted,
 			IsDeafened:       state.IsDeafened,
 			IsStreaming:      state.IsStreaming,
@@ -232,7 +233,7 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 	serverID := state.ServerID
 	username := state.Username
 	displayName := state.DisplayName
-	avatarURL := state.AvatarURL
+	avatarURL := s.urlSigner.SignURL(state.AvatarURL)
 	delete(s.states, targetUserID)
 
 	s.broadcastToServer(serverID, ws.Event{
