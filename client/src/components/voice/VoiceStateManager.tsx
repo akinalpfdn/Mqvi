@@ -148,6 +148,19 @@ function VoiceStateManager() {
             contentHint: "motion",
           });
         }
+
+        // External stop (OS "stop sharing" overlay or captured window/game closing):
+        // LiveKit doesn't auto-unpublish on track end, so flip the store ourselves.
+        if (!useNativeScreenShare && !cancelled) {
+          const mst = localParticipant
+            .getTrackPublication(Track.Source.ScreenShare)
+            ?.track?.mediaStreamTrack;
+          mst?.addEventListener("ended", () => {
+            if (useVoiceStore.getState().isStreaming) {
+              useVoiceStore.getState().setStreaming(false);
+            }
+          }, { once: true });
+        }
       } else {
         if (useNativeScreenShare) {
           // Capacitor: stop native screen share
@@ -177,6 +190,17 @@ function VoiceStateManager() {
 
     return () => { cancelled = true; };
   }, [isStreaming, screenShareAudio, localParticipant]);
+
+  // Mirror local streaming state to the server on every change, whatever the
+  // trigger (button, OS "stop sharing", window/game close, track drop). Other
+  // clients only learn we stopped through this — the button alone wasn't enough.
+  const streamingSentRef = useRef(isStreaming);
+  useEffect(() => {
+    if (!initialSyncDone.current) return;
+    if (streamingSentRef.current === isStreaming) return;
+    streamingSentRef.current = isStreaming;
+    useVoiceStore.getState()._wsSend?.("voice_state_update_request", { is_streaming: isStreaming });
+  }, [isStreaming]);
 
   // Capacitor: listen for native screen share stopped (user stops externally)
   useEffect(() => {

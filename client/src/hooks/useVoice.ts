@@ -78,12 +78,11 @@ export function useVoice({
   }, [storeToggleDeafen, sendVoiceStateUpdate]);
 
   const toggleScreenShare = useCallback(() => {
+    // Server notification is centralized in VoiceStateManager (fires on every
+    // isStreaming change), so all stop paths reach other clients — not just this.
     const { isStreaming } = useVoiceStore.getState();
-    const newStreaming = !isStreaming;
-    storeSetStreaming(newStreaming);
-
-    sendVoiceStateUpdate({ is_streaming: newStreaming });
-  }, [storeSetStreaming, sendVoiceStateUpdate]);
+    storeSetStreaming(!isStreaming);
+  }, [storeSetStreaming]);
 
   return { joinVoice, leaveVoice, toggleMute, toggleDeafen, toggleScreenShare };
 }

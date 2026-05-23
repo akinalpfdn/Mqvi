@@ -7,6 +7,10 @@ vi.mock("../api/client", () => ({ ensureFreshToken: vi.fn() }));
 vi.mock("../utils/sounds", () => ({
   playJoinSound: vi.fn(),
   playLeaveSound: vi.fn(),
+  playMuteOnSound: vi.fn(),
+  playMuteOffSound: vi.fn(),
+  playDeafenOnSound: vi.fn(),
+  playDeafenOffSound: vi.fn(),
   closeAudioContext: vi.fn(),
 }));
 vi.mock("./preferencesStore", () => ({
