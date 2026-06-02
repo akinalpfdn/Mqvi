@@ -190,7 +190,7 @@
   "joinLeaveSounds": "Giriş/Çıkış Sesleri",
   "joinLeaveSoundsDesc": "Biri ses kanalına girip çıktığında ses çal",
   "shortcuts": "Klavye Kısayolları",
-  "shortcutsDesc": "Bir kısayola tıkla ve istediğin tuş kombinasyonuna bas. Ctrl veya Alt zorunlu. İptal için Escape.",
+  "shortcutsDesc": "Bir kısayola tıkla ve istediğin tuş kombinasyonuna bas. Herhangi bir tuş çalışır (makro için tek tuş dahil). İptal için Escape.",
   "shortcutMute": "Mikrofonu sustur",
   "shortcutDeafen": "Sesi kapat",
   "shortcutReset": "Sıfırla",

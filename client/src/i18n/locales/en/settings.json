@@ -190,7 +190,7 @@
   "joinLeaveSounds": "Join/Leave Sounds",
   "joinLeaveSoundsDesc": "Play a sound when someone joins or leaves voice",
   "shortcuts": "Keyboard Shortcuts",
-  "shortcutsDesc": "Click a binding and press the keys you want. Ctrl or Alt is required. Press Escape to cancel.",
+  "shortcutsDesc": "Click a binding and press the keys you want. Any key works (including single keys for macros). Press Escape to cancel.",
   "shortcutMute": "Toggle mute",
   "shortcutDeafen": "Toggle deafen",
   "shortcutReset": "Reset",

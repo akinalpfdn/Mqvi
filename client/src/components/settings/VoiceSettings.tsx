@@ -352,11 +352,9 @@ function VoiceSettings() {
         return;
       }
 
-      // Require at least Ctrl or Alt so a bare letter press in chat input never
-      // hijacks toggle. Shift alone is not enough.
-      if (!e.ctrlKey && !e.altKey) {
-        return;
-      }
+      // No modifier required — useKeyboardShortcuts already skips when a text
+      // input/textarea/contentEditable is focused, so a bare letter is safe and
+      // macros (single-key bindings) work as expected.
 
       const binding: ShortcutBinding = {
         code: e.code,
