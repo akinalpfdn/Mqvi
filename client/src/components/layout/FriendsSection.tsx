@@ -144,25 +144,25 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
                   onClick={() => { void handleFriendClick(friend); }}
                   onContextMenu={(e) => handleFriendContextMenu(e, friend)}
                 >
-                  <Avatar
-                    name={friend.display_name ?? friend.username}
-                    avatarUrl={friend.avatar_url ?? undefined}
-                    size={24}
-                  />
+                  <span className="member-av-wrap">
+                    <Avatar
+                      name={friend.display_name ?? friend.username}
+                      avatarUrl={friend.avatar_url ?? undefined}
+                      size={24}
+                    />
+                    <span className={`member-status ${
+                      friend.user_status === "online"
+                        ? "status-on"
+                        : friend.user_status === "idle"
+                          ? "status-idle"
+                          : friend.user_status === "dnd"
+                            ? "status-dnd"
+                            : "status-off"
+                    }`} />
+                  </span>
                   <span className="ch-tree-label">
                     {friend.display_name ?? friend.username}
                   </span>
-                  <span
-                    className="ch-tree-vu-dot"
-                    style={{
-                      background:
-                        friend.user_status === "online"
-                          ? "var(--green)"
-                          : friend.user_status === "idle"
-                            ? "var(--yellow, #f0b232)"
-                            : "var(--red)",
-                    }}
-                  />
                 </button>
               ))}
           </div>

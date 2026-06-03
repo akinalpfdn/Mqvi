@@ -104,6 +104,9 @@ export async function handleSystemEvent(
     case "presence_update": {
       const data = msg.d as { user_id: string; status: UserStatus };
       useMemberStore.getState().handlePresenceUpdate(data.user_id, data.status);
+      // Sidebar friends list filters by status — without this update friends
+      // appear stuck online/offline until the Friends tab is reopened.
+      useFriendStore.getState().handlePresenceUpdate(data.user_id, data.status);
       const myId = useAuthStore.getState().user?.id;
       if (data.user_id === myId) {
         useAuthStore.getState().updateUser({ status: data.status });

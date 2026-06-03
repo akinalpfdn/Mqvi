@@ -6,7 +6,7 @@
 
 import { create } from "zustand";
 import * as friendsApi from "../api/friends";
-import type { FriendshipWithUser } from "../types";
+import type { FriendshipWithUser, UserStatus } from "../types";
 
 const EMPTY_FRIENDS: FriendshipWithUser[] = [];
 const EMPTY_INCOMING: FriendshipWithUser[] = [];
@@ -31,6 +31,8 @@ type FriendState = {
   handleFriendRequestAccept: (data: FriendshipWithUser) => void;
   handleFriendRequestDecline: (data: { id: string; user_id: string }) => void;
   handleFriendRemove: (data: { user_id: string }) => void;
+  /** Live presence update for a friend — keeps sidebar online/offline filter accurate. */
+  handlePresenceUpdate: (userId: string, status: UserStatus) => void;
 };
 
 export const useFriendStore = create<FriendState>((set, get) => ({
@@ -143,5 +145,19 @@ export const useFriendStore = create<FriendState>((set, get) => ({
     set((s) => ({
       friends: s.friends.filter((f) => f.user_id !== data.user_id),
     }));
+  },
+
+  handlePresenceUpdate: (userId, status) => {
+    set((s) => {
+      let changed = false;
+      const next = s.friends.map((f) => {
+        if (f.user_id === userId && f.user_status !== status) {
+          changed = true;
+          return { ...f, user_status: status };
+        }
+        return f;
+      });
+      return changed ? { friends: next } : s;
+    });
   },
 }));
