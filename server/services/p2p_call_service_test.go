@@ -99,6 +99,25 @@ func TestInitiateCallRejectsDuplicateCaller(t *testing.T) {
 	}
 }
 
+// TestInitiateCallRejectsBusyReceiver verifies that once a receiver is reserved
+// (ringing or active), a second caller to them gets "busy" — preventing two
+// concurrent ringing calls the single-call frontend can't model.
+func TestInitiateCallRejectsBusyReceiver(t *testing.T) {
+	svc := &p2pCallService{
+		friendChecker: fakeFriendChecker{},
+		userGetter:    fakeUserGetter{},
+		hub:           fakeHub{},
+		activeCalls:   map[string]*models.P2PCall{"existing": {ID: "existing", CallerID: "other", ReceiverID: "receiver", Status: models.P2PCallStatusRinging}},
+		userCalls:     map[string]string{"other": "existing", "receiver": "existing"},
+		ringTimers:    map[string]*time.Timer{},
+	}
+
+	err := svc.InitiateCall("callerB", "receiver", models.P2PCallTypeVoice)
+	if !errors.Is(err, pkg.ErrBadRequest) {
+		t.Fatalf("expected busy error when receiver is already reserved, got %v", err)
+	}
+}
+
 // TestAcceptCallRejectsBusyReceiver verifies a receiver already in a call cannot
 // accept a second ringing call. Reject path returns before any broadcast.
 func TestAcceptCallRejectsBusyReceiver(t *testing.T) {

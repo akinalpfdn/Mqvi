@@ -95,6 +95,7 @@ type RequestOptions = {
   method?: string;
   body?: unknown;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 /**
@@ -108,7 +109,7 @@ export async function apiClient<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<APIResponse<T>> {
-  const { method = "GET", body, headers: extraHeaders } = options;
+  const { method = "GET", body, headers: extraHeaders, signal } = options;
 
   const headers: Record<string, string> = {
     ...extraHeaders,
@@ -130,6 +131,7 @@ export async function apiClient<T>(
     // Same-origin web defaults to "include"; this explicit value is required
     // for the Electron renderer (file:// origin → API is cross-site).
     credentials: "include",
+    signal,
   };
 
   if (body) {

@@ -197,7 +197,12 @@ func (s *p2pCallService) InitiateCall(callerID, receiverID string, callType mode
 		return fmt.Errorf("%w: user is busy", pkg.ErrBadRequest)
 	}
 	s.activeCalls[call.ID] = call
-	s.userCalls[callerID] = call.ID // reserve caller immediately
+	// Reserve BOTH parties immediately. Reserving only the caller let two callers
+	// ring the same idle receiver concurrently; the single-call frontend can't
+	// model that, so the receiver would accept one call while its state points at
+	// the other. Reserving the receiver makes the second caller get "busy".
+	s.userCalls[callerID] = call.ID
+	s.userCalls[receiverID] = call.ID
 	// Server-side backstop: auto-clean if never answered. Cancelled on
 	// accept/decline/end/disconnect. time.AfterFunc is a one-shot (no lingering
 	// goroutine); on shutdown it's dropped with the rest of the in-memory state.
@@ -359,27 +364,37 @@ func (s *p2pCallService) EndCall(userID string) error {
 // RelaySignal forwards WebRTC signaling data (SDP/ICE) to the other party.
 // Server does not inspect the payload.
 func (s *p2pCallService) RelaySignal(senderID, callID string, signal ws.P2PSignalData) error {
+	// Snapshot under the lock — Status is mutated by AcceptCall, so reading it
+	// off the shared *P2PCall after unlocking would be a data race. This removes
+	// the race; a benign logical window remains (the call may end between this
+	// snapshot and the broadcast below), but the receiving client drops a signal
+	// whose call_id no longer matches its active call.
 	s.mu.RLock()
 	call, exists := s.activeCalls[callID]
+	var callerID, receiverID string
+	var status models.P2PCallStatus
+	if exists {
+		callerID, receiverID, status = call.CallerID, call.ReceiverID, call.Status
+	}
 	s.mu.RUnlock()
 
 	if !exists {
 		return fmt.Errorf("%w: call not found", pkg.ErrNotFound)
 	}
 
-	if call.CallerID != senderID && call.ReceiverID != senderID {
+	if callerID != senderID && receiverID != senderID {
 		return fmt.Errorf("%w: not part of this call", pkg.ErrForbidden)
 	}
 
 	// Only relay WebRTC signaling once the call is accepted. Forwarding SDP/ICE
 	// during ringing lets a caller drive negotiation before the callee consents.
-	if call.Status != models.P2PCallStatusActive {
+	if status != models.P2PCallStatusActive {
 		return fmt.Errorf("%w: call is not active", pkg.ErrBadRequest)
 	}
 
-	otherUserID := call.CallerID
-	if call.CallerID == senderID {
-		otherUserID = call.ReceiverID
+	otherUserID := callerID
+	if callerID == senderID {
+		otherUserID = receiverID
 	}
 
 	s.hub.BroadcastToUser(otherUserID, ws.Event{
