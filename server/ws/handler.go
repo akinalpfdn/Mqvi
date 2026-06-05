@@ -309,6 +309,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			items = append(items, VoiceStateItem{
 				UserID:           s.UserID,
 				ChannelID:        s.ChannelID,
+				ChannelName:      s.ChannelName,
 				ServerID:         s.ServerID,
 				Username:         s.Username,
 				DisplayName:      s.DisplayName,

@@ -268,6 +268,8 @@ export type PinnedMessage = {
 export type VoiceState = {
   user_id: string;
   channel_id: string;
+  /** Cached channel name — feeds the server-hover voice presence popup. */
+  channel_name?: string;
   /** Parent server — used for F5 recovery and server-scoped filtering. */
   server_id?: string;
   username: string;
@@ -295,6 +297,9 @@ export type VoiceTokenResponse = {
 export type VoiceStateUpdateData = {
   user_id: string;
   channel_id: string;
+  /** Present on "join" — server attribution + channel name for the voice popup. */
+  channel_name?: string;
+  server_id?: string;
   username: string;
   display_name: string;
   avatar_url: string;

@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useServerStore } from "../../stores/serverStore";
@@ -10,8 +10,11 @@ import { useActiveMembers } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { resolveAssetUrl } from "../../utils/constants";
 import ContextMenu from "../shared/ContextMenu";
+import ServerVoicePopup from "./ServerVoicePopup";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
+
+const VOICE_POPUP_HOVER_MS = 300;
 
 type ServerListProps = {
   onAddServer: () => void;
@@ -74,6 +77,33 @@ function ServerList({
     serverId: string;
     position: "above" | "below";
   } | null>(null);
+
+  // ─── Voice presence hover popup ───
+  const [voiceHover, setVoiceHover] = useState<{ serverId: string; top: number; left: number } | null>(null);
+  const voiceHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearVoiceHoverTimer() {
+    if (voiceHoverTimer.current) {
+      clearTimeout(voiceHoverTimer.current);
+      voiceHoverTimer.current = null;
+    }
+  }
+
+  function handleServerMouseEnter(e: React.MouseEvent, serverId: string) {
+    if (dragServerIdRef.current) return; // don't pop while dragging
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    clearVoiceHoverTimer();
+    voiceHoverTimer.current = setTimeout(() => {
+      setVoiceHover({ serverId, top: rect.top, left: rect.right + 8 });
+    }, VOICE_POPUP_HOVER_MS);
+  }
+
+  function handleServerMouseLeave() {
+    clearVoiceHoverTimer();
+    setVoiceHover(null);
+  }
+
+  useEffect(() => clearVoiceHoverTimer, []);
 
   function handleServerDragStart(e: React.DragEvent, serverId: string) {
     e.stopPropagation();
@@ -280,6 +310,8 @@ function ServerList({
                       className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
                       onClick={handleSrvHeaderClick}
                       onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
+                      onMouseEnter={(e) => handleServerMouseEnter(e, srv.id)}
+                      onMouseLeave={handleServerMouseLeave}
                     >
                       <Chevron expanded={srvExpanded && isActive} />
                       {srv.icon_url ? (
@@ -324,6 +356,14 @@ function ServerList({
       </div>
 
       <ContextMenu state={menuState} onClose={closeMenu} />
+
+      {voiceHover && (
+        <ServerVoicePopup
+          serverId={voiceHover.serverId}
+          anchorTop={voiceHover.top}
+          anchorLeft={voiceHover.left}
+        />
+      )}
     </>
   );
 }

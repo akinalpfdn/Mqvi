@@ -7,7 +7,8 @@ import "time"
 type VoiceState struct {
 	UserID           string    `json:"user_id"`
 	ChannelID        string    `json:"channel_id"`
-	ServerID         string    `json:"server_id"` // parent server — used to scope WS broadcasts
+	ChannelName      string    `json:"channel_name"` // cached for cross-server voice presence popups
+	ServerID         string    `json:"server_id"`    // parent server — used to scope WS broadcasts
 	Username         string    `json:"username"`
 	DisplayName      string    `json:"display_name"`
 	AvatarURL        string    `json:"avatar_url"`

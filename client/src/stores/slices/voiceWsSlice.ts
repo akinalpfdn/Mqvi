@@ -66,6 +66,8 @@ export const createVoiceWsSlice: StateCreator<
             {
               user_id: data.user_id,
               channel_id: data.channel_id,
+              channel_name: data.channel_name,
+              server_id: data.server_id,
               username: data.username,
               display_name: data.display_name,
               avatar_url: data.avatar_url,

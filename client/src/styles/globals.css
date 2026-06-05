@@ -2178,6 +2178,15 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .vp-vol-range::-moz-range-thumb { width:16px;height:16px;border-radius:999px;background:var(--primary);border:none;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4); }
 .vp-vol-value { font-size:13px;font-weight:500;color:var(--primary);min-width:36px;text-align:right;font-variant-numeric:tabular-nums; }
 
+/* Server hover — active voice channels preview popup */
+.server-voice-popup { position:fixed;z-index:9999;min-width:180px;max-width:240px;background:var(--bg-2);border:1px solid var(--b1);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:8px;display:flex;flex-direction:column;gap:10px;animation:vpIn .12s ease-out;pointer-events:none; }
+.svp-channel { display:flex;flex-direction:column;gap:6px; }
+.svp-channel-name { display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--t1); }
+.svp-channel-name svg { width:14px;height:14px;flex-shrink:0;color:var(--t3); }
+.svp-channel-name span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.svp-avatars { display:flex;flex-wrap:wrap;gap:5px;padding-left:20px; }
+.svp-avatar { display:flex; }
+
 /* Voice user context menu (sidebar right-click) */
 .voice-ctx-menu { position:fixed;z-index:9999;min-width:220px;max-width:280px;background:var(--bg-2);border:1px solid var(--b1);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:0;animation:vpIn .12s ease-out;overflow:hidden; }
 .voice-ctx-header { display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg-4);border-bottom:1px solid var(--b1); }

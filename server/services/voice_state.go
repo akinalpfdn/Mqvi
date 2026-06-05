@@ -89,6 +89,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	s.states[userID] = &models.VoiceState{
 		UserID:       userID,
 		ChannelID:    channelID,
+		ChannelName:  channel.Name,
 		ServerID:     serverID,
 		Username:     username,
 		DisplayName:  displayName,
@@ -103,6 +104,8 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:      userID,
 			ChannelID:   channelID,
+			ChannelName: channel.Name,
+			ServerID:    serverID,
 			Username:    username,
 			DisplayName: displayName,
 			AvatarURL:   signedAvatar,

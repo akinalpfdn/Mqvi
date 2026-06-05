@@ -145,6 +145,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	targetServerID := channel.ServerID
 
 	state.ChannelID = targetChannelID
+	state.ChannelName = channel.Name
 	state.ServerID = targetServerID
 
 	s.cleanupRoomPassphraseIfEmpty(sourceChannelID)
@@ -170,6 +171,8 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:           state.UserID,
 			ChannelID:        targetChannelID,
+			ChannelName:      channel.Name,
+			ServerID:         targetServerID,
 			Username:         state.Username,
 			DisplayName:      state.DisplayName,
 			AvatarURL:        signedAvatar,
