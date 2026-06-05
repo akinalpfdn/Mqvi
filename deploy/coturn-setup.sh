@@ -201,6 +201,15 @@ fi
 
 # ─── 6/6: Start coturn ───
 echo -e "${YELLOW}[6/6] Starting coturn service...${NC}"
+# Auto-restart on crash (the packaged unit may not set one) via a drop-in so the
+# package's own unit file isn't touched / overwritten on upgrade. With enable
+# (boot) + this (crash), coturn self-heals like mqvi-server does.
+mkdir -p /etc/systemd/system/coturn.service.d
+cat > /etc/systemd/system/coturn.service.d/restart.conf <<EOF
+[Service]
+Restart=on-failure
+RestartSec=5
+EOF
 systemctl daemon-reload
 systemctl enable coturn >/dev/null 2>&1 || true
 systemctl restart coturn
