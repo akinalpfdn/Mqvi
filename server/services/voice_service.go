@@ -75,6 +75,7 @@ type VoiceService interface {
 	UpdateActivity(userID string)
 	StartOrphanCleanup()
 	StartAFKChecker()
+	StartLiveKitReconciliation()
 	SetAppLogger(logger VoiceAppLogger)
 }
 
@@ -100,6 +101,7 @@ type voiceService struct {
 	screenShareViewers map[string]map[string]bool    // streamerUserID -> set of viewerUserIDs
 	forceMoveGrants    map[string]forceMoveGrant     // userID -> one-time bypass (consumed on token gen)
 	offlineSince       map[string]time.Time          // userID -> first seen offline (grace period tracking)
+	livekitAbsentSince map[string]time.Time          // userID -> first seen absent from the LiveKit room (reconcile grace)
 	channelStartedAt   map[string]time.Time          // channelID -> moment the channel went from 0→1 participant
 	onChannelEmpty     func(string)                  // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
 	mu                 sync.RWMutex
@@ -131,6 +133,7 @@ func NewVoiceService(
 		screenShareViewers: make(map[string]map[string]bool),
 		forceMoveGrants:    make(map[string]forceMoveGrant),
 		offlineSince:       make(map[string]time.Time),
+		livekitAbsentSince: make(map[string]time.Time),
 		channelStartedAt:   make(map[string]time.Time),
 		channelGetter:      channelGetter,
 		livekitGetter:      livekitGetter,

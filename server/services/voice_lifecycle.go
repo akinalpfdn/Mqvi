@@ -25,6 +25,19 @@ import (
 // the full duration regardless of when the disconnect happens.
 const orphanGracePeriod = 35 * time.Second
 
+// livekitReconcileInterval / livekitAbsentGrace govern the LiveKit reconciliation
+// sweep. LiveKit (the SFU actually carrying the audio) is the source of truth for
+// who is really in a call. The WS-presence-based orphan sweep can't reap a session
+// abandoned without an explicit leave while the user stays online elsewhere (a
+// second tab/device) — that phantom keeps a channel's call timer running forever.
+// The grace must comfortably exceed a normal LiveKit reconnect so a user mid-join
+// or mid-reconnect (briefly absent from the SFU) is never reaped on a transient
+// miss; it takes 2+ consecutive absent polls.
+const (
+	livekitReconcileInterval = 60 * time.Second
+	livekitAbsentGrace       = 90 * time.Second
+)
+
 type orphanEntry struct {
 	userID    string
 	channelID string
@@ -111,6 +124,7 @@ func (s *voiceService) sweepOrphanStates() {
 		avatarURL := s.urlSigner.SignURL(state.AvatarURL)
 		delete(s.states, userID)
 		delete(s.offlineSince, userID)
+		delete(s.livekitAbsentSince, userID)
 
 		s.broadcastToServer(serverID, ws.Event{
 			Op: ws.OpVoiceStateUpdate,
@@ -123,6 +137,15 @@ func (s *voiceService) sweepOrphanStates() {
 				Action:      "leave",
 			},
 		})
+
+		// Stop the channel's call timer when this reap empties it — same as
+		// LeaveChannel. Without this, an abandoned session reaped here leaves the
+		// timer running forever: it counts up endlessly, blocks the next join's
+		// startChannelTimerLocked (no-op since it still "exists") so no fresh
+		// timer_start is broadcast, and resyncs serve the stale start time.
+		if s.countInChannelLocked(channelID) == 0 {
+			s.stopChannelTimerLocked(channelID, serverID)
+		}
 
 		s.cleanupRoomPassphraseIfEmpty(channelID)
 		orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID})
@@ -322,4 +345,191 @@ func (s *voiceService) sweepAFKUsers() {
 		// Use the existing disconnect flow
 		s.DisconnectUser(entry.userID)
 	}
+}
+
+// listLiveKitParticipants returns the set of base user IDs currently connected to
+// the LiveKit room for (serverID, channelID). Screen-share sub-participants
+// ("{userID}_ss") are normalized to their base userID so a user publishing a screen
+// share still counts as present. LiveKit is the source of truth for room membership.
+// MUST NOT be called under s.mu (does DB lookups + network I/O).
+func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
+	lkInstance, err := s.livekitGetter.GetByServerID(ctx, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("livekit instance lookup for server %s: %w", serverID, err)
+	}
+
+	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("api key decrypt: %w", err)
+	}
+	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("api secret decrypt: %w", err)
+	}
+
+	roomName := serverID + ":" + channelID
+	roomClient := lksdk.NewRoomServiceClient(lkInstance.URL, apiKey, apiSecret)
+
+	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomName})
+	if err != nil {
+		// Room not found = the SFU closed it because it's empty. That is a
+		// CONFIRMED-empty signal (the exact phantom case), not a transient
+		// failure — return an empty set so its stale states get reaped.
+		if strings.Contains(err.Error(), "not_found") || strings.Contains(err.Error(), "not found") {
+			return map[string]bool{}, nil
+		}
+		return nil, fmt.Errorf("list participants room=%s: %w", roomName, err)
+	}
+
+	present := make(map[string]bool, len(resp.Participants))
+	for _, p := range resp.Participants {
+		present[strings.TrimSuffix(p.Identity, "_ss")] = true
+	}
+	return present, nil
+}
+
+// StartLiveKitReconciliation periodically reconciles in-memory voice state against
+// LiveKit room membership. Reaps phantom states (and the call timers they keep alive)
+// for users no longer connected to the SFU. Read-only against LiveKit; only acts to
+// remove state that LiveKit confirms is gone.
+func (s *voiceService) StartLiveKitReconciliation() {
+	go func() {
+		ticker := time.NewTicker(livekitReconcileInterval)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			s.sweepLiveKitReconciliation()
+		}
+	}()
+}
+
+// sweepLiveKitReconciliation removes voice states whose owner is not in the LiveKit
+// room, using LiveKit as the source of truth. Three phases (mirrors sweepAFKUsers):
+//  1. Snapshot active channels and their users under RLock.
+//  2. Query LiveKit per channel WITHOUT the lock. On error, skip that channel —
+//     a transient API failure must never trigger a false reap.
+//  3. Under Lock, apply a per-user grace: a user absent from LiveKit is only reaped
+//     after livekitAbsentGrace, so a mid-join / mid-reconnect miss is forgiven.
+//
+// Reaping reuses the exact leave broadcast + timer-stop the orphan sweep already
+// uses, so observable join/leave behavior is unchanged.
+func (s *voiceService) sweepLiveKitReconciliation() {
+	// Phase 1: snapshot active channels and their users.
+	type chanInfo struct {
+		serverID string
+		userIDs  []string
+	}
+	channels := make(map[string]*chanInfo) // channelID -> info
+
+	s.mu.RLock()
+	for userID, st := range s.states {
+		ci, ok := channels[st.ChannelID]
+		if !ok {
+			ci = &chanInfo{serverID: st.ServerID}
+			channels[st.ChannelID] = ci
+		}
+		ci.userIDs = append(ci.userIDs, userID)
+	}
+	s.mu.RUnlock()
+
+	if len(channels) == 0 {
+		return
+	}
+
+	// Phase 2: query LiveKit per channel (no lock).
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type absentUser struct {
+		channelID string
+		serverID  string
+		userID    string
+	}
+	var absent []absentUser
+	present := make(map[string]bool) // users confirmed in LiveKit (successfully queried channels)
+
+	for channelID, ci := range channels {
+		inRoom, err := s.listLiveKitParticipants(ctx, ci.serverID, channelID)
+		if err != nil {
+			log.Printf("[voice] livekit reconcile: list participants failed channel=%s: %v", channelID, err)
+			continue // skip channel entirely — no tracker changes on transient failure
+		}
+		for _, userID := range ci.userIDs {
+			if inRoom[userID] {
+				present[userID] = true
+			} else {
+				absent = append(absent, absentUser{channelID: channelID, serverID: ci.serverID, userID: userID})
+			}
+		}
+	}
+
+	now := time.Now()
+
+	// Phase 3: apply grace and reap under Lock.
+	s.mu.Lock()
+
+	// Users confirmed present — clear any pending absence tracking.
+	for userID := range present {
+		delete(s.livekitAbsentSince, userID)
+	}
+
+	for _, a := range absent {
+		state, ok := s.states[a.userID]
+		if !ok || state.ChannelID != a.channelID {
+			// Left or moved between phases — drop tracking, let next sweep re-evaluate.
+			delete(s.livekitAbsentSince, a.userID)
+			continue
+		}
+
+		first, tracked := s.livekitAbsentSince[a.userID]
+		if !tracked {
+			s.livekitAbsentSince[a.userID] = now
+			continue
+		}
+		if now.Sub(first) < livekitAbsentGrace {
+			continue // still within grace
+		}
+
+		// Confirmed phantom — reap. Same shape as sweepOrphanStates.
+		channelID := state.ChannelID
+		serverID := state.ServerID
+		username := state.Username
+		displayName := state.DisplayName
+		avatarURL := s.urlSigner.SignURL(state.AvatarURL)
+		delete(s.states, a.userID)
+		delete(s.livekitAbsentSince, a.userID)
+		delete(s.offlineSince, a.userID)
+
+		s.broadcastToServer(serverID, ws.Event{
+			Op: ws.OpVoiceStateUpdate,
+			Data: ws.VoiceStateUpdateBroadcast{
+				UserID:      a.userID,
+				ChannelID:   channelID,
+				Username:    username,
+				DisplayName: displayName,
+				AvatarURL:   avatarURL,
+				Action:      "leave",
+			},
+		})
+
+		if s.countInChannelLocked(channelID) == 0 {
+			s.stopChannelTimerLocked(channelID, serverID)
+		}
+		s.cleanupRoomPassphraseIfEmpty(channelID)
+
+		log.Printf("[voice] livekit reconcile: reaped phantom user=%s channel=%s (absent from SFU for %s)", a.userID, channelID, now.Sub(first).Round(time.Second))
+		s.logWarn(models.LogCategoryVoice, &a.userID, "livekit reconcile: phantom voice state removed", map[string]string{
+			"channel_id":     channelID,
+			"absent_seconds": fmt.Sprintf("%.0f", now.Sub(first).Seconds()),
+		})
+	}
+
+	// Drop trackers for users no longer in any voice state.
+	for userID := range s.livekitAbsentSince {
+		if _, ok := s.states[userID]; !ok {
+			delete(s.livekitAbsentSince, userID)
+		}
+	}
+
+	s.mu.Unlock()
 }

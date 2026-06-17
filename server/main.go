@@ -122,6 +122,9 @@ func main() {
 	// Voice AFK checker — kicks idle users based on per-server timeout
 	svcs.Voice.StartAFKChecker()
 
+	// Voice LiveKit reconciliation — reaps phantom states using the SFU as source of truth
+	svcs.Voice.StartLiveKitReconciliation()
+
 	// 10b. Metrics collector — background goroutine polling LiveKit instances
 	metricsCollector.Start()
 

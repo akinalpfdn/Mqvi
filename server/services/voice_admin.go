@@ -144,9 +144,13 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	sourceServerID := state.ServerID
 	targetServerID := channel.ServerID
 
+	// Capture before reassignment to detect the target's 0 → 1 transition.
+	targetWasEmpty := s.countInChannelLocked(targetChannelID) == 0
+
 	state.ChannelID = targetChannelID
 	state.ChannelName = channel.Name
 	state.ServerID = targetServerID
+	delete(s.livekitAbsentSince, targetUserID) // new room — reset LiveKit absence grace
 
 	s.cleanupRoomPassphraseIfEmpty(sourceChannelID)
 
@@ -184,6 +188,16 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 			Action:           "join",
 		},
 	})
+
+	// Timer transitions AFTER the state-update broadcasts — matches the
+	// state-update-then-timer ordering of JoinChannel/LeaveChannel so clients
+	// process the move (and any ephemeral-chat wipe) before the timer changes.
+	if s.countInChannelLocked(sourceChannelID) == 0 {
+		s.stopChannelTimerLocked(sourceChannelID, sourceServerID)
+	}
+	if targetWasEmpty {
+		s.startChannelTimerLocked(targetChannelID, targetServerID, time.Now())
+	}
 
 	// Grant one-time permission bypass so the moved user can generate a token
 	// for the target channel even without ConnectVoice permission.
@@ -238,6 +252,7 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 	displayName := state.DisplayName
 	avatarURL := s.urlSigner.SignURL(state.AvatarURL)
 	delete(s.states, targetUserID)
+	delete(s.livekitAbsentSince, targetUserID)
 
 	s.broadcastToServer(serverID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
@@ -250,6 +265,13 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 			Action:      "leave",
 		},
 	})
+
+	// Stop the channel's call timer if this disconnect emptied it — same as
+	// LeaveChannel. Without this, an admin disconnect of the last user leaves the
+	// timer running forever (the 120h stale-timer bug via the admin path).
+	if s.countInChannelLocked(channelID) == 0 {
+		s.stopChannelTimerLocked(channelID, serverID)
+	}
 
 	s.cleanupRoomPassphraseIfEmpty(channelID)
 

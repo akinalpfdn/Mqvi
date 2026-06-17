@@ -55,6 +55,10 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			existing.DisplayName = displayName
 			existing.AvatarURL = avatarURL
 			existing.LastActivity = time.Now()
+			// Rejoin is a sign of life (F5 / WS reconnect re-assert) — reset the
+			// LiveKit absence grace so a stale timestamp can't cause a short-grace
+			// reap before the client re-establishes its SFU connection.
+			delete(s.livekitAbsentSince, userID)
 			s.mu.Unlock()
 			log.Printf("[voice] same-channel rejoin user=%s channel=%s (no broadcast)", userID, channelID)
 			return nil
@@ -98,6 +102,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		IsDeafened:   isDeafened,
 		LastActivity: time.Now(),
 	}
+	delete(s.livekitAbsentSince, userID) // fresh session — reset LiveKit absence grace
 
 	s.broadcastToServer(serverID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
@@ -146,6 +151,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	avatarURL := s.urlSigner.SignURL(state.AvatarURL)
 	wasStreaming := state.IsStreaming
 	delete(s.states, userID)
+	delete(s.livekitAbsentSince, userID)
 
 	s.broadcastToServer(serverID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
