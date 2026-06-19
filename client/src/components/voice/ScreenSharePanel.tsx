@@ -25,8 +25,14 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // Stop-watching control auto-hides after 3s of no pointer movement so it
+  // never covers the stream. Shown on entry/movement, hidden on leave/idle.
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const idleTimerRef = useRef<number>(0);
+
   // ─── Focus (double-click) ───
   const focusScreenShare = useVoiceStore((s) => s.focusScreenShare);
+  const toggleWatchScreenShare = useVoiceStore((s) => s.toggleWatchScreenShare);
   const watchingCount = useVoiceStore(
     (s) => Object.keys(s.watchingScreenShares).length
   );
@@ -46,6 +52,24 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
+  }, []);
+
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = window.setTimeout(() => setControlsVisible(false), 3000);
+  }, []);
+
+  const hideControls = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = 0;
+    }
+    setControlsVisible(false);
+  }, []);
+
+  useEffect(() => () => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
   }, []);
 
   const handleFullscreenToggle = useCallback(() => {
@@ -87,10 +111,33 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
   );
 
   return (
-    <div ref={containerRef} className="screen-share-panel" onContextMenu={handleContextMenu} onDoubleClick={handleDoubleClick}>
+    <div
+      ref={containerRef}
+      className="screen-share-panel"
+      onContextMenu={handleContextMenu}
+      onDoubleClick={handleDoubleClick}
+      onMouseEnter={showControls}
+      onMouseMove={showControls}
+      onMouseLeave={hideControls}
+    >
       {/* Narrow TrackReferenceOrPlaceholder to TrackReference when publication exists */}
       {trackRef.publication && (
         <VideoTrack trackRef={trackRef as TrackReference} />
+      )}
+
+      {/* Stop-watching — centered bottom, hidden when pointer is idle so it
+          doesn't obscure the stream. Not shown on your own shared screen. */}
+      {!isLocalUser && (
+        <button
+          onClick={() => toggleWatchScreenShare(realUserId)}
+          className={`screen-share-stop-btn${controlsVisible ? " visible" : ""}`}
+          title={t("stopWatching")}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {t("stopWatching")}
+        </button>
       )}
 
       {/* Hover overlay with CSS opacity transition */}

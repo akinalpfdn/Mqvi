@@ -2383,6 +2383,12 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .screen-share-panel-btn:hover { background:var(--bg-h);color:var(--t0); }
 .screen-share-panel-btn svg { width:16px;height:16px; }
 
+/* Stop-watching button — centered bottom, fades in/out with pointer activity */
+.screen-share-stop-btn { position:absolute;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);z-index:11;display:flex;align-items:center;gap:10px;padding:12px 24px;border:none;border-radius:10px;background:var(--red);color:#fff;font-size:16px;font-weight:700;cursor:pointer;opacity:0;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.45);transition:opacity .2s,transform .2s,background .15s; }
+.screen-share-stop-btn.visible { opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0); }
+.screen-share-stop-btn:hover { background:var(--red-hover); }
+.screen-share-stop-btn svg { width:22px;height:22px; }
+
 /* Layout toggle button (top-right) */
 .screen-share-toggle { position:absolute;top:12px;right:12px;z-index:10;width:32px;height:32px;border:none;border-radius:6px;background:rgba(0,0,0,0.6);color:var(--t1);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s; }
 .screen-share-toggle:hover { background:var(--bg-h);color:var(--t0); }
