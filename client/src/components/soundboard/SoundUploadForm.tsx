@@ -80,6 +80,33 @@ async function extractAudioFromVideo(file: File): Promise<File> {
   }
 }
 
+// Decode the source audio and produce a WAV of ONLY the [startMs, endMs] segment.
+// The trimmed clip is what gets uploaded — the full-length audio never reaches
+// the server, so a long sound can't be stored or replayed in full.
+async function trimAudioToWav(file: File, startMs: number, endMs: number): Promise<File> {
+  const arrayBuffer = await file.arrayBuffer();
+  const audioCtx = new AudioContext();
+  try {
+    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+    const sampleRate = decoded.sampleRate;
+    const startSample = Math.max(0, Math.floor((startMs / 1000) * sampleRate));
+    const endSample = Math.min(decoded.length, Math.floor((endMs / 1000) * sampleRate));
+    const length = Math.max(1, endSample - startSample);
+
+    const trimmed = audioCtx.createBuffer(decoded.numberOfChannels, length, sampleRate);
+    for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+      const segment = decoded.getChannelData(ch).subarray(startSample, startSample + length);
+      trimmed.copyToChannel(segment, ch, 0);
+    }
+
+    const wavBlob = audioBufferToWav(trimmed);
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    return new File([wavBlob], `${baseName}-trim.wav`, { type: "audio/wav" });
+  } finally {
+    await audioCtx.close();
+  }
+}
+
 function SoundUploadForm({ onClose }: Props) {
   const { t } = useTranslation("soundboard");
   const serverId = useServerStore((s) => s.activeServerId);
@@ -184,7 +211,16 @@ function SoundUploadForm({ onClose }: Props) {
     setIsUploading(true);
     setError("");
 
-    const res = await soundboardApi.createSound(serverId, file, name.trim(), trimmedDurationMs, emoji.trim() || undefined);
+    let uploadFile: File;
+    try {
+      uploadFile = await trimAudioToWav(file, trimStart, trimEnd);
+    } catch {
+      setIsUploading(false);
+      setError(t("readError"));
+      return;
+    }
+
+    const res = await soundboardApi.createSound(serverId, uploadFile, name.trim(), trimmedDurationMs, emoji.trim() || undefined);
     setIsUploading(false);
 
     if (res.success) {

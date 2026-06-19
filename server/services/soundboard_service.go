@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"mime/multipart"
 	"strings"
@@ -20,15 +22,112 @@ const (
 	maxSoundsPerServer = 50
 )
 
+// Soundboard uploads are WAV only: the client trims + encodes the selected
+// (<=7s) segment to WAV before upload, so the server can measure the real
+// duration from the WAV header and reject anything longer — instead of trusting
+// the client-supplied duration. Other formats can't be cheaply duration-checked.
 var soundAllowedMimeTypes = map[string]bool{
-	"audio/mpeg":  true,
-	"audio/ogg":   true,
 	"audio/wav":   true,
-	"audio/webm":  true,
-	"audio/mp4":   true,
-	"audio/x-m4a": true,
-	"audio/aac":   true,
-	"video/mp4":   true, // frontend extracts audio and converts to WAV before upload; kept as fallback
+	"audio/x-wav": true,
+	"audio/wave":  true,
+}
+
+// wavDurationMs computes a WAV's playback duration from its header (RIFF chunks),
+// without decoding the audio. Returns an error if the stream isn't a parseable
+// WAV. Rewinds the reader to the start before parsing.
+func wavDurationMs(rs io.ReadSeeker) (int, error) {
+	if _, err := rs.Seek(0, io.SeekStart); err != nil {
+		return 0, err
+	}
+	riff := make([]byte, 12)
+	if _, err := io.ReadFull(rs, riff); err != nil {
+		return 0, fmt.Errorf("read riff header: %w", err)
+	}
+	if string(riff[0:4]) != "RIFF" || string(riff[8:12]) != "WAVE" {
+		return 0, fmt.Errorf("not a WAV file")
+	}
+
+	var byteRate, dataSize uint32
+	var haveFmt, haveData bool
+	hdr := make([]byte, 8)
+
+	for {
+		if _, err := io.ReadFull(rs, hdr); err != nil {
+			break // EOF / truncated — stop scanning
+		}
+		id := string(hdr[0:4])
+		size := binary.LittleEndian.Uint32(hdr[4:8])
+
+		switch id {
+		case "fmt ":
+			// Bound the chunk size BEFORE allocating — a tiny file could declare a
+			// huge fmt size and force a large allocation before ReadFull hits EOF.
+			// A real PCM fmt chunk is 16 bytes (18/40 with extensions).
+			if size < 16 || size > 4096 {
+				return 0, fmt.Errorf("invalid fmt chunk size %d", size)
+			}
+			fmtData := make([]byte, size)
+			if _, err := io.ReadFull(rs, fmtData); err != nil {
+				return 0, fmt.Errorf("read fmt chunk: %w", err)
+			}
+			audioFormat := binary.LittleEndian.Uint16(fmtData[0:2])
+			numChannels := binary.LittleEndian.Uint16(fmtData[2:4])
+			sampleRate := binary.LittleEndian.Uint32(fmtData[4:8])
+			storedByteRate := binary.LittleEndian.Uint32(fmtData[8:12])
+			storedBlockAlign := binary.LittleEndian.Uint16(fmtData[12:14])
+			bitsPerSample := binary.LittleEndian.Uint16(fmtData[14:16])
+
+			// Reject implausible headers, then derive byteRate from the fields a
+			// player actually uses (sampleRate × channels × bytesPerSample) instead
+			// of trusting the stored byteRate — a crafted file could inflate that to
+			// fake a short duration while shipping long PCM. Stored byteRate AND
+			// blockAlign must match the derived values or the header is rejected.
+			if audioFormat != 1 { // PCM only — what the client encodes
+				return 0, fmt.Errorf("unsupported WAV format %d", audioFormat)
+			}
+			if numChannels < 1 || numChannels > 8 {
+				return 0, fmt.Errorf("invalid channel count %d", numChannels)
+			}
+			if sampleRate < 8000 || sampleRate > 384000 {
+				return 0, fmt.Errorf("invalid sample rate %d", sampleRate)
+			}
+			if bitsPerSample != 8 && bitsPerSample != 16 && bitsPerSample != 24 && bitsPerSample != 32 {
+				return 0, fmt.Errorf("invalid bits per sample %d", bitsPerSample)
+			}
+			if storedBlockAlign != numChannels*(bitsPerSample/8) {
+				return 0, fmt.Errorf("inconsistent WAV blockAlign")
+			}
+			byteRate = sampleRate * uint32(numChannels) * uint32(bitsPerSample/8)
+			if storedByteRate != byteRate {
+				return 0, fmt.Errorf("inconsistent WAV byteRate")
+			}
+			haveFmt = true
+			if size%2 == 1 {
+				if _, err := rs.Seek(1, io.SeekCurrent); err != nil {
+					return 0, err
+				}
+			}
+		case "data":
+			dataSize = size
+			haveData = true
+		default:
+			skip := int64(size)
+			if size%2 == 1 {
+				skip++
+			}
+			if _, err := rs.Seek(skip, io.SeekCurrent); err != nil {
+				return 0, err
+			}
+		}
+		if haveData {
+			break // byteRate (from fmt) precedes data in canonical WAV
+		}
+	}
+
+	if !haveFmt || !haveData || byteRate == 0 {
+		return 0, fmt.Errorf("incomplete WAV header")
+	}
+	return int(float64(dataSize) / float64(byteRate) * 1000), nil
 }
 
 // VoiceStateGetter retrieves a user's current voice state.
@@ -103,10 +202,6 @@ func (s *soundboardService) Create(
 	header *multipart.FileHeader,
 	durationMs int,
 ) (*models.SoundboardSound, error) {
-	if durationMs <= 0 || durationMs > maxSoundDurationMs {
-		return nil, fmt.Errorf("%w: duration must be between 1 and %d ms", pkg.ErrBadRequest, maxSoundDurationMs)
-	}
-
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("%w: name is required", pkg.ErrBadRequest)
 	}
@@ -121,6 +216,20 @@ func (s *soundboardService) Create(
 	if !soundAllowedMimeTypes[mimeBase] {
 		return nil, fmt.Errorf("%w: audio file type not allowed: %s", pkg.ErrBadRequest, mimeBase)
 	}
+
+	// Measure the real duration from the WAV header — never trust the client's
+	// claimed duration_ms. Anything over the cap is rejected here, on the server.
+	measuredMs, err := wavDurationMs(file)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid audio file (WAV required)", pkg.ErrBadRequest)
+	}
+	if measuredMs <= 0 || measuredMs > maxSoundDurationMs {
+		return nil, fmt.Errorf("%w: sound must be at most %d ms", pkg.ErrBadRequest, maxSoundDurationMs)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("rewind after duration check: %w", err)
+	}
+	durationMs = measuredMs // store the measured duration, not the client's claim
 
 	count, err := s.repo.CountByServer(ctx, serverID)
 	if err != nil {

@@ -7,6 +7,7 @@ import { create } from "zustand";
 import type { SoundboardSound, SoundboardPlayEvent } from "../types";
 import * as soundboardApi from "../api/soundboard";
 import { useServerStore } from "./serverStore";
+import { useVoiceStore } from "./voiceStore";
 import { SERVER_URL } from "../utils/constants";
 
 const EMPTY: SoundboardSound[] = [];
@@ -32,6 +33,21 @@ function saveSettings(volume: number, muted: boolean) {
 
 const initial = loadSettings();
 
+// The currently-playing soundboard audio, kept at module scope (not store state)
+// so it can be stopped imperatively. Without a handle there is no way to stop a
+// sound — a long/spammed clip would play to the end, unstoppable.
+let currentAudio: HTMLAudioElement | null = null;
+// Monotonic play token — identifies the latest play so a previous play's
+// timeout/ended can't clear a newer play's "now playing" indicator.
+let playSeq = 0;
+function stopCurrentAudio() {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.src = "";
+    currentAudio = null;
+  }
+}
+
 type SoundboardState = {
   sounds: SoundboardSound[];
   isLoading: boolean;
@@ -46,6 +62,7 @@ type SoundboardState = {
   closePanel: () => void;
   setVolume: (v: number) => void;
   toggleMuted: () => void;
+  stopPlayback: () => void;
 
   handleSoundCreate: (sound: SoundboardSound) => void;
   handleSoundUpdate: (sound: SoundboardSound) => void;
@@ -92,6 +109,11 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
 
   closePanel: () => set({ isPanelOpen: false }),
 
+  stopPlayback: () => {
+    stopCurrentAudio();
+    set({ playingSound: null });
+  },
+
   setVolume: (v) => {
     set({ volume: v });
     saveSettings(v, get().muted);
@@ -131,7 +153,17 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (data.server_id !== serverId) return;
 
-    const { muted, volume } = get();
+    // Only play sounds for the voice channel we're currently in. The server
+    // already targets channel participants, but this also guards the moment
+    // right after leaving, and ensures we never play a sound for a channel we
+    // are no longer in.
+    const myChannel = useVoiceStore.getState().currentVoiceChannelId;
+    if (myChannel !== data.channel_id) return;
+
+    // Single active sound: stop any previous clip first, so spam can't stack
+    // overlapping (unstoppable) audio and the latest is always the one playing.
+    stopCurrentAudio();
+    const seq = ++playSeq;
 
     set({
       playingSound: {
@@ -141,23 +173,41 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
       },
     });
 
-    // Play audio unless muted
+    const { muted, volume } = get();
     if (!muted && volume > 0) {
       const audio = new Audio(`${SERVER_URL}${data.sound_url}`);
       audio.volume = volume;
-      audio.play().catch(() => {});
+      currentAudio = audio;
+      audio.addEventListener("ended", () => {
+        if (currentAudio === audio) currentAudio = null;
+        if (playSeq === seq) set({ playingSound: null });
+      });
+      audio.play().catch(() => {
+        // Play never started → no 'ended' will fire; drop the stale handle.
+        if (currentAudio === audio) currentAudio = null;
+      });
     }
 
+    // Fallback clear of the indicator (e.g. when muted, no 'ended' fires).
+    // Guarded by the play token so an older play can't clear a newer one.
     const sound = get().sounds.find((s) => s.id === data.sound_id);
     const duration = sound?.duration_ms ?? 3000;
     setTimeout(() => {
-      set((s) =>
-        s.playingSound?.soundId === data.sound_id ? { playingSound: null } : s
-      );
+      if (playSeq === seq) set({ playingSound: null });
     }, duration + 200);
   },
 
   clearForServerSwitch: () => {
+    stopCurrentAudio();
     set({ sounds: EMPTY, isPanelOpen: false, playingSound: null });
   },
 }));
+
+// Stop any playing soundboard audio the moment the user leaves or switches voice
+// channel — a sound must not keep playing after you've left the call.
+useVoiceStore.subscribe((state, prev) => {
+  if (state.currentVoiceChannelId !== prev.currentVoiceChannelId) {
+    stopCurrentAudio();
+    useSoundboardStore.setState({ playingSound: null });
+  }
+});
