@@ -27,6 +27,10 @@ import (
 type PushNotifier interface {
 	NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID string)
 	NotifyCall(receiverID, callerName string, callType models.P2PCallType, callID, callerID string)
+	// NotifyCallCancel tells a ringing receiver's device to stop ringing / dismiss the
+	// incoming-call UI when the call is cancelled, declined by the caller, or times out
+	// while the receiver is backgrounded (no live WS to deliver OpP2PCallEnd).
+	NotifyCallCancel(receiverID, callID string)
 }
 
 const pushBodyMaxLen = 140
@@ -206,6 +210,65 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 						dead = append(dead, vt)
 					} else {
 						log.Printf("[push] voip to %s: %v", receiverID, err)
+					}
+				}
+			}
+			if len(dead) > 0 {
+				if delErr := s.tokenRepo.DeleteTokens(ctx, dead); delErr != nil {
+					log.Printf("[push] prune voip tokens: %v", delErr)
+				}
+			}
+		}
+	}()
+}
+
+func (s *pushService) NotifyCallCancel(receiverID, callID string) {
+	if !s.fcm.Enabled() && !s.apns.Enabled() {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		tokens, err := s.tokenRepo.ListByUser(ctx, receiverID)
+		if err != nil {
+			log.Printf("[push] list tokens for %s: %v", receiverID, err)
+			return
+		}
+
+		var androidFCM, voip []string
+		for _, t := range tokens {
+			if t.TokenType == models.PushTokenTypeAPNsVoIP {
+				voip = append(voip, t.Token)
+			} else if t.Platform == "android" {
+				androidFCM = append(androidFCM, t.Token)
+			}
+		}
+
+		// Android — data message the native FirebaseMessagingService uses to cancel the
+		// ringing incoming-call notification.
+		if len(androidFCM) > 0 && s.fcm.Enabled() {
+			data := map[string]string{"type": "call_cancel", "call_id": callID}
+			invalid, err := s.fcm.SendData(ctx, androidFCM, data)
+			if err != nil {
+				log.Printf("[push] cancel FCM to %s: %v", receiverID, err)
+			} else if len(invalid) > 0 {
+				if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
+					log.Printf("[push] prune fcm tokens: %v", delErr)
+				}
+			}
+		}
+
+		// iOS — a VoIP push carrying "cancel" so CallManager dismisses the CallKit call.
+		if len(voip) > 0 && s.apns.Enabled() {
+			payload := map[string]any{"call_id": callID, "cancel": true}
+			var dead []string
+			for _, vt := range voip {
+				if err := s.apns.SendVoIP(ctx, vt, payload); err != nil {
+					if errors.Is(err, apns.ErrTokenUnregistered) {
+						dead = append(dead, vt)
+					} else {
+						log.Printf("[push] cancel voip to %s: %v", receiverID, err)
 					}
 				}
 			}

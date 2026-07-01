@@ -34,6 +34,12 @@ class MqviMessagingService : MessagingService() {
             }
             return // handled natively — don't let Capacitor fire pushNotificationReceived
         }
+        if (remoteMessage.data["type"] == "call_cancel") {
+            // Caller hung up / call timed out while ringing — stop the incoming-call ring.
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .cancel(CALL_NOTIFICATION_ID)
+            return
+        }
         super.onMessageReceived(remoteMessage)
     }
 
