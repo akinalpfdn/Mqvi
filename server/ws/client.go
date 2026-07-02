@@ -7,14 +7,24 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/gorilla/websocket"
 )
 
 const (
 	writeWait      = 10 * time.Second
-	pongWait       = 90 * time.Second  // 3 missed heartbeats (30s × 3)
-	maxMessageSize = 32768             // 32KB — WebRTC SDP + E2EE base64 overhead
+	pongWait       = 90 * time.Second // 3 missed heartbeats (30s × 3)
+	maxMessageSize = 32768            // 32KB — WebRTC SDP + E2EE base64 overhead
 	sendBufferSize = 256
+
+	// Inbound per-connection rate limits. Every non-heartbeat frame spawns a goroutine
+	// doing DB/broadcast work, so an unthrottled socket is a goroutine/DB amplification
+	// DoS. Limits are far above legitimate use (a human can't type/toggle 10×/sec), so
+	// they only bite floods. Heartbeat is exempt (throttling it would force disconnects).
+	eventBurst         = 20  // typing, presence, voice-state, calls: burst
+	eventRefillPerSec  = 10  // ...sustained
+	signalBurst        = 100 // p2p_signal: trickle-ICE bursts during call setup
+	signalRefillPerSec = 50  // ...sustained
 )
 
 // Client represents a single WebSocket connection.
@@ -31,6 +41,11 @@ type Client struct {
 	// would let a concurrent send (e.g. a heartbeat ack from ReadPump) panic.
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// Per-connection inbound rate limiters (see eventBurst/signalBurst). Signaling gets
+	// its own generous bucket so ICE bursts never starve, or get starved by, chat events.
+	eventLimiter  *ratelimit.TokenBucket
+	signalLimiter *ratelimit.TokenBucket
 
 	// serverIDs: servers this user belongs to. Populated from DB at connect,
 	// updated on join/leave. Used by BroadcastToServer for filtering.
@@ -109,13 +124,34 @@ func init() {
 	}
 }
 
-// handleEvent dispatches an incoming event to its registered handler.
+// handleEvent dispatches an incoming event to its registered handler, after an inbound
+// rate-limit check that bounds per-connection goroutine/DB amplification.
 func (c *Client) handleEvent(event Event) {
-	if handler, ok := eventHandlers[event.Op]; ok {
-		handler(c, event)
+	handler, ok := eventHandlers[event.Op]
+	if !ok {
+		log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
 		return
 	}
-	log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
+	if !c.allowEvent(event.Op) {
+		// Over-limit: drop the frame and keep the connection. We deliberately do NOT
+		// disconnect (a momentary UI spike shouldn't kill a live call) and do NOT log
+		// per drop (that would just move the flood to the log/disk).
+		return
+	}
+	handler(c, event)
+}
+
+// allowEvent applies the inbound rate limit for an op. Heartbeat is always allowed;
+// p2p_signal uses the generous signaling bucket; everything else uses the general bucket.
+func (c *Client) allowEvent(op string) bool {
+	switch op {
+	case OpHeartbeat:
+		return true
+	case OpP2PSignal:
+		return c.signalLimiter == nil || c.signalLimiter.Allow()
+	default:
+		return c.eventLimiter == nil || c.eventLimiter.Allow()
+	}
 }
 
 // handleHeartbeat resets the read deadline and acks the client's heartbeat.

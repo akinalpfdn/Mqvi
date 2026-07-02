@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 )
 
 // TokenValidator validates JWT tokens for WS connections.
@@ -231,12 +232,14 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
-		hub:        h.hub,
-		conn:       conn,
-		userID:     claims.UserID,
-		send:       make(chan []byte, sendBufferSize),
-		done:       make(chan struct{}),
-		prefStatus: prefStatus,
+		hub:           h.hub,
+		conn:          conn,
+		userID:        claims.UserID,
+		send:          make(chan []byte, sendBufferSize),
+		done:          make(chan struct{}),
+		prefStatus:    prefStatus,
+		eventLimiter:  ratelimit.NewTokenBucket(eventBurst, eventRefillPerSec),
+		signalLimiter: ratelimit.NewTokenBucket(signalBurst, signalRefillPerSec),
 	}
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 
