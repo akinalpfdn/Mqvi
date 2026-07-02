@@ -309,7 +309,7 @@ func TestMessageDelete(t *testing.T) {
 				},
 			)
 
-			err := svc.Delete(context.Background(), "m1", tt.delUserID, tt.delPerms)
+			err := svc.Delete(context.Background(), "srv1", "m1", tt.delUserID, tt.delPerms)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -326,6 +326,36 @@ func TestMessageDelete(t *testing.T) {
 				t.Error("delete should broadcast event")
 			}
 		})
+	}
+}
+
+func TestMessageDelete_CrossServerDenied(t *testing.T) {
+	// The message's channel is in "srv1"; deleting via a different server's route must
+	// be forbidden even for the message owner with ManageMessages (IDOR-1 guard).
+	svc := newTestMessageService(
+		&testutil.MockMessageRepo{
+			GetByIDFn: func(_ context.Context, _ string) (*models.Message, error) {
+				return &models.Message{ID: "m1", UserID: "u1", ChannelID: "ch1"}, nil
+			},
+		},
+		&testutil.MockAttachmentRepo{},
+		&testutil.MockChannelRepo{
+			GetByIDFn: func(_ context.Context, _ string) (*models.Channel, error) {
+				return &models.Channel{ID: "ch1", ServerID: "srv1"}, nil
+			},
+		},
+		&testutil.MockUserRepo{},
+		&testutil.MockMentionRepo{},
+		&testutil.MockRoleMentionRepo{},
+		&testutil.MockRoleRepo{},
+		&testutil.MockReactionRepo{},
+		&testutil.MockBroadcastAndOnline{},
+		&testutil.MockChannelPermResolver{},
+	)
+
+	err := svc.Delete(context.Background(), "other-srv", "m1", "u1", models.PermManageMessages)
+	if !errors.Is(err, pkg.ErrForbidden) {
+		t.Errorf("cross-server delete should be forbidden, got %v", err)
 	}
 }
 

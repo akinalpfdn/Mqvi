@@ -114,6 +114,10 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 	if err != nil {
 		return nil, err
 	}
+	// IDOR guard: the role must belong to the route's server.
+	if role == nil || role.ServerID != serverID {
+		return nil, fmt.Errorf("%w: role does not belong to this server", pkg.ErrForbidden)
+	}
 
 	// Owner role: only server owner can edit name/color; permissions are immutable
 	if role.IsOwner {
@@ -196,6 +200,10 @@ func (s *roleService) Delete(ctx context.Context, serverID, actorID, roleID stri
 	if err != nil {
 		return err
 	}
+	// IDOR guard: the role must belong to the route's server.
+	if role == nil || role.ServerID != serverID {
+		return fmt.Errorf("%w: role does not belong to this server", pkg.ErrForbidden)
+	}
 
 	if role.IsOwner {
 		return fmt.Errorf("%w: the Owner role cannot be deleted", pkg.ErrForbidden)
@@ -243,6 +251,11 @@ func (s *roleService) ReorderRoles(ctx context.Context, serverID, actorID string
 		role, err := s.roleRepo.GetByID(ctx, item.ID)
 		if err != nil {
 			return nil, err
+		}
+		// IDOR guard: the role must belong to the route's server — checked before the
+		// isOwner short-circuit so a foreign role can't bypass the position rules below.
+		if role == nil || role.ServerID != serverID {
+			return nil, fmt.Errorf("%w: role does not belong to this server", pkg.ErrForbidden)
 		}
 
 		if role.IsOwner {

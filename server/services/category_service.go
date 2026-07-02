@@ -13,8 +13,8 @@ import (
 type CategoryService interface {
 	GetAllByServer(ctx context.Context, serverID string) ([]models.Category, error)
 	Create(ctx context.Context, serverID string, req *models.CreateCategoryRequest) (*models.Category, error)
-	Update(ctx context.Context, id string, req *models.UpdateCategoryRequest) (*models.Category, error)
-	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, serverID string, id string, req *models.UpdateCategoryRequest) (*models.Category, error)
+	Delete(ctx context.Context, serverID string, id string) error
 	Reorder(ctx context.Context, serverID string, items []models.PositionUpdate) ([]models.Category, error)
 }
 
@@ -65,7 +65,7 @@ func (s *categoryService) Create(ctx context.Context, serverID string, req *mode
 	return category, nil
 }
 
-func (s *categoryService) Update(ctx context.Context, id string, req *models.UpdateCategoryRequest) (*models.Category, error) {
+func (s *categoryService) Update(ctx context.Context, serverID string, id string, req *models.UpdateCategoryRequest) (*models.Category, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
@@ -73,6 +73,10 @@ func (s *categoryService) Update(ctx context.Context, id string, req *models.Upd
 	category, err := s.categoryRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	// IDOR guard: the category must belong to the route's server.
+	if category == nil || category.ServerID != serverID {
+		return nil, fmt.Errorf("%w: category does not belong to this server", pkg.ErrForbidden)
 	}
 
 	if req.Name != nil {
@@ -96,6 +100,18 @@ func (s *categoryService) Reorder(ctx context.Context, serverID string, items []
 		return nil, fmt.Errorf("%w: items cannot be empty", pkg.ErrBadRequest)
 	}
 
+	// IDOR guard: the reordered category IDs come from the request body — every one
+	// must belong to the route's server.
+	for _, item := range items {
+		cat, err := s.categoryRepo.GetByID(ctx, item.ID)
+		if err != nil {
+			return nil, err
+		}
+		if cat == nil || cat.ServerID != serverID {
+			return nil, fmt.Errorf("%w: category does not belong to this server", pkg.ErrForbidden)
+		}
+	}
+
 	if err := s.categoryRepo.UpdatePositions(ctx, items); err != nil {
 		return nil, fmt.Errorf("failed to update category positions: %w", err)
 	}
@@ -113,7 +129,16 @@ func (s *categoryService) Reorder(ctx context.Context, serverID string, items []
 	return categories, nil
 }
 
-func (s *categoryService) Delete(ctx context.Context, id string) error {
+func (s *categoryService) Delete(ctx context.Context, serverID string, id string) error {
+	// IDOR guard: the category must belong to the route's server.
+	category, err := s.categoryRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if category == nil || category.ServerID != serverID {
+		return fmt.Errorf("%w: category does not belong to this server", pkg.ErrForbidden)
+	}
+
 	if err := s.categoryRepo.Delete(ctx, id); err != nil {
 		return err
 	}

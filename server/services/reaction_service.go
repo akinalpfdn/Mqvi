@@ -59,6 +59,17 @@ func (s *reactionService) ToggleReaction(ctx context.Context, messageID, userID,
 		return err
 	}
 
+	// Authorize the actor on the message's own channel BEFORE mutating. This also blocks
+	// cross-server IDOR: a user with no roles in the channel's server resolves to no
+	// permissions, so a message ID from another server can't be reacted to.
+	actorPerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, message.ChannelID)
+	if err != nil {
+		return err
+	}
+	if !actorPerms.Has(models.PermViewChannel) || !actorPerms.Has(models.PermReadMessages) {
+		return fmt.Errorf("%w: cannot react in this channel", pkg.ErrForbidden)
+	}
+
 	added, err := s.reactionRepo.Toggle(ctx, messageID, userID, emoji)
 	if err != nil {
 		return fmt.Errorf("failed to toggle reaction: %w", err)

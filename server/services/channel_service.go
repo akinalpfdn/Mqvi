@@ -45,8 +45,8 @@ func (f *ChannelVisibilityFilter) CanSee(channelID string) bool {
 type ChannelService interface {
 	GetAllGrouped(ctx context.Context, serverID, userID string) ([]models.CategoryWithChannels, error)
 	Create(ctx context.Context, serverID string, req *models.CreateChannelRequest) (*models.Channel, error)
-	Update(ctx context.Context, id string, req *models.UpdateChannelRequest) (*models.Channel, error)
-	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, serverID string, id string, req *models.UpdateChannelRequest) (*models.Channel, error)
+	Delete(ctx context.Context, serverID string, id string) error
 	ReorderChannels(ctx context.Context, serverID string, req *models.ReorderChannelsRequest, userID string) ([]models.CategoryWithChannels, error)
 }
 
@@ -188,7 +188,7 @@ func (s *channelService) Create(ctx context.Context, serverID string, req *model
 	return channel, nil
 }
 
-func (s *channelService) Update(ctx context.Context, id string, req *models.UpdateChannelRequest) (*models.Channel, error) {
+func (s *channelService) Update(ctx context.Context, serverID string, id string, req *models.UpdateChannelRequest) (*models.Channel, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
@@ -196,6 +196,10 @@ func (s *channelService) Update(ctx context.Context, id string, req *models.Upda
 	channel, err := s.channelRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	// IDOR guard: the channel must belong to the route's server.
+	if channel == nil || channel.ServerID != serverID {
+		return nil, fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
 	if req.Name != nil {
@@ -208,7 +212,9 @@ func (s *channelService) Update(ctx context.Context, id string, req *models.Upda
 		if *req.CategoryID == "" {
 			channel.CategoryID = nil
 		} else {
-			if _, err := s.categoryRepo.GetByID(ctx, *req.CategoryID); err != nil {
+			// The target category must exist AND live in the same server.
+			cat, err := s.categoryRepo.GetByID(ctx, *req.CategoryID)
+			if err != nil || cat == nil || cat.ServerID != serverID {
 				return nil, fmt.Errorf("%w: category not found", pkg.ErrBadRequest)
 			}
 			channel.CategoryID = req.CategoryID
@@ -227,7 +233,16 @@ func (s *channelService) Update(ctx context.Context, id string, req *models.Upda
 	return channel, nil
 }
 
-func (s *channelService) Delete(ctx context.Context, id string) error {
+func (s *channelService) Delete(ctx context.Context, serverID string, id string) error {
+	// IDOR guard: the channel must belong to the route's server.
+	channel, err := s.channelRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if channel == nil || channel.ServerID != serverID {
+		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
+	}
+
 	// Phase 1: collect file refs BEFORE cascade delete
 	plan, err := s.fileCleanup.CollectChannelFiles(ctx, id)
 	if err != nil {
@@ -253,6 +268,24 @@ func (s *channelService) Delete(ctx context.Context, id string) error {
 func (s *channelService) ReorderChannels(ctx context.Context, serverID string, req *models.ReorderChannelsRequest, userID string) ([]models.CategoryWithChannels, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
+	}
+
+	// IDOR guard: the reordered channel IDs come from the request body, so every one —
+	// and any cross-category move target — must belong to the route's server.
+	for _, item := range req.Items {
+		ch, err := s.channelRepo.GetByID(ctx, item.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ch == nil || ch.ServerID != serverID {
+			return nil, fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
+		}
+		if item.CategoryID != nil && *item.CategoryID != "" {
+			cat, err := s.categoryRepo.GetByID(ctx, *item.CategoryID)
+			if err != nil || cat == nil || cat.ServerID != serverID {
+				return nil, fmt.Errorf("%w: category not found", pkg.ErrBadRequest)
+			}
+		}
 	}
 
 	if err := s.channelRepo.UpdatePositions(ctx, req.Items); err != nil {

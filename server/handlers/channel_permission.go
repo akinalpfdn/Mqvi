@@ -21,9 +21,10 @@ func NewChannelPermissionHandler(service services.ChannelPermissionService) *Cha
 
 // ListOverrides handles GET /api/channels/{id}/permissions
 func (h *ChannelPermissionHandler) ListOverrides(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
 	channelID := r.PathValue("id")
 
-	overrides, err := h.service.GetOverrides(r.Context(), channelID)
+	overrides, err := h.service.GetOverrides(r.Context(), serverID, channelID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -37,6 +38,7 @@ func (h *ChannelPermissionHandler) ListOverrides(w http.ResponseWriter, r *http.
 // Only channel-level permissions (ChannelOverridablePerms) can be overridden.
 // allow=0, deny=0 deletes the override (reverts to inherit).
 func (h *ChannelPermissionHandler) SetOverride(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
 	channelID := r.PathValue("channelId")
 	roleID := r.PathValue("roleId")
 
@@ -46,7 +48,7 @@ func (h *ChannelPermissionHandler) SetOverride(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := h.service.SetOverride(r.Context(), channelID, roleID, &req); err != nil {
+	if err := h.service.SetOverride(r.Context(), serverID, channelID, roleID, &req); err != nil {
 		pkg.Error(w, err)
 		return
 	}
@@ -57,10 +59,11 @@ func (h *ChannelPermissionHandler) SetOverride(w http.ResponseWriter, r *http.Re
 // DeleteOverride handles DELETE /api/channels/{channelId}/permissions/{roleId}
 // Removes the override; the role falls back to its global permissions.
 func (h *ChannelPermissionHandler) DeleteOverride(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
 	channelID := r.PathValue("channelId")
 	roleID := r.PathValue("roleId")
 
-	if err := h.service.DeleteOverride(r.Context(), channelID, roleID); err != nil {
+	if err := h.service.DeleteOverride(r.Context(), serverID, channelID, roleID); err != nil {
 		pkg.Error(w, err)
 		return
 	}

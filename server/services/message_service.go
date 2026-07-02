@@ -21,7 +21,7 @@ type MessageService interface {
 	Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error)
 	BroadcastCreate(message *models.Message)
 	Update(ctx context.Context, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error)
-	Delete(ctx context.Context, id string, userID string, userPermissions models.Permission) error
+	Delete(ctx context.Context, serverID string, id string, userID string, userPermissions models.Permission) error
 }
 
 type messageService struct {
@@ -406,10 +406,19 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 }
 
 // Delete deletes a message. Owner or MANAGE_MESSAGES permission required.
-func (s *messageService) Delete(ctx context.Context, id string, userID string, userPermissions models.Permission) error {
+func (s *messageService) Delete(ctx context.Context, serverID string, id string, userID string, userPermissions models.Permission) error {
 	message, err := s.messageRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
+	}
+
+	// IDOR guard: the message's channel must belong to the route's server.
+	channel, err := s.channelRepo.GetByID(ctx, message.ChannelID)
+	if err != nil {
+		return err
+	}
+	if channel == nil || channel.ServerID != serverID {
+		return fmt.Errorf("%w: message does not belong to this server", pkg.ErrForbidden)
 	}
 
 	if message.UserID != userID && !userPermissions.Has(models.PermManageMessages) {

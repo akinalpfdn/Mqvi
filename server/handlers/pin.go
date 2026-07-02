@@ -20,7 +20,13 @@ func NewPinHandler(pinService services.PinService) *PinHandler {
 func (h *PinHandler) ListPins(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
-	pins, err := h.pinService.GetPinnedMessages(r.Context(), channelID)
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	pins, err := h.pinService.GetPinnedMessages(r.Context(), user.ID, channelID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -32,6 +38,7 @@ func (h *PinHandler) ListPins(w http.ResponseWriter, r *http.Request) {
 // Pin handles POST /api/channels/{channelId}/messages/{messageId}/pin
 // Requires ManageMessages permission.
 func (h *PinHandler) Pin(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
 	channelID := r.PathValue("channelId")
 	messageID := r.PathValue("messageId")
 
@@ -41,7 +48,7 @@ func (h *PinHandler) Pin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pin, err := h.pinService.Pin(r.Context(), messageID, channelID, user.ID)
+	pin, err := h.pinService.Pin(r.Context(), serverID, messageID, channelID, user.ID)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -53,10 +60,11 @@ func (h *PinHandler) Pin(w http.ResponseWriter, r *http.Request) {
 // Unpin handles DELETE /api/channels/{channelId}/messages/{messageId}/pin
 // Requires ManageMessages permission.
 func (h *PinHandler) Unpin(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
 	channelID := r.PathValue("channelId")
 	messageID := r.PathValue("messageId")
 
-	if err := h.pinService.Unpin(r.Context(), messageID, channelID); err != nil {
+	if err := h.pinService.Unpin(r.Context(), serverID, messageID, channelID); err != nil {
 		pkg.Error(w, err)
 		return
 	}

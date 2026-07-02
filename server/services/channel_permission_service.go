@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/cache"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
@@ -38,10 +39,10 @@ type ChannelPermResolver interface {
 
 // ChannelPermissionService manages per-channel permission overrides.
 type ChannelPermissionService interface {
-	GetOverrides(ctx context.Context, channelID string) ([]models.ChannelPermissionOverride, error)
+	GetOverrides(ctx context.Context, serverID, channelID string) ([]models.ChannelPermissionOverride, error)
 	// SetOverride creates or updates an override. If allow=0 and deny=0, deletes it (revert to inherit).
-	SetOverride(ctx context.Context, channelID, roleID string, req *models.SetOverrideRequest) error
-	DeleteOverride(ctx context.Context, channelID, roleID string) error
+	SetOverride(ctx context.Context, serverID, channelID, roleID string, req *models.SetOverrideRequest) error
+	DeleteOverride(ctx context.Context, serverID, channelID, roleID string) error
 	// ResolveChannelPermissions computes effective permissions for a user in a channel.
 	ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error)
 	// BuildVisibilityFilter builds a per-user channel visibility filter for ViewChannel checks.
@@ -74,7 +75,16 @@ func NewChannelPermissionService(
 	}
 }
 
-func (s *channelPermService) GetOverrides(ctx context.Context, channelID string) ([]models.ChannelPermissionOverride, error) {
+func (s *channelPermService) GetOverrides(ctx context.Context, serverID, channelID string) ([]models.ChannelPermissionOverride, error) {
+	// IDOR guard: the channel must belong to the route's server.
+	channel, err := s.channelGetter.GetByID(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil || channel.ServerID != serverID {
+		return nil, fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
+	}
+
 	overrides, err := s.permRepo.GetByChannel(ctx, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel overrides: %w", err)
@@ -87,9 +97,18 @@ func (s *channelPermService) GetOverrides(ctx context.Context, channelID string)
 	return overrides, nil
 }
 
-func (s *channelPermService) SetOverride(ctx context.Context, channelID, roleID string, req *models.SetOverrideRequest) error {
+func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelID, roleID string, req *models.SetOverrideRequest) error {
 	if err := req.Validate(); err != nil {
 		return fmt.Errorf("invalid override request: %w", err)
+	}
+
+	// IDOR guard: the channel must belong to the route's server.
+	channel, err := s.channelGetter.GetByID(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if channel == nil || channel.ServerID != serverID {
+		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
 	// allow=0, deny=0 -> no effect (same as inherit), delete
@@ -132,7 +151,16 @@ func (s *channelPermService) SetOverride(ctx context.Context, channelID, roleID 
 	return nil
 }
 
-func (s *channelPermService) DeleteOverride(ctx context.Context, channelID, roleID string) error {
+func (s *channelPermService) DeleteOverride(ctx context.Context, serverID, channelID, roleID string) error {
+	// IDOR guard: the channel must belong to the route's server.
+	channel, err := s.channelGetter.GetByID(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if channel == nil || channel.ServerID != serverID {
+		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
+	}
+
 	if err := s.permRepo.Delete(ctx, channelID, roleID); err != nil {
 		return fmt.Errorf("failed to delete channel override: %w", err)
 	}

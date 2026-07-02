@@ -66,6 +66,7 @@ func (h *ChannelHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // Update handles PATCH /api/servers/{serverId}/channels/{id} (requires MANAGE_CHANNELS).
 func (h *ChannelHandler) Update(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
 	id := r.PathValue("id")
 
 	var req models.UpdateChannelRequest
@@ -74,7 +75,7 @@ func (h *ChannelHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel, err := h.channelService.Update(r.Context(), id, &req)
+	channel, err := h.channelService.Update(r.Context(), serverID, id, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -85,9 +86,10 @@ func (h *ChannelHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /api/servers/{serverId}/channels/{id} (requires MANAGE_CHANNELS).
 func (h *ChannelHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
 	id := r.PathValue("id")
 
-	if err := h.channelService.Delete(r.Context(), id); err != nil {
+	if err := h.channelService.Delete(r.Context(), serverID, id); err != nil {
 		pkg.Error(w, err)
 		return
 	}
