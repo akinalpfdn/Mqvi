@@ -3,6 +3,7 @@ package pkg
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 )
 
@@ -35,9 +36,18 @@ func Error(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
+	// Mapped 4xx domain errors carry client-safe messages. The 500 default branch is
+	// reached only by unmapped errors, whose text wraps internal/SQL detail — log it
+	// server-side and return a generic message so nothing leaks to the client.
+	message := err.Error()
+	if status == http.StatusInternalServerError {
+		log.Printf("internal error: %v", err)
+		message = ErrInternal.Error()
+	}
+
 	resp := APIResponse{
 		Success: false,
-		Error:   err.Error(),
+		Error:   message,
 		Code:    CodeOf(err),
 	}
 

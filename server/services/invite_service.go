@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -122,6 +123,11 @@ func (s *inviteService) ValidateAndUse(ctx context.Context, code string) (*model
 	}
 
 	if err := s.inviteRepo.IncrementUses(ctx, code); err != nil {
+		// The pre-check above passed but a concurrent join consumed the last slot: the
+		// atomic guard matched 0 rows. Surface the same user-facing message as the pre-check.
+		if errors.Is(err, pkg.ErrConflict) {
+			return nil, fmt.Errorf("%w: invite code has reached max uses", pkg.ErrBadRequest)
+		}
 		return nil, fmt.Errorf("failed to increment invite uses: %w", err)
 	}
 

@@ -109,8 +109,13 @@ func (r *sqliteInviteRepo) Delete(ctx context.Context, code string) error {
 	return nil
 }
 
+// IncrementUses atomically consumes one use only while a slot remains (max_uses=0 is
+// unlimited). The conditional WHERE closes the check-then-increment race: two concurrent
+// joins on a max_uses=1 invite serialize on the row, and the loser matches 0 rows.
+// Callers resolve the row via GetByCode first, so 0 rows affected means capacity was
+// exhausted concurrently — surfaced as ErrConflict, not ErrNotFound.
 func (r *sqliteInviteRepo) IncrementUses(ctx context.Context, code string) error {
-	query := `UPDATE invites SET uses = uses + 1 WHERE code = ?`
+	query := `UPDATE invites SET uses = uses + 1 WHERE code = ? AND (max_uses = 0 OR uses < max_uses)`
 
 	result, err := r.db.ExecContext(ctx, query, code)
 	if err != nil {
@@ -122,7 +127,7 @@ func (r *sqliteInviteRepo) IncrementUses(ctx context.Context, code string) error
 		return fmt.Errorf("failed to check rows affected: %w", err)
 	}
 	if affected == 0 {
-		return pkg.ErrNotFound
+		return pkg.ErrConflict
 	}
 
 	return nil
