@@ -235,6 +235,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		conn:       conn,
 		userID:     claims.UserID,
 		send:       make(chan []byte, sendBufferSize),
+		done:       make(chan struct{}),
 		prefStatus: prefStatus,
 	}
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)

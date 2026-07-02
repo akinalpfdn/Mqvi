@@ -26,6 +26,12 @@ type Client struct {
 	send   chan []byte
 	mu     sync.Mutex // protects conn.WriteMessage
 
+	// done is closed once (removeClient/Shutdown) to signal WritePump to exit and to
+	// guard all sends. The send channel itself is NEVER closed — closing it is what
+	// would let a concurrent send (e.g. a heartbeat ack from ReadPump) panic.
+	done      chan struct{}
+	closeOnce sync.Once
+
 	// serverIDs: servers this user belongs to. Populated from DB at connect,
 	// updated on join/leave. Used by BroadcastToServer for filtering.
 	serverIDs []string
@@ -439,6 +445,31 @@ func (c *Client) handleP2PSignal(event Event) {
 	}
 }
 
+// markClosed signals the client is being torn down. Idempotent — safe to call from
+// removeClient and Shutdown, and to call twice. Never closes the send channel.
+func (c *Client) markClosed() {
+	c.closeOnce.Do(func() { close(c.done) })
+}
+
+// trySend enqueues data without ever sending on a closed channel (send is never closed).
+// Returns false only when the buffer is full and the client is still open — the caller
+// should then drop the connection. A client already being torn down returns true (no-op).
+func (c *Client) trySend(data []byte) bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+	}
+	select {
+	case c.send <- data:
+		return true
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *Client) sendEvent(event Event) {
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -446,9 +477,7 @@ func (c *Client) sendEvent(event Event) {
 		return
 	}
 
-	select {
-	case c.send <- data:
-	default:
+	if !c.trySend(data) {
 		log.Printf("[ws] send buffer full for user %s, dropping connection", c.userID)
 		c.hub.unregister <- c
 	}
@@ -460,14 +489,14 @@ func (c *Client) WritePump() {
 	defer c.conn.Close()
 
 	for {
-		message, ok := <-c.send
-		if !ok {
-			// Channel closed — Hub removed this client
+		select {
+		case message := <-c.send:
+			if err := c.writeMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
+		case <-c.done:
+			// Hub removed this client — send a close frame and exit.
 			c.writeMessage(websocket.CloseMessage, nil)
-			return
-		}
-
-		if err := c.writeMessage(websocket.TextMessage, message); err != nil {
 			return
 		}
 	}

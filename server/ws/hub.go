@@ -300,7 +300,7 @@ func (h *Hub) removeClient(client *Client) {
 	if clients, ok := h.clients[client.userID]; ok {
 		if _, exists := clients[client]; exists {
 			delete(clients, client)
-			close(client.send)
+			client.markClosed()
 
 			// Remove this client from all server indexes it belonged to.
 			for _, sid := range client.serverIDs {
@@ -377,9 +377,7 @@ func (h *Hub) BroadcastToAll(event Event) {
 
 	for _, clients := range h.clients {
 		for client := range clients {
-			select {
-			case client.send <- data:
-			default:
+			if !client.trySend(data) {
 				// Buffer full — slow client, disconnect
 				go func(c *Client) { h.unregister <- c }(client)
 			}
@@ -414,9 +412,7 @@ func (h *Hub) BroadcastToUsers(userIDs []string, event Event) {
 			continue
 		}
 		for client := range clients {
-			select {
-			case client.send <- data:
-			default:
+			if !client.trySend(data) {
 				go func(c *Client) { h.unregister <- c }(client)
 			}
 		}
@@ -441,9 +437,7 @@ func (h *Hub) BroadcastToAllExcept(excludeUserID string, event Event) {
 			continue
 		}
 		for client := range clients {
-			select {
-			case client.send <- data:
-			default:
+			if !client.trySend(data) {
 				go func(c *Client) { h.unregister <- c }(client)
 			}
 		}
@@ -465,9 +459,7 @@ func (h *Hub) BroadcastToUser(userID string, event Event) {
 
 	if clients, ok := h.clients[userID]; ok {
 		for client := range clients {
-			select {
-			case client.send <- data:
-			default:
+			if !client.trySend(data) {
 				go func(c *Client) { h.unregister <- c }(client)
 			}
 		}
@@ -670,7 +662,7 @@ func (h *Hub) Shutdown() {
 
 	for _, clients := range h.clients {
 		for client := range clients {
-			close(client.send)
+			client.markClosed()
 		}
 	}
 	h.clients = make(map[string]map[*Client]bool)
@@ -697,9 +689,7 @@ func (h *Hub) BroadcastToServer(serverID string, event Event) {
 	defer h.mu.RUnlock()
 
 	for client := range h.serverClients[serverID] {
-		select {
-		case client.send <- data:
-		default:
+		if !client.trySend(data) {
 			go func(c *Client) { h.unregister <- c }(client)
 		}
 	}
@@ -723,9 +713,7 @@ func (h *Hub) BroadcastToServerExcept(serverID, excludeUserID string, event Even
 		if client.userID == excludeUserID {
 			continue
 		}
-		select {
-		case client.send <- data:
-		default:
+		if !client.trySend(data) {
 			go func(c *Client) { h.unregister <- c }(client)
 		}
 	}
