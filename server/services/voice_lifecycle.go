@@ -172,6 +172,26 @@ func (s *voiceService) sweepOrphanStates() {
 	}
 }
 
+// newLiveKitRoomClient resolves the server's LiveKit instance, decrypts its credentials,
+// and returns a room-service client. Shared by every server-side LiveKit operation
+// (participant removal, participant listing, server-mute enforcement).
+// MUST NOT be called under mu.Lock (does DB lookups).
+func (s *voiceService) newLiveKitRoomClient(ctx context.Context, serverID string) (*lksdk.RoomServiceClient, error) {
+	lkInstance, err := s.livekitGetter.GetByServerID(ctx, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("livekit instance lookup for server %s: %w", serverID, err)
+	}
+	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("api key decrypt: %w", err)
+	}
+	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("api secret decrypt: %w", err)
+	}
+	return lksdk.NewRoomServiceClient(lkInstance.URL, apiKey, apiSecret), nil
+}
+
 // removeParticipantFromLiveKit explicitly removes a participant from the LiveKit server.
 // Without this, phantom participants linger until ICE/DTLS timeout.
 // Best-effort: errors are logged but not propagated.
@@ -185,34 +205,16 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, serverID)
+	roomClient, err := s.newLiveKitRoomClient(ctx, serverID)
 	if err != nil {
-		log.Printf("[voice] removeParticipant: livekit instance lookup failed for server %s: %v", serverID, err)
-		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: LiveKit instance lookup failed", map[string]string{
+		log.Printf("[voice] removeParticipant: room client init failed for server %s: %v", serverID, err)
+		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: room client init failed", map[string]string{
 			"server_id": serverID, "channel_id": channelID, "error": err.Error(),
 		})
 		return
 	}
 
-	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
-	if err != nil {
-		log.Printf("[voice] removeParticipant: api key decrypt failed: %v", err)
-		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: API key decrypt failed", map[string]string{
-			"channel_id": channelID, "error": err.Error(),
-		})
-		return
-	}
-	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
-	if err != nil {
-		log.Printf("[voice] removeParticipant: api secret decrypt failed: %v", err)
-		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: API secret decrypt failed", map[string]string{
-			"channel_id": channelID, "error": err.Error(),
-		})
-		return
-	}
-
 	roomName := serverID + ":" + channelID
-	roomClient := lksdk.NewRoomServiceClient(lkInstance.URL, apiKey, apiSecret)
 
 	_, err = roomClient.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{
 		Room:     roomName,
@@ -350,22 +352,12 @@ func (s *voiceService) sweepAFKUsers() {
 // share still counts as present. LiveKit is the source of truth for room membership.
 // MUST NOT be called under s.mu (does DB lookups + network I/O).
 func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, serverID)
+	roomClient, err := s.newLiveKitRoomClient(ctx, serverID)
 	if err != nil {
-		return nil, fmt.Errorf("livekit instance lookup for server %s: %w", serverID, err)
-	}
-
-	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("api key decrypt: %w", err)
-	}
-	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("api secret decrypt: %w", err)
+		return nil, err
 	}
 
 	roomName := serverID + ":" + channelID
-	roomClient := lksdk.NewRoomServiceClient(lkInstance.URL, apiKey, apiSecret)
 
 	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomName})
 	if err != nil {

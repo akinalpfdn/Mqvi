@@ -7,26 +7,30 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/ws"
+
+	livekit "github.com/livekit/protocol/livekit"
 )
 
 // AdminUpdateState applies server-level mute/deafen to a user.
 // Requires PermMuteMembers / PermDeafenMembers on the target's channel.
 func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	state, ok := s.states[targetUserID]
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
 	}
 
 	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, adminUserID, state.ChannelID)
 	if err != nil {
+		s.mu.Unlock()
 		s.logError(models.LogCategoryVoice, &adminUserID, "AdminUpdateState: permission resolve failed", map[string]string{
 			"target_user": targetUserID, "channel_id": state.ChannelID, "error": err.Error(),
 		})
@@ -34,9 +38,11 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 	}
 
 	if isServerMuted != nil && !effectivePerms.Has(models.PermMuteMembers) {
+		s.mu.Unlock()
 		return fmt.Errorf("%w: mute members permission required", pkg.ErrForbidden)
 	}
 	if isServerDeafened != nil && !effectivePerms.Has(models.PermDeafenMembers) {
+		s.mu.Unlock()
 		return fmt.Errorf("%w: deafen members permission required", pkg.ErrForbidden)
 	}
 
@@ -47,26 +53,119 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 		state.IsServerDeafened = *isServerDeafened
 	}
 
-	s.broadcastToServer(state.ServerID, ws.Event{
-		Op: ws.OpVoiceStateUpdate,
-		Data: ws.VoiceStateUpdateBroadcast{
-			UserID:           state.UserID,
-			ChannelID:        state.ChannelID,
-			Username:         state.Username,
-			DisplayName:      state.DisplayName,
-			AvatarURL:        s.urlSigner.SignURL(state.AvatarURL),
-			IsMuted:          state.IsMuted,
-			IsDeafened:       state.IsDeafened,
-			IsStreaming:      state.IsStreaming,
-			IsServerMuted:    state.IsServerMuted,
-			IsServerDeafened: state.IsServerDeafened,
-			Action:           "update",
-		},
-	})
+	// Snapshot for use after unlock (broadcast payload + SFU enforcement).
+	channelID := state.ChannelID
+	serverID := state.ServerID
+	newServerMuted := state.IsServerMuted
+	muteChanged := isServerMuted != nil
+	broadcast := ws.VoiceStateUpdateBroadcast{
+		UserID:           state.UserID,
+		ChannelID:        state.ChannelID,
+		Username:         state.Username,
+		DisplayName:      state.DisplayName,
+		AvatarURL:        s.urlSigner.SignURL(state.AvatarURL),
+		IsMuted:          state.IsMuted,
+		IsDeafened:       state.IsDeafened,
+		IsStreaming:      state.IsStreaming,
+		IsServerMuted:    state.IsServerMuted,
+		IsServerDeafened: state.IsServerDeafened,
+		Action:           "update",
+	}
+
+	s.mu.Unlock()
+
+	// Enforce server-mute at the SFU (only mute is SFU-enforceable; deafen stays
+	// client-side). Runs BEFORE the broadcast so on unmute the mic-publish permission is
+	// restored before the honest client (reacting to the broadcast) tries to republish.
+	// LiveKit network I/O is outside s.mu.
+	if muteChanged {
+		targetPerms, permErr := s.permResolver.ResolveChannelPermissions(ctx, targetUserID, channelID)
+		if permErr != nil {
+			// Can't determine the target's publish baseline — skip SFU enforcement rather
+			// than risk locking out (unmute) or over-granting (mute). Falls back to the
+			// flag broadcast, which honest clients still honor.
+			s.logError(models.LogCategoryVoice, &targetUserID, "AdminUpdateState: target permission resolve failed; SFU mute enforcement skipped", map[string]string{
+				"channel_id": channelID, "error": permErr.Error(),
+			})
+		} else {
+			s.enforceServerMicMuteAtSFU(serverID, channelID, targetUserID, newServerMuted, targetPerms.Has(models.PermSpeak))
+		}
+	}
+
+	s.broadcastToServer(serverID, ws.Event{Op: ws.OpVoiceStateUpdate, Data: broadcast})
 
 	log.Printf("[voice] admin %s updated server state for user %s (muted=%v, deafened=%v)",
-		adminUserID, targetUserID, state.IsServerMuted, state.IsServerDeafened)
+		adminUserID, targetUserID, broadcast.IsServerMuted, broadcast.IsServerDeafened)
 	return nil
+}
+
+// buildServerMutePermission returns the LiveKit participant permission for a server-mute
+// state change. Server-mute revokes only the MICROPHONE publish source — camera and screen
+// share stay publishable (Discord-style: mute is audio-only). Gated on canSpeak so muting
+// never grants publish to a user who couldn't publish. Subscribe stays enabled; server-
+// deafen is client-side, not SFU-enforced.
+// serverMuteAllowedSources is every publishable source EXCEPT microphone — the allow-list
+// applied to a server-muted user (audio-only mute; camera + screen share stay publishable).
+// Shared by the live SFU enforcement (buildServerMutePermission) and the token baking in
+// GenerateToken so both stay in lockstep.
+func serverMuteAllowedSources() []livekit.TrackSource {
+	return []livekit.TrackSource{
+		livekit.TrackSource_CAMERA,
+		livekit.TrackSource_SCREEN_SHARE,
+		livekit.TrackSource_SCREEN_SHARE_AUDIO,
+	}
+}
+
+func buildServerMutePermission(muted, canSpeak bool) *livekit.ParticipantPermission {
+	perm := &livekit.ParticipantPermission{
+		CanSubscribe:   true,
+		CanPublish:     canSpeak,
+		CanPublishData: true,
+	}
+	// CanPublishSources supersedes CanPublish: allow every source EXCEPT microphone.
+	if muted && canSpeak {
+		perm.CanPublishSources = serverMuteAllowedSources()
+	}
+	return perm
+}
+
+// enforceServerMicMuteAtSFU applies (or lifts) a server-mute at the SFU by updating the
+// participant's publish permission. A non-cooperating client cannot bypass it: revoking
+// the microphone source unpublishes any live mic track and blocks republishing.
+// Best-effort: errors are logged, not propagated. MUST NOT be called under mu.Lock.
+func (s *voiceService) enforceServerMicMuteAtSFU(serverID, channelID, userID string, muted, canSpeak bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	roomClient, err := s.newLiveKitRoomClient(ctx, serverID)
+	if err != nil {
+		log.Printf("[voice] serverMute: room client init failed for server %s: %v", serverID, err)
+		s.logError(models.LogCategoryVoice, &userID, "serverMute: room client init failed", map[string]string{
+			"server_id": serverID, "channel_id": channelID, "error": err.Error(),
+		})
+		return
+	}
+
+	roomName := serverID + ":" + channelID
+	_, err = roomClient.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{
+		Room:       roomName,
+		Identity:   userID,
+		Permission: buildServerMutePermission(muted, canSpeak),
+	})
+	if err != nil {
+		meta := map[string]string{"room": roomName, "channel_id": channelID, "muted": fmt.Sprintf("%v", muted), "error": err.Error()}
+		if strings.Contains(err.Error(), "not_found") || strings.Contains(err.Error(), "not found") {
+			// Participant not connected to the SFU (e.g. WS-joined but LiveKit not up yet).
+			log.Printf("[voice] serverMute: user=%s room=%s not in SFU (not found)", userID, roomName)
+			s.logWarn(models.LogCategoryVoice, &userID, "serverMute: participant not in SFU", meta)
+		} else {
+			log.Printf("[voice] serverMute: user=%s room=%s update failed: %v", userID, roomName, err)
+			s.logError(models.LogCategoryVoice, &userID, "serverMute: LiveKit UpdateParticipant failed", meta)
+		}
+		return
+	}
+
+	log.Printf("[voice] serverMute: user=%s room=%s micMuted=%v enforced at SFU", userID, roomName, muted)
 }
 
 // MoveUser moves a user between voice channels.

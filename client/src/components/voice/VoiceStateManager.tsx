@@ -314,16 +314,31 @@ function VoiceStateManager() {
       }, 1000);
     }
 
+    // Server-mute is enforced at the SFU by changing our publish permission. On unmute the
+    // WS flag (isServerMuted=false) can reach us before the SFU grants mic-publish back, so
+    // the flag-driven setMicrophoneEnabled can race ahead and fail. Re-assert mic when our
+    // permissions actually change so the track is restored once mic-publish is granted.
+    function handleLocalPermissionsChanged(_prev: unknown, participant: Participant) {
+      if (participant.identity !== localParticipant.identity) return;
+      const { isMuted: currentMuted, inputMode: currentMode, isServerMuted: srvMuted } = useVoiceStore.getState();
+      const shouldEnable = currentMode === "push_to_talk" ? false : (!currentMuted && !srvMuted);
+      localParticipant.setMicrophoneEnabled(shouldEnable).catch((err: unknown) => {
+        console.error("[VoiceStateManager] Failed to re-assert mic after permission change:", err);
+      });
+    }
+
     if (room.state === ConnectionState.Connected) {
       handleConnected();
     }
 
     room.on(RoomEvent.Connected, handleConnected);
     room.on(RoomEvent.Reconnected, handleReconnected);
+    room.on(RoomEvent.ParticipantPermissionsChanged, handleLocalPermissionsChanged);
 
     return () => {
       room.off(RoomEvent.Connected, handleConnected);
       room.off(RoomEvent.Reconnected, handleReconnected);
+      room.off(RoomEvent.ParticipantPermissionsChanged, handleLocalPermissionsChanged);
       initialSyncDone.current = false;
     };
   }, [room, localParticipant]);
