@@ -60,6 +60,15 @@ type VoiceStateSyncer interface {
 	SyncServerStatesToUser(userID, serverID string)
 }
 
+// VoiceServerDisconnector tears down every voice participant across a server's channels
+// when the server is deleted (enumerate by server, then DisconnectUser each: broadcast
+// leave + LiveKit remove + free passphrase + stop timers). Without it, deleting a server
+// leaves ghost in-memory voice state and running channel timers.
+type VoiceServerDisconnector interface {
+	GetServerParticipants(serverID string) []models.VoiceState
+	DisconnectUser(userID string)
+}
+
 type serverService struct {
 	db            *sql.DB // for WithTx in CreateServer
 	serverRepo    repository.ServerRepository
@@ -71,6 +80,7 @@ type serverService struct {
 	inviteService InviteService
 	hub           ws.BroadcastAndManage
 	voiceSync     VoiceStateSyncer
+	voiceDisc     VoiceServerDisconnector
 	encryptionKey []byte // AES-256-GCM for LiveKit credentials
 	urlSigner     FileURLSigner
 	fileCleanup   FileCleanupService
@@ -87,6 +97,7 @@ func NewServerService(
 	inviteService InviteService,
 	hub ws.BroadcastAndManage,
 	voiceSync VoiceStateSyncer,
+	voiceDisc VoiceServerDisconnector,
 	encryptionKey []byte,
 	urlSigner FileURLSigner,
 	fileCleanup FileCleanupService,
@@ -102,6 +113,7 @@ func NewServerService(
 		inviteService: inviteService,
 		hub:           hub,
 		voiceSync:     voiceSync,
+		voiceDisc:     voiceDisc,
 		encryptionKey: encryptionKey,
 		urlSigner:     urlSigner,
 		fileCleanup:   fileCleanup,
@@ -443,8 +455,24 @@ func (s *serverService) DeleteServer(ctx context.Context, serverID, userID strin
 		Data: map[string]string{"id": serverID},
 	})
 
+	// Authoritatively tear down any voice participants across the server's channels.
+	disconnectServerVoiceParticipants(s.voiceDisc, serverID)
+
 	log.Printf("[server] soft-deleted server %s by owner %s", serverID, userID)
 	return nil
+}
+
+// disconnectServerVoiceParticipants force-disconnects every voice participant across a
+// server's channels: clears ghost in-memory state, removes LiveKit participants, stops
+// channel timers. Shared by every server-delete path (owner + admin). Best-effort; a nil
+// disconnector or empty server is a no-op.
+func disconnectServerVoiceParticipants(vd VoiceServerDisconnector, serverID string) {
+	if vd == nil {
+		return
+	}
+	for _, p := range vd.GetServerParticipants(serverID) {
+		vd.DisconnectUser(p.UserID)
+	}
 }
 
 // RestoreServer un-soft-deletes a server. Owner can only restore servers they soft-deleted
@@ -535,6 +563,10 @@ func (s *serverService) HardDeleteServer(ctx context.Context, serverID, userID s
 	if err := s.serverRepo.Delete(ctx, serverID); err != nil {
 		return fmt.Errorf("failed to delete server: %w", err)
 	}
+
+	// Defensive: participants were disconnected on the original soft-delete, but a
+	// rejoin between soft- and hard-delete would leave ghosts — tear down again.
+	disconnectServerVoiceParticipants(s.voiceDisc, serverID)
 
 	// Phase 3: file cleanup + LiveKit cleanup (server_delete WS event already
 	// broadcast on the original soft-delete; no need to re-broadcast).

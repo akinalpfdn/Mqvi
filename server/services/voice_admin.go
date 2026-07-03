@@ -215,7 +215,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	})
 
 	// Remove phantom from old LiveKit room (best-effort)
-	go s.removeParticipantFromLiveKit(sourceChannelID, targetUserID)
+	go s.removeParticipantFromLiveKit(sourceServerID, sourceChannelID, targetUserID)
 
 	log.Printf("[voice] user %s moved user %s from channel %s to %s",
 		moverUserID, targetUserID, sourceChannelID, targetChannelID)
@@ -281,7 +281,7 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 		Op: ws.OpVoiceForceDisconnect,
 	})
 
-	go s.removeParticipantFromLiveKit(channelID, targetUserID)
+	go s.removeParticipantFromLiveKit(serverID, channelID, targetUserID)
 
 	log.Printf("[voice] admin %s disconnected user %s from channel %s",
 		disconnecterUserID, targetUserID, channelID)

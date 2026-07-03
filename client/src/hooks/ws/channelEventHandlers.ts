@@ -6,6 +6,7 @@
 import { useChannelStore } from "../../stores/channelStore";
 import { useMessageStore } from "../../stores/messageStore";
 import { useServerStore } from "../../stores/serverStore";
+import { useVoiceStore } from "../../stores/voiceStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useUIStore } from "../../stores/uiStore";
@@ -36,9 +37,16 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
       useUIStore.getState().updateTabLabel(ch.id, ch.name);
       return true;
     }
-    case "channel_delete":
-      useChannelStore.getState().handleChannelDelete((msg.d as { id: string }).id);
+    case "channel_delete": {
+      const deletedId = (msg.d as { id: string }).id;
+      // If we're in voice in the deleted channel, tear down our LiveKit session
+      // (mirrors the server_delete handler). The channel no longer exists server-side.
+      if (useVoiceStore.getState().currentVoiceChannelId === deletedId) {
+        useVoiceStore.getState().handleForceDisconnect();
+      }
+      useChannelStore.getState().handleChannelDelete(deletedId);
       return true;
+    }
     case "channel_reorder":
       useChannelStore.getState().fetchChannels();
       return true;

@@ -44,6 +44,7 @@ type adminServerService struct {
 	userRepo    repository.UserRepository
 	livekitRepo repository.LiveKitRepository
 	hub         ws.EventPublisher
+	voiceDisc   VoiceServerDisconnector
 	emailSender email.EmailSender // optional, nil = no emails
 	fileCleanup FileCleanupService
 }
@@ -53,6 +54,7 @@ func NewAdminServerService(
 	userRepo repository.UserRepository,
 	livekitRepo repository.LiveKitRepository,
 	hub ws.EventPublisher,
+	voiceDisc VoiceServerDisconnector,
 	emailSender email.EmailSender,
 	fileCleanup FileCleanupService,
 ) AdminServerService {
@@ -61,6 +63,7 @@ func NewAdminServerService(
 		userRepo:    userRepo,
 		livekitRepo: livekitRepo,
 		hub:         hub,
+		voiceDisc:   voiceDisc,
 		emailSender: emailSender,
 		fileCleanup: fileCleanup,
 	}
@@ -83,6 +86,9 @@ func (s *adminServerService) DeleteServer(ctx context.Context, adminUserID, serv
 		Op:   ws.OpServerDelete,
 		Data: map[string]string{"id": serverID},
 	})
+
+	// Tear down voice participants server-side (same S2 fix as owner delete).
+	disconnectServerVoiceParticipants(s.voiceDisc, serverID)
 
 	// Best-effort email to server owner
 	if reason != "" && s.emailSender != nil {
@@ -126,6 +132,9 @@ func (s *adminServerService) HardDeleteServer(ctx context.Context, adminUserID, 
 		return fmt.Errorf("failed to delete server: %w", err)
 	}
 
+	// Tear down voice participants server-side (no-op if already torn down at soft-delete).
+	disconnectServerVoiceParticipants(s.voiceDisc, serverID)
+
 	s.fileCleanup.Execute(plan)
 
 	if reason != "" && s.emailSender != nil {
@@ -166,6 +175,10 @@ func (s *adminServerService) ExpireSoftDeletedServer(ctx context.Context, server
 	if err := s.serverRepo.Delete(ctx, serverID); err != nil {
 		return fmt.Errorf("delete server: %w", err)
 	}
+
+	// Defensive: the server was soft-deleted ≥30 days ago (voice already torn down),
+	// but disconnect again so no path can leave ghost voice state.
+	disconnectServerVoiceParticipants(s.voiceDisc, serverID)
 
 	s.fileCleanup.Execute(plan)
 	return nil

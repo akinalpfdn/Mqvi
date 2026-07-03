@@ -53,6 +53,7 @@ type VoiceService interface {
 	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool) error
 	UpdateUserProfile(userID, username, displayName, avatarURL string)
 	GetChannelParticipants(channelID string) []models.VoiceState
+	GetServerParticipants(serverID string) []models.VoiceState
 	GetUserVoiceState(userID string) *models.VoiceState
 	GetAllVoiceStates() []models.VoiceState
 	GetActiveChannelTimers() map[string]int64 // channelID → start time (Unix ms)

@@ -21,6 +21,15 @@ type UserVoiceChannelProvider interface {
 	GetUserVoiceChannelID(userID string) string
 }
 
+// VoiceChannelDisconnector tears down voice participants when a channel is deleted:
+// enumerate the channel's participants, then DisconnectUser each (broadcast leave +
+// LiveKit remove + free passphrase + stop timer). Without this, deleting a voice channel
+// leaves ghost in-memory state and a running channel timer.
+type VoiceChannelDisconnector interface {
+	GetChannelParticipants(channelID string) []models.VoiceState
+	DisconnectUser(userID string)
+}
+
 type ChannelVisibilityFilter struct {
 	IsAdmin         bool
 	HasBaseView     bool
@@ -56,6 +65,7 @@ type channelService struct {
 	hub           ws.Broadcaster
 	visChecker    ChannelVisibilityChecker
 	voiceProvider UserVoiceChannelProvider
+	voiceDisc     VoiceChannelDisconnector
 	fileCleanup   FileCleanupService
 }
 
@@ -65,6 +75,7 @@ func NewChannelService(
 	hub ws.Broadcaster,
 	visChecker ChannelVisibilityChecker,
 	voiceProvider UserVoiceChannelProvider,
+	voiceDisc VoiceChannelDisconnector,
 	fileCleanup FileCleanupService,
 ) ChannelService {
 	return &channelService{
@@ -73,6 +84,7 @@ func NewChannelService(
 		hub:           hub,
 		visChecker:    visChecker,
 		voiceProvider: voiceProvider,
+		voiceDisc:     voiceDisc,
 		fileCleanup:   fileCleanup,
 	}
 }
@@ -261,6 +273,15 @@ func (s *channelService) Delete(ctx context.Context, serverID string, id string)
 		Op:   ws.OpChannelDelete,
 		Data: map[string]string{"id": id},
 	})
+
+	// Authoritatively disconnect anyone still in this (now-deleted) voice channel:
+	// clears ghost in-memory state, removes LiveKit participants, stops the channel
+	// timer. Runs after the successful DB delete so a failed delete never kicks anyone.
+	if channel.Type == models.ChannelTypeVoice && s.voiceDisc != nil {
+		for _, p := range s.voiceDisc.GetChannelParticipants(id) {
+			s.voiceDisc.DisconnectUser(p.UserID)
+		}
+	}
 
 	return nil
 }

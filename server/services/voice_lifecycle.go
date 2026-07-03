@@ -41,6 +41,7 @@ const (
 type orphanEntry struct {
 	userID    string
 	channelID string
+	serverID  string
 }
 
 type afkEntry struct {
@@ -148,7 +149,7 @@ func (s *voiceService) sweepOrphanStates() {
 		}
 
 		s.cleanupRoomPassphraseIfEmpty(channelID)
-		orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID})
+		orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID, serverID: serverID})
 		log.Printf("[voice] orphan cleanup: removed user %s from channel %s (offline for %s)", userID, channelID, now.Sub(offlineTime).Round(time.Second))
 		s.logWarn(models.LogCategoryVoice, &userID, "orphan cleanup: stale voice state removed", map[string]string{
 			"channel_id":      channelID,
@@ -167,7 +168,7 @@ func (s *voiceService) sweepOrphanStates() {
 
 	// LiveKit cleanup outside lock (involves DB calls)
 	for _, o := range orphans {
-		s.removeParticipantFromLiveKit(o.channelID, o.userID)
+		s.removeParticipantFromLiveKit(o.serverID, o.channelID, o.userID)
 	}
 }
 
@@ -175,24 +176,20 @@ func (s *voiceService) sweepOrphanStates() {
 // Without this, phantom participants linger until ICE/DTLS timeout.
 // Best-effort: errors are logged but not propagated.
 // MUST NOT be called under mu.Lock (does DB lookups).
-func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
+//
+// serverID is passed by the caller (captured from the voice state) rather than resolved
+// from the channel row: a channel's ServerID is immutable, so the two always match, and
+// passing it keeps teardown working after the channel row is deleted (channel/server
+// delete) — a channel lookup here would fail and silently skip the SFU removal.
+func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	channel, err := s.channelGetter.GetByID(ctx, channelID)
+	lkInstance, err := s.livekitGetter.GetByServerID(ctx, serverID)
 	if err != nil {
-		log.Printf("[voice] removeParticipant: channel lookup failed for %s: %v", channelID, err)
-		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: channel lookup failed", map[string]string{
-			"channel_id": channelID, "error": err.Error(),
-		})
-		return
-	}
-
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
-	if err != nil {
-		log.Printf("[voice] removeParticipant: livekit instance lookup failed for server %s: %v", channel.ServerID, err)
+		log.Printf("[voice] removeParticipant: livekit instance lookup failed for server %s: %v", serverID, err)
 		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: LiveKit instance lookup failed", map[string]string{
-			"server_id": channel.ServerID, "channel_id": channelID, "error": err.Error(),
+			"server_id": serverID, "channel_id": channelID, "error": err.Error(),
 		})
 		return
 	}
@@ -214,7 +211,7 @@ func (s *voiceService) removeParticipantFromLiveKit(channelID, userID string) {
 		return
 	}
 
-	roomName := channel.ServerID + ":" + channelID
+	roomName := serverID + ":" + channelID
 	roomClient := lksdk.NewRoomServiceClient(lkInstance.URL, apiKey, apiSecret)
 
 	_, err = roomClient.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{

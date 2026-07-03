@@ -17,6 +17,53 @@ func (m *mockLiveKitGetter) GetByServerID(_ context.Context, _ string) (*models.
 	return nil, fmt.Errorf("no livekit instance in test")
 }
 
+// recordingLiveKitGetter records the serverID it was queried with, then errors to stop
+// before the real SFU network call.
+type recordingLiveKitGetter struct {
+	callCount    int
+	lastServerID string
+}
+
+func (m *recordingLiveKitGetter) GetByServerID(_ context.Context, serverID string) (*models.LiveKitInstance, error) {
+	m.callCount++
+	m.lastServerID = serverID
+	return nil, fmt.Errorf("stop before network call")
+}
+
+// Phase 44 fix: on channel delete the channel row is gone by the time teardown runs, so
+// removeParticipantFromLiveKit must reach the SFU-removal path via the caller-supplied
+// serverID instead of re-fetching the channel. Pre-fix it did GetByID(channelID) first
+// and silently returned when that failed — so the participant was never removed from the
+// SFU. This test drives a deleted-channel scenario and asserts the LiveKit lookup is
+// still reached with the right serverID.
+func TestRemoveParticipantFromLiveKit_ReachesSFUAfterChannelDeleted(t *testing.T) {
+	lk := &recordingLiveKitGetter{}
+	svc := NewVoiceService(
+		&testutil.MockChannelRepo{
+			// Deleted channel: any lookup fails. The fixed code must NOT depend on this.
+			GetByIDFn: func(_ context.Context, _ string) (*models.Channel, error) {
+				return nil, fmt.Errorf("channel deleted")
+			},
+		},
+		lk,
+		&testutil.MockChannelPermResolver{},
+		&testutil.MockBroadcaster{},
+		nil, // onlineChecker
+		nil, // afkTimeoutGetter
+		nil, // encryptionKey
+		&testutil.MockFileURLSigner{},
+	).(*voiceService)
+
+	svc.removeParticipantFromLiveKit("srv1", "deleted-chan", "u1")
+
+	if lk.callCount != 1 {
+		t.Fatalf("LiveKit lookup should be reached even with a deleted channel; got %d calls (pre-fix: 0)", lk.callCount)
+	}
+	if lk.lastServerID != "srv1" {
+		t.Fatalf("LiveKit lookup should use the passed serverID; got %q want %q", lk.lastServerID, "srv1")
+	}
+}
+
 func filterBroadcasts(events []ws.Event, op string) []ws.Event {
 	out := make([]ws.Event, 0, len(events))
 	for _, e := range events {
