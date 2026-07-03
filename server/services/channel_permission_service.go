@@ -35,6 +35,16 @@ const (
 // Used by MessageService and VoiceService to avoid depending on the full ChannelPermissionService.
 type ChannelPermResolver interface {
 	ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error)
+	// ResolveChannelPermissionsFresh bypasses the cache (and refreshes it) so a caller acting
+	// on a just-changed permission — e.g. live voice enforcement after a role/member change,
+	// which does NOT invalidate this cache — sees current state, not a ≤30s-stale entry.
+	ResolveChannelPermissionsFresh(ctx context.Context, userID, channelID string) (models.Permission, error)
+}
+
+// VoiceChannelPermissionEnforcer re-applies effective voice permissions at the SFU for
+// users already in a voice channel after its overrides change. Implemented by voiceService.
+type VoiceChannelPermissionEnforcer interface {
+	EnforceChannelVoicePermissions(channelID string)
 }
 
 // ChannelPermissionService manages per-channel permission overrides.
@@ -45,8 +55,13 @@ type ChannelPermissionService interface {
 	DeleteOverride(ctx context.Context, serverID, channelID, roleID string) error
 	// ResolveChannelPermissions computes effective permissions for a user in a channel.
 	ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error)
+	// ResolveChannelPermissionsFresh is ResolveChannelPermissions with a forced cache refresh.
+	ResolveChannelPermissionsFresh(ctx context.Context, userID, channelID string) (models.Permission, error)
 	// BuildVisibilityFilter builds a per-user channel visibility filter for ViewChannel checks.
 	BuildVisibilityFilter(ctx context.Context, userID, serverID string) (*ChannelVisibilityFilter, error)
+	// SetVoiceEnforcer wires the voice enforcer (post-construction — voiceService is built
+	// after this service, which it depends on).
+	SetVoiceEnforcer(enforcer VoiceChannelPermissionEnforcer)
 }
 
 type channelPermService struct {
@@ -54,10 +69,23 @@ type channelPermService struct {
 	roleRepo      repository.RoleRepository
 	channelGetter ChannelGetter
 	hub           ws.Broadcaster
+	voiceEnforcer VoiceChannelPermissionEnforcer // set post-construction, may be nil
 
 	// Cache for ResolveChannelPermissions results. Key: "userID:channelID".
 	// Invalidated per-channel when overrides change.
 	permCache *cache.TTLCache[string, models.Permission]
+}
+
+func (s *channelPermService) SetVoiceEnforcer(enforcer VoiceChannelPermissionEnforcer) {
+	s.voiceEnforcer = enforcer
+}
+
+// enforceChannelVoice re-checks the channel's voice participants after an override change.
+// Fire-and-forget so the admin's request isn't blocked on LiveKit I/O.
+func (s *channelPermService) enforceChannelVoice(channelID string) {
+	if s.voiceEnforcer != nil {
+		go s.voiceEnforcer.EnforceChannelVoicePermissions(channelID)
+	}
 }
 
 func NewChannelPermissionService(
@@ -118,6 +146,7 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 		}
 
 		s.invalidateChannelCache(channelID)
+		s.enforceChannelVoice(channelID)
 
 		s.hub.BroadcastToAll(ws.Event{
 			Op: ws.OpChannelPermissionDelete,
@@ -142,6 +171,7 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 	}
 
 	s.invalidateChannelCache(channelID)
+	s.enforceChannelVoice(channelID)
 
 	s.hub.BroadcastToAll(ws.Event{
 		Op:   ws.OpChannelPermissionUpdate,
@@ -166,6 +196,7 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, serverID, chann
 	}
 
 	s.invalidateChannelCache(channelID)
+	s.enforceChannelVoice(channelID)
 
 	s.hub.BroadcastToAll(ws.Event{
 		Op: ws.OpChannelPermissionDelete,
@@ -247,6 +278,15 @@ func (s *channelPermService) BuildVisibilityFilter(ctx context.Context, userID, 
 		HiddenChannels:  hidden,
 		GrantedChannels: granted,
 	}, nil
+}
+
+// ResolveChannelPermissionsFresh drops the cached entry for this user+channel, then
+// resolves (repopulating the cache). Used by live voice enforcement so it acts on current
+// permissions even when the trigger (role / member-role change) didn't invalidate the cache
+// — and so a user disconnected for a lost permission can't rejoin via a stale cache hit.
+func (s *channelPermService) ResolveChannelPermissionsFresh(ctx context.Context, userID, channelID string) (models.Permission, error) {
+	s.permCache.Delete(userID + ":" + channelID)
+	return s.ResolveChannelPermissions(ctx, userID, channelID)
 }
 
 func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error) {

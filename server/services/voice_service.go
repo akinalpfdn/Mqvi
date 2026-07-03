@@ -70,6 +70,11 @@ type VoiceService interface {
 	AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error
 	MoveUser(ctx context.Context, moverUserID, targetUserID, targetChannelID string) error
 	AdminDisconnectUser(ctx context.Context, disconnecterUserID, targetUserID string) error
+	// Live permission enforcement (S3): re-apply effective voice permissions at the SFU for
+	// users already in voice after a permission-affecting change. Fire-and-forget.
+	EnforceChannelVoicePermissions(channelID string)
+	EnforceServerVoicePermissions(serverID string)
+	EnforceUserVoicePermissions(userID string)
 	// GetUserVoiceChannelID returns the user's active voice channel ID (empty if not in voice).
 	// Satisfies UserVoiceChannelProvider for ChannelService sidebar visibility.
 	GetUserVoiceChannelID(userID string) string

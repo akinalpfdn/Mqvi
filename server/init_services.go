@@ -149,6 +149,12 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	uploadService := services.NewUploadService(repos.Attachment, uploadPipeline, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(repos.User, repos.Role, repos.Ban, repos.Server, hub, voiceService, voiceService, urlSigner)
 	roleService := services.NewRoleService(repos.Role, repos.User, hub)
+
+	// Wire live mid-call voice permission enforcement (S3). Post-construction because
+	// voiceService is built after channelPermService (its permission resolver).
+	channelPermService.SetVoiceEnforcer(voiceService)
+	roleService.SetVoiceEnforcer(voiceService)
+	memberService.SetVoiceEnforcer(voiceService)
 	serverService := services.NewServerService(
 		db, repos.Server, repos.LiveKit, repos.Role, repos.Channel,
 		repos.Category, repos.User, inviteService, hub, voiceService, voiceService, encryptionKey, urlSigner, fileCleanupService,

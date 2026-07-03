@@ -853,6 +853,10 @@ func (m *MockChannelPermResolver) ResolveChannelPermissions(ctx context.Context,
 	return 0, nil
 }
 
+func (m *MockChannelPermResolver) ResolveChannelPermissionsFresh(ctx context.Context, userID, channelID string) (models.Permission, error) {
+	return m.ResolveChannelPermissions(ctx, userID, channelID)
+}
+
 // ─── ReadStateRepository mock ───
 
 type MockReadStateRepo struct {

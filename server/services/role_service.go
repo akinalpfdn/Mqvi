@@ -10,6 +10,12 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
+// VoiceServerPermissionEnforcer re-applies voice permissions at the SFU for users already
+// in voice across a server, after a role's permissions change or a role is deleted.
+type VoiceServerPermissionEnforcer interface {
+	EnforceServerVoicePermissions(serverID string)
+}
+
 // RoleService handles role CRUD. All operations are server-scoped.
 type RoleService interface {
 	GetAllByServer(ctx context.Context, serverID string) ([]models.Role, error)
@@ -17,12 +23,15 @@ type RoleService interface {
 	Update(ctx context.Context, serverID, actorID, roleID string, req *models.UpdateRoleRequest) (*models.Role, error)
 	Delete(ctx context.Context, serverID, actorID, roleID string) error
 	ReorderRoles(ctx context.Context, serverID, actorID string, items []models.PositionUpdate) ([]models.Role, error)
+	// SetVoiceEnforcer wires the voice enforcer post-construction.
+	SetVoiceEnforcer(enforcer VoiceServerPermissionEnforcer)
 }
 
 type roleService struct {
-	roleRepo repository.RoleRepository
-	userRepo repository.UserRepository
-	hub      ws.Broadcaster
+	roleRepo      repository.RoleRepository
+	userRepo      repository.UserRepository
+	hub           ws.Broadcaster
+	voiceEnforcer VoiceServerPermissionEnforcer // set post-construction, may be nil
 }
 
 func NewRoleService(
@@ -34,6 +43,18 @@ func NewRoleService(
 		roleRepo: roleRepo,
 		userRepo: userRepo,
 		hub:      hub,
+	}
+}
+
+func (s *roleService) SetVoiceEnforcer(enforcer VoiceServerPermissionEnforcer) {
+	s.voiceEnforcer = enforcer
+}
+
+// enforceServerVoice re-checks the server's voice participants after a permission change.
+// Fire-and-forget so the request isn't blocked on LiveKit I/O.
+func (s *roleService) enforceServerVoice(serverID string) {
+	if s.voiceEnforcer != nil {
+		go s.voiceEnforcer.EnforceServerVoicePermissions(serverID)
 	}
 }
 
@@ -187,6 +208,13 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 		return nil, fmt.Errorf("failed to update role: %w", err)
 	}
 
+	// A permissions change can revoke ConnectVoice/Speak for anyone holding this role —
+	// enforce it live for users already in voice (S3). Name/color/mentionable-only edits
+	// don't touch permissions, so skip them.
+	if req.Permissions != nil {
+		s.enforceServerVoice(serverID)
+	}
+
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRoleUpdate,
 		Data: role,
@@ -225,6 +253,9 @@ func (s *roleService) Delete(ctx context.Context, serverID, actorID, roleID stri
 	if err := s.roleRepo.Delete(ctx, roleID); err != nil {
 		return fmt.Errorf("failed to delete role: %w", err)
 	}
+
+	// Users lose this role's grants — enforce live for anyone already in voice (S3).
+	s.enforceServerVoice(serverID)
 
 	s.hub.BroadcastToAll(ws.Event{
 		Op:   ws.OpRoleDelete,

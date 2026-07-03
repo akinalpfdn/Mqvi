@@ -79,7 +79,10 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 	// restored before the honest client (reacting to the broadcast) tries to republish.
 	// LiveKit network I/O is outside s.mu.
 	if muteChanged {
-		targetPerms, permErr := s.permResolver.ResolveChannelPermissions(ctx, targetUserID, channelID)
+		// Fresh resolve (not cached): a role/override change that just revoked the target's
+		// Speak may not have invalidated the cache, and re-asserting publish off a stale
+		// Speak would clobber the live permission enforcement (Phase 46).
+		targetPerms, permErr := s.permResolver.ResolveChannelPermissionsFresh(ctx, targetUserID, channelID)
 		if permErr != nil {
 			// Can't determine the target's publish baseline — skip SFU enforcement rather
 			// than risk locking out (unmute) or over-granting (mute). Falls back to the
