@@ -236,6 +236,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		conn:          conn,
 		userID:        claims.UserID,
 		send:          make(chan []byte, sendBufferSize),
+		events:        make(chan Event, eventQueueSize),
 		done:          make(chan struct{}),
 		prefStatus:    prefStatus,
 		eventLimiter:  ratelimit.NewTokenBucket(eventBurst, eventRefillPerSec),
@@ -362,7 +363,9 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Start pumps — WritePump in goroutine, ReadPump blocks until disconnect
+	// Start pumps — WritePump + eventPump in goroutines, ReadPump blocks until disconnect.
+	// eventPump drains the ordered inbound queue; both exit when done is closed on unregister.
 	go client.WritePump()
+	go client.eventPump()
 	client.ReadPump()
 }
