@@ -1265,6 +1265,13 @@ body:has(.landing-page) #root { overflow-y: auto !important; height: auto !impor
   margin-bottom: 8px;
 }
 
+/* Legal pages (privacy/terms) — nav helpers + mobile layout */
+.lp-nav-home { cursor: pointer; }
+.lp-nav-lang--solo { margin-left: auto; }
+@media (max-width: 900px) {
+  .privacy-content { max-width: 100%; padding: 108px 20px 60px; }
+}
+
 /* ═══════════════════════════════════════
    RESPONSIVE — Tablet (≤ 768px)
    ═══════════════════════════════════════

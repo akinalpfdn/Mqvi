@@ -118,6 +118,7 @@ function App() {
       {/* Legal pages — public */}
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
+      <Route path="/policies" element={<Navigate to="/privacy" replace />} />
 
       {/* Invite join — auth check is handled inside InviteJoinPage */}
       <Route path="/invite/:code" element={<InviteJoinPage />} />
