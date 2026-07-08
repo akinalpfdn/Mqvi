@@ -11,6 +11,7 @@ import AppLayout from "./components/layout/AppLayout";
 import LandingPage from "./components/landing/LandingPage";
 import PrivacyPage from "./components/landing/PrivacyPage";
 import TermsPage from "./components/landing/TermsPage";
+import DeleteAccountPage from "./components/landing/DeleteAccountPage";
 import InviteJoinPage from "./components/servers/InviteJoinPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import CustomTitleBar from "./components/layout/CustomTitleBar";
@@ -119,6 +120,7 @@ function App() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/policies" element={<Navigate to="/privacy" replace />} />
+      <Route path="/delete-account" element={<DeleteAccountPage />} />
 
       {/* Invite join — auth check is handled inside InviteJoinPage */}
       <Route path="/invite/:code" element={<InviteJoinPage />} />
