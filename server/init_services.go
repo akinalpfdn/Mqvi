@@ -155,6 +155,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	channelPermService.SetVoiceEnforcer(voiceService)
 	roleService.SetVoiceEnforcer(voiceService)
 	memberService.SetVoiceEnforcer(voiceService)
+
+	// Wire permission-cache invalidation: role perm edits/deletes and member role changes
+	// must drop stale cached perms so join/send gates see the change immediately (not ≤30s late).
+	roleService.SetPermCacheInvalidator(channelPermService)
+	memberService.SetPermCacheInvalidator(channelPermService)
 	serverService := services.NewServerService(
 		db, repos.Server, repos.LiveKit, repos.Role, repos.Channel,
 		repos.Category, repos.User, inviteService, hub, voiceService, voiceService, encryptionKey, urlSigner, fileCleanupService,
@@ -212,7 +217,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reportUploadService := services.NewReportUploadService(repos.Report, uploadPipeline, cfg.Upload.MaxSize)
 
 	deviceService := services.NewDeviceService(repos.Device, hub)
-	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, hub)
+	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub)
 	pushTokenService := services.NewPushTokenService(repos.PushToken)
 
 	adminUserService := services.NewAdminUserService(db, repos.User, repos.Session, repos.Server, hub, voiceService, emailSender, fileCleanupService)

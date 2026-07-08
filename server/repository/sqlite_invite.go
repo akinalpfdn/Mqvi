@@ -90,10 +90,14 @@ func (r *sqliteInviteRepo) Create(ctx context.Context, invite *models.Invite) er
 	return nil
 }
 
-func (r *sqliteInviteRepo) Delete(ctx context.Context, code string) error {
-	query := `DELETE FROM invites WHERE code = ?`
+// Delete removes an invite scoped to its server. The server_id predicate is the IDOR
+// guard: invite codes are globally unique, so an unscoped delete-by-code would let a
+// member of any server delete another server's invite. A code belonging to a different
+// server matches 0 rows → ErrNotFound (indistinguishable from a missing code, no oracle).
+func (r *sqliteInviteRepo) Delete(ctx context.Context, serverID, code string) error {
+	query := `DELETE FROM invites WHERE code = ? AND server_id = ?`
 
-	result, err := r.db.ExecContext(ctx, query, code)
+	result, err := r.db.ExecContext(ctx, query, code, serverID)
 	if err != nil {
 		return fmt.Errorf("failed to delete invite: %w", err)
 	}
@@ -130,5 +134,16 @@ func (r *sqliteInviteRepo) IncrementUses(ctx context.Context, code string) error
 		return pkg.ErrConflict
 	}
 
+	return nil
+}
+
+// DecrementUses gives back one consumed use (compensation for a join that failed after
+// IncrementUses). Guarded by uses > 0 so it can never go negative; 0 rows is a no-op (not
+// an error) since this is best-effort cleanup.
+func (r *sqliteInviteRepo) DecrementUses(ctx context.Context, code string) error {
+	query := `UPDATE invites SET uses = uses - 1 WHERE code = ? AND uses > 0`
+	if _, err := r.db.ExecContext(ctx, query, code); err != nil {
+		return fmt.Errorf("failed to decrement invite uses: %w", err)
+	}
 	return nil
 }

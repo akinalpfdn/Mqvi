@@ -106,7 +106,9 @@ func (c *Client) ReadPump() {
 
 		var event Event
 		if err := json.Unmarshal(rawMessage, &event); err != nil {
-			log.Printf("[ws] invalid message from user %s: %v", c.userID, err)
+			// Malformed frame: drop quietly. No per-frame log — a garbage-frame flood would
+			// otherwise amplify into unbounded log/disk I/O (a DoS the rate limiter, which
+			// runs post-parse in handleEvent, can't throttle).
 			continue
 		}
 
@@ -152,14 +154,17 @@ func (c *Client) handleEvent(event Event) {
 		c.handleHeartbeat(event)
 		return
 	}
-	if _, ok := eventHandlers[event.Op]; !ok {
-		log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
-		return
-	}
+	// Rate-limit FIRST — before the unknown-op check — so a flood of unknown/garbage ops is
+	// throttled at the source instead of amplifying into unbounded logging that bypasses the
+	// limiter (a log/disk DoS). Unknown ops draw from the general bucket (allowEvent default).
 	if !c.allowEvent(event.Op) {
 		// Over-limit: drop the frame and keep the connection. We deliberately do NOT
 		// disconnect (a momentary UI spike shouldn't kill a live call) and do NOT log
 		// per drop (that would just move the flood to the log/disk).
+		return
+	}
+	if _, ok := eventHandlers[event.Op]; !ok {
+		// Unknown op: drop quietly. No per-frame log (same reason as the over-limit drop).
 		return
 	}
 	if !c.enqueueEvent(event) {

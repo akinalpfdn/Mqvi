@@ -603,19 +603,18 @@ func (s *serverService) GetDeletedServers(ctx context.Context, userID string) ([
 }
 
 // JoinServer joins a server via invite code.
+//
+// The invite use is consumed (Consume) only AFTER validation + a membership check pass,
+// so an existing member (or a soft-deleted-server attempt) never burns a finite invite —
+// and AFTER the atomic guard, so max_uses is still enforced under concurrency (B1). If the
+// membership add fails post-consume, the use is released back (compensation).
 func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode string) (*models.Server, error) {
-	invite, err := s.inviteService.ValidateAndUse(ctx, inviteCode)
+	invite, err := s.inviteService.Validate(ctx, inviteCode)
 	if err != nil {
 		return nil, err
 	}
 
 	serverID := invite.ServerID
-
-	// Reject join attempts on soft-deleted servers — invite redeem must not
-	// dirty membership/usage counters or restore-time member lists.
-	if _, err := s.serverRepo.GetActiveByID(ctx, serverID); err != nil {
-		return nil, fmt.Errorf("%w: server is no longer available", pkg.ErrNotFound)
-	}
 
 	isMember, err := s.serverRepo.IsMember(ctx, serverID, userID)
 	if err != nil {
@@ -625,7 +624,16 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		return nil, fmt.Errorf("%w: already a member of this server", pkg.ErrBadRequest)
 	}
 
+	// Consume a use only now that the join will actually proceed (atomic max_uses guard).
+	if err := s.inviteService.Consume(ctx, inviteCode); err != nil {
+		return nil, err
+	}
+
 	if err := s.serverRepo.AddMember(ctx, serverID, userID); err != nil {
+		// Give the consumed use back so a transient add failure doesn't permanently burn it.
+		if relErr := s.inviteService.ReleaseUse(ctx, inviteCode); relErr != nil {
+			log.Printf("[server] failed to release invite use after add failure (code=%s): %v", inviteCode, relErr)
+		}
 		return nil, fmt.Errorf("failed to add member: %w", err)
 	}
 

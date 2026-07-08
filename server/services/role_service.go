@@ -25,13 +25,16 @@ type RoleService interface {
 	ReorderRoles(ctx context.Context, serverID, actorID string, items []models.PositionUpdate) ([]models.Role, error)
 	// SetVoiceEnforcer wires the voice enforcer post-construction.
 	SetVoiceEnforcer(enforcer VoiceServerPermissionEnforcer)
+	// SetPermCacheInvalidator wires the permission-cache invalidator post-construction.
+	SetPermCacheInvalidator(inv PermissionCacheInvalidator)
 }
 
 type roleService struct {
-	roleRepo      repository.RoleRepository
-	userRepo      repository.UserRepository
-	hub           ws.Broadcaster
-	voiceEnforcer VoiceServerPermissionEnforcer // set post-construction, may be nil
+	roleRepo       repository.RoleRepository
+	userRepo       repository.UserRepository
+	hub            ws.Broadcaster
+	voiceEnforcer  VoiceServerPermissionEnforcer // set post-construction, may be nil
+	permInvalidator PermissionCacheInvalidator   // set post-construction, may be nil
 }
 
 func NewRoleService(
@@ -48,6 +51,18 @@ func NewRoleService(
 
 func (s *roleService) SetVoiceEnforcer(enforcer VoiceServerPermissionEnforcer) {
 	s.voiceEnforcer = enforcer
+}
+
+func (s *roleService) SetPermCacheInvalidator(inv PermissionCacheInvalidator) {
+	s.permInvalidator = inv
+}
+
+// invalidatePermCache flushes cached permissions after a role's bits change or it is
+// deleted (affects every holder). No-op if unwired.
+func (s *roleService) invalidatePermCache() {
+	if s.permInvalidator != nil {
+		s.permInvalidator.InvalidateAllPermissions()
+	}
 }
 
 // enforceServerVoice re-checks the server's voice participants after a permission change.
@@ -209,9 +224,11 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 	}
 
 	// A permissions change can revoke ConnectVoice/Speak for anyone holding this role —
-	// enforce it live for users already in voice (S3). Name/color/mentionable-only edits
-	// don't touch permissions, so skip them.
+	// enforce it live for users already in voice (S3) and drop stale cached perms so the
+	// change takes effect immediately for join/send gates too. Name/color/mentionable-only
+	// edits don't touch permissions, so skip them.
 	if req.Permissions != nil {
+		s.invalidatePermCache()
 		s.enforceServerVoice(serverID)
 	}
 
@@ -254,7 +271,9 @@ func (s *roleService) Delete(ctx context.Context, serverID, actorID, roleID stri
 		return fmt.Errorf("failed to delete role: %w", err)
 	}
 
-	// Users lose this role's grants — enforce live for anyone already in voice (S3).
+	// Users lose this role's grants — flush stale cached perms and enforce live for anyone
+	// already in voice (S3).
+	s.invalidatePermCache()
 	s.enforceServerVoice(serverID)
 
 	s.hub.BroadcastToAll(ws.Event{

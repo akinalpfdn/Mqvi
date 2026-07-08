@@ -123,3 +123,63 @@ func TestRoleDelete_CrossServerDenied(t *testing.T) {
 		t.Errorf("cross-server role delete should be forbidden, got %v", err)
 	}
 }
+
+// Phase 48-A #1 — the role-assignment path (ModifyRoles) is a distinct endpoint from
+// role update/delete/reorder above; it must ALSO reject a role from another server, or its
+// permission bits (Admin on a position-0 role) leak into the target's effective perms.
+func TestModifyRoles_ForeignRoleRejected(t *testing.T) {
+	assigned := false
+	svc := &memberService{
+		roleRepo: &testutil.MockRoleRepo{
+			GetByUserIDAndServerFn: func(_ context.Context, userID, _ string) ([]models.Role, error) {
+				if userID == "actor" {
+					return []models.Role{{ID: "actor-role", Position: 100}}, nil
+				}
+				return []models.Role{{ID: "target-role", Position: 10}}, nil // target, not owner
+			},
+			GetByIDFn: func(_ context.Context, _ string) (*models.Role, error) {
+				// A low-position role in ANOTHER server carrying Admin perms.
+				return &models.Role{ID: "foreign", ServerID: "other-srv", Position: 0, Permissions: models.PermAdmin}, nil
+			},
+			AssignToUserFn: func(_ context.Context, _, _, _ string) error {
+				assigned = true
+				return nil
+			},
+		},
+	}
+
+	_, err := svc.ModifyRoles(context.Background(), "srv-1", "actor", "target", []string{"foreign"})
+	if !errors.Is(err, pkg.ErrForbidden) {
+		t.Errorf("assigning a foreign-server role should be forbidden, got %v", err)
+	}
+	if assigned {
+		t.Error("a foreign role must NOT be assigned (privilege escalation vector)")
+	}
+}
+
+// Phase 48-A #4 — E2EE group-session access resolves the actor against the channel's OWN
+// server, so a non-member (0 perms — e.g. probing another server's channel by ID) is denied,
+// while a member who can view + read is allowed.
+func TestE2EEGroupSession_AuthorizeChannelAccess(t *testing.T) {
+	denySvc := &e2eeService{
+		permResolver: &testutil.MockChannelPermResolver{
+			ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+				return 0, nil // outsider / cross-server → no permissions
+			},
+		},
+	}
+	if err := denySvc.authorizeChannelAccess(context.Background(), "outsider", "chan-B"); !errors.Is(err, pkg.ErrForbidden) {
+		t.Errorf("outsider should be denied group-session access, got %v", err)
+	}
+
+	allowSvc := &e2eeService{
+		permResolver: &testutil.MockChannelPermResolver{
+			ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+				return models.PermViewChannel | models.PermReadMessages, nil
+			},
+		},
+	}
+	if err := allowSvc.authorizeChannelAccess(context.Background(), "member", "chan-A"); err != nil {
+		t.Errorf("a member with view+read should be allowed, got %v", err)
+	}
+}

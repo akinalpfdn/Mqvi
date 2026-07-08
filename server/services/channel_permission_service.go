@@ -47,6 +47,19 @@ type VoiceChannelPermissionEnforcer interface {
 	EnforceChannelVoicePermissions(channelID string)
 }
 
+// PermissionCacheInvalidator drops cached permission entries when a role or membership
+// change makes them stale. The perm cache is otherwise only invalidated on per-channel
+// override changes, so without this a role permission edit or a member's role change would
+// not take effect (join/send/permission gates would see a ≤30s-stale entry). Implemented
+// by channelPermService; consumed by role/member services (wired post-construction).
+type PermissionCacheInvalidator interface {
+	// InvalidateUserPermissions drops every cached entry for one user (all channels).
+	InvalidateUserPermissions(userID string)
+	// InvalidateAllPermissions clears the whole cache — used when a role's permission bits
+	// change or a role is deleted, which can affect every holder across every channel.
+	InvalidateAllPermissions()
+}
+
 // ChannelPermissionService manages per-channel permission overrides.
 type ChannelPermissionService interface {
 	GetOverrides(ctx context.Context, serverID, channelID string) ([]models.ChannelPermissionOverride, error)
@@ -62,6 +75,7 @@ type ChannelPermissionService interface {
 	// SetVoiceEnforcer wires the voice enforcer (post-construction — voiceService is built
 	// after this service, which it depends on).
 	SetVoiceEnforcer(enforcer VoiceChannelPermissionEnforcer)
+	PermissionCacheInvalidator
 }
 
 type channelPermService struct {
@@ -350,4 +364,23 @@ func (s *channelPermService) invalidateChannelCache(channelID string) {
 	s.permCache.DeleteFunc(func(key string) bool {
 		return strings.HasSuffix(key, suffix)
 	})
+}
+
+// InvalidateUserPermissions drops every cached entry for one user across all channels.
+// The "userID:" prefix (with the ':' delimiter) can't collide with another user whose ID
+// is a prefix of this one. Called when a member's role assignment changes (ModifyRoles).
+func (s *channelPermService) InvalidateUserPermissions(userID string) {
+	prefix := userID + ":"
+	s.permCache.DeleteFunc(func(key string) bool {
+		return strings.HasPrefix(key, prefix)
+	})
+}
+
+// InvalidateAllPermissions clears the entire permission cache. Used when a role's
+// permission bits change or a role is deleted — that can affect every holder across every
+// channel, and the cache key (userID:channelID) carries no role/server dimension to scope
+// by. Role edits/deletes are infrequent admin actions, so a full flush (lazy re-resolve on
+// next access) is an acceptable cost for correctness.
+func (s *channelPermService) InvalidateAllPermissions() {
+	s.permCache.Clear()
 }
