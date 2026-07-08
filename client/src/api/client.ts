@@ -30,6 +30,19 @@ function clearTokens(): void {
 }
 
 /**
+ * Auth-rejection signal. Fired when a refresh is genuinely rejected (401/403) — the
+ * session is unrecoverable. authStore registers a handler that tears the session down
+ * and routes to login, so a dead token can't leave the UI in a zombie logged-in state
+ * (F5). Kept as a module-level callback rather than importing authStore, to avoid a
+ * circular dependency (authStore already imports the token helpers from this module).
+ */
+let onAuthRejected: (() => void) | null = null;
+
+function setAuthRejectedHandler(handler: (() => void) | null): void {
+  onAuthRejected = handler;
+}
+
+/**
  * Refreshes an expired access token using the refresh token.
  *
  * Uses a shared promise lock to prevent multiple concurrent refresh requests.
@@ -70,6 +83,10 @@ async function doRefresh(): Promise<boolean> {
           timestamp: new Date().toISOString(),
         });
         clearTokens();
+        // Genuine rejection — notify authStore to tear down the session and route to
+        // login. Only on 401/403 (never 5xx/network), so a transient blip can't force
+        // a logout. Idempotent on the receiver, so parallel 401s are safe.
+        onAuthRejected?.();
       } else {
         console.warn(`[apiClient] refresh endpoint returned ${res.status} — tokens preserved`);
       }
@@ -234,4 +251,4 @@ async function ensureFreshToken(): Promise<string | null> {
   return getAccessToken();
 }
 
-export { setTokens, clearTokens, getAccessToken, ensureFreshToken };
+export { setTokens, clearTokens, getAccessToken, ensureFreshToken, setAuthRejectedHandler };
