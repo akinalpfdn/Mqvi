@@ -30,8 +30,11 @@ export async function createServer(data: CreateServerRequest) {
   });
 }
 
+/** POST /servers/join response — pending=true means an approval request was created (no membership yet). */
+export type JoinServerResponse = { pending: boolean; server?: Server };
+
 export async function joinServer(inviteCode: string) {
-  return apiClient<Server>("/servers/join", {
+  return apiClient<JoinServerResponse>("/servers/join", {
     method: "POST",
     body: { invite_code: inviteCode },
   });

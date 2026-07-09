@@ -713,6 +713,13 @@ func (s *serverService) promoteToMember(ctx context.Context, server *models.Serv
 		return nil, fmt.Errorf("failed to add member: %w", err)
 	}
 
+	// A member never keeps a pending join request. Clears any lingering request whether the user
+	// joined directly, approval was toggled off mid-request, or a request raced an approval. No-op
+	// in the approval path (ApproveRequest already claimed the row via its own delete).
+	if _, err := s.joinRequestRepo.Delete(ctx, serverID, userID); err != nil {
+		log.Printf("[server] failed to clear join request after join (server=%s user=%s): %v", serverID, userID, err)
+	}
+
 	// Assign default role
 	defaultRole, err := s.roleRepo.GetDefaultByServer(ctx, serverID)
 	if err != nil {

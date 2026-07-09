@@ -130,6 +130,11 @@ func TestJoinServer_ApprovalOff_JoinsDirectly(t *testing.T) {
 	if jr.createCalls != 0 {
 		t.Fatal("direct join must not create a join request")
 	}
+	// Choke-point cleanup: becoming a member clears any lingering request (e.g. approval was
+	// toggled off after the user had already requested).
+	if jr.deleteCalls != 1 {
+		t.Fatalf("Delete (post-join cleanup) calls = %d, want 1", jr.deleteCalls)
+	}
 }
 
 func TestJoinServer_ApprovalOn_CreatesPendingRequest(t *testing.T) {
@@ -183,8 +188,10 @@ func TestApproveRequest_PromotesWithoutConsuming(t *testing.T) {
 	if err := svc.ApproveRequest(context.Background(), "s1", "u1"); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if jr.deleteCalls != 1 {
-		t.Fatalf("Delete (atomic claim) calls = %d, want 1", jr.deleteCalls)
+	// Two deletes: the atomic claim in ApproveRequest, then the choke-point cleanup inside
+	// promoteToMember (a no-op here since the row is already gone).
+	if jr.deleteCalls != 2 {
+		t.Fatalf("Delete calls = %d, want 2 (claim + post-join cleanup)", jr.deleteCalls)
 	}
 	if sr.addCalls != 1 {
 		t.Fatalf("AddMember calls = %d, want 1", sr.addCalls)

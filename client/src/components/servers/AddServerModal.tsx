@@ -136,12 +136,16 @@ function AddServerModal({ onClose }: AddServerModalProps) {
     setIsJoining(true);
     setJoinError(null);
 
-    const server = await joinServer(inviteCode.trim());
+    const outcome = await joinServer(inviteCode.trim());
     setIsJoining(false);
 
-    if (server) {
+    if (outcome.status === "joined") {
       addToast("success", t("serverJoined"));
       // joinServer sets activeServerId + activeServer atomically.
+      onClose();
+    } else if (outcome.status === "pending") {
+      // Approval-required server — request queued, admin must approve.
+      addToast("info", t("joinRequestSent"));
       onClose();
     } else {
       setJoinError(t("invalidInviteCode"));

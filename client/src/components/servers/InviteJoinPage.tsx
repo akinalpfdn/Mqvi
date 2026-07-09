@@ -24,6 +24,7 @@ function InviteJoinPage() {
   const [preview, setPreview] = useState<InvitePreview | null>(null);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [joinPending, setJoinPending] = useState(false);
 
   // Fetch preview (works without auth)
   useEffect(() => {
@@ -53,17 +54,25 @@ function InviteJoinPage() {
 
     const res = await serversApi.joinServer(code);
     if (res.success && res.data) {
-      const server = res.data;
-      const store = useServerStore.getState();
-      const exists = store.servers.some((s) => s.id === server.id);
-      if (!exists) {
-        useServerStore.setState((state) => ({
-          servers: [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }],
-        }));
+      // Approval-required server — the request was queued; stay on the pending screen.
+      if (res.data.pending) {
+        setJoinPending(true);
+        setIsJoining(false);
+        return;
       }
-      useServerStore.setState({ activeServerId: server.id, activeServer: server });
-      addToast("success", t("serverJoined"));
-      navigate("/channels", { replace: true });
+      const server = res.data.server;
+      if (server) {
+        const store = useServerStore.getState();
+        const exists = store.servers.some((s) => s.id === server.id);
+        if (!exists) {
+          useServerStore.setState((state) => ({
+            servers: [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }],
+          }));
+        }
+        useServerStore.setState({ activeServerId: server.id, activeServer: server });
+        addToast("success", t("serverJoined"));
+        navigate("/channels", { replace: true });
+      }
     } else {
       const err = res.error ?? "";
       if (err.includes("already a member")) {
@@ -98,6 +107,24 @@ function InviteJoinPage() {
             <div className="invite-join-skeleton-icon" />
             <div className="invite-join-skeleton-line" />
             <div className="invite-join-skeleton-line short" />
+          </div>
+        ) : joinPending ? (
+          /* Awaiting approval */
+          <div className="invite-join-pending">
+            <svg className="invite-join-pending-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <polyline points="12 7 12 12 15 14" />
+            </svg>
+            <p className="invite-join-pending-title">{t("joinRequestPendingTitle")}</p>
+            <p className="invite-join-pending-desc">
+              {t("joinRequestPendingDesc", { server: preview?.server_name ?? "" })}
+            </p>
+            <button
+              className="invite-join-btn-secondary"
+              onClick={() => navigate("/channels", { replace: true })}
+            >
+              {t("backToApp")}
+            </button>
           </div>
         ) : preview ? (
           /* Server info */
