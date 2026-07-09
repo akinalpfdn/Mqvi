@@ -290,6 +290,53 @@ select option:disabled {
 .server-banner-img { width:100%;height:100%;object-fit:cover;display:block; }
 .server-banner-placeholder { display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--t3);font-size:13px; }
 
+/* ─── Discovery (public server directory) ─── */
+.disc-overlay { position:fixed;inset:0;z-index:500;display:flex;flex-direction:column;background:var(--bg-1);color:var(--t0);overflow:hidden; }
+.disc-header { padding:32px 40px 16px;border-bottom:1px solid var(--b1);flex-shrink:0;background:linear-gradient(180deg, var(--bg-2), var(--bg-1)); }
+.disc-header-top { display:flex;align-items:flex-start;justify-content:space-between; }
+.disc-title { font-size:28px;font-weight:800;color:var(--t0);letter-spacing:-0.02em; }
+.disc-close { width:32px;height:32px;border:none;background:var(--bg-3);color:var(--t2);border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:background .1s,color .1s;flex-shrink:0; }
+.disc-close:hover { background:var(--bg-h);color:var(--t0); }
+.disc-subtitle { font-size:14px;color:var(--t2);margin-top:6px;margin-bottom:16px; }
+.disc-search { display:flex;align-items:center;gap:10px;max-width:520px;background:var(--input-bg);border:1px solid var(--b1);border-radius:10px;padding:10px 14px;color:var(--t3); }
+.disc-search-input { flex:1;border:none;background:transparent;color:var(--t0);font-size:14px;outline:none; }
+.disc-search-input::placeholder { color:var(--t3); }
+.disc-tabs { display:flex;gap:8px;padding:12px 40px;overflow-x:auto;border-bottom:1px solid var(--b1);flex-shrink:0; }
+.disc-tab { padding:7px 14px;border:none;background:transparent;color:var(--t2);font-size:13px;font-weight:600;border-radius:8px;cursor:pointer;white-space:nowrap;transition:background .1s,color .1s; }
+.disc-tab:hover { background:var(--bg-h);color:var(--t0); }
+.disc-tab.active { background:var(--primary);color:#fff; }
+.disc-content { flex:1;overflow-y:auto;padding:24px 40px 48px; }
+.disc-section { margin-bottom:32px; }
+.disc-section-title { font-size:18px;font-weight:700;color:var(--t0);margin-bottom:16px; }
+.disc-empty { color:var(--t2);font-size:14px;padding:32px 0;text-align:center; }
+.disc-grid { display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:16px; }
+
+.disc-card { display:flex;flex-direction:column;background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;overflow:hidden;transition:border-color .1s; }
+.disc-card:hover { border-color:var(--bg-h); }
+.disc-card-banner { height:100px;background:var(--bg-3); }
+.disc-card-banner-img { width:100%;height:100%;object-fit:cover;display:block; }
+.disc-card-banner-fallback { width:100%;height:100%;background:linear-gradient(135deg, var(--bg-3), var(--bg-2)); }
+.disc-card-body { padding:0 16px 16px;display:flex;flex-direction:column;flex:1; }
+.disc-card-icon { width:56px;height:56px;border-radius:14px;overflow:hidden;border:4px solid var(--bg-2);margin-top:-28px;margin-bottom:8px;background:var(--bg-2);flex-shrink:0; }
+.disc-card-icon-img { width:100%;height:100%;object-fit:cover;display:block; }
+.disc-card-head { display:flex;align-items:center;gap:6px;margin-bottom:6px; }
+.disc-card-name { font-size:15px;font-weight:700;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.disc-badge-verified { color:var(--primary);flex-shrink:0; }
+.disc-card-desc { font-size:13px;color:var(--t2);line-height:1.4;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1; }
+.disc-card-footer { display:flex;gap:14px;margin-bottom:12px; }
+.disc-card-stat { display:flex;align-items:center;gap:6px;font-size:13px;color:var(--t2); }
+.disc-dot { width:8px;height:8px;border-radius:999px;background:var(--t3);flex-shrink:0; }
+.disc-dot-online { background:var(--green); }
+.disc-card-join { width:100%;padding:9px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .1s; }
+.disc-card-join:hover:not(:disabled) { opacity:0.9; }
+.disc-card-join:disabled { background:var(--bg-3);color:var(--t3);cursor:default; }
+
+.disc-pagination { display:flex;align-items:center;justify-content:center;gap:16px;margin-top:24px; }
+.disc-page-btn { padding:7px 16px;border:1px solid var(--b1);background:var(--bg-2);color:var(--t1);font-size:13px;font-weight:600;border-radius:8px;cursor:pointer;transition:background .1s; }
+.disc-page-btn:hover:not(:disabled) { background:var(--bg-h); }
+.disc-page-btn:disabled { opacity:0.4;cursor:default; }
+.disc-page-info { font-size:13px;color:var(--t2); }
+
 /* Chevron */
 .ch-tree-chevron { font-size:13px;color:var(--t3);transition:transform .15s;display:inline-block; }
 .ch-tree-chevron.expanded { transform:rotate(90deg); }
