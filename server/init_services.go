@@ -66,6 +66,7 @@ type Services struct {
 	SettingsBadge     services.SettingsBadgeService
 	VoiceMessage      services.VoiceMessageService
 	PushToken         services.PushTokenService
+	Discovery         services.DiscoveryService
 	EmailSender       email.EmailSender
 }
 
@@ -77,6 +78,7 @@ type RateLimiters struct {
 	ResetPwd  *ratelimit.LoginRateLimiter
 	Feedback  *ratelimit.MessageRateLimiter
 	ICE       *ratelimit.MessageRateLimiter
+	Discovery *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -222,6 +224,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	adminUserService := services.NewAdminUserService(db, repos.User, repos.Session, repos.Server, hub, voiceService, emailSender, fileCleanupService)
 	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, voiceService, emailSender, fileCleanupService)
+	discoveryService := services.NewDiscoveryService(repos.Discovery, hub, urlSigner)
 
 	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)
 	badgeService := services.NewBadgeService(repos.Badge, hub)
@@ -266,6 +269,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                   // 5 reset attempts per 5 min per IP
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second) // 2 feedback per min, 30s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)     // 20 ICE-server fetches per min, 30s cooldown
+	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
 
 	svcs := &Services{
 		Auth:              authService,
@@ -313,6 +317,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		SettingsBadge:     settingsBadgeService,
 		VoiceMessage:      voiceMessageService,
 		PushToken:         pushTokenService,
+		Discovery:         discoveryService,
 		EmailSender:       emailSender,
 	}
 
@@ -324,6 +329,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		ResetPwd:  resetPwdLimiter,
 		Feedback:  feedbackLimiter,
 		ICE:       iceLimiter,
+		Discovery: discoveryLimiter,
 	}
 
 	return svcs, limiters, metricsCollector

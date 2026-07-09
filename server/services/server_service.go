@@ -43,6 +43,7 @@ type ServerService interface {
 	// GetDeletedServers returns soft-deleted servers owned by this user (for restore UI).
 	GetDeletedServers(ctx context.Context, userID string) ([]models.DeletedServerInfo, error)
 	JoinServer(ctx context.Context, userID, inviteCode string) (*JoinResult, error)
+	JoinPublicServer(ctx context.Context, userID, serverID string) (*JoinResult, error)
 	// Join approval — pending requesters live in a separate table, never in server_members.
 	ApproveRequest(ctx context.Context, serverID, targetUserID string) error
 	RejectRequest(ctx context.Context, serverID, targetUserID string) error
@@ -724,6 +725,60 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 	}
 
 	joined, err := s.promoteToMember(ctx, server, userID, inviteCode, true)
+	if err != nil {
+		return nil, err
+	}
+	return &JoinResult{Server: joined}, nil
+}
+
+// JoinPublicServer joins (or requests to join) a public server straight from the discovery
+// directory — no invite involved. Rejects non-public servers and bans, and honors
+// approval_required exactly like the invite path.
+func (s *serverService) JoinPublicServer(ctx context.Context, userID, serverID string) (*JoinResult, error) {
+	server, err := s.serverRepo.GetActiveByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	if !server.IsPublic {
+		return nil, fmt.Errorf("%w: this server is not public", pkg.ErrForbidden)
+	}
+
+	banned, err := s.banRepo.Exists(ctx, serverID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check ban: %w", err)
+	}
+	if banned {
+		return nil, fmt.Errorf("%w: you are banned from this server", pkg.ErrForbidden)
+	}
+
+	isMember, err := s.serverRepo.IsMember(ctx, serverID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check membership: %w", err)
+	}
+	if isMember {
+		return nil, fmt.Errorf("%w: already a member of this server", pkg.ErrBadRequest)
+	}
+
+	// Approval required → queue a request instead of joining (no invite to record).
+	if server.ApprovalRequired {
+		count, err := s.joinRequestRepo.CountByServer(ctx, serverID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count join requests: %w", err)
+		}
+		if count >= maxPendingRequestsPerServer {
+			if exists, _ := s.joinRequestRepo.Exists(ctx, serverID, userID); !exists {
+				return nil, fmt.Errorf("%w: this server's join queue is full, try again later", pkg.ErrBadRequest)
+			}
+		}
+		if err := s.joinRequestRepo.Create(ctx, serverID, userID, ""); err != nil {
+			return nil, err
+		}
+		s.broadcastJoinRequestCount(ctx, serverID)
+		log.Printf("[server] user %s requested to join public server %s (approval required)", userID, serverID)
+		return &JoinResult{Pending: true}, nil
+	}
+
+	joined, err := s.promoteToMember(ctx, server, userID, "", false)
 	if err != nil {
 		return nil, err
 	}

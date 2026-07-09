@@ -179,6 +179,76 @@ func TestJoinServer_Banned_RejectedBeforeAnything(t *testing.T) {
 	}
 }
 
+func TestJoinPublicServer_NotPublic_Rejected(t *testing.T) {
+	sr := &stubServerRepo{server: &models.Server{ID: "s1", IsPublic: false}}
+	jr := &stubJoinReqRepo{}
+	svc := newTestServerService(sr, &stubBanRepo{}, jr, &stubInvite{serverID: "s1"})
+
+	if _, err := svc.JoinPublicServer(context.Background(), "u1", "s1"); !errors.Is(err, pkg.ErrForbidden) {
+		t.Fatalf("joining a non-public server want ErrForbidden, got %v", err)
+	}
+	if sr.addCalls != 0 || jr.createCalls != 0 {
+		t.Fatal("a non-public server must not be joinable via discovery")
+	}
+}
+
+func TestJoinPublicServer_ApprovalOff_JoinsDirectly(t *testing.T) {
+	sr := &stubServerRepo{server: &models.Server{ID: "s1", IsPublic: true, ApprovalRequired: false}}
+	jr := &stubJoinReqRepo{}
+	inv := &stubInvite{serverID: "s1"}
+	svc := newTestServerService(sr, &stubBanRepo{}, jr, inv)
+
+	res, err := svc.JoinPublicServer(context.Background(), "u1", "s1")
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	if res.Pending || res.Server == nil {
+		t.Fatal("public join with approval off must return the server, not pending")
+	}
+	if sr.addCalls != 1 {
+		t.Fatalf("AddMember calls = %d, want 1", sr.addCalls)
+	}
+	if inv.consumeCalls != 0 {
+		t.Fatal("a public (invite-less) join must not consume any invite")
+	}
+	if jr.deleteCalls != 1 {
+		t.Fatalf("post-join cleanup delete want 1 got %d", jr.deleteCalls)
+	}
+}
+
+func TestJoinPublicServer_ApprovalOn_Queues(t *testing.T) {
+	sr := &stubServerRepo{server: &models.Server{ID: "s1", IsPublic: true, ApprovalRequired: true}}
+	jr := &stubJoinReqRepo{}
+	svc := newTestServerService(sr, &stubBanRepo{}, jr, &stubInvite{serverID: "s1"})
+
+	res, err := svc.JoinPublicServer(context.Background(), "u1", "s1")
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	if !res.Pending {
+		t.Fatal("public + approval-required join must be pending")
+	}
+	if jr.createCalls != 1 {
+		t.Fatalf("join request Create calls = %d, want 1", jr.createCalls)
+	}
+	if sr.addCalls != 0 {
+		t.Fatal("pending public requester must NOT be added to server_members")
+	}
+}
+
+func TestJoinPublicServer_Banned_Rejected(t *testing.T) {
+	sr := &stubServerRepo{server: &models.Server{ID: "s1", IsPublic: true}}
+	jr := &stubJoinReqRepo{}
+	svc := newTestServerService(sr, &stubBanRepo{banned: true}, jr, &stubInvite{serverID: "s1"})
+
+	if _, err := svc.JoinPublicServer(context.Background(), "u1", "s1"); !errors.Is(err, pkg.ErrForbidden) {
+		t.Fatalf("banned public join want ErrForbidden, got %v", err)
+	}
+	if sr.addCalls != 0 || jr.createCalls != 0 {
+		t.Fatal("a banned user must neither join nor queue via discovery")
+	}
+}
+
 func TestApproveRequest_PromotesWithoutConsuming(t *testing.T) {
 	inv := &stubInvite{serverID: "s1"}
 	sr := &stubServerRepo{server: &models.Server{ID: "s1"}}

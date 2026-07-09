@@ -299,6 +299,11 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/icon", authServerPerm(models.PermAdmin, h.Avatar.UploadServerIcon))
 	mux.Handle("POST /api/servers/{serverId}/banner", authServerPerm(models.PermAdmin, h.Avatar.UploadServerBanner))
 
+	// Public server discovery (login required; not server-scoped)
+	mux.Handle("GET /api/discovery/servers", auth(h.Discovery.ListPublicServers))
+	mux.Handle("GET /api/discovery/servers/{id}", auth(h.Discovery.GetPublicServer))
+	mux.Handle("POST /api/discovery/servers/{id}/join", auth(h.Discovery.JoinPublicServer))
+
 	// Server Mute
 	mux.Handle("POST /api/servers/{serverId}/mute", authServer(h.ServerMute.Mute))
 	mux.Handle("DELETE /api/servers/{serverId}/mute", authServer(h.ServerMute.Unmute))

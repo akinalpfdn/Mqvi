@@ -49,6 +49,7 @@ type Repositories struct {
 	VoiceMessage      repository.VoiceMessageRepository
 	PushToken         repository.PushTokenRepository
 	JoinRequest       repository.JoinRequestRepository
+	Discovery         repository.DiscoveryRepository
 }
 
 // initRepositories creates all repositories from the shared DB connection pool.
@@ -95,5 +96,6 @@ func initRepositories(conn *sql.DB) *Repositories {
 		VoiceMessage:      repository.NewSQLiteVoiceMessageRepo(conn),
 		PushToken:         repository.NewSQLitePushTokenRepo(conn),
 		JoinRequest:       repository.NewSQLiteJoinRequestRepo(conn),
+		Discovery:         repository.NewSQLiteDiscoveryRepo(conn),
 	}
 }
