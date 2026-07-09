@@ -49,10 +49,11 @@ const (
 	KindWallpaper  Kind = "wallpapers"
 	KindBadge      Kind = "badges"
 	KindSoundboard Kind = "soundboards"
-	KindServerIcon Kind = "server-icons"
-	KindFeedback   Kind = "feedback"
-	KindReport     Kind = "reports"
-	KindVoiceMsg   Kind = "voice-messages"
+	KindServerIcon   Kind = "server-icons"
+	KindServerBanner Kind = "server-banners"
+	KindFeedback     Kind = "feedback"
+	KindReport       Kind = "reports"
+	KindVoiceMsg     Kind = "voice-messages"
 )
 
 // validKinds is used by the serve endpoint to reject unknown path segments.
@@ -63,10 +64,11 @@ var validKinds = map[Kind]bool{
 	KindWallpaper:  true,
 	KindBadge:      true,
 	KindSoundboard: true,
-	KindServerIcon: true,
-	KindFeedback:   true,
-	KindReport:     true,
-	KindVoiceMsg:   true,
+	KindServerIcon:   true,
+	KindServerBanner: true,
+	KindFeedback:     true,
+	KindReport:       true,
+	KindVoiceMsg:     true,
 }
 
 // IsValidKind reports whether s is a recognized upload kind.

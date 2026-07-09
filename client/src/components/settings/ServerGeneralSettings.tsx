@@ -1,12 +1,14 @@
 /** ServerGeneralSettings — Server name, icon, invite settings, and LiveKit config (self-hosted, owner-only). */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useServerStore } from "../../stores/serverStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useActiveMembers } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
+import { resolveAssetUrl } from "../../utils/constants";
+import { SERVER_CATEGORIES, categoryLabelKey } from "../../constants/serverCategories";
 import * as serverApi from "../../api/servers";
 import AvatarUpload from "./AvatarUpload";
 import type { Server } from "../../types";
@@ -29,7 +31,10 @@ function ServerGeneralSettings() {
   const [editName, setEditName] = useState("");
   const [editIsPublic, setEditIsPublic] = useState(false);
   const [editApprovalRequired, setEditApprovalRequired] = useState(false);
+  const [editDescription, setEditDescription] = useState("");
+  const [editCategory, setEditCategory] = useState("");
   const [editAFKTimeout, setEditAFKTimeout] = useState(60);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -72,6 +77,8 @@ function ServerGeneralSettings() {
         setEditName(res.data.name);
         setEditIsPublic(res.data.is_public);
         setEditApprovalRequired(res.data.approval_required);
+        setEditDescription(res.data.description ?? "");
+        setEditCategory(res.data.category ?? "");
         setEditAFKTimeout(res.data.afk_timeout_minutes ?? 60);
 
         // Fetch LiveKit settings if instance exists
@@ -97,6 +104,8 @@ function ServerGeneralSettings() {
     (editName !== server.name ||
       editIsPublic !== server.is_public ||
       editApprovalRequired !== server.approval_required ||
+      editDescription !== (server.description ?? "") ||
+      editCategory !== (server.category ?? "") ||
       editAFKTimeout !== (server.afk_timeout_minutes ?? 60));
 
   async function handleSave() {
@@ -109,12 +118,16 @@ function ServerGeneralSettings() {
         name: editName,
         is_public: editIsPublic,
         approval_required: editApprovalRequired,
+        description: editDescription,
+        category: editCategory,
         afk_timeout_minutes: editAFKTimeout,
       });
       if (res.success && res.data) {
         setServer(res.data);
         setEditIsPublic(res.data.is_public);
         setEditApprovalRequired(res.data.approval_required);
+        setEditDescription(res.data.description ?? "");
+        setEditCategory(res.data.category ?? "");
         addToast("success", t("serverSaved"));
       } else {
         addToast("error", res.error ?? t("serverSaveError"));
@@ -165,6 +178,21 @@ function ServerGeneralSettings() {
     if (!activeServerId) return;
     try {
       const res = await serverApi.uploadServerIcon(activeServerId, file);
+      if (res.success && res.data) {
+        setServer(res.data);
+        addToast("success", t("serverSaved"));
+      } else {
+        addToast("error", res.error ?? t("serverSaveError"));
+      }
+    } catch {
+      addToast("error", t("serverSaveError"));
+    }
+  }
+
+  async function handleBannerUpload(file: File) {
+    if (!activeServerId) return;
+    try {
+      const res = await serverApi.uploadServerBanner(activeServerId, file);
       if (res.success && res.data) {
         setServer(res.data);
         addToast("success", t("serverSaved"));
@@ -235,6 +263,36 @@ function ServerGeneralSettings() {
         isCircle={false}
       />
 
+      {/* Server Banner (discovery card) */}
+      <div className="settings-field">
+        <label className="settings-label">{t("serverBanner")}</label>
+        <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 2, marginBottom: 8 }}>
+          {t("serverBannerDesc")}
+        </p>
+        <button
+          type="button"
+          className="server-banner-upload"
+          onClick={() => bannerInputRef.current?.click()}
+        >
+          {server.banner_url ? (
+            <img src={resolveAssetUrl(server.banner_url)} alt="" className="server-banner-img" />
+          ) : (
+            <span className="server-banner-placeholder">{t("serverBannerUpload")}</span>
+          )}
+        </button>
+        <input
+          ref={bannerInputRef}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleBannerUpload(f);
+            e.target.value = "";
+          }}
+        />
+      </div>
+
       {/* Server Name */}
       <div className="settings-field">
         <label htmlFor="serverName" className="settings-label">
@@ -248,6 +306,49 @@ function ServerGeneralSettings() {
           maxLength={100}
           className="settings-input"
         />
+      </div>
+
+      {/* Server Description (discovery) */}
+      <div className="settings-field">
+        <label htmlFor="serverDescription" className="settings-label">
+          {t("serverDescription")}
+        </label>
+        <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 2, marginBottom: 8 }}>
+          {t("serverDescriptionDesc")}
+        </p>
+        <textarea
+          id="serverDescription"
+          value={editDescription}
+          onChange={(e) => setEditDescription(e.target.value)}
+          maxLength={300}
+          rows={3}
+          className="settings-input"
+          style={{ resize: "vertical" }}
+        />
+        <p style={{ fontSize: 13, color: "var(--t3)", marginTop: 4, textAlign: "right" }}>
+          {editDescription.length}/300
+        </p>
+      </div>
+
+      {/* Server Category (discovery) */}
+      <div className="settings-field">
+        <label htmlFor="serverCategory" className="settings-label">
+          {t("serverCategory")}
+        </label>
+        <select
+          id="serverCategory"
+          value={editCategory}
+          onChange={(e) => setEditCategory(e.target.value)}
+          className="settings-input"
+          style={{ width: 240 }}
+        >
+          <option value="">{t("categoryNone")}</option>
+          {SERVER_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {t(categoryLabelKey(c))}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Invite Required Toggle */}

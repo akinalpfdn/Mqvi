@@ -297,6 +297,7 @@ func initRoutes(
 	mux.Handle("DELETE /api/servers/{serverId}/permanent", authServerNoMemberCheck(h.Server.HardDeleteServer))
 	mux.Handle("POST /api/servers/{serverId}/leave", authServer(h.Server.LeaveServer))
 	mux.Handle("POST /api/servers/{serverId}/icon", authServerPerm(models.PermAdmin, h.Avatar.UploadServerIcon))
+	mux.Handle("POST /api/servers/{serverId}/banner", authServerPerm(models.PermAdmin, h.Avatar.UploadServerBanner))
 
 	// Server Mute
 	mux.Handle("POST /api/servers/{serverId}/mute", authServer(h.ServerMute.Mute))

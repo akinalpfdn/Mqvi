@@ -45,7 +45,8 @@ func (r *sqliteServerRepo) Create(ctx context.Context, server *models.Server) er
 func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*models.Server, error) {
 	query := `
 		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
-			deleted_at, deleted_by, deleted_by_admin, created_at
+			deleted_at, deleted_by, deleted_by_admin, created_at,
+			description, banner_url, category, verified, featured
 		FROM servers WHERE id = ?`
 
 	s := &models.Server{}
@@ -54,6 +55,7 @@ func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*model
 		&s.IsPublic, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
 		&s.DeletedAt, &s.DeletedBy, &s.DeletedByAdmin,
 		&s.CreatedAt,
+		&s.Description, &s.BannerURL, &s.Category, &s.Verified, &s.Featured,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -68,12 +70,12 @@ func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*model
 
 func (r *sqliteServerRepo) Update(ctx context.Context, server *models.Server) error {
 	query := `
-		UPDATE servers SET name = ?, icon_url = ?, is_public = ?, e2ee_enabled = ?, approval_required = ?, livekit_instance_id = ?, afk_timeout_minutes = ?
+		UPDATE servers SET name = ?, icon_url = ?, banner_url = ?, is_public = ?, e2ee_enabled = ?, approval_required = ?, description = ?, category = ?, livekit_instance_id = ?, afk_timeout_minutes = ?
 		WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query,
-		server.Name, server.IconURL, server.IsPublic,
-		server.E2EEEnabled, server.ApprovalRequired, server.LiveKitInstanceID, server.AFKTimeoutMinutes, server.ID,
+		server.Name, server.IconURL, server.BannerURL, server.IsPublic,
+		server.E2EEEnabled, server.ApprovalRequired, server.Description, server.Category, server.LiveKitInstanceID, server.AFKTimeoutMinutes, server.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update server: %w", err)
@@ -110,7 +112,8 @@ func (r *sqliteServerRepo) Delete(ctx context.Context, serverID string) error {
 func (r *sqliteServerRepo) GetActiveByID(ctx context.Context, serverID string) (*models.Server, error) {
 	query := `
 		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
-			deleted_at, deleted_by, deleted_by_admin, created_at
+			deleted_at, deleted_by, deleted_by_admin, created_at,
+			description, banner_url, category, verified, featured
 		FROM servers WHERE id = ? AND deleted_at IS NULL`
 
 	s := &models.Server{}
@@ -119,6 +122,7 @@ func (r *sqliteServerRepo) GetActiveByID(ctx context.Context, serverID string) (
 		&s.IsPublic, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
 		&s.DeletedAt, &s.DeletedBy, &s.DeletedByAdmin,
 		&s.CreatedAt,
+		&s.Description, &s.BannerURL, &s.Category, &s.Verified, &s.Featured,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
@@ -174,7 +178,8 @@ func (r *sqliteServerRepo) Restore(ctx context.Context, serverID string) error {
 func (r *sqliteServerRepo) ListDeletedByOwner(ctx context.Context, ownerID string) ([]models.Server, error) {
 	query := `
 		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
-			deleted_at, deleted_by, deleted_by_admin, created_at
+			deleted_at, deleted_by, deleted_by_admin, created_at,
+			description, banner_url, category, verified, featured
 		FROM servers WHERE owner_id = ? AND deleted_at IS NOT NULL
 		ORDER BY deleted_at DESC`
 	rows, err := r.db.QueryContext(ctx, query, ownerID)
@@ -191,6 +196,7 @@ func (r *sqliteServerRepo) ListDeletedByOwner(ctx context.Context, ownerID strin
 			&s.IsPublic, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
 			&s.DeletedAt, &s.DeletedBy, &s.DeletedByAdmin,
 			&s.CreatedAt,
+			&s.Description, &s.BannerURL, &s.Category, &s.Verified, &s.Featured,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan deleted server: %w", err)
 		}
@@ -222,7 +228,8 @@ func (r *sqliteServerRepo) ListActiveServerIDsByOwner(ctx context.Context, owner
 func (r *sqliteServerRepo) ListSoftDeletedExpired(ctx context.Context, ttlDays int) ([]models.Server, error) {
 	query := `
 		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
-			deleted_at, deleted_by, deleted_by_admin, created_at
+			deleted_at, deleted_by, deleted_by_admin, created_at,
+			description, banner_url, category, verified, featured
 		FROM servers
 		WHERE deleted_at IS NOT NULL
 		  AND deleted_at < datetime('now', ?)
@@ -241,6 +248,7 @@ func (r *sqliteServerRepo) ListSoftDeletedExpired(ctx context.Context, ttlDays i
 			&s.IsPublic, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
 			&s.DeletedAt, &s.DeletedBy, &s.DeletedByAdmin,
 			&s.CreatedAt,
+			&s.Description, &s.BannerURL, &s.Category, &s.Verified, &s.Featured,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan expired server: %w", err)
 		}

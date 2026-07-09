@@ -713,6 +713,13 @@ export type Server = {
   is_public: boolean;
   e2ee_enabled: boolean;
   approval_required: boolean;
+  /** Discovery metadata (owner-editable). */
+  description?: string | null;
+  banner_url?: string | null;
+  category?: string | null;
+  /** Platform-admin discovery flags. */
+  verified?: boolean;
+  featured?: boolean;
   livekit_instance_id: string | null;
   afk_timeout_minutes: number;
   member_count: number;

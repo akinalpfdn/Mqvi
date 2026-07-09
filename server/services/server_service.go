@@ -30,6 +30,7 @@ type ServerService interface {
 	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
 	UpdateServer(ctx context.Context, serverID string, req *models.UpdateServerRequest) (*models.Server, error)
 	UpdateIcon(ctx context.Context, serverID, iconURL string) (*models.Server, error)
+	UpdateBanner(ctx context.Context, serverID, bannerURL string) (*models.Server, error)
 	// DeleteServer soft-deletes the server. Files and LiveKit instance are preserved.
 	// Use HardDeleteServer to permanently remove (skip 30-day TTL).
 	DeleteServer(ctx context.Context, serverID, userID string) error
@@ -336,6 +337,7 @@ func (s *serverService) GetServer(ctx context.Context, serverID string) (*models
 		return nil, err
 	}
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
 	return server, nil
 }
 
@@ -352,6 +354,14 @@ func (s *serverService) GetUserServers(ctx context.Context, userID string) ([]mo
 		servers[i].IconURL = s.urlSigner.SignURLPtr(servers[i].IconURL)
 	}
 	return servers, nil
+}
+
+// nilIfEmpty returns nil for an empty string so optional text columns store NULL, not "".
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *models.UpdateServerRequest) (*models.Server, error) {
@@ -375,6 +385,12 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 	}
 	if req.ApprovalRequired != nil {
 		server.ApprovalRequired = *req.ApprovalRequired
+	}
+	if req.Description != nil {
+		server.Description = nilIfEmpty(*req.Description)
+	}
+	if req.Category != nil {
+		server.Category = nilIfEmpty(*req.Category)
 	}
 	if req.AFKTimeoutMinutes != nil {
 		server.AFKTimeoutMinutes = *req.AFKTimeoutMinutes
@@ -419,6 +435,7 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 	}
 
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerUpdate,
 		Data: server,
@@ -440,6 +457,29 @@ func (s *serverService) UpdateIcon(ctx context.Context, serverID, iconURL string
 	}
 
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
+	s.hub.BroadcastToServer(serverID, ws.Event{
+		Op:   ws.OpServerUpdate,
+		Data: server,
+	})
+
+	return server, nil
+}
+
+func (s *serverService) UpdateBanner(ctx context.Context, serverID, bannerURL string) (*models.Server, error) {
+	server, err := s.serverRepo.GetByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+
+	server.BannerURL = &bannerURL
+
+	if err := s.serverRepo.Update(ctx, server); err != nil {
+		return nil, fmt.Errorf("failed to update server banner: %w", err)
+	}
+
+	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerUpdate,
 		Data: server,
@@ -762,6 +802,7 @@ func (s *serverService) promoteToMember(ctx context.Context, server *models.Serv
 
 	log.Printf("[server] user %s became a member of server %s", userID, serverID)
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
 	return server, nil
 }
 

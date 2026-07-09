@@ -51,6 +51,8 @@ export async function updateServer(
     is_public?: boolean;
     e2ee_enabled?: boolean;
     approval_required?: boolean;
+    description?: string;
+    category?: string;
     afk_timeout_minutes?: number;
     livekit_url?: string;
     livekit_key?: string;
@@ -145,6 +147,17 @@ export async function uploadServerIcon(serverId: string, file: File) {
   formData.append("file", file);
 
   return apiClient<Server>(`/servers/${serverId}/icon`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+/** Uploads server banner (discovery card) — multipart/form-data. */
+export async function uploadServerBanner(serverId: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return apiClient<Server>(`/servers/${serverId}/banner`, {
     method: "POST",
     body: formData,
   });

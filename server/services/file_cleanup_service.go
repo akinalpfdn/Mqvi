@@ -103,15 +103,18 @@ func (s *fileCleanupService) CollectServerFiles(ctx context.Context, serverID st
 	}
 	plan.refs = append(plan.refs, sbRefs...)
 
-	// Server icon + LiveKit instance (single query to avoid two round-trips)
-	var iconURL, lkInstanceID *string
+	// Server icon + banner + LiveKit instance (single query to avoid extra round-trips)
+	var iconURL, bannerURL, lkInstanceID *string
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT icon_url, livekit_instance_id FROM servers WHERE id = ?`, serverID,
-	).Scan(&iconURL, &lkInstanceID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("collect server icon/livekit: %w", err)
+		`SELECT icon_url, banner_url, livekit_instance_id FROM servers WHERE id = ?`, serverID,
+	).Scan(&iconURL, &bannerURL, &lkInstanceID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("collect server icon/banner/livekit: %w", err)
 	}
 	if iconURL != nil && *iconURL != "" {
 		plan.urls = append(plan.urls, *iconURL)
+	}
+	if bannerURL != nil && *bannerURL != "" {
+		plan.urls = append(plan.urls, *bannerURL)
 	}
 	if lkInstanceID != nil {
 		instance, lkErr := s.livekitRepo.GetByID(ctx, *lkInstanceID)
