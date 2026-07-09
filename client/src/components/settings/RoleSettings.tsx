@@ -78,6 +78,12 @@ function RoleSettings() {
   const [showRoleEmojiPicker, setShowRoleEmojiPicker] = useState(false);
 
   const isOwnerRole = selectedRole?.is_owner ?? false;
+  const isDefaultRole = selectedRole?.is_default ?? false;
+  // Administrator overrides every other permission (server-side), so hide the rest when it's on.
+  const adminEnabled = (editPerms & Permissions.Admin) !== 0;
+  // @everyone shows as a separate "Default Permissions" entry, out of the regular list.
+  const defaultRole = roles.find((r) => r.is_default);
+  const regularRoles = useMemo(() => roles.filter((r) => !r.is_default), [roles]);
 
   const isActorOwner = useMemo(() => {
     const me = members.find((m) => m.id === currentUser?.id);
@@ -265,7 +271,26 @@ function RoleSettings() {
         </div>
 
         <div className="channel-settings-ch-list">
-          {roles.map((role) => {
+          {defaultRole && (
+            <div
+              onClick={() => selectRole(defaultRole.id)}
+              className={`role-list-item role-default-item${defaultRole.id === selectedRoleId ? " active" : ""}`}
+            >
+              <span className="role-default-item-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </span>
+              <div className="role-default-item-text">
+                <span className="role-list-name">{t("defaultPermissions")}</span>
+                <span className="role-default-item-sub">{t("defaultPermissionsSub")}</span>
+              </div>
+            </div>
+          )}
+          {regularRoles.map((role) => {
             const draggable = isDraggable(role);
             const indicator = dropIndicator?.roleId === role.id ? dropIndicator : null;
             const dropPos = indicator?.position ?? null;
@@ -321,6 +346,8 @@ function RoleSettings() {
               </div>
             )}
 
+            {!isDefaultRole && (
+            <>
             <div className="settings-field">
               <label className="settings-label">{t("roleName")}</label>
               <div className="name-input-with-emoji">
@@ -403,6 +430,8 @@ function RoleSettings() {
                 </button>
               </div>
             </div>
+            </>
+            )}
 
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <button
@@ -425,10 +454,11 @@ function RoleSettings() {
               </div>
             )}
 
+            {!isOwnerRole && (
             <div className="settings-field">
               <label className="settings-label">{t("permissions")}</label>
               <div style={{ background: "var(--input-bg)", border: "1px solid var(--input-border)", borderRadius: 8, overflow: "hidden" }}>
-                {PERMISSION_DEFS.map((perm) => {
+                {PERMISSION_DEFS.filter((perm) => !adminEnabled || perm.bit === Permissions.Admin).map((perm) => {
                   // Prevent privilege escalation: only admins can grant Admin
                   const isAdminPerm = perm.bit === Permissions.Admin;
                   const actorHasAdmin = hasPermission(myPerms, Permissions.Admin);
@@ -448,7 +478,11 @@ function RoleSettings() {
                   );
                 })}
               </div>
+              {adminEnabled && (
+                <p className="role-admin-override-note">{t("permAdminOverridesNote")}</p>
+              )}
             </div>
+            )}
           </div>
         ) : (
           <div className="no-channel">

@@ -145,7 +145,8 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
     };
   }, [onClose]);
 
-  const sortedRoles = member ? [...member.roles].sort((a, b) => b.position - a.position) : [];
+  // @everyone (default role) is implicit for all members — don't show it as a badge.
+  const sortedRoles = member ? member.roles.filter((r) => !r.is_default).sort((a, b) => b.position - a.position) : [];
   const joinDate = new Date(createdAt).toLocaleDateString();
 
   async function handleKick() {

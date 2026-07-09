@@ -173,6 +173,9 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 		if req.Color != nil {
 			role.Color = *req.Color
 		}
+		if req.Mentionable != nil {
+			role.Mentionable = *req.Mentionable
+		}
 		if err := s.roleRepo.Update(ctx, role); err != nil {
 			return nil, fmt.Errorf("failed to update role: %w", err)
 		}
