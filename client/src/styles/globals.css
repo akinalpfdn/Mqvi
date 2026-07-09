@@ -770,8 +770,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .mention-nav-fab svg { flex-shrink: 0; }
 
 /* Edit mode */
+/* While editing, the bubble fills its column instead of shrinking to the textarea's
+   intrinsic (cols) width, so the edit area keeps the message's original width. */
+.msg.editing .msg-body { flex-grow:1; }
 .msg-edit-area { margin-top:4px; }
-.msg-edit-textarea { width:100%;resize:none;border-radius:8px;background:var(--input-bg);border:1px solid var(--input-border);padding:8px;font-family:inherit;font-size:16px;color:var(--t0);outline:none; }
+.msg-edit-textarea { width:100%;resize:none;border-radius:8px;background:var(--input-bg);border:1px solid var(--input-border);padding:8px;font-family:inherit;font-size:16px;line-height:1.45;color:var(--t0);outline:none;max-height:50vh;overflow-y:auto; }
 .msg-edit-textarea:focus { background:var(--bg-4); }
 .msg-edit-hint { font-size:13px;color:var(--t3);margin-top:4px; }
 

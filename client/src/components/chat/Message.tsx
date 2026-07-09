@@ -57,6 +57,12 @@ function getHighestRoleColor(member: MemberWithRoles | undefined): string | unde
   return highest.color || undefined;
 }
 
+/** Size an edit textarea to its content so the whole message is visible while editing. */
+function autoGrowEdit(el: HTMLTextAreaElement) {
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 function Message({ message, isCompact }: MessageProps) {
   const { t, i18n } = useTranslation("chat");
   const currentUser = useAuthStore((s) => s.user);
@@ -87,6 +93,11 @@ function Message({ message, isCompact }: MessageProps) {
   const editMentionStartRef = useRef<number>(-1);
   const editMentionSelectionsRef = useRef<import("./MentionAutocomplete").MentionSelection[]>([]);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // Callback ref: size the textarea to its content as soon as edit mode opens.
+  const setEditTextareaRef = useCallback((el: HTMLTextAreaElement | null) => {
+    editTextareaRef.current = el;
+    if (el) autoGrowEdit(el);
+  }, []);
   const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [profileTarget, setProfileTarget] = useState<{ user: User; top: number; left: number } | null>(null);
@@ -148,6 +159,7 @@ function Message({ message, isCompact }: MessageProps) {
   function handleEditChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setEditContent(value);
+    autoGrowEdit(e.target);
 
     const cursorPos = e.target.selectionStart ?? value.length;
     const textBeforeCursor = value.slice(0, cursorPos);
@@ -457,7 +469,7 @@ function Message({ message, isCompact }: MessageProps) {
       .slice(0, 5);
   }, [message.content]);
 
-  const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}${pickerSource ? " picker-open" : ""}${isMentioned ? " msg-mentioned" : ""}`;
+  const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}${pickerSource ? " picker-open" : ""}${isMentioned ? " msg-mentioned" : ""}${isEditing ? " editing" : ""}`;
 
   return (
     <div
@@ -553,7 +565,7 @@ function Message({ message, isCompact }: MessageProps) {
                 />
               )}
               <textarea
-                ref={editTextareaRef}
+                ref={setEditTextareaRef}
                 value={editContent}
                 onChange={handleEditChange}
                 onKeyDown={(e) => {
@@ -567,7 +579,7 @@ function Message({ message, isCompact }: MessageProps) {
                   if (e.key === "Escape") handleEditCancel();
                 }}
                 className="msg-edit-textarea"
-                rows={2}
+                rows={1}
                 autoFocus
               />
               <p className="msg-edit-hint">
