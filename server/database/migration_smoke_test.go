@@ -43,4 +43,21 @@ func TestEmbeddedMigrations_ApplyClean(t *testing.T) {
 	if fkOn != 1 {
 		t.Fatalf("foreign_keys disabled (got %d) — ON DELETE CASCADE would silently no-op", fkOn)
 	}
+
+	// Migration 074: join approval table + servers.approval_required column.
+	var jr string
+	if err := db.Conn.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='server_join_requests'`,
+	).Scan(&jr); err != nil {
+		t.Fatalf("server_join_requests missing after migrations: %v", err)
+	}
+	var approvalCol int
+	if err := db.Conn.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('servers') WHERE name='approval_required'`,
+	).Scan(&approvalCol); err != nil {
+		t.Fatalf("pragma_table_info(servers): %v", err)
+	}
+	if approvalCol != 1 {
+		t.Fatalf("servers.approval_required column missing after migration 074")
+	}
 }

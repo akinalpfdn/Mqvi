@@ -27,10 +27,11 @@ const (
 	PermDeafenMembers                          // 32768
 	PermUseSoundboard                          // 65536
 	PermManageSoundboard                       // 131072
+	PermApproveMembers                         // 262144
 )
 
 // PermAll is the sum of all permissions. Update when adding new perms: (1 << N) - 1
-const PermAll Permission = (1 << 18) - 1
+const PermAll Permission = (1 << 19) - 1
 
 // Has checks if a permission is set. Admin bypasses all checks.
 func (p Permission) Has(perm Permission) bool {

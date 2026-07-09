@@ -14,6 +14,7 @@ type Server struct {
 	OwnerID            string    `json:"owner_id"`
 	InviteRequired     bool      `json:"invite_required"`
 	E2EEEnabled        bool      `json:"e2ee_enabled"`
+	ApprovalRequired   bool      `json:"approval_required"` // joins via invite require approval by a PermApproveMembers holder
 	LiveKitInstanceID  *string   `json:"livekit_instance_id,omitempty"` // nil = no voice
 	AFKTimeoutMinutes  int       `json:"afk_timeout_minutes"`           // 15/30/45/60, default 60
 	// Soft-delete state. DeletedByAdmin=1 → owner cannot restore (admin moderation).
@@ -88,6 +89,7 @@ type UpdateServerRequest struct {
 	Name              *string `json:"name"`
 	InviteRequired    *bool   `json:"invite_required"`
 	E2EEEnabled       *bool   `json:"e2ee_enabled"`
+	ApprovalRequired  *bool   `json:"approval_required"`
 	AFKTimeoutMinutes *int    `json:"afk_timeout_minutes,omitempty"`
 	LiveKitURL        *string `json:"livekit_url,omitempty"`
 	LiveKitKey        *string `json:"livekit_key,omitempty"`
