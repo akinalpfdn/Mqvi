@@ -103,6 +103,22 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		CanPublishData: &canPublishData,
 	}
 
+	// Server-mute durability: if this user is currently server-muted, bake the mic-source
+	// exclusion into the token so the mute survives reconnect and admin-move — a fresh token
+	// would otherwise re-grant mic publish, letting a client shed the mute by reconnecting.
+	// Mirrors the live SFU enforcement in AdminUpdateState (same allow-list).
+	if canPublish {
+		s.mu.RLock()
+		serverMuted := false
+		if st, ok := s.states[userID]; ok {
+			serverMuted = st.IsServerMuted
+		}
+		s.mu.RUnlock()
+		if serverMuted {
+			grant.SetCanPublishSources(serverMuteAllowedSources())
+		}
+	}
+
 	participantName := username
 	if displayName != "" {
 		participantName = displayName

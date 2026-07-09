@@ -7,24 +7,62 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/gorilla/websocket"
 )
 
 const (
 	writeWait      = 10 * time.Second
-	pongWait       = 90 * time.Second  // 3 missed heartbeats (30s × 3)
-	maxMessageSize = 32768             // 32KB — WebRTC SDP + E2EE base64 overhead
+	pongWait       = 90 * time.Second // 3 missed heartbeats (30s × 3)
+	maxMessageSize = 32768            // 32KB — WebRTC SDP + E2EE base64 overhead
 	sendBufferSize = 256
+
+	// eventQueueSize buffers inbound events for the per-connection ordered worker
+	// (eventPump). Sized like sendBufferSize and well above the inbound rate-limit
+	// burst (eventBurst + signalBurst), so under legitimate load it never fills; a
+	// full queue means the worker is wedged (a stuck handler) and the connection is
+	// dropped rather than blocking ReadPump.
+	eventQueueSize = 256
+
+	// Inbound per-connection rate limits. Every non-heartbeat frame is queued to the
+	// connection's worker (eventPump), which does DB/broadcast work, so an unthrottled
+	// socket is a DB-amplification DoS. Limits are far above legitimate use (a human
+	// can't type/toggle 10×/sec), so they only bite floods. Heartbeat is exempt
+	// (throttling it would force disconnects).
+	eventBurst         = 20  // typing, presence, voice-state, calls: burst
+	eventRefillPerSec  = 10  // ...sustained
+	signalBurst        = 100 // p2p_signal: trickle-ICE bursts during call setup
+	signalRefillPerSec = 50  // ...sustained
 )
 
 // Client represents a single WebSocket connection.
-// Each connection runs two goroutines: ReadPump (read) and WritePump (write).
+// Each connection runs three goroutines: ReadPump (read), WritePump (write), and
+// eventPump (ordered inbound event handling).
 type Client struct {
 	hub    *Hub
 	conn   *websocket.Conn
 	userID string
 	send   chan []byte
 	mu     sync.Mutex // protects conn.WriteMessage
+
+	// events is the per-connection inbound queue drained by a single eventPump
+	// goroutine. ReadPump enqueues here (except heartbeat, handled inline) so a
+	// connection's events are processed strictly in arrival order — a voice_join
+	// is fully applied before a following state_update/activity/screen_share event
+	// that would otherwise race it and be silently dropped (S6). Never closed
+	// (same discipline as send); eventPump exits on done.
+	events chan Event
+
+	// done is closed once (removeClient/Shutdown) to signal WritePump to exit and to
+	// guard all sends. The send channel itself is NEVER closed — closing it is what
+	// would let a concurrent send (e.g. a heartbeat ack from ReadPump) panic.
+	done      chan struct{}
+	closeOnce sync.Once
+
+	// Per-connection inbound rate limiters (see eventBurst/signalBurst). Signaling gets
+	// its own generous bucket so ICE bursts never starve, or get starved by, chat events.
+	eventLimiter  *ratelimit.TokenBucket
+	signalLimiter *ratelimit.TokenBucket
 
 	// serverIDs: servers this user belongs to. Populated from DB at connect,
 	// updated on join/leave. Used by BroadcastToServer for filtering.
@@ -68,7 +106,9 @@ func (c *Client) ReadPump() {
 
 		var event Event
 		if err := json.Unmarshal(rawMessage, &event); err != nil {
-			log.Printf("[ws] invalid message from user %s: %v", c.userID, err)
+			// Malformed frame: drop quietly. No per-frame log — a garbage-frame flood would
+			// otherwise amplify into unbounded log/disk I/O (a DoS the rate limiter, which
+			// runs post-parse in handleEvent, can't throttle).
 			continue
 		}
 
@@ -76,14 +116,16 @@ func (c *Client) ReadPump() {
 	}
 }
 
-// eventHandlers maps WS operation codes to client handler functions.
+// eventHandlers maps WS operation codes to client handler functions run by eventPump.
 // Populated once in init() — read-only after startup, no concurrency concern.
 // To add a new event type, add a method on *Client and register it here.
+//
+// OpHeartbeat is intentionally absent: it is handled inline on ReadPump (see
+// handleEvent) so the read-deadline reset is never delayed behind queued work.
 var eventHandlers map[string]func(c *Client, event Event)
 
 func init() {
 	eventHandlers = map[string]func(c *Client, event Event){
-		OpHeartbeat:             (*Client).handleHeartbeat,
 		OpTyping:                (*Client).handleTyping,
 		OpPresenceUpdate:        (*Client).handlePresenceUpdate,
 		OpVoiceJoin:             (*Client).handleVoiceJoin,
@@ -103,13 +145,86 @@ func init() {
 	}
 }
 
-// handleEvent dispatches an incoming event to its registered handler.
+// handleEvent runs on ReadPump. Heartbeat is handled inline (its read-deadline reset
+// must not wait behind queued work); every other event is rate-limited and handed to
+// the per-connection ordered worker (eventPump) so intra-connection order is preserved
+// while DB/LiveKit work stays off the read loop.
 func (c *Client) handleEvent(event Event) {
-	if handler, ok := eventHandlers[event.Op]; ok {
-		handler(c, event)
+	if event.Op == OpHeartbeat {
+		c.handleHeartbeat(event)
 		return
 	}
-	log.Printf("[ws] unknown op from user %s: %s", c.userID, event.Op)
+	// Rate-limit FIRST — before the unknown-op check — so a flood of unknown/garbage ops is
+	// throttled at the source instead of amplifying into unbounded logging that bypasses the
+	// limiter (a log/disk DoS). Unknown ops draw from the general bucket (allowEvent default).
+	if !c.allowEvent(event.Op) {
+		// Over-limit: drop the frame and keep the connection. We deliberately do NOT
+		// disconnect (a momentary UI spike shouldn't kill a live call) and do NOT log
+		// per drop (that would just move the flood to the log/disk).
+		return
+	}
+	if _, ok := eventHandlers[event.Op]; !ok {
+		// Unknown op: drop quietly. No per-frame log (same reason as the over-limit drop).
+		return
+	}
+	if !c.enqueueEvent(event) {
+		// Queue full while still open — the worker is wedged on a stuck handler.
+		// Drop the connection (mirrors sendEvent's buffer-full behavior) rather than
+		// block ReadPump, which would stall heartbeat handling and force disconnects.
+		log.Printf("[ws] event queue full for user %s, dropping connection", c.userID)
+		c.hub.unregister <- c
+	}
+}
+
+// enqueueEvent hands an event to the per-connection worker without ever blocking
+// ReadPump. Returns false only when the queue is full AND the client is still open
+// (caller drops the connection). A client being torn down returns true (no-op) — the
+// events channel is never closed, so this can't send on a closed channel.
+func (c *Client) enqueueEvent(event Event) bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+	}
+	select {
+	case c.events <- event:
+		return true
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// eventPump drains this connection's inbound events one at a time, in arrival order.
+// A single worker per connection guarantees a voice_join is fully applied before a
+// following state_update/activity/screen_share event (fixes S6's silent drop), while
+// keeping each handler's DB/LiveKit work off ReadPump. Cross-connection throughput is
+// unchanged — every connection has its own eventPump. Exits when done is closed.
+func (c *Client) eventPump() {
+	for {
+		select {
+		case event := <-c.events:
+			if handler, ok := eventHandlers[event.Op]; ok {
+				handler(c, event)
+			}
+		case <-c.done:
+			return
+		}
+	}
+}
+
+// allowEvent applies the inbound rate limit for an op. Heartbeat is always allowed;
+// p2p_signal uses the generous signaling bucket; everything else uses the general bucket.
+func (c *Client) allowEvent(op string) bool {
+	switch op {
+	case OpHeartbeat:
+		return true
+	case OpP2PSignal:
+		return c.signalLimiter == nil || c.signalLimiter.Allow()
+	default:
+		return c.eventLimiter == nil || c.eventLimiter.Allow()
+	}
 }
 
 // handleHeartbeat resets the read deadline and acks the client's heartbeat.
@@ -149,7 +264,7 @@ func (c *Client) handlePresenceUpdate(event Event) {
 	c.hub.mu.Unlock()
 
 	if c.hub.onPresenceManualUpdate != nil {
-		go c.hub.onPresenceManualUpdate(c.userID, aggregate, data.IsAuto)
+		c.hub.onPresenceManualUpdate(c.userID, aggregate, data.IsAuto)
 	}
 }
 
@@ -173,7 +288,7 @@ func (c *Client) handleTyping(event Event) {
 
 	if c.hub.onChannelTyping != nil {
 		username := c.hub.getUserUsername(c.userID)
-		go c.hub.onChannelTyping(c.userID, username, typing.ChannelID)
+		c.hub.onChannelTyping(c.userID, username, typing.ChannelID)
 	}
 }
 
@@ -198,7 +313,7 @@ func (c *Client) handleDMTyping(event Event) {
 
 	if c.hub.onDMTyping != nil {
 		username := c.hub.getUserUsername(c.userID)
-		go c.hub.onDMTyping(c.userID, username, data.DMChannelID)
+		c.hub.onDMTyping(c.userID, username, data.DMChannelID)
 	}
 }
 
@@ -229,19 +344,19 @@ func (c *Client) handleVoiceJoin(event Event) {
 
 	if c.hub.onVoiceJoin != nil {
 		info := c.hub.getUserInfo(c.userID)
-		go c.hub.onVoiceJoin(c.userID, info.Username, info.DisplayName, info.AvatarURL, data.ChannelID, data.IsMuted, data.IsDeafened)
+		c.hub.onVoiceJoin(c.userID, info.Username, info.DisplayName, info.AvatarURL, data.ChannelID, data.IsMuted, data.IsDeafened)
 	}
 }
 
 func (c *Client) handleVoiceLeave() {
 	if c.hub.onVoiceLeave != nil {
-		go c.hub.onVoiceLeave(c.userID)
+		c.hub.onVoiceLeave(c.userID)
 	}
 }
 
 func (c *Client) handleVoiceActivity() {
 	if c.hub.onVoiceActivity != nil {
-		go c.hub.onVoiceActivity(c.userID)
+		c.hub.onVoiceActivity(c.userID)
 	}
 }
 
@@ -257,7 +372,7 @@ func (c *Client) handleVoiceStateUpdate(event Event) {
 	}
 
 	if c.hub.onVoiceStateUpdate != nil {
-		go c.hub.onVoiceStateUpdate(c.userID, data.IsMuted, data.IsDeafened, data.IsStreaming)
+		c.hub.onVoiceStateUpdate(c.userID, data.IsMuted, data.IsDeafened, data.IsStreaming)
 	}
 }
 
@@ -278,7 +393,7 @@ func (c *Client) handleVoiceAdminStateUpdate(event Event) {
 	}
 
 	if c.hub.onVoiceAdminStateUpdate != nil {
-		go c.hub.onVoiceAdminStateUpdate(c.userID, data.TargetUserID, data.IsServerMuted, data.IsServerDeafened)
+		c.hub.onVoiceAdminStateUpdate(c.userID, data.TargetUserID, data.IsServerMuted, data.IsServerDeafened)
 	}
 }
 
@@ -299,7 +414,7 @@ func (c *Client) handleVoiceMoveUser(event Event) {
 	}
 
 	if c.hub.onVoiceMoveUser != nil {
-		go c.hub.onVoiceMoveUser(c.userID, data.TargetUserID, data.TargetChannelID)
+		c.hub.onVoiceMoveUser(c.userID, data.TargetUserID, data.TargetChannelID)
 	}
 }
 
@@ -320,7 +435,7 @@ func (c *Client) handleVoiceDisconnectUser(event Event) {
 	}
 
 	if c.hub.onVoiceDisconnectUser != nil {
-		go c.hub.onVoiceDisconnectUser(c.userID, data.TargetUserID)
+		c.hub.onVoiceDisconnectUser(c.userID, data.TargetUserID)
 	}
 }
 
@@ -341,7 +456,7 @@ func (c *Client) handleScreenShareWatch(event Event) {
 	}
 
 	if c.hub.onScreenShareWatch != nil {
-		go c.hub.onScreenShareWatch(c.userID, data.StreamerUserID, data.Watching)
+		c.hub.onScreenShareWatch(c.userID, data.StreamerUserID, data.Watching)
 	}
 }
 
@@ -364,7 +479,7 @@ func (c *Client) handleP2PCallInitiate(event Event) {
 	}
 
 	if c.hub.onP2PCallInitiate != nil {
-		go c.hub.onP2PCallInitiate(c.userID, data)
+		c.hub.onP2PCallInitiate(c.userID, data)
 	}
 }
 
@@ -385,7 +500,7 @@ func (c *Client) handleP2PCallAccept(event Event) {
 	}
 
 	if c.hub.onP2PCallAccept != nil {
-		go c.hub.onP2PCallAccept(c.userID, data)
+		c.hub.onP2PCallAccept(c.userID, data)
 	}
 }
 
@@ -406,14 +521,14 @@ func (c *Client) handleP2PCallDecline(event Event) {
 	}
 
 	if c.hub.onP2PCallDecline != nil {
-		go c.hub.onP2PCallDecline(c.userID, data)
+		c.hub.onP2PCallDecline(c.userID, data)
 	}
 }
 
 // handleP2PCallEnd — no payload needed, userID identifies the active call.
 func (c *Client) handleP2PCallEnd() {
 	if c.hub.onP2PCallEnd != nil {
-		go c.hub.onP2PCallEnd(c.userID)
+		c.hub.onP2PCallEnd(c.userID)
 	}
 }
 
@@ -435,7 +550,32 @@ func (c *Client) handleP2PSignal(event Event) {
 	}
 
 	if c.hub.onP2PSignal != nil {
-		go c.hub.onP2PSignal(c.userID, data)
+		c.hub.onP2PSignal(c.userID, data)
+	}
+}
+
+// markClosed signals the client is being torn down. Idempotent — safe to call from
+// removeClient and Shutdown, and to call twice. Never closes the send channel.
+func (c *Client) markClosed() {
+	c.closeOnce.Do(func() { close(c.done) })
+}
+
+// trySend enqueues data without ever sending on a closed channel (send is never closed).
+// Returns false only when the buffer is full and the client is still open — the caller
+// should then drop the connection. A client already being torn down returns true (no-op).
+func (c *Client) trySend(data []byte) bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+	}
+	select {
+	case c.send <- data:
+		return true
+	case <-c.done:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -446,9 +586,7 @@ func (c *Client) sendEvent(event Event) {
 		return
 	}
 
-	select {
-	case c.send <- data:
-	default:
+	if !c.trySend(data) {
 		log.Printf("[ws] send buffer full for user %s, dropping connection", c.userID)
 		c.hub.unregister <- c
 	}
@@ -460,14 +598,14 @@ func (c *Client) WritePump() {
 	defer c.conn.Close()
 
 	for {
-		message, ok := <-c.send
-		if !ok {
-			// Channel closed — Hub removed this client
+		select {
+		case message := <-c.send:
+			if err := c.writeMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
+		case <-c.done:
+			// Hub removed this client — send a close frame and exit.
 			c.writeMessage(websocket.CloseMessage, nil)
-			return
-		}
-
-		if err := c.writeMessage(websocket.TextMessage, message); err != nil {
 			return
 		}
 	}

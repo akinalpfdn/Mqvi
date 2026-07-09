@@ -27,6 +27,10 @@ type MemberService interface {
 	Unban(ctx context.Context, serverID, userID string) error
 	GetBans(ctx context.Context, serverID string) ([]models.Ban, error)
 	IsBanned(ctx context.Context, serverID, userID string) (bool, error)
+	// SetVoiceEnforcer wires the voice enforcer post-construction.
+	SetVoiceEnforcer(enforcer VoiceUserPermissionEnforcer)
+	// SetPermCacheInvalidator wires the permission-cache invalidator post-construction.
+	SetPermCacheInvalidator(inv PermissionCacheInvalidator)
 }
 
 // VoiceDisconnecter disconnects a user from voice on kick/ban (ISP).
@@ -40,15 +44,31 @@ type VoiceProfileSyncer interface {
 	UpdateUserProfile(userID, username, displayName, avatarURL string)
 }
 
+// VoiceUserPermissionEnforcer re-applies a single user's voice permissions at the SFU after
+// their role assignments change (S3).
+type VoiceUserPermissionEnforcer interface {
+	EnforceUserVoicePermissions(userID string)
+}
+
 type memberService struct {
-	userRepo     repository.UserRepository
-	roleRepo     repository.RoleRepository
-	banRepo      repository.BanRepository
-	serverRepo   repository.ServerRepository
-	hub          ws.BroadcastAndManage
-	voiceKick    VoiceDisconnecter
-	voiceProfile VoiceProfileSyncer
-	urlSigner    FileURLSigner
+	userRepo      repository.UserRepository
+	roleRepo      repository.RoleRepository
+	banRepo       repository.BanRepository
+	serverRepo    repository.ServerRepository
+	hub           ws.BroadcastAndManage
+	voiceKick     VoiceDisconnecter
+	voiceProfile  VoiceProfileSyncer
+	voiceEnforcer   VoiceUserPermissionEnforcer // set post-construction, may be nil
+	permInvalidator PermissionCacheInvalidator  // set post-construction, may be nil
+	urlSigner       FileURLSigner
+}
+
+func (s *memberService) SetVoiceEnforcer(enforcer VoiceUserPermissionEnforcer) {
+	s.voiceEnforcer = enforcer
+}
+
+func (s *memberService) SetPermCacheInvalidator(inv PermissionCacheInvalidator) {
+	s.permInvalidator = inv
 }
 
 func NewMemberService(
@@ -266,6 +286,12 @@ func (s *memberService) ModifyRoles(ctx context.Context, serverID, actorID, targ
 		if err != nil {
 			return nil, fmt.Errorf("role %s not found: %w", roleID, err)
 		}
+		// IDOR guard: role IDs are globally unique, so a role from another server must
+		// never be assignable here — otherwise its permission bits (e.g. Admin on a
+		// position-0 role) leak into the target's effective perms (privilege escalation).
+		if role.ServerID != serverID {
+			return nil, fmt.Errorf("%w: role does not belong to this server", pkg.ErrForbidden)
+		}
 		if role.Position >= actorMaxPos {
 			return nil, fmt.Errorf("%w: cannot assign role '%s' with equal or higher position", pkg.ErrForbidden, role.Name)
 		}
@@ -306,6 +332,15 @@ func (s *memberService) ModifyRoles(ctx context.Context, serverID, actorID, targ
 	member, err := s.GetByID(ctx, serverID, targetID)
 	if err != nil {
 		return nil, err
+	}
+
+	// The user's role set changed: drop their stale cached perms so join/send gates see the
+	// new set immediately, and enforce it live if they're already in voice (S3).
+	if s.permInvalidator != nil {
+		s.permInvalidator.InvalidateUserPermissions(targetID)
+	}
+	if s.voiceEnforcer != nil {
+		go s.voiceEnforcer.EnforceUserVoicePermissions(targetID)
 	}
 
 	// Role changes are server-scoped — only broadcast to that server
@@ -372,6 +407,13 @@ func (s *memberService) Ban(ctx context.Context, serverID, actorID, targetID, re
 // removeFromServer handles post-kick/ban cleanup: voice disconnect, WS broadcasts, subscription removal.
 // Order matters: broadcast before removing subscription so the kicked user receives the events.
 func (s *memberService) removeFromServer(serverID, targetID string) {
+	// Drop the removed user's cached permissions so a stale entry can't let them pass a
+	// permission check in the ≤30s cache window after they're no longer a member (adjacent
+	// to #6 — a kick/ban is a membership change too).
+	if s.permInvalidator != nil {
+		s.permInvalidator.InvalidateUserPermissions(targetID)
+	}
+
 	if s.voiceKick != nil {
 		s.voiceKick.DisconnectUser(targetID)
 	}

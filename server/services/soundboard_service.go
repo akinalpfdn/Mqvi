@@ -141,8 +141,8 @@ type SoundboardService interface {
 	List(ctx context.Context, serverID string) ([]models.SoundboardSound, error)
 	Get(ctx context.Context, id string) (*models.SoundboardSound, error)
 	Create(ctx context.Context, serverID, userID string, req *models.CreateSoundboardSoundRequest, file multipart.File, header *multipart.FileHeader, durationMs int) (*models.SoundboardSound, error)
-	Update(ctx context.Context, id string, req *models.UpdateSoundboardSoundRequest) (*models.SoundboardSound, error)
-	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, serverID string, id string, req *models.UpdateSoundboardSoundRequest) (*models.SoundboardSound, error)
+	Delete(ctx context.Context, serverID string, id string) error
 	Play(ctx context.Context, serverID, soundID, userID, username string) error
 }
 
@@ -277,10 +277,14 @@ func (s *soundboardService) Create(
 	return created, nil
 }
 
-func (s *soundboardService) Update(ctx context.Context, id string, req *models.UpdateSoundboardSoundRequest) (*models.SoundboardSound, error) {
+func (s *soundboardService) Update(ctx context.Context, serverID string, id string, req *models.UpdateSoundboardSoundRequest) (*models.SoundboardSound, error) {
 	sound, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	// IDOR guard: the sound must belong to the route's server.
+	if sound == nil || sound.ServerID != serverID {
+		return nil, fmt.Errorf("%w: sound does not belong to this server", pkg.ErrForbidden)
 	}
 
 	if req.Name != nil {
@@ -314,10 +318,14 @@ func (s *soundboardService) Update(ctx context.Context, id string, req *models.U
 	return updated, nil
 }
 
-func (s *soundboardService) Delete(ctx context.Context, id string) error {
+func (s *soundboardService) Delete(ctx context.Context, serverID string, id string) error {
 	sound, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
+	}
+	// IDOR guard: the sound must belong to the route's server.
+	if sound == nil || sound.ServerID != serverID {
+		return fmt.Errorf("%w: sound does not belong to this server", pkg.ErrForbidden)
 	}
 
 	s.pipeline.DeleteFromURL(sound.FileURL)

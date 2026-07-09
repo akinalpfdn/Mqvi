@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 )
 
 // TokenValidator validates JWT tokens for WS connections.
@@ -231,11 +232,15 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
-		hub:        h.hub,
-		conn:       conn,
-		userID:     claims.UserID,
-		send:       make(chan []byte, sendBufferSize),
-		prefStatus: prefStatus,
+		hub:           h.hub,
+		conn:          conn,
+		userID:        claims.UserID,
+		send:          make(chan []byte, sendBufferSize),
+		events:        make(chan Event, eventQueueSize),
+		done:          make(chan struct{}),
+		prefStatus:    prefStatus,
+		eventLimiter:  ratelimit.NewTokenBucket(eventBurst, eventRefillPerSec),
+		signalLimiter: ratelimit.NewTokenBucket(signalBurst, signalRefillPerSec),
 	}
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 
@@ -358,7 +363,9 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Start pumps — WritePump in goroutine, ReadPump blocks until disconnect
+	// Start pumps — WritePump + eventPump in goroutines, ReadPump blocks until disconnect.
+	// eventPump drains the ordered inbound queue; both exit when done is closed on unregister.
 	go client.WritePump()
+	go client.eventPump()
 	client.ReadPump()
 }

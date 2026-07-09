@@ -15,9 +15,9 @@ import (
 const MaxPinsPerChannel = 50
 
 type PinService interface {
-	Pin(ctx context.Context, messageID string, channelID string, pinnedBy string) (*models.PinnedMessageWithDetails, error)
-	Unpin(ctx context.Context, messageID string, channelID string) error
-	GetPinnedMessages(ctx context.Context, channelID string) ([]models.PinnedMessageWithDetails, error)
+	Pin(ctx context.Context, serverID string, messageID string, channelID string, pinnedBy string) (*models.PinnedMessageWithDetails, error)
+	Unpin(ctx context.Context, serverID string, messageID string, channelID string) error
+	GetPinnedMessages(ctx context.Context, userID string, channelID string) ([]models.PinnedMessageWithDetails, error)
 }
 
 type pinService struct {
@@ -71,13 +71,22 @@ func (s *pinService) allowedViewers(channelID string) []string {
 	return allowed
 }
 
-func (s *pinService) Pin(ctx context.Context, messageID string, channelID string, pinnedBy string) (*models.PinnedMessageWithDetails, error) {
+func (s *pinService) Pin(ctx context.Context, serverID string, messageID string, channelID string, pinnedBy string) (*models.PinnedMessageWithDetails, error) {
 	message, err := s.messageRepo.GetByID(ctx, messageID)
 	if err != nil {
 		return nil, err
 	}
 	if message.ChannelID != channelID {
 		return nil, fmt.Errorf("%w: message does not belong to this channel", pkg.ErrBadRequest)
+	}
+
+	// IDOR guard: the channel must belong to the route's server.
+	channel, err := s.channelRepo.GetByID(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil || channel.ServerID != serverID {
+		return nil, fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
 	count, err := s.pinRepo.CountByChannelID(ctx, channelID)
@@ -113,13 +122,22 @@ func (s *pinService) Pin(ctx context.Context, messageID string, channelID string
 	return result, nil
 }
 
-func (s *pinService) Unpin(ctx context.Context, messageID string, channelID string) error {
+func (s *pinService) Unpin(ctx context.Context, serverID string, messageID string, channelID string) error {
 	message, err := s.messageRepo.GetByID(ctx, messageID)
 	if err != nil {
 		return err
 	}
 	if message.ChannelID != channelID {
 		return fmt.Errorf("%w: message does not belong to this channel", pkg.ErrBadRequest)
+	}
+
+	// IDOR guard: the channel must belong to the route's server.
+	channel, err := s.channelRepo.GetByID(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if channel == nil || channel.ServerID != serverID {
+		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
 	if err := s.pinRepo.Unpin(ctx, messageID); err != nil {
@@ -138,7 +156,17 @@ func (s *pinService) Unpin(ctx context.Context, messageID string, channelID stri
 	return nil
 }
 
-func (s *pinService) GetPinnedMessages(ctx context.Context, channelID string) ([]models.PinnedMessageWithDetails, error) {
+func (s *pinService) GetPinnedMessages(ctx context.Context, userID string, channelID string) ([]models.PinnedMessageWithDetails, error) {
+	// Same gate as the message list: only users who can view + read the channel may read
+	// its pins. Also blocks cross-server reads (a non-member resolves to no permissions).
+	perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
+	if err != nil {
+		return nil, err
+	}
+	if !perms.Has(models.PermViewChannel) || !perms.Has(models.PermReadMessages) {
+		return nil, fmt.Errorf("%w: cannot view pins in this channel", pkg.ErrForbidden)
+	}
+
 	pins, err := s.pinRepo.GetByChannelID(ctx, channelID)
 	if err != nil {
 		return nil, err

@@ -21,6 +21,15 @@ type UserVoiceChannelProvider interface {
 	GetUserVoiceChannelID(userID string) string
 }
 
+// VoiceChannelDisconnector tears down voice participants when a channel is deleted:
+// enumerate the channel's participants, then DisconnectUser each (broadcast leave +
+// LiveKit remove + free passphrase + stop timer). Without this, deleting a voice channel
+// leaves ghost in-memory state and a running channel timer.
+type VoiceChannelDisconnector interface {
+	GetChannelParticipants(channelID string) []models.VoiceState
+	DisconnectUser(userID string)
+}
+
 type ChannelVisibilityFilter struct {
 	IsAdmin         bool
 	HasBaseView     bool
@@ -45,8 +54,8 @@ func (f *ChannelVisibilityFilter) CanSee(channelID string) bool {
 type ChannelService interface {
 	GetAllGrouped(ctx context.Context, serverID, userID string) ([]models.CategoryWithChannels, error)
 	Create(ctx context.Context, serverID string, req *models.CreateChannelRequest) (*models.Channel, error)
-	Update(ctx context.Context, id string, req *models.UpdateChannelRequest) (*models.Channel, error)
-	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, serverID string, id string, req *models.UpdateChannelRequest) (*models.Channel, error)
+	Delete(ctx context.Context, serverID string, id string) error
 	ReorderChannels(ctx context.Context, serverID string, req *models.ReorderChannelsRequest, userID string) ([]models.CategoryWithChannels, error)
 }
 
@@ -56,6 +65,7 @@ type channelService struct {
 	hub           ws.Broadcaster
 	visChecker    ChannelVisibilityChecker
 	voiceProvider UserVoiceChannelProvider
+	voiceDisc     VoiceChannelDisconnector
 	fileCleanup   FileCleanupService
 }
 
@@ -65,6 +75,7 @@ func NewChannelService(
 	hub ws.Broadcaster,
 	visChecker ChannelVisibilityChecker,
 	voiceProvider UserVoiceChannelProvider,
+	voiceDisc VoiceChannelDisconnector,
 	fileCleanup FileCleanupService,
 ) ChannelService {
 	return &channelService{
@@ -73,6 +84,7 @@ func NewChannelService(
 		hub:           hub,
 		visChecker:    visChecker,
 		voiceProvider: voiceProvider,
+		voiceDisc:     voiceDisc,
 		fileCleanup:   fileCleanup,
 	}
 }
@@ -188,7 +200,7 @@ func (s *channelService) Create(ctx context.Context, serverID string, req *model
 	return channel, nil
 }
 
-func (s *channelService) Update(ctx context.Context, id string, req *models.UpdateChannelRequest) (*models.Channel, error) {
+func (s *channelService) Update(ctx context.Context, serverID string, id string, req *models.UpdateChannelRequest) (*models.Channel, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
@@ -196,6 +208,10 @@ func (s *channelService) Update(ctx context.Context, id string, req *models.Upda
 	channel, err := s.channelRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	// IDOR guard: the channel must belong to the route's server.
+	if channel == nil || channel.ServerID != serverID {
+		return nil, fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
 	if req.Name != nil {
@@ -208,7 +224,9 @@ func (s *channelService) Update(ctx context.Context, id string, req *models.Upda
 		if *req.CategoryID == "" {
 			channel.CategoryID = nil
 		} else {
-			if _, err := s.categoryRepo.GetByID(ctx, *req.CategoryID); err != nil {
+			// The target category must exist AND live in the same server.
+			cat, err := s.categoryRepo.GetByID(ctx, *req.CategoryID)
+			if err != nil || cat == nil || cat.ServerID != serverID {
 				return nil, fmt.Errorf("%w: category not found", pkg.ErrBadRequest)
 			}
 			channel.CategoryID = req.CategoryID
@@ -227,7 +245,16 @@ func (s *channelService) Update(ctx context.Context, id string, req *models.Upda
 	return channel, nil
 }
 
-func (s *channelService) Delete(ctx context.Context, id string) error {
+func (s *channelService) Delete(ctx context.Context, serverID string, id string) error {
+	// IDOR guard: the channel must belong to the route's server.
+	channel, err := s.channelRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if channel == nil || channel.ServerID != serverID {
+		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
+	}
+
 	// Phase 1: collect file refs BEFORE cascade delete
 	plan, err := s.fileCleanup.CollectChannelFiles(ctx, id)
 	if err != nil {
@@ -247,12 +274,39 @@ func (s *channelService) Delete(ctx context.Context, id string) error {
 		Data: map[string]string{"id": id},
 	})
 
+	// Authoritatively disconnect anyone still in this (now-deleted) voice channel:
+	// clears ghost in-memory state, removes LiveKit participants, stops the channel
+	// timer. Runs after the successful DB delete so a failed delete never kicks anyone.
+	if channel.Type == models.ChannelTypeVoice && s.voiceDisc != nil {
+		for _, p := range s.voiceDisc.GetChannelParticipants(id) {
+			s.voiceDisc.DisconnectUser(p.UserID)
+		}
+	}
+
 	return nil
 }
 
 func (s *channelService) ReorderChannels(ctx context.Context, serverID string, req *models.ReorderChannelsRequest, userID string) ([]models.CategoryWithChannels, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
+	}
+
+	// IDOR guard: the reordered channel IDs come from the request body, so every one —
+	// and any cross-category move target — must belong to the route's server.
+	for _, item := range req.Items {
+		ch, err := s.channelRepo.GetByID(ctx, item.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ch == nil || ch.ServerID != serverID {
+			return nil, fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
+		}
+		if item.CategoryID != nil && *item.CategoryID != "" {
+			cat, err := s.categoryRepo.GetByID(ctx, *item.CategoryID)
+			if err != nil || cat == nil || cat.ServerID != serverID {
+				return nil, fmt.Errorf("%w: category not found", pkg.ErrBadRequest)
+			}
+		}
 	}
 
 	if err := s.channelRepo.UpdatePositions(ctx, req.Items); err != nil {

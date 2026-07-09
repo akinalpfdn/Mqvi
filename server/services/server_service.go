@@ -60,6 +60,15 @@ type VoiceStateSyncer interface {
 	SyncServerStatesToUser(userID, serverID string)
 }
 
+// VoiceServerDisconnector tears down every voice participant across a server's channels
+// when the server is deleted (enumerate by server, then DisconnectUser each: broadcast
+// leave + LiveKit remove + free passphrase + stop timers). Without it, deleting a server
+// leaves ghost in-memory voice state and running channel timers.
+type VoiceServerDisconnector interface {
+	GetServerParticipants(serverID string) []models.VoiceState
+	DisconnectUser(userID string)
+}
+
 type serverService struct {
 	db            *sql.DB // for WithTx in CreateServer
 	serverRepo    repository.ServerRepository
@@ -71,6 +80,7 @@ type serverService struct {
 	inviteService InviteService
 	hub           ws.BroadcastAndManage
 	voiceSync     VoiceStateSyncer
+	voiceDisc     VoiceServerDisconnector
 	encryptionKey []byte // AES-256-GCM for LiveKit credentials
 	urlSigner     FileURLSigner
 	fileCleanup   FileCleanupService
@@ -87,6 +97,7 @@ func NewServerService(
 	inviteService InviteService,
 	hub ws.BroadcastAndManage,
 	voiceSync VoiceStateSyncer,
+	voiceDisc VoiceServerDisconnector,
 	encryptionKey []byte,
 	urlSigner FileURLSigner,
 	fileCleanup FileCleanupService,
@@ -102,6 +113,7 @@ func NewServerService(
 		inviteService: inviteService,
 		hub:           hub,
 		voiceSync:     voiceSync,
+		voiceDisc:     voiceDisc,
 		encryptionKey: encryptionKey,
 		urlSigner:     urlSigner,
 		fileCleanup:   fileCleanup,
@@ -443,8 +455,24 @@ func (s *serverService) DeleteServer(ctx context.Context, serverID, userID strin
 		Data: map[string]string{"id": serverID},
 	})
 
+	// Authoritatively tear down any voice participants across the server's channels.
+	disconnectServerVoiceParticipants(s.voiceDisc, serverID)
+
 	log.Printf("[server] soft-deleted server %s by owner %s", serverID, userID)
 	return nil
+}
+
+// disconnectServerVoiceParticipants force-disconnects every voice participant across a
+// server's channels: clears ghost in-memory state, removes LiveKit participants, stops
+// channel timers. Shared by every server-delete path (owner + admin). Best-effort; a nil
+// disconnector or empty server is a no-op.
+func disconnectServerVoiceParticipants(vd VoiceServerDisconnector, serverID string) {
+	if vd == nil {
+		return
+	}
+	for _, p := range vd.GetServerParticipants(serverID) {
+		vd.DisconnectUser(p.UserID)
+	}
 }
 
 // RestoreServer un-soft-deletes a server. Owner can only restore servers they soft-deleted
@@ -536,6 +564,10 @@ func (s *serverService) HardDeleteServer(ctx context.Context, serverID, userID s
 		return fmt.Errorf("failed to delete server: %w", err)
 	}
 
+	// Defensive: participants were disconnected on the original soft-delete, but a
+	// rejoin between soft- and hard-delete would leave ghosts — tear down again.
+	disconnectServerVoiceParticipants(s.voiceDisc, serverID)
+
 	// Phase 3: file cleanup + LiveKit cleanup (server_delete WS event already
 	// broadcast on the original soft-delete; no need to re-broadcast).
 	s.fileCleanup.Execute(plan)
@@ -571,19 +603,18 @@ func (s *serverService) GetDeletedServers(ctx context.Context, userID string) ([
 }
 
 // JoinServer joins a server via invite code.
+//
+// The invite use is consumed (Consume) only AFTER validation + a membership check pass,
+// so an existing member (or a soft-deleted-server attempt) never burns a finite invite —
+// and AFTER the atomic guard, so max_uses is still enforced under concurrency (B1). If the
+// membership add fails post-consume, the use is released back (compensation).
 func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode string) (*models.Server, error) {
-	invite, err := s.inviteService.ValidateAndUse(ctx, inviteCode)
+	invite, err := s.inviteService.Validate(ctx, inviteCode)
 	if err != nil {
 		return nil, err
 	}
 
 	serverID := invite.ServerID
-
-	// Reject join attempts on soft-deleted servers — invite redeem must not
-	// dirty membership/usage counters or restore-time member lists.
-	if _, err := s.serverRepo.GetActiveByID(ctx, serverID); err != nil {
-		return nil, fmt.Errorf("%w: server is no longer available", pkg.ErrNotFound)
-	}
 
 	isMember, err := s.serverRepo.IsMember(ctx, serverID, userID)
 	if err != nil {
@@ -593,7 +624,16 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		return nil, fmt.Errorf("%w: already a member of this server", pkg.ErrBadRequest)
 	}
 
+	// Consume a use only now that the join will actually proceed (atomic max_uses guard).
+	if err := s.inviteService.Consume(ctx, inviteCode); err != nil {
+		return nil, err
+	}
+
 	if err := s.serverRepo.AddMember(ctx, serverID, userID); err != nil {
+		// Give the consumed use back so a transient add failure doesn't permanently burn it.
+		if relErr := s.inviteService.ReleaseUse(ctx, inviteCode); relErr != nil {
+			log.Printf("[server] failed to release invite use after add failure (code=%s): %v", inviteCode, relErr)
+		}
 		return nil, fmt.Errorf("failed to add member: %w", err)
 	}
 

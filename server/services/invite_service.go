@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,9 +16,18 @@ import (
 type InviteService interface {
 	Create(ctx context.Context, serverID, createdBy string, req *models.CreateInviteRequest) (*models.Invite, error)
 	ListByServer(ctx context.Context, serverID string) ([]models.InviteWithCreator, error)
-	Delete(ctx context.Context, code string) error
-	// ValidateAndUse validates the code, increments usage, and returns the invite.
-	// Called by ServerService.JoinServer to resolve server_id from the invite.
+	// Delete removes an invite scoped to serverID (IDOR guard: codes are globally unique).
+	Delete(ctx context.Context, serverID, code string) error
+	// Validate checks the code (expiry, max-uses, server-active) WITHOUT consuming a use
+	// and returns the invite. Lets the caller run membership checks before spending a use.
+	Validate(ctx context.Context, code string) (*models.Invite, error)
+	// Consume atomically spends one use (max-uses guarded). ErrConflict (no slot left) is
+	// mapped to the same "reached max uses" ErrBadRequest as Validate's pre-check.
+	Consume(ctx context.Context, code string) error
+	// ReleaseUse gives back one use — compensation when a join fails AFTER Consume
+	// succeeded (so a failed add doesn't permanently burn a finite invite). Best-effort.
+	ReleaseUse(ctx context.Context, code string) error
+	// ValidateAndUse = Validate + Consume in one call.
 	ValidateAndUse(ctx context.Context, code string) (*models.Invite, error)
 	IsInviteRequired(ctx context.Context, serverID string) (bool, error)
 	// GetPreview returns server info for an invite code without requiring auth.
@@ -94,14 +104,14 @@ func (s *inviteService) ListByServer(ctx context.Context, serverID string) ([]mo
 	return invites, nil
 }
 
-func (s *inviteService) Delete(ctx context.Context, code string) error {
-	if err := s.inviteRepo.Delete(ctx, code); err != nil {
+func (s *inviteService) Delete(ctx context.Context, serverID, code string) error {
+	if err := s.inviteRepo.Delete(ctx, serverID, code); err != nil {
 		return fmt.Errorf("failed to delete invite: %w", err)
 	}
 	return nil
 }
 
-func (s *inviteService) ValidateAndUse(ctx context.Context, code string) (*models.Invite, error) {
+func (s *inviteService) Validate(ctx context.Context, code string) (*models.Invite, error) {
 	invite, err := s.inviteRepo.GetByCode(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid invite code", pkg.ErrBadRequest)
@@ -121,10 +131,36 @@ func (s *inviteService) ValidateAndUse(ctx context.Context, code string) (*model
 		return nil, fmt.Errorf("%w: server is no longer available", pkg.ErrNotFound)
 	}
 
-	if err := s.inviteRepo.IncrementUses(ctx, code); err != nil {
-		return nil, fmt.Errorf("failed to increment invite uses: %w", err)
-	}
+	return invite, nil
+}
 
+func (s *inviteService) Consume(ctx context.Context, code string) error {
+	if err := s.inviteRepo.IncrementUses(ctx, code); err != nil {
+		// The pre-check passed but a concurrent join consumed the last slot: the atomic
+		// guard matched 0 rows. Surface the same user-facing message as the pre-check.
+		if errors.Is(err, pkg.ErrConflict) {
+			return fmt.Errorf("%w: invite code has reached max uses", pkg.ErrBadRequest)
+		}
+		return fmt.Errorf("failed to increment invite uses: %w", err)
+	}
+	return nil
+}
+
+func (s *inviteService) ReleaseUse(ctx context.Context, code string) error {
+	if err := s.inviteRepo.DecrementUses(ctx, code); err != nil {
+		return fmt.Errorf("failed to release invite use: %w", err)
+	}
+	return nil
+}
+
+func (s *inviteService) ValidateAndUse(ctx context.Context, code string) (*models.Invite, error) {
+	invite, err := s.Validate(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Consume(ctx, code); err != nil {
+		return nil, err
+	}
 	return invite, nil
 }
 

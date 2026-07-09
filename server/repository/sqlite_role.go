@@ -97,7 +97,7 @@ func (r *sqliteRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serve
 	query := `
 		SELECT r.id, r.server_id, r.name, r.color, r.position, r.permissions, r.is_default, r.is_owner, r.mentionable, r.created_at
 		FROM roles r
-		INNER JOIN user_roles ur ON r.id = ur.role_id
+		INNER JOIN user_roles ur ON r.id = ur.role_id AND r.server_id = ur.server_id
 		WHERE ur.user_id = ? AND ur.server_id = ?
 		ORDER BY r.position DESC`
 

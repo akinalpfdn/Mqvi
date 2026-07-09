@@ -4,7 +4,7 @@
 
 import { create } from "zustand";
 import * as authApi from "../api/auth";
-import { setTokens, clearTokens } from "../api/client";
+import { setTokens, clearTokens, getAccessToken, setAuthRejectedHandler } from "../api/client";
 import { API_BASE_URL } from "../utils/constants";
 import { changeLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
@@ -50,6 +50,12 @@ type AuthState = {
   /** Dismiss the account-deleted recovery prompt without restoring. */
   cancelAccountDeleted: () => void;
   logout: () => Promise<void>;
+  /**
+   * Force-logout triggered when the refresh token is rejected server-side (401/403).
+   * Local teardown only (tokens are already invalid, so no server logout / push
+   * unregister) + routes to login by clearing user. Idempotent.
+   */
+  forceLogout: () => Promise<void>;
   initialize: () => Promise<void>;
   clearError: () => void;
   updateUser: (partial: Partial<User>) => void;
@@ -183,8 +189,61 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null });
   },
 
+  forceLogout: async () => {
+    // The refresh token was rejected (401/403): the session is dead server-side and the
+    // API layer already cleared the tokens. Do LOCAL teardown only — no server logout or
+    // push-token unregister, both of which need a valid token. Idempotent: a no-op once
+    // logged out, so parallel 401s that each trigger this can't double-tear-down.
+    if (get().user === null) return;
+
+    // Guaranteed teardown FIRST. Routing is reactive to `user`, so clearing it + the tokens
+    // here routes to login unconditionally. If this ran last, a throwing best-effort step
+    // below (e.g. a voice/WebRTC teardown) would abandon it and revive the F5 zombie
+    // (logged-in UI, every request 401) — failure-path audit: never leave the critical
+    // state unwritten behind a fallible step.
+    clearTokens(); // idempotent — the refresh flow already cleared them
+    set({ user: null });
+
+    // Best-effort local cleanup, each isolated so one failure can't skip the rest.
+    try {
+      const voiceState = useVoiceStore.getState();
+      if (voiceState.currentVoiceChannelId) {
+        if (voiceState._onLeaveCallback) {
+          voiceState._onLeaveCallback();
+        } else {
+          voiceState.leaveVoiceChannel();
+        }
+      }
+    } catch (err) {
+      console.error("[authStore] forceLogout: voice teardown failed", err);
+    }
+    try {
+      await useE2EEStore.getState().reset();
+    } catch (err) {
+      console.error("[authStore] forceLogout: e2ee reset failed", err);
+    }
+    try {
+      usePreferencesStore.getState().reset();
+      clearCachedPushToken();
+      useSettingsStore.getState().closeSettings();
+    } catch (err) {
+      console.error("[authStore] forceLogout: cleanup failed", err);
+    }
+  },
+
   /** Restore session from stored token on app start. */
   initialize: async () => {
+    // Wire the API layer's auth-rejection signal (refresh 401/403) → forced logout, so a
+    // mid-session token revocation routes to login instead of a zombie logged-in UI whose
+    // every request 401s (F5). Registered here (app boot, before any authenticated request,
+    // even a no-token → login flow) rather than at module scope — a module-load side-effect
+    // would run during the authStore↔voiceStore circular import and break partial mocks.
+    setAuthRejectedHandler(() => {
+      useAuthStore.getState().forceLogout().catch((err) => {
+        console.error("[authStore] forceLogout failed", err);
+      });
+    });
+
     const token = localStorage.getItem("access_token");
     if (!token) {
       set({ isInitialized: true });
@@ -201,10 +260,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ user: res.data, isInitialized: true });
       usePreferencesStore.getState().fetchAndApply();
     } else {
-      clearTokens();
-      // Session restore failed: drop the local push-token cache. Can't unregister
-      // server-side (token already invalid); re-login re-registers and reassigns it.
-      clearCachedPushToken();
+      // getMe failed. The API layer clears tokens ONLY on a genuine 401/403 rejection;
+      // network/5xx/offline failures preserve them, so a transient blip or an offline
+      // launch never wipes a still-valid session (F4). Only run the logged-out push-cache
+      // cleanup when the tokens are actually gone (a real rejection) — otherwise keep the
+      // session intact for the next (online) launch.
+      if (!getAccessToken()) {
+        clearCachedPushToken();
+      }
       set({ isInitialized: true });
     }
   },

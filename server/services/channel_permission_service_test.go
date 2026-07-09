@@ -19,6 +19,45 @@ func newTestChannelPermService(
 	return NewChannelPermissionService(permRepo, roleRepo, channelRepo, hub)
 }
 
+// Phase 48-A #6 — role/member permission changes invalidate the cache, so a permission
+// change takes effect immediately instead of staying ≤30s stale (join/send gates).
+func TestInvalidateUserPermissions_DropsStaleEntry(t *testing.T) {
+	const userID, channelID, serverID = "u1", "chan-1", "srv-1"
+	roles := []models.Role{{ID: "r1", ServerID: serverID, Permissions: models.PermSendMessages}}
+	svc := newTestChannelPermService(
+		&testutil.MockChannelPermRepo{},
+		&testutil.MockRoleRepo{
+			GetByUserIDAndServerFn: func(_ context.Context, _, _ string) ([]models.Role, error) {
+				return roles, nil
+			},
+		},
+		&testutil.MockChannelRepo{
+			GetByIDFn: func(_ context.Context, _ string) (*models.Channel, error) {
+				return &models.Channel{ID: channelID, ServerID: serverID}, nil
+			},
+		},
+		&testutil.MockBroadcaster{},
+	)
+	ctx := context.Background()
+
+	// First resolve caches SendMessages.
+	if got, _ := svc.ResolveChannelPermissions(ctx, userID, channelID); !got.Has(models.PermSendMessages) {
+		t.Fatalf("expected SendMessages, got %v", got)
+	}
+
+	// The role now also grants Admin. Without invalidation the cache still returns the old value.
+	roles = []models.Role{{ID: "r1", ServerID: serverID, Permissions: models.PermSendMessages | models.PermAdmin}}
+	if stale, _ := svc.ResolveChannelPermissions(ctx, userID, channelID); stale.Has(models.PermAdmin) {
+		t.Fatal("cache should still be stale before invalidation")
+	}
+
+	// After invalidation the next resolve reflects the new perms.
+	svc.InvalidateUserPermissions(userID)
+	if fresh, _ := svc.ResolveChannelPermissions(ctx, userID, channelID); !fresh.Has(models.PermAdmin) {
+		t.Fatal("invalidation should force a fresh resolve reflecting the new perms")
+	}
+}
+
 // ─── ResolveChannelPermissions ───
 
 func TestResolveChannelPermissions(t *testing.T) {

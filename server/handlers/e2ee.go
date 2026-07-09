@@ -120,7 +120,7 @@ func (h *E2EEHandler) CreateGroupSession(w http.ResponseWriter, r *http.Request)
 // GetGroupSessions returns all active group sessions for a channel.
 // GET /api/servers/{serverId}/channels/{channelId}/group-sessions
 func (h *E2EEHandler) GetGroupSessions(w http.ResponseWriter, r *http.Request) {
-	_, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -132,7 +132,7 @@ func (h *E2EEHandler) GetGroupSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessions, err := h.e2eeService.GetGroupSessions(r.Context(), channelID)
+	sessions, err := h.e2eeService.GetGroupSessions(r.Context(), user.ID, channelID)
 	if err != nil {
 		pkg.Error(w, err)
 		return

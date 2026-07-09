@@ -25,7 +25,7 @@ type E2EEService interface {
 	// UpsertGroupSession creates/updates a Sender Key group session.
 	// Broadcasts "group_session_new" to channel members on success.
 	UpsertGroupSession(ctx context.Context, channelID, userID, deviceID string, req *models.CreateGroupSessionRequest) error
-	GetGroupSessions(ctx context.Context, channelID string) ([]models.ChannelGroupSession, error)
+	GetGroupSessions(ctx context.Context, userID, channelID string) ([]models.ChannelGroupSession, error)
 	DeleteGroupSessionsByChannel(ctx context.Context, channelID string) error
 	DeleteGroupSessionsByUser(ctx context.Context, channelID, userID string) error
 }
@@ -33,19 +33,38 @@ type E2EEService interface {
 type e2eeService struct {
 	backupRepo       repository.E2EEKeyBackupRepository
 	groupSessionRepo repository.GroupSessionRepository
+	permResolver     ChannelPermResolver
 	hub              ws.Broadcaster
 }
 
 func NewE2EEService(
 	backupRepo repository.E2EEKeyBackupRepository,
 	groupSessionRepo repository.GroupSessionRepository,
+	permResolver ChannelPermResolver,
 	hub ws.Broadcaster,
 ) E2EEService {
 	return &e2eeService{
 		backupRepo:       backupRepo,
 		groupSessionRepo: groupSessionRepo,
+		permResolver:     permResolver,
 		hub:              hub,
 	}
+}
+
+// authorizeChannelAccess gates group-session read/write on the user's effective permissions
+// in the channel's OWN server. Because ResolveChannelPermissions resolves roles against the
+// channel's server, a non-member (e.g. a user of a different server probing by channel ID)
+// resolves to zero permissions — so this inherently blocks cross-server access (IDOR) as
+// well as intra-server private channels the user can't read.
+func (s *e2eeService) authorizeChannelAccess(ctx context.Context, userID, channelID string) error {
+	perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve channel permissions: %w", err)
+	}
+	if !perms.Has(models.PermViewChannel) || !perms.Has(models.PermReadMessages) {
+		return fmt.Errorf("%w: no access to this channel", pkg.ErrForbidden)
+	}
+	return nil
 }
 
 func (s *e2eeService) UpsertKeyBackup(ctx context.Context, userID string, req *models.CreateKeyBackupRequest) error {
@@ -77,6 +96,9 @@ func (s *e2eeService) UpsertGroupSession(ctx context.Context, channelID, userID,
 	if err := req.Validate(); err != nil {
 		return fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
+	if err := s.authorizeChannelAccess(ctx, userID, channelID); err != nil {
+		return err
+	}
 	if err := s.groupSessionRepo.Upsert(ctx, channelID, userID, deviceID, req); err != nil {
 		return fmt.Errorf("failed to upsert group session: %w", err)
 	}
@@ -93,7 +115,10 @@ func (s *e2eeService) UpsertGroupSession(ctx context.Context, channelID, userID,
 	return nil
 }
 
-func (s *e2eeService) GetGroupSessions(ctx context.Context, channelID string) ([]models.ChannelGroupSession, error) {
+func (s *e2eeService) GetGroupSessions(ctx context.Context, userID, channelID string) ([]models.ChannelGroupSession, error) {
+	if err := s.authorizeChannelAccess(ctx, userID, channelID); err != nil {
+		return nil, err
+	}
 	sessions, err := s.groupSessionRepo.GetByChannel(ctx, channelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get group sessions: %w", err)

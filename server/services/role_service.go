@@ -10,6 +10,12 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
+// VoiceServerPermissionEnforcer re-applies voice permissions at the SFU for users already
+// in voice across a server, after a role's permissions change or a role is deleted.
+type VoiceServerPermissionEnforcer interface {
+	EnforceServerVoicePermissions(serverID string)
+}
+
 // RoleService handles role CRUD. All operations are server-scoped.
 type RoleService interface {
 	GetAllByServer(ctx context.Context, serverID string) ([]models.Role, error)
@@ -17,12 +23,18 @@ type RoleService interface {
 	Update(ctx context.Context, serverID, actorID, roleID string, req *models.UpdateRoleRequest) (*models.Role, error)
 	Delete(ctx context.Context, serverID, actorID, roleID string) error
 	ReorderRoles(ctx context.Context, serverID, actorID string, items []models.PositionUpdate) ([]models.Role, error)
+	// SetVoiceEnforcer wires the voice enforcer post-construction.
+	SetVoiceEnforcer(enforcer VoiceServerPermissionEnforcer)
+	// SetPermCacheInvalidator wires the permission-cache invalidator post-construction.
+	SetPermCacheInvalidator(inv PermissionCacheInvalidator)
 }
 
 type roleService struct {
-	roleRepo repository.RoleRepository
-	userRepo repository.UserRepository
-	hub      ws.Broadcaster
+	roleRepo       repository.RoleRepository
+	userRepo       repository.UserRepository
+	hub            ws.Broadcaster
+	voiceEnforcer  VoiceServerPermissionEnforcer // set post-construction, may be nil
+	permInvalidator PermissionCacheInvalidator   // set post-construction, may be nil
 }
 
 func NewRoleService(
@@ -34,6 +46,30 @@ func NewRoleService(
 		roleRepo: roleRepo,
 		userRepo: userRepo,
 		hub:      hub,
+	}
+}
+
+func (s *roleService) SetVoiceEnforcer(enforcer VoiceServerPermissionEnforcer) {
+	s.voiceEnforcer = enforcer
+}
+
+func (s *roleService) SetPermCacheInvalidator(inv PermissionCacheInvalidator) {
+	s.permInvalidator = inv
+}
+
+// invalidatePermCache flushes cached permissions after a role's bits change or it is
+// deleted (affects every holder). No-op if unwired.
+func (s *roleService) invalidatePermCache() {
+	if s.permInvalidator != nil {
+		s.permInvalidator.InvalidateAllPermissions()
+	}
+}
+
+// enforceServerVoice re-checks the server's voice participants after a permission change.
+// Fire-and-forget so the request isn't blocked on LiveKit I/O.
+func (s *roleService) enforceServerVoice(serverID string) {
+	if s.voiceEnforcer != nil {
+		go s.voiceEnforcer.EnforceServerVoicePermissions(serverID)
 	}
 }
 
@@ -114,6 +150,10 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 	if err != nil {
 		return nil, err
 	}
+	// IDOR guard: the role must belong to the route's server.
+	if role == nil || role.ServerID != serverID {
+		return nil, fmt.Errorf("%w: role does not belong to this server", pkg.ErrForbidden)
+	}
 
 	// Owner role: only server owner can edit name/color; permissions are immutable
 	if role.IsOwner {
@@ -183,6 +223,15 @@ func (s *roleService) Update(ctx context.Context, serverID, actorID, roleID stri
 		return nil, fmt.Errorf("failed to update role: %w", err)
 	}
 
+	// A permissions change can revoke ConnectVoice/Speak for anyone holding this role —
+	// enforce it live for users already in voice (S3) and drop stale cached perms so the
+	// change takes effect immediately for join/send gates too. Name/color/mentionable-only
+	// edits don't touch permissions, so skip them.
+	if req.Permissions != nil {
+		s.invalidatePermCache()
+		s.enforceServerVoice(serverID)
+	}
+
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRoleUpdate,
 		Data: role,
@@ -195,6 +244,10 @@ func (s *roleService) Delete(ctx context.Context, serverID, actorID, roleID stri
 	role, err := s.roleRepo.GetByID(ctx, roleID)
 	if err != nil {
 		return err
+	}
+	// IDOR guard: the role must belong to the route's server.
+	if role == nil || role.ServerID != serverID {
+		return fmt.Errorf("%w: role does not belong to this server", pkg.ErrForbidden)
 	}
 
 	if role.IsOwner {
@@ -217,6 +270,11 @@ func (s *roleService) Delete(ctx context.Context, serverID, actorID, roleID stri
 	if err := s.roleRepo.Delete(ctx, roleID); err != nil {
 		return fmt.Errorf("failed to delete role: %w", err)
 	}
+
+	// Users lose this role's grants — flush stale cached perms and enforce live for anyone
+	// already in voice (S3).
+	s.invalidatePermCache()
+	s.enforceServerVoice(serverID)
 
 	s.hub.BroadcastToAll(ws.Event{
 		Op:   ws.OpRoleDelete,
@@ -243,6 +301,11 @@ func (s *roleService) ReorderRoles(ctx context.Context, serverID, actorID string
 		role, err := s.roleRepo.GetByID(ctx, item.ID)
 		if err != nil {
 			return nil, err
+		}
+		// IDOR guard: the role must belong to the route's server — checked before the
+		// isOwner short-circuit so a foreign role can't bypass the position rules below.
+		if role == nil || role.ServerID != serverID {
+			return nil, fmt.Errorf("%w: role does not belong to this server", pkg.ErrForbidden)
 		}
 
 		if role.IsOwner {

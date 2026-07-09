@@ -90,10 +90,14 @@ func (r *sqliteInviteRepo) Create(ctx context.Context, invite *models.Invite) er
 	return nil
 }
 
-func (r *sqliteInviteRepo) Delete(ctx context.Context, code string) error {
-	query := `DELETE FROM invites WHERE code = ?`
+// Delete removes an invite scoped to its server. The server_id predicate is the IDOR
+// guard: invite codes are globally unique, so an unscoped delete-by-code would let a
+// member of any server delete another server's invite. A code belonging to a different
+// server matches 0 rows → ErrNotFound (indistinguishable from a missing code, no oracle).
+func (r *sqliteInviteRepo) Delete(ctx context.Context, serverID, code string) error {
+	query := `DELETE FROM invites WHERE code = ? AND server_id = ?`
 
-	result, err := r.db.ExecContext(ctx, query, code)
+	result, err := r.db.ExecContext(ctx, query, code, serverID)
 	if err != nil {
 		return fmt.Errorf("failed to delete invite: %w", err)
 	}
@@ -109,8 +113,13 @@ func (r *sqliteInviteRepo) Delete(ctx context.Context, code string) error {
 	return nil
 }
 
+// IncrementUses atomically consumes one use only while a slot remains (max_uses=0 is
+// unlimited). The conditional WHERE closes the check-then-increment race: two concurrent
+// joins on a max_uses=1 invite serialize on the row, and the loser matches 0 rows.
+// Callers resolve the row via GetByCode first, so 0 rows affected means capacity was
+// exhausted concurrently — surfaced as ErrConflict, not ErrNotFound.
 func (r *sqliteInviteRepo) IncrementUses(ctx context.Context, code string) error {
-	query := `UPDATE invites SET uses = uses + 1 WHERE code = ?`
+	query := `UPDATE invites SET uses = uses + 1 WHERE code = ? AND (max_uses = 0 OR uses < max_uses)`
 
 	result, err := r.db.ExecContext(ctx, query, code)
 	if err != nil {
@@ -122,8 +131,19 @@ func (r *sqliteInviteRepo) IncrementUses(ctx context.Context, code string) error
 		return fmt.Errorf("failed to check rows affected: %w", err)
 	}
 	if affected == 0 {
-		return pkg.ErrNotFound
+		return pkg.ErrConflict
 	}
 
+	return nil
+}
+
+// DecrementUses gives back one consumed use (compensation for a join that failed after
+// IncrementUses). Guarded by uses > 0 so it can never go negative; 0 rows is a no-op (not
+// an error) since this is best-effort cleanup.
+func (r *sqliteInviteRepo) DecrementUses(ctx context.Context, code string) error {
+	query := `UPDATE invites SET uses = uses - 1 WHERE code = ? AND uses > 0`
+	if _, err := r.db.ExecContext(ctx, query, code); err != nil {
+		return fmt.Errorf("failed to decrement invite uses: %w", err)
+	}
 	return nil
 }

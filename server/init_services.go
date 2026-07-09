@@ -139,7 +139,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.User, repos.Session, repos.ResetToken, hub, emailSender,
 		cfg.JWT.Secret, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry,
 	)
-	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, fileCleanupService)
+	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService)
 	categoryService := services.NewCategoryService(repos.Category, hub)
 	messageService := services.NewMessageService(
 		repos.Message, repos.Attachment, repos.Channel, repos.User,
@@ -149,9 +149,20 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	uploadService := services.NewUploadService(repos.Attachment, uploadPipeline, cfg.Upload.MaxSize)
 	memberService := services.NewMemberService(repos.User, repos.Role, repos.Ban, repos.Server, hub, voiceService, voiceService, urlSigner)
 	roleService := services.NewRoleService(repos.Role, repos.User, hub)
+
+	// Wire live mid-call voice permission enforcement (S3). Post-construction because
+	// voiceService is built after channelPermService (its permission resolver).
+	channelPermService.SetVoiceEnforcer(voiceService)
+	roleService.SetVoiceEnforcer(voiceService)
+	memberService.SetVoiceEnforcer(voiceService)
+
+	// Wire permission-cache invalidation: role perm edits/deletes and member role changes
+	// must drop stale cached perms so join/send gates see the change immediately (not ≤30s late).
+	roleService.SetPermCacheInvalidator(channelPermService)
+	memberService.SetPermCacheInvalidator(channelPermService)
 	serverService := services.NewServerService(
 		db, repos.Server, repos.LiveKit, repos.Role, repos.Channel,
-		repos.Category, repos.User, inviteService, hub, voiceService, encryptionKey, urlSigner, fileCleanupService,
+		repos.Category, repos.User, inviteService, hub, voiceService, voiceService, encryptionKey, urlSigner, fileCleanupService,
 	)
 	livekitAdminService := services.NewLiveKitAdminService(
 		repos.LiveKit, repos.Server, repos.User, repos.Channel,
@@ -206,11 +217,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reportUploadService := services.NewReportUploadService(repos.Report, uploadPipeline, cfg.Upload.MaxSize)
 
 	deviceService := services.NewDeviceService(repos.Device, hub)
-	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, hub)
+	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub)
 	pushTokenService := services.NewPushTokenService(repos.PushToken)
 
 	adminUserService := services.NewAdminUserService(db, repos.User, repos.Session, repos.Server, hub, voiceService, emailSender, fileCleanupService)
-	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, emailSender, fileCleanupService)
+	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, voiceService, emailSender, fileCleanupService)
 
 	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)
 	badgeService := services.NewBadgeService(repos.Badge, hub)

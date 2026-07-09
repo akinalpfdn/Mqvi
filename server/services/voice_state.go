@@ -126,9 +126,11 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 
 	s.mu.Unlock()
 
-	// Remove phantom participant from old LiveKit room (best-effort, outside lock)
+	// Remove phantom participant from old LiveKit room (best-effort, outside lock).
+	// Use oldServerID — the phantom is in the OLD channel's room, which may be on a
+	// different server than the one just joined.
 	if oldChannelID != "" && oldChannelID != channelID {
-		go s.removeParticipantFromLiveKit(oldChannelID, userID)
+		go s.removeParticipantFromLiveKit(oldServerID, oldChannelID, userID)
 	}
 
 	log.Printf("[voice] user %s joined channel %s", userID, channelID)
@@ -214,7 +216,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	s.mu.Unlock()
 
 	// Remove from LiveKit (best-effort, outside lock — involves DB calls)
-	go s.removeParticipantFromLiveKit(channelID, userID)
+	go s.removeParticipantFromLiveKit(serverID, channelID, userID)
 
 	log.Printf("[voice] user %s left channel %s", userID, channelID)
 	return nil
@@ -422,6 +424,19 @@ func (s *voiceService) GetChannelParticipants(channelID string) []models.VoiceSt
 	var participants []models.VoiceState
 	for _, state := range s.states {
 		if state.ChannelID == channelID {
+			participants = append(participants, *state)
+		}
+	}
+	return participants
+}
+
+func (s *voiceService) GetServerParticipants(serverID string) []models.VoiceState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var participants []models.VoiceState
+	for _, state := range s.states {
+		if state.ServerID == serverID {
 			participants = append(participants, *state)
 		}
 	}

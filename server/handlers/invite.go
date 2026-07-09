@@ -65,13 +65,14 @@ func (h *InviteHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /api/servers/{serverId}/invites/{code}
 func (h *InviteHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
 	code := r.PathValue("code")
-	if code == "" {
+	if serverID == "" || code == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invite code is required")
 		return
 	}
 
-	if err := h.inviteService.Delete(r.Context(), code); err != nil {
+	if err := h.inviteService.Delete(r.Context(), serverID, code); err != nil {
 		pkg.Error(w, err)
 		return
 	}

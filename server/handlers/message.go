@@ -173,7 +173,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 			attachment, err := h.uploadService.Upload(r.Context(), message.ID, file, fileHeader, isEncrypted)
 			file.Close()
 			if err != nil {
-				_ = h.messageService.Delete(r.Context(), message.ID, user.ID, models.PermManageMessages)
+				_ = h.messageService.Delete(r.Context(), r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages)
 				if unused := reservedBytes - uploadedBytes; unused > 0 {
 					_ = h.storageService.Release(r.Context(), user.ID, unused)
 				}
@@ -239,8 +239,9 @@ func (h *MessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	perms, _ := r.Context().Value(PermissionsContextKey).(models.Permission)
+	serverID := r.PathValue("serverId")
 
-	if err := h.messageService.Delete(r.Context(), id, user.ID, perms); err != nil {
+	if err := h.messageService.Delete(r.Context(), serverID, id, user.ID, perms); err != nil {
 		pkg.Error(w, err)
 		return
 	}
