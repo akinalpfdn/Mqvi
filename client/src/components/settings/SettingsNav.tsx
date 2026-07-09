@@ -94,6 +94,10 @@ function SettingsNav({ drawerOpen = false, onNavigate }: SettingsNavProps) {
     hasPermission(perms, Permissions.KickMembers) ||
     hasPermission(perms, Permissions.BanMembers);
 
+  // Join Requests is strictly gated: only ApproveMembers holders see it. A user with
+  // ONLY this perm sees the Join Requests tab but not the other server-management tabs.
+  const canApproveMembers = hasPermission(perms, Permissions.ApproveMembers);
+
   return (
     <>
     <nav className={`settings-nav${drawerOpen ? " open" : ""}`}>
@@ -134,19 +138,28 @@ function SettingsNav({ drawerOpen = false, onNavigate }: SettingsNavProps) {
       )}
 
       {/* Server Settings (permission-gated) */}
-      {canSeeServerSettings && (
+      {(canSeeServerSettings || canApproveMembers) && (
         <>
           {!isMobile && <div className="settings-nav-divider" />}
           <h3 className="settings-nav-label">{t("serverSettings")}</h3>
-          {SERVER_ITEMS.map((item) => (
+          {canSeeServerSettings &&
+            SERVER_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
+                onClick={() => handleSelect(item.id)}
+              >
+                {t(item.labelKey)}
+              </button>
+            ))}
+          {canApproveMembers && (
             <button
-              key={item.id}
-              className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
-              onClick={() => handleSelect(item.id)}
+              className={`settings-nav-item${activeTab === "join-requests" ? " active" : ""}`}
+              onClick={() => handleSelect("join-requests")}
             >
-              {t(item.labelKey)}
+              {t("joinRequests")}
             </button>
-          ))}
+          )}
         </>
       )}
 

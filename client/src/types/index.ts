@@ -712,6 +712,7 @@ export type Server = {
   owner_id: string;
   invite_required: boolean;
   e2ee_enabled: boolean;
+  approval_required: boolean;
   livekit_instance_id: string | null;
   afk_timeout_minutes: number;
   member_count: number;
@@ -722,6 +723,17 @@ export type Server = {
   /** True when the server was soft-deleted by an admin (owner cannot restore). */
   deleted_by_admin?: boolean;
   created_at: string;
+};
+
+/** A pending request to join an approval-required server (admin approval queue). */
+export type JoinRequest = {
+  server_id: string;
+  user_id: string;
+  invite_code?: string | null;
+  created_at: string;
+  username: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
 };
 
 /** Lightweight server info for sidebar rendering (WS ready + GET /api/servers). */

@@ -13,6 +13,7 @@ import InviteSettings from "./InviteSettings";
 import VoiceSettings from "./VoiceSettings";
 import ChannelSettings from "./ChannelSettings";
 import MembersSettings from "./MembersSettings";
+import JoinRequestsSettings from "./JoinRequestsSettings";
 import SecuritySettings from "./SecuritySettings";
 import PlatformSettings from "./PlatformSettings";
 import AdminServerList from "./AdminServerList";
@@ -142,6 +143,9 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
 
     case "members":
       return <MembersSettings />;
+
+    case "join-requests":
+      return <JoinRequestsSettings />;
 
     case "security":
       return <SecuritySettings />;

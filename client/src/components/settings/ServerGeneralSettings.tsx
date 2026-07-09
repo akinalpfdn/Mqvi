@@ -28,6 +28,7 @@ function ServerGeneralSettings() {
   const [server, setServer] = useState<Server | null>(null);
   const [editName, setEditName] = useState("");
   const [editInviteRequired, setEditInviteRequired] = useState(false);
+  const [editApprovalRequired, setEditApprovalRequired] = useState(false);
   const [editAFKTimeout, setEditAFKTimeout] = useState(60);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -70,6 +71,7 @@ function ServerGeneralSettings() {
         setServer(res.data);
         setEditName(res.data.name);
         setEditInviteRequired(res.data.invite_required);
+        setEditApprovalRequired(res.data.approval_required);
         setEditAFKTimeout(res.data.afk_timeout_minutes ?? 60);
 
         // Fetch LiveKit settings if instance exists
@@ -94,6 +96,7 @@ function ServerGeneralSettings() {
     server !== null &&
     (editName !== server.name ||
       editInviteRequired !== server.invite_required ||
+      editApprovalRequired !== server.approval_required ||
       editAFKTimeout !== (server.afk_timeout_minutes ?? 60));
 
   async function handleSave() {
@@ -105,11 +108,13 @@ function ServerGeneralSettings() {
       const res = await serverApi.updateServer(activeServerId, {
         name: editName,
         invite_required: editInviteRequired,
+        approval_required: editApprovalRequired,
         afk_timeout_minutes: editAFKTimeout,
       });
       if (res.success && res.data) {
         setServer(res.data);
         setEditInviteRequired(res.data.invite_required);
+        setEditApprovalRequired(res.data.approval_required);
         addToast("success", t("serverSaved"));
       } else {
         addToast("error", res.error ?? t("serverSaveError"));
@@ -263,6 +268,28 @@ function ServerGeneralSettings() {
           </label>
           <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 2 }}>
             {t("inviteRequiredDesc")}
+          </p>
+        </div>
+      </div>
+
+      {/* Approval Required Toggle */}
+      <div className="settings-field" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <input
+          id="approvalRequired"
+          type="checkbox"
+          checked={editApprovalRequired}
+          onChange={(e) => setEditApprovalRequired(e.target.checked)}
+          style={{ width: 16, height: 16, accentColor: "var(--primary)", cursor: "pointer" }}
+        />
+        <div>
+          <label
+            htmlFor="approvalRequired"
+            style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)", cursor: "pointer" }}
+          >
+            {t("approvalRequired")}
+          </label>
+          <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 2 }}>
+            {t("approvalRequiredDesc")}
           </p>
         </div>
       </div>
