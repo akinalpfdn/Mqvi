@@ -219,10 +219,11 @@ func (h *AdminHandler) DeleteLiveKitInstance(w http.ResponseWriter, r *http.Requ
 }
 
 // ListServers -- GET /api/admin/servers
-// Query: ?limit=50&offset=0&search=foo&status=all|active|soft_deleted&sort=name&dir=asc
+// Query: ?limit=50&offset=0&search=foo&status=active&status=soft_deleted&type=managed&sort=name&dir=asc
+// status/type are repeatable (empty = all).
 func (h *AdminHandler) ListServers(w http.ResponseWriter, r *http.Request) {
 	page, err := h.livekitAdminService.ListServersPaged(r.Context(),
-		parseAdminListParams(r, []string{"all", "active", "soft_deleted"}))
+		parseAdminListParams(r, []string{"active", "soft_deleted"}))
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -282,10 +283,11 @@ func (h *AdminHandler) GetLiveKitInstanceMetrics(w http.ResponseWriter, r *http.
 }
 
 // ListUsers -- GET /api/admin/users
-// Query: ?limit=50&offset=0&search=foo&status=all|active|banned|soft_deleted|tombstone&sort=username&dir=asc
+// Query: ?limit=50&offset=0&search=foo&status=active&status=banned&presence=online&admin=admin&sort=username&dir=asc
+// status/presence/admin are repeatable (empty = all).
 func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	page, err := h.livekitAdminService.ListUsersPaged(r.Context(),
-		parseAdminListParams(r, []string{"all", "active", "banned", "soft_deleted", "tombstone"}))
+		parseAdminListParams(r, []string{"active", "banned", "soft_deleted", "tombstone"}))
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -316,29 +318,40 @@ func parseAdminListParams(r *http.Request, allowedStatuses []string) models.Admi
 			offset = n
 		}
 	}
-	status := q.Get("status")
-	allowed := false
-	for _, s := range allowedStatuses {
-		if status == s {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		status = "all"
-	}
 	dir := q.Get("dir")
 	if dir != "asc" && dir != "desc" {
 		dir = "desc"
 	}
 	return models.AdminListPageParams{
-		Limit:  limit,
-		Offset: offset,
-		Search: q.Get("search"),
-		Status: status,
-		Sort:   q.Get("sort"),
-		Dir:    dir,
+		Limit:     limit,
+		Offset:    offset,
+		Search:    q.Get("search"),
+		Statuses:  filterAllowed(parseMultiQuery(r, "status"), allowedStatuses),
+		Presences: filterAllowed(parseMultiQuery(r, "presence"), []string{"online", "idle", "dnd", "offline"}),
+		Admin:     filterAllowed(parseMultiQuery(r, "admin"), []string{"admin", "non_admin"}),
+		Types:     filterAllowed(parseMultiQuery(r, "type"), []string{"managed", "self"}),
+		Sort:      q.Get("sort"),
+		Dir:       dir,
 	}
+}
+
+// filterAllowed returns only the values present in the whitelist, preserving order.
+// Keeps caller-supplied filter values from ever reaching SQL unvalidated.
+func filterAllowed(vals, allowed []string) []string {
+	if len(vals) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(allowed))
+	for _, a := range allowed {
+		set[a] = true
+	}
+	var out []string
+	for _, v := range vals {
+		if set[v] {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // GetLiveKitInstanceMetricsHistory -- GET /api/admin/livekit-instances/{id}/metrics/history?period=24h

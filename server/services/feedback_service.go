@@ -16,7 +16,7 @@ type FeedbackService interface {
 	CreateTicket(ctx context.Context, userID string, req *models.CreateFeedbackRequest) (*models.FeedbackTicket, error)
 	GetTicketByID(ctx context.Context, id, userID string, isAdmin bool) (*models.FeedbackTicketWithUser, []models.FeedbackReplyWithUser, error)
 	ListByUser(ctx context.Context, userID string, limit, offset int) ([]models.FeedbackTicketWithUser, int, error)
-	ListAll(ctx context.Context, status, ticketType string, limit, offset int) ([]models.FeedbackTicketWithUser, int, error)
+	ListAllForAdmin(ctx context.Context, statuses, types []string, sortKey, sortDir, adminID string, limit, offset int) ([]models.FeedbackTicketWithUser, int, error)
 	AddReply(ctx context.Context, ticketID, userID string, isAdmin bool, req *models.CreateFeedbackReplyRequest) (*models.FeedbackReply, error)
 	UpdateStatus(ctx context.Context, ticketID string, req *models.UpdateFeedbackStatusRequest) error
 	DeleteTicket(ctx context.Context, id, userID string) error
@@ -110,6 +110,14 @@ func (s *feedbackService) GetTicketByID(ctx context.Context, id, userID string, 
 		return nil, nil, fmt.Errorf("%w: you can only view your own feedback", pkg.ErrForbidden)
 	}
 
+	// An admin opening a ticket clears its per-admin unread dot. Best-effort:
+	// read-tracking is a convenience, not auth state, and self-heals on next open.
+	if isAdmin && userID != "" {
+		if err := s.feedbackRepo.MarkTicketSeen(ctx, userID, id); err != nil {
+			log.Printf("[feedback] mark ticket seen admin=%s ticket=%s: %v", userID, id, err)
+		}
+	}
+
 	replies, err := s.feedbackRepo.GetRepliesByTicketID(ctx, id)
 	if err != nil {
 		return nil, nil, err
@@ -141,11 +149,51 @@ func (s *feedbackService) ListByUser(ctx context.Context, userID string, limit, 
 	return s.feedbackRepo.ListByUser(ctx, userID, limit, offset)
 }
 
-func (s *feedbackService) ListAll(ctx context.Context, status, ticketType string, limit, offset int) ([]models.FeedbackTicketWithUser, int, error) {
+func (s *feedbackService) ListAllForAdmin(ctx context.Context, statuses, types []string, sortKey, sortDir, adminID string, limit, offset int) ([]models.FeedbackTicketWithUser, int, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	return s.feedbackRepo.ListAll(ctx, status, ticketType, limit, offset)
+	return s.feedbackRepo.ListAllForAdmin(ctx, repository.FeedbackListParams{
+		AdminID:  adminID,
+		Statuses: filterValidFeedbackStatuses(statuses),
+		Types:    filterValidFeedbackTypes(types),
+		SortKey:  sortKey,
+		SortDir:  sortDir,
+		Limit:    limit,
+		Offset:   offset,
+	})
+}
+
+// filterValidFeedbackStatuses / filterValidFeedbackTypes drop any values not in
+// the known enum set, so a typo'd filter yields "all" rather than an empty IN(...).
+func filterValidFeedbackStatuses(in []string) []string {
+	valid := map[string]bool{
+		string(models.FeedbackStatusOpen):       true,
+		string(models.FeedbackStatusInProgress): true,
+		string(models.FeedbackStatusResolved):   true,
+		string(models.FeedbackStatusClosed):     true,
+	}
+	return filterKnown(in, valid)
+}
+
+func filterValidFeedbackTypes(in []string) []string {
+	valid := map[string]bool{
+		string(models.FeedbackTypeBug):        true,
+		string(models.FeedbackTypeSuggestion): true,
+		string(models.FeedbackTypeQuestion):   true,
+		string(models.FeedbackTypeOther):      true,
+	}
+	return filterKnown(in, valid)
+}
+
+func filterKnown(in []string, valid map[string]bool) []string {
+	var out []string
+	for _, v := range in {
+		if valid[v] {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func (s *feedbackService) AddReply(ctx context.Context, ticketID, userID string, isAdmin bool, req *models.CreateFeedbackReplyRequest) (*models.FeedbackReply, error) {

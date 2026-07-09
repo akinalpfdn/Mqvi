@@ -429,17 +429,59 @@ var adminServerSortColumns = map[string]string{
 	"last_activity":       "last_activity",
 }
 
+// serverManagedExpr mirrors the is_platform_managed CASE in the data SELECT so the
+// managed/self filter can be applied in WHERE (where the SELECT alias isn't visible).
+// Both queries LEFT JOIN livekit_instances li, so li.* is in scope for both.
+const serverManagedExpr = "CASE WHEN s.livekit_instance_id IS NOT NULL AND li.id IS NULL THEN 1 ELSE COALESCE(li.is_platform_managed, 0) END"
+
+// serverStateClause OR-combines whitelisted deletion states. Constant strings only.
+func serverStateClause(statuses []string) string {
+	var ors []string
+	for _, s := range statuses {
+		switch s {
+		case "active":
+			ors = append(ors, "s.deleted_at IS NULL")
+		case "soft_deleted":
+			ors = append(ors, "s.deleted_at IS NOT NULL")
+		}
+	}
+	if len(ors) == 0 {
+		return ""
+	}
+	return "(" + strings.Join(ors, " OR ") + ")"
+}
+
+// serverTypeClause filters platform-managed vs self-hosted. Both or neither = no filter.
+func serverTypeClause(types []string) string {
+	wantManaged, wantSelf := false, false
+	for _, t := range types {
+		switch t {
+		case "managed":
+			wantManaged = true
+		case "self":
+			wantSelf = true
+		}
+	}
+	if wantManaged == wantSelf {
+		return ""
+	}
+	if wantManaged {
+		return "(" + serverManagedExpr + ") = 1"
+	}
+	return "(" + serverManagedExpr + ") = 0"
+}
+
 // buildAdminServerFilter — WHERE fragment shared by data and count queries.
-// status filter mirrors users: active/soft_deleted/tombstone (no banned for servers).
-func buildAdminServerFilter(status, search string) (string, []any) {
+// Filters combine with AND across dimensions, OR within a dimension.
+func buildAdminServerFilter(statuses, types []string, search string) (string, []any) {
 	var clauses []string
 	var args []any
 
-	switch status {
-	case "active":
-		clauses = append(clauses, "s.deleted_at IS NULL")
-	case "soft_deleted":
-		clauses = append(clauses, "s.deleted_at IS NOT NULL")
+	if c := serverStateClause(statuses); c != "" {
+		clauses = append(clauses, c)
+	}
+	if c := serverTypeClause(types); c != "" {
+		clauses = append(clauses, c)
 	}
 
 	if q := strings.TrimSpace(search); q != "" {
@@ -473,7 +515,7 @@ func buildVoiceServerOverlay(serverIDs []string) (cte string, override string, a
 
 // ListAdminServersPaged — see ServerRepository.ListAdminServersPaged.
 func (r *sqliteServerRepo) ListAdminServersPaged(ctx context.Context, params models.AdminListPageParams, activeVoiceServerIDs []string) (models.AdminServerListPage, error) {
-	whereSQL, whereArgs := buildAdminServerFilter(params.Status, params.Search)
+	whereSQL, whereArgs := buildAdminServerFilter(params.Statuses, params.Types, params.Search)
 
 	sortExpr, ok := adminServerSortColumns[params.Sort]
 	if !ok {

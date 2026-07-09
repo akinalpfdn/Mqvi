@@ -624,6 +624,8 @@ export type FeedbackTicket = {
   username?: string;
   display_name?: string | null;
   reply_count?: number;
+  // Admin list only: the requesting admin has unseen non-admin activity on this ticket.
+  is_unread?: boolean;
   attachments?: FeedbackAttachment[];
 };
 

@@ -85,7 +85,10 @@ export type AdminListParams = {
   limit: number;
   offset: number;
   search?: string;
-  status?: string;
+  statuses?: string[]; // deletion/account state; empty = all
+  presences?: string[]; // users only: presence
+  admin?: string[]; // users only: "admin"/"non_admin"
+  types?: string[]; // servers only: "managed"/"self"
   sort?: string;
   dir?: "asc" | "desc";
 };
@@ -100,7 +103,10 @@ function buildAdminListQuery(params: AdminListParams): string {
   sp.set("limit", String(params.limit));
   sp.set("offset", String(params.offset));
   if (params.search) sp.set("search", params.search);
-  if (params.status) sp.set("status", params.status);
+  for (const s of params.statuses ?? []) sp.append("status", s);
+  for (const p of params.presences ?? []) sp.append("presence", p);
+  for (const a of params.admin ?? []) sp.append("admin", a);
+  for (const ty of params.types ?? []) sp.append("type", ty);
   if (params.sort) sp.set("sort", params.sort);
   if (params.dir) sp.set("dir", params.dir);
   return sp.toString();

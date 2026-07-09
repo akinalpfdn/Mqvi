@@ -501,21 +501,67 @@ var adminUserSortColumns = map[string]string{
 	"ban_count":           "ban_count",
 }
 
-// buildAdminUserFilter — produces the WHERE fragment and arg list shared by the
-// data and count queries. status is whitelisted; search applies to username/id/display_name.
-func buildAdminUserFilter(status, search string) (string, []any) {
+// userStateClause OR-combines the whitelisted deletion/account states into a single
+// parenthesized condition. All fragments are constant strings — no caller input.
+func userStateClause(statuses []string) string {
+	var ors []string
+	for _, s := range statuses {
+		switch s {
+		case "active":
+			ors = append(ors, "(u.is_platform_banned = 0 AND u.deleted_at IS NULL)")
+		case "banned":
+			ors = append(ors, "u.is_platform_banned = 1")
+		case "soft_deleted":
+			ors = append(ors, "(u.deleted_at IS NOT NULL AND u.is_hard_deleted = 0)")
+		case "tombstone":
+			ors = append(ors, "u.is_hard_deleted = 1")
+		}
+	}
+	if len(ors) == 0 {
+		return ""
+	}
+	return "(" + strings.Join(ors, " OR ") + ")"
+}
+
+// userAdminClause filters on the platform-admin flag. Both sides or neither selected
+// means "no filter".
+func userAdminClause(admin []string) string {
+	wantAdmin, wantNon := false, false
+	for _, a := range admin {
+		switch a {
+		case "admin":
+			wantAdmin = true
+		case "non_admin":
+			wantNon = true
+		}
+	}
+	if wantAdmin == wantNon {
+		return ""
+	}
+	if wantAdmin {
+		return "u.is_platform_admin = 1"
+	}
+	return "u.is_platform_admin = 0"
+}
+
+// buildAdminUserFilter — produces the WHERE fragment and arg list shared by the data
+// and count queries. All filter values are whitelisted by the handler; search applies
+// to username/id/display_name. Filters combine with AND across dimensions, OR within.
+func buildAdminUserFilter(statuses, presences, admin []string, search string) (string, []any) {
 	var clauses []string
 	var args []any
 
-	switch status {
-	case "active":
-		clauses = append(clauses, "u.is_platform_banned = 0 AND u.deleted_at IS NULL")
-	case "banned":
-		clauses = append(clauses, "u.is_platform_banned = 1")
-	case "soft_deleted":
-		clauses = append(clauses, "u.deleted_at IS NOT NULL AND u.is_hard_deleted = 0")
-	case "tombstone":
-		clauses = append(clauses, "u.is_hard_deleted = 1")
+	if c := userStateClause(statuses); c != "" {
+		clauses = append(clauses, c)
+	}
+	if len(presences) > 0 {
+		clauses = append(clauses, "u.status IN ("+sqlPlaceholders(len(presences))+")")
+		for _, p := range presences {
+			args = append(args, p)
+		}
+	}
+	if c := userAdminClause(admin); c != "" {
+		clauses = append(clauses, c)
 	}
 
 	if s := strings.TrimSpace(search); s != "" {
@@ -533,7 +579,7 @@ func buildAdminUserFilter(status, search string) (string, []any) {
 
 // ListAdminUsersPaged — see UserRepository.ListAdminUsersPaged.
 func (r *sqliteUserRepo) ListAdminUsersPaged(ctx context.Context, params models.AdminListPageParams, defaultQuotaBytes int64, activeVoiceUserIDs []string) (models.AdminUserListPage, error) {
-	whereSQL, whereArgs := buildAdminUserFilter(params.Status, params.Search)
+	whereSQL, whereArgs := buildAdminUserFilter(params.Statuses, params.Presences, params.Admin, params.Search)
 
 	sortExpr, ok := adminUserSortColumns[params.Sort]
 	if !ok {

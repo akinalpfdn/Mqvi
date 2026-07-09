@@ -59,11 +59,20 @@ export async function markMyFeedbackSeen() {
 // ─── Admin Endpoints ───
 
 export async function adminListFeedbackTickets(
-  params: { status?: string; type?: string; limit?: number; offset?: number } = {}
+  params: {
+    statuses?: string[];
+    types?: string[];
+    sort?: string;
+    dir?: "asc" | "desc";
+    limit?: number;
+    offset?: number;
+  } = {}
 ) {
   const query = new URLSearchParams();
-  if (params.status) query.set("status", params.status);
-  if (params.type) query.set("type", params.type);
+  for (const s of params.statuses ?? []) query.append("status", s);
+  for (const t of params.types ?? []) query.append("type", t);
+  if (params.sort) query.set("sort", params.sort);
+  if (params.dir) query.set("dir", params.dir);
   query.set("limit", String(params.limit ?? 50));
   query.set("offset", String(params.offset ?? 0));
   return apiClient<{ tickets: FeedbackTicket[]; total: number }>(

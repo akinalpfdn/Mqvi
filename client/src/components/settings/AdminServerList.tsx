@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Pagination from "../shared/Pagination";
+import FilterDropdown from "../shared/FilterDropdown";
 import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -104,8 +105,9 @@ function AdminServerList() {
   // ─── Table state ───
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  type StatusFilter = "all" | "active" | "soft_deleted";
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  // Multi-select filters — combine with AND across dimensions, OR within. Empty = all.
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(getDefaultWidths);
@@ -149,7 +151,8 @@ function AdminServerList() {
         limit: pageSize,
         offset: page * pageSize,
         search: debouncedSearch || undefined,
-        status: statusFilter,
+        statuses: statusFilter,
+        types: typeFilter,
         sort: backendSortKey(sortKey),
         dir: sortDir,
       });
@@ -169,11 +172,11 @@ function AdminServerList() {
     }
     load();
     return () => { cancelled = true; };
-  }, [page, pageSize, debouncedSearch, statusFilter, sortKey, sortDir, refetchTick, addToast, t]);
+  }, [page, pageSize, debouncedSearch, statusFilter, typeFilter, sortKey, sortDir, refetchTick, addToast, t]);
 
   useEffect(() => {
     setPage(0);
-  }, [debouncedSearch, statusFilter, sortKey, sortDir, pageSize]);
+  }, [debouncedSearch, statusFilter, typeFilter, sortKey, sortDir, pageSize]);
 
   // ─── Sort handler ───
   function handleSort(key: SortKey) {
@@ -572,15 +575,24 @@ function AdminServerList() {
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t("platformServerSearchPlaceholder")}
         />
-        <select
-          className="admin-server-status-filter"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-        >
-          <option value="all">{t("platformUserFilterAll")}</option>
-          <option value="active">{t("platformUserFilterActive")}</option>
-          <option value="soft_deleted">{t("platformUserFilterSoftDeleted")}</option>
-        </select>
+        <FilterDropdown
+          label={t("platformFilterState")}
+          options={[
+            { value: "active", label: t("platformUserFilterActive") },
+            { value: "soft_deleted", label: t("platformUserFilterSoftDeleted") },
+          ]}
+          selected={statusFilter}
+          onChange={setStatusFilter}
+        />
+        <FilterDropdown
+          label={t("platformFilterType")}
+          options={[
+            { value: "managed", label: t("platformServerTypeManaged") },
+            { value: "self", label: t("platformServerTypeSelf") },
+          ]}
+          selected={typeFilter}
+          onChange={setTypeFilter}
+        />
       </div>
 
       {/* ── Table ── */}

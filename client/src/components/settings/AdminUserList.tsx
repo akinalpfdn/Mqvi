@@ -12,6 +12,7 @@ import { useContextMenu } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 import ContextMenu from "../shared/ContextMenu";
 import Pagination from "../shared/Pagination";
+import FilterDropdown from "../shared/FilterDropdown";
 import PlatformBanDialog from "./PlatformBanDialog";
 import PlatformActionDialog from "./PlatformActionDialog";
 import BadgeAssignModal from "../members/BadgeAssignModal";
@@ -114,10 +115,10 @@ function AdminUserList() {
   // ─── Table state ───
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  // Deletion-state filter — admin needs to triage banned/soft-deleted/tombstone
-  // separately, not just one giant list. Default "all" preserves prior behaviour.
-  type StatusFilter = "all" | "active" | "banned" | "soft_deleted" | "tombstone";
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  // Multi-select filters — combine with AND across dimensions, OR within. Empty = all.
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [presenceFilter, setPresenceFilter] = useState<string[]>([]);
+  const [adminFilter, setAdminFilter] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(getDefaultWidths);
@@ -149,7 +150,9 @@ function AdminUserList() {
         limit: pageSize,
         offset: page * pageSize,
         search: debouncedSearch || undefined,
-        status: statusFilter,
+        statuses: statusFilter,
+        presences: presenceFilter,
+        admin: adminFilter,
         sort: sortKey,
         dir: sortDir,
       });
@@ -171,13 +174,13 @@ function AdminUserList() {
     }
     load();
     return () => { cancelled = true; };
-  }, [page, pageSize, debouncedSearch, statusFilter, sortKey, sortDir, refetchTick, addToast, t]);
+  }, [page, pageSize, debouncedSearch, statusFilter, presenceFilter, adminFilter, sortKey, sortDir, refetchTick, addToast, t]);
 
   // Reset to page 0 whenever the underlying filter/sort/page-size changes —
   // staying on page N after a filter narrows results would yield an empty page.
   useEffect(() => {
     setPage(0);
-  }, [debouncedSearch, statusFilter, sortKey, sortDir, pageSize]);
+  }, [debouncedSearch, statusFilter, presenceFilter, adminFilter, sortKey, sortDir, pageSize]);
 
   // ─── Sort handler ───
   function handleSort(key: SortKey) {
@@ -629,17 +632,37 @@ function AdminUserList() {
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t("platformUserSearchPlaceholder")}
         />
-        <select
-          className="admin-user-status-filter"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-        >
-          <option value="all">{t("platformUserFilterAll")}</option>
-          <option value="active">{t("platformUserFilterActive")}</option>
-          <option value="banned">{t("platformUserFilterBanned")}</option>
-          <option value="soft_deleted">{t("platformUserFilterSoftDeleted")}</option>
-          <option value="tombstone">{t("platformUserFilterTombstone")}</option>
-        </select>
+        <FilterDropdown
+          label={t("platformFilterState")}
+          options={[
+            { value: "active", label: t("platformUserFilterActive") },
+            { value: "banned", label: t("platformUserFilterBanned") },
+            { value: "soft_deleted", label: t("platformUserFilterSoftDeleted") },
+            { value: "tombstone", label: t("platformUserFilterTombstone") },
+          ]}
+          selected={statusFilter}
+          onChange={setStatusFilter}
+        />
+        <FilterDropdown
+          label={t("platformFilterPresence")}
+          options={[
+            { value: "online", label: t("platformUserStatusOnline") },
+            { value: "idle", label: t("platformUserStatusIdle") },
+            { value: "dnd", label: t("platformUserStatusDND") },
+            { value: "offline", label: t("platformUserStatusOffline") },
+          ]}
+          selected={presenceFilter}
+          onChange={setPresenceFilter}
+        />
+        <FilterDropdown
+          label={t("platformFilterAdmin")}
+          options={[
+            { value: "admin", label: t("platformFilterAdminYes") },
+            { value: "non_admin", label: t("platformFilterAdminNo") },
+          ]}
+          selected={adminFilter}
+          onChange={setAdminFilter}
+        />
       </div>
 
       {/* ── Table ── */}

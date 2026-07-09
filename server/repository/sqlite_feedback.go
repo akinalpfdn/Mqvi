@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/database"
@@ -76,37 +77,110 @@ func (r *sqliteFeedbackRepo) ListByUser(ctx context.Context, userID string, limi
 	return r.scanTickets(ctx, query, total, userID, limit, offset)
 }
 
-func (r *sqliteFeedbackRepo) ListAll(ctx context.Context, status, ticketType string, limit, offset int) ([]models.FeedbackTicketWithUser, int, error) {
-	where := "WHERE 1=1"
-	args := []any{}
+// feedbackSortColumns whitelists admin-list sort keys → SQL expressions. A key
+// absent from this map falls back to created_at, so no caller string ever reaches
+// ORDER BY directly.
+var feedbackSortColumns = map[string]string{
+	"created_at":  "t.created_at",
+	"updated_at":  "t.updated_at",
+	"status":      "t.status",
+	"type":        "t.type",
+	"subject":     "t.subject COLLATE NOCASE",
+	"username":    "u.username COLLATE NOCASE",
+	"reply_count": "reply_count",
+	"is_unread":   "is_unread",
+}
 
-	if status != "" {
-		where += " AND t.status = ?"
-		args = append(args, status)
+func (r *sqliteFeedbackRepo) ListAllForAdmin(ctx context.Context, p FeedbackListParams) ([]models.FeedbackTicketWithUser, int, error) {
+	where := "WHERE 1=1"
+	filterArgs := []any{}
+
+	if len(p.Statuses) > 0 {
+		where += " AND t.status IN (" + sqlPlaceholders(len(p.Statuses)) + ")"
+		for _, s := range p.Statuses {
+			filterArgs = append(filterArgs, s)
+		}
 	}
-	if ticketType != "" {
-		where += " AND t.type = ?"
-		args = append(args, ticketType)
+	if len(p.Types) > 0 {
+		where += " AND t.type IN (" + sqlPlaceholders(len(p.Types)) + ")"
+		for _, ty := range p.Types {
+			filterArgs = append(filterArgs, ty)
+		}
 	}
 
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM feedback_tickets t %s`, where)
 	var total int
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, countQuery, filterArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count feedback: %w", err)
 	}
 
+	sortCol, ok := feedbackSortColumns[p.SortKey]
+	if !ok {
+		sortCol = "t.created_at"
+	}
+	dir := "DESC"
+	if p.SortDir == "asc" {
+		dir = "ASC"
+	}
+
+	// is_unread: latest non-admin activity (ticket creation or a user reply) newer
+	// than this admin's last_seen_at for the ticket. No read row => always unread.
 	query := fmt.Sprintf(`
 		SELECT t.id, t.user_id, t.type, t.subject, t.content, t.status, t.created_at, t.updated_at,
 			u.username, u.display_name,
-			(SELECT COUNT(*) FROM feedback_replies WHERE ticket_id = t.id) AS reply_count
+			(SELECT COUNT(*) FROM feedback_replies WHERE ticket_id = t.id) AS reply_count,
+			CASE WHEN MAX(
+				t.created_at,
+				COALESCE((SELECT MAX(fr.created_at) FROM feedback_replies fr
+					WHERE fr.ticket_id = t.id AND fr.is_admin = 0), '')
+			) > COALESCE(ar.last_seen_at, '') THEN 1 ELSE 0 END AS is_unread
 		FROM feedback_tickets t
 		JOIN users u ON u.id = t.user_id
+		LEFT JOIN feedback_ticket_admin_reads ar ON ar.ticket_id = t.id AND ar.admin_id = ?
 		%s
-		ORDER BY t.created_at DESC
-		LIMIT ? OFFSET ?`, where)
+		ORDER BY %s %s, t.created_at DESC
+		LIMIT ? OFFSET ?`, where, sortCol, dir)
 
-	args = append(args, limit, offset)
-	return r.scanTickets(ctx, query, total, args...)
+	args := make([]any, 0, len(filterArgs)+3)
+	args = append(args, p.AdminID)
+	args = append(args, filterArgs...)
+	args = append(args, p.Limit, p.Offset)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list feedback: %w", err)
+	}
+	defer rows.Close()
+
+	var tickets []models.FeedbackTicketWithUser
+	for rows.Next() {
+		var t models.FeedbackTicketWithUser
+		var displayName sql.NullString
+		if scanErr := rows.Scan(
+			&t.ID, &t.UserID, &t.Type, &t.Subject, &t.Content,
+			&t.Status, &t.CreatedAt, &t.UpdatedAt,
+			&t.Username, &displayName, &t.ReplyCount, &t.IsUnread,
+		); scanErr != nil {
+			return nil, 0, fmt.Errorf("failed to scan feedback ticket: %w", scanErr)
+		}
+		if displayName.Valid {
+			t.DisplayName = &displayName.String
+		}
+		tickets = append(tickets, t)
+	}
+	if rowErr := rows.Err(); rowErr != nil {
+		return nil, 0, fmt.Errorf("error iterating feedback rows: %w", rowErr)
+	}
+	return tickets, total, nil
+}
+
+// sqlPlaceholders returns "?,?,...,?" with n placeholders.
+func sqlPlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	s := strings.Repeat("?,", n)
+	return s[:len(s)-1]
 }
 
 func (r *sqliteFeedbackRepo) scanTickets(ctx context.Context, query string, total int, args ...any) ([]models.FeedbackTicketWithUser, int, error) {
@@ -148,6 +222,19 @@ func (r *sqliteFeedbackRepo) UpdateStatus(ctx context.Context, id string, status
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
 		return fmt.Errorf("feedback ticket not found")
+	}
+	return nil
+}
+
+func (r *sqliteFeedbackRepo) MarkTicketSeen(ctx context.Context, adminID, ticketID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO feedback_ticket_admin_reads (admin_id, ticket_id, last_seen_at)
+		VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		ON CONFLICT(admin_id, ticket_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+		adminID, ticketID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to mark feedback ticket seen: %w", err)
 	}
 	return nil
 }

@@ -28,12 +28,15 @@ type AdminServerListItem struct {
 // Limit/Offset must be normalized by the caller (handler) before reaching the repo.
 // Sort/Dir are validated against per-list whitelists in the repository to block injection.
 type AdminListPageParams struct {
-	Limit  int
-	Offset int
-	Search string
-	Status string // "all" | "active" | "banned" | "soft_deleted" | "tombstone"
-	Sort   string
-	Dir    string // "asc" | "desc"
+	Limit     int
+	Offset    int
+	Search    string
+	Statuses  []string // deletion/account state; OR-combined; empty means all
+	Presences []string // users only: presence (online/idle/dnd/offline); OR-combined; empty means all
+	Admin     []string // users only: "admin"/"non_admin"; empty or both means all
+	Types     []string // servers only: "managed"/"self"; empty or both means all
+	Sort      string
+	Dir       string // "asc" | "desc"
 }
 
 // AdminUserListPage — paged result for /api/admin/users.

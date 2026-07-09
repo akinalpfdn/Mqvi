@@ -245,13 +245,21 @@ func (h *FeedbackHandler) DeleteTicket(w http.ResponseWriter, r *http.Request) {
 
 // ─── Admin Endpoints ───
 
-// AdminListTickets -- GET /api/admin/feedback?status=open&type=bug&limit=50&offset=0
+// AdminListTickets -- GET /api/admin/feedback?status=open&status=closed&type=bug&sort=updated_at&dir=desc
+// status and type are repeatable (or comma-separated) for multi-select filtering.
 func (h *FeedbackHandler) AdminListTickets(w http.ResponseWriter, r *http.Request) {
-	status := r.URL.Query().Get("status")
-	ticketType := r.URL.Query().Get("type")
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "admin not found in context")
+		return
+	}
+	statuses := parseMultiQuery(r, "status")
+	types := parseMultiQuery(r, "type")
+	sortKey := r.URL.Query().Get("sort")
+	sortDir := r.URL.Query().Get("dir")
 	limit, offset := parsePagination(r)
 
-	tickets, total, err := h.service.ListAll(r.Context(), status, ticketType, limit, offset)
+	tickets, total, err := h.service.ListAllForAdmin(r.Context(), statuses, types, sortKey, sortDir, admin.ID, limit, offset)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -268,9 +276,15 @@ func (h *FeedbackHandler) AdminListTickets(w http.ResponseWriter, r *http.Reques
 
 // AdminGetTicket -- GET /api/admin/feedback/{id}
 func (h *FeedbackHandler) AdminGetTicket(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "admin not found in context")
+		return
+	}
 	id := r.PathValue("id")
 
-	ticket, replies, err := h.service.GetTicketByID(r.Context(), id, "", true)
+	// Passing the admin ID (isAdmin=true) clears this ticket's per-admin unread dot.
+	ticket, replies, err := h.service.GetTicketByID(r.Context(), id, admin.ID, true)
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -396,6 +410,20 @@ func (h *FeedbackHandler) signFeedbackAttachments(atts []models.FeedbackAttachme
 	for i := range atts {
 		atts[i].FileURL = h.urlSigner.SignURL(atts[i].FileURL)
 	}
+}
+
+// parseMultiQuery collects a repeatable query param, also splitting comma-separated
+// values (?status=open&status=closed or ?status=open,closed) into trimmed tokens.
+func parseMultiQuery(r *http.Request, key string) []string {
+	var out []string
+	for _, raw := range r.URL.Query()[key] {
+		for _, part := range strings.Split(raw, ",") {
+			if v := strings.TrimSpace(part); v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }
 
 func parsePagination(r *http.Request) (limit, offset int) {

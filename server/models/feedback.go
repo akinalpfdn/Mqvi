@@ -41,6 +41,9 @@ type FeedbackTicketWithUser struct {
 	Username    string  `json:"username"`
 	DisplayName *string `json:"display_name,omitempty"`
 	ReplyCount  int     `json:"reply_count"`
+	// IsUnread is populated only for the admin list: true when the requesting
+	// admin has unseen non-admin activity on this ticket.
+	IsUnread bool `json:"is_unread"`
 }
 
 type FeedbackReply struct {

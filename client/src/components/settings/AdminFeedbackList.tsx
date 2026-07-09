@@ -1,4 +1,4 @@
-/** AdminFeedbackList — Platform admin feedback ticket management. */
+/** AdminFeedbackList — Platform admin feedback ticket datagrid + detail view. */
 
 import { useEffect, useState, useCallback, useRef } from "react";
 
@@ -14,9 +14,30 @@ import {
 import type { FeedbackTicket, FeedbackReply, FeedbackStatus, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import FilePreview from "../chat/FilePreview";
+import FilterDropdown, { type FilterOption } from "../shared/FilterDropdown";
+import Pagination from "../shared/Pagination";
 
-const STATUS_OPTIONS: Array<FeedbackStatus | ""> = ["", "open", "in_progress", "resolved", "closed"];
-const TYPE_OPTIONS: Array<FeedbackType | ""> = ["", "bug", "suggestion", "question", "other"];
+const STATUS_VALUES: FeedbackStatus[] = ["open", "in_progress", "resolved", "closed"];
+const TYPE_VALUES: FeedbackType[] = ["bug", "suggestion", "question", "other"];
+
+type SortKey = "type" | "subject" | "username" | "status" | "reply_count" | "created_at" | "updated_at";
+
+type Column = { key: SortKey; labelKey: string; align?: "right" };
+
+const COLUMNS: Column[] = [
+  { key: "type", labelKey: "feedbackColType" },
+  { key: "subject", labelKey: "feedbackColSubject" },
+  { key: "username", labelKey: "feedbackColUser" },
+  { key: "status", labelKey: "feedbackColStatus" },
+  { key: "reply_count", labelKey: "feedbackColReplies", align: "right" },
+  { key: "created_at", labelKey: "feedbackColCreated" },
+  { key: "updated_at", labelKey: "feedbackColUpdated" },
+];
+
+/** SQLite timestamps may lack the "Z" suffix — append it to force UTC parsing. */
+function parseUTC(iso: string): number {
+  return new Date(iso.endsWith("Z") ? iso : iso + "Z").getTime();
+}
 
 function AdminFeedbackList() {
   const { t } = useTranslation("settings");
@@ -25,10 +46,16 @@ function AdminFeedbackList() {
   const [tickets, setTickets] = useState<FeedbackTicket[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<FeedbackStatus | "">("");
-  const [typeFilter, setTypeFilter] = useState<FeedbackType | "">("");
 
-  // Detail view
+  // ─── Filters / sort / paging ───
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [sortKey, setSortKey] = useState<SortKey>("updated_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+
+  // ─── Detail view ───
   const [activeTicket, setActiveTicket] = useState<FeedbackTicket | null>(null);
   const [replies, setReplies] = useState<FeedbackReply[]>([]);
   const [replyContent, setReplyContent] = useState("");
@@ -39,8 +66,12 @@ function AdminFeedbackList() {
   const fetchTickets = useCallback(async () => {
     setIsLoading(true);
     const res = await adminListFeedbackTickets({
-      status: statusFilter || undefined,
-      type: typeFilter || undefined,
+      statuses: statusFilter,
+      types: typeFilter,
+      sort: sortKey,
+      dir: sortDir,
+      limit: pageSize,
+      offset: page * pageSize,
     });
     if (res.success && res.data) {
       setTickets(res.data.tickets ?? []);
@@ -49,23 +80,39 @@ function AdminFeedbackList() {
       addToast("error", res.error ?? t("feedbackLoadError"));
     }
     setIsLoading(false);
-  }, [statusFilter, typeFilter, addToast, t]);
+  }, [statusFilter, typeFilter, sortKey, sortDir, page, pageSize, addToast, t]);
 
   useEffect(() => {
     fetchTickets();
   }, [fetchTickets]);
 
-  // Clear the admin "new feedback" badge once this panel is viewed.
+  // Any filter/sort/page-size change resets to the first page.
+  useEffect(() => {
+    setPage(0);
+  }, [statusFilter, typeFilter, sortKey, sortDir, pageSize]);
+
+  // Clear the admin "new feedback" nav dot once this panel is viewed.
   const clearFeedbackBadge = useSettingsBadgeStore((s) => s.clearFeedback);
   useEffect(() => {
     clearFeedbackBadge();
   }, [clearFeedbackBadge]);
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
 
   const openTicket = async (ticketId: string) => {
     const res = await adminGetFeedbackTicket(ticketId);
     if (res.success && res.data) {
       setActiveTicket(res.data.ticket);
       setReplies(res.data.replies ?? []);
+      // The server marks this ticket seen; reflect it immediately in the list.
+      setTickets((prev) => prev.map((tk) => (tk.id === ticketId ? { ...tk, is_unread: false } : tk)));
     } else {
       addToast("error", t("feedbackLoadError"));
     }
@@ -89,7 +136,7 @@ function AdminFeedbackList() {
     if (!activeTicket) return;
     const res = await adminUpdateFeedbackStatus(activeTicket.id, newStatus);
     if (res.success) {
-      setActiveTicket((prev) => prev ? { ...prev, status: newStatus as FeedbackStatus } : null);
+      setActiveTicket((prev) => (prev ? { ...prev, status: newStatus as FeedbackStatus } : null));
       addToast("success", t("adminFeedbackStatusUpdated"));
       fetchTickets();
     } else {
@@ -102,7 +149,83 @@ function AdminFeedbackList() {
     setReplies([]);
     setReplyContent("");
     setReplyFiles([]);
+    // Resync so the just-opened ticket's unread dot clears from the grid.
+    fetchTickets();
   };
+
+  // ─── Date helpers ───
+  function formatDate(iso: string) {
+    try {
+      return new Date(parseUTC(iso)).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return iso;
+    }
+  }
+
+  function formatDateTime(iso: string) {
+    try {
+      return new Date(parseUTC(iso)).toLocaleString();
+    } catch {
+      return iso;
+    }
+  }
+
+  function formatRelative(iso: string) {
+    try {
+      const diff = Date.now() - parseUTC(iso);
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) return t("feedbackJustNow");
+      if (mins < 60) return `${mins}m`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours}h`;
+      const days = Math.floor(hours / 24);
+      if (days < 30) return `${days}d`;
+      return formatDate(iso);
+    } catch {
+      return iso;
+    }
+  }
+
+  // ─── Filter options ───
+  const statusOptions: FilterOption[] = STATUS_VALUES.map((s) => ({ value: s, label: t(`feedbackStatus_${s}`) }));
+  const typeOptions: FilterOption[] = TYPE_VALUES.map((tp) => ({ value: tp, label: t(`feedbackType_${tp}`) }));
+
+  function renderCell(ticket: FeedbackTicket, key: SortKey) {
+    switch (key) {
+      case "type":
+        return (
+          <span className={`feedback-type-badge feedback-type-${ticket.type}`}>
+            {t(`feedbackType_${ticket.type}`)}
+          </span>
+        );
+      case "subject":
+        return <span className="feedback-cell-subject" title={ticket.subject}>{ticket.subject}</span>;
+      case "username":
+        return (
+          <span className="feedback-cell-user" title={ticket.display_name ?? undefined}>
+            {ticket.username}
+          </span>
+        );
+      case "status":
+        return (
+          <span className={`feedback-status-badge feedback-status-${ticket.status}`}>
+            {t(`feedbackStatus_${ticket.status}`)}
+          </span>
+        );
+      case "reply_count":
+        return ticket.reply_count ?? 0;
+      case "created_at":
+        return <span title={formatDateTime(ticket.created_at)}>{formatDate(ticket.created_at)}</span>;
+      case "updated_at":
+        return <span title={formatDateTime(ticket.updated_at)}>{formatRelative(ticket.updated_at)}</span>;
+      default:
+        return null;
+    }
+  }
 
   // ─── Detail View ───
   if (activeTicket) {
@@ -124,12 +247,12 @@ function AdminFeedbackList() {
             value={activeTicket.status}
             onChange={(e) => handleStatusChange(e.target.value)}
           >
-            {STATUS_OPTIONS.filter((s) => s !== "").map((s) => (
+            {STATUS_VALUES.map((s) => (
               <option key={s} value={s}>{t(`feedbackStatus_${s}`)}</option>
             ))}
           </select>
           <span className="feedback-ticket-date">
-            {activeTicket.display_name ?? activeTicket.username} — {new Date(activeTicket.created_at).toLocaleString()}
+            {activeTicket.display_name ?? activeTicket.username} — {new Date(parseUTC(activeTicket.created_at)).toLocaleString()}
           </span>
         </div>
 
@@ -165,7 +288,7 @@ function AdminFeedbackList() {
                   {reply.is_admin && <span className="feedback-admin-badge">{t("feedbackAdminBadge")}</span>}
                 </span>
                 <span className="feedback-reply-date">
-                  {new Date(reply.created_at).toLocaleString()}
+                  {new Date(parseUTC(reply.created_at)).toLocaleString()}
                 </span>
               </div>
               <p className="feedback-reply-content">{reply.content}</p>
@@ -233,72 +356,81 @@ function AdminFeedbackList() {
     );
   }
 
-  // ─── List View ───
+  // ─── List View (datagrid) ───
   return (
-    <div className="settings-section">
-      <h2 className="settings-section-title">{t("adminFeedbackTitle")}</h2>
-
-      <div className="admin-report-toolbar">
-        <select
-          className="admin-report-status-filter"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as FeedbackStatus | "")}
-        >
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {s === "" ? t("adminFeedbackAllStatuses") : t(`feedbackStatus_${s}`)}
-            </option>
-          ))}
-        </select>
-        <select
-          className="admin-report-status-filter"
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as FeedbackType | "")}
-        >
-          {TYPE_OPTIONS.map((tp) => (
-            <option key={tp} value={tp}>
-              {tp === "" ? t("adminFeedbackAllTypes") : t(`feedbackType_${tp}`)}
-            </option>
-          ))}
-        </select>
-        <span className="admin-report-count">{total}</span>
+    <div className="admin-feedback-list">
+      <div className="admin-feedback-toolbar">
+        <FilterDropdown
+          label={t("feedbackFilterStatus")}
+          options={statusOptions}
+          selected={statusFilter}
+          onChange={setStatusFilter}
+        />
+        <FilterDropdown
+          label={t("feedbackFilterType")}
+          options={typeOptions}
+          selected={typeFilter}
+          onChange={setTypeFilter}
+        />
+        <span className="admin-feedback-count">{total}</span>
       </div>
 
-      {isLoading && tickets.length === 0 && (
-        <p className="settings-empty">{t("feedbackLoading")}</p>
-      )}
-      {!isLoading && tickets.length === 0 && (
-        <p className="settings-empty">{t("adminFeedbackEmpty")}</p>
+      {tickets.length === 0 ? (
+        <p className="no-channel">
+          {isLoading ? t("feedbackLoading") : t("adminFeedbackEmpty")}
+        </p>
+      ) : (
+        <div className={`admin-feedback-table-wrap${isLoading ? " is-loading" : ""}`}>
+          <table className="admin-feedback-table">
+            <thead>
+              <tr>
+                <th className="feedback-th-dot" aria-hidden="true" />
+                {COLUMNS.map((col) => (
+                  <th key={col.key} className="sortable" onClick={() => handleSort(col.key)}>
+                    <div
+                      className="feedback-th-content"
+                      style={{ justifyContent: col.align === "right" ? "flex-end" : "flex-start" }}
+                    >
+                      <span>{t(col.labelKey)}</span>
+                      {sortKey === col.key && (
+                        <span className="feedback-sort-icon">{sortDir === "asc" ? "▲" : "▼"}</span>
+                      )}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tickets.map((ticket) => (
+                <tr
+                  key={ticket.id}
+                  className={`feedback-grid-row${ticket.is_unread ? " unread" : ""}`}
+                  onClick={() => openTicket(ticket.id)}
+                >
+                  <td className="feedback-td-dot">
+                    {ticket.is_unread && (
+                      <span className="feedback-unread-dot" title={t("feedbackUnreadTitle")} />
+                    )}
+                  </td>
+                  {COLUMNS.map((col) => (
+                    <td key={col.key} style={{ textAlign: col.align ?? "left" }}>
+                      {renderCell(ticket, col.key)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
-      <div className="feedback-list">
-        {tickets.map((ticket) => (
-          <button
-            key={ticket.id}
-            className="feedback-ticket-row"
-            onClick={() => openTicket(ticket.id)}
-          >
-            <span className={`feedback-type-badge feedback-type-${ticket.type}`}>
-              {t(`feedbackType_${ticket.type}`)}
-            </span>
-            <span className="feedback-ticket-subject">{ticket.subject}</span>
-            <span className="feedback-ticket-user" title={ticket.display_name ?? undefined}>
-              {ticket.username}
-            </span>
-            <span className={`feedback-status-badge feedback-status-${ticket.status}`}>
-              {t(`feedbackStatus_${ticket.status}`)}
-            </span>
-            {(ticket.reply_count ?? 0) > 0 && (
-              <span className="feedback-reply-count">
-                {ticket.reply_count} {t("feedbackReplies")}
-              </span>
-            )}
-            <span className="feedback-ticket-date">
-              {new Date(ticket.created_at).toLocaleDateString()}
-            </span>
-          </button>
-        ))}
-      </div>
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+      />
     </div>
   );
 }
