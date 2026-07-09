@@ -12,7 +12,7 @@ type Server struct {
 	Name               string    `json:"name"`
 	IconURL            *string   `json:"icon_url"`
 	OwnerID            string    `json:"owner_id"`
-	InviteRequired     bool      `json:"invite_required"`
+	IsPublic           bool      `json:"is_public"` // listed in the public servers directory (upcoming); joinable without an invite
 	E2EEEnabled        bool      `json:"e2ee_enabled"`
 	ApprovalRequired   bool      `json:"approval_required"` // joins via invite require approval by a PermApproveMembers holder
 	LiveKitInstanceID  *string   `json:"livekit_instance_id,omitempty"` // nil = no voice
@@ -87,7 +87,7 @@ func (r *CreateServerRequest) Validate() error {
 // UpdateServerRequest — nil fields are not updated (partial update).
 type UpdateServerRequest struct {
 	Name              *string `json:"name"`
-	InviteRequired    *bool   `json:"invite_required"`
+	IsPublic          *bool   `json:"is_public"`
 	E2EEEnabled       *bool   `json:"e2ee_enabled"`
 	ApprovalRequired  *bool   `json:"approval_required"`
 	AFKTimeoutMinutes *int    `json:"afk_timeout_minutes,omitempty"`

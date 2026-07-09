@@ -710,7 +710,7 @@ export type Server = {
   name: string;
   icon_url: string | null;
   owner_id: string;
-  invite_required: boolean;
+  is_public: boolean;
   e2ee_enabled: boolean;
   approval_required: boolean;
   livekit_instance_id: string | null;

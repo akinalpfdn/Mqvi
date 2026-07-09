@@ -208,7 +208,7 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 	server := &models.Server{
 		Name:              req.Name,
 		OwnerID:           ownerID,
-		InviteRequired:    false,
+		IsPublic:          false,
 		LiveKitInstanceID: livekitInstanceID,
 	}
 
@@ -367,8 +367,8 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 	if req.Name != nil {
 		server.Name = *req.Name
 	}
-	if req.InviteRequired != nil {
-		server.InviteRequired = *req.InviteRequired
+	if req.IsPublic != nil {
+		server.IsPublic = *req.IsPublic
 	}
 	if req.E2EEEnabled != nil {
 		server.E2EEEnabled = *req.E2EEEnabled

@@ -26,13 +26,13 @@ func NewSQLiteServerRepo(db database.TxQuerier) ServerRepository {
 
 func (r *sqliteServerRepo) Create(ctx context.Context, server *models.Server) error {
 	query := `
-		INSERT INTO servers (id, name, icon_url, owner_id, invite_required, e2ee_enabled, approval_required, livekit_instance_id)
+		INSERT INTO servers (id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id)
 		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
 		server.Name, server.IconURL, server.OwnerID,
-		server.InviteRequired, server.E2EEEnabled, server.ApprovalRequired, server.LiveKitInstanceID,
+		server.IsPublic, server.E2EEEnabled, server.ApprovalRequired, server.LiveKitInstanceID,
 	).Scan(&server.ID, &server.CreatedAt)
 
 	if err != nil {
@@ -44,14 +44,14 @@ func (r *sqliteServerRepo) Create(ctx context.Context, server *models.Server) er
 
 func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*models.Server, error) {
 	query := `
-		SELECT id, name, icon_url, owner_id, invite_required, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
+		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
 			deleted_at, deleted_by, deleted_by_admin, created_at
 		FROM servers WHERE id = ?`
 
 	s := &models.Server{}
 	err := r.db.QueryRowContext(ctx, query, serverID).Scan(
 		&s.ID, &s.Name, &s.IconURL, &s.OwnerID,
-		&s.InviteRequired, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
+		&s.IsPublic, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
 		&s.DeletedAt, &s.DeletedBy, &s.DeletedByAdmin,
 		&s.CreatedAt,
 	)
@@ -68,11 +68,11 @@ func (r *sqliteServerRepo) GetByID(ctx context.Context, serverID string) (*model
 
 func (r *sqliteServerRepo) Update(ctx context.Context, server *models.Server) error {
 	query := `
-		UPDATE servers SET name = ?, icon_url = ?, invite_required = ?, e2ee_enabled = ?, approval_required = ?, livekit_instance_id = ?, afk_timeout_minutes = ?
+		UPDATE servers SET name = ?, icon_url = ?, is_public = ?, e2ee_enabled = ?, approval_required = ?, livekit_instance_id = ?, afk_timeout_minutes = ?
 		WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query,
-		server.Name, server.IconURL, server.InviteRequired,
+		server.Name, server.IconURL, server.IsPublic,
 		server.E2EEEnabled, server.ApprovalRequired, server.LiveKitInstanceID, server.AFKTimeoutMinutes, server.ID,
 	)
 	if err != nil {
@@ -109,14 +109,14 @@ func (r *sqliteServerRepo) Delete(ctx context.Context, serverID string) error {
 
 func (r *sqliteServerRepo) GetActiveByID(ctx context.Context, serverID string) (*models.Server, error) {
 	query := `
-		SELECT id, name, icon_url, owner_id, invite_required, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
+		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
 			deleted_at, deleted_by, deleted_by_admin, created_at
 		FROM servers WHERE id = ? AND deleted_at IS NULL`
 
 	s := &models.Server{}
 	err := r.db.QueryRowContext(ctx, query, serverID).Scan(
 		&s.ID, &s.Name, &s.IconURL, &s.OwnerID,
-		&s.InviteRequired, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
+		&s.IsPublic, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
 		&s.DeletedAt, &s.DeletedBy, &s.DeletedByAdmin,
 		&s.CreatedAt,
 	)
@@ -173,7 +173,7 @@ func (r *sqliteServerRepo) Restore(ctx context.Context, serverID string) error {
 
 func (r *sqliteServerRepo) ListDeletedByOwner(ctx context.Context, ownerID string) ([]models.Server, error) {
 	query := `
-		SELECT id, name, icon_url, owner_id, invite_required, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
+		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
 			deleted_at, deleted_by, deleted_by_admin, created_at
 		FROM servers WHERE owner_id = ? AND deleted_at IS NOT NULL
 		ORDER BY deleted_at DESC`
@@ -188,7 +188,7 @@ func (r *sqliteServerRepo) ListDeletedByOwner(ctx context.Context, ownerID strin
 		var s models.Server
 		if err := rows.Scan(
 			&s.ID, &s.Name, &s.IconURL, &s.OwnerID,
-			&s.InviteRequired, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
+			&s.IsPublic, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
 			&s.DeletedAt, &s.DeletedBy, &s.DeletedByAdmin,
 			&s.CreatedAt,
 		); err != nil {
@@ -221,7 +221,7 @@ func (r *sqliteServerRepo) ListActiveServerIDsByOwner(ctx context.Context, owner
 
 func (r *sqliteServerRepo) ListSoftDeletedExpired(ctx context.Context, ttlDays int) ([]models.Server, error) {
 	query := `
-		SELECT id, name, icon_url, owner_id, invite_required, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
+		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
 			deleted_at, deleted_by, deleted_by_admin, created_at
 		FROM servers
 		WHERE deleted_at IS NOT NULL
@@ -238,7 +238,7 @@ func (r *sqliteServerRepo) ListSoftDeletedExpired(ctx context.Context, ttlDays i
 		var s models.Server
 		if err := rows.Scan(
 			&s.ID, &s.Name, &s.IconURL, &s.OwnerID,
-			&s.InviteRequired, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
+			&s.IsPublic, &s.E2EEEnabled, &s.ApprovalRequired, &s.LiveKitInstanceID, &s.AFKTimeoutMinutes,
 			&s.DeletedAt, &s.DeletedBy, &s.DeletedByAdmin,
 			&s.CreatedAt,
 		); err != nil {

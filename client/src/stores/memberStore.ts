@@ -140,11 +140,18 @@ export const useMemberStore = create<MemberState>((set, get) => ({
       const current = state.membersByServer[serverId];
       if (!current) return state;
       if (current.some((m) => m.id === member.id)) return state;
+      // The payload carries the joiner's live status, but online/offline grouping is driven by
+      // onlineUserIds — add them so they don't show offline until the next member refetch.
+      const onlineUserIds = new Set(state.onlineUserIds);
+      if (member.status && member.status !== "offline") {
+        onlineUserIds.add(member.id);
+      }
       return {
         membersByServer: {
           ...state.membersByServer,
           [serverId]: [...current, member],
         },
+        onlineUserIds,
       };
     });
   },

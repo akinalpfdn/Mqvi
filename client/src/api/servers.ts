@@ -48,7 +48,7 @@ export async function updateServer(
   serverId: string,
   data: {
     name?: string;
-    invite_required?: boolean;
+    is_public?: boolean;
     e2ee_enabled?: boolean;
     approval_required?: boolean;
     afk_timeout_minutes?: number;

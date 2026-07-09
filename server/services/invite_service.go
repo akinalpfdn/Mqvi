@@ -29,7 +29,6 @@ type InviteService interface {
 	ReleaseUse(ctx context.Context, code string) error
 	// ValidateAndUse = Validate + Consume in one call.
 	ValidateAndUse(ctx context.Context, code string) (*models.Invite, error)
-	IsInviteRequired(ctx context.Context, serverID string) (bool, error)
 	// GetPreview returns server info for an invite code without requiring auth.
 	// Returns preview even for expired/maxed-out invites so the user can see
 	// the server name/icon (join attempt will fail with a proper error).
@@ -162,14 +161,6 @@ func (s *inviteService) ValidateAndUse(ctx context.Context, code string) (*model
 		return nil, err
 	}
 	return invite, nil
-}
-
-func (s *inviteService) IsInviteRequired(ctx context.Context, serverID string) (bool, error) {
-	server, err := s.serverRepo.GetByID(ctx, serverID)
-	if err != nil {
-		return false, fmt.Errorf("failed to get server: %w", err)
-	}
-	return server.InviteRequired, nil
 }
 
 func (s *inviteService) GetPreview(ctx context.Context, code string) (*models.InvitePreview, error) {
