@@ -41,7 +41,12 @@ type ServerService interface {
 	HardDeleteServer(ctx context.Context, serverID, userID string) error
 	// GetDeletedServers returns soft-deleted servers owned by this user (for restore UI).
 	GetDeletedServers(ctx context.Context, userID string) ([]models.DeletedServerInfo, error)
-	JoinServer(ctx context.Context, userID, inviteCode string) (*models.Server, error)
+	JoinServer(ctx context.Context, userID, inviteCode string) (*JoinResult, error)
+	// Join approval — pending requesters live in a separate table, never in server_members.
+	ApproveRequest(ctx context.Context, serverID, targetUserID string) error
+	RejectRequest(ctx context.Context, serverID, targetUserID string) error
+	ListRequests(ctx context.Context, serverID string) ([]models.ServerJoinRequestWithUser, error)
+	CountRequests(ctx context.Context, serverID string) (int, error)
 	LeaveServer(ctx context.Context, serverID, userID string) error
 	GetLiveKitSettings(ctx context.Context, serverID string) (*LiveKitSettings, error)
 	// ReorderServers updates the user's personal server list order. No WS broadcast.
@@ -76,14 +81,16 @@ type serverService struct {
 	roleRepo      repository.RoleRepository
 	channelRepo   repository.ChannelRepository
 	categoryRepo  repository.CategoryRepository
-	userRepo      repository.UserRepository
-	inviteService InviteService
-	hub           ws.BroadcastAndManage
-	voiceSync     VoiceStateSyncer
-	voiceDisc     VoiceServerDisconnector
-	encryptionKey []byte // AES-256-GCM for LiveKit credentials
-	urlSigner     FileURLSigner
-	fileCleanup   FileCleanupService
+	userRepo        repository.UserRepository
+	banRepo         repository.BanRepository
+	joinRequestRepo repository.JoinRequestRepository
+	inviteService   InviteService
+	hub             ws.BroadcastAndManage
+	voiceSync       VoiceStateSyncer
+	voiceDisc       VoiceServerDisconnector
+	encryptionKey   []byte // AES-256-GCM for LiveKit credentials
+	urlSigner       FileURLSigner
+	fileCleanup     FileCleanupService
 }
 
 func NewServerService(
@@ -94,6 +101,8 @@ func NewServerService(
 	channelRepo repository.ChannelRepository,
 	categoryRepo repository.CategoryRepository,
 	userRepo repository.UserRepository,
+	banRepo repository.BanRepository,
+	joinRequestRepo repository.JoinRequestRepository,
 	inviteService InviteService,
 	hub ws.BroadcastAndManage,
 	voiceSync VoiceStateSyncer,
@@ -103,20 +112,22 @@ func NewServerService(
 	fileCleanup FileCleanupService,
 ) ServerService {
 	return &serverService{
-		db:            db,
-		serverRepo:    serverRepo,
-		livekitRepo:   livekitRepo,
-		roleRepo:      roleRepo,
-		channelRepo:   channelRepo,
-		categoryRepo:  categoryRepo,
-		userRepo:      userRepo,
-		inviteService: inviteService,
-		hub:           hub,
-		voiceSync:     voiceSync,
-		voiceDisc:     voiceDisc,
-		encryptionKey: encryptionKey,
-		urlSigner:     urlSigner,
-		fileCleanup:   fileCleanup,
+		db:              db,
+		serverRepo:      serverRepo,
+		livekitRepo:     livekitRepo,
+		roleRepo:        roleRepo,
+		channelRepo:     channelRepo,
+		categoryRepo:    categoryRepo,
+		userRepo:        userRepo,
+		banRepo:         banRepo,
+		joinRequestRepo: joinRequestRepo,
+		inviteService:   inviteService,
+		hub:             hub,
+		voiceSync:       voiceSync,
+		voiceDisc:       voiceDisc,
+		encryptionKey:   encryptionKey,
+		urlSigner:       urlSigner,
+		fileCleanup:     fileCleanup,
 	}
 }
 
@@ -606,19 +617,36 @@ func (s *serverService) GetDeletedServers(ctx context.Context, userID string) ([
 	return result, nil
 }
 
-// JoinServer joins a server via invite code.
-//
-// The invite use is consumed (Consume) only AFTER validation + a membership check pass,
-// so an existing member (or a soft-deleted-server attempt) never burns a finite invite —
-// and AFTER the atomic guard, so max_uses is still enforced under concurrency (B1). If the
-// membership add fails post-consume, the use is released back (compensation).
-func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode string) (*models.Server, error) {
+// JoinResult is what JoinServer returns: the joined server, or a Pending flag when the
+// server requires approval (a request was created rather than a membership).
+type JoinResult struct {
+	Server  *models.Server `json:"server,omitempty"`
+	Pending bool           `json:"pending"`
+}
+
+// maxPendingRequestsPerServer bounds a server's join-request queue so it can't grow
+// without limit. Generous — admins clear the queue; this is a safety valve, not a gate.
+const maxPendingRequestsPerServer = 1000
+
+// JoinServer handles an invite join. A server-scoped ban is rejected up front, shared by
+// BOTH paths, so a banned user can neither join directly nor slip into the approval queue.
+// If the server requires approval, a pending request is created (invite validated but NOT
+// consumed — the admin is the gate); otherwise the user is promoted immediately, consuming
+// the invite use exactly as before.
+func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode string) (*JoinResult, error) {
 	invite, err := s.inviteService.Validate(ctx, inviteCode)
 	if err != nil {
 		return nil, err
 	}
-
 	serverID := invite.ServerID
+
+	banned, err := s.banRepo.Exists(ctx, serverID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check ban: %w", err)
+	}
+	if banned {
+		return nil, fmt.Errorf("%w: you are banned from this server", pkg.ErrForbidden)
+	}
 
 	isMember, err := s.serverRepo.IsMember(ctx, serverID, userID)
 	if err != nil {
@@ -628,15 +656,59 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		return nil, fmt.Errorf("%w: already a member of this server", pkg.ErrBadRequest)
 	}
 
-	// Consume a use only now that the join will actually proceed (atomic max_uses guard).
-	if err := s.inviteService.Consume(ctx, inviteCode); err != nil {
+	server, err := s.serverRepo.GetActiveByID(ctx, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server: %w", err)
+	}
+
+	// Approval required → create a pending request instead of joining. The invite is NOT
+	// consumed (admin is the gate); a re-request while one is pending is idempotent.
+	if server.ApprovalRequired {
+		count, err := s.joinRequestRepo.CountByServer(ctx, serverID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count join requests: %w", err)
+		}
+		// Only block a NEW requester over the cap — an existing pending request re-requesting
+		// is idempotent and must not be rejected.
+		if count >= maxPendingRequestsPerServer {
+			if exists, _ := s.joinRequestRepo.Exists(ctx, serverID, userID); !exists {
+				return nil, fmt.Errorf("%w: this server's join queue is full, try again later", pkg.ErrBadRequest)
+			}
+		}
+		if err := s.joinRequestRepo.Create(ctx, serverID, userID, inviteCode); err != nil {
+			return nil, err
+		}
+		s.broadcastJoinRequestCount(ctx, serverID)
+		log.Printf("[server] user %s requested to join server %s (approval required)", userID, serverID)
+		return &JoinResult{Pending: true}, nil
+	}
+
+	joined, err := s.promoteToMember(ctx, server, userID, inviteCode, true)
+	if err != nil {
 		return nil, err
+	}
+	return &JoinResult{Server: joined}, nil
+}
+
+// promoteToMember runs the full "become a member" sequence: (optionally) consume the invite,
+// add membership, assign the default role, subscribe the socket, and broadcast join events.
+// consumeInvite is true for direct joins and false for admin approvals (admin is the gate).
+// The invite use is consumed only AFTER the atomic max_uses guard, and released back if the
+// membership add then fails (compensation). Returns the server with a signed icon URL.
+func (s *serverService) promoteToMember(ctx context.Context, server *models.Server, userID, inviteCode string, consumeInvite bool) (*models.Server, error) {
+	serverID := server.ID
+
+	if consumeInvite {
+		if err := s.inviteService.Consume(ctx, inviteCode); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := s.serverRepo.AddMember(ctx, serverID, userID); err != nil {
-		// Give the consumed use back so a transient add failure doesn't permanently burn it.
-		if relErr := s.inviteService.ReleaseUse(ctx, inviteCode); relErr != nil {
-			log.Printf("[server] failed to release invite use after add failure (code=%s): %v", inviteCode, relErr)
+		if consumeInvite {
+			if relErr := s.inviteService.ReleaseUse(ctx, inviteCode); relErr != nil {
+				log.Printf("[server] failed to release invite use after add failure (code=%s): %v", inviteCode, relErr)
+			}
 		}
 		return nil, fmt.Errorf("failed to add member: %w", err)
 	}
@@ -649,11 +721,6 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		if err := s.roleRepo.AssignToUser(ctx, userID, defaultRole.ID, serverID); err != nil {
 			log.Printf("[server] failed to assign default role: %v", err)
 		}
-	}
-
-	server, err := s.serverRepo.GetActiveByID(ctx, serverID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server: %w", err)
 	}
 
 	// Add server to user's WS subscription list
@@ -669,9 +736,7 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		},
 	})
 
-	// Push in-progress voice participants for this server so the newcomer sees
-	// active calls immediately — connect-time voice_states_sync only covered
-	// servers they were already a member of.
+	// Push in-progress voice participants so the newcomer sees active calls immediately.
 	s.voiceSync.SyncServerStatesToUser(userID, serverID)
 
 	// Notify server members: new member joined (full MemberWithRoles for frontend)
@@ -688,9 +753,89 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 		})
 	}
 
-	log.Printf("[server] user %s joined server %s via invite", userID, serverID)
+	log.Printf("[server] user %s became a member of server %s", userID, serverID)
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
 	return server, nil
+}
+
+// ApproveRequest promotes a pending requester to a member (perm-gated at the route).
+// Concurrency-safe: the request delete is the atomic claim — only the caller that actually
+// removes the row promotes the user, so two racing approvers can't double-add or double-broadcast.
+func (s *serverService) ApproveRequest(ctx context.Context, serverID, targetUserID string) error {
+	server, err := s.serverRepo.GetActiveByID(ctx, serverID)
+	if err != nil {
+		return fmt.Errorf("failed to get server: %w", err)
+	}
+
+	claimed, err := s.joinRequestRepo.Delete(ctx, serverID, targetUserID)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return fmt.Errorf("%w: no pending join request", pkg.ErrNotFound)
+	}
+
+	if _, err := s.promoteToMember(ctx, server, targetUserID, "", false); err != nil {
+		// Compensation: we claimed (deleted) the request but couldn't add the member —
+		// restore it so the request isn't silently lost.
+		if reErr := s.joinRequestRepo.Create(ctx, serverID, targetUserID, ""); reErr != nil {
+			log.Printf("[server] approve failed and could not restore request (server=%s user=%s): %v / %v", serverID, targetUserID, err, reErr)
+		}
+		return fmt.Errorf("failed to approve join request: %w", err)
+	}
+
+	s.broadcastJoinRequestCount(ctx, serverID)
+	log.Printf("[server] approved join request: user %s -> server %s", targetUserID, serverID)
+	return nil
+}
+
+// RejectRequest silently removes a pending request (perm-gated at the route).
+func (s *serverService) RejectRequest(ctx context.Context, serverID, targetUserID string) error {
+	deleted, err := s.joinRequestRepo.Delete(ctx, serverID, targetUserID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return fmt.Errorf("%w: no pending join request", pkg.ErrNotFound)
+	}
+	s.broadcastJoinRequestCount(ctx, serverID)
+	log.Printf("[server] rejected join request: user %s x server %s", targetUserID, serverID)
+	return nil
+}
+
+// ListRequests returns pending requests with the requester's profile (signed avatars).
+func (s *serverService) ListRequests(ctx context.Context, serverID string) ([]models.ServerJoinRequestWithUser, error) {
+	reqs, err := s.joinRequestRepo.ListByServer(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range reqs {
+		reqs[i].AvatarURL = s.urlSigner.SignURLPtr(reqs[i].AvatarURL)
+	}
+	return reqs, nil
+}
+
+// CountRequests returns the number of pending requests for a server.
+func (s *serverService) CountRequests(ctx context.Context, serverID string) (int, error) {
+	return s.joinRequestRepo.CountByServer(ctx, serverID)
+}
+
+// broadcastJoinRequestCount pushes the server's current pending-request count to all members;
+// only PermApproveMembers holders render it. Request data stays behind the perm-gated list
+// endpoint, so the count event leaks nothing sensitive.
+func (s *serverService) broadcastJoinRequestCount(ctx context.Context, serverID string) {
+	count, err := s.joinRequestRepo.CountByServer(ctx, serverID)
+	if err != nil {
+		log.Printf("[server] failed to count join requests for broadcast (server=%s): %v", serverID, err)
+		return
+	}
+	s.hub.BroadcastToServer(serverID, ws.Event{
+		Op: ws.OpJoinRequestUpdate,
+		Data: map[string]any{
+			"server_id":     serverID,
+			"pending_count": count,
+		},
+	})
 }
 
 func (s *serverService) LeaveServer(ctx context.Context, serverID, userID string) error {

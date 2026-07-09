@@ -45,6 +45,10 @@ const (
 	OpServerDelete  = "server_delete"
 	OpServerRestore = "server_restore"
 
+	// OpJoinRequestUpdate signals that a server's pending join-request count changed.
+	// Broadcast to all server members; only PermApproveMembers holders render it.
+	OpJoinRequestUpdate = "join_request_update"
+
 	OpMessagePin   = "message_pin"
 	OpMessageUnpin = "message_unpin"
 

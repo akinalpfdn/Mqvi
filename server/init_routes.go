@@ -371,6 +371,12 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/invites", authServerPerm(models.PermManageInvites, h.Invite.Create))
 	mux.Handle("DELETE /api/servers/{serverId}/invites/{code}", authServerPerm(models.PermManageInvites, h.Invite.Delete))
 
+	// Join Requests (approval-required servers) — PermApproveMembers gates view + act
+	mux.Handle("GET /api/servers/{serverId}/requests", authServerPerm(models.PermApproveMembers, h.Server.ListJoinRequests))
+	mux.Handle("GET /api/servers/{serverId}/requests/count", authServerPerm(models.PermApproveMembers, h.Server.CountJoinRequests))
+	mux.Handle("POST /api/servers/{serverId}/requests/{userId}/approve", authServerPerm(models.PermApproveMembers, h.Server.ApproveJoinRequest))
+	mux.Handle("DELETE /api/servers/{serverId}/requests/{userId}", authServerPerm(models.PermApproveMembers, h.Server.RejectJoinRequest))
+
 	// E2EE Group Sessions
 	mux.Handle("POST /api/servers/{serverId}/channels/{channelId}/group-sessions", authServer(h.E2EE.CreateGroupSession))
 	mux.Handle("GET /api/servers/{serverId}/channels/{channelId}/group-sessions", authServer(h.E2EE.GetGroupSessions))
