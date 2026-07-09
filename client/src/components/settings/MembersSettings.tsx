@@ -264,6 +264,7 @@ function MembersSettings() {
                   <span
                     className="member-settings-name"
                     style={{ color: getMemberColor(member) }}
+                    title={member.display_name || member.username}
                   >
                     {member.display_name || member.username}
                   </span>

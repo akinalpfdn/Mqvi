@@ -1675,7 +1675,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .permission-toggle-warn { font-size:13px;color:var(--red);margin-top:2px; }
 
 /* Role settings sidebar */
-.role-list { width:420px;border-right:1px solid var(--b1);flex-shrink:0;overflow-y:auto; }
+.role-list { width:clamp(200px,30%,380px);border-right:1px solid var(--b1);flex-shrink:0;overflow-y:auto; }
 .role-list-item { display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-radius:6px;transition:background .08s; }
 .role-list-item:hover { background:rgba(255,255,255,0.06); }
 .role-list-item.active { background:rgba(255,255,255,0.10); }
@@ -1725,9 +1725,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* ── LiveKit Edit Layout — form (left) + monitoring (right) ── */
 .settings-panel:has(.lk-edit-layout) { max-width:none; }
-.lk-edit-layout { display:flex;height:100%;min-height:0; }
+/* Mid-size window: form + monitoring keep usable widths and the layout scrolls horizontally,
+   so the monitoring column stays reachable instead of being clipped off-screen. */
+.lk-edit-layout { display:flex;height:100%;min-height:0;overflow-x:auto; }
 .lk-edit-form { width:400px;min-width:400px;overflow-y:auto;padding:24px 20px 24px 24px;border-right:1px solid var(--bg3); }
-.lk-edit-monitoring { flex:1;min-width:0;overflow-y:auto;padding:24px; }
+.lk-edit-monitoring { flex:1;min-width:400px;overflow-y:auto;padding:24px; }
 
 /* ── Metrics Panel — LiveKit Prometheus monitoring ── */
 .metrics-section { margin-top:8px; }
@@ -3881,7 +3883,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   .channel-settings-right { padding:16px; }
   .lk-edit-layout { flex-direction:column;height:auto; }
   .lk-edit-form { width:100%;min-width:0;padding:16px;border-right:none;border-bottom:1px solid var(--bg3); }
-  .lk-edit-monitoring { padding:16px; }
+  .lk-edit-monitoring { min-width:0;padding:16px; }
   .metrics-grid { grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px; }
   .metrics-card { padding:10px; }
   .metrics-card-value { font-size:17px; }

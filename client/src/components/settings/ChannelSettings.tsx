@@ -252,7 +252,7 @@ function ChannelSettings() {
                 <span className="channel-settings-ch-icon">
                   {ch.type === "voice" ? "\uD83D\uDD0A" : "#"}
                 </span>
-                <span className="role-list-name">{ch.name}</span>
+                <span className="role-list-name" title={ch.name}>{ch.name}</span>
                 <button
                   className="channel-settings-delete"
                   onClick={(e) => {
@@ -283,7 +283,7 @@ function ChannelSettings() {
                   onClick={() => setSelectedCategory(cat)}
                 >
                   <span className="channel-settings-ch-icon">&#x25BC;</span>
-                  <span className="role-list-name">{cat.name}</span>
+                  <span className="role-list-name" title={cat.name}>{cat.name}</span>
                   <button
                     className="channel-settings-delete"
                     onClick={(e) => {

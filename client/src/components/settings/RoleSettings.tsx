@@ -317,7 +317,7 @@ function RoleSettings() {
                     className="role-list-dot"
                     style={{ backgroundColor: role.color || "#99AAB5" }}
                   />
-                  <span className="role-list-name">{role.name}</span>
+                  <span className="role-list-name" title={role.name}>{role.name}</span>
                 </div>
               </div>
             );
