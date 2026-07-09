@@ -245,6 +245,7 @@ func initRoutes(
 	// Platform Admin — Servers
 	mux.Handle("GET /api/admin/servers", authAdmin(h.Admin.ListServers))
 	mux.Handle("PATCH /api/admin/servers/{serverId}/instance", authAdmin(h.Admin.MigrateServerInstance))
+	mux.Handle("PATCH /api/admin/servers/{serverId}/discovery-flag", authAdmin(h.Admin.SetServerDiscoveryFlag))
 	mux.Handle("DELETE /api/admin/servers/{serverId}", authAdmin(h.Admin.AdminDeleteServer))
 	mux.Handle("POST /api/admin/servers/{serverId}/restore", authAdmin(h.Admin.AdminRestoreServer))
 

@@ -48,9 +48,10 @@ const MaxServerDescriptionLength = 300
 
 // ServerListItem is the minimal data needed for the server icon sidebar.
 type ServerListItem struct {
-	ID      string  `json:"id"`
-	Name    string  `json:"name"`
-	IconURL *string `json:"icon_url"`
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	IconURL  *string `json:"icon_url"`
+	Verified bool    `json:"verified"`
 }
 
 // SoftDeleteTTLDays is the grace period before a soft-deleted server is hard-deleted by the cleanup worker.

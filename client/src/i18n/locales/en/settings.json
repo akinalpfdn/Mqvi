@@ -497,6 +497,11 @@
 
   "platformServerDelete": "Delete Server",
   "platformServerSendDMOwner": "Send DM to Owner",
+  "badgeVerified": "Verified badge",
+  "badgeFeatured": "Featured in discovery",
+  "badgeUnlisted": "Unlist from discovery",
+  "discoveryFlagUpdated": "Server discovery updated",
+  "discoveryFlagError": "Could not update discovery settings",
   "platformServerDeleteTitle": "Delete Server",
   "platformServerDeleteDescription": "Are you sure you want to permanently delete {{serverName}}? This will remove all channels, messages, members, and roles. This action cannot be undone.",
   "platformServerDeleteReasonLabel": "Reason (optional)",

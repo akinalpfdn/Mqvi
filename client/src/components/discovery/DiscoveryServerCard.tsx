@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { resolveAssetUrl } from "../../utils/constants";
 import Avatar from "../shared/Avatar";
-import { VerifiedBadge } from "./DiscoveryBadges";
+import { VerifiedBadge, FeaturedBadge } from "./DiscoveryBadges";
 import type { PublicServerListItem } from "../../api/discovery";
 
 export type JoinStatus = "idle" | "joining" | "pending";
@@ -49,6 +49,7 @@ function DiscoveryServerCard({ item, status, onJoin }: Props) {
         <div className="disc-card-head">
           <span className="disc-card-name">{item.name}</span>
           {item.verified && <VerifiedBadge title={t("verified")} />}
+          {item.featured && <FeaturedBadge title={t("featuredBadge")} />}
         </div>
 
         <p className="disc-card-desc">{item.description || t("noDescription")}</p>

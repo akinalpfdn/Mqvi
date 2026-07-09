@@ -258,6 +258,32 @@ func (h *AdminHandler) MigrateServerInstance(w http.ResponseWriter, r *http.Requ
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "server instance updated"})
 }
 
+// SetServerDiscoveryFlag -- PATCH /api/admin/servers/{serverId}/discovery-flag
+// Body: { "flag": "verified"|"featured"|"discovery_blocked", "value": true }
+func (h *AdminHandler) SetServerDiscoveryFlag(w http.ResponseWriter, r *http.Request) {
+	serverID := r.PathValue("serverId")
+	if serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	var req struct {
+		Flag  string `json:"flag"`
+		Value bool   `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	server, err := h.adminServerService.SetDiscoveryFlag(r.Context(), serverID, req.Flag, req.Value)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	pkg.JSON(w, http.StatusOK, server)
+}
+
 // GetLiveKitInstanceMetrics -- GET /api/admin/livekit-instances/{id}/metrics
 // Fetches live metrics from the instance's Prometheus endpoint.
 func (h *AdminHandler) GetLiveKitInstanceMetrics(w http.ResponseWriter, r *http.Request) {

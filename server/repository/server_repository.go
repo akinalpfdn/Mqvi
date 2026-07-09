@@ -17,6 +17,9 @@ type ServerRepository interface {
 	// GetActiveByID returns the server only if deleted_at IS NULL.
 	GetActiveByID(ctx context.Context, serverID string) (*models.Server, error)
 	Update(ctx context.Context, server *models.Server) error
+	// SetDiscoveryFlag flips a single admin discovery flag (verified/featured/discovery_blocked).
+	// The column is resolved from a whitelist, so `flag` cannot inject SQL.
+	SetDiscoveryFlag(ctx context.Context, serverID, flag string, value bool) error
 	// Delete removes a server. CASCADE handles all related data.
 	Delete(ctx context.Context, serverID string) error
 	// SoftDelete marks the server deleted_at = NOW with deleted_by + deleted_by_admin.

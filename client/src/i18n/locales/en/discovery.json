@@ -18,6 +18,7 @@
   "requestSent": "Your request to join was sent",
   "joinError": "Could not join this server",
   "verified": "Verified",
+  "featuredBadge": "Featured",
   "noDescription": "No description provided.",
   "onlineCount": "{{count}} online",
   "memberCount": "{{count}} members"

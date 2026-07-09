@@ -223,7 +223,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	pushTokenService := services.NewPushTokenService(repos.PushToken)
 
 	adminUserService := services.NewAdminUserService(db, repos.User, repos.Session, repos.Server, hub, voiceService, emailSender, fileCleanupService)
-	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, voiceService, emailSender, fileCleanupService)
+	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, voiceService, emailSender, fileCleanupService, urlSigner)
 	discoveryService := services.NewDiscoveryService(repos.Discovery, hub, urlSigner)
 
 	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)

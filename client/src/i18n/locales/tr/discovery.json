@@ -18,6 +18,7 @@
   "requestSent": "Katılma isteğin gönderildi",
   "joinError": "Bu sunucuya katılınamadı",
   "verified": "Doğrulanmış",
+  "featuredBadge": "Öne Çıkan",
   "noDescription": "Açıklama girilmemiş.",
   "onlineCount": "{{count}} çevrimiçi",
   "memberCount": "{{count}} üye"

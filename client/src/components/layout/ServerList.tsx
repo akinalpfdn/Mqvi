@@ -13,6 +13,7 @@ import { hasPermission, Permissions } from "../../utils/permissions";
 import { resolveAssetUrl } from "../../utils/constants";
 import ContextMenu from "../shared/ContextMenu";
 import ServerVoicePopup from "./ServerVoicePopup";
+import { VerifiedBadge } from "../discovery/DiscoveryBadges";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 
@@ -357,6 +358,7 @@ function ServerList({
                         </span>
                       )}
                       <span className="ch-tree-server-name">{srv.name}</span>
+                      {srv.verified && <VerifiedBadge size={13} />}
                       {!mutedServerIds.has(srv.id) && (() => {
                         const total = getServerUnreadTotal(srv.id);
                         return total > 0 ? (

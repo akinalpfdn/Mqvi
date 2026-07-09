@@ -92,6 +92,37 @@ func (r *sqliteServerRepo) Update(ctx context.Context, server *models.Server) er
 	return nil
 }
 
+// adminDiscoveryFlagColumns whitelists the admin-settable discovery flags → real columns.
+var adminDiscoveryFlagColumns = map[string]string{
+	"verified":          "verified",
+	"featured":          "featured",
+	"discovery_blocked": "discovery_blocked",
+}
+
+func (r *sqliteServerRepo) SetDiscoveryFlag(ctx context.Context, serverID, flag string, value bool) error {
+	col, ok := adminDiscoveryFlagColumns[flag]
+	if !ok {
+		return fmt.Errorf("%w: unknown discovery flag %q", pkg.ErrBadRequest, flag)
+	}
+	v := 0
+	if value {
+		v = 1
+	}
+	result, err := r.db.ExecContext(ctx,
+		fmt.Sprintf("UPDATE servers SET %s = ? WHERE id = ?", col), v, serverID)
+	if err != nil {
+		return fmt.Errorf("failed to set discovery flag: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if affected == 0 {
+		return pkg.ErrNotFound
+	}
+	return nil
+}
+
 func (r *sqliteServerRepo) Delete(ctx context.Context, serverID string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM servers WHERE id = ?`, serverID)
 	if err != nil {
@@ -263,7 +294,7 @@ func (r *sqliteServerRepo) GetUserServers(ctx context.Context, userID string) ([
 	// Sorted by user's custom position, with joined_at as tiebreaker.
 	// Soft-deleted servers excluded — members must not see them.
 	query := `
-		SELECT s.id, s.name, s.icon_url
+		SELECT s.id, s.name, s.icon_url, s.verified
 		FROM servers s
 		INNER JOIN server_members sm ON s.id = sm.server_id
 		WHERE sm.user_id = ? AND s.deleted_at IS NULL
@@ -278,7 +309,7 @@ func (r *sqliteServerRepo) GetUserServers(ctx context.Context, userID string) ([
 	var servers []models.ServerListItem
 	for rows.Next() {
 		var s models.ServerListItem
-		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.Verified); err != nil {
 			return nil, fmt.Errorf("failed to scan server row: %w", err)
 		}
 		servers = append(servers, s)
@@ -582,6 +613,9 @@ func (r *sqliteServerRepo) ListAdminServersPaged(ctx context.Context, params mod
 				COALESCE(s.last_voice_activity, ''),
 				COALESCE(` + voiceOverrideExpr + `, '')
 			) AS last_activity,
+			s.verified,
+			s.featured,
+			s.discovery_blocked,
 			s.deleted_at,
 			s.deleted_by_admin
 		FROM servers s
@@ -609,6 +643,7 @@ func (r *sqliteServerRepo) ListAdminServersPaged(ctx context.Context, params mod
 			&s.CreatedAt, &s.IsPlatformManaged, &s.LiveKitInstanceID,
 			&s.MemberCount, &s.ChannelCount, &s.MessageCount,
 			&s.StorageMB, &s.LastActivity,
+			&s.Verified, &s.Featured, &s.DiscoveryBlocked,
 			&s.DeletedAt, &s.DeletedByAdmin,
 		); err != nil {
 			return models.AdminServerListPage{}, fmt.Errorf("scan admin server row: %w", err)

@@ -14,6 +14,7 @@ CREATE TABLE servers (
 	description TEXT, category TEXT,
 	is_public INTEGER NOT NULL DEFAULT 0, verified INTEGER NOT NULL DEFAULT 0,
 	featured INTEGER NOT NULL DEFAULT 0, approval_required INTEGER NOT NULL DEFAULT 0,
+	discovery_blocked INTEGER NOT NULL DEFAULT 0,
 	deleted_at TEXT
 );
 CREATE TABLE server_members (server_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY(server_id,user_id));
@@ -80,6 +81,27 @@ func TestDiscovery_ListFiltersAndOrder(t *testing.T) {
 	feat, _ := repo.ListPublicServers(ctx, models.PublicServerListParams{RequestingUserID: "u1", FeaturedOnly: true, Limit: 20})
 	if feat.Total != 1 || feat.Items[0].ID != "s1" {
 		t.Fatalf("featured-only want [s1] got total=%d", feat.Total)
+	}
+}
+
+func TestDiscovery_BlockedExcluded(t *testing.T) {
+	ctx := context.Background()
+	db := openMemDB(t, discoverySchema)
+	repo := NewSQLiteDiscoveryRepo(db)
+
+	if _, err := db.Exec(`INSERT INTO servers (id, name, category, is_public, discovery_blocked) VALUES
+		('s1','Listed','gaming',1,0),
+		('s2','Admin Blocked','gaming',1,1);`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	page, _ := repo.ListPublicServers(ctx, models.PublicServerListParams{RequestingUserID: "u1", Limit: 20})
+	if page.Total != 1 || page.Items[0].ID != "s1" {
+		t.Fatalf("admin-blocked server must be excluded from discovery; got total=%d", page.Total)
+	}
+	// Also not retrievable as a single preview.
+	if _, err := repo.GetPublicServerItem(ctx, "s2", "u1"); err == nil {
+		t.Fatal("admin-blocked server must not be retrievable via discovery")
 	}
 }
 

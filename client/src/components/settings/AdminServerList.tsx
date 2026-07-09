@@ -13,6 +13,8 @@ import {
   listAdminServers,
   migrateServerInstance,
   adminDeleteServer,
+  setServerDiscoveryFlag,
+  type DiscoveryFlag,
 } from "../../api/admin";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -342,6 +344,16 @@ function AdminServerList() {
     setRefetchTick((n) => n + 1);
   }, []);
 
+  async function handleToggleFlag(srv: AdminServerListItem, flag: DiscoveryFlag, current: boolean) {
+    const res = await setServerDiscoveryFlag(srv.id, flag, !current);
+    if (res.success) {
+      addToast("success", t("discoveryFlagUpdated"));
+      await refetchServers();
+    } else {
+      addToast("error", res.error ?? t("discoveryFlagError"));
+    }
+  }
+
   function buildContextItems(srv: AdminServerListItem): ContextMenuItem[] {
     const items: ContextMenuItem[] = [];
 
@@ -349,6 +361,23 @@ function AdminServerList() {
       label: t("platformServerSendDMOwner"),
       onClick: () => handleSendDMOwner(srv),
     });
+
+    // Discovery badges + unlist (checkmark prefix shows the current state).
+    if (!srv.deleted_at) {
+      items.push({
+        label: (srv.verified ? "✓ " : "") + t("badgeVerified"),
+        separator: true,
+        onClick: () => handleToggleFlag(srv, "verified", srv.verified),
+      });
+      items.push({
+        label: (srv.featured ? "✓ " : "") + t("badgeFeatured"),
+        onClick: () => handleToggleFlag(srv, "featured", srv.featured),
+      });
+      items.push({
+        label: (srv.discovery_blocked ? "✓ " : "") + t("badgeUnlisted"),
+        onClick: () => handleToggleFlag(srv, "discovery_blocked", srv.discovery_blocked),
+      });
+    }
 
     if (!srv.deleted_at) {
       items.push({

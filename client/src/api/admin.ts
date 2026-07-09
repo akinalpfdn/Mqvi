@@ -17,6 +17,7 @@ import type {
   AdminUserListItem,
   AdminReportListItem,
   AppLog,
+  Server,
 } from "../types";
 
 export async function listLiveKitInstances() {
@@ -210,6 +211,20 @@ export async function migrateServerInstance(
       body: { livekit_instance_id: livekitInstanceId },
     }
   );
+}
+
+export type DiscoveryFlag = "verified" | "featured" | "discovery_blocked";
+
+/** Toggle a server's discovery flag (platform admin). Returns the updated server. */
+export async function setServerDiscoveryFlag(
+  serverId: string,
+  flag: DiscoveryFlag,
+  value: boolean
+) {
+  return apiClient<Server>(`/admin/servers/${serverId}/discovery-flag`, {
+    method: "PATCH",
+    body: { flag, value },
+  });
 }
 
 export async function listAdminReports(status?: string) {

@@ -533,6 +533,10 @@ export type AdminServerListItem = {
   message_count: number;
   storage_mb: number;
   last_activity: string | null;
+  /** Discovery admin flags. */
+  verified: boolean;
+  featured: boolean;
+  discovery_blocked: boolean;
   /** Set when the server is soft-deleted. */
   deleted_at?: string | null;
   /** True when the server was soft-deleted by admin (owner cannot restore). */
@@ -748,6 +752,7 @@ export type ServerListItem = {
   id: string;
   name: string;
   icon_url: string | null;
+  verified?: boolean;
 };
 
 /**

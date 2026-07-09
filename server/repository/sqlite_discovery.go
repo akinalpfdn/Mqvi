@@ -29,7 +29,7 @@ const discoverySelectFields = `s.id, s.name, s.icon_url, s.banner_url, s.descrip
 // shorter queries fall back to a name LIKE so search always returns something. The FTS match is a
 // rowid subquery (the canonical FTS5 form) so the planner drives off the index cleanly.
 func buildDiscoveryFilter(params models.PublicServerListParams) (whereSQL string, args []any) {
-	clauses := []string{"s.is_public = 1", "s.deleted_at IS NULL"}
+	clauses := []string{"s.is_public = 1", "s.deleted_at IS NULL", "s.discovery_blocked = 0"}
 
 	if q := strings.TrimSpace(params.Search); q != "" {
 		if utf8.RuneCountInString(q) >= 3 {
@@ -101,7 +101,7 @@ func (r *sqliteDiscoveryRepo) GetPublicServerItem(ctx context.Context, serverID,
 		SELECT %s,
 			EXISTS(SELECT 1 FROM server_members sm2 WHERE sm2.server_id = s.id AND sm2.user_id = ?) AS is_member
 		FROM servers s
-		WHERE s.id = ? AND s.is_public = 1 AND s.deleted_at IS NULL`, discoverySelectFields)
+		WHERE s.id = ? AND s.is_public = 1 AND s.deleted_at IS NULL AND s.discovery_blocked = 0`, discoverySelectFields)
 
 	rows, err := r.db.QueryContext(ctx, query, requestingUserID, serverID)
 	if err != nil {
