@@ -77,6 +77,7 @@ type SettingsTab =
   | "roles"
   | "members"
   | "invites"
+  | "join-requests"
   | "platform"
   | "platform-servers"
   | "platform-users"

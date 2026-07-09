@@ -7,6 +7,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useActiveMembers } from "../../stores/memberStore";
+import { useJoinRequestStore } from "../../stores/joinRequestStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { resolveAssetUrl } from "../../utils/constants";
 import ContextMenu from "../shared/ContextMenu";
@@ -35,6 +36,7 @@ function ServerList({
   const { t: tServers } = useTranslation("servers");
   const { t: tCh } = useTranslation("channels");
   const { t: tE2EE } = useTranslation("e2ee");
+  const { t: tSettings } = useTranslation("settings");
 
   const toggleSection = useSidebarStore((s) => s.toggleSection);
   const expandSection = useSidebarStore((s) => s.expandSection);
@@ -67,6 +69,20 @@ function ServerList({
   const canManageInvites = currentMember
     ? hasPermission(currentMember.effective_permissions, Permissions.ManageInvites)
     : false;
+  const canApproveMembers = currentMember
+    ? hasPermission(currentMember.effective_permissions, Permissions.ApproveMembers)
+    : false;
+
+  // Pending join-request count for the active server's badge. Only perm-holders may read the
+  // count endpoint (perm-gated server-side); the WS join_request_update event keeps it fresh.
+  const pendingJoinCount = useJoinRequestStore((s) => s.pendingCounts[activeServerId ?? ""] ?? 0);
+  const fetchJoinRequestCount = useJoinRequestStore((s) => s.fetchCount);
+
+  useEffect(() => {
+    if (activeServerId && canApproveMembers) {
+      fetchJoinRequestCount(activeServerId);
+    }
+  }, [activeServerId, canApproveMembers, fetchJoinRequestCount]);
 
   function isSectionExpanded(key: string): boolean {
     return expandedSections[key] ?? true;
@@ -346,6 +362,25 @@ function ServerList({
                       </button>
                     )}
                   </div>
+
+                  {isActive && canApproveMembers && pendingJoinCount > 0 && (
+                    <button
+                      className="ch-tree-join-requests"
+                      onClick={() => openSettings("join-requests")}
+                      title={tSettings("joinRequests")}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <line x1="19" y1="8" x2="19" y2="14" />
+                        <line x1="22" y1="11" x2="16" y2="11" />
+                      </svg>
+                      <span className="ch-tree-join-requests-label">{tSettings("joinRequests")}</span>
+                      <span className="ch-tree-join-requests-badge">
+                        {pendingJoinCount > 99 ? "99+" : pendingJoinCount}
+                      </span>
+                    </button>
+                  )}
 
                   {isActive && srvExpanded && renderServerBody(srv.id)}
                 </div>

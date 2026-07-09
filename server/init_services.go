@@ -162,7 +162,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	memberService.SetPermCacheInvalidator(channelPermService)
 	serverService := services.NewServerService(
 		db, repos.Server, repos.LiveKit, repos.Role, repos.Channel,
-		repos.Category, repos.User, inviteService, hub, voiceService, voiceService, encryptionKey, urlSigner, fileCleanupService,
+		repos.Category, repos.User, repos.Ban, repos.JoinRequest, inviteService, hub, voiceService, voiceService, encryptionKey, urlSigner, fileCleanupService,
 	)
 	livekitAdminService := services.NewLiveKitAdminService(
 		repos.LiveKit, repos.Server, repos.User, repos.Channel,

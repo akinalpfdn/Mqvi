@@ -18,6 +18,7 @@ import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { useBadgeStore } from "../../stores/badgeStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
+import { useJoinRequestStore } from "../../stores/joinRequestStore";
 import type {
   WSMessage,
   MemberWithRoles,
@@ -217,6 +218,12 @@ export async function handleSystemEvent(
       // Server was soft-deleted previously and is now restored — re-add to sidebar.
       useServerStore.getState().handleServerCreate(msg.d as ServerListItem);
       return true;
+    case "join_request_update": {
+      // Pending join-request count changed; only PermApproveMembers holders render it.
+      const d = msg.d as { server_id: string; pending_count: number };
+      useJoinRequestStore.getState().setPendingCount(d.server_id, d.pending_count);
+      return true;
+    }
 
     // ─── Friends ───
     case "friend_request_create":

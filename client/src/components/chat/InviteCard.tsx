@@ -18,6 +18,7 @@ function InviteCard({ code }: InviteCardProps) {
   const addToast = useToastStore((s) => s.addToast);
   const [isJoining, setIsJoining] = useState(false);
   const [joined, setJoined] = useState(false);
+  const [pending, setPending] = useState(false);
 
   /** Preview data — null if not loaded yet or invalid code */
   const [preview, setPreview] = useState<InvitePreview | null>(null);
@@ -44,24 +45,32 @@ function InviteCard({ code }: InviteCardProps) {
   }
 
   async function handleJoin() {
-    if (isJoining || joined) return;
+    if (isJoining || joined || pending) return;
     setIsJoining(true);
 
     // Call API directly to parse error messages
     const res = await serversApi.joinServer(code);
     if (res.success && res.data) {
-      // Update store
-      const server = res.data;
-      const store = useServerStore.getState();
-      const exists = store.servers.some((s) => s.id === server.id);
-      if (!exists) {
-        useServerStore.setState((state) => ({
-          servers: [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }],
-        }));
+      // Approval-required server — request queued, no membership yet.
+      if (res.data.pending) {
+        addToast("info", t("joinRequestSent"));
+        setPending(true);
+        setIsJoining(false);
+        return;
       }
-      useServerStore.setState({ activeServerId: server.id, activeServer: server });
-      addToast("success", t("serverJoined"));
-      setJoined(true);
+      const server = res.data.server;
+      if (server) {
+        const store = useServerStore.getState();
+        const exists = store.servers.some((s) => s.id === server.id);
+        if (!exists) {
+          useServerStore.setState((state) => ({
+            servers: [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }],
+          }));
+        }
+        useServerStore.setState({ activeServerId: server.id, activeServer: server });
+        addToast("success", t("serverJoined"));
+        setJoined(true);
+      }
     } else {
       // Parse error — backend returns specific messages
       const err = res.error ?? "";
@@ -131,9 +140,15 @@ function InviteCard({ code }: InviteCardProps) {
         <button
           className="invite-card-btn"
           onClick={handleJoin}
-          disabled={isJoining || joined}
+          disabled={isJoining || joined || pending}
         >
-          {joined ? "\u2713" : isJoining ? "..." : t("joinInvite")}
+          {joined
+            ? "\u2713"
+            : pending
+              ? t("joinRequestPendingTitle")
+              : isJoining
+                ? "..."
+                : t("joinInvite")}
         </button>
       </span>
     </span>

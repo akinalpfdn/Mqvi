@@ -277,6 +277,13 @@ select option:disabled {
 .ch-tree-server-name { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .ch-tree-server-badge { background:var(--red);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:18px;text-align:center;flex-shrink:0;line-height:16px; }
 
+/* Join-requests call-to-action — under the active server header, perm-holders only when count>0 */
+.ch-tree-join-requests { display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px 6px 14px;margin:1px 0 2px;border:none;background:transparent;color:var(--t1);font-size:13px;font-weight:600;cursor:pointer;border-radius:4px;transition:color .1s,background .1s;text-align:left; }
+.ch-tree-join-requests:hover { color:var(--t0);background:var(--bg-h); }
+.ch-tree-join-requests svg { color:var(--primary);flex-shrink:0; }
+.ch-tree-join-requests-label { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.ch-tree-join-requests-badge { background:var(--primary);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:18px;text-align:center;flex-shrink:0;line-height:16px; }
+
 /* Chevron */
 .ch-tree-chevron { font-size:13px;color:var(--t3);transition:transform .15s;display:inline-block; }
 .ch-tree-chevron.expanded { transform:rotate(90deg); }
@@ -3947,6 +3954,25 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 }
 .filter-dropdown-option.checked .filter-dropdown-check { background:var(--primary);border-color:var(--primary); }
 .filter-dropdown-option-label { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+
+/* ── Join request approval list ── */
+.join-request-desc { font-size:13px;color:var(--t2);margin:4px 0 16px; }
+.join-request-list { display:flex;flex-direction:column;gap:8px; }
+.join-request-row {
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 14px;background:var(--bg-2);border:1px solid var(--b1);border-radius:8px;
+}
+.join-request-user { display:flex;align-items:center;gap:10px;min-width:0; }
+.join-request-avatar {
+  width:36px;height:36px;border-radius:999px;background:var(--bg-4);flex-shrink:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;
+}
+.join-request-avatar img { width:100%;height:100%;object-fit:cover; }
+.join-request-meta { display:flex;flex-direction:column;min-width:0; }
+.join-request-name { font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.join-request-sub { font-size:13px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.join-request-actions { display:flex;gap:8px;flex-shrink:0; }
 
 @media (max-width: 768px) {
   .admin-feedback-list { padding:16px; }

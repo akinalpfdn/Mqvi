@@ -77,13 +77,86 @@ func (h *ServerHandler) JoinServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	server, err := h.serverService.JoinServer(r.Context(), user.ID, req.InviteCode)
+	result, err := h.serverService.JoinServer(r.Context(), user.ID, req.InviteCode)
 	if err != nil {
 		pkg.Error(w, err)
 		return
 	}
 
-	pkg.JSON(w, http.StatusOK, server)
+	// Pending → a join request was created (approval-required server); no membership yet.
+	if result.Pending {
+		pkg.JSON(w, http.StatusOK, map[string]any{"pending": true})
+		return
+	}
+	pkg.JSON(w, http.StatusOK, map[string]any{"pending": false, "server": result.Server})
+}
+
+// ListJoinRequests -- GET /api/servers/{serverId}/requests (PermApproveMembers)
+func (h *ServerHandler) ListJoinRequests(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+	reqs, err := h.serverService.ListRequests(r.Context(), serverID)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	pkg.JSON(w, http.StatusOK, map[string]any{"requests": reqs, "total": len(reqs)})
+}
+
+// CountJoinRequests -- GET /api/servers/{serverId}/requests/count (PermApproveMembers)
+func (h *ServerHandler) CountJoinRequests(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+	count, err := h.serverService.CountRequests(r.Context(), serverID)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	pkg.JSON(w, http.StatusOK, map[string]int{"count": count})
+}
+
+// ApproveJoinRequest -- POST /api/servers/{serverId}/requests/{userId}/approve (PermApproveMembers)
+func (h *ServerHandler) ApproveJoinRequest(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+	targetUserID := r.PathValue("userId")
+	if targetUserID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+	if err := h.serverService.ApproveRequest(r.Context(), serverID, targetUserID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "join request approved"})
+}
+
+// RejectJoinRequest -- DELETE /api/servers/{serverId}/requests/{userId} (PermApproveMembers)
+func (h *ServerHandler) RejectJoinRequest(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+	targetUserID := r.PathValue("userId")
+	if targetUserID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "user id is required")
+		return
+	}
+	if err := h.serverService.RejectRequest(r.Context(), serverID, targetUserID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "join request rejected"})
 }
 
 // GetServer returns server details. Protected by membership middleware.

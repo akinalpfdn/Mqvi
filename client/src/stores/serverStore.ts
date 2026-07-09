@@ -14,6 +14,12 @@ import type { Server, ServerListItem, CreateServerRequest } from "../types";
 /** Persist last active server across page reloads */
 const LAST_SERVER_KEY = "mqvi_last_server";
 
+/** Result of a join attempt: joined outright, queued for approval, or failed. */
+export type JoinOutcome =
+  | { status: "joined"; server: Server }
+  | { status: "pending" }
+  | { status: "error" };
+
 type ServerState = {
   servers: ServerListItem[];
   /** All server-scoped stores depend on this */
@@ -30,7 +36,7 @@ type ServerState = {
   setActiveServer: (serverId: string) => void;
   fetchActiveServer: () => Promise<void>;
   createServer: (req: CreateServerRequest) => Promise<{ server: Server | null; error?: string }>;
-  joinServer: (inviteCode: string) => Promise<Server | null>;
+  joinServer: (inviteCode: string) => Promise<JoinOutcome>;
   leaveServer: (serverId: string) => Promise<boolean>;
   deleteServer: (serverId: string) => Promise<boolean>;
   reorderServers: (items: { id: string; position: number }[]) => Promise<boolean>;
@@ -134,23 +140,24 @@ export const useServerStore = create<ServerState>((set, get) => ({
 
   joinServer: async (inviteCode) => {
     const res = await serversApi.joinServer(inviteCode);
-    if (res.success && res.data) {
-      const server = res.data;
-      // Add to list + set active (WS event will also come)
-      set((state) => {
-        const servers = state.servers.some((s) => s.id === server.id)
-          ? state.servers
-          : [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }];
-        return {
-          servers,
-          activeServerId: server.id,
-          activeServer: server,
-        };
-      });
-      localStorage.setItem(LAST_SERVER_KEY, server.id);
-      return server;
-    }
-    return null;
+    if (!res.success || !res.data) return { status: "error" };
+    // Approval-required server → a request was queued, no membership yet.
+    if (res.data.pending) return { status: "pending" };
+    const server = res.data.server;
+    if (!server) return { status: "error" };
+    // Add to list + set active (WS event will also come)
+    set((state) => {
+      const servers = state.servers.some((s) => s.id === server.id)
+        ? state.servers
+        : [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }];
+      return {
+        servers,
+        activeServerId: server.id,
+        activeServer: server,
+      };
+    });
+    localStorage.setItem(LAST_SERVER_KEY, server.id);
+    return { status: "joined", server };
   },
 
   leaveServer: async (serverId) => {
