@@ -9,7 +9,7 @@ import { useParams, useNavigate, Navigate } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
 import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
-import { resolveAssetUrl, publicAsset } from "../../utils/constants";
+import { resolveAssetUrl, publicAsset, isElectron } from "../../utils/constants";
 import { getInvitePreview, type InvitePreview } from "../../api/invites";
 import * as serversApi from "../../api/servers";
 import Avatar from "../shared/Avatar";
@@ -80,8 +80,10 @@ function InviteJoinPage() {
     <div className="invite-join-page">
       {/* Logo + Title */}
       <div className="invite-join-header">
+        {/* Web serves this deep route (/invite/:code), where a relative asset path resolves
+            to /invite/mqvi-icon.svg and 404s → use an origin-absolute path on the web. */}
         <img
-          src={publicAsset("mqvi-icon.svg")}
+          src={isElectron() ? publicAsset("mqvi-icon.svg") : "/mqvi-icon.svg"}
           alt="mqvi"
           className="invite-join-logo"
         />
