@@ -50,7 +50,14 @@ const PLATFORM_ITEMS: NavItem[] = [
   { id: "platform-logs", labelKey: "platformLogsTab" },
 ];
 
-function SettingsNav() {
+type SettingsNavProps = {
+  /** Mobile: whether the slide-in drawer is open. */
+  drawerOpen?: boolean;
+  /** Mobile: called after a nav action so the parent can close the drawer. */
+  onNavigate?: () => void;
+};
+
+function SettingsNav({ drawerOpen = false, onNavigate }: SettingsNavProps) {
   const { t } = useTranslation("settings");
   const activeTab = useSettingsStore((s) => s.activeTab);
   const setActiveTab = useSettingsStore((s) => s.setActiveTab);
@@ -58,6 +65,11 @@ function SettingsNav() {
   const user = useAuthStore((s) => s.user);
   const isMobile = useIsMobile();
   const [showConnections, setShowConnections] = useState(false);
+
+  function handleSelect(tab: SettingsTab) {
+    setActiveTab(tab);
+    onNavigate?.();
+  }
 
   const members = useActiveMembers();
   const currentMember = members.find((m) => m.id === user?.id);
@@ -84,7 +96,7 @@ function SettingsNav() {
 
   return (
     <>
-    <nav className="settings-nav">
+    <nav className={`settings-nav${drawerOpen ? " open" : ""}`}>
       {/* User Settings */}
       <h3 className="settings-nav-label">{t("userSettings")}</h3>
       {USER_ITEMS.map((item) => {
@@ -93,7 +105,7 @@ function SettingsNav() {
           <button
             key={item.id}
             className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
-            onClick={() => setActiveTab(item.id)}
+            onClick={() => handleSelect(item.id)}
           >
             <span className="settings-nav-item-label">{t(item.labelKey)}</span>
             {showDot && <span className="settings-nav-badge-dot" aria-hidden="true" />}
@@ -104,7 +116,7 @@ function SettingsNav() {
       {isElectron() && (
         <button
           className={`settings-nav-item${activeTab === "general" ? " active" : ""}`}
-          onClick={() => setActiveTab("general")}
+          onClick={() => handleSelect("general")}
         >
           {t("general")}
         </button>
@@ -115,7 +127,7 @@ function SettingsNav() {
       {isNativeApp() && (
         <button
           className="settings-nav-item"
-          onClick={() => setShowConnections(true)}
+          onClick={() => { setShowConnections(true); onNavigate?.(); }}
         >
           {t("connections")}
         </button>
@@ -130,7 +142,7 @@ function SettingsNav() {
             <button
               key={item.id}
               className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => handleSelect(item.id)}
             >
               {t(item.labelKey)}
             </button>
@@ -151,7 +163,7 @@ function SettingsNav() {
                 <button
                   key={item.id}
                   className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => handleSelect(item.id)}
                 >
                   <span className="settings-nav-item-label">{t(item.labelKey)}</span>
                   {showDot && <span className="settings-nav-badge-dot" aria-hidden="true" />}

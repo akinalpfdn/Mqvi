@@ -1,8 +1,9 @@
 /** Full-screen settings overlay. Layout: left SettingsNav + right content area. */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import SettingsNav from "./SettingsNav";
 import RoleSettings from "./RoleSettings";
 import ProfileSettings from "./ProfileSettings";
@@ -30,6 +31,13 @@ function SettingsModal() {
   const isOpen = useSettingsStore((s) => s.isOpen);
   const activeTab = useSettingsStore((s) => s.activeTab);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
+  const isMobile = useIsMobile();
+  const [navOpen, setNavOpen] = useState(false);
+
+  // Reset the mobile nav drawer whenever settings closes.
+  useEffect(() => {
+    if (!isOpen) setNavOpen(false);
+  }, [isOpen]);
 
   // Close on ESC
   useEffect(() => {
@@ -67,11 +75,29 @@ function SettingsModal() {
 
   return (
     <div className="settings-overlay" onClick={handleOverlayClick}>
-      {/* Nav sidebar */}
-      <SettingsNav />
+      {/* Mobile: dim backdrop behind the nav drawer */}
+      {isMobile && navOpen && (
+        <div className="settings-nav-backdrop" onClick={() => setNavOpen(false)} />
+      )}
+
+      {/* Nav — fixed sidebar on desktop, slide-in drawer on mobile */}
+      <SettingsNav drawerOpen={navOpen} onNavigate={() => setNavOpen(false)} />
 
       {/* Content area — close button anchored to the panel's top-right corner */}
       <div className="settings-panel">
+        {isMobile && (
+          <button
+            className="settings-nav-toggle"
+            onClick={() => setNavOpen(true)}
+            aria-label={t("title")}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+        )}
         <button
           onClick={closeSettings}
           className="settings-close"

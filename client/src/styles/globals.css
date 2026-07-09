@@ -3471,49 +3471,58 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     border-radius: 12px;
   }
 
-  /* ─── Settings Modal → Stacked Layout ─── */
-  .settings-overlay {
-    flex-direction: column;
-  }
+  /* ─── Settings Nav → slide-in drawer (opened via the top-left hamburger) ─── */
   .settings-nav {
-    width: 100%;
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    border-right: none;
-    border-bottom: 1px solid var(--b1);
-    padding: 8px 4px;
-    gap: 2px;
-    flex-shrink: 0;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: min(280px, 82vw);
+    max-width: none;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: none;
+    border-right: 1px solid var(--panel-border);
+    border-radius: 0;
+    padding: calc(var(--safe-area-inset-top) + 56px) 12px 16px;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 60;
   }
-  .settings-nav::-webkit-scrollbar { display: none; }
-  .settings-nav-label { display: none; }
-  .settings-nav-divider { display: none; }
-  .settings-nav-version { display: none; }
+  .settings-nav.open { transform: translateX(0); }
   .settings-nav-item {
-    white-space: nowrap;
-    flex-shrink: 0;
-    width: auto;
-    padding: 8px 14px;
-    font-size: 14px;
-    border-radius: 20px;
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 15px;
+    border-radius: 8px;
+  }
+  .settings-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 59;
+  }
+  .settings-nav-toggle {
+    position: fixed;
+    top: calc(var(--safe-area-inset-top) + 56px);
+    left: 12px;
+    z-index: 52;
+    width: var(--mobile-touch-target);
+    height: var(--mobile-touch-target);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 50%;
     background: var(--bg-3);
-  }
-  .settings-nav-item.active {
-    background: var(--bg-5);
-  }
-  .settings-nav-logout {
-    border-left: 1px solid var(--b1);
-    margin-left: 4px;
-    padding-left: 14px;
+    color: var(--t1);
+    cursor: pointer;
   }
   .settings-panel {
     max-width: 100%;
   }
   .settings-content {
-    padding: 16px;
+    /* Clear the fixed hamburger (left) + close (right) that float over the top. */
+    padding: calc(56px + var(--mobile-touch-target) + 12px) 16px 16px;
   }
   /* Mobile close is wider and offset — needs more right clearance on top headers */
   .settings-section-header { padding-right: 44px; }
