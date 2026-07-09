@@ -9,11 +9,13 @@ import { copyToClipboard } from "../../utils/constants";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useIsMobile } from "../../hooks/useMediaQuery";
+import { useNarrowChat } from "../../hooks/useNarrowChat";
 import { useLongPress } from "../../hooks/useLongPress";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
 import BadgePill from "../shared/BadgePill";
 import ContextMenu from "../shared/ContextMenu";
+import EmojiPicker from "../shared/EmojiPicker";
 import InviteCard from "./InviteCard";
 import LinkPreviewCard from "./LinkPreviewCard";
 import MemberCard from "../members/MemberCard";
@@ -85,6 +87,7 @@ function Message({ message, isCompact }: MessageProps) {
 
   const roles = useActiveRoles();
   const isMobile = useIsMobile();
+  const isNarrow = useNarrowChat();
   const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
@@ -99,6 +102,7 @@ function Message({ message, isCompact }: MessageProps) {
     if (el) autoGrowEdit(el);
   }, []);
   const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
+  const [editEmojiOpen, setEditEmojiOpen] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [profileTarget, setProfileTarget] = useState<{ user: User; top: number; left: number } | null>(null);
 
@@ -220,6 +224,22 @@ function Message({ message, isCompact }: MessageProps) {
       result = result.replace(new RegExp(`@${escaped}`, "gi"), token);
     }
     return result;
+  }
+
+  /** Insert an emoji at the cursor while editing */
+  function handleEditEmojiSelect(emoji: string) {
+    const cursorPos = editTextareaRef.current?.selectionStart ?? editContent.length;
+    setEditContent(editContent.slice(0, cursorPos) + emoji + editContent.slice(cursorPos));
+    setEditEmojiOpen(false);
+    requestAnimationFrame(() => {
+      const el = editTextareaRef.current;
+      if (!el) return;
+      const pos = cursorPos + emoji.length;
+      el.selectionStart = pos;
+      el.selectionEnd = pos;
+      el.focus();
+      autoGrowEdit(el);
+    });
   }
 
   /** Delete with confirmation dialog */
@@ -582,9 +602,33 @@ function Message({ message, isCompact }: MessageProps) {
                 rows={1}
                 autoFocus
               />
-              <p className="msg-edit-hint">
-                escape = {t("editCancel", "cancel")}, enter = {t("editSave", "save")}
-              </p>
+              <div className="msg-edit-footer">
+                <div className="msg-edit-emoji-wrap">
+                  <button
+                    type="button"
+                    className="msg-edit-emoji-btn"
+                    onClick={() => setEditEmojiOpen((v) => !v)}
+                    title={t("emoji")}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                      <line x1="9" y1="9" x2="9.01" y2="9" />
+                      <line x1="15" y1="9" x2="15.01" y2="9" />
+                    </svg>
+                  </button>
+                  {editEmojiOpen && (
+                    <EmojiPicker
+                      onSelect={handleEditEmojiSelect}
+                      onClose={() => setEditEmojiOpen(false)}
+                      sheet={isNarrow}
+                    />
+                  )}
+                </div>
+                <p className="msg-edit-hint">
+                  escape = {t("editCancel", "cancel")}, enter = {t("editSave", "save")}
+                </p>
+              </div>
             </div>
           ) : (
             <div className="msg-text">

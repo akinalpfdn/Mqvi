@@ -4,15 +4,18 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { trendingGifs, searchGifs, type GifResult } from "../../api/gif";
 
 type GifPickerProps = {
   onSelect: (url: string) => void;
   onClose: () => void;
+  /** Narrow column → render as a centered bottom sheet portaled to <body> (never off-screen). */
+  sheet?: boolean;
 };
 
-function GifPicker({ onSelect, onClose }: GifPickerProps) {
+function GifPicker({ onSelect, onClose, sheet = false }: GifPickerProps) {
   const { t } = useTranslation("chat");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GifResult[]>([]);
@@ -39,17 +42,17 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
     loadTrending();
   }, []);
 
-  // Focus search input and check viewport overflow
+  // Focus search input and check viewport overflow (sheet is bottom-anchored, never flips)
   useEffect(() => {
     searchRef.current?.focus();
 
-    if (pickerRef.current) {
+    if (!sheet && pickerRef.current) {
       const rect = pickerRef.current.getBoundingClientRect();
       if (rect.top < 0) {
         setFlipped(true);
       }
     }
-  }, []);
+  }, [sheet]);
 
   // Close on click outside
   useEffect(() => {
@@ -114,8 +117,8 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
     onClose();
   }
 
-  return (
-    <div className={`gif-picker${flipped ? " gif-picker-flipped" : ""}`} ref={pickerRef}>
+  const content = (
+    <div className={`gif-picker${sheet ? " gif-picker-sheet" : flipped ? " gif-picker-flipped" : ""}`} ref={pickerRef}>
       {/* Search input */}
       <div className="gif-picker-header">
         <input
@@ -162,6 +165,19 @@ function GifPicker({ onSelect, onClose }: GifPickerProps) {
       </div>
     </div>
   );
+
+  // Sheet variant escapes the narrow column's overflow via a body portal.
+  if (sheet) {
+    return createPortal(
+      <>
+        <div className="picker-backdrop" onClick={onClose} />
+        {content}
+      </>,
+      document.body
+    );
+  }
+
+  return content;
 }
 
 export default GifPicker;

@@ -47,6 +47,9 @@
   --panel-shadow:0 20px 60px rgba(0,0,0,0.35);
   --input-bg:rgba(255,255,255,0.05);
   --input-border:rgba(255,255,255,0.10);
+  /* Picker surface: more opaque than --panel-bg so emoji/GIF grids stay readable over the
+     busy message list (their content is transparent, so a faint frost shows straight through). */
+  --picker-bg:var(--bg-1);
   --wallpaper:none;
 }
 
@@ -54,12 +57,14 @@
 body.blur-enabled {
   --panel-bg:linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.035) 100%);
   --panel-backdrop:blur(28px) saturate(170%);
+  --picker-bg:rgba(17,17,18,0.86);
 }
 
 /* Blur off: solid fallback for low-end / reduced-transparency */
 body.blur-disabled {
   --panel-bg:var(--bg-1);
   --panel-backdrop:none;
+  --picker-bg:var(--bg-1);
 }
 
 .app-panel {
@@ -676,7 +681,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   --em-rgb-color:240, 240, 240;
   --em-color-border:rgba(255,255,255,0.08);
   --em-color-border-over:rgba(255,255,255,0.12);
-  background:var(--panel-bg);
+  background:var(--picker-bg);
   backdrop-filter:var(--panel-backdrop);
   -webkit-backdrop-filter:var(--panel-backdrop);
   border:1px solid var(--panel-border);
@@ -689,12 +694,13 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* Reaction picker as a centered bottom sheet (narrow column) — portaled to <body>, so it
    anchors to the viewport with no containment surprises. Compound selector + !important
    outrank the mobile `@media .emoji-picker` fixed-fullwidth rule. */
-.emoji-picker-backdrop { position:fixed;inset:0;z-index:59; }
+.picker-backdrop { position:fixed;inset:0;z-index:59; }
 .emoji-picker.emoji-picker-sheet { position:fixed !important;left:50% !important;right:auto !important;bottom:16px !important;top:auto !important;transform:translateX(-50%);margin:0 !important;width:min(400px,94vw) !important;z-index:60; }
 .emoji-picker.emoji-picker-sheet em-emoji-picker { width:100% !important;max-height:50vh;border-radius:var(--panel-radius) !important; }
+.gif-picker.gif-picker-sheet { position:fixed !important;left:50% !important;right:auto !important;bottom:16px !important;top:auto !important;transform:translateX(-50%);margin:0 !important;width:min(500px,94vw) !important;max-height:70vh;z-index:60; }
 
 /* ─── GIF Picker ─── */
-.gif-picker { position:absolute;bottom:100%;left:0;width:500px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:10px;box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.5);z-index:100;overflow:hidden;margin-bottom:6px;display:flex;flex-direction:column;max-height:520px; }
+.gif-picker { position:absolute;bottom:100%;left:0;width:500px;background:var(--picker-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:10px;box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.5);z-index:100;overflow:hidden;margin-bottom:6px;display:flex;flex-direction:column;max-height:520px; }
 .gif-picker-flipped { bottom:auto;top:100%;margin-bottom:0;margin-top:6px; }
 .input-gif-picker-wrap .gif-picker { left:auto;right:0; }
 .gif-picker-header { padding:8px;border-bottom:1px solid var(--b1); }
@@ -776,7 +782,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .msg-edit-area { margin-top:4px; }
 .msg-edit-textarea { width:100%;resize:none;border-radius:8px;background:var(--input-bg);border:1px solid var(--input-border);padding:8px;font-family:inherit;font-size:16px;line-height:1.45;color:var(--t0);outline:none;max-height:50vh;overflow-y:auto; }
 .msg-edit-textarea:focus { background:var(--bg-4); }
-.msg-edit-hint { font-size:13px;color:var(--t3);margin-top:4px; }
+.msg-edit-footer { display:flex;align-items:center;gap:8px;margin-top:4px; }
+.msg-edit-emoji-wrap { position:relative;flex-shrink:0; }
+.msg-edit-emoji-btn { width:26px;height:26px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:color .1s,background .1s; }
+.msg-edit-emoji-btn:hover { color:var(--t0);background:var(--bg-h); }
+.msg-edit-hint { font-size:13px;color:var(--t3); }
 
 /* Welcome placeholder */
 .msg-welcome { display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:1;padding:32px;text-align:center; }

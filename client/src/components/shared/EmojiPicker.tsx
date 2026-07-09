@@ -76,7 +76,9 @@ function EmojiPicker({ onSelect, onClose, sheet = false }: EmojiPickerProps) {
     const el = pickerRef.current.querySelector("em-emoji-picker");
     if (!el?.shadowRoot) return;
     const style = document.createElement("style");
-    style.textContent = "#root { background-color: transparent !important; } .sticky { background-color: transparent !important; }";
+    // Grid stays transparent (frosted host shows through), but category headers need an opaque
+    // fill so emojis scrolling underneath don't bleed through the label.
+    style.textContent = "#root { background-color: transparent !important; } .sticky { background-color: var(--bg-1, #191919) !important; }";
     el.shadowRoot.appendChild(style);
     return () => { style.remove(); };
   }, []);
@@ -108,7 +110,7 @@ function EmojiPicker({ onSelect, onClose, sheet = false }: EmojiPickerProps) {
   if (sheet) {
     return createPortal(
       <>
-        <div className="emoji-picker-backdrop" onClick={onClose} />
+        <div className="picker-backdrop" onClick={onClose} />
         {content}
       </>,
       document.body

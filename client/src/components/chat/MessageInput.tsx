@@ -11,6 +11,7 @@ import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useChannelStore } from "../../stores/channelStore";
+import { useNarrowChat } from "../../hooks/useNarrowChat";
 import { validateFiles } from "../../utils/fileValidation";
 import { MAX_MESSAGE_LENGTH } from "../../utils/constants";
 import {
@@ -55,6 +56,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
     members,
   } = useChatContext();
   const addToast = useToastStore((s) => s.addToast);
+  const isNarrow = useNarrowChat();
 
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -602,6 +604,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
               <EmojiPicker
                 onSelect={handleEmojiSelect}
                 onClose={() => setShowEmojiPicker(false)}
+                sheet={isNarrow}
               />
             </div>
           )}
@@ -623,6 +626,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
               <GifPicker
                 onSelect={handleGifSelect}
                 onClose={() => setShowGifPicker(false)}
+                sheet={isNarrow}
               />
             </div>
           )}

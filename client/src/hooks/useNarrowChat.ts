@@ -1,13 +1,22 @@
-/** Narrow-column context: true when the message column is too tight for the wide layout.
- *  Measured from the actual column width (not the window), so split-view with both sidebars
- *  open reflows just like mobile. Provided by MessageList, consumed by reaction pickers. */
+/** Chat column layout: true when the message column is too tight for the wide layout.
+ *  Measured from the real column width by MessageList, read by every picker in the chat
+ *  column (reaction, edit, input emoji, input GIF) so they can switch to a bottom sheet.
+ *  A store (not context) so MessageInput — a sibling of MessageList — can read it too. */
 
-import { createContext, useContext } from "react";
+import { create } from "zustand";
 
-const NarrowChatContext = createContext(false);
+type ChatLayoutState = {
+  isNarrow: boolean;
+  setIsNarrow: (v: boolean) => void;
+};
+
+const useChatLayoutStore = create<ChatLayoutState>((set) => ({
+  isNarrow: false,
+  setIsNarrow: (v) => set((s) => (s.isNarrow === v ? s : { isNarrow: v })),
+}));
 
 function useNarrowChat(): boolean {
-  return useContext(NarrowChatContext);
+  return useChatLayoutStore((s) => s.isNarrow);
 }
 
-export { NarrowChatContext, useNarrowChat };
+export { useChatLayoutStore, useNarrowChat };
