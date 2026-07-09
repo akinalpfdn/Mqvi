@@ -16,6 +16,7 @@ import type {
   AdminServerListItem,
   AdminUserListItem,
   AdminReportListItem,
+  AdminServerReportItem,
   AppLog,
   Server,
 } from "../types";
@@ -236,6 +237,20 @@ export async function listAdminReports(status?: string) {
 
 export async function updateReportStatus(reportId: string, status: string) {
   return apiClient<{ message: string }>(`/admin/reports/${reportId}/status`, {
+    method: "PATCH",
+    body: { status },
+  });
+}
+
+export async function listAdminServerReports(status?: string) {
+  const query = status ? `?status=${status}&limit=100` : "?limit=100";
+  return apiClient<{ reports: AdminServerReportItem[]; total: number }>(
+    `/admin/server-reports${query}`
+  );
+}
+
+export async function updateServerReportStatus(reportId: string, status: string) {
+  return apiClient<{ message: string }>(`/admin/server-reports/${reportId}/status`, {
     method: "PATCH",
     body: { status },
   });

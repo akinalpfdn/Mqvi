@@ -701,3 +701,61 @@ func (h *AdminHandler) UpdateReportStatus(w http.ResponseWriter, r *http.Request
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "report status updated"})
 }
+
+// ListServerReports -- GET /api/admin/server-reports?status=&limit=&offset=
+func (h *AdminHandler) ListServerReports(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	reports, total, err := h.reportService.ListServerReports(r.Context(), status, limit, offset)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]any{"reports": reports, "total": total})
+}
+
+// UpdateServerReportStatus -- PATCH /api/admin/server-reports/{id}/status
+func (h *AdminHandler) UpdateServerReportStatus(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	reportID := r.PathValue("id")
+	if reportID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "report id is required")
+		return
+	}
+
+	var req models.UpdateReportStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := req.Validate(); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.reportService.UpdateServerReportStatus(r.Context(), reportID, models.ReportStatus(req.Status), admin.ID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "report status updated"})
+}

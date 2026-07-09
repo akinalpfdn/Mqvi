@@ -252,6 +252,8 @@ func initRoutes(
 	// Platform Admin — Reports
 	mux.Handle("GET /api/admin/reports", authAdmin(h.Admin.ListReports))
 	mux.Handle("PATCH /api/admin/reports/{id}/status", authAdmin(h.Admin.UpdateReportStatus))
+	mux.Handle("GET /api/admin/server-reports", authAdmin(h.Admin.ListServerReports))
+	mux.Handle("PATCH /api/admin/server-reports/{id}/status", authAdmin(h.Admin.UpdateServerReportStatus))
 	mux.Handle("POST /api/admin/reports/mark-seen", authAdmin(h.Admin.MarkReportsSeen))
 
 	// Platform Admin — Badge indicators (new feedback / new reports)
@@ -304,6 +306,7 @@ func initRoutes(
 	mux.Handle("GET /api/discovery/servers", auth(h.Discovery.ListPublicServers))
 	mux.Handle("GET /api/discovery/servers/{id}", auth(h.Discovery.GetPublicServer))
 	mux.Handle("POST /api/discovery/servers/{id}/join", auth(h.Discovery.JoinPublicServer))
+	mux.Handle("POST /api/discovery/servers/{id}/report", auth(h.Discovery.ReportServer))
 
 	// Server Mute
 	mux.Handle("POST /api/servers/{serverId}/mute", authServer(h.ServerMute.Mute))

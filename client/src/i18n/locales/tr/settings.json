@@ -567,6 +567,9 @@
   "platformHetznerServerIdHint": "Hetzner Cloud Console'daki sayısal ID. Boş bırakılırsa Hetzner metrikleri devre dışı kalır.",
 
   "platformReportsTab": "Raporlar",
+  "platformServerReportsTab": "Sunucu Şikayetleri",
+  "platformServerReportServer": "Sunucu",
+  "platformServerReportsEmpty": "Sunucu şikayeti yok.",
   "platformReportReporter": "Raporlayan",
   "platformReportReported": "Raporlanan",
   "platformReportReason": "Sebep",

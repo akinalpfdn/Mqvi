@@ -51,3 +51,11 @@ export async function joinPublicServer(id: string) {
     method: "POST",
   });
 }
+
+/** Report a public server for discovery moderation. */
+export async function reportServer(id: string, reason: string, description: string) {
+  return apiClient<{ message: string }>(`/discovery/servers/${id}/report`, {
+    method: "POST",
+    body: { reason, description },
+  });
+}

@@ -599,6 +599,20 @@ export type AdminReportListItem = {
   attachments: ReportAttachment[];
 };
 
+export type AdminServerReportItem = {
+  id: string;
+  reporter_id: string;
+  server_id: string;
+  reason: string;
+  description: string;
+  status: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  reporter_username: string;
+  server_name: string;
+};
+
 // ──────────────────────────────────
 // App Logs (Admin)
 // ──────────────────────────────────

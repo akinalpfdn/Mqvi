@@ -321,6 +321,8 @@ select option:disabled {
 .disc-card-icon-img { width:100%;height:100%;object-fit:cover;display:block; }
 .disc-card-head { display:flex;align-items:center;gap:6px;margin-bottom:6px; }
 .disc-card-name { font-size:15px;font-weight:700;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.disc-card-report { margin-left:auto;flex-shrink:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border:none;background:transparent;color:var(--t3);border-radius:6px;cursor:pointer;transition:color .1s,background .1s; }
+.disc-card-report:hover { color:var(--red);background:var(--bg-h); }
 .disc-badge-verified { color:var(--primary);flex-shrink:0; }
 .disc-badge-featured { color:var(--yellow);flex-shrink:0; }
 .disc-card-desc { font-size:13px;color:var(--t2);line-height:1.4;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1; }

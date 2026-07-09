@@ -8,6 +8,7 @@ import { useDiscovery } from "../../hooks/useDiscovery";
 import { joinPublicServer, type PublicServerListItem } from "../../api/discovery";
 import { SERVER_CATEGORIES, categoryLabelKey } from "../../constants/serverCategories";
 import DiscoveryServerCard, { type JoinStatus } from "./DiscoveryServerCard";
+import ReportServerModal from "./ReportServerModal";
 
 function DiscoveryOverlay() {
   const { t } = useTranslation("discovery");
@@ -30,6 +31,7 @@ function DiscoveryOverlay() {
   } = useDiscovery();
 
   const [joinStatus, setJoinStatus] = useState<Record<string, JoinStatus>>({});
+  const [reportTarget, setReportTarget] = useState<PublicServerListItem | null>(null);
 
   // Close on Escape.
   useEffect(() => {
@@ -81,6 +83,7 @@ function DiscoveryOverlay() {
           item={item}
           status={joinStatus[item.id] ?? "idle"}
           onJoin={handleJoin}
+          onReport={setReportTarget}
         />
       ))}
     </div>
@@ -176,6 +179,14 @@ function DiscoveryOverlay() {
           )}
         </section>
       </div>
+
+      {reportTarget && (
+        <ReportServerModal
+          serverId={reportTarget.id}
+          serverName={reportTarget.name}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
     </div>,
     document.body
   );

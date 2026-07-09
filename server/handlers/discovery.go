@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -17,15 +18,16 @@ const (
 	discoveryMaxLimit     = 48
 )
 
-// DiscoveryHandler serves the public server directory (browse/search) and joining from it.
+// DiscoveryHandler serves the public server directory (browse/search), joining, and reporting.
 type DiscoveryHandler struct {
 	discoveryService services.DiscoveryService
 	serverService    services.ServerService
+	reportService    services.ReportService
 	limiter          *ratelimit.MessageRateLimiter
 }
 
-func NewDiscoveryHandler(discoveryService services.DiscoveryService, serverService services.ServerService, limiter *ratelimit.MessageRateLimiter) *DiscoveryHandler {
-	return &DiscoveryHandler{discoveryService: discoveryService, serverService: serverService, limiter: limiter}
+func NewDiscoveryHandler(discoveryService services.DiscoveryService, serverService services.ServerService, reportService services.ReportService, limiter *ratelimit.MessageRateLimiter) *DiscoveryHandler {
+	return &DiscoveryHandler{discoveryService: discoveryService, serverService: serverService, reportService: reportService, limiter: limiter}
 }
 
 // rateLimited writes a 429 (with Retry-After) and returns true when the user is over budget.
@@ -124,6 +126,35 @@ func (h *DiscoveryHandler) JoinPublicServer(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	pkg.JSON(w, http.StatusOK, map[string]any{"pending": false, "server": result.Server})
+}
+
+// ReportServer -- POST /api/discovery/servers/{id}/report
+func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if h.rateLimited(w, user.ID) {
+		return
+	}
+	serverID := r.PathValue("id")
+	if serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server id is required")
+		return
+	}
+
+	var req models.CreateReportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if _, err := h.reportService.CreateServerReport(r.Context(), user.ID, serverID, &req); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "report submitted"})
 }
 
 // parseDiscoveryInt returns a clamped positive int from a query value, or def if absent/invalid.

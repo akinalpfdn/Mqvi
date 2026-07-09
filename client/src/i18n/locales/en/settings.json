@@ -567,6 +567,9 @@
   "platformHetznerServerIdHint": "Numeric ID from Hetzner Cloud Console. Leave empty to disable Hetzner metrics.",
 
   "platformReportsTab": "Reports",
+  "platformServerReportsTab": "Server Reports",
+  "platformServerReportServer": "Server",
+  "platformServerReportsEmpty": "No server reports.",
   "platformReportReporter": "Reporter",
   "platformReportReported": "Reported User",
   "platformReportReason": "Reason",

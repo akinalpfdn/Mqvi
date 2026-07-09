@@ -19,6 +19,9 @@
   "joinError": "Bu sunucuya katılınamadı",
   "verified": "Doğrulanmış",
   "featuredBadge": "Öne Çıkan",
+  "report": "Şikayet Et",
+  "reportServerTitle": "{{server}} sunucusunu şikayet et",
+  "reportError": "Şikayet gönderilemedi",
   "noDescription": "Açıklama girilmemiş.",
   "onlineCount": "{{count}} çevrimiçi",
   "memberCount": "{{count}} üye"

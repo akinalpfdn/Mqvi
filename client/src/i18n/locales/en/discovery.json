@@ -19,6 +19,9 @@
   "joinError": "Could not join this server",
   "verified": "Verified",
   "featuredBadge": "Featured",
+  "report": "Report",
+  "reportServerTitle": "Report {{server}}",
+  "reportError": "Could not submit report",
   "noDescription": "No description provided.",
   "onlineCount": "{{count}} online",
   "memberCount": "{{count}} members"
