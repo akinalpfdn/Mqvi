@@ -247,6 +247,13 @@ function Message({ message, isCompact }: MessageProps) {
     toggleReaction(message.id, emoji);
   }
 
+  /** Open the author's profile card, anchored to the clicked avatar */
+  function openProfileCard(e: React.MouseEvent) {
+    if (!message.author) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setProfileTarget({ user: message.author, top: rect.top, left: rect.right + 8 });
+  }
+
   /** Right-click context menu */
   function handleContextMenu(e: React.MouseEvent) {
     const items: ContextMenuItem[] = [];
@@ -459,19 +466,10 @@ function Message({ message, isCompact }: MessageProps) {
       onContextMenu={isMobile ? longPressHandlers.onContextMenu : handleContextMenu}
     >
       <div className="msg-row">
+        {/* Both avatars are always rendered; the container query shows the one that fits the
+            message column width — left gutter when wide, inline header avatar when narrow. */}
         <div className="msg-avatar">
-          <button
-            className="msg-avatar-btn"
-            onClick={(e) => {
-              if (!message.author) return;
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              setProfileTarget({
-                user: message.author,
-                top: rect.top,
-                left: rect.right + 8,
-              });
-            }}
-          >
+          <button className="msg-avatar-btn" onClick={openProfileCard}>
             <Avatar
               name={displayName}
               role={roleType}
@@ -483,6 +481,14 @@ function Message({ message, isCompact }: MessageProps) {
 
         <div className="msg-body">
           <div className="msg-meta">
+            <button className="msg-avatar-btn msg-avatar-inline" onClick={openProfileCard}>
+              <Avatar
+                name={displayName}
+                role={roleType}
+                avatarUrl={isAuthorDeleted ? undefined : message.author?.avatar_url ?? undefined}
+                size={20}
+              />
+            </button>
             <span
               className="msg-name"
               style={roleColor ? { color: roleColor } : undefined}

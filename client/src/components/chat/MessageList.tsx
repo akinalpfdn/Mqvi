@@ -1,6 +1,6 @@
 /** MessageList — Scrollable message container with auto-scroll, infinite scroll, and compact mode. */
 
-import { useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useAuthStore } from "../../stores/authStore";
@@ -9,6 +9,11 @@ import { useReadStateStore } from "../../stores/readStateStore";
 import { MessageSkeleton } from "../shared/Skeleton";
 import Message from "./Message";
 import CallLogRow from "./CallLogRow";
+import { NarrowChatContext } from "../../hooks/useNarrowChat";
+
+/** Below this column width the message layout switches to the compact (mobile-style) mode.
+ *  Kept in sync with the `@container (max-width:600px)` rule in globals.css. */
+const NARROW_COLUMN_WIDTH = 600;
 
 /** Compact threshold for consecutive messages from same author (ms) */
 const COMPACT_THRESHOLD = 5 * 60 * 1000;
@@ -37,6 +42,20 @@ function MessageList() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Reflow the message layout by the column's real width (survives sidebar toggles / split-view).
+  const [isNarrow, setIsNarrow] = useState(false);
+  const narrowObserverRef = useRef<ResizeObserver | null>(null);
+  const setViewportRef = useCallback((el: HTMLDivElement | null) => {
+    narrowObserverRef.current?.disconnect();
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w > 0) setIsNarrow(w < NARROW_COLUMN_WIDTH);
+    });
+    ro.observe(el);
+    narrowObserverRef.current = ro;
+  }, []);
   // Intent flag: "user wants to stay pinned to bottom". Only the user scrolling
   // UP invalidates it; programmatic scrollTo / image-load resize do not.
   const stickToBottomRef = useRef(true);
@@ -226,7 +245,8 @@ function MessageList() {
   const welcomeIcon = mode === "dm" ? "@" : mode === "voice" ? "🔊" : "#";
 
   return (
-    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <NarrowChatContext.Provider value={isNarrow}>
+    <div className="chat-msg-viewport" ref={setViewportRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -293,6 +313,7 @@ function MessageList() {
         </button>
       )}
     </div>
+    </NarrowChatContext.Provider>
   );
 }
 

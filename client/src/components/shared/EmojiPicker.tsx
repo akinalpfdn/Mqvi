@@ -1,6 +1,7 @@
 /** EmojiPicker — @emoji-mart/react wrapper with viewport-aware positioning. */
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import Picker from "@emoji-mart/react";
 import data from "@emoji-mart/data";
@@ -8,16 +9,19 @@ import data from "@emoji-mart/data";
 type EmojiPickerProps = {
   onSelect: (emoji: string) => void;
   onClose: () => void;
+  /** Narrow column → render as a centered bottom sheet portaled to <body> (never off-screen). */
+  sheet?: boolean;
 };
 
-function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
+function EmojiPicker({ onSelect, onClose, sheet = false }: EmojiPickerProps) {
   const { i18n } = useTranslation();
   const pickerRef = useRef<HTMLDivElement>(null);
   const [flipped, setFlipped] = useState(false);
 
-  // Flip picker downward if it overflows the viewport top
+  // Flip picker downward if it overflows the viewport top (inline popover only — the sheet
+  // variant is bottom-anchored so it never needs flipping).
   useEffect(() => {
-    if (!pickerRef.current) return;
+    if (sheet || !pickerRef.current) return;
     const raf = requestAnimationFrame(() => {
       if (!pickerRef.current) return;
       const rect = pickerRef.current.getBoundingClientRect();
@@ -28,7 +32,7 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
       }
     });
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [sheet]);
 
   // Close on click outside
   useEffect(() => {
@@ -77,9 +81,9 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
     return () => { style.remove(); };
   }, []);
 
-  return (
+  const content = (
     <div
-      className={`emoji-picker${flipped ? " emoji-picker-flipped" : ""}`}
+      className={`emoji-picker${sheet ? " emoji-picker-sheet" : flipped ? " emoji-picker-flipped" : ""}`}
       ref={pickerRef}
     >
       <Picker
@@ -95,9 +99,23 @@ function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
         navPosition="bottom"
         emojiSize={28}
         emojiButtonSize={36}
+        dynamicWidth={sheet || undefined}
       />
     </div>
   );
+
+  // Sheet variant escapes the message column's overflow/containment via a body portal.
+  if (sheet) {
+    return createPortal(
+      <>
+        <div className="emoji-picker-backdrop" onClick={onClose} />
+        {content}
+      </>,
+      document.body
+    );
+  }
+
+  return content;
 }
 
 export default EmojiPicker;

@@ -1,6 +1,7 @@
 /** MessageHoverActions — Floating action bar shown on hover (reply, react, pin, edit, delete). */
 
 import { useTranslation } from "react-i18next";
+import { useNarrowChat } from "../../hooks/useNarrowChat";
 import EmojiPicker from "../shared/EmojiPicker";
 
 type MessageHoverActionsProps = {
@@ -38,6 +39,7 @@ function MessageHoverActions({
   showPin = true,
 }: MessageHoverActionsProps) {
   const { t } = useTranslation("chat");
+  const isNarrow = useNarrowChat();
 
   return (
     <div className="msg-hover-actions">
@@ -59,6 +61,7 @@ function MessageHoverActions({
             <EmojiPicker
               onSelect={onReaction}
               onClose={onPickerClose}
+              sheet={isNarrow}
             />
           )}
         </div>
