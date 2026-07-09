@@ -33,6 +33,11 @@ type MessageInputProps = {
   openSearch: (query: string) => void;
 };
 
+const AUTO_MAX_HEIGHT = 200; // px — auto-grow cap while the input sizes itself to content
+const MIN_INPUT_HEIGHT = 40; // px — one line + padding, floor for a manual resize
+const MAX_INPUT_HEIGHT = 500; // px — absolute ceiling for a manual resize
+const MAX_INPUT_RATIO = 0.5; // and never taller than half the viewport
+
 function MessageInput({ openSearch }: MessageInputProps) {
   const { t } = useTranslation("chat");
   const { sendPresenceUpdate, toggleMute, toggleDeafen } = useChatCommandActions();
@@ -54,6 +59,11 @@ function MessageInput({ openSearch }: MessageInputProps) {
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
+
+  // Manual resize: null = auto-grow to content (default), a number = user-dragged fixed height.
+  const [manualHeight, setManualHeight] = useState<number | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef<{ startY: number; startHeight: number; max: number; moved: boolean } | null>(null);
 
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
@@ -85,6 +95,23 @@ function MessageInput({ openSearch }: MessageInputProps) {
     }
   }, [replyingTo]);
 
+  // Apply the manual resize (or restore auto-grow when the user resets it).
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (manualHeight !== null) {
+      // Fixed height wins over the CSS max-height cap so it can exceed the 3-line auto limit.
+      ta.style.height = `${manualHeight}px`;
+      ta.style.maxHeight = `${manualHeight}px`;
+      ta.style.overflowY = "auto";
+    } else {
+      ta.style.maxHeight = "";
+      ta.style.overflowY = "";
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight, AUTO_MAX_HEIGHT)}px`;
+    }
+  }, [manualHeight]);
+
   function convertMentionTokens(text: string): string {
     let result = text;
     const sorted = [...mentionSelectionsRef.current].sort((a, b) => b.name.length - a.name.length);
@@ -111,7 +138,8 @@ function MessageInput({ openSearch }: MessageInputProps) {
     setReplyingTo(null);
     setCommandQuery(null);
     mentionSelectionsRef.current = [];
-    if (textareaRef.current) {
+    // Keep a user-dragged height; only auto-grow inputs shrink back after sending.
+    if (textareaRef.current && manualHeight === null) {
       textareaRef.current.style.height = "auto";
     }
   }
@@ -306,9 +334,39 @@ function MessageInput({ openSearch }: MessageInputProps) {
       setMentionQuery(null);
     }
 
-    if (textareaRef.current) {
+    if (textareaRef.current && manualHeight === null) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, AUTO_MAX_HEIGHT)}px`;
+    }
+  }
+
+  function handleResizeStart(e: React.PointerEvent<HTMLDivElement>) {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    e.preventDefault();
+    const startHeight = ta.getBoundingClientRect().height;
+    const max = Math.max(MIN_INPUT_HEIGHT, Math.min(MAX_INPUT_HEIGHT, window.innerHeight * MAX_INPUT_RATIO));
+    resizeStartRef.current = { startY: e.clientY, startHeight, max, moved: false };
+    setIsResizing(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handleResizeMove(e: React.PointerEvent<HTMLDivElement>) {
+    const start = resizeStartRef.current;
+    if (!start) return;
+    const delta = start.startY - e.clientY; // drag up → taller
+    // Ignore click-jitter: only enter manual mode once it's clearly a drag.
+    if (!start.moved && Math.abs(delta) < 3) return;
+    start.moved = true;
+    setManualHeight(Math.max(MIN_INPUT_HEIGHT, Math.min(start.max, start.startHeight + delta)));
+  }
+
+  function handleResizeEnd(e: React.PointerEvent<HTMLDivElement>) {
+    if (!resizeStartRef.current) return;
+    resizeStartRef.current = null;
+    setIsResizing(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
   }
 
@@ -478,6 +536,19 @@ function MessageInput({ openSearch }: MessageInputProps) {
       )}
 
       <div className="input-box">
+        <div
+          className="input-resize-handle"
+          data-dragging={isResizing ? "true" : undefined}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label={t("inputResize")}
+          title={t("inputResize")}
+          onPointerDown={handleResizeStart}
+          onPointerMove={handleResizeMove}
+          onPointerUp={handleResizeEnd}
+          onPointerCancel={handleResizeEnd}
+          onDoubleClick={() => setManualHeight(null)}
+        />
         <button
           className="input-action-btn"
           onClick={() => fileInputRef.current?.click()}

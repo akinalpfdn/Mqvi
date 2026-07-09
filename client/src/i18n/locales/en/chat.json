@@ -12,6 +12,7 @@
   "voiceMessageCancel": "Cancel",
   "voiceMessageDone": "Done",
   "messagePlaceholder": "Message #{{channel}}",
+  "inputResize": "Drag to resize (double-click to reset)",
   "editMessage": "Edit Message",
   "deleteMessage": "Delete Message",
   "deleteMessageConfirm": "Are you sure you want to delete this message?",

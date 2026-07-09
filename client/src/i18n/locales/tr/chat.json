@@ -12,6 +12,7 @@
   "voiceMessageCancel": "İptal",
   "voiceMessageDone": "Bitti",
   "messagePlaceholder": "#{{channel}} kanalına mesaj yaz",
+  "inputResize": "Boyutlandırmak için sürükle (sıfırlamak için çift tıkla)",
   "editMessage": "Mesajı Düzenle",
   "deleteMessage": "Mesajı Sil",
   "deleteMessageConfirm": "Bu mesajı silmek istediğinize emin misiniz?",

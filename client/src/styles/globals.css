@@ -802,6 +802,12 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .input-action-btn { width:36px;height:36px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .1s,background .1s; }
 .input-action-btn:hover { color:var(--t0);background:var(--bg-h); }
 
+/* Drag-to-resize grip centered on the top border of the input box */
+.input-resize-handle { position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:60px;height:14px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;z-index:6;touch-action:none; }
+.input-resize-handle::before { content:"";width:40px;height:4px;border-radius:99px;background:var(--b2);transition:background .12s,width .12s; }
+.input-resize-handle:hover::before { background:var(--t3);width:52px; }
+.input-resize-handle[data-dragging="true"]::before { background:var(--primary);width:52px; }
+
 /* Voice message recording */
 .voice-rec-btn { touch-action:none; } /* drag-to-lock must not scroll the page on touch */
 .voice-rec-overlay { position:absolute;inset:0;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--bg-4);border-radius:var(--panel-radius);z-index:5; }
