@@ -291,7 +291,8 @@ select option:disabled {
 .server-banner-placeholder { display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--t3);font-size:13px; }
 
 /* ─── Discovery (public server directory) ─── */
-.disc-overlay { position:fixed;inset:0;z-index:500;display:flex;flex-direction:column;background:var(--bg-1);color:var(--t0);overflow:hidden; }
+.disc-overlay { position:fixed;inset:0;z-index:500;display:flex;flex-direction:column;background:var(--bg-1);color:var(--t0);overflow:hidden;
+  padding:var(--safe-area-inset-top) var(--safe-area-inset-right) var(--safe-area-inset-bottom) var(--safe-area-inset-left); }
 .disc-header { padding:32px 40px 16px;border-bottom:1px solid var(--b1);flex-shrink:0;background:linear-gradient(180deg, var(--bg-2), var(--bg-1)); }
 .disc-header-top { display:flex;align-items:flex-start;justify-content:space-between; }
 .disc-title { font-size:28px;font-weight:800;color:var(--t0);letter-spacing:-0.02em; }
@@ -2318,7 +2319,13 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .connection-banner {
   position:fixed;top:0;left:0;right:0;z-index:200;
   display:flex;align-items:center;justify-content:center;gap:12px;
-  padding:8px 16px;font-size:13px;font-weight:600;
+  /* Background stays full-bleed; content is pushed clear of the status bar / notch so the
+     refresh button is tappable on edge-to-edge phones. Insets are 0 on desktop. */
+  padding:calc(8px + var(--safe-area-inset-top))
+          calc(16px + var(--safe-area-inset-right))
+          8px
+          calc(16px + var(--safe-area-inset-left));
+  font-size:13px;font-weight:600;
   animation:conn-banner-in 0.2s ease-out;
   -webkit-app-region:no-drag;
 }
@@ -3271,7 +3278,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   overflow-y: auto;
   transform: translateY(100%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  padding-bottom: env(safe-area-inset-bottom);
+  /* var(), not env(): Android WebView reports env(safe-area-inset-*) as 0 — MainActivity
+     injects the real WindowInsets into these custom properties. */
+  padding-bottom: var(--safe-area-inset-bottom);
 }
 .mobile-bottom-sheet.open {
   transform: translateY(0);
@@ -3684,7 +3693,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   .toast-container {
     left: 8px !important;
     right: 8px !important;
-    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    /* var(), not env(): env() is 0 in Android WebView (see MainActivity inset injection). */
+    bottom: max(8px, var(--safe-area-inset-bottom)) !important;
   }
   .toast {
     max-width: 100%;
@@ -4355,6 +4365,10 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   display: flex;
   flex-direction: column;
   animation: vpIn .15s ease;
+  /* Backdrop covers the whole screen, but the header (close/download) and any bottom controls
+     stay clear of the status + navigation bars. All four sides for landscape notches. */
+  padding: var(--safe-area-inset-top) var(--safe-area-inset-right)
+           var(--safe-area-inset-bottom) var(--safe-area-inset-left);
 }
 
 .file-viewer-header {
