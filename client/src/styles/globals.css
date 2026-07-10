@@ -1267,6 +1267,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* No tab / placeholder */
 .no-channel { display:flex;align-items:center;justify-content:center;flex:1;color:var(--t3);font-size:13px; }
+.no-channel-inner { display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:0 24px; }
+.no-channel-title { font-size:15px;font-weight:500;color:var(--t2); }
+.no-channel-hint { font-size:13px;color:var(--t3);line-height:1.4; }
 .settings-placeholder { flex-direction:column;gap:8px; }
 .settings-placeholder-text { font-size:13px;color:var(--t2); }
 

@@ -29,6 +29,8 @@
   "uploadFile": "Upload File",
   "fileTooLarge": "File is too large (max {{max}}MB)",
   "noChannel": "Select a channel",
+  "noChannelHint": "Pick one from the channel list on the left",
+  "noChannelHintMobile": "Tap the menu button above to browse channels",
   "editCancel": "cancel",
   "editSave": "save",
   "pinMessage": "Pin Message",

@@ -29,6 +29,8 @@
   "uploadFile": "Dosya Yükle",
   "fileTooLarge": "Dosya çok büyük (maks. {{max}}MB)",
   "noChannel": "Bir kanal seçin",
+  "noChannelHint": "Soldaki kanal listesinden bir kanal seçin",
+  "noChannelHintMobile": "Kanallara göz atmak için yukarıdaki menü düğmesine dokunun",
   "editCancel": "iptal",
   "editSave": "kaydet",
   "pinMessage": "Mesajı Sabitle",
