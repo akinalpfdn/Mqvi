@@ -6,7 +6,7 @@
  * 1. Establish WS connection on login
  * 2. Send heartbeats (30s interval, 3 misses = disconnect)
  * 3. Route incoming events to store handlers (switch/case)
- * 4. Auto-reconnect on disconnect (10s delay, max 5 attempts)
+ * 4. Auto-reconnect on disconnect (exponential backoff, never gives up)
  * 5. Expose sendTyping for MessageInput
  *
  * StrictMode protection:
@@ -23,7 +23,9 @@ import { useVoiceStore } from "../stores/voiceStore";
 import {
   WS_URL,
   WS_HEARTBEAT_INTERVAL,
+  WS_HEARTBEAT_PROBE_INTERVAL,
   WS_HEARTBEAT_MAX_MISS,
+  WS_MAX_RECONNECT_ATTEMPTS,
 } from "../utils/constants";
 import type { WSMessage, UserStatus } from "../types";
 import { handleChannelEvent } from "./ws/channelEventHandlers";
@@ -41,9 +43,6 @@ import type { WSHandlerContext } from "./ws/types";
 const RECONNECT_BASE_DELAY = 1_500;
 const RECONNECT_MAX_DELAY = 20_000;
 
-/** Max reconnect attempts before showing "disconnected" */
-const MAX_RECONNECT_ATTEMPTS = 7;
-
 /** Typing throttle (ms) — prevents flooding same channel */
 const TYPING_THROTTLE = 3_000;
 
@@ -57,6 +56,19 @@ export function useWebSocket() {
   const reconnectAttemptRef = useRef<number>(0);
 
   /**
+   * Set once the attempt budget runs out. Retries continue, but the banner stays on
+   * "disconnected" until a `ready` arrives — otherwise it would flash red→yellow→red
+   * on every capped retry.
+   */
+  const exhaustedRef = useRef<boolean>(false);
+
+  /** Set while the post-resume probe interval is active (see startHeartbeatRef). */
+  const heartbeatProbingRef = useRef<boolean>(false);
+
+  /** Restarts the heartbeat interval at the given period. Assigned inside the connect effect. */
+  const startHeartbeatRef = useRef<((intervalMs: number) => void) | null>(null);
+
+  /**
    * Monotonically increasing connection ID — StrictMode guard.
    * Never reset to 0; always incremented to keep IDs unique.
    */
@@ -67,6 +79,12 @@ export function useWebSocket() {
   >("connecting");
 
   const [reconnectAttempt, setReconnectAttempt] = useState<number>(0);
+
+  /** Clears the exhausted latch once the session is live again, so the next blip shows yellow. */
+  const updateStatus = useCallback((status: "connected" | "connecting" | "disconnected") => {
+    if (status === "connected") exhaustedRef.current = false;
+    setConnectionStatus(status);
+  }, []);
 
   /** Last typing timestamp per channel — throttle map */
   const lastTypingRef = useRef<Map<string, number>>(new Map());
@@ -85,7 +103,15 @@ export function useWebSocket() {
   async function routeEvent(msg: WSMessage) {
     // Heartbeat ack is handled inline (no store interaction)
     if (msg.op === "heartbeat_ack") {
+      // Only an ack to a beat we sent proves the socket is alive. An ack buffered by the OS
+      // before the app froze arrives with no beat outstanding and must not cancel the probe.
+      const answeredOutstandingBeat = heartbeatProbingRef.current && missedHeartbeatsRef.current > 0;
       missedHeartbeatsRef.current = 0;
+
+      if (answeredOutstandingBeat) {
+        heartbeatProbingRef.current = false;
+        startHeartbeatRef.current?.(WS_HEARTBEAT_INTERVAL);
+      }
       return;
     }
 
@@ -94,7 +120,7 @@ export function useWebSocket() {
     if (await handleChannelEvent(msg)) return;
     if (await handleDMEvent(msg)) return;
     if (await handleVoiceEvent(msg, ctx)) return;
-    if (await handleSystemEvent(msg, ctx, setConnectionStatus)) return;
+    if (await handleSystemEvent(msg, ctx, updateStatus)) return;
   }
 
   // Keep routeEventRef fresh every render (latest ref pattern)
@@ -240,20 +266,53 @@ export function useWebSocket() {
     const myId = ++activeConnectionIdRef.current;
 
     /**
-     * scheduleReconnect — Exponential backoff, max 7 attempts (~60s total).
-     * Shows "disconnected" banner after limit is reached.
+     * (Re)starts the heartbeat at the given period. A socket that misses
+     * WS_HEARTBEAT_MAX_MISS acks closes itself — the single close path, shared by the
+     * steady-state interval and the post-resume probe. Reads wsRef at tick time so it
+     * never holds a stale socket.
+     */
+    function startHeartbeat(intervalMs: number) {
+      if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+
+      heartbeatIntervalRef.current = setInterval(() => {
+        const socket = wsRef.current;
+        if (activeConnectionIdRef.current !== myId || !socket) {
+          if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+          return;
+        }
+
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ op: "heartbeat" }));
+          missedHeartbeatsRef.current++;
+
+          if (missedHeartbeatsRef.current >= WS_HEARTBEAT_MAX_MISS) {
+            socket.close();
+          }
+        }
+      }, intervalMs);
+    }
+
+    startHeartbeatRef.current = startHeartbeat;
+
+    /**
+     * scheduleReconnect — Exponential backoff. After the attempt budget runs out the
+     * banner reports failure, but retries keep going at RECONNECT_MAX_DELAY: on mobile a
+     * tunnel easily outlasts the budget, and the banner's only manual escape is a full
+     * page reload that would also tear down an active LiveKit session.
      */
     function scheduleReconnect() {
       if (activeConnectionIdRef.current !== myId) return;
 
-      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
-        setConnectionStatus("disconnected");
-        return;
-      }
-
       const delay = getReconnectDelay();
-      reconnectAttemptRef.current++;
-      setReconnectAttempt(reconnectAttemptRef.current);
+
+      if (reconnectAttemptRef.current >= WS_MAX_RECONNECT_ATTEMPTS) {
+        exhaustedRef.current = true;
+        updateStatus("disconnected");
+      } else {
+        reconnectAttemptRef.current++;
+        setReconnectAttempt(reconnectAttemptRef.current);
+      }
 
       reconnectTimeoutRef.current = setTimeout(() => {
         if (activeConnectionIdRef.current === myId) {
@@ -269,7 +328,9 @@ export function useWebSocket() {
     async function doConnect() {
       if (activeConnectionIdRef.current !== myId) return;
 
-      setConnectionStatus("connecting");
+      // Once exhausted the banner stays red until `ready` — a capped retry every 20s
+      // must not flip it back to "connecting".
+      if (!exhaustedRef.current) updateStatus("connecting");
 
       let token: string | null = null;
       try {
@@ -291,33 +352,28 @@ export function useWebSocket() {
         wsRef.current = null;
       }
 
-      const socket = new WebSocket(`${WS_URL}?token=${token}`);
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(`${WS_URL}?token=${token}`);
+      } catch (err) {
+        // A malformed WS_URL throws synchronously. Without this the hook would sit on
+        // "connecting" forever, since no socket exists to fire onclose.
+        console.warn("[useWebSocket] failed to open socket", err);
+        scheduleReconnect();
+        return;
+      }
       wsRef.current = socket;
 
       // ─── onopen ───
       socket.onopen = () => {
-        if (activeConnectionIdRef.current !== myId) return;
+        if (activeConnectionIdRef.current !== myId || wsRef.current !== socket) return;
 
         reconnectAttemptRef.current = 0;
         setReconnectAttempt(0);
         missedHeartbeatsRef.current = 0;
+        heartbeatProbingRef.current = false;
 
-        // Start heartbeat interval
-        heartbeatIntervalRef.current = setInterval(() => {
-          if (activeConnectionIdRef.current !== myId) {
-            clearInterval(heartbeatIntervalRef.current!);
-            return;
-          }
-
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ op: "heartbeat" }));
-            missedHeartbeatsRef.current++;
-
-            if (missedHeartbeatsRef.current >= WS_HEARTBEAT_MAX_MISS) {
-              socket.close();
-            }
-          }
-        }, WS_HEARTBEAT_INTERVAL);
+        startHeartbeat(WS_HEARTBEAT_INTERVAL);
 
         // Proactive token refresh every 10min while WS is open.
         // Access token expires at 15min — 10min gives 5min buffer.
@@ -349,7 +405,7 @@ export function useWebSocket() {
 
       // ─── onmessage ───
       socket.onmessage = (event: MessageEvent) => {
-        if (activeConnectionIdRef.current !== myId) return;
+        if (activeConnectionIdRef.current !== myId || wsRef.current !== socket) return;
 
         let msg: WSMessage;
         try {
@@ -367,11 +423,18 @@ export function useWebSocket() {
       };
 
       // ─── onclose ───
-      socket.onclose = () => {
+      socket.onclose = (event: CloseEvent) => {
         // Stale socket guard — critical for StrictMode
         if (activeConnectionIdRef.current !== myId) return;
+        // A socket we already replaced still fires onclose. Without this it would clear the
+        // live socket's timers and schedule a reconnect that kills the healthy connection.
+        if (wsRef.current !== socket) return;
 
-        setConnectionStatus("disconnected");
+        console.warn(`[useWebSocket] socket closed: code=${event.code} reason=${event.reason || "-"}`);
+
+        // A close is the start of a reconnect, not a failure — scheduleReconnect owns the
+        // decision to report failure once the attempt budget is spent.
+        if (!exhaustedRef.current) updateStatus("connecting");
         cleanupTimers();
         scheduleReconnect();
       };
@@ -384,7 +447,7 @@ export function useWebSocket() {
 
     doConnect();
 
-    // App resume listener — reconnect WS if socket is closed (mobile background → foreground)
+    // App resume listener — mobile background → foreground
     function onAppResume() {
       if (activeConnectionIdRef.current !== myId) return;
 
@@ -392,7 +455,18 @@ export function useWebSocket() {
       if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
         reconnectAttemptRef.current = 0;
         setReconnectAttempt(0);
+        exhaustedRef.current = false;
         doConnect();
+        return;
+      }
+
+      // OPEN is not proof of life: the server drops us after pongWait (90s) while the
+      // WebView's timers are frozen, and a half-open socket never reports the FIN. Probe
+      // at a shorter period so a dead socket is detected in 3 × 10s instead of 3 × 30s.
+      if (ws.readyState === WebSocket.OPEN) {
+        missedHeartbeatsRef.current = 0;
+        heartbeatProbingRef.current = true;
+        startHeartbeat(WS_HEARTBEAT_PROBE_INTERVAL);
       }
     }
 
@@ -402,6 +476,8 @@ export function useWebSocket() {
       // Increment (not reset) to invalidate all callbacks from this connection
       activeConnectionIdRef.current++;
       cleanupTimers();
+      startHeartbeatRef.current = null;
+      heartbeatProbingRef.current = false;
       window.removeEventListener(APP_RESUME_EVENT, onAppResume);
 
       if (wsRef.current) {

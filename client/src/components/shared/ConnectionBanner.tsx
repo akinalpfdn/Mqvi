@@ -1,9 +1,14 @@
 /** ConnectionBanner — WebSocket connection status indicator (connecting/disconnected). */
 
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { WS_MAX_RECONNECT_ATTEMPTS } from "../../utils/constants";
 
-/** Must match MAX_RECONNECT_ATTEMPTS in useWebSocket */
-const MAX_RECONNECT_ATTEMPTS = 5;
+/**
+ * Grace period before the banner appears (ms). A cold start or a brief radio blip
+ * reconnects well inside this window, so the user never sees it flash.
+ */
+const BANNER_GRACE = 1_500;
 
 type ConnectionBannerProps = {
   status: "connected" | "connecting" | "disconnected";
@@ -13,8 +18,22 @@ type ConnectionBannerProps = {
 
 function ConnectionBanner({ status, reconnectAttempt }: ConnectionBannerProps) {
   const { t } = useTranslation("common");
+  const [isVisible, setIsVisible] = useState(false);
 
-  if (status === "connected") return null;
+  const isOffline = status !== "connected";
+
+  // Keyed on isOffline, not status: a connecting → disconnected transition must not
+  // restart the grace timer and blank an already-visible banner.
+  useEffect(() => {
+    if (!isOffline) {
+      setIsVisible(false);
+      return;
+    }
+    const timer = setTimeout(() => setIsVisible(true), BANNER_GRACE);
+    return () => clearTimeout(timer);
+  }, [isOffline]);
+
+  if (!isOffline || !isVisible) return null;
 
   function handleRefresh() {
     window.location.reload();
@@ -27,7 +46,7 @@ function ConnectionBanner({ status, reconnectAttempt }: ConnectionBannerProps) {
     }
     // connecting — initial attempt (0) or retry
     if (reconnectAttempt > 0) {
-      return t("connectionRetrying", { attempt: reconnectAttempt, max: MAX_RECONNECT_ATTEMPTS });
+      return t("connectionRetrying", { attempt: reconnectAttempt, max: WS_MAX_RECONNECT_ATTEMPTS });
     }
     return t("connectionConnecting");
   }

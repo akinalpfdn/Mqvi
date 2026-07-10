@@ -163,8 +163,19 @@ export function isScreenShareIdentity(identity: string): boolean {
 /** WebSocket heartbeat interval (ms) */
 export const WS_HEARTBEAT_INTERVAL = 30_000;
 
+/**
+ * Heartbeat interval used right after the app returns from background (ms).
+ * readyState can still read OPEN on a socket the server already dropped, so the
+ * probe interval shortens dead-socket detection to 3 × 10s. Restored to
+ * WS_HEARTBEAT_INTERVAL on the first ack, keeping steady-state radio wakeups unchanged.
+ */
+export const WS_HEARTBEAT_PROBE_INTERVAL = 10_000;
+
 /** WebSocket heartbeat miss threshold — disconnect after this many missed heartbeats */
 export const WS_HEARTBEAT_MAX_MISS = 3;
+
+/** Reconnect attempts before the failure banner is shown. Retries continue past this. */
+export const WS_MAX_RECONNECT_ATTEMPTS = 7;
 
 /** Default message count (pagination) */
 export const DEFAULT_MESSAGE_LIMIT = 50;
