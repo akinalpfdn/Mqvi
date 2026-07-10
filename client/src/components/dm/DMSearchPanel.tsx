@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { searchCachedDMMessages } from "../../crypto/keyStorage";
+import { useBackHandler } from "../../hooks/useBackHandler";
 import Avatar from "../shared/Avatar";
 import { authorDisplayName, authorAvatarURL } from "../../utils/deletedUser";
 import type { DMMessage } from "../../types";
@@ -28,6 +29,7 @@ type SearchState = {
 function DMSearchPanel({ channelId, onClose }: DMSearchPanelProps) {
   const { t } = useTranslation("chat");
   const { t: tE2ee } = useTranslation("e2ee");
+  useBackHandler(onClose);
   const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
   const searchMessages = useDMStore((s) => s.searchMessages);
   const setScrollToMessageId = useDMStore((s) => s.setScrollToMessageId);

@@ -6,6 +6,7 @@ import { searchMessages } from "../../api/search";
 import { searchCachedMessages } from "../../crypto/keyStorage";
 import { useServerStore } from "../../stores/serverStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
+import { useBackHandler } from "../../hooks/useBackHandler";
 import type { SearchResult } from "../../api/search";
 import type { Message } from "../../types";
 import Avatar from "../shared/Avatar";
@@ -25,6 +26,7 @@ type SearchPanelProps = {
 function SearchPanel({ channelId, onClose, initialQuery = "", onSelectResult }: SearchPanelProps) {
   const { t } = useTranslation("chat");
   const { t: tE2ee } = useTranslation("e2ee");
+  useBackHandler(onClose);
   const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
   // E2EE is per-server. Plaintext servers can use backend FTS5; only route
   // through the IndexedDB cache when the active server is actually encrypted.

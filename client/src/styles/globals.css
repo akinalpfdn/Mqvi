@@ -3633,6 +3633,13 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     max-height: 50vh;
     border-radius: 12px 12px 0 0;
     z-index: 51;
+    /* position:fixed escapes #root's padding — clear the navigation bar ourselves. */
+    padding-bottom: var(--safe-area-inset-bottom);
+  }
+  .pinned-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
   }
 
   /* ─── Search Panel → Full Width ─── */
@@ -3644,6 +3651,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     z-index: 51;
     border-radius: 0;
     border: none;
+    /* Without this the header — and its only close button — sits under the status bar. */
+    padding: var(--safe-area-inset-top) var(--safe-area-inset-right)
+             var(--safe-area-inset-bottom) var(--safe-area-inset-left);
   }
 
   /* ─── GIF Picker → Bottom Sheet ─── */
