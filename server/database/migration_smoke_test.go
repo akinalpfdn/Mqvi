@@ -3,6 +3,7 @@ package database
 import (
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -59,5 +60,76 @@ func TestEmbeddedMigrations_ApplyClean(t *testing.T) {
 	}
 	if approvalCol != 1 {
 		t.Fatalf("servers.approval_required column missing after migration 074")
+	}
+}
+
+// An external-content FTS5 table cannot be pruned with a plain DELETE: it rebuilds the terms
+// to remove from the content table, which an AFTER trigger sees already holding the new row.
+// Editing a server description returned SQLITE_CORRUPT_VTAB; message edits silently left the
+// old text searchable. Migration 081 replaced every such DELETE with the 'delete' command.
+func TestEmbeddedMigrations_FTSTriggersUseDeleteCommand(t *testing.T) {
+	migFS, err := fs.Sub(EmbeddedMigrations, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations: %v", err)
+	}
+	db, err := New(filepath.Join(t.TempDir(), "fts.db"), migFS)
+	if err != nil {
+		t.Fatalf("migrations failed to apply: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Conn.Close() })
+
+	rows, err := db.Conn.Query(
+		`SELECT name, sql FROM sqlite_master WHERE type='trigger' AND sql LIKE '%_fts%'`)
+	if err != nil {
+		t.Fatalf("read triggers: %v", err)
+	}
+	defer rows.Close()
+
+	seen := 0
+	for rows.Next() {
+		var name, ddl string
+		if err := rows.Scan(&name, &ddl); err != nil {
+			t.Fatalf("scan trigger: %v", err)
+		}
+		seen++
+		if strings.Contains(strings.ToUpper(ddl), "DELETE FROM") {
+			t.Errorf("trigger %s prunes an external-content FTS table with DELETE FROM", name)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no FTS triggers found — the query no longer matches, this test is dead")
+	}
+
+	if _, err := db.Conn.Exec(
+		`INSERT INTO users (id, username, password_hash) VALUES ('u1','owner','x');
+		 INSERT INTO servers (id, name, owner_id, description, is_public) VALUES ('s1','Alpha','u1','old text',1);`,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if _, err := db.Conn.Exec(`UPDATE servers SET description = 'brand new text' WHERE id = 's1'`); err != nil {
+		t.Fatalf("editing a server description must not fail: %v", err)
+	}
+
+	match := func(term string) int {
+		var n int
+		if err := db.Conn.QueryRow(
+			`SELECT count(*) FROM servers_fts WHERE servers_fts MATCH ?`, term).Scan(&n); err != nil {
+			t.Fatalf("search %q: %v", term, err)
+		}
+		return n
+	}
+	if got := match("brand"); got != 1 {
+		t.Errorf("new description must be searchable, got %d hits", got)
+	}
+	if got := match("old text"); got != 0 {
+		t.Errorf("old description must leave the index, got %d hits", got)
+	}
+
+	if _, err := db.Conn.Exec(`DELETE FROM servers WHERE id = 's1'`); err != nil {
+		t.Fatalf("deleting a server must not fail: %v", err)
+	}
+	if got := match("brand"); got != 0 {
+		t.Errorf("deleted server must leave the index, got %d hits", got)
 	}
 }

@@ -22,12 +22,14 @@ CREATE VIRTUAL TABLE servers_fts USING fts5(name, description, content='servers'
 CREATE TRIGGER servers_ai AFTER INSERT ON servers BEGIN
 	INSERT INTO servers_fts(rowid, name, description) VALUES (NEW.rowid, NEW.name, COALESCE(NEW.description,''));
 END;
+-- Mirrors migration 081: an external-content FTS table is pruned with the 'delete' command,
+-- never a plain DELETE, which would rebuild the terms from the already-updated content row.
 CREATE TRIGGER servers_au AFTER UPDATE OF name, description ON servers BEGIN
-	DELETE FROM servers_fts WHERE rowid = OLD.rowid;
+	INSERT INTO servers_fts(servers_fts, rowid, name, description) VALUES ('delete', OLD.rowid, OLD.name, COALESCE(OLD.description,''));
 	INSERT INTO servers_fts(rowid, name, description) VALUES (NEW.rowid, NEW.name, COALESCE(NEW.description,''));
 END;
 CREATE TRIGGER servers_ad AFTER DELETE ON servers BEGIN
-	DELETE FROM servers_fts WHERE rowid = OLD.rowid;
+	INSERT INTO servers_fts(servers_fts, rowid, name, description) VALUES ('delete', OLD.rowid, OLD.name, COALESCE(OLD.description,''));
 END;`
 
 func TestDiscovery_ListFiltersAndOrder(t *testing.T) {
@@ -175,5 +177,43 @@ func TestDiscovery_GetPublicServerItem(t *testing.T) {
 	// A deleted server is not retrievable.
 	if _, err := repo.GetPublicServerItem(ctx, "s3", "u1"); err == nil {
 		t.Fatal("deleted server must not be retrievable via discovery")
+	}
+}
+
+// TestServersFTS_UpdateAndDelete guards the external-content FTS triggers: an owner editing
+// a server's description must not fail, and the index must reflect the new text.
+func TestServersFTS_UpdateAndDelete(t *testing.T) {
+	ctx := context.Background()
+	db := openMemDB(t, discoverySchema)
+	repo := NewSQLiteDiscoveryRepo(db)
+
+	if _, err := db.Exec(`
+		INSERT INTO servers (id, name, description, is_public) VALUES ('s1','Alpha','old text',1);
+		INSERT INTO server_members (server_id, user_id) VALUES ('s1','u1');`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if _, err := db.Exec(`UPDATE servers SET description = 'brand new text' WHERE id = 's1'`); err != nil {
+		t.Fatalf("updating a description must not fail: %v", err)
+	}
+
+	page, err := repo.ListPublicServers(ctx, models.PublicServerListParams{RequestingUserID: "u1", Search: "brand", Limit: 20})
+	if err != nil {
+		t.Fatalf("search after update: %v", err)
+	}
+	if page.Total != 1 {
+		t.Fatalf("new description must be searchable, got %d hits", page.Total)
+	}
+
+	page, err = repo.ListPublicServers(ctx, models.PublicServerListParams{RequestingUserID: "u1", Search: "old text", Limit: 20})
+	if err != nil {
+		t.Fatalf("search stale term: %v", err)
+	}
+	if page.Total != 0 {
+		t.Fatalf("old description must be gone from the index, got %d hits", page.Total)
+	}
+
+	if _, err := db.Exec(`DELETE FROM servers WHERE id = 's1'`); err != nil {
+		t.Fatalf("deleting a server must not fail: %v", err)
 	}
 }

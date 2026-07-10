@@ -5,10 +5,11 @@ import { useTranslation } from "react-i18next";
 import { WS_MAX_RECONNECT_ATTEMPTS } from "../../utils/constants";
 
 /**
- * Grace period before the banner appears (ms). A cold start or a brief radio blip
- * reconnects well inside this window, so the user never sees it flash.
+ * Grace period before the banner appears (ms). A cold start, a radio blip, or the
+ * reconnect that follows unlocking the phone all finish inside this window — telling
+ * the user about a five-second reconnect is noise, not information.
  */
-const BANNER_GRACE = 1_500;
+const BANNER_GRACE = 7_000;
 
 type ConnectionBannerProps = {
   status: "connected" | "connecting" | "disconnected";
