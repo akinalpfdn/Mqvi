@@ -851,6 +851,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .msg-edit-emoji-btn { width:26px;height:26px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:color .1s,background .1s; }
 .msg-edit-emoji-btn:hover { color:var(--t0);background:var(--bg-h); }
 .msg-edit-hint { font-size:13px;color:var(--t3); }
+/* Touch has no Escape/Shift+Enter — the hint becomes real buttons */
+.msg-edit-actions { display:flex;gap:8px;margin-left:auto; }
+.msg-edit-cancel-btn,.msg-edit-save-btn { font-size:13px;font-weight:500;padding:7px 14px;border:none;border-radius:6px;cursor:pointer; }
+.msg-edit-cancel-btn { background:transparent;color:var(--t2); }
+.msg-edit-save-btn { background:var(--primary);color:#fff; }
 
 /* Welcome placeholder */
 .msg-welcome { display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:1;padding:32px;text-align:center; }
@@ -901,6 +906,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .input-box:focus-within { border-color:var(--primary); }
 .input-action-btn { width:36px;height:36px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .1s,background .1s; }
 .input-action-btn:hover { color:var(--t0);background:var(--bg-h); }
+
+/* Touch-only send button — replaces the mic once the composer has something to send */
+.input-send-btn { color:var(--primary); }
+.input-send-btn:hover { color:var(--primary);background:var(--bg-h); }
+.input-send-btn:disabled { opacity:.5;cursor:default; }
 
 /* Drag-to-resize grip centered on the top border of the input box */
 .input-resize-handle { position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:60px;height:14px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;z-index:6;touch-action:none; }
