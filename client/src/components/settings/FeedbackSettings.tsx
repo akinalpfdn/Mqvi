@@ -14,6 +14,7 @@ import {
 import type { FeedbackTicket, FeedbackReply, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
+import { useImageAttach } from "../../hooks/useImageAttach";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
 
@@ -63,6 +64,15 @@ function FeedbackSettings() {
   }, [addToast, t]);
 
   const { isDragging, dragHandlers } = useFileDrop(addFiles);
+
+  // Reply composer gets the same paste / drag-drop affordances as the create form.
+  const onReplyLimit = useCallback(() => addToast("warning", t("feedbackMaxFiles")), [addToast, t]);
+  const {
+    addFiles: addReplyFiles,
+    handlePaste: handleReplyPaste,
+    isDragging: isReplyDragging,
+    dragHandlers: replyDragHandlers,
+  } = useImageAttach(setReplyFiles, MAX_FILES, onReplyLimit);
 
   function handlePaste(e: React.ClipboardEvent) {
     const items = e.clipboardData?.items;
@@ -395,7 +405,12 @@ function FeedbackSettings() {
 
           {/* Reply input */}
           {activeTicket.status !== "closed" && (
-            <div className="feedback-reply-input">
+            <div className="feedback-reply-input" {...replyDragHandlers} onPaste={handleReplyPaste}>
+              {isReplyDragging && (
+                <div className="file-drop-overlay">
+                  <span className="file-drop-text">{t("feedbackEvidenceHint")}</span>
+                </div>
+              )}
               <textarea
                 className="settings-input"
                 value={replyContent}
@@ -424,10 +439,7 @@ function FeedbackSettings() {
                   multiple
                   style={{ display: "none" }}
                   onChange={(e) => {
-                    if (e.target.files) {
-                      const images = Array.from(e.target.files).filter((f) => ALLOWED_TYPES.includes(f.type));
-                      setReplyFiles((prev) => [...prev, ...images].slice(0, MAX_FILES));
-                    }
+                    if (e.target.files) addReplyFiles(Array.from(e.target.files));
                     e.target.value = "";
                   }}
                 />

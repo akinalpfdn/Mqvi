@@ -14,6 +14,7 @@ import {
 import type { FeedbackTicket, FeedbackReply, FeedbackStatus, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
+import { useImageAttach } from "../../hooks/useImageAttach";
 import FilePreview from "../chat/FilePreview";
 import FilterDropdown, { type FilterOption } from "../shared/FilterDropdown";
 import Pagination from "../shared/Pagination";
@@ -64,6 +65,15 @@ function AdminFeedbackList() {
   const [replyFiles, setReplyFiles] = useState<File[]>([]);
   const replyFileInputRef = useRef<HTMLInputElement>(null);
   const [isSendingReply, setIsSendingReply] = useState(false);
+
+  const MAX_REPLY_FILES = 4;
+  const onReplyLimit = useCallback(() => addToast("warning", t("feedbackMaxFiles")), [addToast, t]);
+  const {
+    addFiles: addReplyFiles,
+    handlePaste: handleReplyPaste,
+    isDragging: isReplyDragging,
+    dragHandlers: replyDragHandlers,
+  } = useImageAttach(setReplyFiles, MAX_REPLY_FILES, onReplyLimit);
 
   const fetchTickets = useCallback(async () => {
     setIsLoading(true);
@@ -307,7 +317,12 @@ function AdminFeedbackList() {
           ))}
         </div>
 
-        <div className="feedback-reply-input">
+        <div className="feedback-reply-input" {...replyDragHandlers} onPaste={handleReplyPaste}>
+          {isReplyDragging && (
+            <div className="file-drop-overlay">
+              <span className="file-drop-text">{t("feedbackEvidenceHint")}</span>
+            </div>
+          )}
           <textarea
             className="settings-input"
             value={replyContent}
@@ -320,7 +335,7 @@ function AdminFeedbackList() {
             {replyFiles.length > 0 && (
               <FilePreview files={replyFiles} onRemove={(i) => setReplyFiles((prev) => prev.filter((_, j) => j !== i))} />
             )}
-            {replyFiles.length < 4 && (
+            {replyFiles.length < MAX_REPLY_FILES && (
               <button
                 type="button"
                 className="report-evidence-drop"
@@ -336,12 +351,7 @@ function AdminFeedbackList() {
               multiple
               style={{ display: "none" }}
               onChange={(e) => {
-                if (e.target.files) {
-                  const images = Array.from(e.target.files).filter((f) =>
-                    ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(f.type)
-                  );
-                  setReplyFiles((prev) => [...prev, ...images].slice(0, 4));
-                }
+                if (e.target.files) addReplyFiles(Array.from(e.target.files));
                 e.target.value = "";
               }}
             />

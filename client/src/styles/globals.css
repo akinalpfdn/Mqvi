@@ -965,6 +965,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* File drop overlay — visual feedback during drag-drop upload */
 .file-drop-overlay { position:absolute;inset:0;z-index:50;background:color-mix(in srgb, var(--primary) 12%, transparent);border:2px dashed var(--primary);border-radius:8px;display:flex;align-items:center;justify-content:center;pointer-events:none; }
 .file-drop-overlay-content { display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--primary);pointer-events:none; }
+.file-drop-text { font-size:13px;font-weight:600;color:var(--primary);text-align:center;padding:0 12px; }
 .file-drop-overlay-content svg { opacity:0.8; }
 .file-drop-overlay-content span { font-size:16px;font-weight:600; }
 
@@ -3925,7 +3926,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .feedback-reply-content { font-size:14px;color:var(--t1);line-height:1.6;white-space:pre-wrap;margin:0; }
 .feedback-admin-badge { font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:var(--primary);color:#fff; }
 
-.feedback-reply-input { display:flex;flex-direction:column;gap:8px; }
+/* position:relative anchors the drag-drop overlay for pasted/dropped images */
+.feedback-reply-input { display:flex;flex-direction:column;gap:8px;position:relative; }
 .feedback-reply-input textarea { min-height:80px;resize:vertical; }
 .feedback-reply-actions { display:flex;align-items:center;gap:8px; }
 .feedback-reply-actions .settings-btn-primary { margin-left:auto; }
