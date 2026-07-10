@@ -34,11 +34,13 @@ export function useDiscovery() {
     setPage(1);
   }, [category]);
 
-  // Main list.
+  // Main list. On the unfiltered home view the featured strip already shows featured servers,
+  // so exclude them here to avoid showing the same server twice.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listPublicServers({ q: search, category, page, limit: DISCOVERY_PAGE_SIZE }).then((res) => {
+    const excludeFeatured = !category && !search;
+    listPublicServers({ q: search, category, page, limit: DISCOVERY_PAGE_SIZE, excludeFeatured }).then((res) => {
       if (cancelled) return;
       if (res.success && res.data) {
         setItems(res.data.items ?? []);

@@ -96,7 +96,6 @@ func initRoutes(
 	// Server mutes — literal path before {serverId} wildcard
 	mux.Handle("GET /api/servers/mutes", auth(h.ServerMute.ListMuted))
 
-
 	// File URL refresh — re-signs a path the user already has a valid signature for.
 	// Accepts POST with {"url":"/api/files/...?exp=...&sig=..."} body.
 	// The existing signature must still be valid AND the user must still have ACL access.

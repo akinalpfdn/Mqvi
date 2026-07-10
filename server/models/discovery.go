@@ -23,6 +23,7 @@ type PublicServerListParams struct {
 	Category         string // empty = all categories
 	Search           string // empty = no text filter
 	FeaturedOnly     bool
+	ExcludeFeatured  bool // omit featured servers (they are shown in a separate strip on the home view)
 	Limit            int
 	Offset           int
 }

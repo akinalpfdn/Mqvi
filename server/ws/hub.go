@@ -36,6 +36,7 @@ type UserStateProvider interface {
 	GetOnlineUserIDs() []string
 	GetVisibleOnlineUserIDs() []string
 	GetOnlineUserIDsForServer(serverID string) []string
+	GetOnlineCountsForServers(serverIDs []string) map[string]int
 }
 
 // ClientManager manages WebSocket client connections.
@@ -514,6 +515,28 @@ func (h *Hub) GetOnlineUserIDsForServer(serverID string) []string {
 		ids = append(ids, uid)
 	}
 	return ids
+}
+
+// GetOnlineCountsForServers returns the count of distinct connected users per server, computed
+// under a single read lock (batch form of GetOnlineUserIDsForServer for list endpoints).
+func (h *Hub) GetOnlineCountsForServers(serverIDs []string) map[string]int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	out := make(map[string]int, len(serverIDs))
+	for _, serverID := range serverIDs {
+		clients, ok := h.serverClients[serverID]
+		if !ok {
+			out[serverID] = 0
+			continue
+		}
+		seen := make(map[string]struct{}, len(clients))
+		for client := range clients {
+			seen[client.userID] = struct{}{}
+		}
+		out[serverID] = len(seen)
+	}
+	return out
 }
 
 // SetInvisible marks a user as invisible (connected but hidden from online lists).

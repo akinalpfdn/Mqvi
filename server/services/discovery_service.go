@@ -7,10 +7,10 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// ServerPresenceCounter reports how many distinct users are currently connected to a server.
-// Implemented by the WS hub (GetOnlineUserIDsForServer).
+// ServerPresenceCounter reports how many distinct users are currently connected per server,
+// in a single call (one hub read lock for the whole page). Implemented by the WS hub.
 type ServerPresenceCounter interface {
-	GetOnlineUserIDsForServer(serverID string) []string
+	GetOnlineCountsForServers(serverIDs []string) map[string]int
 }
 
 // DiscoveryService powers the public server directory: filtered/searched listing and single-card
@@ -35,8 +35,16 @@ func (s *discoveryService) ListPublicServers(ctx context.Context, params models.
 	if err != nil {
 		return models.PublicServerListPage{}, err
 	}
+
+	ids := make([]string, len(page.Items))
 	for i := range page.Items {
-		s.enrich(&page.Items[i])
+		ids[i] = page.Items[i].ID
+	}
+	counts := s.presence.GetOnlineCountsForServers(ids)
+
+	for i := range page.Items {
+		s.signURLs(&page.Items[i])
+		page.Items[i].OnlineCount = counts[page.Items[i].ID]
 	}
 	return page, nil
 }
@@ -46,13 +54,13 @@ func (s *discoveryService) GetPublicServer(ctx context.Context, serverID, reques
 	if err != nil {
 		return nil, err
 	}
-	s.enrich(item)
+	s.signURLs(item)
+	item.OnlineCount = s.presence.GetOnlineCountsForServers([]string{item.ID})[item.ID]
 	return item, nil
 }
 
-// enrich signs image URLs and fills the live online count (not available from SQL).
-func (s *discoveryService) enrich(item *models.PublicServerListItem) {
+// signURLs signs the card's image URLs (stored unsigned).
+func (s *discoveryService) signURLs(item *models.PublicServerListItem) {
 	item.IconURL = s.urlSigner.SignURLPtr(item.IconURL)
 	item.BannerURL = s.urlSigner.SignURLPtr(item.BannerURL)
-	item.OnlineCount = len(s.presence.GetOnlineUserIDsForServer(item.ID))
 }

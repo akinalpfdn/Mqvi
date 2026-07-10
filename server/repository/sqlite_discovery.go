@@ -47,6 +47,9 @@ func buildDiscoveryFilter(params models.PublicServerListParams) (whereSQL string
 	if params.FeaturedOnly {
 		clauses = append(clauses, "s.featured = 1")
 	}
+	if params.ExcludeFeatured {
+		clauses = append(clauses, "s.featured = 0")
+	}
 
 	return "WHERE " + strings.Join(clauses, " AND "), args
 }

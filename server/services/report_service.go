@@ -89,7 +89,22 @@ func (s *reportService) CreateServerReport(ctx context.Context, reporterID, serv
 }
 
 func (s *reportService) ListServerReports(ctx context.Context, status string, limit, offset int) ([]models.ServerReportWithInfo, int, error) {
-	return s.serverReportRepo.ListForAdmin(ctx, status, limit, offset)
+	reports, total, err := s.serverReportRepo.ListForAdmin(ctx, status, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list server reports: %w", err)
+	}
+	for i := range reports {
+		atts, attErr := s.serverReportRepo.GetAttachmentsByReportID(ctx, reports[i].ID)
+		if attErr != nil {
+			reports[i].Attachments = []models.ServerReportAttachment{}
+			continue
+		}
+		for j := range atts {
+			atts[j].FileURL = s.urlSigner.SignURL(atts[j].FileURL)
+		}
+		reports[i].Attachments = atts
+	}
+	return reports, total, nil
 }
 
 func (s *reportService) UpdateServerReportStatus(ctx context.Context, reportID string, status models.ReportStatus, adminID string) error {

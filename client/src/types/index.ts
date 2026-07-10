@@ -599,6 +599,16 @@ export type AdminReportListItem = {
   attachments: ReportAttachment[];
 };
 
+export type ServerReportAttachment = {
+  id: string;
+  server_report_id: string;
+  filename: string;
+  file_url: string;
+  file_size: number | null;
+  mime_type: string | null;
+  created_at: string;
+};
+
 export type AdminServerReportItem = {
   id: string;
   reporter_id: string;
@@ -611,6 +621,7 @@ export type AdminServerReportItem = {
   created_at: string;
   reporter_username: string;
   server_name: string;
+  attachments: ServerReportAttachment[];
 };
 
 // ──────────────────────────────────

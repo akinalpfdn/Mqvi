@@ -126,6 +126,13 @@ func (c *Checker) Check(ctx context.Context, user *models.User, filePath string)
 		// scopeID = reportID
 		return c.checkReportAccess(ctx, user, scopeID)
 
+	case files.KindServerReport:
+		// Server-report evidence is platform-admin-only (no reporter-facing re-view UI).
+		if user.IsPlatformAdmin {
+			return nil
+		}
+		return fmt.Errorf("%w: platform admin only", ErrAccessDenied)
+
 	default:
 		return fmt.Errorf("%w: unknown file type", ErrAccessDenied)
 	}

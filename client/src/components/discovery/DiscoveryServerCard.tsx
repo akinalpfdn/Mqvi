@@ -32,7 +32,7 @@ function DiscoveryServerCard({ item, status, onJoin, onReport }: Props) {
     <div className="disc-card">
       <div className="disc-card-banner">
         {item.banner_url ? (
-          <img src={resolveAssetUrl(item.banner_url)} alt="" className="disc-card-banner-img" />
+          <img src={resolveAssetUrl(item.banner_url)} alt="" className="disc-card-banner-img" loading="lazy" />
         ) : (
           <div className="disc-card-banner-fallback" />
         )}
@@ -41,7 +41,7 @@ function DiscoveryServerCard({ item, status, onJoin, onReport }: Props) {
       <div className="disc-card-body">
         <div className="disc-card-icon">
           {item.icon_url ? (
-            <img src={resolveAssetUrl(item.icon_url)} alt={item.name} className="disc-card-icon-img" />
+            <img src={resolveAssetUrl(item.icon_url)} alt={item.name} className="disc-card-icon-img" loading="lazy" />
           ) : (
             <Avatar name={item.name} size={48} isCircle={false} />
           )}

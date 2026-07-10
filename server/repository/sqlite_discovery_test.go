@@ -82,6 +82,17 @@ func TestDiscovery_ListFiltersAndOrder(t *testing.T) {
 	if feat.Total != 1 || feat.Items[0].ID != "s1" {
 		t.Fatalf("featured-only want [s1] got total=%d", feat.Total)
 	}
+
+	// ExcludeFeatured (home main grid): the featured s1 must not appear.
+	nonFeat, _ := repo.ListPublicServers(ctx, models.PublicServerListParams{RequestingUserID: "u1", ExcludeFeatured: true, Limit: 20})
+	if nonFeat.Total != 2 {
+		t.Fatalf("exclude-featured want 2 (s2,s5) got %d", nonFeat.Total)
+	}
+	for _, it := range nonFeat.Items {
+		if it.ID == "s1" {
+			t.Fatal("featured server must be excluded when ExcludeFeatured is set")
+		}
+	}
 }
 
 func TestDiscovery_BlockedExcluded(t *testing.T) {

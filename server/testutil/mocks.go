@@ -14,35 +14,35 @@ import (
 // ─── UserRepository mock ───
 
 type MockUserRepo struct {
-	CreateFn                  func(ctx context.Context, user *models.User) error
-	GetByIDFn                 func(ctx context.Context, id string) (*models.User, error)
-	GetByUsernameFn           func(ctx context.Context, username string) (*models.User, error)
-	GetAllFn                  func(ctx context.Context) ([]models.User, error)
-	UpdateFn                  func(ctx context.Context, user *models.User) error
-	UpdateStatusFn            func(ctx context.Context, userID string, status models.UserStatus) error
-	UpdatePasswordFn          func(ctx context.Context, userID, oldPasswordHash, newPasswordHash string) (int, error)
-	ResetPasswordWithTokenFn  func(ctx context.Context, userID, resetTokenID, newPasswordHash string) (int, error)
-	UpdateEmailFn             func(ctx context.Context, userID string, email *string) error
-	GetByEmailFn              func(ctx context.Context, email string) (*models.User, error)
-	CountFn                   func(ctx context.Context) (int, error)
-	DeleteFn                  func(ctx context.Context, id string) error
-	ListAdminUsersPagedFn     func(ctx context.Context, params models.AdminListPageParams, defaultQuotaBytes int64, activeVoiceUserIDs []string) (models.AdminUserListPage, error)
-	UpdateLastVoiceActivityFn func(ctx context.Context, userID string) error
-	PlatformBanFn             func(ctx context.Context, userID, reason, bannedBy string) error
-	PlatformUnbanFn           func(ctx context.Context, userID string) error
-	IsEmailPlatformBannedFn   func(ctx context.Context, email string) (bool, error)
-	DeleteAllMessagesByUserFn func(ctx context.Context, userID string) error
-	HardDeleteUserFn          func(ctx context.Context, userID string, byAdmin bool) error
-	SoftDeleteFn              func(ctx context.Context, userID string, byAdmin bool) error
-	RestoreFn                 func(ctx context.Context, userID string) error
-	ListSoftDeletedExpiredFn  func(ctx context.Context, ttlDays int) ([]models.User, error)
-	SetPlatformAdminFn        func(ctx context.Context, userID string, isAdmin bool) error
-	InsertPlatformBanFn         func(ctx context.Context, email, username, userID, reason, bannedBy string) error
-	DeletePlatformBanFn         func(ctx context.Context, userID string) error
-	IsUsernamePlatformBannedFn  func(ctx context.Context, username string) (bool, error)
-	IsPlatformBannedByUserIDFn  func(ctx context.Context, userID string) (bool, error)
-	GetActiveByIDFn             func(ctx context.Context, id string) (*models.User, error)
-	GetActiveByUsernameFn       func(ctx context.Context, username string) (*models.User, error)
+	CreateFn                   func(ctx context.Context, user *models.User) error
+	GetByIDFn                  func(ctx context.Context, id string) (*models.User, error)
+	GetByUsernameFn            func(ctx context.Context, username string) (*models.User, error)
+	GetAllFn                   func(ctx context.Context) ([]models.User, error)
+	UpdateFn                   func(ctx context.Context, user *models.User) error
+	UpdateStatusFn             func(ctx context.Context, userID string, status models.UserStatus) error
+	UpdatePasswordFn           func(ctx context.Context, userID, oldPasswordHash, newPasswordHash string) (int, error)
+	ResetPasswordWithTokenFn   func(ctx context.Context, userID, resetTokenID, newPasswordHash string) (int, error)
+	UpdateEmailFn              func(ctx context.Context, userID string, email *string) error
+	GetByEmailFn               func(ctx context.Context, email string) (*models.User, error)
+	CountFn                    func(ctx context.Context) (int, error)
+	DeleteFn                   func(ctx context.Context, id string) error
+	ListAdminUsersPagedFn      func(ctx context.Context, params models.AdminListPageParams, defaultQuotaBytes int64, activeVoiceUserIDs []string) (models.AdminUserListPage, error)
+	UpdateLastVoiceActivityFn  func(ctx context.Context, userID string) error
+	PlatformBanFn              func(ctx context.Context, userID, reason, bannedBy string) error
+	PlatformUnbanFn            func(ctx context.Context, userID string) error
+	IsEmailPlatformBannedFn    func(ctx context.Context, email string) (bool, error)
+	DeleteAllMessagesByUserFn  func(ctx context.Context, userID string) error
+	HardDeleteUserFn           func(ctx context.Context, userID string, byAdmin bool) error
+	SoftDeleteFn               func(ctx context.Context, userID string, byAdmin bool) error
+	RestoreFn                  func(ctx context.Context, userID string) error
+	ListSoftDeletedExpiredFn   func(ctx context.Context, ttlDays int) ([]models.User, error)
+	SetPlatformAdminFn         func(ctx context.Context, userID string, isAdmin bool) error
+	InsertPlatformBanFn        func(ctx context.Context, email, username, userID, reason, bannedBy string) error
+	DeletePlatformBanFn        func(ctx context.Context, userID string) error
+	IsUsernamePlatformBannedFn func(ctx context.Context, username string) (bool, error)
+	IsPlatformBannedByUserIDFn func(ctx context.Context, userID string) (bool, error)
+	GetActiveByIDFn            func(ctx context.Context, id string) (*models.User, error)
+	GetActiveByUsernameFn      func(ctx context.Context, username string) (*models.User, error)
 }
 
 func (m *MockUserRepo) Create(ctx context.Context, user *models.User) error {
@@ -629,6 +629,9 @@ func (m *MockEventPublisher) GetOnlineUserIDsForServer(serverID string) []string
 	}
 	return nil
 }
+func (m *MockEventPublisher) GetOnlineCountsForServers(serverIDs []string) map[string]int {
+	return map[string]int{}
+}
 func (m *MockEventPublisher) SetInvisible(userID string, invisible bool) {
 	if m.SetInvisibleFn != nil {
 		m.SetInvisibleFn(userID, invisible)
@@ -716,6 +719,9 @@ func (m *MockBroadcastAndOnline) GetOnlineUserIDsForServer(serverID string) []st
 		return m.GetOnlineUserIDsForServerFn(serverID)
 	}
 	return nil
+}
+func (m *MockBroadcastAndOnline) GetOnlineCountsForServers(serverIDs []string) map[string]int {
+	return map[string]int{}
 }
 
 // ─── AttachmentRepository mock ───
@@ -860,12 +866,12 @@ func (m *MockChannelPermResolver) ResolveChannelPermissionsFresh(ctx context.Con
 // ─── ReadStateRepository mock ───
 
 type MockReadStateRepo struct {
-	UpsertFn                   func(ctx context.Context, userID, channelID, messageID string) error
-	GetUnreadCountsFn          func(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error)
-	MarkAllReadFn              func(ctx context.Context, userID, serverID string) error
-	IncrementUnreadCountsFn    func(ctx context.Context, channelID, excludeUserID string) error
+	UpsertFn                    func(ctx context.Context, userID, channelID, messageID string) error
+	GetUnreadCountsFn           func(ctx context.Context, userID, serverID string) ([]models.UnreadInfo, error)
+	MarkAllReadFn               func(ctx context.Context, userID, serverID string) error
+	IncrementUnreadCountsFn     func(ctx context.Context, channelID, excludeUserID string) error
 	DecrementUnreadForDeletedFn func(ctx context.Context, channelID, authorID string, deletedAt time.Time) error
-	SetMentionSeenFn           func(ctx context.Context, userID, channelID, mentionMessageID string) error
+	SetMentionSeenFn            func(ctx context.Context, userID, channelID, mentionMessageID string) error
 }
 
 func (m *MockReadStateRepo) Upsert(ctx context.Context, userID, channelID, messageID string) error {
@@ -909,8 +915,8 @@ func (m *MockReadStateRepo) SetMentionSeen(ctx context.Context, userID, channelI
 
 type MockFileURLSigner struct{}
 
-func (m *MockFileURLSigner) SignURL(fileURL string) string    { return fileURL }
-func (m *MockFileURLSigner) SignURLPtr(p *string) *string     { return p }
+func (m *MockFileURLSigner) SignURL(fileURL string) string { return fileURL }
+func (m *MockFileURLSigner) SignURLPtr(p *string) *string  { return p }
 
 // ─── FileDeleter mock (no-op) ───
 

@@ -26,6 +26,7 @@ export type DiscoveryQuery = {
   q?: string;
   category?: string;
   featured?: boolean;
+  excludeFeatured?: boolean;
   page?: number;
   limit?: number;
 };
@@ -35,6 +36,7 @@ export async function listPublicServers(params: DiscoveryQuery) {
   if (params.q) qs.set("q", params.q);
   if (params.category) qs.set("category", params.category);
   if (params.featured) qs.set("featured", "true");
+  if (params.excludeFeatured) qs.set("exclude_featured", "true");
   if (params.page) qs.set("page", String(params.page));
   if (params.limit) qs.set("limit", String(params.limit));
   const query = qs.toString();
@@ -52,8 +54,20 @@ export async function joinPublicServer(id: string) {
   });
 }
 
-/** Report a public server for discovery moderation. */
-export async function reportServer(id: string, reason: string, description: string) {
+/** Report a public server for discovery moderation. Uses multipart when evidence files are given. */
+export async function reportServer(id: string, reason: string, description: string, files?: File[]) {
+  if (files && files.length > 0) {
+    const formData = new FormData();
+    formData.append("reason", reason);
+    formData.append("description", description);
+    for (const file of files) {
+      formData.append("files", file);
+    }
+    return apiClient<{ message: string }>(`/discovery/servers/${id}/report`, {
+      method: "POST",
+      body: formData,
+    });
+  }
   return apiClient<{ message: string }>(`/discovery/servers/${id}/report`, {
     method: "POST",
     body: { reason, description },

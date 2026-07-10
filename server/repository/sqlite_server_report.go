@@ -107,3 +107,38 @@ func (r *sqliteServerReportRepo) UpdateStatus(ctx context.Context, reportID stri
 	}
 	return nil
 }
+
+func (r *sqliteServerReportRepo) CreateAttachment(ctx context.Context, att *models.ServerReportAttachment) error {
+	err := r.db.QueryRowContext(ctx,
+		`INSERT INTO server_report_attachments (server_report_id, filename, file_url, file_size, mime_type)
+		 VALUES (?, ?, ?, ?, ?)
+		 RETURNING id, created_at`,
+		att.ServerReportID, att.Filename, att.FileURL, att.FileSize, att.MimeType,
+	).Scan(&att.ID, &att.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to create server report attachment: %w", err)
+	}
+	return nil
+}
+
+func (r *sqliteServerReportRepo) GetAttachmentsByReportID(ctx context.Context, reportID string) ([]models.ServerReportAttachment, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, server_report_id, filename, file_url, file_size, mime_type, created_at
+		 FROM server_report_attachments WHERE server_report_id = ? ORDER BY created_at`,
+		reportID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server report attachments: %w", err)
+	}
+	defer rows.Close()
+
+	out := []models.ServerReportAttachment{}
+	for rows.Next() {
+		var a models.ServerReportAttachment
+		if err := rows.Scan(&a.ID, &a.ServerReportID, &a.Filename, &a.FileURL, &a.FileSize, &a.MimeType, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan server report attachment: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

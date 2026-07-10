@@ -24,7 +24,7 @@ type stubInvite struct {
 func (s *stubInvite) Validate(_ context.Context, _ string) (*models.Invite, error) {
 	return &models.Invite{ServerID: s.serverID}, nil
 }
-func (s *stubInvite) Consume(_ context.Context, _ string) error { s.consumeCalls++; return nil }
+func (s *stubInvite) Consume(_ context.Context, _ string) error    { s.consumeCalls++; return nil }
 func (s *stubInvite) ReleaseUse(_ context.Context, _ string) error { return nil }
 
 type stubServerRepo struct {
@@ -56,8 +56,13 @@ type stubJoinReqRepo struct {
 	deleteCalls int
 }
 
-func (s *stubJoinReqRepo) Create(_ context.Context, _, _, _ string) error { s.createCalls++; return nil }
-func (s *stubJoinReqRepo) CountByServer(_ context.Context, _ string) (int, error) { return s.count, nil }
+func (s *stubJoinReqRepo) Create(_ context.Context, _, _, _ string) error {
+	s.createCalls++
+	return nil
+}
+func (s *stubJoinReqRepo) CountByServer(_ context.Context, _ string) (int, error) {
+	return s.count, nil
+}
 func (s *stubJoinReqRepo) Exists(_ context.Context, _, _ string) (bool, error) { return s.exists, nil }
 func (s *stubJoinReqRepo) Delete(_ context.Context, _, _ string) (bool, error) {
 	s.deleteCalls++

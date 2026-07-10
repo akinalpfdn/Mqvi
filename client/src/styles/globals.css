@@ -2218,10 +2218,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 }
 .admin-report-attach-img {
   max-width:100%;max-height:400px;object-fit:contain;border-radius:6px;
-  border:1px solid var(--b1);
+  border:1px solid var(--b1);cursor:zoom-in;transition:border-color .1s;
 }
+.admin-report-attach-img:hover { border-color:var(--primary); }
 .admin-report-attach-link {
-  color:var(--primary);text-decoration:underline;font-size:14px;
+  color:var(--primary);text-decoration:underline;font-size:14px;cursor:pointer;
 }
 .admin-report-attach-info {
   display:flex;gap:12px;font-size:13px;color:var(--t2);
@@ -2731,6 +2732,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* ─── Report Modal ─── */
 .report-overlay { position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6); }
+/* Report modal opened from the discovery overlay (z-index 500) must sit above it. */
+.report-overlay.report-overlay-top { z-index:600; }
 .report-modal { width:440px;max-width:90vw;max-height:85vh;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--panel-inset),var(--panel-shadow);animation:vpIn .15s ease-out; }
 .report-header { padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between; }
 .report-title { font-size:20px;font-weight:700;color:var(--t0); }

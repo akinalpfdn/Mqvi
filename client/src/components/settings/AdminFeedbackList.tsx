@@ -13,6 +13,7 @@ import {
 } from "../../api/feedback";
 import type { FeedbackTicket, FeedbackReply, FeedbackStatus, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
+import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
 import FilePreview from "../chat/FilePreview";
 import FilterDropdown, { type FilterOption } from "../shared/FilterDropdown";
 import Pagination from "../shared/Pagination";
@@ -42,6 +43,7 @@ function parseUTC(iso: string): number {
 function AdminFeedbackList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const openAttachment = useAttachmentViewer();
 
   const [tickets, setTickets] = useState<FeedbackTicket[]>([]);
   const [total, setTotal] = useState(0);
@@ -266,9 +268,9 @@ function AdminFeedbackList() {
               <a
                 key={att.id}
                 href={resolveAssetUrl(att.file_url)}
-                target="_blank"
                 rel="noopener noreferrer"
                 className="feedback-attachment-thumb"
+                onClick={(e) => openAttachment(att, e)}
               >
                 <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
               </a>
@@ -295,7 +297,7 @@ function AdminFeedbackList() {
               {reply.attachments && reply.attachments.length > 0 && (
                 <div className="feedback-attachments">
                   {reply.attachments.map((att) => (
-                    <a key={att.id} href={resolveAssetUrl(att.file_url)} target="_blank" rel="noopener noreferrer" className="feedback-attachment-thumb">
+                    <a key={att.id} href={resolveAssetUrl(att.file_url)} rel="noopener noreferrer" className="feedback-attachment-thumb" onClick={(e) => openAttachment(att, e)}>
                       <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
                     </a>
                   ))}

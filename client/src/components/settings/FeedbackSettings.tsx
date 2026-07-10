@@ -13,6 +13,7 @@ import {
 } from "../../api/feedback";
 import type { FeedbackTicket, FeedbackReply, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
+import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
 
@@ -21,6 +22,7 @@ type View = "list" | "create" | "detail";
 function FeedbackSettings() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const openAttachment = useAttachmentViewer();
 
   const [view, setView] = useState<View>("list");
   const [tickets, setTickets] = useState<FeedbackTicket[]>([]);
@@ -351,9 +353,9 @@ function FeedbackSettings() {
                 <a
                   key={att.id}
                   href={resolveAssetUrl(att.file_url)}
-                  target="_blank"
                   rel="noopener noreferrer"
                   className="feedback-attachment-thumb"
+                  onClick={(e) => openAttachment(att, e)}
                 >
                   <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
                 </a>
@@ -381,7 +383,7 @@ function FeedbackSettings() {
                 {reply.attachments && reply.attachments.length > 0 && (
                   <div className="feedback-attachments">
                     {reply.attachments.map((att) => (
-                      <a key={att.id} href={resolveAssetUrl(att.file_url)} target="_blank" rel="noopener noreferrer" className="feedback-attachment-thumb">
+                      <a key={att.id} href={resolveAssetUrl(att.file_url)} rel="noopener noreferrer" className="feedback-attachment-thumb" onClick={(e) => openAttachment(att, e)}>
                         <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
                       </a>
                     ))}

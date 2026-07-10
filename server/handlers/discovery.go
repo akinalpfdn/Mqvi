@@ -23,11 +23,33 @@ type DiscoveryHandler struct {
 	discoveryService services.DiscoveryService
 	serverService    services.ServerService
 	reportService    services.ReportService
+	reportUpload     services.ServerReportUploadService
+	storageService   services.StorageService
+	urlSigner        services.FileURLSigner
+	maxUploadSize    int64
 	limiter          *ratelimit.MessageRateLimiter
 }
 
-func NewDiscoveryHandler(discoveryService services.DiscoveryService, serverService services.ServerService, reportService services.ReportService, limiter *ratelimit.MessageRateLimiter) *DiscoveryHandler {
-	return &DiscoveryHandler{discoveryService: discoveryService, serverService: serverService, reportService: reportService, limiter: limiter}
+func NewDiscoveryHandler(
+	discoveryService services.DiscoveryService,
+	serverService services.ServerService,
+	reportService services.ReportService,
+	reportUpload services.ServerReportUploadService,
+	storageService services.StorageService,
+	urlSigner services.FileURLSigner,
+	maxUploadSize int64,
+	limiter *ratelimit.MessageRateLimiter,
+) *DiscoveryHandler {
+	return &DiscoveryHandler{
+		discoveryService: discoveryService,
+		serverService:    serverService,
+		reportService:    reportService,
+		reportUpload:     reportUpload,
+		storageService:   storageService,
+		urlSigner:        urlSigner,
+		maxUploadSize:    maxUploadSize,
+		limiter:          limiter,
+	}
 }
 
 // rateLimited writes a 429 (with Retry-After) and returns true when the user is over budget.
@@ -66,6 +88,7 @@ func (h *DiscoveryHandler) ListPublicServers(w http.ResponseWriter, r *http.Requ
 		Category:         category,
 		Search:           q.Get("q"),
 		FeaturedOnly:     q.Get("featured") == "true",
+		ExcludeFeatured:  q.Get("exclude_featured") == "true",
 		Limit:            limit,
 		Offset:           (page - 1) * limit,
 	}
@@ -145,15 +168,66 @@ func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req models.CreateReportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
-		return
+	contentType := r.Header.Get("Content-Type")
+	if isMultipart(contentType) {
+		limitMultipartBody(w, r, h.maxUploadSize, maxReportUploadFiles)
+		if err := r.ParseMultipartForm(h.maxUploadSize); err != nil {
+			pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to parse multipart form")
+			return
+		}
+		if len(r.MultipartForm.File["files"]) > maxReportUploadFiles {
+			pkg.ErrorWithMessage(w, http.StatusBadRequest, "too many files")
+			return
+		}
+		req.Reason = r.FormValue("reason")
+		req.Description = r.FormValue("description")
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
 	}
 
-	if _, err := h.reportService.CreateServerReport(r.Context(), user.ID, serverID, &req); err != nil {
+	report, err := h.reportService.CreateServerReport(r.Context(), user.ID, serverID, &req)
+	if err != nil {
 		pkg.Error(w, err)
 		return
 	}
+
+	// Evidence uploads are optional and best-effort — a failed upload never blocks the report.
+	if isMultipart(contentType) && r.MultipartForm != nil {
+		uploadFiles := r.MultipartForm.File["files"]
+		var totalSize int64
+		for _, fh := range uploadFiles {
+			totalSize += fh.Size
+		}
+		if totalSize > 0 {
+			if err := h.storageService.Reserve(r.Context(), user.ID, totalSize); err != nil {
+				// Quota exceeded — still accept the report, just without attachments.
+				pkg.JSON(w, http.StatusOK, map[string]string{"message": "report submitted"})
+				return
+			}
+		}
+		var uploadedBytes int64
+		for _, fh := range uploadFiles {
+			file, openErr := fh.Open()
+			if openErr != nil {
+				continue
+			}
+			att, upErr := h.reportUpload.Upload(r.Context(), report.ID, file, fh)
+			file.Close()
+			if upErr != nil {
+				continue
+			}
+			if att.FileSize != nil {
+				uploadedBytes += *att.FileSize
+			}
+		}
+		if unused := totalSize - uploadedBytes; unused > 0 {
+			_ = h.storageService.Release(r.Context(), user.ID, unused)
+		}
+	}
+
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "report submitted"})
 }
 
