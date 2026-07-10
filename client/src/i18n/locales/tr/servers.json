@@ -50,6 +50,7 @@
   "step2HostType": "Barındırma seçin",
   "step3LiveKit": "LiveKit Yapılandırması",
   "addServer": "Sunucu Ekle",
+  "discover": "Sunucu Keşfet",
   "addServerDesc": "Yeni bir sunucu oluşturun",
   "orSeparator": "veya",
   "reorderError": "Sunucu sıralaması güncellenemedi",

@@ -17,6 +17,13 @@ type Server struct {
 	ApprovalRequired   bool      `json:"approval_required"` // joins via invite require approval by a PermApproveMembers holder
 	LiveKitInstanceID  *string   `json:"livekit_instance_id,omitempty"` // nil = no voice
 	AFKTimeoutMinutes  int       `json:"afk_timeout_minutes"`           // 15/30/45/60, default 60
+	// Discovery metadata. Description/BannerURL/Category are owner-editable and optional.
+	// Verified/Featured are platform-admin flags.
+	Description        *string   `json:"description,omitempty"`
+	BannerURL          *string   `json:"banner_url,omitempty"`
+	Category           *string   `json:"category,omitempty"`
+	Verified           bool      `json:"verified"`
+	Featured           bool      `json:"featured"`
 	// Soft-delete state. DeletedByAdmin=1 → owner cannot restore (admin moderation).
 	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
 	DeletedBy          *string    `json:"deleted_by,omitempty"`
@@ -24,11 +31,27 @@ type Server struct {
 	CreatedAt          time.Time  `json:"created_at"`
 }
 
+// ValidServerCategories are the fixed discovery categories. Empty/absent = uncategorized
+// (shown only under "All"). Display names are resolved via i18n on the client.
+var ValidServerCategories = map[string]bool{
+	"gaming":        true,
+	"music":         true,
+	"entertainment": true,
+	"science_tech":  true,
+	"education":     true,
+	"community":     true,
+	"anime_manga":   true,
+}
+
+// MaxServerDescriptionLength bounds the discovery description.
+const MaxServerDescriptionLength = 300
+
 // ServerListItem is the minimal data needed for the server icon sidebar.
 type ServerListItem struct {
-	ID      string  `json:"id"`
-	Name    string  `json:"name"`
-	IconURL *string `json:"icon_url"`
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	IconURL  *string `json:"icon_url"`
+	Verified bool    `json:"verified"`
 }
 
 // SoftDeleteTTLDays is the grace period before a soft-deleted server is hard-deleted by the cleanup worker.
@@ -90,6 +113,8 @@ type UpdateServerRequest struct {
 	IsPublic          *bool   `json:"is_public"`
 	E2EEEnabled       *bool   `json:"e2ee_enabled"`
 	ApprovalRequired  *bool   `json:"approval_required"`
+	Description       *string `json:"description,omitempty"`
+	Category          *string `json:"category,omitempty"`
 	AFKTimeoutMinutes *int    `json:"afk_timeout_minutes,omitempty"`
 	LiveKitURL        *string `json:"livekit_url,omitempty"`
 	LiveKitKey        *string `json:"livekit_key,omitempty"`
@@ -106,6 +131,15 @@ func (r *UpdateServerRequest) Validate() error {
 		if nameLen < 1 || nameLen > 100 {
 			return fmt.Errorf("server name must be between 1 and 100 characters")
 		}
+	}
+	if r.Description != nil {
+		*r.Description = strings.TrimSpace(*r.Description)
+		if utf8.RuneCountInString(*r.Description) > MaxServerDescriptionLength {
+			return fmt.Errorf("description must be at most %d characters", MaxServerDescriptionLength)
+		}
+	}
+	if r.Category != nil && *r.Category != "" && !ValidServerCategories[*r.Category] {
+		return fmt.Errorf("invalid server category: %s", *r.Category)
 	}
 	if r.AFKTimeoutMinutes != nil {
 		v := *r.AFKTimeoutMinutes

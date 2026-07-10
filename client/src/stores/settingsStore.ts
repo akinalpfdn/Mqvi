@@ -82,6 +82,7 @@ type SettingsTab =
   | "platform-servers"
   | "platform-users"
   | "platform-reports"
+  | "platform-server-reports"
   | "platform-logs"
   | "platform-feedback"
   | "feedback"

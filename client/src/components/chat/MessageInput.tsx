@@ -12,6 +12,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useNarrowChat } from "../../hooks/useNarrowChat";
+import { useIsTouch } from "../../hooks/useMediaQuery";
 import { validateFiles } from "../../utils/fileValidation";
 import { MAX_MESSAGE_LENGTH } from "../../utils/constants";
 import {
@@ -57,6 +58,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
   } = useChatContext();
   const addToast = useToastStore((s) => s.addToast);
   const isNarrow = useNarrowChat();
+  const isTouch = useIsTouch();
 
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -300,7 +302,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
       return;
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    // A soft keyboard offers no Shift+Enter, so on touch Enter inserts a newline and the
+    // send button is the only way to submit.
+    if (e.key === "Enter" && !e.shiftKey && !isTouch) {
       e.preventDefault();
       handleSend();
     }
@@ -502,6 +506,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
       ? t("voicePlaceholder", { channel: channelName })
       : t("messagePlaceholder", { channel: channelName });
 
+  /** Mirrors handleSend's guard — the send button must never be live on a no-op. */
+  const hasContent = content.trim().length > 0 || files.length > 0;
+
   return (
     <div className="input-area">
       {mentionQuery !== null && mode === "channel" && (
@@ -632,13 +639,31 @@ function MessageInput({ openSearch }: MessageInputProps) {
           )}
         </div>
 
-        <VoiceRecordButton
-          disabled={isSending}
-          onRecorded={(file) => {
-            const valid = validateFiles([file]);
-            if (valid.length > 0) setFiles((prev) => [...prev, ...valid]);
-          }}
-        />
+        {isTouch && hasContent ? (
+          <button
+            type="button"
+            className="input-action-btn input-send-btn"
+            title={t("sendMessage")}
+            aria-label={t("sendMessage")}
+            disabled={isSending}
+            // Keep focus on the textarea so the soft keyboard does not collapse on send.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void handleSend()}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
+        ) : (
+          <VoiceRecordButton
+            disabled={isSending}
+            onRecorded={(file) => {
+              const valid = validateFiles([file]);
+              if (valid.length > 0) setFiles((prev) => [...prev, ...valid]);
+            }}
+          />
+        )}
       </div>
 
       {content.length > MAX_MESSAGE_LENGTH - 100 && (

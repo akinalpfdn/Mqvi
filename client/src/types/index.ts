@@ -533,6 +533,10 @@ export type AdminServerListItem = {
   message_count: number;
   storage_mb: number;
   last_activity: string | null;
+  /** Discovery admin flags. */
+  verified: boolean;
+  featured: boolean;
+  discovery_blocked: boolean;
   /** Set when the server is soft-deleted. */
   deleted_at?: string | null;
   /** True when the server was soft-deleted by admin (owner cannot restore). */
@@ -593,6 +597,31 @@ export type AdminReportListItem = {
   reported_username: string;
   reported_display_name: string | null;
   attachments: ReportAttachment[];
+};
+
+export type ServerReportAttachment = {
+  id: string;
+  server_report_id: string;
+  filename: string;
+  file_url: string;
+  file_size: number | null;
+  mime_type: string | null;
+  created_at: string;
+};
+
+export type AdminServerReportItem = {
+  id: string;
+  reporter_id: string;
+  server_id: string;
+  reason: string;
+  description: string;
+  status: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  reporter_username: string;
+  server_name: string;
+  attachments: ServerReportAttachment[];
 };
 
 // ──────────────────────────────────
@@ -713,6 +742,13 @@ export type Server = {
   is_public: boolean;
   e2ee_enabled: boolean;
   approval_required: boolean;
+  /** Discovery metadata (owner-editable). */
+  description?: string | null;
+  banner_url?: string | null;
+  category?: string | null;
+  /** Platform-admin discovery flags. */
+  verified?: boolean;
+  featured?: boolean;
   livekit_instance_id: string | null;
   afk_timeout_minutes: number;
   member_count: number;
@@ -741,6 +777,7 @@ export type ServerListItem = {
   id: string;
   name: string;
   icon_url: string | null;
+  verified?: boolean;
 };
 
 /**

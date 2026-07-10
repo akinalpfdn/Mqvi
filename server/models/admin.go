@@ -20,6 +20,9 @@ type AdminServerListItem struct {
 	MessageCount      int     `json:"message_count"`
 	StorageMB         float64 `json:"storage_mb"`
 	LastActivity      *string `json:"last_activity"`
+	Verified          bool    `json:"verified"`
+	Featured          bool    `json:"featured"`
+	DiscoveryBlocked  bool    `json:"discovery_blocked"`
 	DeletedAt         *string `json:"deleted_at"`
 	DeletedByAdmin    bool    `json:"deleted_by_admin"`
 }

@@ -16,7 +16,9 @@ import type {
   AdminServerListItem,
   AdminUserListItem,
   AdminReportListItem,
+  AdminServerReportItem,
   AppLog,
+  Server,
 } from "../types";
 
 export async function listLiveKitInstances() {
@@ -212,6 +214,20 @@ export async function migrateServerInstance(
   );
 }
 
+export type DiscoveryFlag = "verified" | "featured" | "discovery_blocked";
+
+/** Toggle a server's discovery flag (platform admin). Returns the updated server. */
+export async function setServerDiscoveryFlag(
+  serverId: string,
+  flag: DiscoveryFlag,
+  value: boolean
+) {
+  return apiClient<Server>(`/admin/servers/${serverId}/discovery-flag`, {
+    method: "PATCH",
+    body: { flag, value },
+  });
+}
+
 export async function listAdminReports(status?: string) {
   const query = status ? `?status=${status}&limit=100` : "?limit=100";
   return apiClient<{ reports: AdminReportListItem[]; total: number }>(
@@ -221,6 +237,20 @@ export async function listAdminReports(status?: string) {
 
 export async function updateReportStatus(reportId: string, status: string) {
   return apiClient<{ message: string }>(`/admin/reports/${reportId}/status`, {
+    method: "PATCH",
+    body: { status },
+  });
+}
+
+export async function listAdminServerReports(status?: string) {
+  const query = status ? `?status=${status}&limit=100` : "?limit=100";
+  return apiClient<{ reports: AdminServerReportItem[]; total: number }>(
+    `/admin/server-reports${query}`
+  );
+}
+
+export async function updateServerReportStatus(reportId: string, status: string) {
+  return apiClient<{ message: string }>(`/admin/server-reports/${reportId}/status`, {
     method: "PATCH",
     body: { status },
   });

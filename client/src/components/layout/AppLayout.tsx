@@ -39,6 +39,7 @@ import { useE2EEStore } from "../../stores/e2eeStore";
 import RecoveryPasswordPrompt from "../shared/RecoveryPasswordPrompt";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
 import QuickSwitcher from "../shared/QuickSwitcher";
+import DiscoveryOverlay from "../discovery/DiscoveryOverlay";
 import ScreenPicker from "../voice/ScreenPicker";
 import AFKKickPopup from "../voice/AFKKickPopup";
 import ConnectionBanner from "../shared/ConnectionBanner";
@@ -130,6 +131,7 @@ function AppLayout() {
   const categories = useChannelStore((s) => s.categories);
   const layout = useUIStore((s) => s.layout);
   const openTab = useUIStore((s) => s.openTab);
+  const discoveryOpen = useUIStore((s) => s.discoveryOpen);
 
   // Prevents duplicate auto-tab-open; reset on server switch
   const autoOpenedRef = useRef(false);
@@ -308,6 +310,9 @@ function AppLayout() {
 
       {/* Quick Switcher (Ctrl+K) */}
       <QuickSwitcher />
+
+      {/* Public server discovery (mounts only while open) */}
+      {discoveryOpen && <DiscoveryOverlay />}
 
       {/* P2P incoming call overlay */}
       <IncomingCallOverlay />

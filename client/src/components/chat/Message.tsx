@@ -10,6 +10,7 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import { useNarrowChat } from "../../hooks/useNarrowChat";
+import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useLongPress } from "../../hooks/useLongPress";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import Avatar from "../shared/Avatar";
@@ -88,6 +89,7 @@ function Message({ message, isCompact }: MessageProps) {
   const roles = useActiveRoles();
   const isMobile = useIsMobile();
   const isNarrow = useNarrowChat();
+  const isTouch = useIsTouch();
   const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
@@ -592,7 +594,8 @@ function Message({ message, isCompact }: MessageProps) {
                   if (editMentionQuery !== null) {
                     if (["Enter", "Tab", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) return;
                   }
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  // Touch has no Shift+Enter and no Escape — the footer buttons take over.
+                  if (e.key === "Enter" && !e.shiftKey && !isTouch) {
                     e.preventDefault();
                     handleEditSave();
                   }
@@ -625,9 +628,20 @@ function Message({ message, isCompact }: MessageProps) {
                     />
                   )}
                 </div>
-                <p className="msg-edit-hint">
-                  escape = {t("editCancel", "cancel")}, enter = {t("editSave", "save")}
-                </p>
+                {isTouch ? (
+                  <div className="msg-edit-actions">
+                    <button type="button" className="msg-edit-cancel-btn" onClick={handleEditCancel}>
+                      {t("editCancelButton")}
+                    </button>
+                    <button type="button" className="msg-edit-save-btn" onClick={handleEditSave}>
+                      {t("editSaveButton")}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="msg-edit-hint">
+                    escape = {t("editCancel", "cancel")}, enter = {t("editSave", "save")}
+                  </p>
+                )}
               </div>
             </div>
           ) : (

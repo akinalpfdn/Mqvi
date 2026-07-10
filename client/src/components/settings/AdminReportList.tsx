@@ -14,6 +14,7 @@ import { useUIStore } from "../../stores/uiStore";
 import { listAdminReports, updateReportStatus, platformBanUser, hardDeleteUser } from "../../api/admin";
 import { useSettingsBadgeStore } from "../../stores/settingsBadgeStore";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
 import ContextMenu from "../shared/ContextMenu";
 import Modal from "../shared/Modal";
 import PlatformBanDialog from "./PlatformBanDialog";
@@ -127,6 +128,7 @@ function AdminReportList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
   const { menuState, openMenu, closeMenu } = useContextMenu();
+  const openAttachment = useAttachmentViewer();
 
   // --- Data state ---
   const [reports, setReports] = useState<AdminReportListItem[]>([]);
@@ -655,13 +657,14 @@ function AdminReportList() {
                     src={resolveAssetUrl(att.file_url)}
                     alt={att.filename}
                     className="admin-report-attach-img"
+                    onClick={() => openAttachment(att)}
                   />
                 ) : (
                   <a
                     href={resolveAssetUrl(att.file_url)}
-                    target="_blank"
                     rel="noopener noreferrer"
                     className="admin-report-attach-link"
+                    onClick={(e) => openAttachment(att, e)}
                   >
                     {att.filename}
                   </a>

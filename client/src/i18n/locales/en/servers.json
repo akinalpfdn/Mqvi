@@ -50,6 +50,7 @@
   "step2HostType": "Choose hosting",
   "step3LiveKit": "LiveKit Configuration",
   "addServer": "Add Server",
+  "discover": "Discover Servers",
   "addServerDesc": "Create a new server",
   "orSeparator": "or",
   "reorderError": "Failed to reorder servers",

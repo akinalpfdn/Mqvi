@@ -30,6 +30,7 @@ type ServerService interface {
 	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
 	UpdateServer(ctx context.Context, serverID string, req *models.UpdateServerRequest) (*models.Server, error)
 	UpdateIcon(ctx context.Context, serverID, iconURL string) (*models.Server, error)
+	UpdateBanner(ctx context.Context, serverID, bannerURL string) (*models.Server, error)
 	// DeleteServer soft-deletes the server. Files and LiveKit instance are preserved.
 	// Use HardDeleteServer to permanently remove (skip 30-day TTL).
 	DeleteServer(ctx context.Context, serverID, userID string) error
@@ -42,6 +43,7 @@ type ServerService interface {
 	// GetDeletedServers returns soft-deleted servers owned by this user (for restore UI).
 	GetDeletedServers(ctx context.Context, userID string) ([]models.DeletedServerInfo, error)
 	JoinServer(ctx context.Context, userID, inviteCode string) (*JoinResult, error)
+	JoinPublicServer(ctx context.Context, userID, serverID string) (*JoinResult, error)
 	// Join approval — pending requesters live in a separate table, never in server_members.
 	ApproveRequest(ctx context.Context, serverID, targetUserID string) error
 	RejectRequest(ctx context.Context, serverID, targetUserID string) error
@@ -336,6 +338,7 @@ func (s *serverService) GetServer(ctx context.Context, serverID string) (*models
 		return nil, err
 	}
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
 	return server, nil
 }
 
@@ -352,6 +355,14 @@ func (s *serverService) GetUserServers(ctx context.Context, userID string) ([]mo
 		servers[i].IconURL = s.urlSigner.SignURLPtr(servers[i].IconURL)
 	}
 	return servers, nil
+}
+
+// nilIfEmpty returns nil for an empty string so optional text columns store NULL, not "".
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *models.UpdateServerRequest) (*models.Server, error) {
@@ -375,6 +386,12 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 	}
 	if req.ApprovalRequired != nil {
 		server.ApprovalRequired = *req.ApprovalRequired
+	}
+	if req.Description != nil {
+		server.Description = nilIfEmpty(*req.Description)
+	}
+	if req.Category != nil {
+		server.Category = nilIfEmpty(*req.Category)
 	}
 	if req.AFKTimeoutMinutes != nil {
 		server.AFKTimeoutMinutes = *req.AFKTimeoutMinutes
@@ -419,6 +436,7 @@ func (s *serverService) UpdateServer(ctx context.Context, serverID string, req *
 	}
 
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerUpdate,
 		Data: server,
@@ -440,6 +458,29 @@ func (s *serverService) UpdateIcon(ctx context.Context, serverID, iconURL string
 	}
 
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
+	s.hub.BroadcastToServer(serverID, ws.Event{
+		Op:   ws.OpServerUpdate,
+		Data: server,
+	})
+
+	return server, nil
+}
+
+func (s *serverService) UpdateBanner(ctx context.Context, serverID, bannerURL string) (*models.Server, error) {
+	server, err := s.serverRepo.GetByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+
+	server.BannerURL = &bannerURL
+
+	if err := s.serverRepo.Update(ctx, server); err != nil {
+		return nil, fmt.Errorf("failed to update server banner: %w", err)
+	}
+
+	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
 	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpServerUpdate,
 		Data: server,
@@ -690,6 +731,60 @@ func (s *serverService) JoinServer(ctx context.Context, userID, inviteCode strin
 	return &JoinResult{Server: joined}, nil
 }
 
+// JoinPublicServer joins (or requests to join) a public server straight from the discovery
+// directory — no invite involved. Rejects non-public servers and bans, and honors
+// approval_required exactly like the invite path.
+func (s *serverService) JoinPublicServer(ctx context.Context, userID, serverID string) (*JoinResult, error) {
+	server, err := s.serverRepo.GetActiveByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	if !server.IsPublic {
+		return nil, fmt.Errorf("%w: this server is not public", pkg.ErrForbidden)
+	}
+
+	banned, err := s.banRepo.Exists(ctx, serverID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check ban: %w", err)
+	}
+	if banned {
+		return nil, fmt.Errorf("%w: you are banned from this server", pkg.ErrForbidden)
+	}
+
+	isMember, err := s.serverRepo.IsMember(ctx, serverID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check membership: %w", err)
+	}
+	if isMember {
+		return nil, fmt.Errorf("%w: already a member of this server", pkg.ErrBadRequest)
+	}
+
+	// Approval required → queue a request instead of joining (no invite to record).
+	if server.ApprovalRequired {
+		count, err := s.joinRequestRepo.CountByServer(ctx, serverID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count join requests: %w", err)
+		}
+		if count >= maxPendingRequestsPerServer {
+			if exists, _ := s.joinRequestRepo.Exists(ctx, serverID, userID); !exists {
+				return nil, fmt.Errorf("%w: this server's join queue is full, try again later", pkg.ErrBadRequest)
+			}
+		}
+		if err := s.joinRequestRepo.Create(ctx, serverID, userID, ""); err != nil {
+			return nil, err
+		}
+		s.broadcastJoinRequestCount(ctx, serverID)
+		log.Printf("[server] user %s requested to join public server %s (approval required)", userID, serverID)
+		return &JoinResult{Pending: true}, nil
+	}
+
+	joined, err := s.promoteToMember(ctx, server, userID, "", false)
+	if err != nil {
+		return nil, err
+	}
+	return &JoinResult{Server: joined}, nil
+}
+
 // promoteToMember runs the full "become a member" sequence: (optionally) consume the invite,
 // add membership, assign the default role, subscribe the socket, and broadcast join events.
 // consumeInvite is true for direct joins and false for admin approvals (admin is the gate).
@@ -762,6 +857,7 @@ func (s *serverService) promoteToMember(ctx context.Context, server *models.Serv
 
 	log.Printf("[server] user %s became a member of server %s", userID, serverID)
 	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
 	return server, nil
 }
 

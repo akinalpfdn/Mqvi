@@ -6,6 +6,8 @@ import { usePinStore } from "../../stores/pinStore";
 import { useActiveMembers } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { useAuthStore } from "../../stores/authStore";
+import { useBackHandler } from "../../hooks/useBackHandler";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import Avatar from "../shared/Avatar";
 import { authorDisplayName, authorAvatarURL } from "../../utils/deletedUser";
 
@@ -16,6 +18,8 @@ type PinnedMessagesProps = {
 
 function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
   const { t } = useTranslation("chat");
+  const isMobile = useIsMobile();
+  useBackHandler(onClose);
   const fetchPins = usePinStore((s) => s.fetchPins);
   const getPinsForChannel = usePinStore((s) => s.getPinsForChannel);
   const unpinAction = usePinStore((s) => s.unpin);
@@ -55,6 +59,9 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
   }
 
   return (
+    <>
+      {/* Mobile only: the panel is a bottom sheet there, so tapping above it must dismiss. */}
+      {isMobile && <div className="pinned-backdrop" onClick={onClose} />}
     <div className="pinned-panel">
       {/* Header */}
       <div className="pinned-header">
@@ -116,6 +123,7 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
         )}
       </div>
     </div>
+    </>
   );
 }
 

@@ -37,6 +37,9 @@ type AdminServerService interface {
 	// window has elapsed. Called only by the embedded cleanup worker — no admin
 	// actor, no email notification (owner already knows). Defensive TTL check.
 	ExpireSoftDeletedServer(ctx context.Context, serverID string) error
+	// SetDiscoveryFlag flips a single admin discovery flag (verified/featured/discovery_blocked)
+	// and broadcasts the updated server so members reflect it live. Returns the updated server.
+	SetDiscoveryFlag(ctx context.Context, serverID, flag string, value bool) (*models.Server, error)
 }
 
 type adminServerService struct {
@@ -47,6 +50,7 @@ type adminServerService struct {
 	voiceDisc   VoiceServerDisconnector
 	emailSender email.EmailSender // optional, nil = no emails
 	fileCleanup FileCleanupService
+	urlSigner   FileURLSigner
 }
 
 func NewAdminServerService(
@@ -57,6 +61,7 @@ func NewAdminServerService(
 	voiceDisc VoiceServerDisconnector,
 	emailSender email.EmailSender,
 	fileCleanup FileCleanupService,
+	urlSigner FileURLSigner,
 ) AdminServerService {
 	return &adminServerService{
 		serverRepo:  serverRepo,
@@ -66,7 +71,23 @@ func NewAdminServerService(
 		voiceDisc:   voiceDisc,
 		emailSender: emailSender,
 		fileCleanup: fileCleanup,
+		urlSigner:   urlSigner,
 	}
+}
+
+// SetDiscoveryFlag sets verified/featured/discovery_blocked and broadcasts the change.
+func (s *adminServerService) SetDiscoveryFlag(ctx context.Context, serverID, flag string, value bool) (*models.Server, error) {
+	if err := s.serverRepo.SetDiscoveryFlag(ctx, serverID, flag, value); err != nil {
+		return nil, err
+	}
+	server, err := s.serverRepo.GetByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	server.IconURL = s.urlSigner.SignURLPtr(server.IconURL)
+	server.BannerURL = s.urlSigner.SignURLPtr(server.BannerURL)
+	s.hub.BroadcastToServer(serverID, ws.Event{Op: ws.OpServerUpdate, Data: server})
+	return server, nil
 }
 
 // DeleteServer soft-deletes the server with deleted_by_admin=1.

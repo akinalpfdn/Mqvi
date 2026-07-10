@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
+import { useBackHandler } from "../../hooks/useBackHandler";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import Avatar from "../shared/Avatar";
 import { authorDisplayName, authorAvatarURL } from "../../utils/deletedUser";
 import type { DMMessage } from "../../types";
@@ -14,6 +16,8 @@ type DMPinnedMessagesProps = {
 
 function DMPinnedMessages({ channelId, onClose }: DMPinnedMessagesProps) {
   const { t } = useTranslation("chat");
+  const isMobile = useIsMobile();
+  useBackHandler(onClose);
   const getPinnedMessages = useDMStore((s) => s.getPinnedMessages);
   const unpinMessage = useDMStore((s) => s.unpinMessage);
 
@@ -58,6 +62,9 @@ function DMPinnedMessages({ channelId, onClose }: DMPinnedMessagesProps) {
   }
 
   return (
+    <>
+      {/* Mobile only: the panel is a bottom sheet there, so tapping above it must dismiss. */}
+      {isMobile && <div className="pinned-backdrop" onClick={onClose} />}
     <div className="pinned-panel">
       {/* Header */}
       <div className="pinned-header">
@@ -114,6 +121,7 @@ function DMPinnedMessages({ channelId, onClose }: DMPinnedMessagesProps) {
         )}
       </div>
     </div>
+    </>
   );
 }
 

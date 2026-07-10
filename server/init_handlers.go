@@ -50,6 +50,7 @@ type Handlers struct {
 	VoiceMessage      *handlers.VoiceMessageHandler
 	ICEServer         *handlers.ICEServerHandler
 	PushToken         *handlers.PushTokenHandler
+	Discovery         *handlers.DiscoveryHandler
 	WS                *ws.Handler
 }
 
@@ -64,6 +65,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Role:              handlers.NewRoleHandler(svcs.Role),
 		Voice:             handlers.NewVoiceHandler(svcs.Voice, urlSigner),
 		Server:            handlers.NewServerHandler(svcs.Server),
+		Discovery:         handlers.NewDiscoveryHandler(svcs.Discovery, svcs.Server, svcs.Report, svcs.ServerReportUpload, svcs.Storage, urlSigner, cfg.Upload.MaxSize, limiters.Discovery),
 		Invite:            handlers.NewInviteHandler(svcs.Invite),
 		Pin:               handlers.NewPinHandler(svcs.Pin),
 		Search:            handlers.NewSearchHandler(svcs.Search),

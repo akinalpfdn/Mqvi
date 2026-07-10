@@ -21,52 +21,54 @@ import (
 
 // Services holds all service instances.
 type Services struct {
-	Auth              services.AuthService
-	Server            services.ServerService
-	Channel           services.ChannelService
-	Category          services.CategoryService
-	Message           services.MessageService
-	Upload            services.UploadService
-	DMUpload          services.DMUploadService
-	UploadPipeline    services.UploadPipeline
-	Member            services.MemberService
-	Role              services.RoleService
-	Voice             services.VoiceService
-	Invite            services.InviteService
-	Pin               services.PinService
-	Search            services.SearchService
-	ReadState         services.ReadStateService
-	DM                services.DMService
-	Reaction          services.ReactionService
-	ChannelPermission services.ChannelPermissionService
-	Friendship        services.FriendshipService
-	LiveKitAdmin      services.LiveKitAdminService
-	P2PCall           services.P2PCallService
-	TURN              services.ICEServerProvider
-	MetricsHistory    services.MetricsHistoryService
-	ServerMute        services.ServerMuteService
-	ChannelMute       services.ChannelMuteService
-	DMSettings        services.DMSettingsService
-	Block             services.BlockService
-	Report            services.ReportService
-	ReportUpload      services.ReportUploadService
-	AdminUser         services.AdminUserService
-	AdminServer       services.AdminServerService
-	Device            services.DeviceService
-	E2EE              services.E2EEService
-	LinkPreview       services.LinkPreviewService
-	Badge             services.BadgeService
-	Preferences       services.PreferencesService
-	AppLog            services.AppLogService
-	Feedback          services.FeedbackService
-	FeedbackUpload    services.FeedbackUploadService
-	Soundboard        services.SoundboardService
-	Storage           services.StorageService
-	Cleanup           services.CleanupService
-	SettingsBadge     services.SettingsBadgeService
-	VoiceMessage      services.VoiceMessageService
-	PushToken         services.PushTokenService
-	EmailSender       email.EmailSender
+	Auth               services.AuthService
+	Server             services.ServerService
+	Channel            services.ChannelService
+	Category           services.CategoryService
+	Message            services.MessageService
+	Upload             services.UploadService
+	DMUpload           services.DMUploadService
+	UploadPipeline     services.UploadPipeline
+	Member             services.MemberService
+	Role               services.RoleService
+	Voice              services.VoiceService
+	Invite             services.InviteService
+	Pin                services.PinService
+	Search             services.SearchService
+	ReadState          services.ReadStateService
+	DM                 services.DMService
+	Reaction           services.ReactionService
+	ChannelPermission  services.ChannelPermissionService
+	Friendship         services.FriendshipService
+	LiveKitAdmin       services.LiveKitAdminService
+	P2PCall            services.P2PCallService
+	TURN               services.ICEServerProvider
+	MetricsHistory     services.MetricsHistoryService
+	ServerMute         services.ServerMuteService
+	ChannelMute        services.ChannelMuteService
+	DMSettings         services.DMSettingsService
+	Block              services.BlockService
+	Report             services.ReportService
+	ReportUpload       services.ReportUploadService
+	ServerReportUpload services.ServerReportUploadService
+	AdminUser          services.AdminUserService
+	AdminServer        services.AdminServerService
+	Device             services.DeviceService
+	E2EE               services.E2EEService
+	LinkPreview        services.LinkPreviewService
+	Badge              services.BadgeService
+	Preferences        services.PreferencesService
+	AppLog             services.AppLogService
+	Feedback           services.FeedbackService
+	FeedbackUpload     services.FeedbackUploadService
+	Soundboard         services.SoundboardService
+	Storage            services.StorageService
+	Cleanup            services.CleanupService
+	SettingsBadge      services.SettingsBadgeService
+	VoiceMessage       services.VoiceMessageService
+	PushToken          services.PushTokenService
+	Discovery          services.DiscoveryService
+	EmailSender        email.EmailSender
 }
 
 type RateLimiters struct {
@@ -77,6 +79,7 @@ type RateLimiters struct {
 	ResetPwd  *ratelimit.LoginRateLimiter
 	Feedback  *ratelimit.MessageRateLimiter
 	ICE       *ratelimit.MessageRateLimiter
+	Discovery *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -213,15 +216,17 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, repos.Channel, hub, channelPermService)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
-	reportService := services.NewReportService(repos.Report, repos.User, urlSigner, emailSender)
+	reportService := services.NewReportService(repos.Report, repos.ServerReport, repos.User, repos.Server, urlSigner, emailSender)
 	reportUploadService := services.NewReportUploadService(repos.Report, uploadPipeline, cfg.Upload.MaxSize)
+	serverReportUploadService := services.NewServerReportUploadService(repos.ServerReport, uploadPipeline, cfg.Upload.MaxSize)
 
 	deviceService := services.NewDeviceService(repos.Device, hub)
 	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub)
 	pushTokenService := services.NewPushTokenService(repos.PushToken)
 
 	adminUserService := services.NewAdminUserService(db, repos.User, repos.Session, repos.Server, hub, voiceService, emailSender, fileCleanupService)
-	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, voiceService, emailSender, fileCleanupService)
+	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, voiceService, emailSender, fileCleanupService, urlSigner)
+	discoveryService := services.NewDiscoveryService(repos.Discovery, hub, urlSigner)
 
 	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)
 	badgeService := services.NewBadgeService(repos.Badge, hub)
@@ -261,59 +266,62 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// Rate limiters
 	loginLimiter := ratelimit.NewLoginRateLimiter(5, 2*time.Minute)
 	messageLimiter := ratelimit.NewMessageRateLimiter(5, 5*time.Second, 15*time.Second)
-	registerLimiter := ratelimit.NewLoginRateLimiter(3, 10*time.Minute)                  // 3 registrations per 10 min per IP
-	forgotPwdLimiter := ratelimit.NewLoginRateLimiter(3, 5*time.Minute)                  // 3 forgot-password per 5 min per IP
-	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                   // 5 reset attempts per 5 min per IP
-	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second) // 2 feedback per min, 30s cooldown
-	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)     // 20 ICE-server fetches per min, 30s cooldown
+	registerLimiter := ratelimit.NewLoginRateLimiter(3, 10*time.Minute)                    // 3 registrations per 10 min per IP
+	forgotPwdLimiter := ratelimit.NewLoginRateLimiter(3, 5*time.Minute)                    // 3 forgot-password per 5 min per IP
+	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                     // 5 reset attempts per 5 min per IP
+	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
+	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
+	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
 
 	svcs := &Services{
-		Auth:              authService,
-		Server:            serverService,
-		Channel:           channelService,
-		Category:          categoryService,
-		Message:           messageService,
-		Upload:            uploadService,
-		DMUpload:          dmUploadService,
-		UploadPipeline:    uploadPipeline,
-		Member:            memberService,
-		Role:              roleService,
-		Voice:             voiceService,
-		Invite:            inviteService,
-		Pin:               pinService,
-		Search:            searchService,
-		ReadState:         readStateService,
-		DM:                dmService,
-		Reaction:          reactionService,
-		ChannelPermission: channelPermService,
-		Friendship:        friendshipService,
-		LiveKitAdmin:      livekitAdminService,
-		P2PCall:           p2pCallService,
-		TURN:              turnService,
-		MetricsHistory:    metricsHistoryService,
-		ServerMute:        serverMuteService,
-		ChannelMute:       channelMuteService,
-		DMSettings:        dmSettingsService,
-		Block:             blockService,
-		Report:            reportService,
-		ReportUpload:      reportUploadService,
-		AdminUser:         adminUserService,
-		AdminServer:       adminServerService,
-		Device:            deviceService,
-		E2EE:              e2eeService,
-		LinkPreview:       linkPreviewService,
-		Badge:             badgeService,
-		Preferences:       preferencesService,
-		AppLog:            appLogService,
-		Feedback:          feedbackService,
-		FeedbackUpload:    feedbackUploadService,
-		Soundboard:        soundboardService,
-		Storage:           storageService,
-		Cleanup:           cleanupService,
-		SettingsBadge:     settingsBadgeService,
-		VoiceMessage:      voiceMessageService,
-		PushToken:         pushTokenService,
-		EmailSender:       emailSender,
+		Auth:               authService,
+		Server:             serverService,
+		Channel:            channelService,
+		Category:           categoryService,
+		Message:            messageService,
+		Upload:             uploadService,
+		DMUpload:           dmUploadService,
+		UploadPipeline:     uploadPipeline,
+		Member:             memberService,
+		Role:               roleService,
+		Voice:              voiceService,
+		Invite:             inviteService,
+		Pin:                pinService,
+		Search:             searchService,
+		ReadState:          readStateService,
+		DM:                 dmService,
+		Reaction:           reactionService,
+		ChannelPermission:  channelPermService,
+		Friendship:         friendshipService,
+		LiveKitAdmin:       livekitAdminService,
+		P2PCall:            p2pCallService,
+		TURN:               turnService,
+		MetricsHistory:     metricsHistoryService,
+		ServerMute:         serverMuteService,
+		ChannelMute:        channelMuteService,
+		DMSettings:         dmSettingsService,
+		Block:              blockService,
+		Report:             reportService,
+		ReportUpload:       reportUploadService,
+		ServerReportUpload: serverReportUploadService,
+		AdminUser:          adminUserService,
+		AdminServer:        adminServerService,
+		Device:             deviceService,
+		E2EE:               e2eeService,
+		LinkPreview:        linkPreviewService,
+		Badge:              badgeService,
+		Preferences:        preferencesService,
+		AppLog:             appLogService,
+		Feedback:           feedbackService,
+		FeedbackUpload:     feedbackUploadService,
+		Soundboard:         soundboardService,
+		Storage:            storageService,
+		Cleanup:            cleanupService,
+		SettingsBadge:      settingsBadgeService,
+		VoiceMessage:       voiceMessageService,
+		PushToken:          pushTokenService,
+		Discovery:          discoveryService,
+		EmailSender:        emailSender,
 	}
 
 	limiters := &RateLimiters{
@@ -324,6 +332,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		ResetPwd:  resetPwdLimiter,
 		Feedback:  feedbackLimiter,
 		ICE:       iceLimiter,
+		Discovery: discoveryLimiter,
 	}
 
 	return svcs, limiters, metricsCollector

@@ -42,4 +42,13 @@ function useIsTablet(): boolean {
   return useMediaQuery("(max-width: 1024px)");
 }
 
-export { useMediaQuery, useIsMobile, useIsTablet };
+/**
+ * Primary pointer is coarse — a real touch device, not a narrow desktop window.
+ * Gates affordances that depend on the input method rather than the viewport: a soft
+ * keyboard has no Shift+Enter, so those surfaces need an explicit submit button.
+ */
+function useIsTouch(): boolean {
+  return useMediaQuery("(pointer: coarse)");
+}
+
+export { useMediaQuery, useIsMobile, useIsTablet, useIsTouch };

@@ -14,15 +14,16 @@ import (
 // fakeHub is a no-op ws.BroadcastAndOnline for exercising broadcast paths.
 type fakeHub struct{}
 
-func (fakeHub) BroadcastToAll(ws.Event)                     {}
-func (fakeHub) BroadcastToAllExcept(string, ws.Event)       {}
-func (fakeHub) BroadcastToUser(string, ws.Event)            {}
-func (fakeHub) BroadcastToUsers([]string, ws.Event)         {}
-func (fakeHub) BroadcastToServer(string, ws.Event)          {}
-func (fakeHub) BroadcastToServerExcept(string, string, ws.Event) {}
-func (fakeHub) GetOnlineUserIDs() []string                  { return nil }
-func (fakeHub) GetVisibleOnlineUserIDs() []string           { return nil }
-func (fakeHub) GetOnlineUserIDsForServer(string) []string   { return nil }
+func (fakeHub) BroadcastToAll(ws.Event)                           {}
+func (fakeHub) BroadcastToAllExcept(string, ws.Event)             {}
+func (fakeHub) BroadcastToUser(string, ws.Event)                  {}
+func (fakeHub) BroadcastToUsers([]string, ws.Event)               {}
+func (fakeHub) BroadcastToServer(string, ws.Event)                {}
+func (fakeHub) BroadcastToServerExcept(string, string, ws.Event)  {}
+func (fakeHub) GetOnlineUserIDs() []string                        { return nil }
+func (fakeHub) GetVisibleOnlineUserIDs() []string                 { return nil }
+func (fakeHub) GetOnlineUserIDsForServer(string) []string         { return nil }
+func (fakeHub) GetOnlineCountsForServers([]string) map[string]int { return nil }
 
 // Minimal fakes — only the methods InitiateCall reaches before the busy-check.
 
@@ -44,7 +45,7 @@ func (fakeUserGetter) GetActiveByID(_ context.Context, id string) (*models.User,
 // fakeURLSigner is a pass-through signer for buildBroadcast in tests.
 type fakeURLSigner struct{}
 
-func (fakeURLSigner) SignURL(s string) string     { return s }
+func (fakeURLSigner) SignURL(s string) string      { return s }
 func (fakeURLSigner) SignURLPtr(p *string) *string { return p }
 
 // TestHasActiveCall verifies the TURN credential gate boundary: only an
@@ -58,9 +59,9 @@ func TestHasActiveCall(t *testing.T) {
 			"act":  {ID: "act", CallerID: "c2", ReceiverID: "r2", Status: models.P2PCallStatusActive},
 		},
 		userCalls: map[string]string{
-			"caller": "ring",  // caller of a still-ringing call
-			"rcv":    "ring",  // callee who hasn't accepted yet
-			"c2":     "act",   // both parties of an accepted call
+			"caller": "ring", // caller of a still-ringing call
+			"rcv":    "ring", // callee who hasn't accepted yet
+			"c2":     "act",  // both parties of an accepted call
 			"r2":     "act",
 			"stale":  "ghost", // points at a call no longer in activeCalls
 		},

@@ -57,6 +57,7 @@ type UIState = {
   activePanelId: string;
   membersOpen: boolean;
   quickSwitcherOpen: boolean;
+  discoveryOpen: boolean;
 
   // Tab actions
   openTab: (channelId: string, type: TabType, label: string, serverInfo?: TabServerInfo) => void;
@@ -91,6 +92,10 @@ type UIState = {
   // Quick Switcher (Ctrl+K)
   toggleQuickSwitcher: () => void;
   closeQuickSwitcher: () => void;
+
+  // Discovery (public server directory) overlay
+  openDiscovery: () => void;
+  closeDiscovery: () => void;
 };
 
 // ──────────────────────────────────
@@ -197,6 +202,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   activePanelId: defaultPanelId,
   membersOpen: true,
   quickSwitcherOpen: false,
+  discoveryOpen: false,
 
   openTab(channelId, type, label, serverInfo) {
     const state = get();
@@ -531,6 +537,14 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   closeQuickSwitcher() {
     set({ quickSwitcherOpen: false });
+  },
+
+  openDiscovery() {
+    set({ discoveryOpen: true });
+  },
+
+  closeDiscovery() {
+    set({ discoveryOpen: false });
   },
 
   closeTextTabByChannel(channelId) {

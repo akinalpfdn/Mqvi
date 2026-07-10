@@ -164,6 +164,40 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 	pkg.JSON(w, http.StatusOK, server)
 }
 
+// UploadServerBanner uploads the server banner (discovery card). Requires admin permission.
+// Deletes the old banner file from disk if present.
+// POST /api/servers/{serverId}/banner (multipart/form-data)
+func (h *AvatarHandler) UploadServerBanner(w http.ResponseWriter, r *http.Request) {
+	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	if !ok || serverID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+
+	fileURL, err := h.processUpload(w, r, files.KindServerBanner, serverID)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	currentServer, err := h.serverService.GetServerRaw(r.Context(), serverID)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	h.locator.DeleteFromURL(derefStr(currentServer.BannerURL))
+
+	server, err := h.serverService.UpdateBanner(r.Context(), serverID, fileURL)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	// BannerURL already signed by serverService.UpdateBanner
+	pkg.JSON(w, http.StatusOK, server)
+}
+
 // processUpload parses the multipart form, validates the file, saves it via the
 // Locator, and returns the relative URL stored in DB.
 func (h *AvatarHandler) processUpload(w http.ResponseWriter, r *http.Request, kind files.Kind, scopeID string) (string, error) {

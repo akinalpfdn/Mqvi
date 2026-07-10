@@ -86,6 +86,38 @@ func (r *UpdateReportStatusRequest) Validate() error {
 	return nil
 }
 
+// ServerReport is a user report against a public server (discovery moderation).
+type ServerReport struct {
+	ID          string                   `json:"id"`
+	ReporterID  string                   `json:"reporter_id"`
+	ServerID    string                   `json:"server_id"`
+	Reason      ReportReason             `json:"reason"`
+	Description string                   `json:"description"`
+	Status      ReportStatus             `json:"status"`
+	ResolvedBy  *string                  `json:"resolved_by"`
+	ResolvedAt  *string                  `json:"resolved_at"`
+	CreatedAt   string                   `json:"created_at"`
+	Attachments []ServerReportAttachment `json:"attachments"`
+}
+
+// ServerReportAttachment — evidence image for a server report (parallel to ReportAttachment).
+type ServerReportAttachment struct {
+	ID             string  `json:"id"`
+	ServerReportID string  `json:"server_report_id"`
+	Filename       string  `json:"filename"`
+	FileURL        string  `json:"file_url"`
+	FileSize       *int64  `json:"file_size"`
+	MimeType       *string `json:"mime_type"`
+	CreatedAt      string  `json:"created_at"`
+}
+
+// ServerReportWithInfo enriches a server report with reporter + server names for the admin panel.
+type ServerReportWithInfo struct {
+	ServerReport
+	ReporterUsername string `json:"reporter_username"`
+	ServerName       string `json:"server_name"`
+}
+
 type CreateReportRequest struct {
 	Reason      string `json:"reason"`
 	Description string `json:"description"`

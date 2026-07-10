@@ -13,6 +13,8 @@ import {
 } from "../../api/feedback";
 import type { FeedbackTicket, FeedbackReply, FeedbackStatus, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
+import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
+import { useImageAttach } from "../../hooks/useImageAttach";
 import FilePreview from "../chat/FilePreview";
 import FilterDropdown, { type FilterOption } from "../shared/FilterDropdown";
 import Pagination from "../shared/Pagination";
@@ -42,6 +44,7 @@ function parseUTC(iso: string): number {
 function AdminFeedbackList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const openAttachment = useAttachmentViewer();
 
   const [tickets, setTickets] = useState<FeedbackTicket[]>([]);
   const [total, setTotal] = useState(0);
@@ -62,6 +65,15 @@ function AdminFeedbackList() {
   const [replyFiles, setReplyFiles] = useState<File[]>([]);
   const replyFileInputRef = useRef<HTMLInputElement>(null);
   const [isSendingReply, setIsSendingReply] = useState(false);
+
+  const MAX_REPLY_FILES = 4;
+  const onReplyLimit = useCallback(() => addToast("warning", t("feedbackMaxFiles")), [addToast, t]);
+  const {
+    addFiles: addReplyFiles,
+    handlePaste: handleReplyPaste,
+    isDragging: isReplyDragging,
+    dragHandlers: replyDragHandlers,
+  } = useImageAttach(setReplyFiles, MAX_REPLY_FILES, onReplyLimit);
 
   const fetchTickets = useCallback(async () => {
     setIsLoading(true);
@@ -266,9 +278,9 @@ function AdminFeedbackList() {
               <a
                 key={att.id}
                 href={resolveAssetUrl(att.file_url)}
-                target="_blank"
                 rel="noopener noreferrer"
                 className="feedback-attachment-thumb"
+                onClick={(e) => openAttachment(att, e)}
               >
                 <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
               </a>
@@ -295,7 +307,7 @@ function AdminFeedbackList() {
               {reply.attachments && reply.attachments.length > 0 && (
                 <div className="feedback-attachments">
                   {reply.attachments.map((att) => (
-                    <a key={att.id} href={resolveAssetUrl(att.file_url)} target="_blank" rel="noopener noreferrer" className="feedback-attachment-thumb">
+                    <a key={att.id} href={resolveAssetUrl(att.file_url)} rel="noopener noreferrer" className="feedback-attachment-thumb" onClick={(e) => openAttachment(att, e)}>
                       <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
                     </a>
                   ))}
@@ -305,7 +317,12 @@ function AdminFeedbackList() {
           ))}
         </div>
 
-        <div className="feedback-reply-input">
+        <div className="feedback-reply-input" {...replyDragHandlers} onPaste={handleReplyPaste}>
+          {isReplyDragging && (
+            <div className="file-drop-overlay">
+              <span className="file-drop-text">{t("feedbackEvidenceHint")}</span>
+            </div>
+          )}
           <textarea
             className="settings-input"
             value={replyContent}
@@ -318,7 +335,7 @@ function AdminFeedbackList() {
             {replyFiles.length > 0 && (
               <FilePreview files={replyFiles} onRemove={(i) => setReplyFiles((prev) => prev.filter((_, j) => j !== i))} />
             )}
-            {replyFiles.length < 4 && (
+            {replyFiles.length < MAX_REPLY_FILES && (
               <button
                 type="button"
                 className="report-evidence-drop"
@@ -334,12 +351,7 @@ function AdminFeedbackList() {
               multiple
               style={{ display: "none" }}
               onChange={(e) => {
-                if (e.target.files) {
-                  const images = Array.from(e.target.files).filter((f) =>
-                    ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(f.type)
-                  );
-                  setReplyFiles((prev) => [...prev, ...images].slice(0, 4));
-                }
+                if (e.target.files) addReplyFiles(Array.from(e.target.files));
                 e.target.value = "";
               }}
             />

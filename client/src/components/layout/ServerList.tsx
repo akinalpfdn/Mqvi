@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useSidebarStore } from "../../stores/sidebarStore";
 import { useServerStore } from "../../stores/serverStore";
+import { useUIStore } from "../../stores/uiStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -12,6 +13,7 @@ import { hasPermission, Permissions } from "../../utils/permissions";
 import { resolveAssetUrl } from "../../utils/constants";
 import ContextMenu from "../shared/ContextMenu";
 import ServerVoicePopup from "./ServerVoicePopup";
+import { VerifiedBadge } from "../discovery/DiscoveryBadges";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 
@@ -55,6 +57,7 @@ function ServerList({
   const markAllAsRead = useReadStateStore((s) => s.markAllAsRead);
   const getServerUnreadTotal = useReadStateStore((s) => s.getServerUnreadTotal);
   const openSettings = useSettingsStore((s) => s.openSettings);
+  const openDiscovery = useUIStore((s) => s.openDiscovery);
   const addToast = useToastStore((s) => s.addToast);
   const currentUser = useAuthStore((s) => s.user);
   const members = useActiveMembers();
@@ -293,6 +296,19 @@ function ServerList({
               <span className="ch-tree-label">{tServers("addServer")}</span>
             </button>
 
+            <button
+              className="ch-tree-item ch-tree-add-server"
+              onClick={openDiscovery}
+            >
+              <span className="ch-tree-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+                </svg>
+              </span>
+              <span className="ch-tree-label">{tServers("discover")}</span>
+            </button>
+
             {servers.map((srv) => {
               const srvKey = `srv:${srv.id}`;
               const isActive = srv.id === activeServerId;
@@ -342,6 +358,7 @@ function ServerList({
                         </span>
                       )}
                       <span className="ch-tree-server-name">{srv.name}</span>
+                      {srv.verified && <VerifiedBadge size={13} />}
                       {!mutedServerIds.has(srv.id) && (() => {
                         const total = getServerUnreadTotal(srv.id);
                         return total > 0 ? (

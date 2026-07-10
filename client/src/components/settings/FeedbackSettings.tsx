@@ -13,6 +13,8 @@ import {
 } from "../../api/feedback";
 import type { FeedbackTicket, FeedbackReply, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
+import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
+import { useImageAttach } from "../../hooks/useImageAttach";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
 
@@ -21,6 +23,7 @@ type View = "list" | "create" | "detail";
 function FeedbackSettings() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const openAttachment = useAttachmentViewer();
 
   const [view, setView] = useState<View>("list");
   const [tickets, setTickets] = useState<FeedbackTicket[]>([]);
@@ -61,6 +64,15 @@ function FeedbackSettings() {
   }, [addToast, t]);
 
   const { isDragging, dragHandlers } = useFileDrop(addFiles);
+
+  // Reply composer gets the same paste / drag-drop affordances as the create form.
+  const onReplyLimit = useCallback(() => addToast("warning", t("feedbackMaxFiles")), [addToast, t]);
+  const {
+    addFiles: addReplyFiles,
+    handlePaste: handleReplyPaste,
+    isDragging: isReplyDragging,
+    dragHandlers: replyDragHandlers,
+  } = useImageAttach(setReplyFiles, MAX_FILES, onReplyLimit);
 
   function handlePaste(e: React.ClipboardEvent) {
     const items = e.clipboardData?.items;
@@ -351,9 +363,9 @@ function FeedbackSettings() {
                 <a
                   key={att.id}
                   href={resolveAssetUrl(att.file_url)}
-                  target="_blank"
                   rel="noopener noreferrer"
                   className="feedback-attachment-thumb"
+                  onClick={(e) => openAttachment(att, e)}
                 >
                   <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
                 </a>
@@ -381,7 +393,7 @@ function FeedbackSettings() {
                 {reply.attachments && reply.attachments.length > 0 && (
                   <div className="feedback-attachments">
                     {reply.attachments.map((att) => (
-                      <a key={att.id} href={resolveAssetUrl(att.file_url)} target="_blank" rel="noopener noreferrer" className="feedback-attachment-thumb">
+                      <a key={att.id} href={resolveAssetUrl(att.file_url)} rel="noopener noreferrer" className="feedback-attachment-thumb" onClick={(e) => openAttachment(att, e)}>
                         <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
                       </a>
                     ))}
@@ -393,7 +405,12 @@ function FeedbackSettings() {
 
           {/* Reply input */}
           {activeTicket.status !== "closed" && (
-            <div className="feedback-reply-input">
+            <div className="feedback-reply-input" {...replyDragHandlers} onPaste={handleReplyPaste}>
+              {isReplyDragging && (
+                <div className="file-drop-overlay">
+                  <span className="file-drop-text">{t("feedbackEvidenceHint")}</span>
+                </div>
+              )}
               <textarea
                 className="settings-input"
                 value={replyContent}
@@ -422,10 +439,7 @@ function FeedbackSettings() {
                   multiple
                   style={{ display: "none" }}
                   onChange={(e) => {
-                    if (e.target.files) {
-                      const images = Array.from(e.target.files).filter((f) => ALLOWED_TYPES.includes(f.type));
-                      setReplyFiles((prev) => [...prev, ...images].slice(0, MAX_FILES));
-                    }
+                    if (e.target.files) addReplyFiles(Array.from(e.target.files));
                     e.target.value = "";
                   }}
                 />

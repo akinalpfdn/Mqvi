@@ -96,7 +96,6 @@ func initRoutes(
 	// Server mutes — literal path before {serverId} wildcard
 	mux.Handle("GET /api/servers/mutes", auth(h.ServerMute.ListMuted))
 
-
 	// File URL refresh — re-signs a path the user already has a valid signature for.
 	// Accepts POST with {"url":"/api/files/...?exp=...&sig=..."} body.
 	// The existing signature must still be valid AND the user must still have ACL access.
@@ -245,12 +244,15 @@ func initRoutes(
 	// Platform Admin — Servers
 	mux.Handle("GET /api/admin/servers", authAdmin(h.Admin.ListServers))
 	mux.Handle("PATCH /api/admin/servers/{serverId}/instance", authAdmin(h.Admin.MigrateServerInstance))
+	mux.Handle("PATCH /api/admin/servers/{serverId}/discovery-flag", authAdmin(h.Admin.SetServerDiscoveryFlag))
 	mux.Handle("DELETE /api/admin/servers/{serverId}", authAdmin(h.Admin.AdminDeleteServer))
 	mux.Handle("POST /api/admin/servers/{serverId}/restore", authAdmin(h.Admin.AdminRestoreServer))
 
 	// Platform Admin — Reports
 	mux.Handle("GET /api/admin/reports", authAdmin(h.Admin.ListReports))
 	mux.Handle("PATCH /api/admin/reports/{id}/status", authAdmin(h.Admin.UpdateReportStatus))
+	mux.Handle("GET /api/admin/server-reports", authAdmin(h.Admin.ListServerReports))
+	mux.Handle("PATCH /api/admin/server-reports/{id}/status", authAdmin(h.Admin.UpdateServerReportStatus))
 	mux.Handle("POST /api/admin/reports/mark-seen", authAdmin(h.Admin.MarkReportsSeen))
 
 	// Platform Admin — Badge indicators (new feedback / new reports)
@@ -297,6 +299,13 @@ func initRoutes(
 	mux.Handle("DELETE /api/servers/{serverId}/permanent", authServerNoMemberCheck(h.Server.HardDeleteServer))
 	mux.Handle("POST /api/servers/{serverId}/leave", authServer(h.Server.LeaveServer))
 	mux.Handle("POST /api/servers/{serverId}/icon", authServerPerm(models.PermAdmin, h.Avatar.UploadServerIcon))
+	mux.Handle("POST /api/servers/{serverId}/banner", authServerPerm(models.PermAdmin, h.Avatar.UploadServerBanner))
+
+	// Public server discovery (login required; not server-scoped)
+	mux.Handle("GET /api/discovery/servers", auth(h.Discovery.ListPublicServers))
+	mux.Handle("GET /api/discovery/servers/{id}", auth(h.Discovery.GetPublicServer))
+	mux.Handle("POST /api/discovery/servers/{id}/join", auth(h.Discovery.JoinPublicServer))
+	mux.Handle("POST /api/discovery/servers/{id}/report", auth(h.Discovery.ReportServer))
 
 	// Server Mute
 	mux.Handle("POST /api/servers/{serverId}/mute", authServer(h.ServerMute.Mute))

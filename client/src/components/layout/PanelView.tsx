@@ -179,7 +179,15 @@ function PanelView({
 
       {/* Content */}
       {!activeTab ? (
-        <div className="no-channel">{t("noChannel")}</div>
+        <div className="no-channel">
+          <div className="no-channel-inner">
+            <span className="no-channel-title">{t("noChannel")}</span>
+            {/* The sidebar is a drawer on mobile — point at the hamburger, not "the left". */}
+            <span className="no-channel-hint">
+              {isMobile ? t("noChannelHintMobile") : t("noChannelHint")}
+            </span>
+          </div>
+        </div>
       ) : activeTab.type === "text" ? (
         <ChatArea
           channelId={activeTab.channelId}

@@ -7,6 +7,8 @@ import { registerPlugin } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { isCapacitor, getCapacitorPlatform } from "./constants";
+import { handleBack } from "./backStack";
+import { initKeyboardScroll } from "./keyboardScroll";
 import { ensureFreshToken } from "../api/client";
 
 // ─── VoiceCallService Plugin ───
@@ -75,6 +77,10 @@ export async function initAppLifecycle(): Promise<void> {
   // Android hardware back button
   if (getCapacitorPlatform() === "android") {
     await App.addListener("backButton", ({ canGoBack }) => {
+      // An open panel owns the gesture first. Without this a full-screen panel whose close
+      // button sits under the status bar leaves no way out but killing the app.
+      if (handleBack()) return;
+
       if (canGoBack) {
         window.history.back();
       } else {
@@ -198,6 +204,10 @@ export async function configureMobileUI(): Promise<void> {
   // - Android: MainActivity.java injects --safe-area-inset-* CSS vars via WindowInsets
   // - iOS: CSS env(safe-area-inset-*) works natively in WKWebView
   // - CSS: #root uses padding-top/bottom with var(--safe-area-inset-*, env(..., 0px))
+
+  if (getCapacitorPlatform() === "android") {
+    await initKeyboardScroll();
+  }
 
   try {
     await StatusBar.setStyle({ style: Style.Dark });
