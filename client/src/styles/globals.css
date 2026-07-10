@@ -326,8 +326,10 @@ select option:disabled {
 .disc-card-report:hover { color:var(--red);background:var(--bg-h); }
 .disc-badge-verified { color:var(--primary);flex-shrink:0; }
 .disc-badge-featured { color:var(--yellow);flex-shrink:0; }
-.disc-card-desc { font-size:13px;color:var(--t2);line-height:1.4;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1; }
-.disc-card-footer { display:flex;gap:14px;margin-bottom:12px; }
+/* Fixed four-line box keeps every card the same height; longer text scrolls inside it. */
+.disc-card-desc { font-size:13px;color:var(--t2);line-height:1.4;margin-bottom:12px;height:calc(1.4em * 4);overflow-y:auto;overscroll-behavior:contain;flex:none;scrollbar-width:thin;scrollbar-color:var(--bg-5) transparent; }
+/* Was pushed down by the description's flex:1; that box is fixed height now. */
+.disc-card-footer { display:flex;gap:14px;margin-bottom:12px;margin-top:auto; }
 .disc-card-stat { display:flex;align-items:center;gap:6px;font-size:13px;color:var(--t2); }
 .disc-dot { width:8px;height:8px;border-radius:999px;background:var(--t3);flex-shrink:0; }
 .disc-dot-online { background:var(--green); }
@@ -1614,6 +1616,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .settings-input::placeholder { color:var(--t3); }
 .settings-textarea { width:100%;max-width:400px;min-height:80px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;padding:10px 12px;color:var(--t0);font-size:16px;outline:none;resize:vertical;transition:border-color .15s; }
 .settings-textarea:focus { border-color:var(--primary); }
+/* Long-form fields (server description): roomy enough that nobody has to find the resize grip */
+.settings-textarea-wide { max-width:640px;min-height:140px;line-height:1.5; }
+.settings-textarea-counter { max-width:640px;font-size:13px;color:var(--t3);margin-top:4px;text-align:right; }
 .settings-select { width:100%;max-width:400px;height:40px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;padding:0 12px;color:var(--t0);font-size:16px;outline:none;cursor:pointer;appearance:none; }
 .settings-field { margin-bottom:16px; }
 .settings-field-hint { display:block;margin-top:4px;font-size:13px;color:var(--t3); }

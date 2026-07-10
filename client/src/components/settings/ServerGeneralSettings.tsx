@@ -11,7 +11,12 @@ import { resolveAssetUrl } from "../../utils/constants";
 import { SERVER_CATEGORIES, categoryLabelKey } from "../../constants/serverCategories";
 import * as serverApi from "../../api/servers";
 import AvatarUpload from "./AvatarUpload";
+import ImageCropModal from "../shared/ImageCropModal";
 import type { Server } from "../../types";
+
+/** Matches .server-banner-upload and the discovery card banner. */
+const BANNER_ASPECT = 16 / 9;
+const MAX_BANNER_SIZE = 8 * 1024 * 1024;
 
 /** LiveKit settings from backend */
 type LiveKitSettings = {
@@ -35,6 +40,8 @@ function ServerGeneralSettings() {
   const [editCategory, setEditCategory] = useState("");
   const [editAFKTimeout, setEditAFKTimeout] = useState(60);
   const bannerInputRef = useRef<HTMLInputElement>(null);
+  const [bannerCropImage, setBannerCropImage] = useState<string | null>(null);
+  const [isBannerUploading, setIsBannerUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -189,9 +196,21 @@ function ServerGeneralSettings() {
     }
   }
 
-  async function handleBannerUpload(file: File) {
+  function handleBannerPick(file: File) {
+    if (file.size > MAX_BANNER_SIZE) {
+      addToast("error", t("avatarMaxSize"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setBannerCropImage(reader.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleBannerUpload(blob: Blob) {
     if (!activeServerId) return;
+    setIsBannerUploading(true);
     try {
+      const file = new File([blob], "banner.png", { type: "image/png" });
       const res = await serverApi.uploadServerBanner(activeServerId, file);
       if (res.success && res.data) {
         setServer(res.data);
@@ -201,6 +220,9 @@ function ServerGeneralSettings() {
       }
     } catch {
       addToast("error", t("serverSaveError"));
+    } finally {
+      setIsBannerUploading(false);
+      setBannerCropImage(null);
     }
   }
 
@@ -283,14 +305,23 @@ function ServerGeneralSettings() {
         <input
           ref={bannerInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/gif,image/webp"
           hidden
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleBannerUpload(f);
+            if (f) handleBannerPick(f);
             e.target.value = "";
           }}
         />
+        {bannerCropImage && (
+          <ImageCropModal
+            image={bannerCropImage}
+            aspect={BANNER_ASPECT}
+            isBusy={isBannerUploading}
+            onCancel={() => setBannerCropImage(null)}
+            onApply={handleBannerUpload}
+          />
+        )}
       </div>
 
       {/* Server Name */}
@@ -321,13 +352,9 @@ function ServerGeneralSettings() {
           value={editDescription}
           onChange={(e) => setEditDescription(e.target.value)}
           maxLength={300}
-          rows={3}
-          className="settings-input"
-          style={{ resize: "vertical" }}
+          className="settings-textarea settings-textarea-wide"
         />
-        <p style={{ fontSize: 13, color: "var(--t3)", marginTop: 4, textAlign: "right" }}>
-          {editDescription.length}/300
-        </p>
+        <p className="settings-textarea-counter">{editDescription.length}/300</p>
       </div>
 
       {/* Server Category (discovery) */}
