@@ -11,6 +11,7 @@ import RoleEditorPopup from "./RoleEditorPopup";
 import BadgeAssignModal from "./BadgeAssignModal";
 import BadgePill from "../shared/BadgePill";
 import { useUserBadges } from "../../hooks/useUserBadges";
+import { useLogout } from "../../hooks/useLogout";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useActiveMembers } from "../../stores/memberStore";
@@ -47,6 +48,8 @@ type MemberCardProps = {
 
 function MemberCard({ member, user: userProp, position, onClose }: MemberCardProps) {
   const { t } = useTranslation("common");
+  const { t: tSettings } = useTranslation("settings");
+  const logout = useLogout();
   const confirm = useConfirm();
   const cardRef = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState(position);
@@ -459,6 +462,28 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
                     <span>{t("editRoles")}</span>
                   </button>
                 )}
+              </div>
+            </>
+          )}
+
+          {/* Log out — last, behind its own divider, so it is never adjacent to the status
+              rows people tap all the time. Confirmed before it runs. */}
+          {isMe && (
+            <>
+              <div className="mc-divider" />
+              <div className="mc-actions">
+                <button
+                  className="mc-btn mc-btn-danger"
+                  style={{ gridColumn: "1/-1" }}
+                  onClick={() => void logout()}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                  <span>{tSettings("logOut")}</span>
+                </button>
               </div>
             </>
           )}

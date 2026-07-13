@@ -9,6 +9,7 @@ import { useActiveMembers } from "../../stores/memberStore";
 import { useSettingsBadgeStore } from "../../stores/settingsBadgeStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { useIsMobile } from "../../hooks/useMediaQuery";
+import { useLogout } from "../../hooks/useLogout";
 import { isElectron, isNativeApp } from "../../utils/constants";
 import type { SettingsTab } from "../../stores/settingsStore";
 
@@ -62,7 +63,7 @@ function SettingsNav({ drawerOpen = false, onNavigate }: SettingsNavProps) {
   const { t } = useTranslation("settings");
   const activeTab = useSettingsStore((s) => s.activeTab);
   const setActiveTab = useSettingsStore((s) => s.setActiveTab);
-  const logout = useAuthStore((s) => s.logout);
+  const logout = useLogout();
   const user = useAuthStore((s) => s.user);
   const isMobile = useIsMobile();
   const [showConnections, setShowConnections] = useState(false);
@@ -191,7 +192,7 @@ function SettingsNav({ drawerOpen = false, onNavigate }: SettingsNavProps) {
       {!isMobile && <div className="settings-nav-divider settings-nav-divider-push" />}
       <button
         className="settings-nav-item settings-nav-logout"
-        onClick={logout}
+        onClick={() => void logout()}
       >
         {t("logOut")}
       </button>

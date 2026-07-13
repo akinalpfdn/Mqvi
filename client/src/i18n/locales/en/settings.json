@@ -87,6 +87,7 @@
   "comingSoon": "Coming soon",
   "noPermission": "You don't have permission to access this section",
   "logOut": "Log Out",
+  "logOutConfirm": "Log out of mqvi? You will leave any voice call and stop receiving notifications until you sign back in.",
   "logOutConfirm": "Are you sure you want to log out?",
   "roleSaved": "Role updated successfully",
   "roleCreated": "Role created successfully",

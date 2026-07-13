@@ -87,6 +87,7 @@
   "comingSoon": "Yakında",
   "noPermission": "Bu bölüme erişim yetkiniz yok",
   "logOut": "Çıkış Yap",
+  "logOutConfirm": "mqvi'den çıkmak istiyor musun? Sesli görüşmeden ayrılırsın ve tekrar giriş yapana kadar bildirim almazsın.",
   "logOutConfirm": "Çıkış yapmak istediğinizden emin misiniz?",
   "roleSaved": "Rol başarıyla güncellendi",
   "roleCreated": "Rol başarıyla oluşturuldu",
