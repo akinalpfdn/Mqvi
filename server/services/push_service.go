@@ -31,6 +31,10 @@ import (
 type PushNotifier interface {
 	NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID string)
 	NotifyCall(receiverID, callerName string, callType models.P2PCallType, callID, callerID string)
+	// NotifyDMRead retracts a conversation's delivered notifications on the user's OTHER
+	// devices once they have read it somewhere. A device with a live socket does this from
+	// the dm_read WS event; one that is asleep or killed only has this push.
+	NotifyDMRead(userID, dmChannelID string)
 	// NotifyCallCancel stops the ring / dismisses the incoming-call UI on every device of
 	// the receiver once the call stops ringing — cancelled, declined, timed out, or ANSWERED
 	// on one of those devices. A backgrounded device has no live WS to deliver OpP2PCallEnd,
@@ -105,11 +109,33 @@ func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypte
 				Body:     body,
 				Category: push.CategoryMessage,
 				Data:     data,
+				Tag:      dmNotificationTag(dmChannelID),
 			})
 		}
 		if s.apns.Enabled() {
 			s.sendAPNsAlert(ctx, recipientID, senderName, body, data)
 		}
+	}()
+}
+
+// dmNotificationTag names a conversation's Android notifications so native code can find
+// and cancel them later. Must match the tag MqviMessagingService cancels on dm_read.
+func dmNotificationTag(dmChannelID string) string {
+	return "dm:" + dmChannelID
+}
+
+func (s *pushService) NotifyDMRead(userID, dmChannelID string) {
+	if !s.fcm.Enabled() {
+		return // Android-only: iOS cannot be relied on to retract a delivered alert
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		s.sendFCMData(ctx, userID, map[string]string{
+			"type":          "dm_read",
+			"dm_channel_id": dmChannelID,
+		})
 	}()
 }
 
@@ -296,6 +322,38 @@ func (s *pushService) NotifyCallCancel(receiverID, callID string) {
 // sendFCM delivers a notification message to the user's FCM tokens — excluding VoIP
 // tokens, which are not FCM-addressable (sending them to FCM would fail and wrongly
 // prune them) — pruning any FCM reports as permanently unregistered.
+// sendFCMData delivers a data-only message to the user's Android devices. Data-only is
+// what reaches MqviMessagingService even when the app is backgrounded or killed — a
+// notification payload would be displayed by the FCM SDK instead of handed to our code.
+func (s *pushService) sendFCMData(ctx context.Context, userID string, data map[string]string) {
+	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
+	if err != nil {
+		log.Printf("[push] list tokens for %s: %v", userID, err)
+		return
+	}
+
+	var androidFCM []string
+	for _, t := range tokens {
+		if t.TokenType == models.PushTokenTypeFCM && t.Platform == "android" {
+			androidFCM = append(androidFCM, t.Token)
+		}
+	}
+	if len(androidFCM) == 0 {
+		return
+	}
+
+	invalid, err := s.fcm.SendData(ctx, androidFCM, data)
+	if err != nil {
+		log.Printf("[push] send data to %s: %v", userID, err)
+		return
+	}
+	if len(invalid) > 0 {
+		if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
+			log.Printf("[push] prune %d invalid tokens: %v", len(invalid), delErr)
+		}
+	}
+}
+
 func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notification) {
 	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
 	if err != nil {

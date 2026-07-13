@@ -326,6 +326,8 @@ export type DMChannelWithUser = {
   last_message_at: string | null;
   is_pinned: boolean;
   is_muted: boolean;
+  /** Server-side unread, so a badge cleared on one device is cleared on the others too. */
+  unread_count: number;
 };
 
 export type CallMeta = {

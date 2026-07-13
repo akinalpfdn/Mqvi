@@ -427,6 +427,7 @@ type recordingPush struct {
 }
 
 func (p *recordingPush) NotifyDM(_, _, _ string, _ bool, _, _ string) {}
+func (p *recordingPush) NotifyDMRead(_, _ string)                     {}
 func (p *recordingPush) NotifyCall(_, _ string, _ models.P2PCallType, _, _ string) {}
 func (p *recordingPush) NotifyCallCancel(receiverID, _ string) {
 	p.cancelled = append(p.cancelled, receiverID)

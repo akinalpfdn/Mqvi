@@ -1,7 +1,7 @@
 // Package services — DMService interface, struct, construction, and shared helpers.
 //
 // Method implementations are split across concern-based files in this package:
-//   dm_channel.go — GetOrCreateChannel, ListChannels
+//   dm_channel.go — GetOrCreateChannel, ListChannels, MarkRead
 //   dm_message.go — GetMessages, SendMessage, BroadcastCreate, EditMessage, DeleteMessage
 //   dm_request.go — AcceptRequest, DeclineRequest, AcceptPendingChannels
 //   dm_extras.go  — ToggleReaction, pins, search, ToggleE2EE
@@ -23,6 +23,11 @@ import (
 type DMService interface {
 	GetOrCreateChannel(ctx context.Context, userID, otherUserID string) (*models.DMChannelWithUser, error)
 	ListChannels(ctx context.Context, userID string) ([]models.DMChannelWithUser, error)
+
+	// MarkRead advances the user's read watermark and tells their OTHER devices, so a
+	// conversation read on one of them stops showing unread — and stops showing a
+	// notification — on the rest. Returns the unread count left after the write.
+	MarkRead(ctx context.Context, userID, channelID, messageID string) (int, error)
 
 	GetMessages(ctx context.Context, userID, channelID string, beforeID string, limit int) (*models.DMMessagePage, error)
 	SendMessage(ctx context.Context, userID, channelID string, req *models.CreateDMMessageRequest) (*models.DMMessage, error)

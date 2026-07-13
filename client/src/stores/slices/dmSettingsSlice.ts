@@ -3,12 +3,28 @@ import i18n from "../../i18n";
 import * as dmApi from "../../api/dm";
 import { useToastStore } from "../toastStore";
 import { sortChannelsByActivity } from "../shared/dmSort";
-import { dismissNotificationsFor } from "../../utils/pushDismiss";
+import { dismissNotificationsFor, dismissReadNotifications } from "../../utils/pushDismiss";
 import type { DMStore } from "../dmStore";
 
 export type DMSettingsSlice = {
   dmUnreadCounts: Record<string, number>;
   pendingSearchChannelId: string | null;
+
+  /**
+   * The server owns unread now, so a snapshot of it replaces what we hold — otherwise a
+   * conversation read on another device would keep its badge here forever. But a snapshot
+   * is stale the moment it is requested: a message arriving while it is in flight is not
+   * in it. These two fields hold those arrivals so they can be added back on top instead
+   * of being erased. See applyServerUnread.
+   */
+  _unreadFetchInFlight: boolean;
+  _unreadSinceFetch: Record<string, number>;
+  /** Called by fetchChannels around its request. */
+  beginUnreadFetch: () => void;
+  applyServerUnread: (counts: Record<string, number>) => void;
+
+  /** A conversation was read on another device — the server tells us where it now stands. */
+  handleDMRead: (data: { dm_channel_id: string; unread_count: number }) => void;
 
   hideDM: (channelId: string) => Promise<void>;
   pinDM: (channelId: string) => Promise<void>;
@@ -32,6 +48,44 @@ export const createDMSettingsSlice: StateCreator<
 > = (set, get) => ({
   dmUnreadCounts: {},
   pendingSearchChannelId: null,
+  _unreadFetchInFlight: false,
+  _unreadSinceFetch: {},
+
+  beginUnreadFetch: () => set({ _unreadFetchInFlight: true, _unreadSinceFetch: {} }),
+
+  applyServerUnread: (counts) => {
+    set((state) => {
+      const merged = { ...counts };
+      // Messages that landed while the snapshot was in flight aren't in it — add them back.
+      for (const [channelId, n] of Object.entries(state._unreadSinceFetch)) {
+        merged[channelId] = (merged[channelId] ?? 0) + n;
+      }
+      // A device that was asleep or killed missed both the dm_read event and its retraction
+      // push, so it can come back still showing notifications for conversations read long ago.
+      void dismissReadNotifications(new Set(Object.keys(merged)));
+      return {
+        dmUnreadCounts: merged,
+        _unreadFetchInFlight: false,
+        _unreadSinceFetch: {},
+      };
+    });
+  },
+
+  handleDMRead: ({ dm_channel_id, unread_count }) => {
+    if (unread_count === 0) void dismissNotificationsFor(dm_channel_id);
+
+    set((state) => {
+      const next = { ...state.dmUnreadCounts };
+      if (unread_count > 0) next[dm_channel_id] = unread_count;
+      else delete next[dm_channel_id];
+
+      // Don't let an in-flight snapshot add this conversation's messages back.
+      const since = { ...state._unreadSinceFetch };
+      delete since[dm_channel_id];
+
+      return { dmUnreadCounts: next, _unreadSinceFetch: since };
+    });
+  },
 
   hideDM: async (channelId) => {
     const res = await dmApi.hideDM(channelId);
@@ -121,6 +175,14 @@ export const createDMSettingsSlice: StateCreator<
         ...state.dmUnreadCounts,
         [channelId]: (state.dmUnreadCounts[channelId] ?? 0) + 1,
       },
+      // Remember it separately while a server snapshot is in flight — that snapshot predates
+      // this message, and applying it verbatim would drop the badge we just raised.
+      _unreadSinceFetch: state._unreadFetchInFlight
+        ? {
+            ...state._unreadSinceFetch,
+            [channelId]: (state._unreadSinceFetch[channelId] ?? 0) + 1,
+          }
+        : state._unreadSinceFetch,
     }));
   },
 
@@ -148,11 +210,21 @@ export const createDMSettingsSlice: StateCreator<
     // Reading the conversation retires its tray notification too, whichever device raised it.
     void dismissNotificationsFor(channelId);
 
+    // Persist it: this is what clears the badge on the user's other devices and retracts
+    // the notification they were already shown. The newest message we have is the
+    // watermark; with none loaded the server marks the whole conversation read.
+    const messages = get().messagesByChannel[channelId];
+    const lastId = messages?.[messages.length - 1]?.id;
+    void dmApi.markDMRead(channelId, lastId).then((res) => {
+      if (!res.success) console.error("[dm] failed to persist read state:", res.error);
+    });
+
     set((state) => {
-      if (!state.dmUnreadCounts[channelId]) return state;
       const next = { ...state.dmUnreadCounts };
       delete next[channelId];
-      return { dmUnreadCounts: next };
+      const since = { ...state._unreadSinceFetch };
+      delete since[channelId];
+      return { dmUnreadCounts: next, _unreadSinceFetch: since };
     });
   },
 

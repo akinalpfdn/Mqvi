@@ -401,6 +401,36 @@ func (h *DMHandler) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, messages)
 }
 
+// MarkRead handles POST /api/dms/channels/{channelId}/read
+func (h *DMHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("channelId")
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	// The id is optional: a client clearing a conversation it never loaded (the sidebar's
+	// "mark as read") has no message to point at, and an empty id means "all of it".
+	var req struct {
+		LastReadMessageID string `json:"last_read_message_id"`
+	}
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	unread, err := h.dmService.MarkRead(r.Context(), user.ID, channelID, req.LastReadMessageID)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]int{"unread_count": unread})
+}
+
 // ─── Search Endpoint ───
 
 // SearchMessages handles GET /api/dms/{channelId}/search?q=&limit=&offset=

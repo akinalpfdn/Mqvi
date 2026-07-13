@@ -118,3 +118,49 @@ func (s *dmService) ListChannels(ctx context.Context, userID string) ([]models.D
 	}
 	return channels, nil
 }
+
+// MarkRead records that the user has read this conversation up to messageID (empty means
+// all of it), then tells their other devices so the badge and any delivered notification
+// clear there too. Reading on the desktop is what should silence the phone.
+//
+// The count is read back from the database rather than assumed to be zero: a message can
+// arrive between the client choosing a watermark and this write landing, and reporting an
+// optimistic zero would hide it.
+func (s *dmService) MarkRead(ctx context.Context, userID, channelID, messageID string) (int, error) {
+	if _, err := s.verifyChannelMembership(ctx, userID, channelID); err != nil {
+		return 0, err
+	}
+
+	// No message named: the client is clearing a conversation it hasn't loaded.
+	var err error
+	if messageID == "" {
+		err = s.dmRepo.MarkReadLatest(ctx, userID, channelID)
+	} else {
+		err = s.dmRepo.MarkRead(ctx, userID, channelID, messageID)
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	unread, err := s.dmRepo.CountUnread(ctx, userID, channelID)
+	if err != nil {
+		return 0, err
+	}
+
+	// Only this user's sessions — the other participant's unread is their own business.
+	s.hub.BroadcastToUser(userID, ws.Event{
+		Op: ws.OpDMRead,
+		Data: map[string]any{
+			"dm_channel_id": channelID,
+			"unread_count":  unread,
+		},
+	})
+
+	// Devices with no live socket keep showing the notification until they are opened;
+	// a data push retracts it there. Only worth sending once nothing is left unread.
+	if unread == 0 && s.pushNotifier != nil {
+		s.pushNotifier.NotifyDMRead(userID, channelID)
+	}
+
+	return unread, nil
+}

@@ -35,12 +35,33 @@ class MqviMessagingService : MessagingService() {
             return // handled natively — don't let Capacitor fire pushNotificationReceived
         }
         if (remoteMessage.data["type"] == "call_cancel") {
-            // Caller hung up / call timed out while ringing — stop the incoming-call ring.
+            // Caller hung up, call timed out, or it was answered on another of the user's
+            // devices — stop the incoming-call ring.
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .cancel(CALL_NOTIFICATION_ID)
             return
         }
+        if (remoteMessage.data["type"] == "dm_read") {
+            // The user read this conversation on another device — retract what we posted.
+            cancelDmNotifications(remoteMessage.data["dm_channel_id"].orEmpty())
+            return
+        }
         super.onMessageReceived(remoteMessage)
+    }
+
+    /**
+     * DM notifications are posted by the FCM SDK itself while the app is backgrounded, so
+     * onMessageReceived never sees them and we never learn their notification id. The tag
+     * the server sets on them (AndroidNotification.tag) is the only handle we have, hence
+     * the scan over what is currently showing.
+     */
+    private fun cancelDmNotifications(dmChannelId: String) {
+        if (dmChannelId.isEmpty()) return
+        val tag = "dm:$dmChannelId"
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        for (posted in nm.activeNotifications) {
+            if (posted.tag == tag) nm.cancel(posted.tag, posted.id)
+        }
     }
 
     private fun showIncomingCall(data: Map<String, String>) {

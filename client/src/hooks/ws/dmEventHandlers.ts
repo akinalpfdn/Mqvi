@@ -9,6 +9,7 @@ import { useE2EEStore } from "../../stores/e2eeStore";
 import { decryptDMMessage, popSentPlaintext, popEditPlaintext } from "../../crypto/dmEncryption";
 import * as keyStorage from "../../crypto/keyStorage";
 import { playNotificationSound } from "../../utils/sounds";
+import { markDMRead } from "../../api/dm";
 import type { WSMessage, DMChannelWithUser, DMMessage, ReactionGroup } from "../../types";
 
 export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
@@ -90,6 +91,14 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
         dmState.incrementDMUnread(dmMsg.dm_channel_id);
         playNotificationSound();
         window.electronAPI?.flashFrame();
+      } else if (document.visibilityState === "visible" && document.hasFocus()) {
+        // The user is looking straight at it, so move the server's watermark too — otherwise
+        // the badge it keeps counting would reappear on the next reconnect. Only when
+        // focused: a backgrounded window with the conversation still selected has NOT read
+        // it, and marking it read would retract the notification the user was just sent.
+        void markDMRead(dmMsg.dm_channel_id, dmMsg.id).then((res) => {
+          if (!res.success) console.error("[dm] failed to advance read state:", res.error);
+        });
       }
       return true;
     }
@@ -181,6 +190,11 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
 
     case "dm_settings_update":
       useDMStore.getState().handleDMSettingsUpdate(msg.d as { dm_channel_id: string; action: string });
+      return true;
+
+    // Read on another of our own devices — clear the badge and pull back the notification.
+    case "dm_read":
+      useDMStore.getState().handleDMRead(msg.d as { dm_channel_id: string; unread_count: number });
       return true;
 
     case "dm_channel_status_change": {

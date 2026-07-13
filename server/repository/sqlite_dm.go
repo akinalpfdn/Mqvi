@@ -91,6 +91,68 @@ func (r *sqliteDMRepo) IsChannelMuted(ctx context.Context, userID, channelID str
 	return muted == 1, nil
 }
 
+// MarkRead moves the user's watermark up to the given message, in one statement so two
+// devices marking read at once cannot interleave into a lost update. The WHERE on the
+// upsert is what keeps it monotonic: a mark for an older message than the one already
+// recorded changes nothing, rather than un-reading everything after it.
+//
+// The SELECT source also does the validation — a message id that belongs to another
+// channel (or to nothing) produces no row, so there is nothing to insert.
+func (r *sqliteDMRepo) MarkRead(ctx context.Context, userID, channelID, messageID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO dm_reads (user_id, dm_channel_id, last_read_message_id, last_read_at)
+		SELECT ?, ?, m.id, m.created_at
+		FROM dm_messages m
+		WHERE m.id = ? AND m.dm_channel_id = ?
+		ON CONFLICT(user_id, dm_channel_id) DO UPDATE SET
+			last_read_message_id = excluded.last_read_message_id,
+			last_read_at = excluded.last_read_at
+		WHERE excluded.last_read_at > dm_reads.last_read_at`,
+		userID, channelID, messageID, channelID)
+	if err != nil {
+		return fmt.Errorf("failed to mark DM read: %w", err)
+	}
+	return nil
+}
+
+// MarkReadLatest points the watermark at the newest message in the channel. Same monotonic
+// guard as MarkRead.
+func (r *sqliteDMRepo) MarkReadLatest(ctx context.Context, userID, channelID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO dm_reads (user_id, dm_channel_id, last_read_message_id, last_read_at)
+		SELECT ?, ?, m.id, m.created_at
+		FROM dm_messages m
+		WHERE m.dm_channel_id = ?
+		ORDER BY m.created_at DESC, m.id DESC
+		LIMIT 1
+		ON CONFLICT(user_id, dm_channel_id) DO UPDATE SET
+			last_read_message_id = excluded.last_read_message_id,
+			last_read_at = excluded.last_read_at
+		WHERE excluded.last_read_at > dm_reads.last_read_at`,
+		userID, channelID, channelID)
+	if err != nil {
+		return fmt.Errorf("failed to mark DM fully read: %w", err)
+	}
+	return nil
+}
+
+// CountUnread counts what the other participant has sent since the user's watermark.
+func (r *sqliteDMRepo) CountUnread(ctx context.Context, userID, channelID string) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM dm_messages m
+		LEFT JOIN dm_reads dr ON dr.user_id = ? AND dr.dm_channel_id = m.dm_channel_id
+		WHERE m.dm_channel_id = ?
+		  AND m.user_id != ?
+		  AND (dr.last_read_at IS NULL OR m.created_at > dr.last_read_at)`,
+		userID, channelID, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count unread DMs: %w", err)
+	}
+	return count, nil
+}
+
 // ListChannels returns a user's DM channels with the other user's info.
 // Joins user_dm_settings to filter hidden channels and include pin/mute state.
 // Sorted: pinned first (by activity), then unpinned by activity.
@@ -99,19 +161,24 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 		SELECT dc.id, dc.e2ee_enabled, dc.status, dc.initiated_by, dc.created_at, dc.last_message_at,
 			u.id, u.username, u.display_name, u.avatar_url, u.status, u.deleted_at, u.is_hard_deleted,
 			COALESCE(ds.is_pinned, 0),
-			CASE WHEN ds.muted_until IS NOT NULL AND ds.muted_until > datetime('now') THEN 1 ELSE 0 END
+			CASE WHEN ds.muted_until IS NOT NULL AND ds.muted_until > datetime('now') THEN 1 ELSE 0 END,
+			(SELECT COUNT(*) FROM dm_messages m
+			  WHERE m.dm_channel_id = dc.id
+			    AND m.user_id != ?
+			    AND (dr.last_read_at IS NULL OR m.created_at > dr.last_read_at))
 		FROM dm_channels dc
 		JOIN users u ON u.id = CASE
 			WHEN dc.user1_id = ? THEN dc.user2_id
 			ELSE dc.user1_id
 		END
 		LEFT JOIN user_dm_settings ds ON ds.user_id = ? AND ds.dm_channel_id = dc.id
+		LEFT JOIN dm_reads dr ON dr.user_id = ? AND dr.dm_channel_id = dc.id
 		WHERE (dc.user1_id = ? OR dc.user2_id = ?)
 		  AND COALESCE(ds.is_hidden, 0) = 0
 		ORDER BY COALESCE(ds.is_pinned, 0) DESC,
 		         COALESCE(dc.last_message_at, dc.created_at) DESC`
 
-	rows, err := r.db.QueryContext(ctx, query, userID, userID, userID, userID)
+	rows, err := r.db.QueryContext(ctx, query, userID, userID, userID, userID, userID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list DM channels: %w", err)
 	}
@@ -128,7 +195,7 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 		if err := rows.Scan(
 			&ch.ID, &ch.E2EEEnabled, &ch.Status, &initiatedBy, &ch.CreatedAt, &lastMsgAt,
 			&user.ID, &user.Username, &displayName, &avatarURL, &user.Status, &user.DeletedAt, &user.IsHardDeleted,
-			&isPinned, &isMuted,
+			&isPinned, &isMuted, &ch.UnreadCount,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan DM channel: %w", err)
 		}

@@ -225,6 +225,20 @@ export function toggleDME2EE(channelId: string, enabled: boolean) {
   });
 }
 
+// ─── Read state ───
+
+/**
+ * Marks the conversation read up to a message — or all of it, when the caller has no
+ * message id (clearing a DM it never loaded). The server broadcasts the result to the
+ * user's other devices and retracts any notification it already delivered there.
+ */
+export function markDMRead(channelId: string, lastReadMessageId?: string) {
+  return apiClient<{ unread_count: number }>(`/dms/channels/${channelId}/read`, {
+    method: "POST",
+    body: JSON.stringify({ last_read_message_id: lastReadMessageId ?? "" }),
+  });
+}
+
 // ─── Search ───
 
 export type DMSearchResult = {

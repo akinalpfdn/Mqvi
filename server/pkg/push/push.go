@@ -23,6 +23,11 @@ type Notification struct {
 	Body     string
 	Category string            // CategoryMessage | CategoryCall
 	Data     map[string]string // deep-link payload delivered to the client on tap
+	// Tag groups a conversation's notifications on Android. A backgrounded app never sees
+	// these in onMessageReceived — the FCM SDK posts them itself — so the tag is the only
+	// handle native code has to find and cancel them once the chat is read elsewhere.
+	// It also collapses a conversation to one notification instead of a stack.
+	Tag string
 }
 
 // Sender delivers push notifications to device tokens.
@@ -78,7 +83,7 @@ func (s *fcmSender) Send(ctx context.Context, tokens []string, n Notification) (
 		Tokens:       tokens,
 		Notification: &messaging.Notification{Title: n.Title, Body: n.Body},
 		Data:         n.Data,
-		Android:      androidConfig(n.Category),
+		Android:      androidConfig(n.Category, n.Tag),
 		APNS:         apnsConfig(),
 	}
 
@@ -125,7 +130,7 @@ func (s *fcmSender) SendData(ctx context.Context, tokens []string, data map[stri
 	return invalid, nil
 }
 
-func androidConfig(category string) *messaging.AndroidConfig {
+func androidConfig(category, tag string) *messaging.AndroidConfig {
 	channelID := "messages"
 	if category == CategoryCall {
 		channelID = "calls"
@@ -135,6 +140,7 @@ func androidConfig(category string) *messaging.AndroidConfig {
 		Notification: &messaging.AndroidNotification{
 			ChannelID: channelID,
 			Sound:     "default",
+			Tag:       tag,
 		},
 	}
 }

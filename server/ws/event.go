@@ -76,6 +76,7 @@ const (
 	OpDMTypingStart    = "dm_typing_start"
 	OpDMMessagePin     = "dm_message_pin"
 	OpDMMessageUnpin   = "dm_message_unpin"
+	OpDMRead            = "dm_read"
 	OpDMSettingsUpdate  = "dm_settings_update"
 	OpDMRequestAccept      = "dm_request_accept"
 	OpDMRequestDecline     = "dm_request_decline"

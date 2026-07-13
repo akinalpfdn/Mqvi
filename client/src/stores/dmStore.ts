@@ -98,11 +98,17 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
   fetchChannels: async () => {
     set({ isLoading: true });
+    get().beginUnreadFetch();
     const res = await dmApi.listDMChannels();
     if (res.success && res.data) {
+      const counts: Record<string, number> = {};
+      for (const ch of res.data) {
+        if (ch.unread_count > 0) counts[ch.id] = ch.unread_count;
+      }
       set({ channels: res.data, isLoading: false });
+      get().applyServerUnread(counts);
     } else {
-      set({ isLoading: false });
+      set({ isLoading: false, _unreadFetchInFlight: false });
     }
   },
 

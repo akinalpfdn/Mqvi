@@ -22,6 +22,20 @@ type DMRepository interface {
 	// future) on the DM channel — used to suppress push notifications.
 	IsChannelMuted(ctx context.Context, userID, channelID string) (bool, error)
 
+	// Read state
+	//
+	// MarkRead advances the user's read watermark to the given message. Never moves it
+	// backwards, so a late mark from a second device cannot resurrect messages the user
+	// has already read. A message id that isn't in this channel is a no-op.
+	MarkRead(ctx context.Context, userID, channelID, messageID string) error
+	// MarkReadLatest marks the whole conversation as read. The client often clears a DM it
+	// has not loaded — from the sidebar, or "mark as read" — so it has no message to name.
+	MarkReadLatest(ctx context.Context, userID, channelID string) error
+	// CountUnread returns the messages in the channel the user has not read, written by
+	// the other participant. Read back AFTER a MarkRead rather than assumed to be zero —
+	// a message can land between the client picking a watermark and the write landing.
+	CountUnread(ctx context.Context, userID, channelID string) (int, error)
+
 	// Message operations
 	GetMessages(ctx context.Context, channelID string, beforeID string, limit int) ([]models.DMMessage, error)
 	GetMessageByID(ctx context.Context, id string) (*models.DMMessage, error)
