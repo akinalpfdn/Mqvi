@@ -14,6 +14,9 @@ import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useFileDrop } from "../../hooks/useFileDrop";
+import { useNarrowChat } from "../../hooks/useNarrowChat";
+import { useContextMenu } from "../../hooks/useContextMenu";
+import ContextMenu from "../shared/ContextMenu";
 import DMChatProvider from "./DMChatProvider";
 import MessageList from "../chat/MessageList";
 import MessageInput from "../chat/MessageInput";
@@ -72,6 +75,8 @@ function DMChatContent({
   const { t: tE2EE } = useTranslation("e2ee");
   const { addFilesRef } = useChatContext();
   const confirm = useConfirm();
+  const isNarrow = useNarrowChat();
+  const { menuState, openMenuAt, closeMenu } = useContextMenu();
   const selectDM = useDMStore((s) => s.selectDM);
   const clearDMUnread = useDMStore((s) => s.clearDMUnread);
   const invalidateMessages = useDMStore((s) => s.invalidateMessages);
@@ -158,6 +163,37 @@ function DMChatContent({
     setShowSearch((prev) => !prev);
   }, []);
 
+  const e2eeLabel = dmE2EEEnabled ? tE2EE("disableE2EE") : tE2EE("enableE2EE");
+
+  const handleToggleE2EE = useCallback(async () => {
+    const newState = !dmE2EEEnabled;
+    const confirmed = await confirm({
+      title: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
+      message: newState ? tE2EE("enableE2EEConfirmDM") : tE2EE("disableE2EEConfirmDM"),
+      confirmLabel: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
+      danger: !newState,
+    });
+    if (!confirmed) return;
+
+    const ok = await toggleE2EE(channelId, newState);
+    addToast(ok ? "success" : "error", ok
+      ? (newState ? tE2EE("e2eeEnabled") : tE2EE("e2eeDisabled"))
+      : tE2EE("e2eeToggleFailed"));
+  }, [dmE2EEEnabled, confirm, tE2EE, toggleE2EE, channelId, addToast]);
+
+  const handleOpenOverflow = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      openMenuAt(e, [
+        { label: t("pinnedMessages"), onClick: handleTogglePins },
+        { label: t("searchMessages"), onClick: handleToggleSearch },
+        ...(otherUserDeleted
+          ? []
+          : [{ label: e2eeLabel, onClick: () => void handleToggleE2EE(), separator: true }]),
+      ]);
+    },
+    [openMenuAt, t, handleTogglePins, handleToggleSearch, otherUserDeleted, e2eeLabel, handleToggleE2EE]
+  );
+
   // ─── Drag-drop ───
   const handleFileDrop = useCallback(
     (files: File[]) => {
@@ -184,26 +220,11 @@ function DMChatContent({
         {/* Header actions — e2ee, pin, search */}
         <div className="ch-actions">
           {/* E2EE toggle — hidden when recipient is deleted (no negotiation possible). */}
-          {!otherUserDeleted && (
+          {!otherUserDeleted && !isNarrow && (
             <button
               className={dmE2EEEnabled ? "active" : ""}
-              onClick={async () => {
-                const newState = !dmE2EEEnabled;
-                const confirmed = await confirm({
-                  title: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
-                  message: newState ? tE2EE("enableE2EEConfirmDM") : tE2EE("disableE2EEConfirmDM"),
-                  confirmLabel: newState ? tE2EE("enableE2EE") : tE2EE("disableE2EE"),
-                  danger: !newState,
-                });
-                if (!confirmed) return;
-                const ok = await toggleE2EE(channelId, newState);
-                if (ok) {
-                  addToast("success", newState ? tE2EE("e2eeEnabled") : tE2EE("e2eeDisabled"));
-                } else {
-                  addToast("error", tE2EE("e2eeToggleFailed"));
-                }
-              }}
-              title={dmE2EEEnabled ? tE2EE("disableE2EE") : tE2EE("enableE2EE")}
+              onClick={handleToggleE2EE}
+              title={e2eeLabel}
             >
               {dmE2EEEnabled ? (
                 <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -244,27 +265,49 @@ function DMChatContent({
             </>
           )}
           {/* Pin toggle */}
-          <button
-            className={showPins ? "active" : ""}
-            onClick={handleTogglePins}
-            title={t("pinnedMessages")}
-          >
-            <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
-            </svg>
-          </button>
+          {!isNarrow && (
+            <button
+              className={showPins ? "active" : ""}
+              onClick={handleTogglePins}
+              title={t("pinnedMessages")}
+            >
+              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16 4v4l2 2v4h-5v6l-1 1-1-1v-6H6v-4l2-2V4a1 1 0 011-1h6a1 1 0 011 1z" />
+              </svg>
+            </button>
+          )}
           {/* Search toggle */}
-          <button
-            className={showSearch ? "active" : ""}
-            onClick={handleToggleSearch}
-            title={t("searchMessages")}
-          >
-            <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </button>
+          {!isNarrow && (
+            <button
+              className={showSearch ? "active" : ""}
+              onClick={handleToggleSearch}
+              title={t("searchMessages")}
+            >
+              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </button>
+          )}
+          {/* Narrow columns cannot hold five 44px targets and a name: the calls stay, the
+              rest move into an overflow so the name keeps its room. */}
+          {isNarrow && (
+            <button
+              onClick={handleOpenOverflow}
+              // Keep the composer focused so the soft keyboard doesn't collapse under the menu.
+              onMouseDown={(e) => e.preventDefault()}
+              title={tCommon("more")}
+            >
+              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <circle cx="12" cy="5" r="1" fill="currentColor" />
+                <circle cx="12" cy="12" r="1" fill="currentColor" />
+                <circle cx="12" cy="19" r="1" fill="currentColor" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
+
+      <ContextMenu state={menuState} onClose={closeMenu} />
 
       {/* ─── E2EE Recipient No Keys Banner ─── */}
       {dmE2EEEnabled && !recipientHasKeys && (

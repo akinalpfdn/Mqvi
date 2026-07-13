@@ -638,11 +638,13 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
    CHANNEL BAR
    ═══════════════════════════════════════ */
 .channel-bar { height:32px;padding:0 14px;display:flex;align-items:center;gap:8px;flex-shrink:0;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-top:none;border-radius:0 0 var(--panel-radius) var(--panel-radius);box-shadow:var(--panel-shadow);margin-bottom:var(--panel-gap); }
-.ch-hash { color:var(--t3);font-size:14px; }
-.ch-name { font-size:13px;font-weight:600;color:var(--t0); }
-.ch-divider { width:1px;height:12px;background:var(--b1); }
-.ch-topic { font-size:13px;color:var(--t3); }
-.ch-actions { margin-left:auto;display:flex;gap:1px; }
+.ch-hash { color:var(--t3);font-size:14px;flex-shrink:0; }
+/* min-width:0 or the flex item refuses to shrink below its text and wraps out of the bar's
+   fixed height — a long channel name took three lines with no room left to wrap into. */
+.ch-name { font-size:13px;font-weight:600;color:var(--t0);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.ch-divider { width:1px;height:12px;background:var(--b1);flex-shrink:0; }
+.ch-topic { font-size:13px;color:var(--t3);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.ch-actions { margin-left:auto;display:flex;gap:1px;flex-shrink:0; }
 .ch-actions button { width:24px;height:24px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px; }
 .ch-actions button:hover { color:var(--t1);background:var(--bg-h); }
 .ch-actions button.active { color:var(--primary);background:var(--primary-s); }
@@ -2610,7 +2612,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* DM Chat header */
 .dm-header { display:flex;align-items:center;gap:8px;padding:6px 14px;flex-shrink:0;height:33px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-top:none;border-radius:0 0 var(--panel-radius) var(--panel-radius);box-shadow:var(--panel-shadow);margin-bottom:var(--panel-gap); }
-.dm-header-name { font-size:13px;font-weight:600;color:var(--t0); }
+.dm-header-name { font-size:13px;font-weight:600;color:var(--t0);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .dm-loading { flex:1;display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:13px; }
 .e2ee-warning-banner { display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--yellow-s);border-bottom:1px solid var(--b1);color:var(--yellow);font-size:13px;flex-shrink:0; }
 .e2ee-warning-banner svg { color:var(--yellow); }
@@ -3420,6 +3422,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     font-size: 16px;
   }
 
+
   /* Sidebar header buttons — 30px → 44px */
   .sb-header-btn {
     width: var(--mobile-touch-target);
@@ -3810,6 +3813,14 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     max-width: 100%;
     border-radius: 12px;
     z-index: 51;
+  }
+
+  /* A menu dropped from a toolbar button is not a long-press menu — it stays under its
+     button. Positioned inline with !important, since the rule above uses it too. */
+  .ctx-menu.ctx-menu-anchored {
+    width: max-content !important;
+    max-width: min(260px, calc(100vw - 16px));
+    border-radius: 10px;
   }
 
   /* ─── Input Area ─── */

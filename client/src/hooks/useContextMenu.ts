@@ -21,6 +21,12 @@ export type ContextMenuState = {
   x: number;
   y: number;
   items: ContextMenuItem[];
+  /**
+   * Dropped from a button rather than summoned at the pointer, so x/y is the button's
+   * bottom-right corner and the menu stays a dropdown on mobile — where a right-click menu
+   * turns into a bottom sheet instead.
+   */
+  anchored?: boolean;
 };
 
 const CLOSED_STATE: ContextMenuState = {
@@ -47,9 +53,26 @@ export function useContextMenu() {
     []
   );
 
+  /** Drops a menu under a toolbar button, right-aligned to it. */
+  const openMenuAt = useCallback(
+    (e: React.MouseEvent<HTMLElement>, items: ContextMenuItem[]) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = e.currentTarget.getBoundingClientRect();
+      setMenuState({
+        isOpen: true,
+        x: rect.right,
+        y: rect.bottom + 4,
+        items,
+        anchored: true,
+      });
+    },
+    []
+  );
+
   const closeMenu = useCallback(() => {
     setMenuState(CLOSED_STATE);
   }, []);
 
-  return { menuState, openMenu, closeMenu };
+  return { menuState, openMenu, openMenuAt, closeMenu };
 }

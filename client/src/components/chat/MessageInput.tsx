@@ -46,7 +46,6 @@ function MessageInput({ openSearch }: MessageInputProps) {
   const {
     mode,
     channelId,
-    channelName,
     serverId,
     canSend,
     sendMessage,
@@ -500,11 +499,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
     );
   }
 
-  const placeholder = mode === "dm"
-    ? t("dmPlaceholder", { user: channelName })
-    : mode === "voice"
-      ? t("voicePlaceholder", { channel: channelName })
-      : t("messagePlaceholder", { channel: channelName });
+  // No name here — the tab and the header above both already say where this goes, and spelling
+  // it out a third time eats most of the input on a phone.
+  const placeholder = t("messagePlaceholder");
 
   /** Mirrors handleSend's guard — the send button must never be live on a no-op. */
   const hasContent = content.trim().length > 0 || files.length > 0;

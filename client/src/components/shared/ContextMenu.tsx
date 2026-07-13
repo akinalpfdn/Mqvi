@@ -51,29 +51,39 @@ function ContextMenu({ state, onClose }: ContextMenuProps) {
     const viewportW = window.innerWidth;
     const viewportH = window.innerHeight;
 
-    let adjustedX = state.x;
+    // Anchored: x/y is the button's bottom-right, so hang the menu leftwards from it.
+    let adjustedX = state.anchored ? state.x - rect.width : state.x;
     let adjustedY = state.y;
 
-    // Shift left if overflowing right
     if (adjustedX + rect.width > viewportW - 8) {
       adjustedX = viewportW - rect.width - 8;
     }
+    if (adjustedX < 8) adjustedX = 8;
 
     // Shift up if overflowing bottom
     if (adjustedY + rect.height > viewportH - 8) {
       adjustedY = viewportH - rect.height - 8;
     }
 
-    menu.style.left = `${adjustedX}px`;
-    menu.style.top = `${adjustedY}px`;
-  }, [state.isOpen, state.x, state.y]);
+    if (state.anchored) {
+      // The mobile stylesheet pins .ctx-menu to the bottom of the screen with !important —
+      // right for a long-press menu, wrong for a dropdown. Only an inline !important outranks it.
+      menu.style.setProperty("left", `${adjustedX}px`, "important");
+      menu.style.setProperty("top", `${adjustedY}px`, "important");
+      menu.style.setProperty("right", "auto", "important");
+      menu.style.setProperty("bottom", "auto", "important");
+    } else {
+      menu.style.left = `${adjustedX}px`;
+      menu.style.top = `${adjustedY}px`;
+    }
+  }, [state.isOpen, state.x, state.y, state.anchored]);
 
   if (!state.isOpen) return null;
 
   return createPortal(
     <div
       ref={menuRef}
-      className="ctx-menu"
+      className={`ctx-menu${state.anchored ? " ctx-menu-anchored" : ""}`}
       style={{ left: state.x, top: state.y }}
     >
       {state.items.map((item, i) => (
