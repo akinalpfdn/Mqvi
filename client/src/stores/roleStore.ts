@@ -20,7 +20,8 @@ type RoleState = {
 
   // ─── Actions ───
   fetchRoles: (serverId?: string) => Promise<void>;
-  selectRole: (roleId: string) => void;
+  /** null clears the selection — the mobile settings pane drills back to the list. */
+  selectRole: (roleId: string | null) => void;
   createRole: (data: {
     name: string;
     color: string;
@@ -87,9 +88,9 @@ export const useRoleStore = create<RoleState>((set, get) => ({
         };
       });
 
-      if (!get().selectedRoleId && sorted.length > 0) {
-        set({ selectedRoleId: sorted[0].id });
-      }
+      // No auto-select: the highest role is the owner's, and opening straight into it reads as
+      // "I clicked Roles and it opened Owner". Mobile drills into the detail, so it would also
+      // hide the list the user came for. Channels and Members already start unselected.
     } else {
       set((state) => {
         const newLoading = new Set(state.loadingServers);

@@ -11,6 +11,7 @@ import { hasPermission, Permissions } from "../../utils/permissions";
 import * as memberApi from "../../api/members";
 import { useServerStore } from "../../stores/serverStore";
 import { resolveAssetUrl } from "../../utils/constants";
+import SettingsDetailBack from "./SettingsDetailBack";
 import type { Ban } from "../../types";
 
 type Tab = "members" | "bans";
@@ -204,8 +205,17 @@ function MembersSettings() {
     });
   }
 
+  const hasSelection = activeTab === "members" ? !!selectedMemberId : !!selectedBanUserId;
+
+  function clearSelection() {
+    if (activeTab === "members") setSelectedMemberId(null);
+    else setSelectedBanUserId(null);
+  }
+
   return (
-    <div className="channel-settings-wrapper">
+    <div
+      className={`channel-settings-wrapper settings-drilldown${hasSelection ? " has-selection" : ""}`}
+    >
       {/* Left Panel */}
       <div className="role-list">
         {/* Tab toggle — only shown when user has BAN_MEMBERS */}
@@ -317,7 +327,18 @@ function MembersSettings() {
       </div>
 
       {/* Right Panel */}
-      <div className="settings-content channel-settings-right">
+      <div className="channel-settings-right">
+        {hasSelection && (
+          <SettingsDetailBack
+            onBack={clearSelection}
+            label={
+              activeTab === "members"
+                ? (selectedMember?.display_name ?? selectedMember?.username)
+                : selectedBan?.username
+            }
+          />
+        )}
+
         {/* ─── Members Tab — Right Panel ─── */}
         {activeTab === "members" && (
           <>

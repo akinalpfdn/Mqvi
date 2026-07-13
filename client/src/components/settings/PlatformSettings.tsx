@@ -11,6 +11,7 @@ import {
   deleteLiveKitInstance,
 } from "../../api/admin";
 import InstanceForm from "./InstanceForm";
+import SettingsDetailBack from "./SettingsDetailBack";
 import MetricsPanel from "./MetricsPanel";
 import type { LiveKitInstanceAdmin } from "../../types";
 
@@ -228,7 +229,10 @@ function LiveKitTab() {
 
   // ─── Render ───
   return (
-    <div className="channel-settings-wrapper" style={{ flex: 1, minHeight: 0 }}>
+    <div
+      className={`channel-settings-wrapper settings-drilldown${isCreating || selectedInstance ? " has-selection" : ""}`}
+      style={{ flex: 1, minHeight: 0 }}
+    >
       {/* Left Panel: Instance List */}
       <div className="role-list">
         <div className="channel-settings-header">
@@ -275,6 +279,15 @@ function LiveKitTab() {
 
       {/* Right Panel: Form + Monitoring */}
       <div className="channel-settings-right" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+        {(isCreating || selectedInstance) && (
+          <SettingsDetailBack
+            onBack={() => {
+              setIsCreating(false);
+              setSelectedId(null);
+            }}
+            label={isCreating ? null : selectedInstance?.url}
+          />
+        )}
         {isCreating ? (
           <InstanceForm
             mode="create"

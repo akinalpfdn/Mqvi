@@ -8,6 +8,7 @@ import { useConfirm } from "../../hooks/useConfirm";
 import * as channelApi from "../../api/channels";
 import { useServerStore } from "../../stores/serverStore";
 import ChannelPermissionEditor from "./ChannelPermissionEditor";
+import SettingsDetailBack from "./SettingsDetailBack";
 import CreateChannelModal from "../channels/CreateChannelModal";
 import EmojiPicker from "../shared/EmojiPicker";
 import type { Channel, Category } from "../../types";
@@ -207,8 +208,17 @@ function ChannelSettings() {
     ? editCatName.trim() !== selectedCategory.name
     : false;
 
+  const hasSelection = activeTab === "channels" ? !!selectedChannel : !!selectedCategory;
+
+  function clearSelection() {
+    if (activeTab === "channels") setSelectedChannel(null);
+    else setSelectedCategory(null);
+  }
+
   return (
-    <div className="channel-settings-wrapper">
+    <div
+      className={`channel-settings-wrapper settings-drilldown${hasSelection ? " has-selection" : ""}`}
+    >
       {/* Left Panel */}
       <div className="role-list">
         {/* Tab toggle */}
@@ -302,7 +312,14 @@ function ChannelSettings() {
       </div>
 
       {/* Right Panel */}
-      <div className="settings-content channel-settings-right">
+      <div className="channel-settings-right">
+        {hasSelection && (
+          <SettingsDetailBack
+            onBack={clearSelection}
+            label={activeTab === "channels" ? selectedChannel?.name : selectedCategory?.name}
+          />
+        )}
+
         {/* ═══ Channels Tab — right panel ═══ */}
         {activeTab === "channels" && (
           selectedChannel ? (

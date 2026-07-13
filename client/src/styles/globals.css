@@ -1306,7 +1306,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .channel-settings-ch-list { flex:1;overflow-y:auto;padding:0 4px; }
 .channel-settings-ch-row .channel-settings-delete { margin-left:auto; }
 .channel-settings-ch-icon { width:16px;text-align:center;font-size:13px;color:var(--t2);flex-shrink:0; }
-.channel-settings-right { padding:24px; }
+/* Deliberately not .settings-content: the detail pane already sits inside one, and stacking a
+   second panel background on top of the first read as a stray card floating in the settings. */
+.channel-settings-right { flex:1;min-width:0;overflow-y:auto;padding:24px; }
 .channel-settings-right-title { margin-bottom:16px; }
 .channel-settings-rename-row { margin-bottom:16px; }
 .channel-settings-rename-row .settings-label { display:block;margin-bottom:6px;font-size:13px;color:var(--t2); }
@@ -4155,10 +4157,41 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   .feedback-reply { padding:10px 12px; }
   .feedback-status-select { min-width:120px; }
 
-  /* Platform Settings — LiveKit instance sidebar + metrics */
+  /* Settings master-detail (channels, roles, members, LiveKit instances) */
   .channel-settings-wrapper { flex-direction:column;height:auto; }
   .role-list { width:100%;border-right:none;border-bottom:1px solid var(--b1);max-height:180px; }
   .channel-settings-right { padding:16px; }
+
+  /* ─── Drill-down: one pane at a time ───
+     A 180px scroll box inside an already-scrolling sheet showed 3 of 58 members and gave no
+     sign there were more — a user filed a bug report asking where their channels had gone.
+     Opt-in via .settings-drilldown so a pane that has not been converted keeps both halves. */
+  .settings-drilldown .role-list {
+    max-height: none;
+    overflow: visible;
+    border-bottom: none;
+  }
+  .settings-drilldown.has-selection .role-list { display: none; }
+  .settings-drilldown:not(.has-selection) .channel-settings-right { display: none; }
+  .settings-drilldown .channel-settings-right { padding: 0; }
+  .settings-detail-back {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 8px 4px;
+    background: none;
+    border: none;
+    color: var(--t2);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .settings-detail-back svg { flex-shrink: 0; }
+  .settings-detail-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .settings-detail-back:active { color: var(--t0); }
   .lk-edit-layout { flex-direction:column;height:auto; }
   .lk-edit-form { width:100%;min-width:0;padding:16px;border-right:none;border-bottom:1px solid var(--bg3); }
   .lk-edit-monitoring { min-width:0;padding:16px; }

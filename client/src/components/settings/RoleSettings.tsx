@@ -9,6 +9,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import PermissionToggle from "./PermissionToggle";
+import SettingsDetailBack from "./SettingsDetailBack";
 import ColorPicker from "./ColorPicker";
 import EmojiPicker from "../shared/EmojiPicker";
 
@@ -257,7 +258,9 @@ function RoleSettings() {
   }
 
   return (
-    <div className="channel-settings-wrapper">
+    <div
+      className={`channel-settings-wrapper settings-drilldown${selectedRole ? " has-selection" : ""}`}
+    >
       {/* Left Panel: Role List */}
       <div className="role-list">
         <div className="channel-settings-header">
@@ -327,7 +330,10 @@ function RoleSettings() {
       </div>
 
       {/* Right Panel: Role Editor */}
-      <div className="settings-content channel-settings-right">
+      <div className="channel-settings-right">
+        {selectedRole && (
+          <SettingsDetailBack onBack={() => selectRole(null)} label={selectedRole.name} />
+        )}
         {selectedRole ? (
           <div className="channel-perm-section">
             {isOwnerRole && !isActorOwner && (
