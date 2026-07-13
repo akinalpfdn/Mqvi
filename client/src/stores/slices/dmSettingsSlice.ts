@@ -3,6 +3,7 @@ import i18n from "../../i18n";
 import * as dmApi from "../../api/dm";
 import { useToastStore } from "../toastStore";
 import { sortChannelsByActivity } from "../shared/dmSort";
+import { dismissNotificationsFor } from "../../utils/pushDismiss";
 import type { DMStore } from "../dmStore";
 
 export type DMSettingsSlice = {
@@ -144,6 +145,9 @@ export const createDMSettingsSlice: StateCreator<
   },
 
   clearDMUnread: (channelId) => {
+    // Reading the conversation retires its tray notification too, whichever device raised it.
+    void dismissNotificationsFor(channelId);
+
     set((state) => {
       if (!state.dmUnreadCounts[channelId]) return state;
       const next = { ...state.dmUnreadCounts };

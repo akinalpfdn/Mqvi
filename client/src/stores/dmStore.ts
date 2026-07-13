@@ -16,6 +16,7 @@ import {
   cacheEditPlaintext,
 } from "../crypto/dmEncryption";
 import { encodePayload } from "../crypto/e2eePayload";
+import { mergeLatestPage } from "../utils/messageSync";
 import {
   encryptFilesForE2EE,
   handleSendError,
@@ -51,6 +52,8 @@ type DMCoreState = {
   createOrGetChannel: (userId: string) => Promise<string | null>;
   fetchMessages: (channelId: string) => Promise<void>;
   fetchOlderMessages: (channelId: string) => Promise<void>;
+  /** Re-fetch the newest page and fold it in — recovers messages a dead socket never delivered */
+  resyncChannel: (channelId: string) => Promise<void>;
   sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string) => Promise<boolean>;
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   deleteMessage: (messageId: string) => Promise<boolean>;
@@ -146,6 +149,28 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     } else {
       set({ isLoadingMessages: false });
     }
+  },
+
+  resyncChannel: async (channelId) => {
+    if (useE2EEStore.getState().initStatus !== "ready") return;
+
+    const res = await dmApi.getDMMessages(channelId, undefined, 50);
+    if (!res.success || !res.data) return;
+    const data = res.data;
+
+    const page = await decryptDMMessages(data.messages ?? []);
+
+    set((state) => {
+      const held = state.messagesByChannel[channelId] ?? [];
+      const { messages, replaced } = mergeLatestPage(held, page);
+      return {
+        messagesByChannel: { ...state.messagesByChannel, [channelId]: messages },
+        hasMoreByChannel: {
+          ...state.hasMoreByChannel,
+          [channelId]: replaced ? data.has_more : (state.hasMoreByChannel[channelId] ?? data.has_more),
+        },
+      };
+    });
   },
 
   fetchOlderMessages: async (channelId) => {

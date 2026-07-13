@@ -19,6 +19,7 @@ import { useE2EEStore } from "../../stores/e2eeStore";
 import { useBadgeStore } from "../../stores/badgeStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useJoinRequestStore } from "../../stores/joinRequestStore";
+import { useUIStore } from "../../stores/uiStore";
 import type {
   WSMessage,
   MemberWithRoles,
@@ -33,6 +34,30 @@ import type {
   SoundboardPlayEvent,
 } from "../../types";
 import type { WSHandlerContext } from "./types";
+
+/**
+ * Refills the channels the user is actually looking at. Anything sent while the socket was
+ * down was never delivered and there is no event replay, so without this the open channel
+ * silently misses messages until the app is restarted — the stores fetch a channel once and
+ * then serve it from memory forever.
+ */
+function resyncOpenTabs(): void {
+  const { panels } = useUIStore.getState();
+
+  for (const panel of Object.values(panels)) {
+    const tab = panel.tabs.find((t) => t.id === panel.activeTabId);
+    if (!tab) continue;
+
+    if (tab.type === "text") {
+      void useMessageStore.getState().resyncChannel(tab.channelId, tab.serverInfo?.serverId);
+    } else if (tab.type === "dm") {
+      void useDMStore.getState().resyncChannel(tab.channelId);
+      // The DM is on screen, so it is read — and its tray notification goes with it. DMChat
+      // only clears unread on mount, which a reconnect does not re-run.
+      useDMStore.getState().clearDMUnread(tab.channelId);
+    }
+  }
+}
 
 export async function handleSystemEvent(
   msg: WSMessage,
@@ -59,6 +84,7 @@ export async function handleSystemEvent(
       if (data.pref_status) useAuthStore.getState().setManualStatus(data.pref_status as UserStatus);
 
       useMemberStore.getState().handleReady(data.online_user_ids);
+      resyncOpenTabs();
       useReadStateStore.getState().fetchAllUnreadCounts();
       useDMStore.getState().fetchChannels();
       useDMStore.getState().fetchDMSettings();

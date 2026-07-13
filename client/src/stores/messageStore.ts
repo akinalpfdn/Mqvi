@@ -15,6 +15,7 @@ import { encryptChannelMessage, decryptChannelMessages } from "../crypto/channel
 import { encodePayload } from "../crypto/e2eePayload";
 import type { Message, ReactionGroup } from "../types";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
+import { mergeLatestPage } from "../utils/messageSync";
 import {
   encryptFilesForE2EE,
   handleSendError,
@@ -41,6 +42,8 @@ type MessageState = {
   // ─── Actions ───
   fetchMessages: (channelId: string, serverId?: string) => Promise<void>;
   fetchOlderMessages: (channelId: string, serverId?: string) => Promise<void>;
+  /** Re-fetch the newest page and fold it in — recovers messages a dead socket never delivered */
+  resyncChannel: (channelId: string, serverId?: string) => Promise<void>;
   /** Clear fetch cache — forces re-fetch + re-decrypt (E2EE restore) */
   invalidateFetchCache: () => void;
   sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, serverId?: string) => Promise<boolean>;
@@ -82,6 +85,46 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   invalidateFetchCache: () => {
     fetchedChannels.clear();
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
+  },
+
+  resyncChannel: async (channelId, explicitServerId?) => {
+    const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
+    if (!serverId) return;
+
+    const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
+    if (!res.success || !res.data) return;
+    const data = res.data;
+
+    // Decrypting before the keys are loaded yields null content, and the normal init path
+    // doesn't invalidate the cache — so leave the fetch cache alone and let the mount-time
+    // fetch cover it once E2EE is up.
+    const raw = data.messages ?? [];
+    if (
+      useE2EEStore.getState().initStatus !== "ready" &&
+      raw.some((m) => m.encryption_version === 1)
+    ) {
+      return;
+    }
+
+    const page = await decryptChannelMessages(raw);
+    fetchedChannels.add(channelId);
+
+    set((state) => {
+      const held = state.messagesByChannel[channelId] ?? [];
+      const { messages, replaced } = mergeLatestPage(held, page);
+      return {
+        messagesByChannel: { ...state.messagesByChannel, [channelId]: messages },
+        hasMoreByChannel: {
+          ...state.hasMoreByChannel,
+          [channelId]: replaced ? data.has_more : (state.hasMoreByChannel[channelId] ?? data.has_more),
+        },
+      };
+    });
+
+    const merged = get().messagesByChannel[channelId];
+    if (merged && merged.length > 0) {
+      useReadStateStore.getState().markAsRead(channelId, merged[merged.length - 1].id);
+    }
   },
 
   fetchMessages: async (channelId, explicitServerId?) => {
