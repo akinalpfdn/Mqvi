@@ -108,6 +108,7 @@ class MqviMessagingService : MessagingService() {
 
     companion object {
         private const val CALLS_CHANNEL = "incoming_call_alert"
-        private const val CALL_NOTIFICATION_ID = 42
+        // Also cancelled by P2PCallPlugin (answered elsewhere) and MainActivity (app resumed).
+        const val CALL_NOTIFICATION_ID = 42
     }
 }

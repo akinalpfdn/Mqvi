@@ -185,8 +185,8 @@ func registerHubCallbacks(
 			log.Printf("[p2p] initiate error caller=%s receiver=%s: %v", callerID, data.ReceiverID, err)
 		}
 	})
-	hub.OnP2PCallAccept(func(userID string, data ws.P2PCallAcceptData) {
-		if err := p2pCallService.AcceptCall(userID, data.CallID); err != nil {
+	hub.OnP2PCallAccept(func(userID, sessionID string, data ws.P2PCallAcceptData) {
+		if err := p2pCallService.AcceptCall(userID, sessionID, data.CallID); err != nil {
 			log.Printf("[p2p] accept error user=%s call=%s: %v", userID, data.CallID, err)
 		}
 	})

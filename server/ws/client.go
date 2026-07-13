@@ -45,6 +45,12 @@ type Client struct {
 	send   chan []byte
 	mu     sync.Mutex // protects conn.WriteMessage
 
+	// sessionID identifies this connection among the user's other ones. A user can be
+	// signed in on several devices and events are broadcast to all of them, so anything
+	// that must act on exactly ONE device (accepting a call) is tagged with it. Sent to
+	// the client in the ready event; immutable after construction.
+	sessionID string
+
 	// events is the per-connection inbound queue drained by a single eventPump
 	// goroutine. ReadPump enqueues here (except heartbeat, handled inline) so a
 	// connection's events are processed strictly in arrival order — a voice_join
@@ -500,7 +506,7 @@ func (c *Client) handleP2PCallAccept(event Event) {
 	}
 
 	if c.hub.onP2PCallAccept != nil {
-		c.hub.onP2PCallAccept(c.userID, data)
+		c.hub.onP2PCallAccept(c.userID, c.sessionID, data)
 	}
 }
 

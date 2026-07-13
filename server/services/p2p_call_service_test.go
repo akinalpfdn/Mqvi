@@ -136,7 +136,7 @@ func TestAcceptCallRejectsBusyReceiver(t *testing.T) {
 		userCalls: map[string]string{"c1": "A", "rcv": "A", "c2": "B"},
 	}
 
-	err := svc.AcceptCall("rcv", "B") // already in active call A
+	err := svc.AcceptCall("rcv", "phone", "B") // already in active call A
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("expected ErrBadRequest when receiver already in a call, got %v", err)
 	}
@@ -387,4 +387,180 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			t.Error("an active call must tear down on any party disconnect")
 		}
 	})
+}
+
+// ─── Multi-device call teardown ───
+//
+// A user can be signed in on several devices. The server rings all of them, so every
+// path that ends a ringing call must reach the sibling devices too: over WS for the
+// ones with a live socket, and via a cancel push for the ones that are backgrounded
+// and ringing on the push alone.
+
+// recordingHub captures BroadcastToUser so tests can assert who was told what.
+type recordingHub struct {
+	fakeHub
+	sent []sentEvent
+}
+
+type sentEvent struct {
+	userID string
+	event  ws.Event
+}
+
+func (h *recordingHub) BroadcastToUser(userID string, e ws.Event) {
+	h.sent = append(h.sent, sentEvent{userID: userID, event: e})
+}
+
+func (h *recordingHub) eventsFor(userID, op string) []ws.Event {
+	var out []ws.Event
+	for _, s := range h.sent {
+		if s.userID == userID && s.event.Op == op {
+			out = append(out, s.event)
+		}
+	}
+	return out
+}
+
+// recordingPush captures cancel pushes. Only NotifyCallCancel is exercised here.
+type recordingPush struct {
+	cancelled []string // receiverIDs told to stop ringing
+}
+
+func (p *recordingPush) NotifyDM(_, _, _ string, _ bool, _, _ string) {}
+func (p *recordingPush) NotifyCall(_, _ string, _ models.P2PCallType, _, _ string) {}
+func (p *recordingPush) NotifyCallCancel(receiverID, _ string) {
+	p.cancelled = append(p.cancelled, receiverID)
+}
+
+func ringingCallService() (*p2pCallService, *recordingHub, *recordingPush) {
+	hub := &recordingHub{}
+	push := &recordingPush{}
+	svc := &p2pCallService{
+		hub:          hub,
+		pushNotifier: push,
+		activeCalls:  map[string]*models.P2PCall{"x": {ID: "x", CallerID: "caller", ReceiverID: "rcv", Status: models.P2PCallStatusRinging}},
+		userCalls:    map[string]string{"caller": "x", "rcv": "x"},
+		ringTimers:   map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
+	}
+	return svc, hub, push
+}
+
+func TestAcceptCallStopsSiblingDevices(t *testing.T) {
+	svc, hub, push := ringingCallService()
+
+	if err := svc.AcceptCall("rcv", "phone", "x"); err != nil {
+		t.Fatalf("AcceptCall: %v", err)
+	}
+
+	// The receiver's own sessions must be told, and told WHICH of them accepted — the
+	// others have to drop the call rather than negotiate WebRTC alongside the winner.
+	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
+	if len(own) != 1 {
+		t.Fatalf("receiver's own sessions got %d accept events, want 1", len(own))
+	}
+	data, ok := own[0].Data.(map[string]string)
+	if !ok || data["accepted_by"] != "phone" {
+		t.Errorf("accept must name the accepting session, got %v", own[0].Data)
+	}
+	if got := hub.eventsFor("caller", ws.OpP2PCallAccept); len(got) != 1 {
+		t.Errorf("caller got %d accept events, want 1", len(got))
+	}
+	// A sibling with no live socket is ringing on the push — it needs the cancel.
+	if len(push.cancelled) != 1 || push.cancelled[0] != "rcv" {
+		t.Errorf("accept must cancel the receiver's ring push, got %v", push.cancelled)
+	}
+}
+
+// Two devices of the same receiver pressing accept at once: exactly one wins, and the
+// broadcast names it. Without a server-assigned winner both devices would believe they
+// accepted and both would answer the caller's offer.
+func TestConcurrentAcceptHasOneWinner(t *testing.T) {
+	svc, hub, _ := ringingCallService()
+
+	err1 := svc.AcceptCall("rcv", "phone", "x")
+	err2 := svc.AcceptCall("rcv", "desktop", "x")
+
+	if err1 != nil {
+		t.Fatalf("first accept must win: %v", err1)
+	}
+	if !errors.Is(err2, pkg.ErrBadRequest) {
+		t.Fatalf("second accept must be rejected (call no longer ringing), got %v", err2)
+	}
+
+	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
+	if len(own) != 1 {
+		t.Fatalf("only the winning accept may broadcast, got %d", len(own))
+	}
+	data, _ := own[0].Data.(map[string]string)
+	if data["accepted_by"] != "phone" {
+		t.Errorf("accepted_by must name the winner, got %q", data["accepted_by"])
+	}
+}
+
+func TestDeclineByReceiverStopsSiblingDevices(t *testing.T) {
+	svc, hub, push := ringingCallService()
+
+	if err := svc.DeclineCall("rcv", "x"); err != nil {
+		t.Fatalf("DeclineCall: %v", err)
+	}
+
+	// Previously only the caller was told, leaving the receiver's other devices ringing.
+	own := hub.eventsFor("rcv", ws.OpP2PCallDecline)
+	if len(own) != 1 {
+		t.Fatalf("receiver's own sessions got %d decline events, want 1", len(own))
+	}
+	data, ok := own[0].Data.(map[string]string)
+	if !ok || data["declined_by"] != "rcv" {
+		t.Errorf("decline must carry declined_by=rcv so a sibling stays silent, got %v", own[0].Data)
+	}
+	if len(hub.eventsFor("caller", ws.OpP2PCallDecline)) != 1 {
+		t.Error("caller must still be told the call was declined")
+	}
+	if len(push.cancelled) != 1 || push.cancelled[0] != "rcv" {
+		t.Errorf("a receiver-side decline must cancel the ring push, got %v", push.cancelled)
+	}
+}
+
+func TestCallerCancelStopsOwnOtherDevices(t *testing.T) {
+	svc, hub, push := ringingCallService()
+
+	if err := svc.EndCall("caller"); err != nil {
+		t.Fatalf("EndCall: %v", err)
+	}
+
+	own := hub.eventsFor("caller", ws.OpP2PCallEnd)
+	if len(own) != 1 {
+		t.Fatalf("caller's own sessions got %d end events, want 1", len(own))
+	}
+	data, ok := own[0].Data.(map[string]string)
+	if !ok || data["ended_by"] != "caller" {
+		t.Errorf("end must carry ended_by=caller, got %v", own[0].Data)
+	}
+	if len(hub.eventsFor("rcv", ws.OpP2PCallEnd)) != 1 {
+		t.Error("receiver must be told the caller hung up")
+	}
+	if len(push.cancelled) != 1 || push.cancelled[0] != "rcv" {
+		t.Errorf("hanging up while ringing must cancel the receiver's ring push, got %v", push.cancelled)
+	}
+}
+
+// An accepted call that later ends must NOT fire a cancel push — the ring is long over,
+// and on iOS a stray cancel would tear down a CallKit call the user is still in.
+func TestEndingAnActiveCallSendsNoCancelPush(t *testing.T) {
+	hub := &recordingHub{}
+	push := &recordingPush{}
+	svc := &p2pCallService{
+		hub:          hub,
+		pushNotifier: push,
+		activeCalls:  map[string]*models.P2PCall{"x": {ID: "x", CallerID: "caller", ReceiverID: "rcv", Status: models.P2PCallStatusActive, AcceptedAt: time.Now().Add(-time.Second)}},
+		userCalls:    map[string]string{"caller": "x", "rcv": "x"},
+		ringTimers:   map[string]*time.Timer{},
+	}
+
+	if err := svc.EndCall("rcv"); err != nil {
+		t.Fatalf("EndCall: %v", err)
+	}
+	if len(push.cancelled) != 0 {
+		t.Errorf("an active call must not send a cancel push, got %v", push.cancelled)
+	}
 }

@@ -27,9 +27,11 @@ import (
 type PushNotifier interface {
 	NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID string)
 	NotifyCall(receiverID, callerName string, callType models.P2PCallType, callID, callerID string)
-	// NotifyCallCancel tells a ringing receiver's device to stop ringing / dismiss the
-	// incoming-call UI when the call is cancelled, declined by the caller, or times out
-	// while the receiver is backgrounded (no live WS to deliver OpP2PCallEnd).
+	// NotifyCallCancel stops the ring / dismisses the incoming-call UI on every device of
+	// the receiver once the call stops ringing — cancelled, declined, timed out, or ANSWERED
+	// on one of those devices. A backgrounded device has no live WS to deliver OpP2PCallEnd,
+	// so the push is the only way to reach it. The device that answered ignores it (iOS
+	// CallManager.answered); it is only ever sent for a call that was still ringing.
 	NotifyCallCancel(receiverID, callID string)
 }
 

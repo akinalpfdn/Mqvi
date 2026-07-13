@@ -28,6 +28,11 @@ final class CallManager: NSObject {
     private let provider: CXProvider
     private var calls: [UUID: String] = [:] // CallKit UUID -> our call_id
 
+    /// Calls this device has answered. The server cancels the ring on accept so the user's
+    /// OTHER devices stop ringing — but that cancel push also comes back to this one, and
+    /// without this set it would end the call the user is now in.
+    private var answered: Set<UUID> = []
+
     private var bufferedToken: String?
     private var bufferedAnswered: [String] = []
     private var bufferedEnded: [String] = []
@@ -58,6 +63,14 @@ final class CallManager: NSObject {
         guard let uuid = UUID(uuidString: callId) else { return }
         provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
         calls.removeValue(forKey: uuid)
+        answered.remove(uuid)
+    }
+
+    /// Mark a call as answered on this device. Called from JS when the user answers in the
+    /// app (answering through the CallKit UI is recorded in CXAnswerCallAction instead).
+    func markAnswered(callId: String) {
+        guard let uuid = UUID(uuidString: callId) else { return }
+        answered.insert(uuid)
     }
 
     private func reportIncomingCall(callId: String, callerName: String, hasVideo: Bool, completion: @escaping () -> Void) {
@@ -117,6 +130,12 @@ extension CallManager: PKPushRegistryDelegate {
     /// otherwise just end the already-ringing CallKit call.
     private func cancelIncomingCall(callId: String, completion: @escaping () -> Void) {
         let uuid = UUID(uuidString: callId) ?? UUID()
+        // The accept-time cancel (sent to silence the user's other devices) reaches this
+        // one too. If we are the device that answered, the call is live — leave it alone.
+        if answered.contains(uuid) {
+            completion()
+            return
+        }
         if calls[uuid] != nil {
             provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
             calls.removeValue(forKey: uuid)
@@ -141,10 +160,12 @@ extension CallManager: PKPushRegistryDelegate {
 extension CallManager: CXProviderDelegate {
     func providerDidReset(_ provider: CXProvider) {
         calls.removeAll()
+        answered.removeAll()
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         if let callId = calls[action.callUUID] {
+            answered.insert(action.callUUID)
             if let listener = listener {
                 listener.onCallAnswered(callId: callId)
             } else {
@@ -163,6 +184,7 @@ extension CallManager: CXProviderDelegate {
             }
             calls.removeValue(forKey: action.callUUID)
         }
+        answered.remove(action.callUUID)
         action.fulfill()
     }
 

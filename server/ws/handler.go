@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"github.com/akinalp/mqvi/models"
@@ -235,6 +236,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		hub:           h.hub,
 		conn:          conn,
 		userID:        claims.UserID,
+		sessionID:     uuid.New().String(),
 		send:          make(chan []byte, sendBufferSize),
 		events:        make(chan Event, eventQueueSize),
 		done:          make(chan struct{}),
@@ -301,6 +303,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	client.sendEvent(Event{
 		Op: OpReady,
 		Data: ReadyData{
+			SessionID:       client.sessionID,
 			OnlineUserIDs:   h.hub.GetVisibleOnlineUserIDs(),
 			Servers:         readyServers,
 			MutedServerIDs:  mutedServerIDs,

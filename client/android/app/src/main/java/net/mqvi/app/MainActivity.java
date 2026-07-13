@@ -21,6 +21,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(VoiceCallPlugin.class);
         registerPlugin(ScreenSharePlugin.class);
+        registerPlugin(P2PCallPlugin.class);
         super.onCreate(savedInstanceState);
         handleCallLaunch(getIntent());
 
@@ -85,6 +86,10 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         isAppForeground = true;
+        // A notification posted while we were backgrounded keeps looping its ringtone
+        // (FLAG_INSISTENT) even once the app is open and the in-app overlay is ringing.
+        // The overlay owns the ring from here on.
+        P2PCallPlugin.Companion.cancelCallNotification(this);
     }
 
     @Override

@@ -71,6 +71,7 @@ export async function handleSystemEvent(
 
     case "ready": {
       const data = msg.d as {
+        session_id: string;
         online_user_ids: string[];
         servers: ServerListItem[];
         muted_server_ids: string[];
@@ -78,6 +79,8 @@ export async function handleSystemEvent(
         pref_status: string;
       };
 
+      // Identifies this connection among the user's other devices — see handleCallAccept.
+      useP2PCallStore.getState().setSessionId(data.session_id ?? null);
       if (data.servers) useServerStore.getState().setServersFromReady(data.servers);
       if (data.muted_server_ids) useServerStore.getState().setMutedServersFromReady(data.muted_server_ids);
       if (data.muted_channel_ids) useChannelStore.getState().setMutedChannelsFromReady(data.muted_channel_ids);
@@ -282,10 +285,14 @@ export async function handleSystemEvent(
       useP2PCallStore.getState().handleCallAccept(msg.d as { call_id: string });
       return true;
     case "p2p_call_decline":
-      useP2PCallStore.getState().handleCallDecline(msg.d as { call_id: string; reason?: string });
+      useP2PCallStore
+        .getState()
+        .handleCallDecline(msg.d as { call_id: string; reason?: string; declined_by?: string });
       return true;
     case "p2p_call_end":
-      useP2PCallStore.getState().handleCallEnd(msg.d as { call_id: string; reason?: string });
+      useP2PCallStore
+        .getState()
+        .handleCallEnd(msg.d as { call_id: string; reason?: string; ended_by?: string });
       return true;
     case "p2p_call_busy":
       useP2PCallStore.getState().handleCallBusy(msg.d as { receiver_id: string });

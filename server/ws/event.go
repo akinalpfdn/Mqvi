@@ -152,6 +152,9 @@ const (
 
 // ReadyData is the payload sent to a client on initial connection.
 type ReadyData struct {
+	// SessionID identifies THIS connection among the user's other devices. Echoed back in
+	// events that only one device may act on (see p2p_call_accept's accepted_by).
+	SessionID       string            `json:"session_id"`
 	OnlineUserIDs   []string          `json:"online_user_ids"`
 	Servers         []ReadyServerItem `json:"servers"`
 	MutedServerIDs  []string          `json:"muted_server_ids"`
