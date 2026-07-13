@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/authStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -17,7 +16,7 @@ import UpdateNotification from "./components/shared/UpdateNotification";
 import CustomTitleBar from "./components/layout/CustomTitleBar";
 import FileViewerOverlay from "./components/viewers/FileViewerOverlay";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
-import { isElectron, isNativeApp } from "./utils/constants";
+import { isElectron, isNativeApp, publicAsset } from "./utils/constants";
 
 /**
  * App — Root component. Handles routing and auth initialization.
@@ -25,7 +24,6 @@ import { isElectron, isNativeApp } from "./utils/constants";
  * to /channels (authenticated) or /login (unauthenticated).
  */
 function App() {
-  const { t } = useTranslation("common");
   const initialize = useAuthStore((s) => s.initialize);
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const user = useAuthStore((s) => s.user);
@@ -50,12 +48,11 @@ function App() {
   }, [transparentBackground]);
 
   if (!isInitialized) {
+    // Mirrors #app-loader in index.html so React mounting over it is invisible.
     const spinner = (
-      <div className="flex h-full items-center justify-center bg-background" style={{ flex: 1, minHeight: 0 }}>
-        <div className="text-center">
-          <div className="mx-auto mb-6 h-14 w-14 animate-spin rounded-full border-4 border-surface border-t-brand" />
-          <p className="text-base text-text-muted">{t("loading")}</p>
-        </div>
+      <div className="app-loading">
+        <img src={publicAsset("mqvi-icon-128.png")} alt="" className="app-loading-logo" />
+        <div className="app-loading-spinner" />
       </div>
     );
 

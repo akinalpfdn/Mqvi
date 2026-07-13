@@ -2549,6 +2549,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .spinner { width:24px;height:24px;border:2px solid var(--b1);border-top-color:var(--primary);border-radius:999px;animation:spin .6s linear infinite; }
 @keyframes spin { to{transform:rotate(360deg)} }
 
+/* App boot — must match #app-loader in index.html, which this replaces the moment React mounts */
+.app-loading { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px; }
+.app-loading-logo { width:72px;height:72px; }
+.app-loading-spinner { width:28px;height:28px;border:3px solid rgba(255,255,255,0.1);border-top-color:var(--primary);border-radius:999px;animation:spin .7s linear infinite; }
+
 /* ═══════════════════════════════════════
    PINNED MESSAGES PANEL
    ═══════════════════════════════════════ */
