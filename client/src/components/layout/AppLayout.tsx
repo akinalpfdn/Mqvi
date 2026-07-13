@@ -27,6 +27,7 @@ import WelcomeModal from "../shared/WelcomeModal";
 import SettingsModal from "../settings/SettingsModal";
 import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
+import { useSessionFocus } from "../../hooks/useSessionFocus";
 import { useVoice } from "../../hooks/useVoice";
 import { useIdleDetection } from "../../hooks/useIdleDetection";
 import { useVoiceActivityReporter } from "../../hooks/useVoiceActivityReporter";
@@ -74,6 +75,9 @@ function AppLayout() {
 
   // Voice AFK activity reporter — sends voice_activity ping while in voice
   useVoiceActivityReporter({ sendWS });
+
+  // Reports which chats are on screen so the server can skip a push for one we're reading
+  useSessionFocus({ sendWS, connectionStatus });
 
   // Electron taskbar badge for unread count
   useNotificationBadge();

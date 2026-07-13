@@ -11,15 +11,19 @@ import (
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/pkg/push"
 	"github.com/akinalp/mqvi/repository"
+	"github.com/akinalp/mqvi/ws"
 )
 
 // PushNotifier sends mobile push notifications to a user's devices. Consumed by
 // DMService and P2PCallService via SetPushNotifier.
 //
-// Delivery is NOT gated on WebSocket presence. The mobile OS shows the notification
-// only when the app is backgrounded/killed and delivers it silently to a foregrounded
-// app (which already renders the message/call in-app over WS). A DND or invisible
-// recipient is suppressed (matches the in-app notification-sound contract).
+// Delivery is NOT gated on WebSocket presence — a backgrounded mobile app keeps its
+// socket, so "is the user connected" would suppress the push exactly when it is needed.
+// It IS gated on focus: if the user has a live, focused session with the chat on screen
+// (typically the desktop app), a DM push is redundant and skipped. A DND or invisible
+// recipient is suppressed too (matches the in-app notification-sound contract).
+//
+// Calls are never suppressed. Only DMs are — a missed call cannot be caught up on later.
 //
 // Calls fork by token: Android FCM tokens get an FCM notification, iOS PushKit
 // (apns_voip) tokens get a direct APNs VoIP push (CallKit). iOS FCM tokens are
@@ -47,14 +51,20 @@ type pushService struct {
 	apns      apns.Sender
 	tokenRepo repository.PushTokenRepository
 	users     pushUserLookup
+	focus     ws.FocusProvider
 }
 
-func NewPushService(fcm push.Sender, apnsSender apns.Sender, tokenRepo repository.PushTokenRepository, users pushUserLookup) PushNotifier {
-	return &pushService{fcm: fcm, apns: apnsSender, tokenRepo: tokenRepo, users: users}
+func NewPushService(fcm push.Sender, apnsSender apns.Sender, tokenRepo repository.PushTokenRepository, users pushUserLookup, focus ws.FocusProvider) PushNotifier {
+	return &pushService{fcm: fcm, apns: apnsSender, tokenRepo: tokenRepo, users: users, focus: focus}
 }
 
 func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID string) {
 	if !s.fcm.Enabled() && !s.apns.Enabled() {
+		return
+	}
+	// The user is reading this conversation right now on some device — buzzing their phone
+	// about a message already on their screen is the thing this whole gate exists to stop.
+	if s.focus != nil && s.focus.HasFocusedViewer(recipientID, ws.FocusViewDM, dmChannelID) {
 		return
 	}
 	go func() {

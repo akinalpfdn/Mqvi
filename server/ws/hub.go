@@ -5,6 +5,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 )
@@ -47,6 +48,12 @@ type ClientManager interface {
 	RemoveClientServerID(userID, serverID string)
 }
 
+// FocusProvider answers whether a user is reading a chat right now on some device.
+// Used by PushService to skip a notification the user does not need.
+type FocusProvider interface {
+	HasFocusedViewer(userID, viewType, viewID string) bool
+}
+
 // BroadcastAndOnline — used by MessageService, P2PCallService.
 type BroadcastAndOnline interface {
 	Broadcaster
@@ -64,6 +71,7 @@ type EventPublisher interface {
 	Broadcaster
 	UserStateProvider
 	ClientManager
+	FocusProvider
 }
 
 // UserConnectionCallback is called on first-connect and full-disconnect.
@@ -632,6 +640,42 @@ func (h *Hub) OnVoiceActivity(cb VoiceActivityCallback) {
 
 func (h *Hub) OnP2PCallInitiate(cb P2PCallInitiateCallback) {
 	h.onP2PCallInitiate = cb
+}
+
+// focusTTL bounds how long a connection's reported focus is believed without fresh proof
+// of life. Clients heartbeat every 30s, so a live one always looks current; a half-open
+// socket stops and its last claim expires here rather than at the 90s pong deadline.
+const focusTTL = 45 * time.Second
+
+// focusKey namespaces a view id by kind — a DM and a channel could otherwise collide.
+func focusKey(viewType, viewID string) string {
+	return viewType + ":" + viewID
+}
+
+// HasFocusedViewer reports whether the user has a live, focused connection with this chat
+// on screen — the one case where a push notification is pure noise.
+//
+// This is deliberately NOT "is the user connected". That gate existed once and was removed:
+// a backgrounded mobile app keeps its WebSocket, so the server read it as present and
+// suppressed the push exactly when the user needed it. Focus is different in kind — a
+// backgrounded client reports focused=false on its way out, and a client that dies without
+// saying so has its claim expire via focusTTL. Both roads lead to "send the push".
+func (h *Hub) HasFocusedViewer(userID, viewType, viewID string) bool {
+	if viewID == "" {
+		return false
+	}
+	key := focusKey(viewType, viewID)
+	cutoff := time.Now().Add(-focusTTL).UnixNano()
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for client := range h.clients[userID] {
+		if client.focused && client.focusViews[key] && client.focusAt.Load() > cutoff {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) OnP2PCallAccept(cb P2PCallAcceptCallback) {

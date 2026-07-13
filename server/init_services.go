@@ -215,7 +215,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	} else if apnsSender.Enabled() {
 		log.Println("[main] APNs VoIP enabled (iOS CallKit)")
 	}
-	pushService := services.NewPushService(pushSender, apnsSender, repos.PushToken, repos.User)
+	pushService := services.NewPushService(pushSender, apnsSender, repos.PushToken, repos.User, hub)
 	dmService.SetPushNotifier(pushService)
 	p2pCallService.SetPushNotifier(pushService)
 	dmUploadService := services.NewDMUploadService(repos.DM, uploadPipeline, cfg.Upload.MaxSize)

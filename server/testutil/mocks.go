@@ -609,6 +609,7 @@ type MockEventPublisher struct {
 	DisconnectUserFn            func(userID string)
 	AddClientServerIDFn         func(userID, serverID string)
 	RemoveClientServerIDFn      func(userID, serverID string)
+	HasFocusedViewerFn          func(userID, viewType, viewID string) bool
 }
 
 func (m *MockEventPublisher) GetOnlineUserIDs() []string {
@@ -651,6 +652,12 @@ func (m *MockEventPublisher) RemoveClientServerID(userID, serverID string) {
 	if m.RemoveClientServerIDFn != nil {
 		m.RemoveClientServerIDFn(userID, serverID)
 	}
+}
+func (m *MockEventPublisher) HasFocusedViewer(userID, viewType, viewID string) bool {
+	if m.HasFocusedViewerFn != nil {
+		return m.HasFocusedViewerFn(userID, viewType, viewID)
+	}
+	return false
 }
 
 // ─── EmailSender mock ───
