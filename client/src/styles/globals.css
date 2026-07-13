@@ -3582,7 +3582,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     border: none;
     border-right: 1px solid var(--panel-border);
     border-radius: 0;
-    padding: calc(var(--safe-area-inset-top) + 56px) 12px 16px;
+    padding: calc(var(--safe-area-inset-top) + 12px) 12px calc(var(--safe-area-inset-bottom) + 16px);
     transform: translateX(-100%);
     transition: transform 0.22s ease;
     z-index: 60;
@@ -3600,40 +3600,66 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     background: rgba(0,0,0,0.5);
     z-index: 59;
   }
-  .settings-nav-toggle {
-    position: fixed;
-    top: calc(var(--safe-area-inset-top) + 56px);
-    left: 12px;
-    z-index: 52;
+  /* ─── Settings → full-screen sheet ───
+     A floating card with buttons hovering over its corners reads as a desktop dialog
+     shrunk down. On a phone this owns the whole screen and gets a real toolbar. */
+  .settings-overlay {
+    padding: 0;
+    gap: 0;
+    top: 0;
+    bottom: 0;
+  }
+  .settings-panel {
+    max-width: 100%;
+    flex-direction: column;
+  }
+  .settings-content {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    /* The overlay now runs to the screen edges, so the content clears the bars itself. */
+    padding: 16px calc(16px + var(--safe-area-inset-right))
+             calc(16px + var(--safe-area-inset-bottom))
+             calc(16px + var(--safe-area-inset-left));
+  }
+  .settings-topbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    padding: 4px 4px 4px calc(4px + var(--safe-area-inset-left));
+    padding-top: calc(4px + var(--safe-area-inset-top));
+    padding-right: calc(4px + var(--safe-area-inset-right));
+    background: var(--panel-bg);
+    backdrop-filter: var(--panel-backdrop);
+    -webkit-backdrop-filter: var(--panel-backdrop);
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .settings-topbar-title {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--t0);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .settings-topbar-btn {
     width: var(--mobile-touch-target);
     height: var(--mobile-touch-target);
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
-    border-radius: 50%;
-    background: var(--bg-3);
+    border-radius: 8px;
+    background: transparent;
     color: var(--t1);
     cursor: pointer;
   }
-  .settings-panel {
-    max-width: 100%;
-  }
-  .settings-content {
-    /* Clear the fixed hamburger (left) + close (right) that float over the top. */
-    padding: calc(56px + var(--mobile-touch-target) + 12px) 16px 16px;
-  }
-  /* Mobile close is wider and offset — needs more right clearance on top headers */
-  .settings-section-header { padding-right: 44px; }
-  /* Settings close button — fixed top-right over the stacked layout, offset for safe area + tab bar */
-  .settings-close {
-    position: fixed;
-    z-index: 51;
-    top: calc(var(--safe-area-inset-top) + 56px);
-    right: 12px;
-    width: var(--mobile-touch-target);
-    height: var(--mobile-touch-target);
-  }
+  .settings-topbar-btn:active { background: var(--bg-h); }
 
   /* ─── Pinned Messages → Full Width Bottom ─── */
   .pinned-panel {

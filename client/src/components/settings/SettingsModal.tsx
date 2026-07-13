@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useIsMobile } from "../../hooks/useMediaQuery";
+import { useBackHandler } from "../../hooks/useBackHandler";
+import { SETTINGS_TAB_LABEL_KEYS } from "./settingsTabs";
 import SettingsNav from "./SettingsNav";
 import RoleSettings from "./RoleSettings";
 import ProfileSettings from "./ProfileSettings";
@@ -30,6 +32,7 @@ import HelpCenter from "../shared/HelpCenter";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
+  const { t: tCommon } = useTranslation("common");
   const isOpen = useSettingsStore((s) => s.isOpen);
   const activeTab = useSettingsStore((s) => s.activeTab);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
@@ -49,6 +52,13 @@ function SettingsModal() {
     if (!isOpen) setNavOpen(false);
     wasOpen.current = isOpen;
   }, [isOpen, isMobile, openedAtTab]);
+
+  // Android back: full-screen on mobile, so it must close the sheet — and the drawer first,
+  // if that is what is on top. This component stays mounted while closed, hence the flag.
+  useBackHandler(() => {
+    if (navOpen) setNavOpen(false);
+    else closeSettings();
+  }, isOpen);
 
   // Close on ESC
   useEffect(() => {
@@ -96,26 +106,42 @@ function SettingsModal() {
 
       {/* Content area — close button anchored to the panel's top-right corner */}
       <div className="settings-panel">
-        {isMobile && (
+        {/* Mobile is a full-screen sheet, so it gets a real toolbar instead of the two
+            buttons floating over the content. */}
+        {isMobile ? (
+          <div className="settings-topbar">
+            <button
+              className="settings-topbar-btn"
+              onClick={() => setNavOpen(true)}
+              aria-label={t("title")}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+            <span className="settings-topbar-title">{t(SETTINGS_TAB_LABEL_KEYS[activeTab])}</span>
+            <button
+              className="settings-topbar-btn"
+              onClick={closeSettings}
+              aria-label={tCommon("close")}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        ) : (
           <button
-            className="settings-nav-toggle"
-            onClick={() => setNavOpen(true)}
-            aria-label={t("title")}
+            onClick={closeSettings}
+            className="settings-close"
+            title={t("title") + " — ESC"}
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="12" x2="21" y2="12" />
-              <line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
+            ✕
           </button>
         )}
-        <button
-          onClick={closeSettings}
-          className="settings-close"
-          title={t("title") + " — ESC"}
-        >
-          ✕
-        </button>
         <div className="settings-content">
           <SettingsContent activeTab={activeTab} />
         </div>
