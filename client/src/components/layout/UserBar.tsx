@@ -280,10 +280,10 @@ function UserBar({
           </button>
         </div>
 
-        {/* Settings button */}
+        {/* Settings button — no section, so mobile lands on the nav rather than on Profile */}
         <button
           className="ub-ctrl ub-settings"
-          onClick={() => openSettings("profile")}
+          onClick={() => openSettings()}
           title={tc("settings")}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">

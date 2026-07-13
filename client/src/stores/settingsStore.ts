@@ -92,6 +92,8 @@ type SettingsTab =
 type SettingsState = {
   isOpen: boolean;
   activeTab: SettingsTab;
+  /** False when settings was opened to browse rather than to reach a specific section. */
+  openedAtTab: boolean;
   themeId: ThemeId;
   blurEnabled: boolean;
   wallpaperEnabled: boolean;
@@ -122,13 +124,15 @@ const initialTransparent = loadPersistedTransparent();
 export const useSettingsStore = create<SettingsState>((set) => ({
   isOpen: false,
   activeTab: "profile",
+  openedAtTab: false,
   themeId: initialTheme,
   blurEnabled: initialBlur,
   wallpaperEnabled: initialWallpaperEnabled,
   transparentBackground: initialTransparent,
   pendingWallpaperPreviewUrl: null,
 
-  openSettings: (tab = "profile") => set({ isOpen: true, activeTab: tab }),
+  openSettings: (tab) =>
+    set({ isOpen: true, activeTab: tab ?? "profile", openedAtTab: tab !== undefined }),
   closeSettings: () => set({ isOpen: false }),
   setActiveTab: (tab) => set({ activeTab: tab }),
 

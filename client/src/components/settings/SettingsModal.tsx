@@ -1,6 +1,6 @@
 /** Full-screen settings overlay. Layout: left SettingsNav + right content area. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useIsMobile } from "../../hooks/useMediaQuery";
@@ -33,13 +33,22 @@ function SettingsModal() {
   const isOpen = useSettingsStore((s) => s.isOpen);
   const activeTab = useSettingsStore((s) => s.activeTab);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
+  const openedAtTab = useSettingsStore((s) => s.openedAtTab);
   const isMobile = useIsMobile();
   const [navOpen, setNavOpen] = useState(false);
 
-  // Reset the mobile nav drawer whenever settings closes.
+  // On mobile the nav is a drawer, so opening settings to browse would otherwise drop the
+  // user straight into Profile with no sign there is anywhere else to go. Deep links
+  // (voice, feedback, server settings) already name their section and skip it.
+  //
+  // Latched to the moment settings opens — recomputing on every render would re-open the
+  // drawer over a section the user had already navigated to, on any viewport flip.
+  const wasOpen = useRef(false);
   useEffect(() => {
+    if (isOpen && !wasOpen.current) setNavOpen(isMobile && !openedAtTab);
     if (!isOpen) setNavOpen(false);
-  }, [isOpen]);
+    wasOpen.current = isOpen;
+  }, [isOpen, isMobile, openedAtTab]);
 
   // Close on ESC
   useEffect(() => {
