@@ -54,6 +54,16 @@ export type Language = keyof typeof SUPPORTED_LANGUAGES;
 
 export const DEFAULT_LANGUAGE: Language = "en";
 
+/**
+ * Narrows a raw locale to one we actually ship: "tr-TR" → "tr", "de" or "" → the default.
+ * The backend rejects any other value, so a raw locale must never reach it — a German
+ * browser would otherwise make every profile save fail on a language nobody chose.
+ */
+export function resolveLanguage(raw?: string | null): Language {
+  const base = (raw ?? "").split("-")[0];
+  return base in SUPPORTED_LANGUAGES ? (base as Language) : DEFAULT_LANGUAGE;
+}
+
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)

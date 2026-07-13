@@ -61,6 +61,9 @@ type CreateUserRequest struct {
 	DisplayName string `json:"display_name"`
 	Email       string `json:"email"`
 	InviteCode  string `json:"invite_code"`
+	// The language the client is already showing. Persisted so the account agrees with the
+	// UI from the first screen — and so push notifications arrive in the same language.
+	Language string `json:"language"`
 }
 
 func (r *CreateUserRequest) Validate() error {
@@ -88,6 +91,12 @@ func (r *CreateUserRequest) Validate() error {
 	r.Email = strings.TrimSpace(r.Email)
 	if r.Email != "" && !emailRegex.MatchString(r.Email) {
 		return fmt.Errorf("invalid email format")
+	}
+
+	// An unknown or absent language is not an error — older clients send none. Fall back
+	// rather than reject, and never store the empty string: it reads as "never chosen".
+	if !allowedLanguages[r.Language] {
+		r.Language = DefaultUserLanguage
 	}
 
 	return nil

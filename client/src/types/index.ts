@@ -721,6 +721,7 @@ export type RegisterRequest = {
   password: string;
   display_name?: string;
   email?: string;
+  language?: string;
 };
 
 export type AuthTokens = {

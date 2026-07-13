@@ -4,9 +4,10 @@
 
 import { create } from "zustand";
 import * as authApi from "../api/auth";
+import * as profileApi from "../api/profile";
 import { setTokens, clearTokens, getAccessToken, setAuthRejectedHandler } from "../api/client";
 import { API_BASE_URL } from "../utils/constants";
-import { changeLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
+import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
 import { usePreferencesStore } from "./preferencesStore";
 import { useVoiceStore } from "./voiceStore";
@@ -20,7 +21,22 @@ const MANUAL_STATUS_KEY = "mqvi_manual_status";
 function syncLanguageFromUser(user: User): void {
   if (user.language && user.language in SUPPORTED_LANGUAGES) {
     changeLanguage(user.language as Language);
+    return;
   }
+
+  // TEMPORARY — delete once no account has an empty language.
+  //
+  // Registration used to leave users.language as "", so the app ran on the browser locale
+  // while the profile picker and every push notification still said English — and the
+  // backend rejected every profile save, since "" is not a language it knows. A migration to
+  // "en" would have flipped those users to English instead of fixing them, so each one adopts
+  // what it is already showing, on next sign-in. Nothing writes "" any more, so this branch
+  // stops firing on its own; drop it when the column has no empty values left.
+  const detected = resolveLanguage(i18n.language);
+  void profileApi.updateProfile({ language: detected });
+  // The caller stores this object verbatim, so correct it here too — otherwise the session
+  // runs with a language the server no longer has.
+  user.language = detected;
 }
 
 /**
@@ -87,6 +103,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       password,
       display_name: displayName,
       email: email || undefined,
+      // Whatever the sign-up screen was already in — the account should agree with it.
+      language: resolveLanguage(i18n.language),
     });
 
     if (res.success && res.data) {

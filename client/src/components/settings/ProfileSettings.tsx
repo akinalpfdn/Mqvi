@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useToastStore } from "../../stores/toastStore";
 import * as profileApi from "../../api/profile";
+import { resolveLanguage } from "../../i18n";
 import AvatarUpload from "./AvatarUpload";
 import LanguageSelector from "./LanguageSelector";
 import StorageUsageBar from "./StorageUsage";
@@ -19,7 +20,12 @@ function ProfileSettings() {
   const [username, setUsername] = useState(user?.username ?? "");
   const [displayName, setDisplayName] = useState(user?.display_name ?? "");
   const [customStatus, setCustomStatus] = useState(user?.custom_status ?? "");
-  const [pendingLanguage, setPendingLanguage] = useState(user?.language ?? "en");
+  // `??` lets the empty string through, and an account created before the language was
+  // persisted has exactly that — the picker then matches no option and silently shows the
+  // first one, so a Turkish UI reads "English". Fall back to what is actually on screen.
+  const storedLanguage = user?.language || resolveLanguage(i18n.language);
+
+  const [pendingLanguage, setPendingLanguage] = useState(storedLanguage);
   const [pendingDMPrivacy, setPendingDMPrivacy] = useState(user?.dm_privacy ?? "message_request");
   const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
@@ -31,7 +37,7 @@ function ProfileSettings() {
     setUsername(user?.username ?? "");
     setDisplayName(user?.display_name ?? "");
     setCustomStatus(user?.custom_status ?? "");
-    setPendingLanguage(user?.language ?? "en");
+    setPendingLanguage(storedLanguage);
     setPendingDMPrivacy(user?.dm_privacy ?? "message_request");
     setPendingAvatarFile(null);
     if (prevPreviewUrlRef.current) {
@@ -54,7 +60,7 @@ function ProfileSettings() {
     displayName !== (user?.display_name ?? "") ||
     customStatus !== (user?.custom_status ?? "") ||
     pendingAvatarFile !== null ||
-    pendingLanguage !== (user?.language ?? "en") ||
+    pendingLanguage !== storedLanguage ||
     pendingDMPrivacy !== (user?.dm_privacy ?? "message_request");
 
   async function handleAvatarSelect(file: File) {
@@ -91,7 +97,7 @@ function ProfileSettings() {
         username !== (user?.username ?? "") ||
         displayName !== (user?.display_name ?? "") ||
         customStatus !== (user?.custom_status ?? "") ||
-        pendingLanguage !== (user?.language ?? "en") ||
+        pendingLanguage !== storedLanguage ||
         pendingDMPrivacy !== (user?.dm_privacy ?? "message_request");
 
       if (profileChanged) {
@@ -104,7 +110,7 @@ function ProfileSettings() {
         });
 
         if (res.success && res.data) {
-          if (pendingLanguage !== (user?.language ?? "en")) {
+          if (pendingLanguage !== storedLanguage) {
             i18n.changeLanguage(pendingLanguage);
           }
           updateUser({

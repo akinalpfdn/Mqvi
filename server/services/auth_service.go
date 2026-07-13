@@ -167,6 +167,7 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		Email:        email,
 		PasswordHash: string(hash),
 		Status:       models.UserStatusOnline,
+		Language:     req.Language,
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {

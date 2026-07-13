@@ -65,6 +65,10 @@ type UpdateProfileRequest struct {
 	DMPrivacy    *string `json:"dm_privacy"`
 }
 
+// DefaultUserLanguage backs users.language. The column is NOT NULL DEFAULT 'en', but every
+// INSERT names the column, so the default never fires — the zero value must be spelled out.
+const DefaultUserLanguage = "en"
+
 var allowedLanguages = map[string]bool{
 	"en": true,
 	"tr": true,
