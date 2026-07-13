@@ -1,7 +1,7 @@
 /**
- * FeatureGuide — the help center body: collapsible category nav (left) + a
- * markdown article pane (right). Manifest-driven; titles from the "help" i18n
- * namespace, bodies lazy-loaded per language with English fallback.
+ * FeatureGuide — the help center body: collapsible category nav beside a markdown article
+ * pane, drilling down to one column at a time on a phone. Manifest-driven; titles from the
+ * "help" i18n namespace, bodies lazy-loaded per language with English fallback.
  * Shared by the InfoModal Features tab (and, later, a landing /features route).
  */
 
@@ -9,6 +9,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useIsMobile } from "../../hooks/useMediaQuery";
+import { useBackHandler } from "../../hooks/useBackHandler";
 import { HELP_CATEGORIES, type HelpIcon } from "./manifest";
 import { loadArticleBody, loadAllBodies, resolveAsset, type LoadedArticle } from "./loader";
 
@@ -52,12 +54,24 @@ const ALL_SLUGS = ALL_ARTICLES.map((a) => a.slug);
 
 function FeatureGuide() {
   const { t, i18n } = useTranslation("help");
+  const { t: tCommon } = useTranslation("common");
   const lang = (i18n.language || "en").split("-")[0];
+  const isMobile = useIsMobile();
 
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(FIRST_CAT ? [FIRST_CAT.id] : []),
   );
   const [selected, setSelected] = useState<string | null>(FIRST_CAT?.articles[0]?.slug ?? null);
+
+  // A phone has no room for a table of contents beside the article, so it drills in instead:
+  // the list fills the screen, tapping an entry swaps it for the article.
+  const [articleOpen, setArticleOpen] = useState(false);
+  useBackHandler(() => setArticleOpen(false), isMobile && articleOpen);
+
+  function openArticle(slug: string) {
+    setSelected(slug);
+    setArticleOpen(true);
+  }
   const [article, setArticle] = useState<LoadedArticle | null>(null);
   const [loading, setLoading] = useState(false);
   const reqRef = useRef(0);
@@ -106,8 +120,13 @@ function FeatureGuide() {
       })
     : [];
 
+  const showNav = !isMobile || !articleOpen;
+  const showContent = !isMobile || articleOpen;
+  const selectedTitle = ALL_ARTICLES.find((a) => a.slug === selected)?.titleKey;
+
   return (
     <div className="feature-guide">
+      {showNav && (
       <nav className="fg-nav">
         <input
           type="text"
@@ -124,7 +143,7 @@ function FeatureGuide() {
                   type="button"
                   key={a.slug}
                   className={`fg-article-link${selected === a.slug ? " active" : ""}`}
-                  onClick={() => setSelected(a.slug)}
+                  onClick={() => openArticle(a.slug)}
                 >
                   {t(a.titleKey)}
                 </button>
@@ -158,7 +177,7 @@ function FeatureGuide() {
                         type="button"
                         key={a.slug}
                         className={`fg-article-link${selected === a.slug ? " active" : ""}`}
-                        onClick={() => setSelected(a.slug)}
+                        onClick={() => openArticle(a.slug)}
                       >
                         {t(a.titleKey)}
                       </button>
@@ -171,8 +190,18 @@ function FeatureGuide() {
         })
         )}
       </nav>
+      )}
 
+      {showContent && (
       <div className="fg-content">
+        {isMobile && (
+          <button type="button" className="fg-back" onClick={() => setArticleOpen(false)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span>{selectedTitle ? t(selectedTitle) : tCommon("back")}</span>
+          </button>
+        )}
         {loading ? (
           <p className="fg-empty">…</p>
         ) : article ? (
@@ -197,6 +226,7 @@ function FeatureGuide() {
           <p className="fg-empty">{t("selectArticle")}</p>
         )}
       </div>
+      )}
     </div>
   );
 }

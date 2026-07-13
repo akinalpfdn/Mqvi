@@ -3661,6 +3661,47 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   }
   .settings-topbar-btn:active { background: var(--bg-h); }
 
+  /* ─── Help → one column at a time ───
+     248px of table of contents beside an article leaves the article about 100px wide. */
+  .info-modal-body {
+    /* The sheet already scrolls; a nested 60vh box would scroll inside a scroll. */
+    overflow: visible;
+    max-height: none;
+  }
+  .feature-guide {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+  .fg-nav {
+    width: 100%;
+    overflow: visible;
+    padding-right: 0;
+    border-right: none;
+  }
+  .fg-content {
+    overflow: visible;
+    padding: 0;
+  }
+  .fg-back {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 8px 4px;
+    background: none;
+    border: none;
+    color: var(--t2);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .fg-back svg { flex-shrink: 0; }
+  .fg-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fg-back:active { color: var(--t0); }
+
   /* ─── Pinned Messages → Full Width Bottom ─── */
   .pinned-panel {
     position: fixed !important;
