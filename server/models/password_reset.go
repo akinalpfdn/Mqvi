@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"time"
-	"unicode/utf8"
 )
 
 // PasswordResetToken — only the SHA256 hash is stored; plaintext is sent via email.
@@ -45,8 +44,6 @@ func (r *ResetPasswordRequest) Validate() error {
 	if r.NewPassword == "" {
 		return fmt.Errorf("new password is required")
 	}
-	if utf8.RuneCountInString(r.NewPassword) < 8 {
-		return fmt.Errorf("password must be at least 8 characters")
-	}
+	// Length is not checked here — see CreateUserRequest.Validate. The auth service owns it.
 	return nil
 }

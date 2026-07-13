@@ -13,6 +13,7 @@ import (
 	"github.com/akinalp/mqvi/pkg/apns"
 	"github.com/akinalp/mqvi/pkg/email"
 	"github.com/akinalp/mqvi/pkg/files"
+	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/pkg/push"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
@@ -138,8 +139,13 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	// Remaining services (order-independent)
 	inviteService := services.NewInviteService(repos.Invite, repos.Server, urlSigner)
+	var breachChecker password.BreachChecker = password.NoopChecker{}
+	if cfg.PasswordBreachCheck {
+		breachChecker = password.NewHIBPChecker()
+	}
+
 	authService := services.NewAuthService(
-		repos.User, repos.Session, repos.ResetToken, hub, emailSender,
+		repos.User, repos.Session, repos.ResetToken, hub, emailSender, breachChecker,
 		cfg.JWT.Secret, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry,
 	)
 	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService)

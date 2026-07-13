@@ -8,6 +8,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import * as authApi from "../../api/auth";
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES, passwordByteLength } from "../../utils/constants";
+import { passwordErrorMessage } from "../../utils/passwordError";
 
 function ResetPasswordPage() {
   // ─── Hooks ───
@@ -31,8 +33,13 @@ function ResetPasswordPage() {
       return;
     }
 
-    if (newPassword.length < 8) {
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
       setError(t("passwordTooShort"));
+      return;
+    }
+
+    if (passwordByteLength(newPassword) > PASSWORD_MAX_BYTES) {
+      setError(t("passwordTooLong"));
       return;
     }
 
@@ -41,7 +48,7 @@ function ResetPasswordPage() {
     setIsLoading(false);
 
     if (res.error) {
-      setError(res.error);
+      setError(passwordErrorMessage(res, "auth:resetFailed"));
       return;
     }
 

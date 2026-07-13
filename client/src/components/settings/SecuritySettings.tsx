@@ -8,6 +8,8 @@ import { useToastStore } from "../../stores/toastStore";
 import { useAuthStore } from "../../stores/authStore";
 import * as authApi from "../../api/auth";
 import * as serversApi from "../../api/servers";
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES, passwordByteLength } from "../../utils/constants";
+import { passwordErrorKey } from "../../utils/passwordError";
 import type { DeletedServerInfo } from "../../api/servers";
 
 function formatDate(iso: string, locale: string): string {
@@ -123,8 +125,13 @@ function SecuritySettings() {
   async function handlePasswordSubmit() {
     if (!canSubmitPassword) return;
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
       addToast("error", t("passwordTooShort"));
+      return;
+    }
+
+    if (passwordByteLength(newPassword) > PASSWORD_MAX_BYTES) {
+      addToast("error", t("passwordTooLong"));
       return;
     }
 
@@ -148,11 +155,13 @@ function SecuritySettings() {
         setNewPassword("");
         setConfirmPassword("");
       } else {
+        // Password rejections carry a code; the rest are still matched on English text.
+        const passwordKey = passwordErrorKey(res.code);
         const errMsg = res.error ?? "";
-        if (errMsg.includes("incorrect") || errMsg.includes("unauthorized")) {
+        if (passwordKey) {
+          addToast("error", i18n.t(passwordKey));
+        } else if (errMsg.includes("incorrect") || errMsg.includes("unauthorized")) {
           addToast("error", t("wrongCurrentPassword"));
-        } else if (errMsg.includes("at least 6")) {
-          addToast("error", t("passwordTooShort"));
         } else if (errMsg.includes("different")) {
           addToast("error", t("passwordSameAsOld"));
         } else {

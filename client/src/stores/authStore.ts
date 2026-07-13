@@ -5,6 +5,7 @@
 import { create } from "zustand";
 import * as authApi from "../api/auth";
 import * as profileApi from "../api/profile";
+import { passwordErrorMessage } from "../utils/passwordError";
 import { setTokens, clearTokens, getAccessToken, setAuthRejectedHandler } from "../api/client";
 import { API_BASE_URL } from "../utils/constants";
 import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
@@ -115,7 +116,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return true;
     }
 
-    set({ error: res.error ?? "Registration failed", isLoading: false });
+    set({ error: passwordErrorMessage(res, "auth:registerFailed"), isLoading: false });
     return false;
   },
 

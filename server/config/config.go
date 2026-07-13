@@ -23,6 +23,9 @@ type Config struct {
 	Push            PushConfig
 	EncryptionKey   string // AES-256 key (64 hex chars = 32 bytes) for LiveKit credential encryption
 	HetznerAPIToken string // Hetzner Cloud API token (read-only) — optional
+	// PasswordBreachCheck queries Have I Been Pwned when a password is set. Needs no key or
+	// account; turn it off only for a self-host with no route out. Failures allow the password.
+	PasswordBreachCheck bool
 }
 
 // PushConfig — optional. If CredentialsFile is missing or invalid, push is disabled
@@ -177,6 +180,11 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid MQVI_ANTIVIRUS_ENABLED: %w", err)
 	}
+
+	breachCheck, err := strconv.ParseBool(getEnv("MQVI_PASSWORD_BREACH_CHECK", "true"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MQVI_PASSWORD_BREACH_CHECK: %w", err)
+	}
 	avTimeout, err := strconv.Atoi(getEnv("MQVI_ANTIVIRUS_TIMEOUT_SECONDS", "10"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid MQVI_ANTIVIRUS_TIMEOUT_SECONDS: %w", err)
@@ -319,8 +327,9 @@ func Load() (*Config, error) {
 				Production: apnsProduction,
 			},
 		},
-		EncryptionKey:   encKey,
-		HetznerAPIToken: getEnv("HETZNER_API_TOKEN", ""),
+		EncryptionKey:       encKey,
+		HetznerAPIToken:     getEnv("HETZNER_API_TOKEN", ""),
+		PasswordBreachCheck: breachCheck,
 	}
 
 	return cfg, nil
