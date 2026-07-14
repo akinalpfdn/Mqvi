@@ -88,6 +88,11 @@ body.blur-disabled {
   --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
+
+  /* Server banner shape. The crop frame the owner drags and every box that renders the result
+     must be this exact ratio — anything else and object-fit:cover silently re-crops the image
+     the owner already framed. Kept in step with BANNER_ASPECT in ServerGeneralSettings.tsx. */
+  --banner-aspect: 16 / 9;
 }
 html, body { height:100%; width:100%; overflow:hidden;color-scheme:dark;background:linear-gradient(rgba(5,6,11,0.55),rgba(5,6,11,0.55)),var(--wallpaper) center/cover no-repeat,var(--bg-0); }
 .transparent-bg { background:transparent !important; }
@@ -285,7 +290,7 @@ select option:disabled {
 .ch-tree-join-requests-badge { background:var(--primary);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:18px;text-align:center;flex-shrink:0;line-height:16px; }
 
 /* Server banner upload (discovery card image) */
-.server-banner-upload { display:block;width:100%;max-width:480px;aspect-ratio:16/9;border:1px dashed var(--b1);border-radius:8px;background:var(--bg-2);cursor:pointer;overflow:hidden;padding:0;transition:border-color .1s; }
+.server-banner-upload { display:block;width:100%;max-width:480px;aspect-ratio:var(--banner-aspect);border:1px dashed var(--b1);border-radius:8px;background:var(--bg-2);cursor:pointer;overflow:hidden;padding:0;transition:border-color .1s; }
 .server-banner-upload:hover { border-color:var(--primary); }
 .server-banner-img { width:100%;height:100%;object-fit:cover;display:block; }
 .server-banner-placeholder { display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--t3);font-size:13px; }
@@ -314,7 +319,9 @@ select option:disabled {
 
 .disc-card { display:flex;flex-direction:column;background:var(--bg-2);border:1px solid var(--b1);border-radius:12px;overflow:hidden;transition:border-color .1s; }
 .disc-card:hover { border-color:var(--bg-h); }
-.disc-card-banner { height:100px;background:var(--bg-3); }
+/* aspect-ratio, not a fixed height: the column is 1fr, so a fixed height made the card's crop
+   depend on the viewport — the same banner lost a different slice on every screen width. */
+.disc-card-banner { aspect-ratio:var(--banner-aspect);background:var(--bg-3); }
 .disc-card-banner-img { width:100%;height:100%;object-fit:cover;display:block; }
 .disc-card-banner-fallback { width:100%;height:100%;background:linear-gradient(135deg, var(--bg-3), var(--bg-2)); }
 .disc-card-body { padding:0 16px 16px;display:flex;flex-direction:column;flex:1; }

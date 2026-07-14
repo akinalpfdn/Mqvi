@@ -14,7 +14,8 @@ import AvatarUpload from "./AvatarUpload";
 import ImageCropModal from "../shared/ImageCropModal";
 import type { Server } from "../../types";
 
-/** Matches .server-banner-upload and the discovery card banner. */
+/** Must equal --banner-aspect in globals.css, which shapes every box the result is rendered in.
+ *  If they drift, object-fit:cover re-crops the image the owner already framed here. */
 const BANNER_ASPECT = 16 / 9;
 const MAX_BANNER_SIZE = 8 * 1024 * 1024;
 
