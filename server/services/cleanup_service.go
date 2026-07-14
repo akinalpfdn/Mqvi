@@ -78,6 +78,7 @@ type cleanupService struct {
 	uploadDir     string
 	cleanScanTTL  time.Duration
 	badScanTTL    time.Duration
+	refSources    map[files.Kind][]string // nil = defaultReferenceSources; set by tests
 
 	mu      sync.Mutex
 	cancel  context.CancelFunc
@@ -410,6 +411,7 @@ func (s *cleanupService) walkOrphans(ctx context.Context, st *runStats) {
 			"orphan walk aborted: collect referenced URLs failed: "+err.Error(), nil)
 		return
 	}
+	sources := s.sources()
 	cutoff := time.Now().UTC().Add(-24 * time.Hour)
 
 	walkErr := filepath.WalkDir(s.uploadDir, func(path string, d os.DirEntry, walkErr error) error {
@@ -434,7 +436,9 @@ func (s *cleanupService) walkOrphans(ctx context.Context, st *runStats) {
 			// (legacy /api/uploads/* if any survived migration, partial uploads).
 			return nil
 		}
-		if !files.IsValidKind(parts[0]) {
+		// Only sweep a kind we know how to prove live. An unrecognised or unregistered kind
+		// leaks disk; sweeping it would delete files nothing in the DB is watching over.
+		if _, registered := sources[files.Kind(parts[0])]; !registered {
 			return nil
 		}
 		fileURL := files.URLPathPrefix + "/" + parts[0] + "/" + url.PathEscape(parts[1]) + "/" + url.PathEscape(parts[2])
@@ -465,40 +469,68 @@ func (s *cleanupService) walkOrphans(ctx context.Context, st *runStats) {
 	}
 }
 
+// defaultReferenceSources maps every upload kind to the queries that prove its files are still
+// live. A kind absent from this map is SKIPPED by the orphan walk, not swept: the cost of
+// forgetting to register a new kind has to be leaked disk, never deleted user data. It was
+// deleted user data — server banners (files.KindServerBanner, added with public-server
+// discovery) had no entry here, so every banner was reclaimed by the first nightly sweep that
+// ran more than 24h after it was uploaded, leaving servers.banner_url pointing at nothing.
+//
+// TestOrphanWalk_EveryUploadKindHasAReferenceSource fails until a new kind is registered.
+var defaultReferenceSources = map[files.Kind][]string{
+	files.KindMessage:      {`SELECT file_url FROM attachments WHERE file_url IS NOT NULL AND file_url != ''`},
+	files.KindDM:           {`SELECT file_url FROM dm_attachments WHERE file_url IS NOT NULL AND file_url != ''`},
+	files.KindSoundboard:   {`SELECT file_url FROM soundboard_sounds WHERE file_url IS NOT NULL AND file_url != ''`},
+	files.KindFeedback:     {`SELECT file_url FROM feedback_attachments WHERE file_url IS NOT NULL AND file_url != ''`},
+	files.KindReport:       {`SELECT file_url FROM report_attachments WHERE file_url IS NOT NULL AND file_url != ''`},
+	files.KindServerReport: {`SELECT file_url FROM server_report_attachments WHERE file_url IS NOT NULL AND file_url != ''`},
+	files.KindVoiceMsg:     {`SELECT file_url FROM voice_message_attachments WHERE file_url IS NOT NULL AND file_url != ''`},
+	files.KindAvatar:       {`SELECT avatar_url FROM users WHERE avatar_url IS NOT NULL AND avatar_url != ''`},
+	files.KindWallpaper:    {`SELECT wallpaper_url FROM users WHERE wallpaper_url IS NOT NULL AND wallpaper_url != ''`},
+	files.KindServerIcon:   {`SELECT icon_url FROM servers WHERE icon_url IS NOT NULL AND icon_url != ''`},
+	files.KindServerBanner: {`SELECT banner_url FROM servers WHERE banner_url IS NOT NULL AND banner_url != ''`},
+	files.KindBadge:        {`SELECT icon FROM badges WHERE icon_type = 'custom' AND icon IS NOT NULL AND icon != ''`},
+}
+
+// sources lets tests inject a partial map; nil means production.
+func (s *cleanupService) sources() map[files.Kind][]string {
+	if s.refSources != nil {
+		return s.refSources
+	}
+	return defaultReferenceSources
+}
+
 // collectReferencedURLs aggregates every file URL the DB still considers live.
 // Soft-deleted users/servers count as referenced — their files are reclaimed
 // only when the tombstone runs (otherwise users could lose recoverable data).
+//
+// Any query that fails aborts the whole walk (see the caller): a schema change that broke one
+// source would otherwise empty that kind's half of the set and sweep every live file in it.
 func (s *cleanupService) collectReferencedURLs(ctx context.Context) (map[string]struct{}, error) {
 	out := make(map[string]struct{}, 1024)
-	queries := []string{
-		`SELECT file_url FROM attachments WHERE file_url IS NOT NULL AND file_url != ''`,
-		`SELECT file_url FROM dm_attachments WHERE file_url IS NOT NULL AND file_url != ''`,
-		`SELECT file_url FROM soundboard_sounds WHERE file_url IS NOT NULL AND file_url != ''`,
-		`SELECT file_url FROM feedback_attachments WHERE file_url IS NOT NULL AND file_url != ''`,
-		`SELECT file_url FROM report_attachments WHERE file_url IS NOT NULL AND file_url != ''`,
-		`SELECT avatar_url FROM users WHERE avatar_url IS NOT NULL AND avatar_url != ''`,
-		`SELECT wallpaper_url FROM users WHERE wallpaper_url IS NOT NULL AND wallpaper_url != ''`,
-		`SELECT icon_url FROM servers WHERE icon_url IS NOT NULL AND icon_url != ''`,
-		`SELECT icon FROM badges WHERE icon_type = 'custom' AND icon IS NOT NULL AND icon != ''`,
-	}
-	for _, q := range queries {
-		rows, err := s.db.QueryContext(ctx, q)
-		if err != nil {
-			return nil, fmt.Errorf("query %q: %w", q, err)
-		}
-		for rows.Next() {
-			var u string
-			if err := rows.Scan(&u); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("scan %q: %w", q, err)
+	// Iterate the source map itself, not files.AllKinds(). walkOrphans decides what is
+	// sweepable from this same map, and the two must never disagree: a kind this loop skipped
+	// but walkOrphans swept would have every one of its files deleted.
+	for _, queries := range s.sources() {
+		for _, q := range queries {
+			rows, err := s.db.QueryContext(ctx, q)
+			if err != nil {
+				return nil, fmt.Errorf("query %q: %w", q, err)
 			}
-			out[u] = struct{}{}
-		}
-		if err := rows.Err(); err != nil {
+			for rows.Next() {
+				var u string
+				if err := rows.Scan(&u); err != nil {
+					rows.Close()
+					return nil, fmt.Errorf("scan %q: %w", q, err)
+				}
+				out[u] = struct{}{}
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("iterate %q: %w", q, err)
+			}
 			rows.Close()
-			return nil, fmt.Errorf("iterate %q: %w", q, err)
 		}
-		rows.Close()
 	}
 	return out, nil
 }

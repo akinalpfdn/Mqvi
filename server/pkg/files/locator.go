@@ -35,6 +35,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -76,6 +77,17 @@ var validKinds = map[Kind]bool{
 // IsValidKind reports whether s is a recognized upload kind.
 func IsValidKind(s string) bool {
 	return validKinds[Kind(s)]
+}
+
+// AllKinds returns every registered kind, sorted. The cleanup worker uses it to assert that
+// each kind has a database source keeping its files alive — a kind with none gets swept.
+func AllKinds() []Kind {
+	out := make([]Kind, 0, len(validKinds))
+	for k := range validKinds {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // URLPathPrefix is the public URL path under which all new files are served.
