@@ -37,6 +37,12 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 	if existing != nil {
 		otherUser.PasswordHash = ""
 		otherUser.AvatarURL = s.urlSigner.SignURLPtr(otherUser.AvatarURL)
+		// An existing conversation can have unread messages. Reporting 0 here would make the
+		// API lie to anyone who seeds their badge from this response.
+		unread, err := s.dmRepo.CountUnread(ctx, userID, existing.ID)
+		if err != nil {
+			return nil, err
+		}
 		return &models.DMChannelWithUser{
 			ID:            existing.ID,
 			OtherUser:     otherUser,
@@ -44,6 +50,7 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 			InitiatedBy:   existing.InitiatedBy,
 			CreatedAt:     existing.CreatedAt,
 			LastMessageAt: existing.LastMessageAt,
+			UnreadCount:   unread,
 		}, nil
 	}
 
@@ -132,11 +139,12 @@ func (s *dmService) MarkRead(ctx context.Context, userID, channelID, messageID s
 	}
 
 	// No message named: the client is clearing a conversation it hasn't loaded.
+	var moved bool
 	var err error
 	if messageID == "" {
-		err = s.dmRepo.MarkReadLatest(ctx, userID, channelID)
+		moved, err = s.dmRepo.MarkReadLatest(ctx, userID, channelID)
 	} else {
-		err = s.dmRepo.MarkRead(ctx, userID, channelID, messageID)
+		moved, err = s.dmRepo.MarkRead(ctx, userID, channelID, messageID)
 	}
 	if err != nil {
 		return 0, err
@@ -145,6 +153,13 @@ func (s *dmService) MarkRead(ctx context.Context, userID, channelID, messageID s
 	unread, err := s.dmRepo.CountUnread(ctx, userID, channelID)
 	if err != nil {
 		return 0, err
+	}
+
+	// Nothing moved — the conversation was already read this far. Say so and stop: waking
+	// every device of the user, and pushing to their phone, for a no-op is how re-opening a
+	// read DM turns into a burst of FCM traffic.
+	if !moved {
+		return unread, nil
 	}
 
 	// Only this user's sessions — the other participant's unread is their own business.

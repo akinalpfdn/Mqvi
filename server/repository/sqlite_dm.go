@@ -91,6 +91,42 @@ func (r *sqliteDMRepo) IsChannelMuted(ctx context.Context, userID, channelID str
 	return muted == 1, nil
 }
 
+// DM messages are ordered by (created_at, rowid), never by created_at alone.
+//
+// created_at comes from CURRENT_TIMESTAMP — WHOLE SECONDS. Two messages sent in the same second
+// are byte-identical on it, and a strict `>` swallows all but the first: it is never counted as
+// unread, no badge appears, and since the count reads 0 the server RETRACTS its push. rowid is
+// assigned in insert order, so it breaks the tie the way a human would. dm_messages.id is random
+// hex and must NOT be used — ordering by it shuffles same-second messages on screen.
+//
+// This order is shared by display, pagination, counting and the watermark. They must not
+// diverge: marking read "up to the last message shown" is only sound if "last shown" and
+// "last read" mean the same thing. Change one, change all.
+//
+// Rowid stability is already load-bearing here: dm_messages_fts is an external-content FTS5
+// table with content_rowid='rowid', and DM search joins fts.rowid = m.rowid. If a VACUUM ever
+// renumbered these, search would return the wrong messages long before unread counts drifted.
+//
+// Known residual: SQLite reuses a rowid when the row holding the table-wide maximum is deleted.
+// A message that reused a DELETED watermark's rowid within the same second would read as
+// already-read. It needs the newest message in the entire table deleted plus a reply landing in
+// that same second. Closing it fully needs a monotonic seq column on dm_messages.
+//
+// The watermark is read as a correlated scalar so it is a constant when dm_messages is seeked.
+// Joined, the planner puts dm_messages in the outer loop and `created_at >= ...` cannot
+// constrain the index — it walks every message in the channel instead of seeking to the unread
+// tail. Both call sites use this one predicate; they must not diverge.
+const dmUnreadPredicate = `
+	m.user_id != ?
+	AND m.message_type != 'call'
+	AND m.created_at >= COALESCE((SELECT last_read_at FROM dm_reads
+	                               WHERE user_id = ? AND dm_channel_id = m.dm_channel_id), '')
+	AND (m.created_at, m.rowid) >
+	    (COALESCE((SELECT last_read_at  FROM dm_reads
+	                WHERE user_id = ? AND dm_channel_id = m.dm_channel_id), ''),
+	     COALESCE((SELECT last_read_seq FROM dm_reads
+	                WHERE user_id = ? AND dm_channel_id = m.dm_channel_id), 0))`
+
 // MarkRead moves the user's watermark up to the given message, in one statement so two
 // devices marking read at once cannot interleave into a lost update. The WHERE on the
 // upsert is what keeps it monotonic: a mark for an older message than the one already
@@ -98,55 +134,73 @@ func (r *sqliteDMRepo) IsChannelMuted(ctx context.Context, userID, channelID str
 //
 // The SELECT source also does the validation — a message id that belongs to another
 // channel (or to nothing) produces no row, so there is nothing to insert.
-func (r *sqliteDMRepo) MarkRead(ctx context.Context, userID, channelID, messageID string) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO dm_reads (user_id, dm_channel_id, last_read_message_id, last_read_at)
-		SELECT ?, ?, m.id, m.created_at
+//
+// Returns whether the watermark actually moved. A no-op mark must not broadcast or push:
+// merely clicking through the sidebar would otherwise wake every device of the user.
+func (r *sqliteDMRepo) MarkRead(ctx context.Context, userID, channelID, messageID string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `
+		INSERT INTO dm_reads (user_id, dm_channel_id, last_read_message_id, last_read_at, last_read_seq)
+		SELECT ?, ?, m.id, m.created_at, m.rowid
 		FROM dm_messages m
 		WHERE m.id = ? AND m.dm_channel_id = ?
 		ON CONFLICT(user_id, dm_channel_id) DO UPDATE SET
 			last_read_message_id = excluded.last_read_message_id,
-			last_read_at = excluded.last_read_at
-		WHERE excluded.last_read_at > dm_reads.last_read_at`,
+			last_read_at = excluded.last_read_at,
+			last_read_seq = excluded.last_read_seq
+		WHERE (excluded.last_read_at, excluded.last_read_seq)
+		    > (dm_reads.last_read_at, dm_reads.last_read_seq)`,
 		userID, channelID, messageID, channelID)
 	if err != nil {
-		return fmt.Errorf("failed to mark DM read: %w", err)
+		return false, fmt.Errorf("failed to mark DM read: %w", err)
 	}
-	return nil
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to mark DM read: %w", err)
+	}
+	return n > 0, nil
 }
 
 // MarkReadLatest points the watermark at the newest message in the channel. Same monotonic
-// guard as MarkRead.
-func (r *sqliteDMRepo) MarkReadLatest(ctx context.Context, userID, channelID string) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO dm_reads (user_id, dm_channel_id, last_read_message_id, last_read_at)
-		SELECT ?, ?, m.id, m.created_at
+// guard as MarkRead, same "did it move" contract.
+func (r *sqliteDMRepo) MarkReadLatest(ctx context.Context, userID, channelID string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `
+		INSERT INTO dm_reads (user_id, dm_channel_id, last_read_message_id, last_read_at, last_read_seq)
+		SELECT ?, ?, m.id, m.created_at, m.rowid
 		FROM dm_messages m
 		WHERE m.dm_channel_id = ?
-		ORDER BY m.created_at DESC, m.id DESC
+		ORDER BY m.created_at DESC, m.rowid DESC
 		LIMIT 1
 		ON CONFLICT(user_id, dm_channel_id) DO UPDATE SET
 			last_read_message_id = excluded.last_read_message_id,
-			last_read_at = excluded.last_read_at
-		WHERE excluded.last_read_at > dm_reads.last_read_at`,
+			last_read_at = excluded.last_read_at,
+			last_read_seq = excluded.last_read_seq
+		WHERE (excluded.last_read_at, excluded.last_read_seq)
+		    > (dm_reads.last_read_at, dm_reads.last_read_seq)`,
 		userID, channelID, channelID)
 	if err != nil {
-		return fmt.Errorf("failed to mark DM fully read: %w", err)
+		return false, fmt.Errorf("failed to mark DM fully read: %w", err)
 	}
-	return nil
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to mark DM fully read: %w", err)
+	}
+	return n > 0, nil
 }
 
 // CountUnread counts what the other participant has sent since the user's watermark.
+// Call logs are not messages — a finished call must not leave a badge behind.
+//
+// One statement, not a read-then-count: split across two, the two halves run on separate pooled
+// connections and therefore separate snapshots, so a mark-read landing from another device in
+// between makes the count report messages the user has already read.
 func (r *sqliteDMRepo) CountUnread(ctx context.Context, userID, channelID string) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM dm_messages m
-		LEFT JOIN dm_reads dr ON dr.user_id = ? AND dr.dm_channel_id = m.dm_channel_id
 		WHERE m.dm_channel_id = ?
-		  AND m.user_id != ?
-		  AND (dr.last_read_at IS NULL OR m.created_at > dr.last_read_at)`,
-		userID, channelID, userID).Scan(&count)
+		  AND `+dmUnreadPredicate,
+		channelID, userID, userID, userID, userID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count unread DMs: %w", err)
 	}
@@ -164,21 +218,24 @@ func (r *sqliteDMRepo) ListChannels(ctx context.Context, userID string) ([]model
 			CASE WHEN ds.muted_until IS NOT NULL AND ds.muted_until > datetime('now') THEN 1 ELSE 0 END,
 			(SELECT COUNT(*) FROM dm_messages m
 			  WHERE m.dm_channel_id = dc.id
-			    AND m.user_id != ?
-			    AND (dr.last_read_at IS NULL OR m.created_at > dr.last_read_at))
+			    AND ` + dmUnreadPredicate + `)
 		FROM dm_channels dc
 		JOIN users u ON u.id = CASE
 			WHEN dc.user1_id = ? THEN dc.user2_id
 			ELSE dc.user1_id
 		END
 		LEFT JOIN user_dm_settings ds ON ds.user_id = ? AND ds.dm_channel_id = dc.id
-		LEFT JOIN dm_reads dr ON dr.user_id = ? AND dr.dm_channel_id = dc.id
 		WHERE (dc.user1_id = ? OR dc.user2_id = ?)
 		  AND COALESCE(ds.is_hidden, 0) = 0
 		ORDER BY COALESCE(ds.is_pinned, 0) DESC,
 		         COALESCE(dc.last_message_at, dc.created_at) DESC`
 
-	rows, err := r.db.QueryContext(ctx, query, userID, userID, userID, userID, userID, userID)
+	// 4 for the unread predicate (it reads the watermark itself), then the joins and the filter.
+	rows, err := r.db.QueryContext(ctx, query,
+		userID, userID, userID, userID, // dmUnreadPredicate
+		userID, // other-user CASE
+		userID, // user_dm_settings
+		userID, userID) // membership filter
 	if err != nil {
 		return nil, fmt.Errorf("failed to list DM channels: %w", err)
 	}
@@ -330,7 +387,7 @@ func (r *sqliteDMRepo) GetMessages(ctx context.Context, channelID string, before
 			LEFT JOIN dm_messages rm ON m.reply_to_id = rm.id
 			LEFT JOIN users ru ON rm.user_id = ru.id
 			WHERE m.dm_channel_id = ?
-			ORDER BY m.created_at DESC
+			ORDER BY m.created_at DESC, m.rowid DESC
 			LIMIT ?`
 		args = []any{channelID, limit}
 	} else {
@@ -346,8 +403,9 @@ func (r *sqliteDMRepo) GetMessages(ctx context.Context, channelID string, before
 			LEFT JOIN dm_messages rm ON m.reply_to_id = rm.id
 			LEFT JOIN users ru ON rm.user_id = ru.id
 			WHERE m.dm_channel_id = ?
-			  AND m.created_at < (SELECT created_at FROM dm_messages WHERE id = ?)
-			ORDER BY m.created_at DESC
+			  AND (m.created_at, m.rowid) <
+			      (SELECT created_at, rowid FROM dm_messages WHERE id = ?)
+			ORDER BY m.created_at DESC, m.rowid DESC
 			LIMIT ?`
 		args = []any{channelID, beforeID, limit}
 	}

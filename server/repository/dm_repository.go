@@ -24,13 +24,15 @@ type DMRepository interface {
 
 	// Read state
 	//
-	// MarkRead advances the user's read watermark to the given message. Never moves it
-	// backwards, so a late mark from a second device cannot resurrect messages the user
-	// has already read. A message id that isn't in this channel is a no-op.
-	MarkRead(ctx context.Context, userID, channelID, messageID string) error
+	// MarkRead advances the user's read watermark to the given message and reports whether
+	// it actually moved. Never moves backwards, so a late mark from a second device cannot
+	// resurrect messages the user has already read. A message id that isn't in this channel
+	// is a no-op. The "moved" result gates the broadcast and the retraction push — without
+	// it, clicking through the sidebar wakes every device of the user for nothing.
+	MarkRead(ctx context.Context, userID, channelID, messageID string) (moved bool, err error)
 	// MarkReadLatest marks the whole conversation as read. The client often clears a DM it
 	// has not loaded — from the sidebar, or "mark as read" — so it has no message to name.
-	MarkReadLatest(ctx context.Context, userID, channelID string) error
+	MarkReadLatest(ctx context.Context, userID, channelID string) (moved bool, err error)
 	// CountUnread returns the messages in the channel the user has not read, written by
 	// the other participant. Read back AFTER a MarkRead rather than assumed to be zero —
 	// a message can land between the client picking a watermark and the write landing.
