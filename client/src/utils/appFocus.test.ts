@@ -124,6 +124,24 @@ describe("Capacitor", () => {
     await vi.waitFor(() => expect(foreground()).toBe(false));
   });
 
+  // Observed on device: after a background/resume cycle the Android WebView left
+  // visibilityState at "hidden" and never fired visibilitychange, even though appStateChange
+  // fired correctly (the WS reconnected and the messages arrived). Requiring "visible" meant the
+  // app looked permanently backgrounded from then on: the DM on screen was never marked read,
+  // its badge never cleared, and its notification stayed on the tray.
+  it("ignores a stale visibilityState after the app is resumed", async () => {
+    setVisibility("hidden"); // the WebView never restored it
+    setHasFocus(false);
+    getStateImpl = () => Promise.resolve({ isActive: false });
+
+    start();
+    await vi.waitFor(() => expect(foreground()).toBe(false));
+
+    listener?.({ isActive: true }); // resumed — this is the only signal that tells the truth
+
+    expect(foreground()).toBe(true);
+  });
+
   // The wiring risk: without this, a DM left open while the app is backgrounded is never marked
   // read when the user comes back — nothing would re-run DMChat's effect.
   it("updates when the app is resumed", async () => {

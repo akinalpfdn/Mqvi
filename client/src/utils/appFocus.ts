@@ -22,15 +22,19 @@ export function initAppFocus(): () => void {
 
   const recompute = () => {
     if (disposed) return;
-    const visible = document.visibilityState === "visible";
 
     let value: boolean | null;
     if (!isCapacitor() || nativeUnavailable) {
-      value = visible && document.hasFocus();
+      value = document.visibilityState === "visible" && document.hasFocus();
     } else if (nativeActive === null) {
       value = null; // App.getState() has not answered yet
     } else {
-      value = visible && nativeActive;
+      // The native app state ALONE. Not document.visibilityState: an Android WebView does not
+      // reliably restore it (or fire visibilitychange) when the app is resumed, so after one
+      // background/resume cycle the app looked permanently backgrounded — the DM on screen was
+      // never marked read, its badge never cleared, and its notification stayed on the tray.
+      // Observed on device. Neither DOM signal means anything here; the app state is authoritative.
+      value = nativeActive;
     }
 
     if (useAppFocusStore.getState().isForeground !== value) {
