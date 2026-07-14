@@ -1445,6 +1445,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .auth-input:focus { border-color:var(--primary); }
 .auth-input::placeholder { color:var(--t3); }
 .auth-field { margin-bottom:16px; }
+.auth-hint { display:block;margin-top:6px;font-size:13px;color:var(--t3);line-height:1.4; }
 .auth-field-password { position:relative;display:flex;align-items:center; }
 .auth-field-password .auth-input { padding-right:42px; }
 .auth-password-toggle { position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--t2);display:flex;align-items:center;justify-content:center;padding:4px;border-radius:6px;transition:color .15s,background .15s; }

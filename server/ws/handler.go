@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"github.com/akinalp/mqvi/models"
@@ -231,10 +232,19 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		prefStatus = "online"
 	}
 
+	// Same id the device registers its push token under, so the two can be matched. Empty for
+	// clients that predate the device chain; the server then addresses the whole user.
+	deviceID := r.URL.Query().Get("device_id")
+	if len(deviceID) > 64 {
+		deviceID = ""
+	}
+
 	client := &Client{
 		hub:           h.hub,
 		conn:          conn,
 		userID:        claims.UserID,
+		sessionID:     uuid.New().String(),
+		deviceID:      deviceID,
 		send:          make(chan []byte, sendBufferSize),
 		events:        make(chan Event, eventQueueSize),
 		done:          make(chan struct{}),
@@ -301,6 +311,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	client.sendEvent(Event{
 		Op: OpReady,
 		Data: ReadyData{
+			SessionID:       client.sessionID,
 			OnlineUserIDs:   h.hub.GetVisibleOnlineUserIDs(),
 			Servers:         readyServers,
 			MutedServerIDs:  mutedServerIDs,

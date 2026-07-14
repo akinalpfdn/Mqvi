@@ -7,6 +7,7 @@ import App from "./App";
 import ErrorBoundary from "./components/shared/ErrorBoundary";
 import { isNativeApp } from "./utils/constants";
 import { configureMobileUI, initAppLifecycle } from "./utils/nativePlugins";
+import { initAppFocus } from "./utils/appFocus";
 
 // Native shells (Electron file://, Capacitor capacitor://) don't support HTML5 History API.
 // Web uses BrowserRouter for clean URLs.
@@ -17,6 +18,9 @@ configureMobileUI();
 
 // Initialize app lifecycle listeners (background/foreground, back button) — no-op on web/Electron
 initAppLifecycle();
+
+// "Is the user in front of the app?" — every platform. The DM read loop depends on it.
+initAppFocus();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

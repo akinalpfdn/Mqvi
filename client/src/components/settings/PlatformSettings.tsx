@@ -181,7 +181,7 @@ function LiveKitTab() {
           ? t("platformDeleteMigrateConfirm", {
               count: selectedInstance.server_count,
             })
-          : t("platformDeleteConfirm"),
+          : t("platformInstanceDeleteConfirm"),
       danger: true,
     });
     if (!ok) return;

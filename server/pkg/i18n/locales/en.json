@@ -10,7 +10,6 @@
     "passwordRequired": "Password is required",
     "usernameTooShort": "Username must be between 3 and 32 characters",
     "usernameInvalidChars": "Username can only contain letters, numbers, and underscores",
-    "passwordTooShort": "Password must be at least 8 characters",
     "displayNameTooLong": "Display name must be at most 32 characters",
     "usernameTaken": "Username already taken",
     "refreshTokenRequired": "Refresh token is required",

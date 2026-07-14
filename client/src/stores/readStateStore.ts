@@ -10,8 +10,33 @@ import { create } from "zustand";
 import * as readStateApi from "../api/readState";
 import { useServerStore } from "./serverStore";
 import { useChannelStore } from "./channelStore";
+import { channelMarkRead } from "./shared/markReadTracking";
 
 export type MentionWatermark = { at: string; messageId: string };
+
+/**
+ * Leading edge fires at once, then a window coalesces the burst behind it. Without this, a busy
+ * channel POSTs once per incoming message: 31 messages in 10s trips the shared read rate limit,
+ * and the 429 that follows lands on the DM mark-read too — so the DM watermark stops moving and
+ * the phone starts buzzing for the conversation on screen. Must stay well under the server's
+ * 3s push delay.
+ */
+const MARK_READ_COALESCE_MS = 1000;
+
+const { timers: markReadTimers, asked: markReadAsked, sent: markReadSent } = channelMarkRead;
+
+function sendChannelMarkRead(serverId: string, channelId: string, messageId: string): void {
+  void readStateApi.markRead(serverId, channelId, messageId).then((res) => {
+    if (res.success) {
+      markReadSent[channelId] = messageId;
+      return;
+    }
+    // Forget that we asked, or the dedupe guard blocks every retry and the server goes on
+    // counting the channel unread with nothing left to correct it.
+    delete markReadAsked[channelId];
+    delete markReadSent[channelId];
+  });
+}
 
 type ReadStateState = {
   unreadCounts: Record<string, number>;
@@ -103,8 +128,20 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
       return { unreadCounts: next };
     });
 
-    // Fire-and-forget to backend
-    readStateApi.markRead(serverId, channelId, lastMessageId);
+    if (markReadAsked[channelId] === lastMessageId) return;
+    markReadAsked[channelId] = lastMessageId;
+
+    // A window is already open; its trailing edge carries the newest watermark.
+    if (markReadTimers[channelId]) return;
+
+    sendChannelMarkRead(serverId, channelId, lastMessageId);
+    markReadTimers[channelId] = setTimeout(() => {
+      delete markReadTimers[channelId];
+      const latest = markReadAsked[channelId];
+      if (latest && latest !== markReadSent[channelId]) {
+        sendChannelMarkRead(serverId, channelId, latest);
+      }
+    }, MARK_READ_COALESCE_MS);
   },
 
   incrementUnread: (channelId) => {

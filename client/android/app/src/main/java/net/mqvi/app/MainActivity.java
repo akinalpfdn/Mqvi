@@ -21,6 +21,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(VoiceCallPlugin.class);
         registerPlugin(ScreenSharePlugin.class);
+        registerPlugin(P2PCallPlugin.class);
         super.onCreate(savedInstanceState);
         handleCallLaunch(getIntent());
 

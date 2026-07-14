@@ -5,6 +5,7 @@
 import { create } from "zustand";
 import * as authApi from "../api/auth";
 import * as profileApi from "../api/profile";
+import { passwordErrorMessage } from "../utils/passwordError";
 import { setTokens, clearTokens, getAccessToken, setAuthRejectedHandler } from "../api/client";
 import { API_BASE_URL } from "../utils/constants";
 import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
@@ -13,6 +14,7 @@ import { usePreferencesStore } from "./preferencesStore";
 import { useVoiceStore } from "./voiceStore";
 import { useSettingsStore } from "./settingsStore";
 import { unregisterCurrentPushToken, clearCachedPushToken } from "../utils/pushToken";
+import { resetMarkReadTracking } from "./shared/markReadTracking";
 import type { User, UserStatus } from "../types";
 
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
@@ -115,7 +117,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return true;
     }
 
-    set({ error: res.error ?? "Registration failed", isLoading: false });
+    set({ error: passwordErrorMessage(res, "auth:registerFailed"), isLoading: false });
     return false;
   },
 
@@ -193,6 +195,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Reset E2EE state (IndexedDB keys preserved)
     await useE2EEStore.getState().reset();
     usePreferencesStore.getState().reset();
+    // The SPA does not reload between logout and login: without this the next user inherits
+    // this one's mark-read dedupe state and their DM badges never clear.
+    resetMarkReadTracking();
 
     // Unregister this device's push token while the access token is still valid.
     await unregisterCurrentPushToken();
@@ -221,6 +226,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // state unwritten behind a fallible step.
     clearTokens(); // idempotent — the refresh flow already cleared them
     set({ user: null });
+    resetMarkReadTracking(); // cannot throw; belongs with the guaranteed teardown
 
     // Best-effort local cleanup, each isolated so one failure can't skip the rest.
     try {

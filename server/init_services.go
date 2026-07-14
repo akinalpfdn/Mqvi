@@ -13,6 +13,7 @@ import (
 	"github.com/akinalp/mqvi/pkg/apns"
 	"github.com/akinalp/mqvi/pkg/email"
 	"github.com/akinalp/mqvi/pkg/files"
+	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/pkg/push"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
@@ -67,6 +68,7 @@ type Services struct {
 	SettingsBadge      services.SettingsBadgeService
 	VoiceMessage       services.VoiceMessageService
 	PushToken          services.PushTokenService
+	Push               services.PushNotifier
 	Discovery          services.DiscoveryService
 	EmailSender        email.EmailSender
 }
@@ -80,6 +82,13 @@ type RateLimiters struct {
 	Feedback  *ratelimit.MessageRateLimiter
 	ICE       *ratelimit.MessageRateLimiter
 	Discovery *ratelimit.MessageRateLimiter
+	// Mark-read gets its own buckets, and DM and channel get one EACH. Not the message limiter:
+	// marking a conversation read must not spend the budget needed to send a message. And not one
+	// shared read bucket either — MessageRateLimiter keys on the user, so a busy channel would
+	// spend the same tokens the DM watermark needs, and a 429 there means the phone buzzes for a
+	// DM being read on the desktop.
+	DMRead      *ratelimit.MessageRateLimiter
+	ChannelRead *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -107,7 +116,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	voiceService := services.NewVoiceService(
 		repos.Channel, repos.LiveKit, channelPermService, hub, hub, repos.Server, encryptionKey, urlSigner,
 	)
-	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner)
+	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner, cfg.CallGraceWindow)
 
 	// ICE server provider for P2P calls (STUN + TURN relay fallback).
 	turnService := services.NewTURNService(
@@ -138,8 +147,13 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	// Remaining services (order-independent)
 	inviteService := services.NewInviteService(repos.Invite, repos.Server, urlSigner)
+	var breachChecker password.BreachChecker = password.NoopChecker{}
+	if cfg.PasswordBreachCheck {
+		breachChecker = password.NewHIBPChecker()
+	}
+
 	authService := services.NewAuthService(
-		repos.User, repos.Session, repos.ResetToken, hub, emailSender,
+		repos.User, repos.Session, repos.ResetToken, hub, emailSender, breachChecker,
 		cfg.JWT.Secret, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry,
 	)
 	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService)
@@ -209,7 +223,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	} else if apnsSender.Enabled() {
 		log.Println("[main] APNs VoIP enabled (iOS CallKit)")
 	}
-	pushService := services.NewPushService(pushSender, apnsSender, repos.PushToken, repos.User)
+	pushService := services.NewPushService(pushSender, apnsSender, repos.PushToken, repos.User, hub, repos.DM, cfg.Push)
 	dmService.SetPushNotifier(pushService)
 	p2pCallService.SetPushNotifier(pushService)
 	dmUploadService := services.NewDMUploadService(repos.DM, uploadPipeline, cfg.Upload.MaxSize)
@@ -272,6 +286,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
 	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
+	// Both clients coalesce mark-read to at most ~1/s per conversation, so even a split view with
+	// several chats open and the window being focused repeatedly stays far under this. A loop does
+	// not. Separate buckets so neither path can spend the other's tokens.
+	dmReadLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
+	channelReadLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
 
 	svcs := &Services{
 		Auth:               authService,
@@ -321,18 +340,21 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		VoiceMessage:       voiceMessageService,
 		PushToken:          pushTokenService,
 		Discovery:          discoveryService,
+		Push:               pushService,
 		EmailSender:        emailSender,
 	}
 
 	limiters := &RateLimiters{
-		Login:     loginLimiter,
-		Message:   messageLimiter,
-		Register:  registerLimiter,
-		ForgotPwd: forgotPwdLimiter,
-		ResetPwd:  resetPwdLimiter,
-		Feedback:  feedbackLimiter,
-		ICE:       iceLimiter,
-		Discovery: discoveryLimiter,
+		Login:       loginLimiter,
+		Message:     messageLimiter,
+		Register:    registerLimiter,
+		ForgotPwd:   forgotPwdLimiter,
+		ResetPwd:    resetPwdLimiter,
+		Feedback:    feedbackLimiter,
+		ICE:         iceLimiter,
+		Discovery:   discoveryLimiter,
+		DMRead:      dmReadLimiter,
+		ChannelRead: channelReadLimiter,
 	}
 
 	return svcs, limiters, metricsCollector

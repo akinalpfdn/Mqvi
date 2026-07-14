@@ -326,6 +326,8 @@ export type DMChannelWithUser = {
   last_message_at: string | null;
   is_pinned: boolean;
   is_muted: boolean;
+  /** Server-side unread, so a badge cleared on one device is cleared on the others too. */
+  unread_count: number;
 };
 
 export type CallMeta = {
@@ -420,6 +422,12 @@ export type P2PCall = {
   call_type: P2PCallType;
   status: P2PCallStatus;
   created_at: string;
+  /**
+   * The caller's connection that placed the call. Present only on the caller's own copy: their
+   * OTHER devices see the outgoing call too and must recognise it as not theirs, instead of
+   * negotiating a second, competing WebRTC session. Absent from a server that predates it.
+   */
+  initiated_by?: string;
 };
 
 /**

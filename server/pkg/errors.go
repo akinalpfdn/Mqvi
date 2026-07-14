@@ -7,6 +7,12 @@ const (
 	CodeUploadScanUnavailable = "upload_scan_unavailable"
 	CodeUploadTooLargeScan    = "upload_too_large_scan"
 	CodeUploadTooLarge        = "upload_too_large"
+
+	// Password rejections the client translates — a breach can only be judged server-side.
+	CodePasswordTooShort         = "password_too_short"
+	CodePasswordContainsIdentity = "password_contains_identity"
+	CodePasswordTooLong          = "password_too_long"
+	CodePasswordBreached         = "password_breached"
 )
 
 type codedError struct {

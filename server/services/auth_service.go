@@ -14,6 +14,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/email"
+	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
 	"github.com/golang-jwt/jwt/v5"
@@ -77,15 +78,16 @@ type AuthTokens struct {
 }
 
 type authService struct {
-	userRepo    repository.UserRepository
-	sessionRepo repository.SessionRepository
-	resetRepo   repository.PasswordResetRepository // nil if email not configured
-	hub         ws.EventPublisher
-	emailSender email.EmailSender // nil if RESEND_API_KEY not set
-	appLogger   AuthAppLogger
-	jwtSecret   []byte
-	accessExp   time.Duration
-	refreshExp  time.Duration
+	userRepo      repository.UserRepository
+	sessionRepo   repository.SessionRepository
+	resetRepo     repository.PasswordResetRepository // nil if email not configured
+	hub           ws.EventPublisher
+	emailSender   email.EmailSender // nil if RESEND_API_KEY not set
+	breachChecker password.BreachChecker
+	appLogger     AuthAppLogger
+	jwtSecret     []byte
+	accessExp     time.Duration
+	refreshExp    time.Duration
 }
 
 func (s *authService) SetAppLogger(logger AuthAppLogger) {
@@ -104,20 +106,68 @@ func NewAuthService(
 	resetRepo repository.PasswordResetRepository,
 	hub ws.EventPublisher,
 	emailSender email.EmailSender,
+	breachChecker password.BreachChecker,
 	jwtSecret string,
 	accessExpMinutes int,
 	refreshExpDays int,
 ) AuthService {
 	return &authService{
-		userRepo:    userRepo,
-		sessionRepo: sessionRepo,
-		resetRepo:   resetRepo,
-		hub:         hub,
-		emailSender: emailSender,
-		jwtSecret:   []byte(jwtSecret),
-		accessExp:   time.Duration(accessExpMinutes) * time.Minute,
-		refreshExp:  time.Duration(refreshExpDays) * 24 * time.Hour,
+		userRepo:      userRepo,
+		sessionRepo:   sessionRepo,
+		resetRepo:     resetRepo,
+		hub:           hub,
+		emailSender:   emailSender,
+		breachChecker: breachChecker,
+		jwtSecret:     []byte(jwtSecret),
+		accessExp:     time.Duration(accessExpMinutes) * time.Minute,
+		refreshExp:    time.Duration(refreshExpDays) * 24 * time.Hour,
 	}
+}
+
+func emailOf(u *models.User) string {
+	if u == nil || u.Email == nil {
+		return ""
+	}
+	return *u.Email
+}
+
+// Coded so the client can translate the rejection rather than match on English text.
+func (s *authService) checkPasswordOffline(newPassword, username, email string) error {
+	switch err := password.Validate(newPassword, username, email); {
+	case err == nil:
+		return nil
+	case errors.Is(err, password.ErrTooShort):
+		return pkg.WithCode(fmt.Errorf("%w: %v", pkg.ErrBadRequest, err), pkg.CodePasswordTooShort)
+	case errors.Is(err, password.ErrTooLong):
+		return pkg.WithCode(fmt.Errorf("%w: %v", pkg.ErrBadRequest, err), pkg.CodePasswordTooLong)
+	case errors.Is(err, password.ErrContainsIdentity):
+		return pkg.WithCode(fmt.Errorf("%w: %v", pkg.ErrBadRequest, err), pkg.CodePasswordContainsIdentity)
+	default:
+		return fmt.Errorf("%w: %v", pkg.ErrBadRequest, err)
+	}
+}
+
+// A lookup we cannot make allows the password — signups must not hinge on a third party being
+// up — but it is logged, so an operator can see the corpus went unconsulted.
+func (s *authService) checkPasswordBreached(ctx context.Context, newPassword string) error {
+	if s.breachChecker == nil {
+		return nil
+	}
+
+	breached, err := s.breachChecker.IsBreached(ctx, newPassword)
+	if err != nil {
+		s.logWarn(nil, "Password breach check unavailable, password allowed", map[string]string{
+			"error": err.Error(),
+		})
+		return nil
+	}
+	if breached {
+		return pkg.WithCode(
+			fmt.Errorf("%w: %v", pkg.ErrBadRequest, password.ErrBreached),
+			pkg.CodePasswordBreached,
+		)
+	}
+	return nil
 }
 
 // Register creates a new user account.
@@ -128,9 +178,8 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
+	if err := s.checkPasswordOffline(req.Password, req.Username, req.Email); err != nil {
+		return nil, err
 	}
 
 	var displayName *string
@@ -159,6 +208,16 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 	}
 	if usernameBanned {
 		return nil, fmt.Errorf("%w: this username is not allowed", pkg.ErrForbidden)
+	}
+
+	// The 3s lookup and the deliberately-slow hash both wait until the free checks have passed.
+	if err := s.checkPasswordBreached(ctx, req.Password); err != nil {
+		return nil, err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	user := &models.User{
@@ -329,21 +388,26 @@ func (s *authService) validateToken(tokenString, requiredAud string) (*models.To
 }
 
 func (s *authService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) (*AuthTokens, error) {
-	if len(newPassword) < 6 {
-		return nil, fmt.Errorf("%w: password must be at least 6 characters", pkg.ErrBadRequest)
-	}
-
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Proving the current password comes first: an attacker on a hijacked session should not
+	// be able to probe the breach corpus, and a stranger should learn nothing from the errors.
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
 		return nil, fmt.Errorf("%w: current password is incorrect", pkg.ErrUnauthorized)
 	}
 
 	if currentPassword == newPassword {
 		return nil, fmt.Errorf("%w: new password must be different from current password", pkg.ErrBadRequest)
+	}
+
+	if err := s.checkPasswordOffline(newPassword, user.Username, emailOf(user)); err != nil {
+		return nil, err
+	}
+	if err := s.checkPasswordBreached(ctx, newPassword); err != nil {
+		return nil, err
 	}
 
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
@@ -562,10 +626,6 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 		return fmt.Errorf("%w: password reset is not configured on this server", pkg.ErrBadRequest)
 	}
 
-	if len(newPassword) < 8 {
-		return fmt.Errorf("%w: password must be at least 8 characters", pkg.ErrBadRequest)
-	}
-
 	hashBytes := sha256.Sum256([]byte(token))
 	tokenHash := hex.EncodeToString(hashBytes[:])
 
@@ -582,6 +642,25 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 			log.Printf("[auth] warning: failed to delete expired token %s: %v", resetToken.ID, delErr)
 		}
 		return fmt.Errorf("%w: reset token has expired", pkg.ErrBadRequest)
+	}
+
+	// Held back until the token proves out, so the policy is checked against the real account
+	// and an invalid token cannot be used to probe the breach corpus.
+	user, err := s.userRepo.GetByID(ctx, resetToken.UserID)
+	if err != nil {
+		// The account went away under a live token. The write below answered this with the
+		// same "invalid token" it gives any other dead token; keep it that way rather than
+		// leaking a 404 that says the token was real but the user is not.
+		if errors.Is(err, pkg.ErrNotFound) {
+			return fmt.Errorf("%w: invalid or expired reset token", pkg.ErrBadRequest)
+		}
+		return fmt.Errorf("failed to load user for reset: %w", err)
+	}
+	if err := s.checkPasswordOffline(newPassword, user.Username, emailOf(user)); err != nil {
+		return err
+	}
+	if err := s.checkPasswordBreached(ctx, newPassword); err != nil {
+		return err
 	}
 
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)

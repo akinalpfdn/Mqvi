@@ -23,6 +23,27 @@ type Notification struct {
 	Body     string
 	Category string            // CategoryMessage | CategoryCall
 	Data     map[string]string // deep-link payload delivered to the client on tap
+	// Tag groups a conversation's notifications on Android. A backgrounded app never sees
+	// these in onMessageReceived — the FCM SDK posts them itself — so the tag is the only
+	// handle native code has to find and cancel them once the chat is read elsewhere.
+	// It also collapses a conversation to one notification instead of a stack.
+	Tag string
+}
+
+// DataMessage is a data-only push: no notification payload, so it reaches the app's
+// FirebaseMessagingService even when the app is killed and the native side decides what to show.
+type DataMessage struct {
+	Data map[string]string
+	// CollapseKey lets FCM replace an undelivered message of the same key rather than queue
+	// another one. It matters more than it looks: FCM stores at most 100 pending NON-collapsible
+	// messages for an offline device and discards ALL of them on overflow — so a chatty session
+	// can destroy the incoming-call push queued for a phone that is off-network. Empty means
+	// non-collapsible, which is right when every message is a distinct event (an incoming call).
+	CollapseKey string
+	// HighPriority wakes a dozing device. Reserve it for things the user must see now: Google
+	// downranks senders whose high-priority messages produce no user-visible notification, and
+	// that downranking would land on calls.
+	HighPriority bool
 }
 
 // Sender delivers push notifications to device tokens.
@@ -31,11 +52,8 @@ type Sender interface {
 	// permanently unregistered so the caller can prune them. A nil error with a
 	// non-empty invalid slice is normal (partial success).
 	Send(ctx context.Context, tokens []string, n Notification) (invalid []string, err error)
-	// SendData delivers a data-only high-priority message (no notification payload) so
-	// the app's FirebaseMessagingService receives it even when killed — used for calls
-	// (the native side builds a full-screen-intent notification). Returns unregistered
-	// tokens to prune.
-	SendData(ctx context.Context, tokens []string, data map[string]string) (invalid []string, err error)
+	// SendData delivers a data-only message. Returns unregistered tokens to prune.
+	SendData(ctx context.Context, tokens []string, m DataMessage) (invalid []string, err error)
 	// Enabled reports whether a real FCM client is configured.
 	Enabled() bool
 }
@@ -78,7 +96,7 @@ func (s *fcmSender) Send(ctx context.Context, tokens []string, n Notification) (
 		Tokens:       tokens,
 		Notification: &messaging.Notification{Title: n.Title, Body: n.Body},
 		Data:         n.Data,
-		Android:      androidConfig(n.Category),
+		Android:      androidConfig(n.Category, n.Tag),
 		APNS:         apnsConfig(),
 	}
 
@@ -98,17 +116,24 @@ func (s *fcmSender) Send(ctx context.Context, tokens []string, n Notification) (
 	return invalid, nil
 }
 
-func (s *fcmSender) SendData(ctx context.Context, tokens []string, data map[string]string) ([]string, error) {
+func (s *fcmSender) SendData(ctx context.Context, tokens []string, m DataMessage) ([]string, error) {
 	if s.client == nil || len(tokens) == 0 {
 		return nil, nil
 	}
 
+	priority := "normal"
+	if m.HighPriority {
+		priority = "high"
+	}
 	msg := &messaging.MulticastMessage{
 		Tokens: tokens,
-		Data:   data,
-		// Data-only + high priority -> delivered to onMessageReceived (native FMS)
-		// even in the background / when killed. No Notification payload on purpose.
-		Android: &messaging.AndroidConfig{Priority: "high"},
+		Data:   m.Data,
+		// No Notification payload on purpose: that is what routes the message to
+		// onMessageReceived (native FMS) instead of being posted by the FCM SDK itself.
+		Android: &messaging.AndroidConfig{
+			Priority:    priority,
+			CollapseKey: m.CollapseKey,
+		},
 	}
 
 	resp, err := s.client.SendEachForMulticast(ctx, msg)
@@ -125,18 +150,30 @@ func (s *fcmSender) SendData(ctx context.Context, tokens []string, data map[stri
 	return invalid, nil
 }
 
-func androidConfig(category string) *messaging.AndroidConfig {
+func androidConfig(category, tag string) *messaging.AndroidConfig {
 	channelID := "messages"
 	if category == CategoryCall {
 		channelID = "calls"
 	}
-	return &messaging.AndroidConfig{
-		Priority: "high",
+	cfg := &messaging.AndroidConfig{
+		Priority: "high", // these DO produce a visible notification, so high priority is earned
 		Notification: &messaging.AndroidNotification{
 			ChannelID: channelID,
 			Sound:     "default",
+			Tag:       tag,
 		},
 	}
+	// A message notification collapses per conversation — the same grouping the Tag already
+	// applies on the device. Without a collapse key these are the highest-volume NON-collapsible
+	// messages we send, and FCM stores at most 100 of those for an offline device before
+	// DISCARDING ALL OF THEM — including the incoming-call push queued behind them. A DM
+	// notification is a nudge whose content is still there when the app opens; a call is not.
+	//
+	// A call is never collapsed: two incoming calls are two events and must not replace each other.
+	if category != CategoryCall {
+		cfg.CollapseKey = tag
+	}
+	return cfg
 }
 
 func apnsConfig() *messaging.APNSConfig {

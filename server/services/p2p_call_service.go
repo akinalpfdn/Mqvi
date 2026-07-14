@@ -41,12 +41,26 @@ type CallLogger interface {
 }
 
 type P2PCallService interface {
-	InitiateCall(callerID, receiverID string, callType models.P2PCallType) error
-	AcceptCall(userID, callID string) error
-	DeclineCall(userID, callID string) error
-	EndCall(userID string) error
-	RelaySignal(senderID, callID string, signal ws.P2PSignalData) error
-	HandleDisconnect(userID string)
+	// InitiateCall takes the initiating connection's sessionID. The caller may be signed in on
+	// several devices and all of them see the outgoing call — but only this one negotiates it.
+	InitiateCall(callerID, sessionID, receiverID string, callType models.P2PCallType) error
+	// AcceptCall/DeclineCall/EndCall take the acting connection's identity: the sessionID says
+	// which of the user's SOCKETS wins the call, and the deviceID says which INSTALLATION acted
+	// so it can be excluded from the "stop ringing" push. Telling the device that just answered
+	// to stop ringing is what breaks iOS (see PushNotifier.NotifyCallCancel).
+	AcceptCall(userID, sessionID, deviceID, callID string) error
+	DeclineCall(userID, deviceID, callID string) error
+	EndCall(userID, deviceID, wantCallID string) error
+	// RelaySignal takes the sending connection: only the two sessions that own the call may
+	// signal it. A sibling device is not in the call and its SDP would clobber the live session.
+	RelaySignal(senderID, senderSessionID, callID string, signal ws.P2PSignalData) error
+	// HandleSessionDisconnect ends the call when the CONNECTION carrying it dies — not when the
+	// user's last device goes offline. See the implementation.
+	HandleSessionDisconnect(userID, sessionID string)
+	// ResumeCall rebinds a call to the connection that replaced the one it died with, cancelling
+	// the teardown that death scheduled. Media is peer-to-peer, so a WebSocket blip is not a
+	// hang-up — but the new session must be adopted or its signals would be rejected.
+	ResumeCall(userID, sessionID, callID string) error
 	GetUserCall(userID string) *models.P2PCall
 	// PendingIncomingCall returns the broadcast for a user's active RINGING incoming
 	// call (they are the receiver), or nil — used to re-deliver it on (re)connect.
@@ -72,6 +86,15 @@ type p2pCallService struct {
 	activeCalls map[string]*models.P2PCall // callID -> call
 	userCalls   map[string]string          // userID -> callID (max 1 call per user)
 	ringTimers  map[string]*time.Timer     // callID -> auto-cleanup timer for unanswered ringing calls
+	// graceTimers holds a call whose owning socket died, for as long as its owner has to come back.
+	// Media is peer-to-peer: a dead WebSocket is not a dead call, it is a call in a network blip.
+	//
+	// Keyed per PARTICIPANT, not per call. Both sides can be in grace at once (one dropped wifi
+	// takes both of them out), and each side's return only speaks for itself. Keyed by call alone,
+	// the caller reconnecting would cancel the teardown scheduled for a receiver who never came
+	// back — and the call would stay Active forever, which is the exact bug FIX-03 fixed.
+	graceTimers map[string]*time.Timer // callID|userID -> teardown timer
+	graceWindow time.Duration
 	mu          sync.RWMutex
 }
 
@@ -130,6 +153,7 @@ func NewP2PCallService(
 	userGetter UserInfoGetter,
 	hub ws.BroadcastAndOnline,
 	urlSigner FileURLSigner,
+	graceWindow time.Duration,
 ) P2PCallService {
 	return &p2pCallService{
 		friendChecker: friendChecker,
@@ -139,6 +163,19 @@ func NewP2PCallService(
 		activeCalls:   make(map[string]*models.P2PCall),
 		userCalls:     make(map[string]string),
 		ringTimers:    make(map[string]*time.Timer),
+		graceTimers:   make(map[string]*time.Timer),
+		graceWindow:   graceWindow,
+	}
+}
+
+func graceKey(callID, userID string) string { return callID + "|" + userID }
+
+// stopGraceTimer cancels the teardown pending for ONE participant. Caller holds the lock.
+func (s *p2pCallService) stopGraceTimer(callID, userID string) {
+	key := graceKey(callID, userID)
+	if t, ok := s.graceTimers[key]; ok {
+		t.Stop()
+		delete(s.graceTimers, key)
 	}
 }
 
@@ -185,8 +222,8 @@ func (s *p2pCallService) timeoutRinging(callID string) {
 			Data: map[string]string{"call_id": callID, "reason": "timeout"},
 		})
 	}
-	// Receiver may be backgrounded with only the incoming-call push — stop its ring.
-	s.cancelReceiverPush(call.ReceiverID, callID)
+	// Nobody acted — the ring simply expired — so no device is exempt.
+	s.cancelReceiverPush(call.ReceiverID, callID, "")
 
 	s.logCall(call.CallerID, call.ReceiverID, call.CallType, models.CallOutcomeMissed, 0)
 }
@@ -197,16 +234,26 @@ func (s *p2pCallService) SetPushNotifier(n PushNotifier) {
 	s.pushNotifier = n
 }
 
+// actingReceiverDevice returns the device to exempt from the "stop ringing" push: the acting
+// device, but only when the actor IS the receiver. A caller cancelling has no receiver device
+// to exempt.
+func actingReceiverDevice(actorID, actorDeviceID, receiverID string) string {
+	if actorID == receiverID {
+		return actorDeviceID
+	}
+	return ""
+}
+
 // cancelReceiverPush stops a backgrounded receiver's ring (CallKit / Android call
 // notification) when a still-ringing call is torn down by the caller or the ring
 // timeout — the WS OpP2PCallEnd can't reach a device that only has the push.
-func (s *p2pCallService) cancelReceiverPush(receiverID, callID string) {
+func (s *p2pCallService) cancelReceiverPush(receiverID, callID, excludeDeviceID string) {
 	if s.pushNotifier != nil {
-		s.pushNotifier.NotifyCallCancel(receiverID, callID)
+		s.pushNotifier.NotifyCallCancel(receiverID, callID, excludeDeviceID)
 	}
 }
 
-func (s *p2pCallService) InitiateCall(callerID, receiverID string, callType models.P2PCallType) error {
+func (s *p2pCallService) InitiateCall(callerID, sessionID, receiverID string, callType models.P2PCallType) error {
 	if callerID == receiverID {
 		return fmt.Errorf("%w: cannot call yourself", pkg.ErrBadRequest)
 	}
@@ -237,12 +284,13 @@ func (s *p2pCallService) InitiateCall(callerID, receiverID string, callType mode
 	}
 
 	call := &models.P2PCall{
-		ID:         uuid.New().String(),
-		CallerID:   callerID,
-		ReceiverID: receiverID,
-		CallType:   callType,
-		Status:     models.P2PCallStatusRinging,
-		CreatedAt:  time.Now().UTC(),
+		ID:              uuid.New().String(),
+		CallerID:        callerID,
+		CallerSessionID: sessionID,
+		ReceiverID:      receiverID,
+		CallType:        callType,
+		Status:          models.P2PCallStatusRinging,
+		CreatedAt:       time.Now().UTC(),
 	}
 
 	// Atomic busy-check + reservation under a single write lock. Checking under
@@ -297,17 +345,25 @@ func (s *p2pCallService) InitiateCall(callerID, receiverID string, callType mode
 
 	broadcast := s.buildBroadcast(call, caller, receiver)
 
-	// Notify both parties
+	// Every device of the receiver rings; every device of the caller shows the outgoing call.
 	s.hub.BroadcastToUser(receiverID, ws.Event{
 		Op:   ws.OpP2PCallInitiate,
 		Data: broadcast,
 	})
+
+	// The caller's copy names the session that placed the call. Its OTHER sessions must not
+	// treat it as their own: without this they flip to active on accept, call getUserMedia, and
+	// send a second SDP offer for the same call — the receiver gets two offers and the media
+	// session is clobbered, while a phone in a pocket holds an open microphone.
+	callerCopy := broadcast
+	callerCopy.InitiatedBy = sessionID
 	s.hub.BroadcastToUser(callerID, ws.Event{
 		Op:   ws.OpP2PCallInitiate,
-		Data: broadcast,
+		Data: callerCopy,
 	})
 
-	// Push the receiver if offline (mobile). Online receivers get the WS event.
+	// Push every device of the receiver — the server can't tell which are backgrounded.
+	// A foregrounded app rings from the WS event and swallows the push (see PushNotifier).
 	if s.pushNotifier != nil {
 		s.pushNotifier.NotifyCall(receiverID, pushDisplayName(caller), callType, call.ID, callerID)
 	}
@@ -315,7 +371,7 @@ func (s *p2pCallService) InitiateCall(callerID, receiverID string, callType mode
 	return nil
 }
 
-func (s *p2pCallService) AcceptCall(userID, callID string) error {
+func (s *p2pCallService) AcceptCall(userID, sessionID, deviceID, callID string) error {
 	s.mu.Lock()
 	call, exists := s.activeCalls[callID]
 	if !exists {
@@ -343,6 +399,9 @@ func (s *p2pCallService) AcceptCall(userID, callID string) error {
 
 	call.Status = models.P2PCallStatusActive
 	call.AcceptedAt = time.Now().UTC()
+	// The call now belongs to this connection. Its death — not the user's last disconnect —
+	// is what ends the call (see HandleSessionDisconnect).
+	call.ReceiverSessionID = sessionID
 	s.userCalls[userID] = callID
 	s.stopRingTimer(callID)
 	s.mu.Unlock()
@@ -354,16 +413,25 @@ func (s *p2pCallService) AcceptCall(userID, callID string) error {
 		Op:   ws.OpP2PCallAccept,
 		Data: map[string]string{"call_id": callID},
 	})
+	// The receiver's OTHER devices are still ringing on this same event, so name the session
+	// that won: it negotiates WebRTC, the rest drop the call. Deciding this on the server is
+	// what makes two devices accepting at once safe — the loser's accept is rejected above,
+	// but it would still see this broadcast and, if it trusted its own optimism, answer the
+	// caller's offer alongside the winner (signalling is user-wide too).
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op:   ws.OpP2PCallAccept,
-		Data: map[string]string{"call_id": callID},
+		Data: map[string]string{"call_id": callID, "accepted_by": sessionID},
 	})
+
+	// Sibling devices with no live WS are still ringing on the incoming-call push alone.
+	// Never the device that answered: on iOS that push lands on the live call.
+	s.cancelReceiverPush(userID, callID, deviceID)
 
 	return nil
 }
 
 // DeclineCall declines an incoming call or cancels an outgoing one.
-func (s *p2pCallService) DeclineCall(userID, callID string) error {
+func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
 	s.mu.Lock()
 	call, exists := s.activeCalls[callID]
 	if !exists {
@@ -374,6 +442,15 @@ func (s *p2pCallService) DeclineCall(userID, callID string) error {
 	if call.CallerID != userID && call.ReceiverID != userID {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: not part of this call", pkg.ErrForbidden)
+	}
+
+	// A decline only ever means "do not connect this". Once the call is ANSWERED, hanging up is
+	// EndCall. Without this guard the most natural gesture there is — answering on the phone and
+	// then dismissing the ring still showing on the desktop — destroys the live call and tells
+	// the caller it was declined. AcceptCall has always had this check; Decline did not.
+	if call.Status != models.P2PCallStatusRinging {
+		s.mu.Unlock()
+		return fmt.Errorf("%w: call is not ringing", pkg.ErrBadRequest)
 	}
 
 	delete(s.activeCalls, callID)
@@ -389,23 +466,24 @@ func (s *p2pCallService) DeclineCall(userID, callID string) error {
 		otherUserID = call.ReceiverID
 	}
 
-	s.hub.BroadcastToUser(otherUserID, ws.Event{
+	// declined_by lets the acting user's own devices tell "I declined this elsewhere"
+	// (silent teardown) from "the other party declined" (which is a call-declined toast).
+	decline := ws.Event{
 		Op:   ws.OpP2PCallDecline,
-		Data: map[string]string{"call_id": callID},
-	})
-
-	// Caller cancelling a still-ringing call: the receiver may be backgrounded with
-	// only the push — stop its ring. (Receiver declining doesn't need this: it dismisses
-	// its own CallKit locally, and the caller is foregrounded on WS.)
-	if call.Status == models.P2PCallStatusRinging && userID == call.CallerID {
-		s.cancelReceiverPush(call.ReceiverID, callID)
+		Data: map[string]string{"call_id": callID, "declined_by": userID},
 	}
+	s.hub.BroadcastToUser(otherUserID, decline)
+	// The acting user's sibling devices are still showing the call — tear it down there too.
+	s.hub.BroadcastToUser(userID, decline)
 
-	// Outcome: an answered call torn down here is completed; otherwise the
-	// receiver declining is "declined", the caller cancelling is "missed".
+	// The call was ringing (guarded above), so the receiver's other devices still are — and a
+	// backgrounded one has only the push. Never the device that just declined.
+	s.cancelReceiverPush(call.ReceiverID, callID,
+		actingReceiverDevice(userID, deviceID, call.ReceiverID))
+
+	// The receiver declining is "declined"; the caller cancelling is "missed". A completed call
+	// cannot reach here any more — it is not ringing.
 	switch {
-	case call.Status == models.P2PCallStatusActive:
-		s.logCall(call.CallerID, call.ReceiverID, call.CallType, models.CallOutcomeCompleted, callDurationSec(call.AcceptedAt))
 	case userID == call.ReceiverID:
 		s.logCall(call.CallerID, call.ReceiverID, call.CallType, models.CallOutcomeDeclined, 0)
 	default:
@@ -415,16 +493,21 @@ func (s *p2pCallService) DeclineCall(userID, callID string) error {
 	return nil
 }
 
-func (s *p2pCallService) EndCall(userID string) error {
-	s.mu.RLock()
+// EndCall hangs up. wantCallID may be empty (an old client sends no id); when set it must match
+// the call the user is actually in — a late "end" from a sibling device, or from the 30s outgoing
+// timeout, would otherwise kill whatever call the user has started since.
+func (s *p2pCallService) EndCall(userID, deviceID, wantCallID string) error {
+	s.mu.Lock()
 	callID, exists := s.userCalls[userID]
-	s.mu.RUnlock()
-
 	if !exists {
+		s.mu.Unlock()
 		return fmt.Errorf("%w: not in a call", pkg.ErrBadRequest)
 	}
+	if wantCallID != "" && wantCallID != callID {
+		s.mu.Unlock()
+		return fmt.Errorf("%w: not the call you are in", pkg.ErrBadRequest)
+	}
 
-	s.mu.Lock()
 	call, exists := s.activeCalls[callID]
 	if !exists {
 		s.mu.Unlock()
@@ -444,14 +527,19 @@ func (s *p2pCallService) EndCall(userID string) error {
 		otherUserID = call.ReceiverID
 	}
 
-	s.hub.BroadcastToUser(otherUserID, ws.Event{
+	end := ws.Event{
 		Op:   ws.OpP2PCallEnd,
-		Data: map[string]string{"call_id": callID},
-	})
+		Data: map[string]string{"call_id": callID, "ended_by": userID},
+	}
+	s.hub.BroadcastToUser(otherUserID, end)
+	// A caller who hangs up on one device leaves the outgoing call ringing on their others.
+	s.hub.BroadcastToUser(userID, end)
 
-	// Caller hanging up while still ringing: stop the backgrounded receiver's push ring.
-	if call.Status == models.P2PCallStatusRinging && userID == call.CallerID {
-		s.cancelReceiverPush(call.ReceiverID, callID)
+	// Hanging up while still ringing: stop the receiver's devices, including any that
+	// are backgrounded and ringing on the push alone.
+	if call.Status == models.P2PCallStatusRinging {
+		s.cancelReceiverPush(call.ReceiverID, callID,
+			actingReceiverDevice(userID, deviceID, call.ReceiverID))
 	}
 
 	if call.Status == models.P2PCallStatusActive {
@@ -465,7 +553,7 @@ func (s *p2pCallService) EndCall(userID string) error {
 
 // RelaySignal forwards WebRTC signaling data (SDP/ICE) to the other party.
 // Server does not inspect the payload.
-func (s *p2pCallService) RelaySignal(senderID, callID string, signal ws.P2PSignalData) error {
+func (s *p2pCallService) RelaySignal(senderID, senderSessionID, callID string, signal ws.P2PSignalData) error {
 	// Snapshot under the lock — Status is mutated by AcceptCall, so reading it
 	// off the shared *P2PCall after unlocking would be a data race. This removes
 	// the race; a benign logical window remains (the call may end between this
@@ -473,15 +561,23 @@ func (s *p2pCallService) RelaySignal(senderID, callID string, signal ws.P2PSigna
 	// whose call_id no longer matches its active call.
 	s.mu.RLock()
 	call, exists := s.activeCalls[callID]
-	var callerID, receiverID string
+	var callerID, receiverID, callerSession, receiverSession string
 	var status models.P2PCallStatus
 	if exists {
 		callerID, receiverID, status = call.CallerID, call.ReceiverID, call.Status
+		callerSession, receiverSession = call.CallerSessionID, call.ReceiverSessionID
 	}
 	s.mu.RUnlock()
 
 	if !exists {
 		return fmt.Errorf("%w: call not found", pkg.ErrNotFound)
+	}
+
+	// A call is between two CONNECTIONS. A sibling device of either party is not in it, and a
+	// signal from one would be relayed as if it were — the other end takes it as a renegotiation
+	// and answers against the wrong peer's SDP, clobbering the live media session.
+	if senderSessionID != callerSession && senderSessionID != receiverSession {
+		return fmt.Errorf("%w: this session is not in the call", pkg.ErrForbidden)
 	}
 
 	if callerID != senderID && receiverID != senderID {
@@ -507,37 +603,98 @@ func (s *p2pCallService) RelaySignal(senderID, callID string, signal ws.P2PSigna
 	return nil
 }
 
-// HandleDisconnect cleans up active call when a user's WS connection drops.
-func (s *p2pCallService) HandleDisconnect(userID string) {
-	s.mu.RLock()
+// HandleSessionDisconnect ends the call when the CONNECTION carrying it dies.
+//
+// Keying this on the user's LAST disconnect — as it used to — meant a call-carrying socket
+// dropping while any other device stayed signed in tore down nothing: an accepted call has no
+// ring timer, so it stayed Active forever and both parties were permanently "already in a call".
+// A sibling device dropping is not the call dropping, and only the session that owns the call
+// can end it by dying.
+func (s *p2pCallService) HandleSessionDisconnect(userID, sessionID string) {
+	s.mu.Lock()
 	callID, exists := s.userCalls[userID]
-	s.mu.RUnlock()
-
 	if !exists {
+		s.mu.Unlock()
 		return
 	}
-
-	s.mu.Lock()
 	call, exists := s.activeCalls[callID]
 	if !exists {
 		s.mu.Unlock()
 		return
 	}
 
-	// A receiver whose socket drops while the call is still RINGING may be a mobile
-	// client backgrounding to answer from its push notification. Keep the call alive
-	// so reconnect + PendingIncomingCall can re-deliver the incoming call; the ring
-	// timer still times it out at 60s if they never return. Active calls — and a
-	// caller dropping — still tear down here.
+	// A receiver whose socket drops while the call is still RINGING may be a mobile client
+	// backgrounding to answer from its push notification. Keep the call alive so reconnect +
+	// PendingIncomingCall can re-deliver it; the ring timer still times it out at 60s. No
+	// receiver session owns a ringing call yet — every one of their devices is still ringing.
 	if call.Status == models.P2PCallStatusRinging && call.ReceiverID == userID {
 		s.mu.Unlock()
 		return
 	}
 
+	owner := call.CallerSessionID
+	if call.ReceiverID == userID {
+		owner = call.ReceiverSessionID
+	}
+	// An empty owner means the call predates session ownership — fall back to the old behaviour
+	// (any disconnect of this user ends it) rather than leaking the call.
+	if owner != "" && owner != sessionID {
+		s.mu.Unlock()
+		return // a sibling device dropped; the one in the call is still here
+	}
+
+	// The socket carrying an ACTIVE call died — but WebRTC media is peer-to-peer and is still
+	// flowing. This is a network blip, not a hang-up. Give the owner a window to reconnect and
+	// reclaim the call (p2p_call_resume); tear it down only if nobody does.
+	// A zero window disables this and restores the immediate teardown.
+	if call.Status == models.P2PCallStatusActive && s.graceWindow > 0 {
+		s.stopGraceTimer(callID, userID)
+		s.graceTimers[graceKey(callID, userID)] = time.AfterFunc(s.graceWindow, func() {
+			s.endCallAfterGrace(userID, sessionID, callID)
+		})
+		s.mu.Unlock()
+		log.Printf("[p2p] call %s owner %s dropped; %s to reconnect", callID, userID, s.graceWindow)
+		return
+	}
+
+	s.teardownLocked(userID, callID, call)
+}
+
+// endCallAfterGrace fires when this participant never came back. It re-verifies everything under
+// the lock: while it was pending the other party may have hung up (the call is gone), or this one
+// may have reconnected and taken it over (a different session owns it now).
+func (s *p2pCallService) endCallAfterGrace(userID, deadSessionID, callID string) {
+	s.mu.Lock()
+	delete(s.graceTimers, graceKey(callID, userID))
+
+	call, exists := s.activeCalls[callID]
+	if !exists {
+		s.mu.Unlock()
+		return // already ended by the other party
+	}
+
+	owner := call.CallerSessionID
+	if call.ReceiverID == userID {
+		owner = call.ReceiverSessionID
+	}
+	if owner != deadSessionID {
+		s.mu.Unlock()
+		return // reclaimed by a new connection — this timer is stale
+	}
+
+	log.Printf("[p2p] call %s not reclaimed within %s; ending", callID, s.graceWindow)
+	s.teardownLocked(userID, callID, call)
+}
+
+// teardownLocked ends the call and releases the lock. Caller holds it.
+func (s *p2pCallService) teardownLocked(userID, callID string, call *models.P2PCall) {
 	delete(s.activeCalls, callID)
 	s.removeUserMapping(call.CallerID, callID)
 	s.removeUserMapping(call.ReceiverID, callID)
 	s.stopRingTimer(callID)
+	// Both, not one: the other party may be in grace too — one dropped router takes them both out.
+	s.stopGraceTimer(callID, call.CallerID)
+	s.stopGraceTimer(callID, call.ReceiverID)
 	s.mu.Unlock()
 
 	log.Printf("[p2p] call ended due to disconnect: user=%s, call=%s", userID, callID)
@@ -550,15 +707,20 @@ func (s *p2pCallService) HandleDisconnect(userID string) {
 		otherUserID = call.ReceiverID
 	}
 
-	s.hub.BroadcastToUser(otherUserID, ws.Event{
+	disconnect := ws.Event{
 		Op:   ws.OpP2PCallEnd,
 		Data: map[string]string{"call_id": callID, "reason": "disconnect"},
-	})
+	}
+	s.hub.BroadcastToUser(otherUserID, disconnect)
+	// The dropped user may still have other devices signed in, showing a call the server has
+	// now torn down.
+	s.hub.BroadcastToUser(userID, disconnect)
 
 	// A ringing call torn down here means the caller dropped (a ringing receiver drop
-	// returns early above) — stop the backgrounded receiver's push ring.
+	// returns early above) — stop the backgrounded receiver's push ring. No device acted,
+	// so none is exempt.
 	if call.Status == models.P2PCallStatusRinging {
-		s.cancelReceiverPush(call.ReceiverID, callID)
+		s.cancelReceiverPush(call.ReceiverID, callID, "")
 	}
 
 	if call.Status == models.P2PCallStatusActive {
@@ -566,6 +728,42 @@ func (s *p2pCallService) HandleDisconnect(userID string) {
 	} else {
 		s.logCall(call.CallerID, call.ReceiverID, call.CallType, models.CallOutcomeMissed, 0)
 	}
+}
+
+// ResumeCall rebinds a call to the connection that just replaced the one carrying it, and cancels
+// the teardown that its death scheduled.
+//
+// The rebind is not bookkeeping: RelaySignal rejects a signal whose sender session is neither the
+// caller's nor the receiver's, and the session id changes on every reconnect. Without it the ICE
+// restart that recovers the media after a blip would be refused.
+func (s *p2pCallService) ResumeCall(userID, sessionID, callID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	call, exists := s.activeCalls[callID]
+	if !exists {
+		return fmt.Errorf("%w: call not found", pkg.ErrNotFound)
+	}
+	if call.CallerID != userID && call.ReceiverID != userID {
+		return fmt.Errorf("%w: not a participant", pkg.ErrForbidden)
+	}
+	// Only an accepted call has an owning session to rebind. A ringing one is still offered to
+	// every one of the receiver's devices.
+	if call.Status != models.P2PCallStatusActive {
+		return fmt.Errorf("%w: call is not active", pkg.ErrBadRequest)
+	}
+
+	if call.CallerID == userID {
+		call.CallerSessionID = sessionID
+	} else {
+		call.ReceiverSessionID = sessionID
+	}
+	// Only THIS participant's teardown. Coming back speaks for me, not for the other party — if
+	// their socket is also dead, their own window keeps counting down.
+	s.stopGraceTimer(callID, userID)
+
+	log.Printf("[p2p] call %s reclaimed by user=%s session=%s", callID, userID, sessionID)
+	return nil
 }
 
 // GetUserCall returns the user's active call, or nil if not in a call.

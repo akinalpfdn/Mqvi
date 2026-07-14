@@ -147,6 +147,10 @@ func main() {
 	// 14. Static file serving
 	fileLimiter := ratelimit.NewFileRateLimiter(cfg.FileRateLimit.UserPerMin, cfg.FileRateLimit.IPPerMin)
 	registerFileEndpoint(mux, cfg, fileSigner, svcs.Auth, repos.User, fileACL, fileLimiter)
+	registerLiveness(mux)
+	// Readiness lives on its own loopback listener, NOT on the public mux — it hits the database
+	// on every request and reports pool and goroutine internals.
+	stopReadiness := startReadinessServer(cfg.Server.ReadinessAddr, db.Conn, hub, svcs.Push)
 
 	// 15. SPA frontend serving
 	frontendFS, hasFrontend := initFrontendFS()
@@ -216,8 +220,8 @@ func main() {
 
 	// 18. HTTP Server
 	srv := &http.Server{
-		Addr:         cfg.Server.Addr(),
-		Handler:      securedHandler,
+		Addr:    cfg.Server.Addr(),
+		Handler: securedHandler,
 		// 5 min accommodates large file uploads on slow connections.
 		// MaxBytesReader on multipart endpoints still caps the body size.
 		ReadTimeout:  5 * time.Minute,
@@ -248,6 +252,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	if err := stopReadiness(ctx); err != nil {
+		log.Printf("[main] readiness server shutdown: %v", err)
+	}
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("[main] forced shutdown: %v", err)
 	}
@@ -482,11 +489,6 @@ func registerFileEndpoint(
 		http.FileServer(http.Dir(landingDir)).ServeHTTP(w, r)
 	}))
 	mux.Handle("GET /static/landing/", landingHandler)
-
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","service":"mqvi"}`)
-	})
 }
 
 // initFrontendFS loads the embedded frontend. Returns false if no frontend is embedded.

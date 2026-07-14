@@ -111,10 +111,14 @@ extension CallManager: PKPushRegistryDelegate {
         reportIncomingCall(callId: callId, callerName: callerName, hasVideo: hasVideo, completion: completion)
     }
 
-    /// Handle a "cancel" VoIP push. iOS still requires every VoIP push to report a call
-    /// to CallKit, so if this call was never reported in the current process (the app was
-    /// killed between the incoming and cancel pushes), report it and immediately end it;
-    /// otherwise just end the already-ringing CallKit call.
+    /// Handle a "cancel" VoIP push: the call was answered, declined, or timed out elsewhere.
+    ///
+    /// The server never sends this to the device that acted, so it can never arrive for a call
+    /// this device is in. That matters, because every branch here MUST end with CallKit having
+    /// been told about the call: since iOS 13 a VoIP push whose handler completes without a
+    /// reportNewIncomingCall gets the app killed and its VoIP delivery revoked. If the call was
+    /// never reported in this process (the app was killed between the two pushes), report it and
+    /// end it immediately.
     private func cancelIncomingCall(callId: String, completion: @escaping () -> Void) {
         let uuid = UUID(uuidString: callId) ?? UUID()
         if calls[uuid] != nil {

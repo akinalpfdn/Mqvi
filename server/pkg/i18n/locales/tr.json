@@ -10,7 +10,6 @@
     "passwordRequired": "Şifre gerekli",
     "usernameTooShort": "Kullanıcı adı 3 ile 32 karakter arasında olmalı",
     "usernameInvalidChars": "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir",
-    "passwordTooShort": "Şifre en az 8 karakter olmalı",
     "displayNameTooLong": "Görünen ad en fazla 32 karakter olabilir",
     "usernameTaken": "Bu kullanıcı adı zaten alınmış",
     "refreshTokenRequired": "Refresh token gerekli",

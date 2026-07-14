@@ -33,6 +33,7 @@ type Broadcaster interface {
 
 // UserStateProvider queries connected user state.
 type UserStateProvider interface {
+	IsOnline(userID string) bool
 	GetOnlineUserIDs() []string
 	GetVisibleOnlineUserIDs() []string
 	GetOnlineUserIDsForServer(serverID string) []string
@@ -70,6 +71,10 @@ type EventPublisher interface {
 // Second arg is unused (kept for signature compatibility).
 type UserConnectionCallback func(userID, _ string)
 
+// SessionDisconnectCallback fires on EVERY connection close, with the connection that died.
+// A call is owned by a connection, not a user — see p2pCallService.HandleSessionDisconnect.
+type SessionDisconnectCallback func(userID, sessionID string)
+
 // ─── Voice Callback Types ───
 
 // VoiceJoinCallback — user wants to join a voice channel.
@@ -105,13 +110,14 @@ type VoiceActivityCallback func(userID string)
 
 // ─── P2P Call Callback Types ───
 
-type P2PCallInitiateCallback func(callerID string, data P2PCallInitiateData)
-type P2PCallAcceptCallback func(userID string, data P2PCallAcceptData)
-type P2PCallDeclineCallback func(userID string, data P2PCallDeclineData)
-type P2PCallEndCallback func(userID string)
+type P2PCallInitiateCallback func(callerID, sessionID string, data P2PCallInitiateData)
+type P2PCallAcceptCallback func(userID, sessionID, deviceID string, data P2PCallAcceptData)
+type P2PCallDeclineCallback func(userID, deviceID string, data P2PCallDeclineData)
+type P2PCallEndCallback func(userID, deviceID, callID string)
+type P2PCallResumeCallback func(userID, sessionID, callID string)
 
 // P2PSignalCallback — WebRTC signaling data relayed to the other peer.
-type P2PSignalCallback func(senderID string, data P2PSignalData)
+type P2PSignalCallback func(senderID, senderSessionID string, data P2PSignalData)
 
 // ChannelTypingCallback — typing indicator in a server channel.
 // Wired in main.go: validates channel access, broadcasts to server members only.
@@ -164,6 +170,7 @@ type Hub struct {
 	// which needs RLock, but add/removeClient holds Lock).
 	onUserFirstConnect      UserConnectionCallback
 	onUserFullyDisconnected UserConnectionCallback
+	onSessionDisconnect     SessionDisconnectCallback
 
 	// Voice callbacks — set in main.go
 	onVoiceJoin             VoiceJoinCallback
@@ -181,6 +188,7 @@ type Hub struct {
 	onP2PCallAccept   P2PCallAcceptCallback
 	onP2PCallDecline  P2PCallDeclineCallback
 	onP2PCallEnd      P2PCallEndCallback
+	onP2PCallResume   P2PCallResumeCallback
 	onP2PSignal       P2PSignalCallback
 
 	// Channel typing callback — set in main.go
@@ -288,13 +296,14 @@ func (h *Hub) addClient(client *Client) {
 }
 
 // removeClient unregisters a client and closes its send channel.
-// Fires OnUserFullyDisconnected when the last connection closes.
-// Otherwise recomputes and broadcasts aggregate status.
+// Fires OnUserFullyDisconnected when the last connection closes, OnSessionDisconnect on EVERY
+// one. Otherwise recomputes and broadcasts aggregate status.
 func (h *Hub) removeClient(client *Client) {
 	h.mu.Lock()
 
 	var fullyDisconnected bool
 	var partialDisconnect bool
+	var removed bool
 	var userID string
 	var newAggregate string
 
@@ -302,6 +311,7 @@ func (h *Hub) removeClient(client *Client) {
 		if _, exists := clients[client]; exists {
 			delete(clients, client)
 			client.markClosed()
+			removed = true
 
 			// Remove this client from all server indexes it belonged to.
 			for _, sid := range client.serverIDs {
@@ -326,6 +336,14 @@ func (h *Hub) removeClient(client *Client) {
 	}
 
 	h.mu.Unlock()
+
+	// Every connection close, not just the last. A call belongs to a CONNECTION: if only the
+	// last-disconnect hook can tear it down, a user whose call-carrying socket dies while another
+	// device stays signed in is left in the call forever — and, because an accepted call has no
+	// ring timer, nothing ever cleans it up.
+	if removed && h.onSessionDisconnect != nil {
+		go h.onSessionDisconnect(client.userID, client.sessionID)
+	}
 
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
 		go h.onUserFullyDisconnected(userID, "")
@@ -467,7 +485,32 @@ func (h *Hub) BroadcastToUser(userID string, event Event) {
 	}
 }
 
+// IsOnline reports whether the user has ANY live connection.
+//
+// Used only to decide whether a DM push is worth DEFERRING: with no socket anywhere, nobody
+// could read the message, so waiting to see if they did buys nothing — push immediately. This
+// is the safe direction. It is NOT the old presence gate ("has a socket → suppress"), which
+// swallowed the push for a backgrounded phone that was still holding its WebSocket. This one
+// can only make delivery faster, never suppress it.
+func (h *Hub) IsOnline(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients[userID]) > 0
+}
+
 // GetOnlineUserIDs returns all connected user IDs (including invisible).
+
+// Counts reports live sockets and the users behind them. A jump in sockets per user is the
+// shape of a reconnect loop, which /health/ready surfaces before it becomes an outage.
+func (h *Hub) Counts() (connections, users int) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, set := range h.clients {
+		connections += len(set)
+	}
+	return connections, len(h.clients)
+}
+
 func (h *Hub) GetOnlineUserIDs() []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -646,6 +689,10 @@ func (h *Hub) OnP2PCallEnd(cb P2PCallEndCallback) {
 	h.onP2PCallEnd = cb
 }
 
+func (h *Hub) OnP2PCallResume(cb P2PCallResumeCallback) {
+	h.onP2PCallResume = cb
+}
+
 func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {
 	h.onP2PSignal = cb
 }
@@ -799,4 +846,9 @@ func clientHasServer(client *Client, serverID string) bool {
 		}
 	}
 	return false
+}
+
+// OnSessionDisconnect sets the callback fired on every connection close.
+func (h *Hub) OnSessionDisconnect(cb SessionDisconnectCallback) {
+	h.onSessionDisconnect = cb
 }

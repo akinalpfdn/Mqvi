@@ -9,6 +9,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/testutil"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -27,8 +28,12 @@ func preHashPassword(t *testing.T, password string) string {
 	return string(hash)
 }
 
+// A passphrase, not a composed password: the policy rejects short ones and, in production,
+// anything in the breach corpus. Tests use NoopChecker so they never touch the network.
+const testRegisterPassword = "correct horse battery staple"
+
 func newTestAuthService(userRepo *testutil.MockUserRepo, sessionRepo *testutil.MockSessionRepo) AuthService {
-	return NewAuthService(userRepo, sessionRepo, &testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{}, testJWTSecret, 15, 7)
+	return NewAuthService(userRepo, sessionRepo, &testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{}, password.NoopChecker{}, testJWTSecret, 15, 7)
 }
 
 func TestRegister(t *testing.T) {
@@ -43,7 +48,7 @@ func TestRegister(t *testing.T) {
 			name: "should register successfully with valid request",
 			req: &models.CreateUserRequest{
 				Username: "testuser",
-				Password: "password123",
+				Password: testRegisterPassword,
 				Email:    "test@example.com",
 			},
 			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
@@ -52,7 +57,7 @@ func TestRegister(t *testing.T) {
 				}
 				ur.CreateFn = func(ctx context.Context, user *models.User) error {
 					// Verify bcrypt hash was generated
-					if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte("password123")); err != nil {
+					if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(testRegisterPassword)); err != nil {
 						t.Errorf("password hash does not match: %v", err)
 					}
 					user.ID = "user-1"
@@ -65,7 +70,7 @@ func TestRegister(t *testing.T) {
 			name: "should fail when username is too short",
 			req: &models.CreateUserRequest{
 				Username: "ab",
-				Password: "password123",
+				Password: testRegisterPassword,
 			},
 			wantErr: true,
 			errIs:   pkg.ErrBadRequest,
@@ -83,7 +88,7 @@ func TestRegister(t *testing.T) {
 			name: "should fail when email is platform banned",
 			req: &models.CreateUserRequest{
 				Username: "testuser",
-				Password: "password123",
+				Password: testRegisterPassword,
 				Email:    "banned@example.com",
 			},
 			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
@@ -98,7 +103,7 @@ func TestRegister(t *testing.T) {
 			name: "should fail when username already exists",
 			req: &models.CreateUserRequest{
 				Username: "existing",
-				Password: "password123",
+				Password: testRegisterPassword,
 			},
 			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
 				ur.CreateFn = func(ctx context.Context, user *models.User) error {
@@ -633,12 +638,32 @@ func TestChangePassword(t *testing.T) {
 			errIs:   pkg.ErrBadRequest,
 		},
 		{
+			// The policy is checked only once the current password proves out, so this case
+			// has to authenticate before it can be rejected for length.
 			name:        "should fail when new password is too short",
 			userID:      "user-1",
 			currentPass: "currentpass1",
 			newPass:     "short",
-			wantErr:     true,
-			errIs:       pkg.ErrBadRequest,
+			setupRepo: func(ur *testutil.MockUserRepo) {
+				ur.GetByIDFn = func(ctx context.Context, id string) (*models.User, error) {
+					return &models.User{ID: "user-1", Username: "testuser", PasswordHash: hashedPassword}, nil
+				}
+			},
+			wantErr: true,
+			errIs:   pkg.ErrBadRequest,
+		},
+		{
+			name:        "should fail when the new password contains the username",
+			userID:      "user-1",
+			currentPass: "currentpass1",
+			newPass:     "my-testuser-password",
+			setupRepo: func(ur *testutil.MockUserRepo) {
+				ur.GetByIDFn = func(ctx context.Context, id string) (*models.User, error) {
+					return &models.User{ID: "user-1", Username: "testuser", PasswordHash: hashedPassword}, nil
+				}
+			},
+			wantErr: true,
+			errIs:   pkg.ErrBadRequest,
 		},
 	}
 
@@ -738,6 +763,40 @@ func TestLogout(t *testing.T) {
 
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// The client translates password rejections from the code, not the English text. A path that
+// returns an uncoded error shows a Turkish user an English string — which is what happened
+// while the length check lived in the model and ran before the service ever saw the password.
+func TestPasswordRejectionsCarryACode(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		wantCode string
+	}{
+		{"too short", "short", pkg.CodePasswordTooShort},
+		{"contains the username", "xx-testuser-xxxxx", pkg.CodePasswordContainsIdentity},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			userRepo := &testutil.MockUserRepo{}
+			userRepo.IsEmailPlatformBannedFn = func(context.Context, string) (bool, error) { return false, nil }
+
+			svc := newTestAuthService(userRepo, &testutil.MockSessionRepo{})
+			_, err := svc.Register(context.Background(), &models.CreateUserRequest{
+				Username: "testuser",
+				Password: tt.password,
+			})
+
+			if err == nil {
+				t.Fatal("expected the password to be rejected")
+			}
+			if got := pkg.CodeOf(err); got != tt.wantCode {
+				t.Errorf("code = %q, want %q", got, tt.wantCode)
 			}
 		})
 	}

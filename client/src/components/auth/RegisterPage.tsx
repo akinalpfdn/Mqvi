@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
-import { isNativeApp } from "../../utils/constants";
+import { isNativeApp, PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES, passwordByteLength } from "../../utils/constants";
 import { detectOS, shouldShowDownloadPrompt } from "../../utils/detectOS";
 import ConnectionsModal from "../settings/ConnectionsModal";
 
@@ -116,8 +116,13 @@ function RegisterPage() {
       return;
     }
 
-    if (password.length < 8) {
+    if (password.length < PASSWORD_MIN_LENGTH) {
       setLocalError(t("passwordTooShort"));
+      return;
+    }
+
+    if (passwordByteLength(password) > PASSWORD_MAX_BYTES) {
+      setLocalError(t("passwordTooLong"));
       return;
     }
 
@@ -245,7 +250,7 @@ function RegisterPage() {
                   handleInputChange();
                 }}
                 required
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 className="auth-input"
               />
               <button
@@ -257,6 +262,7 @@ function RegisterPage() {
                 {showPassword ? EyeOffIcon : EyeIcon}
               </button>
             </div>
+            <span className="auth-hint">{t("passwordHint")}</span>
           </div>
 
           <div className="auth-field">

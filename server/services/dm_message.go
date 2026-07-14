@@ -302,7 +302,7 @@ func (s *dmService) BroadcastCreate(message *models.DMMessage) {
 			if message.Content != nil {
 				content = *message.Content
 			}
-			s.pushNotifier.NotifyDM(recipientID, pushDisplayName(message.Author), content, message.EncryptionVersion == 1, channel.ID, message.UserID)
+			s.pushNotifier.NotifyDM(recipientID, pushDisplayName(message.Author), content, message.EncryptionVersion == 1, channel.ID, message.UserID, message.ID)
 		}()
 	}
 

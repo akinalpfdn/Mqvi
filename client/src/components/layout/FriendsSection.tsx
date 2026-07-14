@@ -32,7 +32,6 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
   const dmUnreadCounts = useDMStore((s) => s.dmUnreadCounts);
   const openTab = useUIStore((s) => s.openTab);
   const selectDM = useDMStore((s) => s.selectDM);
-  const clearDMUnread = useDMStore((s) => s.clearDMUnread);
   const fetchMessages = useDMStore((s) => s.fetchMessages);
   const initiateCall = useP2PCallStore((s) => s.initiateCall);
   const { menuState, openMenu, closeMenu } = useContextMenu();
@@ -61,7 +60,6 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
     const channelId = await useDMStore.getState().createOrGetChannel(friend.user_id);
     if (channelId) {
       openTab(channelId, "dm", name);
-      clearDMUnread(channelId);
       closeAllDrawers();
     }
   }
@@ -109,7 +107,6 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
           if (channelId) {
             selectDM(channelId);
             openTab(channelId, "dm", name);
-            clearDMUnread(channelId);
             fetchMessages(channelId);
           }
         },

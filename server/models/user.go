@@ -24,35 +24,35 @@ const (
 )
 
 type User struct {
-	ID              string     `json:"id"`
-	Username        string     `json:"username"`
-	DisplayName     *string    `json:"display_name"`
-	AvatarURL       *string    `json:"avatar_url"`
-	WallpaperURL    *string    `json:"wallpaper_url"`
-	PasswordHash    string     `json:"-"`
-	Status          UserStatus `json:"status"`
-	PrefStatus      UserStatus `json:"pref_status"`
-	CustomStatus    *string    `json:"custom_status"`
-	Email           *string    `json:"email"`
-	Language        string     `json:"language"`
-	DMPrivacy       string     `json:"dm_privacy"`
-	IsPlatformAdmin   bool       `json:"is_platform_admin"`
+	ID                    string     `json:"id"`
+	Username              string     `json:"username"`
+	DisplayName           *string    `json:"display_name"`
+	AvatarURL             *string    `json:"avatar_url"`
+	WallpaperURL          *string    `json:"wallpaper_url"`
+	PasswordHash          string     `json:"-"`
+	Status                UserStatus `json:"status"`
+	PrefStatus            UserStatus `json:"pref_status"`
+	CustomStatus          *string    `json:"custom_status"`
+	Email                 *string    `json:"email"`
+	Language              string     `json:"language"`
+	DMPrivacy             string     `json:"dm_privacy"`
+	IsPlatformAdmin       bool       `json:"is_platform_admin"`
 	IsPlatformBanned      bool       `json:"is_platform_banned"`
 	HasSeenDownloadPrompt bool       `json:"has_seen_download_prompt"`
 	HasSeenWelcome        bool       `json:"has_seen_welcome"`
 	PlatformBanReason     string     `json:"-"`
-	PlatformBannedBy  string     `json:"-"`
-	PlatformBannedAt  *time.Time `json:"-"`
+	PlatformBannedBy      string     `json:"-"`
+	PlatformBannedAt      *time.Time `json:"-"`
 	// Soft-delete state. DeletedAt non-null + IsHardDeleted=0 → recoverable account.
 	// IsHardDeleted=1 → anonymized tombstone (username renamed, personal data wiped).
-	DeletedAt         *time.Time `json:"deleted_at,omitempty"`
-	DeletedByAdmin    bool       `json:"-"`
-	IsHardDeleted     bool       `json:"is_hard_deleted,omitempty"`
-	TokenVersion      int        `json:"-"` // bumped to invalidate every prior JWT
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	DeletedByAdmin bool       `json:"-"`
+	IsHardDeleted  bool       `json:"is_hard_deleted,omitempty"`
+	TokenVersion   int        `json:"-"` // bumped to invalidate every prior JWT
 	// Platform-admin badge watermarks. NULL = never visited.
 	FeedbackLastSeenAt *time.Time `json:"-"`
 	ReportsLastSeenAt  *time.Time `json:"-"`
-	CreatedAt         time.Time  `json:"created_at"`
+	CreatedAt          time.Time  `json:"created_at"`
 }
 
 type CreateUserRequest struct {
@@ -79,8 +79,11 @@ func (r *CreateUserRequest) Validate() error {
 		}
 	}
 
-	if utf8.RuneCountInString(r.Password) < 8 {
-		return fmt.Errorf("password must be at least 8 characters")
+	// The password is not checked here. The auth service owns the whole policy — length,
+	// identity reuse, breach corpus — and returns a coded error the client can translate.
+	// A length check here would shadow that code with a bare English string.
+	if r.Password == "" {
+		return fmt.Errorf("password is required")
 	}
 
 	r.DisplayName = strings.TrimSpace(r.DisplayName)

@@ -9,6 +9,7 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
+import { silenceAndroidCallRing } from "../../native/p2pCall";
 import Avatar from "../shared/Avatar";
 
 /**
@@ -78,6 +79,9 @@ function IncomingCallOverlay() {
     let cancelled = false;
 
     if (incomingCall) {
+      // This overlay is the ring now. Silence the Android notification that was posted while
+      // the app was backgrounded, or the two ring over each other until its 50s timeout.
+      silenceAndroidCallRing();
       playRingtone().then((stop) => {
         if (cancelled) {
           stop();

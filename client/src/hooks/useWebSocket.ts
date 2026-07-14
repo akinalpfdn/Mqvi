@@ -32,6 +32,7 @@ import { handleChannelEvent } from "./ws/channelEventHandlers";
 import { handleDMEvent } from "./ws/dmEventHandlers";
 import { handleVoiceEvent } from "./ws/voiceEventHandlers";
 import { handleSystemEvent } from "./ws/systemEventHandlers";
+import { getDeviceId } from "../utils/deviceId";
 import type { WSHandlerContext } from "./ws/types";
 
 /**
@@ -354,7 +355,11 @@ export function useWebSocket() {
 
       let socket: WebSocket;
       try {
-        socket = new WebSocket(`${WS_URL}?token=${token}`);
+        // device_id lets the server address ONE of the user's devices — so it can skip the one
+        // that just answered a call when it tells the rest to stop ringing.
+        socket = new WebSocket(
+          `${WS_URL}?token=${token}&device_id=${encodeURIComponent(getDeviceId())}`,
+        );
       } catch (err) {
         // A malformed WS_URL throws synchronously. Without this the hook would sit on
         // "connecting" forever, since no socket exists to fire onclose.

@@ -183,6 +183,16 @@ export const DEFAULT_MESSAGE_LIMIT = 50;
 /** Max message length (characters) — synced with backend models.MaxMessageLength */
 export const MAX_MESSAGE_LENGTH = 999;
 
+/** Mirrors password.MinLength on the server. A pre-check only — the server is the authority. */
+export const PASSWORD_MIN_LENGTH = 12;
+
+/** bcrypt's hard ceiling. Turkish letters are two bytes each, so this bites well before 72 characters. */
+export const PASSWORD_MAX_BYTES = 72;
+
+export function passwordByteLength(password: string): number {
+  return new TextEncoder().encode(password).length;
+}
+
 /** Max file upload size (bytes) — 500MB */
 export const MAX_FILE_SIZE = 500 * 1024 * 1024;
 

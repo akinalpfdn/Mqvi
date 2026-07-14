@@ -45,6 +45,19 @@ type Client struct {
 	send   chan []byte
 	mu     sync.Mutex // protects conn.WriteMessage
 
+	// sessionID identifies this CONNECTION among the user's other ones. A user can be signed in
+	// on several devices and events are broadcast to all of them, so anything that must act on
+	// exactly ONE device (accepting a call) is tagged with it. Sent to the client in the ready
+	// event; immutable after construction.
+	sessionID string
+
+	// deviceID identifies the INSTALLATION behind this connection, and is the same id the
+	// device's push token is registered under. It is what lets the server skip the device that
+	// just answered a call when it tells the rest to stop ringing — without it the cancel push
+	// goes to every device, and each platform needs a local hack to work out whether it was
+	// meant for them. Empty for clients that predate it.
+	deviceID string
+
 	// events is the per-connection inbound queue drained by a single eventPump
 	// goroutine. ReadPump enqueues here (except heartbeat, handled inline) so a
 	// connection's events are processed strictly in arrival order — a voice_join
@@ -76,6 +89,7 @@ type Client struct {
 	// to determine the user's visible status (highest priority wins).
 	// Accessed under Hub.mu.
 	status string
+
 }
 
 // ReadPump reads messages from the WebSocket and dispatches events.
@@ -140,7 +154,8 @@ func init() {
 		OpP2PCallInitiate:       (*Client).handleP2PCallInitiate,
 		OpP2PCallAccept:         (*Client).handleP2PCallAccept,
 		OpP2PCallDecline:        (*Client).handleP2PCallDecline,
-		OpP2PCallEnd:            func(c *Client, _ Event) { c.handleP2PCallEnd() },
+		OpP2PCallEnd:            (*Client).handleP2PCallEnd,
+		OpP2PCallResume:         (*Client).handleP2PCallResume,
 		OpP2PSignal:             (*Client).handleP2PSignal,
 	}
 }
@@ -479,7 +494,7 @@ func (c *Client) handleP2PCallInitiate(event Event) {
 	}
 
 	if c.hub.onP2PCallInitiate != nil {
-		c.hub.onP2PCallInitiate(c.userID, data)
+		c.hub.onP2PCallInitiate(c.userID, c.sessionID, data)
 	}
 }
 
@@ -500,7 +515,7 @@ func (c *Client) handleP2PCallAccept(event Event) {
 	}
 
 	if c.hub.onP2PCallAccept != nil {
-		c.hub.onP2PCallAccept(c.userID, data)
+		c.hub.onP2PCallAccept(c.userID, c.sessionID, c.deviceID, data)
 	}
 }
 
@@ -521,14 +536,40 @@ func (c *Client) handleP2PCallDecline(event Event) {
 	}
 
 	if c.hub.onP2PCallDecline != nil {
-		c.hub.onP2PCallDecline(c.userID, data)
+		c.hub.onP2PCallDecline(c.userID, c.deviceID, data)
 	}
 }
 
-// handleP2PCallEnd — no payload needed, userID identifies the active call.
-func (c *Client) handleP2PCallEnd() {
+// handleP2PCallEnd hangs up. call_id is optional (an old client sends none), but when present
+// the server checks it names the call the user is actually in — a late "end" from a sibling
+// device or the 30s outgoing timeout would otherwise kill whatever call they started since.
+func (c *Client) handleP2PCallEnd(event Event) {
+	var data P2PCallEndData
+	if event.Data != nil {
+		if raw, err := json.Marshal(event.Data); err == nil {
+			_ = json.Unmarshal(raw, &data)
+		}
+	}
 	if c.hub.onP2PCallEnd != nil {
-		c.hub.onP2PCallEnd(c.userID)
+		c.hub.onP2PCallEnd(c.userID, c.deviceID, data.CallID)
+	}
+}
+
+// handleP2PCallResume — this connection replaced the one that was carrying the call.
+func (c *Client) handleP2PCallResume(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+	var data P2PCallResumeData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+	if data.CallID == "" {
+		return
+	}
+	if c.hub.onP2PCallResume != nil {
+		c.hub.onP2PCallResume(c.userID, c.sessionID, data.CallID)
 	}
 }
 
@@ -550,7 +591,7 @@ func (c *Client) handleP2PSignal(event Event) {
 	}
 
 	if c.hub.onP2PSignal != nil {
-		c.hub.onP2PSignal(c.userID, data)
+		c.hub.onP2PSignal(c.userID, c.sessionID, data)
 	}
 }
 

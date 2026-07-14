@@ -36,6 +36,7 @@ type DMChannelWithUser struct {
 	LastMessageAt *time.Time `json:"last_message_at"`
 	IsPinned      bool       `json:"is_pinned"`
 	IsMuted       bool       `json:"is_muted"`
+	UnreadCount   int        `json:"unread_count"`
 }
 
 // DM message types.

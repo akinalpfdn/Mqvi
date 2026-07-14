@@ -17,7 +17,9 @@
 import { create } from "zustand";
 import { fetchIceServers, fetchIceServersForRecovery } from "../api/calls";
 import i18n from "../i18n";
+import { dismissIncomingCallUI } from "../native/p2pCall";
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
+import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
 
 // ─── Types ───
@@ -62,6 +64,15 @@ type P2PCallStore = {
   callDuration: number;
   _durationInterval: ReturnType<typeof setInterval> | null;
 
+  /**
+   * This connection's id, from the ready event. p2p_call_accept is broadcast to every
+   * session the receiver has and names the one that won, so each device can tell whether
+   * it is the one joining the call. Assuming "I sent the accept, so I won" would be wrong:
+   * two devices can accept at once and the server picks one.
+   */
+  _sessionId: string | null;
+  setSessionId: (id: string | null) => void;
+
   // ─── WS Send ───
 
   /** Injected WS send callback (DI pattern from useWebSocket) */
@@ -71,6 +82,8 @@ type P2PCallStore = {
   // ─── Actions ───
 
   initiateCall: (receiverId: string, callType: P2PCallType) => void;
+  /** Reclaim a live call after the socket carrying it was replaced. */
+  resumeCallAfterReconnect: () => void;
   acceptCall: (callId: string) => void;
   declineCall: (callId: string) => void;
   endCall: () => void;
@@ -83,9 +96,9 @@ type P2PCallStore = {
   // ─── WS Event Handlers ───
 
   handleCallInitiate: (data: P2PCall) => void;
-  handleCallAccept: (data: { call_id: string }) => void;
-  handleCallDecline: (data: { call_id: string; reason?: string }) => void;
-  handleCallEnd: (data: { call_id: string; reason?: string }) => void;
+  handleCallAccept: (data: { call_id: string; accepted_by?: string }) => void;
+  handleCallDecline: (data: { call_id: string; reason?: string; declined_by?: string }) => void;
+  handleCallEnd: (data: { call_id: string; reason?: string; ended_by?: string }) => void;
   handleCallBusy: (data: { receiver_id: string }) => void;
   handleSignal: (data: P2PSignalPayload) => void;
 };
@@ -370,9 +383,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   remoteVolume: 100,
   callDuration: 0,
   _durationInterval: null,
+  _sessionId: null,
   _pendingCandidates: [],
   _triggerIceRestart: null,
   _sendWS: null,
+
+  setSessionId: (id) => set({ _sessionId: id }),
 
   registerSendWS: (fn) => set({ _sendWS: fn }),
 
@@ -388,6 +404,17 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       receiver_id: receiverId,
       call_type: callType,
     });
+  },
+
+  // The socket carrying the call died and this one replaced it. Media is peer-to-peer and never
+  // stopped — but the server scheduled a teardown when the old socket closed, and it identifies
+  // the call by SESSION, which just changed. Claim it back, or it is hung up under us and the
+  // ICE restart that would have recovered the media is rejected as coming from a stranger.
+  resumeCallAfterReconnect: () => {
+    const { _sendWS, activeCall } = get();
+    if (!_sendWS || !activeCall || activeCall.status !== "active") return;
+
+    _sendWS("p2p_call_resume", { call_id: activeCall.id });
   },
 
   acceptCall: (callId) => {
@@ -406,10 +433,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   endCall: () => {
-    const { _sendWS } = get();
+    const { _sendWS, activeCall } = get();
     if (!_sendWS) return;
 
-    _sendWS("p2p_call_end");
+    // Name the call. A late hang-up — from a sibling device, or from the 30s outgoing timeout —
+    // would otherwise end whatever call the user has started since.
+    _sendWS("p2p_call_end", activeCall ? { call_id: activeCall.id } : undefined);
     get().cleanup();
   },
 
@@ -662,7 +691,16 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   // ─── WS Event Handlers ───
 
   handleCallInitiate: (data) => {
-    const { activeCall } = get();
+    const { activeCall, _sessionId } = get();
+
+    // The caller's OTHER devices see the outgoing call too. It is not theirs: taking it would
+    // flip them to active on accept, open a microphone, and send a second SDP offer for the
+    // same call. The server names the session that dialled.
+    const userId = useAuthStore.getState().user?.id;
+    const isCaller = data.caller_id === userId;
+    if (isCaller && data.initiated_by !== undefined && data.initiated_by !== _sessionId) {
+      return;
+    }
 
     if (activeCall) {
       // Already in a call — show as incoming call overlay
@@ -675,8 +713,21 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   handleCallAccept: (data) => {
-    const { activeCall } = get();
+    const { activeCall, _sessionId } = get();
     if (!activeCall || activeCall.id !== data.call_id) return;
+
+    const userId = useAuthStore.getState().user?.id;
+    const isCaller = activeCall.caller_id === userId;
+
+    // The server broadcasts the accept to every one of the receiver's sessions and names
+    // the one that took the call. On the others, drop it: falling through would flip them
+    // to "active" and start WebRTC, and since signalling is user-wide too they would
+    // answer the caller's offer alongside the device that really answered.
+    if (!isCaller && data.accepted_by !== undefined && data.accepted_by !== _sessionId) {
+      dismissIncomingCallUI(data.call_id);
+      get().cleanup();
+      return;
+    }
 
     set({
       activeCall: { ...activeCall, status: "active" },
@@ -697,14 +748,19 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   handleCallDecline: (data) => {
     const { activeCall, incomingCall } = get();
     const t = i18n.t.bind(i18n);
+    // Declined on another of our own devices — tear down quietly. The "call declined"
+    // toast is for the other party, not for ourselves.
+    const declinedBySelf = data.declined_by === useAuthStore.getState().user?.id;
 
     if (activeCall && activeCall.id === data.call_id) {
-      useToastStore.getState().addToast("info", t("common:callDeclined"));
+      if (declinedBySelf) dismissIncomingCallUI(data.call_id);
+      else useToastStore.getState().addToast("info", t("common:callDeclined"));
       get().cleanup();
       return;
     }
 
     if (incomingCall && incomingCall.id === data.call_id) {
+      if (declinedBySelf) dismissIncomingCallUI(data.call_id);
       set({ incomingCall: null });
     }
   },
@@ -714,10 +770,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     // A delayed end for a call we already left must not tear down the current
     // one. Only clean up when it matches; otherwise at most drop a stale incoming.
     if (activeCall && activeCall.id === data.call_id) {
+      dismissIncomingCallUI(data.call_id);
       get().cleanup();
       return;
     }
     if (incomingCall && incomingCall.id === data.call_id) {
+      dismissIncomingCallUI(data.call_id);
       set({ incomingCall: null });
     }
   },

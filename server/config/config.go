@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -20,9 +21,16 @@ type Config struct {
 	Email           EmailConfig
 	Klipy           KlipyConfig
 	TURN            TURNConfig
+	// CallGraceWindow is how long a live call survives the death of the socket carrying it. Media
+	// is peer-to-peer, so a WebSocket blip is not a hang-up — the owner gets this long to
+	// reconnect and reclaim it before the call is torn down.
+	CallGraceWindow time.Duration
 	Push            PushConfig
 	EncryptionKey   string // AES-256 key (64 hex chars = 32 bytes) for LiveKit credential encryption
 	HetznerAPIToken string // Hetzner Cloud API token (read-only) — optional
+	// PasswordBreachCheck queries Have I Been Pwned when a password is set. Needs no key or
+	// account; turn it off only for a self-host with no route out. Failures allow the password.
+	PasswordBreachCheck bool
 }
 
 // PushConfig — optional. If CredentialsFile is missing or invalid, push is disabled
@@ -33,6 +41,19 @@ type PushConfig struct {
 	CredentialsFile string
 	// APNs — optional iOS VoIP (PushKit/CallKit) push via direct APNs.
 	APNs APNsConfig
+	// How long a DM push waits for the read watermark to prove the user is reading it. Only
+	// applies when they have a live socket. Too short and the phone buzzes for a message being
+	// read on the desktop; too long costs a backgrounded phone a second. 0 disables the wait.
+	DMDelay time.Duration
+	// Pull a delivered DM notification back off the tray once it is read elsewhere.
+	ReadRetraction bool
+	// Push goroutines in flight. Each holds a database connection and the pool has four.
+	MaxConcurrent int
+	// After this many failures inside CircuitWindow, stop calling the provider for CircuitOpen —
+	// including the token lookup that precedes the call.
+	CircuitFailureThreshold int
+	CircuitWindow           time.Duration
+	CircuitOpen             time.Duration
 }
 
 // APNsConfig holds token-based (.p8) APNs auth for iOS VoIP pushes. Disabled if any
@@ -80,6 +101,10 @@ type KlipyConfig struct {
 type ServerConfig struct {
 	Host string
 	Port int
+	// ReadinessAddr is a SEPARATE listener for /health/ready. It must stay on loopback: the
+	// endpoint hits the database on every request and reports pool and goroutine internals, and
+	// behind a reverse proxy a RemoteAddr check cannot tell the internet from localhost.
+	ReadinessAddr string
 }
 
 type DatabaseConfig struct {
@@ -177,6 +202,11 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid MQVI_ANTIVIRUS_ENABLED: %w", err)
 	}
+
+	breachCheck, err := strconv.ParseBool(getEnv("MQVI_PASSWORD_BREACH_CHECK", "true"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MQVI_PASSWORD_BREACH_CHECK: %w", err)
+	}
 	avTimeout, err := strconv.Atoi(getEnv("MQVI_ANTIVIRUS_TIMEOUT_SECONDS", "10"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid MQVI_ANTIVIRUS_TIMEOUT_SECONDS: %w", err)
@@ -251,11 +281,40 @@ func Load() (*Config, error) {
 
 	// Optional iOS VoIP push flag — invalid value defaults to sandbox (push is optional).
 	apnsProduction, _ := strconv.ParseBool(getEnv("APNS_PRODUCTION", "false"))
+	pushReadRetraction, err := strconv.ParseBool(getEnv("MQVI_PUSH_DM_READ_RETRACTION", "true"))
+	if err != nil {
+		return nil, fmt.Errorf("MQVI_PUSH_DM_READ_RETRACTION must be a boolean: %w", err)
+	}
+	pushDMDelay, err := getEnvDuration("MQVI_PUSH_DM_DELAY", 3*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	pushMaxConcurrent, err := getEnvInt("MQVI_PUSH_MAX_CONCURRENT", 16)
+	if err != nil {
+		return nil, err
+	}
+	pushCircuitThreshold, err := getEnvInt("MQVI_PUSH_CIRCUIT_FAILURE_THRESHOLD", 5)
+	if err != nil {
+		return nil, err
+	}
+	pushCircuitWindow, err := getEnvDuration("MQVI_PUSH_CIRCUIT_WINDOW", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	pushCircuitOpen, err := getEnvDuration("MQVI_PUSH_CIRCUIT_OPEN", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	callGraceWindow, err := getEnvDuration("MQVI_P2P_CALL_GRACE", 20*time.Second)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Host: getEnv("SERVER_HOST", "0.0.0.0"),
-			Port: port,
+			Host:          getEnv("SERVER_HOST", "0.0.0.0"),
+			Port:          port,
+			ReadinessAddr: getEnv("MQVI_READINESS_ADDR", "127.0.0.1:9091"),
 		},
 		Database: DatabaseConfig{
 			Path: getEnv("DATABASE_PATH", "./data/mqvi.db"),
@@ -310,7 +369,13 @@ func Load() (*Config, error) {
 			CredentialTTLSeconds: turnTTL,
 		},
 		Push: PushConfig{
-			CredentialsFile: getEnv("FCM_CREDENTIALS_FILE", "./firebase-service-account.json"),
+			CredentialsFile:         getEnv("FCM_CREDENTIALS_FILE", "./firebase-service-account.json"),
+			DMDelay:                 pushDMDelay,
+			ReadRetraction:          pushReadRetraction,
+			MaxConcurrent:           pushMaxConcurrent,
+			CircuitFailureThreshold: pushCircuitThreshold,
+			CircuitWindow:           pushCircuitWindow,
+			CircuitOpen:             pushCircuitOpen,
 			APNs: APNsConfig{
 				KeyPath:    getEnv("APNS_KEY_FILE", "./apns-key.p8"),
 				KeyID:      getEnv("APNS_KEY_ID", ""),
@@ -319,8 +384,10 @@ func Load() (*Config, error) {
 				Production: apnsProduction,
 			},
 		},
-		EncryptionKey:   encKey,
-		HetznerAPIToken: getEnv("HETZNER_API_TOKEN", ""),
+		CallGraceWindow:     callGraceWindow,
+		EncryptionKey:       encKey,
+		HetznerAPIToken:     getEnv("HETZNER_API_TOKEN", ""),
+		PasswordBreachCheck: breachCheck,
 	}
 
 	return cfg, nil
@@ -376,4 +443,42 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// getEnvInt and getEnvDuration REFUSE a value they cannot parse rather than quietly falling back
+// to the default.
+//
+// The earlier version fell back, reasoning that a mistyped knob must not take the server down.
+// That is backwards for a kill switch. It is 3am, push is storming, you set MQVI_PUSH_DM_DELAY=0x
+// meaning to disable the wait — and the server silently keeps the 3s default while telling you
+// nothing. You would be debugging a switch you believe you already flipped. A boot that stops and
+// names the bad variable costs one restart; a switch that lies costs the outage.
+func getEnvInt(key string, fallback int) (int, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("%s must be positive, got %d", key, n)
+	}
+	return n, nil
+}
+
+func getEnvDuration(key string, fallback time.Duration) (time.Duration, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf(`%s must be a duration such as "3s" or "500ms": %w`, key, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("%s must not be negative, got %s", key, d)
+	}
+	return d, nil
 }

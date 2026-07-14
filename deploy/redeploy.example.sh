@@ -30,7 +30,7 @@ echo "========================================="
 echo ""
 
 # --- SSH Agent: ask passphrase once ---
-echo "[1/5] Setting up SSH agent..."
+echo "[1/7] Setting up SSH agent..."
 if [ -z "$SSH_AUTH_SOCK" ]; then
     eval "$(ssh-agent -s)" > /dev/null 2>&1
     STARTED_AGENT=true
@@ -41,7 +41,7 @@ echo "  OK - SSH key loaded"
 # --- Build ---
 if [ "$SKIP_BUILD" = false ]; then
     echo ""
-    echo "[2/5] Building..."
+    echo "[2/7] Building..."
     cd "$PROJECT_ROOT"
 
     # Frontend
@@ -64,27 +64,134 @@ if [ "$SKIP_BUILD" = false ]; then
     echo "  OK - Build complete"
 else
     echo ""
-    echo "[2/5] Build skipped (--skip-build)"
+    echo "[2/7] Build skipped (--skip-build)"
 fi
 
-# --- Stop server ---
+# --- Preflight: nothing is touched yet, so a failure here costs nothing ---
 echo ""
-echo "[3/5] Stopping server..."
-ssh "$SERVER" "pkill -9 -f livekit-server; pkill -9 -f mqvi-server; sleep 1" || true
+echo "[3/7] Preflight..."
+if ! ssh "$SERVER" "cd $REMOTE_PATH && test -f data/mqvi.db"; then
+    echo "  ERROR: no database at $REMOTE_PATH/data/mqvi.db - cannot back up, refusing to deploy."
+    echo "  (If DATABASE_PATH in .env points elsewhere, update the path in this script.)"
+    exit 1
+fi
+# Readiness lives on its OWN loopback listener, not the public port — it hits the database on
+# every request and reports internals. MQVI_READINESS_ADDR, default 127.0.0.1:9091.
+READY_ADDR=$(ssh "$SERVER" "cd $REMOTE_PATH && grep -E '^MQVI_READINESS_ADDR=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '\"' | tr -d '[:space:]'")
+READY_ADDR=${READY_ADDR:-127.0.0.1:9091}
+CAN_HEALTHCHECK=true
+ssh "$SERVER" "command -v curl >/dev/null" || CAN_HEALTHCHECK=false
+echo "  OK - database found, readiness at $READY_ADDR, health check $([ "$CAN_HEALTHCHECK" = true ] && echo available || echo 'SKIPPED (no curl on server)')"
+
+# --- Stop server ---
+# SIGTERM first: the server handles it (signal.Notify + srv.Shutdown) and closes SQLite cleanly.
+# SIGKILL on a database writer is how a WAL ends up needing recovery. Escalate only if it hangs.
+#
+# -x, NOT -f. `ssh host "CMD"` makes sshd run `sh -c "CMD"`, so the remote shell's own command line
+# contains "mqvi-server" — and pkill -f excludes itself but NOT its parent. It killed the shell it
+# was running in: the wait, the escalation and the livekit stop never ran, and the backup then
+# copied the database out from under a server that was still shutting down. -x matches the process
+# NAME, which a shell can never have.
+echo ""
+echo "[4/7] Stopping server..."
+if ! ssh "$SERVER" "pkill -TERM -x mqvi-server || true
+for i in \$(seq 1 15); do pgrep -x mqvi-server >/dev/null || break; sleep 1; done
+pkill -9 -x mqvi-server 2>/dev/null && echo '  WARNING: had to SIGKILL the server' || true
+pkill -9 -x livekit-server || true
+sleep 1
+if pgrep -x mqvi-server >/dev/null; then echo '  ERROR: mqvi-server survived the stop step'; exit 1; fi"; then
+    echo "  ERROR: could not stop the server. Refusing to back up or deploy over a live database."
+    exit 1
+fi
 echo "  OK - Server stopped"
+
+# --- Back up the database ---
+# After the stop, so a plain copy is consistent and no sqlite3 CLI is needed. Before the swap,
+# because migrations run at boot and rewrite rows the moment the new binary starts — 083 backfills
+# a read watermark for every DM conversation. This is the only thing between a bad migration and
+# the data.
+echo ""
+echo "[5/7] Backing up the database..."
+STAMP=$(date +%Y%m%d-%H%M%S)
+if ! ssh "$SERVER" "cd $REMOTE_PATH && mkdir -p backups && cp -a data/mqvi.db backups/mqvi-$STAMP.db && for f in data/mqvi.db-wal data/mqvi.db-shm; do test -f \$f && cp -a \$f backups/mqvi-$STAMP.db\${f##*mqvi.db} || true; done; ls -lh backups/mqvi-$STAMP.db"; then
+    echo "  ERROR: backup failed. The old binary and database are untouched."
+    echo "  Bring the server back up: ssh $SERVER \"cd $REMOTE_PATH && nohup ./start.sh > output.log 2>&1 &\""
+    exit 1
+fi
+
+# Write the rollback next to the backup it restores, so it can never drift from it — and so the
+# operator running it at 3am does not have to reconstruct the WAL handling from memory.
+ssh "$SERVER" "cat > $REMOTE_PATH/backups/mqvi-$STAMP.rollback.sh" <<ROLLBACK
+#!/usr/bin/env bash
+# Restores the database as it was before the deploy of $STAMP.
+set -e
+cd "\$(dirname "\$0")/.."
+
+pkill -TERM -x mqvi-server || true
+for i in \$(seq 1 20); do pgrep -x mqvi-server >/dev/null || break; sleep 1; done
+if pgrep -x mqvi-server >/dev/null; then
+    echo "ERROR: the server is still running. Refusing to overwrite a live database."
+    exit 1
+fi
+
+# The post-migration WAL MUST go. SQLite would otherwise open the restored pre-migration database
+# next to it and replay it — reapplying the very writes this rollback is undoing (083 backfills a
+# read watermark for every DM conversation).
+rm -f data/mqvi.db-wal data/mqvi.db-shm
+cp -a backups/mqvi-$STAMP.db data/mqvi.db
+for e in -wal -shm; do
+    if [ -f "backups/mqvi-$STAMP.db\$e" ]; then
+        cp -a "backups/mqvi-$STAMP.db\$e" "data/mqvi.db\$e"
+    fi
+done
+
+echo "Rolled back to backups/mqvi-$STAMP.db. Now deploy the PREVIOUS binary — the new one would"
+echo "re-run the migrations on the restored database."
+ROLLBACK
+ssh "$SERVER" "chmod +x $REMOTE_PATH/backups/mqvi-$STAMP.rollback.sh"
+echo "  OK - backups/mqvi-$STAMP.db (rollback: backups/mqvi-$STAMP.rollback.sh)"
 
 # --- Upload binary + start script ---
 echo ""
-echo "[4/5] Uploading binary and start script..."
+echo "[6/7] Uploading binary and start script..."
 scp "$SCRIPT_DIR/package/mqvi-server" "$SCRIPT_DIR/start.sh" "$SERVER:$REMOTE_PATH/"
 echo "  OK - Files uploaded"
 
-# --- Start server ---
+# --- Start server + readiness gate ---
+# 083's backfill is ~0.1s per 100k messages, so a normal instance is up in well under a second and
+# a large one may take a few. The gate waits rather than assuming three seconds is enough.
 echo ""
-echo "[5/5] Starting server..."
+echo "[7/7] Starting server..."
 ssh "$SERVER" "cd $REMOTE_PATH && chmod +x mqvi-server start.sh && nohup ./start.sh > output.log 2>&1 &"
 sleep 3
-echo "  OK - Server started"
+
+if [ "$CAN_HEALTHCHECK" = true ]; then
+    echo "  Waiting for readiness..."
+    READY=false
+    for i in $(seq 1 30); do
+        # A real database round trip. The public /api/health only says the process is alive,
+        # which it would keep saying while every write timed out.
+        if ssh "$SERVER" "curl -fsS -m 5 http://$READY_ADDR/health/ready" >/dev/null 2>&1; then
+            READY=true
+            break
+        fi
+        sleep 2
+    done
+
+    if [ "$READY" = false ]; then
+        echo ""
+        echo "  DEPLOY FAILED - the server never became ready."
+        ssh "$SERVER" "tail -40 $REMOTE_PATH/output.log"
+        echo ""
+        echo "  Roll back the database:"
+        echo "    ssh $SERVER 'bash $REMOTE_PATH/backups/mqvi-$STAMP.rollback.sh'"
+        echo "  then redeploy the previous binary."
+        exit 1
+    fi
+    echo "  OK - Server is ready"
+else
+    echo "  OK - Server started (readiness not verified: no curl on the server)"
+fi
 
 # --- Show logs ---
 echo ""
@@ -95,6 +202,11 @@ ssh "$SERVER" "tail -15 $REMOTE_PATH/output.log"
 
 echo ""
 echo "  Redeploy complete!"
+echo ""
+echo "  Kill switches (no redeploy needed — set in .env and restart):"
+echo "    MQVI_PUSH_DM_DELAY=0            # push DMs immediately; stop waiting on the read watermark"
+echo "    MQVI_PUSH_DM_READ_RETRACTION=false  # stop pulling read notifications back off the tray"
+echo "    MQVI_PUSH_MAX_CONCURRENT=16     # lower it if push is starving the database pool"
 echo ""
 
 # Cleanup: stop agent if we started it

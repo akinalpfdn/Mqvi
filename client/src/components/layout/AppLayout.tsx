@@ -75,6 +75,7 @@ function AppLayout() {
   // Voice AFK activity reporter — sends voice_activity ping while in voice
   useVoiceActivityReporter({ sendWS });
 
+
   // Electron taskbar badge for unread count
   useNotificationBadge();
 

@@ -37,6 +37,12 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 	if existing != nil {
 		otherUser.PasswordHash = ""
 		otherUser.AvatarURL = s.urlSigner.SignURLPtr(otherUser.AvatarURL)
+		// An existing conversation can have unread messages. Reporting 0 here would make the
+		// API lie to anyone who seeds their badge from this response.
+		unread, err := s.dmRepo.CountUnread(ctx, userID, existing.ID)
+		if err != nil {
+			return nil, err
+		}
 		return &models.DMChannelWithUser{
 			ID:            existing.ID,
 			OtherUser:     otherUser,
@@ -44,6 +50,7 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 			InitiatedBy:   existing.InitiatedBy,
 			CreatedAt:     existing.CreatedAt,
 			LastMessageAt: existing.LastMessageAt,
+			UnreadCount:   unread,
 		}, nil
 	}
 
@@ -117,4 +124,58 @@ func (s *dmService) ListChannels(ctx context.Context, userID string) ([]models.D
 		}
 	}
 	return channels, nil
+}
+
+// MarkRead records that the user has read this conversation up to messageID (empty means
+// all of it), then tells their other devices so the badge and any delivered notification
+// clear there too. Reading on the desktop is what should silence the phone.
+//
+// The count is read back from the database rather than assumed to be zero: a message can
+// arrive between the client choosing a watermark and this write landing, and reporting an
+// optimistic zero would hide it.
+func (s *dmService) MarkRead(ctx context.Context, userID, channelID, messageID string) (int, error) {
+	if _, err := s.verifyChannelMembership(ctx, userID, channelID); err != nil {
+		return 0, err
+	}
+
+	// No message named: the client is clearing a conversation it hasn't loaded.
+	var moved bool
+	var err error
+	if messageID == "" {
+		moved, err = s.dmRepo.MarkReadLatest(ctx, userID, channelID)
+	} else {
+		moved, err = s.dmRepo.MarkRead(ctx, userID, channelID, messageID)
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	unread, err := s.dmRepo.CountUnread(ctx, userID, channelID)
+	if err != nil {
+		return 0, err
+	}
+
+	// Nothing moved — the conversation was already read this far. Say so and stop: waking
+	// every device of the user, and pushing to their phone, for a no-op is how re-opening a
+	// read DM turns into a burst of FCM traffic.
+	if !moved {
+		return unread, nil
+	}
+
+	// Only this user's sessions — the other participant's unread is their own business.
+	s.hub.BroadcastToUser(userID, ws.Event{
+		Op: ws.OpDMRead,
+		Data: map[string]any{
+			"dm_channel_id": channelID,
+			"unread_count":  unread,
+		},
+	})
+
+	// Devices with no live socket keep showing the notification until they are opened;
+	// a data push retracts it there. Only worth sending once nothing is left unread.
+	if unread == 0 && s.pushNotifier != nil {
+		s.pushNotifier.NotifyDMRead(userID, channelID)
+	}
+
+	return unread, nil
 }

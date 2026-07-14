@@ -69,6 +69,7 @@ const (
 	OpDMTypingStart    = "dm_typing_start"
 	OpDMMessagePin     = "dm_message_pin"
 	OpDMMessageUnpin   = "dm_message_unpin"
+	OpDMRead            = "dm_read"
 	OpDMSettingsUpdate  = "dm_settings_update"
 	OpDMRequestAccept      = "dm_request_accept"
 	OpDMRequestDecline     = "dm_request_decline"
@@ -126,6 +127,9 @@ const (
 	OpP2PCallEnd      = "p2p_call_end"
 	OpP2PSignal       = "p2p_signal"
 	OpP2PCallBusy     = "p2p_call_busy"
+	// OpP2PCallResume — the client reconnected and is still in the call. Media is peer-to-peer, so
+	// the socket dying was a blip, not a hang-up. Rebinds the call to the new connection.
+	OpP2PCallResume = "p2p_call_resume"
 )
 
 // E2EE operations
@@ -152,6 +156,9 @@ const (
 
 // ReadyData is the payload sent to a client on initial connection.
 type ReadyData struct {
+	// SessionID identifies THIS connection among the user's other devices. Echoed back in
+	// events that only one device may act on (see p2p_call_accept's accepted_by).
+	SessionID       string            `json:"session_id"`
 	OnlineUserIDs   []string          `json:"online_user_ids"`
 	Servers         []ReadyServerItem `json:"servers"`
 	MutedServerIDs  []string          `json:"muted_server_ids"`
@@ -318,10 +325,20 @@ type P2PCallDeclineData struct {
 	CallID string `json:"call_id"`
 }
 
+type P2PCallResumeData struct {
+	CallID string `json:"call_id"`
+}
+
 // P2PSignalData carries WebRTC SDP/ICE data. Server relays without inspecting.
 type P2PSignalData struct {
 	CallID    string `json:"call_id"`
 	Type      string `json:"type"`                // "offer", "answer", "ice-candidate", "ice-restart"
 	SDP       string `json:"sdp,omitempty"`
 	Candidate any    `json:"candidate,omitempty"`
+}
+
+// P2PCallEndData — hang-up. CallID is optional: an old client sends none, and the server then
+// ends whatever call the user is in (the old behaviour).
+type P2PCallEndData struct {
+	CallID string `json:"call_id,omitempty"`
 }

@@ -604,11 +604,19 @@ type MockEventPublisher struct {
 	MockBroadcaster
 	GetOnlineUserIDsFn          func() []string
 	GetVisibleOnlineUserIDsFn   func() []string
+	IsOnlineFn                  func(userID string) bool
 	GetOnlineUserIDsForServerFn func(serverID string) []string
 	SetInvisibleFn              func(userID string, invisible bool)
 	DisconnectUserFn            func(userID string)
 	AddClientServerIDFn         func(userID, serverID string)
 	RemoveClientServerIDFn      func(userID, serverID string)
+}
+
+func (m *MockEventPublisher) IsOnline(userID string) bool {
+	if m.IsOnlineFn != nil {
+		return m.IsOnlineFn(userID)
+	}
+	return false
 }
 
 func (m *MockEventPublisher) GetOnlineUserIDs() []string {
@@ -699,8 +707,11 @@ type MockBroadcastAndOnline struct {
 	MockBroadcaster
 	GetOnlineUserIDsFn          func() []string
 	GetVisibleOnlineUserIDsFn   func() []string
+	IsOnlineFn                  func(userID string) bool
 	GetOnlineUserIDsForServerFn func(serverID string) []string
 }
+
+func (m *MockBroadcastAndOnline) IsOnline(string) bool { return false }
 
 func (m *MockBroadcastAndOnline) GetOnlineUserIDs() []string {
 	if m.GetOnlineUserIDsFn != nil {
