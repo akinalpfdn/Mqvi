@@ -41,7 +41,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
   const selectedDMId = useDMStore((s) => s.selectedDMId);
   const selectDM = useDMStore((s) => s.selectDM);
   const dmUnreadCounts = useDMStore((s) => s.dmUnreadCounts);
-  const clearDMUnread = useDMStore((s) => s.clearDMUnread);
+  const markDMReadAll = useDMStore((s) => s.markDMReadAll);
   const fetchMessages = useDMStore((s) => s.fetchMessages);
   const hideDM = useDMStore((s) => s.hideDM);
   const pinDM = useDMStore((s) => s.pinDM);
@@ -87,7 +87,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
   function handleDMClick(dmId: string, userName: string) {
     selectDM(dmId);
     openTab(dmId, "dm", userName);
-    clearDMUnread(dmId);
+    // DMChat marks it read once the messages are actually loaded and on screen.
     fetchMessages(dmId);
     closeAllDrawers();
   }
@@ -138,7 +138,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
     items.push(
       {
         label: tDM("markAsRead"),
-        onClick: () => clearDMUnread(dm.id),
+        onClick: () => markDMReadAll(dm.id),
         disabled: unread === 0,
       },
       {

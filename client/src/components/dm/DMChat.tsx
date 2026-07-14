@@ -78,7 +78,8 @@ function DMChatContent({
   const isNarrow = useNarrowChat();
   const { menuState, openMenuAt, closeMenu } = useContextMenu();
   const selectDM = useDMStore((s) => s.selectDM);
-  const clearDMUnread = useDMStore((s) => s.clearDMUnread);
+  const markDMReadUpTo = useDMStore((s) => s.markDMReadUpTo);
+  const heldMessages = useDMStore((s) => s.messagesByChannel[channelId]);
   const invalidateMessages = useDMStore((s) => s.invalidateMessages);
   const fetchMessages = useDMStore((s) => s.fetchMessages);
   const toggleE2EE = useDMStore((s) => s.toggleE2EE);
@@ -105,14 +106,31 @@ function DMChatContent({
   const pendingSearchChannelId = useDMStore((s) => s.pendingSearchChannelId);
   const setPendingSearchChannelId = useDMStore((s) => s.setPendingSearchChannelId);
 
-  // Update selectedDMId + clear unread when DM tab opens
   useEffect(() => {
     selectDM(channelId);
-    clearDMUnread(channelId);
     return () => {
       selectDM(null);
     };
-  }, [channelId, selectDM, clearDMUnread]);
+  }, [channelId, selectDM]);
+
+  // The conversation counts as read when it is on screen AND the user is in front of it. A
+  // backgrounded window has read nothing — marking it read there would retract the push the
+  // user was just sent. Re-runs as messages land (mount, fetch, resync, a new arrival) and when
+  // the window comes back to the front, so a DM left open is marked read the moment it is
+  // looked at again. The watermark itself is picked from what actually decrypted.
+  useEffect(() => {
+    const markIfLooking = () => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      markDMReadUpTo(channelId);
+    };
+    markIfLooking();
+    window.addEventListener("focus", markIfLooking);
+    document.addEventListener("visibilitychange", markIfLooking);
+    return () => {
+      window.removeEventListener("focus", markIfLooking);
+      document.removeEventListener("visibilitychange", markIfLooking);
+    };
+  }, [channelId, heldMessages, markDMReadUpTo]);
 
   // Invalidate + re-fetch messages when E2EE transitions to "ready".
   // Prevents race condition where fetchMessages runs before e2eeStore.initialize()

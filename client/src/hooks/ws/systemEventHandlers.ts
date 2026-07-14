@@ -51,10 +51,13 @@ function resyncOpenTabs(): void {
     if (tab.type === "text") {
       void useMessageStore.getState().resyncChannel(tab.channelId, tab.serverInfo?.serverId);
     } else if (tab.type === "dm") {
-      void useDMStore.getState().resyncChannel(tab.channelId);
-      // The DM is on screen, so it is read — and its tray notification goes with it. DMChat
-      // only clears unread on mount, which a reconnect does not re-run.
-      useDMStore.getState().clearDMUnread(tab.channelId);
+      const dmChannelId = tab.channelId;
+      // Mark read only AFTER the resync lands, and only against what it brought back. Marking
+      // read first would set the watermark to a pre-reconnect message, and the messages that
+      // arrived while the socket was down would keep their badge with nothing left to clear it.
+      // DMChat re-runs its own mark-read when the merged messages arrive, so this only has to
+      // make sure they arrive.
+      void useDMStore.getState().resyncChannel(dmChannelId);
     }
   }
 }

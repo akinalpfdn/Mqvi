@@ -9,7 +9,6 @@ import { useE2EEStore } from "../../stores/e2eeStore";
 import { decryptDMMessage, popSentPlaintext, popEditPlaintext } from "../../crypto/dmEncryption";
 import * as keyStorage from "../../crypto/keyStorage";
 import { playNotificationSound } from "../../utils/sounds";
-import { markDMRead } from "../../api/dm";
 import type { WSMessage, DMChannelWithUser, DMMessage, ReactionGroup } from "../../types";
 
 export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
@@ -91,15 +90,11 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
         dmState.incrementDMUnread(dmMsg.dm_channel_id);
         playNotificationSound();
         window.electronAPI?.flashFrame();
-      } else if (document.visibilityState === "visible" && document.hasFocus()) {
-        // The user is looking straight at it, so move the server's watermark too — otherwise
-        // the badge it keeps counting would reappear on the next reconnect. Only when
-        // focused: a backgrounded window with the conversation still selected has NOT read
-        // it, and marking it read would retract the notification the user was just sent.
-        void markDMRead(dmMsg.dm_channel_id, dmMsg.id).then((res) => {
-          if (!res.success) console.error("[dm] failed to advance read state:", res.error);
-        });
       }
+      // The DM is on screen: DMChat's own effect fires on the message we just stored and
+      // advances the watermark if the user is actually in front of the window. Doing it here
+      // as well would mark read a message that failed to decrypt — the user sees a placeholder,
+      // and retracting its push takes it away from the device that might still have shown it.
       return true;
     }
 
@@ -161,7 +156,11 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
         const dmMessages = dmState.messagesByChannel[dmDelData.dm_channel_id];
         const deletedDMMsg = dmMessages?.find((m) => m.id === dmDelData.id);
         const myId = useAuthStore.getState().user?.id;
-        if (deletedDMMsg?.user_id !== myId) {
+        // Only when we actually held it. On an unloaded conversation `undefined?.user_id` is
+        // not our id either, so the old check decremented the badge when we deleted our OWN
+        // message. Not holding it means we cannot tell whose it was, or whether it was even
+        // counted — leave the badge alone and let the next server snapshot settle it.
+        if (deletedDMMsg && deletedDMMsg.user_id !== myId) {
           dmState.decrementDMUnread(dmDelData.dm_channel_id);
         }
       }

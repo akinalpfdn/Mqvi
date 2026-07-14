@@ -98,18 +98,28 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
   fetchChannels: async () => {
     set({ isLoading: true });
-    get().beginUnreadFetch();
+    const gen = get().beginUnreadFetch();
     const res = await dmApi.listDMChannels();
-    if (res.success && res.data) {
-      const counts: Record<string, number> = {};
-      for (const ch of res.data) {
-        if (ch.unread_count > 0) counts[ch.id] = ch.unread_count;
-      }
-      set({ channels: res.data, isLoading: false });
-      get().applyServerUnread(counts);
-    } else {
-      set({ isLoading: false, _unreadFetchInFlight: false });
+    if (!res.success || !res.data) {
+      set({ isLoading: false });
+      get().applyServerUnread(null, gen);
+      return;
     }
+
+    // A server that does not send unread_count has not said the conversation is read — it has
+    // said nothing. Treating the gap as zero wipes every badge and purges the notification tray.
+    const counts: Record<string, number> = {};
+    let serverKnows = true;
+    for (const ch of res.data) {
+      if (typeof ch.unread_count !== "number") {
+        serverKnows = false;
+        break;
+      }
+      if (ch.unread_count > 0) counts[ch.id] = ch.unread_count;
+    }
+
+    set({ channels: res.data, isLoading: false });
+    get().applyServerUnread(serverKnows ? counts : null, gen);
   },
 
   selectDM: (channelId) => {

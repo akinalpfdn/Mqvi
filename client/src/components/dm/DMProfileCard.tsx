@@ -25,7 +25,6 @@ function DMProfileCard({ dm, position, onClose }: DMProfileCardProps) {
 
   const selectDM = useDMStore((s) => s.selectDM);
   const fetchMessages = useDMStore((s) => s.fetchMessages);
-  const clearDMUnread = useDMStore((s) => s.clearDMUnread);
   const openTab = useUIStore((s) => s.openTab);
 
   const friends = useFriendStore((s) => s.friends);
@@ -90,7 +89,6 @@ function DMProfileCard({ dm, position, onClose }: DMProfileCardProps) {
   function handleSendMessage() {
     selectDM(dm.id);
     openTab(dm.id, "dm", name);
-    clearDMUnread(dm.id);
     fetchMessages(dm.id);
     onClose();
   }
