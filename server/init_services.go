@@ -68,6 +68,7 @@ type Services struct {
 	SettingsBadge      services.SettingsBadgeService
 	VoiceMessage       services.VoiceMessageService
 	PushToken          services.PushTokenService
+	Push               services.PushNotifier
 	Discovery          services.DiscoveryService
 	EmailSender        email.EmailSender
 }
@@ -81,6 +82,11 @@ type RateLimiters struct {
 	Feedback  *ratelimit.MessageRateLimiter
 	ICE       *ratelimit.MessageRateLimiter
 	Discovery *ratelimit.MessageRateLimiter
+	// Read gates the mark-read endpoints. Deliberately NOT the message limiter: marking a
+	// conversation read must not spend the budget a user needs to send a message. It gets its
+	// own bucket so a read loop cannot starve message-send, which is what it could do before —
+	// each call is a write plus three reads on a four-connection pool with an fsync per commit.
+	Read *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -215,7 +221,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	} else if apnsSender.Enabled() {
 		log.Println("[main] APNs VoIP enabled (iOS CallKit)")
 	}
-	pushService := services.NewPushService(pushSender, apnsSender, repos.PushToken, repos.User, hub, repos.DM, cfg.Push.DMDelay)
+	pushService := services.NewPushService(pushSender, apnsSender, repos.PushToken, repos.User, hub, repos.DM, cfg.Push)
 	dmService.SetPushNotifier(pushService)
 	p2pCallService.SetPushNotifier(pushService)
 	dmUploadService := services.NewDMUploadService(repos.DM, uploadPipeline, cfg.Upload.MaxSize)
@@ -278,6 +284,10 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
 	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
+	// The client coalesces mark-read to at most ~1/s per conversation, so even a split view with
+	// several chats open and the window being focused repeatedly stays far under this. A loop
+	// does not.
+	readLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
 
 	svcs := &Services{
 		Auth:               authService,
@@ -327,6 +337,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		VoiceMessage:       voiceMessageService,
 		PushToken:          pushTokenService,
 		Discovery:          discoveryService,
+		Push:               pushService,
 		EmailSender:        emailSender,
 	}
 
@@ -339,6 +350,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Feedback:  feedbackLimiter,
 		ICE:       iceLimiter,
 		Discovery: discoveryLimiter,
+		Read:      readLimiter,
 	}
 
 	return svcs, limiters, metricsCollector

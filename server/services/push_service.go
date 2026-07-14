@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/akinalp/mqvi/config"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/apns"
+	"github.com/akinalp/mqvi/pkg/breaker"
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/pkg/push"
 	"github.com/akinalp/mqvi/repository"
@@ -74,6 +77,47 @@ type pushReadState interface {
 // failing toward a delivered notification, never toward a lost one.
 const maxPendingDMPushes = 10_000
 
+// maxQueuedDMPushes bounds the goroutines waiting for a dispatch slot. Each one wants a database
+// connection, and the pool has four. A call is never counted against this: a missed call cannot
+// be caught up on later, and calls are rare enough that they cannot be the thing flooding us.
+const maxQueuedDMPushes = 1024
+
+// maxTrackedNotifications caps the outstanding-notification map. Past it we stop tracking and
+// retract unconditionally — the same behaviour as before the tracking existed. Failing toward an
+// extra silent data push beats failing toward a notification stuck on someone's lock screen.
+const maxTrackedNotifications = 100_000
+
+const pushTimeout = 15 * time.Second
+
+// Suppression reasons. Every path that decides NOT to notify says which one it was — these are
+// the four most likely answers to "why did this user get no notification?", and before this they
+// were all a bare `return`.
+const (
+	reasonDisabled    = "push_disabled"
+	reasonProviderRow = "provider_down"
+	reasonDND         = "dnd_or_invisible"
+	reasonNoTokens    = "no_tokens"
+	reasonAlreadyRead = "already_read"
+	reasonShed        = "backlog_full"
+)
+
+// PushStats is a snapshot of what push has been doing. Read by /api/health/ready.
+type PushStats struct {
+	Sent       int64 `json:"sent"`
+	Suppressed int64 `json:"suppressed"`
+	Failed     int64 `json:"failed"`
+	Shed       int64 `json:"shed"`
+	Deferred   int64 `json:"deferred"`
+	InFlight   int64 `json:"in_flight"`
+	FCMUp      bool  `json:"fcm_up"`
+	APNsUp     bool  `json:"apns_up"`
+}
+
+// PushStatsProvider is the health endpoint's view of the push service.
+type PushStatsProvider interface {
+	Stats() PushStats
+}
+
 type pushService struct {
 	fcm       push.Sender
 	apns      apns.Sender
@@ -81,9 +125,29 @@ type pushService struct {
 	users     pushUserLookup
 	presence  pushPresence
 	reads     pushReadState
-	dmDelay   time.Duration
 
-	pending atomic.Int64
+	dmDelay        time.Duration
+	readRetraction bool
+
+	sem         chan struct{}
+	fcmBreaker  *breaker.Breaker
+	apnsBreaker *breaker.Breaker
+
+	pending  atomic.Int64 // deferred timers waiting to fire
+	queued   atomic.Int64 // goroutines waiting for a dispatch slot
+	inFlight atomic.Int64
+	sent     atomic.Int64
+	supp     atomic.Int64
+	failed   atomic.Int64
+	shed     atomic.Int64
+
+	mu sync.Mutex
+	// outstanding tracks the conversations that currently have a notification sitting on one of
+	// the user's devices. Without it we fire a retraction push for every read of every
+	// conversation, including the ones that were never notified in the first place — which is
+	// most of them, and which is exactly the traffic that overflows FCM's queue for an offline
+	// device and takes the real call notifications down with it.
+	outstanding map[string]struct{}
 }
 
 func NewPushService(
@@ -93,16 +157,109 @@ func NewPushService(
 	users pushUserLookup,
 	presence pushPresence,
 	reads pushReadState,
-	dmDelay time.Duration,
+	cfg config.PushConfig,
 ) PushNotifier {
+	maxConcurrent := cfg.MaxConcurrent
+	if maxConcurrent <= 0 {
+		maxConcurrent = 16
+	}
 	return &pushService{
 		fcm: fcm, apns: apnsSender, tokenRepo: tokenRepo, users: users,
-		presence: presence, reads: reads, dmDelay: dmDelay,
+		presence: presence, reads: reads,
+		dmDelay:        cfg.DMDelay,
+		readRetraction: cfg.ReadRetraction,
+		sem:            make(chan struct{}, maxConcurrent),
+		fcmBreaker:     breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
+		apnsBreaker:    breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
+		outstanding:    make(map[string]struct{}),
 	}
+}
+
+func (s *pushService) Stats() PushStats {
+	return PushStats{
+		Sent:       s.sent.Load(),
+		Suppressed: s.supp.Load(),
+		Failed:     s.failed.Load(),
+		Shed:       s.shed.Load(),
+		Deferred:   s.pending.Load(),
+		InFlight:   s.inFlight.Load(),
+		FCMUp:      s.fcmUp(),
+		APNsUp:     s.apnsUp(),
+	}
+}
+
+// fcmUp / apnsUp fold "configured" and "not currently failing" into one question. When the
+// breaker is open we skip the token lookup too — that lookup is a database connection, and
+// paying for it on the way to a call that is going to time out is how an FCM outage becomes a
+// message-send outage.
+func (s *pushService) fcmUp() bool  { return s.fcm.Enabled() && s.fcmBreaker.Allow() }
+func (s *pushService) apnsUp() bool { return s.apns.Enabled() && s.apnsBreaker.Allow() }
+
+func (s *pushService) suppressed(userID, kind, reason string) {
+	s.supp.Add(1)
+	log.Printf("[push] skipped user=%s kind=%s reason=%s", userID, kind, reason)
+}
+
+// dispatch runs fn on the bounded pool. `sheddable` work is dropped once the backlog is absurd;
+// a call never is, because a missed call cannot be caught up on later and a missed DM can.
+func (s *pushService) dispatch(userID, kind string, sheddable bool, fn func(context.Context)) {
+	if sheddable {
+		if s.queued.Load() >= maxQueuedDMPushes {
+			s.shed.Add(1)
+			log.Printf("[push] skipped user=%s kind=%s reason=%s", userID, kind, reasonShed)
+			return
+		}
+		s.queued.Add(1)
+	}
+	go func() {
+		if sheddable {
+			defer s.queued.Add(-1)
+		}
+		s.sem <- struct{}{}
+		defer func() { <-s.sem }()
+
+		s.inFlight.Add(1)
+		defer s.inFlight.Add(-1)
+
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		fn(ctx)
+	}()
+}
+
+func outstandingKey(userID, dmChannelID string) string { return userID + "|" + dmChannelID }
+
+func (s *pushService) markOutstanding(userID, dmChannelID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.outstanding) >= maxTrackedNotifications {
+		return // stop tracking; NotifyDMRead then retracts unconditionally
+	}
+	s.outstanding[outstandingKey(userID, dmChannelID)] = struct{}{}
+}
+
+// takeOutstanding reports whether a notification is sitting on this user's tray for this
+// conversation, and clears it. Once the map is full it stops discriminating and says yes, so a
+// notification is never left stranded because we lost track of it.
+func (s *pushService) takeOutstanding(userID, dmChannelID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.outstanding) >= maxTrackedNotifications {
+		return true
+	}
+	key := outstandingKey(userID, dmChannelID)
+	_, ok := s.outstanding[key]
+	delete(s.outstanding, key)
+	return ok
 }
 
 func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID, messageID string) {
 	if !s.fcm.Enabled() && !s.apns.Enabled() {
+		s.suppressed(recipientID, "dm", reasonDisabled)
+		return
+	}
+	if !s.fcmUp() && !s.apnsUp() {
+		s.suppressed(recipientID, "dm", reasonProviderRow)
 		return
 	}
 
@@ -120,7 +277,7 @@ func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypte
 	time.AfterFunc(s.dmDelay, func() {
 		defer s.pending.Add(-1)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
 
 		read, err := s.reads.HasRead(ctx, recipientID, dmChannelID, messageID)
@@ -131,7 +288,7 @@ func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypte
 			// Tuning signal for MQVI_PUSH_DM_DELAY: this line firing often means the window is
 			// earning its keep. The opposite signal is a burst of dm_read retractions landing
 			// just after delivery — that means the window is too short.
-			log.Printf("[push] dm to %s suppressed: read within %s", recipientID, s.dmDelay)
+			s.suppressed(recipientID, "dm", reasonAlreadyRead)
 			return // they really are reading it — the push would be noise
 		}
 		s.deliverDM(recipientID, senderName, content, encrypted, dmChannelID, senderID)
@@ -139,13 +296,11 @@ func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypte
 }
 
 func (s *pushService) deliverDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID string) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		lang, suppressed := s.recipientPush(ctx, recipientID)
-		if suppressed {
-			return // recipient is in DND / invisible — honor "Pause notifications"
+	s.dispatch(recipientID, "dm", true, func(ctx context.Context) {
+		lang, suppress := s.recipientPush(ctx, recipientID)
+		if suppress {
+			s.suppressed(recipientID, "dm", reasonDND) // honor "Pause notifications"
+			return
 		}
 
 		// Fallback if the caller couldn't supply a name (message.Author not populated).
@@ -171,8 +326,9 @@ func (s *pushService) deliverDM(recipientID, senderName, content string, encrypt
 
 		// Android FCM tokens get an FCM notification; iOS APNs tokens get a direct APNs
 		// alert push (iOS has no FCM). VoIP tokens are for calls only, skipped here.
-		if s.fcm.Enabled() {
-			s.sendFCM(ctx, recipientID, push.Notification{
+		delivered := false
+		if s.fcmUp() {
+			delivered = s.sendFCM(ctx, recipientID, push.Notification{
 				Title:    senderName,
 				Body:     body,
 				Category: push.CategoryMessage,
@@ -180,10 +336,15 @@ func (s *pushService) deliverDM(recipientID, senderName, content string, encrypt
 				Tag:      dmNotificationTag(dmChannelID),
 			})
 		}
-		if s.apns.Enabled() {
+		if s.apnsUp() {
 			s.sendAPNsAlert(ctx, recipientID, senderName, body, data)
 		}
-	}()
+		if delivered {
+			// Remember that something is on their tray, so reading the conversation later is
+			// worth a retraction push and reading any OTHER conversation is not.
+			s.markOutstanding(recipientID, dmChannelID)
+		}
+	})
 }
 
 // dmNotificationTag names a conversation's Android notifications so native code can find
@@ -193,18 +354,31 @@ func dmNotificationTag(dmChannelID string) string {
 }
 
 func (s *pushService) NotifyDMRead(userID, dmChannelID string) {
-	if !s.fcm.Enabled() {
+	if !s.readRetraction {
+		return // MQVI_PUSH_DM_READ_RETRACTION=false — the tray is swept on next reconnect instead
+	}
+	if !s.fcmUp() {
 		return // Android-only: iOS cannot be relied on to retract a delivered alert
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		s.sendFCMData(ctx, userID, map[string]string{
-			"type":          "dm_read",
-			"dm_channel_id": dmChannelID,
+	// Nothing on their tray for this conversation, so there is nothing to pull back. This is the
+	// common case and skipping it is most of the point: a retraction for every read of every
+	// conversation is the traffic that overflows FCM's queue for an offline phone.
+	if !s.takeOutstanding(userID, dmChannelID) {
+		return
+	}
+	s.dispatch(userID, "dm_read", true, func(ctx context.Context) {
+		s.sendFCMData(ctx, userID, push.DataMessage{
+			Data: map[string]string{
+				"type":          "dm_read",
+				"dm_channel_id": dmChannelID,
+			},
+			// Per conversation, so a read of one chat cannot replace the retraction for another.
+			CollapseKey: "dm_read:" + dmChannelID,
+			// Not high priority: it produces no user-visible notification, and Google downranks
+			// senders whose high-priority messages don't — a downranking that would land on calls.
+			HighPriority: false,
 		})
-	}()
+	})
 }
 
 // sendAPNsAlert delivers a user-visible alert push to the recipient's iOS APNs tokens
@@ -230,13 +404,19 @@ func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body str
 		if t.TokenType != models.PushTokenTypeAPNs {
 			continue
 		}
-		if err := s.apns.SendAlert(ctx, t.Token, payload); err != nil {
-			if errors.Is(err, apns.ErrTokenUnregistered) {
-				dead = append(dead, t.Token)
-			} else {
-				log.Printf("[push] apns alert to %s: %v", userID, err)
-			}
+		err := s.apns.SendAlert(ctx, t.Token, payload)
+		if err == nil {
+			s.apnsBreaker.Record(true)
+			s.sent.Add(1)
+			continue
 		}
+		if errors.Is(err, apns.ErrTokenUnregistered) {
+			dead = append(dead, t.Token) // a fact about the device, not about APNs
+			continue
+		}
+		s.apnsBreaker.Record(false)
+		s.failed.Add(1)
+		log.Printf("[push] apns alert to %s: %v", userID, err)
 	}
 	if len(dead) > 0 {
 		if delErr := s.tokenRepo.DeleteTokens(ctx, dead); delErr != nil {
@@ -247,19 +427,20 @@ func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body str
 
 func (s *pushService) NotifyCall(receiverID, callerName string, callType models.P2PCallType, callID, callerID string) {
 	if !s.fcm.Enabled() && !s.apns.Enabled() {
+		s.suppressed(receiverID, "call", reasonDisabled)
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		lang, suppressed := s.recipientPush(ctx, receiverID)
-		if suppressed {
+	// A call is never shed and never deferred — it cannot be caught up on later.
+	s.dispatch(receiverID, "call", false, func(ctx context.Context) {
+		lang, suppress := s.recipientPush(ctx, receiverID)
+		if suppress {
+			s.suppressed(receiverID, "call", reasonDND)
 			return
 		}
 
 		tokens, err := s.tokenRepo.ListByUser(ctx, receiverID)
 		if err != nil {
+			s.failed.Add(1)
 			log.Printf("[push] list tokens for %s: %v", receiverID, err)
 			return
 		}
@@ -277,7 +458,7 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 		// Android — high-priority DATA message so the native FirebaseMessagingService
 		// builds a full-screen incoming-call notification even when the app is killed.
 		// The localized title/body travel in the data so the native side stays i18n-free.
-		if len(androidFCM) > 0 && s.fcm.Enabled() {
+		if len(androidFCM) > 0 && s.fcmUp() {
 			loc := i18n.NewLocalizer(lang)
 			bodyKey := "push.incomingVoiceCall"
 			if callType == models.P2PCallTypeVideo {
@@ -291,53 +472,48 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 				"title":     callerName,
 				"body":      loc.T(bodyKey),
 			}
-			invalid, err := s.fcm.SendData(ctx, androidFCM, callData)
+			// No collapse key: every incoming call is a distinct event and must never replace
+			// another one. High priority because it has to wake a dozing phone and ring it.
+			invalid, err := s.fcm.SendData(ctx, androidFCM, push.DataMessage{
+				Data:         callData,
+				HighPriority: true,
+			})
+			s.fcmBreaker.Record(err == nil)
 			if err != nil {
+				s.failed.Add(1)
 				log.Printf("[push] call FCM to %s: %v", receiverID, err)
-			} else if len(invalid) > 0 {
-				if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
-					log.Printf("[push] prune fcm tokens: %v", delErr)
+			} else {
+				s.sent.Add(1)
+				if len(invalid) > 0 {
+					if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
+						log.Printf("[push] prune fcm tokens: %v", delErr)
+					}
 				}
 			}
 		}
 
 		// iOS — APNs VoIP (CallKit). caller_name carried for the native call UI.
-		if len(voip) > 0 && s.apns.Enabled() {
+		if len(voip) > 0 && s.apnsUp() {
 			payload := map[string]any{
 				"call_id":     callID,
 				"caller_id":   callerID,
 				"caller_name": callerName,
 				"call_type":   string(callType),
 			}
-			var dead []string
-			for _, vt := range voip {
-				if err := s.apns.SendVoIP(ctx, vt, payload); err != nil {
-					if errors.Is(err, apns.ErrTokenUnregistered) {
-						dead = append(dead, vt)
-					} else {
-						log.Printf("[push] voip to %s: %v", receiverID, err)
-					}
-				}
-			}
-			if len(dead) > 0 {
-				if delErr := s.tokenRepo.DeleteTokens(ctx, dead); delErr != nil {
-					log.Printf("[push] prune voip tokens: %v", delErr)
-				}
-			}
+			s.sendVoIP(ctx, receiverID, voip, payload)
 		}
-	}()
+	})
 }
 
 func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID string) {
 	if !s.fcm.Enabled() && !s.apns.Enabled() {
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
+	// Never shed: a device left ringing for a call that is already over is worse than the load.
+	s.dispatch(receiverID, "call_cancel", false, func(ctx context.Context) {
 		tokens, err := s.tokenRepo.ListByUser(ctx, receiverID)
 		if err != nil {
+			s.failed.Add(1)
 			log.Printf("[push] list tokens for %s: %v", receiverID, err)
 			return
 		}
@@ -360,38 +536,61 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 
 		// Android — data message the native FirebaseMessagingService uses to cancel the
 		// ringing incoming-call notification.
-		if len(androidFCM) > 0 && s.fcm.Enabled() {
-			data := map[string]string{"type": "call_cancel", "call_id": callID}
-			invalid, err := s.fcm.SendData(ctx, androidFCM, data)
+		if len(androidFCM) > 0 && s.fcmUp() {
+			invalid, err := s.fcm.SendData(ctx, androidFCM, push.DataMessage{
+				Data: map[string]string{"type": "call_cancel", "call_id": callID},
+				// Repeated cancels for the same call replace each other instead of queueing.
+				// High priority: it dismisses a UI that is ringing right now.
+				CollapseKey:  "call_cancel:" + callID,
+				HighPriority: true,
+			})
+			s.fcmBreaker.Record(err == nil)
 			if err != nil {
+				s.failed.Add(1)
 				log.Printf("[push] cancel FCM to %s: %v", receiverID, err)
-			} else if len(invalid) > 0 {
-				if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
-					log.Printf("[push] prune fcm tokens: %v", delErr)
+			} else {
+				s.sent.Add(1)
+				if len(invalid) > 0 {
+					if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
+						log.Printf("[push] prune fcm tokens: %v", delErr)
+					}
 				}
 			}
 		}
 
 		// iOS — a VoIP push carrying "cancel" so CallManager dismisses the CallKit call.
-		if len(voip) > 0 && s.apns.Enabled() {
-			payload := map[string]any{"call_id": callID, "cancel": true}
-			var dead []string
-			for _, vt := range voip {
-				if err := s.apns.SendVoIP(ctx, vt, payload); err != nil {
-					if errors.Is(err, apns.ErrTokenUnregistered) {
-						dead = append(dead, vt)
-					} else {
-						log.Printf("[push] cancel voip to %s: %v", receiverID, err)
-					}
-				}
-			}
-			if len(dead) > 0 {
-				if delErr := s.tokenRepo.DeleteTokens(ctx, dead); delErr != nil {
-					log.Printf("[push] prune voip tokens: %v", delErr)
-				}
-			}
+		if len(voip) > 0 && s.apnsUp() {
+			s.sendVoIP(ctx, receiverID, voip, map[string]any{"call_id": callID, "cancel": true})
 		}
-	}()
+	})
+}
+
+// sendVoIP delivers a VoIP payload to each of the user's PushKit tokens, pruning the ones APNs
+// reports permanently dead.
+func (s *pushService) sendVoIP(ctx context.Context, userID string, tokens []string, payload map[string]any) {
+	var dead []string
+	for _, vt := range tokens {
+		err := s.apns.SendVoIP(ctx, vt, payload)
+		if err == nil {
+			s.apnsBreaker.Record(true)
+			s.sent.Add(1)
+			continue
+		}
+		if errors.Is(err, apns.ErrTokenUnregistered) {
+			// A dead token is a fact about the device, not about APNs — it must not open the
+			// breaker, or one uninstalled app would stop pushes for everyone.
+			dead = append(dead, vt)
+			continue
+		}
+		s.apnsBreaker.Record(false)
+		s.failed.Add(1)
+		log.Printf("[push] voip to %s: %v", userID, err)
+	}
+	if len(dead) > 0 {
+		if delErr := s.tokenRepo.DeleteTokens(ctx, dead); delErr != nil {
+			log.Printf("[push] prune voip tokens: %v", delErr)
+		}
+	}
 }
 
 // sendFCM delivers a notification message to the user's FCM tokens — excluding VoIP
@@ -400,9 +599,10 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 // sendFCMData delivers a data-only message to the user's Android devices. Data-only is
 // what reaches MqviMessagingService even when the app is backgrounded or killed — a
 // notification payload would be displayed by the FCM SDK instead of handed to our code.
-func (s *pushService) sendFCMData(ctx context.Context, userID string, data map[string]string) {
+func (s *pushService) sendFCMData(ctx context.Context, userID string, m push.DataMessage) {
 	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
 	if err != nil {
+		s.failed.Add(1)
 		log.Printf("[push] list tokens for %s: %v", userID, err)
 		return
 	}
@@ -417,11 +617,14 @@ func (s *pushService) sendFCMData(ctx context.Context, userID string, data map[s
 		return
 	}
 
-	invalid, err := s.fcm.SendData(ctx, androidFCM, data)
+	invalid, err := s.fcm.SendData(ctx, androidFCM, m)
+	s.fcmBreaker.Record(err == nil)
 	if err != nil {
+		s.failed.Add(1)
 		log.Printf("[push] send data to %s: %v", userID, err)
 		return
 	}
+	s.sent.Add(1)
 	if len(invalid) > 0 {
 		if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
 			log.Printf("[push] prune %d invalid tokens: %v", len(invalid), delErr)
@@ -429,11 +632,14 @@ func (s *pushService) sendFCMData(ctx context.Context, userID string, data map[s
 	}
 }
 
-func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notification) {
+// sendFCM reports whether a notification actually went out, so the caller knows there is now
+// something on the user's tray worth retracting later.
+func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notification) bool {
 	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
 	if err != nil {
+		s.failed.Add(1)
 		log.Printf("[push] list tokens for %s: %v", userID, err)
-		return
+		return false
 	}
 
 	var values []string
@@ -443,19 +649,25 @@ func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notific
 		}
 	}
 	if len(values) == 0 {
-		return
+		s.suppressed(userID, "dm", reasonNoTokens)
+		return false
 	}
 
 	invalid, err := s.fcm.Send(ctx, values, n)
+	s.fcmBreaker.Record(err == nil)
 	if err != nil {
+		s.failed.Add(1)
 		log.Printf("[push] send to %s: %v", userID, err)
-		return
+		return false
 	}
+	s.sent.Add(1)
 	if len(invalid) > 0 {
 		if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
 			log.Printf("[push] prune %d invalid tokens: %v", len(invalid), delErr)
 		}
 	}
+	// Every token was dead: nothing was delivered, so nothing is on a tray.
+	return len(invalid) < len(values)
 }
 
 // recipientPush fetches the recipient once and returns their notification language

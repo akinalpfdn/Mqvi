@@ -3,9 +3,12 @@ package services
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/akinalp/mqvi/config"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/apns"
 	"github.com/akinalp/mqvi/pkg/push"
@@ -37,7 +40,7 @@ func (disabledFCM) Enabled() bool { return false }
 func (disabledFCM) Send(context.Context, []string, push.Notification) ([]string, error) {
 	return nil, nil
 }
-func (disabledFCM) SendData(context.Context, []string, map[string]string) ([]string, error) {
+func (disabledFCM) SendData(context.Context, []string, push.DataMessage) ([]string, error) {
 	return nil, nil
 }
 
@@ -55,7 +58,7 @@ func TestNotifyCallCancel_SkipsTheDeviceThatActed(t *testing.T) {
 	}}
 	sink := &capturingAPNs{sent: make(chan string, 4)}
 
-	s := &pushService{fcm: disabledFCM{}, apns: sink, tokenRepo: repo, users: nil}
+	s := NewPushService(disabledFCM{}, sink, repo, nil, nil, nil, testPushConfig(0))
 	s.NotifyCallCancel("rcv", "call1", phone)
 
 	got := <-sink.sent
@@ -80,7 +83,7 @@ func TestNotifyCallCancel_StillReachesTokensWithNoDeviceID(t *testing.T) {
 	}}
 	sink := &capturingAPNs{sent: make(chan string, 4)}
 
-	s := &pushService{fcm: disabledFCM{}, apns: sink, tokenRepo: repo, users: nil}
+	s := NewPushService(disabledFCM{}, sink, repo, nil, nil, nil, testPushConfig(0))
 	s.NotifyCallCancel("rcv", "call1", phone)
 
 	if got := <-sink.sent; got != "voip-old" {
@@ -120,7 +123,7 @@ func (c *capturingFCM) Send(_ context.Context, tokens []string, _ push.Notificat
 	}
 	return nil, nil
 }
-func (c *capturingFCM) SendData(context.Context, []string, map[string]string) ([]string, error) {
+func (c *capturingFCM) SendData(context.Context, []string, push.DataMessage) ([]string, error) {
 	return nil, nil
 }
 
@@ -130,18 +133,27 @@ func (disabledAPNs) Enabled() bool                                           { r
 func (disabledAPNs) SendVoIP(context.Context, string, map[string]any) error  { return nil }
 func (disabledAPNs) SendAlert(context.Context, string, map[string]any) error { return nil }
 
-func dmPushService(t *testing.T, online, alreadyRead bool, delay time.Duration) (*pushService, *capturingFCM, *fakeReads) {
+func dmPushService(t *testing.T, online, alreadyRead bool, delay time.Duration) (PushNotifier, *capturingFCM, *fakeReads) {
 	t.Helper()
 	fcm := &capturingFCM{sent: make(chan string, 4)}
 	reads := &fakeReads{read: alreadyRead, asked: make(chan struct{}, 4)}
 	repo := &fakeTokenRepo{tokens: []models.PushToken{
 		{Token: "android-1", TokenType: models.PushTokenTypeFCM, Platform: "android"},
 	}}
-	s := &pushService{
-		fcm: fcm, apns: disabledAPNs{}, tokenRepo: repo, users: &fakeUsers{},
-		presence: fakePresence{online: online}, reads: reads, dmDelay: delay,
-	}
+	s := NewPushService(fcm, disabledAPNs{}, repo, &fakeUsers{},
+		fakePresence{online: online}, reads, testPushConfig(delay))
 	return s, fcm, reads
+}
+
+func testPushConfig(delay time.Duration) config.PushConfig {
+	return config.PushConfig{
+		DMDelay:                 delay,
+		ReadRetraction:          true,
+		MaxConcurrent:           4,
+		CircuitFailureThreshold: 5,
+		CircuitWindow:           30 * time.Second,
+		CircuitOpen:             30 * time.Second,
+	}
 }
 
 type fakeUsers struct{}
@@ -216,5 +228,177 @@ func TestNotifyDM_SendsAnywayWhenTheReadCheckFails(t *testing.T) {
 	case <-fcm.sent:
 	case <-time.After(2 * time.Second):
 		t.Fatal("a failed read check silently swallowed the notification")
+	}
+}
+
+// ─── FIX-06: operability ───
+
+// recordingFCM captures data messages and can be told to fail.
+type recordingFCM struct {
+	mu       sync.Mutex
+	notifs   int
+	data     []push.DataMessage
+	failWith error
+	sent     chan struct{}
+}
+
+func (r *recordingFCM) Enabled() bool { return true }
+
+func (r *recordingFCM) Send(context.Context, []string, push.Notification) ([]string, error) {
+	r.mu.Lock()
+	r.notifs++
+	r.mu.Unlock()
+	if r.failWith != nil {
+		return nil, r.failWith
+	}
+	r.signal()
+	return nil, nil
+}
+
+func (r *recordingFCM) SendData(_ context.Context, _ []string, m push.DataMessage) ([]string, error) {
+	r.mu.Lock()
+	r.data = append(r.data, m)
+	r.mu.Unlock()
+	if r.failWith != nil {
+		return nil, r.failWith
+	}
+	r.signal()
+	return nil, nil
+}
+
+func (r *recordingFCM) signal() {
+	select {
+	case r.sent <- struct{}{}:
+	default:
+	}
+}
+
+func (r *recordingFCM) dataMessages() []push.DataMessage {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]push.DataMessage(nil), r.data...)
+}
+
+func (r *recordingFCM) notifCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.notifs
+}
+
+// countingTokenRepo records how often the database was asked for tokens. That call is a
+// connection checkout on a four-connection pool, so "did we even ask" is the load question.
+type countingTokenRepo struct {
+	fakeTokenRepo
+	lookups atomic.Int64
+}
+
+func (c *countingTokenRepo) ListByUser(ctx context.Context, id string) ([]models.PushToken, error) {
+	c.lookups.Add(1)
+	return c.fakeTokenRepo.ListByUser(ctx, id)
+}
+
+func opsPushService(cfg config.PushConfig) (PushNotifier, *recordingFCM, *countingTokenRepo) {
+	fcm := &recordingFCM{sent: make(chan struct{}, 16)}
+	repo := &countingTokenRepo{fakeTokenRepo: fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "android-1", TokenType: models.PushTokenTypeFCM, Platform: "android"},
+	}}}
+	s := NewPushService(fcm, disabledAPNs{}, repo, &fakeUsers{},
+		fakePresence{online: false}, &fakeReads{asked: make(chan struct{}, 4)}, cfg)
+	return s, fcm, repo
+}
+
+// A retraction for a conversation that was never notified is pure noise — and it is most of the
+// traffic, because most reads happen on a conversation the phone was never told about. That noise
+// is what overflows FCM's 100-message queue for an offline device and takes the queued CALL
+// notifications down with it.
+func TestNotifyDMRead_SilentWhenNothingWasEverDelivered(t *testing.T) {
+	s, fcm, _ := opsPushService(testPushConfig(0))
+
+	s.NotifyDMRead("rcv", "c1")
+
+	time.Sleep(100 * time.Millisecond)
+	if got := len(fcm.dataMessages()); got != 0 {
+		t.Errorf("sent %d retraction pushes for a conversation with nothing on the tray", got)
+	}
+}
+
+func TestNotifyDMRead_RetractsOnceWhenSomethingWasDelivered(t *testing.T) {
+	s, fcm, _ := opsPushService(testPushConfig(0))
+
+	s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "m1")
+	<-fcm.sent // the notification landed on their tray
+
+	s.NotifyDMRead("rcv", "c1")
+	<-fcm.sent
+
+	msgs := fcm.dataMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("sent %d retractions, want exactly 1", len(msgs))
+	}
+	if msgs[0].CollapseKey != "dm_read:c1" {
+		t.Errorf("collapse key %q, want dm_read:c1 — without a per-conversation key, a read of one "+
+			"chat replaces the retraction queued for another", msgs[0].CollapseKey)
+	}
+	if msgs[0].HighPriority {
+		t.Error("high priority on a push that shows the user nothing — this is what gets a sender downranked, and the downranking lands on calls")
+	}
+
+	// The tray is clear now. Reading again must not push again.
+	s.NotifyDMRead("rcv", "c1")
+	time.Sleep(100 * time.Millisecond)
+	if got := len(fcm.dataMessages()); got != 1 {
+		t.Errorf("sent %d retractions after the tray was already cleared, want 1", got)
+	}
+}
+
+func TestNotifyDMRead_SilentWhenTheKillSwitchIsOff(t *testing.T) {
+	cfg := testPushConfig(0)
+	cfg.ReadRetraction = false
+	s, fcm, _ := opsPushService(cfg)
+
+	s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "m1")
+	<-fcm.sent
+	s.NotifyDMRead("rcv", "c1")
+
+	time.Sleep(100 * time.Millisecond)
+	if got := len(fcm.dataMessages()); got != 0 {
+		t.Errorf("MQVI_PUSH_DM_READ_RETRACTION=false still sent %d retractions", got)
+	}
+}
+
+// The point of the breaker is not to fail faster — it is to stop paying for the failure. A send
+// that is going to time out still checks out a database connection on the way there, and the pool
+// has four of them. That is how an FCM outage becomes a message-send outage.
+func TestNotifyDM_BreakerStopsTouchingTheDatabaseOnceFCMIsDown(t *testing.T) {
+	cfg := testPushConfig(0)
+	cfg.CircuitFailureThreshold = 3
+	cfg.CircuitOpen = time.Minute
+	s, fcm, repo := opsPushService(cfg)
+	fcm.failWith = errors.New("fcm is down")
+
+	for i := 0; i < 3; i++ {
+		s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "")
+	}
+	// Wait for the breaker to have seen all three failures.
+	deadline := time.Now().Add(2 * time.Second)
+	for fcm.notifCount() < 3 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if fcm.notifCount() < 3 {
+		t.Fatalf("only %d sends were attempted, want 3", fcm.notifCount())
+	}
+	lookupsWhileFailing := repo.lookups.Load()
+
+	for i := 0; i < 5; i++ {
+		s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "")
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	if got := repo.lookups.Load(); got != lookupsWhileFailing {
+		t.Errorf("%d further token lookups after the breaker opened — the outage is still costing database connections",
+			got-lookupsWhileFailing)
+	}
+	if fcm.notifCount() != 3 {
+		t.Errorf("%d sends attempted, want 3 — the breaker did not stop calling a dependency that is down", fcm.notifCount())
 	}
 }

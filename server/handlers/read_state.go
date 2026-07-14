@@ -6,16 +6,23 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
 
 // ReadStateHandler handles unread message tracking endpoints.
 type ReadStateHandler struct {
 	readStateService services.ReadStateService
+	// Same bucket as the DM mark-read: same shape (a write plus reads on a four-connection pool
+	// with an fsync per commit), same damage in a loop.
+	readLimiter *ratelimit.MessageRateLimiter
 }
 
-func NewReadStateHandler(readStateService services.ReadStateService) *ReadStateHandler {
-	return &ReadStateHandler{readStateService: readStateService}
+func NewReadStateHandler(
+	readStateService services.ReadStateService,
+	readLimiter *ratelimit.MessageRateLimiter,
+) *ReadStateHandler {
+	return &ReadStateHandler{readStateService: readStateService, readLimiter: readLimiter}
 }
 
 type markReadRequest struct {
@@ -30,6 +37,10 @@ func (h *ReadStateHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	if rateLimited(w, h.readLimiter, user.ID) {
 		return
 	}
 
@@ -53,6 +64,10 @@ func (h *ReadStateHandler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	if rateLimited(w, h.readLimiter, user.ID) {
 		return
 	}
 
@@ -82,6 +97,10 @@ func (h *ReadStateHandler) MarkMentionSeen(w http.ResponseWriter, r *http.Reques
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	if rateLimited(w, h.readLimiter, user.ID) {
 		return
 	}
 

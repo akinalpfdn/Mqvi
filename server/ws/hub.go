@@ -497,6 +497,17 @@ func (h *Hub) IsOnline(userID string) bool {
 	return len(h.clients[userID]) > 0
 }
 
+// Counts reports live sockets and the users behind them. A jump in sockets per user is the
+// shape of a reconnect loop, which /health/ready surfaces before it becomes an outage.
+func (h *Hub) Counts() (connections, users int) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, set := range h.clients {
+		connections += len(set)
+	}
+	return connections, len(h.clients)
+}
+
 func (h *Hub) GetOnlineUserIDs() []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

@@ -47,6 +47,22 @@ type PushConfig struct {
 	// then retracted — the complaint this feature exists to fix. Too LONG costs a backgrounded
 	// phone one second. Tune it against real p99 rather than this estimate. 0 disables the wait.
 	DMDelay time.Duration
+	// ReadRetraction sends a silent data push that pulls a delivered DM notification back off
+	// the tray once the user reads the conversation elsewhere. Off means a stale notification
+	// sits there until the app next reconnects and sweeps the tray — annoying, not broken.
+	// The switch exists so a retraction storm can be stopped without a redeploy.
+	ReadRetraction bool
+	// MaxConcurrent bounds the push goroutines in flight. Each one checks out a database
+	// connection to read the recipient's tokens, and the pool has four. Unbounded, an FCM
+	// outage — where every send holds its context to the full timeout — turns into a
+	// message-send outage for the whole server.
+	MaxConcurrent int
+	// Circuit breaker over FCM/APNs. Once the provider has failed this many times in
+	// CircuitWindow, stop calling it for CircuitOpen — including the token lookup that would
+	// have preceded the call.
+	CircuitFailureThreshold int
+	CircuitWindow           time.Duration
+	CircuitOpen             time.Duration
 }
 
 // APNsConfig holds token-based (.p8) APNs auth for iOS VoIP pushes. Disabled if any
@@ -270,6 +286,10 @@ func Load() (*Config, error) {
 
 	// Optional iOS VoIP push flag — invalid value defaults to sandbox (push is optional).
 	apnsProduction, _ := strconv.ParseBool(getEnv("APNS_PRODUCTION", "false"))
+	pushReadRetraction, err := strconv.ParseBool(getEnv("MQVI_PUSH_DM_READ_RETRACTION", "true"))
+	if err != nil {
+		return nil, fmt.Errorf("MQVI_PUSH_DM_READ_RETRACTION must be a boolean: %w", err)
+	}
 
 	cfg := &Config{
 		Server: ServerConfig{
@@ -329,8 +349,13 @@ func Load() (*Config, error) {
 			CredentialTTLSeconds: turnTTL,
 		},
 		Push: PushConfig{
-			CredentialsFile: getEnv("FCM_CREDENTIALS_FILE", "./firebase-service-account.json"),
-			DMDelay:         getEnvDuration("MQVI_PUSH_DM_DELAY", 3*time.Second),
+			CredentialsFile:         getEnv("FCM_CREDENTIALS_FILE", "./firebase-service-account.json"),
+			DMDelay:                 getEnvDuration("MQVI_PUSH_DM_DELAY", 3*time.Second),
+			ReadRetraction:          pushReadRetraction,
+			MaxConcurrent:           getEnvInt("MQVI_PUSH_MAX_CONCURRENT", 16),
+			CircuitFailureThreshold: getEnvInt("MQVI_PUSH_CIRCUIT_FAILURE_THRESHOLD", 5),
+			CircuitWindow:           getEnvDuration("MQVI_PUSH_CIRCUIT_WINDOW", 30*time.Second),
+			CircuitOpen:             getEnvDuration("MQVI_PUSH_CIRCUIT_OPEN", 30*time.Second),
 			APNs: APNsConfig{
 				KeyPath:    getEnv("APNS_KEY_FILE", "./apns-key.p8"),
 				KeyID:      getEnv("APNS_KEY_ID", ""),
@@ -397,6 +422,21 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// getEnvInt reads an int tuning knob. An unparseable or non-positive value falls back to the
+// default rather than failing the boot — a mistyped knob must not take the server down, and a
+// zero bound would mean "no pushes at all" rather than "no limit".
+func getEnvInt(key string, fallback int) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }
 
 // getEnvDuration reads a duration (e.g. "3s", "500ms"). An unparseable value falls back to the
