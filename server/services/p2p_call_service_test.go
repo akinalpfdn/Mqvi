@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -398,9 +400,13 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 // ones with a live socket, and via a cancel push for the ones that are backgrounded
 // and ringing on the push alone.
 
-// recordingHub captures BroadcastToUser so tests can assert who was told what.
+// recordingHub captures BroadcastToUser so tests can assert who was told what. Locked, because
+// the thing worth testing here is what happens when several devices accept at the same instant —
+// a recorder that cannot be called concurrently forces the test to fake the concurrency, and a
+// faked race proves nothing.
 type recordingHub struct {
 	fakeHub
+	mu   sync.Mutex
 	sent []sentEvent
 }
 
@@ -410,10 +416,14 @@ type sentEvent struct {
 }
 
 func (h *recordingHub) BroadcastToUser(userID string, e ws.Event) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.sent = append(h.sent, sentEvent{userID: userID, event: e})
 }
 
 func (h *recordingHub) eventsFor(userID, op string) []ws.Event {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	var out []ws.Event
 	for _, s := range h.sent {
 		if s.userID == userID && s.event.Op == op {
@@ -425,16 +435,25 @@ func (h *recordingHub) eventsFor(userID, op string) []ws.Event {
 
 // recordingPush captures cancel pushes. Only NotifyCallCancel is exercised here.
 type recordingPush struct {
+	mu        sync.Mutex
 	cancelled []string // receiverIDs told to stop ringing
 	excluded  []string // the device exempted from each cancel
 }
 
-func (p *recordingPush) NotifyDM(_, _, _ string, _ bool, _, _, _ string) {}
-func (p *recordingPush) NotifyDMRead(_, _ string)                     {}
+func (p *recordingPush) NotifyDM(_, _, _ string, _ bool, _, _, _ string)           {}
+func (p *recordingPush) NotifyDMRead(_, _ string)                                  {}
 func (p *recordingPush) NotifyCall(_, _ string, _ models.P2PCallType, _, _ string) {}
 func (p *recordingPush) NotifyCallCancel(receiverID, _, excludeDeviceID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.excluded = append(p.excluded, excludeDeviceID)
 	p.cancelled = append(p.cancelled, receiverID)
+}
+
+func (p *recordingPush) cancels() ([]string, []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.cancelled...), append([]string(nil), p.excluded...)
 }
 
 func ringingCallService() (*p2pCallService, *recordingHub, *recordingPush) {
@@ -479,26 +498,58 @@ func TestAcceptCallStopsSiblingDevices(t *testing.T) {
 // Two devices of the same receiver pressing accept at once: exactly one wins, and the
 // broadcast names it. Without a server-assigned winner both devices would believe they
 // accepted and both would answer the caller's offer.
+// The real thing: the user's phone, desktop and tablet all ring, and two of them are tapped in
+// the same instant. Exactly one may win. The old version of this test called AcceptCall twice
+// SEQUENTIALLY, which would pass with the mutex deleted — it proved nothing about the race it
+// was named after. Run with -race.
 func TestConcurrentAcceptHasOneWinner(t *testing.T) {
 	svc, hub, _ := ringingCallService()
 
-	err1 := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "x")
-	err2 := svc.AcceptCall("rcv", "desktop-sess", "desktop-dev", "x")
+	const devices = 8
+	var start sync.WaitGroup
+	var done sync.WaitGroup
+	start.Add(1)
 
-	if err1 != nil {
-		t.Fatalf("first accept must win: %v", err1)
+	errs := make([]error, devices)
+	for i := 0; i < devices; i++ {
+		done.Add(1)
+		go func(i int) {
+			defer done.Done()
+			start.Wait() // every goroutine is parked here until the gun goes off
+			errs[i] = svc.AcceptCall("rcv", fmt.Sprintf("sess-%d", i), fmt.Sprintf("dev-%d", i), "x")
+		}(i)
 	}
-	if !errors.Is(err2, pkg.ErrBadRequest) {
-		t.Fatalf("second accept must be rejected (call no longer ringing), got %v", err2)
+	start.Done()
+	done.Wait()
+
+	var winners, rejected int
+	winnerIdx := -1
+	for i, err := range errs {
+		switch {
+		case err == nil:
+			winners++
+			winnerIdx = i
+		case errors.Is(err, pkg.ErrBadRequest):
+			rejected++
+		default:
+			t.Fatalf("device %d got an unexpected error: %v", i, err)
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("%d devices answered the same call, want exactly 1", winners)
+	}
+	if rejected != devices-1 {
+		t.Fatalf("%d devices were rejected, want %d", rejected, devices-1)
 	}
 
 	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
 	if len(own) != 1 {
-		t.Fatalf("only the winning accept may broadcast, got %d", len(own))
+		t.Fatalf("%d accept broadcasts — the losers' devices would each think they answered", len(own))
 	}
 	data, _ := own[0].Data.(map[string]string)
-	if data["accepted_by"] != "phone-sess" {
-		t.Errorf("accepted_by must name the winner, got %q", data["accepted_by"])
+	if want := fmt.Sprintf("sess-%d", winnerIdx); data["accepted_by"] != want {
+		t.Errorf("accepted_by is %q but the call was won by %q — the sibling devices would hang up the wrong one",
+			data["accepted_by"], want)
 	}
 }
 
