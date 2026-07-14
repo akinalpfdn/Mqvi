@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
+import { useAppFocusStore } from "../../stores/appFocusStore";
 import { authorDisplayName, authorAvatarURL, isAuthorDeleted } from "../../utils/deletedUser";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { useToastStore } from "../../stores/toastStore";
@@ -80,6 +81,7 @@ function DMChatContent({
   const selectDM = useDMStore((s) => s.selectDM);
   const markDMReadUpTo = useDMStore((s) => s.markDMReadUpTo);
   const heldMessages = useDMStore((s) => s.messagesByChannel[channelId]);
+  const isForeground = useAppFocusStore((s) => s.isForeground);
   const invalidateMessages = useDMStore((s) => s.invalidateMessages);
   const fetchMessages = useDMStore((s) => s.fetchMessages);
   const toggleE2EE = useDMStore((s) => s.toggleE2EE);
@@ -113,24 +115,17 @@ function DMChatContent({
     };
   }, [channelId, selectDM]);
 
-  // The conversation counts as read when it is on screen AND the user is in front of it. A
-  // backgrounded window has read nothing — marking it read there would retract the push the
-  // user was just sent. Re-runs as messages land (mount, fetch, resync, a new arrival) and when
-  // the window comes back to the front, so a DM left open is marked read the moment it is
-  // looked at again. The watermark itself is picked from what actually decrypted.
+  // The conversation counts as read when it is on screen AND the user is in front of the app.
+  // A backgrounded app has read nothing — marking it read would retract the push just sent.
+  // Re-runs as messages land (mount, fetch, resync, a new arrival) and when the app comes back
+  // to the front, so a DM left open is marked read the moment it is looked at again.
+  //
+  // isForeground, not document.hasFocus(): on Android that can be false while the app is in front.
+  // null means the native app state has not answered yet — claim nothing until it does.
   useEffect(() => {
-    const markIfLooking = () => {
-      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
-      markDMReadUpTo(channelId);
-    };
-    markIfLooking();
-    window.addEventListener("focus", markIfLooking);
-    document.addEventListener("visibilitychange", markIfLooking);
-    return () => {
-      window.removeEventListener("focus", markIfLooking);
-      document.removeEventListener("visibilitychange", markIfLooking);
-    };
-  }, [channelId, heldMessages, markDMReadUpTo]);
+    if (isForeground !== true) return;
+    markDMReadUpTo(channelId);
+  }, [channelId, heldMessages, isForeground, markDMReadUpTo]);
 
   // Invalidate + re-fetch messages when E2EE transitions to "ready".
   // Prevents race condition where fetchMessages runs before e2eeStore.initialize()

@@ -34,6 +34,7 @@ vi.mock("../../utils/pushDismiss", () => ({
 import { handleDMEvent } from "./dmEventHandlers";
 import { useDMStore } from "../../stores/dmStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useAppFocusStore } from "../../stores/appFocusStore";
 import type { DMMessage, WSMessage } from "../../types";
 
 const ME = "me";
@@ -57,6 +58,7 @@ function deleteEvent(id: string): WSMessage {
 beforeEach(() => {
   vi.clearAllMocks();
   useAuthStore.setState({ user: { id: ME, username: "me" } as never });
+  useAppFocusStore.setState({ isForeground: false });
   useDMStore.setState({
     messagesByChannel: {},
     dmUnreadCounts: { c1: 2 },
@@ -128,19 +130,20 @@ describe("dm_message_create — the badge gate matches the read gate", () => {
     return { op: "dm_message_create", d: msg("new-1", THEM) } as WSMessage;
   }
 
-  it("raises the badge for a selected DM when the window is not focused", async () => {
+  it("raises the badge for a selected DM when the app is in the background", async () => {
     useDMStore.setState({ selectedDMId: "c1", dmUnreadCounts: {} });
-    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    useAppFocusStore.setState({ isForeground: false });
 
     await handleDMEvent(incoming());
 
     expect(useDMStore.getState().dmUnreadCounts.c1).toBe(1);
   });
 
-  it("raises the badge for a selected DM when the tab is hidden", async () => {
+  // Cold start: the native app state has not answered yet. "Unknown" is not "in front of it" —
+  // claiming otherwise would suppress the badge AND the read, on nothing but a guess.
+  it("raises the badge while the foreground state is still unknown", async () => {
     useDMStore.setState({ selectedDMId: "c1", dmUnreadCounts: {} });
-    vi.spyOn(document, "hasFocus").mockReturnValue(true);
-    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    useAppFocusStore.setState({ isForeground: null });
 
     await handleDMEvent(incoming());
 
@@ -148,10 +151,9 @@ describe("dm_message_create — the badge gate matches the read gate", () => {
   });
 
   // Actually looking at it: DMChat marks it read, so a badge here would be wrong.
-  it("stays silent when the DM is selected AND the user is in front of the window", async () => {
+  it("stays silent when the DM is selected AND the app is in the foreground", async () => {
     useDMStore.setState({ selectedDMId: "c1", dmUnreadCounts: {} });
-    vi.spyOn(document, "hasFocus").mockReturnValue(true);
-    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    useAppFocusStore.setState({ isForeground: true });
 
     await handleDMEvent(incoming());
 

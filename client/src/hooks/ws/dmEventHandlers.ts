@@ -5,6 +5,7 @@
 
 import { useDMStore } from "../../stores/dmStore";
 import { useAuthStore } from "../../stores/authStore";
+import { isAppInForeground } from "../../stores/appFocusStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { decryptDMMessage, popSentPlaintext, popEditPlaintext } from "../../crypto/dmEncryption";
 import * as keyStorage from "../../crypto/keyStorage";
@@ -91,9 +92,7 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
       // the server still counted it unread and pushed to the phone — the one conversation the
       // desktop stayed silent about was the one it had open.
       const isLookingAtIt =
-        dmMsg.dm_channel_id === dmState.selectedDMId &&
-        document.visibilityState === "visible" &&
-        document.hasFocus();
+        dmMsg.dm_channel_id === dmState.selectedDMId && isAppInForeground();
 
       if (!isLookingAtIt) {
         dmState.incrementDMUnread(dmMsg.dm_channel_id);
