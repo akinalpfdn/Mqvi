@@ -4224,7 +4224,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* ─── Soundboard ─── */
 
 .sb-float-wrap { position:relative; }
-.sb-float-popup { position:fixed;width:320px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:10px;box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.5);z-index:9999;animation:ub-sp-in .12s ease-out; }
+/* min(): on a viewport narrower than the panel, clamping alone still leaves it overflowing. */
+.sb-float-popup { position:fixed;width:min(320px, calc(100vw - 16px));background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:10px;box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.5);z-index:9999;animation:ub-sp-in .12s ease-out; }
 .sb-panel { padding:10px;max-height:340px;overflow-y:auto; }
 
 .sb-header {

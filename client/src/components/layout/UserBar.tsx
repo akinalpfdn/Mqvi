@@ -85,6 +85,28 @@ function UserBar({
     setSbPos({ top: rect.top - 6, left: rect.left });
   }, [isPanelOpen]);
 
+  // Clamp into the viewport after it renders. The button sits near the right edge on a phone,
+  // and a 320px panel pinned to it ran straight off the screen. Centre it when it cannot sit at
+  // the anchor — flush against the edge would be inside the viewport but still look broken.
+  useEffect(() => {
+    if (!sbRef.current || !sbPos) return;
+    const rect = sbRef.current.getBoundingClientRect();
+    const margin = 8;
+    let { top, left } = sbPos;
+
+    if (left + rect.width > window.innerWidth - margin) {
+      left = Math.max(margin, (window.innerWidth - rect.width) / 2);
+    }
+    // transform is translateY(-100%), so what is on screen starts at top - height
+    if (top - rect.height < margin) {
+      top = rect.height + margin;
+    }
+
+    if (top !== sbPos.top || left !== sbPos.left) {
+      setSbPos({ top, left });
+    }
+  }, [sbPos]);
+
   // Close soundboard on click outside
   useEffect(() => {
     if (!isPanelOpen) return;
