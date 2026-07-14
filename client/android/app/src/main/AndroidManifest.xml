@@ -24,6 +24,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- App Links: only the paths the app can actually render are claimed. The landing
+                 page, login and the Play-policy pages (/privacy, /delete-account) must stay in
+                 the browser — that is where someone without the app has to land.
+                 autoVerify makes Android fetch https://mqvi.net/.well-known/assetlinks.json at
+                 install time; a missing or mismatched statement silently leaves links in the
+                 browser. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="mqvi.net" />
+                <data android:pathPrefix="/invite/" />
+                <data android:path="/channels" />
+                <data android:pathPrefix="/channels/" />
+            </intent-filter>
+
         </activity>
 
         <!-- Foreground service for background voice calls (mic only; screen share

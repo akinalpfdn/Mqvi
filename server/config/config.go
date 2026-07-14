@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type Config struct {
 	// reconnect and reclaim it before the call is torn down.
 	CallGraceWindow time.Duration
 	Push            PushConfig
+	AppLinks        AppLinksConfig
 	EncryptionKey   string // AES-256 key (64 hex chars = 32 bytes) for LiveKit credential encryption
 	HetznerAPIToken string // Hetzner Cloud API token (read-only) — optional
 	// PasswordBreachCheck queries Have I Been Pwned when a password is set. Needs no key or
@@ -64,6 +66,20 @@ type APNsConfig struct {
 	TeamID     string
 	BundleID   string // voip topic = BundleID + ".voip"
 	Production bool   // false => APNs sandbox (Xcode dev builds); true => production
+}
+
+// AppLinksConfig drives /.well-known/assetlinks.json, the statement Android reads to decide
+// whether a tapped mqvi.net link may open the app instead of the browser. Android fetches it
+// when the app is installed or updated; if it is missing or the fingerprint is wrong the link
+// just stays in the browser, with no error anywhere.
+type AppLinksConfig struct {
+	// AndroidPackage is the installed package name — the applicationId in build.gradle,
+	// which is not the same as the Capacitor appId.
+	AndroidPackage string
+	// AndroidFingerprints are SHA-256 signing-certificate fingerprints. Under Play App Signing
+	// this is Play's app signing key, NOT the upload key: Play re-signs the APK it ships, so the
+	// upload key never reaches the device. Empty disables the endpoint.
+	AndroidFingerprints []string
 }
 
 // TURNConfig holds the STUN/TURN servers handed to P2P call clients.
@@ -310,6 +326,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	androidFingerprints, err := normalizeCertFingerprints(splitCSV(getEnv("ANDROID_CERT_FINGERPRINTS", "")))
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Host:          getEnv("SERVER_HOST", "0.0.0.0"),
@@ -384,6 +405,10 @@ func Load() (*Config, error) {
 				Production: apnsProduction,
 			},
 		},
+		AppLinks: AppLinksConfig{
+			AndroidPackage:      getEnv("ANDROID_APP_PACKAGE", "com.akinalpfdn.mqvi"),
+			AndroidFingerprints: androidFingerprints,
+		},
 		CallGraceWindow:     callGraceWindow,
 		EncryptionKey:       encKey,
 		HetznerAPIToken:     getEnv("HETZNER_API_TOKEN", ""),
@@ -430,6 +455,26 @@ func validateICEServers(turnSecret string, turnURLs, stunURLs []string) error {
 		}
 	}
 	return nil
+}
+
+// certFingerprintPattern — SHA-256 as keytool and Play Console print it: 32 hex bytes
+// separated by colons.
+var certFingerprintPattern = regexp.MustCompile(`^[0-9A-F]{2}(:[0-9A-F]{2}){31}$`)
+
+// normalizeCertFingerprints uppercases and validates each fingerprint. A malformed one is
+// rejected at startup rather than served: Android would read the statement, fail to match it
+// against the installed APK, and fall back to opening links in the browser — a failure with no
+// symptom anywhere except users saying "the link doesn't open the app".
+func normalizeCertFingerprints(raw []string) ([]string, error) {
+	out := make([]string, 0, len(raw))
+	for _, f := range raw {
+		norm := strings.ToUpper(strings.TrimSpace(f))
+		if !certFingerprintPattern.MatchString(norm) {
+			return nil, fmt.Errorf("invalid ANDROID_CERT_FINGERPRINTS entry %q: want a SHA-256 as 32 colon-separated hex bytes", f)
+		}
+		out = append(out, norm)
+	}
+	return out, nil
 }
 
 // splitCSV splits a comma-separated env value, trimming whitespace and

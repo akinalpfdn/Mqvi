@@ -33,6 +33,19 @@ import (
 	"github.com/rs/cors"
 )
 
+// assetLinksPath is fixed by Android — the statement is only ever fetched from here.
+const assetLinksPath = "/.well-known/assetlinks.json"
+
+// routesToAPI reports whether a path is served by the mux rather than falling through to the
+// SPA. Everything unlisted answers with index.html, which is why assetlinks.json has to be named
+// here: Android would read HTML where it expects JSON and quietly stop opening our links. The
+// match is exact, so /.well-known/acme-challenge/ is untouched.
+func routesToAPI(path string) bool {
+	return strings.HasPrefix(path, "/api/") ||
+		strings.HasPrefix(path, "/static/") ||
+		path == assetLinksPath
+}
+
 func init() {
 	// Windows registry can return wrong MIME types for some extensions.
 	// Force correct values so http.FileServer serves them properly.
@@ -148,6 +161,15 @@ func main() {
 	fileLimiter := ratelimit.NewFileRateLimiter(cfg.FileRateLimit.UserPerMin, cfg.FileRateLimit.IPPerMin)
 	registerFileEndpoint(mux, cfg, fileSigner, svcs.Auth, repos.User, fileACL, fileLimiter)
 	registerLiveness(mux)
+
+	// Android App Links — lets a tapped mqvi.net/invite or /channels link open the app.
+	mux.Handle("GET "+assetLinksPath, h.AssetLinks)
+	if h.AssetLinks.Enabled() {
+		log.Printf("[main] Android App Links enabled for package %s", cfg.AppLinks.AndroidPackage)
+	} else {
+		log.Println("[main] ANDROID_CERT_FINGERPRINTS unset — mqvi.net links will open in the browser, not the app")
+	}
+
 	// Readiness lives on its own loopback listener, NOT on the public mux — it hits the database
 	// on every request and reports pool and goroutine internals.
 	stopReadiness := startReadinessServer(cfg.Server.ReadinessAddr, db.Conn, hub, svcs.Push)
@@ -178,7 +200,7 @@ func main() {
 			mux.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/static/") {
+		if routesToAPI(r.URL.Path) {
 			apiHandler.ServeHTTP(w, r)
 			return
 		}

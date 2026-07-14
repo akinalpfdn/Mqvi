@@ -111,6 +111,38 @@ func TestReadJWTTokens_OtherCookiesIgnored(t *testing.T) {
 	}
 }
 
+func TestRoutesToAPI(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		// The whole point: this path used to fall through to the SPA, so Android fetched the
+		// asset-links statement and got index.html back. It must reach the mux.
+		{"asset links statement", "/.well-known/assetlinks.json", true},
+		{"api", "/api/messages", true},
+		{"static", "/static/landing/hero.mp4", true},
+
+		// Certbot's HTTP-01 challenge is not ours to answer — the match must be exact.
+		{"acme challenge", "/.well-known/acme-challenge/xyz", false},
+		{"other well-known", "/.well-known/security.txt", false},
+
+		// SPA routes, including the two the app claims: a browser must still get the web page.
+		{"landing", "/", false},
+		{"invite", "/invite/abc", false},
+		{"channels", "/channels/1/2", false},
+		{"login", "/login", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := routesToAPI(tt.path); got != tt.want {
+				t.Errorf("routesToAPI(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCheckFileTokenRejectsTokenVersionMismatch(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/api/files/avatars/u1/a.png", nil)
 	authSvc := fileTokenAuthStub{claims: &models.TokenClaims{UserID: "u1", TokenVersion: 1}}

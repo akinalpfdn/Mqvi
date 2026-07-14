@@ -16,6 +16,7 @@ import UpdateNotification from "./components/shared/UpdateNotification";
 import CustomTitleBar from "./components/layout/CustomTitleBar";
 import FileViewerOverlay from "./components/viewers/FileViewerOverlay";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
+import { useDeepLinks } from "./hooks/useDeepLinks";
 import { isElectron, isNativeApp, publicAsset } from "./utils/constants";
 
 /**
@@ -30,6 +31,10 @@ function App() {
   const updater = useUpdateChecker();
   const blurEnabled = useSettingsStore((s) => s.blurEnabled);
   const transparentBackground = useSettingsStore((s) => s.transparentBackground);
+
+  // Safe to fire before auth resolves: no route renders until isInitialized, so an invite link
+  // opened while logged out lands on /invite and is bounced to login with its returnUrl intact.
+  useDeepLinks();
 
   useEffect(() => {
     initialize();
