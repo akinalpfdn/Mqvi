@@ -136,9 +136,19 @@ type VoiceStateGetter interface {
 	GetChannelParticipants(channelID string) []models.VoiceState
 }
 
+// ChannelPermissionResolver is the one thing the soundboard needs from the permission service:
+// what this user may do in the channel they are about to make noise in. Satisfied by
+// ChannelPermissionService.
+type ChannelPermissionResolver interface {
+	ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error)
+}
+
 // SoundboardService manages soundboard sounds per server.
 type SoundboardService interface {
 	List(ctx context.Context, serverID string) ([]models.SoundboardSound, error)
+	// ListForUser returns the sounds of every server the user is in, so the panel can offer them
+	// all at once. What may be PLAYED is decided per-channel at play time, not here.
+	ListForUser(ctx context.Context, userID string) ([]models.SoundboardSound, error)
 	Get(ctx context.Context, id string) (*models.SoundboardSound, error)
 	Create(ctx context.Context, serverID, userID string, req *models.CreateSoundboardSoundRequest, file multipart.File, header *multipart.FileHeader, durationMs int) (*models.SoundboardSound, error)
 	Update(ctx context.Context, serverID string, id string, req *models.UpdateSoundboardSoundRequest) (*models.SoundboardSound, error)
@@ -151,6 +161,7 @@ type soundboardService struct {
 	userRepo       repository.UserRepository
 	hub            ws.Broadcaster
 	voice          VoiceStateGetter
+	channelPerms   ChannelPermissionResolver
 	pipeline       UploadPipeline
 	maxSize        int64
 	urlSigner      FileURLSigner
@@ -162,6 +173,7 @@ func NewSoundboardService(
 	userRepo repository.UserRepository,
 	hub ws.Broadcaster,
 	voice VoiceStateGetter,
+	channelPerms ChannelPermissionResolver,
 	pipeline UploadPipeline,
 	maxSize int64,
 	urlSigner FileURLSigner,
@@ -172,11 +184,23 @@ func NewSoundboardService(
 		userRepo:       userRepo,
 		hub:            hub,
 		voice:          voice,
+		channelPerms:   channelPerms,
 		pipeline:       pipeline,
 		maxSize:        maxSize,
 		urlSigner:      urlSigner,
 		storageService: storageService,
 	}
+}
+
+func (s *soundboardService) ListForUser(ctx context.Context, userID string) ([]models.SoundboardSound, error) {
+	sounds, err := s.repo.ListForUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list soundboard sounds for user: %w", err)
+	}
+	if sounds == nil {
+		sounds = []models.SoundboardSound{}
+	}
+	return sounds, nil
 }
 
 func (s *soundboardService) List(ctx context.Context, serverID string) ([]models.SoundboardSound, error) {
@@ -363,6 +387,22 @@ func (s *soundboardService) Play(ctx context.Context, serverID, soundID, userID,
 
 	if sound.ServerID != serverID {
 		return fmt.Errorf("%w: sound does not belong to this server", pkg.ErrBadRequest)
+	}
+
+	// The permission belongs to the channel the sound comes OUT of, not the server it came from.
+	// Membership of the sound's server is checked by the route; this is the only thing standing
+	// between a sound and the voice channel it is about to be played into — and a user is
+	// routinely in a voice channel of one server while looking at another, so the two are not
+	// the same server. Resolved per channel so a channel override can revoke it on its own.
+	perms, err := s.channelPerms.ResolveChannelPermissions(ctx, userID, voiceState.ChannelID)
+	if err != nil {
+		return fmt.Errorf("resolve soundboard permission in %s: %w", voiceState.ChannelID, err)
+	}
+	// Has(), not a raw mask: Admin bypasses every permission check in this codebase, and a bare
+	// bit test would deny a server owner the soundboard the day the resolver stops expanding
+	// Admin into PermAll for us.
+	if !perms.Has(models.PermUseSoundboard) {
+		return fmt.Errorf("%w: you cannot use the soundboard in this voice channel", pkg.ErrForbidden)
 	}
 
 	// Broadcast only to users in the same voice channel

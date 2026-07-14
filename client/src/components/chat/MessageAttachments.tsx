@@ -69,11 +69,21 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
         if (isVideo) {
           // Inline player: plays in place, no new tab. Native controls expose
           // fullscreen + "save video as" so an overlay handoff is unnecessary.
+          //
+          // #t=0.1 is what gives it a preview frame. preload="metadata" gets the dimensions and
+          // the controls on every platform, but a mobile browser will not paint the first frame
+          // until playback starts — so the message showed a black box with a stretched play
+          // glyph in it. The media fragment makes the browser seek to 0.1s and paint THAT frame,
+          // which it will happily do because the file endpoint serves ranges (http.ServeContent).
+          // The cost is that playback starts 100ms in.
+          //
+          // playsInline: without it iOS hijacks the tap into its own fullscreen player.
           return (
             <video
               key={attachment.id}
-              src={resolveAssetUrl(attachment.file_url)}
+              src={resolveAssetUrl(attachment.file_url) + "#t=0.1"}
               controls
+              playsInline
               className="msg-attachment-video"
               preload="metadata"
             />

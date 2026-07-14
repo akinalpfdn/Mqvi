@@ -9,6 +9,12 @@ export async function getSounds(serverId: string) {
   return apiClient<SoundboardSound[]>(`/servers/${serverId}/soundboard/sounds`);
 }
 
+/** Every server the user is in, grouped by server. What may be PLAYED is decided per voice
+ *  channel at play time, so this list is not filtered by permission. */
+export async function getAllSounds() {
+  return apiClient<SoundboardSound[]>(`/soundboard/sounds`);
+}
+
 export async function createSound(
   serverId: string,
   file: File,

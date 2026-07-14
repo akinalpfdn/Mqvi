@@ -40,6 +40,26 @@ func (h *SoundboardHandler) List(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, sounds)
 }
 
+// ListAll returns the sounds of every server the user is in.
+// GET /api/soundboard/sounds
+func (h *SoundboardHandler) ListAll(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	sounds, err := h.service.ListForUser(r.Context(), user.ID)
+	if err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	for i := range sounds {
+		sounds[i].FileURL = h.urlSigner.SignURL(sounds[i].FileURL)
+	}
+	pkg.JSON(w, http.StatusOK, sounds)
+}
+
 // Create uploads a new sound.
 func (h *SoundboardHandler) Create(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)

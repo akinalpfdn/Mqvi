@@ -6,7 +6,6 @@
 import { create } from "zustand";
 import type { SoundboardSound, SoundboardPlayEvent } from "../types";
 import * as soundboardApi from "../api/soundboard";
-import { useServerStore } from "./serverStore";
 import { useVoiceStore } from "./voiceStore";
 import { SERVER_URL } from "../utils/constants";
 
@@ -80,12 +79,11 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
   volume: initial.volume,
   muted: initial.muted,
 
+  // Every server the user is in, not just the one on screen: you are routinely in a voice
+  // channel of one server while looking at another, and the sound you want is in a third.
   fetchSounds: async () => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-
     set({ isLoading: true });
-    const res = await soundboardApi.getSounds(serverId);
+    const res = await soundboardApi.getAllSounds();
     if (res.success && res.data) {
       set({ sounds: res.data, isLoading: false });
     } else {
@@ -93,10 +91,12 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
     }
   },
 
+  // The sound's own server, never the one on screen — they are not the same thing any more.
+  // The server then decides whether it may be played into the voice channel the user is in.
   playSound: async (soundId: string) => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    await soundboardApi.playSound(serverId, soundId);
+    const sound = get().sounds.find((s) => s.id === soundId);
+    if (!sound) return;
+    await soundboardApi.playSound(sound.server_id, soundId);
   },
 
   togglePanel: () => {
@@ -127,15 +127,15 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
     saveSettings(get().volume, next);
   },
 
+  // These three used to drop anything that was not the server on screen, back when the panel
+  // only held that server's sounds. It now holds every server the user is in, and the events
+  // only reach members of the server they came from — so the sound belongs in the list no
+  // matter which server the user happens to be looking at.
   handleSoundCreate: (sound) => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (sound.server_id !== serverId) return;
     set((s) => ({ sounds: [...s.sounds, sound] }));
   },
 
   handleSoundUpdate: (sound) => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (sound.server_id !== serverId) return;
     set((s) => ({
       sounds: s.sounds.map((existing) =>
         existing.id === sound.id ? sound : existing
@@ -144,21 +144,19 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
   },
 
   handleSoundDelete: (data) => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (data.server_id !== serverId) return;
     set((s) => ({
       sounds: s.sounds.filter((sound) => sound.id !== data.id),
     }));
   },
 
   handleSoundPlay: (data) => {
-    const serverId = useServerStore.getState().activeServerId;
-    if (data.server_id !== serverId) return;
-
-    // Only play sounds for the voice channel we're currently in. The server
-    // already targets channel participants, but this also guards the moment
-    // right after leaving, and ensures we never play a sound for a channel we
-    // are no longer in.
+    // No server check. A sound played into this voice channel can come from ANY server the
+    // player is in, and the listeners are usually looking at some other server entirely —
+    // matching on the sound's server here silently dropped the event and nobody heard it.
+    //
+    // The channel is the check that means something: the server already targets the
+    // participants, and this covers the moment right after leaving, so a sound never plays
+    // for a channel we are no longer in.
     const myChannel = useVoiceStore.getState().currentVoiceChannelId;
     if (myChannel !== data.channel_id) return;
 
@@ -199,6 +197,10 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
     }, duration + 200);
   },
 
+  // Still drops the list, even though it is no longer scoped to one server: this also closes
+  // the panel, and the panel refetches when it is next opened — so nothing goes stale. It is
+  // also, in practice, what clears one user's sounds out of the next one's session, since the
+  // SPA never reloads on logout and nothing else resets this store.
   clearForServerSwitch: () => {
     stopCurrentAudio();
     set({ sounds: EMPTY, isPanelOpen: false, playingSound: null });
