@@ -85,6 +85,38 @@ func (r *sqliteSoundboardRepo) ListByServer(ctx context.Context, serverID string
 	return sounds, rows.Err()
 }
 
+// ListForUser returns the sounds of every server the user is a member of, so the panel can
+// stack them the way Discord does. Soft-deleted servers are excluded: their sounds are still
+// on disk (the tombstone reclaims them later) but the server is gone as far as the user is
+// concerned. Ordered by server so the client can group without sorting.
+func (r *sqliteSoundboardRepo) ListForUser(ctx context.Context, userID string) ([]models.SoundboardSound, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT s.id, s.server_id, s.name, s.emoji, s.file_url, s.file_size, s.duration_ms, s.uploaded_by, s.created_at,
+		        u.username, COALESCE(u.display_name, u.username)
+		 FROM soundboard_sounds s
+		 JOIN users u ON u.id = s.uploaded_by
+		 JOIN server_members sm ON sm.server_id = s.server_id AND sm.user_id = ?
+		 JOIN servers srv ON srv.id = s.server_id AND srv.deleted_at IS NULL
+		 ORDER BY s.server_id ASC, s.name ASC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sounds []models.SoundboardSound
+	for rows.Next() {
+		var s models.SoundboardSound
+		var createdAt string
+		if err := rows.Scan(&s.ID, &s.ServerID, &s.Name, &s.Emoji, &s.FileURL, &s.FileSize,
+			&s.DurationMs, &s.UploadedBy, &createdAt, &s.UploaderUsername, &s.UploaderDisplayName); err != nil {
+			return nil, err
+		}
+		s.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+		sounds = append(sounds, s)
+	}
+	return sounds, rows.Err()
+}
+
 func (r *sqliteSoundboardRepo) Update(ctx context.Context, sound *models.SoundboardSound) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE soundboard_sounds SET name = ?, emoji = ? WHERE id = ?`,

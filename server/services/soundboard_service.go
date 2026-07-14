@@ -146,6 +146,9 @@ type ChannelPermissionResolver interface {
 // SoundboardService manages soundboard sounds per server.
 type SoundboardService interface {
 	List(ctx context.Context, serverID string) ([]models.SoundboardSound, error)
+	// ListForUser returns the sounds of every server the user is in, so the panel can offer them
+	// all at once. What may be PLAYED is decided per-channel at play time, not here.
+	ListForUser(ctx context.Context, userID string) ([]models.SoundboardSound, error)
 	Get(ctx context.Context, id string) (*models.SoundboardSound, error)
 	Create(ctx context.Context, serverID, userID string, req *models.CreateSoundboardSoundRequest, file multipart.File, header *multipart.FileHeader, durationMs int) (*models.SoundboardSound, error)
 	Update(ctx context.Context, serverID string, id string, req *models.UpdateSoundboardSoundRequest) (*models.SoundboardSound, error)
@@ -187,6 +190,17 @@ func NewSoundboardService(
 		urlSigner:      urlSigner,
 		storageService: storageService,
 	}
+}
+
+func (s *soundboardService) ListForUser(ctx context.Context, userID string) ([]models.SoundboardSound, error) {
+	sounds, err := s.repo.ListForUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list soundboard sounds for user: %w", err)
+	}
+	if sounds == nil {
+		sounds = []models.SoundboardSound{}
+	}
+	return sounds, nil
 }
 
 func (s *soundboardService) List(ctx context.Context, serverID string) ([]models.SoundboardSound, error) {

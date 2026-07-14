@@ -31,12 +31,22 @@ function SoundboardPanel() {
   const toggleMuted = useSoundboardStore((s) => s.toggleMuted);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const serverId = useServerStore((s) => s.activeServerId);
+  const servers = useServerStore((s) => s.servers);
   const members = useActiveMembers();
   const userId = useAuthStore((s) => s.user?.id);
   const confirm = useConfirmStore((s) => s.open);
 
   const [showUpload, setShowUpload] = useState(false);
   const [search, setSearch] = useState("");
+  // Only the servers the user has explicitly toggled. Everything else follows the default:
+  // the server on screen is open, the rest are folded away.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+
+  const isSearching = search.trim().length > 0;
+  // A collapsed section would hide its own matches, so a search opens everything it hits.
+  const isExpanded = (id: string) => isSearching || (toggled[id] ?? id === serverId);
+  const toggleGroup = (id: string) =>
+    setToggled((prev) => ({ ...prev, [id]: !(prev[id] ?? id === serverId) }));
 
   const currentMember = members.find((m) => m.id === userId);
   const perms = currentMember?.effective_permissions ?? 0;
@@ -48,15 +58,38 @@ function SoundboardPanel() {
     return sounds.filter((s) => s.name.toLowerCase().includes(q));
   }, [sounds, search]);
 
+  // One section per server, the one on screen first — it is the one you reach for most, and it
+  // is the only one whose sounds you can manage from here.
+  const groups = useMemo(() => {
+    const byServer = new Map<string, typeof filtered>();
+    for (const sound of filtered) {
+      const list = byServer.get(sound.server_id);
+      if (list) list.push(sound);
+      else byServer.set(sound.server_id, [sound]);
+    }
+    return [...byServer.entries()]
+      .map(([id, list]) => ({
+        serverId: id,
+        name: servers.find((s) => s.id === id)?.name ?? "",
+        sounds: list,
+      }))
+      .sort((a, b) => {
+        if (a.serverId === serverId) return -1;
+        if (b.serverId === serverId) return 1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [filtered, servers, serverId]);
+
   useEffect(() => {
     fetchSounds();
-  }, [fetchSounds, serverId]);
+  }, [fetchSounds]);
 
   const handlePlay = (soundId: string) => {
     if (!currentVoiceChannelId) return;
     playSound(soundId);
   };
 
+  // Only ever the active server's sounds — see canManage below.
   const handleDelete = async (soundId: string, soundName: string) => {
     if (!serverId) return;
     const ok = await confirm({
@@ -144,37 +177,70 @@ function SoundboardPanel() {
           <p className="sb-empty-title">{t("noResults")}</p>
         </div>
       ) : (
-        <div className="sb-grid">
-          {filtered.map((sound) => {
-            const isPlaying = playingSound?.soundId === sound.id;
-            return (
+        groups.map((group) => {
+          // Without a name there is nothing to label the section with, so it cannot be folded
+          // — a headless collapsed strip is one the user can neither read nor reopen.
+          const collapsible = !!group.name;
+          const expanded = !collapsible || isExpanded(group.serverId);
+          return (
+          <div key={group.serverId} className="sb-group">
+            {collapsible && (
               <button
-                key={sound.id}
-                className={`sb-sound-btn${isPlaying ? " playing" : ""}${!currentVoiceChannelId ? " disabled" : ""}`}
-                onClick={() => handlePlay(sound.id)}
-                disabled={!currentVoiceChannelId}
-                title={!currentVoiceChannelId ? t("mustBeInVoice") : sound.name}
+                className="sb-group-header"
+                onClick={() => toggleGroup(group.serverId)}
+                aria-expanded={expanded}
               >
-                <span className="sb-sound-emoji">{sound.emoji ?? "🔊"}</span>
-                <span className="sb-sound-name">{sound.name}</span>
-                {canManage && (
-                  <button
-                    className="sb-sound-delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(sound.id, sound.name);
-                    }}
-                    title={t("delete")}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M18.3 5.7a1 1 0 0 0-1.4 0L12 10.6 7.1 5.7a1 1 0 0 0-1.4 1.4L10.6 12l-4.9 4.9a1 1 0 1 0 1.4 1.4L12 13.4l4.9 4.9a1 1 0 0 0 1.4-1.4L13.4 12l4.9-4.9a1 1 0 0 0 0-1.4z" />
-                    </svg>
-                  </button>
-                )}
+                <svg
+                  className={`sb-group-chevron${expanded ? " open" : ""}`}
+                  width="12" height="12" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2.5"
+                  strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+                <span className="sb-group-name">{group.name}</span>
+                <span className="sb-group-count">{group.sounds.length}</span>
               </button>
-            );
-          })}
-        </div>
+            )}
+            {expanded && (
+            <div className="sb-grid">
+              {group.sounds.map((sound) => {
+                const isPlaying = playingSound?.soundId === sound.id;
+                // Only the active server's permissions are loaded, so only its sounds get a
+                // delete button. Drawing one for another server would be a button that 403s.
+                const deletable = canManage && sound.server_id === serverId;
+                return (
+                  <button
+                    key={sound.id}
+                    className={`sb-sound-btn${isPlaying ? " playing" : ""}${!currentVoiceChannelId ? " disabled" : ""}`}
+                    onClick={() => handlePlay(sound.id)}
+                    disabled={!currentVoiceChannelId}
+                    title={!currentVoiceChannelId ? t("mustBeInVoice") : sound.name}
+                  >
+                    <span className="sb-sound-emoji">{sound.emoji ?? "🔊"}</span>
+                    <span className="sb-sound-name">{sound.name}</span>
+                    {deletable && (
+                      <button
+                        className="sb-sound-delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(sound.id, sound.name);
+                        }}
+                        title={t("delete")}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M18.3 5.7a1 1 0 0 0-1.4 0L12 10.6 7.1 5.7a1 1 0 0 0-1.4 1.4L10.6 12l-4.9 4.9a1 1 0 1 0 1.4 1.4L12 13.4l4.9 4.9a1 1 0 0 0 1.4-1.4L13.4 12l4.9-4.9a1 1 0 0 0 0-1.4z" />
+                        </svg>
+                      </button>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            )}
+          </div>
+          );
+        })
       )}
 
     </div>

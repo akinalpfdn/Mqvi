@@ -410,6 +410,8 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/soundboard/sounds", authServerPerm(models.PermManageSoundboard, h.Soundboard.Create))
 	mux.Handle("PATCH /api/servers/{serverId}/soundboard/sounds/{soundId}", authServerPerm(models.PermManageSoundboard, h.Soundboard.Update))
 	mux.Handle("DELETE /api/servers/{serverId}/soundboard/sounds/{soundId}", authServerPerm(models.PermManageSoundboard, h.Soundboard.Delete))
+	// Sounds from every server the user is in — the panel stacks them all.
+	mux.Handle("GET /api/soundboard/sounds", auth(h.Soundboard.ListAll))
 	// authServer, not authServerPerm: membership of the sound's server is what this route can
 	// check. PermUseSoundboard belongs to the voice channel the sound will be PLAYED into —
 	// which routinely belongs to a different server — so the service resolves it there.
