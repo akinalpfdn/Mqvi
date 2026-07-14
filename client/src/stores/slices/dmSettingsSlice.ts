@@ -5,6 +5,7 @@ import { useToastStore } from "../toastStore";
 import { useE2EEStore } from "../e2eeStore";
 import { sortChannelsByActivity } from "../shared/dmSort";
 import { dismissNotificationsFor, dismissReadNotifications } from "../../utils/pushDismiss";
+import { dmMarkRead } from "../shared/markReadTracking";
 import type { DMStore } from "../dmStore";
 import type { DMMessage } from "../../types";
 
@@ -31,21 +32,7 @@ function readableWatermark(messages: DMMessage[] | undefined): DMMessage | undef
   return undefined;
 }
 
-const markReadTimers: Record<string, ReturnType<typeof setTimeout>> = {};
-/** The newest watermark we have asked the server for — in flight or confirmed. */
-const markReadAsked: Record<string, string> = {};
-/** The newest watermark the server has confirmed. */
-const markReadSent: Record<string, string> = {};
-
-/** Test seam — this bookkeeping outlives any single store instance. */
-export function resetDMReadTracking(): void {
-  for (const k of Object.keys(markReadTimers)) {
-    clearTimeout(markReadTimers[k]);
-    delete markReadTimers[k];
-  }
-  for (const k of Object.keys(markReadAsked)) delete markReadAsked[k];
-  for (const k of Object.keys(markReadSent)) delete markReadSent[k];
-}
+const { timers: markReadTimers, asked: markReadAsked, sent: markReadSent } = dmMarkRead;
 
 function sendMarkRead(channelId: string, messageId: string | undefined): void {
   void dmApi.markDMRead(channelId, messageId).then((res) => {

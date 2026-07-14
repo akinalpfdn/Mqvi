@@ -129,7 +129,9 @@ class MqviMessagingService : MessagingService() {
 
     companion object {
         private const val CALLS_CHANNEL = "incoming_call_alert"
-        // Also cancelled by P2PCallPlugin (answered elsewhere) and MainActivity (app resumed).
+        // Also cancelled by P2PCallPlugin, from silenceAndroidCallRing() when the in-app overlay
+        // mounts. NOT from MainActivity.onResume: on a cold start that fires before the WebView
+        // has the call, silencing the very ring the user opened the app to answer.
         const val CALL_NOTIFICATION_ID = 42
     }
 }

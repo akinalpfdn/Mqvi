@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"log"
+	"net"
 	"net/http"
 	"runtime"
 	"time"
@@ -41,19 +44,46 @@ type wsHealth struct {
 	Users       int `json:"users"`
 }
 
-// registerHealthRoutes adds the liveness and readiness endpoints.
-//
-// /api/health answers "is the process alive" and must stay cheap — it is what a process
-// supervisor polls. /api/health/ready answers "is it actually able to serve", which is a
-// different question and was previously unanswerable: the static "ok" stayed green while the
-// SQLite writer saturated and every send timed out.
-func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, hub *ws.Hub, push services.PushNotifier) {
+// registerLiveness adds the public liveness endpoint. Static and cheap: it is what a supervisor
+// or an uptime monitor polls, and it must not touch the database.
+func registerLiveness(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "mqvi"})
 	})
+}
 
-	mux.HandleFunc("GET /api/health/ready", func(w http.ResponseWriter, r *http.Request) {
+// startReadinessServer serves /health/ready on its own loopback listener.
+//
+// It does a real database round trip per request against a four-connection pool, and it reports
+// goroutine counts, pool statistics and socket counts. On the public mux that is both the DoS the
+// read endpoints were just rate-limited against, and an information leak. A RemoteAddr check would
+// NOT have fixed it: behind the reverse proxy every request already arrives from 127.0.0.1, so
+// the check would pass for the whole internet. Binding the listener is the only honest answer.
+//
+// Returns a shutdown func. A bind failure is logged and degrades to no readiness endpoint rather
+// than taking the server down — the app serves fine without it.
+func startReadinessServer(addr string, db *sql.DB, hub *ws.Hub, push services.PushNotifier) func(context.Context) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health/ready", readinessHandler(db, hub, push))
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("[health] readiness endpoint disabled: cannot listen on %s: %v", addr, err)
+		return func(context.Context) error { return nil }
+	}
+	srv := &http.Server{Handler: mux}
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("[health] readiness server: %v", err)
+		}
+	}()
+	log.Printf("[health] readiness endpoint on http://%s/health/ready", addr)
+	return srv.Shutdown
+}
+
+func readinessHandler(db *sql.DB, hub *ws.Hub, push services.PushNotifier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 
@@ -95,5 +125,5 @@ func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, hub *ws.Hub, push serv
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		_ = json.NewEncoder(w).Encode(report)
-	})
+	}
 }

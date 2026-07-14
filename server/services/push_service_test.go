@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -400,5 +401,80 @@ func TestNotifyDM_BreakerStopsTouchingTheDatabaseOnceFCMIsDown(t *testing.T) {
 	}
 	if fcm.notifCount() != 3 {
 		t.Errorf("%d sends attempted, want 3 — the breaker did not stop calling a dependency that is down", fcm.notifCount())
+	}
+}
+
+// ─── REVIEW-01: the outstanding map must drain, and must not lose a record it never sent ───
+
+// The freeze: markOutstanding refused to add at the cap and takeOutstanding returned true WITHOUT
+// deleting, so the map stuck at exactly the cap forever. Every read from then on fired an
+// unconditional retraction — the FCM queue overflow the map exists to prevent, made permanent.
+func TestOutstanding_DrainsWhenFull(t *testing.T) {
+	s := NewPushService(&recordingFCM{sent: make(chan struct{}, 1)}, disabledAPNs{},
+		&fakeTokenRepo{}, &fakeUsers{}, fakePresence{}, &fakeReads{}, testPushConfig(0)).(*pushService)
+
+	for i := 0; i < maxTrackedNotifications; i++ {
+		s.markOutstanding("u", fmt.Sprintf("c%d", i))
+	}
+	if got := len(s.outstanding); got != maxTrackedNotifications {
+		t.Fatalf("map holds %d, want %d", got, maxTrackedNotifications)
+	}
+
+	// One more delivery: it cannot be recorded, so the map is now lying by omission.
+	s.markOutstanding("u", "overflow")
+
+	// Reading a tracked conversation must still shrink the map.
+	if !s.takeOutstanding("u", "c0") {
+		t.Error("a conversation we recorded reported nothing outstanding")
+	}
+	if got := len(s.outstanding); got != maxTrackedNotifications-1 {
+		t.Fatalf("map is stuck at %d — reads no longer drain it, so it never recovers", got)
+	}
+
+	// While records are being dropped we must retract unconditionally, or the notification for
+	// "overflow" is stranded on the lock screen with nothing left to pull it back.
+	if !s.takeOutstanding("u", "overflow") {
+		t.Error("refused to retract a conversation whose delivery went unrecorded")
+	}
+}
+
+// A shed retraction must not consume the record. The notification is still on the tray; the
+// server forgetting about it means no later read will ever retry.
+func TestNotifyDMRead_ShedRetractionKeepsTheRecord(t *testing.T) {
+	s := NewPushService(&recordingFCM{sent: make(chan struct{}, 1)}, disabledAPNs{},
+		&fakeTokenRepo{}, &fakeUsers{}, fakePresence{}, &fakeReads{}, testPushConfig(0)).(*pushService)
+
+	s.markOutstanding("u", "c1")
+	s.queued.Store(maxQueuedDMPushes) // the dispatch queue is full: this retraction will be shed
+
+	s.NotifyDMRead("u", "c1")
+
+	time.Sleep(100 * time.Millisecond)
+	if !s.hasOutstanding("u", "c1") {
+		t.Error("the shed retraction consumed the record — the notification is stranded and nothing will retry")
+	}
+}
+
+// And when the send itself fails, the record goes back for the same reason.
+func TestNotifyDMRead_FailedSendPutsTheRecordBack(t *testing.T) {
+	fcm := &recordingFCM{sent: make(chan struct{}, 1), failWith: errors.New("fcm down")}
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "android-1", TokenType: models.PushTokenTypeFCM, Platform: "android"},
+	}}
+	s := NewPushService(fcm, disabledAPNs{}, repo, &fakeUsers{},
+		fakePresence{}, &fakeReads{}, testPushConfig(0)).(*pushService)
+
+	s.markOutstanding("u", "c1")
+	s.NotifyDMRead("u", "c1")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for len(fcm.dataMessages()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(fcm.dataMessages()) == 0 {
+		t.Fatal("no retraction was attempted")
+	}
+	if !s.hasOutstanding("u", "c1") {
+		t.Error("a failed retraction dropped the record — the notification stays on the tray forever")
 	}
 }

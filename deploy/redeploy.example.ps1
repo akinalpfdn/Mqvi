@@ -68,11 +68,13 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "  (If DATABASE_PATH in .env points elsewhere, update the path in this script.)" -ForegroundColor Red
     exit 1
 }
-$port = (ssh $Server "cd $RemotePath && grep -E '^SERVER_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -dc '0-9'")
-if (-not $port) { $port = "9090" }
+# Readiness lives on its OWN loopback listener, not the public port — it hits the database on
+# every request and reports internals. MQVI_READINESS_ADDR, default 127.0.0.1:9091.
+$readyAddr = (ssh $Server "cd $RemotePath && grep -E '^MQVI_READINESS_ADDR=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -dc 'a-zA-Z0-9.:'")
+if (-not $readyAddr) { $readyAddr = "127.0.0.1:9091" }
 ssh $Server "command -v curl > /dev/null"
 $canHealthCheck = ($LASTEXITCODE -eq 0)
-Write-Host "  OK - database found, port $port, health check $(if ($canHealthCheck) { 'available' } else { 'SKIPPED (no curl on server)' })" -ForegroundColor Green
+Write-Host "  OK - database found, readiness at $readyAddr, health check $(if ($canHealthCheck) { 'available' } else { 'SKIPPED (no curl on server)' })" -ForegroundColor Green
 
 # --- Stop server ---
 # SIGTERM first: the server handles it (signal.Notify + srv.Shutdown) and closes SQLite cleanly.
@@ -94,7 +96,39 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "  Bring the server back up: ssh $Server `"cd $RemotePath && nohup ./start.sh > output.log 2>&1 &`"" -ForegroundColor Yellow
     exit 1
 }
-Write-Host "  OK - backups/mqvi-$stamp.db" -ForegroundColor Green
+
+# Write the rollback next to the backup it restores, so it can never drift from it — and so the
+# operator running it at 3am does not have to reconstruct the WAL handling from memory.
+$rollback = @"
+#!/usr/bin/env bash
+# Restores the database as it was before the deploy of $stamp.
+set -e
+cd "`$(dirname "`$0")/.."
+
+pkill -TERM -f mqvi-server || true
+for i in `$(seq 1 20); do pgrep -f mqvi-server >/dev/null || break; sleep 1; done
+if pgrep -f mqvi-server >/dev/null; then
+    echo "ERROR: the server is still running. Refusing to overwrite a live database."
+    exit 1
+fi
+
+# The post-migration WAL MUST go. SQLite would otherwise open the restored pre-migration database
+# next to it and replay it — reapplying the very writes this rollback is undoing (083 backfills a
+# read watermark for every DM conversation).
+rm -f data/mqvi.db-wal data/mqvi.db-shm
+cp -a backups/mqvi-$stamp.db data/mqvi.db
+for e in -wal -shm; do
+    if [ -f "backups/mqvi-$stamp.db`$e" ]; then
+        cp -a "backups/mqvi-$stamp.db`$e" "data/mqvi.db`$e"
+    fi
+done
+
+echo "Rolled back to backups/mqvi-$stamp.db. Now deploy the PREVIOUS binary — the new one would"
+echo "re-run the migrations on the restored database."
+"@
+$rollback -replace "`r`n", "`n" | ssh $Server "cat > $RemotePath/backups/mqvi-$stamp.rollback.sh"
+ssh $Server "chmod +x $RemotePath/backups/mqvi-$stamp.rollback.sh"
+Write-Host "  OK - backups/mqvi-$stamp.db (rollback: backups/mqvi-$stamp.rollback.sh)" -ForegroundColor Green
 
 # --- Upload binary + start script ---
 Write-Host ""
@@ -120,9 +154,9 @@ if ($canHealthCheck) {
     Write-Host "  Waiting for readiness..." -ForegroundColor Yellow
     $ready = $false
     for ($i = 0; $i -lt 30; $i++) {
-        # /api/health/ready does a real database round trip. /api/health only says the process
-        # is alive, which it would keep saying while every write timed out.
-        ssh $Server "curl -fs -m 5 http://127.0.0.1:$port/api/health/ready > /dev/null"
+        # A real database round trip. The public /api/health only says the process is alive,
+        # which it would keep saying while every write timed out.
+        ssh $Server "curl -fs -m 5 http://$readyAddr/health/ready > /dev/null"
         if ($LASTEXITCODE -eq 0) { $ready = $true; break }
         Start-Sleep -Seconds 2
     }
@@ -132,7 +166,7 @@ if ($canHealthCheck) {
         ssh $Server "tail -40 $RemotePath/output.log"
         Write-Host ""
         Write-Host "  Roll back the database:" -ForegroundColor Yellow
-        Write-Host "    ssh $Server `"cd $RemotePath && pkill -TERM -f mqvi-server; sleep 3; cp -a backups/mqvi-$stamp.db data/mqvi.db`"" -ForegroundColor Yellow
+        Write-Host "    ssh  'bash /backups/mqvi-.rollback.sh'" -ForegroundColor Yellow
         Write-Host "  then redeploy the previous binary." -ForegroundColor Yellow
         exit 1
     }

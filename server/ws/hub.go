@@ -483,7 +483,6 @@ func (h *Hub) BroadcastToUser(userID string, event Event) {
 	}
 }
 
-// GetOnlineUserIDs returns all connected user IDs (including invisible).
 // IsOnline reports whether the user has ANY live connection.
 //
 // Used only to decide whether a DM push is worth DEFERRING: with no socket anywhere, nobody
@@ -496,6 +495,8 @@ func (h *Hub) IsOnline(userID string) bool {
 	defer h.mu.RUnlock()
 	return len(h.clients[userID]) > 0
 }
+
+// GetOnlineUserIDs returns all connected user IDs (including invisible).
 
 // Counts reports live sockets and the users behind them. A jump in sockets per user is the
 // shape of a reconnect loop, which /health/ready surfaces before it becomes an outage.

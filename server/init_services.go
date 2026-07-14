@@ -82,11 +82,13 @@ type RateLimiters struct {
 	Feedback  *ratelimit.MessageRateLimiter
 	ICE       *ratelimit.MessageRateLimiter
 	Discovery *ratelimit.MessageRateLimiter
-	// Read gates the mark-read endpoints. Deliberately NOT the message limiter: marking a
-	// conversation read must not spend the budget a user needs to send a message. It gets its
-	// own bucket so a read loop cannot starve message-send, which is what it could do before —
-	// each call is a write plus three reads on a four-connection pool with an fsync per commit.
-	Read *ratelimit.MessageRateLimiter
+	// Mark-read gets its own buckets, and DM and channel get one EACH. Not the message limiter:
+	// marking a conversation read must not spend the budget needed to send a message. And not one
+	// shared read bucket either — MessageRateLimiter keys on the user, so a busy channel would
+	// spend the same tokens the DM watermark needs, and a 429 there means the phone buzzes for a
+	// DM being read on the desktop.
+	DMRead      *ratelimit.MessageRateLimiter
+	ChannelRead *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -284,10 +286,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
 	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
-	// The client coalesces mark-read to at most ~1/s per conversation, so even a split view with
-	// several chats open and the window being focused repeatedly stays far under this. A loop
-	// does not.
-	readLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
+	// Both clients coalesce mark-read to at most ~1/s per conversation, so even a split view with
+	// several chats open and the window being focused repeatedly stays far under this. A loop does
+	// not. Separate buckets so neither path can spend the other's tokens.
+	dmReadLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
+	channelReadLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
 
 	svcs := &Services{
 		Auth:               authService,
@@ -342,15 +345,16 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	}
 
 	limiters := &RateLimiters{
-		Login:     loginLimiter,
-		Message:   messageLimiter,
-		Register:  registerLimiter,
-		ForgotPwd: forgotPwdLimiter,
-		ResetPwd:  resetPwdLimiter,
-		Feedback:  feedbackLimiter,
-		ICE:       iceLimiter,
-		Discovery: discoveryLimiter,
-		Read:      readLimiter,
+		Login:       loginLimiter,
+		Message:     messageLimiter,
+		Register:    registerLimiter,
+		ForgotPwd:   forgotPwdLimiter,
+		ResetPwd:    resetPwdLimiter,
+		Feedback:    feedbackLimiter,
+		ICE:         iceLimiter,
+		Discovery:   discoveryLimiter,
+		DMRead:      dmReadLimiter,
+		ChannelRead: channelReadLimiter,
 	}
 
 	return svcs, limiters, metricsCollector

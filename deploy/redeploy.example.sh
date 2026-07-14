@@ -75,11 +75,13 @@ if ! ssh "$SERVER" "cd $REMOTE_PATH && test -f data/mqvi.db"; then
     echo "  (If DATABASE_PATH in .env points elsewhere, update the path in this script.)"
     exit 1
 fi
-PORT=$(ssh "$SERVER" "cd $REMOTE_PATH && grep -E '^SERVER_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -dc '0-9'")
-PORT=${PORT:-9090}
+# Readiness lives on its OWN loopback listener, not the public port — it hits the database on
+# every request and reports internals. MQVI_READINESS_ADDR, default 127.0.0.1:9091.
+READY_ADDR=$(ssh "$SERVER" "cd $REMOTE_PATH && grep -E '^MQVI_READINESS_ADDR=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '\"' | tr -d '[:space:]'")
+READY_ADDR=${READY_ADDR:-127.0.0.1:9091}
 CAN_HEALTHCHECK=true
 ssh "$SERVER" "command -v curl >/dev/null" || CAN_HEALTHCHECK=false
-echo "  OK - database found, port $PORT, health check $([ "$CAN_HEALTHCHECK" = true ] && echo available || echo 'SKIPPED (no curl on server)')"
+echo "  OK - database found, readiness at $READY_ADDR, health check $([ "$CAN_HEALTHCHECK" = true ] && echo available || echo 'SKIPPED (no curl on server)')"
 
 # --- Stop server ---
 # SIGTERM first: the server handles it (signal.Notify + srv.Shutdown) and closes SQLite cleanly.
@@ -106,7 +108,38 @@ if ! ssh "$SERVER" "cd $REMOTE_PATH && mkdir -p backups && cp -a data/mqvi.db ba
     echo "  Bring the server back up: ssh $SERVER \"cd $REMOTE_PATH && nohup ./start.sh > output.log 2>&1 &\""
     exit 1
 fi
-echo "  OK - backups/mqvi-$STAMP.db"
+
+# Write the rollback next to the backup it restores, so it can never drift from it — and so the
+# operator running it at 3am does not have to reconstruct the WAL handling from memory.
+ssh "$SERVER" "cat > $REMOTE_PATH/backups/mqvi-$STAMP.rollback.sh" <<ROLLBACK
+#!/usr/bin/env bash
+# Restores the database as it was before the deploy of $STAMP.
+set -e
+cd "\$(dirname "\$0")/.."
+
+pkill -TERM -f mqvi-server || true
+for i in \$(seq 1 20); do pgrep -f mqvi-server >/dev/null || break; sleep 1; done
+if pgrep -f mqvi-server >/dev/null; then
+    echo "ERROR: the server is still running. Refusing to overwrite a live database."
+    exit 1
+fi
+
+# The post-migration WAL MUST go. SQLite would otherwise open the restored pre-migration database
+# next to it and replay it — reapplying the very writes this rollback is undoing (083 backfills a
+# read watermark for every DM conversation).
+rm -f data/mqvi.db-wal data/mqvi.db-shm
+cp -a backups/mqvi-$STAMP.db data/mqvi.db
+for e in -wal -shm; do
+    if [ -f "backups/mqvi-$STAMP.db\$e" ]; then
+        cp -a "backups/mqvi-$STAMP.db\$e" "data/mqvi.db\$e"
+    fi
+done
+
+echo "Rolled back to backups/mqvi-$STAMP.db. Now deploy the PREVIOUS binary — the new one would"
+echo "re-run the migrations on the restored database."
+ROLLBACK
+ssh "$SERVER" "chmod +x $REMOTE_PATH/backups/mqvi-$STAMP.rollback.sh"
+echo "  OK - backups/mqvi-$STAMP.db (rollback: backups/mqvi-$STAMP.rollback.sh)"
 
 # --- Upload binary + start script ---
 echo ""
@@ -126,9 +159,9 @@ if [ "$CAN_HEALTHCHECK" = true ]; then
     echo "  Waiting for readiness..."
     READY=false
     for i in $(seq 1 30); do
-        # /api/health/ready does a real database round trip. /api/health only says the process is
-        # alive, which it would keep saying while every write timed out.
-        if ssh "$SERVER" "curl -fsS -m 5 http://127.0.0.1:$PORT/api/health/ready" >/dev/null 2>&1; then
+        # A real database round trip. The public /api/health only says the process is alive,
+        # which it would keep saying while every write timed out.
+        if ssh "$SERVER" "curl -fsS -m 5 http://$READY_ADDR/health/ready" >/dev/null 2>&1; then
             READY=true
             break
         fi
@@ -141,7 +174,7 @@ if [ "$CAN_HEALTHCHECK" = true ]; then
         ssh "$SERVER" "tail -40 $REMOTE_PATH/output.log"
         echo ""
         echo "  Roll back the database:"
-        echo "    ssh $SERVER \"cd $REMOTE_PATH && pkill -TERM -f mqvi-server; sleep 3; cp -a backups/mqvi-$STAMP.db data/mqvi.db\""
+        echo "    ssh $SERVER 'bash $REMOTE_PATH/backups/mqvi-$STAMP.rollback.sh'"
         echo "  then redeploy the previous binary."
         exit 1
     fi

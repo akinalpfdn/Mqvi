@@ -118,3 +118,43 @@ describe("dm_read — a read on another device", () => {
     expect(useDMStore.getState().dmUnreadCounts.c1).toBe(5);
   });
 });
+
+// REVIEW-01 #8: the increment gate must agree with the mark-read gate. Selection alone is not
+// enough — a selected DM in a backgrounded window is NOT read, and the server (which now owns
+// unread) counts it unread and pushes to the phone. Before this, the one conversation the desktop
+// stayed completely silent about was the one it had open.
+describe("dm_message_create — the badge gate matches the read gate", () => {
+  function incoming(): WSMessage {
+    return { op: "dm_message_create", d: msg("new-1", THEM) } as WSMessage;
+  }
+
+  it("raises the badge for a selected DM when the window is not focused", async () => {
+    useDMStore.setState({ selectedDMId: "c1", dmUnreadCounts: {} });
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+
+    await handleDMEvent(incoming());
+
+    expect(useDMStore.getState().dmUnreadCounts.c1).toBe(1);
+  });
+
+  it("raises the badge for a selected DM when the tab is hidden", async () => {
+    useDMStore.setState({ selectedDMId: "c1", dmUnreadCounts: {} });
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+
+    await handleDMEvent(incoming());
+
+    expect(useDMStore.getState().dmUnreadCounts.c1).toBe(1);
+  });
+
+  // Actually looking at it: DMChat marks it read, so a badge here would be wrong.
+  it("stays silent when the DM is selected AND the user is in front of the window", async () => {
+    useDMStore.setState({ selectedDMId: "c1", dmUnreadCounts: {} });
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+
+    await handleDMEvent(incoming());
+
+    expect(useDMStore.getState().dmUnreadCounts.c1).toBeUndefined();
+  });
+});

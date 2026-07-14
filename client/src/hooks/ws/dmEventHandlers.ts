@@ -86,15 +86,24 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
       if (dmMsg.user_id === dmCurrentUserId) return true;
 
       const dmState = useDMStore.getState();
-      if (dmMsg.dm_channel_id !== dmState.selectedDMId) {
+      // The same test DMChat uses to decide the message is READ. Selection alone is not enough:
+      // a selected DM in a backgrounded window used to get no badge, no sound and no flash while
+      // the server still counted it unread and pushed to the phone — the one conversation the
+      // desktop stayed silent about was the one it had open.
+      const isLookingAtIt =
+        dmMsg.dm_channel_id === dmState.selectedDMId &&
+        document.visibilityState === "visible" &&
+        document.hasFocus();
+
+      if (!isLookingAtIt) {
         dmState.incrementDMUnread(dmMsg.dm_channel_id);
         playNotificationSound();
         window.electronAPI?.flashFrame();
       }
-      // The DM is on screen: DMChat's own effect fires on the message we just stored and
-      // advances the watermark if the user is actually in front of the window. Doing it here
-      // as well would mark read a message that failed to decrypt — the user sees a placeholder,
-      // and retracting its push takes it away from the device that might still have shown it.
+      // No mark-read here: DMChat's effect fires on the message we just stored and advances the
+      // watermark, but only against what actually decrypted. Marking it read here would claim a
+      // message that failed to decrypt — the user sees a placeholder, and retracting its push
+      // takes it away from the device that might still have shown it.
       return true;
     }
 

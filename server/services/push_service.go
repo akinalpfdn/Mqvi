@@ -17,42 +17,16 @@ import (
 	"github.com/akinalp/mqvi/repository"
 )
 
-// PushNotifier sends mobile push notifications to a user's devices. Consumed by
-// DMService and P2PCallService via SetPushNotifier.
-//
-// A DM push is not sent to someone who is reading the conversation — but "they read it" is
-// PROVED against the read watermark, never CLAIMED by a client. A previous design had clients
-// report which chat they had on screen and skipped the push on their word. Every way that claim
-// could be wrong — a dropped frame, a laptop left open at lunch, a modal on top, an encrypted
-// client that had loaded nothing — ended in the user's phone silently never ringing, which is
-// the most expensive direction for a notification system to be wrong in.
-//
-// So: no live socket anywhere → push at once (nobody could have read it). Otherwise wait
-// dmDelay, then ask the database whether the watermark has passed the message. If it has, the
-// user really is reading it and the push is noise. If it has not, the push goes out. The worst
-// case is a few seconds of latency, never silence.
-//
-// A DND or invisible recipient is still suppressed (matches the in-app sound contract), and
-// calls are never suppressed or delayed — a missed call cannot be caught up on later.
-//
-// Calls fork by token: Android FCM tokens get an FCM notification, iOS PushKit
-// (apns_voip) tokens get a direct APNs VoIP push (CallKit). iOS FCM tokens are
-// skipped for calls — the VoIP token is the iOS call path.
+// PushNotifier sends mobile push notifications. A DM push is suppressed only when the read
+// watermark PROVES the user read it — never on a client's word. iOS calls go over APNs VoIP
+// (CallKit), Android over FCM.
 type PushNotifier interface {
 	NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID, messageID string)
 	NotifyCall(receiverID, callerName string, callType models.P2PCallType, callID, callerID string)
-	// NotifyDMRead retracts a conversation's delivered notifications on the user's OTHER
-	// devices once they have read it somewhere. A device with a live socket does this from
-	// the dm_read WS event; one that is asleep or killed only has this push.
 	NotifyDMRead(userID, dmChannelID string)
-	// NotifyCallCancel stops the ring on the receiver's devices once the call stops ringing —
-	// cancelled, declined, timed out, or answered on one of them. A backgrounded device has no
-	// live WS to deliver OpP2PCallEnd, so the push is the only way to reach it.
-	//
-	// excludeDeviceID is the device that ACTED (answered or declined). It must never be told to
-	// stop ringing: on iOS the push would land on a live call, and ignoring it means completing
-	// the PushKit handler without reporting a call to CallKit, which Apple punishes by killing
-	// the app and revoking VoIP delivery. Empty means "no device to exclude".
+	// excludeDeviceID is the device that answered or declined. It must NEVER be told to stop
+	// ringing: on iOS that push lands on a live call, and ignoring it means completing the PushKit
+	// handler without reporting a call to CallKit — which Apple punishes by revoking VoIP delivery.
 	NotifyCallCancel(receiverID, callID, excludeDeviceID string)
 }
 
@@ -73,25 +47,18 @@ type pushReadState interface {
 	HasRead(ctx context.Context, userID, channelID, messageID string) (bool, error)
 }
 
-// maxPendingDMPushes bounds the deferred timers. Past it, deliver at once rather than queue —
-// failing toward a delivered notification, never toward a lost one.
-const maxPendingDMPushes = 10_000
+const (
+	// Past the bound, deliver at once rather than queue: fail toward a delivered notification.
+	maxPendingDMPushes = 10_000
+	// Each queued push wants a database connection and the pool has four. Calls are exempt.
+	maxQueuedDMPushes = 1024
+	// Past the cap, records are dropped and retraction becomes unconditional. See saturated.
+	maxTrackedNotifications = 100_000
 
-// maxQueuedDMPushes bounds the goroutines waiting for a dispatch slot. Each one wants a database
-// connection, and the pool has four. A call is never counted against this: a missed call cannot
-// be caught up on later, and calls are rare enough that they cannot be the thing flooding us.
-const maxQueuedDMPushes = 1024
+	pushTimeout = 15 * time.Second
+)
 
-// maxTrackedNotifications caps the outstanding-notification map. Past it we stop tracking and
-// retract unconditionally — the same behaviour as before the tracking existed. Failing toward an
-// extra silent data push beats failing toward a notification stuck on someone's lock screen.
-const maxTrackedNotifications = 100_000
-
-const pushTimeout = 15 * time.Second
-
-// Suppression reasons. Every path that decides NOT to notify says which one it was — these are
-// the four most likely answers to "why did this user get no notification?", and before this they
-// were all a bare `return`.
+// Why a notification was NOT sent. Grep reason= to answer "why did this user get nothing?".
 const (
 	reasonDisabled    = "push_disabled"
 	reasonProviderRow = "provider_down"
@@ -141,7 +108,8 @@ type pushService struct {
 	failed   atomic.Int64
 	shed     atomic.Int64
 
-	mu sync.Mutex
+	mu        sync.Mutex
+	saturated bool // outstanding hit its cap and dropped records; retract unconditionally
 	// outstanding tracks the conversations that currently have a notification sitting on one of
 	// the user's devices. Without it we fire a retraction push for every read of every
 	// conversation, including the ones that were never notified in the first place — which is
@@ -233,24 +201,58 @@ func (s *pushService) markOutstanding(userID, dmChannelID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.outstanding) >= maxTrackedNotifications {
-		return // stop tracking; NotifyDMRead then retracts unconditionally
+		// Full: this delivery goes unrecorded, so from here on we cannot tell a conversation with
+		// nothing on the tray from one we simply failed to write down. Retract unconditionally
+		// until the map has drained well clear of the cap.
+		s.saturated = true
+		return
 	}
 	s.outstanding[outstandingKey(userID, dmChannelID)] = struct{}{}
 }
 
-// takeOutstanding reports whether a notification is sitting on this user's tray for this
-// conversation, and clears it. Once the map is full it stops discriminating and says yes, so a
-// notification is never left stranded because we lost track of it.
+// hasOutstanding peeks without consuming. The record is only spent once the retraction is
+// actually about to go out — see NotifyDMRead.
+func (s *pushService) hasOutstanding(userID, dmChannelID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.saturated {
+		return true
+	}
+	_, ok := s.outstanding[outstandingKey(userID, dmChannelID)]
+	return ok
+}
+
+// takeOutstanding consumes the record and reports whether there was one. It ALWAYS deletes: an
+// earlier version skipped the delete once the map was full, so the map stuck at exactly the cap
+// forever and every read from then on fired an unconditional retraction — the FCM queue overflow
+// this map exists to prevent, made permanent until a restart.
 func (s *pushService) takeOutstanding(userID, dmChannelID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.outstanding) >= maxTrackedNotifications {
-		return true
+
+	_, ok := s.outstanding[outstandingKey(userID, dmChannelID)]
+	delete(s.outstanding, outstandingKey(userID, dmChannelID))
+
+	if s.saturated {
+		// Reads drain the map. Once there is real headroom again, trust it.
+		if len(s.outstanding) <= maxTrackedNotifications/2 {
+			s.saturated = false
+		}
+		return true // records were dropped while full; we cannot claim there is nothing to pull back
 	}
-	key := outstandingKey(userID, dmChannelID)
-	_, ok := s.outstanding[key]
-	delete(s.outstanding, key)
 	return ok
+}
+
+// restoreOutstanding puts a record back after a retraction failed to send. The notification is
+// still on the user's tray; forgetting it would strand it there with nothing left to retry.
+func (s *pushService) restoreOutstanding(userID, dmChannelID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.outstanding) >= maxTrackedNotifications {
+		s.saturated = true
+		return
+	}
+	s.outstanding[outstandingKey(userID, dmChannelID)] = struct{}{}
 }
 
 func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID, messageID string) {
@@ -363,11 +365,16 @@ func (s *pushService) NotifyDMRead(userID, dmChannelID string) {
 	// Nothing on their tray for this conversation, so there is nothing to pull back. This is the
 	// common case and skipping it is most of the point: a retraction for every read of every
 	// conversation is the traffic that overflows FCM's queue for an offline phone.
-	if !s.takeOutstanding(userID, dmChannelID) {
+	if !s.hasOutstanding(userID, dmChannelID) {
 		return
 	}
+	// PEEK above, CONSUME below. Consuming before the dispatch meant a shed retraction left the
+	// notification on the tray with the server no longer aware of it — nothing would ever retry.
 	s.dispatch(userID, "dm_read", true, func(ctx context.Context) {
-		s.sendFCMData(ctx, userID, push.DataMessage{
+		if !s.takeOutstanding(userID, dmChannelID) {
+			return // another read got there first
+		}
+		ok := s.sendFCMData(ctx, userID, push.DataMessage{
 			Data: map[string]string{
 				"type":          "dm_read",
 				"dm_channel_id": dmChannelID,
@@ -378,6 +385,9 @@ func (s *pushService) NotifyDMRead(userID, dmChannelID string) {
 			// senders whose high-priority messages don't — a downranking that would land on calls.
 			HighPriority: false,
 		})
+		if !ok {
+			s.restoreOutstanding(userID, dmChannelID)
+		}
 	})
 }
 
@@ -599,12 +609,14 @@ func (s *pushService) sendVoIP(ctx context.Context, userID string, tokens []stri
 // sendFCMData delivers a data-only message to the user's Android devices. Data-only is
 // what reaches MqviMessagingService even when the app is backgrounded or killed — a
 // notification payload would be displayed by the FCM SDK instead of handed to our code.
-func (s *pushService) sendFCMData(ctx context.Context, userID string, m push.DataMessage) {
+// sendFCMData reports whether the message reached FCM, so a caller holding state that assumes
+// delivery (the outstanding-notification record) can put it back when it did not.
+func (s *pushService) sendFCMData(ctx context.Context, userID string, m push.DataMessage) bool {
 	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
 	if err != nil {
 		s.failed.Add(1)
 		log.Printf("[push] list tokens for %s: %v", userID, err)
-		return
+		return false
 	}
 
 	var androidFCM []string
@@ -614,7 +626,7 @@ func (s *pushService) sendFCMData(ctx context.Context, userID string, m push.Dat
 		}
 	}
 	if len(androidFCM) == 0 {
-		return
+		return true // no Android device to retract from; nothing is pending there
 	}
 
 	invalid, err := s.fcm.SendData(ctx, androidFCM, m)
@@ -622,7 +634,7 @@ func (s *pushService) sendFCMData(ctx context.Context, userID string, m push.Dat
 	if err != nil {
 		s.failed.Add(1)
 		log.Printf("[push] send data to %s: %v", userID, err)
-		return
+		return false
 	}
 	s.sent.Add(1)
 	if len(invalid) > 0 {
@@ -630,6 +642,7 @@ func (s *pushService) sendFCMData(ctx context.Context, userID string, m push.Dat
 			log.Printf("[push] prune %d invalid tokens: %v", len(invalid), delErr)
 		}
 	}
+	return true
 }
 
 // sendFCM reports whether a notification actually went out, so the caller knows there is now

@@ -30,7 +30,7 @@ vi.mock("./e2eeStore", () => ({
 }));
 
 import { useDMStore } from "./dmStore";
-import { resetDMReadTracking } from "./slices/dmSettingsSlice";
+import { resetMarkReadTracking } from "./shared/markReadTracking";
 import { dismissReadNotifications } from "../utils/pushDismiss";
 import type { DMMessage } from "../types";
 
@@ -53,7 +53,7 @@ function hold(messages: DMMessage[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
-  resetDMReadTracking();
+  resetMarkReadTracking();
   markDMRead.mockResolvedValue({ success: true });
   e2eeStatus = "ready";
   useDMStore.setState({
@@ -255,5 +255,25 @@ describe("applyServerUnread — a snapshot that raced is not a truth", () => {
     );
 
     expect(listDMChannels.mock.calls.length).toBeLessThanOrEqual(4); // 1 + MAX_UNREAD_REFETCHES
+  });
+});
+
+// REVIEW-01 #3: two people share a desktop and a conversation. A logs out having read up to M9;
+// B logs in and opens the same chat, whose newest message is still M9. Without a reset, the
+// dedupe guard sees "already asked for M9" and returns before the POST — B's badge never clears,
+// the server never learns B read it, and B's phone keeps buzzing for the chat on their screen.
+// The SPA does not reload between logout and login, so nothing else clears this.
+describe("logout must not leave the next user holding the last one's read state", () => {
+  it("re-marks the same watermark for a different session after a reset", () => {
+    hold([msg("m9")]);
+    useDMStore.getState().markDMReadUpTo("c1");
+    expect(markDMRead).toHaveBeenCalledTimes(1);
+
+    resetMarkReadTracking(); // what logout now does
+
+    useDMStore.getState().markDMReadUpTo("c1");
+
+    expect(markDMRead).toHaveBeenCalledTimes(2);
+    expect(markDMRead).toHaveBeenLastCalledWith("c1", "m9");
   });
 });
