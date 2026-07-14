@@ -155,14 +155,25 @@ func androidConfig(category, tag string) *messaging.AndroidConfig {
 	if category == CategoryCall {
 		channelID = "calls"
 	}
-	return &messaging.AndroidConfig{
-		Priority: "high",
+	cfg := &messaging.AndroidConfig{
+		Priority: "high", // these DO produce a visible notification, so high priority is earned
 		Notification: &messaging.AndroidNotification{
 			ChannelID: channelID,
 			Sound:     "default",
 			Tag:       tag,
 		},
 	}
+	// A message notification collapses per conversation — the same grouping the Tag already
+	// applies on the device. Without a collapse key these are the highest-volume NON-collapsible
+	// messages we send, and FCM stores at most 100 of those for an offline device before
+	// DISCARDING ALL OF THEM — including the incoming-call push queued behind them. A DM
+	// notification is a nudge whose content is still there when the app opens; a call is not.
+	//
+	// A call is never collapsed: two incoming calls are two events and must not replace each other.
+	if category != CategoryCall {
+		cfg.CollapseKey = tag
+	}
+	return cfg
 }
 
 func apnsConfig() *messaging.APNSConfig {

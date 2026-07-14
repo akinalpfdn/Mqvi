@@ -131,6 +131,9 @@ func NewPushService(
 	if maxConcurrent <= 0 {
 		maxConcurrent = 16
 	}
+	if !fcm.Enabled() && !apnsSender.Enabled() {
+		log.Printf("[push] disabled: no FCM credentials and no APNs key configured")
+	}
 	return &pushService{
 		fcm: fcm, apns: apnsSender, tokenRepo: tokenRepo, users: users,
 		presence: presence, reads: reads,
@@ -155,6 +158,10 @@ func (s *pushService) Stats() PushStats {
 		APNsUp:     s.apnsUp(),
 	}
 }
+
+// configured reports whether push exists at all on this deployment. Distinct from fcmUp/apnsUp:
+// "never set up" is not a per-message decision and must not be logged like one.
+func (s *pushService) configured() bool { return s.fcm.Enabled() || s.apns.Enabled() }
 
 // fcmUp / apnsUp fold "configured" and "not currently failing" into one question. When the
 // breaker is open we skip the token lookup too — that lookup is a database connection, and
@@ -256,8 +263,10 @@ func (s *pushService) restoreOutstanding(userID, dmChannelID string) {
 }
 
 func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID, messageID string) {
-	if !s.fcm.Enabled() && !s.apns.Enabled() {
-		s.suppressed(recipientID, "dm", reasonDisabled)
+	// Push not configured at all: a boot-time fact, logged once in NewPushService. Logging it per
+	// message would bury the reason= lines this feature exists to make greppable, and on a
+	// self-hosted instance without push that is EVERY message.
+	if !s.configured() {
 		return
 	}
 	if !s.fcmUp() && !s.apnsUp() {
@@ -328,9 +337,9 @@ func (s *pushService) deliverDM(recipientID, senderName, content string, encrypt
 
 		// Android FCM tokens get an FCM notification; iOS APNs tokens get a direct APNs
 		// alert push (iOS has no FCM). VoIP tokens are for calls only, skipped here.
-		delivered := false
+		var delivered, fcmHadTokens, apnsHadTokens bool
 		if s.fcmUp() {
-			delivered = s.sendFCM(ctx, recipientID, push.Notification{
+			delivered, fcmHadTokens = s.sendFCM(ctx, recipientID, push.Notification{
 				Title:    senderName,
 				Body:     body,
 				Category: push.CategoryMessage,
@@ -339,7 +348,14 @@ func (s *pushService) deliverDM(recipientID, senderName, content string, encrypt
 			})
 		}
 		if s.apnsUp() {
-			s.sendAPNsAlert(ctx, recipientID, senderName, body, data)
+			apnsHadTokens = s.sendAPNsAlert(ctx, recipientID, senderName, body, data)
+		}
+
+		// "No tokens" is only true once BOTH transports have looked. Reporting it from the FCM
+		// path alone said no_tokens for every iOS-only user, while their APNs push went out fine.
+		if !fcmHadTokens && !apnsHadTokens {
+			s.suppressed(recipientID, "dm", reasonNoTokens)
+			return
 		}
 		if delivered {
 			// Remember that something is on their tray, so reading the conversation later is
@@ -381,9 +397,12 @@ func (s *pushService) NotifyDMRead(userID, dmChannelID string) {
 			},
 			// Per conversation, so a read of one chat cannot replace the retraction for another.
 			CollapseKey: "dm_read:" + dmChannelID,
-			// Not high priority: it produces no user-visible notification, and Google downranks
-			// senders whose high-priority messages don't — a downranking that would land on calls.
-			HighPriority: false,
+			// High priority, and it is earned: this only fires when a notification is ACTUALLY on
+			// the user's tray (see hasOutstanding), so every one of these does user-visible work —
+			// it removes a notification. Normal priority would leave a dozing phone showing a
+			// notification for a chat the user already read, for hours, which is the guarantee
+			// this push exists to provide.
+			HighPriority: true,
 		})
 		if !ok {
 			s.restoreOutstanding(userID, dmChannelID)
@@ -392,12 +411,14 @@ func (s *pushService) NotifyDMRead(userID, dmChannelID string) {
 }
 
 // sendAPNsAlert delivers a user-visible alert push to the recipient's iOS APNs tokens
-// (messages/DMs). Prunes tokens APNs reports permanently invalid.
-func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body string, data map[string]string) {
+// (messages/DMs). Prunes tokens APNs reports permanently invalid. Reports whether the user had
+// any APNs token at all — see the no_tokens decision in deliverDM.
+func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body string, data map[string]string) (hadTokens bool) {
 	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
 	if err != nil {
+		s.failed.Add(1)
 		log.Printf("[push] list tokens for %s: %v", userID, err)
-		return
+		return false
 	}
 
 	aps := map[string]any{
@@ -414,6 +435,7 @@ func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body str
 		if t.TokenType != models.PushTokenTypeAPNs {
 			continue
 		}
+		hadTokens = true
 		err := s.apns.SendAlert(ctx, t.Token, payload)
 		if err == nil {
 			s.apnsBreaker.Record(true)
@@ -433,11 +455,11 @@ func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body str
 			log.Printf("[push] prune apns tokens: %v", delErr)
 		}
 	}
+	return hadTokens
 }
 
 func (s *pushService) NotifyCall(receiverID, callerName string, callType models.P2PCallType, callID, callerID string) {
-	if !s.fcm.Enabled() && !s.apns.Enabled() {
-		s.suppressed(receiverID, "call", reasonDisabled)
+	if !s.configured() {
 		return
 	}
 	// A call is never shed and never deferred — it cannot be caught up on later.
@@ -645,14 +667,15 @@ func (s *pushService) sendFCMData(ctx context.Context, userID string, m push.Dat
 	return true
 }
 
-// sendFCM reports whether a notification actually went out, so the caller knows there is now
-// something on the user's tray worth retracting later.
-func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notification) bool {
+// sendFCM reports (delivered, hadTokens). delivered says there is now something on the user's tray
+// worth retracting later; hadTokens lets the caller decide "no tokens" only once every transport
+// has looked.
+func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notification) (delivered, hadTokens bool) {
 	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
 	if err != nil {
 		s.failed.Add(1)
 		log.Printf("[push] list tokens for %s: %v", userID, err)
-		return false
+		return false, false
 	}
 
 	var values []string
@@ -662,8 +685,7 @@ func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notific
 		}
 	}
 	if len(values) == 0 {
-		s.suppressed(userID, "dm", reasonNoTokens)
-		return false
+		return false, false
 	}
 
 	invalid, err := s.fcm.Send(ctx, values, n)
@@ -671,7 +693,7 @@ func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notific
 	if err != nil {
 		s.failed.Add(1)
 		log.Printf("[push] send to %s: %v", userID, err)
-		return false
+		return false, true
 	}
 	s.sent.Add(1)
 	if len(invalid) > 0 {
@@ -680,7 +702,7 @@ func (s *pushService) sendFCM(ctx context.Context, userID string, n push.Notific
 		}
 	}
 	// Every token was dead: nothing was delivered, so nothing is on a tray.
-	return len(invalid) < len(values)
+	return len(invalid) < len(values), true
 }
 
 // recipientPush fetches the recipient once and returns their notification language

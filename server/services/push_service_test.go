@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -340,8 +342,11 @@ func TestNotifyDMRead_RetractsOnceWhenSomethingWasDelivered(t *testing.T) {
 		t.Errorf("collapse key %q, want dm_read:c1 — without a per-conversation key, a read of one "+
 			"chat replaces the retraction queued for another", msgs[0].CollapseKey)
 	}
-	if msgs[0].HighPriority {
-		t.Error("high priority on a push that shows the user nothing — this is what gets a sender downranked, and the downranking lands on calls")
+	// High priority is earned here: the retraction only fires when a notification is actually on
+	// the tray, so it always does user-visible work. Normal priority would leave a dozing phone
+	// showing a notification for a chat the user read hours ago.
+	if !msgs[0].HighPriority {
+		t.Error("normal priority: a dozing phone would not get this until its next maintenance window")
 	}
 
 	// The tray is clear now. Reading again must not push again.
@@ -476,5 +481,132 @@ func TestNotifyDMRead_FailedSendPutsTheRecordBack(t *testing.T) {
 	}
 	if !s.hasOutstanding("u", "c1") {
 		t.Error("a failed retraction dropped the record — the notification stays on the tray forever")
+	}
+}
+
+// ─── REVIEW-02: the reason= lines must be worth grepping ───
+
+// logSink records what the service wrote, so a test can assert on the log itself — the log IS the
+// feature here ("an operator can answer why this user got no notification"). Locked: push writes
+// its lines from dispatch goroutines.
+type logSink struct {
+	mu sync.Mutex
+	b  []byte
+}
+
+func (l *logSink) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.b = append(l.b, p...)
+	return len(p), nil
+}
+
+func (l *logSink) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return string(l.b)
+}
+
+func (l *logSink) Reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.b = nil
+}
+
+func (l *logSink) Len() int { return len(l.String()) }
+
+func captureLog(t *testing.T) *logSink {
+	t.Helper()
+	sink := &logSink{}
+	prev := log.Writer()
+	log.SetOutput(sink)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	return sink
+}
+
+type apnsOnlyRepo struct{ fakeTokenRepo }
+
+// An iOS-only user: an APNs alert token, no FCM token at all.
+func newAPNsOnlyRepo() *apnsOnlyRepo {
+	return &apnsOnlyRepo{fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "apns-1", TokenType: models.PushTokenTypeAPNs, Platform: "ios"},
+	}}}
+}
+
+type countingAPNs struct {
+	mu   sync.Mutex
+	sent int
+}
+
+func (c *countingAPNs) Enabled() bool { return true }
+func (c *countingAPNs) SendAlert(context.Context, string, map[string]any) error {
+	c.mu.Lock()
+	c.sent++
+	c.mu.Unlock()
+	return nil
+}
+func (c *countingAPNs) SendVoIP(context.Context, string, map[string]any) error { return nil }
+
+func (c *countingAPNs) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sent
+}
+
+// The FCM path found no FCM token and said "no_tokens" — while the APNs push went out fine. The
+// one log line an operator greps for was a lie for every iOS-only user.
+func TestNotifyDM_DoesNotClaimNoTokensWhenAPNsDelivered(t *testing.T) {
+	logs := captureLog(t)
+	apnsSink := &countingAPNs{}
+	s := NewPushService(&recordingFCM{sent: make(chan struct{}, 4)}, apnsSink, newAPNsOnlyRepo(),
+		&fakeUsers{}, fakePresence{}, &fakeReads{}, testPushConfig(0))
+
+	s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for apnsSink.count() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if apnsSink.count() == 0 {
+		t.Fatal("the iOS user got no APNs alert at all")
+	}
+	if strings.Contains(logs.String(), reasonNoTokens) {
+		t.Errorf("logged reason=%s for a user whose APNs push was delivered:\n%s", reasonNoTokens, logs.String())
+	}
+}
+
+// With no tokens on EITHER transport, the reason is real and must be logged.
+func TestNotifyDM_ReportsNoTokensWhenNeitherTransportHasAny(t *testing.T) {
+	logs := captureLog(t)
+	s := NewPushService(&recordingFCM{sent: make(chan struct{}, 4)}, &countingAPNs{}, &fakeTokenRepo{},
+		&fakeUsers{}, fakePresence{}, &fakeReads{}, testPushConfig(0))
+
+	s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(logs.String(), reasonNoTokens) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !strings.Contains(logs.String(), reasonNoTokens) {
+		t.Errorf("a user with no tokens anywhere got no reason= line:\n%s", logs.String())
+	}
+}
+
+// Push not configured is a boot-time fact. Logging it per message means a self-hosted instance
+// writes a suppression line for EVERY DM — burying the reason= lines this feature exists for.
+func TestNotifyDM_SilentWhenPushWasNeverConfigured(t *testing.T) {
+	logs := captureLog(t)
+	s := NewPushService(disabledFCM{}, disabledAPNs{}, &fakeTokenRepo{}, &fakeUsers{},
+		fakePresence{}, &fakeReads{}, testPushConfig(0))
+	logs.Reset() // the one-off "push disabled" line at construction is fine; the per-message one is not
+
+	for i := 0; i < 5; i++ {
+		s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "")
+		s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "call-1", "alice")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if logs.Len() != 0 {
+		t.Errorf("push is not configured on this deployment, yet every message logged:\n%s", logs.String())
 	}
 }

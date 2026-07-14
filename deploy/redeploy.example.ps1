@@ -79,9 +79,19 @@ Write-Host "  OK - database found, readiness at $readyAddr, health check $(if ($
 # --- Stop server ---
 # SIGTERM first: the server handles it (signal.Notify + srv.Shutdown) and closes SQLite cleanly.
 # SIGKILL on a database writer is how a WAL ends up needing recovery. Escalate only if it hangs.
+#
+# -x, NOT -f. `ssh host "CMD"` makes sshd run `sh -c "CMD"`, so the remote shell's own command
+# line contains "mqvi-server" — and pkill -f excludes itself but NOT its parent. It killed the
+# shell it was running in: the wait, the escalation and the livekit stop never ran, and the backup
+# then copied the database out from under a server that was still shutting down. -x matches the
+# process NAME, which a shell can never have.
 Write-Host ""
 Write-Host "[4/7] Stopping server..." -ForegroundColor Yellow
-ssh $Server "pkill -TERM -f mqvi-server || true; for i in `$(seq 1 15); do pgrep -f mqvi-server > /dev/null || break; sleep 1; done; pkill -9 -f mqvi-server 2>/dev/null && echo '  WARNING: had to SIGKILL the server' || true; pkill -9 -f livekit-server || true; sleep 1"
+ssh $Server "pkill -TERM -x mqvi-server || true; for i in `$(seq 1 15); do pgrep -x mqvi-server > /dev/null || break; sleep 1; done; pkill -9 -x mqvi-server 2>/dev/null && echo '  WARNING: had to SIGKILL the server' || true; pkill -9 -x livekit-server || true; sleep 1; if pgrep -x mqvi-server > /dev/null; then echo '  ERROR: mqvi-server survived the stop step'; exit 1; fi"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ERROR: could not stop the server. Refusing to back up or deploy over a live database." -ForegroundColor Red
+    exit 1
+}
 Write-Host "  OK - Server stopped" -ForegroundColor Green
 
 # --- Back up the database ---
@@ -105,9 +115,9 @@ $rollback = @"
 set -e
 cd "`$(dirname "`$0")/.."
 
-pkill -TERM -f mqvi-server || true
-for i in `$(seq 1 20); do pgrep -f mqvi-server >/dev/null || break; sleep 1; done
-if pgrep -f mqvi-server >/dev/null; then
+pkill -TERM -x mqvi-server || true
+for i in `$(seq 1 20); do pgrep -x mqvi-server >/dev/null || break; sleep 1; done
+if pgrep -x mqvi-server >/dev/null; then
     echo "ERROR: the server is still running. Refusing to overwrite a live database."
     exit 1
 fi
