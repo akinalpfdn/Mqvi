@@ -25,6 +25,7 @@ import {
 import type { MemberWithRoles } from "../../types";
 import EmojiPicker from "../shared/EmojiPicker";
 import GifPicker from "../shared/GifPicker";
+import MobileBottomSheet from "../shared/MobileBottomSheet";
 import FilePreview from "./FilePreview";
 import MentionAutocomplete, { type MentionSelection } from "./MentionAutocomplete";
 import CommandAutocomplete from "./CommandAutocomplete";
@@ -77,7 +78,17 @@ function MessageInput({ openSearch }: MessageInputProps) {
   const mentionSelectionsRef = useRef<MentionSelection[]>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Three inputs rather than one whose accept is rewritten before each click: accept is what
+  // decides which picker the OS opens, and mutating it imperatively races the click on Android.
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [showAttachSheet, setShowAttachSheet] = useState(false);
+
+  function pickFrom(ref: React.RefObject<HTMLInputElement | null>) {
+    setShowAttachSheet(false);
+    ref.current?.click();
+  }
 
   useEffect(() => {
     addFilesRef.current = (newFiles: File[]) => {
@@ -557,7 +568,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
         />
         <button
           className="input-action-btn"
-          onClick={() => fileInputRef.current?.click()}
+          // Touch only. On a mouse there is one system dialog behind all three choices, so the
+          // sheet would ask a question whose answers are identical.
+          onClick={() => (isTouch ? setShowAttachSheet(true) : fileInputRef.current?.click())}
           title={t("attachFile")}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -567,6 +580,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
           </svg>
         </button>
 
+        {/* No accept: the documents picker, everything the server's whitelist allows. */}
         <input
           ref={fileInputRef}
           type="file"
@@ -574,6 +588,59 @@ function MessageInput({ openSearch }: MessageInputProps) {
           style={{ display: "none" }}
           onChange={handleFileSelect}
         />
+        {/* accept is a hint to the OS picker, never a security boundary — the MIME whitelist
+            and the size limit are enforced server-side and by validateFiles. */}
+        <input
+          ref={mediaInputRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          style={{ display: "none" }}
+          onChange={handleFileSelect}
+        />
+        {/* capture opens the camera straight away. Not multiple — a shot is one file. */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          style={{ display: "none" }}
+          onChange={handleFileSelect}
+        />
+
+        <MobileBottomSheet isOpen={showAttachSheet} onClose={() => setShowAttachSheet(false)}>
+          <div className="mobile-bs-actions-list">
+            <button className="mobile-bs-action" onClick={() => pickFrom(cameraInputRef)}>
+              <span className="mobile-bs-action-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+              </span>
+              {t("attachCamera")}
+            </button>
+
+            <button className="mobile-bs-action" onClick={() => pickFrom(mediaInputRef)}>
+              <span className="mobile-bs-action-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+              </span>
+              {t("attachGallery")}
+            </button>
+
+            <button className="mobile-bs-action" onClick={() => pickFrom(fileInputRef)}>
+              <span className="mobile-bs-action-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+              </span>
+              {t("attachFiles")}
+            </button>
+          </div>
+        </MobileBottomSheet>
 
         <textarea
           ref={textareaRef}
