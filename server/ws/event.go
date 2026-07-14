@@ -127,6 +127,9 @@ const (
 	OpP2PCallEnd      = "p2p_call_end"
 	OpP2PSignal       = "p2p_signal"
 	OpP2PCallBusy     = "p2p_call_busy"
+	// OpP2PCallResume — the client reconnected and is still in the call. Media is peer-to-peer, so
+	// the socket dying was a blip, not a hang-up. Rebinds the call to the new connection.
+	OpP2PCallResume = "p2p_call_resume"
 )
 
 // E2EE operations
@@ -319,6 +322,10 @@ type P2PCallAcceptData struct {
 }
 
 type P2PCallDeclineData struct {
+	CallID string `json:"call_id"`
+}
+
+type P2PCallResumeData struct {
 	CallID string `json:"call_id"`
 }
 

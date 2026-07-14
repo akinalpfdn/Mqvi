@@ -114,6 +114,7 @@ type P2PCallInitiateCallback func(callerID, sessionID string, data P2PCallInitia
 type P2PCallAcceptCallback func(userID, sessionID, deviceID string, data P2PCallAcceptData)
 type P2PCallDeclineCallback func(userID, deviceID string, data P2PCallDeclineData)
 type P2PCallEndCallback func(userID, deviceID, callID string)
+type P2PCallResumeCallback func(userID, sessionID, callID string)
 
 // P2PSignalCallback — WebRTC signaling data relayed to the other peer.
 type P2PSignalCallback func(senderID, senderSessionID string, data P2PSignalData)
@@ -187,6 +188,7 @@ type Hub struct {
 	onP2PCallAccept   P2PCallAcceptCallback
 	onP2PCallDecline  P2PCallDeclineCallback
 	onP2PCallEnd      P2PCallEndCallback
+	onP2PCallResume   P2PCallResumeCallback
 	onP2PSignal       P2PSignalCallback
 
 	// Channel typing callback — set in main.go
@@ -685,6 +687,10 @@ func (h *Hub) OnP2PCallDecline(cb P2PCallDeclineCallback) {
 
 func (h *Hub) OnP2PCallEnd(cb P2PCallEndCallback) {
 	h.onP2PCallEnd = cb
+}
+
+func (h *Hub) OnP2PCallResume(cb P2PCallResumeCallback) {
+	h.onP2PCallResume = cb
 }
 
 func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {

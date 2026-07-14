@@ -155,6 +155,7 @@ func init() {
 		OpP2PCallAccept:         (*Client).handleP2PCallAccept,
 		OpP2PCallDecline:        (*Client).handleP2PCallDecline,
 		OpP2PCallEnd:            (*Client).handleP2PCallEnd,
+		OpP2PCallResume:         (*Client).handleP2PCallResume,
 		OpP2PSignal:             (*Client).handleP2PSignal,
 	}
 }
@@ -551,6 +552,24 @@ func (c *Client) handleP2PCallEnd(event Event) {
 	}
 	if c.hub.onP2PCallEnd != nil {
 		c.hub.onP2PCallEnd(c.userID, c.deviceID, data.CallID)
+	}
+}
+
+// handleP2PCallResume — this connection replaced the one that was carrying the call.
+func (c *Client) handleP2PCallResume(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+	var data P2PCallResumeData
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
+		return
+	}
+	if data.CallID == "" {
+		return
+	}
+	if c.hub.onP2PCallResume != nil {
+		c.hub.onP2PCallResume(c.userID, c.sessionID, data.CallID)
 	}
 }
 

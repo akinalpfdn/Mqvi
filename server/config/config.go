@@ -21,6 +21,10 @@ type Config struct {
 	Email           EmailConfig
 	Klipy           KlipyConfig
 	TURN            TURNConfig
+	// CallGraceWindow is how long a live call survives the death of the socket carrying it. Media
+	// is peer-to-peer, so a WebSocket blip is not a hang-up — the owner gets this long to
+	// reconnect and reclaim it before the call is torn down.
+	CallGraceWindow time.Duration
 	Push            PushConfig
 	EncryptionKey   string // AES-256 key (64 hex chars = 32 bytes) for LiveKit credential encryption
 	HetznerAPIToken string // Hetzner Cloud API token (read-only) — optional
@@ -301,6 +305,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	callGraceWindow, err := getEnvDuration("MQVI_P2P_CALL_GRACE", 20*time.Second)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		Server: ServerConfig{
@@ -376,6 +384,7 @@ func Load() (*Config, error) {
 				Production: apnsProduction,
 			},
 		},
+		CallGraceWindow:     callGraceWindow,
 		EncryptionKey:       encKey,
 		HetznerAPIToken:     getEnv("HETZNER_API_TOKEN", ""),
 		PasswordBreachCheck: breachCheck,

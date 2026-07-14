@@ -57,6 +57,10 @@ type P2PCallService interface {
 	// HandleSessionDisconnect ends the call when the CONNECTION carrying it dies — not when the
 	// user's last device goes offline. See the implementation.
 	HandleSessionDisconnect(userID, sessionID string)
+	// ResumeCall rebinds a call to the connection that replaced the one it died with, cancelling
+	// the teardown that death scheduled. Media is peer-to-peer, so a WebSocket blip is not a
+	// hang-up — but the new session must be adopted or its signals would be rejected.
+	ResumeCall(userID, sessionID, callID string) error
 	GetUserCall(userID string) *models.P2PCall
 	// PendingIncomingCall returns the broadcast for a user's active RINGING incoming
 	// call (they are the receiver), or nil — used to re-deliver it on (re)connect.
@@ -82,6 +86,15 @@ type p2pCallService struct {
 	activeCalls map[string]*models.P2PCall // callID -> call
 	userCalls   map[string]string          // userID -> callID (max 1 call per user)
 	ringTimers  map[string]*time.Timer     // callID -> auto-cleanup timer for unanswered ringing calls
+	// graceTimers holds a call whose owning socket died, for as long as its owner has to come back.
+	// Media is peer-to-peer: a dead WebSocket is not a dead call, it is a call in a network blip.
+	//
+	// Keyed per PARTICIPANT, not per call. Both sides can be in grace at once (one dropped wifi
+	// takes both of them out), and each side's return only speaks for itself. Keyed by call alone,
+	// the caller reconnecting would cancel the teardown scheduled for a receiver who never came
+	// back — and the call would stay Active forever, which is the exact bug FIX-03 fixed.
+	graceTimers map[string]*time.Timer // callID|userID -> teardown timer
+	graceWindow time.Duration
 	mu          sync.RWMutex
 }
 
@@ -140,6 +153,7 @@ func NewP2PCallService(
 	userGetter UserInfoGetter,
 	hub ws.BroadcastAndOnline,
 	urlSigner FileURLSigner,
+	graceWindow time.Duration,
 ) P2PCallService {
 	return &p2pCallService{
 		friendChecker: friendChecker,
@@ -149,6 +163,19 @@ func NewP2PCallService(
 		activeCalls:   make(map[string]*models.P2PCall),
 		userCalls:     make(map[string]string),
 		ringTimers:    make(map[string]*time.Timer),
+		graceTimers:   make(map[string]*time.Timer),
+		graceWindow:   graceWindow,
+	}
+}
+
+func graceKey(callID, userID string) string { return callID + "|" + userID }
+
+// stopGraceTimer cancels the teardown pending for ONE participant. Caller holds the lock.
+func (s *p2pCallService) stopGraceTimer(callID, userID string) {
+	key := graceKey(callID, userID)
+	if t, ok := s.graceTimers[key]; ok {
+		t.Stop()
+		delete(s.graceTimers, key)
 	}
 }
 
@@ -616,10 +643,58 @@ func (s *p2pCallService) HandleSessionDisconnect(userID, sessionID string) {
 		return // a sibling device dropped; the one in the call is still here
 	}
 
+	// The socket carrying an ACTIVE call died — but WebRTC media is peer-to-peer and is still
+	// flowing. This is a network blip, not a hang-up. Give the owner a window to reconnect and
+	// reclaim the call (p2p_call_resume); tear it down only if nobody does.
+	// A zero window disables this and restores the immediate teardown.
+	if call.Status == models.P2PCallStatusActive && s.graceWindow > 0 {
+		s.stopGraceTimer(callID, userID)
+		s.graceTimers[graceKey(callID, userID)] = time.AfterFunc(s.graceWindow, func() {
+			s.endCallAfterGrace(userID, sessionID, callID)
+		})
+		s.mu.Unlock()
+		log.Printf("[p2p] call %s owner %s dropped; %s to reconnect", callID, userID, s.graceWindow)
+		return
+	}
+
+	s.teardownLocked(userID, callID, call)
+}
+
+// endCallAfterGrace fires when this participant never came back. It re-verifies everything under
+// the lock: while it was pending the other party may have hung up (the call is gone), or this one
+// may have reconnected and taken it over (a different session owns it now).
+func (s *p2pCallService) endCallAfterGrace(userID, deadSessionID, callID string) {
+	s.mu.Lock()
+	delete(s.graceTimers, graceKey(callID, userID))
+
+	call, exists := s.activeCalls[callID]
+	if !exists {
+		s.mu.Unlock()
+		return // already ended by the other party
+	}
+
+	owner := call.CallerSessionID
+	if call.ReceiverID == userID {
+		owner = call.ReceiverSessionID
+	}
+	if owner != deadSessionID {
+		s.mu.Unlock()
+		return // reclaimed by a new connection — this timer is stale
+	}
+
+	log.Printf("[p2p] call %s not reclaimed within %s; ending", callID, s.graceWindow)
+	s.teardownLocked(userID, callID, call)
+}
+
+// teardownLocked ends the call and releases the lock. Caller holds it.
+func (s *p2pCallService) teardownLocked(userID, callID string, call *models.P2PCall) {
 	delete(s.activeCalls, callID)
 	s.removeUserMapping(call.CallerID, callID)
 	s.removeUserMapping(call.ReceiverID, callID)
 	s.stopRingTimer(callID)
+	// Both, not one: the other party may be in grace too — one dropped router takes them both out.
+	s.stopGraceTimer(callID, call.CallerID)
+	s.stopGraceTimer(callID, call.ReceiverID)
 	s.mu.Unlock()
 
 	log.Printf("[p2p] call ended due to disconnect: user=%s, call=%s", userID, callID)
@@ -653,6 +728,42 @@ func (s *p2pCallService) HandleSessionDisconnect(userID, sessionID string) {
 	} else {
 		s.logCall(call.CallerID, call.ReceiverID, call.CallType, models.CallOutcomeMissed, 0)
 	}
+}
+
+// ResumeCall rebinds a call to the connection that just replaced the one carrying it, and cancels
+// the teardown that its death scheduled.
+//
+// The rebind is not bookkeeping: RelaySignal rejects a signal whose sender session is neither the
+// caller's nor the receiver's, and the session id changes on every reconnect. Without it the ICE
+// restart that recovers the media after a blip would be refused.
+func (s *p2pCallService) ResumeCall(userID, sessionID, callID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	call, exists := s.activeCalls[callID]
+	if !exists {
+		return fmt.Errorf("%w: call not found", pkg.ErrNotFound)
+	}
+	if call.CallerID != userID && call.ReceiverID != userID {
+		return fmt.Errorf("%w: not a participant", pkg.ErrForbidden)
+	}
+	// Only an accepted call has an owning session to rebind. A ringing one is still offered to
+	// every one of the receiver's devices.
+	if call.Status != models.P2PCallStatusActive {
+		return fmt.Errorf("%w: call is not active", pkg.ErrBadRequest)
+	}
+
+	if call.CallerID == userID {
+		call.CallerSessionID = sessionID
+	} else {
+		call.ReceiverSessionID = sessionID
+	}
+	// Only THIS participant's teardown. Coming back speaks for me, not for the other party — if
+	// their socket is also dead, their own window keeps counting down.
+	s.stopGraceTimer(callID, userID)
+
+	log.Printf("[p2p] call %s reclaimed by user=%s session=%s", callID, userID, sessionID)
+	return nil
 }
 
 // GetUserCall returns the user's active call, or nil if not in a call.

@@ -174,3 +174,41 @@ describe("handleCallDecline — declining on one device is not a rejection to yo
     expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1");
   });
 });
+
+// REVIEW-02 #5: the socket carrying the call died and this one replaced it. Media is peer-to-peer
+// and never stopped — but the server scheduled a teardown when the old socket closed, and it
+// identifies the call by SESSION, which just changed. Claim it back, or it is hung up under us.
+describe("resumeCallAfterReconnect", () => {
+  const sent: { op: string; data?: unknown }[] = [];
+
+  beforeEach(() => {
+    sent.length = 0;
+    useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
+  });
+
+  it("reclaims a live call", () => {
+    useP2PCallStore.setState({ activeCall: call({ status: "active" }) });
+
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+
+    expect(sent).toEqual([{ op: "p2p_call_resume", data: { call_id: "call-1" } }]);
+  });
+
+  it("says nothing when there is no call", () => {
+    useP2PCallStore.setState({ activeCall: null });
+
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+
+    expect(sent).toEqual([]);
+  });
+
+  // A ringing call has no owning session yet — every one of the receiver's devices is still being
+  // offered it, and the server rejects a resume for one.
+  it("says nothing for a call that is still ringing", () => {
+    useP2PCallStore.setState({ activeCall: call({ status: "ringing" }) });
+
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+
+    expect(sent).toEqual([]);
+  });
+});

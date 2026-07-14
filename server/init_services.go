@@ -116,7 +116,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	voiceService := services.NewVoiceService(
 		repos.Channel, repos.LiveKit, channelPermService, hub, hub, repos.Server, encryptionKey, urlSigner,
 	)
-	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner)
+	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner, cfg.CallGraceWindow)
 
 	// ICE server provider for P2P calls (STUN + TURN relay fallback).
 	turnService := services.NewTURNService(

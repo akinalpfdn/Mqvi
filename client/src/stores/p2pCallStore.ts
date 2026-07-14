@@ -82,6 +82,8 @@ type P2PCallStore = {
   // ─── Actions ───
 
   initiateCall: (receiverId: string, callType: P2PCallType) => void;
+  /** Reclaim a live call after the socket carrying it was replaced. */
+  resumeCallAfterReconnect: () => void;
   acceptCall: (callId: string) => void;
   declineCall: (callId: string) => void;
   endCall: () => void;
@@ -402,6 +404,17 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       receiver_id: receiverId,
       call_type: callType,
     });
+  },
+
+  // The socket carrying the call died and this one replaced it. Media is peer-to-peer and never
+  // stopped — but the server scheduled a teardown when the old socket closed, and it identifies
+  // the call by SESSION, which just changed. Claim it back, or it is hung up under us and the
+  // ICE restart that would have recovered the media is rejected as coming from a stranger.
+  resumeCallAfterReconnect: () => {
+    const { _sendWS, activeCall } = get();
+    if (!_sendWS || !activeCall || activeCall.status !== "active") return;
+
+    _sendWS("p2p_call_resume", { call_id: activeCall.id });
   },
 
   acceptCall: (callId) => {

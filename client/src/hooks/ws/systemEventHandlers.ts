@@ -84,6 +84,10 @@ export async function handleSystemEvent(
 
       // Identifies this connection among the user's other devices — see handleCallAccept.
       useP2PCallStore.getState().setSessionId(data.session_id ?? null);
+      // A call we are still in outlived the socket that was carrying it. The server gave it a
+      // grace window and is counting down; claim it back before it expires. Must run AFTER
+      // setSessionId — the server binds the call to THIS connection.
+      useP2PCallStore.getState().resumeCallAfterReconnect();
       if (data.servers) useServerStore.getState().setServersFromReady(data.servers);
       if (data.muted_server_ids) useServerStore.getState().setMutedServersFromReady(data.muted_server_ids);
       if (data.muted_channel_ids) useChannelStore.getState().setMutedChannelsFromReady(data.muted_channel_ids);
