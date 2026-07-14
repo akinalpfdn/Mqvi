@@ -258,7 +258,8 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	})
 	feedbackUploadService := services.NewFeedbackUploadService(repos.Feedback, uploadPipeline, cfg.Upload.MaxSize)
 	soundboardService := services.NewSoundboardService(
-		repos.Soundboard, repos.User, hub, voiceService, uploadPipeline, cfg.Upload.MaxSize, urlSigner, storageService,
+		repos.Soundboard, repos.User, hub, voiceService, channelPermService,
+		uploadPipeline, cfg.Upload.MaxSize, urlSigner, storageService,
 	)
 	metricsCollector := services.NewMetricsCollector(
 		repos.LiveKit, repos.MetricsHistory,
