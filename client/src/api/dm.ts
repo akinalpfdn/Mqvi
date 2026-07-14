@@ -233,9 +233,13 @@ export function toggleDME2EE(channelId: string, enabled: boolean) {
  * user's other devices and retracts any notification it already delivered there.
  */
 export function markDMRead(channelId: string, lastReadMessageId?: string) {
+  // The object, not JSON.stringify of it: apiClient serializes the body itself. Passing a
+  // string here encoded it twice, the server got a JSON string where it wanted an object,
+  // and every mark-read came back 400 — so the watermark never moved, no push was ever
+  // suppressed, and no delivered notification was ever retracted.
   return apiClient<{ unread_count: number }>(`/dms/channels/${channelId}/read`, {
     method: "POST",
-    body: JSON.stringify({ last_read_message_id: lastReadMessageId ?? "" }),
+    body: { last_read_message_id: lastReadMessageId ?? "" },
   });
 }
 
