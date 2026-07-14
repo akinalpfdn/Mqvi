@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
@@ -11,25 +12,31 @@ import (
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/pkg/push"
 	"github.com/akinalp/mqvi/repository"
-	"github.com/akinalp/mqvi/ws"
 )
 
 // PushNotifier sends mobile push notifications to a user's devices. Consumed by
 // DMService and P2PCallService via SetPushNotifier.
 //
-// Delivery is NOT gated on WebSocket presence — a backgrounded mobile app keeps its
-// socket, so "is the user connected" would suppress the push exactly when it is needed.
-// It IS gated on focus: if the user has a live, focused session with the chat on screen
-// (typically the desktop app), a DM push is redundant and skipped. A DND or invisible
-// recipient is suppressed too (matches the in-app notification-sound contract).
+// A DM push is not sent to someone who is reading the conversation — but "they read it" is
+// PROVED against the read watermark, never CLAIMED by a client. A previous design had clients
+// report which chat they had on screen and skipped the push on their word. Every way that claim
+// could be wrong — a dropped frame, a laptop left open at lunch, a modal on top, an encrypted
+// client that had loaded nothing — ended in the user's phone silently never ringing, which is
+// the most expensive direction for a notification system to be wrong in.
 //
-// Calls are never suppressed. Only DMs are — a missed call cannot be caught up on later.
+// So: no live socket anywhere → push at once (nobody could have read it). Otherwise wait
+// dmDelay, then ask the database whether the watermark has passed the message. If it has, the
+// user really is reading it and the push is noise. If it has not, the push goes out. The worst
+// case is a few seconds of latency, never silence.
+//
+// A DND or invisible recipient is still suppressed (matches the in-app sound contract), and
+// calls are never suppressed or delayed — a missed call cannot be caught up on later.
 //
 // Calls fork by token: Android FCM tokens get an FCM notification, iOS PushKit
 // (apns_voip) tokens get a direct APNs VoIP push (CallKit). iOS FCM tokens are
 // skipped for calls — the VoIP token is the iOS call path.
 type PushNotifier interface {
-	NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID string)
+	NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID, messageID string)
 	NotifyCall(receiverID, callerName string, callType models.P2PCallType, callID, callerID string)
 	// NotifyDMRead retracts a conversation's delivered notifications on the user's OTHER
 	// devices once they have read it somewhere. A device with a live socket does this from
@@ -53,27 +60,85 @@ type pushUserLookup interface {
 	GetByID(ctx context.Context, id string) (*models.User, error)
 }
 
+// pushPresence answers whether the user has ANY live connection. Satisfied by ws.Hub.
+type pushPresence interface {
+	IsOnline(userID string) bool
+}
+
+// pushReadState proves whether the user has read a message. Satisfied by the DM repository.
+type pushReadState interface {
+	HasRead(ctx context.Context, userID, channelID, messageID string) (bool, error)
+}
+
+// maxPendingDMPushes bounds the deferred timers. Past it, deliver at once rather than queue —
+// failing toward a delivered notification, never toward a lost one.
+const maxPendingDMPushes = 10_000
+
 type pushService struct {
 	fcm       push.Sender
 	apns      apns.Sender
 	tokenRepo repository.PushTokenRepository
 	users     pushUserLookup
-	focus     ws.FocusProvider
+	presence  pushPresence
+	reads     pushReadState
+	dmDelay   time.Duration
+
+	pending atomic.Int64
 }
 
-func NewPushService(fcm push.Sender, apnsSender apns.Sender, tokenRepo repository.PushTokenRepository, users pushUserLookup, focus ws.FocusProvider) PushNotifier {
-	return &pushService{fcm: fcm, apns: apnsSender, tokenRepo: tokenRepo, users: users, focus: focus}
+func NewPushService(
+	fcm push.Sender,
+	apnsSender apns.Sender,
+	tokenRepo repository.PushTokenRepository,
+	users pushUserLookup,
+	presence pushPresence,
+	reads pushReadState,
+	dmDelay time.Duration,
+) PushNotifier {
+	return &pushService{
+		fcm: fcm, apns: apnsSender, tokenRepo: tokenRepo, users: users,
+		presence: presence, reads: reads, dmDelay: dmDelay,
+	}
 }
 
-func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID string) {
+func (s *pushService) NotifyDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID, messageID string) {
 	if !s.fcm.Enabled() && !s.apns.Enabled() {
 		return
 	}
-	// The user is reading this conversation right now on some device — buzzing their phone
-	// about a message already on their screen is the thing this whole gate exists to stop.
-	if s.focus != nil && s.focus.HasFocusedViewer(recipientID, ws.FocusViewDM, dmChannelID) {
+
+	// Nothing to wait for: with no socket anywhere the user cannot be reading this, so a delay
+	// would only make the notification late. This is also the common mobile case — the app is
+	// closed and the phone is in a pocket.
+	deferrable := s.dmDelay > 0 && messageID != "" &&
+		s.presence != nil && s.reads != nil && s.presence.IsOnline(recipientID)
+	if !deferrable || s.pending.Load() >= maxPendingDMPushes {
+		s.deliverDM(recipientID, senderName, content, encrypted, dmChannelID, senderID)
 		return
 	}
+
+	s.pending.Add(1)
+	time.AfterFunc(s.dmDelay, func() {
+		defer s.pending.Add(-1)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		read, err := s.reads.HasRead(ctx, recipientID, dmChannelID, messageID)
+		if err != nil {
+			// Never swallow a notification because a read check failed. Push.
+			log.Printf("[push] read check for %s failed, sending anyway: %v", recipientID, err)
+		} else if read {
+			// Tuning signal for MQVI_PUSH_DM_DELAY: this line firing often means the window is
+			// earning its keep. The opposite signal is a burst of dm_read retractions landing
+			// just after delivery — that means the window is too short.
+			log.Printf("[push] dm to %s suppressed: read within %s", recipientID, s.dmDelay)
+			return // they really are reading it — the push would be noise
+		}
+		s.deliverDM(recipientID, senderName, content, encrypted, dmChannelID, senderID)
+	})
+}
+
+func (s *pushService) deliverDM(recipientID, senderName, content string, encrypted bool, dmChannelID, senderID string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

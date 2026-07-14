@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
@@ -91,18 +90,6 @@ type Client struct {
 	// Accessed under Hub.mu.
 	status string
 
-	// focused / focusViews: what this connection has on screen, from focus_update.
-	// Accessed under Hub.mu. focusViews is keyed "dm:<id>" / "channel:<id>".
-	focused    bool
-	focusViews map[string]bool
-
-	// focusAt: unix nanos of the last proof this connection is alive, refreshed by every
-	// heartbeat. Focus is only trusted while it is fresh (focusTTL): a half-open socket —
-	// a sleeping laptop, a phone that dropped off the network — stops heartbeating but
-	// keeps its last "I'm reading this chat", and that stale claim must not go on
-	// suppressing the user's pushes until the 90s pong deadline reaps the connection.
-	// Atomic so ReadPump can refresh it on the heartbeat path without taking Hub.mu.
-	focusAt atomic.Int64
 }
 
 // ReadPump reads messages from the WebSocket and dispatches events.
@@ -155,7 +142,6 @@ func init() {
 	eventHandlers = map[string]func(c *Client, event Event){
 		OpTyping:                (*Client).handleTyping,
 		OpPresenceUpdate:        (*Client).handlePresenceUpdate,
-		OpFocusUpdate:           (*Client).handleFocusUpdate,
 		OpVoiceJoin:             (*Client).handleVoiceJoin,
 		OpVoiceLeave:            func(c *Client, _ Event) { c.handleVoiceLeave() },
 		OpVoiceStateUpdateReq:   (*Client).handleVoiceStateUpdate,
@@ -261,46 +247,7 @@ func (c *Client) handleHeartbeat(_ Event) {
 		log.Printf("[ws] failed to set read deadline for user %s: %v", c.userID, err)
 		return
 	}
-	// Doubles as the liveness proof that keeps this connection's focus state trusted.
-	c.focusAt.Store(time.Now().UnixNano())
 	c.sendEvent(Event{Op: OpHeartbeatAck})
-}
-
-// maxFocusViews caps the on-screen chats one connection may claim. A split view shows a
-// handful; the cap just stops a crafted frame from parking an unbounded map on the client.
-const maxFocusViews = 16
-
-// handleFocusUpdate records what this connection has on screen, so a push for a chat the
-// user is already reading can be skipped. An unfocused connection claims no views at all.
-func (c *Client) handleFocusUpdate(event Event) {
-	dataBytes, err := json.Marshal(event.Data)
-	if err != nil {
-		return
-	}
-
-	var data FocusData
-	if err := json.Unmarshal(dataBytes, &data); err != nil {
-		return
-	}
-
-	views := make(map[string]bool, len(data.Views))
-	if data.Focused {
-		for _, v := range data.Views {
-			if v.ID == "" || len(views) >= maxFocusViews {
-				continue
-			}
-			if v.Type == FocusViewDM || v.Type == FocusViewChannel {
-				views[focusKey(v.Type, v.ID)] = true
-			}
-		}
-	}
-
-	c.hub.mu.Lock()
-	c.focused = data.Focused
-	c.focusViews = views
-	c.hub.mu.Unlock()
-
-	c.focusAt.Store(time.Now().UnixNano())
 }
 
 // handlePresenceUpdate processes a client presence change.

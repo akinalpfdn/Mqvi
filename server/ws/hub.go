@@ -5,7 +5,6 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/akinalp/mqvi/models"
 )
@@ -34,6 +33,7 @@ type Broadcaster interface {
 
 // UserStateProvider queries connected user state.
 type UserStateProvider interface {
+	IsOnline(userID string) bool
 	GetOnlineUserIDs() []string
 	GetVisibleOnlineUserIDs() []string
 	GetOnlineUserIDsForServer(serverID string) []string
@@ -46,12 +46,6 @@ type ClientManager interface {
 	DisconnectUser(userID string)
 	AddClientServerID(userID, serverID string)
 	RemoveClientServerID(userID, serverID string)
-}
-
-// FocusProvider answers whether a user is reading a chat right now on some device.
-// Used by PushService to skip a notification the user does not need.
-type FocusProvider interface {
-	HasFocusedViewer(userID, viewType, viewID string) bool
 }
 
 // BroadcastAndOnline — used by MessageService, P2PCallService.
@@ -71,7 +65,6 @@ type EventPublisher interface {
 	Broadcaster
 	UserStateProvider
 	ClientManager
-	FocusProvider
 }
 
 // UserConnectionCallback is called on first-connect and full-disconnect.
@@ -491,6 +484,19 @@ func (h *Hub) BroadcastToUser(userID string, event Event) {
 }
 
 // GetOnlineUserIDs returns all connected user IDs (including invisible).
+// IsOnline reports whether the user has ANY live connection.
+//
+// Used only to decide whether a DM push is worth DEFERRING: with no socket anywhere, nobody
+// could read the message, so waiting to see if they did buys nothing — push immediately. This
+// is the safe direction. It is NOT the old presence gate ("has a socket → suppress"), which
+// swallowed the push for a backgrounded phone that was still holding its WebSocket. This one
+// can only make delivery faster, never suppress it.
+func (h *Hub) IsOnline(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients[userID]) > 0
+}
+
 func (h *Hub) GetOnlineUserIDs() []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -655,47 +661,6 @@ func (h *Hub) OnVoiceActivity(cb VoiceActivityCallback) {
 
 func (h *Hub) OnP2PCallInitiate(cb P2PCallInitiateCallback) {
 	h.onP2PCallInitiate = cb
-}
-
-// focusTTL bounds how long a connection's reported focus is believed without fresh proof
-// of life. Clients heartbeat every 30s, so a live one always looks current; a half-open
-// socket stops and its last claim expires here rather than at the 90s pong deadline.
-const focusTTL = 45 * time.Second
-
-// focusKey namespaces a view id by kind — a DM and a channel could otherwise collide.
-func focusKey(viewType, viewID string) string {
-	return viewType + ":" + viewID
-}
-
-// HasFocusedViewer reports whether the user is actually reading this chat right now on some
-// device — the one case where a push notification is pure noise.
-//
-// NOT "is the user connected": a backgrounded mobile app keeps its WebSocket, so that gate
-// suppressed the push exactly when it was needed.
-//
-// NOT "is a window focused" either. A window focused on a DM with nobody in front of it is a
-// laptop left open at lunch. Presence already knows this — the connection reports "idle" after
-// inactivity — so an idle session's claim is ignored. Without that check the user gets no phone
-// notification for that conversation for as long as the laptop stays open.
-func (h *Hub) HasFocusedViewer(userID, viewType, viewID string) bool {
-	if viewID == "" {
-		return false
-	}
-	key := focusKey(viewType, viewID)
-	cutoff := time.Now().Add(-focusTTL).UnixNano()
-
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	for client := range h.clients[userID] {
-		if client.status != string(models.UserStatusOnline) {
-			continue // idle / dnd / invisible — nobody is reading
-		}
-		if client.focused && client.focusViews[key] && client.focusAt.Load() > cutoff {
-			return true
-		}
-	}
-	return false
 }
 
 func (h *Hub) OnP2PCallAccept(cb P2PCallAcceptCallback) {

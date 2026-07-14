@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -36,6 +37,16 @@ type PushConfig struct {
 	CredentialsFile string
 	// APNs — optional iOS VoIP (PushKit/CallKit) push via direct APNs.
 	APNs APNsConfig
+	// DMDelay is how long a DM push waits before it fires, so the read watermark can prove
+	// whether the user is actually reading the conversation. It only applies to a recipient who
+	// has a live socket — with none, the push goes out at once.
+	//
+	// Derived, not guessed: the mark-read round trip (WS + decrypt + POST + the SQLite write) is
+	// ~200-500ms typically and ~1.5s on a bad mobile link, plus the client's mark-read debounce.
+	// Too SHORT and the phone buzzes for a message the user is reading and the notification is
+	// then retracted — the complaint this feature exists to fix. Too LONG costs a backgrounded
+	// phone one second. Tune it against real p99 rather than this estimate. 0 disables the wait.
+	DMDelay time.Duration
 }
 
 // APNsConfig holds token-based (.p8) APNs auth for iOS VoIP pushes. Disabled if any
@@ -319,6 +330,7 @@ func Load() (*Config, error) {
 		},
 		Push: PushConfig{
 			CredentialsFile: getEnv("FCM_CREDENTIALS_FILE", "./firebase-service-account.json"),
+			DMDelay:         getEnvDuration("MQVI_PUSH_DM_DELAY", 3*time.Second),
 			APNs: APNsConfig{
 				KeyPath:    getEnv("APNS_KEY_FILE", "./apns-key.p8"),
 				KeyID:      getEnv("APNS_KEY_ID", ""),
@@ -385,4 +397,18 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// getEnvDuration reads a duration (e.g. "3s", "500ms"). An unparseable value falls back to the
+// default rather than failing the boot — a mistyped tuning knob must not take the server down.
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fallback
+	}
+	return d
 }

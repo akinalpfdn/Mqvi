@@ -37,6 +37,10 @@ type DMRepository interface {
 	// the other participant. Read back AFTER a MarkRead rather than assumed to be zero —
 	// a message can land between the client picking a watermark and the write landing.
 	CountUnread(ctx context.Context, userID, channelID string) (int, error)
+	// HasRead reports whether the user's watermark has passed this message. It is what a
+	// deferred push consults before it fires: "the user read it" is PROVED here, never claimed
+	// by a client. A message id that isn't in the channel reads as unread.
+	HasRead(ctx context.Context, userID, channelID, messageID string) (bool, error)
 
 	// Message operations
 	GetMessages(ctx context.Context, channelID string, beforeID string, limit int) ([]models.DMMessage, error)

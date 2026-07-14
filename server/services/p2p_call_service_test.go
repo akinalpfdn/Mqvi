@@ -20,6 +20,7 @@ func (fakeHub) BroadcastToUser(string, ws.Event)                  {}
 func (fakeHub) BroadcastToUsers([]string, ws.Event)               {}
 func (fakeHub) BroadcastToServer(string, ws.Event)                {}
 func (fakeHub) BroadcastToServerExcept(string, string, ws.Event)  {}
+func (fakeHub) IsOnline(string) bool                              { return false }
 func (fakeHub) GetOnlineUserIDs() []string                        { return nil }
 func (fakeHub) GetVisibleOnlineUserIDs() []string                 { return nil }
 func (fakeHub) GetOnlineUserIDsForServer(string) []string         { return nil }
@@ -428,7 +429,7 @@ type recordingPush struct {
 	excluded  []string // the device exempted from each cancel
 }
 
-func (p *recordingPush) NotifyDM(_, _, _ string, _ bool, _, _ string) {}
+func (p *recordingPush) NotifyDM(_, _, _ string, _ bool, _, _, _ string) {}
 func (p *recordingPush) NotifyDMRead(_, _ string)                     {}
 func (p *recordingPush) NotifyCall(_, _ string, _ models.P2PCallType, _, _ string) {}
 func (p *recordingPush) NotifyCallCancel(receiverID, _, excludeDeviceID string) {

@@ -207,6 +207,23 @@ func (r *sqliteDMRepo) CountUnread(ctx context.Context, userID, channelID string
 	return count, nil
 }
 
+// HasRead reports whether the user's watermark has passed this message.
+func (r *sqliteDMRepo) HasRead(ctx context.Context, userID, channelID, messageID string) (bool, error) {
+	var read bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM dm_messages m
+			JOIN dm_reads dr ON dr.user_id = ? AND dr.dm_channel_id = m.dm_channel_id
+			WHERE m.id = ? AND m.dm_channel_id = ?
+			  AND (m.created_at, m.rowid) <= (dr.last_read_at, dr.last_read_seq)
+		)`, userID, messageID, channelID).Scan(&read)
+	if err != nil {
+		return false, fmt.Errorf("failed to check DM read state: %w", err)
+	}
+	return read, nil
+}
+
 // ListChannels returns a user's DM channels with the other user's info.
 // Joins user_dm_settings to filter hidden channels and include pin/mute state.
 // Sorted: pinned first (by activity), then unpinned by activity.

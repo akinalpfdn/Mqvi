@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -253,9 +252,6 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		eventLimiter:  ratelimit.NewTokenBucket(eventBurst, eventRefillPerSec),
 		signalLimiter: ratelimit.NewTokenBucket(signalBurst, signalRefillPerSec),
 	}
-	// Seed the liveness stamp so the first focus_update, which lands before the first
-	// heartbeat, is not read as already stale.
-	client.focusAt.Store(time.Now().UnixNano())
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 
 	// Set invisible BEFORE register so GetVisibleOnlineUserIDs is correct in the ready event.

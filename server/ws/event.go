@@ -16,13 +16,6 @@ const (
 	OpHeartbeat      = "heartbeat"
 	OpTyping         = "typing"
 	OpPresenceUpdate = "presence_update"
-	OpFocusUpdate    = "focus_update"
-)
-
-// Chat kinds a connection can report as on-screen (see FocusData).
-const (
-	FocusViewDM      = "dm"
-	FocusViewChannel = "channel"
 )
 
 // Server -> Client
@@ -176,22 +169,6 @@ type ReadyServerItem struct {
 	ID      string  `json:"id"`
 	Name    string  `json:"name"`
 	IconURL *string `json:"icon_url"`
-}
-
-// FocusData reports what this connection currently has on screen. A push for a chat the
-// user is demonstrably reading right now is redundant, so it is suppressed.
-//
-// Views is a list, not one value: a split-view layout shows several chats at once.
-// Focused is sent as false the moment the window is hidden or backgrounded — that is what
-// keeps a phone sitting in someone's pocket from suppressing its own notifications.
-type FocusData struct {
-	Focused bool        `json:"focused"`
-	Views   []FocusView `json:"views"`
-}
-
-type FocusView struct {
-	Type string `json:"type"` // FocusViewDM | FocusViewChannel
-	ID   string `json:"id"`
 }
 
 type PresenceData struct {

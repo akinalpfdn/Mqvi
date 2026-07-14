@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/apns"
@@ -87,3 +89,132 @@ func TestNotifyCallCancel_StillReachesTokensWithNoDeviceID(t *testing.T) {
 }
 
 var _ apns.Sender = (*capturingAPNs)(nil)
+
+// ─── FIX-04: the read is PROVED, never claimed ───
+
+type fakePresence struct{ online bool }
+
+func (f fakePresence) IsOnline(string) bool { return f.online }
+
+type fakeReads struct {
+	read bool
+	err  error
+	// asked records that the watermark was actually consulted.
+	asked chan struct{}
+}
+
+func (f *fakeReads) HasRead(context.Context, string, string, string) (bool, error) {
+	select {
+	case f.asked <- struct{}{}:
+	default:
+	}
+	return f.read, f.err
+}
+
+type capturingFCM struct{ sent chan string }
+
+func (c *capturingFCM) Enabled() bool { return true }
+func (c *capturingFCM) Send(_ context.Context, tokens []string, _ push.Notification) ([]string, error) {
+	for _, t := range tokens {
+		c.sent <- t
+	}
+	return nil, nil
+}
+func (c *capturingFCM) SendData(context.Context, []string, map[string]string) ([]string, error) {
+	return nil, nil
+}
+
+type disabledAPNs struct{}
+
+func (disabledAPNs) Enabled() bool                                           { return false }
+func (disabledAPNs) SendVoIP(context.Context, string, map[string]any) error  { return nil }
+func (disabledAPNs) SendAlert(context.Context, string, map[string]any) error { return nil }
+
+func dmPushService(t *testing.T, online, alreadyRead bool, delay time.Duration) (*pushService, *capturingFCM, *fakeReads) {
+	t.Helper()
+	fcm := &capturingFCM{sent: make(chan string, 4)}
+	reads := &fakeReads{read: alreadyRead, asked: make(chan struct{}, 4)}
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "android-1", TokenType: models.PushTokenTypeFCM, Platform: "android"},
+	}}
+	s := &pushService{
+		fcm: fcm, apns: disabledAPNs{}, tokenRepo: repo, users: &fakeUsers{},
+		presence: fakePresence{online: online}, reads: reads, dmDelay: delay,
+	}
+	return s, fcm, reads
+}
+
+type fakeUsers struct{}
+
+func (fakeUsers) GetByID(_ context.Context, id string) (*models.User, error) {
+	return &models.User{ID: id, Username: id, PrefStatus: models.UserStatusOnline}, nil
+}
+
+// The whole point of deleting the focus protocol: the user reading the conversation is PROVED
+// against the watermark, not claimed by a client. If they read it, no push.
+func TestNotifyDM_SkippedWhenTheWatermarkProvesTheyReadIt(t *testing.T) {
+	s, fcm, reads := dmPushService(t, true, true, 20*time.Millisecond)
+
+	s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "m1")
+
+	select {
+	case <-reads.asked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the watermark was never consulted — the push did not wait to find out")
+	}
+	select {
+	case tok := <-fcm.sent:
+		t.Errorf("pushed to %q for a message the user has demonstrably read", tok)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// And if they did NOT read it, the push goes out. A claim that turns out to be wrong costs
+// latency, never silence.
+func TestNotifyDM_SentWhenTheyDidNotReadIt(t *testing.T) {
+	s, fcm, _ := dmPushService(t, true, false, 20*time.Millisecond)
+
+	s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "m1")
+
+	select {
+	case tok := <-fcm.sent:
+		if tok != "android-1" {
+			t.Errorf("pushed to %q, want android-1", tok)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the message was never read and no push went out — a notification was lost")
+	}
+}
+
+// No socket anywhere: nobody could be reading it, so waiting buys nothing. Push at once.
+// This is the common mobile case — app closed, phone in a pocket.
+func TestNotifyDM_ImmediateWhenTheUserHasNoLiveSocket(t *testing.T) {
+	s, fcm, reads := dmPushService(t, false, true, time.Hour) // read=true would suppress IF asked
+
+	s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "m1")
+
+	select {
+	case <-fcm.sent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("an offline user waited for a read that could never happen")
+	}
+	select {
+	case <-reads.asked:
+		t.Error("the watermark was consulted for a user with no socket — pointless work")
+	default:
+	}
+}
+
+// A failing read check must never swallow the notification.
+func TestNotifyDM_SendsAnywayWhenTheReadCheckFails(t *testing.T) {
+	s, fcm, reads := dmPushService(t, true, true, 20*time.Millisecond)
+	reads.err = errors.New("db is down")
+
+	s.NotifyDM("rcv", "Alice", "hi", false, "c1", "alice", "m1")
+
+	select {
+	case <-fcm.sent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a failed read check silently swallowed the notification")
+	}
+}
