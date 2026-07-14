@@ -11,19 +11,25 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 let capacitor = false;
 vi.mock("./constants", () => ({ isCapacitor: () => capacitor }));
 
-type StateListener = (s: { isActive: boolean }) => void;
-let listener: StateListener | undefined;
+type Listener = (s: { isActive: boolean }) => void;
+const listeners: Record<string, Listener | undefined> = {};
 let getStateImpl: () => Promise<{ isActive: boolean }>;
+
+/** Stands in for the Java field BridgeActivity sets in onResume/onStop. */
+let nativeIsActive = true;
 
 vi.mock("@capacitor/app", () => ({
   App: {
     getState: () => getStateImpl(),
-    addListener: (_: string, cb: StateListener) => {
-      listener = cb;
-      return Promise.resolve({ remove: () => {} });
+    addListener: (event: string, cb: Listener) => {
+      listeners[event] = cb;
+      return Promise.resolve({ remove: () => Promise.resolve() });
     },
   },
 }));
+
+/** The `appStateChange` listener, kept for the tests that still poke it directly. */
+const listener = { get current() { return listeners["appStateChange"]; } };
 
 import { initAppFocus } from "./appFocus";
 import { useAppFocusStore } from "../stores/appFocusStore";
@@ -43,8 +49,9 @@ const start = () => {
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  listener = undefined;
-  getStateImpl = () => Promise.resolve({ isActive: true });
+  for (const k of Object.keys(listeners)) delete listeners[k];
+  nativeIsActive = true;
+  getStateImpl = () => Promise.resolve({ isActive: nativeIsActive });
   capacitor = false;
   useAppFocusStore.setState({ isForeground: null });
 });
@@ -109,7 +116,7 @@ describe("Capacitor", () => {
   it("ignores document.hasFocus() and trusts the native app state", async () => {
     setVisibility("visible");
     setHasFocus(false); // the WebView lying about focus
-    getStateImpl = () => Promise.resolve({ isActive: true });
+    getStateImpl = () => Promise.resolve({ isActive: nativeIsActive });
 
     start();
     await vi.waitFor(() => expect(foreground()).toBe(true));
@@ -124,37 +131,72 @@ describe("Capacitor", () => {
     await vi.waitFor(() => expect(foreground()).toBe(false));
   });
 
-  // Observed on device: after a background/resume cycle the Android WebView left
-  // visibilityState at "hidden" and never fired visibilitychange, even though appStateChange
-  // fired correctly (the WS reconnected and the messages arrived). Requiring "visible" meant the
-  // app looked permanently backgrounded from then on: the DM on screen was never marked read,
-  // its badge never cleared, and its notification stayed on the tray.
+  // An Android WebView does not reliably restore visibilityState (or fire visibilitychange) after
+  // a resume. On native it carries no information the app state does not already carry.
   it("ignores a stale visibilityState after the app is resumed", async () => {
     setVisibility("hidden"); // the WebView never restored it
     setHasFocus(false);
-    getStateImpl = () => Promise.resolve({ isActive: false });
+    nativeIsActive = true;
 
     start();
-    await vi.waitFor(() => expect(foreground()).toBe(false));
 
-    listener?.({ isActive: true }); // resumed — this is the only signal that tells the truth
+    await vi.waitFor(() => expect(foreground()).toBe(true));
+  });
 
-    expect(foreground()).toBe(true);
+  // ionic-team/capacitor-plugins#479, and the reason step 3 kept failing on the device.
+  //
+  // Android suspends the WebView's JS while the app is backgrounded, so the isActive:false that
+  // BridgeActivity fires from onStop() cannot be delivered then — it is QUEUED. On resume it
+  // arrives together with the isActive:true from onResume(), and it can arrive LAST. Trusting the
+  // payload leaves the app permanently marked "backgrounded" while it is on screen: the DM is
+  // never marked read, its badge never clears, its notification never leaves the tray.
+  //
+  // App.getState() reads the Java field BridgeActivity set synchronously, so it is right whatever
+  // the events do.
+  it("stays foregrounded when the queued isActive:false lands AFTER the resume", async () => {
+    setVisibility("visible");
+    setHasFocus(true);
+    nativeIsActive = true; // BridgeActivity.onResume() already ran: the app IS active
+
+    start();
+    await vi.waitFor(() => expect(foreground()).toBe(true));
+
+    // The backlog flushes: onResume's true, then onStop's stale false, out of order.
+    listener.current?.({ isActive: true });
+    listener.current?.({ isActive: false }); // stale — the app is NOT backgrounded
+
+    await vi.waitFor(() => expect(foreground()).toBe(true));
   });
 
   // The wiring risk: without this, a DM left open while the app is backgrounded is never marked
   // read when the user comes back — nothing would re-run DMChat's effect.
-  it("updates when the app is resumed", async () => {
+  it("comes back to the foreground on resume", async () => {
     setVisibility("visible");
     setHasFocus(false);
-    getStateImpl = () => Promise.resolve({ isActive: false });
+    nativeIsActive = false;
 
     start();
     await vi.waitFor(() => expect(foreground()).toBe(false));
 
-    listener?.({ isActive: true });
+    nativeIsActive = true; // BridgeActivity.onResume()
+    listeners["resume"]?.({ isActive: true });
 
-    expect(foreground()).toBe(true);
+    await vi.waitFor(() => expect(foreground()).toBe(true));
+  });
+
+  // onPause: a dialog, a picker or an incoming-call screen is on top. App.isActive is not false
+  // until onStop, so asking would say "active" — but the user is not reading the conversation.
+  it("leaves the foreground on pause, without asking", async () => {
+    setVisibility("visible");
+    setHasFocus(true);
+    nativeIsActive = true;
+
+    start();
+    await vi.waitFor(() => expect(foreground()).toBe(true));
+
+    listeners["pause"]?.({ isActive: false });
+
+    expect(foreground()).toBe(false);
   });
 
   // The cold-start race: App.getState() is async. Until it answers we know nothing, and "unknown"

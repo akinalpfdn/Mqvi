@@ -46,25 +46,46 @@ export function initAppFocus(): () => void {
   window.addEventListener("blur", recompute);
   document.addEventListener("visibilitychange", recompute);
 
-  if (isCapacitor()) {
-    App.getState()
-      .then((state) => {
-        nativeActive = state.isActive;
-      })
-      .catch(() => {
-        nativeUnavailable = true;
-      })
-      .finally(recompute);
+  // ASK, never listen to the payload. On Android the WebView suspends JS while the app is in the
+  // background, so the isActive:false that BridgeActivity fires from onStop() is queued and only
+  // delivered on RESUME — arriving alongside, and sometimes AFTER, the isActive:true from
+  // onResume(). Taking the event at its word leaves nativeActive stuck at false while the app is
+  // in front, and the DM on screen is never marked read.
+  // (ionic-team/capacitor-plugins#479. BridgeActivity.onResume/onStop set App.isActive in Java,
+  // synchronously; App.getState() reads that field, so it is correct no matter when — or in what
+  // order — the events reach JS.)
+  const refreshNativeState = async () => {
+    try {
+      const state = await App.getState();
+      nativeActive = state.isActive;
+    } catch {
+      // Without this the store would sit at "unknown" forever and nothing would be marked read.
+      nativeUnavailable = true;
+    }
+    recompute();
+  };
 
-    void App.addListener("appStateChange", ({ isActive }) => {
-      nativeActive = isActive;
-      recompute();
-    }).then((handle) => {
+  if (isCapacitor()) {
+    void refreshNativeState();
+
+    const handles: Promise<{ remove: () => Promise<void> }>[] = [
+      App.addListener("appStateChange", () => void refreshNativeState()),
+      // onPause: the app is losing the foreground. App.isActive is not false until onStop, so ask
+      // nothing here — a dialog, a picker or an incoming-call screen on top all mean the user is
+      // not reading the conversation.
+      App.addListener("pause", () => {
+        nativeActive = false;
+        recompute();
+      }),
+      App.addListener("resume", () => void refreshNativeState()),
+    ];
+
+    void Promise.all(handles).then((hs) => {
       if (disposed) {
-        void handle.remove();
+        hs.forEach((h) => void h.remove());
         return;
       }
-      removeNative = () => void handle.remove();
+      removeNative = () => hs.forEach((h) => void h.remove());
     });
   }
 
