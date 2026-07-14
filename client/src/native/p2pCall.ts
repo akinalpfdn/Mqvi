@@ -18,12 +18,6 @@ export interface P2PCallPlugin {
   getVoipToken(): Promise<{ token: string }>;
   /** iOS. Dismiss the CallKit UI when the call ends/declines in-app. */
   endCall(options: { call_id: string }): Promise<void>;
-  /**
-   * iOS. Mark a call as answered so a later cancel VoIP push does not tear down the
-   * call the user is already in — the server cancels the ring on accept, and that
-   * cancel reaches the answering device too.
-   */
-  markAnswered(options: { call_id: string }): Promise<void>;
   /** Android. Cancel the ringing incoming-call notification. */
   cancelIncomingCall(): Promise<void>;
 
@@ -61,12 +55,19 @@ export function dismissIncomingCallUI(callId: string): void {
   }
 }
 
-/** iOS-only; see markAnswered above. No-op elsewhere. */
-export function markCallAnswered(callId: string): void {
-  if (getCapacitorPlatform() !== "ios") return;
-  // A failure here means the accept-time cancel push will end the call the user just
-  // answered — loud, because there is no way to recover from it after the fact.
-  void P2PCall.markAnswered({ call_id: callId }).catch((err) =>
-    console.error("[p2p] failed to shield the answered call from the cancel push:", err),
+/**
+ * The in-app overlay is now on screen, so it owns the ring — silence the OS notification that
+ * was posted while the app was backgrounded. Android only: on iOS the CallKit UI IS the ring
+ * and must stay up until the user answers or declines.
+ *
+ * "The overlay is showing" is the real signal. Cancelling on Activity resume instead would fire
+ * on a cold start, long before the WebView and the socket are up, and a call the user opened the
+ * app from the launcher to answer would go silent with nothing on screen.
+ */
+export function silenceAndroidCallRing(): void {
+  if (getCapacitorPlatform() !== "android") return;
+  void P2PCall.cancelIncomingCall().catch((err) =>
+    console.error("[p2p] failed to cancel the call notification:", err),
   );
 }
+

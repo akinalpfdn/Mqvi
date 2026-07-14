@@ -13,8 +13,7 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
     public let jsName = "P2PCall"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getVoipToken", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "endCall", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "markAnswered", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "endCall", returnType: CAPPluginReturnPromise)
     ]
 
     public override func load() {
@@ -34,17 +33,6 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
             return
         }
         CallManager.shared.endCall(callId: callId)
-        call.resolve()
-    }
-
-    /// Answered in-app: shield the call from the accept-time cancel push, which the server
-    /// sends to every device of the receiver — including this one.
-    @objc func markAnswered(_ call: CAPPluginCall) {
-        guard let callId = call.getString("call_id") else {
-            call.reject("call_id is required")
-            return
-        }
-        CallManager.shared.markAnswered(callId: callId)
         call.resolve()
     }
 

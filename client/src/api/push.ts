@@ -3,6 +3,7 @@
  */
 
 import { apiClient } from "./client";
+import { getDeviceId } from "../utils/deviceId";
 
 export function registerPushToken(req: {
   token: string;
@@ -10,9 +11,11 @@ export function registerPushToken(req: {
   token_type?: "fcm" | "apns" | "apns_voip";
   device_label?: string;
 }) {
+  // The same device id the WebSocket handshake sends. It is what lets the server skip this
+  // device when it tells the user's OTHER devices to stop ringing.
   return apiClient<{ id: string }>("/push/tokens", {
     method: "POST",
-    body: req,
+    body: { ...req, device_id: getDeviceId() },
   });
 }
 

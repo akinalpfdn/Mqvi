@@ -6,8 +6,9 @@ import (
 )
 
 // focusedClient builds a client claiming to show views, last seen alive `age` ago.
+// Online unless a test says otherwise — an idle session never suppresses (see below).
 func focusedClient(focused bool, age time.Duration, views ...string) *Client {
-	c := &Client{focused: focused, focusViews: map[string]bool{}}
+	c := &Client{focused: focused, status: "online", focusViews: map[string]bool{}}
 	for _, v := range views {
 		c.focusViews[v] = true
 	}
@@ -102,5 +103,31 @@ func TestHasFocusedViewerUnknownUser(t *testing.T) {
 	}
 	if h.HasFocusedViewer("u1", FocusViewDM, "") {
 		t.Error("an empty view id must not match anything")
+	}
+}
+
+// A window focused on a DM with nobody in front of it is a laptop left open at lunch.
+// Presence already knows this — the connection goes "idle" after inactivity — so an idle
+// session's claim must be ignored. Without this the user gets NO phone notification for that
+// conversation for as long as the laptop stays open, which is a worse bug than the one the
+// focus gate was built to fix.
+func TestHasFocusedViewer_IgnoresIdleAndAwayStatus(t *testing.T) {
+	dm := focusKey(FocusViewDM, "dm1")
+
+	for _, status := range []string{"idle", "dnd", "offline"} {
+		t.Run(status, func(t *testing.T) {
+			c := focusedClient(true, time.Second, dm)
+			c.status = status
+			h := hubWithClients("u1", c)
+			if h.HasFocusedViewer("u1", FocusViewDM, "dm1") {
+				t.Errorf("a %q session claimed to be reading the chat — nobody is there, the push must go out", status)
+			}
+		})
+	}
+
+	online := focusedClient(true, time.Second, dm)
+	online.status = "online"
+	if h := hubWithClients("u1", online); !h.HasFocusedViewer("u1", FocusViewDM, "dm1") {
+		t.Error("an online, focused session IS reading the chat — the push is redundant")
 	}
 }

@@ -422,6 +422,12 @@ export type P2PCall = {
   call_type: P2PCallType;
   status: P2PCallStatus;
   created_at: string;
+  /**
+   * The caller's connection that placed the call. Present only on the caller's own copy: their
+   * OTHER devices see the outgoing call too and must recognise it as not theirs, instead of
+   * negotiating a second, competing WebRTC session. Absent from a server that predates it.
+   */
+  initiated_by?: string;
 };
 
 /**

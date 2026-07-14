@@ -78,6 +78,10 @@ type EventPublisher interface {
 // Second arg is unused (kept for signature compatibility).
 type UserConnectionCallback func(userID, _ string)
 
+// SessionDisconnectCallback fires on EVERY connection close, with the connection that died.
+// A call is owned by a connection, not a user — see p2pCallService.HandleSessionDisconnect.
+type SessionDisconnectCallback func(userID, sessionID string)
+
 // ─── Voice Callback Types ───
 
 // VoiceJoinCallback — user wants to join a voice channel.
@@ -113,13 +117,13 @@ type VoiceActivityCallback func(userID string)
 
 // ─── P2P Call Callback Types ───
 
-type P2PCallInitiateCallback func(callerID string, data P2PCallInitiateData)
-type P2PCallAcceptCallback func(userID, sessionID string, data P2PCallAcceptData)
-type P2PCallDeclineCallback func(userID string, data P2PCallDeclineData)
-type P2PCallEndCallback func(userID string)
+type P2PCallInitiateCallback func(callerID, sessionID string, data P2PCallInitiateData)
+type P2PCallAcceptCallback func(userID, sessionID, deviceID string, data P2PCallAcceptData)
+type P2PCallDeclineCallback func(userID, deviceID string, data P2PCallDeclineData)
+type P2PCallEndCallback func(userID, deviceID, callID string)
 
 // P2PSignalCallback — WebRTC signaling data relayed to the other peer.
-type P2PSignalCallback func(senderID string, data P2PSignalData)
+type P2PSignalCallback func(senderID, senderSessionID string, data P2PSignalData)
 
 // ChannelTypingCallback — typing indicator in a server channel.
 // Wired in main.go: validates channel access, broadcasts to server members only.
@@ -172,6 +176,7 @@ type Hub struct {
 	// which needs RLock, but add/removeClient holds Lock).
 	onUserFirstConnect      UserConnectionCallback
 	onUserFullyDisconnected UserConnectionCallback
+	onSessionDisconnect     SessionDisconnectCallback
 
 	// Voice callbacks — set in main.go
 	onVoiceJoin             VoiceJoinCallback
@@ -296,13 +301,14 @@ func (h *Hub) addClient(client *Client) {
 }
 
 // removeClient unregisters a client and closes its send channel.
-// Fires OnUserFullyDisconnected when the last connection closes.
-// Otherwise recomputes and broadcasts aggregate status.
+// Fires OnUserFullyDisconnected when the last connection closes, OnSessionDisconnect on EVERY
+// one. Otherwise recomputes and broadcasts aggregate status.
 func (h *Hub) removeClient(client *Client) {
 	h.mu.Lock()
 
 	var fullyDisconnected bool
 	var partialDisconnect bool
+	var removed bool
 	var userID string
 	var newAggregate string
 
@@ -310,6 +316,7 @@ func (h *Hub) removeClient(client *Client) {
 		if _, exists := clients[client]; exists {
 			delete(clients, client)
 			client.markClosed()
+			removed = true
 
 			// Remove this client from all server indexes it belonged to.
 			for _, sid := range client.serverIDs {
@@ -334,6 +341,14 @@ func (h *Hub) removeClient(client *Client) {
 	}
 
 	h.mu.Unlock()
+
+	// Every connection close, not just the last. A call belongs to a CONNECTION: if only the
+	// last-disconnect hook can tear it down, a user whose call-carrying socket dies while another
+	// device stays signed in is left in the call forever — and, because an accepted call has no
+	// ring timer, nothing ever cleans it up.
+	if removed && h.onSessionDisconnect != nil {
+		go h.onSessionDisconnect(client.userID, client.sessionID)
+	}
 
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
 		go h.onUserFullyDisconnected(userID, "")
@@ -652,14 +667,16 @@ func focusKey(viewType, viewID string) string {
 	return viewType + ":" + viewID
 }
 
-// HasFocusedViewer reports whether the user has a live, focused connection with this chat
-// on screen — the one case where a push notification is pure noise.
+// HasFocusedViewer reports whether the user is actually reading this chat right now on some
+// device — the one case where a push notification is pure noise.
 //
-// This is deliberately NOT "is the user connected". That gate existed once and was removed:
-// a backgrounded mobile app keeps its WebSocket, so the server read it as present and
-// suppressed the push exactly when the user needed it. Focus is different in kind — a
-// backgrounded client reports focused=false on its way out, and a client that dies without
-// saying so has its claim expire via focusTTL. Both roads lead to "send the push".
+// NOT "is the user connected": a backgrounded mobile app keeps its WebSocket, so that gate
+// suppressed the push exactly when it was needed.
+//
+// NOT "is a window focused" either. A window focused on a DM with nobody in front of it is a
+// laptop left open at lunch. Presence already knows this — the connection reports "idle" after
+// inactivity — so an idle session's claim is ignored. Without that check the user gets no phone
+// notification for that conversation for as long as the laptop stays open.
 func (h *Hub) HasFocusedViewer(userID, viewType, viewID string) bool {
 	if viewID == "" {
 		return false
@@ -671,6 +688,9 @@ func (h *Hub) HasFocusedViewer(userID, viewType, viewID string) bool {
 	defer h.mu.RUnlock()
 
 	for client := range h.clients[userID] {
+		if client.status != string(models.UserStatusOnline) {
+			continue // idle / dnd / invisible — nobody is reading
+		}
 		if client.focused && client.focusViews[key] && client.focusAt.Load() > cutoff {
 			return true
 		}
@@ -843,4 +863,9 @@ func clientHasServer(client *Client, serverID string) bool {
 		}
 	}
 	return false
+}
+
+// OnSessionDisconnect sets the callback fired on every connection close.
+func (h *Hub) OnSessionDisconnect(cb SessionDisconnectCallback) {
+	h.onSessionDisconnect = cb
 }

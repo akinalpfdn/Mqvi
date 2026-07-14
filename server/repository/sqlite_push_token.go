@@ -19,19 +19,20 @@ func NewSQLitePushTokenRepo(db database.TxQuerier) PushTokenRepository {
 
 func (r *sqlitePushTokenRepo) Upsert(ctx context.Context, t *models.PushToken) error {
 	query := `
-		INSERT INTO push_tokens (user_id, token, platform, token_type, device_label)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO push_tokens (user_id, token, platform, token_type, device_label, device_id)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(token)
 		DO UPDATE SET
 			user_id = excluded.user_id,
 			platform = excluded.platform,
 			token_type = excluded.token_type,
 			device_label = excluded.device_label,
+			device_id = excluded.device_id,
 			last_seen_at = CURRENT_TIMESTAMP
 		RETURNING id, created_at, last_seen_at`
 
 	err := r.db.QueryRowContext(ctx, query,
-		t.UserID, t.Token, t.Platform, t.TokenType, t.DeviceLabel,
+		t.UserID, t.Token, t.Platform, t.TokenType, t.DeviceLabel, t.DeviceID,
 	).Scan(&t.ID, &t.CreatedAt, &t.LastSeenAt)
 	if err != nil {
 		return fmt.Errorf("failed to upsert push token: %w", err)
@@ -41,7 +42,7 @@ func (r *sqlitePushTokenRepo) Upsert(ctx context.Context, t *models.PushToken) e
 
 func (r *sqlitePushTokenRepo) ListByUser(ctx context.Context, userID string) ([]models.PushToken, error) {
 	query := `
-		SELECT id, user_id, token, platform, token_type, device_label, created_at, last_seen_at
+		SELECT id, user_id, token, platform, token_type, device_label, device_id, created_at, last_seen_at
 		FROM push_tokens
 		WHERE user_id = ?
 		ORDER BY last_seen_at DESC`
@@ -55,7 +56,7 @@ func (r *sqlitePushTokenRepo) ListByUser(ctx context.Context, userID string) ([]
 	var tokens []models.PushToken
 	for rows.Next() {
 		var t models.PushToken
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Token, &t.Platform, &t.TokenType, &t.DeviceLabel, &t.CreatedAt, &t.LastSeenAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Token, &t.Platform, &t.TokenType, &t.DeviceLabel, &t.DeviceID, &t.CreatedAt, &t.LastSeenAt); err != nil {
 			return nil, fmt.Errorf("failed to scan push token: %w", err)
 		}
 		tokens = append(tokens, t)

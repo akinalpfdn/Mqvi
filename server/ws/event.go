@@ -352,3 +352,9 @@ type P2PSignalData struct {
 	SDP       string `json:"sdp,omitempty"`
 	Candidate any    `json:"candidate,omitempty"`
 }
+
+// P2PCallEndData — hang-up. CallID is optional: an old client sends none, and the server then
+// ends whatever call the user is in (the old behaviour).
+type P2PCallEndData struct {
+	CallID string `json:"call_id,omitempty"`
+}

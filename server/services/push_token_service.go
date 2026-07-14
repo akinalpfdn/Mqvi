@@ -42,6 +42,10 @@ func (s *pushTokenService) RegisterToken(ctx context.Context, userID string, req
 	if req.DeviceLabel != "" {
 		t.DeviceLabel = &req.DeviceLabel
 	}
+	// Empty for clients that predate the device chain — the server then addresses the whole user.
+	if req.DeviceID != "" {
+		t.DeviceID = &req.DeviceID
+	}
 
 	if err := s.repo.Upsert(ctx, t); err != nil {
 		return nil, fmt.Errorf("failed to register push token: %w", err)

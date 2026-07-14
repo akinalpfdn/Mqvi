@@ -17,7 +17,7 @@
 import { create } from "zustand";
 import { fetchIceServers, fetchIceServersForRecovery } from "../api/calls";
 import i18n from "../i18n";
-import { dismissIncomingCallUI, markCallAnswered } from "../native/p2pCall";
+import { dismissIncomingCallUI } from "../native/p2pCall";
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
@@ -408,10 +408,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     const { _sendWS, incomingCall } = get();
     if (!_sendWS || !incomingCall) return;
 
-    // Shields the call from the accept-time cancel push, which the server sends to every
-    // device of the receiver — this one included. Harmless if we lose the accept race:
-    // dropping the call runs dismissIncomingCallUI, which clears the flag again.
-    markCallAnswered(callId);
     _sendWS("p2p_call_accept", { call_id: callId });
   },
 
@@ -424,10 +420,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   endCall: () => {
-    const { _sendWS } = get();
+    const { _sendWS, activeCall } = get();
     if (!_sendWS) return;
 
-    _sendWS("p2p_call_end");
+    // Name the call. A late hang-up — from a sibling device, or from the 30s outgoing timeout —
+    // would otherwise end whatever call the user has started since.
+    _sendWS("p2p_call_end", activeCall ? { call_id: activeCall.id } : undefined);
     get().cleanup();
   },
 
@@ -680,7 +678,16 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   // ─── WS Event Handlers ───
 
   handleCallInitiate: (data) => {
-    const { activeCall } = get();
+    const { activeCall, _sessionId } = get();
+
+    // The caller's OTHER devices see the outgoing call too. It is not theirs: taking it would
+    // flip them to active on accept, open a microphone, and send a second SDP offer for the
+    // same call. The server names the session that dialled.
+    const userId = useAuthStore.getState().user?.id;
+    const isCaller = data.caller_id === userId;
+    if (isCaller && data.initiated_by !== undefined && data.initiated_by !== _sessionId) {
+      return;
+    }
 
     if (activeCall) {
       // Already in a call — show as incoming call overlay

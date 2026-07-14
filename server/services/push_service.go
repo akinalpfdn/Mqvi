@@ -35,12 +35,15 @@ type PushNotifier interface {
 	// devices once they have read it somewhere. A device with a live socket does this from
 	// the dm_read WS event; one that is asleep or killed only has this push.
 	NotifyDMRead(userID, dmChannelID string)
-	// NotifyCallCancel stops the ring / dismisses the incoming-call UI on every device of
-	// the receiver once the call stops ringing — cancelled, declined, timed out, or ANSWERED
-	// on one of those devices. A backgrounded device has no live WS to deliver OpP2PCallEnd,
-	// so the push is the only way to reach it. The device that answered ignores it (iOS
-	// CallManager.answered); it is only ever sent for a call that was still ringing.
-	NotifyCallCancel(receiverID, callID string)
+	// NotifyCallCancel stops the ring on the receiver's devices once the call stops ringing —
+	// cancelled, declined, timed out, or answered on one of them. A backgrounded device has no
+	// live WS to deliver OpP2PCallEnd, so the push is the only way to reach it.
+	//
+	// excludeDeviceID is the device that ACTED (answered or declined). It must never be told to
+	// stop ringing: on iOS the push would land on a live call, and ignoring it means completing
+	// the PushKit handler without reporting a call to CallKit, which Apple punishes by killing
+	// the app and revoking VoIP delivery. Empty means "no device to exclude".
+	NotifyCallCancel(receiverID, callID, excludeDeviceID string)
 }
 
 const pushBodyMaxLen = 140
@@ -260,7 +263,7 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 	}()
 }
 
-func (s *pushService) NotifyCallCancel(receiverID, callID string) {
+func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID string) {
 	if !s.fcm.Enabled() && !s.apns.Enabled() {
 		return
 	}
@@ -276,6 +279,13 @@ func (s *pushService) NotifyCallCancel(receiverID, callID string) {
 
 		var androidFCM, voip []string
 		for _, t := range tokens {
+			// Never tell the device that just acted to stop ringing. On iOS that push would
+			// land on a live call, and the only way to ignore it is to complete the PushKit
+			// handler without reporting a call to CallKit — which Apple punishes by killing
+			// the app and revoking its VoIP delivery.
+			if excludeDeviceID != "" && t.DeviceID != nil && *t.DeviceID == excludeDeviceID {
+				continue
+			}
 			if t.TokenType == models.PushTokenTypeAPNsVoIP {
 				voip = append(voip, t.Token)
 			} else if t.Platform == "android" {

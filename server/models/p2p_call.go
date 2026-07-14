@@ -27,6 +27,16 @@ type P2PCall struct {
 	Status     P2PCallStatus `json:"status"`
 	CreatedAt  time.Time     `json:"created_at"`
 	AcceptedAt time.Time     `json:"accepted_at,omitempty"` // set when answered; basis for call duration
+
+	// A call is owned by two CONNECTIONS, not two users. A user signed in on several devices
+	// sees every event for the call on all of them, so without this the caller's idle phone
+	// also opens its microphone and sends a competing SDP offer, and a dropped socket cannot be
+	// matched to the call it was carrying.
+	//
+	// CallerSessionID is set at initiate. ReceiverSessionID is empty until someone accepts —
+	// the receiver's other devices are still ringing until then.
+	CallerSessionID   string `json:"-"`
+	ReceiverSessionID string `json:"-"`
 }
 
 // P2PCallBroadcast — broadcast payload carrying both caller and receiver info.
@@ -43,6 +53,12 @@ type P2PCallBroadcast struct {
 	CallType            P2PCallType   `json:"call_type"`
 	Status              P2PCallStatus `json:"status"`
 	CreatedAt           time.Time     `json:"created_at"`
+
+	// InitiatedBy names the caller's connection that placed the call. Sent ONLY to the caller's
+	// own sessions: the others must recognise the outgoing call as not theirs and ignore it,
+	// instead of opening a microphone and negotiating a second, competing WebRTC session.
+	// Empty on the receiver's copy, and on any event from a server that predates this.
+	InitiatedBy string `json:"initiated_by,omitempty"`
 }
 
 // P2PSignalPayload — WebRTC signaling data (SDP offer/answer or ICE candidate).
