@@ -20,6 +20,8 @@
   "joinVoicePrompt": "Click to join this voice channel",
   "fullscreen": "Fullscreen",
   "exitFullscreen": "Exit Fullscreen",
+  "cinema": "Watch sideways",
+  "exitCinema": "Back to portrait",
   "toggleLayout": "Toggle Layout",
   "endCall": "End Call",
   "minimize": "Minimize",

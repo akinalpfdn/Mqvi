@@ -11,6 +11,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useIsTouch } from "../../hooks/useMediaQuery";
+import { useCinemaMode } from "../../hooks/useCinemaMode";
+import CinemaButton from "../shared/CinemaButton";
 import Avatar from "../shared/Avatar";
 import P2PCallControls from "./P2PCallControls";
 import P2PStreamContextMenu from "./P2PStreamContextMenu";
@@ -128,6 +131,8 @@ function P2PCallScreen() {
   // keeps the stream "playing" so the Web Audio source below isn't silent.
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const mediaAreaRef = useRef<HTMLDivElement>(null);
+  const isTouch = useIsTouch();
+  const { isCinema, enter: enterCinema, exit: exitCinema } = useCinemaMode(mediaAreaRef);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -320,7 +325,7 @@ function P2PCallScreen() {
         <div className="p2p-call-screen p2p-active">
           <div
             ref={mediaAreaRef}
-            className="p2p-media-area"
+            className={`p2p-media-area${isCinema ? " cinema" : ""}`}
             onContextMenu={handleContextMenu}
             onDoubleClick={handleDoubleClick}
           >
@@ -351,9 +356,12 @@ function P2PCallScreen() {
               />
             )}
 
-            {/* Hover overlay — fullscreen button (only when a stream is foregrounded) */}
+            {/* Hover overlay — fullscreen + cinema, stacked. A flex column, not two boxes with
+                offsets picked to miss each other: the gap is the browser's problem, and it
+                cannot get it wrong on a device we have never seen. */}
             {bigHasVideo && (
               <div className="p2p-stream-overlay">
+                <div className="media-controls">
                 <button
                   type="button"
                   onClick={handleFullscreenToggle}
@@ -370,6 +378,11 @@ function P2PCallScreen() {
                     </svg>
                   )}
                 </button>
+
+                {isTouch && (
+                  <CinemaButton isCinema={isCinema} onEnter={enterCinema} onExit={exitCinema} />
+                )}
+                </div>
               </div>
             )}
 

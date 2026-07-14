@@ -20,6 +20,8 @@
   "joinVoicePrompt": "Bu ses kanalına katılmak için tıklayın",
   "fullscreen": "Tam Ekran",
   "exitFullscreen": "Tam Ekrandan Çık",
+  "cinema": "Yatay izle",
+  "exitCinema": "Dikeye dön",
   "toggleLayout": "Düzen Değiştir",
   "endCall": "Aramayı Bitir",
   "minimize": "Küçült",

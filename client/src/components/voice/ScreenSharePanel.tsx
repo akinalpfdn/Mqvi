@@ -13,7 +13,10 @@ import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { resolveUserId } from "../../utils/constants";
+import { useIsTouch } from "../../hooks/useMediaQuery";
+import { useCinemaMode } from "../../hooks/useCinemaMode";
 import ScreenShareContextMenu from "./ScreenShareContextMenu";
+import CinemaButton from "../shared/CinemaButton";
 
 type ScreenSharePanelProps = {
   trackRef: TrackReferenceOrPlaceholder;
@@ -24,6 +27,8 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const isTouch = useIsTouch();
+  const { isCinema, enter: enterCinema, exit: exitCinema } = useCinemaMode(containerRef);
 
   // Stop-watching control auto-hides after 3s of no pointer movement so it
   // never covers the stream. Shown on entry/movement, hidden on leave/idle.
@@ -113,7 +118,7 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
   return (
     <div
       ref={containerRef}
-      className="screen-share-panel"
+      className={`screen-share-panel${isCinema ? " cinema" : ""}`}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
       onMouseEnter={showControls}
@@ -124,6 +129,7 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
       {trackRef.publication && (
         <VideoTrack trackRef={trackRef as TrackReference} />
       )}
+
 
       {/* Stop-watching — centered bottom, hidden when pointer is idle so it
           doesn't obscure the stream. Not shown on your own shared screen. */}
@@ -140,10 +146,13 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
         </button>
       )}
 
-      {/* Hover overlay with CSS opacity transition */}
+      {/* Hover overlay with CSS opacity transition. The buttons live in a flex stack so the
+          browser decides the gap between them — an offset computed from the other button's
+          height is a collision waiting for a device we do not own. */}
       <div className="screen-share-panel-overlay">
         <span className="screen-share-panel-label">{displayName}</span>
 
+        <div className="media-controls">
         <button
           onClick={handleFullscreenToggle}
           className="screen-share-panel-btn"
@@ -159,6 +168,11 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
             </svg>
           )}
         </button>
+
+        {isTouch && (
+          <CinemaButton isCinema={isCinema} onEnter={enterCinema} onExit={exitCinema} />
+        )}
+        </div>
       </div>
 
       {ctxMenu && (

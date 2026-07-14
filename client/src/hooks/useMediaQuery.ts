@@ -32,9 +32,21 @@ function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-/** Phone + small tablet portrait */
+/**
+ * Phone + small tablet portrait — and a phone on its side.
+ *
+ * Width alone said a landscape phone was a desktop: 915px wide clears the 768px bar, so the app
+ * laid three columns out on a 400px-tall screen. The second clause catches it: a coarse pointer
+ * with almost no height is a phone lying down. A landscape tablet has ~768px of height and stays
+ * on the desktop layout, which is the right one there; a mouse never reports a coarse pointer,
+ * so a narrow desktop window is untouched.
+ *
+ * MUST stay in step with the `@media (max-width: 768px), (pointer: coarse) and (max-height: 500px)`
+ * blocks in globals.css. If one moves without the other, the app renders the mobile layout with
+ * desktop styles.
+ */
 function useIsMobile(): boolean {
-  return useMediaQuery("(max-width: 768px)");
+  return useMediaQuery("(max-width: 768px), (pointer: coarse) and (max-height: 500px)");
 }
 
 /** Tablet landscape (includes 768px) */

@@ -28,8 +28,13 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VoiceCallPlugin.class);
         registerPlugin(ScreenSharePlugin.class);
         registerPlugin(P2PCallPlugin.class);
+        registerPlugin(OrientationPlugin.class);
         super.onCreate(savedInstanceState);
         handleCallLaunch(getIntent());
+
+        // Portrait on a phone, free on a tablet. The JS side turns this to landscape while a
+        // stream is being watched full-screen, and puts it back on the way out.
+        OrientationPlugin.applyDefault(this);
 
         installSafeAreaFallback();
     }
