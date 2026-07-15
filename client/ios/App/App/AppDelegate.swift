@@ -1,5 +1,6 @@
 import UIKit
 import AVFoundation
+import UserNotifications
 import Capacitor
 
 @UIApplicationMain
@@ -105,6 +106,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
+    // dm_read retraction — the iOS counterpart of MqviMessagingService's native handling on
+    // Android. The server sends a silent content-available push when a conversation is read on
+    // another device; the delivered DM notification's identifier is its apns-collapse-id
+    // ("dm:<channelId>", see dmNotificationTag on the server), so it can be removed directly.
+    // Handled natively because the WebView may be suspended while backgrounded. Best-effort by
+    // iOS design (background pushes are throttled, never delivered to a force-quit app) — the
+    // reconnect sweep in pushDismiss.ts is the backstop.
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        guard let type = userInfo["type"] as? String, type == "dm_read",
+              let channelID = userInfo["dm_channel_id"] as? String, !channelID.isEmpty else {
+            completionHandler(.noData)
+            return
+        }
+
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["dm:" + channelID])
+        completionHandler(.newData)
     }
 
 }

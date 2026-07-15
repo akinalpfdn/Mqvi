@@ -36,14 +36,18 @@ import (
 // assetLinksPath is fixed by Android — the statement is only ever fetched from here.
 const assetLinksPath = "/.well-known/assetlinks.json"
 
+// aasaPath is fixed by Apple — iOS only fetches the association from here (no .json suffix).
+const aasaPath = "/.well-known/apple-app-site-association"
+
 // routesToAPI reports whether a path is served by the mux rather than falling through to the
-// SPA. Everything unlisted answers with index.html, which is why assetlinks.json has to be named
-// here: Android would read HTML where it expects JSON and quietly stop opening our links. The
-// match is exact, so /.well-known/acme-challenge/ is untouched.
+// SPA. Everything unlisted answers with index.html, which is why assetlinks.json and the AASA
+// have to be named here: the OS would read HTML where it expects JSON and quietly stop opening
+// our links. The match is exact, so /.well-known/acme-challenge/ is untouched.
 func routesToAPI(path string) bool {
 	return strings.HasPrefix(path, "/api/") ||
 		strings.HasPrefix(path, "/static/") ||
-		path == assetLinksPath
+		path == assetLinksPath ||
+		path == aasaPath
 }
 
 func init() {
@@ -168,6 +172,14 @@ func main() {
 		log.Printf("[main] Android App Links enabled for package %s", cfg.AppLinks.AndroidPackage)
 	} else {
 		log.Println("[main] ANDROID_CERT_FINGERPRINTS unset — mqvi.net links will open in the browser, not the app")
+	}
+
+	// iOS Universal Links — the AASA counterpart of assetlinks.json.
+	mux.Handle("GET "+aasaPath, h.AASA)
+	if h.AASA.Enabled() {
+		log.Printf("[main] iOS Universal Links enabled for app ID %s", cfg.AppLinks.IOSAppID)
+	} else {
+		log.Println("[main] IOS_APP_ID unset — mqvi.net links will open in Safari, not the iOS app")
 	}
 
 	// Readiness lives on its own loopback listener, NOT on the public mux — it hits the database

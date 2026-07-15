@@ -49,9 +49,16 @@ type Sender interface {
 	// SendVoIP posts a VoIP push to deviceToken. Returns ErrTokenUnregistered if APNs
 	// reports the token permanently invalid.
 	SendVoIP(ctx context.Context, deviceToken string, payload map[string]any) error
-	// SendAlert posts a user-visible alert push (messages/DMs) to deviceToken. Returns
-	// ErrTokenUnregistered if APNs reports the token permanently invalid.
-	SendAlert(ctx context.Context, deviceToken string, payload map[string]any) error
+	// SendAlert posts a user-visible alert push (messages/DMs) to deviceToken.
+	// collapseID, when non-empty, is sent as apns-collapse-id: newer alerts for the same
+	// conversation replace the older one, and the delivered notification's identifier
+	// becomes collapseID — which is what lets the client find and clear it on read.
+	// Returns ErrTokenUnregistered if APNs reports the token permanently invalid.
+	SendAlert(ctx context.Context, deviceToken, collapseID string, payload map[string]any) error
+	// SendBackground posts a silent content-available push (apns-priority 5). Delivery is
+	// best-effort by design: iOS throttles background pushes and never delivers them to a
+	// force-quit app. Callers must not rely on it as the only path to a correct state.
+	SendBackground(ctx context.Context, deviceToken string, payload map[string]any) error
 	Enabled() bool
 }
 
@@ -133,17 +140,25 @@ func (s *sender) SendVoIP(ctx context.Context, deviceToken string, payload map[s
 	// Drop the push if undelivered within the ring window so APNs can't ring a call
 	// that already timed out / ended (ghost ring).
 	expiry := time.Now().Add(60 * time.Second).Unix()
-	return s.post(ctx, deviceToken, payload, s.voipTopic, "voip", expiry, "voip push")
+	return s.post(ctx, deviceToken, payload, s.voipTopic, "voip", "", "10", expiry, "voip push")
 }
 
-func (s *sender) SendAlert(ctx context.Context, deviceToken string, payload map[string]any) error {
+func (s *sender) SendAlert(ctx context.Context, deviceToken, collapseID string, payload map[string]any) error {
 	// expiration 0 => APNs stores and retries delivery for offline devices.
-	return s.post(ctx, deviceToken, payload, s.alertTopic, "alert", 0, "alert push")
+	return s.post(ctx, deviceToken, payload, s.alertTopic, "alert", collapseID, "10", 0, "alert push")
+}
+
+func (s *sender) SendBackground(ctx context.Context, deviceToken string, payload map[string]any) error {
+	// Apple requires priority 5 for background pushes; 10 gets the push rejected.
+	// 60s expiry: a stale retraction is worthless — the reconnect sweep covers late devices.
+	expiry := time.Now().Add(60 * time.Second).Unix()
+	return s.post(ctx, deviceToken, payload, s.alertTopic, "background", "", "5", expiry, "background push")
 }
 
 // post signs and delivers a single push over APNs HTTP/2. topic + pushType select the
-// delivery kind (VoIP vs alert); expiry 0 leaves the header unset (store-and-forward).
-func (s *sender) post(ctx context.Context, deviceToken string, payload map[string]any, topic, pushType string, expiry int64, kind string) error {
+// delivery kind (VoIP vs alert vs background); expiry 0 leaves the header unset
+// (store-and-forward); collapseID "" leaves apns-collapse-id unset.
+func (s *sender) post(ctx context.Context, deviceToken string, payload map[string]any, topic, pushType, collapseID, priority string, expiry int64, kind string) error {
 	if s.key == nil {
 		return nil
 	}
@@ -163,7 +178,10 @@ func (s *sender) post(ctx context.Context, deviceToken string, payload map[strin
 	req.Header.Set("authorization", "bearer "+auth)
 	req.Header.Set("apns-topic", topic)
 	req.Header.Set("apns-push-type", pushType)
-	req.Header.Set("apns-priority", "10")
+	req.Header.Set("apns-priority", priority)
+	if collapseID != "" {
+		req.Header.Set("apns-collapse-id", collapseID)
+	}
 	if expiry > 0 {
 		req.Header.Set("apns-expiration", strconv.FormatInt(expiry, 10))
 	}

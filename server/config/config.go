@@ -80,6 +80,9 @@ type AppLinksConfig struct {
 	// this is Play's app signing key, NOT the upload key: Play re-signs the APK it ships, so the
 	// upload key never reaches the device. Empty disables the endpoint.
 	AndroidFingerprints []string
+	// IOSAppID drives /.well-known/apple-app-site-association (Universal Links).
+	// Format "<TeamID>.<BundleID>", e.g. "WQ54PPL5VQ.net.mqvi.app". Empty disables the endpoint.
+	IOSAppID string
 }
 
 // TURNConfig holds the STUN/TURN servers handed to P2P call clients.
@@ -408,6 +411,7 @@ func Load() (*Config, error) {
 		AppLinks: AppLinksConfig{
 			AndroidPackage:      getEnv("ANDROID_APP_PACKAGE", "com.akinalpfdn.mqvi"),
 			AndroidFingerprints: androidFingerprints,
+			IOSAppID:            getEnv("IOS_APP_ID", ""),
 		},
 		CallGraceWindow:     callGraceWindow,
 		EncryptionKey:       encKey,

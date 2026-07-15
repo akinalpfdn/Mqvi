@@ -65,3 +65,71 @@ func (h *AssetLinksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.Write(h.body)
 }
+
+// AASAHandler serves the apple-app-site-association statement at
+// /.well-known/apple-app-site-association — the iOS counterpart of assetlinks.json.
+// Apple's CDN fetches it when the app is installed or updated; only then do tapped
+// mqvi.net links open the app (Universal Links) instead of Safari.
+type AASAHandler struct {
+	body []byte
+}
+
+type aasaDocument struct {
+	Applinks aasaApplinks `json:"applinks"`
+}
+
+type aasaApplinks struct {
+	Details []aasaDetail `json:"details"`
+}
+
+type aasaDetail struct {
+	AppIDs     []string            `json:"appIDs"`
+	Components []map[string]string `json:"components"`
+}
+
+// NewAASAHandler builds the statement once. appID is "<TeamID>.<BundleID>"
+// (e.g. "WQ54PPL5VQ.net.mqvi.app"); empty disables the endpoint with a 404,
+// mirroring AssetLinksHandler's semantics.
+// The component paths must stay in sync with client/src/utils/deepLink.ts.
+func NewAASAHandler(appID string) *AASAHandler {
+	if appID == "" {
+		return &AASAHandler{}
+	}
+
+	body, err := json.Marshal(aasaDocument{
+		Applinks: aasaApplinks{
+			Details: []aasaDetail{{
+				AppIDs: []string{appID},
+				Components: []map[string]string{
+					{"/": "/invite/*"},
+					{"/": "/channels"},
+					{"/": "/channels/*"},
+				},
+			}},
+		},
+	})
+	if err != nil {
+		// Unreachable: the value is a plain struct of strings.
+		return &AASAHandler{}
+	}
+
+	return &AASAHandler{body: body}
+}
+
+// Enabled reports whether a statement is configured.
+func (h *AASAHandler) Enabled() bool {
+	return len(h.body) > 0
+}
+
+func (h *AASAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !h.Enabled() {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Apple requires application/json over a direct 200 — no redirects.
+	w.Header().Set("Content-Type", "application/json")
+	// Apple's CDN refreshes roughly daily regardless; short cache keeps origin honest.
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Write(h.body)
+}

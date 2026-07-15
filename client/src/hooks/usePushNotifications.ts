@@ -57,6 +57,9 @@ export function usePushNotifications(): void {
       );
       // Foreground receipt: the live WS connection already delivers the message/call
       // in-app, so we intentionally don't raise a duplicate OS notification.
+      // dm_read retractions never land here either — both platforms handle them natively
+      // (Android: MqviMessagingService, iOS: AppDelegate.didReceiveRemoteNotification),
+      // because a background push must work while the WebView is suspended.
       handles.push(
         await PushNotifications.addListener("pushNotificationReceived", () => {}),
       );

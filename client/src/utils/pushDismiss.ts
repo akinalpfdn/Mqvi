@@ -31,6 +31,21 @@ function channelIdFromTag(tag: string | undefined): string | null {
   return tag.slice(DM_TAG_PREFIX.length) || null;
 }
 
+/**
+ * The dm:<channelId> key of a delivered notification, wherever the platform put it.
+ * Android exposes the FCM notification tag as `tag`. iOS has no tag concept — there the
+ * server sends the same value as apns-collapse-id, which becomes the delivered
+ * notification's identifier and surfaces here as `id`.
+ */
+function dmKeyOf(n: { tag?: string; id: string }): string | null {
+  // Runtime types are looser than Capacitor's: Android delivers numeric ids. Anything
+  // non-string can't be a dm: key, and letting it reach startsWith would throw and
+  // silently abort the whole sweep (removeWhere catches).
+  if (typeof n.tag === "string" && channelIdFromTag(n.tag) !== null) return n.tag;
+  if (typeof n.id === "string" && channelIdFromTag(n.id) !== null) return n.id;
+  return null;
+}
+
 export async function dismissNotificationsFor(dmChannelId: string): Promise<void> {
   const wanted = dmTagFor(dmChannelId);
   await removeWhere((tag) => tag === wanted);
@@ -49,14 +64,14 @@ export async function dismissReadNotifications(unreadChannelIds: Set<string>): P
 }
 
 /** One scan of the tray. Only ever touches DM notifications — never the call notification. */
-async function removeWhere(matches: (tag: string) => boolean): Promise<void> {
+async function removeWhere(matches: (dmKey: string) => boolean): Promise<void> {
   if (!isCapacitor()) return;
 
   try {
     const delivered = await PushNotifications.getDeliveredNotifications();
     const stale = delivered.notifications.filter((n) => {
-      const tag = n.tag;
-      return typeof tag === "string" && channelIdFromTag(tag) !== null && matches(tag);
+      const key = dmKeyOf(n);
+      return key !== null && matches(key);
     });
     if (stale.length === 0) return;
 

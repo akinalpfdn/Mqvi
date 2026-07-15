@@ -35,7 +35,10 @@ func (c *capturingAPNs) SendVoIP(_ context.Context, token string, _ map[string]a
 	c.sent <- token
 	return nil
 }
-func (c *capturingAPNs) SendAlert(context.Context, string, map[string]any) error { return nil }
+func (c *capturingAPNs) SendAlert(context.Context, string, string, map[string]any) error {
+	return nil
+}
+func (c *capturingAPNs) SendBackground(context.Context, string, map[string]any) error { return nil }
 
 type disabledFCM struct{}
 
@@ -134,7 +137,10 @@ type disabledAPNs struct{}
 
 func (disabledAPNs) Enabled() bool                                           { return false }
 func (disabledAPNs) SendVoIP(context.Context, string, map[string]any) error  { return nil }
-func (disabledAPNs) SendAlert(context.Context, string, map[string]any) error { return nil }
+func (disabledAPNs) SendAlert(context.Context, string, string, map[string]any) error {
+	return nil
+}
+func (disabledAPNs) SendBackground(context.Context, string, map[string]any) error { return nil }
 
 func dmPushService(t *testing.T, online, alreadyRead bool, delay time.Duration) (PushNotifier, *capturingFCM, *fakeReads) {
 	t.Helper()
@@ -539,13 +545,16 @@ type countingAPNs struct {
 }
 
 func (c *countingAPNs) Enabled() bool { return true }
-func (c *countingAPNs) SendAlert(context.Context, string, map[string]any) error {
+func (c *countingAPNs) SendAlert(context.Context, string, string, map[string]any) error {
 	c.mu.Lock()
 	c.sent++
 	c.mu.Unlock()
 	return nil
 }
 func (c *countingAPNs) SendVoIP(context.Context, string, map[string]any) error { return nil }
+func (c *countingAPNs) SendBackground(context.Context, string, map[string]any) error {
+	return nil
+}
 
 func (c *countingAPNs) count() int {
 	c.mu.Lock()

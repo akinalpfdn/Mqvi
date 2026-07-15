@@ -348,7 +348,9 @@ func (s *pushService) deliverDM(recipientID, senderName, content string, encrypt
 			})
 		}
 		if s.apnsUp() {
-			apnsHadTokens = s.sendAPNsAlert(ctx, recipientID, senderName, body, data)
+			var apnsDelivered bool
+			apnsDelivered, apnsHadTokens = s.sendAPNsAlert(ctx, recipientID, dmNotificationTag(dmChannelID), senderName, body, data)
+			delivered = delivered || apnsDelivered
 		}
 
 		// "No tokens" is only true once BOTH transports have looked. Reporting it from the FCM
@@ -365,8 +367,10 @@ func (s *pushService) deliverDM(recipientID, senderName, content string, encrypt
 	})
 }
 
-// dmNotificationTag names a conversation's Android notifications so native code can find
-// and cancel them later. Must match the tag MqviMessagingService cancels on dm_read.
+// dmNotificationTag names a conversation's notifications so they can be found and cancelled
+// later. Android: the FCM notification tag MqviMessagingService cancels on dm_read. iOS: the
+// apns-collapse-id, which becomes the delivered notification's identifier — pushDismiss.ts
+// matches on it. Must stay in sync with DM_TAG_PREFIX in client/src/utils/pushDismiss.ts.
 func dmNotificationTag(dmChannelID string) string {
 	return "dm:" + dmChannelID
 }
@@ -375,8 +379,8 @@ func (s *pushService) NotifyDMRead(userID, dmChannelID string) {
 	if !s.readRetraction {
 		return // MQVI_PUSH_DM_READ_RETRACTION=false — the tray is swept on next reconnect instead
 	}
-	if !s.fcmUp() {
-		return // Android-only: iOS cannot be relied on to retract a delivered alert
+	if !s.fcmUp() && !s.apnsUp() {
+		return // no transport to retract through — the reconnect sweep is the fallback
 	}
 	// Nothing on their tray for this conversation, so there is nothing to pull back. This is the
 	// common case and skipping it is most of the point: a retraction for every read of every
@@ -390,35 +394,47 @@ func (s *pushService) NotifyDMRead(userID, dmChannelID string) {
 		if !s.takeOutstanding(userID, dmChannelID) {
 			return // another read got there first
 		}
-		ok := s.sendFCMData(ctx, userID, push.DataMessage{
-			Data: map[string]string{
+		fcmOK, apnsOK := true, true
+		if s.fcmUp() {
+			fcmOK = s.sendFCMData(ctx, userID, push.DataMessage{
+				Data: map[string]string{
+					"type":          "dm_read",
+					"dm_channel_id": dmChannelID,
+				},
+				// Per conversation, so a read of one chat cannot replace the retraction for another.
+				CollapseKey: "dm_read:" + dmChannelID,
+				// High priority, and it is earned: this only fires when a notification is ACTUALLY on
+				// the user's tray (see hasOutstanding), so every one of these does user-visible work —
+				// it removes a notification. Normal priority would leave a dozing phone showing a
+				// notification for a chat the user already read, for hours, which is the guarantee
+				// this push exists to provide.
+				HighPriority: true,
+			})
+		}
+		if s.apnsUp() {
+			// Best-effort by iOS design: background pushes are throttled and never reach a
+			// force-quit app. The reconnect sweep (dismissReadNotifications) is the backstop.
+			apnsOK = s.sendAPNsBackground(ctx, userID, map[string]string{
 				"type":          "dm_read",
 				"dm_channel_id": dmChannelID,
-			},
-			// Per conversation, so a read of one chat cannot replace the retraction for another.
-			CollapseKey: "dm_read:" + dmChannelID,
-			// High priority, and it is earned: this only fires when a notification is ACTUALLY on
-			// the user's tray (see hasOutstanding), so every one of these does user-visible work —
-			// it removes a notification. Normal priority would leave a dozing phone showing a
-			// notification for a chat the user already read, for hours, which is the guarantee
-			// this push exists to provide.
-			HighPriority: true,
-		})
-		if !ok {
+			})
+		}
+		if !fcmOK || !apnsOK {
 			s.restoreOutstanding(userID, dmChannelID)
 		}
 	})
 }
 
 // sendAPNsAlert delivers a user-visible alert push to the recipient's iOS APNs tokens
-// (messages/DMs). Prunes tokens APNs reports permanently invalid. Reports whether the user had
-// any APNs token at all — see the no_tokens decision in deliverDM.
-func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body string, data map[string]string) (hadTokens bool) {
+// (messages/DMs). collapseID becomes the delivered notification's identifier so a later
+// read can clear it (see dmNotificationTag). Prunes tokens APNs reports permanently
+// invalid. delivered/hadTokens mirror sendFCM — see the no_tokens decision in deliverDM.
+func (s *pushService) sendAPNsAlert(ctx context.Context, userID, collapseID, title, body string, data map[string]string) (delivered, hadTokens bool) {
 	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
 	if err != nil {
 		s.failed.Add(1)
 		log.Printf("[push] list tokens for %s: %v", userID, err)
-		return false
+		return false, false
 	}
 
 	aps := map[string]any{
@@ -436,10 +452,11 @@ func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body str
 			continue
 		}
 		hadTokens = true
-		err := s.apns.SendAlert(ctx, t.Token, payload)
+		err := s.apns.SendAlert(ctx, t.Token, collapseID, payload)
 		if err == nil {
 			s.apnsBreaker.Record(true)
 			s.sent.Add(1)
+			delivered = true
 			continue
 		}
 		if errors.Is(err, apns.ErrTokenUnregistered) {
@@ -455,7 +472,53 @@ func (s *pushService) sendAPNsAlert(ctx context.Context, userID, title, body str
 			log.Printf("[push] prune apns tokens: %v", delErr)
 		}
 	}
-	return hadTokens
+	return delivered, hadTokens
+}
+
+// sendAPNsBackground posts a silent content-available push to every iOS APNs token the user
+// has. Mirrors sendFCMData's "settled" semantics: true means nothing is pending on this
+// transport (no tokens, or every send succeeded); false means a send failed and the caller
+// should keep the retraction record for a retry.
+func (s *pushService) sendAPNsBackground(ctx context.Context, userID string, data map[string]string) bool {
+	tokens, err := s.tokenRepo.ListByUser(ctx, userID)
+	if err != nil {
+		s.failed.Add(1)
+		log.Printf("[push] list tokens for %s: %v", userID, err)
+		return false
+	}
+
+	payload := map[string]any{"aps": map[string]any{"content-available": 1}}
+	for k, v := range data {
+		payload[k] = v
+	}
+
+	ok := true
+	var dead []string
+	for _, t := range tokens {
+		if t.TokenType != models.PushTokenTypeAPNs {
+			continue
+		}
+		err := s.apns.SendBackground(ctx, t.Token, payload)
+		if err == nil {
+			s.apnsBreaker.Record(true)
+			s.sent.Add(1)
+			continue
+		}
+		if errors.Is(err, apns.ErrTokenUnregistered) {
+			dead = append(dead, t.Token)
+			continue
+		}
+		s.apnsBreaker.Record(false)
+		s.failed.Add(1)
+		ok = false
+		log.Printf("[push] apns background to %s: %v", userID, err)
+	}
+	if len(dead) > 0 {
+		if delErr := s.tokenRepo.DeleteTokens(ctx, dead); delErr != nil {
+			log.Printf("[push] prune apns tokens: %v", delErr)
+		}
+	}
+	return ok
 }
 
 func (s *pushService) NotifyCall(receiverID, callerName string, callType models.P2PCallType, callID, callerID string) {

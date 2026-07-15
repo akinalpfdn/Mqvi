@@ -52,6 +52,7 @@ type Handlers struct {
 	PushToken         *handlers.PushTokenHandler
 	Discovery         *handlers.DiscoveryHandler
 	AssetLinks        *handlers.AssetLinksHandler
+	AASA              *handlers.AASAHandler
 	WS                *ws.Handler
 }
 
@@ -85,6 +86,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, svcs.Storage, cfg.Upload.MaxSize, urlSigner),
 		Gif:               handlers.NewGifHandler(cfg.Klipy.APIKey),
 		AssetLinks:        handlers.NewAssetLinksHandler(cfg.AppLinks.AndroidPackage, cfg.AppLinks.AndroidFingerprints),
+		AASA:              handlers.NewAASAHandler(cfg.AppLinks.IOSAppID),
 		Device:            handlers.NewDeviceHandler(svcs.Device),
 		E2EE:              handlers.NewE2EEHandler(svcs.E2EE),
 		LinkPreview:       handlers.NewLinkPreviewHandler(svcs.LinkPreview),
