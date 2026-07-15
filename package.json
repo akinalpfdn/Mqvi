@@ -16,8 +16,8 @@
   },
   "devDependencies": {
     "concurrently": "^9",
-    "electron": "^33",
-    "electron-builder": "^25",
+    "electron": "42.7.0",
+    "electron-builder": "^26",
     "rcedit": "^5.0.2",
     "typescript": "~5.9.3"
   },
