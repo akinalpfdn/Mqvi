@@ -51,8 +51,9 @@ interface ElectronAPI {
   /** Send user's selection back to main process (null = cancelled) */
   sendScreenPickerResult: (sourceId: string | null) => void;
 
-  /** Start process-exclusive system audio capture (excludes our own audio) */
-  startSystemCapture: () => Promise<void>;
+  /** Start screen share audio capture for the picked source: a window captures only its
+   *  own audio, a screen captures all system audio except ours. */
+  startSystemCapture: (sourceId?: string | null) => Promise<void>;
   stopSystemCapture: () => Promise<void>;
   /** Remove all capture-related IPC listeners to prevent accumulation */
   removeCaptureListeners: () => void;

@@ -1,12 +1,13 @@
 /**
- * useSystemAudioCapture — Process-exclusive system audio capture hook.
+ * useSystemAudioCapture — Screen share audio capture hook.
  *
- * Uses the native audio-capture.exe (WASAPI process loopback) to capture
- * system audio while excluding our own Electron process tree. This prevents
- * the screen share echo problem where remote participants hear their own voice.
+ * Uses the native audio-capture.exe (WASAPI process loopback) to capture the audio
+ * that belongs to the share: a shared window contributes only its own audio, a shared
+ * screen contributes everything except our own process tree (which would echo remote
+ * voice back to the people speaking).
  *
  * Audio pipeline:
- *   1. audio-capture.exe captures system audio (excluding Electron PID)
+ *   1. audio-capture.exe captures the share's audio
  *   2. Raw PCM data flows via IPC: native → main process → renderer
  *   3. This hook receives PCM data and feeds it to an AudioWorklet
  *   4. AudioWorklet → AudioContext.createMediaStreamDestination()
@@ -29,8 +30,9 @@ import { isElectron } from "../utils/constants";
 
 /** Return type of useSystemAudioCapture hook */
 interface SystemAudioCapture {
-  /** Start the native audio capture process */
-  start: () => Promise<MediaStreamTrack | null>;
+  /** Start the native audio capture process for the picked share source
+   *  (a window captures only its own audio; a screen captures all but ours). */
+  start: (sourceId?: string | null) => Promise<MediaStreamTrack | null>;
   /** Stop capture and clean up resources */
   stop: () => void;
   /** Whether capture is currently active */
@@ -46,7 +48,9 @@ export function useSystemAudioCapture(): SystemAudioCapture {
   const destRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
 
-  const start = useCallback(async (): Promise<MediaStreamTrack | null> => {
+  const start = useCallback(async (
+    sourceId?: string | null
+  ): Promise<MediaStreamTrack | null> => {
     if (!isElectron()) return null;
 
     const api = window.electronAPI;
@@ -159,7 +163,7 @@ export function useSystemAudioCapture(): SystemAudioCapture {
       });
 
       // Tell main process to start the native capture
-      api.startSystemCapture().catch((err: unknown) => {
+      api.startSystemCapture(sourceId).catch((err: unknown) => {
         console.error("[useSystemAudioCapture] Start failed:", err);
         if (!resolved) {
           resolved = true;

@@ -30,6 +30,7 @@ function ScreenPicker() {
   const screenShareMode = useVoiceStore((s) => s.screenShareMode);
   const setScreenShareMode = useVoiceStore((s) => s.setScreenShareMode);
   const startNativeSmoothCapture = useVoiceStore((s) => s.startNativeSmoothCapture);
+  const setPickedShareSourceId = useVoiceStore((s) => s.setPickedShareSourceId);
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -42,6 +43,9 @@ function ScreenPicker() {
 
   const handleSelect = useCallback(
     async (source: PickerSource) => {
+      // Both engines' audio is scoped to this source — record it before either starts.
+      setPickedShareSourceId(source.id);
+
       if (screenShareMode === "smooth") {
         // The helper captures and hardware-encodes this source itself, so getDisplayMedia is
         // cancelled. If it can't start, fall through to the normal (sharp) path.
@@ -52,13 +56,14 @@ function ScreenPicker() {
       }
       setSources(null);
     },
-    [screenShareMode, startNativeSmoothCapture]
+    [screenShareMode, startNativeSmoothCapture, setPickedShareSourceId]
   );
 
   const handleCancel = useCallback(() => {
+    setPickedShareSourceId(null);
     window.electronAPI?.sendScreenPickerResult(null);
     setSources(null);
-  }, []);
+  }, [setPickedShareSourceId]);
 
   useEffect(() => {
     if (!sources) return;

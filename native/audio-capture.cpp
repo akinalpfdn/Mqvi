@@ -1,21 +1,25 @@
 /**
- * audio-capture.exe — Process-exclusive WASAPI loopback capture.
+ * audio-capture.exe — WASAPI process-loopback capture for screen share audio.
  *
- * Captures all system audio EXCEPT audio from the specified process tree.
- * Uses Windows 10 21H2+ WASAPI ActivateAudioInterfaceAsync with
- * PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE.
+ * Uses Windows 10 21H2+ ActivateAudioInterfaceAsync process loopback in one of
+ * two modes, matching what the user is actually sharing:
  *
- * This solves the screen share echo problem: when Electron captures system
- * audio via loopback, it also captures voice chat audio from remote
- * participants (played through speakers). The echo loop:
- *   Remote voice -> speakers -> loopback -> screen share -> remote hears self
+ *   EXCLUDE (monitor share) — all system audio except our own process tree.
+ *     Sharing the whole screen means "share what I hear", but our own tree must
+ *     be excluded or remote voice would echo back to the people speaking:
+ *       Remote voice -> speakers -> loopback -> screen share -> remote hears self
  *
- * By excluding our own process tree, voice chat audio is filtered out
- * at the OS level (WASAPI session isolation), but all other system audio
- * (games, music, other apps) is still captured.
+ *   INCLUDE (window share) — only the audio of the process owning that window.
+ *     Sharing one window must not broadcast everything else the user is playing
+ *     (the film in the next window, another game, music).
  *
- * Usage: audio-capture.exe <PID>
- *   PID: Process ID to exclude (Electron's main process PID)
+ * Usage:
+ *   audio-capture.exe --exclude <PID>
+ *   audio-capture.exe --include-window <HWND> --self <PID>
+ *   audio-capture.exe <PID>                       (legacy — same as --exclude)
+ *
+ * --include-window falls back to excluding <PID> when the window is gone or is
+ * one of ours (including our own tree is the echo loop above).
  *
  * Output format (stdout, binary):
  *   Bytes 0-11:  Header — sampleRate(u32) channels(u16) bitsPerSample(u16) formatTag(u32)
@@ -25,7 +29,7 @@
  *
  * Requirements:
  *   - Windows 10 Build 20348+ (Windows 10 21H2 / Windows 11)
- *   - Compile: cl.exe /EHsc /O2 audio-capture.cpp /Fe:audio-capture.exe ole32.lib
+ *   - Compile: cl.exe /EHsc /O2 audio-capture.cpp /Fe:audio-capture.exe ole32.lib user32.lib
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -37,6 +41,7 @@
 #include <audioclient.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <io.h>
 #include <fcntl.h>
 
@@ -205,14 +210,68 @@ struct AudioHeader {
 // Main
 // ═══════════════════════════════════════════════════════════════════════
 
+static void PrintUsage() {
+    fprintf(stderr,
+        "Usage: audio-capture.exe --exclude <PID>\n"
+        "       audio-capture.exe --include-window <HWND> --self <PID>\n");
+}
+
 int wmain(int argc, wchar_t* argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: audio-capture.exe <PID-to-exclude>\n");
+    DWORD excludePid   = 0;        // our own tree — what EXCLUDE mode filters out
+    DWORD selfPid      = 0;
+    HWND  targetWindow = nullptr;
+    bool  wantInclude  = false;
+
+    for (int i = 1; i < argc; i++) {
+        if (_wcsicmp(argv[i], L"--exclude") == 0 && i + 1 < argc) {
+            excludePid = static_cast<DWORD>(_wtoi(argv[++i]));
+        } else if (_wcsicmp(argv[i], L"--include-window") == 0 && i + 1 < argc) {
+            targetWindow = reinterpret_cast<HWND>(
+                static_cast<ULONG_PTR>(_wcstoui64(argv[++i], nullptr, 10)));
+            wantInclude = true;
+        } else if (_wcsicmp(argv[i], L"--self") == 0 && i + 1 < argc) {
+            selfPid = static_cast<DWORD>(_wtoi(argv[++i]));
+        } else if (argv[i][0] != L'-') {
+            excludePid = static_cast<DWORD>(_wtoi(argv[i]));  // legacy positional
+        }
+    }
+    if (selfPid == 0)    selfPid = excludePid;
+    if (excludePid == 0) excludePid = selfPid;
+
+    // ─── Resolve the capture mode ───
+    // INCLUDE needs the PID behind the shared window; anything unexpected about
+    // that window degrades to EXCLUDE, which is always safe to fall back to.
+    DWORD targetPid = 0;
+    PROCESS_LOOPBACK_MODE_ENUM loopbackMode = PL_MODE_EXCLUDE_TARGET_PROCESS_TREE;
+
+    if (wantInclude) {
+        DWORD windowPid = 0;
+        if (targetWindow && IsWindow(targetWindow)) {
+            GetWindowThreadProcessId(targetWindow, &windowPid);
+        }
+        if (windowPid == 0) {
+            fprintf(stderr, "[audio-capture] Shared window is gone, falling back to system audio\n");
+        } else if (windowPid == selfPid) {
+            // Our own window: capturing our tree is exactly the echo loop.
+            fprintf(stderr, "[audio-capture] Shared window is ours, falling back to system audio\n");
+        } else {
+            targetPid = windowPid;
+            loopbackMode = PL_MODE_INCLUDE_TARGET_PROCESS_TREE;
+        }
+    }
+
+    if (loopbackMode == PL_MODE_EXCLUDE_TARGET_PROCESS_TREE) {
+        targetPid = excludePid;
+    }
+
+    if (targetPid == 0) {
+        PrintUsage();
         return 1;
     }
 
-    DWORD excludePid = static_cast<DWORD>(_wtoi(argv[1]));
-    fprintf(stderr, "[audio-capture] Excluding PID %u from loopback\n", excludePid);
+    const bool includeOnly = (loopbackMode == PL_MODE_INCLUDE_TARGET_PROCESS_TREE);
+    fprintf(stderr, "[audio-capture] %s PID %u\n",
+        includeOnly ? "Capturing only" : "Capturing everything except", targetPid);
 
     // Binary mode for stdout — no CR/LF translation
     _setmode(_fileno(stdout), _O_BINARY);
@@ -227,12 +286,11 @@ int wmain(int argc, wchar_t* argv[]) {
         return 1;
     }
 
-    // ─── Setup process-exclusive loopback activation params ───
+    // ─── Setup process loopback activation params ───
     AUDIOCLIENT_ACTIVATION_PARAMS_S acParams = {};
     acParams.ActivationType = AC_ACTIVATION_TYPE_PROCESS_LOOPBACK;
-    acParams.ProcessLoopbackParams.TargetProcessId = excludePid;
-    acParams.ProcessLoopbackParams.ProcessLoopbackMode =
-        PL_MODE_EXCLUDE_TARGET_PROCESS_TREE;
+    acParams.ProcessLoopbackParams.TargetProcessId = targetPid;
+    acParams.ProcessLoopbackParams.ProcessLoopbackMode = loopbackMode;
 
     PROPVARIANT activateParams = {};
     activateParams.vt = VT_BLOB;
@@ -399,7 +457,8 @@ int wmain(int argc, wchar_t* argv[]) {
         return 1;
     }
 
-    fprintf(stderr, "[audio-capture] Capture started (excluding PID %u)\n", excludePid);
+    fprintf(stderr, "[audio-capture] Capture started (%s PID %u)\n",
+        includeOnly ? "only" : "excluding", targetPid);
 
     // ─── Capture loop ───
     // Event fires when audio buffer has data. 100ms timeout for checking

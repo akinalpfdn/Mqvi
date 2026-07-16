@@ -101,17 +101,16 @@ let tray: Tray | null = null;
 let isQuitting = false;
 
 /**
- * Process-exclusive audio capture child process.
+ * Screen share audio capture child process.
  *
- * audio-capture.exe uses WASAPI ActivateAudioInterfaceAsync with
- * PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE to capture all system
- * audio EXCEPT our own Electron process tree. This solves the screen share
- * echo problem: remote voice chat audio (played by our app) is excluded
- * from the capture, while game/music audio is still captured.
+ * audio-capture.exe taps WASAPI process loopback in the mode that matches what is
+ * being shared: a window share captures only that window's process tree, a monitor
+ * share captures everything except our own tree (including it would echo remote
+ * voice back to the people speaking).
  *
  * Lifecycle:
- *   1. Renderer starts screen share with audio → IPC "start-system-capture"
- *   2. Main spawns audio-capture.exe with our PID
+ *   1. Renderer starts screen share with audio → IPC "start-system-capture" (picked source)
+ *   2. Main spawns audio-capture.exe in include- or exclude-mode
  *   3. Exe writes PCM header + data to stdout → forwarded to renderer via IPC
  *   4. Renderer creates AudioWorklet → MediaStreamTrack → LiveKit publishes
  *   5. Screen share stops → IPC "stop-system-capture" → kill child process
@@ -607,8 +606,8 @@ function setupPermissions(): void {
           const selected = sources.find((s) => s.id === sourceId);
           if (selected) {
             // Video only — no "loopback" audio.
-            // Audio capture is handled by audio-capture.exe (process-exclusive)
-            // which is started/stopped by the renderer via IPC.
+            // Share audio comes from audio-capture.exe, scoped to this source and
+            // started/stopped by the renderer via IPC.
             callback({ video: selected });
           } else {
             callback({});
@@ -765,12 +764,12 @@ function setupIPC(): void {
     }));
   });
 
-  // ─── Process-Exclusive Audio Capture ───
+  // ─── Screen Share Audio Capture ───
   // Renderer requests system audio capture (excluding our process).
   // This replaces Electron's built-in "loopback" which captures everything
   // including voice chat audio, causing echo for remote participants.
 
-  ipcMain.handle("start-system-capture", () => {
+  ipcMain.handle("start-system-capture", (_event, sourceId?: string | null) => {
     // WASAPI process loopback is Windows-only
     if (process.platform !== "win32") {
       console.log("[main] System audio capture not available on this platform");
@@ -798,12 +797,24 @@ function setupIPC(): void {
       ? path.join(app.getAppPath(), "native", "audio-capture.exe")
       : path.join(process.resourcesPath, "native", "audio-capture.exe");
 
-    console.log(`[main] Starting audio capture gen=${thisGen}: ${exePath} (exclude PID ${process.pid})`);
+    // Sharing one window shares only that window's audio; sharing a monitor shares
+    // everything we hear except ourselves. desktopCapturer window ids are
+    // "window:<HWND>:<n>" on Windows — the exe resolves the HWND to its process and
+    // degrades to exclude-mode if that window is stale or is one of ours.
+    const hwnd =
+      typeof sourceId === "string" && sourceId.startsWith("window:")
+        ? sourceId.split(":")[1]
+        : null;
+    const args = hwnd
+      ? ["--include-window", hwnd, "--self", process.pid.toString()]
+      : ["--exclude", process.pid.toString()];
+
+    console.log(`[main] Starting audio capture gen=${thisGen}: ${exePath} ${args.join(" ")}`);
 
     captureHeaderParsed = false;
     captureHeaderBuffer = Buffer.alloc(0);
 
-    captureProcess = spawn(exePath, [process.pid.toString()], {
+    captureProcess = spawn(exePath, args, {
       stdio: ["pipe", "pipe", "pipe"],
     });
 

@@ -53,12 +53,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("screen-picker-result", sourceId);
   },
 
-  // ─── Process-Exclusive Audio Capture IPC ───
-  // Uses native audio-capture.exe (WASAPI process loopback) to capture
-  // system audio while excluding our own process tree — no voice echo.
+  // ─── Screen Share Audio Capture IPC ───
+  // Uses native audio-capture.exe (WASAPI process loopback) to capture the audio
+  // that belongs to the share, never our own — no voice echo.
 
-  /** Start system audio capture (excludes Electron's own audio) */
-  startSystemCapture: (): Promise<void> => ipcRenderer.invoke("start-system-capture"),
+  /** Start screen share audio capture. `sourceId` = the picked desktopCapturer source:
+   *  a window shares only its own audio, a screen shares all system audio but ours. */
+  startSystemCapture: (sourceId?: string | null): Promise<void> =>
+    ipcRenderer.invoke("start-system-capture", sourceId ?? null),
 
   /** Stop system audio capture */
   stopSystemCapture: (): Promise<void> => ipcRenderer.invoke("stop-system-capture"),

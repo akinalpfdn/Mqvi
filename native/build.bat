@@ -6,7 +6,7 @@ if errorlevel 1 (
     exit /b 1
 )
 echo Compiling audio-capture.cpp...
-cl.exe /EHsc /O2 /W3 "%~dp0audio-capture.cpp" /Fe:"%~dp0audio-capture.exe" ole32.lib mmdevapi.lib
+cl.exe /EHsc /O2 /W3 "%~dp0audio-capture.cpp" /Fe:"%~dp0audio-capture.exe" ole32.lib mmdevapi.lib user32.lib
 if errorlevel 1 (
     echo ERROR: Compilation failed
     exit /b 1

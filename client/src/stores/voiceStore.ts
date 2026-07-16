@@ -99,6 +99,9 @@ type VoiceCoreState = {
   isStreaming: boolean;
   /** "Akıcı Görüntü" engine is live: the native capture helper is publishing {userId}_ss */
   isNativeCapturing: boolean;
+  /** desktopCapturer id of the source being shared ("window:<HWND>:0" / "screen:<id>:0").
+   *  Set by the picker; the audio capture needs it to scope itself to the share. */
+  pickedShareSourceId: string | null;
   /** Server-enforced mute — admin silenced this user's mic */
   isServerMuted: boolean;
   /** Server-enforced deafen — admin silenced all audio for this user */
@@ -143,6 +146,7 @@ type VoiceCoreActions = {
    */
   startNativeSmoothCapture: (sourceName?: string) => Promise<boolean>;
   stopNativeSmoothCapture: () => void;
+  setPickedShareSourceId: (sourceId: string | null) => void;
   setRtt: (rtt: number) => void;
   setActiveSpeakers: (speakerIds: string[]) => void;
   registerOnLeave: (fn: (() => void) | null) => void;
@@ -173,6 +177,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   isDeafened: initialMuteState.isDeafened,
   isStreaming: false,
   isNativeCapturing: false,
+  pickedShareSourceId: null,
   isServerMuted: false,
   isServerDeafened: false,
   livekitUrl: null,
@@ -342,6 +347,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       // isMuted/isDeafened intentionally NOT reset — they persist across sessions
       isStreaming: false,
       isNativeCapturing: false,
+  pickedShareSourceId: null,
       isServerMuted: false,
       isServerDeafened: false,
       activeSpeakers: {},
@@ -434,6 +440,10 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   stopNativeSmoothCapture: () => {
     void window.electronAPI?.stopGameCapture();
     set({ isNativeCapturing: false });
+  },
+
+  setPickedShareSourceId: (sourceId) => {
+    set({ pickedShareSourceId: sourceId });
   },
 
   setRtt: (rtt) => set({ rtt }),
