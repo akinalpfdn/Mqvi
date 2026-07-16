@@ -31,6 +31,7 @@ use livekit::webrtc::video_frame::{
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
+use mqvi_game_capture::capture::ScreenCapture;
 use mqvi_game_capture::mf_encoder::HwEncoder;
 use mqvi_game_capture::nv12;
 
@@ -70,6 +71,23 @@ struct Args {
     /// Encoder backend: nvenc/hardware engage the GPU (require an h264/h265/av1 codec).
     #[arg(long, value_enum, default_value_t = Encoder::Auto)]
     encoder: Encoder,
+
+    /// Frame source: an animated synthetic pattern, or real screen capture (WGC → hardware encode).
+    /// `wgc` overrides width/height with the monitor's and forces `--encoder mf`.
+    #[arg(long, value_enum, default_value_t = Source::Synthetic)]
+    source: Source,
+
+    /// Capture a single window whose title contains this text (case-insensitive) — e.g. a game —
+    /// instead of the whole monitor. Avoids the mirror loop when viewing on the same screen. Implies
+    /// WGC hardware capture.
+    #[arg(long)]
+    window: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, clap::ValueEnum)]
+enum Source {
+    Synthetic,
+    Wgc,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -140,9 +158,27 @@ async fn run() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
-    let width = args.width & !1; // force even
-    let height = args.height & !1;
+    let mut width = args.width & !1; // force even
+    let mut height = args.height & !1;
     let fps = args.fps.max(1);
+
+    // WGC capture: dimensions come from the source (window or monitor), and it goes through our MF
+    // encoder. `--window` picks a single window; otherwise `--source wgc` captures the whole monitor.
+    let capture = if let Some(title) = &args.window {
+        let cap = ScreenCapture::window_by_title(title)?;
+        width = cap.width() & !1;
+        height = cap.height() & !1;
+        log::info!("WGC window capture '{title}': {width}x{height}");
+        Some(cap)
+    } else if args.source == Source::Wgc {
+        let cap = ScreenCapture::primary_monitor()?;
+        width = cap.width() & !1;
+        height = cap.height() & !1;
+        log::info!("WGC monitor capture: {width}x{height}");
+        Some(cap)
+    } else {
+        None
+    };
 
     // E2EE: shared-key provider seeded with the room passphrase. Defaults give
     // salt="LKFrameEncryptionKey" + PBKDF2, matching the JS ExternalE2EEKeyProvider.
@@ -165,10 +201,16 @@ async fn run() -> Result<()> {
         room.name()
     );
 
-    let use_mf = args.encoder == Encoder::Mf;
-    let hevc = matches!(args.codec, Codec::H265);
-    if use_mf && !matches!(args.codec, Codec::H264 | Codec::H265) {
-        bail!("--encoder mf needs --codec h264 or h265 (hardware encoders don't do vp8/vp9)");
+    let use_mf = args.encoder == Encoder::Mf || capture.is_some();
+    // WGC always hardware-encodes; default a wgc run (codec would otherwise be vp8) to h264.
+    let codec = if capture.is_some() && !matches!(args.codec, Codec::H264 | Codec::H265) {
+        Codec::H264
+    } else {
+        args.codec
+    };
+    let hevc = matches!(codec, Codec::H265);
+    if use_mf && !matches!(codec, Codec::H264 | Codec::H265) {
+        bail!("hardware encode (--encoder mf) needs --codec h264 or h265");
     }
 
     // MF path hands livekit pre-encoded access units (new_encoded); otherwise a raw I420
@@ -189,16 +231,21 @@ async fn run() -> Result<()> {
 
     let mut publish_opts = TrackPublishOptions::default();
     publish_opts.source = TrackSource::Screenshare;
-    publish_opts.video_codec = args.codec.to_lk();
-    publish_opts.video_encoder = args.encoder.to_lk();
+    publish_opts.video_codec = codec.to_lk();
+    // We hand livekit already-encoded frames on the MF path → PreEncoded pass-through (no re-encode).
+    publish_opts.video_encoder = if use_mf {
+        VideoEncoderBackend::PreEncoded
+    } else {
+        args.encoder.to_lk()
+    };
 
     local
         .publish_track(LocalTrack::Video(track), publish_opts)
         .await
         .context("publish_track failed")?;
     log::info!(
-        "published track 'native-game-capture' ({width}x{height}@{fps}, codec={:?}, encoder={:?}, E2EE/GCM)",
-        args.codec, args.encoder
+        "published track 'native-game-capture' ({width}x{height}@{fps}, codec={:?}, hw_encode={}, source={:?}, E2EE/GCM)",
+        codec, use_mf, args.source
     );
 
     // MF encoding does blocking COM calls → dedicated OS thread. Raw path → tokio task.
@@ -206,7 +253,7 @@ async fn run() -> Result<()> {
     let mf_thread = if use_mf {
         let (src, stop) = (rtc_source.clone(), stop.clone());
         Some(std::thread::spawn(move || {
-            if let Err(e) = encoded_pump(src, width, height, fps, hevc, stop) {
+            if let Err(e) = encoded_pump(src, width, height, fps, hevc, capture, stop) {
                 log::error!("encode thread failed: {e:#}");
             }
         }))
@@ -215,7 +262,7 @@ async fn run() -> Result<()> {
     };
     let raw_pump = (!use_mf).then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
 
-    println!("Publishing encrypted test pattern. Watch the app client render it. Ctrl+C to stop.");
+    println!("Publishing encrypted video. Watch the app client render it. Ctrl+C to stop.");
 
     loop {
         tokio::select! {
@@ -247,18 +294,22 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
-/// MF hardware-encode pump (dedicated OS thread): synthetic NV12 → hardware H264/H265 →
-/// livekit PreEncoded. Blocking encode() lives off the tokio runtime.
+/// MF hardware-encode pump (dedicated OS thread): NV12 (synthetic or WGC-captured screen) →
+/// hardware H264/H265 → livekit PreEncoded. Blocking encode() lives off the tokio runtime.
 fn encoded_pump(
     source: NativeVideoSource,
     width: u32,
     height: u32,
     fps: u32,
     hevc: bool,
+    capture: Option<ScreenCapture>,
     stop: Arc<AtomicBool>,
 ) -> Result<()> {
+    // Start conservative — WebRTC's rate-control feedback ramps it up to what the link allows.
+    // (Starting high floods the pipe before the first estimate arrives → initial corruption.)
+    let bitrate = if capture.is_some() { 2_500_000 } else { 6_000_000 };
     HwEncoder::startup()?;
-    let mut enc = HwEncoder::new(width, height, fps, 6_000_000, hevc)?;
+    let mut enc = HwEncoder::new(width, height, fps, bitrate, hevc)?;
     log::info!("hardware encoder: {}", enc.name());
 
     let codec = if hevc { EncodedVideoCodec::H265 } else { EncodedVideoCodec::H264 };
@@ -266,6 +317,10 @@ fn encoded_pump(
     let (w, h) = (width as usize, height as usize);
     let mut idx: u64 = 0;
     let t0 = std::time::Instant::now();
+    // For WGC: the latest NV12 frame, reused when no new WGC frame arrived (static screen) so the
+    // stream holds `fps`. `have_frame` guards the first ticks before any frame is captured.
+    let mut cur = Vec::new();
+    let mut have_frame = false;
 
     // Delivery stats reported once a second: fed = frames we tried to encode, sent = encoded
     // packets handed to livekit, plus their bitrate. Tells us if the pump keeps ~fps or stalls.
@@ -273,6 +328,10 @@ fn encoded_pump(
     let mut sent = 0u32;
     let mut bytes = 0usize;
     let mut last_report = std::time::Instant::now();
+    // WebRTC bandwidth estimate: collected every tick, applied at most once a second. Reconfiguring
+    // the hardware encoder ~30x/s (with an oscillating estimate) makes it emit undecodable frames.
+    let mut pending_bitrate = 0u32;
+    let mut applied_bitrate = bitrate;
 
     while !stop.load(Ordering::Relaxed) {
         // Absolute schedule: frame idx is due at t0 + idx*frame_us. Sleeping to an absolute target
@@ -289,13 +348,27 @@ fn encoded_pump(
         if force_key {
             log::info!("keyframe requested — forcing IDR");
         }
+        // Follow WebRTC's bandwidth estimate so the encoder doesn't flood the link (blocky
+        // corruption). Just record it here; apply at most once/second below.
         if let Some(rc) = source.take_rate_control_request() {
-            log::debug!("rate-control request: {rc:?} (not yet applied)");
+            pending_bitrate = (rc.target_bitrate_bps as u32).clamp(800_000, 20_000_000);
         }
 
-        let frame = nv12::test_pattern(w, h, idx);
+        // Frame source: real screen (reuse last on no-change) or the synthetic pattern.
+        match &capture {
+            Some(cap) => {
+                if let Some(f) = cap.next_frame() {
+                    cur = nv12::bgra_to_nv12(&f.data, w, h, f.stride);
+                    have_frame = true;
+                }
+                if !have_frame {
+                    continue; // nothing captured yet
+                }
+            }
+            None => cur = nv12::test_pattern(w, h, idx),
+        }
         // Non-fatal: a transient encode error must not kill the thread (that froze the stream).
-        let packets = match enc.encode(&frame, idx as i64 * frame_us, frame_us, force_key) {
+        let packets = match enc.encode(&cur, idx as i64 * frame_us, frame_us, force_key) {
             Ok(p) => p,
             Err(e) => {
                 log::warn!("encode error (continuing): {e:#}");
@@ -319,6 +392,12 @@ fn encoded_pump(
         idx += 1;
 
         if last_report.elapsed() >= Duration::from_secs(1) {
+            // Apply the latest bandwidth estimate at most once/second.
+            if pending_bitrate != 0 && pending_bitrate != applied_bitrate {
+                enc.set_bitrate(pending_bitrate);
+                applied_bitrate = pending_bitrate;
+                log::info!("bitrate → {} kbps", pending_bitrate / 1000);
+            }
             let secs = last_report.elapsed().as_secs_f64();
             log::info!(
                 "encode: fed {:.1} fps, sent {:.1} fps, {:.0} kbps",

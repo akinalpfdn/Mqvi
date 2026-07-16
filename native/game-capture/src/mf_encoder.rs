@@ -116,6 +116,16 @@ impl HwEncoder {
         &self.name
     }
 
+    /// Update the target bitrate mid-stream — used to follow WebRTC's bandwidth estimate so the
+    /// stream doesn't flood the network (which shows as blocky corruption + endless keyframe asks).
+    pub fn set_bitrate(&self, bps: u32) {
+        if let Some(api) = &self.codec_api {
+            unsafe {
+                let _ = api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bps));
+            }
+        }
+    }
+
     /// Feed one NV12 frame; return any packets that became available. Output trails input by the
     /// encoder's pipeline depth — a frame's packet arrives on a later call. Timestamps are µs.
     /// `force_key` makes this frame an IDR — used to answer a WebRTC keyframe request (PLI) so a
