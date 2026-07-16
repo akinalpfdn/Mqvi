@@ -1,0 +1,5 @@
+# The prebuilt libwebrtc that webrtc-sys links is compiled against the static CRT (/MT).
+# Rust's MSVC target defaults to the dynamic CRT (/MD), which collides at link time
+# (LNK2038 RuntimeLibrary mismatch → LNK1169). Force the static CRT to match libwebrtc.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mqvi NGC-01 viewer</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #1e1f22; color: #dbdee1; }
+  header { padding: 12px 16px; background: #2b2d31; border-bottom: 1px solid #111214; }
+  header h1 { font-size: 15px; margin: 0; }
+  header p { margin: 4px 0 0; color: #949ba4; font-size: 12px; }
+  main { display: grid; grid-template-columns: 340px 1fr; gap: 16px; padding: 16px; }
+  label { display: block; font-size: 12px; color: #949ba4; margin: 10px 0 3px; }
+  input { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #111214; background: #1e1f22; color: #dbdee1; font-family: monospace; font-size: 12px; }
+  button { margin-top: 14px; width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #5865f2; color: #fff; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.stop { background: #da373c; }
+  .stage { display: flex; flex-direction: column; gap: 10px; }
+  video { width: 100%; background: #000; border-radius: 8px; aspect-ratio: 16/9; }
+  #log { flex: 1; margin: 0; padding: 10px; background: #111214; border-radius: 8px; font: 12px/1.5 monospace; white-space: pre-wrap; overflow: auto; max-height: 40vh; }
+  .ok { color: #23a55a; } .err { color: #f23f43; } .warn { color: #f0b232; } .dim { color: #949ba4; }
+</style>
+</head>
+<body>
+<header>
+  <h1>mqvi NGC-01 viewer — decrypts the native publisher's E2EE track</h1>
+  <p>Paste a subscribe-capable voice token + the room passphrase. Same livekit-client the app uses (2.17.x, vendored). Must be served over http://localhost or https (WebRTC insertable streams need a secure context).</p>
+</header>
+<main>
+  <section>
+    <label for="url">LiveKit URL (voice-token <code>url</code>)</label>
+    <input id="url" placeholder="wss://lk..." />
+    <label for="token">Subscribe token (voice-token <code>token</code>, a DIFFERENT account than the publisher)</label>
+    <input id="token" placeholder="eyJ..." />
+    <label for="pass">E2EE passphrase (<code>e2ee_passphrase</code>, same room)</label>
+    <input id="pass" placeholder="room passphrase" />
+    <button id="go">Connect &amp; watch</button>
+    <button id="stop" class="stop" hidden>Disconnect</button>
+  </section>
+  <section class="stage">
+    <video id="v" autoplay playsinline muted></video>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script type="module">
+import { Room, RoomEvent, ExternalE2EEKeyProvider, Track } from "./livekit-client.esm.mjs";
+
+const $ = (id) => document.getElementById(id);
+const logEl = $("log"), videoEl = $("v"), goBtn = $("go"), stopBtn = $("stop");
+
+function log(msg, cls = "") {
+  const line = document.createElement("span");
+  line.className = cls;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Persist inputs so re-runs don't need re-pasting.
+for (const id of ["url", "token", "pass"]) {
+  $(id).value = localStorage.getItem("ngc_" + id) || "";
+  $(id).addEventListener("input", () => localStorage.setItem("ngc_" + id, $(id).value));
+}
+
+let room = null;
+
+// One shared key provider + E2EE worker. Vendored worker loads same-origin (module worker),
+// so no CDN cross-origin block. This is the exact frame-crypto path the app uses.
+const keyProvider = new ExternalE2EEKeyProvider();
+const worker = new Worker(new URL("./livekit-client.e2ee.worker.mjs", import.meta.url), { type: "module" });
+
+async function connect() {
+  const url = $("url").value.trim(), token = $("token").value.trim(), pass = $("pass").value.trim();
+  if (!url || !token || !pass) { log("fill url, token and passphrase", "err"); return; }
+
+  goBtn.disabled = true;
+  log("deriving E2EE key (PBKDF2, salt=LKFrameEncryptionKey)…", "dim");
+  await keyProvider.setKey(pass);
+
+  room = new Room({ e2ee: { keyProvider, worker } });
+
+  room.on(RoomEvent.ParticipantConnected, (p) => log(`participant joined: ${p.identity}`, "dim"));
+  room.on(RoomEvent.TrackPublished, (pub, p) => log(`track published by ${p.identity}: ${pub.source}`, "dim"));
+  room.on(RoomEvent.TrackSubscribed, (track, pub, p) => {
+    log(`subscribed ${track.kind} from ${p.identity} (source=${pub.source})`, "ok");
+    if (track.kind === Track.Kind.Video) {
+      track.attach(videoEl);
+      log("↑ if you see the moving colour pattern above, E2EE decrypt WORKS — NGC-01 holds ✅", "ok");
+    }
+  });
+  room.on(RoomEvent.EncryptionError, (e) => log(`E2EE ERROR (key mismatch?): ${e?.message ?? e}`, "err"));
+  room.on(RoomEvent.Disconnected, (r) => { log(`disconnected: ${r ?? ""}`, "warn"); teardown(); });
+
+  try {
+    // autoSubscribe (default true) auto-subscribes the publisher's screenshare track.
+    await room.connect(url, token);
+  } catch (e) {
+    log(`connect failed: ${e?.message ?? e}`, "err");
+    goBtn.disabled = false; room = null; return;
+  }
+
+  log(`connected as "${room.localParticipant.identity}" to room "${room.name}"`, "ok");
+  const others = [...room.remoteParticipants.values()];
+  if (others.length === 0) {
+    log("no other participants yet — start mqvi-game-capture.exe now; its track will appear.", "warn");
+  } else {
+    others.forEach((p) => {
+      log(`already here: ${p.identity} (${p.trackPublications.size} track(s))`, "dim");
+      // Ensure subscription for anyone already publishing (e.g. the _ss publisher).
+      p.trackPublications.forEach((pub) => pub.setSubscribed(true));
+    });
+  }
+  stopBtn.hidden = false;
+}
+
+function teardown() {
+  goBtn.disabled = false;
+  stopBtn.hidden = true;
+  try { videoEl.srcObject = null; } catch {}
+}
+
+async function disconnect() {
+  if (room) { await room.disconnect(); room = null; }
+  teardown();
+  log("left room", "dim");
+}
+
+goBtn.addEventListener("click", connect);
+stopBtn.addEventListener("click", disconnect);
+log("ready — paste values and Connect.", "dim");
+</script>
+</body>
+</html>

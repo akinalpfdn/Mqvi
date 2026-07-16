@@ -1,0 +1,21 @@
+[package]
+name = "mqvi-game-capture"
+version = "0.1.0"
+edition = "2021"
+description = "Native WGC+NVENC game capture, published to LiveKit with E2EE (NGC spike)."
+publish = false
+
+[[bin]]
+name = "mqvi-game-capture"
+path = "src/main.rs"
+
+[dependencies]
+# native (default) feature pulls libwebrtc → gives us the FrameCryptor E2EE that is
+# format-compatible with our JS clients' ExternalE2EEKeyProvider. rustls avoids an
+# OpenSSL dependency on Windows MSVC.
+livekit = { version = "0.7", features = ["rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["full", "parking_lot"] }
+clap = { version = "4", features = ["derive", "env"] }
+anyhow = "1"
+env_logger = "0.11"
+log = "0.4"
