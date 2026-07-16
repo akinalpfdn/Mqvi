@@ -49,6 +49,10 @@
         {
           "from": "native/audio-capture.exe",
           "to": "native/audio-capture.exe"
+        },
+        {
+          "from": "native/mqvi-game-capture.exe",
+          "to": "native/mqvi-game-capture.exe"
         }
       ]
     },

@@ -126,6 +126,9 @@ let captureProcess: ChildProcess | null = null;
  */
 let captureGeneration = 0;
 
+// Native game capture helper (WGC + hardware encode → LiveKit, published as {userId}_ss).
+let gameCaptureProcess: ChildProcess | null = null;
+
 /**
  * Pre-launch update check result.
  * true = check completed (renderer should not re-check).
@@ -971,6 +974,80 @@ function setupIPC(): void {
     }
   });
 
+  // ─── Native Game Capture ───
+  // Spawns mqvi-game-capture.exe (WGC capture + hardware encode). It joins the LiveKit room as
+  // the "{userId}_ss" screen-share identity using the screen-token, so other clients subscribe
+  // to it exactly like any screen share. Connection + capture params come from the renderer.
+  ipcMain.handle(
+    "start-game-capture",
+    (
+      _e,
+      opts: { url: string; token: string; e2eePassphrase: string; window?: string }
+    ): { started: boolean; error?: string } => {
+      if (process.platform !== "win32") return { started: false, error: "windows only" };
+
+      if (gameCaptureProcess) {
+        gameCaptureProcess.kill();
+        gameCaptureProcess = null;
+      }
+
+      const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+      const exePath = isDev
+        ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
+        : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
+
+      // A specific window (the game) or the whole primary monitor.
+      const args = opts.window ? ["--window", opts.window] : ["--source", "wgc"];
+      console.log(`[main] Starting game capture: ${exePath} ${args.join(" ")}`);
+
+      try {
+        gameCaptureProcess = spawn(exePath, args, {
+          env: {
+            ...process.env,
+            LK_URL: opts.url,
+            LK_TOKEN: opts.token,
+            LK_E2EE_KEY: opts.e2eePassphrase,
+            RUST_LOG: "mqvi_game_capture=info",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch (err) {
+        gameCaptureProcess = null;
+        return { started: false, error: err instanceof Error ? err.message : String(err) };
+      }
+
+      const forward = (d: Buffer) => {
+        const msg = d.toString().trim();
+        console.log(`[game-capture] ${msg}`);
+        mainWindow?.webContents.send("game-capture-log", msg);
+      };
+      gameCaptureProcess.stdout?.on("data", forward);
+      gameCaptureProcess.stderr?.on("data", forward);
+
+      gameCaptureProcess.on("exit", (code) => {
+        console.log(`[main] Game capture exited code=${code}`);
+        gameCaptureProcess = null;
+        mainWindow?.webContents.send("game-capture-stopped", code);
+      });
+      gameCaptureProcess.on("error", (err) => {
+        console.error("[main] Game capture spawn error:", err);
+        gameCaptureProcess = null;
+        mainWindow?.webContents.send("game-capture-log", `SPAWN ERROR: ${err.message}`);
+        mainWindow?.webContents.send("game-capture-stopped", -1);
+      });
+
+      return { started: true };
+    }
+  );
+
+  ipcMain.handle("stop-game-capture", () => {
+    if (gameCaptureProcess) {
+      console.log("[main] Stopping game capture");
+      gameCaptureProcess.kill();
+      gameCaptureProcess = null;
+    }
+  });
+
   // ─── Credential Storage (Remember Me) ───
   // Encrypted via Windows DPAPI (safeStorage), stored at %APPDATA%/mqvi/cred.enc
 
@@ -1327,6 +1404,12 @@ app.on("before-quit", (e) => {
   pttTargetMouseButton = null;
   muteShortcut = null;
   deafenShortcut = null;
+
+  // Kill the native game-capture helper so it doesn't keep streaming after quit.
+  if (gameCaptureProcess) {
+    gameCaptureProcess.kill();
+    gameCaptureProcess = null;
+  }
 
   if (!captureProcess || cleanupDone) {
     // Nothing to wait for — let quit proceed

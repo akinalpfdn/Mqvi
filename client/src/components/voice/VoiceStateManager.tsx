@@ -182,11 +182,15 @@ function VoiceStateManager() {
     }
 
     toggleScreenShare().catch((err: unknown) => {
-      if (!cancelled) {
+      if (cancelled) return;
+      // "Akıcı Görüntü" hands the share to the native helper and deliberately cancels
+      // getDisplayMedia — that rejection is expected, not a failure.
+      if (!useVoiceStore.getState().isNativeCapturing) {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
-        if (isStreaming) {
-          useVoiceStore.getState().setStreaming(false);
-        }
+      }
+      // Either way the JS engine isn't streaming. Presence stays up via isNativeCapturing.
+      if (isStreaming) {
+        useVoiceStore.getState().setStreaming(false);
       }
     });
 
@@ -196,13 +200,17 @@ function VoiceStateManager() {
   // Mirror local streaming state to the server on every change, whatever the
   // trigger (button, OS "stop sharing", window/game close, track drop). Other
   // clients only learn we stopped through this — the button alone wasn't enough.
-  const streamingSentRef = useRef(isStreaming);
+  // One sharing concept, two engines: getDisplayMedia ("Net Görüntü") or the native helper
+  // ("Akıcı Görüntü") — presence follows either being live.
+  const isNativeCapturing = useVoiceStore((s) => s.isNativeCapturing);
+  const isSharing = isStreaming || isNativeCapturing;
+  const streamingSentRef = useRef(isSharing);
   useEffect(() => {
     if (!initialSyncDone.current) return;
-    if (streamingSentRef.current === isStreaming) return;
-    streamingSentRef.current = isStreaming;
-    useVoiceStore.getState()._wsSend?.("voice_state_update_request", { is_streaming: isStreaming });
-  }, [isStreaming]);
+    if (streamingSentRef.current === isSharing) return;
+    streamingSentRef.current = isSharing;
+    useVoiceStore.getState()._wsSend?.("voice_state_update_request", { is_streaming: isSharing });
+  }, [isSharing]);
 
   // Capacitor: listen for native screen share stopped (user stops externally)
   useEffect(() => {

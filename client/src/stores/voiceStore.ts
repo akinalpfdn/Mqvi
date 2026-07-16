@@ -97,6 +97,8 @@ type VoiceCoreState = {
   isMuted: boolean;
   isDeafened: boolean;
   isStreaming: boolean;
+  /** "Akıcı Görüntü" engine is live: the native capture helper is publishing {userId}_ss */
+  isNativeCapturing: boolean;
   /** Server-enforced mute — admin silenced this user's mic */
   isServerMuted: boolean;
   /** Server-enforced deafen — admin silenced all audio for this user */
@@ -134,6 +136,13 @@ type VoiceCoreActions = {
   toggleMute: () => void;
   toggleDeafen: () => void;
   setStreaming: (isStreaming: boolean) => void;
+  /**
+   * "Akıcı Görüntü" engine (Electron/Windows): hand the share to the native WGC + hardware-encode
+   * helper instead of getDisplayMedia. Returns false if it couldn't start, so the caller can fall
+   * back to "Net Görüntü".
+   */
+  startNativeSmoothCapture: (sourceName?: string) => Promise<boolean>;
+  stopNativeSmoothCapture: () => void;
   setRtt: (rtt: number) => void;
   setActiveSpeakers: (speakerIds: string[]) => void;
   registerOnLeave: (fn: (() => void) | null) => void;
@@ -163,6 +172,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   isMuted: initialMuteState.isMuted,
   isDeafened: initialMuteState.isDeafened,
   isStreaming: false,
+  isNativeCapturing: false,
   isServerMuted: false,
   isServerDeafened: false,
   livekitUrl: null,
@@ -317,6 +327,11 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       }
     }
 
+    // Stop the "Akıcı Görüntü" helper if it's running (it outlives the JS otherwise).
+    if (get().isNativeCapturing) {
+      void window.electronAPI?.stopGameCapture();
+    }
+
     set({
       voiceStates: newVoiceStates,
       currentVoiceChannelId: null,
@@ -326,6 +341,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       e2eePassphrase: null,
       // isMuted/isDeafened intentionally NOT reset — they persist across sessions
       isStreaming: false,
+      isNativeCapturing: false,
       isServerMuted: false,
       isServerDeafened: false,
       activeSpeakers: {},
@@ -384,6 +400,40 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
 
   setStreaming: (isStreaming: boolean) => {
     set({ isStreaming });
+  },
+
+  startNativeSmoothCapture: async (sourceName?: string) => {
+    const serverId = useServerStore.getState().activeServerId;
+    const channelId = get().currentVoiceChannelId;
+    if (!serverId || !channelId || !window.electronAPI) return false;
+
+    // Screen-token = the {userId}_ss identity + the room's E2EE passphrase; the native helper
+    // publishes with these, so it decrypts on every client exactly like any screen share.
+    const resp = await voiceApi.getScreenShareToken(serverId, channelId);
+    if (!resp.success || !resp.data?.e2ee_passphrase) {
+      console.error("[voice] smooth capture: screen-token failed", resp.error);
+      return false;
+    }
+    const { url, token, e2ee_passphrase } = resp.data;
+    const res = await window.electronAPI.startGameCapture({
+      url,
+      token,
+      e2eePassphrase: e2ee_passphrase,
+      window: sourceName,
+    });
+    if (!res.started) {
+      console.error("[voice] smooth capture failed to start:", res.error);
+      return false;
+    }
+    // Presence is derived from (isStreaming || isNativeCapturing) in VoiceStateManager — one
+    // sharing concept, two engines — so nothing to broadcast here.
+    set({ isNativeCapturing: true });
+    return true;
+  },
+
+  stopNativeSmoothCapture: () => {
+    void window.electronAPI?.stopGameCapture();
+    set({ isNativeCapturing: false });
   },
 
   setRtt: (rtt) => set({ rtt }),

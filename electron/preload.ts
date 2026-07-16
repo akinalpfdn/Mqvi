@@ -63,6 +63,35 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** Stop system audio capture */
   stopSystemCapture: (): Promise<void> => ipcRenderer.invoke("stop-system-capture"),
 
+  // ─── Native Game Capture (WGC + hardware encode → LiveKit as {userId}_ss) ───
+
+  /** Start native game capture. `window` = a window title substring; omit for the whole monitor. */
+  startGameCapture: (opts: {
+    url: string;
+    token: string;
+    e2eePassphrase: string;
+    window?: string;
+  }): Promise<{ started: boolean; error?: string }> =>
+    ipcRenderer.invoke("start-game-capture", opts),
+
+  /** Stop native game capture */
+  stopGameCapture: (): Promise<void> => ipcRenderer.invoke("stop-game-capture"),
+
+  /** Log lines (stdout/stderr) from the game-capture helper */
+  onGameCaptureLog: (cb: (line: string) => void): void => {
+    ipcRenderer.on("game-capture-log", (_e, line: string) => cb(line));
+  },
+
+  /** The game-capture helper exited (exit code; -1 = spawn error) */
+  onGameCaptureStopped: (cb: (code: number) => void): void => {
+    ipcRenderer.on("game-capture-stopped", (_e, code: number) => cb(code));
+  },
+
+  removeGameCaptureListeners: (): void => {
+    ipcRenderer.removeAllListeners("game-capture-log");
+    ipcRenderer.removeAllListeners("game-capture-stopped");
+  },
+
   /**
    * Remove all capture-related IPC listeners.
    * MUST be called before registering new listeners in start() and during stop().

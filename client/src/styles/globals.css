@@ -3151,6 +3151,15 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .sp-audio-toggle { display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none; }
 .sp-audio-label { display:flex;align-items:center;gap:8px;font-size:14px;color:var(--t1); }
 
+/* Video mode — "Akıcı Görüntü" (native engine) vs "Net Görüntü" (getDisplayMedia) */
+.sp-mode { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px; }
+.sp-mode-opts { display:flex;gap:6px; }
+.sp-mode-opt { display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:6px 10px;border-radius:6px;border:1px solid var(--b1);background:var(--bg-5);cursor:pointer;transition:background .15s,border-color .15s; }
+.sp-mode-opt:hover { background:var(--bg-4); }
+.sp-mode-opt-active { border-color:var(--primary);background:var(--bg-4); }
+.sp-mode-name { font-size:14px;color:var(--t1);font-weight:500; }
+.sp-mode-hint { font-size:13px;color:var(--t3); }
+
 /* Mini switch — footer toggle */
 .sp-switch { width:36px;height:20px;border-radius:10px;background:var(--bg-5);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0; }
 .sp-switch-on { background:var(--primary); }

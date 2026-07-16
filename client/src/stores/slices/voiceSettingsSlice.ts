@@ -12,6 +12,13 @@ import type { VoiceStore } from "../voiceStore";
 
 export type InputMode = "voice_activity" | "push_to_talk";
 export type ScreenShareQuality = "720p" | "1080p";
+/**
+ * Which engine renders a screen share:
+ * - "smooth" (Akıcı Görüntü) — native WGC + hardware encode helper; for games, films, video.
+ * - "sharp"  (Net Görüntü)  — getDisplayMedia; for text, code, presentations.
+ * One share flow, two engines — chosen in the screen-share modal.
+ */
+export type ScreenShareMode = "smooth" | "sharp";
 
 /**
  * Configurable shortcut. `code` is a KeyboardEvent.code (e.g. "KeyV") OR a
@@ -73,6 +80,7 @@ export type VoiceSettings = {
   screenShareVolumes: Record<string, number>;
   screenShareAudio: boolean;
   screenShareQuality: ScreenShareQuality;
+  screenShareMode: ScreenShareMode;
   muteShortcut: ShortcutBinding;
   deafenShortcut: ShortcutBinding;
 };
@@ -96,6 +104,9 @@ export const DEFAULT_SETTINGS: VoiceSettings = {
   screenShareVolumes: {},
   screenShareAudio: false,
   screenShareQuality: "720p",
+  // Default to the native engine: the common share here is a game/video, and it falls back to
+  // "sharp" on its own wherever the helper can't run (non-Electron, non-Windows, spawn failure).
+  screenShareMode: "smooth",
   muteShortcut: DEFAULT_MUTE_SHORTCUT,
   deafenShortcut: DEFAULT_DEAFEN_SHORTCUT,
 };
@@ -140,6 +151,7 @@ function currentSettings(s: VoiceSettings): VoiceSettings {
     screenShareVolumes: s.screenShareVolumes,
     screenShareAudio: s.screenShareAudio,
     screenShareQuality: s.screenShareQuality,
+    screenShareMode: s.screenShareMode,
     muteShortcut: s.muteShortcut,
     deafenShortcut: s.deafenShortcut,
   };
@@ -163,6 +175,7 @@ export type VoiceSettingsSlice = VoiceSettings & {
   setAppSoundVolume: (value: number) => void;
   setScreenShareAudio: (enabled: boolean) => void;
   setScreenShareQuality: (quality: ScreenShareQuality) => void;
+  setScreenShareMode: (mode: ScreenShareMode) => void;
   setNoiseReduction: (enabled: boolean) => void;
   setMuteShortcut: (binding: ShortcutBinding) => void;
   setDeafenShortcut: (binding: ShortcutBinding) => void;
@@ -195,6 +208,7 @@ export const createVoiceSettingsSlice: StateCreator<
     screenShareVolumes: initial.screenShareVolumes,
     screenShareAudio: initial.screenShareAudio,
     screenShareQuality: initial.screenShareQuality,
+    screenShareMode: initial.screenShareMode,
     muteShortcut: initial.muteShortcut,
     deafenShortcut: initial.deafenShortcut,
     preMuteVolumes: {},
@@ -266,6 +280,11 @@ export const createVoiceSettingsSlice: StateCreator<
 
     setScreenShareQuality: (quality) => {
       set({ screenShareQuality: quality });
+      saveSettings(currentSettings(get()));
+    },
+
+    setScreenShareMode: (mode) => {
+      set({ screenShareMode: mode });
       saveSettings(currentSettings(get()));
     },
 
@@ -344,6 +363,7 @@ export const createVoiceSettingsSlice: StateCreator<
         appSoundVolume: merged.appSoundVolume,
         screenShareAudio: merged.screenShareAudio,
         screenShareQuality: merged.screenShareQuality,
+        screenShareMode: merged.screenShareMode,
         localMutedUsers: merged.localMutedUsers,
         noiseReduction: merged.noiseReduction,
         screenShareVolumes: merged.screenShareVolumes,

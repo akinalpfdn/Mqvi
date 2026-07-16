@@ -39,6 +39,11 @@ function UserBar({
   const isMuted = useVoiceStore((s) => s.isMuted);
   const isDeafened = useVoiceStore((s) => s.isDeafened);
   const isStreaming = useVoiceStore((s) => s.isStreaming);
+  // "Akıcı Görüntü" runs the native helper instead of getDisplayMedia — one sharing concept,
+  // two engines, so the button reflects either.
+  const isNativeCapturing = useVoiceStore((s) => s.isNativeCapturing);
+  const stopNativeSmoothCapture = useVoiceStore((s) => s.stopNativeSmoothCapture);
+  const isSharing = isStreaming || isNativeCapturing;
   const openSettings = useSettingsStore((s) => s.openSettings);
 
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
@@ -181,9 +186,9 @@ function UserBar({
           <div className="ub-voice-btns">
             <div className="ub-ctrl-group">
               <button
-                className={`ub-ctrl${isStreaming ? " active" : ""}`}
-                onClick={onToggleScreenShare}
-                title={isStreaming ? t("stopScreenShare") : t("screenShare")}
+                className={`ub-ctrl${isSharing ? " active" : ""}`}
+                onClick={() => (isNativeCapturing ? stopNativeSmoothCapture() : onToggleScreenShare())}
+                title={isSharing ? t("stopScreenShare") : t("screenShare")}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M3 4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6v2H7a1 1 0 1 0 0 2h10a1 1 0 1 0 0-2h-2v-2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3zm9 4a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H9a1 1 0 1 1 0-2h2V9a1 1 0 0 1 1-1z" />

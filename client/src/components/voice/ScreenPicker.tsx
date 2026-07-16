@@ -4,6 +4,11 @@
  * Flow: main process sends "show-screen-picker" IPC with desktopCapturer sources ->
  * user picks a source -> "screen-picker-result" IPC sends source ID back ->
  * cancel sends null -> main callback({}) cancels the stream.
+ *
+ * One share flow, two engines — picked here alongside audio:
+ * - "Akıcı Görüntü" (smooth): the native WGC + hardware-encode helper. Selecting a source cancels
+ *   getDisplayMedia and hands the share to the helper (falls back to sharp if it can't start).
+ * - "Net Görüntü" (sharp): getDisplayMedia, as before.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -22,6 +27,9 @@ function ScreenPicker() {
   const [activeTab, setActiveTab] = useState<"screens" | "windows">("screens");
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const setScreenShareAudio = useVoiceStore((s) => s.setScreenShareAudio);
+  const screenShareMode = useVoiceStore((s) => s.screenShareMode);
+  const setScreenShareMode = useVoiceStore((s) => s.setScreenShareMode);
+  const startNativeSmoothCapture = useVoiceStore((s) => s.startNativeSmoothCapture);
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -32,10 +40,20 @@ function ScreenPicker() {
     });
   }, []);
 
-  const handleSelect = useCallback((sourceId: string) => {
-    window.electronAPI?.sendScreenPickerResult(sourceId);
-    setSources(null);
-  }, []);
+  const handleSelect = useCallback(
+    async (source: PickerSource) => {
+      if (screenShareMode === "smooth") {
+        // The helper captures and hardware-encodes this source itself, so getDisplayMedia is
+        // cancelled. If it can't start, fall through to the normal (sharp) path.
+        const started = await startNativeSmoothCapture(source.name);
+        window.electronAPI?.sendScreenPickerResult(started ? null : source.id);
+      } else {
+        window.electronAPI?.sendScreenPickerResult(source.id);
+      }
+      setSources(null);
+    },
+    [screenShareMode, startNativeSmoothCapture]
+  );
 
   const handleCancel = useCallback(() => {
     window.electronAPI?.sendScreenPickerResult(null);
@@ -110,7 +128,7 @@ function ScreenPicker() {
               <button
                 key={source.id}
                 className="sp-source"
-                onClick={() => handleSelect(source.id)}
+                onClick={() => void handleSelect(source)}
                 title={source.name}
               >
                 <div className="sp-thumbnail-wrap">
@@ -128,6 +146,25 @@ function ScreenPicker() {
         </div>
 
         <div className="sp-footer">
+          <div className="sp-mode">
+            <span className="sp-audio-label">{t("screenModeLabel")}</span>
+            <div className="sp-mode-opts">
+              <button
+                className={`sp-mode-opt${screenShareMode === "smooth" ? " sp-mode-opt-active" : ""}`}
+                onClick={() => setScreenShareMode("smooth")}
+              >
+                <span className="sp-mode-name">{t("screenModeSmooth")}</span>
+                <span className="sp-mode-hint">{t("screenModeSmoothHint")}</span>
+              </button>
+              <button
+                className={`sp-mode-opt${screenShareMode === "sharp" ? " sp-mode-opt-active" : ""}`}
+                onClick={() => setScreenShareMode("sharp")}
+              >
+                <span className="sp-mode-name">{t("screenModeSharp")}</span>
+                <span className="sp-mode-hint">{t("screenModeSharpHint")}</span>
+              </button>
+            </div>
+          </div>
           <label className="sp-audio-toggle">
             <span className="sp-audio-label">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
