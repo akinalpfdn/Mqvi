@@ -11,7 +11,7 @@ use mqvi_game_capture::{capture::ScreenCapture, mf_encoder::HwEncoder, nv12};
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let cap = ScreenCapture::primary_monitor()?;
+    let mut cap = ScreenCapture::primary_monitor()?;
     let (w, h) = (cap.width() & !1, cap.height() & !1);
     println!("capturing {w}x{h}");
 

@@ -44,6 +44,8 @@ function ScreenPicker() {
     api.onShowScreenPicker((incoming) => {
       setSources(incoming);
     });
+
+    return () => api.removeScreenPickerListener();
   }, []);
 
   const handleSelect = useCallback(

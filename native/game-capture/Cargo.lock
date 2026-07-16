@@ -1427,6 +1427,7 @@ dependencies = [
  "env_logger",
  "livekit",
  "log",
+ "serde_json",
  "tokio",
  "windows",
 ]

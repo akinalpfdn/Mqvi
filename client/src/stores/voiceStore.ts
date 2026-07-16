@@ -412,6 +412,9 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     const serverId = useServerStore.getState().activeServerId;
     const channelId = get().currentVoiceChannelId;
     if (!serverId || !channelId || !window.electronAPI) return false;
+    // Before the token round-trip, not after: the helper is Windows-only, so anywhere else this
+    // would mint a screen-share token and hand the room passphrase to a path that only rejects it.
+    if (window.electronAPI.platform !== "win32") return false;
 
     // Screen-token = the {userId}_ss identity + the room's E2EE passphrase; the native helper
     // publishes with these, so it decrypts on every client exactly like any screen share.

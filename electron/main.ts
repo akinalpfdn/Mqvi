@@ -1095,21 +1095,26 @@ function setupIPC(): void {
 
       let child: ChildProcess;
       try {
-        child = spawn(exePath, target, {
-          env: {
-            ...process.env,
-            LK_URL: opts.url,
-            LK_TOKEN: opts.token,
-            LK_E2EE_KEY: opts.e2eePassphrase,
-            RUST_LOG: "mqvi_game_capture=info",
-          },
-          // stdin stays open purely as the shutdown channel — see endGameCapture.
+        child = spawn(exePath, [...target, "--config-stdin"], {
+          env: { ...process.env, RUST_LOG: "mqvi_game_capture=info" },
+          // stdin carries the connection secrets, then stays open as the shutdown channel.
           stdio: ["pipe", "pipe", "pipe"],
         });
       } catch (err) {
         return { started: false, error: err instanceof Error ? err.message : String(err) };
       }
       gameCaptureProcess = child;
+
+      // Not the environment: on Windows any process running as this user can read another's
+      // environment block without elevation, and the passphrase decrypts the whole room's audio
+      // and video. A pipe is only readable by the two ends.
+      child.stdin?.write(
+        JSON.stringify({
+          url: opts.url,
+          token: opts.token,
+          e2eePassphrase: opts.e2eePassphrase,
+        }) + "\n"
+      );
 
       // Spawning proves a process exists, not that anything is on the wire — the helper still has
       // to find the source, connect and publish. Report started only once it says so, so a failure
@@ -1157,7 +1162,14 @@ function setupIPC(): void {
         });
 
         timer = setTimeout(() => {
-          // It may already be capturing (and drawing the border) even though it never published.
+          // Same bookkeeping as every other path that ends a helper: drop the handle and retire
+          // the generation, so this one's exit isn't reported to the renderer as a live helper
+          // dying. It may already be capturing (and drawing the border) even though it never
+          // published, so it still gets asked to stop rather than terminated.
+          if (thisGen === gameCaptureGeneration) {
+            gameCaptureProcess = null;
+            gameCaptureGeneration++;
+          }
           void endGameCapture(child);
           settle({ started: false, error: "helper did not start publishing in time" });
         }, GAME_CAPTURE_READY_TIMEOUT_MS);

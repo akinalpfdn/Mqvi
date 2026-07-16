@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::e2ee::{E2eeOptions, EncryptionType};
@@ -34,23 +34,38 @@ use livekit::{Room, RoomEvent, RoomOptions};
 use mqvi_game_capture::capture::ScreenCapture;
 use mqvi_game_capture::mf_encoder::HwEncoder;
 use mqvi_game_capture::nv12;
+use tokio::sync::oneshot;
+
+/// Consecutive encode failures that mean the encoder is gone for good, not glitching (1s at 30fps).
+const MAX_CONSECUTIVE_ENCODE_ERRORS: u32 = 30;
+/// Seconds of "accepting frames, producing nothing" that mean the same. Encoder death has three
+/// shapes — erroring, silent, and hung — and this is the silent one. (Hung is bounded inside
+/// HwEncoder::encode, which turns it into an error and lands on the counter above.)
+const MAX_SILENT_REPORTS: u32 = 3;
 
 /// NGC-01 spike: publish a synthetic E2EE video track to a LiveKit room.
 #[derive(Parser, Debug)]
 #[command(name = "mqvi-game-capture", version, about)]
 struct Args {
+    /// Read the connection secrets as a JSON line on stdin — `{"url","token","e2eePassphrase"}` —
+    /// instead of from the flags/env below. This is how the app runs us: on Windows any process
+    /// under the same user can read another's environment block without elevation, and the
+    /// passphrase decrypts the entire room. The flags stay for local runs.
+    #[arg(long)]
+    config_stdin: bool,
+
     /// LiveKit server URL (from the screen-token response `url`).
-    #[arg(long, env = "LK_URL")]
-    url: String,
+    #[arg(long, env = "LK_URL", required_unless_present = "config_stdin")]
+    url: Option<String>,
 
     /// LiveKit access token for the "{userId}_ss" identity (screen-token `token`).
-    #[arg(long, env = "LK_TOKEN")]
-    token: String,
+    #[arg(long, env = "LK_TOKEN", required_unless_present = "config_stdin")]
+    token: Option<String>,
 
     /// Room E2EE passphrase (screen-token `e2eePassphrase`). Must equal what the
     /// app clients passed to ExternalE2EEKeyProvider.setKey for this room.
-    #[arg(long, env = "LK_E2EE_KEY")]
-    e2ee_key: String,
+    #[arg(long, env = "LK_E2EE_KEY", required_unless_present = "config_stdin")]
+    e2ee_key: Option<String>,
 
     /// Frame width (kept even for I420 chroma subsampling).
     #[arg(long, default_value_t = 1280)]
@@ -120,6 +135,45 @@ async fn parent_asked_to_stop() {
             Ok(0) | Err(_) => return, // EOF or a broken pipe: the app is done with us
             Ok(_) => {}               // ignore anything actually typed at a dev console
         }
+    }
+}
+
+/// What we need to join the room. Either read as a JSON line on stdin (how the app runs us — see
+/// Args::config_stdin) or taken from the flags/env.
+struct Connection {
+    url: String,
+    token: String,
+    e2ee_key: String,
+}
+
+impl Connection {
+    fn resolve(args: &Args) -> Result<Self> {
+        if !args.config_stdin {
+            return Ok(Self {
+                url: args.url.clone().context("--url is required")?,
+                token: args.token.clone().context("--token is required")?,
+                e2ee_key: args.e2ee_key.clone().context("--e2ee-key is required")?,
+            });
+        }
+
+        // One line, read before the stop watcher starts consuming stdin for EOF.
+        let mut line = String::new();
+        std::io::stdin()
+            .read_line(&mut line)
+            .context("reading the config line from stdin")?;
+        let v: serde_json::Value =
+            serde_json::from_str(line.trim()).context("parsing the config line from stdin")?;
+        let field = |k: &str| -> Result<String> {
+            v.get(k)
+                .and_then(|s| s.as_str())
+                .map(str::to_owned)
+                .with_context(|| format!("config line has no '{k}'"))
+        };
+        Ok(Self {
+            url: field("url")?,
+            token: field("token")?,
+            e2ee_key: field("e2eePassphrase")?,
+        })
     }
 }
 
@@ -209,6 +263,8 @@ async fn run() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
+    // Read before anything slow: the app writes this line right after spawning us.
+    let conn = Connection::resolve(&args)?;
     let mut width = args.width & !1; // force even
     let mut height = args.height & !1;
     let fps = args.fps.max(1);
@@ -248,21 +304,28 @@ async fn run() -> Result<()> {
     // E2EE: shared-key provider seeded with the room passphrase. Defaults give
     // salt="LKFrameEncryptionKey" + PBKDF2, matching the JS ExternalE2EEKeyProvider.
     let key_provider =
-        KeyProvider::with_shared_key(KeyProviderOptions::default(), args.e2ee_key.into_bytes());
+        KeyProvider::with_shared_key(KeyProviderOptions::default(), conn.e2ee_key.into_bytes());
 
     let mut room_options = RoomOptions::default();
     room_options.encryption = Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
     // We only publish; no need to subscribe to anyone in this spike.
     room_options.auto_subscribe = false;
 
-    log::info!("connecting to {}", args.url);
+    // One stop future for the whole process. Building it inside a select! arm instead would park a
+    // fresh blocking stdin read on every loop iteration — tokio can't cancel those, so each room
+    // event would strand a thread (measured: ~1 per event, up to the 512 blocking-pool cap, each
+    // reserving this runtime's 16 MB stack).
+    let stop_signal = stop_requested();
+    tokio::pin!(stop_signal);
+
+    log::info!("connecting to {}", conn.url);
     // Racing the connect matters: it retries for a long time on a bad network, and we're already
     // capturing — bailing out here drops `capture`, which closes the session and its border.
     let (room, mut events) = tokio::select! {
-        connected = Room::connect(&args.url, &args.token, room_options) => {
+        connected = Room::connect(&conn.url, &conn.token, room_options) => {
             connected.context("LiveKit connect failed (check url/token/network)")?
         }
-        _ = stop_requested() => {
+        _ = &mut stop_signal => {
             log::info!("asked to stop while connecting — shutting down");
             return Ok(());
         }
@@ -323,11 +386,19 @@ async fn run() -> Result<()> {
 
     // MF encoding does blocking COM calls → dedicated OS thread. Raw path → tokio task.
     let stop = Arc::new(AtomicBool::new(false));
+    // `ready` fires on the first frame the encoder actually delivers; `died` on a fatal encode
+    // failure. The hardware encoder is created inside the pump and can fail outright (no MFT on
+    // this machine) or die later (a GPU driver reset — routine for our workload, a fullscreen
+    // game), and neither shows up as a process exit.
+    let (ready_tx, ready_rx) = oneshot::channel::<String>();
+    let (died_tx, mut died_rx) = oneshot::channel::<String>();
+    let cfg = VideoConfig { width, height, fps, hevc };
     let mf_thread = if use_mf {
         let (src, stop) = (rtc_source.clone(), stop.clone());
         Some(std::thread::spawn(move || {
-            if let Err(e) = encoded_pump(src, width, height, fps, hevc, capture, stop) {
+            if let Err(e) = encoded_pump(src, cfg, capture, stop, ready_tx) {
                 log::error!("encode thread failed: {e:#}");
+                let _ = died_tx.send(format!("{e:#}"));
             }
         }))
     } else {
@@ -335,24 +406,50 @@ async fn run() -> Result<()> {
     };
     let raw_pump = (!use_mf).then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
 
-    // The track is live from here. The app waits for this exact line before it commits to the
-    // native engine — spawning us only proves a process started, not that anything is published.
-    println!("MQVI-READY");
-
-    loop {
+    // "Published" is not "streaming": the track exists, but nothing is on it until the encoder
+    // delivers. Announcing readiness before that is how a machine with no hardware encoder ends up
+    // with the app committed to a stream that stays black forever.
+    let mut startup_error = None;
+    let mut streaming = !use_mf;
+    if use_mf {
         tokio::select! {
-            _ = stop_requested() => {
-                log::info!("shutting down");
-                break;
-            }
-            event = events.recv() => {
-                match event {
-                    Some(RoomEvent::Disconnected { reason }) => {
-                        log::warn!("room disconnected: {reason:?}");
-                        break;
+            first = ready_rx => match first {
+                Ok(encoder) => {
+                    log::info!("encoding with {encoder}");
+                    streaming = true;
+                }
+                // Sender dropped: the pump bailed before delivering anything.
+                Err(_) => startup_error = Some(anyhow!("the hardware encoder produced no frames")),
+            },
+            _ = &mut stop_signal => log::info!("asked to stop before the first frame"),
+        }
+    }
+
+    if streaming {
+        // The app waits for exactly this line before it commits to the native engine.
+        println!("MQVI-READY");
+
+        loop {
+            tokio::select! {
+                _ = &mut stop_signal => {
+                    log::info!("shutting down");
+                    break;
+                }
+                reason = &mut died_rx => {
+                    // Exiting is the only way the app learns: it watches for our process to end.
+                    log::error!("encoder stopped: {reason:?}");
+                    startup_error = Some(anyhow!("encoder stopped mid-stream"));
+                    break;
+                }
+                event = events.recv() => {
+                    match event {
+                        Some(RoomEvent::Disconnected { reason }) => {
+                            log::warn!("room disconnected: {reason:?}");
+                            break;
+                        }
+                        Some(ev) => log::debug!("room event: {ev:?}"),
+                        None => break, // room handle dropped / channel closed
                     }
-                    Some(ev) => log::debug!("room event: {ev:?}"),
-                    None => break, // room handle dropped / channel closed
                 }
             }
         }
@@ -362,24 +459,36 @@ async fn run() -> Result<()> {
     if let Some(p) = raw_pump {
         p.abort();
     }
+    // Joining matters: the pump owns `capture`, so this is where the WGC session gets closed.
     if let Some(t) = mf_thread {
         let _ = t.join();
     }
     room.close().await.ok();
-    Ok(())
+    match startup_error {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// What the pump encodes: frame geometry and codec, settled before it starts.
+#[derive(Clone, Copy)]
+struct VideoConfig {
+    width: u32,
+    height: u32,
+    fps: u32,
+    hevc: bool,
 }
 
 /// MF hardware-encode pump (dedicated OS thread): NV12 (synthetic or WGC-captured screen) →
 /// hardware H264/H265 → livekit PreEncoded. Blocking encode() lives off the tokio runtime.
 fn encoded_pump(
     source: NativeVideoSource,
-    width: u32,
-    height: u32,
-    fps: u32,
-    hevc: bool,
-    capture: Option<ScreenCapture>,
+    cfg: VideoConfig,
+    mut capture: Option<ScreenCapture>,
     stop: Arc<AtomicBool>,
+    ready: oneshot::Sender<String>,
 ) -> Result<()> {
+    let VideoConfig { width, height, fps, hevc } = cfg;
     // Start conservative — WebRTC's rate-control feedback ramps it up to what the link allows.
     // (Starting high floods the pipe before the first estimate arrives → initial corruption.)
     let bitrate = if capture.is_some() { 2_500_000 } else { 6_000_000 };
@@ -407,6 +516,13 @@ fn encoded_pump(
     // the hardware encoder ~30x/s (with an oscillating estimate) makes it emit undecodable frames.
     let mut pending_bitrate = 0u32;
     let mut applied_bitrate = bitrate;
+    // Announced once, on the first frame the encoder really delivers.
+    let mut ready = Some(ready);
+    // A transient encode error must not kill the stream, but a dead MFT (driver reset) fails every
+    // frame forever — without a limit the app sees a live helper and viewers a frozen picture.
+    let mut consecutive_errors = 0u32;
+    // The other half of that: an encoder can stop delivering without ever returning an error.
+    let mut silent_reports = 0u32;
 
     while !stop.load(Ordering::Relaxed) {
         // Absolute schedule: frame idx is due at t0 + idx*frame_us. Sleeping to an absolute target
@@ -429,28 +545,42 @@ fn encoded_pump(
             pending_bitrate = (rc.target_bitrate_bps as u32).clamp(800_000, 20_000_000);
         }
 
-        // Frame source: real screen (reuse last on no-change) or the synthetic pattern.
-        match &capture {
+        // Frame source: real screen (reuse last on no-change) or the synthetic pattern. Both
+        // convert into `cur`, which is kept across frames — see nv12::bgra_to_nv12_into.
+        match &mut capture {
             Some(cap) => {
                 if let Some(f) = cap.next_frame() {
-                    cur = nv12::bgra_to_nv12(&f.data, w, h, f.stride);
+                    nv12::bgra_to_nv12_into(f.data, w, h, f.stride, &mut cur);
                     have_frame = true;
                 }
                 if !have_frame {
-                    continue; // nothing captured yet
+                    // Nothing captured yet. Advance the schedule anyway, or `due` stays in the past
+                    // and the sleep above never fires — polling WGC flat out on a whole core, in
+                    // the process whose entire job is not to take the game's CPU. Reachable for a
+                    // real stretch: a window that isn't drawing (minimised, occluded) delivers no
+                    // frame at all until the app gives up on us.
+                    idx += 1;
+                    continue;
                 }
             }
-            None => cur = nv12::test_pattern(w, h, idx),
+            None => nv12::test_pattern_into(w, h, idx, &mut cur),
         }
-        // Non-fatal: a transient encode error must not kill the thread (that froze the stream).
         let packets = match enc.encode(&cur, idx as i64 * frame_us, frame_us, force_key) {
-            Ok(p) => p,
+            Ok(p) => {
+                consecutive_errors = 0;
+                p
+            }
             Err(e) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_CONSECUTIVE_ENCODE_ERRORS {
+                    bail!("hardware encoder failed {consecutive_errors} frames in a row: {e:#}");
+                }
                 log::warn!("encode error (continuing): {e:#}");
                 Vec::new()
             }
         };
         fed += 1;
+        let delivered = !packets.is_empty();
         for p in packets {
             sent += 1;
             bytes += p.data.len();
@@ -463,6 +593,11 @@ fn encoded_pump(
                 frame_metadata: None,
             };
             source.capture_encoded_frame(&ev);
+        }
+        if delivered {
+            if let Some(tx) = ready.take() {
+                let _ = tx.send(enc.name().to_string());
+            }
         }
         idx += 1;
 
@@ -480,6 +615,20 @@ fn encoded_pump(
                 sent as f64 / secs,
                 (bytes as f64 * 8.0 / 1000.0) / secs
             );
+            // An encoder can also fail without ever erroring: keep accepting frames and simply
+            // stop producing. `fed` climbs, `sent` sits at 0, viewers hold the last picture and
+            // nobody is told — so the same silence the report prints is what we act on. Only after
+            // the encoder has proven itself once, or a slow first frame would trip it.
+            if ready.is_none() {
+                if sent == 0 {
+                    silent_reports += 1;
+                    if silent_reports >= MAX_SILENT_REPORTS {
+                        bail!("encoder accepted {fed} frames but produced nothing for {silent_reports}s");
+                    }
+                } else {
+                    silent_reports = 0;
+                }
+            }
             fed = 0;
             sent = 0;
             bytes = 0;

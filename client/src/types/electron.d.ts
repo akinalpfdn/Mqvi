@@ -48,6 +48,8 @@ interface ElectronAPI {
   getDesktopSources: () => Promise<ElectronDesktopSource[]>;
   /** Main process requests screen picker — delivers sources */
   onShowScreenPicker: (cb: (sources: ElectronDesktopSource[]) => void) => void;
+  /** Drop the screen-picker listener, so remounts don't stack duplicates */
+  removeScreenPickerListener: () => void;
   /** Send user's selection back to main process (null = cancelled) */
   sendScreenPickerResult: (sourceId: string | null) => void;
 
@@ -61,6 +63,9 @@ interface ElectronAPI {
   onCaptureAudioData: (cb: (data: Uint8Array) => void) => void;
   onCaptureAudioStopped: (cb: () => void) => void;
   onCaptureAudioError: (cb: (msg: string) => void) => void;
+
+  /** Host platform ("win32" | "darwin" | "linux"), for gating Windows-only paths. */
+  platform: string;
 
   // ─── Native Game Capture (WGC + hardware encode → LiveKit as {userId}_ss) ───
   /** Start native game capture of the picked desktopCapturer source. Resolves once the helper is

@@ -2,12 +2,13 @@
 //!
 //! Single-threaded polling model: `next_frame()` pulls the latest WGC frame, copies its GPU
 //! texture into a CPU-readable staging texture, and returns the BGRA bytes. All COM lives on the
-//! caller's thread, so there's no Send/Sync dance. (M3 replaces the CPU readback with a zero-copy
-//! GPU BGRA→NV12 path; this is the correct-but-copying stepping stone.)
+//! caller's thread, so there's no Send/Sync dance. The readback is a CPU copy into a reused
+//! buffer: it holds 30fps on a real game, and a zero-copy GPU BGRA→NV12 path stays open as a
+//! future optimisation rather than a prerequisite.
 //!
 //! WGC is change-driven: `next_frame()` returns None when nothing has changed since the last frame.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use windows::core::{factory, Interface};
 use windows::Graphics::Capture::{
     Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind,
@@ -15,7 +16,7 @@ use windows::Graphics::Capture::{
 };
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
-use windows::Win32::Foundation::{BOOL, HMODULE, HWND, LPARAM, POINT, RECT};
+use windows::Win32::Foundation::{BOOL, HMODULE, HWND, LPARAM, POINT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
@@ -25,8 +26,7 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
 use windows::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, HDC, HMONITOR, MONITORINFO,
-    MONITOR_DEFAULTTOPRIMARY,
+    MonitorFromPoint, MONITOR_DEFAULTTONULL, MONITOR_DEFAULTTOPRIMARY,
 };
 use windows::Win32::System::WinRT::Direct3D11::{
     CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
@@ -37,9 +37,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindow, IsWindowVisible,
 };
 
-/// One captured frame: tightly-addressable BGRA with a possibly-padded row `stride`.
-pub struct BgraFrame {
-    pub data: Vec<u8>,
+/// One captured frame: BGRA with a possibly-padded row `stride`. Borrowed from the capture's own
+/// buffer, which the next `next_frame()` overwrites — copy it if you need it to outlive that.
+pub struct BgraFrame<'a> {
+    pub data: &'a [u8],
     pub width: u32,
     pub height: u32,
     pub stride: usize,
@@ -54,6 +55,8 @@ pub struct ScreenCapture {
     staging: ID3D11Texture2D,
     width: u32,
     height: u32,
+    /// Readback buffer, reused every frame — a fresh one costs ~8 MB of churn per 1080p frame.
+    buf: Vec<u8>,
 }
 
 impl ScreenCapture {
@@ -68,14 +71,19 @@ impl ScreenCapture {
         }
     }
 
-    /// Capture the monitor with these physical bounds — the one the user picked, which is not
-    /// necessarily the primary. Bounds identify a monitor exactly: they are its rectangle on the
-    /// virtual desktop, so no two monitors share them.
+    /// Capture the monitor covering these physical bounds — the one the user picked, which is not
+    /// necessarily the primary.
+    ///
+    /// Matched by the rect's centre, not by exact equality: these bounds reach us through a
+    /// DIP→physical conversion, so at fractional scaling (125%, 150%) they can land a pixel off,
+    /// and an exact match would fail — silently dropping the user back to the other engine.
     pub fn monitor_by_rect(x: i32, y: i32, width: i32, height: i32) -> Result<Self> {
         unsafe {
-            let hmon = find_monitor_by_rect(x, y, width, height).with_context(|| {
-                format!("no monitor with bounds {x},{y} {width}x{height}")
-            })?;
+            let centre = POINT { x: x + width / 2, y: y + height / 2 };
+            let hmon = MonitorFromPoint(centre, MONITOR_DEFAULTTONULL);
+            if hmon.is_invalid() {
+                bail!("no monitor covers {x},{y} {width}x{height}");
+            }
             let (device, context, d3d) = device_and_context()?;
             let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
             let item: GraphicsCaptureItem = interop.CreateForMonitor(hmon)?;
@@ -168,6 +176,7 @@ impl ScreenCapture {
             staging,
             width,
             height,
+            buf: Vec::new(),
         })
     }
 
@@ -179,7 +188,7 @@ impl ScreenCapture {
     }
 
     /// Polls the next captured frame; None if nothing new (WGC is change-driven).
-    pub fn next_frame(&self) -> Option<BgraFrame> {
+    pub fn next_frame(&mut self) -> Option<BgraFrame<'_>> {
         unsafe {
             let frame = self.pool.TryGetNextFrame().ok()?;
             let src: ID3D11Texture2D = frame
@@ -198,12 +207,16 @@ impl ScreenCapture {
                 .ok()?;
             let stride = mapped.RowPitch as usize;
             let h = self.height as usize;
-            let mut data = vec![0u8; stride * h];
-            std::ptr::copy_nonoverlapping(mapped.pData as *const u8, data.as_mut_ptr(), stride * h);
+            let need = stride * h;
+            if self.buf.len() != need {
+                self.buf.clear();
+                self.buf.resize(need, 0);
+            }
+            std::ptr::copy_nonoverlapping(mapped.pData as *const u8, self.buf.as_mut_ptr(), need);
             self.context.Unmap(&self.staging, 0);
 
             let _ = frame.Close();
-            Some(BgraFrame { data, width: self.width, height: self.height, stride })
+            Some(BgraFrame { data: &self.buf, width: self.width, height: self.height, stride })
         }
     }
 }
@@ -273,48 +286,3 @@ fn find_window_by_title(needle: &str) -> Option<HWND> {
     ctx.found
 }
 
-struct MonitorCtx {
-    want: RECT,
-    found: Option<HMONITOR>,
-}
-
-unsafe extern "system" fn monitor_proc(
-    hmon: HMONITOR,
-    _hdc: HDC,
-    _clip: *mut RECT,
-    lparam: LPARAM,
-) -> BOOL {
-    let ctx = &mut *(lparam.0 as *mut MonitorCtx);
-    let mut info = MONITORINFO {
-        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-    if GetMonitorInfoW(hmon, &mut info).as_bool() {
-        let r = info.rcMonitor;
-        if r.left == ctx.want.left
-            && r.top == ctx.want.top
-            && r.right == ctx.want.right
-            && r.bottom == ctx.want.bottom
-        {
-            ctx.found = Some(hmon);
-            return BOOL(0); // stop enumeration
-        }
-    }
-    BOOL(1) // continue
-}
-
-fn find_monitor_by_rect(x: i32, y: i32, width: i32, height: i32) -> Option<HMONITOR> {
-    let mut ctx = MonitorCtx {
-        want: RECT { left: x, top: y, right: x + width, bottom: y + height },
-        found: None,
-    };
-    unsafe {
-        let _ = EnumDisplayMonitors(
-            HDC::default(),
-            None,
-            Some(monitor_proc),
-            LPARAM(&mut ctx as *mut _ as isize),
-        );
-    }
-    ctx.found
-}

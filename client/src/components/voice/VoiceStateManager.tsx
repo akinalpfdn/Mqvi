@@ -87,6 +87,8 @@ function VoiceStateManager() {
   systemAudioCaptureRef.current = systemAudioCapture;
 
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
+  /** Which run of the screen-share audio effect owns the capture process — see that effect. */
+  const audioRunRef = useRef(0);
 
   // Sync isStreaming -> LiveKit screen share video.
   // Capacitor (iOS/Android): native plugin via separate LiveKit connection.
@@ -186,12 +188,17 @@ function VoiceStateManager() {
 
     let cancelled = false;
     const shouldCapture = isSharing && screenShareAudio && pickedShareSourceId !== null;
+    // There is one capture process behind the hook, so only its current owner may stop it. A run
+    // that gets cancelled mid-start finishes after the next run has already started a new capture
+    // — stopping then would kill the live one and leave the share silent with nothing retrying.
+    const myRun = ++audioRunRef.current;
+    const isCurrentOwner = () => audioRunRef.current === myRun;
 
     async function startAudio() {
       const track = await systemAudioCaptureRef.current.start(pickedShareSourceId);
       if (!track) return;
       if (cancelled) {
-        systemAudioCaptureRef.current.stop();
+        if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
         return;
       }
       const lkTrack = new LKLocalAudioTrack(track, undefined, false);
@@ -202,7 +209,7 @@ function VoiceStateManager() {
         // Stopped mid-publish: stopAudio() saw no publication yet, so this one would
         // outlive the share as a dead track nobody unpublishes.
         await localParticipant.unpublishTrack(lkTrack);
-        systemAudioCaptureRef.current.stop();
+        if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
         return;
       }
       customAudioPubRef.current = pub;
@@ -211,20 +218,32 @@ function VoiceStateManager() {
     async function stopAudio() {
       const pub = customAudioPubRef.current;
       customAudioPubRef.current = null;
-      systemAudioCaptureRef.current.stop();
+      if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
       if (pub?.track) await localParticipant.unpublishTrack(pub.track);
     }
 
-    (shouldCapture ? startAudio() : stopAudio()).catch((err: unknown) => {
-      console.error("[VoiceStateManager] Screen share audio failed:", err);
-    });
+    if (shouldCapture) {
+      startAudio().catch((err: unknown) => {
+        console.error("[VoiceStateManager] Screen share audio failed:", err);
+      });
+    }
 
     // No share, no source: a leftover id would scope the next share's audio to the old window.
     if (!isSharing && pickedShareSourceId !== null) {
       useVoiceStore.getState().setPickedShareSourceId(null);
     }
 
-    return () => { cancelled = true; };
+    // Stopping belongs here rather than in an else-branch above: leaving voice clears isSharing and
+    // unmounts us in the same commit, so the effect never runs again — only this does. Without it
+    // the capture process outlives the share and keeps recording the machine's audio.
+    return () => {
+      cancelled = true;
+      if (shouldCapture) {
+        stopAudio().catch((err: unknown) => {
+          console.error("[VoiceStateManager] Stopping screen share audio failed:", err);
+        });
+      }
+    };
   }, [isSharing, screenShareAudio, pickedShareSourceId, localParticipant]);
 
   // The helper can die on its own (crash, the game exits, the captured window closes). Nothing

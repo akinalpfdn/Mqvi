@@ -48,6 +48,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("show-screen-picker", (_e, sources) => cb(sources));
   },
 
+  /** Drop the screen-picker listener, so remounts don't stack duplicates */
+  removeScreenPickerListener: (): void => {
+    ipcRenderer.removeAllListeners("show-screen-picker");
+  },
+
   /** Send user's selection to main process (null = cancelled) */
   sendScreenPickerResult: (sourceId: string | null): void => {
     ipcRenderer.send("screen-picker-result", sourceId);
@@ -64,6 +69,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Stop system audio capture */
   stopSystemCapture: (): Promise<void> => ipcRenderer.invoke("stop-system-capture"),
+
+  /** Host platform, so the renderer can gate Windows-only paths without a round trip. */
+  platform: process.platform,
 
   // ─── Native Game Capture (WGC + hardware encode → LiveKit as {userId}_ss) ───
 

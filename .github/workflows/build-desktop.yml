@@ -110,22 +110,15 @@ jobs:
         shell: cmd
 
       # ─── Windows: native mqvi-game-capture.exe ("Akıcı Görüntü" engine) ───
-      # extraResources copies it from native/, and the binary is git-ignored (31 MB), so a release
-      # needs it produced here. Building it costs ~20 min (the livekit crate fetches a prebuilt
-      # libwebrtc), but the helper changes far less often than we release — so cache the finished
-      # exe, keyed by its sources. A source change mints a new key, so a stale helper can't ship.
-      # Only the 31 MB output is cached: its build tree is ~8 GB and would blow the repo's cache
-      # budget, evicting everything else.
-      - name: Restore game-capture helper
-        if: matrix.platform == 'windows-latest'
-        id: game-capture-cache
-        uses: actions/cache@v4
-        with:
-          path: native/mqvi-game-capture.exe
-          key: game-capture-${{ runner.os }}-${{ hashFiles('native/game-capture/src/**', 'native/game-capture/Cargo.toml', 'native/game-capture/Cargo.lock', 'native/game-capture/.cargo/config.toml') }}
-
+      # extraResources copies it from native/ and the binary is git-ignored (31 MB), so a release
+      # has to produce it here. It takes ~20 min (the livekit crate fetches a prebuilt libwebrtc);
+      # that is release-time cost only and never reaches users, so we just build it every time.
+      # Caching it was tried and removed: this workflow only runs on tags, and Actions scopes a
+      # cache to the ref that wrote it — a tag can read its own scope or the default branch's,
+      # never another tag's, so it could never hit. Always building also means the binary can't
+      # go stale against its sources.
       - name: Build mqvi-game-capture.exe
-        if: matrix.platform == 'windows-latest' && steps.game-capture-cache.outputs.cache-hit != 'true'
+        if: matrix.platform == 'windows-latest'
         run: |
           cargo build --release --bin mqvi-game-capture
           copy /Y target\release\mqvi-game-capture.exe ..\mqvi-game-capture.exe

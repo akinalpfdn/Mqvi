@@ -1,44 +1,29 @@
 //! I420 (planar YUV 4:2:0) → NV12 (Y plane + interleaved UV) — the hardware encoder's input.
 
-/// Converts I420 planes to a packed NV12 buffer. `width`/`height` should be even.
-pub fn i420_to_nv12(
-    y: &[u8],
-    u: &[u8],
-    v: &[u8],
-    width: usize,
-    height: usize,
-    stride_y: usize,
-    stride_u: usize,
-    stride_v: usize,
-) -> Vec<u8> {
-    let cw = width / 2;
-    let ch = height / 2;
-    let mut out = vec![0u8; width * height + width * ch];
-
-    for row in 0..height {
-        let src = &y[row * stride_y..row * stride_y + width];
-        out[row * width..row * width + width].copy_from_slice(src);
-    }
-
-    let uv_off = width * height;
-    for row in 0..ch {
-        let us = &u[row * stride_u..row * stride_u + cw];
-        let vs = &v[row * stride_v..row * stride_v + cw];
-        let dst = &mut out[uv_off + row * width..uv_off + row * width + width];
-        for c in 0..cw {
-            dst[2 * c] = us[c];
-            dst[2 * c + 1] = vs[c];
-        }
-    }
-    out
+/// Size of the NV12 buffer for a `width`x`height` frame.
+fn nv12_len(width: usize, height: usize) -> usize {
+    width * height + width * (height / 2)
 }
 
-/// Converts a BGRA frame (row `stride`, may be padded) to NV12 via BT.601 limited-range. CPU path
-/// for NGC-03 M2 correctness; the shipping path does this on the GPU.
-pub fn bgra_to_nv12(bgra: &[u8], width: usize, height: usize, stride: usize) -> Vec<u8> {
+/// Converts a BGRA frame (row `stride`, may be padded) to NV12 via BT.601 limited-range, reusing
+/// `out`. This is the shipping path: it runs on the CPU for every frame, so the caller keeps one
+/// buffer across frames rather than allocating ~3 MB per frame in the process that must not steal
+/// from the game. (Doing the conversion on the GPU would drop the readback entirely — an
+/// optimisation, not a correctness fix.)
+pub fn bgra_to_nv12_into(
+    bgra: &[u8],
+    width: usize,
+    height: usize,
+    stride: usize,
+    out: &mut Vec<u8>,
+) {
     let cw = width / 2;
     let ch = height / 2;
-    let mut out = vec![0u8; width * height + width * ch];
+    let need = nv12_len(width, height);
+    if out.len() != need {
+        out.clear();
+        out.resize(need, 0);
+    }
     let uv_off = width * height;
 
     for y in 0..height {
@@ -61,15 +46,26 @@ pub fn bgra_to_nv12(bgra: &[u8], width: usize, height: usize, stride: usize) -> 
             out[uv_off + cy * width + cx * 2 + 1] = v.clamp(0.0, 255.0) as u8;
         }
     }
+}
+
+/// Allocating form of [`bgra_to_nv12_into`], for one-shot callers (probes, tests).
+pub fn bgra_to_nv12(bgra: &[u8], width: usize, height: usize, stride: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    bgra_to_nv12_into(bgra, width, height, stride, &mut out);
     out
 }
 
-/// Animated NV12 test pattern: horizontal luma gradient, three chroma colour columns, and a
-/// white band scrolling down. Same look as the NGC-01 I420 pattern so the viewer test is familiar.
-pub fn test_pattern(width: usize, height: usize, frame: u64) -> Vec<u8> {
+/// Animated NV12 test pattern into a reused `buf`: horizontal luma gradient, three chroma colour
+/// columns, and a white band scrolling down. Same look as the NGC-01 I420 pattern so the viewer
+/// test is familiar.
+pub fn test_pattern_into(width: usize, height: usize, frame: u64, buf: &mut Vec<u8>) {
     let cw = width / 2;
     let ch = height / 2;
-    let mut buf = vec![0u8; width * height + width * ch];
+    let need = nv12_len(width, height);
+    if buf.len() != need {
+        buf.clear();
+        buf.resize(need, 0);
+    }
 
     let band = (frame as usize * 4) % height;
     let band_h = (height / 10).max(1);
@@ -95,5 +91,11 @@ pub fn test_pattern(width: usize, height: usize, frame: u64) -> Vec<u8> {
             buf[uv + cy * width + 2 * cx + 1] = v;
         }
     }
+}
+
+/// Allocating form of [`test_pattern_into`], for one-shot callers (probes, tests).
+pub fn test_pattern(width: usize, height: usize, frame: u64) -> Vec<u8> {
+    let mut buf = Vec::new();
+    test_pattern_into(width, height, frame, &mut buf);
     buf
 }
