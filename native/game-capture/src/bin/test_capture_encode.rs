@@ -26,9 +26,9 @@ fn main() -> Result<()> {
 
     // WGC is change-driven: capture whatever arrives over ~6s (move a window to generate frames).
     while start.elapsed() < Duration::from_secs(6) && captured < 90 {
-        match cap.next_frame() {
+        match cap.next_frame()? {
             Some(f) => {
-                let nv12 = nv12::bgra_to_nv12(&f.data, w as usize, h as usize, f.stride);
+                let nv12 = nv12::bgra_to_nv12(f.data, w as usize, h as usize, f.stride);
                 for p in enc.encode(&nv12, captured as i64 * frame_us, frame_us, captured == 0)? {
                     packets += 1;
                     stream.extend_from_slice(&p.data);

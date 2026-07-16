@@ -246,9 +246,10 @@ function VoiceStateManager() {
     };
   }, [isSharing, screenShareAudio, pickedShareSourceId, localParticipant]);
 
-  // The helper can die on its own (crash, the game exits, the captured window closes). Nothing
-  // else notices: isNativeCapturing would stay true, so the button would claim we're sharing and
-  // presence would keep telling everyone so, with nothing on the wire.
+  // The helper ends on its own when it crashes, or when the source it was capturing goes away (the
+  // game exits, the window closes, a display is unplugged). Nothing else notices: isNativeCapturing
+  // would stay true, so the button would claim we're sharing and presence would keep telling
+  // everyone so, with nothing on the wire.
   useEffect(() => {
     if (!isElectron() || !window.electronAPI) return;
 

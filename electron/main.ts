@@ -646,6 +646,22 @@ function setupPermissions(): void {
   // to exclude our own voice chat audio from capture.
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
+      // Chromium allows exactly one answer, and it reports an empty one — our way of cancelling,
+      // which "Akıcı Görüntü" does on every share — by throwing back at us. That throw *is* the
+      // rejection the renderer is waiting for. Treating it as a failure and answering again (which
+      // is what the catch below used to do) earns a "callback was called more than once" and an
+      // unhandled rejection on a share that is working fine.
+      let answered = false;
+      const answer = (streams: Electron.Streams) => {
+        if (answered) return;
+        answered = true;
+        try {
+          callback(streams);
+        } catch (err) {
+          if (streams.video) console.error("[main] Screen picker callback failed:", err);
+        }
+      };
+
       try {
         const sources = await desktopCapturer.getSources({
           types: ["screen", "window"],
@@ -653,7 +669,7 @@ function setupPermissions(): void {
         });
 
         if (sources.length === 0) {
-          callback({});
+          answer({});
           return;
         }
 
@@ -681,17 +697,17 @@ function setupPermissions(): void {
             // Video only — no "loopback" audio.
             // Share audio comes from audio-capture.exe, scoped to this source and
             // started/stopped by the renderer via IPC.
-            callback({ video: selected });
+            answer({ video: selected });
           } else {
-            callback({});
+            answer({});
           }
         } else {
-          // User cancelled
-          callback({});
+          // User cancelled, or "Akıcı Görüntü" took the share
+          answer({});
         }
       } catch (err) {
-        console.error("[main] Screen picker error:", err);
-        callback({});
+        console.error("[main] Screen picker failed:", err);
+        answer({});
       }
     }
   );
@@ -1066,7 +1082,13 @@ function setupIPC(): void {
     "start-game-capture",
     async (
       _e,
-      opts: { url: string; token: string; e2eePassphrase: string; sourceId?: string }
+      opts: {
+        url: string;
+        token: string;
+        e2eePassphrase: string;
+        sourceId?: string;
+        maxHeight?: number;
+      }
     ): Promise<{ started: boolean; error?: string }> => {
       if (process.platform !== "win32") return { started: false, error: "windows only" };
 
@@ -1091,11 +1113,16 @@ function setupIPC(): void {
         ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
         : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
 
-      console.log(`[main] Starting game capture: ${exePath} ${target.join(" ")}`);
+      // The quality setting is a ceiling on the stream, not on the capture — the helper grabs the
+      // source at its own size and scales down, so a 1440p monitor honours a 720p setting.
+      const quality = opts.maxHeight ? ["--max-height", String(opts.maxHeight)] : [];
+      const args = [...target, ...quality, "--config-stdin"];
+
+      console.log(`[main] Starting game capture: ${exePath} ${args.join(" ")}`);
 
       let child: ChildProcess;
       try {
-        child = spawn(exePath, [...target, "--config-stdin"], {
+        child = spawn(exePath, args, {
           env: { ...process.env, RUST_LOG: "mqvi_game_capture=info" },
           // stdin carries the connection secrets, then stays open as the shutdown channel.
           stdio: ["pipe", "pipe", "pipe"],

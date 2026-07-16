@@ -22,7 +22,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::e2ee::{E2eeOptions, EncryptionType};
-use livekit::options::{TrackPublishOptions, VideoCodec};
+use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
 use livekit::webrtc::rtp_sender::VideoEncoderBackend;
 use livekit::webrtc::video_frame::{
@@ -107,6 +107,11 @@ struct Args {
     /// passes for a screen share — the picked monitor, which need not be the primary one.
     #[arg(long)]
     monitor_rect: Option<String>,
+
+    /// Largest height the stream may use, from the app's screen-share quality setting. The source's
+    /// own size wins when it's smaller — we never upscale. Omit to stream at the source's size.
+    #[arg(long)]
+    max_height: Option<u32>,
 }
 
 /// Resolves when we are asked to stop, from wherever the request comes.
@@ -301,6 +306,25 @@ async fn run() -> Result<()> {
         None
     };
 
+    // Sizing is settled here, with the capture and before anything network: the stream's size is a
+    // function of the source and the app's quality cap, and nothing later gets to disagree.
+    // The cap bounds the stream, not the capture — we grab the source at its own size and scale
+    // down, so a 1440p monitor honours a 720p setting instead of ignoring it.
+    let max = match args.max_height {
+        Some(h) => ((h as u64 * 16 / 9) as u32, h),
+        None => (u32::MAX, u32::MAX),
+    };
+    if capture.is_some() {
+        let canvas = canvas_for(width, height, max);
+        if canvas != (width, height) {
+            log::info!(
+                "source {width}x{height} → streaming {}x{} (cap {}p)",
+                canvas.0, canvas.1, max.1
+            );
+            (width, height) = canvas;
+        }
+    }
+
     // E2EE: shared-key provider seeded with the room passphrase. Defaults give
     // salt="LKFrameEncryptionKey" + PBKDF2, matching the JS ExternalE2EEKeyProvider.
     let key_provider =
@@ -368,6 +392,17 @@ async fn run() -> Result<()> {
     let mut publish_opts = TrackPublishOptions::default();
     publish_opts.source = TrackSource::Screenshare;
     publish_opts.video_codec = codec.to_lk();
+    // Our encoder hands livekit one finished stream — it cannot produce simulcast layers. Left on
+    // (the SDK's default), the SDK declares a half-size 3fps layer beside it and the rate allocator
+    // budgets our single stream as that layer: a flat 150 kbps, whatever the link can really do.
+    // A 1080p game at 150 kbps is the mush this looked like from NGC-01 onwards.
+    publish_opts.simulcast = false;
+    // And say what the stream is worth, rather than letting the SDK guess from a track that hasn't
+    // encoded a frame yet. WebRTC still pulls it down to what the link takes; this is the ceiling.
+    publish_opts.video_encoding = Some(VideoEncoding {
+        max_bitrate: target_bitrate(width, height, fps),
+        max_framerate: fps as f64,
+    });
     // We hand livekit already-encoded frames on the MF path → PreEncoded pass-through (no re-encode).
     publish_opts.video_encoder = if use_mf {
         VideoEncoderBackend::PreEncoded
@@ -392,7 +427,7 @@ async fn run() -> Result<()> {
     // game), and neither shows up as a process exit.
     let (ready_tx, ready_rx) = oneshot::channel::<String>();
     let (died_tx, mut died_rx) = oneshot::channel::<String>();
-    let cfg = VideoConfig { width, height, fps, hevc };
+    let cfg = VideoConfig { width, height, fps, hevc, max };
     let mf_thread = if use_mf {
         let (src, stop) = (rtc_source.clone(), stop.clone());
         Some(std::thread::spawn(move || {
@@ -477,6 +512,37 @@ struct VideoConfig {
     height: u32,
     fps: u32,
     hevc: bool,
+    /// Ceiling from the app's quality setting. The canvas never exceeds it, and never upscales
+    /// past the source either — a 800x600 window at a 1080p cap streams 800x600, not a blur.
+    max: (u32, u32),
+}
+
+/// The stream size for a source of `src_w`x`src_h`: its own size, shrunk to fit the cap if it
+/// doesn't already, aspect kept, even (NV12 chroma pairs).
+fn canvas_for(src_w: u32, src_h: u32, max: (u32, u32)) -> (u32, u32) {
+    let (src_w, src_h) = (src_w.max(2), src_h.max(2));
+    if src_w <= max.0 && src_h <= max.1 {
+        return (src_w & !1, src_h & !1);
+    }
+    let by_width = max.1 as u64 * src_w as u64 >= max.0 as u64 * src_h as u64;
+    let (w, h) = if by_width {
+        (max.0, (max.0 as u64 * src_h as u64 / src_w as u64) as u32)
+    } else {
+        ((max.1 as u64 * src_w as u64 / src_h as u64) as u32, max.1)
+    };
+    (w.max(2) & !1, h.max(2) & !1)
+}
+
+/// How long the source must hold a size before the stream follows it. Without this, dragging a
+/// window's edge would rebuild the encoder on every mouse move.
+const RESIZE_SETTLE: Duration = Duration::from_millis(500);
+
+/// The ceiling we reserve for the stream: roughly 0.1 bits per pixel per frame — 1080p30 ≈ 6 Mbps,
+/// 720p30 ≈ 2.8 — which is the range Discord and Twitch use for a 1080p game. WebRTC still pulls
+/// the real rate down to whatever the link takes; this only stops it being decided for us.
+fn target_bitrate(width: u32, height: u32, fps: u32) -> u64 {
+    let by_pixels = width as u64 * height as u64 * fps as u64 / 10;
+    by_pixels.clamp(1_500_000, 12_000_000)
 }
 
 /// MF hardware-encode pump (dedicated OS thread): NV12 (synthetic or WGC-captured screen) →
@@ -488,17 +554,20 @@ fn encoded_pump(
     stop: Arc<AtomicBool>,
     ready: oneshot::Sender<String>,
 ) -> Result<()> {
-    let VideoConfig { width, height, fps, hevc } = cfg;
-    // Start conservative — WebRTC's rate-control feedback ramps it up to what the link allows.
-    // (Starting high floods the pipe before the first estimate arrives → initial corruption.)
-    let bitrate = if capture.is_some() { 2_500_000 } else { 6_000_000 };
+    let VideoConfig { mut width, mut height, fps, hevc, max } = cfg;
+    // Start at a third of what we reserved, and let WebRTC's feedback ramp it to what the link
+    // really allows — starting at the ceiling floods the pipe before the first estimate arrives,
+    // which shows up as corruption in the opening seconds.
+    let bitrate = (target_bitrate(width, height, fps) / 3) as u32;
     HwEncoder::startup()?;
     let mut enc = HwEncoder::new(width, height, fps, bitrate, hevc)?;
     log::info!("hardware encoder: {}", enc.name());
 
     let codec = if hevc { EncodedVideoCodec::H265 } else { EncodedVideoCodec::H264 };
     let frame_us = 1_000_000i64 / fps as i64;
-    let (w, h) = (width as usize, height as usize);
+    // The size the source wants next, and since when — the stream only follows once it settles.
+    let mut wanted: Option<((u32, u32), std::time::Instant)> = None;
+    let mut rebuild_idr = false;
     let mut idx: u64 = 0;
     let t0 = std::time::Instant::now();
     // For WGC: the latest NV12 frame, reused when no new WGC frame arrived (static screen) so the
@@ -510,12 +579,17 @@ fn encoded_pump(
     // packets handed to livekit, plus their bitrate. Tells us if the pump keeps ~fps or stalls.
     let mut fed = 0u32;
     let mut sent = 0u32;
+    // Counted, not logged per event: a subscriber that can't decode asks every second, and eight
+    // identical lines say less than one number.
+    let mut keyframes = 0u32;
     let mut bytes = 0usize;
     let mut last_report = std::time::Instant::now();
     // WebRTC bandwidth estimate: collected every tick, applied at most once a second. Reconfiguring
     // the hardware encoder ~30x/s (with an oscillating estimate) makes it emit undecodable frames.
     let mut pending_bitrate = 0u32;
     let mut applied_bitrate = bitrate;
+    // WebRTC's raw estimate, reported as-is — see where it's taken.
+    let mut last_estimate = 0u32;
     // Announced once, on the first frame the encoder really delivers.
     let mut ready = Some(ready);
     // A transient encode error must not kill the stream, but a dead MFT (driver reset) fails every
@@ -535,23 +609,69 @@ fn encoded_pump(
 
         // The SFU raises a keyframe request (PLI/FIR) when a subscriber needs an IDR — e.g. after
         // packet loss, so the decoder recovers instead of ghosting. Force one this frame.
-        let force_key = source.take_keyframe_request();
+        // A rebuilt encoder needs one too, or subscribers can't decode the new size at all.
+        let force_key = source.take_keyframe_request() || rebuild_idr;
         if force_key {
-            log::info!("keyframe requested — forcing IDR");
+            keyframes += 1;
         }
+        rebuild_idr = false;
         // Follow WebRTC's bandwidth estimate so the encoder doesn't flood the link (blocky
         // corruption). Just record it here; apply at most once/second below.
         if let Some(rc) = source.take_rate_control_request() {
-            pending_bitrate = (rc.target_bitrate_bps as u32).clamp(800_000, 20_000_000);
+            // Keep the raw estimate for the stats line: what we *apply* is clamped, so a link
+            // WebRTC thinks is worth 200 kbps and one worth 800 look identical from the outside —
+            // and the difference between them is the whole picture quality.
+            last_estimate = rc.target_bitrate_bps as u32;
+            pending_bitrate = last_estimate.clamp(800_000, 20_000_000);
         }
 
         // Frame source: real screen (reuse last on no-change) or the synthetic pattern. Both
         // convert into `cur`, which is kept across frames — see nv12::bgra_to_nv12_into.
         match &mut capture {
             Some(cap) => {
-                if let Some(f) = cap.next_frame() {
-                    nv12::bgra_to_nv12_into(f.data, w, h, f.stride, &mut cur);
+                // An error here is the source itself going away (window closed, display removed) —
+                // ending the process is what tells the app to stop the share and say so. Silence is
+                // not an error: WGC only delivers on change.
+                if let Some(f) = cap.next_frame()? {
+                    // Geometry comes from the frame, never from what the source was at startup —
+                    // it resizes under us. Scaling into the canvas keeps the stream alive and
+                    // correct through the change; the canvas itself follows below, once settled.
+                    let (fw, fh, fstride) = (f.width, f.height, f.stride);
+                    nv12::bgra_to_nv12_fit_into(
+                        f.data,
+                        fw as usize,
+                        fh as usize,
+                        fstride,
+                        width as usize,
+                        height as usize,
+                        &mut cur,
+                    );
                     have_frame = true;
+
+                    // Follow the source, but only once it holds still: dragging an edge fires a
+                    // resize per mouse move, and each rebuild costs an encoder and a keyframe.
+                    let want = canvas_for(fw, fh, max);
+                    if want == (width, height) {
+                        wanted = None;
+                    } else {
+                        let settled = match wanted {
+                            Some((w, since)) if w == want => since.elapsed() >= RESIZE_SETTLE,
+                            _ => {
+                                wanted = Some((want, std::time::Instant::now()));
+                                false
+                            }
+                        };
+                        if settled {
+                            log::info!("stream {width}x{height} → {}x{} (source settled)", want.0, want.1);
+                            enc = HwEncoder::new(want.0, want.1, fps, applied_bitrate, hevc)
+                                .context("rebuilding the encoder for the new size")?;
+                            (width, height) = want;
+                            wanted = None;
+                            // Subscribers need an IDR at the new size to decode anything at all.
+                            rebuild_idr = true;
+                            continue; // next tick captures at the new canvas
+                        }
+                    }
                 }
                 if !have_frame {
                     // Nothing captured yet. Advance the schedule anyway, or `due` stays in the past
@@ -563,7 +683,7 @@ fn encoded_pump(
                     continue;
                 }
             }
-            None => nv12::test_pattern_into(w, h, idx, &mut cur),
+            None => nv12::test_pattern_into(width as usize, height as usize, idx, &mut cur),
         }
         let packets = match enc.encode(&cur, idx as i64 * frame_us, frame_us, force_key) {
             Ok(p) => {
@@ -606,14 +726,18 @@ fn encoded_pump(
             if pending_bitrate != 0 && pending_bitrate != applied_bitrate {
                 enc.set_bitrate(pending_bitrate);
                 applied_bitrate = pending_bitrate;
-                log::info!("bitrate → {} kbps", pending_bitrate / 1000);
             }
             let secs = last_report.elapsed().as_secs_f64();
             log::info!(
-                "encode: fed {:.1} fps, sent {:.1} fps, {:.0} kbps",
+                "encode: fed {:.1} fps, sent {:.1} fps, {:.0} kbps out | {}x{}, encoder at {} kbps,                  link estimate {} kbps, {} keyframes",
                 fed as f64 / secs,
                 sent as f64 / secs,
-                (bytes as f64 * 8.0 / 1000.0) / secs
+                (bytes as f64 * 8.0 / 1000.0) / secs,
+                width,
+                height,
+                applied_bitrate / 1000,
+                last_estimate / 1000,
+                keyframes
             );
             // An encoder can also fail without ever erroring: keep accepting frames and simply
             // stop producing. `fed` climbs, `sent` sits at 0, viewers hold the last picture and
@@ -632,6 +756,7 @@ fn encoded_pump(
             fed = 0;
             sent = 0;
             bytes = 0;
+            keyframes = 0;
             last_report = std::time::Instant::now();
         }
     }
@@ -698,5 +823,59 @@ async fn frame_pump(source: NativeVideoSource, width: u32, height: u32, fps: u32
         };
         source.capture_frame(&frame);
         frame_idx += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canvas_for;
+
+    const CAP_720: (u32, u32) = (1280, 720);
+    const CAP_1080: (u32, u32) = (1920, 1080);
+
+    #[test]
+    fn should_reserve_a_bitrate_a_game_can_actually_use() {
+        use super::target_bitrate;
+        // The bug this replaces: the SDK budgeted our single stream as a 320x240 simulcast layer,
+        // a flat 150 kbps for a 1080p game. Whatever we ask for, it must not be near that.
+        assert!(target_bitrate(1920, 1080, 30) > 5_000_000, "1080p30 needs Mbps, not kbps");
+        assert!(target_bitrate(1280, 720, 30) > 2_000_000);
+        // Bounded at both ends: a tiny window still gets a usable floor, 4K a sane ceiling.
+        assert_eq!(target_bitrate(320, 240, 30), 1_500_000);
+        assert_eq!(target_bitrate(3840, 2160, 60), 12_000_000);
+    }
+
+    #[test]
+    fn should_shrink_a_source_that_exceeds_the_cap() {
+        // The live case: a 1440p monitor while the setting says 720p. This is what the app asked
+        // for and the helper used to ignore entirely.
+        assert_eq!(canvas_for(2560, 1440, CAP_720), (1280, 720));
+        assert_eq!(canvas_for(2560, 1440, CAP_1080), (1920, 1080));
+    }
+
+    #[test]
+    fn should_never_upscale_a_source_smaller_than_the_cap() {
+        assert_eq!(canvas_for(800, 600, CAP_720), (800, 600));
+        assert_eq!(canvas_for(1280, 720, CAP_1080), (1280, 720));
+    }
+
+    #[test]
+    fn should_keep_the_source_aspect_when_shrinking() {
+        // 4:3 under a 16:9 cap is limited by height, not width.
+        assert_eq!(canvas_for(1600, 1200, CAP_720), (960, 720));
+        // An ultrawide is limited by width: 1280*1440/3440 = 535.8, floored to an even 534.
+        assert_eq!(canvas_for(3440, 1440, CAP_720), (1280, 534));
+    }
+
+    #[test]
+    fn should_stay_even_for_chroma_pairing() {
+        let (w, h) = canvas_for(1001, 999, CAP_720);
+        assert_eq!((w % 2, h % 2), (0, 0));
+    }
+
+    #[test]
+    fn should_stream_the_source_size_when_there_is_no_cap() {
+        let uncapped = (u32::MAX, u32::MAX);
+        assert_eq!(canvas_for(2560, 1440, uncapped), (2560, 1440));
     }
 }

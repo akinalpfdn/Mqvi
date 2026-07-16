@@ -69,6 +69,11 @@ path = "src/bin/probe_encoders.rs"
 name = "probe-capture"
 path = "src/bin/probe_capture.rs"
 
+# Drives the capture layer without a room: the only way to exercise resize/close locally.
+[[bin]]
+name = "probe-lifecycle"
+path = "src/bin/probe_lifecycle.rs"
+
 [[bin]]
 name = "test-capture-encode"
 path = "src/bin/test_capture_encode.rs"

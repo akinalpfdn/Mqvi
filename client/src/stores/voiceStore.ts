@@ -431,6 +431,8 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       token,
       e2eePassphrase: e2ee_passphrase,
       sourceId,
+      // The same setting "Net Görüntü" already honours — a cap on the stream, not the capture.
+      maxHeight: get().screenShareQuality === "720p" ? 720 : 1080,
     });
     if (!res.started) {
       console.error("[voice] smooth capture failed to start:", res.error);

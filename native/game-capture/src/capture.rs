@@ -14,6 +14,7 @@ use windows::Graphics::Capture::{
     Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind,
     GraphicsCaptureItem, GraphicsCaptureSession,
 };
+use windows::Graphics::SizeInt32;
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::Win32::Foundation::{BOOL, HMODULE, HWND, LPARAM, POINT};
@@ -37,6 +38,31 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindow, IsWindowVisible,
 };
 
+/// What we're capturing, kept so we can ask Windows whether it still exists.
+///
+/// WGC has an event for this — `GraphicsCaptureItem.Closed` — and it does not fire for us:
+/// subscribing works, closing the window destroys it (`IsWindow` goes false), and the handler is
+/// never called. WinRT wants a DispatcherQueue to deliver it on, and this is a console process with
+/// a free-threaded pool and no dispatcher. Measured, not assumed: a probe held a closed window's
+/// capture for 30s without a peep. So we ask the OS directly, which costs one syscall a frame.
+#[derive(Clone, Copy)]
+enum Target {
+    /// The raw handle rather than an HWND: HWND is a pointer, which would make the whole capture
+    /// un-Send, and the capture is moved to the encode thread.
+    Window(isize),
+    /// The point the monitor was resolved from — it stops covering it when the display goes away.
+    Monitor(POINT),
+}
+
+impl Target {
+    unsafe fn still_exists(self) -> bool {
+        match self {
+            Target::Window(handle) => IsWindow(HWND(handle as _)).as_bool(),
+            Target::Monitor(at) => !MonitorFromPoint(at, MONITOR_DEFAULTTONULL).is_invalid(),
+        }
+    }
+}
+
 /// One captured frame: BGRA with a possibly-padded row `stride`. Borrowed from the capture's own
 /// buffer, which the next `next_frame()` overwrites — copy it if you need it to outlive that.
 pub struct BgraFrame<'a> {
@@ -47,7 +73,7 @@ pub struct BgraFrame<'a> {
 }
 
 pub struct ScreenCapture {
-    _device: ID3D11Device,
+    device: ID3D11Device,
     context: ID3D11DeviceContext,
     _item: GraphicsCaptureItem,
     pool: Direct3D11CaptureFramePool,
@@ -55,6 +81,9 @@ pub struct ScreenCapture {
     staging: ID3D11Texture2D,
     width: u32,
     height: u32,
+    /// Checked every frame: without it a dead source is indistinguishable from a still one (WGC
+    /// simply stops delivering), and the share freezes on its last frame forever.
+    target: Target,
     /// Readback buffer, reused every frame — a fresh one costs ~8 MB of churn per 1080p frame.
     buf: Vec<u8>,
 }
@@ -67,7 +96,7 @@ impl ScreenCapture {
             let hmon = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
             let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
             let item: GraphicsCaptureItem = interop.CreateForMonitor(hmon)?;
-            Self::build(item, device, context, d3d)
+            Self::build(item, Target::Monitor(POINT { x: 0, y: 0 }), device, context, d3d)
         }
     }
 
@@ -87,7 +116,7 @@ impl ScreenCapture {
             let (device, context, d3d) = device_and_context()?;
             let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
             let item: GraphicsCaptureItem = interop.CreateForMonitor(hmon)?;
-            Self::build(item, device, context, d3d)
+            Self::build(item, Target::Monitor(centre), device, context, d3d)
         }
     }
 
@@ -103,7 +132,7 @@ impl ScreenCapture {
             let (device, context, d3d) = device_and_context()?;
             let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
             let item: GraphicsCaptureItem = interop.CreateForWindow(hwnd)?;
-            Self::build(item, device, context, d3d)
+            Self::build(item, Target::Window(hwnd.0 as isize), device, context, d3d)
         }
     }
 
@@ -117,12 +146,13 @@ impl ScreenCapture {
             let (device, context, d3d) = device_and_context()?;
             let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
             let item: GraphicsCaptureItem = interop.CreateForWindow(hwnd)?;
-            Self::build(item, device, context, d3d)
+            Self::build(item, Target::Window(hwnd.0 as isize), device, context, d3d)
         }
     }
 
     unsafe fn build(
         item: GraphicsCaptureItem,
+        target: Target,
         device: ID3D11Device,
         context: ID3D11DeviceContext,
         d3d: IDirect3DDevice,
@@ -148,27 +178,12 @@ impl ScreenCapture {
             log::warn!("could not hide the capture border: {e}");
         }
 
-        // CPU-readable staging texture we copy each frame into for readback.
-        let desc = D3D11_TEXTURE2D_DESC {
-            Width: width,
-            Height: height,
-            MipLevels: 1,
-            ArraySize: 1,
-            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-            Usage: D3D11_USAGE_STAGING,
-            BindFlags: 0,
-            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-            MiscFlags: 0,
-        };
-        let mut staging: Option<ID3D11Texture2D> = None;
-        device.CreateTexture2D(&desc, None, Some(&mut staging)).context("staging texture")?;
-        let staging = staging.context("null staging texture")?;
+        let staging = staging_texture(&device, width, height)?;
 
         session.StartCapture()?;
 
         Ok(Self {
-            _device: device,
+            device,
             context,
             _item: item,
             pool,
@@ -176,6 +191,7 @@ impl ScreenCapture {
             staging,
             width,
             height,
+            target,
             buf: Vec::new(),
         })
     }
@@ -187,24 +203,46 @@ impl ScreenCapture {
         self.height
     }
 
-    /// Polls the next captured frame; None if nothing new (WGC is change-driven).
-    pub fn next_frame(&mut self) -> Option<BgraFrame<'_>> {
+    /// Polls the next captured frame.
+    ///
+    /// `Ok(None)` means nothing new (WGC is change-driven — a still screen delivers nothing), which
+    /// is why a caller can't read silence as trouble. `Err` means the source itself is gone.
+    pub fn next_frame(&mut self) -> Result<Option<BgraFrame<'_>>> {
         unsafe {
-            let frame = self.pool.TryGetNextFrame().ok()?;
-            let src: ID3D11Texture2D = frame
+            if !self.target.still_exists() {
+                bail!("the captured window or display is gone");
+            }
+            let Ok(frame) = self.pool.TryGetNextFrame() else {
+                return Ok(None);
+            };
+
+            // The source can resize under us (a window maximised, a game going borderless, a
+            // browser taken fullscreen). The pool keeps handing out textures at its creation size,
+            // so without this the content silently arrives cropped or padded with stale pixels.
+            let content = frame.ContentSize().unwrap_or_default();
+            if content.Width as u32 != self.width || content.Height as u32 != self.height {
+                let _ = frame.Close();
+                self.resize(content)?;
+                // The in-flight frames are the old size; the next one arrives at the new one.
+                return Ok(None);
+            }
+
+            let Some(src) = frame
                 .Surface()
-                .ok()?
-                .cast::<IDirect3DDxgiInterfaceAccess>()
-                .ok()?
-                .GetInterface()
-                .ok()?;
+                .ok()
+                .and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>().ok())
+                .and_then(|a| a.GetInterface::<ID3D11Texture2D>().ok())
+            else {
+                return Ok(None);
+            };
 
             self.context.CopyResource(&self.staging, &src);
 
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            self.context
-                .Map(&self.staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-                .ok()?;
+            if self.context.Map(&self.staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).is_err() {
+                let _ = frame.Close();
+                return Ok(None);
+            }
             let stride = mapped.RowPitch as usize;
             let h = self.height as usize;
             let need = stride * h;
@@ -216,8 +254,27 @@ impl ScreenCapture {
             self.context.Unmap(&self.staging, 0);
 
             let _ = frame.Close();
-            Some(BgraFrame { data: &self.buf, width: self.width, height: self.height, stride })
+            Ok(Some(BgraFrame { data: &self.buf, width: self.width, height: self.height, stride }))
         }
+    }
+
+    /// Rebuild the pool and staging texture for the source's new size.
+    ///
+    /// The WinRT device is rebuilt here rather than kept as a field: it is the one interface in
+    /// this struct that isn't agile, and the struct is moved to the encode thread. Resizes are rare
+    /// enough that recreating it costs nothing that matters.
+    unsafe fn resize(&mut self, size: SizeInt32) -> Result<()> {
+        let (width, height) = (size.Width.max(1) as u32, size.Height.max(1) as u32);
+        log::info!("source resized: {}x{} → {width}x{height}", self.width, self.height);
+
+        let d3d = winrt_device(&self.device)?;
+        self.pool
+            .Recreate(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size)
+            .context("recreating the frame pool")?;
+        self.staging = staging_texture(&self.device, width, height)?;
+        self.width = width;
+        self.height = height;
+        Ok(())
     }
 }
 
@@ -229,6 +286,25 @@ impl Drop for ScreenCapture {
         let _ = self.session.Close();
         let _ = self.pool.Close();
     }
+}
+
+/// CPU-readable texture we copy each frame into for readback. Rebuilt whenever the source resizes.
+unsafe fn staging_texture(device: &ID3D11Device, width: u32, height: u32) -> Result<ID3D11Texture2D> {
+    let desc = D3D11_TEXTURE2D_DESC {
+        Width: width,
+        Height: height,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        Usage: D3D11_USAGE_STAGING,
+        BindFlags: 0,
+        CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+        MiscFlags: 0,
+    };
+    let mut staging: Option<ID3D11Texture2D> = None;
+    device.CreateTexture2D(&desc, None, Some(&mut staging)).context("staging texture")?;
+    staging.context("null staging texture")
 }
 
 fn device_and_context() -> Result<(ID3D11Device, ID3D11DeviceContext, IDirect3DDevice)> {
@@ -250,10 +326,15 @@ fn device_and_context() -> Result<(ID3D11Device, ID3D11DeviceContext, IDirect3DD
         .context("D3D11CreateDevice")?;
         let device = device.context("null D3D11 device")?;
         let context = context.context("null D3D11 context")?;
-        let dxgi: IDXGIDevice = device.cast()?;
-        let d3d: IDirect3DDevice = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)?.cast()?;
+        let d3d = winrt_device(&device)?;
         Ok((device, context, d3d))
     }
+}
+
+/// The WinRT view of a D3D11 device, which is what WGC's pool takes.
+unsafe fn winrt_device(device: &ID3D11Device) -> Result<IDirect3DDevice> {
+    let dxgi: IDXGIDevice = device.cast()?;
+    Ok(CreateDirect3D11DeviceFromDXGIDevice(&dxgi)?.cast()?)
 }
 
 struct FindCtx {
@@ -286,3 +367,34 @@ fn find_window_by_title(needle: &str) -> Option<HWND> {
     ctx.found
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::Target;
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
+
+    // These lock the mechanism that replaced GraphicsCaptureItem.Closed, which never fired for us:
+    // a closed source has to be distinguishable from a still one, or the share freezes forever.
+
+    #[test]
+    fn should_report_a_window_that_does_not_exist_as_gone() {
+        assert!(!unsafe { Target::Window(0xDEAD_BEEF).still_exists() });
+    }
+
+    #[test]
+    fn should_report_a_live_window_as_present() {
+        let desktop = unsafe { GetDesktopWindow() };
+        assert!(unsafe { Target::Window(desktop.0 as isize).still_exists() });
+    }
+
+    #[test]
+    fn should_report_a_point_on_no_monitor_as_gone() {
+        assert!(!unsafe { Target::Monitor(POINT { x: 999_999, y: 999_999 }).still_exists() });
+    }
+
+    #[test]
+    fn should_report_the_primary_monitor_as_present() {
+        assert!(unsafe { Target::Monitor(POINT { x: 0, y: 0 }).still_exists() });
+    }
+}

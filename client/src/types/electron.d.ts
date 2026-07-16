@@ -75,6 +75,8 @@ interface ElectronAPI {
     token: string;
     e2eePassphrase: string;
     sourceId: string;
+    /** Cap on the stream's height, from the screen-share quality setting. */
+    maxHeight: number;
   }) => Promise<{ started: boolean; error?: string }>;
   stopGameCapture: () => Promise<void>;
   onGameCaptureLog: (cb: (line: string) => void) => void;

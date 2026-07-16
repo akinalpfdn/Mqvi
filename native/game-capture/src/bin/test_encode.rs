@@ -9,8 +9,18 @@ use mqvi_game_capture::{mf_encoder::HwEncoder, nv12};
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let (w, h, fps) = (1280u32, 720u32, 30u32);
+    // Width matters: an MFT reads our tightly-packed NV12 with the stride it decided on, so a
+    // width it wants to align differently comes out sheared. Pass one to compare.
+    let arg = |name: &str, default: u32| -> u32 {
+        std::env::args()
+            .position(|a| a == name)
+            .and_then(|i| std::env::args().nth(i + 1))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    };
+    let (w, h, fps) = (arg("--width", 1280), arg("--height", 720), 30u32);
     let hevc = std::env::args().any(|a| a == "--hevc");
+    println!("encoding {w}x{h} (width % 16 = {})", w % 16);
 
     HwEncoder::startup()?;
     let mut enc = HwEncoder::new(w, h, fps, 4_000_000, hevc)?;
@@ -36,7 +46,7 @@ fn main() -> Result<()> {
     }
     println!("first packet timestamps (µs, expect steps of {frame_us}): {timestamps:?}");
 
-    let out = std::env::temp_dir().join(if hevc { "mqvi_test.h265" } else { "mqvi_test.h264" });
+    let out = std::env::temp_dir().join(format!("mqvi_test_{w}x{h}.{}", if hevc { "h265" } else { "h264" }));
     std::fs::write(&out, &stream)?;
 
     println!(
