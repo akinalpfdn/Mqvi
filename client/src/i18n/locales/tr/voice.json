@@ -12,6 +12,8 @@
   "screenModeSmoothHint": "oyun, film, video",
   "screenModeSharp": "Net Görüntü",
   "screenModeSharpHint": "metin, kod, sunum",
+  "smoothCaptureStopped": "Akıcı Görüntü beklenmedik şekilde durdu. Ekran paylaşımı sona erdi.",
+  "screenPickerStarting": "Başlatılıyor…",
   "voiceConnected": "Ses Bağlı",
   "noOneInVoice": "Bu ses kanalında kimse yok",
   "screenShareLimit": "Maksimum 2 ekran paylaşımına ulaşıldı",

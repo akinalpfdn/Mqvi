@@ -3138,6 +3138,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* Source card — clickable thumbnail */
 .sp-source { display:flex;flex-direction:column;gap:8px;padding:8px;border:2px solid var(--b1);border-radius:10px;background:var(--bg-3);cursor:pointer;transition:border-color .15s,background .15s; }
 .sp-source:hover { border-color:var(--primary);background:var(--bg-4); }
+.sp-source:disabled { cursor:default; }
+.sp-source:disabled:not(.sp-source-starting) { opacity:.45; }
+.sp-source-starting { border-color:var(--primary); }
+.sp-thumbnail-wrap { position:relative; }
+.sp-starting { position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--bg-0) 65%,transparent);color:var(--t1);font-size:13px; }
 
 /* Thumbnail wrapper — fixed 16:9 aspect ratio */
 .sp-thumbnail-wrap { width:100%;aspect-ratio:16/9;border-radius:6px;overflow:hidden;background:var(--bg-0); }

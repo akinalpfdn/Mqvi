@@ -11,7 +11,7 @@
  * - "Net Görüntü" (sharp): getDisplayMedia, as before.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
 
@@ -25,11 +25,16 @@ function ScreenPicker() {
   const { t } = useTranslation("voice");
   const [sources, setSources] = useState<PickerSource[] | null>(null);
   const [activeTab, setActiveTab] = useState<"screens" | "windows">("screens");
+  /** Source id whose "Akıcı Görüntü" helper is starting up — blocks a second pick. */
+  const [startingId, setStartingId] = useState<string | null>(null);
+  /** Set when the user cancels while a helper is starting, so the pick in flight aborts. */
+  const cancelledRef = useRef(false);
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const setScreenShareAudio = useVoiceStore((s) => s.setScreenShareAudio);
   const screenShareMode = useVoiceStore((s) => s.screenShareMode);
   const setScreenShareMode = useVoiceStore((s) => s.setScreenShareMode);
   const startNativeSmoothCapture = useVoiceStore((s) => s.startNativeSmoothCapture);
+  const stopNativeSmoothCapture = useVoiceStore((s) => s.stopNativeSmoothCapture);
   const setPickedShareSourceId = useVoiceStore((s) => s.setPickedShareSourceId);
 
   useEffect(() => {
@@ -43,27 +48,59 @@ function ScreenPicker() {
 
   const handleSelect = useCallback(
     async (source: PickerSource) => {
+      if (startingId) return; // a pick is already in flight — a second one would start a 2nd share
+
       // Both engines' audio is scoped to this source — record it before either starts.
       setPickedShareSourceId(source.id);
 
-      if (screenShareMode === "smooth") {
-        // The helper captures and hardware-encodes this source itself, so getDisplayMedia is
-        // cancelled. If it can't start, fall through to the normal (sharp) path.
-        const started = await startNativeSmoothCapture(source.name);
-        window.electronAPI?.sendScreenPickerResult(started ? null : source.id);
-      } else {
+      if (screenShareMode !== "smooth") {
         window.electronAPI?.sendScreenPickerResult(source.id);
+        setSources(null);
+        return;
       }
+
+      // The helper must connect and publish before getDisplayMedia can be cancelled, so this
+      // takes a moment. Mark the pick as in flight: the modal would otherwise look frozen, and
+      // main is waiting on exactly one result — send it whatever happens, or it waits forever.
+      setStartingId(source.id);
+      cancelledRef.current = false;
+      let started = false;
+      try {
+        started = await startNativeSmoothCapture(source.id);
+      } catch (err) {
+        console.error("[ScreenPicker] smooth capture failed:", err);
+      }
+      setStartingId(null);
+
+      if (cancelledRef.current) {
+        // Backed out while it was coming up. handleCancel already answered main, and the helper
+        // may have published by now — stop it, or we'd be sharing what the user just cancelled.
+        if (started) stopNativeSmoothCapture();
+        return;
+      }
+
+      // The helper carries the video, so cancel getDisplayMedia; if it never started, fall
+      // through to sharp with this same source.
+      window.electronAPI?.sendScreenPickerResult(started ? null : source.id);
       setSources(null);
     },
-    [screenShareMode, startNativeSmoothCapture, setPickedShareSourceId]
+    [
+      startingId,
+      screenShareMode,
+      startNativeSmoothCapture,
+      stopNativeSmoothCapture,
+      setPickedShareSourceId,
+    ]
   );
 
   const handleCancel = useCallback(() => {
+    // Cancelling stays possible while a helper starts (it may take seconds, or hang) — flag it so
+    // the pick in flight aborts instead of quietly turning into a share.
+    if (startingId) cancelledRef.current = true;
     setPickedShareSourceId(null);
     window.electronAPI?.sendScreenPickerResult(null);
     setSources(null);
-  }, [setPickedShareSourceId]);
+  }, [startingId, setPickedShareSourceId]);
 
   useEffect(() => {
     if (!sources) return;
@@ -132,8 +169,9 @@ function ScreenPicker() {
             activeSources.map((source) => (
               <button
                 key={source.id}
-                className="sp-source"
+                className={`sp-source${startingId === source.id ? " sp-source-starting" : ""}`}
                 onClick={() => void handleSelect(source)}
+                disabled={startingId !== null}
                 title={source.name}
               >
                 <div className="sp-thumbnail-wrap">
@@ -143,6 +181,9 @@ function ScreenPicker() {
                     className="sp-thumbnail"
                     draggable={false}
                   />
+                  {startingId === source.id && (
+                    <span className="sp-starting">{t("screenPickerStarting")}</span>
+                  )}
                 </div>
                 <span className="sp-source-name">{source.name}</span>
               </button>

@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
 import { RoomEvent, ParticipantEvent, ConnectionState, Track, LocalAudioTrack as LKLocalAudioTrack } from "livekit-client";
 import type {
@@ -26,11 +27,13 @@ import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
 import { getScreenShareToken } from "../../api/voice";
 import { useServerStore } from "../../stores/serverStore";
+import { useToastStore } from "../../stores/toastStore";
 
 /** Both processors expose setMicSensitivity and setInputVolume */
 type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
 
 function VoiceStateManager() {
+  const { t: tVoice } = useTranslation("voice");
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const isMuted = useVoiceStore((s) => s.isMuted);
@@ -223,6 +226,21 @@ function VoiceStateManager() {
 
     return () => { cancelled = true; };
   }, [isSharing, screenShareAudio, pickedShareSourceId, localParticipant]);
+
+  // The helper can die on its own (crash, the game exits, the captured window closes). Nothing
+  // else notices: isNativeCapturing would stay true, so the button would claim we're sharing and
+  // presence would keep telling everyone so, with nothing on the wire.
+  useEffect(() => {
+    if (!isElectron() || !window.electronAPI) return;
+
+    window.electronAPI.onGameCaptureStopped(() => {
+      if (!useVoiceStore.getState().isNativeCapturing) return; // we stopped it ourselves
+      useVoiceStore.getState().stopNativeSmoothCapture();
+      useToastStore.getState().addToast("error", tVoice("smoothCaptureStopped"));
+    });
+
+    return () => window.electronAPI?.removeGameCaptureListeners();
+  }, [tVoice]);
 
   const streamingSentRef = useRef(isSharing);
   useEffect(() => {

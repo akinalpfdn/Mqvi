@@ -10,11 +10,12 @@
 use anyhow::{Context, Result};
 use windows::core::{factory, Interface};
 use windows::Graphics::Capture::{
-    Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession,
+    Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind,
+    GraphicsCaptureItem, GraphicsCaptureSession,
 };
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
-use windows::Win32::Foundation::{BOOL, HMODULE, HWND, LPARAM, POINT};
+use windows::Win32::Foundation::{BOOL, HMODULE, HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
@@ -23,14 +24,17 @@ use windows::Win32::Graphics::Direct3D11::{
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
-use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTOPRIMARY};
+use windows::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, GetMonitorInfoW, MonitorFromPoint, HDC, HMONITOR, MONITORINFO,
+    MONITOR_DEFAULTTOPRIMARY,
+};
 use windows::Win32::System::WinRT::Direct3D11::{
     CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
 };
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible,
+    EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindow, IsWindowVisible,
 };
 
 /// One captured frame: tightly-addressable BGRA with a possibly-padded row `stride`.
@@ -46,7 +50,7 @@ pub struct ScreenCapture {
     context: ID3D11DeviceContext,
     _item: GraphicsCaptureItem,
     pool: Direct3D11CaptureFramePool,
-    _session: GraphicsCaptureSession,
+    session: GraphicsCaptureSession,
     staging: ID3D11Texture2D,
     width: u32,
     height: u32,
@@ -60,6 +64,37 @@ impl ScreenCapture {
             let hmon = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
             let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
             let item: GraphicsCaptureItem = interop.CreateForMonitor(hmon)?;
+            Self::build(item, device, context, d3d)
+        }
+    }
+
+    /// Capture the monitor with these physical bounds — the one the user picked, which is not
+    /// necessarily the primary. Bounds identify a monitor exactly: they are its rectangle on the
+    /// virtual desktop, so no two monitors share them.
+    pub fn monitor_by_rect(x: i32, y: i32, width: i32, height: i32) -> Result<Self> {
+        unsafe {
+            let hmon = find_monitor_by_rect(x, y, width, height).with_context(|| {
+                format!("no monitor with bounds {x},{y} {width}x{height}")
+            })?;
+            let (device, context, d3d) = device_and_context()?;
+            let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
+            let item: GraphicsCaptureItem = interop.CreateForMonitor(hmon)?;
+            Self::build(item, device, context, d3d)
+        }
+    }
+
+    /// Capture the exact window the user picked. The caller passes the HWND straight from the
+    /// picker, so — unlike a title match — it can't land on a different window that happens to
+    /// share the title.
+    pub fn window_by_handle(handle: isize) -> Result<Self> {
+        unsafe {
+            let hwnd = HWND(handle as _);
+            if !IsWindow(hwnd).as_bool() {
+                anyhow::bail!("window {handle} no longer exists");
+            }
+            let (device, context, d3d) = device_and_context()?;
+            let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
+            let item: GraphicsCaptureItem = interop.CreateForWindow(hwnd)?;
             Self::build(item, device, context, d3d)
         }
     }
@@ -95,6 +130,16 @@ impl ScreenCapture {
         )?;
         let session = pool.CreateCaptureSession(&item)?;
 
+        // WGC draws a yellow highlight around whatever it captures. Suppressing it needs the
+        // borderless access grant *and* the flag, and both only exist on Win11 21H2+ — on older
+        // builds the border simply stays, which is not worth failing a capture over.
+        if let Ok(op) = GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless) {
+            let _ = op.get();
+        }
+        if let Err(e) = session.SetIsBorderRequired(false) {
+            log::warn!("could not hide the capture border: {e}");
+        }
+
         // CPU-readable staging texture we copy each frame into for readback.
         let desc = D3D11_TEXTURE2D_DESC {
             Width: width,
@@ -119,7 +164,7 @@ impl ScreenCapture {
             context,
             _item: item,
             pool,
-            _session: session,
+            session,
             staging,
             width,
             height,
@@ -160,6 +205,16 @@ impl ScreenCapture {
             let _ = frame.Close();
             Some(BgraFrame { data, width: self.width, height: self.height, stride })
         }
+    }
+}
+
+impl Drop for ScreenCapture {
+    /// Close the session explicitly: DWM keeps drawing the capture border until it is, and simply
+    /// releasing the COM references is not the same thing. A force-killed process never gets here
+    /// at all — which is why the app asks the helper to exit instead of terminating it.
+    fn drop(&mut self) {
+        let _ = self.session.Close();
+        let _ = self.pool.Close();
     }
 }
 
@@ -214,6 +269,52 @@ fn find_window_by_title(needle: &str) -> Option<HWND> {
     let mut ctx = FindCtx { needle: needle.to_lowercase(), found: None };
     unsafe {
         let _ = EnumWindows(Some(enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+    }
+    ctx.found
+}
+
+struct MonitorCtx {
+    want: RECT,
+    found: Option<HMONITOR>,
+}
+
+unsafe extern "system" fn monitor_proc(
+    hmon: HMONITOR,
+    _hdc: HDC,
+    _clip: *mut RECT,
+    lparam: LPARAM,
+) -> BOOL {
+    let ctx = &mut *(lparam.0 as *mut MonitorCtx);
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if GetMonitorInfoW(hmon, &mut info).as_bool() {
+        let r = info.rcMonitor;
+        if r.left == ctx.want.left
+            && r.top == ctx.want.top
+            && r.right == ctx.want.right
+            && r.bottom == ctx.want.bottom
+        {
+            ctx.found = Some(hmon);
+            return BOOL(0); // stop enumeration
+        }
+    }
+    BOOL(1) // continue
+}
+
+fn find_monitor_by_rect(x: i32, y: i32, width: i32, height: i32) -> Option<HMONITOR> {
+    let mut ctx = MonitorCtx {
+        want: RECT { left: x, top: y, right: x + width, bottom: y + height },
+        found: None,
+    };
+    unsafe {
+        let _ = EnumDisplayMonitors(
+            HDC::default(),
+            None,
+            Some(monitor_proc),
+            LPARAM(&mut ctx as *mut _ as isize),
+        );
     }
     ctx.found
 }

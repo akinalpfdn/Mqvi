@@ -17,6 +17,7 @@ import {
   desktopCapturer,
   powerMonitor,
   safeStorage,
+  screen,
   shell,
 } from "electron";
 import { autoUpdater } from "electron-updater";
@@ -127,6 +128,78 @@ let captureGeneration = 0;
 
 // Native game capture helper (WGC + hardware encode → LiveKit, published as {userId}_ss).
 let gameCaptureProcess: ChildProcess | null = null;
+
+/** Same purpose as captureGeneration: a superseded helper's exit must not clear the live one. */
+let gameCaptureGeneration = 0;
+
+/** The helper prints this once its track is published — see native/game-capture/src/main.rs. */
+const GAME_CAPTURE_READY = "MQVI-READY";
+
+/** Connect + publish budget. Past this the helper is considered failed and the app uses sharp. */
+const GAME_CAPTURE_READY_TIMEOUT_MS = 15_000;
+
+/** How long the helper gets to close its capture session and leave the room before we force it. */
+const GAME_CAPTURE_EXIT_TIMEOUT_MS = 3_000;
+
+/**
+ * Ask the helper to exit, forcing it only if it won't.
+ *
+ * kill() on Windows is a straight TerminateProcess — Node can't signal a console-less child — so a
+ * killed helper never runs its shutdown: the WGC session stays open (DWM keeps drawing the yellow
+ * capture border over the shared screen) and it never leaves the LiveKit room (viewers keep a ghost
+ * share until the SFU times it out). Closing stdin is the shutdown request it listens for.
+ */
+function endGameCapture(child: ChildProcess): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      resolve();
+    };
+
+    child.once("exit", finish);
+    try {
+      child.stdin?.end();
+    } catch {
+      // Already gone — the timeout below still resolves us.
+    }
+
+    timer = setTimeout(() => {
+      console.warn("[main] Game capture ignored the stop request, terminating");
+      child.kill();
+      finish();
+    }, GAME_CAPTURE_EXIT_TIMEOUT_MS);
+  });
+}
+
+/**
+ * Turn the picked desktopCapturer source into the helper's capture target.
+ * Exact by construction: a window is addressed by HWND (a title can match another window), a
+ * screen by its physical bounds (the picked monitor is not necessarily the primary one).
+ */
+async function resolveCaptureTarget(sourceId?: string): Promise<string[]> {
+  if (sourceId?.startsWith("window:")) {
+    return ["--window-handle", sourceId.split(":")[1]];
+  }
+  if (sourceId?.startsWith("screen:")) {
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: { width: 0, height: 0 },
+    });
+    const src = sources.find((s) => s.id === sourceId);
+    const display = src
+      ? screen.getAllDisplays().find((d) => String(d.id) === src.display_id)
+      : undefined;
+    if (!display) throw new Error(`no display matches ${sourceId}`);
+    // Electron reports bounds in DIP; WGC works in physical pixels.
+    const r = screen.dipToScreenRect(null, display.bounds);
+    return ["--monitor-rect", `${r.x},${r.y},${r.width},${r.height}`];
+  }
+  throw new Error(`cannot capture source '${sourceId ?? ""}'`);
+}
 
 /**
  * Pre-launch update check result.
@@ -991,28 +1064,38 @@ function setupIPC(): void {
   // to it exactly like any screen share. Connection + capture params come from the renderer.
   ipcMain.handle(
     "start-game-capture",
-    (
+    async (
       _e,
-      opts: { url: string; token: string; e2eePassphrase: string; window?: string }
-    ): { started: boolean; error?: string } => {
+      opts: { url: string; token: string; e2eePassphrase: string; sourceId?: string }
+    ): Promise<{ started: boolean; error?: string }> => {
       if (process.platform !== "win32") return { started: false, error: "windows only" };
 
       if (gameCaptureProcess) {
-        gameCaptureProcess.kill();
+        const previous = gameCaptureProcess;
         gameCaptureProcess = null;
+        gameCaptureGeneration++; // its exit is expected — don't report it as a helper death
+        await endGameCapture(previous);
       }
+      const thisGen = ++gameCaptureGeneration;
+
+      let target: string[];
+      try {
+        target = await resolveCaptureTarget(opts.sourceId);
+      } catch (err) {
+        return { started: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      if (thisGen !== gameCaptureGeneration) return { started: false, error: "superseded" };
 
       const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
       const exePath = isDev
         ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
         : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
 
-      // A specific window (the game) or the whole primary monitor.
-      const args = opts.window ? ["--window", opts.window] : ["--source", "wgc"];
-      console.log(`[main] Starting game capture: ${exePath} ${args.join(" ")}`);
+      console.log(`[main] Starting game capture: ${exePath} ${target.join(" ")}`);
 
+      let child: ChildProcess;
       try {
-        gameCaptureProcess = spawn(exePath, args, {
+        child = spawn(exePath, target, {
           env: {
             ...process.env,
             LK_URL: opts.url,
@@ -1020,42 +1103,77 @@ function setupIPC(): void {
             LK_E2EE_KEY: opts.e2eePassphrase,
             RUST_LOG: "mqvi_game_capture=info",
           },
-          stdio: ["ignore", "pipe", "pipe"],
+          // stdin stays open purely as the shutdown channel — see endGameCapture.
+          stdio: ["pipe", "pipe", "pipe"],
         });
       } catch (err) {
-        gameCaptureProcess = null;
         return { started: false, error: err instanceof Error ? err.message : String(err) };
       }
+      gameCaptureProcess = child;
 
-      const forward = (d: Buffer) => {
-        const msg = d.toString().trim();
-        console.log(`[game-capture] ${msg}`);
-        mainWindow?.webContents.send("game-capture-log", msg);
-      };
-      gameCaptureProcess.stdout?.on("data", forward);
-      gameCaptureProcess.stderr?.on("data", forward);
+      // Spawning proves a process exists, not that anything is on the wire — the helper still has
+      // to find the source, connect and publish. Report started only once it says so, so a failure
+      // falls back to "Net Görüntü" instead of leaving a share that never appears.
+      return await new Promise((resolve) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
 
-      gameCaptureProcess.on("exit", (code) => {
-        console.log(`[main] Game capture exited code=${code}`);
-        gameCaptureProcess = null;
-        mainWindow?.webContents.send("game-capture-stopped", code);
+        const settle = (r: { started: boolean; error?: string }) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          resolve(r);
+        };
+
+        const forward = (d: Buffer) => {
+          const msg = d.toString().trim();
+          console.log(`[game-capture] ${msg}`);
+          if (thisGen === gameCaptureGeneration) {
+            mainWindow?.webContents.send("game-capture-log", msg);
+          }
+          if (msg.includes(GAME_CAPTURE_READY)) settle({ started: true });
+        };
+        child.stdout?.on("data", forward);
+        child.stderr?.on("data", forward);
+
+        child.on("exit", (code) => {
+          console.log(`[main] Game capture exited code=${code}`);
+          // A superseded helper must not clear the live one's handle (it would become unkillable)
+          // nor tell the renderer that sharing stopped.
+          if (thisGen === gameCaptureGeneration) {
+            gameCaptureProcess = null;
+            mainWindow?.webContents.send("game-capture-stopped", code);
+          }
+          settle({ started: false, error: `helper exited (code ${code})` });
+        });
+
+        child.on("error", (err) => {
+          console.error("[main] Game capture spawn error:", err);
+          if (thisGen === gameCaptureGeneration) {
+            gameCaptureProcess = null;
+            mainWindow?.webContents.send("game-capture-log", `SPAWN ERROR: ${err.message}`);
+          }
+          settle({ started: false, error: err.message });
+        });
+
+        timer = setTimeout(() => {
+          // It may already be capturing (and drawing the border) even though it never published.
+          void endGameCapture(child);
+          settle({ started: false, error: "helper did not start publishing in time" });
+        }, GAME_CAPTURE_READY_TIMEOUT_MS);
       });
-      gameCaptureProcess.on("error", (err) => {
-        console.error("[main] Game capture spawn error:", err);
-        gameCaptureProcess = null;
-        mainWindow?.webContents.send("game-capture-log", `SPAWN ERROR: ${err.message}`);
-        mainWindow?.webContents.send("game-capture-stopped", -1);
-      });
-
-      return { started: true };
     }
   );
 
-  ipcMain.handle("stop-game-capture", () => {
-    if (gameCaptureProcess) {
+  ipcMain.handle("stop-game-capture", async () => {
+    // This exit is expected: bump the generation so its handler doesn't report "stopped" to the
+    // renderer as if the helper had died on its own.
+    gameCaptureGeneration++;
+    const child = gameCaptureProcess;
+    gameCaptureProcess = null;
+    if (child) {
       console.log("[main] Stopping game capture");
-      gameCaptureProcess.kill();
-      gameCaptureProcess = null;
+      await endGameCapture(child);
     }
   });
 
@@ -1416,18 +1534,12 @@ app.on("before-quit", (e) => {
   muteShortcut = null;
   deafenShortcut = null;
 
-  // Kill the native game-capture helper so it doesn't keep streaming after quit.
-  if (gameCaptureProcess) {
-    gameCaptureProcess.kill();
-    gameCaptureProcess = null;
-  }
-
-  if (!captureProcess || cleanupDone) {
+  if ((!captureProcess && !gameCaptureProcess) || cleanupDone) {
     // Nothing to wait for — let quit proceed
     return;
   }
 
-  // Prevent quit until capture process exits (or timeout)
+  // Prevent quit until the capture children exit (or timeout)
   e.preventDefault();
   cleanupDone = true;
 
@@ -1435,10 +1547,22 @@ app.on("before-quit", (e) => {
   captureGeneration++;
   captureProcess = null;
 
+  // The game-capture helper gets the same graceful stop as anywhere else: terminating it would
+  // leave its capture border on the shared screen and a ghost share in the room.
+  const gameChild = gameCaptureProcess;
+  gameCaptureGeneration++;
+  gameCaptureProcess = null;
+  const gameStopped = gameChild ? endGameCapture(gameChild) : Promise.resolve();
+
   const finish = () => {
-    proc.removeAllListeners("exit");
-    app.quit();
+    proc?.removeAllListeners("exit");
+    void gameStopped.finally(() => app.quit());
   };
+
+  if (!proc) {
+    finish();
+    return;
+  }
 
   // If the process exits within 2s, quit immediately
   proc.on("exit", finish);

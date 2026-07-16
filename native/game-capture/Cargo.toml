@@ -17,6 +17,10 @@ path = "src/main.rs"
 name = "test-encode"
 path = "src/bin/test_encode.rs"
 
+# No [profile.release] tuning: the 31 MB is statically-linked libwebrtc, not symbols. Measured —
+# strip changed nothing (release carries no debug info) and thin LTO made it 0.5 MB *bigger* while
+# turning a 12 s incremental build into 1m44s.
+
 [dependencies]
 # native (default) feature pulls libwebrtc → gives us the FrameCryptor E2EE that is
 # format-compatible with our JS clients' ExternalE2EEKeyProvider. rustls avoids an
@@ -38,6 +42,9 @@ features = [
     "Win32_System_Com",
     # WGC + D3D11 interop for zero-copy screen/game capture (NGC-03)
     "Graphics_Capture",
+    # GraphicsCaptureAccess::RequestAccessAsync returns an AppCapabilityAccessStatus — without this
+    # feature windows-rs omits the method entirely (borderless capture needs it).
+    "Security_Authorization_AppCapabilityAccess",
     "Graphics_DirectX",
     "Graphics_DirectX_Direct3D11",
     "Win32_Graphics_Direct3D",

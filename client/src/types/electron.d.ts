@@ -63,12 +63,13 @@ interface ElectronAPI {
   onCaptureAudioError: (cb: (msg: string) => void) => void;
 
   // ─── Native Game Capture (WGC + hardware encode → LiveKit as {userId}_ss) ───
-  /** Start native game capture. `window` = a window-title substring; omit for the whole monitor. */
+  /** Start native game capture of the picked desktopCapturer source. Resolves once the helper is
+   *  actually publishing (or failed) — `started: false` means fall back to getDisplayMedia. */
   startGameCapture: (opts: {
     url: string;
     token: string;
     e2eePassphrase: string;
-    window?: string;
+    sourceId: string;
   }) => Promise<{ started: boolean; error?: string }>;
   stopGameCapture: () => Promise<void>;
   onGameCaptureLog: (cb: (line: string) => void) => void;

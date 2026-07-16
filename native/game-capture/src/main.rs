@@ -79,9 +79,60 @@ struct Args {
 
     /// Capture a single window whose title contains this text (case-insensitive) — e.g. a game —
     /// instead of the whole monitor. Avoids the mirror loop when viewing on the same screen. Implies
-    /// WGC hardware capture.
+    /// WGC hardware capture. Dev convenience: the app passes --window-handle instead.
     #[arg(long)]
     window: Option<String>,
+
+    /// Capture exactly this window (HWND). What the app's picker passes: a title can match the
+    /// wrong window, a handle can't.
+    #[arg(long)]
+    window_handle: Option<isize>,
+
+    /// Capture the monitor with these physical bounds, "x,y,width,height". What the app's picker
+    /// passes for a screen share — the picked monitor, which need not be the primary one.
+    #[arg(long)]
+    monitor_rect: Option<String>,
+}
+
+/// Resolves when we are asked to stop, from wherever the request comes.
+///
+/// This has to be honoured from the moment we start capturing, not just once we're publishing: the
+/// capture session (and its on-screen border) exists before the room connect, and that connect can
+/// retry for a long time on a bad network. Anything that isn't heard here ends as a TerminateProcess
+/// with the session still open.
+async fn stop_requested() {
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => log::info!("ctrl-c"),
+        _ = parent_asked_to_stop() => log::info!("stdin closed"),
+    }
+}
+
+/// Resolves when the app closes our stdin — its way of asking us to shut down. Windows has no
+/// signal to send a console-less child, so the alternative is TerminateProcess: the capture session
+/// would never close (DWM keeps drawing the capture border over the shared screen) and we would
+/// never leave the room (viewers keep a ghost share until the SFU times us out).
+async fn parent_asked_to_stop() {
+    use tokio::io::AsyncReadExt;
+    let mut stdin = tokio::io::stdin();
+    let mut buf = [0u8; 32];
+    loop {
+        match stdin.read(&mut buf).await {
+            Ok(0) | Err(_) => return, // EOF or a broken pipe: the app is done with us
+            Ok(_) => {}               // ignore anything actually typed at a dev console
+        }
+    }
+}
+
+/// "x,y,width,height" → (x, y, width, height).
+fn parse_rect(s: &str) -> Result<(i32, i32, i32, i32)> {
+    let n: Vec<i32> = s
+        .split(',')
+        .map(|p| p.trim().parse::<i32>().context("monitor-rect wants integers"))
+        .collect::<Result<_>>()?;
+    match n[..] {
+        [x, y, w, h] if w > 0 && h > 0 => Ok((x, y, w, h)),
+        _ => bail!("monitor-rect must be \"x,y,width,height\" with a positive size, got '{s}'"),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, clap::ValueEnum)]
@@ -163,8 +214,22 @@ async fn run() -> Result<()> {
     let fps = args.fps.max(1);
 
     // WGC capture: dimensions come from the source (window or monitor), and it goes through our MF
-    // encoder. `--window` picks a single window; otherwise `--source wgc` captures the whole monitor.
-    let capture = if let Some(title) = &args.window {
+    // encoder. The app addresses its picked source exactly (--window-handle / --monitor-rect); the
+    // title and primary-monitor forms are dev conveniences.
+    let capture = if let Some(handle) = args.window_handle {
+        let cap = ScreenCapture::window_by_handle(handle)?;
+        width = cap.width() & !1;
+        height = cap.height() & !1;
+        log::info!("WGC window capture hwnd={handle}: {width}x{height}");
+        Some(cap)
+    } else if let Some(rect) = &args.monitor_rect {
+        let (x, y, w, h) = parse_rect(rect)?;
+        let cap = ScreenCapture::monitor_by_rect(x, y, w, h)?;
+        width = cap.width() & !1;
+        height = cap.height() & !1;
+        log::info!("WGC monitor capture at {x},{y}: {width}x{height}");
+        Some(cap)
+    } else if let Some(title) = &args.window {
         let cap = ScreenCapture::window_by_title(title)?;
         width = cap.width() & !1;
         height = cap.height() & !1;
@@ -191,9 +256,17 @@ async fn run() -> Result<()> {
     room_options.auto_subscribe = false;
 
     log::info!("connecting to {}", args.url);
-    let (room, mut events) = Room::connect(&args.url, &args.token, room_options)
-        .await
-        .context("LiveKit connect failed (check url/token/network)")?;
+    // Racing the connect matters: it retries for a long time on a bad network, and we're already
+    // capturing — bailing out here drops `capture`, which closes the session and its border.
+    let (room, mut events) = tokio::select! {
+        connected = Room::connect(&args.url, &args.token, room_options) => {
+            connected.context("LiveKit connect failed (check url/token/network)")?
+        }
+        _ = stop_requested() => {
+            log::info!("asked to stop while connecting — shutting down");
+            return Ok(());
+        }
+    };
     let local = room.local_participant();
     log::info!(
         "connected as identity={} room={}",
@@ -262,12 +335,14 @@ async fn run() -> Result<()> {
     };
     let raw_pump = (!use_mf).then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
 
-    println!("Publishing encrypted video. Watch the app client render it. Ctrl+C to stop.");
+    // The track is live from here. The app waits for this exact line before it commits to the
+    // native engine — spawning us only proves a process started, not that anything is published.
+    println!("MQVI-READY");
 
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                log::info!("ctrl-c — shutting down");
+            _ = stop_requested() => {
+                log::info!("shutting down");
                 break;
             }
             event = events.recv() => {

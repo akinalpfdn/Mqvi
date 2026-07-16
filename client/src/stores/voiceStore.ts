@@ -144,7 +144,7 @@ type VoiceCoreActions = {
    * helper instead of getDisplayMedia. Returns false if it couldn't start, so the caller can fall
    * back to "Net Görüntü".
    */
-  startNativeSmoothCapture: (sourceName?: string) => Promise<boolean>;
+  startNativeSmoothCapture: (sourceId: string) => Promise<boolean>;
   stopNativeSmoothCapture: () => void;
   setPickedShareSourceId: (sourceId: string | null) => void;
   setRtt: (rtt: number) => void;
@@ -408,7 +408,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     set({ isStreaming });
   },
 
-  startNativeSmoothCapture: async (sourceName?: string) => {
+  startNativeSmoothCapture: async (sourceId: string) => {
     const serverId = useServerStore.getState().activeServerId;
     const channelId = get().currentVoiceChannelId;
     if (!serverId || !channelId || !window.electronAPI) return false;
@@ -421,11 +421,13 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       return false;
     }
     const { url, token, e2ee_passphrase } = resp.data;
+    // Resolves only once the helper is really publishing — a false here means nothing was ever
+    // on the wire, so the caller can still fall back to sharp.
     const res = await window.electronAPI.startGameCapture({
       url,
       token,
       e2eePassphrase: e2ee_passphrase,
-      window: sourceName,
+      sourceId,
     });
     if (!res.started) {
       console.error("[voice] smooth capture failed to start:", res.error);
