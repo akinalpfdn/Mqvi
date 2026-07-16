@@ -5,9 +5,17 @@ edition = "2021"
 description = "Native WGC+NVENC game capture, published to LiveKit with E2EE (NGC spike)."
 publish = false
 
+[lib]
+name = "mqvi_game_capture"
+path = "src/lib.rs"
+
 [[bin]]
 name = "mqvi-game-capture"
 path = "src/main.rs"
+
+[[bin]]
+name = "test-encode"
+path = "src/bin/test_encode.rs"
 
 [dependencies]
 # native (default) feature pulls libwebrtc → gives us the FrameCryptor E2EE that is
@@ -19,3 +27,16 @@ clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 env_logger = "0.11"
 log = "0.4"
+
+# Windows Media Foundation for vendor-agnostic hardware video encode (NVENC/AMF/QSV via MFT).
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+]
+
+[[bin]]
+name = "probe-encoders"
+path = "src/bin/probe_encoders.rs"

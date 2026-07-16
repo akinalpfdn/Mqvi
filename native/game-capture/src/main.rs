@@ -14,18 +14,25 @@
 //! POST /api/servers/{serverId}/voice/screen-token response {url, token, e2eePassphrase}.
 //! The identity baked into that token is "{userId}_ss", the screen-share sub-participant.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::e2ee::{E2eeOptions, EncryptionType};
 use livekit::options::{TrackPublishOptions, VideoCodec};
 use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
-use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
+use livekit::webrtc::rtp_sender::VideoEncoderBackend;
+use livekit::webrtc::video_frame::{
+    EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame, I420Buffer, VideoFrame, VideoRotation,
+};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
+use mqvi_game_capture::mf_encoder::HwEncoder;
+use mqvi_game_capture::nv12;
 
 /// NGC-01 spike: publish a synthetic E2EE video track to a LiveKit room.
 #[derive(Parser, Debug)]
@@ -55,6 +62,58 @@ struct Args {
     /// Frames per second for the synthetic source.
     #[arg(long, default_value_t = 30)]
     fps: u32,
+
+    /// Video codec. NVENC encodes h264/h265/av1 — NOT vp8/vp9.
+    #[arg(long, value_enum, default_value_t = Codec::Vp8)]
+    codec: Codec,
+
+    /// Encoder backend: nvenc/hardware engage the GPU (require an h264/h265/av1 codec).
+    #[arg(long, value_enum, default_value_t = Encoder::Auto)]
+    encoder: Encoder,
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum Codec {
+    Vp8,
+    Vp9,
+    H264,
+    H265,
+    Av1,
+}
+
+impl Codec {
+    fn to_lk(self) -> VideoCodec {
+        match self {
+            Codec::Vp8 => VideoCodec::VP8,
+            Codec::Vp9 => VideoCodec::VP9,
+            Codec::H264 => VideoCodec::H264,
+            Codec::H265 => VideoCodec::H265,
+            Codec::Av1 => VideoCodec::AV1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, clap::ValueEnum)]
+enum Encoder {
+    Auto,
+    Software,
+    Hardware,
+    Nvenc,
+    /// Our own Media Foundation hardware encoder, fed through livekit's PreEncoded path.
+    /// This is the working hardware path (libwebrtc's prebuilt has no built-in NVENC).
+    Mf,
+}
+
+impl Encoder {
+    fn to_lk(self) -> VideoEncoderBackend {
+        match self {
+            Encoder::Auto => VideoEncoderBackend::Auto,
+            Encoder::Software => VideoEncoderBackend::Software,
+            Encoder::Hardware => VideoEncoderBackend::Hardware,
+            Encoder::Nvenc => VideoEncoderBackend::Nvenc,
+            Encoder::Mf => VideoEncoderBackend::PreEncoded,
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -106,28 +165,55 @@ async fn run() -> Result<()> {
         room.name()
     );
 
-    // Synthetic screen-cast source. is_screencast=true tells the SFU/encoder this is
-    // screen content (favours resolution over framerate on constrained links).
-    let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, true);
+    let use_mf = args.encoder == Encoder::Mf;
+    let hevc = matches!(args.codec, Codec::H265);
+    if use_mf && !matches!(args.codec, Codec::H264 | Codec::H265) {
+        bail!("--encoder mf needs --codec h264 or h265 (hardware encoders don't do vp8/vp9)");
+    }
+
+    // MF path hands livekit pre-encoded access units (new_encoded); otherwise a raw I420
+    // source that libwebrtc encodes itself (is_screencast=true = screen content hint).
+    let res = VideoResolution { width, height };
+    let rtc_source = if use_mf {
+        NativeVideoSource::new_encoded(res)
+    } else {
+        NativeVideoSource::new(res, true)
+    };
     let track = LocalVideoTrack::create_video_track(
         "native-game-capture",
         RtcVideoSource::Native(rtc_source.clone()),
     );
 
+    let backends: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
+    log::info!("available encoder backends: {backends:?}");
+
     let mut publish_opts = TrackPublishOptions::default();
     publish_opts.source = TrackSource::Screenshare;
-    // VP8 for the spike: universally decodable by every app client, no simulcast setup.
-    // NGC-02 swaps this for NVENC-encoded H265/H264.
-    publish_opts.video_codec = VideoCodec::VP8;
+    publish_opts.video_codec = args.codec.to_lk();
+    publish_opts.video_encoder = args.encoder.to_lk();
 
     local
         .publish_track(LocalTrack::Video(track), publish_opts)
         .await
         .context("publish_track failed")?;
-    log::info!("published track 'native-game-capture' ({width}x{height}@{fps}, VP8, E2EE/GCM)");
+    log::info!(
+        "published track 'native-game-capture' ({width}x{height}@{fps}, codec={:?}, encoder={:?}, E2EE/GCM)",
+        args.codec, args.encoder
+    );
 
-    // Drive the synthetic source on its own task so the event loop stays responsive.
-    let pump = tokio::spawn(frame_pump(rtc_source, width, height, fps));
+    // MF encoding does blocking COM calls → dedicated OS thread. Raw path → tokio task.
+    let stop = Arc::new(AtomicBool::new(false));
+    let mf_thread = if use_mf {
+        let (src, stop) = (rtc_source.clone(), stop.clone());
+        Some(std::thread::spawn(move || {
+            if let Err(e) = encoded_pump(src, width, height, fps, hevc, stop) {
+                log::error!("encode thread failed: {e:#}");
+            }
+        }))
+    } else {
+        None
+    };
+    let raw_pump = (!use_mf).then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
 
     println!("Publishing encrypted test pattern. Watch the app client render it. Ctrl+C to stop.");
 
@@ -150,8 +236,102 @@ async fn run() -> Result<()> {
         }
     }
 
-    pump.abort();
+    stop.store(true, Ordering::Relaxed);
+    if let Some(p) = raw_pump {
+        p.abort();
+    }
+    if let Some(t) = mf_thread {
+        let _ = t.join();
+    }
     room.close().await.ok();
+    Ok(())
+}
+
+/// MF hardware-encode pump (dedicated OS thread): synthetic NV12 → hardware H264/H265 →
+/// livekit PreEncoded. Blocking encode() lives off the tokio runtime.
+fn encoded_pump(
+    source: NativeVideoSource,
+    width: u32,
+    height: u32,
+    fps: u32,
+    hevc: bool,
+    stop: Arc<AtomicBool>,
+) -> Result<()> {
+    HwEncoder::startup()?;
+    let mut enc = HwEncoder::new(width, height, fps, 6_000_000, hevc)?;
+    log::info!("hardware encoder: {}", enc.name());
+
+    let codec = if hevc { EncodedVideoCodec::H265 } else { EncodedVideoCodec::H264 };
+    let frame_us = 1_000_000i64 / fps as i64;
+    let (w, h) = (width as usize, height as usize);
+    let mut idx: u64 = 0;
+    let t0 = std::time::Instant::now();
+
+    // Delivery stats reported once a second: fed = frames we tried to encode, sent = encoded
+    // packets handed to livekit, plus their bitrate. Tells us if the pump keeps ~fps or stalls.
+    let mut fed = 0u32;
+    let mut sent = 0u32;
+    let mut bytes = 0usize;
+    let mut last_report = std::time::Instant::now();
+
+    while !stop.load(Ordering::Relaxed) {
+        // Absolute schedule: frame idx is due at t0 + idx*frame_us. Sleeping to an absolute target
+        // (not interval-minus-work) keeps delivery even — relative sleeps accumulate drift/jitter
+        // when encode() takes a variable time, which shows as the stream stretching then snapping.
+        let due = t0 + Duration::from_micros(idx * frame_us as u64);
+        if let Some(d) = due.checked_duration_since(std::time::Instant::now()) {
+            std::thread::sleep(d);
+        }
+
+        // The SFU raises a keyframe request (PLI/FIR) when a subscriber needs an IDR — e.g. after
+        // packet loss, so the decoder recovers instead of ghosting. Force one this frame.
+        let force_key = source.take_keyframe_request();
+        if force_key {
+            log::info!("keyframe requested — forcing IDR");
+        }
+        if let Some(rc) = source.take_rate_control_request() {
+            log::debug!("rate-control request: {rc:?} (not yet applied)");
+        }
+
+        let frame = nv12::test_pattern(w, h, idx);
+        // Non-fatal: a transient encode error must not kill the thread (that froze the stream).
+        let packets = match enc.encode(&frame, idx as i64 * frame_us, frame_us, force_key) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("encode error (continuing): {e:#}");
+                Vec::new()
+            }
+        };
+        fed += 1;
+        for p in packets {
+            sent += 1;
+            bytes += p.data.len();
+            let ev = EncodedVideoFrame {
+                codec,
+                payload: &p.data,
+                timestamp_us: p.timestamp_us,
+                frame_type: if p.keyframe { EncodedFrameType::Key } else { EncodedFrameType::Delta },
+                resolution: VideoResolution { width, height },
+                frame_metadata: None,
+            };
+            source.capture_encoded_frame(&ev);
+        }
+        idx += 1;
+
+        if last_report.elapsed() >= Duration::from_secs(1) {
+            let secs = last_report.elapsed().as_secs_f64();
+            log::info!(
+                "encode: fed {:.1} fps, sent {:.1} fps, {:.0} kbps",
+                fed as f64 / secs,
+                sent as f64 / secs,
+                (bytes as f64 * 8.0 / 1000.0) / secs
+            );
+            fed = 0;
+            sent = 0;
+            bytes = 0;
+            last_report = std::time::Instant::now();
+        }
+    }
     Ok(())
 }
 
