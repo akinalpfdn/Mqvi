@@ -105,8 +105,11 @@ function MessageInput({ openSearch }: MessageInputProps) {
   }, [addFilesRef]);
 
   useEffect(() => {
+    // On touch, auto-focusing on every channel/DM switch yanks the soft keyboard open unprompted.
+    // Desktop keeps the convenience; touch waits for the user to tap the composer.
+    if (isTouch) return;
     textareaRef.current?.focus();
-  }, [channelId]);
+  }, [channelId, isTouch]);
 
   useEffect(() => {
     if (replyingTo) {
@@ -657,7 +660,10 @@ function MessageInput({ openSearch }: MessageInputProps) {
           placeholder={placeholder}
           rows={1}
           maxLength={MAX_MESSAGE_LENGTH}
-          disabled={isSending}
+          // readOnly, not disabled: disabled drops focus and collapses the soft keyboard for the
+          // duration of a send (long with file uploads), then the post-send focus() reopens it —
+          // a visible flap. readOnly blocks edits while keeping focus and the keyboard up.
+          readOnly={isSending}
         />
 
         <div style={{ position: "relative" }}>
