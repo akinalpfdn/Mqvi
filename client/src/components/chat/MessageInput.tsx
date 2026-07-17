@@ -660,10 +660,6 @@ function MessageInput({ openSearch }: MessageInputProps) {
           placeholder={placeholder}
           rows={1}
           maxLength={MAX_MESSAGE_LENGTH}
-          // readOnly, not disabled: disabled drops focus and collapses the soft keyboard for the
-          // duration of a send (long with file uploads), then the post-send focus() reopens it —
-          // a visible flap. readOnly blocks edits while keeping focus and the keyboard up.
-          readOnly={isSending}
         />
 
         <div style={{ position: "relative" }}>
@@ -722,8 +718,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
             title={t("sendMessage")}
             aria-label={t("sendMessage")}
             disabled={isSending}
-            // Keep focus on the textarea so the soft keyboard does not collapse on send.
-            onMouseDown={(e) => e.preventDefault()}
+            // Keep focus on the textarea so the soft keyboard stays up on send. pointerdown covers
+            // touch (mousedown doesn't fire before focus moves on Android), preventing the blur.
+            onPointerDown={(e) => e.preventDefault()}
             onClick={() => void handleSend()}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
