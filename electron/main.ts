@@ -17,13 +17,23 @@ import {
   desktopCapturer,
   powerMonitor,
   safeStorage,
+  screen,
   shell,
 } from "electron";
 import { autoUpdater } from "electron-updater";
 import { uIOhook, UiohookKey } from "uiohook-napi";
 import { spawn, ChildProcess } from "child_process";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { readFile } from "fs/promises";
 import path from "path";
+import {
+  classify,
+  GpuAverages,
+  loadGamesList,
+  readInstalledGames,
+  type ProbeCandidate,
+  type SuffixIndex,
+} from "./gameDetect";
 
 /** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
@@ -101,17 +111,16 @@ let tray: Tray | null = null;
 let isQuitting = false;
 
 /**
- * Process-exclusive audio capture child process.
+ * Screen share audio capture child process.
  *
- * audio-capture.exe uses WASAPI ActivateAudioInterfaceAsync with
- * PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE to capture all system
- * audio EXCEPT our own Electron process tree. This solves the screen share
- * echo problem: remote voice chat audio (played by our app) is excluded
- * from the capture, while game/music audio is still captured.
+ * audio-capture.exe taps WASAPI process loopback in the mode that matches what is
+ * being shared: a window share captures only that window's process tree, a monitor
+ * share captures everything except our own tree (including it would echo remote
+ * voice back to the people speaking).
  *
  * Lifecycle:
- *   1. Renderer starts screen share with audio → IPC "start-system-capture"
- *   2. Main spawns audio-capture.exe with our PID
+ *   1. Renderer starts screen share with audio → IPC "start-system-capture" (picked source)
+ *   2. Main spawns audio-capture.exe in include- or exclude-mode
  *   3. Exe writes PCM header + data to stdout → forwarded to renderer via IPC
  *   4. Renderer creates AudioWorklet → MediaStreamTrack → LiveKit publishes
  *   5. Screen share stops → IPC "stop-system-capture" → kill child process
@@ -125,6 +134,308 @@ let captureProcess: ChildProcess | null = null;
  * the ID; handlers check their captured ID against the current one.
  */
 let captureGeneration = 0;
+
+// Native game capture helper (WGC + hardware encode → LiveKit, published as {userId}_ss).
+let gameCaptureProcess: ChildProcess | null = null;
+
+/** Same purpose as captureGeneration: a superseded helper's exit must not clear the live one. */
+let gameCaptureGeneration = 0;
+
+/** The helper prints this once its track is published — see native/game-capture/src/main.rs. */
+const GAME_CAPTURE_READY = "MQVI-READY";
+
+/** Connect + publish budget. Past this the helper is considered failed and the app uses sharp. */
+const GAME_CAPTURE_READY_TIMEOUT_MS = 15_000;
+
+/** How long the helper gets to close its capture session and leave the room before we force it. */
+const GAME_CAPTURE_EXIT_TIMEOUT_MS = 3_000;
+
+/**
+ * Ask the helper to exit, forcing it only if it won't.
+ *
+ * kill() on Windows is a straight TerminateProcess — Node can't signal a console-less child — so a
+ * killed helper never runs its shutdown: the WGC session stays open (DWM keeps drawing the yellow
+ * capture border over the shared screen) and it never leaves the LiveKit room (viewers keep a ghost
+ * share until the SFU times it out). Closing stdin is the shutdown request it listens for.
+ */
+function endGameCapture(child: ChildProcess): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      resolve();
+    };
+
+    child.once("exit", finish);
+    try {
+      child.stdin?.end();
+    } catch {
+      // Already gone — the timeout below still resolves us.
+    }
+
+    timer = setTimeout(() => {
+      console.warn("[main] Game capture ignored the stop request, terminating");
+      child.kill();
+      finish();
+    }, GAME_CAPTURE_EXIT_TIMEOUT_MS);
+  });
+}
+
+// ─── Game detection ("Go Live" row) ───
+
+/** game-probe.exe: reports who is driving the GPU's 3D engine. Only runs while in a voice channel. */
+let gameProbeProcess: ChildProcess | null = null;
+let gameProbeGeneration = 0;
+
+/** Held across the awaits in startGameProbe, where gameProbeProcess is still null but a probe is
+ *  already on its way — otherwise a second start spawns a second one. */
+let gameProbeStarting = false;
+
+const GAME_PROBE_INTERVAL_MS = 1500;
+
+/**
+ * How many GPU consumers the probe reports per line.
+ *
+ * A backgrounded game reads ~0.5% and sinks in the ranking; anything it sinks below the cut is
+ * invisible to the classifier, which would take the row away exactly when the user reaches for it.
+ * A busy desktop rarely has more than a handful of processes touching the 3D engine at all — the
+ * measured machine had seven — so this has headroom, at the cost of one EnumWindows sweep each.
+ */
+const GAME_PROBE_TOP = 20;
+
+const gpuAverages = new GpuAverages();
+const admittedGamePids = new Set<string>();
+let gamesList: SuffixIndex | null = null;
+let installedGames: Awaited<ReturnType<typeof readInstalledGames>> = [];
+/** Last thing we told the renderer, so an unchanged detection costs no icon fetch and no IPC. */
+let lastDetectedKey = "";
+
+/** Set by the game row before it triggers a sharp share: the next getDisplayMedia answers with this
+ *  source instead of showing the picker. Consumed once. */
+let prePickedSourceId: string | null = null;
+
+/** Orders the pushes. Resolving an icon is async, so two detections close together can finish out of
+ *  order and leave the row on the older one for good — the key check would then swallow the correct
+ *  line as a duplicate. */
+let detectSequence = 0;
+
+/**
+ * The game's icon, as a data URL. Only resolved when the detection changes.
+ *
+ * Three sources, best first:
+ *   1. The launcher's cached art. Steam downloads the real thing, and it is the only source that
+ *      actually looks like the game.
+ *   2. The executable's icon. Often right — and often not: Diablo IV.exe embeds none, so Windows
+ *      answers with its generic application icon, byte-identical for the Steam and Battle.net
+ *      copies. `isEmpty()` does not catch that, which is why the launcher's art goes first.
+ *   3. The window's icon. Last because a fullscreen game is frequently not listed by
+ *      desktopCapturer at all, and that call enumerates every window on the desktop.
+ */
+async function iconForGame(iconFile: string | undefined, exePath: string, hwnd: number): Promise<string | null> {
+  if (iconFile) {
+    try {
+      const bytes = await readFile(iconFile);
+      return `data:image/jpeg;base64,${bytes.toString("base64")}`;
+    } catch {
+      // Steam pruned its cache — fall through.
+    }
+  }
+
+  if (exePath) {
+    try {
+      const icon = await app.getFileIcon(exePath, { size: "large" });
+      if (!icon.isEmpty()) return icon.toDataURL();
+    } catch {
+      // Unreadable exe — fall through to the window's own icon.
+    }
+  }
+
+  // No path (SYSTEM or elevated) or no icon in the file: try what the window advertises.
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ["window"],
+      thumbnailSize: { width: 0, height: 0 },
+      fetchWindowIcons: true,
+    });
+    // Same id classify builds. Measured on this platform: every source's last component is 0, so
+    // the two must agree on that — a looser match here and an exact one at the pre-picked lookup
+    // cannot both be right.
+    const match = sources.find((s) => s.id === `window:${hwnd}:0`);
+    const icon = match?.appIcon;
+    return icon && !icon.isEmpty() ? icon.toDataURL() : null;
+  } catch {
+    return null;
+  }
+}
+
+function stopGameProbe(): void {
+  gameProbeGeneration++;
+  gameProbeStarting = false;
+  const child = gameProbeProcess;
+  gameProbeProcess = null;
+  lastDetectedKey = "";
+  admittedGamePids.clear();
+  gpuAverages.clear();
+  if (!child) return;
+  try {
+    child.stdin?.end(); // stdin EOF is the probe's shutdown contract
+  } catch {
+    // Already gone.
+  }
+  // Longer than the poll interval on purpose: the probe only notices the EOF after its sleep ends,
+  // so a shorter timeout would terminate it every single time and the contract above would be
+  // decoration. It holds no capture and no room, so the fallback kill is a backstop, not the plan.
+  setTimeout(() => {
+    if (!child.killed) child.kill();
+  }, GAME_PROBE_INTERVAL_MS + 1000);
+}
+
+async function startGameProbe(): Promise<void> {
+  if (gameProbeProcess || gameProbeStarting) return;
+  if (process.platform !== "win32") return; // no detector elsewhere — the row simply never appears
+
+  // Claimed before the first await, not after the spawn: reading the libraries takes ~50ms, and
+  // without this a stop in that window finds no child to kill and the probe we are about to spawn
+  // outlives the row forever — while a second start (React StrictMode remounts in dev) would spawn
+  // a second probe that nothing ever stops.
+  gameProbeStarting = true;
+  const generation = ++gameProbeGeneration;
+
+  const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+  const base = isDev ? path.join(app.getAppPath(), "native") : path.join(process.resourcesPath, "native");
+
+  // Re-read on every start: a game installed since the last session should be found.
+  installedGames = await readInstalledGames();
+  gamesList = await loadGamesList(path.join(base, "games-list.json"));
+
+  // Stopped while we were reading. Nothing was spawned, so there is nothing to unwind.
+  if (generation !== gameProbeGeneration) {
+    gameProbeStarting = false;
+    return;
+  }
+
+  let child: ChildProcess;
+  try {
+    child = spawn(
+      path.join(base, "game-probe.exe"),
+      ["--interval-ms", String(GAME_PROBE_INTERVAL_MS), "--top", String(GAME_PROBE_TOP)],
+      { stdio: ["pipe", "pipe", "ignore"], windowsHide: true }
+    );
+  } catch (err) {
+    console.error("[main] game-probe failed to spawn:", err);
+    gameProbeStarting = false;
+    return;
+  }
+  gameProbeProcess = child;
+  gameProbeStarting = false;
+
+  child.on("error", (err) => {
+    if (generation !== gameProbeGeneration) return;
+    console.error("[main] game-probe error:", err);
+    gameProbeProcess = null;
+  });
+  child.on("exit", () => {
+    if (generation !== gameProbeGeneration) return;
+    gameProbeProcess = null;
+    mainWindow?.webContents.send("game-detected", null);
+  });
+
+  let buffer = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    if (generation !== gameProbeGeneration) return;
+    buffer += chunk.toString("utf8");
+
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) void handleProbeLine(line, generation);
+    }
+  });
+}
+
+async function handleProbeLine(line: string, generation: number): Promise<void> {
+  let candidates: ProbeCandidate[];
+  try {
+    candidates = (JSON.parse(line) as { candidates: ProbeCandidate[] }).candidates ?? [];
+  } catch {
+    return; // a torn line is the next poll's problem
+  }
+
+  gpuAverages.push(candidates);
+
+  // Drop pids that are gone, or a long session accumulates both maps forever.
+  const alive = new Set(candidates.map((c) => c.pid));
+  for (const pid of gpuAverages.trackedPids) {
+    if (alive.has(pid) || gpuAverages.average(pid) !== 0) continue;
+    gpuAverages.forget(pid);
+    for (const key of admittedGamePids) {
+      if (key.startsWith(`${pid}|`)) admittedGamePids.delete(key);
+    }
+  }
+
+  const game = classify(candidates, {
+    installed: installedGames,
+    list: gamesList,
+    averageGpu: (pid) => gpuAverages.average(pid),
+    admitted: admittedGamePids,
+  });
+
+  const key = game ? `${game.pid}:${game.sourceId}:${game.name}` : "";
+  if (key === lastDetectedKey) return;
+  const seq = ++detectSequence;
+
+  if (!game) {
+    mainWindow?.webContents.send("game-detected", null);
+    lastDetectedKey = key;
+    return;
+  }
+
+  // Looked up here rather than carried on DetectedGame: the renderer has no use for a path to
+  // everything the user has installed, so it does not get one.
+  const exePath = candidates.find((c) => c.pid === game.pid)?.exePath ?? "";
+
+  const icon = await iconForGame(game.iconFile, exePath, game.hwnd);
+  if (generation !== gameProbeGeneration) return; // stopped while we were fetching the icon
+  if (seq !== detectSequence) return; // a newer detection already answered
+
+  // iconFile is a local path and stays here; the renderer gets the resolved image, nothing else.
+  const { iconFile: _iconFile, ...forRenderer } = game;
+  mainWindow?.webContents.send("game-detected", { ...forRenderer, icon });
+
+  // Only now: recorded before the send, a dropped push (no window yet) would mark this game as
+  // already delivered and every later line would be swallowed as a duplicate.
+  lastDetectedKey = key;
+}
+
+/**
+ * Turn the picked desktopCapturer source into the helper's capture target.
+ * Exact by construction: a window is addressed by HWND (a title can match another window), a
+ * screen by its physical bounds (the picked monitor is not necessarily the primary one).
+ */
+async function resolveCaptureTarget(sourceId?: string): Promise<string[]> {
+  if (sourceId?.startsWith("window:")) {
+    return ["--window-handle", sourceId.split(":")[1]];
+  }
+  if (sourceId?.startsWith("screen:")) {
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: { width: 0, height: 0 },
+    });
+    const src = sources.find((s) => s.id === sourceId);
+    const display = src
+      ? screen.getAllDisplays().find((d) => String(d.id) === src.display_id)
+      : undefined;
+    if (!display) throw new Error(`no display matches ${sourceId}`);
+    // Electron reports bounds in DIP; WGC works in physical pixels.
+    const r = screen.dipToScreenRect(null, display.bounds);
+    return ["--monitor-rect", `${r.x},${r.y},${r.width},${r.height}`];
+  }
+  throw new Error(`cannot capture source '${sourceId ?? ""}'`);
+}
 
 /**
  * Pre-launch update check result.
@@ -571,6 +882,22 @@ function setupPermissions(): void {
   // to exclude our own voice chat audio from capture.
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
+      // Chromium allows exactly one answer, and it reports an empty one — our way of cancelling,
+      // which "Akıcı Görüntü" does on every share — by throwing back at us. That throw *is* the
+      // rejection the renderer is waiting for. Treating it as a failure and answering again (which
+      // is what the catch below used to do) earns a "callback was called more than once" and an
+      // unhandled rejection on a share that is working fine.
+      let answered = false;
+      const answer = (streams: Electron.Streams) => {
+        if (answered) return;
+        answered = true;
+        try {
+          callback(streams);
+        } catch (err) {
+          if (streams.video) console.error("[main] Screen picker callback failed:", err);
+        }
+      };
+
       try {
         const sources = await desktopCapturer.getSources({
           types: ["screen", "window"],
@@ -578,8 +905,22 @@ function setupPermissions(): void {
         });
 
         if (sources.length === 0) {
-          callback({});
+          answer({});
           return;
+        }
+
+        // The game row already knows what to share, so this request skips the picker. One shot:
+        // a later share must ask again.
+        const preselected = prePickedSourceId;
+        prePickedSourceId = null;
+        if (preselected) {
+          const source = sources.find((s) => s.id === preselected);
+          if (source) {
+            answer({ video: source });
+            return;
+          }
+          // The game closed between the row appearing and the click. Falling through to the picker
+          // beats answering with nothing, which the user would read as a broken button.
         }
 
         // Serialize sources with thumbnails as DataURLs
@@ -604,19 +945,19 @@ function setupPermissions(): void {
           const selected = sources.find((s) => s.id === sourceId);
           if (selected) {
             // Video only — no "loopback" audio.
-            // Audio capture is handled by audio-capture.exe (process-exclusive)
-            // which is started/stopped by the renderer via IPC.
-            callback({ video: selected });
+            // Share audio comes from audio-capture.exe, scoped to this source and
+            // started/stopped by the renderer via IPC.
+            answer({ video: selected });
           } else {
-            callback({});
+            answer({});
           }
         } else {
-          // User cancelled
-          callback({});
+          // User cancelled, or "Akıcı Görüntü" took the share
+          answer({});
         }
       } catch (err) {
-        console.error("[main] Screen picker error:", err);
-        callback({});
+        console.error("[main] Screen picker failed:", err);
+        answer({});
       }
     }
   );
@@ -762,12 +1103,12 @@ function setupIPC(): void {
     }));
   });
 
-  // ─── Process-Exclusive Audio Capture ───
+  // ─── Screen Share Audio Capture ───
   // Renderer requests system audio capture (excluding our process).
   // This replaces Electron's built-in "loopback" which captures everything
   // including voice chat audio, causing echo for remote participants.
 
-  ipcMain.handle("start-system-capture", () => {
+  ipcMain.handle("start-system-capture", (_event, sourceId?: string | null) => {
     // WASAPI process loopback is Windows-only
     if (process.platform !== "win32") {
       console.log("[main] System audio capture not available on this platform");
@@ -795,12 +1136,24 @@ function setupIPC(): void {
       ? path.join(app.getAppPath(), "native", "audio-capture.exe")
       : path.join(process.resourcesPath, "native", "audio-capture.exe");
 
-    console.log(`[main] Starting audio capture gen=${thisGen}: ${exePath} (exclude PID ${process.pid})`);
+    // Sharing one window shares only that window's audio; sharing a monitor shares
+    // everything we hear except ourselves. desktopCapturer window ids are
+    // "window:<HWND>:<n>" on Windows — the exe resolves the HWND to its process and
+    // degrades to exclude-mode if that window is stale or is one of ours.
+    const hwnd =
+      typeof sourceId === "string" && sourceId.startsWith("window:")
+        ? sourceId.split(":")[1]
+        : null;
+    const args = hwnd
+      ? ["--include-window", hwnd, "--self", process.pid.toString()]
+      : ["--exclude", process.pid.toString()];
+
+    console.log(`[main] Starting audio capture gen=${thisGen}: ${exePath} ${args.join(" ")}`);
 
     captureHeaderParsed = false;
     captureHeaderBuffer = Buffer.alloc(0);
 
-    captureProcess = spawn(exePath, [process.pid.toString()], {
+    captureProcess = spawn(exePath, args, {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -968,6 +1321,166 @@ function setupIPC(): void {
       // Increment generation so the killed process's exit handler
       // won't send "capture-audio-stopped" to renderer
       captureGeneration++;
+    }
+  });
+
+  // ─── Game detection ───
+  // Only runs while the renderer is in a voice channel: the row it feeds lives above the voice
+  // controls, and a poll loop that outlives its only consumer is a background process nobody asked
+  // for. Detections arrive as "game-detected" pushes; null means there is nothing to offer.
+  ipcMain.handle("start-game-detection", async () => {
+    await startGameProbe();
+  });
+
+  ipcMain.handle("stop-game-detection", () => {
+    stopGameProbe();
+  });
+
+  // Sharp shares still go through getDisplayMedia; this is how the row skips the picker for them.
+  // Cleared on read, and cleared here too so an abandoned share can't leak into the next one.
+  ipcMain.handle("set-prepicked-source", (_e, sourceId: string | null) => {
+    prePickedSourceId = sourceId;
+  });
+
+  // ─── Native Game Capture ───
+  // Spawns mqvi-game-capture.exe (WGC capture + hardware encode). It joins the LiveKit room as
+  // the "{userId}_ss" screen-share identity using the screen-token, so other clients subscribe
+  // to it exactly like any screen share. Connection + capture params come from the renderer.
+  ipcMain.handle(
+    "start-game-capture",
+    async (
+      _e,
+      opts: {
+        url: string;
+        token: string;
+        e2eePassphrase: string;
+        sourceId?: string;
+        maxHeight?: number;
+      }
+    ): Promise<{ started: boolean; error?: string }> => {
+      if (process.platform !== "win32") return { started: false, error: "windows only" };
+
+      if (gameCaptureProcess) {
+        const previous = gameCaptureProcess;
+        gameCaptureProcess = null;
+        gameCaptureGeneration++; // its exit is expected — don't report it as a helper death
+        await endGameCapture(previous);
+      }
+      const thisGen = ++gameCaptureGeneration;
+
+      let target: string[];
+      try {
+        target = await resolveCaptureTarget(opts.sourceId);
+      } catch (err) {
+        return { started: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      if (thisGen !== gameCaptureGeneration) return { started: false, error: "superseded" };
+
+      const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+      const exePath = isDev
+        ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
+        : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
+
+      // The quality setting is a ceiling on the stream, not on the capture — the helper grabs the
+      // source at its own size and scales down, so a 1440p monitor honours a 720p setting.
+      const quality = opts.maxHeight ? ["--max-height", String(opts.maxHeight)] : [];
+      const args = [...target, ...quality, "--config-stdin"];
+
+      console.log(`[main] Starting game capture: ${exePath} ${args.join(" ")}`);
+
+      let child: ChildProcess;
+      try {
+        child = spawn(exePath, args, {
+          env: { ...process.env, RUST_LOG: "mqvi_game_capture=info" },
+          // stdin carries the connection secrets, then stays open as the shutdown channel.
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+      } catch (err) {
+        return { started: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      gameCaptureProcess = child;
+
+      // Not the environment: on Windows any process running as this user can read another's
+      // environment block without elevation, and the passphrase decrypts the whole room's audio
+      // and video. A pipe is only readable by the two ends.
+      child.stdin?.write(
+        JSON.stringify({
+          url: opts.url,
+          token: opts.token,
+          e2eePassphrase: opts.e2eePassphrase,
+        }) + "\n"
+      );
+
+      // Spawning proves a process exists, not that anything is on the wire — the helper still has
+      // to find the source, connect and publish. Report started only once it says so, so a failure
+      // falls back to "Net Görüntü" instead of leaving a share that never appears.
+      return await new Promise((resolve) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+
+        const settle = (r: { started: boolean; error?: string }) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          resolve(r);
+        };
+
+        // Stays on this side: nothing in the renderer ever read these, and the helper narrates a
+        // line a second. Visible when the app is started from a terminal, which is where anyone
+        // debugging a share wants them anyway.
+        const forward = (d: Buffer) => {
+          const msg = d.toString().trim();
+          console.log(`[game-capture] ${msg}`);
+          if (msg.includes(GAME_CAPTURE_READY)) settle({ started: true });
+        };
+        child.stdout?.on("data", forward);
+        child.stderr?.on("data", forward);
+
+        child.on("exit", (code) => {
+          console.log(`[main] Game capture exited code=${code}`);
+          // A superseded helper must not clear the live one's handle (it would become unkillable)
+          // nor tell the renderer that sharing stopped.
+          if (thisGen === gameCaptureGeneration) {
+            gameCaptureProcess = null;
+            mainWindow?.webContents.send("game-capture-stopped", code);
+          }
+          settle({ started: false, error: `helper exited (code ${code})` });
+        });
+
+        child.on("error", (err) => {
+          console.error("[main] Game capture spawn error:", err);
+          if (thisGen === gameCaptureGeneration) {
+            gameCaptureProcess = null;
+            mainWindow?.webContents.send("game-capture-stopped", -1);
+          }
+          settle({ started: false, error: err.message });
+        });
+
+        timer = setTimeout(() => {
+          // Same bookkeeping as every other path that ends a helper: drop the handle and retire
+          // the generation, so this one's exit isn't reported to the renderer as a live helper
+          // dying. It may already be capturing (and drawing the border) even though it never
+          // published, so it still gets asked to stop rather than terminated.
+          if (thisGen === gameCaptureGeneration) {
+            gameCaptureProcess = null;
+            gameCaptureGeneration++;
+          }
+          void endGameCapture(child);
+          settle({ started: false, error: "helper did not start publishing in time" });
+        }, GAME_CAPTURE_READY_TIMEOUT_MS);
+      });
+    }
+  );
+
+  ipcMain.handle("stop-game-capture", async () => {
+    // This exit is expected: bump the generation so its handler doesn't report "stopped" to the
+    // renderer as if the helper had died on its own.
+    gameCaptureGeneration++;
+    const child = gameCaptureProcess;
+    gameCaptureProcess = null;
+    if (child) {
+      console.log("[main] Stopping game capture");
+      await endGameCapture(child);
     }
   });
 
@@ -1323,17 +1836,19 @@ app.on("before-quit", (e) => {
   isQuitting = true;
 
   stopUiohook();
+  // Nothing to wind down — it holds no capture and no room, and closing its stdin is enough.
+  stopGameProbe();
   pttTargetKeycode = null;
   pttTargetMouseButton = null;
   muteShortcut = null;
   deafenShortcut = null;
 
-  if (!captureProcess || cleanupDone) {
+  if ((!captureProcess && !gameCaptureProcess) || cleanupDone) {
     // Nothing to wait for — let quit proceed
     return;
   }
 
-  // Prevent quit until capture process exits (or timeout)
+  // Prevent quit until the capture children exit (or timeout)
   e.preventDefault();
   cleanupDone = true;
 
@@ -1341,10 +1856,22 @@ app.on("before-quit", (e) => {
   captureGeneration++;
   captureProcess = null;
 
+  // The game-capture helper gets the same graceful stop as anywhere else: terminating it would
+  // leave its capture border on the shared screen and a ghost share in the room.
+  const gameChild = gameCaptureProcess;
+  gameCaptureGeneration++;
+  gameCaptureProcess = null;
+  const gameStopped = gameChild ? endGameCapture(gameChild) : Promise.resolve();
+
   const finish = () => {
-    proc.removeAllListeners("exit");
-    app.quit();
+    proc?.removeAllListeners("exit");
+    void gameStopped.finally(() => app.quit());
   };
+
+  if (!proc) {
+    finish();
+    return;
+  }
 
   // If the process exits within 2s, quit immediately
   proc.on("exit", finish);

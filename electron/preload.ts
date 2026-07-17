@@ -48,20 +48,92 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("show-screen-picker", (_e, sources) => cb(sources));
   },
 
+  /** Drop the screen-picker listener, so remounts don't stack duplicates */
+  removeScreenPickerListener: (): void => {
+    ipcRenderer.removeAllListeners("show-screen-picker");
+  },
+
   /** Send user's selection to main process (null = cancelled) */
   sendScreenPickerResult: (sourceId: string | null): void => {
     ipcRenderer.send("screen-picker-result", sourceId);
   },
 
-  // ─── Process-Exclusive Audio Capture IPC ───
-  // Uses native audio-capture.exe (WASAPI process loopback) to capture
-  // system audio while excluding our own process tree — no voice echo.
+  // ─── Screen Share Audio Capture IPC ───
+  // Uses native audio-capture.exe (WASAPI process loopback) to capture the audio
+  // that belongs to the share, never our own — no voice echo.
 
-  /** Start system audio capture (excludes Electron's own audio) */
-  startSystemCapture: (): Promise<void> => ipcRenderer.invoke("start-system-capture"),
+  /** Start screen share audio capture. `sourceId` = the picked desktopCapturer source:
+   *  a window shares only its own audio, a screen shares all system audio but ours. */
+  startSystemCapture: (sourceId?: string | null): Promise<void> =>
+    ipcRenderer.invoke("start-system-capture", sourceId ?? null),
 
   /** Stop system audio capture */
   stopSystemCapture: (): Promise<void> => ipcRenderer.invoke("stop-system-capture"),
+
+  /** Host platform, so the renderer can gate Windows-only paths without a round trip. */
+  platform: process.platform,
+
+  // ─── Native Game Capture (WGC + hardware encode → LiveKit as {userId}_ss) ───
+
+  /** Start native game capture of the picked desktopCapturer source. Resolves once the helper is
+   *  actually publishing (or failed) — `started: false` means fall back to getDisplayMedia. */
+  startGameCapture: (opts: {
+    url: string;
+    token: string;
+    e2eePassphrase: string;
+    sourceId: string;
+    maxHeight: number;
+  }): Promise<{ started: boolean; error?: string }> =>
+    ipcRenderer.invoke("start-game-capture", opts),
+
+  /** Stop native game capture */
+  stopGameCapture: (): Promise<void> => ipcRenderer.invoke("stop-game-capture"),
+
+  // ─── Game detection (the "Go Live" row) ───
+  // Windows-only. Elsewhere start is a no-op and nothing is ever pushed, so the row never appears
+  // rather than appearing and failing.
+
+  /** Begin watching for a running game. Call on voice join. */
+  startGameDetection: (): Promise<void> => ipcRenderer.invoke("start-game-detection"),
+
+  /** Stop watching. Call on voice leave — the probe is not meant to outlive the row. */
+  stopGameDetection: (): Promise<void> => ipcRenderer.invoke("stop-game-detection"),
+
+  /** Answer the next getDisplayMedia with this source instead of showing the picker. Consumed once;
+   *  pass null to clear. Only needed for sharp shares — smooth never goes through getDisplayMedia. */
+  setPrePickedSource: (sourceId: string | null): Promise<void> =>
+    ipcRenderer.invoke("set-prepicked-source", sourceId),
+
+  /** The game to offer, or null when there is nothing. `sourceId` feeds the existing share path
+   *  unchanged; `icon` is a data URL, absent when the window has none. */
+  onGameDetected: (
+    cb: (
+      game: {
+        name: string;
+        pid: number;
+        hwnd: number;
+        sourceId: string;
+        via: "library" | "list" | "gpu";
+        icon: string | null;
+      } | null
+    ) => void
+  ): void => {
+    ipcRenderer.on("game-detected", (_e, game) => cb(game));
+  },
+
+  /** Drop the detection listener — without this a remount stacks another one on every join. */
+  removeGameDetectionListeners: (): void => {
+    ipcRenderer.removeAllListeners("game-detected");
+  },
+
+  /** The game-capture helper exited (exit code; -1 = spawn error) */
+  onGameCaptureStopped: (cb: (code: number) => void): void => {
+    ipcRenderer.on("game-capture-stopped", (_e, code: number) => cb(code));
+  },
+
+  removeGameCaptureListeners: (): void => {
+    ipcRenderer.removeAllListeners("game-capture-stopped");
+  },
 
   /**
    * Remove all capture-related IPC listeners.

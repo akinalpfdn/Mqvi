@@ -103,9 +103,35 @@ jobs:
         working-directory: client
 
       # ─── Windows: compile native audio-capture.exe ───
+      # Keep in sync with native/build.bat.
       - name: Compile audio-capture.exe
         if: matrix.platform == 'windows-latest'
-        run: cl.exe /EHsc /O2 /W3 native\audio-capture.cpp /Fe:native\audio-capture.exe ole32.lib mmdevapi.lib
+        run: cl.exe /EHsc /O2 /W3 native\audio-capture.cpp /Fe:native\audio-capture.exe ole32.lib mmdevapi.lib user32.lib
+        shell: cmd
+
+      # ─── Windows: compile native game-probe.exe (game detection sensor) ───
+      # Keep in sync with native/build.bat.
+      - name: Compile game-probe.exe
+        if: matrix.platform == 'windows-latest'
+        run: cl.exe /EHsc /O2 /W3 native\game-probe.cpp /Fe:native\game-probe.exe pdh.lib user32.lib
+        shell: cmd
+
+      # native/games-list.json needs no build step: it is committed, and extraResources ships it.
+
+      # ─── Windows: native mqvi-game-capture.exe ("Akıcı Görüntü" engine) ───
+      # extraResources copies it from native/ and the binary is git-ignored (31 MB), so a release
+      # has to produce it here. It takes ~20 min (the livekit crate fetches a prebuilt libwebrtc);
+      # that is release-time cost only and never reaches users, so we just build it every time.
+      # Caching it was tried and removed: this workflow only runs on tags, and Actions scopes a
+      # cache to the ref that wrote it — a tag can read its own scope or the default branch's,
+      # never another tag's, so it could never hit. Always building also means the binary can't
+      # go stale against its sources.
+      - name: Build mqvi-game-capture.exe
+        if: matrix.platform == 'windows-latest'
+        run: |
+          cargo build --release --bin mqvi-game-capture
+          copy /Y target\release\mqvi-game-capture.exe ..\mqvi-game-capture.exe
+        working-directory: native/game-capture
         shell: cmd
 
       # ─── Compile Electron TypeScript ───

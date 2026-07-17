@@ -97,6 +97,11 @@ type VoiceCoreState = {
   isMuted: boolean;
   isDeafened: boolean;
   isStreaming: boolean;
+  /** "Akıcı Görüntü" engine is live: the native capture helper is publishing {userId}_ss */
+  isNativeCapturing: boolean;
+  /** desktopCapturer id of the source being shared ("window:<HWND>:0" / "screen:<id>:0").
+   *  Set by the picker; the audio capture needs it to scope itself to the share. */
+  pickedShareSourceId: string | null;
   /** Server-enforced mute — admin silenced this user's mic */
   isServerMuted: boolean;
   /** Server-enforced deafen — admin silenced all audio for this user */
@@ -134,6 +139,14 @@ type VoiceCoreActions = {
   toggleMute: () => void;
   toggleDeafen: () => void;
   setStreaming: (isStreaming: boolean) => void;
+  /**
+   * "Akıcı Görüntü" engine (Electron/Windows): hand the share to the native WGC + hardware-encode
+   * helper instead of getDisplayMedia. Returns false if it couldn't start, so the caller can fall
+   * back to "Net Görüntü".
+   */
+  startNativeSmoothCapture: (sourceId: string) => Promise<boolean>;
+  stopNativeSmoothCapture: () => void;
+  setPickedShareSourceId: (sourceId: string | null) => void;
   setRtt: (rtt: number) => void;
   setActiveSpeakers: (speakerIds: string[]) => void;
   registerOnLeave: (fn: (() => void) | null) => void;
@@ -163,6 +176,8 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   isMuted: initialMuteState.isMuted,
   isDeafened: initialMuteState.isDeafened,
   isStreaming: false,
+  isNativeCapturing: false,
+  pickedShareSourceId: null,
   isServerMuted: false,
   isServerDeafened: false,
   livekitUrl: null,
@@ -317,6 +332,11 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       }
     }
 
+    // Stop the "Akıcı Görüntü" helper if it's running (it outlives the JS otherwise).
+    if (get().isNativeCapturing) {
+      void window.electronAPI?.stopGameCapture();
+    }
+
     set({
       voiceStates: newVoiceStates,
       currentVoiceChannelId: null,
@@ -326,6 +346,8 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       e2eePassphrase: null,
       // isMuted/isDeafened intentionally NOT reset — they persist across sessions
       isStreaming: false,
+      isNativeCapturing: false,
+  pickedShareSourceId: null,
       isServerMuted: false,
       isServerDeafened: false,
       activeSpeakers: {},
@@ -384,6 +406,51 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
 
   setStreaming: (isStreaming: boolean) => {
     set({ isStreaming });
+  },
+
+  startNativeSmoothCapture: async (sourceId: string) => {
+    const serverId = useServerStore.getState().activeServerId;
+    const channelId = get().currentVoiceChannelId;
+    if (!serverId || !channelId || !window.electronAPI) return false;
+    // Before the token round-trip, not after: the helper is Windows-only, so anywhere else this
+    // would mint a screen-share token and hand the room passphrase to a path that only rejects it.
+    if (window.electronAPI.platform !== "win32") return false;
+
+    // Screen-token = the {userId}_ss identity + the room's E2EE passphrase; the native helper
+    // publishes with these, so it decrypts on every client exactly like any screen share.
+    const resp = await voiceApi.getScreenShareToken(serverId, channelId);
+    if (!resp.success || !resp.data?.e2ee_passphrase) {
+      console.error("[voice] smooth capture: screen-token failed", resp.error);
+      return false;
+    }
+    const { url, token, e2ee_passphrase } = resp.data;
+    // Resolves only once the helper is really publishing — a false here means nothing was ever
+    // on the wire, so the caller can still fall back to sharp.
+    const res = await window.electronAPI.startGameCapture({
+      url,
+      token,
+      e2eePassphrase: e2ee_passphrase,
+      sourceId,
+      // The same setting "Net Görüntü" already honours — a cap on the stream, not the capture.
+      maxHeight: get().screenShareQuality === "720p" ? 720 : 1080,
+    });
+    if (!res.started) {
+      console.error("[voice] smooth capture failed to start:", res.error);
+      return false;
+    }
+    // Presence is derived from (isStreaming || isNativeCapturing) in VoiceStateManager — one
+    // sharing concept, two engines — so nothing to broadcast here.
+    set({ isNativeCapturing: true });
+    return true;
+  },
+
+  stopNativeSmoothCapture: () => {
+    void window.electronAPI?.stopGameCapture();
+    set({ isNativeCapturing: false });
+  },
+
+  setPickedShareSourceId: (sourceId) => {
+    set({ pickedShareSourceId: sourceId });
   },
 
   setRtt: (rtt) => set({ rtt }),

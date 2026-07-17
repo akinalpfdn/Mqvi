@@ -1,0 +1,6 @@
+# Vendored from client/node_modules/livekit-client/dist (livekit-client 2.17.x) —
+# not committed. Recreate with:
+#   cp ../../../client/node_modules/livekit-client/dist/livekit-client.esm.mjs .
+#   cp ../../../client/node_modules/livekit-client/dist/livekit-client.e2ee.worker.mjs .
+livekit-client.esm.mjs
+livekit-client.e2ee.worker.mjs

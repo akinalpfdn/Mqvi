@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
 import { RoomEvent, ParticipantEvent, ConnectionState, Track, LocalAudioTrack as LKLocalAudioTrack } from "livekit-client";
 import type {
@@ -26,11 +27,13 @@ import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
 import { getScreenShareToken } from "../../api/voice";
 import { useServerStore } from "../../stores/serverStore";
+import { useToastStore } from "../../stores/toastStore";
 
 /** Both processors expose setMicSensitivity and setInputVolume */
 type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
 
 function VoiceStateManager() {
+  const { t: tVoice } = useTranslation("voice");
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const isMuted = useVoiceStore((s) => s.isMuted);
@@ -44,6 +47,7 @@ function VoiceStateManager() {
   const isDeafened = useVoiceStore((s) => s.isDeafened);
   const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
+  const pickedShareSourceId = useVoiceStore((s) => s.pickedShareSourceId);
   const noiseReduction = useVoiceStore((s) => s.noiseReduction);
   const micSensitivity = useVoiceStore((s) => s.micSensitivity);
   const inputVolume = useVoiceStore((s) => s.inputVolume);
@@ -77,20 +81,20 @@ function VoiceStateManager() {
     });
   }, [isMuted, isServerMuted, inputMode, localParticipant]);
 
-  // Process-exclusive audio capture (Electron only).
-  // Uses native audio-capture.exe to capture system audio excluding our
-  // own Electron process tree — prevents screen share echo.
+  // Screen share audio capture (Electron only) — see the effect further down.
   const systemAudioCapture = useSystemAudioCapture();
   const systemAudioCaptureRef = useRef(systemAudioCapture);
   systemAudioCaptureRef.current = systemAudioCapture;
 
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
+  /** Which run of the screen-share audio effect owns the capture process — see that effect. */
+  const audioRunRef = useRef(0);
 
-  // Sync isStreaming -> LiveKit screen share.
+  // Sync isStreaming -> LiveKit screen share video.
   // Capacitor (iOS/Android): native plugin via separate LiveKit connection.
   //   iOS: ReplayKit + LiveKit Swift SDK. Android: MediaProjection + LiveKit Android SDK.
-  // Electron: video via getDisplayMedia, audio via native WASAPI capture (echo-free).
-  // Browser: standard getDisplayMedia with optional audio.
+  // Electron/Browser: getDisplayMedia. Share audio is its own effect below — on Electron it
+  // belongs to the share, not to this engine ("Akıcı Görüntü" draws video without it).
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
@@ -114,38 +118,15 @@ function VoiceStateManager() {
           }
 
           await startNativeScreenShare(response.data.url, response.data.token);
-        } else if (isElectron() && screenShareAudio) {
-          // Electron: video only via getDisplayMedia, audio via native capture
-          const ssq = useVoiceStore.getState().screenShareQuality;
-          const ssRes = ssq === "720p"
-            ? { width: 1280, height: 720, frameRate: 30 }
-            : { width: 1920, height: 1080, frameRate: 30 };
-          await localParticipant.setScreenShareEnabled(true, {
-            audio: false,
-            resolution: ssRes,
-            contentHint: "motion",
-          });
-
-          if (cancelled) return;
-
-          const audioTrack = await systemAudioCaptureRef.current.start();
-
-          if (cancelled || !audioTrack) return;
-
-          // Wrap in LiveKit's LocalAudioTrack and publish as ScreenShareAudio
-          const lkTrack = new LKLocalAudioTrack(audioTrack, undefined, false);
-          const pub = await localParticipant.publishTrack(lkTrack, {
-            source: Track.Source.ScreenShareAudio,
-          });
-          customAudioPubRef.current = pub;
         } else {
-          // Browser: standard getDisplayMedia
           const ssq = useVoiceStore.getState().screenShareQuality;
           const ssRes = ssq === "720p"
             ? { width: 1280, height: 720, frameRate: 30 }
             : { width: 1920, height: 1080, frameRate: 30 };
           await localParticipant.setScreenShareEnabled(true, {
-            audio: screenShareAudio,
+            // Electron takes share audio from the native capture instead: getDisplayMedia's
+            // loopback would carry our own voice chat back into the stream.
+            audio: isElectron() ? false : screenShareAudio,
             resolution: ssRes,
             contentHint: "motion",
           });
@@ -168,25 +149,21 @@ function VoiceStateManager() {
           // Capacitor: stop native screen share
           await stopNativeScreenShare();
         } else {
-          if (customAudioPubRef.current) {
-            await localParticipant.unpublishTrack(
-              customAudioPubRef.current.track!
-            );
-            customAudioPubRef.current = null;
-          }
-
-          systemAudioCaptureRef.current.stop();
           await localParticipant.setScreenShareEnabled(false);
         }
       }
     }
 
     toggleScreenShare().catch((err: unknown) => {
-      if (!cancelled) {
+      if (cancelled) return;
+      // "Akıcı Görüntü" hands the share to the native helper and deliberately cancels
+      // getDisplayMedia — that rejection is expected, not a failure.
+      if (!useVoiceStore.getState().isNativeCapturing) {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
-        if (isStreaming) {
-          useVoiceStore.getState().setStreaming(false);
-        }
+      }
+      // Either way the JS engine isn't streaming. Presence stays up via isNativeCapturing.
+      if (isStreaming) {
+        useVoiceStore.getState().setStreaming(false);
       }
     });
 
@@ -196,13 +173,102 @@ function VoiceStateManager() {
   // Mirror local streaming state to the server on every change, whatever the
   // trigger (button, OS "stop sharing", window/game close, track drop). Other
   // clients only learn we stopped through this — the button alone wasn't enough.
-  const streamingSentRef = useRef(isStreaming);
+  // One sharing concept, two engines: getDisplayMedia ("Net Görüntü") or the native helper
+  // ("Akıcı Görüntü") — presence follows either being live.
+  const isNativeCapturing = useVoiceStore((s) => s.isNativeCapturing);
+  const isSharing = isStreaming || isNativeCapturing;
+
+  // Screen share audio (Electron). Scoped to the picked source by the native capture: a shared
+  // window contributes only its own audio — not the film playing next to it — while a shared
+  // monitor contributes everything except our own tree (which would echo voice chat back).
+  // It follows isSharing, not isStreaming: with "Akıcı Görüntü" the helper draws the video and
+  // getDisplayMedia is cancelled, but this track is still published by us.
+  useEffect(() => {
+    if (!isElectron() || !initialSyncDone.current) return;
+
+    let cancelled = false;
+    const shouldCapture = isSharing && screenShareAudio && pickedShareSourceId !== null;
+    // There is one capture process behind the hook, so only its current owner may stop it. A run
+    // that gets cancelled mid-start finishes after the next run has already started a new capture
+    // — stopping then would kill the live one and leave the share silent with nothing retrying.
+    const myRun = ++audioRunRef.current;
+    const isCurrentOwner = () => audioRunRef.current === myRun;
+
+    async function startAudio() {
+      const track = await systemAudioCaptureRef.current.start(pickedShareSourceId);
+      if (!track) return;
+      if (cancelled) {
+        if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
+        return;
+      }
+      const lkTrack = new LKLocalAudioTrack(track, undefined, false);
+      const pub = await localParticipant.publishTrack(lkTrack, {
+        source: Track.Source.ScreenShareAudio,
+      });
+      if (cancelled) {
+        // Stopped mid-publish: stopAudio() saw no publication yet, so this one would
+        // outlive the share as a dead track nobody unpublishes.
+        await localParticipant.unpublishTrack(lkTrack);
+        if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
+        return;
+      }
+      customAudioPubRef.current = pub;
+    }
+
+    async function stopAudio() {
+      const pub = customAudioPubRef.current;
+      customAudioPubRef.current = null;
+      if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
+      if (pub?.track) await localParticipant.unpublishTrack(pub.track);
+    }
+
+    if (shouldCapture) {
+      startAudio().catch((err: unknown) => {
+        console.error("[VoiceStateManager] Screen share audio failed:", err);
+      });
+    }
+
+    // No share, no source: a leftover id would scope the next share's audio to the old window.
+    if (!isSharing && pickedShareSourceId !== null) {
+      useVoiceStore.getState().setPickedShareSourceId(null);
+    }
+
+    // Stopping belongs here rather than in an else-branch above: leaving voice clears isSharing and
+    // unmounts us in the same commit, so the effect never runs again — only this does. Without it
+    // the capture process outlives the share and keeps recording the machine's audio.
+    return () => {
+      cancelled = true;
+      if (shouldCapture) {
+        stopAudio().catch((err: unknown) => {
+          console.error("[VoiceStateManager] Stopping screen share audio failed:", err);
+        });
+      }
+    };
+  }, [isSharing, screenShareAudio, pickedShareSourceId, localParticipant]);
+
+  // The helper ends on its own when it crashes, or when the source it was capturing goes away (the
+  // game exits, the window closes, a display is unplugged). Nothing else notices: isNativeCapturing
+  // would stay true, so the button would claim we're sharing and presence would keep telling
+  // everyone so, with nothing on the wire.
+  useEffect(() => {
+    if (!isElectron() || !window.electronAPI) return;
+
+    window.electronAPI.onGameCaptureStopped(() => {
+      if (!useVoiceStore.getState().isNativeCapturing) return; // we stopped it ourselves
+      useVoiceStore.getState().stopNativeSmoothCapture();
+      useToastStore.getState().addToast("error", tVoice("smoothCaptureStopped"));
+    });
+
+    return () => window.electronAPI?.removeGameCaptureListeners();
+  }, [tVoice]);
+
+  const streamingSentRef = useRef(isSharing);
   useEffect(() => {
     if (!initialSyncDone.current) return;
-    if (streamingSentRef.current === isStreaming) return;
-    streamingSentRef.current = isStreaming;
-    useVoiceStore.getState()._wsSend?.("voice_state_update_request", { is_streaming: isStreaming });
-  }, [isStreaming]);
+    if (streamingSentRef.current === isSharing) return;
+    streamingSentRef.current = isSharing;
+    useVoiceStore.getState()._wsSend?.("voice_state_update_request", { is_streaming: isSharing });
+  }, [isSharing]);
 
   // Capacitor: listen for native screen share stopped (user stops externally)
   useEffect(() => {

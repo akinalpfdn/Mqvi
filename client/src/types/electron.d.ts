@@ -18,6 +18,19 @@ interface ElectronDownloadProgress {
   total: number;
 }
 
+/** A running game worth offering to share, as detected by game-probe.exe + electron/gameDetect.ts. */
+export interface DetectedGame {
+  name: string;
+  pid: number;
+  hwnd: number;
+  /** desktopCapturer-shaped, so it feeds the existing share path unchanged. */
+  sourceId: string;
+  /** Which layer named it: a game library, the games list, or the GPU heuristic. */
+  via: "library" | "list" | "gpu";
+  /** Data URL, or null when the window has no icon. */
+  icon: string | null;
+}
+
 interface ElectronDesktopSource {
   id: string;
   name: string;
@@ -48,11 +61,14 @@ interface ElectronAPI {
   getDesktopSources: () => Promise<ElectronDesktopSource[]>;
   /** Main process requests screen picker — delivers sources */
   onShowScreenPicker: (cb: (sources: ElectronDesktopSource[]) => void) => void;
+  /** Drop the screen-picker listener, so remounts don't stack duplicates */
+  removeScreenPickerListener: () => void;
   /** Send user's selection back to main process (null = cancelled) */
   sendScreenPickerResult: (sourceId: string | null) => void;
 
-  /** Start process-exclusive system audio capture (excludes our own audio) */
-  startSystemCapture: () => Promise<void>;
+  /** Start screen share audio capture for the picked source: a window captures only its
+   *  own audio, a screen captures all system audio except ours. */
+  startSystemCapture: (sourceId?: string | null) => Promise<void>;
   stopSystemCapture: () => Promise<void>;
   /** Remove all capture-related IPC listeners to prevent accumulation */
   removeCaptureListeners: () => void;
@@ -60,6 +76,37 @@ interface ElectronAPI {
   onCaptureAudioData: (cb: (data: Uint8Array) => void) => void;
   onCaptureAudioStopped: (cb: () => void) => void;
   onCaptureAudioError: (cb: (msg: string) => void) => void;
+
+  /** Host platform ("win32" | "darwin" | "linux"), for gating Windows-only paths. */
+  platform: string;
+
+  // ─── Native Game Capture (WGC + hardware encode → LiveKit as {userId}_ss) ───
+  /** Start native game capture of the picked desktopCapturer source. Resolves once the helper is
+   *  actually publishing (or failed) — `started: false` means fall back to getDisplayMedia. */
+  startGameCapture: (opts: {
+    url: string;
+    token: string;
+    e2eePassphrase: string;
+    sourceId: string;
+    /** Cap on the stream's height, from the screen-share quality setting. */
+    maxHeight: number;
+  }) => Promise<{ started: boolean; error?: string }>;
+  stopGameCapture: () => Promise<void>;
+  onGameCaptureStopped: (cb: (code: number) => void) => void;
+  removeGameCaptureListeners: () => void;
+
+  // ─── Game detection (the "Go Live" row) ───
+  // Windows-only: elsewhere start is a no-op and nothing is pushed, so the row never appears.
+  /** Begin watching for a running game. Call on voice join. */
+  startGameDetection: () => Promise<void>;
+  /** Stop watching. Call on voice leave. */
+  stopGameDetection: () => Promise<void>;
+  /** The game to offer, or null when there is nothing. */
+  onGameDetected: (cb: (game: DetectedGame | null) => void) => void;
+  removeGameDetectionListeners: () => void;
+  /** Answer the next getDisplayMedia with this source instead of showing the picker. Consumed once;
+   *  null clears it. Only sharp shares need this — smooth never calls getDisplayMedia. */
+  setPrePickedSource: (sourceId: string | null) => Promise<void>;
 
   /** Register a key for global PTT detection (works when app is unfocused) */
   registerPTTShortcut: (keyCode: string) => Promise<boolean>;

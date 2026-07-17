@@ -1,0 +1,79 @@
+[package]
+name = "mqvi-game-capture"
+version = "0.1.0"
+edition = "2021"
+description = "Native WGC+NVENC game capture, published to LiveKit with E2EE (NGC spike)."
+publish = false
+
+[lib]
+name = "mqvi_game_capture"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mqvi-game-capture"
+path = "src/main.rs"
+
+[[bin]]
+name = "test-encode"
+path = "src/bin/test_encode.rs"
+
+# No [profile.release] tuning: the 31 MB is statically-linked libwebrtc, not symbols. Measured —
+# strip changed nothing (release carries no debug info) and thin LTO made it 0.5 MB *bigger* while
+# turning a 12 s incremental build into 1m44s.
+
+[dependencies]
+# native (default) feature pulls libwebrtc → gives us the FrameCryptor E2EE that is
+# format-compatible with our JS clients' ExternalE2EEKeyProvider. rustls avoids an
+# OpenSSL dependency on Windows MSVC.
+livekit = { version = "0.7", features = ["rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["full", "parking_lot"] }
+clap = { version = "4", features = ["derive", "env"] }
+# Already in the tree via livekit — no extra download. Used only to read the connection secrets
+# handed to us on stdin.
+serde_json = "1"
+anyhow = "1"
+env_logger = "0.11"
+log = "0.4"
+
+# Windows Media Foundation (hardware encode) + Windows.Graphics.Capture (WGC screen capture).
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Foundation",
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    # WGC + D3D11 interop for zero-copy screen/game capture (NGC-03)
+    "Graphics_Capture",
+    # GraphicsCaptureAccess::RequestAccessAsync returns an AppCapabilityAccessStatus — without this
+    # feature windows-rs omits the method entirely (borderless capture needs it).
+    "Security_Authorization_AppCapabilityAccess",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[[bin]]
+name = "probe-encoders"
+path = "src/bin/probe_encoders.rs"
+
+[[bin]]
+name = "probe-capture"
+path = "src/bin/probe_capture.rs"
+
+# Drives the capture layer without a room: the only way to exercise resize/close locally.
+[[bin]]
+name = "probe-lifecycle"
+path = "src/bin/probe_lifecycle.rs"
+
+[[bin]]
+name = "test-capture-encode"
+path = "src/bin/test_capture_encode.rs"
