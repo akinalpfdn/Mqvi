@@ -25,6 +25,10 @@ public class MainActivity extends BridgeActivity {
     // Last insets seen, as the JS that applies them. Main thread only.
     private String pendingInsetJs = null;
 
+    // Last keyboard height pushed to the page (px, 1-decimal). Skips redundant emits — including
+    // the 0s that non-IME inset animations would otherwise fire. Main thread only.
+    private float lastKeyboardPx = -1f;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(VoiceCallPlugin.class);
@@ -157,10 +161,15 @@ public class MainActivity extends BridgeActivity {
         // Keyboard height ABOVE the nav bar: #root already reserves the nav bar via
         // --safe-area-inset-bottom, so folding the full ime inset in would double-count it.
         float keyboard = Math.max(0, ime - nav) / density;
+        float rounded = Math.round(keyboard * 10f) / 10f;
+        if (rounded == lastKeyboardPx) {
+            return;
+        }
+        lastKeyboardPx = rounded;
         String js = String.format(
             Locale.US,
             "document.documentElement.style.setProperty('--keyboard-inset','%.1fpx');",
-            keyboard
+            rounded
         );
         webView.evaluateJavascript(js, null);
     }
