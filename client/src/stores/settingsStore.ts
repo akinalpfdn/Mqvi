@@ -29,18 +29,18 @@ function loadPersistedTheme(): ThemeId {
 }
 
 function loadPersistedBlur(): boolean {
+  // Capacitor (mobile WebView): blur is never worth the GPU cost here — it repaints per message
+  // bubble and per keystroke. Force it OFF and ignore any stored preference (the toggle is hidden
+  // on mobile too), so there is no way to turn it on.
+  if (isCapacitor()) {
+    return false;
+  }
   try {
     const stored = localStorage.getItem(BLUR_STORAGE_KEY);
     if (stored === "1") return true;
     if (stored === "0") return false;
   } catch {
     /* localStorage access error */
-  }
-  // Capacitor (mobile WebView): backdrop-filter blur is too expensive on mobile GPUs — it repaints
-  // per message bubble and per keystroke. Default OFF; a user who explicitly enables it keeps it
-  // (the stored-preference check above runs first).
-  if (isCapacitor()) {
-    return false;
   }
   // Heuristic default: disable blur on low-end hardware or when user requests reduced transparency
   if (typeof navigator !== "undefined" && typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency < 4) {
@@ -156,12 +156,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   setBlurEnabled: (enabled) => {
+    // Blur stays off on mobile no matter what — nothing can turn it on there.
+    const eff = isCapacitor() ? false : enabled;
     try {
-      localStorage.setItem(BLUR_STORAGE_KEY, enabled ? "1" : "0");
+      localStorage.setItem(BLUR_STORAGE_KEY, eff ? "1" : "0");
     } catch {
       /* localStorage full or inaccessible */
     }
-    set({ blurEnabled: enabled });
+    set({ blurEnabled: eff });
   },
 
   setWallpaperEnabled: (enabled) => {

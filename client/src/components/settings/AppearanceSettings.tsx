@@ -9,7 +9,7 @@ import { uploadWallpaper, deleteWallpaper } from "../../api/profile";
 import { resolveAssetUrl } from "../../utils/constants";
 import { clearWallpaperCache } from "../../utils/wallpaperCache";
 import { THEMES, THEME_ORDER, type ThemeId } from "../../styles/themes";
-import { isElectron } from "../../utils/constants";
+import { isElectron, isCapacitor } from "../../utils/constants";
 
 function AppearanceSettings() {
   const { t } = useTranslation("settings");
@@ -89,20 +89,25 @@ function AppearanceSettings() {
 
   return (
     <div>
-      <h2 className="settings-section-title">{t("blurTitle")}</h2>
-      <p className="theme-section-desc">{t("blurDescription")}</p>
-      <label className="settings-toggle-row">
-        <span>{t("blurTitle")}</span>
-        <button
-          className={`ub-switch${blurEnabled ? " active" : ""}`}
-          onClick={() => setBlurEnabled(!blurEnabled)}
-          role="switch"
-          aria-checked={blurEnabled}
-          type="button"
-        >
-          <span className="ub-switch-thumb" />
-        </button>
-      </label>
+      {/* Blur is force-disabled on mobile (too costly on mobile GPUs), so the toggle is hidden there. */}
+      {!isCapacitor() && (
+        <>
+          <h2 className="settings-section-title">{t("blurTitle")}</h2>
+          <p className="theme-section-desc">{t("blurDescription")}</p>
+          <label className="settings-toggle-row">
+            <span>{t("blurTitle")}</span>
+            <button
+              className={`ub-switch${blurEnabled ? " active" : ""}`}
+              onClick={() => setBlurEnabled(!blurEnabled)}
+              role="switch"
+              aria-checked={blurEnabled}
+              type="button"
+            >
+              <span className="ub-switch-thumb" />
+            </button>
+          </label>
+        </>
+      )}
 
       {isElectron() && (
         <>
