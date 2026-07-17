@@ -18,6 +18,19 @@ interface ElectronDownloadProgress {
   total: number;
 }
 
+/** A running game worth offering to share, as detected by game-probe.exe + electron/gameDetect.ts. */
+export interface DetectedGame {
+  name: string;
+  pid: number;
+  hwnd: number;
+  /** desktopCapturer-shaped, so it feeds the existing share path unchanged. */
+  sourceId: string;
+  /** Which layer named it: a game library, the games list, or the GPU heuristic. */
+  via: "library" | "list" | "gpu";
+  /** Data URL, or null when the window has no icon. */
+  icon: string | null;
+}
+
 interface ElectronDesktopSource {
   id: string;
   name: string;
@@ -82,6 +95,19 @@ interface ElectronAPI {
   onGameCaptureLog: (cb: (line: string) => void) => void;
   onGameCaptureStopped: (cb: (code: number) => void) => void;
   removeGameCaptureListeners: () => void;
+
+  // ─── Game detection (the "Go Live" row) ───
+  // Windows-only: elsewhere start is a no-op and nothing is pushed, so the row never appears.
+  /** Begin watching for a running game. Call on voice join. */
+  startGameDetection: () => Promise<void>;
+  /** Stop watching. Call on voice leave. */
+  stopGameDetection: () => Promise<void>;
+  /** The game to offer, or null when there is nothing. */
+  onGameDetected: (cb: (game: DetectedGame | null) => void) => void;
+  removeGameDetectionListeners: () => void;
+  /** Answer the next getDisplayMedia with this source instead of showing the picker. Consumed once;
+   *  null clears it. Only sharp shares need this — smooth never calls getDisplayMedia. */
+  setPrePickedSource: (sourceId: string | null) => Promise<void>;
 
   /** Register a key for global PTT detection (works when app is unfocused) */
   registerPTTShortcut: (keyCode: string) => Promise<boolean>;

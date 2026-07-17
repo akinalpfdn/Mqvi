@@ -11,5 +11,6 @@
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["*.ts"]
+  "include": ["*.ts"],
+  "exclude": ["**/*.test.ts"]
 }

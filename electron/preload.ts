@@ -89,6 +89,43 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** Stop native game capture */
   stopGameCapture: (): Promise<void> => ipcRenderer.invoke("stop-game-capture"),
 
+  // ─── Game detection (the "Go Live" row) ───
+  // Windows-only. Elsewhere start is a no-op and nothing is ever pushed, so the row never appears
+  // rather than appearing and failing.
+
+  /** Begin watching for a running game. Call on voice join. */
+  startGameDetection: (): Promise<void> => ipcRenderer.invoke("start-game-detection"),
+
+  /** Stop watching. Call on voice leave — the probe is not meant to outlive the row. */
+  stopGameDetection: (): Promise<void> => ipcRenderer.invoke("stop-game-detection"),
+
+  /** Answer the next getDisplayMedia with this source instead of showing the picker. Consumed once;
+   *  pass null to clear. Only needed for sharp shares — smooth never goes through getDisplayMedia. */
+  setPrePickedSource: (sourceId: string | null): Promise<void> =>
+    ipcRenderer.invoke("set-prepicked-source", sourceId),
+
+  /** The game to offer, or null when there is nothing. `sourceId` feeds the existing share path
+   *  unchanged; `icon` is a data URL, absent when the window has none. */
+  onGameDetected: (
+    cb: (
+      game: {
+        name: string;
+        pid: number;
+        hwnd: number;
+        sourceId: string;
+        via: "library" | "list" | "gpu";
+        icon: string | null;
+      } | null
+    ) => void
+  ): void => {
+    ipcRenderer.on("game-detected", (_e, game) => cb(game));
+  },
+
+  /** Drop the detection listener — without this a remount stacks another one on every join. */
+  removeGameDetectionListeners: (): void => {
+    ipcRenderer.removeAllListeners("game-detected");
+  },
+
   /** Log lines (stdout/stderr) from the game-capture helper */
   onGameCaptureLog: (cb: (line: string) => void): void => {
     ipcRenderer.on("game-capture-log", (_e, line: string) => cb(line));

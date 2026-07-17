@@ -24,7 +24,16 @@ import { autoUpdater } from "electron-updater";
 import { uIOhook, UiohookKey } from "uiohook-napi";
 import { spawn, ChildProcess } from "child_process";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { readFile } from "fs/promises";
 import path from "path";
+import {
+  classify,
+  GpuAverages,
+  loadGamesList,
+  readInstalledGames,
+  type ProbeCandidate,
+  type SuffixIndex,
+} from "./gameDetect";
 
 /** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
@@ -173,6 +182,233 @@ function endGameCapture(child: ChildProcess): Promise<void> {
       finish();
     }, GAME_CAPTURE_EXIT_TIMEOUT_MS);
   });
+}
+
+// ─── Game detection ("Go Live" row) ───
+
+/** game-probe.exe: reports who is driving the GPU's 3D engine. Only runs while in a voice channel. */
+let gameProbeProcess: ChildProcess | null = null;
+let gameProbeGeneration = 0;
+
+/** Held across the awaits in startGameProbe, where gameProbeProcess is still null but a probe is
+ *  already on its way — otherwise a second start spawns a second one. */
+let gameProbeStarting = false;
+
+const GAME_PROBE_INTERVAL_MS = 1500;
+
+/**
+ * How many GPU consumers the probe reports per line.
+ *
+ * A backgrounded game reads ~0.5% and sinks in the ranking; anything it sinks below the cut is
+ * invisible to the classifier, which would take the row away exactly when the user reaches for it.
+ * A busy desktop rarely has more than a handful of processes touching the 3D engine at all — the
+ * measured machine had seven — so this has headroom, at the cost of one EnumWindows sweep each.
+ */
+const GAME_PROBE_TOP = 20;
+
+const gpuAverages = new GpuAverages();
+const admittedGamePids = new Set<string>();
+let gamesList: SuffixIndex | null = null;
+let installedGames: Awaited<ReturnType<typeof readInstalledGames>> = [];
+/** Last thing we told the renderer, so an unchanged detection costs no icon fetch and no IPC. */
+let lastDetectedKey = "";
+
+/** Set by the game row before it triggers a sharp share: the next getDisplayMedia answers with this
+ *  source instead of showing the picker. Consumed once. */
+let prePickedSourceId: string | null = null;
+
+/** Orders the pushes. Resolving an icon is async, so two detections close together can finish out of
+ *  order and leave the row on the older one for good — the key check would then swallow the correct
+ *  line as a duplicate. */
+let detectSequence = 0;
+
+/**
+ * The game's icon, as a data URL. Only resolved when the detection changes.
+ *
+ * Three sources, best first:
+ *   1. The launcher's cached art. Steam downloads the real thing, and it is the only source that
+ *      actually looks like the game.
+ *   2. The executable's icon. Often right — and often not: Diablo IV.exe embeds none, so Windows
+ *      answers with its generic application icon, byte-identical for the Steam and Battle.net
+ *      copies. `isEmpty()` does not catch that, which is why the launcher's art goes first.
+ *   3. The window's icon. Last because a fullscreen game is frequently not listed by
+ *      desktopCapturer at all, and that call enumerates every window on the desktop.
+ */
+async function iconForGame(iconFile: string | undefined, exePath: string, hwnd: number): Promise<string | null> {
+  if (iconFile) {
+    try {
+      const bytes = await readFile(iconFile);
+      return `data:image/jpeg;base64,${bytes.toString("base64")}`;
+    } catch {
+      // Steam pruned its cache — fall through.
+    }
+  }
+
+  if (exePath) {
+    try {
+      const icon = await app.getFileIcon(exePath, { size: "large" });
+      if (!icon.isEmpty()) return icon.toDataURL();
+    } catch {
+      // Unreadable exe — fall through to the window's own icon.
+    }
+  }
+
+  // No path (SYSTEM or elevated) or no icon in the file: try what the window advertises.
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ["window"],
+      thumbnailSize: { width: 0, height: 0 },
+      fetchWindowIcons: true,
+    });
+    // Same id classify builds. Measured on this platform: every source's last component is 0, so
+    // the two must agree on that — a looser match here and an exact one at the pre-picked lookup
+    // cannot both be right.
+    const match = sources.find((s) => s.id === `window:${hwnd}:0`);
+    const icon = match?.appIcon;
+    return icon && !icon.isEmpty() ? icon.toDataURL() : null;
+  } catch {
+    return null;
+  }
+}
+
+function stopGameProbe(): void {
+  gameProbeGeneration++;
+  gameProbeStarting = false;
+  const child = gameProbeProcess;
+  gameProbeProcess = null;
+  lastDetectedKey = "";
+  admittedGamePids.clear();
+  gpuAverages.clear();
+  if (!child) return;
+  try {
+    child.stdin?.end(); // stdin EOF is the probe's shutdown contract
+  } catch {
+    // Already gone.
+  }
+  // Longer than the poll interval on purpose: the probe only notices the EOF after its sleep ends,
+  // so a shorter timeout would terminate it every single time and the contract above would be
+  // decoration. It holds no capture and no room, so the fallback kill is a backstop, not the plan.
+  setTimeout(() => {
+    if (!child.killed) child.kill();
+  }, GAME_PROBE_INTERVAL_MS + 1000);
+}
+
+async function startGameProbe(): Promise<void> {
+  if (gameProbeProcess || gameProbeStarting) return;
+  if (process.platform !== "win32") return; // no detector elsewhere — the row simply never appears
+
+  // Claimed before the first await, not after the spawn: reading the libraries takes ~50ms, and
+  // without this a stop in that window finds no child to kill and the probe we are about to spawn
+  // outlives the row forever — while a second start (React StrictMode remounts in dev) would spawn
+  // a second probe that nothing ever stops.
+  gameProbeStarting = true;
+  const generation = ++gameProbeGeneration;
+
+  const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+  const base = isDev ? path.join(app.getAppPath(), "native") : path.join(process.resourcesPath, "native");
+
+  // Re-read on every start: a game installed since the last session should be found.
+  installedGames = await readInstalledGames();
+  gamesList = await loadGamesList(path.join(base, "games-list.json"));
+
+  // Stopped while we were reading. Nothing was spawned, so there is nothing to unwind.
+  if (generation !== gameProbeGeneration) {
+    gameProbeStarting = false;
+    return;
+  }
+
+  let child: ChildProcess;
+  try {
+    child = spawn(
+      path.join(base, "game-probe.exe"),
+      ["--interval-ms", String(GAME_PROBE_INTERVAL_MS), "--top", String(GAME_PROBE_TOP)],
+      { stdio: ["pipe", "pipe", "ignore"], windowsHide: true }
+    );
+  } catch (err) {
+    console.error("[main] game-probe failed to spawn:", err);
+    gameProbeStarting = false;
+    return;
+  }
+  gameProbeProcess = child;
+  gameProbeStarting = false;
+
+  child.on("error", (err) => {
+    if (generation !== gameProbeGeneration) return;
+    console.error("[main] game-probe error:", err);
+    gameProbeProcess = null;
+  });
+  child.on("exit", () => {
+    if (generation !== gameProbeGeneration) return;
+    gameProbeProcess = null;
+    mainWindow?.webContents.send("game-detected", null);
+  });
+
+  let buffer = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    if (generation !== gameProbeGeneration) return;
+    buffer += chunk.toString("utf8");
+
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) void handleProbeLine(line, generation);
+    }
+  });
+}
+
+async function handleProbeLine(line: string, generation: number): Promise<void> {
+  let candidates: ProbeCandidate[];
+  try {
+    candidates = (JSON.parse(line) as { candidates: ProbeCandidate[] }).candidates ?? [];
+  } catch {
+    return; // a torn line is the next poll's problem
+  }
+
+  gpuAverages.push(candidates);
+
+  // Drop pids that are gone, or a long session accumulates both maps forever.
+  const alive = new Set(candidates.map((c) => c.pid));
+  for (const pid of gpuAverages.trackedPids) {
+    if (alive.has(pid) || gpuAverages.average(pid) !== 0) continue;
+    gpuAverages.forget(pid);
+    for (const key of admittedGamePids) {
+      if (key.startsWith(`${pid}|`)) admittedGamePids.delete(key);
+    }
+  }
+
+  const game = classify(candidates, {
+    installed: installedGames,
+    list: gamesList,
+    averageGpu: (pid) => gpuAverages.average(pid),
+    admitted: admittedGamePids,
+  });
+
+  const key = game ? `${game.pid}:${game.sourceId}:${game.name}` : "";
+  if (key === lastDetectedKey) return;
+  const seq = ++detectSequence;
+
+  if (!game) {
+    mainWindow?.webContents.send("game-detected", null);
+    lastDetectedKey = key;
+    return;
+  }
+
+  // Looked up here rather than carried on DetectedGame: the renderer has no use for a path to
+  // everything the user has installed, so it does not get one.
+  const exePath = candidates.find((c) => c.pid === game.pid)?.exePath ?? "";
+
+  const icon = await iconForGame(game.iconFile, exePath, game.hwnd);
+  if (generation !== gameProbeGeneration) return; // stopped while we were fetching the icon
+  if (seq !== detectSequence) return; // a newer detection already answered
+
+  // iconFile is a local path and stays here; the renderer gets the resolved image, nothing else.
+  const { iconFile: _iconFile, ...forRenderer } = game;
+  mainWindow?.webContents.send("game-detected", { ...forRenderer, icon });
+
+  // Only now: recorded before the send, a dropped push (no window yet) would mark this game as
+  // already delivered and every later line would be swallowed as a duplicate.
+  lastDetectedKey = key;
 }
 
 /**
@@ -673,6 +909,20 @@ function setupPermissions(): void {
           return;
         }
 
+        // The game row already knows what to share, so this request skips the picker. One shot:
+        // a later share must ask again.
+        const preselected = prePickedSourceId;
+        prePickedSourceId = null;
+        if (preselected) {
+          const source = sources.find((s) => s.id === preselected);
+          if (source) {
+            answer({ video: source });
+            return;
+          }
+          // The game closed between the row appearing and the click. Falling through to the picker
+          // beats answering with nothing, which the user would read as a broken button.
+        }
+
         // Serialize sources with thumbnails as DataURLs
         const serialized = sources.map((s) => ({
           id: s.id,
@@ -1072,6 +1322,24 @@ function setupIPC(): void {
       // won't send "capture-audio-stopped" to renderer
       captureGeneration++;
     }
+  });
+
+  // ─── Game detection ───
+  // Only runs while the renderer is in a voice channel: the row it feeds lives above the voice
+  // controls, and a poll loop that outlives its only consumer is a background process nobody asked
+  // for. Detections arrive as "game-detected" pushes; null means there is nothing to offer.
+  ipcMain.handle("start-game-detection", async () => {
+    await startGameProbe();
+  });
+
+  ipcMain.handle("stop-game-detection", () => {
+    stopGameProbe();
+  });
+
+  // Sharp shares still go through getDisplayMedia; this is how the row skips the picker for them.
+  // Cleared on read, and cleared here too so an abandoned share can't leak into the next one.
+  ipcMain.handle("set-prepicked-source", (_e, sourceId: string | null) => {
+    prePickedSourceId = sourceId;
   });
 
   // ─── Native Game Capture ───
@@ -1568,6 +1836,8 @@ app.on("before-quit", (e) => {
   isQuitting = true;
 
   stopUiohook();
+  // Nothing to wind down — it holds no capture and no room, and closing its stdin is enough.
+  stopGameProbe();
   pttTargetKeycode = null;
   pttTargetMouseButton = null;
   muteShortcut = null;

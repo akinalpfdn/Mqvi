@@ -12,3 +12,11 @@ if errorlevel 1 (
     exit /b 1
 )
 echo Build successful: native\audio-capture.exe
+
+echo Compiling game-probe.cpp...
+cl.exe /EHsc /O2 /W3 "%~dp0game-probe.cpp" /Fe:"%~dp0game-probe.exe" pdh.lib user32.lib
+if errorlevel 1 (
+    echo ERROR: Compilation failed
+    exit /b 1
+)
+echo Build successful: native\game-probe.exe

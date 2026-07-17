@@ -31,6 +31,11 @@ native/*.exe
 native/*.obj
 *.obj
 
+# Builds native/games-list.json. The list it produces is committed; this is not — it names the
+# upstream endpoint, which is the one part of this that carries any provenance. The generated file
+# is plain fact (exe -> name) and carries none.
+scripts/build-games-list.mjs
+
 # ========================
 # Root node_modules (Electron + build tools)
 # ========================

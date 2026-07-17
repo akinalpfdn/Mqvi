@@ -15,6 +15,7 @@ import MemberCard from "../members/MemberCard";
 import AudioDevicePopup from "./AudioDevicePopup";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import SoundboardPanel from "../soundboard/SoundboardPanel";
+import GameShareRow from "../voice/GameShareRow";
 import type { ScreenShareQuality } from "../../stores/voiceStore";
 import { createPortal } from "react-dom";
 
@@ -183,6 +184,13 @@ function UserBar({
               <span className="ub-switch-thumb" />
             </button>
           </div>
+          {/* The game you're playing, if any — one click, no picker. Renders nothing otherwise. */}
+          <GameShareRow
+            isInVoice={isInVoice}
+            isSharing={isSharing}
+            onFallbackShare={onToggleScreenShare}
+          />
+
           <div className="ub-voice-btns">
             <div className="ub-ctrl-group">
               <button

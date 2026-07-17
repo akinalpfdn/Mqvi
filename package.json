@@ -8,7 +8,8 @@
   "scripts": {
     "electron:dev": "concurrently \"npm run dev --prefix client\" \"npx tsc -p electron/tsconfig.json && electron .\"",
     "electron:build": "npm run build --prefix client && npx tsc -p electron/tsconfig.json && electron-builder",
-    "electron:dist": "npm run electron:build"
+    "electron:dist": "npm run electron:build",
+    "test": "vitest run"
   },
   "dependencies": {
     "electron-updater": "^6",
@@ -18,6 +19,7 @@
     "concurrently": "^9",
     "electron": "42.7.0",
     "electron-builder": "^26",
+    "vitest": "^4.0.18",
     "rcedit": "^5.0.2",
     "typescript": "~5.9.3"
   },
@@ -53,6 +55,14 @@
         {
           "from": "native/mqvi-game-capture.exe",
           "to": "native/mqvi-game-capture.exe"
+        },
+        {
+          "from": "native/game-probe.exe",
+          "to": "native/game-probe.exe"
+        },
+        {
+          "from": "native/games-list.json",
+          "to": "native/games-list.json"
         }
       ]
     },
