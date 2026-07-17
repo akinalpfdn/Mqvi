@@ -2439,6 +2439,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .vc-chat-toggle { position:absolute;top:16px;right:16px;z-index:10;width:64px;height:64px;border:1px solid var(--b1);border-radius:50%;background:var(--bg-3);color:var(--t1);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,border-color .12s,color .12s; }
 .vc-chat-toggle:hover { background:var(--bg-4);color:var(--t0);border-color:var(--b2); }
 .vc-chat-toggle.open { background:var(--bg-4);color:var(--t0);border-color:var(--b2); }
+/* On a phone the split-view chat squeezes the voice grid and is easy to open by accident — hide it. */
+.mobile .vc-chat-toggle { display:none; }
 .voice-room-loading { flex:1;display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:13px; }
 .voice-room-grid { flex:1;display:flex;flex-wrap:wrap;gap:16px;padding:24px;align-content:center;justify-content:center;overflow-y:auto; }
 .voice-grid-strip { flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:16px;padding:12px 16px;border-top:1px solid var(--b1); }
@@ -2580,6 +2582,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .screen-share-panel.cinema .screen-share-panel-overlay { opacity:1; }
 .p2p-media-area.cinema .media-controls,
 .screen-share-panel.cinema .media-controls { top:calc(12px + var(--safe-area-inset-top));right:calc(12px + var(--safe-area-inset-right));bottom:auto;flex-direction:column; }
+/* Touch has no hover, so the stream controls (fullscreen + rotate) must stay visible. */
+@media (pointer: coarse) {
+  .p2p-stream-overlay,
+  .screen-share-panel-overlay { opacity:1; }
+}
 .screen-share-panel video { width:100%;height:100%;object-fit:contain; }
 .screen-share-panel-overlay { position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.4),transparent 40%);opacity:0;transition:opacity .2s;pointer-events:none; }
 .screen-share-panel:hover .screen-share-panel-overlay { opacity:1; }
