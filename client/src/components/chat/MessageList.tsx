@@ -146,9 +146,13 @@ function MessageList() {
     if (!scroller) return;
     let prevHeight = scroller.clientHeight;
     const observer = new ResizeObserver(() => {
-      if (scroller.clientHeight === prevHeight) return;
-      prevHeight = scroller.clientHeight;
-      if (stickToBottomRef.current) {
+      const h = scroller.clientHeight;
+      // Only re-pin when the viewport SHRINKS (keyboard opening, window narrowing) — that's when
+      // the newest message would slip behind the composer. On grow, a bottom-anchored scroll stays
+      // put, and re-pinning mid-resize-drag on desktop just adds jitter.
+      const shrank = h < prevHeight;
+      prevHeight = h;
+      if (shrank && stickToBottomRef.current) {
         scroller.scrollTop = scroller.scrollHeight;
       }
     });
