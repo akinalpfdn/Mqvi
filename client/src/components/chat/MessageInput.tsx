@@ -160,16 +160,15 @@ function MessageInput({ openSearch }: MessageInputProps) {
     }) ?? null;
   }
 
-  function clearInput() {
-    setContent("");
+  function clearInput(sentContent?: string) {
+    // If the user typed something new during the send (e.g. a slow file upload), keep it instead
+    // of wiping it — only clear when the box still holds exactly what we sent. Height follows from
+    // the content change via the sizing layout effect.
+    setContent((current) => (sentContent !== undefined && current !== sentContent ? current : ""));
     setFiles([]);
     setReplyingTo(null);
     setCommandQuery(null);
     mentionSelectionsRef.current = [];
-    // Keep a user-dragged height; only auto-grow inputs shrink back after sending.
-    if (textareaRef.current && manualHeight === null) {
-      textareaRef.current.style.height = "auto";
-    }
   }
 
   async function executeCommandAction(commandResult: ChatCommandResult): Promise<boolean> {
@@ -301,10 +300,11 @@ function MessageInput({ openSearch }: MessageInputProps) {
         : convertMentionTokens(content.trim());
 
     setIsSending(true);
+    const sentContent = content;
     const replyToId = replyingTo?.id;
     const success = await sendMessage(messageContent, files, replyToId);
     if (success) {
-      clearInput();
+      clearInput(sentContent);
     }
     setIsSending(false);
 
