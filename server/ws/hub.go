@@ -86,7 +86,7 @@ type VoiceLeaveCallback func(userID string)
 
 // VoiceStateUpdateCallback — user toggled mute/deafen/stream.
 // Nil pointers mean "no change" (partial update).
-type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreaming *bool)
+type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string)
 
 // PresenceManualUpdateCallback — user changed presence (manual or auto-idle).
 // isAuto distinguishes auto-idle from manual status changes (only manual persists to pref_status).

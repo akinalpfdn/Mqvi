@@ -20,6 +20,13 @@ export type ScreenShareQuality = "720p" | "1080p";
  */
 export type ScreenShareMode = "smooth" | "sharp";
 
+/** What the overlay on a screen share shows. "stats" is a superset of "fps", which is why this is
+ *  one setting and not two toggles that could disagree. */
+export type StreamStatsMode = "none" | "fps" | "stats";
+
+/** Which corner it sits in. Global, so a split view puts both panels' overlays in the same place. */
+export type StreamStatsCorner = "tl" | "tr" | "bl" | "br";
+
 /**
  * Configurable shortcut. `code` is a KeyboardEvent.code (e.g. "KeyV") OR a
  * mouse token ("Mouse3" middle, "Mouse4" back, "Mouse5" forward).
@@ -81,6 +88,8 @@ export type VoiceSettings = {
   screenShareAudio: boolean;
   screenShareQuality: ScreenShareQuality;
   screenShareMode: ScreenShareMode;
+  streamStatsMode: StreamStatsMode;
+  streamStatsCorner: StreamStatsCorner;
   muteShortcut: ShortcutBinding;
   deafenShortcut: ShortcutBinding;
 };
@@ -107,6 +116,9 @@ export const DEFAULT_SETTINGS: VoiceSettings = {
   // Default to the native engine: the common share here is a game/video, and it falls back to
   // "sharp" on its own wherever the helper can't run (non-Electron, non-Windows, spawn failure).
   screenShareMode: "smooth",
+  // Off by default: it is a diagnostic, and the picture is what people came for.
+  streamStatsMode: "none",
+  streamStatsCorner: "tl",
   muteShortcut: DEFAULT_MUTE_SHORTCUT,
   deafenShortcut: DEFAULT_DEAFEN_SHORTCUT,
 };
@@ -152,6 +164,8 @@ function currentSettings(s: VoiceSettings): VoiceSettings {
     screenShareAudio: s.screenShareAudio,
     screenShareQuality: s.screenShareQuality,
     screenShareMode: s.screenShareMode,
+    streamStatsMode: s.streamStatsMode,
+    streamStatsCorner: s.streamStatsCorner,
     muteShortcut: s.muteShortcut,
     deafenShortcut: s.deafenShortcut,
   };
@@ -176,6 +190,8 @@ export type VoiceSettingsSlice = VoiceSettings & {
   setScreenShareAudio: (enabled: boolean) => void;
   setScreenShareQuality: (quality: ScreenShareQuality) => void;
   setScreenShareMode: (mode: ScreenShareMode) => void;
+  setStreamStatsMode: (mode: StreamStatsMode) => void;
+  setStreamStatsCorner: (corner: StreamStatsCorner) => void;
   setNoiseReduction: (enabled: boolean) => void;
   setMuteShortcut: (binding: ShortcutBinding) => void;
   setDeafenShortcut: (binding: ShortcutBinding) => void;
@@ -209,6 +225,8 @@ export const createVoiceSettingsSlice: StateCreator<
     screenShareAudio: initial.screenShareAudio,
     screenShareQuality: initial.screenShareQuality,
     screenShareMode: initial.screenShareMode,
+    streamStatsMode: initial.streamStatsMode,
+    streamStatsCorner: initial.streamStatsCorner,
     muteShortcut: initial.muteShortcut,
     deafenShortcut: initial.deafenShortcut,
     preMuteVolumes: {},
@@ -288,6 +306,16 @@ export const createVoiceSettingsSlice: StateCreator<
       saveSettings(currentSettings(get()));
     },
 
+    setStreamStatsMode: (mode) => {
+      set({ streamStatsMode: mode });
+      saveSettings(currentSettings(get()));
+    },
+
+    setStreamStatsCorner: (corner) => {
+      set({ streamStatsCorner: corner });
+      saveSettings(currentSettings(get()));
+    },
+
     setNoiseReduction: (enabled) => {
       set({ noiseReduction: enabled });
       saveSettings(currentSettings(get()));
@@ -364,6 +392,8 @@ export const createVoiceSettingsSlice: StateCreator<
         screenShareAudio: merged.screenShareAudio,
         screenShareQuality: merged.screenShareQuality,
         screenShareMode: merged.screenShareMode,
+        streamStatsMode: merged.streamStatsMode,
+        streamStatsCorner: merged.streamStatsCorner,
         localMutedUsers: merged.localMutedUsers,
         noiseReduction: merged.noiseReduction,
         screenShareVolumes: merged.screenShareVolumes,

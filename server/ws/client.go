@@ -387,7 +387,7 @@ func (c *Client) handleVoiceStateUpdate(event Event) {
 	}
 
 	if c.hub.onVoiceStateUpdate != nil {
-		c.hub.onVoiceStateUpdate(c.userID, data.IsMuted, data.IsDeafened, data.IsStreaming)
+		c.hub.onVoiceStateUpdate(c.userID, data.IsMuted, data.IsDeafened, data.IsStreaming, data.ShareQuality)
 	}
 }
 

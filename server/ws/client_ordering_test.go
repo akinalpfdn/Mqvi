@@ -26,7 +26,7 @@ func TestClient_EventPump_JoinBeforeUpdate(t *testing.T) {
 		order = append(order, "join")
 		mu.Unlock()
 	}
-	h.onVoiceStateUpdate = func(_ string, _, _, _ *bool) {
+	h.onVoiceStateUpdate = func(_ string, _, _, _ *bool, _ *string) {
 		mu.Lock()
 		order = append(order, "update")
 		mu.Unlock()

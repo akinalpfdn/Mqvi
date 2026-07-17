@@ -209,6 +209,8 @@ type VoiceStateUpdateRequestData struct {
 	IsMuted    *bool `json:"is_muted,omitempty"`
 	IsDeafened *bool `json:"is_deafened,omitempty"`
 	IsStreaming *bool `json:"is_streaming,omitempty"`
+	// The quality ceiling chosen for this share. Sent alongside is_streaming.
+	ShareQuality *string `json:"share_quality,omitempty"`
 }
 
 // VoiceAdminStateUpdateData — admin server mute/deafen request.
@@ -244,6 +246,7 @@ type VoiceStateUpdateBroadcast struct {
 	IsMuted          bool   `json:"is_muted"`
 	IsDeafened       bool   `json:"is_deafened"`
 	IsStreaming      bool   `json:"is_streaming"`
+	ShareQuality     string `json:"share_quality,omitempty"`
 	IsServerMuted    bool   `json:"is_server_muted"`
 	IsServerDeafened bool   `json:"is_server_deafened"`
 	Action           string `json:"action"` // "join", "leave", "update"
@@ -284,6 +287,7 @@ type VoiceStateItem struct {
 	IsMuted          bool   `json:"is_muted"`
 	IsDeafened       bool   `json:"is_deafened"`
 	IsStreaming      bool   `json:"is_streaming"`
+	ShareQuality     string `json:"share_quality,omitempty"`
 	IsServerMuted    bool   `json:"is_server_muted"`
 	IsServerDeafened bool   `json:"is_server_deafened"`
 }

@@ -222,7 +222,7 @@ func (s *voiceService) LeaveChannel(userID string) error {
 	return nil
 }
 
-func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreaming *bool) error {
+func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -253,6 +253,14 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 	}
 	if isStreaming != nil {
 		state.IsStreaming = *isStreaming
+		// Nothing is being shared, so nothing has a ceiling — leaving the old one would have the
+		// next viewer reading a quality for a share that ended.
+		if !*isStreaming {
+			state.ShareQuality = ""
+		}
+	}
+	if shareQuality != nil {
+		state.ShareQuality = *shareQuality
 	}
 
 	s.broadcastToServer(state.ServerID, ws.Event{
@@ -266,6 +274,7 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 			IsMuted:          state.IsMuted,
 			IsDeafened:       state.IsDeafened,
 			IsStreaming:      state.IsStreaming,
+			ShareQuality:     state.ShareQuality,
 			IsServerMuted:    state.IsServerMuted,
 			IsServerDeafened: state.IsServerDeafened,
 			Action:           "update",
@@ -393,6 +402,7 @@ func (s *voiceService) SyncServerStatesToUser(userID, serverID string) {
 				IsMuted:          st.IsMuted,
 				IsDeafened:       st.IsDeafened,
 				IsStreaming:      st.IsStreaming,
+				ShareQuality:     st.ShareQuality,
 				IsServerMuted:    st.IsServerMuted,
 				IsServerDeafened: st.IsServerDeafened,
 				Action:           "join",

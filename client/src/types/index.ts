@@ -278,6 +278,8 @@ export type VoiceState = {
   is_muted: boolean;
   is_deafened: boolean;
   is_streaming: boolean;
+  /** Quality ceiling the sharer chose ("720p"/"1080p"); empty when not sharing. */
+  share_quality?: string;
   /** Server-wide mute by admin */
   is_server_muted: boolean;
   /** Server-wide deafen by admin */
@@ -306,6 +308,8 @@ export type VoiceStateUpdateData = {
   is_muted: boolean;
   is_deafened: boolean;
   is_streaming: boolean;
+  /** Quality ceiling the sharer chose ("720p"/"1080p"); empty when not sharing. */
+  share_quality?: string;
   is_server_muted: boolean;
   is_server_deafened: boolean;
   action: "join" | "leave" | "update";

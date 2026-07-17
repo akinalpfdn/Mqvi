@@ -74,6 +74,7 @@ export const createVoiceWsSlice: StateCreator<
               is_muted: data.is_muted,
               is_deafened: data.is_deafened,
               is_streaming: data.is_streaming,
+              share_quality: data.share_quality,
               is_server_muted: data.is_server_muted,
               is_server_deafened: data.is_server_deafened,
             },
@@ -102,6 +103,7 @@ export const createVoiceWsSlice: StateCreator<
                     is_muted: data.is_muted,
                     is_deafened: data.is_deafened,
                     is_streaming: data.is_streaming,
+                    share_quality: data.share_quality,
                     is_server_muted: data.is_server_muted,
                     is_server_deafened: data.is_server_deafened,
                   }

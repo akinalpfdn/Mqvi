@@ -50,7 +50,7 @@ type VoiceService interface {
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error
 	LeaveChannel(userID string) error
-	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool) error
+	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string) error
 	UpdateUserProfile(userID, username, displayName, avatarURL string)
 	GetChannelParticipants(channelID string) []models.VoiceState
 	GetServerParticipants(serverID string) []models.VoiceState

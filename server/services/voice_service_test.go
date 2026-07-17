@@ -230,7 +230,7 @@ func TestVoiceUpdateState(t *testing.T) {
 	falsev := false
 
 	// Mute
-	_ = svc.UpdateState("u1", &truev, nil, nil)
+	_ = svc.UpdateState("u1", &truev, nil, nil, nil)
 	state := svc.GetUserVoiceState("u1")
 	if !state.IsMuted {
 		t.Error("expected muted=true")
@@ -240,21 +240,21 @@ func TestVoiceUpdateState(t *testing.T) {
 	}
 
 	// Deafen
-	_ = svc.UpdateState("u1", nil, &truev, nil)
+	_ = svc.UpdateState("u1", nil, &truev, nil, nil)
 	state = svc.GetUserVoiceState("u1")
 	if !state.IsDeafened {
 		t.Error("expected deafened=true")
 	}
 
 	// Unmute
-	_ = svc.UpdateState("u1", &falsev, nil, nil)
+	_ = svc.UpdateState("u1", &falsev, nil, nil, nil)
 	state = svc.GetUserVoiceState("u1")
 	if state.IsMuted {
 		t.Error("expected muted=false after unmute")
 	}
 
 	// Start streaming
-	_ = svc.UpdateState("u1", nil, nil, &truev)
+	_ = svc.UpdateState("u1", nil, nil, &truev, nil)
 	state = svc.GetUserVoiceState("u1")
 	if !state.IsStreaming {
 		t.Error("expected streaming=true")
@@ -265,7 +265,7 @@ func TestVoiceUpdateState_NotInVoice(t *testing.T) {
 	svc, _ := newTestVoiceService()
 
 	truev := true
-	err := svc.UpdateState("u1", &truev, nil, nil)
+	err := svc.UpdateState("u1", &truev, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("update state for non-voice user should be no-op, got: %v", err)
 	}
@@ -334,13 +334,13 @@ func TestVoiceGetStreamCount(t *testing.T) {
 	}
 
 	truev := true
-	_ = svc.UpdateState("u1", nil, nil, &truev)
+	_ = svc.UpdateState("u1", nil, nil, &truev, nil)
 
 	if svc.GetStreamCount("ch1") != 1 {
 		t.Errorf("stream count = %d, want 1", svc.GetStreamCount("ch1"))
 	}
 
-	_ = svc.UpdateState("u2", nil, nil, &truev)
+	_ = svc.UpdateState("u2", nil, nil, &truev, nil)
 
 	if svc.GetStreamCount("ch1") != 2 {
 		t.Errorf("stream count = %d, want 2", svc.GetStreamCount("ch1"))
@@ -372,7 +372,7 @@ func TestVoiceScreenShareViewerTracking(t *testing.T) {
 
 	// Start streaming
 	truev := true
-	_ = svc.UpdateState("streamer", nil, nil, &truev)
+	_ = svc.UpdateState("streamer", nil, nil, &truev, nil)
 
 	// Watch
 	svc.WatchScreenShare("viewer1", "streamer", true)
@@ -393,7 +393,7 @@ func TestVoiceCleanupViewersForStreamer(t *testing.T) {
 
 	_ = svc.JoinChannel("streamer", "alice", "Alice", "", "ch1", false, false)
 	truev := true
-	_ = svc.UpdateState("streamer", nil, nil, &truev)
+	_ = svc.UpdateState("streamer", nil, nil, &truev, nil)
 
 	svc.WatchScreenShare("v1", "streamer", true)
 	svc.WatchScreenShare("v2", "streamer", true)

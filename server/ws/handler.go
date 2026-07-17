@@ -347,6 +347,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 				IsMuted:          s.IsMuted,
 				IsDeafened:       s.IsDeafened,
 				IsStreaming:      s.IsStreaming,
+				ShareQuality:     s.ShareQuality,
 				IsServerMuted:    s.IsServerMuted,
 				IsServerDeafened: s.IsServerDeafened,
 			})

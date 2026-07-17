@@ -10,10 +10,18 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { shareEngine } from "../../utils/constants";
+import type { TrackReferenceOrPlaceholder } from "@livekit/components-react";
+import type { StreamStatsCorner, StreamStatsMode } from "../../stores/slices/voiceSettingsSlice";
+
+const STATS_MODES: StreamStatsMode[] = ["none", "fps", "stats"];
+const CORNERS: StreamStatsCorner[] = ["tl", "tr", "bl", "br"];
 
 type ScreenShareContextMenuProps = {
   userId: string;
   displayName: string;
+  /** The share this menu belongs to — read for the info line, never modified. */
+  trackRef: TrackReferenceOrPlaceholder;
   position: { x: number; y: number };
   onClose: () => void;
 };
@@ -21,6 +29,7 @@ type ScreenShareContextMenuProps = {
 function ScreenShareContextMenu({
   userId,
   displayName,
+  trackRef,
   position,
   onClose,
 }: ScreenShareContextMenuProps) {
@@ -31,6 +40,26 @@ function ScreenShareContextMenu({
   const setScreenShareVolume = useVoiceStore((s) => s.setScreenShareVolume);
   const currentVolume = screenShareVolumes[userId] ?? 100;
   const [preMuteVolume, setPreMuteVolume] = useState(currentVolume || 100);
+
+  const engine = trackRef.publication
+    ? shareEngine(trackRef.publication.trackName, trackRef.participant.identity)
+    : null;
+
+  // The ceiling the sharer chose, from their voice state — "what they asked for", next to the
+  // "what's coming" the live numbers show. voiceStates is grouped by channel, so scan the values.
+  const shareQuality = useVoiceStore((s) => {
+    for (const list of Object.values(s.voiceStates)) {
+      const found = list.find((v) => v.user_id === userId);
+      if (found?.share_quality) return found.share_quality;
+    }
+    return undefined;
+  });
+
+  // Global, not per-panel: in a split view both overlays belong in the same corner.
+  const statsMode = useVoiceStore((s) => s.streamStatsMode);
+  const setStatsMode = useVoiceStore((s) => s.setStreamStatsMode);
+  const statsCorner = useVoiceStore((s) => s.streamStatsCorner);
+  const setStatsCorner = useVoiceStore((s) => s.setStreamStatsCorner);
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -122,6 +151,16 @@ function ScreenShareContextMenu({
       </div>
 
       <div className="voice-ctx-body">
+        {/* What this stream actually is — the resolution especially, which follows the shared
+            window's own size under the quality cap and is otherwise unknowable. */}
+        {(shareQuality || engine) && (
+          <div className="voice-ctx-info">
+            {shareQuality ? t("shareQualityValue", { quality: shareQuality }) : ""}
+            {shareQuality && engine ? " · " : ""}
+            {engine ? t(`shareEngine_${engine}`) : ""}
+          </div>
+        )}
+
         <div className="voice-ctx-label">{t("screenShareVolume")}</div>
 
         <div className="voice-ctx-slider">
@@ -160,6 +199,39 @@ function ScreenShareContextMenu({
           />
           <span className="voice-ctx-vol-value">{currentVolume}%</span>
         </div>
+
+        <div className="voice-ctx-sep" />
+
+        <div className="voice-ctx-label">{t("streamStats")}</div>
+
+        <div className="voice-ctx-seg">
+          {STATS_MODES.map((m) => (
+            <button
+              key={m}
+              className={`voice-ctx-seg-opt${statsMode === m ? " active" : ""}`}
+              onClick={() => setStatsMode(m)}
+            >
+              {t(`streamStats_${m}`)}
+            </button>
+          ))}
+        </div>
+
+        {/* Only worth showing once there is something to place. */}
+        {statsMode !== "none" && (
+          <div className="voice-ctx-corners" title={t("streamStatsCorner")}>
+            {CORNERS.map((c) => (
+              <button
+                key={c}
+                className={`voice-ctx-corner voice-ctx-corner-${c}${statsCorner === c ? " active" : ""}`}
+                onClick={() => setStatsCorner(c)}
+                aria-label={t(`streamStatsCorner_${c}`)}
+                title={t(`streamStatsCorner_${c}`)}
+              >
+                <span />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>,
     // In fullscreen mode only the fullscreen element's subtree is visible;

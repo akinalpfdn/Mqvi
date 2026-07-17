@@ -153,6 +153,25 @@ export function resolveUserId(identity: string): string {
   return identity;
 }
 
+/** The track name the native Windows capture helper publishes under — see native/game-capture. */
+export const NATIVE_CAPTURE_TRACK_NAME = "native-game-capture";
+
+/** Which engine drew a screen share. */
+export type ShareEngine = "smooth" | "mobile" | "sharp";
+
+/**
+ * Names the engine behind a share, from what the publication already carries.
+ *
+ * The identity alone cannot do it: the "_ss" sub-participant is how *every* native share arrives,
+ * the phone's included. Only the track name separates our Windows helper from a ReplayKit or
+ * MediaProjection stream, and calling those "Akıcı Görüntü" would be a lie.
+ */
+export function shareEngine(trackName: string, identity: string): ShareEngine {
+  if (trackName === NATIVE_CAPTURE_TRACK_NAME) return "smooth";
+  if (isScreenShareIdentity(identity)) return "mobile";
+  return "sharp";
+}
+
 /**
  * Returns true if the identity belongs to a screen share sub-participant (iOS native).
  */
