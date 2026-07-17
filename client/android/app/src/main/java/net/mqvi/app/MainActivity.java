@@ -7,9 +7,11 @@ import android.view.WindowManager;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsAnimationCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.WebViewListener;
+import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends BridgeActivity {
@@ -37,6 +39,7 @@ public class MainActivity extends BridgeActivity {
         OrientationPlugin.applyDefault(this);
 
         installSafeAreaFallback();
+        installKeyboardInsetTracking();
     }
 
     // Capacitor's SystemBars plugin owns safe areas. With viewport-fit=cover and WebView 140+ it
@@ -111,6 +114,55 @@ public class MainActivity extends BridgeActivity {
         if (pendingInsetJs != null) {
             view.evaluateJavascript(pendingInsetJs, null);
         }
+    }
+
+    // The soft keyboard is tracked separately from the safe-area insets. adjustNothing means the
+    // window never resizes when the IME opens, so the web layer lifts itself against
+    // --keyboard-inset instead. The animation callback is a different slot from
+    // setOnApplyWindowInsetsListener, so it disturbs neither the safe-area listener nor
+    // Capacitor's own inset handling on API 35+.
+    private void installKeyboardInsetTracking() {
+        final WebView webView = getBridge().getWebView();
+
+        ViewCompat.setWindowInsetsAnimationCallback(
+            webView,
+            new WindowInsetsAnimationCompat.Callback(
+                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_STOP
+            ) {
+                @Override
+                public WindowInsetsCompat onProgress(
+                    WindowInsetsCompat insets,
+                    List<WindowInsetsAnimationCompat> runningAnimations
+                ) {
+                    emitKeyboardInset(webView, insets);
+                    return insets;
+                }
+
+                @Override
+                public void onEnd(WindowInsetsAnimationCompat animation) {
+                    // Authoritative resting value, in case the per-frame progress was choppy.
+                    WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(webView);
+                    if (insets != null) {
+                        emitKeyboardInset(webView, insets);
+                    }
+                }
+            }
+        );
+    }
+
+    private void emitKeyboardInset(WebView webView, WindowInsetsCompat insets) {
+        float density = getResources().getDisplayMetrics().density;
+        int ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+        int nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+        // Keyboard height ABOVE the nav bar: #root already reserves the nav bar via
+        // --safe-area-inset-bottom, so folding the full ime inset in would double-count it.
+        float keyboard = Math.max(0, ime - nav) / density;
+        String js = String.format(
+            Locale.US,
+            "document.documentElement.style.setProperty('--keyboard-inset','%.1fpx');",
+            keyboard
+        );
+        webView.evaluateJavascript(js, null);
     }
 
     @Override

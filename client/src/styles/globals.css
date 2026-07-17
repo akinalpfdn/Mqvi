@@ -96,6 +96,10 @@ body.blur-disabled {
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
 
+  /* Soft-keyboard height above the nav bar — injected per animation frame by native Android
+     (WindowInsetsAnimation). 0 on web/Electron/iOS, so anything reading it is a no-op there. */
+  --keyboard-inset: 0px;
+
   /* Server banner shape. The crop frame the owner drags and every box that renders the result
      must be this exact ratio — anything else and object-fit:cover silently re-crops the image
      the owner already framed. Kept in step with BANNER_ASPECT in ServerGeneralSettings.tsx. */
@@ -112,7 +116,10 @@ html, body { height:100%; width:100%; overflow:hidden;color-scheme:dark;backgrou
   width: 100%;
   overflow: hidden;
   padding-top: var(--safe-area-inset-top);
-  padding-bottom: var(--safe-area-inset-bottom);
+  /* Keyboard height folds into the bottom padding so the whole app shrinks above the soft
+     keyboard (the window itself never resizes — Android is adjustNothing). border-box means the
+     content box loses exactly this, and every height:100% descendant lifts with it. */
+  padding-bottom: calc(var(--safe-area-inset-bottom) + var(--keyboard-inset, 0px));
 }
 body { font-family:var(--f-ui); font-weight:500; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
 button { font-family:inherit; }
