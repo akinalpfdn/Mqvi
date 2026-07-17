@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"regexp"
 	"strconv"
@@ -180,7 +182,13 @@ type FileRateLimitConfig struct {
 // Load reads configuration from environment variables.
 // Falls back to .env file in development.
 func Load() (*Config, error) {
-	_ = godotenv.Load()
+	// Having no .env is fine — the environment alone is a valid setup, and that is how the
+	// container runs. Having a broken one is not: godotenv parses the whole file or none of it, so
+	// a single line missing its `KEY=` drops every variable, and the boot then fails on whichever
+	// one happens to be checked first. It blames JWT_SECRET for a typo three lines below it.
+	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("loading .env: %w", err)
+	}
 
 	port, err := strconv.Atoi(getEnv("SERVER_PORT", "9090"))
 	if err != nil {
