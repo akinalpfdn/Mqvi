@@ -1,6 +1,6 @@
 /** MentionAutocomplete — @mention popup with keyboard navigation. Shows users and mentionable roles. */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useMemberStore } from "../../stores/memberStore";
 import { useRoleStore } from "../../stores/roleStore";
 import { useServerStore } from "../../stores/serverStore";
@@ -121,10 +121,16 @@ function MentionAutocomplete({ query, serverId, onSelect, onClose }: MentionAuto
     [filtered, activeIndex, onSelect, onClose]
   );
 
+  // Attach the document listener once; read the latest handler through a ref so a keystroke
+  // (which rebuilds `filtered` and thus handleKeyDown) does not detach/reattach it every time.
+  const handleKeyDownRef = useRef(handleKeyDown);
+  handleKeyDownRef.current = handleKeyDown;
+
   useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [handleKeyDown]);
+    const listener = (e: KeyboardEvent) => handleKeyDownRef.current(e);
+    document.addEventListener("keydown", listener, true);
+    return () => document.removeEventListener("keydown", listener, true);
+  }, []);
 
   if (filtered.length === 0) return null;
 

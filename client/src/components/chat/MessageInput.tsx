@@ -1,6 +1,6 @@
 /** MessageInput — Message compose area. Works in both channel and DM via ChatContext. */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useChatCommandActions } from "../../hooks/useChatCommandActions";
@@ -40,6 +40,11 @@ const AUTO_MAX_HEIGHT = 200; // px — auto-grow cap while the input sizes itsel
 const MIN_INPUT_HEIGHT = 40; // px — one line + padding, floor for a manual resize
 const MAX_INPUT_HEIGHT = 500; // px — absolute ceiling for a manual resize
 const MAX_INPUT_RATIO = 0.5; // and never taller than half the viewport
+
+// CSS field-sizing auto-grows the textarea natively, with none of the per-keystroke
+// measure-then-write reflow. Where it isn't supported we fall back to the JS measure.
+const SUPPORTS_FIELD_SIZING =
+  typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content") === true;
 
 function MessageInput({ openSearch }: MessageInputProps) {
   const { t } = useTranslation("chat");
@@ -109,8 +114,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
     }
   }, [replyingTo]);
 
-  // Apply the manual resize (or restore auto-grow when the user resets it).
-  useEffect(() => {
+  // Size the textarea: manual drag-height, or auto-grow to content. Runs on content change so
+  // it replaces the old per-keystroke reflow that lived inside handleChange.
+  useLayoutEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     if (manualHeight !== null) {
@@ -118,13 +124,18 @@ function MessageInput({ openSearch }: MessageInputProps) {
       ta.style.height = `${manualHeight}px`;
       ta.style.maxHeight = `${manualHeight}px`;
       ta.style.overflowY = "auto";
-    } else {
-      ta.style.maxHeight = "";
-      ta.style.overflowY = "";
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, AUTO_MAX_HEIGHT)}px`;
+      return;
     }
-  }, [manualHeight]);
+    ta.style.maxHeight = "";
+    ta.style.overflowY = "";
+    if (SUPPORTS_FIELD_SIZING) {
+      // Native sizing — clear any inline height and let CSS field-sizing do it, no measure.
+      ta.style.height = "auto";
+      return;
+    }
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, AUTO_MAX_HEIGHT)}px`;
+  }, [content, manualHeight]);
 
   function convertMentionTokens(text: string): string {
     let result = text;
@@ -348,11 +359,6 @@ function MessageInput({ openSearch }: MessageInputProps) {
       }
     } else {
       setMentionQuery(null);
-    }
-
-    if (textareaRef.current && manualHeight === null) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, AUTO_MAX_HEIGHT)}px`;
     }
   }
 
