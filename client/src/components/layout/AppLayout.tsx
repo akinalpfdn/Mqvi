@@ -141,8 +141,9 @@ function AppLayout() {
   const cascadeRefetch = useCallback(() => {
     const serverId = useServerStore.getState().activeServerId;
 
-    // Clear server-scoped store data (readState is global, no clear needed)
-    useChannelStore.getState().clearForServerSwitch();
+    // Paint channels from cache (covers server changes that didn't go through setActiveServer —
+    // initial load, create, join). readState is global, no clear needed.
+    useChannelStore.getState().hydrateFromCache();
     useInviteStore.getState().clearForServerSwitch();
     useSoundboardStore.getState().clearForServerSwitch();
 
