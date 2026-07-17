@@ -9,6 +9,7 @@
 import { create } from "zustand";
 import { type ThemeId, DEFAULT_THEME, THEMES, applyTheme } from "../styles/themes";
 import { usePreferencesStore } from "./preferencesStore";
+import { isCapacitor } from "../utils/constants";
 
 const THEME_STORAGE_KEY = "mqvi_theme";
 const BLUR_STORAGE_KEY = "mqvi_blur_enabled";
@@ -34,6 +35,12 @@ function loadPersistedBlur(): boolean {
     if (stored === "0") return false;
   } catch {
     /* localStorage access error */
+  }
+  // Capacitor (mobile WebView): backdrop-filter blur is too expensive on mobile GPUs — it repaints
+  // per message bubble and per keystroke. Default OFF; a user who explicitly enables it keeps it
+  // (the stored-preference check above runs first).
+  if (isCapacitor()) {
+    return false;
   }
   // Heuristic default: disable blur on low-end hardware or when user requests reduced transparency
   if (typeof navigator !== "undefined" && typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency < 4) {
