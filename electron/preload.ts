@@ -126,18 +126,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("game-detected");
   },
 
-  /** Log lines (stdout/stderr) from the game-capture helper */
-  onGameCaptureLog: (cb: (line: string) => void): void => {
-    ipcRenderer.on("game-capture-log", (_e, line: string) => cb(line));
-  },
-
   /** The game-capture helper exited (exit code; -1 = spawn error) */
   onGameCaptureStopped: (cb: (code: number) => void): void => {
     ipcRenderer.on("game-capture-stopped", (_e, code: number) => cb(code));
   },
 
   removeGameCaptureListeners: (): void => {
-    ipcRenderer.removeAllListeners("game-capture-log");
     ipcRenderer.removeAllListeners("game-capture-stopped");
   },
 

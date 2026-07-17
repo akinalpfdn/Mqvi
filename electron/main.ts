@@ -1425,12 +1425,12 @@ function setupIPC(): void {
           resolve(r);
         };
 
+        // Stays on this side: nothing in the renderer ever read these, and the helper narrates a
+        // line a second. Visible when the app is started from a terminal, which is where anyone
+        // debugging a share wants them anyway.
         const forward = (d: Buffer) => {
           const msg = d.toString().trim();
           console.log(`[game-capture] ${msg}`);
-          if (thisGen === gameCaptureGeneration) {
-            mainWindow?.webContents.send("game-capture-log", msg);
-          }
           if (msg.includes(GAME_CAPTURE_READY)) settle({ started: true });
         };
         child.stdout?.on("data", forward);
@@ -1451,7 +1451,7 @@ function setupIPC(): void {
           console.error("[main] Game capture spawn error:", err);
           if (thisGen === gameCaptureGeneration) {
             gameCaptureProcess = null;
-            mainWindow?.webContents.send("game-capture-log", `SPAWN ERROR: ${err.message}`);
+            mainWindow?.webContents.send("game-capture-stopped", -1);
           }
           settle({ started: false, error: err.message });
         });

@@ -92,7 +92,6 @@ interface ElectronAPI {
     maxHeight: number;
   }) => Promise<{ started: boolean; error?: string }>;
   stopGameCapture: () => Promise<void>;
-  onGameCaptureLog: (cb: (line: string) => void) => void;
   onGameCaptureStopped: (cb: (code: number) => void) => void;
   removeGameCaptureListeners: () => void;
 
