@@ -46,6 +46,8 @@ type ChannelState = {
   switchToServer: (serverId: string) => void;
   /** Paint the current server from cache (used when activeServerId changed without switchToServer). */
   hydrateFromCache: () => void;
+  /** Drop a server's cached tree — call when leaving/deleting it so the cache can't grow unbounded. */
+  evictServerCache: (serverId: string) => void;
   clearForServerSwitch: () => void;
 };
 
@@ -360,6 +362,15 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     const cached = serverId ? (get().categoriesByServer[serverId] ?? []) : [];
     set({ categories: cached, selectedChannelId: null, isLoading: cached.length === 0 });
+  },
+
+  evictServerCache: (serverId) => {
+    set((state) => {
+      if (!(serverId in state.categoriesByServer)) return state;
+      const next = { ...state.categoriesByServer };
+      delete next[serverId];
+      return { categoriesByServer: next };
+    });
   },
 
   clearForServerSwitch: () => {

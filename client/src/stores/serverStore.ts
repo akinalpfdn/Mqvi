@@ -257,6 +257,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
       return { servers, activeServerId, activeServer: null };
     });
 
+    // The server is gone — drop its cached channel tree so the cache can't grow unbounded.
+    useChannelStore.getState().evictServerCache(serverId);
+
     // If we were viewing the deleted server, cascade-clear server-scoped stores
     // so the open channel/messages UI doesn't linger with stale data.
     if (prevActive === serverId) {
