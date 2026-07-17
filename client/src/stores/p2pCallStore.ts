@@ -18,6 +18,7 @@ import { create } from "zustand";
 import { fetchIceServers, fetchIceServersForRecovery } from "../api/calls";
 import i18n from "../i18n";
 import { dismissIncomingCallUI } from "../native/p2pCall";
+import { startVoiceCallService, stopVoiceCallService } from "../utils/nativePlugins";
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
@@ -641,6 +642,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   cleanup: () => {
     const { localStream, remoteStream, peerConnection, _durationInterval } = get();
 
+    // Release the mic foreground service this call may have started. The "p2p" holder is
+    // idempotent, so a ringing/declined call that never started it is a no-op, and an overlapping
+    // channel-voice call keeps its own "voice" hold.
+    stopVoiceCallService("p2p");
+
     // Stop all sender/receiver tracks (includes screen share tracks not in localStream)
     if (peerConnection) {
       for (const sender of peerConnection.getSenders()) {
@@ -733,6 +739,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       activeCall: { ...activeCall, status: "active" },
       incomingCall: null,
     });
+
+    // Keep audio alive when the app is backgrounded (Android kills background mic ~1min without a
+    // foreground service). Fires on both caller and receiver, matching the channel-voice flow; the
+    // "p2p" holder is idempotent so a re-delivered accept is harmless.
+    startVoiceCallService("p2p");
 
     // Start duration timer
     const interval = setInterval(() => {
