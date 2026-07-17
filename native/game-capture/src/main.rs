@@ -257,7 +257,18 @@ fn main() -> Result<()> {
                 .thread_stack_size(16 * 1024 * 1024)
                 .build()
                 .context("failed to build tokio runtime")?;
-            rt.block_on(run())
+            let result = rt.block_on(run());
+
+            // Not a plain drop: that waits for every blocking task, and libwebrtc keeps a pool of
+            // them parked for the process's lifetime — so the drop never returns, this thread never
+            // finishes, the join below waits forever and the process outlives the share it was
+            // drawing. Measured after a game was closed: `run` had returned and logged its way out,
+            // yet all 18 threads sat parked at 0% CPU for as long as anyone watched.
+            //
+            // Nothing is lost by leaving now. `run` closes the room and joins the encode thread
+            // before it returns, so what is abandoned here is only the pool nobody is waiting on.
+            rt.shutdown_background();
+            result
         })
         .context("failed to spawn worker thread")?;
     handle.join().map_err(|_| anyhow::anyhow!("worker thread panicked"))?
@@ -490,15 +501,22 @@ async fn run() -> Result<()> {
         }
     }
 
+    // Staged so a hang here is diagnosable from the log alone: this process ending is the only way
+    // the app learns the share is over, so "stuck on the way out" and "still streaming" look
+    // identical from the outside.
+    log::info!("shutdown: signalling pump");
     stop.store(true, Ordering::Relaxed);
     if let Some(p) = raw_pump {
         p.abort();
     }
     // Joining matters: the pump owns `capture`, so this is where the WGC session gets closed.
+    log::info!("shutdown: joining encode thread");
     if let Some(t) = mf_thread {
         let _ = t.join();
     }
+    log::info!("shutdown: closing room");
     room.close().await.ok();
+    log::info!("shutdown: done");
     match startup_error {
         Some(e) => Err(e),
         None => Ok(()),
