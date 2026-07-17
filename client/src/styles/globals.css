@@ -88,6 +88,10 @@ body.blur-disabled {
    GLOBAL RESETS
    ═══════════════════════════════════════ */
 * { margin:0; padding:0; box-sizing:border-box; }
+/* Touch polish: drop the grey tap-flash everywhere, and kill double-tap-zoom on controls so a
+   tap registers instantly. Elements with their own touch-action (drag handles) out-specify this. */
+html { -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"] { touch-action: manipulation; }
 :root {
   /* Safe area insets — injected by native code on Android (WindowInsets),
      falls back to env() on iOS, defaults to 0px on web/Electron. */
