@@ -98,9 +98,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   setActiveServer: (serverId) => {
-    // Clear server-scoped stores immediately to prevent stale data flash
-    // (useEffect runs after render, but we need the clear before).
-    useChannelStore.getState().clearForServerSwitch();
+    // Paint the incoming server's channels from cache synchronously (before the switch commits),
+    // so a re-visited server shows instantly instead of blanking until the refetch lands.
+    // readState has no cache — it still clears.
+    useChannelStore.getState().switchToServer(serverId);
     useReadStateStore.getState().clearForServerSwitch();
 
     set({ activeServerId: serverId, activeServer: null });
@@ -255,6 +256,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
       }
       return { servers, activeServerId, activeServer: null };
     });
+
+    // The server is gone — drop its cached channel tree so the cache can't grow unbounded.
+    useChannelStore.getState().evictServerCache(serverId);
 
     // If we were viewing the deleted server, cascade-clear server-scoped stores
     // so the open channel/messages UI doesn't linger with stale data.

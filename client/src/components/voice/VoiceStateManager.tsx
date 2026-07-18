@@ -267,7 +267,11 @@ function VoiceStateManager() {
     if (!initialSyncDone.current) return;
     if (streamingSentRef.current === isSharing) return;
     streamingSentRef.current = isSharing;
-    useVoiceStore.getState()._wsSend?.("voice_state_update_request", { is_streaming: isSharing });
+    useVoiceStore.getState()._wsSend?.("voice_state_update_request", {
+      is_streaming: isSharing,
+      // The ceiling the sharer picked, sent only when starting — the server clears it on stop.
+      share_quality: isSharing ? useVoiceStore.getState().screenShareQuality : undefined,
+    });
   }, [isSharing]);
 
   // Capacitor: listen for native screen share stopped (user stops externally)

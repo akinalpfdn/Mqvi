@@ -9,6 +9,7 @@
 import { create } from "zustand";
 import { type ThemeId, DEFAULT_THEME, THEMES, applyTheme } from "../styles/themes";
 import { usePreferencesStore } from "./preferencesStore";
+import { isCapacitor } from "../utils/constants";
 
 const THEME_STORAGE_KEY = "mqvi_theme";
 const BLUR_STORAGE_KEY = "mqvi_blur_enabled";
@@ -28,6 +29,12 @@ function loadPersistedTheme(): ThemeId {
 }
 
 function loadPersistedBlur(): boolean {
+  // Capacitor (mobile WebView): blur is never worth the GPU cost here — it repaints per message
+  // bubble and per keystroke. Force it OFF and ignore any stored preference (the toggle is hidden
+  // on mobile too), so there is no way to turn it on.
+  if (isCapacitor()) {
+    return false;
+  }
   try {
     const stored = localStorage.getItem(BLUR_STORAGE_KEY);
     if (stored === "1") return true;
@@ -149,12 +156,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   setBlurEnabled: (enabled) => {
+    // Blur stays off on mobile no matter what — nothing can turn it on there.
+    const eff = isCapacitor() ? false : enabled;
     try {
-      localStorage.setItem(BLUR_STORAGE_KEY, enabled ? "1" : "0");
+      localStorage.setItem(BLUR_STORAGE_KEY, eff ? "1" : "0");
     } catch {
       /* localStorage full or inaccessible */
     }
-    set({ blurEnabled: enabled });
+    set({ blurEnabled: eff });
   },
 
   setWallpaperEnabled: (enabled) => {

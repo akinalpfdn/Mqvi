@@ -137,6 +137,29 @@ function MessageList() {
     return () => observer.disconnect();
   }, [isLoading, channelId]);
 
+  // Re-pin when the scroll viewport itself changes height — the soft keyboard opening shrinks
+  // .messages-scroll (via #root's keyboard padding) without changing content size, so the
+  // contentRef observer above never fires for it and the newest message would hide behind the
+  // composer. Keyed on clientHeight so a plain scrollTop change can't loop back in here.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    let prevHeight = scroller.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const h = scroller.clientHeight;
+      // Only re-pin when the viewport SHRINKS (keyboard opening, window narrowing) — that's when
+      // the newest message would slip behind the composer. On grow, a bottom-anchored scroll stays
+      // put, and re-pinning mid-resize-drag on desktop just adds jitter.
+      const shrank = h < prevHeight;
+      prevHeight = h;
+      if (shrank && stickToBottomRef.current) {
+        scroller.scrollTop = scroller.scrollHeight;
+      }
+    });
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [isLoading, channelId]);
+
   /** Restore scroll position — runs before paint via useLayoutEffect. */
   useLayoutEffect(() => {
     if (!isLoading && messages.length > 0 && scrollRef.current) {

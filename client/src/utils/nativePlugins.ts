@@ -26,20 +26,39 @@ const VoiceCallService = registerPlugin<VoiceCallServicePlugin>("VoiceCallServic
  * - Android: starts a foreground service with persistent notification.
  * - Web/Electron: no-op.
  */
-export async function startVoiceCallService(): Promise<void> {
-  if (!isCapacitor()) return;
+// Channel voice and P2P calls share the one mic foreground service. Track which subsystems hold
+// it by name rather than a count: Set add/delete are idempotent, so a duplicate start, or a stop
+// from a subsystem that never started it (channel voice's leave runs unconditionally), is a
+// harmless no-op — it can't leak the service or tear it out from under the other subsystem.
+type VoiceServiceHolder = "voice" | "p2p";
+const voiceServiceHolders = new Set<VoiceServiceHolder>();
 
-  await VoiceCallService.start();
+export async function startVoiceCallService(holder: VoiceServiceHolder = "voice"): Promise<void> {
+  if (!isCapacitor()) return;
+  const wasEmpty = voiceServiceHolders.size === 0;
+  voiceServiceHolders.add(holder);
+  if (!wasEmpty) return; // already running for another holder
+  try {
+    await VoiceCallService.start();
+  } catch {
+    // Best-effort: a mic foreground service can't be started from the background on Android 12+.
+    // The call still works; it just may not survive backgrounding if accepted while backgrounded.
+  }
 }
 
 /**
  * Stop background voice call mode.
- * Called when the user leaves a voice channel.
+ * Called when the user leaves a voice channel or a P2P call ends.
  */
-export async function stopVoiceCallService(): Promise<void> {
+export async function stopVoiceCallService(holder: VoiceServiceHolder = "voice"): Promise<void> {
   if (!isCapacitor()) return;
-
-  await VoiceCallService.stop();
+  if (!voiceServiceHolders.delete(holder)) return; // this subsystem wasn't holding it
+  if (voiceServiceHolders.size > 0) return; // another subsystem still needs it
+  try {
+    await VoiceCallService.stop();
+  } catch {
+    /* already stopped or never started */
+  }
 }
 
 // ─── App Lifecycle ───

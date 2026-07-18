@@ -13,6 +13,8 @@ import type {
 
 type ChannelState = {
   categories: CategoryWithChannels[];
+  /** Per-server channel-tree cache. Lets a re-visited server paint instantly while it revalidates. */
+  categoriesByServer: Record<string, CategoryWithChannels[]>;
   selectedChannelId: string | null;
   isLoading: boolean;
   mutedChannelIds: Set<string>;
@@ -40,11 +42,18 @@ type ChannelState = {
   handleChannelReorder: (categories: CategoryWithChannels[]) => void;
   handleCategoryReorder: () => void;
 
+  /** Snapshot the outgoing server's tree, then paint the incoming server from cache. */
+  switchToServer: (serverId: string) => void;
+  /** Paint the current server from cache (used when activeServerId changed without switchToServer). */
+  hydrateFromCache: () => void;
+  /** Drop a server's cached tree — call when leaving/deleting it so the cache can't grow unbounded. */
+  evictServerCache: (serverId: string) => void;
   clearForServerSwitch: () => void;
 };
 
 export const useChannelStore = create<ChannelState>((set, get) => ({
   categories: [],
+  categoriesByServer: {},
   selectedChannelId: null,
   isLoading: false,
   mutedChannelIds: new Set<string>(),
@@ -53,7 +62,9 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     const serverId = useServerStore.getState().activeServerId;
     if (!serverId) return;
 
-    set({ isLoading: true });
+    // Only show the loading state when there's nothing cached to paint — a background
+    // revalidation must not blank a tree we're already showing from cache.
+    set({ isLoading: get().categories.length === 0 });
 
     const res = await channelApi.getChannels(serverId);
     if (res.success && res.data) {
@@ -69,8 +80,15 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
         selectedChannelId = null;
       }
 
-      set({ categories: res.data, isLoading: false, selectedChannelId });
-    } else {
+      // Cache is always keyed by the server we actually fetched. But only swap the live tree if
+      // that server is still active — otherwise a slow fetch resolving after a switch would
+      // clobber the new server's channels.
+      const stillActive = useServerStore.getState().activeServerId === serverId;
+      set({
+        categoriesByServer: { ...state.categoriesByServer, [serverId]: res.data },
+        ...(stillActive ? { categories: res.data, isLoading: false, selectedChannelId } : {}),
+      });
+    } else if (useServerStore.getState().activeServerId === serverId) {
       set({ isLoading: false });
     }
   },
@@ -325,6 +343,34 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       return true;
     }
     return false;
+  },
+
+  switchToServer: (serverId) => {
+    const oldId = useServerStore.getState().activeServerId; // still the outgoing server here
+    const { categories, categoriesByServer } = get();
+    const cache = oldId ? { ...categoriesByServer, [oldId]: categories } : categoriesByServer;
+    const next = cache[serverId] ?? [];
+    set({
+      categoriesByServer: cache,
+      categories: next,
+      selectedChannelId: null,
+      isLoading: next.length === 0,
+    });
+  },
+
+  hydrateFromCache: () => {
+    const serverId = useServerStore.getState().activeServerId;
+    const cached = serverId ? (get().categoriesByServer[serverId] ?? []) : [];
+    set({ categories: cached, selectedChannelId: null, isLoading: cached.length === 0 });
+  },
+
+  evictServerCache: (serverId) => {
+    set((state) => {
+      if (!(serverId in state.categoriesByServer)) return state;
+      const next = { ...state.categoriesByServer };
+      delete next[serverId];
+      return { categoriesByServer: next };
+    });
   },
 
   clearForServerSwitch: () => {

@@ -58,13 +58,20 @@ body.blur-enabled {
   --panel-bg:linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.035) 100%);
   --panel-backdrop:blur(28px) saturate(170%);
   --picker-bg:rgba(17,17,18,0.86);
+  /* Modal-scrim and button backdrops, kept distinct so they honor the blur toggle too. */
+  --overlay-backdrop:blur(4px);
+  --overlay-backdrop-sm:blur(2px);
+  --mc-btn-backdrop:blur(16px) saturate(160%);
 }
 
-/* Blur off: solid fallback for low-end / reduced-transparency */
+/* Blur off: solid fallback for low-end / reduced-transparency / mobile */
 body.blur-disabled {
   --panel-bg:var(--bg-1);
   --panel-backdrop:none;
   --picker-bg:var(--bg-1);
+  --overlay-backdrop:none;
+  --overlay-backdrop-sm:none;
+  --mc-btn-backdrop:none;
 }
 
 .app-panel {
@@ -81,6 +88,10 @@ body.blur-disabled {
    GLOBAL RESETS
    ═══════════════════════════════════════ */
 * { margin:0; padding:0; box-sizing:border-box; }
+/* Touch polish: drop the grey tap-flash everywhere, and kill double-tap-zoom on controls so a
+   tap registers instantly. Elements with their own touch-action (drag handles) out-specify this. */
+html { -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"] { touch-action: manipulation; }
 :root {
   /* Safe area insets — injected by native code on Android (WindowInsets),
      falls back to env() on iOS, defaults to 0px on web/Electron. */
@@ -88,6 +99,10 @@ body.blur-disabled {
   --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
+
+  /* Soft-keyboard height above the nav bar — injected per animation frame by native Android
+     (WindowInsetsAnimation). 0 on web/Electron/iOS, so anything reading it is a no-op there. */
+  --keyboard-inset: 0px;
 
   /* Server banner shape. The crop frame the owner drags and every box that renders the result
      must be this exact ratio — anything else and object-fit:cover silently re-crops the image
@@ -105,7 +120,10 @@ html, body { height:100%; width:100%; overflow:hidden;color-scheme:dark;backgrou
   width: 100%;
   overflow: hidden;
   padding-top: var(--safe-area-inset-top);
-  padding-bottom: var(--safe-area-inset-bottom);
+  /* Keyboard height folds into the bottom padding so the whole app shrinks above the soft
+     keyboard (the window itself never resizes — Android is adjustNothing). border-box means the
+     content box loses exactly this, and every height:100% descendant lifts with it. */
+  padding-bottom: calc(var(--safe-area-inset-bottom) + var(--keyboard-inset, 0px));
 }
 body { font-family:var(--f-ui); font-weight:500; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
 button { font-family:inherit; }
@@ -954,7 +972,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .input-box button { width:36px;height:36px;border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px; }
 .input-box button:hover { color:var(--t1);background:var(--bg-h); }
 .send-btn { color:var(--primary) !important; }
-.input-box textarea { flex:1;background:transparent;border:none;outline:none;color:var(--t0);font-family:inherit;font-size:16px;padding:8px 6px;resize:none;max-height:100px;line-height:1.4; }
+.input-box textarea { flex:1;background:transparent;border:none;outline:none;color:var(--t0);font-family:inherit;font-size:16px;padding:8px 6px;resize:none;max-height:100px;line-height:1.4;field-sizing:content; }
 .input-box textarea::placeholder { color:var(--t3); }
 .input-box-disabled { justify-content:center;padding:10px;cursor:not-allowed;opacity:0.6; }
 .input-no-perm { font-size:13px;color:var(--t3);font-style:italic;user-select:none; }
@@ -1087,7 +1105,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .mc-status-item.active { background:var(--primary-s);color:var(--t0); }
 .mc-status-label { flex:1; }
 .mc-status-check { color:var(--primary);flex-shrink:0; }
-.mc-btn { height:34px;border:1px solid var(--panel-border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,border-color .15s,color .15s,transform .1s;padding:0 12px;background:rgba(255,255,255,0.04);backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05); }
+.mc-btn { height:34px;border:1px solid var(--panel-border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,border-color .15s,color .15s,transform .1s;padding:0 12px;background:rgba(255,255,255,0.04);backdrop-filter:var(--mc-btn-backdrop,none);-webkit-backdrop-filter:var(--mc-btn-backdrop,none);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05); }
 .mc-btn:hover { transform:translateY(-1px); }
 .mc-btn:active { transform:translateY(0); }
 .mc-btn svg { flex-shrink:0; }
@@ -1104,7 +1122,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .mc-btn-ban { background:var(--red-s);color:var(--red);border-color:color-mix(in srgb, var(--red) 28%, transparent); }
 .mc-btn-ban:hover { background:color-mix(in srgb, var(--red) 18%, transparent);border-color:var(--red);color:var(--red); }
 
-.mc-btn-roles-full { grid-column:1/-1;height:34px;border:1px solid var(--panel-border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;background:rgba(255,255,255,0.04);backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);color:var(--t1);transition:background .15s,border-color .15s,color .15s,transform .1s;padding:0 12px; }
+.mc-btn-roles-full { grid-column:1/-1;height:34px;border:1px solid var(--panel-border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;background:rgba(255,255,255,0.04);backdrop-filter:var(--mc-btn-backdrop,none);-webkit-backdrop-filter:var(--mc-btn-backdrop,none);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);color:var(--t1);transition:background .15s,border-color .15s,color .15s,transform .1s;padding:0 12px; }
 .mc-btn-roles-full:hover { background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.18);color:var(--t0);transform:translateY(-1px); }
 .mc-btn-roles-full:active { transform:translateY(0); }
 
@@ -1487,7 +1505,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .auth-terms-link:hover { color:var(--primary-h); }
 
 /* ── Legal Modal ── */
-.legal-modal-overlay { position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
+.legal-modal-overlay { position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
 .legal-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow);max-width:640px;width:90%;max-height:80vh;display:flex;flex-direction:column; }
 .legal-modal-header { display:flex;align-items:center;justify-content:space-between;padding:20px 24px 16px;border-bottom:1px solid var(--b1); }
 .legal-modal-header h2 { font-size:18px;font-weight:700;color:var(--t1); }
@@ -1501,7 +1519,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .legal-modal-section li { font-size:14px;color:var(--t2);margin-bottom:6px;line-height:1.5; }
 
 /* ── Download Prompt Modal ── */
-.download-prompt-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
+.download-prompt-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
 .download-prompt-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow);padding:32px;max-width:400px;width:90%;text-align:center; }
 .download-prompt-modal h3 { font-size:18px;font-weight:700;margin-bottom:8px;color:var(--t1); }
 .download-prompt-modal p { font-size:14px;color:var(--t2);margin-bottom:24px;line-height:1.5; }
@@ -1514,7 +1532,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* ═══════════════════════════════════════
    WELCOME MODAL
    ═══════════════════════════════════════ */
-.welcome-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
+.welcome-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
 .welcome-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow);padding:32px;max-width:420px;width:90%;text-align:center; }
 .welcome-logo { display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:var(--primary);color:#fff;margin-bottom:16px; }
 .welcome-modal h3 { font-size:20px;font-weight:700;margin-bottom:6px;color:var(--t1); }
@@ -2425,6 +2443,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .vc-chat-toggle { position:absolute;top:16px;right:16px;z-index:10;width:64px;height:64px;border:1px solid var(--b1);border-radius:50%;background:var(--bg-3);color:var(--t1);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,border-color .12s,color .12s; }
 .vc-chat-toggle:hover { background:var(--bg-4);color:var(--t0);border-color:var(--b2); }
 .vc-chat-toggle.open { background:var(--bg-4);color:var(--t0);border-color:var(--b2); }
+/* On a phone the split-view chat squeezes the voice grid and is easy to open by accident — hide it. */
+.mobile .vc-chat-toggle { display:none; }
 .voice-room-loading { flex:1;display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:13px; }
 .voice-room-grid { flex:1;display:flex;flex-wrap:wrap;gap:16px;padding:24px;align-content:center;justify-content:center;overflow-y:auto; }
 .voice-grid-strip { flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:16px;padding:12px 16px;border-top:1px solid var(--b1); }
@@ -2566,9 +2586,39 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .screen-share-panel.cinema .screen-share-panel-overlay { opacity:1; }
 .p2p-media-area.cinema .media-controls,
 .screen-share-panel.cinema .media-controls { top:calc(12px + var(--safe-area-inset-top));right:calc(12px + var(--safe-area-inset-right));bottom:auto;flex-direction:column; }
+/* Touch has no hover, so the stream controls (fullscreen + rotate) must stay visible. */
+@media (pointer: coarse) {
+  .p2p-stream-overlay,
+  .screen-share-panel-overlay { opacity:1; }
+}
 .screen-share-panel video { width:100%;height:100%;object-fit:contain; }
 .screen-share-panel-overlay { position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.4),transparent 40%);opacity:0;transition:opacity .2s;pointer-events:none; }
 .screen-share-panel:hover .screen-share-panel-overlay { opacity:1; }
+/* Stream overlay - Steam-style: high contrast, mono, never intercepts a click on the video. */
+.ss-stats { position:absolute;z-index:12;display:flex;flex-direction:column;gap:1px;padding:3px 6px;border-radius:4px;background:rgba(0,0,0,0.55);font-family:var(--f-m);font-size:13px;line-height:1.35;color:var(--green);text-shadow:0 1px 2px rgba(0,0,0,0.9);pointer-events:none;white-space:nowrap; }
+.ss-stats-tl { top:8px;left:8px; }
+.ss-stats-tr { top:8px;right:8px; }
+.ss-stats-bl { bottom:8px;left:8px; }
+.ss-stats-br { bottom:8px;right:8px; }
+.ss-stats-fps { font-weight:700; }
+.ss-stats-line { color:var(--green);opacity:.85; }
+.ss-stats-warn { color:var(--yellow); }
+/* Stream overlay controls in the context menu */
+.voice-ctx-info { margin-bottom:10px;font-family:var(--f-m);font-size:13px;color:var(--t2); }
+.voice-ctx-sep { height:1px;margin:10px 0 8px;background:var(--b1); }
+.voice-ctx-seg { display:flex;gap:2px;padding:2px;border-radius:6px;background:var(--bg-1); }
+.voice-ctx-seg-opt { flex:1;padding:4px 0;border:none;border-radius:4px;background:transparent;color:var(--t2);font-size:13px;font-weight:500;cursor:pointer; }
+.voice-ctx-seg-opt:hover { color:var(--t0); }
+.voice-ctx-seg-opt.active { background:var(--bg-4);color:var(--t0); }
+.voice-ctx-corners { display:grid;grid-template-columns:1fr 1fr;gap:3px;width:44px;margin-top:8px; }
+.voice-ctx-corner { display:flex;padding:0;border:1px solid var(--b2);border-radius:3px;background:var(--bg-1);aspect-ratio:16/10;cursor:pointer; }
+.voice-ctx-corner span { width:5px;height:3px;margin:2px;border-radius:1px;background:var(--t2); }
+.voice-ctx-corner.active { border-color:var(--green); }
+.voice-ctx-corner.active span { background:var(--green); }
+.voice-ctx-corner-tl span { align-self:flex-start;margin-right:auto; }
+.voice-ctx-corner-tr span { align-self:flex-start;margin-left:auto; }
+.voice-ctx-corner-bl span { align-self:flex-end;margin-right:auto; }
+.voice-ctx-corner-br span { align-self:flex-end;margin-left:auto; }
 .screen-share-panel-label { position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,0.6);border-radius:6px;padding:2px 8px;font-size:13px;font-weight:500;color:var(--t0);pointer-events:auto; }
 /* Positioned by .media-controls, not by itself — see the flex stack above. */
 .screen-share-panel-btn { width:32px;height:32px;border:none;border-radius:6px;background:rgba(0,0,0,0.6);color:var(--t1);cursor:pointer;display:flex;align-items:center;justify-content:center;pointer-events:auto;transition:background .15s,color .15s; }
@@ -3056,7 +3106,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
    ═══════════════════════════════════════ */
 
 /* Incoming Call Overlay */
-.ico-overlay { position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px); }
+.ico-overlay { position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
 .ico-card { display:flex;flex-direction:column;align-items:center;gap:20px;padding:40px 48px;background:var(--bg-2);border:1px solid var(--b1);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:vpIn .25s ease; }
 .ico-avatar-wrap { position:relative; }
 .ico-pulse-ring { position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--green);animation:ring 2s ease-in-out infinite; }
@@ -3122,7 +3172,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
    ═══════════════════════════════════════ */
 
 /* Overlay — covers full viewport */
-.sp-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:150;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px); }
+.sp-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:150;display:flex;align-items:center;justify-content:center;backdrop-filter:var(--overlay-backdrop-sm,none);-webkit-backdrop-filter:var(--overlay-backdrop-sm,none); }
 
 /* Card — centered container */
 .sp-card { width:680px;max-width:90vw;max-height:80vh;background:var(--bg-2);border:1px solid var(--b1);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;animation:vpIn 0.2s ease-out; }
@@ -4064,7 +4114,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .e2ee-device-remove { flex-shrink:0;margin-left:12px; }
 
 /* ─── AFK Kick Popup ─── */
-.afk-kick-overlay { position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);backdrop-filter:blur(4px); }
+.afk-kick-overlay { position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
 .afk-kick-popup { width:420px;max-width:90vw;background:var(--bg-2);border-radius:16px;padding:32px;text-align:center;animation:vpIn .2s ease-out;border:1px solid var(--b2); }
 .afk-kick-emoji { font-size:64px;margin-bottom:12px;line-height:1; }
 .afk-kick-title { font-size:22px;font-weight:700;color:var(--t0);margin-bottom:12px; }

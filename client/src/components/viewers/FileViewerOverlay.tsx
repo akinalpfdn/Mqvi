@@ -19,6 +19,12 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import DOMPurify from "dompurify";
 import { useFileViewerStore, type FileViewerItem } from "../../stores/fileViewerStore";
 import { useToastStore } from "../../stores/toastStore";
+import { useIsTouch } from "../../hooks/useMediaQuery";
+
+function isTextEntry(el: Element | null): boolean {
+  if (!el) return false;
+  return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable;
+}
 
 // Copies an image URL to the clipboard as PNG (the only format browsers
 // reliably accept). Decodes via canvas so JPEG/WebP/GIF all work.
@@ -131,6 +137,7 @@ type ShellProps = { item: FileViewerItem; onClose: () => void };
 function OverlayShell({ item, onClose }: ShellProps) {
   const { t } = useTranslation("viewer");
   const addToast = useToastStore((s) => s.addToast);
+  const isTouch = useIsTouch();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
   const kind = classifyMime(item.mime, item.filename);
@@ -155,6 +162,11 @@ function OverlayShell({ item, onClose }: ShellProps) {
   // never escapes to elements behind the modal.
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    // On touch, restoring focus to the composer on close reopens the soft keyboard — so watching
+    // a video flaps the keyboard on every open/close. Blur it on open (keyboard closes cleanly)
+    // and skip the restore on close. Desktop keeps focus restore for keyboard navigation.
+    const restoreFocus = !(isTouch && isTextEntry(previouslyFocused));
+    if (!restoreFocus) previouslyFocused?.blur?.();
     // Defer initial focus to next frame so the close button is mounted.
     const id = requestAnimationFrame(() => closeBtnRef.current?.focus());
 
@@ -181,9 +193,9 @@ function OverlayShell({ item, onClose }: ShellProps) {
     return () => {
       cancelAnimationFrame(id);
       document.removeEventListener("keydown", onKey);
-      previouslyFocused?.focus?.();
+      if (restoreFocus) previouslyFocused?.focus?.();
     };
-  }, []);
+  }, [isTouch]);
 
   let body: ReactNode;
   if (tooLargeForPreview) {

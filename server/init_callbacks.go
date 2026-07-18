@@ -156,8 +156,8 @@ func registerHubCallbacks(
 			log.Printf("[voice] leave error user=%s: %v", userID, err)
 		}
 	})
-	hub.OnVoiceStateUpdate(func(userID string, isMuted, isDeafened, isStreaming *bool) {
-		if err := voiceService.UpdateState(userID, isMuted, isDeafened, isStreaming); err != nil {
+	hub.OnVoiceStateUpdate(func(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string) {
+		if err := voiceService.UpdateState(userID, isMuted, isDeafened, isStreaming, shareQuality); err != nil {
 			log.Printf("[voice] state update error user=%s: %v", userID, err)
 		}
 	})

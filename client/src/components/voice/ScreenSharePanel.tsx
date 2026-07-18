@@ -16,7 +16,9 @@ import { resolveUserId } from "../../utils/constants";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useCinemaMode } from "../../hooks/useCinemaMode";
 import ScreenShareContextMenu from "./ScreenShareContextMenu";
+import StreamStatsOverlay from "./StreamStatsOverlay";
 import CinemaButton from "../shared/CinemaButton";
+import type { RemoteVideoTrack } from "livekit-client";
 
 type ScreenSharePanelProps = {
   trackRef: TrackReferenceOrPlaceholder;
@@ -91,6 +93,9 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
     }
   }, []);
 
+  const statsMode = useVoiceStore((s) => s.streamStatsMode);
+  const statsCorner = useVoiceStore((s) => s.streamStatsCorner);
+
   const displayName = trackRef.participant.name || realUserId;
 
   // Double-click toggles fullscreen. When multiple streams are visible, also
@@ -128,6 +133,15 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
       {/* Narrow TrackReferenceOrPlaceholder to TrackReference when publication exists */}
       {trackRef.publication && (
         <VideoTrack trackRef={trackRef as TrackReference} />
+      )}
+
+      {/* Keeps its own state, so its once-a-second tick never reaches the VideoTrack above. */}
+      {statsMode !== "none" && (
+        <StreamStatsOverlay
+          track={trackRef.publication?.track as RemoteVideoTrack | undefined}
+          mode={statsMode}
+          corner={statsCorner}
+        />
       )}
 
 
@@ -179,6 +193,7 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
         <ScreenShareContextMenu
           userId={realUserId}
           displayName={displayName}
+          trackRef={trackRef}
           position={ctxMenu}
           onClose={() => setCtxMenu(null)}
         />

@@ -38,6 +38,7 @@ import { useE2EE } from "../../hooks/useE2EE";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import RecoveryPasswordPrompt from "../shared/RecoveryPasswordPrompt";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
+import P2PAudioSink from "../p2p/P2PAudioSink";
 import QuickSwitcher from "../shared/QuickSwitcher";
 import DiscoveryOverlay from "../discovery/DiscoveryOverlay";
 import ScreenPicker from "../voice/ScreenPicker";
@@ -141,8 +142,9 @@ function AppLayout() {
   const cascadeRefetch = useCallback(() => {
     const serverId = useServerStore.getState().activeServerId;
 
-    // Clear server-scoped store data (readState is global, no clear needed)
-    useChannelStore.getState().clearForServerSwitch();
+    // Paint channels from cache (covers server changes that didn't go through setActiveServer —
+    // initial load, create, join). readState is global, no clear needed.
+    useChannelStore.getState().hydrateFromCache();
     useInviteStore.getState().clearForServerSwitch();
     useSoundboardStore.getState().clearForServerSwitch();
 
@@ -317,6 +319,9 @@ function AppLayout() {
 
       {/* P2P incoming call overlay */}
       <IncomingCallOverlay />
+
+      {/* P2P remote audio — app-level so it survives tab switches (P2PCallScreen unmounts) */}
+      <P2PAudioSink />
 
       {/* Electron screen picker */}
       <ScreenPicker />

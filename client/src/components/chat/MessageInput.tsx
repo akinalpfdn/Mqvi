@@ -1,6 +1,6 @@
 /** MessageInput — Message compose area. Works in both channel and DM via ChatContext. */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useChatCommandActions } from "../../hooks/useChatCommandActions";
@@ -40,6 +40,11 @@ const AUTO_MAX_HEIGHT = 200; // px — auto-grow cap while the input sizes itsel
 const MIN_INPUT_HEIGHT = 40; // px — one line + padding, floor for a manual resize
 const MAX_INPUT_HEIGHT = 500; // px — absolute ceiling for a manual resize
 const MAX_INPUT_RATIO = 0.5; // and never taller than half the viewport
+
+// CSS field-sizing auto-grows the textarea natively, with none of the per-keystroke
+// measure-then-write reflow. Where it isn't supported we fall back to the JS measure.
+const SUPPORTS_FIELD_SIZING =
+  typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content") === true;
 
 function MessageInput({ openSearch }: MessageInputProps) {
   const { t } = useTranslation("chat");
@@ -100,8 +105,11 @@ function MessageInput({ openSearch }: MessageInputProps) {
   }, [addFilesRef]);
 
   useEffect(() => {
+    // On touch, auto-focusing on every channel/DM switch yanks the soft keyboard open unprompted.
+    // Desktop keeps the convenience; touch waits for the user to tap the composer.
+    if (isTouch) return;
     textareaRef.current?.focus();
-  }, [channelId]);
+  }, [channelId, isTouch]);
 
   useEffect(() => {
     if (replyingTo) {
@@ -109,8 +117,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
     }
   }, [replyingTo]);
 
-  // Apply the manual resize (or restore auto-grow when the user resets it).
-  useEffect(() => {
+  // Size the textarea: manual drag-height, or auto-grow to content. Runs on content change so
+  // it replaces the old per-keystroke reflow that lived inside handleChange.
+  useLayoutEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     if (manualHeight !== null) {
@@ -118,13 +127,18 @@ function MessageInput({ openSearch }: MessageInputProps) {
       ta.style.height = `${manualHeight}px`;
       ta.style.maxHeight = `${manualHeight}px`;
       ta.style.overflowY = "auto";
-    } else {
-      ta.style.maxHeight = "";
-      ta.style.overflowY = "";
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, AUTO_MAX_HEIGHT)}px`;
+      return;
     }
-  }, [manualHeight]);
+    ta.style.maxHeight = "";
+    ta.style.overflowY = "";
+    if (SUPPORTS_FIELD_SIZING) {
+      // Native sizing — clear any inline height and let CSS field-sizing do it, no measure.
+      ta.style.height = "auto";
+      return;
+    }
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, AUTO_MAX_HEIGHT)}px`;
+  }, [content, manualHeight]);
 
   function convertMentionTokens(text: string): string {
     let result = text;
@@ -146,16 +160,15 @@ function MessageInput({ openSearch }: MessageInputProps) {
     }) ?? null;
   }
 
-  function clearInput() {
-    setContent("");
+  function clearInput(sentContent?: string) {
+    // If the user typed something new during the send (e.g. a slow file upload), keep it instead
+    // of wiping it — only clear when the box still holds exactly what we sent. Height follows from
+    // the content change via the sizing layout effect.
+    setContent((current) => (sentContent !== undefined && current !== sentContent ? current : ""));
     setFiles([]);
     setReplyingTo(null);
     setCommandQuery(null);
     mentionSelectionsRef.current = [];
-    // Keep a user-dragged height; only auto-grow inputs shrink back after sending.
-    if (textareaRef.current && manualHeight === null) {
-      textareaRef.current.style.height = "auto";
-    }
   }
 
   async function executeCommandAction(commandResult: ChatCommandResult): Promise<boolean> {
@@ -287,10 +300,11 @@ function MessageInput({ openSearch }: MessageInputProps) {
         : convertMentionTokens(content.trim());
 
     setIsSending(true);
+    const sentContent = content;
     const replyToId = replyingTo?.id;
     const success = await sendMessage(messageContent, files, replyToId);
     if (success) {
-      clearInput();
+      clearInput(sentContent);
     }
     setIsSending(false);
 
@@ -348,11 +362,6 @@ function MessageInput({ openSearch }: MessageInputProps) {
       }
     } else {
       setMentionQuery(null);
-    }
-
-    if (textareaRef.current && manualHeight === null) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, AUTO_MAX_HEIGHT)}px`;
     }
   }
 
@@ -651,7 +660,6 @@ function MessageInput({ openSearch }: MessageInputProps) {
           placeholder={placeholder}
           rows={1}
           maxLength={MAX_MESSAGE_LENGTH}
-          disabled={isSending}
         />
 
         <div style={{ position: "relative" }}>
@@ -710,8 +718,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
             title={t("sendMessage")}
             aria-label={t("sendMessage")}
             disabled={isSending}
-            // Keep focus on the textarea so the soft keyboard does not collapse on send.
-            onMouseDown={(e) => e.preventDefault()}
+            // Keep focus on the textarea so the soft keyboard stays up on send. pointerdown covers
+            // touch (mousedown doesn't fire before focus moves on Android), preventing the blur.
+            onPointerDown={(e) => e.preventDefault()}
             onClick={() => void handleSend()}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -5,16 +5,19 @@ import "time"
 // VoiceState is ephemeral — stored in-memory only, not in DB.
 // Resets on server restart (all WS connections drop anyway).
 type VoiceState struct {
-	UserID           string    `json:"user_id"`
-	ChannelID        string    `json:"channel_id"`
-	ChannelName      string    `json:"channel_name"` // cached for cross-server voice presence popups
-	ServerID         string    `json:"server_id"`    // parent server — used to scope WS broadcasts
-	Username         string    `json:"username"`
-	DisplayName      string    `json:"display_name"`
-	AvatarURL        string    `json:"avatar_url"`
-	IsMuted          bool      `json:"is_muted"`
-	IsDeafened       bool      `json:"is_deafened"`
-	IsStreaming      bool      `json:"is_streaming"`
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"` // cached for cross-server voice presence popups
+	ServerID    string `json:"server_id"`    // parent server — used to scope WS broadcasts
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url"`
+	IsMuted     bool   `json:"is_muted"`
+	IsDeafened  bool   `json:"is_deafened"`
+	IsStreaming bool   `json:"is_streaming"`
+	// ShareQuality is the ceiling the sharer picked ("720p"/"1080p"), not what is being sent —
+	// the stream follows the shared window's own size under it. Empty when not sharing.
+	ShareQuality     string    `json:"share_quality,omitempty"`
 	IsServerMuted    bool      `json:"is_server_muted"`
 	IsServerDeafened bool      `json:"is_server_deafened"`
 	LastActivity     time.Time `json:"-"` // not serialized — server-side AFK tracking only
