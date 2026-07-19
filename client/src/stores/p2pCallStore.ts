@@ -611,6 +611,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
         isVideoOn: activeCall.call_type === "video",
       });
 
+      // Start the mic foreground service only now that getUserMedia holds the mic. Android 14+
+      // rejects a microphone FGS unless RECORD_AUDIO is granted AND the mic is actively in use;
+      // starting it on call-accept (before this) is what crashed the app. Balanced by cleanup's
+      // stop; the "p2p" holder is idempotent.
+      startVoiceCallService("p2p");
+
       // Fetch ICE servers (STUN + TURN) now that the call is active — the backend
       // gates issuance on an accepted call. Falls back to STUN-only on failure.
       const iceServers = await fetchIceServers();
@@ -740,11 +746,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       incomingCall: null,
     });
 
-    // Keep audio alive when the app is backgrounded (Android kills background mic ~1min without a
-    // foreground service). Fires on both caller and receiver, matching the channel-voice flow; the
-    // "p2p" holder is idempotent so a re-delivered accept is harmless.
-    startVoiceCallService("p2p");
-
     // Start duration timer
     const interval = setInterval(() => {
       set((state) => ({ callDuration: state.callDuration + 1 }));
@@ -860,6 +861,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
           if (acquired && stream) {
             set({ localStream: stream, isVideoOn: activeCall.call_type === "video" });
+            // Same as the caller path — start the mic FGS only after the mic is actually in use.
+            startVoiceCallService("p2p");
           }
           if (stream) {
             for (const track of stream.getTracks()) {
