@@ -9,7 +9,8 @@ import { uploadWallpaper, deleteWallpaper } from "../../api/profile";
 import { resolveAssetUrl } from "../../utils/constants";
 import { clearWallpaperCache } from "../../utils/wallpaperCache";
 import { THEMES, THEME_ORDER, type ThemeId } from "../../styles/themes";
-import { isElectron, isCapacitor } from "../../utils/constants";
+import { isElectron, isCapacitor, MAX_AVATAR_UPLOAD_SIZE } from "../../utils/constants";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 
 function AppearanceSettings() {
   const { t } = useTranslation("settings");
@@ -29,6 +30,7 @@ function AppearanceSettings() {
   // Track initial value to detect change — restart needed in either direction
   const initialTransparent = useMemo(() => transparentBackground, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const notifyRejected = useFileRejectionNotice();
   const [isUploading, setIsUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
@@ -37,6 +39,11 @@ function AppearanceSettings() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+
+    if (file.size > MAX_AVATAR_UPLOAD_SIZE) {
+      notifyRejected([file], MAX_AVATAR_UPLOAD_SIZE);
+      return;
+    }
 
     if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
     const blobUrl = URL.createObjectURL(file);

@@ -231,6 +231,15 @@ export const MAX_FILE_SIZE = 100 * 1024 * 1024;
 export const MAX_E2EE_FILE_SIZE = 25 * 1024 * 1024;
 
 
+/**
+ * Mirrors avatarMaxSize in server/handlers/avatar.go — avatar, wallpaper and server icon all go
+ * through the same processUpload path and share this cap.
+ */
+export const MAX_AVATAR_UPLOAD_SIZE = 8 * 1024 * 1024;
+
+/** Mirrors badgeIconMaxSize in server/handlers/badge.go. */
+export const MAX_BADGE_ICON_SIZE = 2 * 1024 * 1024;
+
 // ─── Feedback / report attachments ───
 
 const FEEDBACK_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
