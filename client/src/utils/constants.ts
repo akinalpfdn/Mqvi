@@ -237,6 +237,18 @@ export const MAX_E2EE_FILE_SIZE = 25 * 1024 * 1024;
  */
 export const MAX_AVATAR_UPLOAD_SIZE = 8 * 1024 * 1024;
 
+/**
+ * Output cap for avatars and server icons, in pixels.
+ *
+ * 512 rather than the ~300 the UI needs: a 3× DPR profile card wants real pixels, and at this scale
+ * the byte difference is nothing next to the multi-megabyte originals this replaces.
+ */
+export const AVATAR_OUTPUT_SIZE = 512;
+
+/** Output cap for server banners. 16:9, matching --banner-aspect / BANNER_ASPECT. */
+export const BANNER_OUTPUT_WIDTH = 1920;
+export const BANNER_OUTPUT_HEIGHT = 1080;
+
 /** Mirrors badgeIconMaxSize in server/handlers/badge.go. */
 export const MAX_BADGE_ICON_SIZE = 2 * 1024 * 1024;
 

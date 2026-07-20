@@ -3,7 +3,8 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ImageCropModal from "../shared/ImageCropModal";
-import { resolveAssetUrl, MAX_AVATAR_UPLOAD_SIZE } from "../../utils/constants";
+import { resolveAssetUrl, MAX_AVATAR_UPLOAD_SIZE, AVATAR_OUTPUT_SIZE } from "../../utils/constants";
+import { extensionForType } from "../../utils/imageEncoding";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/gif,image/webp";
@@ -53,7 +54,10 @@ function AvatarUpload({
   async function handleApply(blob: Blob) {
     setIsUploading(true);
     try {
-      await onUpload(new File([blob], "avatar.png", { type: "image/png" }));
+      // Name and type follow whatever the encoder produced — labelling a WebP ".png" would leave the
+      // serve layer resolving the wrong MIME from the extension.
+      const file = new File([blob], `avatar.${extensionForType(blob.type)}`, { type: blob.type });
+      await onUpload(file);
     } finally {
       setIsUploading(false);
       setCropImage(null);
@@ -130,6 +134,8 @@ function AvatarUpload({
           image={cropImage}
           aspect={1}
           isCircle={isCircle}
+          maxWidth={AVATAR_OUTPUT_SIZE}
+          maxHeight={AVATAR_OUTPUT_SIZE}
           isBusy={isUploading}
           onCancel={() => setCropImage(null)}
           onApply={handleApply}
