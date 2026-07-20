@@ -9,6 +9,8 @@ import WaveformTrimmer from "./WaveformTrimmer";
 import { useTranslation } from "react-i18next";
 import { useServerStore } from "../../stores/serverStore";
 import * as soundboardApi from "../../api/soundboard";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
+import UploadProgress from "../shared/UploadProgress";
 
 type Props = {
   onClose: () => void;
@@ -120,6 +122,8 @@ function SoundUploadForm({ onClose }: Props) {
   const [startInput, setStartInput] = useState("0.0");
   const [endInput, setEndInput] = useState("0.0");
   const [isUploading, setIsUploading] = useState(false);
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
   const [error, setError] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -263,7 +267,15 @@ function SoundUploadForm({ onClose }: Props) {
       return;
     }
 
-    const res = await soundboardApi.createSound(serverId, uploadFile, name.trim(), trimmedDurationMs, emoji.trim() || undefined);
+    const res = await soundboardApi.createSound(
+      serverId,
+      uploadFile,
+      name.trim(),
+      trimmedDurationMs,
+      emoji.trim() || undefined,
+      beginUpload()
+    );
+    endUpload();
     setIsUploading(false);
 
     if (res.success) {
@@ -369,6 +381,14 @@ function SoundUploadForm({ onClose }: Props) {
         </div>
 
         {error && <p className="sb-error">{error}</p>}
+
+        {uploadProgress && (
+          <UploadProgress
+            loaded={uploadProgress.loaded}
+            total={uploadProgress.total}
+            onCancel={cancelUpload}
+          />
+        )}
       </div>
 
       <div className="sb-upload-footer">

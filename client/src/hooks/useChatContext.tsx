@@ -9,6 +9,7 @@
 
 import { createContext, useContext, type RefObject } from "react";
 import type { User, ReactionGroup, MessageReference, MemberWithRoles, CallMeta } from "../types";
+import type { UploadOptions } from "../api/client";
 import type { EncryptedFileMeta } from "../crypto/fileEncryption";
 
 // ─── ChatMessage — Common message type ───
@@ -66,7 +67,7 @@ export type ChatContextValue = {
   typingUsers: string[];
 
   // ─── Message Actions ───
-  sendMessage: (content: string, files?: File[], replyToId?: string) => Promise<boolean>;
+  sendMessage: (content: string, files?: File[], replyToId?: string, upload?: UploadOptions) => Promise<boolean>;
   editMessage: (id: string, content: string) => Promise<boolean>;
   deleteMessage: (id: string) => Promise<boolean>;
   fetchMessages: () => Promise<void>;

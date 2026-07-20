@@ -13,6 +13,7 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useNarrowChat } from "../../hooks/useNarrowChat";
 import { useIsTouch } from "../../hooks/useMediaQuery";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { validateFiles } from "../../utils/fileValidation";
 import { MAX_MESSAGE_LENGTH } from "../../utils/constants";
 import {
@@ -26,6 +27,7 @@ import type { MemberWithRoles } from "../../types";
 import EmojiPicker from "../shared/EmojiPicker";
 import GifPicker from "../shared/GifPicker";
 import MobileBottomSheet from "../shared/MobileBottomSheet";
+import UploadProgress from "../shared/UploadProgress";
 import FilePreview from "./FilePreview";
 import MentionAutocomplete, { type MentionSelection } from "./MentionAutocomplete";
 import CommandAutocomplete from "./CommandAutocomplete";
@@ -68,6 +70,8 @@ function MessageInput({ openSearch }: MessageInputProps) {
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
 
   // Manual resize: null = auto-grow to content (default), a number = user-dragged fixed height.
   const [manualHeight, setManualHeight] = useState<number | null>(null);
@@ -302,11 +306,18 @@ function MessageInput({ openSearch }: MessageInputProps) {
     setIsSending(true);
     const sentContent = content;
     const replyToId = replyingTo?.id;
-    const success = await sendMessage(messageContent, files, replyToId);
-    if (success) {
-      clearInput(sentContent);
+    // Only files need a progress/cancel channel; a text-only send is over before a bar could paint.
+    const upload = files.length > 0 ? beginUpload() : undefined;
+    try {
+      const success = await sendMessage(messageContent, files, replyToId, upload);
+      // Left intact on failure or cancel, so the same content and files can be re-sent.
+      if (success) {
+        clearInput(sentContent);
+      }
+    } finally {
+      endUpload();
+      setIsSending(false);
     }
-    setIsSending(false);
 
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
@@ -554,11 +565,12 @@ function MessageInput({ openSearch }: MessageInputProps) {
 
       <FilePreview files={files} onRemove={handleFileRemove} />
 
-      {isSending && files.length > 0 && (
-        <div className="input-sending-status">
-          <span className="input-sending-spinner" />
-          <span>{t("sendingFiles")}</span>
-        </div>
+      {uploadProgress && (
+        <UploadProgress
+          loaded={uploadProgress.loaded}
+          total={uploadProgress.total}
+          onCancel={cancelUpload}
+        />
       )}
 
       <div className="input-box">

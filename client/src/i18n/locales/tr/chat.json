@@ -79,7 +79,6 @@
   "tooManyMessages": "Çok hızlı mesaj gönderiyorsunuz. Lütfen biraz bekleyin.",
   "messageTooLong": "Mesaj en fazla {{max}} karakter olmalı",
   "sendFailed": "Mesaj gönderilemedi.",
-  "sendingFiles": "Dosyalar gönderiliyor…",
   "uploadRejectedInfected": "Bu dosya güvenlik taramasından geçemediği için gönderilemedi.",
   "uploadScanUnavailable": "Dosya tarama geçici olarak kullanılamıyor. Lütfen kısa süre sonra tekrar deneyin.",
   "uploadTooLargeScan": "Bu dosya yapılandırılmış güvenlik taraması için çok büyük.",

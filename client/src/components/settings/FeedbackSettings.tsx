@@ -14,6 +14,8 @@ import {
 import type { FeedbackTicket, FeedbackReply, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
+import UploadProgress from "../shared/UploadProgress";
 import { useImageAttach } from "../../hooks/useImageAttach";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
@@ -45,6 +47,9 @@ function FeedbackSettings() {
   const [formFiles, setFormFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // The new-ticket form and the reply box live in different views, so one channel serves both.
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
 
   const MAX_FILES = 4;
   const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -115,12 +120,15 @@ function FeedbackSettings() {
     if (!formSubject.trim() || !formContent.trim()) return;
     try {
       setIsSubmitting(true);
-      const res = await createFeedbackTicket({
-        type: formType,
-        subject: formSubject.trim(),
-        content: formContent.trim(),
-        files: formFiles.length > 0 ? formFiles : undefined,
-      });
+      const res = await createFeedbackTicket(
+        {
+          type: formType,
+          subject: formSubject.trim(),
+          content: formContent.trim(),
+          files: formFiles.length > 0 ? formFiles : undefined,
+        },
+        formFiles.length > 0 ? beginUpload() : undefined
+      );
       if (res.success) {
         addToast("success", t("feedbackSubmitSuccess"));
         setFormSubject("");
@@ -135,6 +143,7 @@ function FeedbackSettings() {
     } catch {
       addToast("error", t("feedbackSubmitError"));
     } finally {
+      endUpload();
       setIsSubmitting(false);
     }
   };
@@ -170,7 +179,12 @@ function FeedbackSettings() {
     if (!replyContent.trim() || !activeTicket) return;
     try {
       setIsSendingReply(true);
-      const res = await addFeedbackReply(activeTicket.id, replyContent.trim(), replyFiles.length > 0 ? replyFiles : undefined);
+      const res = await addFeedbackReply(
+        activeTicket.id,
+        replyContent.trim(),
+        replyFiles.length > 0 ? replyFiles : undefined,
+        replyFiles.length > 0 ? beginUpload() : undefined
+      );
       if (res.success && res.data) {
         setReplies((prev) => [...prev, res.data!]);
         setReplyContent("");
@@ -181,6 +195,7 @@ function FeedbackSettings() {
     } catch {
       addToast("error", t("feedbackReplyError"));
     } finally {
+      endUpload();
       setIsSendingReply(false);
     }
   };
@@ -321,6 +336,14 @@ function FeedbackSettings() {
             />
           </div>
 
+          {uploadProgress && (
+            <UploadProgress
+              loaded={uploadProgress.loaded}
+              total={uploadProgress.total}
+              onCancel={cancelUpload}
+            />
+          )}
+
           <button
             className="settings-btn settings-btn-primary"
             onClick={handleSubmit}
@@ -444,6 +467,13 @@ function FeedbackSettings() {
                   }}
                 />
               </div>
+              {uploadProgress && (
+                <UploadProgress
+                  loaded={uploadProgress.loaded}
+                  total={uploadProgress.total}
+                  onCancel={cancelUpload}
+                />
+              )}
               <button
                 className="settings-btn settings-btn-primary"
                 onClick={handleReply}

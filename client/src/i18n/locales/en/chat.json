@@ -79,7 +79,6 @@
   "tooManyMessages": "You're sending messages too fast. Please wait a moment.",
   "messageTooLong": "Message must be at most {{max}} characters",
   "sendFailed": "Message could not be sent.",
-  "sendingFiles": "Sending files…",
   "uploadRejectedInfected": "This file could not be sent because it failed the security scan.",
   "uploadScanUnavailable": "File scanning is temporarily unavailable. Please try again shortly.",
   "uploadTooLargeScan": "This file is too large for the configured security scan.",

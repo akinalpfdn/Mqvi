@@ -7,6 +7,10 @@
     "callsDesc": "Incoming calls"
   },
   "loading": "Loading...",
+  "uploadingProgress": "{{sent}} / {{total}} · {{percent}}%",
+  "uploadingSent": "{{sent}} sent",
+  "uploadPreparing": "Preparing…",
+  "uploadCancelled": "Upload cancelled",
   "save": "Save",
   "cancel": "Cancel",
   "delete": "Delete",

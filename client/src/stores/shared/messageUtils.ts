@@ -4,6 +4,7 @@
  */
 
 import i18n from "../../i18n";
+import { UPLOAD_ABORTED } from "../../api/client";
 import { encryptFile } from "../../crypto/fileEncryption";
 import { useToastStore } from "../toastStore";
 import type { EncryptedFileMeta } from "../../crypto/fileEncryption";
@@ -65,6 +66,8 @@ export function handleSendError(res: {
   code?: string;
 }): boolean {
   if (res.success) return false;
+  // The user pressed cancel — that is not a failure, so no toast.
+  if (res.code === UPLOAD_ABORTED) return true;
   if (handleRateLimitError(res)) return true;
 
   const err = res.error?.toLowerCase() ?? "";

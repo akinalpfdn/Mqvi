@@ -14,6 +14,8 @@ import {
 import type { FeedbackTicket, FeedbackReply, FeedbackStatus, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
+import UploadProgress from "../shared/UploadProgress";
 import { useImageAttach } from "../../hooks/useImageAttach";
 import FilePreview from "../chat/FilePreview";
 import FilterDropdown, { type FilterOption } from "../shared/FilterDropdown";
@@ -45,6 +47,8 @@ function AdminFeedbackList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
   const openAttachment = useAttachmentViewer();
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
 
   const [tickets, setTickets] = useState<FeedbackTicket[]>([]);
   const [total, setTotal] = useState(0);
@@ -133,7 +137,13 @@ function AdminFeedbackList() {
   const handleReply = async () => {
     if (!replyContent.trim() || !activeTicket) return;
     setIsSendingReply(true);
-    const res = await adminReplyToFeedback(activeTicket.id, replyContent.trim(), replyFiles.length > 0 ? replyFiles : undefined);
+    const res = await adminReplyToFeedback(
+      activeTicket.id,
+      replyContent.trim(),
+      replyFiles.length > 0 ? replyFiles : undefined,
+      replyFiles.length > 0 ? beginUpload() : undefined
+    );
+    endUpload();
     if (res.success && res.data) {
       setReplies((prev) => [...prev, res.data!]);
       setReplyContent("");
@@ -356,6 +366,13 @@ function AdminFeedbackList() {
               }}
             />
           </div>
+          {uploadProgress && (
+            <UploadProgress
+              loaded={uploadProgress.loaded}
+              total={uploadProgress.total}
+              onCancel={cancelUpload}
+            />
+          )}
           <button
             className="settings-btn settings-btn-primary"
             onClick={handleReply}

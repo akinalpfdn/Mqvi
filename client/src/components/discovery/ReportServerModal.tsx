@@ -2,6 +2,8 @@ import { useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { reportServer } from "../../api/discovery";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
+import UploadProgress from "../shared/UploadProgress";
 import { useToastStore } from "../../stores/toastStore";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
@@ -37,6 +39,8 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isValid = reason !== null && description.trim().length >= 10;
@@ -86,7 +90,14 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
   async function handleSubmit() {
     if (!isValid || !reason || submitting) return;
     setSubmitting(true);
-    const res = await reportServer(serverId, reason, description.trim(), files.length > 0 ? files : undefined);
+    const res = await reportServer(
+      serverId,
+      reason,
+      description.trim(),
+      files.length > 0 ? files : undefined,
+      files.length > 0 ? beginUpload() : undefined
+    );
+    endUpload();
     setSubmitting(false);
     if (res.success) {
       addToast("success", t("reportSubmitted"));
@@ -172,6 +183,14 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
               onChange={handleFileInputChange}
             />
           </div>
+
+          {uploadProgress && (
+            <UploadProgress
+              loaded={uploadProgress.loaded}
+              total={uploadProgress.total}
+              onCancel={cancelUpload}
+            />
+          )}
 
           <div className="report-actions">
             <button className="report-btn report-btn-cancel" onClick={onClose}>

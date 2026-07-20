@@ -2,6 +2,7 @@ import { create } from "zustand";
 import i18n from "../i18n";
 import * as dmApi from "../api/dm";
 import type { DMSearchResult } from "../api/dm";
+import type { UploadOptions } from "../api/client";
 import type { DMChannelWithUser, DMMessage } from "../types";
 import { useUIStore } from "./uiStore";
 import { useToastStore } from "./toastStore";
@@ -54,7 +55,7 @@ type DMCoreState = {
   fetchOlderMessages: (channelId: string) => Promise<void>;
   /** Re-fetch the newest page and fold it in — recovers messages a dead socket never delivered */
   resyncChannel: (channelId: string) => Promise<void>;
-  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string) => Promise<boolean>;
+  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, upload?: UploadOptions) => Promise<boolean>;
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   deleteMessage: (messageId: string) => Promise<boolean>;
 
@@ -212,7 +213,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     }
   },
 
-  sendMessage: async (channelId, content, files, replyToId) => {
+  sendMessage: async (channelId, content, files, replyToId, upload) => {
     const e2eeState = useE2EEStore.getState();
 
     const dmChannel = get().channels.find((ch) => ch.id === channelId);
@@ -251,7 +252,8 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
             e2eeState.localDeviceId,
             metadata,
             encryptedFiles,
-            replyToId
+            replyToId,
+            upload
           );
 
           if (res.success && res.data) {
@@ -274,7 +276,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
           const errMsg = err instanceof Error ? err.message : "";
           if (errMsg === "RECIPIENT_NO_KEYS") {
-            const fallbackRes = await dmApi.sendDMMessage(channelId, content, files, replyToId);
+            const fallbackRes = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload);
             handleSendError(fallbackRes);
             return fallbackRes.success;
           }
@@ -284,7 +286,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
       }
     }
 
-    const res = await dmApi.sendDMMessage(channelId, content, files, replyToId);
+    const res = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload);
     handleSendError(res);
     return res.success;
   },

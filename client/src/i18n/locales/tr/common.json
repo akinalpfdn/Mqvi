@@ -7,6 +7,10 @@
     "callsDesc": "Gelen aramalar"
   },
   "loading": "Yükleniyor...",
+  "uploadingProgress": "{{sent}} / {{total}} · %{{percent}}",
+  "uploadingSent": "{{sent}} gönderildi",
+  "uploadPreparing": "Hazırlanıyor…",
+  "uploadCancelled": "Yükleme iptal edildi",
   "save": "Kaydet",
   "cancel": "İptal",
   "delete": "Sil",

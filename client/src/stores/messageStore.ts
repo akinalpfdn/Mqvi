@@ -6,6 +6,7 @@ import { create } from "zustand";
 import i18n from "../i18n";
 import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
+import type { UploadOptions } from "../api/client";
 import { useServerStore } from "./serverStore";
 import { useE2EEStore } from "./e2eeStore";
 import { useAuthStore } from "./authStore";
@@ -46,7 +47,7 @@ type MessageState = {
   resyncChannel: (channelId: string, serverId?: string) => Promise<void>;
   /** Clear fetch cache — forces re-fetch + re-decrypt (E2EE restore) */
   invalidateFetchCache: () => void;
-  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, serverId?: string) => Promise<boolean>;
+  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, serverId?: string, upload?: UploadOptions) => Promise<boolean>;
   editMessage: (messageId: string, content: string, serverId?: string) => Promise<boolean>;
   deleteMessage: (messageId: string, serverId?: string) => Promise<boolean>;
 
@@ -204,7 +205,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
-  sendMessage: async (channelId, content, files, replyToId, explicitServerId?) => {
+  sendMessage: async (channelId, content, files, replyToId, explicitServerId?, upload?) => {
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return false;
 
@@ -244,7 +245,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             e2eeState.localDeviceId,
             metadata,
             encryptedFiles,
-            replyToId
+            replyToId,
+            upload
           );
 
           handleSendError(res);
@@ -258,7 +260,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
 
     // Plaintext fallback
-    const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId);
+    const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId, upload);
     handleSendError(res);
     return res.success;
   },

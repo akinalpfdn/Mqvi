@@ -7,6 +7,8 @@ import { useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { reportUser, type ReportReason } from "../../api/report";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
+import UploadProgress from "./UploadProgress";
 import { useToastStore } from "../../stores/toastStore";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
@@ -45,6 +47,8 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isValid = selectedReason !== null && description.trim().length >= 10;
@@ -114,7 +118,8 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
       const res = await reportUser(
         userId,
         { reason: selectedReason, description: description.trim() },
-        files.length > 0 ? files : undefined
+        files.length > 0 ? files : undefined,
+        files.length > 0 ? beginUpload() : undefined
       );
 
       if (res.success) {
@@ -129,6 +134,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
     } catch {
       addToast("error", "Failed to submit report");
     } finally {
+      endUpload();
       setIsSubmitting(false);
     }
   }
@@ -220,6 +226,14 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
               onChange={handleFileInputChange}
             />
           </div>
+
+          {uploadProgress && (
+            <UploadProgress
+              loaded={uploadProgress.loaded}
+              total={uploadProgress.total}
+              onCancel={cancelUpload}
+            />
+          )}
 
           {/* Actions */}
           <div className="report-actions">
