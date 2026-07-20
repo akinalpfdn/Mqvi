@@ -4920,3 +4920,22 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   display: inline-block;
 }
 .msg-attachment-imgbtn:focus { outline: 2px solid var(--primary-m); outline-offset: 2px; }
+
+/* Download progress over an attachment preview. The ring sits on the thumbnail rather than
+   replacing it, so the picture stays visible while the original arrives. */
+.msg-attachment-imgbtn { position:relative; }
+.progress-ring {
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  display:flex;align-items:center;justify-content:center;
+  width:52px;height:52px;border-radius:50%;
+  background:rgba(0,0,0,0.55);
+  pointer-events:none;
+}
+.progress-ring-track { stroke:rgba(255,255,255,0.25); }
+.progress-ring-fill {
+  stroke:#fff;
+  /* Drawn from 12 o'clock instead of 3 o'clock. */
+  transform:rotate(-90deg);transform-origin:50% 50%;
+  transition:stroke-dashoffset .15s linear;
+}
+.progress-ring svg.spin { animation:spin 1s linear infinite; }

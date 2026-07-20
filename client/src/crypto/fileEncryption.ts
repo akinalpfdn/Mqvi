@@ -107,18 +107,62 @@ export async function encryptFile(file: File): Promise<EncryptedFileResult> {
   };
 }
 
+
+/**
+ * Drains a response body while reporting bytes read.
+ *
+ * arrayBuffer() gives no visibility into a download that can take a minute on a slow link, which
+ * is why a large attachment looked frozen. Falls back to arrayBuffer() when the body cannot be
+ * streamed, so the caller still gets its data.
+ */
+async function readWithProgress(
+  response: Response,
+  onProgress: (loaded: number, total: number | null) => void
+): Promise<ArrayBuffer> {
+  const header = response.headers.get("Content-Length");
+  const total = header ? Number(header) : null;
+  if (!response.body) return response.arrayBuffer();
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    onProgress(loaded, Number.isFinite(total) ? total : null);
+  }
+
+  const merged = new Uint8Array(loaded);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged.buffer;
+}
+
 /** Download and decrypt an encrypted file. Verifies SHA-256 integrity. */
 export async function decryptFile(
   url: string,
-  meta: EncryptedFileMeta
+  meta: EncryptedFileMeta,
+  options?: {
+    /** `total` is null when the response carries no Content-Length. */
+    onProgress?: (loaded: number, total: number | null) => void;
+    signal?: AbortSignal;
+  }
 ): Promise<File> {
   // Download encrypted file
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: options?.signal });
   if (!response.ok) {
     throw new Error(`Failed to download encrypted file: HTTP ${response.status}`);
   }
 
-  const encryptedData = await response.arrayBuffer();
+  const encryptedData = options?.onProgress
+    ? await readWithProgress(response, options.onProgress)
+    : await response.arrayBuffer();
 
   // Decrypt with AES-256-GCM
   const fileKey = fromBase64(meta.key);

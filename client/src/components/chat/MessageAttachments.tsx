@@ -57,11 +57,15 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
               onClick={() => open(attachment)}
               aria-label={attachment.filename}
             >
+              {/* The preview when there is one — the original is only fetched once opened. Width
+                  and height come from the stored dimensions so the list does not reflow on load. */}
               <img
-                src={resolveAssetUrl(attachment.file_url)}
+                src={resolveAssetUrl(attachment.thumb_url ?? attachment.file_url)}
                 alt={attachment.filename}
                 className="msg-attachment-img"
                 loading="lazy"
+                width={attachment.thumb_width ?? undefined}
+                height={attachment.thumb_height ?? undefined}
               />
             </button>
           );

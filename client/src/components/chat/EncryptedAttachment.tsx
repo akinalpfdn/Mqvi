@@ -1,18 +1,21 @@
 /**
  * EncryptedAttachment — displays E2EE encrypted file attachments.
  * Downloads encrypted file from server, decrypts with AES-256-GCM.
- * Images auto-decrypt on mount so the thumbnail can render inline; clicking
- * any attachment opens the in-app FileViewerOverlay with the decrypted blob
- * URL. The component owns the blob URL lifecycle: it stays mounted while the
- * surrounding message is rendered, and revokes on unmount.
+ * Only the small companion preview is decrypted on mount; the full attachment waits until the user
+ * opens it. Messages predating thumbnails have none, and those still decrypt the whole image inline
+ * so old conversations do not go blank.
+ *
+ * The component owns both blob URL lifecycles: they live while the surrounding message is rendered
+ * and are revoked on unmount.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { decryptFile } from "../../crypto/fileEncryption";
+import { decryptFile, decryptThumbnail } from "../../crypto/fileEncryption";
 import { resolveAssetUrl } from "../../utils/constants";
 import { formatBytes } from "../../utils/formatBytes";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
+import ProgressRing from "../shared/ProgressRing";
 import type { EncryptedFileMeta } from "../../crypto/fileEncryption";
 import type { ChatAttachment } from "../../hooks/useChatContext";
 
@@ -30,6 +33,10 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
   const [state, setState] = useState<DecryptState>("idle");
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const revokeRef = useRef<string | null>(null);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const thumbRevokeRef = useRef<string | null>(null);
+  const [progress, setProgress] = useState<{ loaded: number; total: number | null } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const isImage = fileMeta.mimeType.startsWith("image/");
 
@@ -40,6 +47,13 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
         URL.revokeObjectURL(revokeRef.current);
         revokeRef.current = null;
       }
+      if (thumbRevokeRef.current) {
+        URL.revokeObjectURL(thumbRevokeRef.current);
+        thumbRevokeRef.current = null;
+      }
+      // Scrolling a message out of view should stop its download, not keep pulling megabytes for
+      // something no longer on screen.
+      abortRef.current?.abort();
     };
   }, []);
 
@@ -50,7 +64,13 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     setState("loading");
     try {
       const url = resolveAssetUrl(attachment.file_url);
-      const decryptedFile = await decryptFile(url, fileMeta);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setProgress({ loaded: 0, total: null });
+      const decryptedFile = await decryptFile(url, fileMeta, {
+        signal: controller.signal,
+        onProgress: (loaded, total) => setProgress({ loaded, total }),
+      });
       const blobUrl = URL.createObjectURL(decryptedFile);
 
       if (revokeRef.current) {
@@ -59,21 +79,48 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
       revokeRef.current = blobUrl;
 
       setObjectUrl(blobUrl);
+      setProgress(null);
       setState("ready");
       return blobUrl;
     } catch (err) {
       console.error("[EncryptedAttachment] Decrypt failed:", err);
+      setProgress(null);
       setState("error");
       return null;
     }
   }, [attachment.file_url, fileMeta, state, objectUrl]);
 
-  // Auto-decrypt images on mount for inline thumbnail.
+  // On mount, decrypt only the PREVIEW — a few tens of kB instead of the whole attachment. This is
+  // the point of thumbnails: opening a channel used to download and decrypt every image in it at
+  // full size. Messages sent before thumbnails existed have none, so those keep the old behaviour
+  // rather than showing nothing.
   useEffect(() => {
-    if (isImage && state === "idle") {
-      doDecrypt();
+    if (!isImage) return;
+
+    const thumbSource = attachment.thumb_url;
+    if (!thumbSource || !fileMeta.thumbIv) {
+      if (state === "idle") doDecrypt();
+      return;
     }
-  }, [isImage, state, doDecrypt]);
+
+    let cancelled = false;
+    decryptThumbnail(resolveAssetUrl(thumbSource), fileMeta.key, fileMeta.thumbIv)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        thumbRevokeRef.current = url;
+        setThumbUrl(url);
+      })
+      .catch(() => {
+        // A preview that will not decrypt is not worth failing over; the attachment still opens.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isImage, attachment.thumb_url, fileMeta, state, doDecrypt]);
 
   const openInViewer = useCallback(async () => {
     const url = state === "ready" && objectUrl ? objectUrl : await doDecrypt();
@@ -88,6 +135,38 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
 
   // ─── Image rendering ───
   if (isImage) {
+    // The preview stands in for the full image. `state` describes the ORIGINAL, which stays idle
+    // until the user opens it — so gating the picture on state would hide a thumbnail we already
+    // decrypted.
+    const preview = thumbUrl ?? (state === "ready" ? objectUrl : null);
+    if (preview) {
+      return (
+        <button
+          type="button"
+          className="msg-attachment-imgbtn"
+          onClick={openInViewer}
+          aria-label={fileMeta.filename}
+        >
+          <img
+            src={preview}
+            alt={fileMeta.filename}
+            className="msg-attachment-img"
+            width={attachment.thumb_width ?? undefined}
+            height={attachment.thumb_height ?? undefined}
+          />
+          {/* The original is on its way — the preview stays visible underneath. Indeterminate
+              until the response reports a length. */}
+          {state === "loading" && (
+            <ProgressRing
+              percent={
+                progress && progress.total ? (progress.loaded / progress.total) * 100 : null
+              }
+            />
+          )}
+        </button>
+      );
+    }
+
     if (state === "loading" || state === "idle") {
       return (
         <div className="msg-attachment-file">
@@ -114,22 +193,9 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
       );
     }
 
-    // ready — show decrypted image, click opens viewer
-    return (
-      <button
-        type="button"
-        className="msg-attachment-imgbtn"
-        onClick={openInViewer}
-        aria-label={fileMeta.filename}
-      >
-        <img
-          src={objectUrl!}
-          alt={fileMeta.filename}
-          className="msg-attachment-img"
-          loading="lazy"
-        />
-      </button>
-    );
+    // Unreachable in practice: `preview` above already covers ready-with-a-blob. Kept as an
+    // explicit nothing rather than a stale copy of the image branch.
+    return null;
   }
 
   // ─── File rendering ───
