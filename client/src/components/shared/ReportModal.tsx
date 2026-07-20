@@ -8,6 +8,9 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { reportUser, type ReportReason } from "../../api/report";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { validateFiles } from "../../utils/fileValidation";
+import { MAX_FILE_SIZE } from "../../utils/constants";
 import UploadProgress from "./UploadProgress";
 import { useToastStore } from "../../stores/toastStore";
 import { useFileDrop } from "../../hooks/useFileDrop";
@@ -49,6 +52,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
     useUploadProgress();
+  const notifyRejected = useFileRejectionNotice();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isValid = selectedReason !== null && description.trim().length >= 10;
@@ -56,7 +60,8 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
   /** Add files with max limit enforcement */
   const addFiles = useCallback(
     (newFiles: File[]) => {
-      const images = filterImageFiles(newFiles);
+      const { accepted: images, rejected } = validateFiles(filterImageFiles(newFiles), MAX_FILE_SIZE);
+      notifyRejected(rejected, MAX_FILE_SIZE);
       if (images.length === 0) return;
 
       setFiles((prev) => {
@@ -72,7 +77,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
         return [...prev, ...toAdd];
       });
     },
-    [addToast, t]
+    [addToast, t, notifyRejected]
   );
 
   /** Remove file by index */

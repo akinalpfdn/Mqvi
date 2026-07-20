@@ -4,9 +4,12 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ImageCropModal from "../shared/ImageCropModal";
 import { resolveAssetUrl } from "../../utils/constants";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/gif,image/webp";
-const MAX_FILE_SIZE = 8 * 1024 * 1024;
+// Named apart from the global MAX_FILE_SIZE on purpose — this is an avatar-only cap, and a local
+// constant sharing that name reads as if it were the app-wide one.
+const MAX_AVATAR_SIZE = 8 * 1024 * 1024;
 
 type AvatarUploadProps = {
   currentUrl: string | null;
@@ -27,13 +30,18 @@ function AvatarUpload({
   const [isUploading, setIsUploading] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const notifyRejected = useFileRejectionNotice();
 
   const firstLetter = fallbackText.charAt(0).toUpperCase();
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > MAX_FILE_SIZE) return;
+    if (file.size > MAX_AVATAR_SIZE) {
+      notifyRejected([file], MAX_AVATAR_SIZE);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = () => setCropImage(reader.result as string);

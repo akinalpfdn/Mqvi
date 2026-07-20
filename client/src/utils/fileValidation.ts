@@ -2,18 +2,37 @@
  * fileValidation — File upload validation.
  *
  * Used by file input, drag-drop, and clipboard paste.
- * Rejects files exceeding MAX_FILE_SIZE. All MIME types are accepted —
- * XSS prevention is handled server-side at serve time (safe-serve whitelist).
+ * All MIME types are accepted — XSS prevention is handled server-side at serve time
+ * (safe-serve whitelist).
+ *
+ * Returns the rejected files rather than dropping them: a file that silently disappears is how a
+ * 180MB video looked like it was uploading for five minutes with nothing to show for it.
  */
 
 import { MAX_FILE_SIZE } from "./constants";
 
-/** Filters valid files from a FileList or File array. */
-export function validateFiles(files: FileList | File[]): File[] {
-  const valid: File[] = [];
+type FileValidationResult = {
+  accepted: File[];
+  /** Over the limit — the caller is responsible for telling the user. */
+  rejected: File[];
+};
+
+export function validateFiles(
+  files: FileList | File[],
+  maxBytes: number = MAX_FILE_SIZE
+): FileValidationResult {
+  const accepted: File[] = [];
+  const rejected: File[] = [];
+
   for (const file of Array.from(files)) {
-    if (file.size > MAX_FILE_SIZE) continue;
-    valid.push(file);
+    if (file.size > maxBytes) {
+      rejected.push(file);
+    } else {
+      accepted.push(file);
+    }
   }
-  return valid;
+
+  return { accepted, rejected };
 }
+
+export type { FileValidationResult };

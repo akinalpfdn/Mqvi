@@ -1,6 +1,6 @@
 /** MessageInput — Message compose area. Works in both channel and DM via ChatContext. */
 
-import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useChatCommandActions } from "../../hooks/useChatCommandActions";
@@ -15,7 +15,9 @@ import { useNarrowChat } from "../../hooks/useNarrowChat";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { validateFiles } from "../../utils/fileValidation";
-import { MAX_MESSAGE_LENGTH } from "../../utils/constants";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { useServerStore } from "../../stores/serverStore";
+import { MAX_MESSAGE_LENGTH, MAX_FILE_SIZE, MAX_E2EE_FILE_SIZE } from "../../utils/constants";
 import {
   executeChatCommand,
   getCommandQuery,
@@ -64,6 +66,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
     members,
   } = useChatContext();
   const addToast = useToastStore((s) => s.addToast);
+  const notifyRejected = useFileRejectionNotice();
+  const dmChannels = useDMStore((s) => s.channels);
+  const activeServer = useServerStore((s) => s.activeServer);
   const isNarrow = useNarrowChat();
   const isTouch = useIsTouch();
 
@@ -99,14 +104,33 @@ function MessageInput({ openSearch }: MessageInputProps) {
     ref.current?.click();
   }
 
+  // Encryption buffers the whole file plus its ciphertext in memory, so an encrypted conversation
+  // takes a smaller cap than the transport allows.
+  const isEncrypted =
+    mode === "dm"
+      ? !!dmChannels.find((ch) => ch.id === channelId)?.e2ee_enabled
+      : mode === "channel"
+        ? !!activeServer?.e2ee_enabled
+        : false;
+  const attachmentLimit = isEncrypted ? MAX_E2EE_FILE_SIZE : MAX_FILE_SIZE;
+
+  // Every way a file enters the composer — drop zone, paste, picker, camera — funnels through here,
+  // so the limit and the rejection notice cannot diverge between entry points.
+  const acceptFiles = useCallback(
+    (incoming: File[] | FileList) => {
+      const { accepted, rejected } = validateFiles(incoming, attachmentLimit);
+      notifyRejected(rejected, attachmentLimit, isEncrypted ? "e2eeSize" : "size");
+      if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted]);
+    },
+    [attachmentLimit, isEncrypted, notifyRejected]
+  );
+
   useEffect(() => {
-    addFilesRef.current = (newFiles: File[]) => {
-      setFiles((prev) => [...prev, ...newFiles]);
-    };
+    addFilesRef.current = acceptFiles;
     return () => {
       addFilesRef.current = null;
     };
-  }, [addFilesRef]);
+  }, [addFilesRef, acceptFiles]);
 
   useEffect(() => {
     // On touch, auto-focusing on every channel/DM switch yanks the soft keyboard open unprompted.
@@ -497,20 +521,14 @@ function MessageInput({ openSearch }: MessageInputProps) {
 
     if (pastedFiles.length > 0) {
       e.preventDefault();
-      const valid = validateFiles(pastedFiles);
-      if (valid.length > 0) {
-        setFiles((prev) => [...prev, ...valid]);
-      }
+      acceptFiles(pastedFiles);
     }
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
 
-    const valid = validateFiles(e.target.files);
-    if (valid.length > 0) {
-      setFiles((prev) => [...prev, ...valid]);
-    }
+    acceptFiles(e.target.files);
     e.target.value = "";
   }
 
@@ -743,10 +761,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
         ) : (
           <VoiceRecordButton
             disabled={isSending}
-            onRecorded={(file) => {
-              const valid = validateFiles([file]);
-              if (valid.length > 0) setFiles((prev) => [...prev, ...valid]);
-            }}
+            onRecorded={(file) => acceptFiles([file])}
           />
         )}
       </div>

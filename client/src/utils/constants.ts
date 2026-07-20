@@ -212,8 +212,23 @@ export function passwordByteLength(password: string): number {
   return new TextEncoder().encode(password).length;
 }
 
-/** Max file upload size (bytes) — 500MB */
-export const MAX_FILE_SIZE = 500 * 1024 * 1024;
+/**
+ * Max file upload size (bytes) — 100MB.
+ *
+ * Must not exceed the server's UPLOAD_MAX_SIZE, and Cloudflare Free caps the request body at 100MB
+ * regardless of what the origin allows. This was 500MB, so the client happily spent minutes
+ * uploading files the edge was always going to reject.
+ */
+export const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
+/**
+ * Max attachment size in an E2EE conversation (bytes) — 25MB.
+ *
+ * Encryption reads the whole file into memory and produces a second buffer of the same size, so a
+ * 100MB attachment costs 200MB+ peak in a mobile WebView. Lifting this needs chunked/streaming
+ * encryption, not a bigger number.
+ */
+export const MAX_E2EE_FILE_SIZE = 25 * 1024 * 1024;
 
 
 /** Idle detection — timeout in ms. User becomes "idle" after 5 minutes of inactivity. */

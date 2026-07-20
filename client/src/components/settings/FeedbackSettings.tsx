@@ -15,6 +15,9 @@ import type { FeedbackTicket, FeedbackReply, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { validateFiles } from "../../utils/fileValidation";
+import { MAX_FILE_SIZE } from "../../utils/constants";
 import UploadProgress from "../shared/UploadProgress";
 import { useImageAttach } from "../../hooks/useImageAttach";
 import { useFileDrop } from "../../hooks/useFileDrop";
@@ -50,12 +53,15 @@ function FeedbackSettings() {
   // The new-ticket form and the reply box live in different views, so one channel serves both.
   const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
     useUploadProgress();
+  const notifyRejected = useFileRejectionNotice();
 
   const MAX_FILES = 4;
   const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
   const addFiles = useCallback((newFiles: File[]) => {
-    const images = newFiles.filter((f) => ALLOWED_TYPES.includes(f.type));
+    const typed = newFiles.filter((f) => ALLOWED_TYPES.includes(f.type));
+    const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
+    notifyRejected(rejected, MAX_FILE_SIZE);
     if (images.length === 0) return;
     setFormFiles((prev) => {
       const remaining = MAX_FILES - prev.length;
@@ -66,7 +72,7 @@ function FeedbackSettings() {
       if (images.length > remaining) addToast("warning", t("feedbackMaxFiles"));
       return [...prev, ...images.slice(0, remaining)];
     });
-  }, [addToast, t]);
+  }, [addToast, t, notifyRejected]);
 
   const { isDragging, dragHandlers } = useFileDrop(addFiles);
 

@@ -1,5 +1,8 @@
 import { useCallback } from "react";
 import { useFileDrop } from "./useFileDrop";
+import { useFileRejectionNotice } from "./useFileRejectionNotice";
+import { validateFiles } from "../utils/fileValidation";
+import { MAX_FILE_SIZE } from "../utils/constants";
 
 export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
@@ -12,9 +15,14 @@ export function useImageAttach(
   max: number,
   onLimit?: () => void
 ) {
+  const notifyRejected = useFileRejectionNotice();
+
   const addFiles = useCallback(
     (incoming: File[]) => {
-      const images = incoming.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
+      const typed = incoming.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
+      // Size was never checked here, so an oversized image was queued and only died at the server.
+      const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
+      notifyRejected(rejected, MAX_FILE_SIZE);
       if (images.length === 0) return;
       setFiles((prev) => {
         const remaining = max - prev.length;
@@ -26,7 +34,7 @@ export function useImageAttach(
         return [...prev, ...images.slice(0, remaining)];
       });
     },
-    [setFiles, max, onLimit]
+    [setFiles, max, onLimit, notifyRejected]
   );
 
   const handlePaste = useCallback(

@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { reportServer } from "../../api/discovery";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { validateFiles } from "../../utils/fileValidation";
+import { MAX_FILE_SIZE } from "../../utils/constants";
 import UploadProgress from "../shared/UploadProgress";
 import { useToastStore } from "../../stores/toastStore";
 import { useFileDrop } from "../../hooks/useFileDrop";
@@ -41,13 +44,15 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
     useUploadProgress();
+  const notifyRejected = useFileRejectionNotice();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isValid = reason !== null && description.trim().length >= 10;
 
   const addFiles = useCallback(
     (newFiles: File[]) => {
-      const images = filterImageFiles(newFiles);
+      const { accepted: images, rejected } = validateFiles(filterImageFiles(newFiles), MAX_FILE_SIZE);
+      notifyRejected(rejected, MAX_FILE_SIZE);
       if (images.length === 0) return;
       setFiles((prev) => {
         const remaining = MAX_EVIDENCE_FILES - prev.length;
@@ -59,7 +64,7 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
         return [...prev, ...images.slice(0, remaining)];
       });
     },
-    [addToast, t]
+    [addToast, t, notifyRejected]
   );
 
   function handleRemoveFile(index: number) {
