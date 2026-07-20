@@ -15,11 +15,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+import { TransformWrapper, TransformComponent, type ReactZoomPanPinchContentRef } from "react-zoom-pan-pinch";
 import DOMPurify from "dompurify";
 import { useFileViewerStore, type FileViewerItem } from "../../stores/fileViewerStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useIsTouch } from "../../hooks/useMediaQuery";
+import { useBackHandler } from "../../hooks/useBackHandler";
 
 function isTextEntry(el: Element | null): boolean {
   if (!el) return false;
@@ -153,9 +154,16 @@ function OverlayShell({ item, onClose }: ShellProps) {
     item.size > PREVIEW_SIZE_LIMIT;
 
   function onBackdropClick(e: React.MouseEvent<HTMLDivElement>) {
+    // Touch never closes on a tap — closing on tap leaks the synthesized click through to the
+    // message behind the overlay once it unmounts (reopening it). Touch closes via swipe / back /
+    // the close button. Desktop keeps click-outside-to-close.
+    if (isTouch) return;
     if (e.button !== 0) return;
     if (e.target === e.currentTarget) onClose();
   }
+
+  // Android back / gesture closes the viewer only, without navigating the app's route.
+  useBackHandler(onClose);
 
   // Focus trap + initial focus + restore on close.
   // Tab/Shift+Tab cycle through focusable elements inside the overlay; focus
@@ -207,7 +215,7 @@ function OverlayShell({ item, onClose }: ShellProps) {
       />
     );
   } else if (kind === "image") {
-    body = <ImageViewer src={item.src} filename={item.filename} onClose={onClose} />;
+    body = <ImageViewer src={item.src} filename={item.filename} onClose={onClose} isTouch={isTouch} />;
   } else if (kind === "video") {
     body = <VideoViewer src={item.src} />;
   } else if (kind === "audio") {
@@ -275,26 +283,123 @@ function OverlayShell({ item, onClose }: ShellProps) {
 
 // ─── Per-type viewers ───
 
-function ImageViewer({ src, filename, onClose }: { src: string; filename: string; onClose: () => void }) {
+function ImageViewer({ src, filename, onClose, isTouch }: { src: string; filename: string; onClose: () => void; isTouch: boolean }) {
   const startRef = useRef<{ x: number; y: number } | null>(null);
+  const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null);
+  const outerRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLElement | null>(null);
+  const pointersRef = useRef(0);
+  const draggingRef = useRef(false);
+  const DISMISS_PX = 110;
+
+  // Drag-to-dismiss: at scale 1, a one-finger vertical drag moves the image with the finger while
+  // the backdrop fades; releasing past the threshold flings it off-screen and closes, shorter drags
+  // snap back. Zoomed in (scale > 1) or with a second finger down, it yields to react-zoom-pan-pinch.
+  function paint(dy: number) {
+    if (outerRef.current) {
+      outerRef.current.style.transition = "";
+      const shrink = Math.max(0.9, 1 - Math.abs(dy) / 1600);
+      outerRef.current.style.transform = `translateY(${dy}px) scale(${shrink})`;
+    }
+    if (overlayRef.current) {
+      overlayRef.current.style.transition = "";
+      overlayRef.current.style.opacity = String(Math.max(0.3, 1 - Math.abs(dy) / 500));
+    }
+  }
+  function snapBack() {
+    if (outerRef.current) {
+      outerRef.current.style.transition = "transform 0.22s ease";
+      outerRef.current.style.transform = "";
+    }
+    if (overlayRef.current) {
+      overlayRef.current.style.transition = "opacity 0.22s ease";
+      overlayRef.current.style.opacity = "";
+    }
+  }
+  function fling(dir: number) {
+    if (outerRef.current) {
+      outerRef.current.style.transition = "transform 0.2s ease";
+      outerRef.current.style.transform = `translateY(${dir * window.innerHeight}px)`;
+    }
+    if (overlayRef.current) {
+      overlayRef.current.style.transition = "opacity 0.2s ease";
+      overlayRef.current.style.opacity = "0";
+    }
+    window.setTimeout(onClose, 190);
+  }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    startRef.current = { x: e.clientX, y: e.clientY };
+    pointersRef.current += 1;
+    if (pointersRef.current === 1) {
+      startRef.current = { x: e.clientX, y: e.clientY };
+      overlayRef.current = outerRef.current?.closest(".file-viewer-overlay") as HTMLElement | null;
+      draggingRef.current = false;
+    } else {
+      // Second finger — a pinch. Abandon any dismiss drag in progress.
+      if (draggingRef.current) snapBack();
+      draggingRef.current = false;
+      startRef.current = null;
+    }
   }
-  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!isTouch || pointersRef.current !== 1) return;
     const start = startRef.current;
-    startRef.current = null;
     if (!start) return;
-    if (e.button !== 0) return;
-    const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
-    if (moved < 5 && (e.target as HTMLElement).tagName !== "IMG") {
+    if ((transformRef.current?.state.scale ?? 1) > 1.05) return; // zoomed → let the library pan
+    const dy = e.clientY - start.y;
+    const dx = e.clientX - start.x;
+    if (!draggingRef.current) {
+      // Only engage once the gesture is clearly a vertical drag.
+      if (Math.abs(dy) < 12 || Math.abs(dy) <= Math.abs(dx)) return;
+      draggingRef.current = true;
+    }
+    paint(dy);
+  }
+  function onPointerEnd(e: React.PointerEvent<HTMLDivElement>) {
+    pointersRef.current = Math.max(0, pointersRef.current - 1);
+    const start = startRef.current;
+    const wasDragging = draggingRef.current;
+    if (pointersRef.current === 0) {
+      startRef.current = null;
+      draggingRef.current = false;
+    }
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+
+    if (isTouch) {
+      if (wasDragging) {
+        if (Math.abs(dy) > DISMISS_PX) fling(dy > 0 ? 1 : -1);
+        else snapBack();
+      }
+      // A plain tap (no drag) does nothing.
+      return;
+    }
+    // Desktop: a click outside the image (not a drag, not on the IMG) closes.
+    if (e.button === 0 && Math.hypot(dx, dy) < 5 && (e.target as HTMLElement).tagName !== "IMG") {
       onClose();
+    }
+  }
+  function onPointerCancel() {
+    pointersRef.current = Math.max(0, pointersRef.current - 1);
+    if (pointersRef.current === 0) {
+      startRef.current = null;
+      if (draggingRef.current) snapBack();
+      draggingRef.current = false;
     }
   }
 
   return (
-    <div className="file-viewer-image-outer" onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
+    <div
+      ref={outerRef}
+      className="file-viewer-image-outer"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerCancel}
+    >
       <TransformWrapper
+        ref={transformRef}
         doubleClick={{ mode: "reset" }}
         minScale={1}
         maxScale={6}
