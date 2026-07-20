@@ -45,12 +45,15 @@ var allowedFeedbackMimeTypes = map[string]bool{
 // Video is accepted by prefix rather than an enumerated list — a fixed list always misses something
 // a phone or a Mac produces (.mov, .m4v, ...).
 //
-// The Content-Type header is the client's claim and nothing more, so a video claim must be backed by
-// an extension that independently resolves to a video type. Without that check "video/mp4" on a
-// .html file would be stored as video and the viewer would be told to play it.
+// The Content-Type header is the client's claim and nothing more, so the extension gets a veto —
+// but only over types that are genuinely dangerous (".html" claimed as "video/mp4").
+//
+// Requiring the extension to resolve to video/ instead was wrong: Go's table maps .webm to
+// audio/webm and does not know .mkv at all, so legitimate videos were refused. An unknown or merely
+// surprising extension is not evidence of an attack; markup and executables are.
 func isAllowedFeedbackMime(mimeBase, filename string) bool {
 	if strings.HasPrefix(mimeBase, "video/") {
-		return strings.HasPrefix(files.MIMEByExtension(filename), "video/")
+		return !files.IsUnsafeInline(files.MIMEByExtension(filename))
 	}
 	return allowedFeedbackMimeTypes[mimeBase]
 }

@@ -34,9 +34,15 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
   const { t: tE2ee } = useTranslation("e2ee");
   useBackHandler(onClose);
   const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
+  // The prop wins; the active server is only a floor. A tab opened before the server list loaded
+  // carries no serverInfo for its whole life, and dropping the fallback entirely made search in
+  // that tab return nothing — the same shape ChannelChatProvider and MentionAutocomplete use.
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const effectiveServerId = serverId ?? activeServerId ?? undefined;
+
   // E2EE is per-server. Plaintext servers can use backend FTS5; only route through the IndexedDB
   // cache when THIS panel's server is encrypted — not whichever server happens to be active.
-  const serverE2eeEnabled = useServerStore(selectServerE2EE(serverId));
+  const serverE2eeEnabled = useServerStore(selectServerE2EE(effectiveServerId));
   const useLocalSearch = serverE2eeEnabled && isE2EEReady;
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult | null>(null);
@@ -98,12 +104,12 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
       }
 
       // Plaintext — server-side FTS5 search
-      if (!serverId) {
+      if (!effectiveServerId) {
         setResults({ messages: [], total_count: 0 });
         setIsSearching(false);
         return;
       }
-      const res = await searchMessages(serverId, searchQuery.trim(), channelId, limit, searchOffset);
+      const res = await searchMessages(effectiveServerId, searchQuery.trim(), channelId, limit, searchOffset);
       if (res.success && res.data) {
         setResults(res.data);
       } else {
@@ -111,7 +117,7 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
       }
       setIsSearching(false);
     },
-    [channelId, serverId, useLocalSearch]
+    [channelId, effectiveServerId, useLocalSearch]
   );
 
   /** Debounced search on input change */

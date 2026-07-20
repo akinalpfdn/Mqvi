@@ -16,7 +16,7 @@ import { resolveAssetUrl } from "../../utils/constants";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
-import { validateFiles } from "../../utils/fileValidation";
+import { validateFiles, partitionFiles } from "../../utils/fileValidation";
 import { MAX_FILE_SIZE, FEEDBACK_ACCEPT_ATTR, isFeedbackAttachment } from "../../utils/constants";
 import UploadProgress from "../shared/UploadProgress";
 import AttachmentPreview from "../shared/AttachmentPreview";
@@ -59,9 +59,9 @@ function FeedbackSettings() {
   const MAX_FILES = 4;
 
   const addFiles = useCallback((newFiles: File[]) => {
-    const typed = newFiles.filter((f) => isFeedbackAttachment(f.type));
-    notifyRejected(newFiles.filter((f) => !isFeedbackAttachment(f.type)), { reason: "type" });
-    const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
+    const byType = partitionFiles(newFiles, (f) => isFeedbackAttachment(f.type));
+    notifyRejected(byType.rejected, { reason: "type" });
+    const { accepted: images, rejected } = validateFiles(byType.accepted, MAX_FILE_SIZE);
     notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
     if (images.length === 0) return;
     setFormFiles((prev) => {

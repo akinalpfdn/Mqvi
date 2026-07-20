@@ -70,7 +70,10 @@ function MessageInput({ openSearch }: MessageInputProps) {
   // Both selectors return a boolean, so the composer re-renders when encryption flips — not on
   // every unrelated DM-list or server-list update.
   const dmE2EE = useDMStore((s) => s.channels.find((ch) => ch.id === channelId)?.e2ee_enabled ?? false);
-  const channelE2EE = useServerStore(selectServerE2EE(serverId));
+  // Same fallback as everywhere else: a tab opened before the server list loaded has no serverId,
+  // and defaulting to "not encrypted" would hand an encrypted channel the 100MB cap.
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const channelE2EE = useServerStore(selectServerE2EE(serverId ?? activeServerId));
   const isNarrow = useNarrowChat();
   const isTouch = useIsTouch();
 

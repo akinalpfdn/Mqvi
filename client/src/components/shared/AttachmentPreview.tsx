@@ -11,7 +11,10 @@ type AttachmentPreviewProps = {
   mime?: string | null;
 };
 
-const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv)$/i;
+// Only containers the serve layer will hand back inline (see pkg/files/safemime.go). .ogv is left
+// out on purpose: video/ogg is not inline-safe there, so it arrives as a download and a <video>
+// element would render an empty box.
+const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
 
 function AttachmentPreview({ url, filename, mime }: AttachmentPreviewProps) {
   const isVideo = (mime ?? "").startsWith("video/") || VIDEO_EXT.test(filename);

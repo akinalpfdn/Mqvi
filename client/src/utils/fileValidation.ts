@@ -35,4 +35,27 @@ export function validateFiles(
   return { accepted, rejected };
 }
 
+/**
+ * Splits by a predicate in one pass, so the kept list and the refused list can never disagree —
+ * the alternative (filter twice, or `!kept.includes(f)`) evaluates the predicate per file twice and
+ * was copied into four call sites.
+ */
+export function partitionFiles(
+  files: File[],
+  keep: (file: File) => boolean
+): FileValidationResult {
+  const accepted: File[] = [];
+  const rejected: File[] = [];
+
+  for (const file of files) {
+    if (keep(file)) {
+      accepted.push(file);
+    } else {
+      rejected.push(file);
+    }
+  }
+
+  return { accepted, rejected };
+}
+
 export type { FileValidationResult };

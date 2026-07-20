@@ -67,6 +67,10 @@ type ServerState = {
  * (settings edits land there first); the list covers everything else.
  *
  * Returns a primitive, so components subscribing through it re-render only when the flag flips.
+ *
+ * An id known to neither source reads as false. That is a fail-open on a security-shaped question,
+ * so callers must pass `serverId ?? activeServerId` rather than a bare optional: with that fallback
+ * the unknown case only arises when there is no server context at all, and nothing can be sent.
  */
 export function selectServerE2EE(serverId: string | null | undefined) {
   return (s: ServerState): boolean => {

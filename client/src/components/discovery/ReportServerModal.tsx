@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { reportServer } from "../../api/discovery";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
-import { validateFiles } from "../../utils/fileValidation";
+import { validateFiles, partitionFiles } from "../../utils/fileValidation";
 import { MAX_FILE_SIZE } from "../../utils/constants";
 import UploadProgress from "../shared/UploadProgress";
 import { useToastStore } from "../../stores/toastStore";
@@ -23,9 +23,7 @@ const REASONS = [
 const MAX_EVIDENCE_FILES = 4;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
-function filterImageFiles(files: File[]): File[] {
-  return files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
-}
+const isAllowedImage = (f: File) => ALLOWED_IMAGE_TYPES.includes(f.type);
 
 type Props = {
   serverId: string;
@@ -51,12 +49,9 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
 
   const addFiles = useCallback(
     (newFiles: File[]) => {
-      const typed = filterImageFiles(newFiles);
-      notifyRejected(
-        newFiles.filter((f) => !typed.includes(f)),
-        { reason: "type" }
-      );
-      const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
+      const byType = partitionFiles(newFiles, isAllowedImage);
+      notifyRejected(byType.rejected, { reason: "type" });
+      const { accepted: images, rejected } = validateFiles(byType.accepted, MAX_FILE_SIZE);
       notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
       if (images.length === 0) return;
       setFiles((prev) => {
