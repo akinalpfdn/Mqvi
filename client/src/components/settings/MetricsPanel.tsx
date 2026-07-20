@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useToastStore } from "../../stores/toastStore";
+import { formatBytes } from "../../utils/formatBytes";
 import {
   getLiveKitInstanceMetrics,
   getLiveKitMetricsHistory,
@@ -577,14 +578,6 @@ function ChartTooltip({ active, payload, label, period, valueFormatter, labelMap
   );
 }
 
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const val = bytes / Math.pow(1024, i);
-  return `${val.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
-}
 
 function formatBps(bytesPerSec: number): string {
   const bps = bytesPerSec * 8;

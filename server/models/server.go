@@ -47,11 +47,16 @@ var ValidServerCategories = map[string]bool{
 const MaxServerDescriptionLength = 300
 
 // ServerListItem is the minimal data needed for the server icon sidebar.
+//
+// E2EEEnabled is carried here, not just on the full Server, because the client renders channels
+// from servers that are not the active one (split view / tabs) and must know whether an attachment
+// will be encrypted before it decides the size cap.
 type ServerListItem struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	IconURL  *string `json:"icon_url"`
-	Verified bool    `json:"verified"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	IconURL     *string `json:"icon_url"`
+	Verified    bool    `json:"verified"`
+	E2EEEnabled bool    `json:"e2ee_enabled"`
 }
 
 // SoftDeleteTTLDays is the grace period before a soft-deleted server is hard-deleted by the cleanup worker.

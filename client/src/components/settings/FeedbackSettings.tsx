@@ -60,8 +60,9 @@ function FeedbackSettings() {
 
   const addFiles = useCallback((newFiles: File[]) => {
     const typed = newFiles.filter((f) => isFeedbackAttachment(f.type));
+    notifyRejected(newFiles.filter((f) => !isFeedbackAttachment(f.type)), { reason: "type" });
     const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
-    notifyRejected(rejected, MAX_FILE_SIZE);
+    notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
     if (images.length === 0) return;
     setFormFiles((prev) => {
       const remaining = MAX_FILES - prev.length;

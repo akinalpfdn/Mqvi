@@ -4,6 +4,11 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { getStorageUsage, type StorageUsage } from "../../api/profile";
 
+/**
+ * Kept separate from utils/formatBytes on purpose: a quota bar reads better with two decimals at
+ * GB ("12.34 GB" vs "12.3 GB"), and rounding a storage figure harder than the user's actual usage
+ * is the wrong trade here.
+ */
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

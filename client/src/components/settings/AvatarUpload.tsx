@@ -35,7 +35,7 @@ function AvatarUpload({
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > MAX_AVATAR_UPLOAD_SIZE) {
-      notifyRejected([file], MAX_AVATAR_UPLOAD_SIZE);
+      notifyRejected([file], { reason: "size", maxBytes: MAX_AVATAR_UPLOAD_SIZE });
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }

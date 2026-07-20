@@ -16,7 +16,7 @@ import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { validateFiles } from "../../utils/fileValidation";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
-import { useServerStore } from "../../stores/serverStore";
+import { useServerStore, selectServerE2EE } from "../../stores/serverStore";
 import { MAX_MESSAGE_LENGTH, MAX_FILE_SIZE, MAX_E2EE_FILE_SIZE } from "../../utils/constants";
 import {
   executeChatCommand,
@@ -67,8 +67,10 @@ function MessageInput({ openSearch }: MessageInputProps) {
   } = useChatContext();
   const addToast = useToastStore((s) => s.addToast);
   const notifyRejected = useFileRejectionNotice();
-  const dmChannels = useDMStore((s) => s.channels);
-  const activeServer = useServerStore((s) => s.activeServer);
+  // Both selectors return a boolean, so the composer re-renders when encryption flips — not on
+  // every unrelated DM-list or server-list update.
+  const dmE2EE = useDMStore((s) => s.channels.find((ch) => ch.id === channelId)?.e2ee_enabled ?? false);
+  const channelE2EE = useServerStore(selectServerE2EE(serverId));
   const isNarrow = useNarrowChat();
   const isTouch = useIsTouch();
 
@@ -106,12 +108,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
 
   // Encryption buffers the whole file plus its ciphertext in memory, so an encrypted conversation
   // takes a smaller cap than the transport allows.
-  const isEncrypted =
-    mode === "dm"
-      ? !!dmChannels.find((ch) => ch.id === channelId)?.e2ee_enabled
-      : mode === "channel"
-        ? !!activeServer?.e2ee_enabled
-        : false;
+  const isEncrypted = mode === "dm" ? dmE2EE : mode === "channel" ? channelE2EE : false;
   const attachmentLimit = isEncrypted ? MAX_E2EE_FILE_SIZE : MAX_FILE_SIZE;
 
   // Every way a file enters the composer — drop zone, paste, picker, camera — funnels through here,
@@ -119,7 +116,10 @@ function MessageInput({ openSearch }: MessageInputProps) {
   const acceptFiles = useCallback(
     (incoming: File[] | FileList) => {
       const { accepted, rejected } = validateFiles(incoming, attachmentLimit);
-      notifyRejected(rejected, attachmentLimit, isEncrypted ? "e2eeSize" : "size");
+      notifyRejected(rejected, {
+        reason: isEncrypted ? "e2eeSize" : "size",
+        maxBytes: attachmentLimit,
+      });
       if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted]);
     },
     [attachmentLimit, isEncrypted, notifyRejected]

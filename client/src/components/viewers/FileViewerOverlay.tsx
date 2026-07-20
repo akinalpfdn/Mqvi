@@ -21,6 +21,7 @@ import { useFileViewerStore, type FileViewerItem } from "../../stores/fileViewer
 import { useToastStore } from "../../stores/toastStore";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useBackHandler } from "../../hooks/useBackHandler";
+import { formatBytes } from "../../utils/formatBytes";
 
 function isTextEntry(el: Element | null): boolean {
   if (!el) return false;
@@ -72,12 +73,10 @@ function sanitizeHtml(input: string): string {
   }) as unknown as string;
 }
 
-function formatBytes(bytes: number | null): string {
+/** Unknown size reads as an em dash rather than "0 B", which would be a claim we cannot make. */
+function formatSize(bytes: number | null): string {
   if (bytes == null || bytes === 0) return "—";
-  const k = 1024;
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${units[i]}`;
+  return formatBytes(bytes);
 }
 
 function classifyMime(mime: string, filename: string): "image" | "video" | "audio" | "pdf" | "docx" | "xlsx" | "other" {
@@ -209,7 +208,7 @@ function OverlayShell({ item, onClose }: ShellProps) {
   if (tooLargeForPreview) {
     body = (
       <FallbackPanel
-        message={t("previewTooLarge", { size: formatBytes(item.size) })}
+        message={t("previewTooLarge", { size: formatSize(item.size) })}
         downloadHref={downloadHref}
         downloadName={item.filename}
       />
@@ -248,7 +247,7 @@ function OverlayShell({ item, onClose }: ShellProps) {
       <div className="file-viewer-header">
         <div className="file-viewer-meta">
           <span className="file-viewer-filename" title={item.filename}>{item.filename}</span>
-          <span className="file-viewer-size">{formatBytes(item.size)}</span>
+          <span className="file-viewer-size">{formatSize(item.size)}</span>
         </div>
         <div className="file-viewer-actions">
           {kind === "image" && (

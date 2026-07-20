@@ -11,9 +11,9 @@
   "uploadingSent": "{{sent}} sent",
   "uploadPreparing": "Preparing…",
   "fileTooLarge": "{{name}} is larger than the {{limit}} limit and was not attached.",
-  "filesTooLarge": "{{count}} files are larger than the {{limit}} limit and were not attached.",
+  "filesTooLarge": "{{n}} files are larger than the {{limit}} limit and were not attached.",
   "fileTooLargeEncrypted": "{{name}} is over the {{limit}} limit for encrypted chats and was not attached.",
-  "filesTooLargeEncrypted": "{{count}} files are over the {{limit}} limit for encrypted chats and were not attached.",
+  "filesTooLargeEncrypted": "{{n}} files are over the {{limit}} limit for encrypted chats and were not attached.",
   "uploadCancelled": "Upload cancelled",
   "save": "Save",
   "cancel": "Cancel",
@@ -176,5 +176,7 @@
     "showing": "Showing {{from}}–{{to}} of {{total}}",
     "previous": "Previous",
     "next": "Next"
-  }
+  },
+  "fileTypeNotAllowed": "{{name}} is not a supported file type and was not attached.",
+  "filesTypeNotAllowed": "{{n}} files are not a supported file type and were not attached."
 }

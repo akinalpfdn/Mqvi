@@ -11,9 +11,9 @@
   "uploadingSent": "{{sent}} gönderildi",
   "uploadPreparing": "Hazırlanıyor…",
   "fileTooLarge": "{{name}} dosyası {{limit}} sınırından büyük, eklenmedi.",
-  "filesTooLarge": "{{count}} dosya {{limit}} sınırından büyük, eklenmedi.",
+  "filesTooLarge": "{{n}} dosya {{limit}} sınırından büyük, eklenmedi.",
   "fileTooLargeEncrypted": "{{name}} dosyası şifreli sohbetlerdeki {{limit}} sınırının üzerinde, eklenmedi.",
-  "filesTooLargeEncrypted": "{{count}} dosya şifreli sohbetlerdeki {{limit}} sınırının üzerinde, eklenmedi.",
+  "filesTooLargeEncrypted": "{{n}} dosya şifreli sohbetlerdeki {{limit}} sınırının üzerinde, eklenmedi.",
   "uploadCancelled": "Yükleme iptal edildi",
   "save": "Kaydet",
   "cancel": "İptal",
@@ -176,5 +176,7 @@
     "showing": "{{from}}–{{to}} / {{total}}",
     "previous": "Önceki",
     "next": "Sonraki"
-  }
+  },
+  "fileTypeNotAllowed": "{{name}} desteklenmeyen bir dosya türü, eklenmedi.",
+  "filesTypeNotAllowed": "{{n}} dosya desteklenmeyen türde, eklenmedi."
 }

@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { decryptFile } from "../../crypto/fileEncryption";
 import { resolveAssetUrl } from "../../utils/constants";
+import { formatBytes } from "../../utils/formatBytes";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import type { EncryptedFileMeta } from "../../crypto/fileEncryption";
 import type { ChatAttachment } from "../../hooks/useChatContext";
@@ -146,7 +147,7 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
             ? t("decryptingFile")
             : state === "error"
               ? t("fileDecryptFailed")
-              : formatFileSize(fileMeta.originalSize)}
+              : formatBytes(fileMeta.originalSize)}
         </p>
       </div>
     </button>
@@ -172,15 +173,6 @@ function EncryptedFileIcon() {
       />
     </svg>
   );
-}
-
-/** Format file size to human-readable string (1024 → "1.0 KB") */
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
 export default EncryptedAttachment;

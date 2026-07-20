@@ -1,6 +1,7 @@
 /** MessageAttachments — Renders file/image attachments for a message. */
 
 import { resolveAssetUrl } from "../../utils/constants";
+import { formatBytes } from "../../utils/formatBytes";
 import EncryptedAttachment from "./EncryptedAttachment";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import type { ChatAttachment, ChatMessage } from "../../hooks/useChatContext";
@@ -128,7 +129,7 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
               </p>
               {attachment.file_size && (
                 <p className="msg-attachment-file-size">
-                  {formatFileSize(attachment.file_size)}
+                  {formatBytes(attachment.file_size)}
                 </p>
               )}
             </div>
@@ -137,13 +138,6 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
       })}
     </div>
   );
-}
-
-/** Format bytes to human-readable size (1024 -> "1.0 KB") */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default MessageAttachments;

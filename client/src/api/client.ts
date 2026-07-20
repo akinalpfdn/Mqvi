@@ -250,64 +250,73 @@ function sendXhr<T>(
       return;
     }
 
-    const xhr = new XMLHttpRequest();
-    xhr.open(method, `${API_BASE_URL}${endpoint}`);
-    // Matches apiClient's credentials:"include" — the file-serve cookie must ride along, and the
-    // Electron renderer's file:// origin makes every API call cross-site.
-    xhr.withCredentials = true;
+    // open()/send() can throw synchronously (malformed URL, SecurityError). Callers rely on this
+    // layer never throwing — apiClient guarantees the same — so a throw here must come back as a
+    // failed response, not a rejected promise nobody catches.
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open(method, `${API_BASE_URL}${endpoint}`);
+      // Matches apiClient's credentials:"include" — the file-serve cookie must ride along, and the
+      // Electron renderer's file:// origin makes every API call cross-site.
+      xhr.withCredentials = true;
 
-    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-    for (const [key, value] of Object.entries(extraHeaders ?? {})) {
-      xhr.setRequestHeader(key, value);
-    }
-    // Content-Type is left unset on purpose: the browser derives it from the FormData, including
-    // the multipart boundary. Setting it by hand produces a body the server cannot parse.
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      for (const [key, value] of Object.entries(extraHeaders ?? {})) {
+        xhr.setRequestHeader(key, value);
+      }
+      // Content-Type is left unset on purpose: the browser derives it from the FormData, including
+      // the multipart boundary. Setting it by hand produces a body the server cannot parse.
 
-    const onAbort = () => xhr.abort();
-    signal?.addEventListener("abort", onAbort);
-    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+      const onAbort = () => xhr.abort();
+      signal?.addEventListener("abort", onAbort);
+      const cleanup = () => signal?.removeEventListener("abort", onAbort);
 
-    let lastTotal: number | null = null;
-    if (onProgress) {
-      xhr.upload.onprogress = (e) => {
-        lastTotal = e.lengthComputable ? e.total : null;
-        onProgress(e.loaded, lastTotal);
+      let lastTotal: number | null = null;
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          lastTotal = e.lengthComputable ? e.total : null;
+          onProgress(e.loaded, lastTotal);
+        };
+      }
+
+      xhr.onload = () => {
+        cleanup();
+        // The last upload.onprogress can land below total; settle the bar so it never sticks at 99%.
+        if (onProgress && lastTotal !== null) onProgress(lastTotal, lastTotal);
+
+        if (xhr.status === 204) {
+          resolve({ status: 204, response: { success: true, data: undefined as T } });
+          return;
+        }
+        try {
+          resolve({ status: xhr.status, response: JSON.parse(xhr.responseText) as APIResponse<T> });
+        } catch {
+          // Non-JSON body — a proxy rejection (Cloudflare 413) or a crash page.
+          console.error(`[upload] ${method} ${endpoint}: invalid JSON (HTTP ${xhr.status})`);
+          resolve({
+            status: xhr.status,
+            response: { success: false, error: `HTTP ${xhr.status}: ${xhr.statusText}` },
+          });
+        }
       };
+
+      xhr.onerror = () => {
+        cleanup();
+        console.error(`[upload] ${method} ${endpoint}: network error`);
+        resolve({ status: 0, response: { success: false, error: "Network request failed" } });
+      };
+
+      xhr.onabort = () => {
+        cleanup();
+        resolve(aborted);
+      };
+
+      xhr.send(body);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Upload request failed";
+      console.error(`[upload] ${method} ${endpoint}: ${message}`);
+      resolve({ status: 0, response: { success: false, error: message } });
     }
-
-    xhr.onload = () => {
-      cleanup();
-      // The last upload.onprogress can land below total; settle the bar so it never sticks at 99%.
-      if (onProgress && lastTotal !== null) onProgress(lastTotal, lastTotal);
-
-      if (xhr.status === 204) {
-        resolve({ status: 204, response: { success: true, data: undefined as T } });
-        return;
-      }
-      try {
-        resolve({ status: xhr.status, response: JSON.parse(xhr.responseText) as APIResponse<T> });
-      } catch {
-        // Non-JSON body — a proxy rejection (Cloudflare 413) or a crash page.
-        console.error(`[upload] ${method} ${endpoint}: invalid JSON (HTTP ${xhr.status})`);
-        resolve({
-          status: xhr.status,
-          response: { success: false, error: `HTTP ${xhr.status}: ${xhr.statusText}` },
-        });
-      }
-    };
-
-    xhr.onerror = () => {
-      cleanup();
-      console.error(`[upload] ${method} ${endpoint}: network error`);
-      resolve({ status: 0, response: { success: false, error: "Network request failed" } });
-    };
-
-    xhr.onabort = () => {
-      cleanup();
-      resolve(aborted);
-    };
-
-    xhr.send(body);
   });
 }
 

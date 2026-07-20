@@ -71,7 +71,7 @@ export function useFileDrop(onDrop: (files: File[]) => void): UseFileDropReturn 
       // Global cap only. A stricter per-conversation limit (E2EE) is applied where the files land,
       // so the drop zone does not need to know what it is dropping into.
       const { accepted, rejected } = validateFiles(droppedFiles, MAX_FILE_SIZE);
-      notifyRejected(rejected, MAX_FILE_SIZE);
+      notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
       if (accepted.length > 0) {
         onDrop(accepted);
       }

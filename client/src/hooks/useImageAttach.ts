@@ -14,20 +14,29 @@ export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "ima
  * `isAllowed` overrides the image-only filter — feedback also takes video. The hook keeps its name
  * because images remain the default and its other callers are unchanged.
  */
+const isImageMime = (mime: string) => ALLOWED_IMAGE_TYPES.includes(mime);
+
 export function useImageAttach(
   setFiles: React.Dispatch<React.SetStateAction<File[]>>,
   max: number,
   onLimit?: () => void,
-  isAllowed: (mime: string) => boolean = (mime) => ALLOWED_IMAGE_TYPES.includes(mime)
+  // Module-level default: an inline arrow would be a new identity every render, rebuilding addFiles
+  // and every hook that depends on it.
+  isAllowed: (mime: string) => boolean = isImageMime
 ) {
   const notifyRejected = useFileRejectionNotice();
 
   const addFiles = useCallback(
     (incoming: File[]) => {
       const typed = incoming.filter((f) => isAllowed(f.type));
-      // Size was never checked here, so an oversized image was queued and only died at the server.
+      // Both refusals are reported. A file dropped here used to vanish with no explanation whether
+      // it was the wrong type or too big.
+      notifyRejected(
+        incoming.filter((f) => !isAllowed(f.type)),
+        { reason: "type" }
+      );
       const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
-      notifyRejected(rejected, MAX_FILE_SIZE);
+      notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
       if (images.length === 0) return;
       setFiles((prev) => {
         const remaining = max - prev.length;

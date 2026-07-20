@@ -60,6 +60,22 @@ type ServerState = {
   toggleE2EE: (serverId: string, enabled: boolean) => Promise<boolean>;
 };
 
+/**
+ * Whether a server has E2EE on — for ANY server the user is in, not just the active one. Tabs and
+ * split view render channels of non-active servers, so reading `activeServer` would answer about
+ * the wrong server. `activeServer` is preferred when it matches because it is the freshest copy
+ * (settings edits land there first); the list covers everything else.
+ *
+ * Returns a primitive, so components subscribing through it re-render only when the flag flips.
+ */
+export function selectServerE2EE(serverId: string | null | undefined) {
+  return (s: ServerState): boolean => {
+    if (!serverId) return false;
+    if (s.activeServer?.id === serverId) return s.activeServer.e2ee_enabled;
+    return s.servers.find((sv) => sv.id === serverId)?.e2ee_enabled ?? false;
+  };
+}
+
 export const useServerStore = create<ServerState>((set, get) => ({
   servers: [],
   activeServerId: localStorage.getItem(LAST_SERVER_KEY),

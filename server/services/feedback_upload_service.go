@@ -43,11 +43,14 @@ var allowedFeedbackMimeTypes = map[string]bool{
 }
 
 // Video is accepted by prefix rather than an enumerated list — a fixed list always misses something
-// a phone or a Mac produces (.mov, .m4v, ...), and the serve layer decides separately what may be
-// rendered inline, so accepting a container here is not a rendering decision.
-func isAllowedFeedbackMime(mimeBase string) bool {
+// a phone or a Mac produces (.mov, .m4v, ...).
+//
+// The Content-Type header is the client's claim and nothing more, so a video claim must be backed by
+// an extension that independently resolves to a video type. Without that check "video/mp4" on a
+// .html file would be stored as video and the viewer would be told to play it.
+func isAllowedFeedbackMime(mimeBase, filename string) bool {
 	if strings.HasPrefix(mimeBase, "video/") {
-		return true
+		return strings.HasPrefix(files.MIMEByExtension(filename), "video/")
 	}
 	return allowedFeedbackMimeTypes[mimeBase]
 }
@@ -63,7 +66,7 @@ func (s *feedbackUploadService) Upload(ctx context.Context, ticketID string, rep
 	}
 	mimeBase := strings.TrimSpace(strings.Split(contentType, ";")[0])
 
-	if !isAllowedFeedbackMime(mimeBase) {
+	if !isAllowedFeedbackMime(mimeBase, header.Filename) {
 		return nil, fmt.Errorf("%w: only images and video are allowed (got: %s)", pkg.ErrBadRequest, mimeBase)
 	}
 

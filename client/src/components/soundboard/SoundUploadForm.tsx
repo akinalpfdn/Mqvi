@@ -10,6 +10,8 @@ import { useTranslation } from "react-i18next";
 import { useServerStore } from "../../stores/serverStore";
 import * as soundboardApi from "../../api/soundboard";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { MAX_FILE_SIZE } from "../../utils/constants";
 import UploadProgress from "../shared/UploadProgress";
 
 type Props = {
@@ -124,6 +126,7 @@ function SoundUploadForm({ onClose }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
     useUploadProgress();
+  const notifyRejected = useFileRejectionNotice();
   const [error, setError] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -206,6 +209,14 @@ function SoundUploadForm({ onClose }: Props) {
     if (!selected) return;
 
     setError("");
+
+    // Video sources get decoded to WAV in-browser before upload, so an oversized pick has to be
+    // refused here — otherwise it is fully decoded first and only then rejected by the server.
+    if (selected.size > MAX_FILE_SIZE) {
+      notifyRejected([selected], { reason: "size", maxBytes: MAX_FILE_SIZE });
+      e.target.value = "";
+      return;
+    }
 
     if (!name) {
       setName(selected.name.replace(/\.[^.]+$/, ""));

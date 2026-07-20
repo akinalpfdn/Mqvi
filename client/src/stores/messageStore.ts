@@ -7,7 +7,7 @@ import i18n from "../i18n";
 import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
 import type { UploadOptions } from "../api/client";
-import { useServerStore } from "./serverStore";
+import { useServerStore, selectServerE2EE } from "./serverStore";
 import { useE2EEStore } from "./e2eeStore";
 import { useAuthStore } from "./authStore";
 import { useReadStateStore } from "./readStateStore";
@@ -209,10 +209,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return false;
 
-    // E2EE: encrypt with Sender Key
+    // E2EE: encrypt with Sender Key.
+    // Read the flag for the server this message is actually going to. Reading `activeServer` sent
+    // a plaintext message to an E2EE server (or the reverse) whenever a tab held a channel of a
+    // non-active server — explicitServerId exists precisely because that happens.
     const e2eeState = useE2EEStore.getState();
-    const activeServer = useServerStore.getState().activeServer;
-    if (activeServer?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+    const targetServerE2EE = selectServerE2EE(serverId)(useServerStore.getState());
+    if (targetServerE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
       if (currentUserId) {
         try {
@@ -271,8 +274,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     // E2EE encrypted edit
     const e2eeState = useE2EEStore.getState();
-    const activeServerForEdit = useServerStore.getState().activeServer;
-    if (activeServerForEdit?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+    // Same rule as sendMessage: the flag must come from the server being edited in, not the active one.
+    const editServerE2EE = selectServerE2EE(serverId)(useServerStore.getState());
+    if (editServerE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
       // Find which channel this message belongs to
       const allChannels = get().messagesByChannel;

@@ -320,9 +320,10 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 	s.hub.BroadcastToUser(ownerID, ws.Event{
 		Op: ws.OpServerCreate,
 		Data: models.ServerListItem{
-			ID:      server.ID,
-			Name:    server.Name,
-			IconURL: s.urlSigner.SignURLPtr(server.IconURL),
+			ID:          server.ID,
+			Name:        server.Name,
+			IconURL:     s.urlSigner.SignURLPtr(server.IconURL),
+			E2EEEnabled: server.E2EEEnabled,
 		},
 	})
 
@@ -832,9 +833,10 @@ func (s *serverService) promoteToMember(ctx context.Context, server *models.Serv
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op: ws.OpServerCreate,
 		Data: models.ServerListItem{
-			ID:      server.ID,
-			Name:    server.Name,
-			IconURL: s.urlSigner.SignURLPtr(server.IconURL),
+			ID:          server.ID,
+			Name:        server.Name,
+			IconURL:     s.urlSigner.SignURLPtr(server.IconURL),
+			E2EEEnabled: server.E2EEEnabled,
 		},
 	})
 

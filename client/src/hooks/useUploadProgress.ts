@@ -16,6 +16,9 @@ function useUploadProgress() {
   const controllerRef = useRef<AbortController | null>(null);
 
   const begin = useCallback((): UploadOptions => {
+    // A previous upload on this surface must not keep running: its onProgress would fight the new
+    // one's, and cancel() would only ever reach the newest controller.
+    controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
     setProgress({ loaded: 0, total: null });

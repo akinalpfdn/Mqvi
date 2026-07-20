@@ -159,7 +159,7 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > MAX_BADGE_ICON_SIZE) {
-      notifyRejected([file], MAX_BADGE_ICON_SIZE);
+      notifyRejected([file], { reason: "size", maxBytes: MAX_BADGE_ICON_SIZE });
       e.target.value = "";
       return;
     }

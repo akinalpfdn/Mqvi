@@ -60,8 +60,13 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
   /** Add files with max limit enforcement */
   const addFiles = useCallback(
     (newFiles: File[]) => {
-      const { accepted: images, rejected } = validateFiles(filterImageFiles(newFiles), MAX_FILE_SIZE);
-      notifyRejected(rejected, MAX_FILE_SIZE);
+      const typed = filterImageFiles(newFiles);
+      notifyRejected(
+        newFiles.filter((f) => !typed.includes(f)),
+        { reason: "type" }
+      );
+      const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
+      notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
       if (images.length === 0) return;
 
       setFiles((prev) => {

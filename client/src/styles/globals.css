@@ -948,7 +948,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* No computable total — sweep instead of reporting a percentage we'd be inventing. */
 .upload-progress-fill.indeterminate { width:35%;animation:upload-sweep 1.1s ease-in-out infinite; }
 @keyframes upload-sweep { from { transform:translateX(-100%); } to { transform:translateX(340%); } }
-.upload-progress-text { flex-shrink:0;white-space:nowrap;font-variant-numeric:tabular-nums; }
+/* May shrink and ellipsize: on a narrow phone the byte readout plus the cancel button would
+   otherwise push the row wider than the composer. */
+.upload-progress-text { min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums; }
 .upload-progress-cancel {
   width:22px;height:22px;flex-shrink:0;
   border:none;background:transparent;color:var(--t3);cursor:pointer;border-radius:4px;
@@ -4191,9 +4193,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 .feedback-attachments { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px; }
 .feedback-attachment-thumb { display:block;width:120px;height:90px;border-radius:6px;overflow:hidden;border:1px solid var(--b1); }
-/* video too — feedback takes video attachments, and an unstyled <video> ignores the thumb box. */
+/* video too — feedback takes video attachments, and an unstyled <video> ignores the thumb box.
+   pointer-events:none so the tap reaches the wrapping anchor instead of the media element. */
 .feedback-attachment-thumb img,
 .feedback-attachment-thumb video { width:100%;height:100%;object-fit:cover;background:var(--bg-3); }
+.feedback-attachment-thumb video { pointer-events:none; }
 
 .feedback-status-select { width:auto;min-width:140px;padding:4px 8px;font-size:16px; }
 .feedback-ticket-user { font-size:13px;color:var(--t2);white-space:nowrap; }

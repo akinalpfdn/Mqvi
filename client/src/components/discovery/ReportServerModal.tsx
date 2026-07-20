@@ -51,8 +51,13 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
 
   const addFiles = useCallback(
     (newFiles: File[]) => {
-      const { accepted: images, rejected } = validateFiles(filterImageFiles(newFiles), MAX_FILE_SIZE);
-      notifyRejected(rejected, MAX_FILE_SIZE);
+      const typed = filterImageFiles(newFiles);
+      notifyRejected(
+        newFiles.filter((f) => !typed.includes(f)),
+        { reason: "type" }
+      );
+      const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
+      notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
       if (images.length === 0) return;
       setFiles((prev) => {
         const remaining = MAX_EVIDENCE_FILES - prev.length;

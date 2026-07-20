@@ -41,7 +41,7 @@ function AppearanceSettings() {
     if (!file) return;
 
     if (file.size > MAX_AVATAR_UPLOAD_SIZE) {
-      notifyRejected([file], MAX_AVATAR_UPLOAD_SIZE);
+      notifyRejected([file], { reason: "size", maxBytes: MAX_AVATAR_UPLOAD_SIZE });
       return;
     }
 
