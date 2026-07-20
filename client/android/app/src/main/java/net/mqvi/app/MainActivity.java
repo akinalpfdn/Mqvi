@@ -35,6 +35,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ScreenSharePlugin.class);
         registerPlugin(P2PCallPlugin.class);
         registerPlugin(OrientationPlugin.class);
+        registerPlugin(MediaPosterPlugin.class);
         super.onCreate(savedInstanceState);
         handleCallLaunch(getIntent());
 

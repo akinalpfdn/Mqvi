@@ -9,7 +9,7 @@
  */
 
 import { toBase64 } from "./signalProtocol";
-import { createAttachmentPreview } from "../utils/imageEncoding";
+import { buildAttachmentPreview } from "../utils/attachmentPreview";
 
 // ──────────────────────────────────
 // Types
@@ -213,7 +213,7 @@ export async function encryptThumbnail(
   // live here decoded without imageOrientation (phone photos came out rotated), encoded JPEG (a
   // transparent PNG got a black background) and capped at 256px, which is soft in a slot that
   // renders up to 300px tall at 2x.
-  const thumbnail = await createAttachmentPreview(file);
+  const thumbnail = await buildAttachmentPreview(file);
   if (!thumbnail) return null;
 
   try {

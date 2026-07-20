@@ -71,6 +71,7 @@
   "attachCamera": "Camera",
   "attachGallery": "Gallery",
   "attachFiles": "Files",
+  "attachPickFailed": "Could not open the picker",
   "emoji": "Emoji",
   "welcomeDM": "Welcome to your conversation with {{user}}!",
   "dmStart": "This is the beginning of your direct message history with {{user}}.",

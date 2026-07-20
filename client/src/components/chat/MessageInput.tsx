@@ -15,6 +15,7 @@ import { useNarrowChat } from "../../hooks/useNarrowChat";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { validateFiles } from "../../utils/fileValidation";
+import { pickNative, supportsNativePicker, type PickKind } from "../../utils/nativePicker";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 import { useServerStore, selectServerE2EE } from "../../stores/serverStore";
 import { MAX_MESSAGE_LENGTH, MAX_FILE_SIZE, MAX_E2EE_FILE_SIZE } from "../../utils/constants";
@@ -104,9 +105,22 @@ function MessageInput({ openSearch }: MessageInputProps) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [showAttachSheet, setShowAttachSheet] = useState(false);
 
-  function pickFrom(ref: React.RefObject<HTMLInputElement | null>) {
+  // The one place that decides native-vs-web. Mobile picks through the platform so native code gets
+  // a path it can open; everywhere else keeps the input elements above.
+  function pickFrom(kind: PickKind, ref: React.RefObject<HTMLInputElement | null>) {
     setShowAttachSheet(false);
-    ref.current?.click();
+    if (!supportsNativePicker(kind)) {
+      ref.current?.click();
+      return;
+    }
+    pickNative(kind)
+      .then((picked) => {
+        if (picked.length > 0) acceptFiles(picked.map((entry) => entry.file));
+      })
+      .catch((err) => {
+        console.error("[MessageInput] Native picker failed:", err);
+        addToast("error", t("attachPickFailed"));
+      });
   }
 
   // Encryption buffers the whole file plus its ciphertext in memory, so an encrypted conversation
@@ -652,7 +666,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
 
         <MobileBottomSheet isOpen={showAttachSheet} onClose={() => setShowAttachSheet(false)}>
           <div className="mobile-bs-actions-list">
-            <button className="mobile-bs-action" onClick={() => pickFrom(cameraInputRef)}>
+            <button className="mobile-bs-action" onClick={() => pickFrom("camera", cameraInputRef)}>
               <span className="mobile-bs-action-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
@@ -662,7 +676,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
               {t("attachCamera")}
             </button>
 
-            <button className="mobile-bs-action" onClick={() => pickFrom(mediaInputRef)}>
+            <button className="mobile-bs-action" onClick={() => pickFrom("media", mediaInputRef)}>
               <span className="mobile-bs-action-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -673,7 +687,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
               {t("attachGallery")}
             </button>
 
-            <button className="mobile-bs-action" onClick={() => pickFrom(fileInputRef)}>
+            <button className="mobile-bs-action" onClick={() => pickFrom("files", fileInputRef)}>
               <span className="mobile-bs-action-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />

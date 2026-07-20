@@ -71,6 +71,7 @@
   "attachCamera": "Kamera",
   "attachGallery": "Galeri",
   "attachFiles": "Dosyalar",
+  "attachPickFailed": "Seçici açılamadı",
   "emoji": "Emoji",
   "welcomeDM": "{{user}} ile konuşmanıza hoş geldiniz!",
   "dmStart": "{{user}} ile direkt mesaj geçmişinizin başlangıcı.",
