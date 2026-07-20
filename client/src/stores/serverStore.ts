@@ -61,6 +61,23 @@ type ServerState = {
 };
 
 /**
+ * Narrows a full Server to the sidebar list shape.
+ *
+ * Six call sites used to build this literal by hand and each one silently dropped `verified` and
+ * `e2ee_enabled` — a rename or an E2EE toggle made the list entry claim the server was unencrypted.
+ * Use this so a field added later cannot be forgotten in one branch.
+ */
+export function toServerListItem(server: Server): ServerListItem {
+  return {
+    id: server.id,
+    name: server.name,
+    icon_url: server.icon_url,
+    verified: server.verified,
+    e2ee_enabled: server.e2ee_enabled,
+  };
+}
+
+/**
  * Whether a server has E2EE on — for ANY server the user is in, not just the active one. Tabs and
  * split view render channels of non-active servers, so reading `activeServer` would answer about
  * the wrong server. `activeServer` is preferred when it matches because it is the freshest copy
@@ -146,7 +163,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
       set((state) => {
         const servers = state.servers.some((s) => s.id === server.id)
           ? state.servers
-          : [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }];
+          : [...state.servers, toServerListItem(server)];
         return {
           servers,
           activeServerId: server.id,
@@ -170,7 +187,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     set((state) => {
       const servers = state.servers.some((s) => s.id === server.id)
         ? state.servers
-        : [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }];
+        : [...state.servers, toServerListItem(server)];
       return {
         servers,
         activeServerId: server.id,
@@ -231,7 +248,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
       // Update sidebar list entry
       const servers = state.servers.map((s) =>
         s.id === server.id
-          ? { id: server.id, name: server.name, icon_url: server.icon_url }
+          ? toServerListItem(server)
           : s
       );
       // Update active server detail if applicable

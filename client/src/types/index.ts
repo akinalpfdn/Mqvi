@@ -791,8 +791,12 @@ export type ServerListItem = {
   name: string;
   icon_url: string | null;
   verified?: boolean;
-  /** Present so a channel rendered for a non-active server still knows if attachments get encrypted. */
-  e2ee_enabled?: boolean;
+  /**
+   * Required, not optional: a channel rendered for a non-active server decides from this whether
+   * its attachments get encrypted. Optional would let a hand-built literal omit it and read as
+   * "not encrypted" — build these with toServerListItem() rather than by hand.
+   */
+  e2ee_enabled: boolean;
 };
 
 /**

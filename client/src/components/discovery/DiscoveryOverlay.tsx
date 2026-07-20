@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useUIStore } from "../../stores/uiStore";
-import { useServerStore } from "../../stores/serverStore";
+import { useServerStore, toServerListItem } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useDiscovery } from "../../hooks/useDiscovery";
 import { joinPublicServer, type PublicServerListItem } from "../../api/discovery";
@@ -58,7 +58,7 @@ function DiscoveryOverlay() {
         const store = useServerStore.getState();
         if (!store.servers.some((s) => s.id === server.id)) {
           useServerStore.setState((state) => ({
-            servers: [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }],
+            servers: [...state.servers, toServerListItem(server)],
           }));
         }
         useServerStore.setState({ activeServerId: server.id, activeServer: server });

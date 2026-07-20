@@ -10,6 +10,7 @@ import { reportUser, type ReportReason } from "../../api/report";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 import { validateFiles, partitionFiles } from "../../utils/fileValidation";
+import { ALLOWED_IMAGE_TYPES } from "../../hooks/useImageAttach";
 import { MAX_FILE_SIZE } from "../../utils/constants";
 import UploadProgress from "./UploadProgress";
 import { useToastStore } from "../../stores/toastStore";
@@ -26,7 +27,6 @@ type ReportModalProps = {
 const MAX_EVIDENCE_FILES = 4;
 
 /** Only images accepted for evidence */
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 /** Predefined report reasons matching backend enum */
 const REASONS: { value: ReportReason; key: string }[] = [

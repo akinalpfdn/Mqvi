@@ -59,6 +59,19 @@ type ServerListItem struct {
 	E2EEEnabled bool    `json:"e2ee_enabled"`
 }
 
+// NewServerListItem narrows a Server to the sidebar shape. Callers needing a signed icon URL
+// overwrite IconURL on the result rather than rebuilding the struct — hand-listing the fields is
+// what left Verified out of the WS broadcasts.
+func NewServerListItem(s *Server) ServerListItem {
+	return ServerListItem{
+		ID:          s.ID,
+		Name:        s.Name,
+		IconURL:     s.IconURL,
+		Verified:    s.Verified,
+		E2EEEnabled: s.E2EEEnabled,
+	}
+}
+
 // SoftDeleteTTLDays is the grace period before a soft-deleted server is hard-deleted by the cleanup worker.
 const SoftDeleteTTLDays = 30
 

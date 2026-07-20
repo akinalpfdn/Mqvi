@@ -133,6 +133,14 @@ func NewServerService(
 	}
 }
 
+// serverListItemSigned narrows a Server to the sidebar shape with a signed icon URL. Copy then
+// overwrite, so a field added to ServerListItem later cannot be forgotten in a broadcast.
+func serverListItemSigned(signer FileURLSigner, server *models.Server) models.ServerListItem {
+	item := models.NewServerListItem(server)
+	item.IconURL = signer.SignURLPtr(server.IconURL)
+	return item
+}
+
 // CreateServer creates a new server atomically (server + membership + roles + channels in one tx).
 func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *models.CreateServerRequest) (*models.Server, error) {
 	if err := req.Validate(); err != nil {
@@ -319,12 +327,7 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 	s.hub.AddClientServerID(ownerID, server.ID)
 	s.hub.BroadcastToUser(ownerID, ws.Event{
 		Op: ws.OpServerCreate,
-		Data: models.ServerListItem{
-			ID:          server.ID,
-			Name:        server.Name,
-			IconURL:     s.urlSigner.SignURLPtr(server.IconURL),
-			E2EEEnabled: server.E2EEEnabled,
-		},
+		Data: serverListItemSigned(s.urlSigner, server),
 	})
 
 	log.Printf("[server] created server %s (name=%s, owner=%s, host=%s)",
@@ -832,12 +835,7 @@ func (s *serverService) promoteToMember(ctx context.Context, server *models.Serv
 	// Notify user: server added to their list
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op: ws.OpServerCreate,
-		Data: models.ServerListItem{
-			ID:          server.ID,
-			Name:        server.Name,
-			IconURL:     s.urlSigner.SignURLPtr(server.IconURL),
-			E2EEEnabled: server.E2EEEnabled,
-		},
+		Data: serverListItemSigned(s.urlSigner, server),
 	})
 
 	// Push in-progress voice participants so the newcomer sees active calls immediately.

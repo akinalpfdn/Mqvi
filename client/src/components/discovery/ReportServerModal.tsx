@@ -8,6 +8,7 @@ import { validateFiles, partitionFiles } from "../../utils/fileValidation";
 import { MAX_FILE_SIZE } from "../../utils/constants";
 import UploadProgress from "../shared/UploadProgress";
 import { useToastStore } from "../../stores/toastStore";
+import { ALLOWED_IMAGE_TYPES } from "../../hooks/useImageAttach";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
 
@@ -21,7 +22,6 @@ const REASONS = [
 ];
 
 const MAX_EVIDENCE_FILES = 4;
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 const isAllowedImage = (f: File) => ALLOWED_IMAGE_TYPES.includes(f.type);
 

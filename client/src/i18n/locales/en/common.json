@@ -14,7 +14,6 @@
   "filesTooLarge": "{{n}} files are larger than the {{limit}} limit and were not attached.",
   "fileTooLargeEncrypted": "{{name}} is over the {{limit}} limit for encrypted chats and was not attached.",
   "filesTooLargeEncrypted": "{{n}} files are over the {{limit}} limit for encrypted chats and were not attached.",
-  "uploadCancelled": "Upload cancelled",
   "save": "Save",
   "cancel": "Cancel",
   "delete": "Delete",
