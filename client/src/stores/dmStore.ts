@@ -3,7 +3,7 @@ import i18n from "../i18n";
 import * as dmApi from "../api/dm";
 import type { DMSearchResult } from "../api/dm";
 import type { UploadOptions } from "../api/client";
-import { createThumbnail } from "../utils/imageEncoding";
+import { createAttachmentPreview } from "../utils/imageEncoding";
 import type { DMChannelWithUser, DMMessage } from "../types";
 import { useUIStore } from "./uiStore";
 import { useToastStore } from "./toastStore";
@@ -291,7 +291,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     }
 
     // Same generation as the encrypted path, so both produce previews identically.
-    const plainThumbs = files ? await Promise.all(files.map(createThumbnail)) : undefined;
+    const plainThumbs = files ? await Promise.all(files.map(createAttachmentPreview)) : undefined;
     const res = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload, plainThumbs);
     handleSendError(res);
     return res.success;

@@ -4939,3 +4939,16 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   transition:stroke-dashoffset .15s linear;
 }
 .progress-ring svg.spin { animation:spin 1s linear infinite; }
+
+/* Marks a video poster as playable — without it a still frame reads as a photo. */
+.attachment-play-badge {
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:48px;height:48px;border-radius:50%;
+  background:rgba(0,0,0,0.55);
+  pointer-events:none;
+}
+.attachment-play-badge::after {
+  content:"";position:absolute;top:50%;left:54%;transform:translate(-50%,-50%);
+  border-style:solid;border-width:9px 0 9px 15px;
+  border-color:transparent transparent transparent #fff;
+}

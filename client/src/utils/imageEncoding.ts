@@ -146,3 +146,88 @@ export async function createThumbnail(file: File): Promise<GeneratedThumbnail | 
     return null;
   }
 }
+
+/** How far into a video to grab the poster frame. Many videos open on a black or near-black frame. */
+const POSTER_SEEK_SECONDS = 0.5;
+
+/** Give up rather than hang a send on a video the browser will not decode. */
+const POSTER_TIMEOUT_MS = 10_000;
+
+/**
+ * Grabs a still frame from a video to use as its preview.
+ *
+ * Depends on the browser being able to DECODE the source: HEVC from an iPhone often cannot be
+ * decoded in a WebView, and that returns null here. Callers fall back to the previous behaviour —
+ * an inline player that pulls part of the video to paint its own frame.
+ */
+export async function createVideoPoster(file: File): Promise<GeneratedThumbnail | null> {
+  if (!file.type.startsWith("video/")) return null;
+
+  const objectUrl = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+
+  try {
+    const frame = await new Promise<GeneratedThumbnail | null>((resolve) => {
+      const timer = window.setTimeout(() => finish(null), POSTER_TIMEOUT_MS);
+
+      function finish(result: GeneratedThumbnail | null) {
+        window.clearTimeout(timer);
+        video.onloadedmetadata = null;
+        video.onseeked = null;
+        video.onerror = null;
+        resolve(result);
+      }
+
+      video.onerror = () => finish(null);
+
+      video.onloadedmetadata = () => {
+        if (!video.videoWidth || !video.videoHeight) return finish(null);
+        // A video shorter than the seek target still has a first frame worth showing.
+        video.currentTime = Math.min(POSTER_SEEK_SECONDS, Math.max(0, video.duration / 2));
+      };
+
+      video.onseeked = () => {
+        try {
+          const { width, height } = fitWithin(
+            video.videoWidth,
+            video.videoHeight,
+            THUMBNAIL_MAX_EDGE,
+            THUMBNAIL_MAX_EDGE
+          );
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return finish(null);
+          ctx.drawImage(video, 0, 0, width, height);
+
+          // A poster is opaque by definition, so alpha buys nothing here.
+          void encodeCanvas(canvas, { alpha: false, quality: 0.8 }).then((blob) =>
+            finish(blob ? { blob, width, height } : null)
+          );
+        } catch {
+          finish(null);
+        }
+      };
+
+      video.src = objectUrl;
+    });
+
+    return frame;
+  } finally {
+    video.src = "";
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/**
+ * The preview for any attachment that can have one — a scaled image or a video's poster frame.
+ * Everything else gets null, which every caller treats as normal.
+ */
+export async function createAttachmentPreview(file: File): Promise<GeneratedThumbnail | null> {
+  if (file.type.startsWith("video/")) return createVideoPoster(file);
+  return createThumbnail(file);
+}

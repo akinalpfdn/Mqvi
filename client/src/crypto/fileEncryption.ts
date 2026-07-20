@@ -9,7 +9,7 @@
  */
 
 import { toBase64 } from "./signalProtocol";
-import { createThumbnail } from "../utils/imageEncoding";
+import { createAttachmentPreview } from "../utils/imageEncoding";
 
 // ──────────────────────────────────
 // Types
@@ -209,16 +209,11 @@ export async function encryptThumbnail(
   file: File,
   fileKey: string
 ): Promise<EncryptedThumbnailResult | null> {
-  // Only generate thumbnails for images
-  if (!file.type.startsWith("image/")) {
-    return null;
-  }
-
   // The image work is shared with the plaintext path rather than duplicated. The copy that used to
   // live here decoded without imageOrientation (phone photos came out rotated), encoded JPEG (a
   // transparent PNG got a black background) and capped at 256px, which is soft in a slot that
   // renders up to 300px tall at 2x.
-  const thumbnail = await createThumbnail(file);
+  const thumbnail = await createAttachmentPreview(file);
   if (!thumbnail) return null;
 
   try {

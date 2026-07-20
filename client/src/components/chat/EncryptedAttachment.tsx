@@ -39,6 +39,9 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
   const abortRef = useRef<AbortController | null>(null);
 
   const isImage = fileMeta.mimeType.startsWith("image/");
+  const isVideo = fileMeta.mimeType.startsWith("video/");
+  // A video has no inline preview at all without a poster, so it is worth decrypting one for.
+  const canPreview = isImage || isVideo;
 
   // Object URL cleanup on unmount
   useEffect(() => {
@@ -95,11 +98,13 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
   // full size. Messages sent before thumbnails existed have none, so those keep the old behaviour
   // rather than showing nothing.
   useEffect(() => {
-    if (!isImage) return;
+    if (!canPreview) return;
 
     const thumbSource = attachment.thumb_url;
     if (!thumbSource || !fileMeta.thumbIv) {
-      if (state === "idle") doDecrypt();
+      // Only images fell back to decrypting the whole file inline; a video never did, and
+      // starting now would pull the entire attachment just to show a frame.
+      if (isImage && state === "idle") doDecrypt();
       return;
     }
 
@@ -120,7 +125,7 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     return () => {
       cancelled = true;
     };
-  }, [isImage, attachment.thumb_url, fileMeta, state, doDecrypt]);
+  }, [canPreview, isImage, attachment.thumb_url, fileMeta, state, doDecrypt]);
 
   const openInViewer = useCallback(async () => {
     const url = state === "ready" && objectUrl ? objectUrl : await doDecrypt();
@@ -133,8 +138,10 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     });
   }, [state, objectUrl, doDecrypt, openViewer, fileMeta]);
 
-  // ─── Image rendering ───
-  if (isImage) {
+  // ─── Preview rendering (image, or a video with a poster) ───
+  // A video with no poster has nothing to show and nothing decrypting, so it must fall through to
+  // the file row rather than sit forever on a "decrypting" state that will never resolve.
+  if (isImage || (isVideo && thumbUrl)) {
     // The preview stands in for the full image. `state` describes the ORIGINAL, which stays idle
     // until the user opens it — so gating the picture on state would hide a thumbnail we already
     // decrypted.
@@ -163,6 +170,8 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
               }
             />
           )}
+          {/* Without this a poster is indistinguishable from a photo. */}
+          {isVideo && state !== "loading" && <span className="attachment-play-badge" aria-hidden />}
         </button>
       );
     }

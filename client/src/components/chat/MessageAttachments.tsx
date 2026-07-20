@@ -83,14 +83,19 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
           // The cost is that playback starts 100ms in.
           //
           // playsInline: without it iOS hijacks the tap into its own fullscreen player.
+          // With a stored poster none of that applies: the frame is a separate small image, so
+          // preload="none" means the video itself is not touched until the user presses play.
+          // Without one we fall back to the media-fragment trick above.
+          const posterUrl = attachment.thumb_url ? resolveAssetUrl(attachment.thumb_url) : null;
           return (
             <video
               key={attachment.id}
-              src={resolveAssetUrl(attachment.file_url) + "#t=0.1"}
+              src={resolveAssetUrl(attachment.file_url) + (posterUrl ? "" : "#t=0.1")}
+              poster={posterUrl ?? undefined}
               controls
               playsInline
               className="msg-attachment-video"
-              preload="metadata"
+              preload={posterUrl ? "none" : "metadata"}
             />
           );
         }
