@@ -10,16 +10,21 @@ export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "ima
  * useImageAttach — shared image-attachment behavior for composers: click-to-pick, clipboard paste,
  * and drag-and-drop, filtered to images and capped at `max`. `onLimit` fires when the cap is hit.
  */
+/**
+ * `isAllowed` overrides the image-only filter — feedback also takes video. The hook keeps its name
+ * because images remain the default and its other callers are unchanged.
+ */
 export function useImageAttach(
   setFiles: React.Dispatch<React.SetStateAction<File[]>>,
   max: number,
-  onLimit?: () => void
+  onLimit?: () => void,
+  isAllowed: (mime: string) => boolean = (mime) => ALLOWED_IMAGE_TYPES.includes(mime)
 ) {
   const notifyRejected = useFileRejectionNotice();
 
   const addFiles = useCallback(
     (incoming: File[]) => {
-      const typed = incoming.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
+      const typed = incoming.filter((f) => isAllowed(f.type));
       // Size was never checked here, so an oversized image was queued and only died at the server.
       const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
       notifyRejected(rejected, MAX_FILE_SIZE);
@@ -34,7 +39,7 @@ export function useImageAttach(
         return [...prev, ...images.slice(0, remaining)];
       });
     },
-    [setFiles, max, onLimit, notifyRejected]
+    [setFiles, max, onLimit, notifyRejected, isAllowed]
   );
 
   const handlePaste = useCallback(

@@ -17,8 +17,9 @@ import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 import { validateFiles } from "../../utils/fileValidation";
-import { MAX_FILE_SIZE } from "../../utils/constants";
+import { MAX_FILE_SIZE, FEEDBACK_ACCEPT_ATTR, isFeedbackAttachment } from "../../utils/constants";
 import UploadProgress from "../shared/UploadProgress";
+import AttachmentPreview from "../shared/AttachmentPreview";
 import { useImageAttach } from "../../hooks/useImageAttach";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
@@ -56,10 +57,9 @@ function FeedbackSettings() {
   const notifyRejected = useFileRejectionNotice();
 
   const MAX_FILES = 4;
-  const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
   const addFiles = useCallback((newFiles: File[]) => {
-    const typed = newFiles.filter((f) => ALLOWED_TYPES.includes(f.type));
+    const typed = newFiles.filter((f) => isFeedbackAttachment(f.type));
     const { accepted: images, rejected } = validateFiles(typed, MAX_FILE_SIZE);
     notifyRejected(rejected, MAX_FILE_SIZE);
     if (images.length === 0) return;
@@ -83,7 +83,7 @@ function FeedbackSettings() {
     handlePaste: handleReplyPaste,
     isDragging: isReplyDragging,
     dragHandlers: replyDragHandlers,
-  } = useImageAttach(setReplyFiles, MAX_FILES, onReplyLimit);
+  } = useImageAttach(setReplyFiles, MAX_FILES, onReplyLimit, isFeedbackAttachment);
 
   function handlePaste(e: React.ClipboardEvent) {
     const items = e.clipboardData?.items;
@@ -332,7 +332,7 @@ function FeedbackSettings() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept={FEEDBACK_ACCEPT_ATTR}
               multiple
               style={{ display: "none" }}
               onChange={(e) => {
@@ -396,7 +396,7 @@ function FeedbackSettings() {
                   className="feedback-attachment-thumb"
                   onClick={(e) => openAttachment(att, e)}
                 >
-                  <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                  <AttachmentPreview url={resolveAssetUrl(att.file_url)} filename={att.filename} mime={att.mime_type} />
                 </a>
               ))}
             </div>
@@ -423,7 +423,7 @@ function FeedbackSettings() {
                   <div className="feedback-attachments">
                     {reply.attachments.map((att) => (
                       <a key={att.id} href={resolveAssetUrl(att.file_url)} rel="noopener noreferrer" className="feedback-attachment-thumb" onClick={(e) => openAttachment(att, e)}>
-                        <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                        <AttachmentPreview url={resolveAssetUrl(att.file_url)} filename={att.filename} mime={att.mime_type} />
                       </a>
                     ))}
                   </div>
@@ -464,7 +464,7 @@ function FeedbackSettings() {
                 <input
                   ref={replyFileInputRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  accept={FEEDBACK_ACCEPT_ATTR}
                   multiple
                   style={{ display: "none" }}
                   onChange={(e) => {

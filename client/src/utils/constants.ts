@@ -231,6 +231,22 @@ export const MAX_FILE_SIZE = 100 * 1024 * 1024;
 export const MAX_E2EE_FILE_SIZE = 25 * 1024 * 1024;
 
 
+// ─── Feedback / report attachments ───
+
+const FEEDBACK_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+/**
+ * What a feedback ticket or reply accepts. Mirrors isAllowedFeedbackMime in
+ * server/services/feedback_upload_service.go — video is matched by prefix on both sides so a
+ * container the list never anticipated (.mov from a Mac, .m4v) is not silently refused.
+ */
+export function isFeedbackAttachment(mime: string): boolean {
+  return mime.startsWith("video/") || FEEDBACK_IMAGE_TYPES.includes(mime);
+}
+
+/** Value for the `accept` attribute of every feedback file input. */
+export const FEEDBACK_ACCEPT_ATTR = `${FEEDBACK_IMAGE_TYPES.join(",")},video/*`;
+
 /** Idle detection — timeout in ms. User becomes "idle" after 5 minutes of inactivity. */
 export const IDLE_TIMEOUT = 5 * 60 * 1000;
 

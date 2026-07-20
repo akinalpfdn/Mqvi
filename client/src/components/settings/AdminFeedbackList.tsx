@@ -12,7 +12,8 @@ import {
   adminUpdateFeedbackStatus,
 } from "../../api/feedback";
 import type { FeedbackTicket, FeedbackReply, FeedbackStatus, FeedbackType } from "../../types";
-import { resolveAssetUrl } from "../../utils/constants";
+import { resolveAssetUrl, FEEDBACK_ACCEPT_ATTR, isFeedbackAttachment } from "../../utils/constants";
+import AttachmentPreview from "../shared/AttachmentPreview";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import UploadProgress from "../shared/UploadProgress";
@@ -77,7 +78,7 @@ function AdminFeedbackList() {
     handlePaste: handleReplyPaste,
     isDragging: isReplyDragging,
     dragHandlers: replyDragHandlers,
-  } = useImageAttach(setReplyFiles, MAX_REPLY_FILES, onReplyLimit);
+  } = useImageAttach(setReplyFiles, MAX_REPLY_FILES, onReplyLimit, isFeedbackAttachment);
 
   const fetchTickets = useCallback(async () => {
     setIsLoading(true);
@@ -292,7 +293,7 @@ function AdminFeedbackList() {
                 className="feedback-attachment-thumb"
                 onClick={(e) => openAttachment(att, e)}
               >
-                <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                <AttachmentPreview url={resolveAssetUrl(att.file_url)} filename={att.filename} mime={att.mime_type} />
               </a>
             ))}
           </div>
@@ -318,7 +319,7 @@ function AdminFeedbackList() {
                 <div className="feedback-attachments">
                   {reply.attachments.map((att) => (
                     <a key={att.id} href={resolveAssetUrl(att.file_url)} rel="noopener noreferrer" className="feedback-attachment-thumb" onClick={(e) => openAttachment(att, e)}>
-                      <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                      <AttachmentPreview url={resolveAssetUrl(att.file_url)} filename={att.filename} mime={att.mime_type} />
                     </a>
                   ))}
                 </div>
@@ -357,7 +358,7 @@ function AdminFeedbackList() {
             <input
               ref={replyFileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept={FEEDBACK_ACCEPT_ATTR}
               multiple
               style={{ display: "none" }}
               onChange={(e) => {

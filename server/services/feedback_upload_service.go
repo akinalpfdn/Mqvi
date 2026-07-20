@@ -42,6 +42,16 @@ var allowedFeedbackMimeTypes = map[string]bool{
 	"image/webp": true,
 }
 
+// Video is accepted by prefix rather than an enumerated list — a fixed list always misses something
+// a phone or a Mac produces (.mov, .m4v, ...), and the serve layer decides separately what may be
+// rendered inline, so accepting a container here is not a rendering decision.
+func isAllowedFeedbackMime(mimeBase string) bool {
+	if strings.HasPrefix(mimeBase, "video/") {
+		return true
+	}
+	return allowedFeedbackMimeTypes[mimeBase]
+}
+
 func (s *feedbackUploadService) Upload(ctx context.Context, ticketID string, replyID *string, file multipart.File, header *multipart.FileHeader) (*models.FeedbackAttachment, error) {
 	if header.Size > s.maxSize {
 		return nil, fmt.Errorf("%w: file too large (max %dMB)", pkg.ErrBadRequest, s.maxSize/(1024*1024))
@@ -53,8 +63,8 @@ func (s *feedbackUploadService) Upload(ctx context.Context, ticketID string, rep
 	}
 	mimeBase := strings.TrimSpace(strings.Split(contentType, ";")[0])
 
-	if !allowedFeedbackMimeTypes[mimeBase] {
-		return nil, fmt.Errorf("%w: only images are allowed (got: %s)", pkg.ErrBadRequest, mimeBase)
+	if !isAllowedFeedbackMime(mimeBase) {
+		return nil, fmt.Errorf("%w: only images and video are allowed (got: %s)", pkg.ErrBadRequest, mimeBase)
 	}
 
 	stored, err := s.pipeline.Store(ctx, files.KindFeedback, ticketID, file, header, s.maxSize)
