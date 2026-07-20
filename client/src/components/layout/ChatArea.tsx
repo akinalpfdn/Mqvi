@@ -156,6 +156,7 @@ function ChatAreaContent({
         <SearchPanel
           key={searchQuery}
           channelId={channelId}
+          serverId={serverId}
           initialQuery={searchQuery}
           onClose={() => setShowSearch(false)}
         />
