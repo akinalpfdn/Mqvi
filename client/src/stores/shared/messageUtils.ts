@@ -5,9 +5,10 @@
 
 import i18n from "../../i18n";
 import { UPLOAD_ABORTED } from "../../api/client";
-import { encryptFile } from "../../crypto/fileEncryption";
+import { encryptFile, encryptThumbnail } from "../../crypto/fileEncryption";
 import { useToastStore } from "../toastStore";
 import type { EncryptedFileMeta } from "../../crypto/fileEncryption";
+import type { GeneratedThumbnail } from "../../utils/imageEncoding";
 import type { ReactionGroup } from "../../types";
 
 // ─── File Encryption ───
@@ -15,6 +16,8 @@ import type { ReactionGroup } from "../../types";
 export type EncryptedFileResult = {
   files: File[];
   metas: EncryptedFileMeta[];
+  /** Encrypted previews, index-aligned with `files`. Null where the source had no usable preview. */
+  thumbs: (GeneratedThumbnail | null)[];
 };
 
 /**
@@ -26,6 +29,7 @@ export async function encryptFilesForE2EE(
 ): Promise<EncryptedFileResult> {
   const encrypted: File[] = [];
   const metas: EncryptedFileMeta[] = [];
+  const thumbs: (GeneratedThumbnail | null)[] = [];
 
   for (let i = 0; i < files.length; i++) {
     const result = await encryptFile(files[i]);
@@ -34,10 +38,21 @@ export async function encryptFilesForE2EE(
         type: "application/octet-stream",
       })
     );
+
+    // Shares the file's key with its own IV, so the payload carries one extra field rather than a
+    // second key. Returns null for non-images and for anything already small enough.
+    const thumb = await encryptThumbnail(files[i], result.meta.key);
+    if (thumb) {
+      result.meta.thumbIv = thumb.iv;
+      thumbs.push({ blob: thumb.encryptedBlob, width: thumb.width, height: thumb.height });
+    } else {
+      thumbs.push(null);
+    }
+
     metas.push(result.meta);
   }
 
-  return { files: encrypted, metas };
+  return { files: encrypted, metas, thumbs };
 }
 
 // ─── Rate Limit Toast ───

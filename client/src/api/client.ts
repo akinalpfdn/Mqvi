@@ -6,6 +6,7 @@
 
 import type { APIResponse } from "../types";
 import { API_BASE_URL } from "../utils/constants";
+import type { GeneratedThumbnail } from "../utils/imageEncoding";
 
 function getAccessToken(): string | null {
   return localStorage.getItem("access_token");
@@ -218,6 +219,22 @@ export async function apiClient<T>(
   }
 }
 
+
+/**
+ * Appends companion previews so the server can pair each one with files[i].
+ *
+ * Indexed rather than a parallel list: a file without a preview must not shift every later
+ * attachment onto the wrong one.
+ */
+function appendThumbnails(form: FormData, thumbs?: (GeneratedThumbnail | null)[]): void {
+  thumbs?.forEach((thumb, index) => {
+    if (!thumb) return;
+    form.append(`thumb_${index}`, thumb.blob, `thumb_${index}`);
+    form.append(`thumb_${index}_w`, String(thumb.width));
+    form.append(`thumb_${index}_h`, String(thumb.height));
+  });
+}
+
 /** `code` on an APIResponse whose upload the caller cancelled — not a failure, stay silent. */
 const UPLOAD_ABORTED = "UPLOAD_ABORTED";
 
@@ -385,4 +402,5 @@ export {
   uploadRequest,
   UPLOAD_ABORTED,
 };
+export { appendThumbnails };
 export type { UploadOptions };

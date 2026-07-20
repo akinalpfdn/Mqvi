@@ -84,3 +84,65 @@ const EXTENSIONS: Record<string, string> = {
 export function extensionForType(mimeType: string): string {
   return EXTENSIONS[mimeType] ?? "png";
 }
+
+/**
+ * Long edge of a generated chat thumbnail, in pixels.
+ *
+ * The message list caps an image at 300px tall but its width follows the bubble, so a landscape
+ * photo can render near 600px wide — and at 2x DPR that is 1200 real pixels. 800 keeps a preview
+ * that still looks sharp at those sizes while staying a small fraction of the original.
+ */
+const THUMBNAIL_MAX_EDGE = 800;
+
+export type GeneratedThumbnail = {
+  blob: Blob;
+  width: number;
+  height: number;
+};
+
+/**
+ * Builds a small preview of an image file.
+ *
+ * Returns null whenever a thumbnail would be pointless or impossible — a source smaller than the
+ * target, a format the browser cannot decode, an encoder failure. Callers must treat null as
+ * normal and send the attachment without one; the preview is an optimisation, the file is the
+ * message.
+ */
+export async function createThumbnail(file: File): Promise<GeneratedThumbnail | null> {
+  if (!file.type.startsWith("image/")) return null;
+
+  try {
+    // from-image so a phone photo is decoded upright; the canvas itself carries no EXIF, so
+    // skipping this would bake the rotation in the wrong orientation.
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const { width, height } = fitWithin(
+      bitmap.width,
+      bitmap.height,
+      THUMBNAIL_MAX_EDGE,
+      THUMBNAIL_MAX_EDGE
+    );
+
+    // Already small enough that a second copy would cost more than it saves.
+    if (width === bitmap.width && height === bitmap.height) {
+      bitmap.close();
+      return null;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bitmap.close();
+      return null;
+    }
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+
+    // Alpha is kept: a transparent PNG previewed on a black background looks broken.
+    const blob = await encodeCanvas(canvas, { alpha: true, quality: 0.8 });
+    return blob ? { blob, width, height } : null;
+  } catch {
+    return null;
+  }
+}

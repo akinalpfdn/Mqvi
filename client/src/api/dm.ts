@@ -7,7 +7,8 @@
  * Search: FTS5 full-text search within DM channels.
  */
 
-import { apiClient, uploadRequest, type UploadOptions } from "./client";
+import { apiClient, uploadRequest, appendThumbnails, type UploadOptions } from "./client";
+import type { GeneratedThumbnail } from "../utils/imageEncoding";
 import type { DMChannelWithUser, DMMessagePage, DMMessage } from "../types";
 
 export function listDMChannels() {
@@ -37,7 +38,8 @@ export async function sendDMMessage(
   content: string,
   files?: File[],
   replyToId?: string,
-  upload?: UploadOptions
+  upload?: UploadOptions,
+  thumbs?: (GeneratedThumbnail | null)[]
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -48,6 +50,8 @@ export async function sendDMMessage(
     for (const file of files) {
       formData.append("files", file);
     }
+
+    appendThumbnails(formData, thumbs);
 
     return uploadRequest<DMMessage>(`/dms/${channelId}/messages`, formData, upload);
   }
@@ -73,7 +77,8 @@ export async function sendEncryptedDMMessage(
   metadata: string,
   files?: File[],
   replyToId?: string,
-  upload?: UploadOptions
+  upload?: UploadOptions,
+  thumbs?: (GeneratedThumbnail | null)[]
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -87,6 +92,8 @@ export async function sendEncryptedDMMessage(
     for (const file of files) {
       formData.append("files", file);
     }
+
+    appendThumbnails(formData, thumbs);
 
     return uploadRequest<DMMessage>(`/dms/${channelId}/messages`, formData, upload);
   }

@@ -3,6 +3,7 @@ import i18n from "../i18n";
 import * as dmApi from "../api/dm";
 import type { DMSearchResult } from "../api/dm";
 import type { UploadOptions } from "../api/client";
+import { createThumbnail } from "../utils/imageEncoding";
 import type { DMChannelWithUser, DMMessage } from "../types";
 import { useUIStore } from "./uiStore";
 import { useToastStore } from "./toastStore";
@@ -224,11 +225,13 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
       if (channel && currentUserId) {
         try {
           let encryptedFiles: File[] | undefined;
+          let thumbs: (import("../utils/imageEncoding").GeneratedThumbnail | null)[] | undefined;
           let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
 
           if (files && files.length > 0) {
             const result = await encryptFilesForE2EE(files);
             encryptedFiles = result.files;
+            thumbs = result.thumbs;
             fileMetas = result.metas;
           }
 
@@ -253,7 +256,8 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
             metadata,
             encryptedFiles,
             replyToId,
-            upload
+            upload,
+            thumbs
           );
 
           if (res.success && res.data) {
@@ -286,7 +290,9 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
       }
     }
 
-    const res = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload);
+    // Same generation as the encrypted path, so both produce previews identically.
+    const plainThumbs = files ? await Promise.all(files.map(createThumbnail)) : undefined;
+    const res = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload, plainThumbs);
     handleSendError(res);
     return res.success;
   },

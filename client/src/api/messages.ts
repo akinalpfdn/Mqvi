@@ -7,7 +7,8 @@
  * - DELETE /api/servers/{serverId}/messages/{id}           — delete message
  */
 
-import { apiClient, uploadRequest, type UploadOptions } from "./client";
+import { apiClient, uploadRequest, appendThumbnails, type UploadOptions } from "./client";
+import type { GeneratedThumbnail } from "../utils/imageEncoding";
 import type { Message, MessagePage } from "../types";
 
 export async function getMessages(
@@ -36,7 +37,8 @@ export async function sendMessage(
   content: string,
   files?: File[],
   replyToId?: string,
-  upload?: UploadOptions
+  upload?: UploadOptions,
+  thumbs?: (GeneratedThumbnail | null)[]
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -47,6 +49,8 @@ export async function sendMessage(
     for (const file of files) {
       formData.append("files", file);
     }
+
+    appendThumbnails(formData, thumbs);
 
     return uploadRequest<Message>(
       `/servers/${serverId}/channels/${channelId}/messages`,
@@ -73,7 +77,8 @@ export async function sendEncryptedMessage(
   metadata: string,
   files?: File[],
   replyToId?: string,
-  upload?: UploadOptions
+  upload?: UploadOptions,
+  thumbs?: (GeneratedThumbnail | null)[]
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -87,6 +92,8 @@ export async function sendEncryptedMessage(
     for (const file of files) {
       formData.append("files", file);
     }
+
+    appendThumbnails(formData, thumbs);
 
     return uploadRequest<Message>(
       `/servers/${serverId}/channels/${channelId}/messages`,

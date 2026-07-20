@@ -7,6 +7,7 @@ import i18n from "../i18n";
 import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
 import type { UploadOptions } from "../api/client";
+import { createThumbnail } from "../utils/imageEncoding";
 import { useServerStore, selectServerE2EE } from "./serverStore";
 import { useE2EEStore } from "./e2eeStore";
 import { useAuthStore } from "./authStore";
@@ -220,11 +221,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       if (currentUserId) {
         try {
           let encryptedFiles: File[] | undefined;
+          let thumbs: (import("../utils/imageEncoding").GeneratedThumbnail | null)[] | undefined;
           let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
 
           if (files && files.length > 0) {
             const result = await encryptFilesForE2EE(files);
             encryptedFiles = result.files;
+            thumbs = result.thumbs;
             fileMetas = result.metas;
           }
 
@@ -249,7 +252,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             metadata,
             encryptedFiles,
             replyToId,
-            upload
+            upload,
+            thumbs
           );
 
           handleSendError(res);
@@ -263,7 +267,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
 
     // Plaintext fallback
-    const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId, upload);
+    // Previews are generated here, not in the api layer, so the encrypted and plaintext paths
+    // produce them the same way. Non-images and already-small files come back null.
+    const plainThumbs = files ? await Promise.all(files.map(createThumbnail)) : undefined;
+    const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId, upload, plainThumbs);
     handleSendError(res);
     return res.success;
   },

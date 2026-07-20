@@ -9,6 +9,7 @@
  */
 
 import { toBase64 } from "./signalProtocol";
+import { createThumbnail } from "../utils/imageEncoding";
 
 // ──────────────────────────────────
 // Types
@@ -159,9 +160,6 @@ export async function decryptFile(
 // Thumbnail Generation & Encryption
 // ──────────────────────────────────
 
-/** Thumbnail max size (pixels) */
-const THUMBNAIL_MAX_SIZE = 256;
-
 /** Generate an encrypted thumbnail for image files. Uses same key with different IV. */
 export async function encryptThumbnail(
   file: File,
@@ -172,29 +170,16 @@ export async function encryptThumbnail(
     return null;
   }
 
+  // The image work is shared with the plaintext path rather than duplicated. The copy that used to
+  // live here decoded without imageOrientation (phone photos came out rotated), encoded JPEG (a
+  // transparent PNG got a black background) and capped at 256px, which is soft in a slot that
+  // renders up to 300px tall at 2x.
+  const thumbnail = await createThumbnail(file);
+  if (!thumbnail) return null;
+
   try {
-    // Load image
-    const imageBitmap = await createImageBitmap(file);
-    const { width, height } = calculateThumbnailSize(
-      imageBitmap.width,
-      imageBitmap.height
-    );
-
-    // Draw to canvas
-    const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    ctx.drawImage(imageBitmap, 0, 0, width, height);
-    imageBitmap.close();
-
-    // Convert to JPEG (quality: 0.7)
-    const thumbnailBlob = await canvas.convertToBlob({
-      type: "image/jpeg",
-      quality: 0.7,
-    });
-
-    const thumbnailData = new Uint8Array(await thumbnailBlob.arrayBuffer());
+    const { width, height } = thumbnail;
+    const thumbnailData = new Uint8Array(await thumbnail.blob.arrayBuffer());
 
     // Encrypt with different IV (same key)
     const thumbnailIV = crypto.getRandomValues(new Uint8Array(12));
@@ -257,36 +242,16 @@ export async function decryptThumbnail(
     encryptedData
   );
 
-  const blob = new Blob([decrypted], { type: "image/jpeg" });
+  // Deliberately untyped: the encoder picks WebP, PNG or JPEG per platform, and the sender's choice
+  // is not carried in the metadata. Asserting "image/jpeg" on a WebP would be a lie the browser has
+  // to work around; with no type it sniffs the bytes, which it does reliably for images.
+  const blob = new Blob([decrypted]);
   return URL.createObjectURL(blob);
 }
 
 // ──────────────────────────────────
 // Internal Helpers
 // ──────────────────────────────────
-
-/** Calculate thumbnail dimensions, fitting largest edge within THUMBNAIL_MAX_SIZE. */
-function calculateThumbnailSize(
-  originalWidth: number,
-  originalHeight: number
-): { width: number; height: number } {
-  if (
-    originalWidth <= THUMBNAIL_MAX_SIZE &&
-    originalHeight <= THUMBNAIL_MAX_SIZE
-  ) {
-    return { width: originalWidth, height: originalHeight };
-  }
-
-  const ratio = Math.min(
-    THUMBNAIL_MAX_SIZE / originalWidth,
-    THUMBNAIL_MAX_SIZE / originalHeight
-  );
-
-  return {
-    width: Math.round(originalWidth * ratio),
-    height: Math.round(originalHeight * ratio),
-  };
-}
 
 /** base64 → Uint8Array. Local copy to avoid circular dependency with signalProtocol. */
 function fromBase64(b64: string): Uint8Array {
