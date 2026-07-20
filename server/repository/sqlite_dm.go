@@ -791,9 +791,10 @@ func (r *sqliteDMRepo) GetPinnedMessages(ctx context.Context, channelID string) 
 
 func (r *sqliteDMRepo) CreateAttachment(ctx context.Context, attachment *models.DMAttachment) error {
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO dm_attachments (dm_message_id, filename, file_url, file_size, mime_type)
-		 VALUES (?, ?, ?, ?, ?) RETURNING id, created_at`,
+		`INSERT INTO dm_attachments (dm_message_id, filename, file_url, file_size, mime_type, thumb_url, thumb_width, thumb_height)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at`,
 		attachment.DMMessageID, attachment.Filename, attachment.FileURL, attachment.FileSize, attachment.MimeType,
+		attachment.ThumbURL, attachment.ThumbWidth, attachment.ThumbHeight,
 	).Scan(&attachment.ID, &attachment.CreatedAt)
 
 	if err != nil {
@@ -812,7 +813,7 @@ func (r *sqliteDMRepo) GetAttachmentsByMessageIDs(ctx context.Context, messageID
 	placeholders = placeholders[:len(placeholders)-1]
 
 	query := fmt.Sprintf(`
-		SELECT id, dm_message_id, filename, file_url, file_size, mime_type, created_at
+		SELECT id, dm_message_id, filename, file_url, file_size, mime_type, created_at, thumb_url, thumb_width, thumb_height
 		FROM dm_attachments
 		WHERE dm_message_id IN (%s)
 		ORDER BY created_at ASC`, placeholders)
@@ -833,6 +834,7 @@ func (r *sqliteDMRepo) GetAttachmentsByMessageIDs(ctx context.Context, messageID
 		var a models.DMAttachment
 		if err := rows.Scan(
 			&a.ID, &a.DMMessageID, &a.Filename, &a.FileURL, &a.FileSize, &a.MimeType, &a.CreatedAt,
+			&a.ThumbURL, &a.ThumbWidth, &a.ThumbHeight,
 		); err != nil {
 			return nil, fmt.Errorf("scan DM attachment row: %w", err)
 		}

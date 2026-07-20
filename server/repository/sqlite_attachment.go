@@ -20,8 +20,8 @@ func NewSQLiteAttachmentRepo(db database.TxQuerier) AttachmentRepository {
 
 func (r *sqliteAttachmentRepo) Create(ctx context.Context, attachment *models.Attachment) error {
 	query := `
-		INSERT INTO attachments (id, message_id, filename, file_url, file_size, mime_type)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?)
+		INSERT INTO attachments (id, message_id, filename, file_url, file_size, mime_type, thumb_url, thumb_width, thumb_height)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -30,6 +30,9 @@ func (r *sqliteAttachmentRepo) Create(ctx context.Context, attachment *models.At
 		attachment.FileURL,
 		attachment.FileSize,
 		attachment.MimeType,
+		attachment.ThumbURL,
+		attachment.ThumbWidth,
+		attachment.ThumbHeight,
 	).Scan(&attachment.ID, &attachment.CreatedAt)
 
 	if err != nil {
@@ -41,7 +44,7 @@ func (r *sqliteAttachmentRepo) Create(ctx context.Context, attachment *models.At
 
 func (r *sqliteAttachmentRepo) GetByMessageID(ctx context.Context, messageID string) ([]models.Attachment, error) {
 	query := `
-		SELECT id, message_id, filename, file_url, file_size, mime_type, created_at
+		SELECT id, message_id, filename, file_url, file_size, mime_type, created_at, thumb_url, thumb_width, thumb_height
 		FROM attachments WHERE message_id = ? ORDER BY created_at ASC`
 
 	rows, err := r.db.QueryContext(ctx, query, messageID)
@@ -55,6 +58,7 @@ func (r *sqliteAttachmentRepo) GetByMessageID(ctx context.Context, messageID str
 		var a models.Attachment
 		if err := rows.Scan(
 			&a.ID, &a.MessageID, &a.Filename, &a.FileURL, &a.FileSize, &a.MimeType, &a.CreatedAt,
+			&a.ThumbURL, &a.ThumbWidth, &a.ThumbHeight,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan attachment row: %w", err)
 		}
@@ -78,7 +82,7 @@ func (r *sqliteAttachmentRepo) GetByMessageIDs(ctx context.Context, messageIDs [
 	placeholders = placeholders[:len(placeholders)-1]
 
 	query := fmt.Sprintf(`
-		SELECT id, message_id, filename, file_url, file_size, mime_type, created_at
+		SELECT id, message_id, filename, file_url, file_size, mime_type, created_at, thumb_url, thumb_width, thumb_height
 		FROM attachments WHERE message_id IN (%s) ORDER BY created_at ASC`, placeholders)
 
 	args := make([]any, len(messageIDs))
@@ -97,6 +101,7 @@ func (r *sqliteAttachmentRepo) GetByMessageIDs(ctx context.Context, messageIDs [
 		var a models.Attachment
 		if err := rows.Scan(
 			&a.ID, &a.MessageID, &a.Filename, &a.FileURL, &a.FileSize, &a.MimeType, &a.CreatedAt,
+			&a.ThumbURL, &a.ThumbWidth, &a.ThumbHeight,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan attachment row: %w", err)
 		}

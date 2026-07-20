@@ -68,7 +68,7 @@ func NewFileCleanupService(db *sql.DB, fileDeleter FileDeleter, storage StorageS
 
 func (s *fileCleanupService) CollectChannelFiles(ctx context.Context, channelID string) (*CleanupPlan, error) {
 	refs, err := s.queryFileRefs(ctx, `
-		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id
+		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url
 		FROM attachments a
 		JOIN messages m ON a.message_id = m.id
 		WHERE m.channel_id = ?`, channelID)
@@ -83,7 +83,7 @@ func (s *fileCleanupService) CollectServerFiles(ctx context.Context, serverID st
 
 	// Message attachments across all channels
 	msgRefs, err := s.queryFileRefs(ctx, `
-		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id
+		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url
 		FROM attachments a
 		JOIN messages m ON a.message_id = m.id
 		JOIN channels c ON m.channel_id = c.id
@@ -175,7 +175,7 @@ func (s *fileCleanupService) CollectUserFiles(ctx context.Context, userID string
 
 	// ─── User's own message attachments (in servers they don't own) ───
 	msgRefs, err := s.queryFileRefs(ctx, `
-		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id
+		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url
 		FROM attachments a
 		JOIN messages m ON a.message_id = m.id
 		WHERE m.user_id = ?
@@ -191,7 +191,7 @@ func (s *fileCleanupService) CollectUserFiles(ctx context.Context, userID string
 
 	// ─── DM attachments ───
 	dmRefs, err := s.queryOwnedRefs(ctx, userID, `
-		SELECT da.file_url, COALESCE(da.file_size, 0)
+		SELECT da.file_url, COALESCE(da.file_size, 0), da.thumb_url
 		FROM dm_attachments da
 		JOIN dm_messages dm ON da.dm_message_id = dm.id
 		WHERE dm.user_id = ?`, userID)
@@ -284,7 +284,7 @@ func (s *fileCleanupService) CollectUserMessageFiles(ctx context.Context, userID
 
 	// DM attachments
 	dmRefs, err := s.queryOwnedRefs(ctx, userID, `
-		SELECT da.file_url, COALESCE(da.file_size, 0)
+		SELECT da.file_url, COALESCE(da.file_size, 0), da.thumb_url
 		FROM dm_attachments da
 		JOIN dm_messages dm ON da.dm_message_id = dm.id
 		WHERE dm.user_id = ?`, userID)
@@ -381,15 +381,42 @@ func (s *fileCleanupService) queryFileRefs(ctx context.Context, query string, ar
 	}
 	defer rows.Close()
 
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	withThumb := len(cols) == 4
+
 	var refs []fileRef
 	for rows.Next() {
 		var r fileRef
-		if err := rows.Scan(&r.URL, &r.Size, &r.UserID); err != nil {
+		var thumb sql.NullString
+		if withThumb {
+			err = rows.Scan(&r.URL, &r.Size, &r.UserID, &thumb)
+		} else {
+			err = rows.Scan(&r.URL, &r.Size, &r.UserID)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("scan file ref: %w", err)
 		}
 		refs = append(refs, r)
+		refs = appendThumbRef(refs, thumb, r.UserID)
 	}
 	return refs, rows.Err()
+}
+
+// A query may append thumb_url as a trailing column. When it does, a non-null value becomes a
+// second ref so a companion thumbnail is deleted along with its original instead of being orphaned
+// on disk forever. Queries without that column are unaffected.
+//
+// Size 0 on purpose: thumbnails are never charged against the storage quota, which sums file_size
+// only (see the quota subquery in sqlite_server.go). Reclaiming bytes never billed would drift the
+// accounting the other way.
+func appendThumbRef(refs []fileRef, thumb sql.NullString, userID string) []fileRef {
+	if !thumb.Valid || thumb.String == "" {
+		return refs
+	}
+	return append(refs, fileRef{URL: thumb.String, Size: 0, UserID: userID})
 }
 
 // queryOwnedRefs runs a SELECT that returns (file_url, file_size) rows, tagging all with ownerID.
@@ -400,14 +427,27 @@ func (s *fileCleanupService) queryOwnedRefs(ctx context.Context, ownerID, query 
 	}
 	defer rows.Close()
 
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	withThumb := len(cols) == 3
+
 	var refs []fileRef
 	for rows.Next() {
 		var r fileRef
-		if err := rows.Scan(&r.URL, &r.Size); err != nil {
+		var thumb sql.NullString
+		if withThumb {
+			err = rows.Scan(&r.URL, &r.Size, &thumb)
+		} else {
+			err = rows.Scan(&r.URL, &r.Size)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("scan owned ref: %w", err)
 		}
 		r.UserID = ownerID
 		refs = append(refs, r)
+		refs = appendThumbRef(refs, thumb, ownerID)
 	}
 	return refs, rows.Err()
 }

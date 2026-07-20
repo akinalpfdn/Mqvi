@@ -288,3 +288,44 @@ func parseScanTime(value string) (time.Time, error) {
 	}
 	return time.Parse("2006-01-02 15:04:05", value)
 }
+
+// ThumbnailUpload is the companion preview a client sends alongside an attachment.
+//
+// Always optional: old clients send none, non-image attachments have none, and client-side
+// generation is allowed to fail without failing the send. Every consumer must treat nil as normal.
+type ThumbnailUpload struct {
+	File   multipart.File
+	Header *multipart.FileHeader
+	Width  int
+	Height int
+}
+
+// storeThumbnail stores a companion preview beside its original.
+//
+// A thumbnail that fails to store must never fail the attachment: the preview is an optimisation,
+// the file is the message. Callers get nils and carry on, and the client falls back to rendering
+// the original as it did before thumbnails existed.
+func storeThumbnail(
+	ctx context.Context,
+	pipeline UploadPipeline,
+	kind files.Kind,
+	scopeID string,
+	thumb *ThumbnailUpload,
+	maxSize int64,
+) (url *string, width *int, height *int) {
+	if thumb == nil || thumb.Header == nil {
+		return nil, nil, nil
+	}
+
+	stored, err := pipeline.Store(ctx, kind, scopeID, thumb.File, thumb.Header, maxSize)
+	if err != nil {
+		log.Printf("[upload] thumbnail rejected for %s/%s: %v — attachment kept without one", kind, scopeID, err)
+		return nil, nil, nil
+	}
+
+	// Dimensions are only useful together; a partial pair would make the client reserve wrong space.
+	if thumb.Width > 0 && thumb.Height > 0 {
+		width, height = &thumb.Width, &thumb.Height
+	}
+	return &stored.RelativeURL, width, height
+}

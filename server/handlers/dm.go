@@ -257,14 +257,18 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		files := r.MultipartForm.File["files"]
 
 		var uploadedBytes int64
-		for _, fileHeader := range files {
+		for i, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
 				continue
 			}
 
-			attachment, err := h.dmUploadService.Upload(r.Context(), msg.ID, file, fileHeader, isEncrypted)
+			thumb := thumbnailFor(r.MultipartForm, i)
+			attachment, err := h.dmUploadService.Upload(r.Context(), msg.ID, file, fileHeader, isEncrypted, thumb)
 			file.Close()
+			if thumb != nil {
+				thumb.File.Close()
+			}
 			if err != nil {
 				_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
 				if unused := reservedBytes - uploadedBytes; unused > 0 {

@@ -28,6 +28,16 @@ export type EncryptedFileMeta = {
   originalSize: number;
   /** SHA-256 hash of original file (hex) — integrity check */
   digest: string;
+  /**
+   * IV for the companion thumbnail, when one was sent. The thumbnail reuses the file's key with a
+   * distinct IV — safe for AES-GCM, which only forbids reusing a (key, IV) pair — so the payload
+   * grows by one field instead of a whole second key.
+   *
+   * Absent on messages predating thumbnails and on attachments that have none. Lives inside the
+   * encrypted payload, so the server never sees it; the thumbnail's URL and pixel size are the
+   * only parts stored in the clear.
+   */
+  thumbIv?: string;
 };
 
 export type EncryptedFileResult = {

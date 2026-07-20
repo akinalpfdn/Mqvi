@@ -134,6 +134,10 @@ export type Attachment = {
   file_url: string;
   file_size: number | null;
   mime_type: string | null;
+  /** Companion preview. Absent on attachments predating thumbnails and on types with no preview. */
+  thumb_url?: string | null;
+  thumb_width?: number | null;
+  thumb_height?: number | null;
 };
 
 /** Ephemeral voice channel chat message. Wiped server-side on N→0. */

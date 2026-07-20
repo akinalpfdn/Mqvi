@@ -16,7 +16,7 @@ import (
 // isEncrypted: E2EE files are client-side AES-256-GCM encrypted, sent as
 // application/octet-stream — MIME whitelist is skipped for these.
 type UploadService interface {
-	Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.Attachment, error)
+	Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool, thumb *ThumbnailUpload) (*models.Attachment, error)
 }
 
 type uploadService struct {
@@ -40,7 +40,7 @@ func NewUploadService(
 // All file types are accepted on upload. XSS protection is handled at serve-time
 // via Content-Disposition: attachment for non-media types (see pkg/files/safemime.go).
 
-func (s *uploadService) Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.Attachment, error) {
+func (s *uploadService) Upload(ctx context.Context, messageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool, thumb *ThumbnailUpload) (*models.Attachment, error) {
 	if header.Size > s.maxSize {
 		return nil, fmt.Errorf("%w: file too large (max %dMB)", pkg.ErrBadRequest, s.maxSize/(1024*1024))
 	}
@@ -60,6 +60,8 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 		return nil, err
 	}
 
+	thumbURL, thumbW, thumbH := storeThumbnail(ctx, s.pipeline, files.KindMessage, messageID, thumb, s.maxSize)
+
 	fileSize := stored.Size
 	attachment := &models.Attachment{
 		MessageID: messageID,
@@ -67,10 +69,19 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 		FileURL:   stored.RelativeURL,
 		FileSize:  &fileSize,
 		MimeType:  &mimeBase,
+
+		ThumbURL:    thumbURL,
+		ThumbWidth:  thumbW,
+		ThumbHeight: thumbH,
 	}
 
 	if err := s.attachmentRepo.Create(ctx, attachment); err != nil {
 		s.pipeline.DeleteFromURL(stored.RelativeURL)
+		// The thumbnail was stored before the row existed; without this it would sit on disk with
+		// nothing referencing it and no cleanup query able to find it.
+		if thumbURL != nil {
+			s.pipeline.DeleteFromURL(*thumbURL)
+		}
 		return nil, fmt.Errorf("failed to create attachment record: %w", err)
 	}
 

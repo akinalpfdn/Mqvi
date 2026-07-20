@@ -164,14 +164,18 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		files := r.MultipartForm.File["files"]
 
 		var uploadedBytes int64
-		for _, fileHeader := range files {
+		for i, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
 				continue
 			}
 
-			attachment, err := h.uploadService.Upload(r.Context(), message.ID, file, fileHeader, isEncrypted)
+			thumb := thumbnailFor(r.MultipartForm, i)
+			attachment, err := h.uploadService.Upload(r.Context(), message.ID, file, fileHeader, isEncrypted, thumb)
 			file.Close()
+			if thumb != nil {
+				thumb.File.Close()
+			}
 			if err != nil {
 				_ = h.messageService.Delete(r.Context(), r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages)
 				if unused := reservedBytes - uploadedBytes; unused > 0 {
