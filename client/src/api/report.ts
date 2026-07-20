@@ -4,7 +4,7 @@
  * Supports multipart (with evidence files) or JSON body.
  */
 
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, type UploadOptions } from "./client";
 
 export type ReportReason =
   | "spam"
@@ -40,7 +40,12 @@ export type Report = {
 };
 
 /** Reports a user. Uses multipart/form-data when evidence files are provided. */
-export function reportUser(userId: string, req: CreateReportRequest, files?: File[]) {
+export function reportUser(
+  userId: string,
+  req: CreateReportRequest,
+  files?: File[],
+  upload?: UploadOptions
+) {
   if (files && files.length > 0) {
     const formData = new FormData();
     formData.append("reason", req.reason);
@@ -48,10 +53,7 @@ export function reportUser(userId: string, req: CreateReportRequest, files?: Fil
     for (const file of files) {
       formData.append("files", file);
     }
-    return apiClient<Report>(`/users/${userId}/report`, {
-      method: "POST",
-      body: formData,
-    });
+    return uploadRequest<Report>(`/users/${userId}/report`, formData, upload);
   }
 
   return apiClient<Report>(`/users/${userId}/report`, {

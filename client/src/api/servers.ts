@@ -12,7 +12,7 @@
  * - GET    /api/servers/{serverId}/livekit  — LiveKit settings [Admin]
  */
 
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, type UploadOptions } from "./client";
 import type {
   Server,
   ServerListItem,
@@ -142,23 +142,17 @@ export async function getMutedServers() {
 }
 
 /** Uploads server icon — multipart/form-data. */
-export async function uploadServerIcon(serverId: string, file: File) {
+export async function uploadServerIcon(serverId: string, file: File, upload?: UploadOptions) {
   const formData = new FormData();
   formData.append("file", file);
 
-  return apiClient<Server>(`/servers/${serverId}/icon`, {
-    method: "POST",
-    body: formData,
-  });
+  return uploadRequest<Server>(`/servers/${serverId}/icon`, formData, upload);
 }
 
 /** Uploads server banner (discovery card) — multipart/form-data. */
-export async function uploadServerBanner(serverId: string, file: File) {
+export async function uploadServerBanner(serverId: string, file: File, upload?: UploadOptions) {
   const formData = new FormData();
   formData.append("file", file);
 
-  return apiClient<Server>(`/servers/${serverId}/banner`, {
-    method: "POST",
-    body: formData,
-  });
+  return uploadRequest<Server>(`/servers/${serverId}/banner`, formData, upload);
 }

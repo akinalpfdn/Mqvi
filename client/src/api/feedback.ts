@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, type UploadOptions } from "./client";
 import type { FeedbackTicket, FeedbackReply } from "../types";
 
 // ─── User Endpoints ───
@@ -8,7 +8,7 @@ export async function createFeedbackTicket(data: {
   subject: string;
   content: string;
   files?: File[];
-}) {
+}, upload?: UploadOptions) {
   if (data.files && data.files.length > 0) {
     const form = new FormData();
     form.append("type", data.type);
@@ -17,7 +17,7 @@ export async function createFeedbackTicket(data: {
     for (const file of data.files) {
       form.append("files", file);
     }
-    return apiClient<FeedbackTicket>("/feedback", { method: "POST", body: form });
+    return uploadRequest<FeedbackTicket>("/feedback", form, upload);
   }
   return apiClient<FeedbackTicket>("/feedback", { method: "POST", body: data });
 }
@@ -34,12 +34,17 @@ export async function getFeedbackTicket(id: string) {
   );
 }
 
-export async function addFeedbackReply(ticketId: string, content: string, files?: File[]) {
+export async function addFeedbackReply(
+  ticketId: string,
+  content: string,
+  files?: File[],
+  upload?: UploadOptions
+) {
   if (files && files.length > 0) {
     const form = new FormData();
     form.append("content", content);
     for (const file of files) form.append("files", file);
-    return apiClient<FeedbackReply>(`/feedback/${ticketId}/reply`, { method: "POST", body: form });
+    return uploadRequest<FeedbackReply>(`/feedback/${ticketId}/reply`, form, upload);
   }
   return apiClient<FeedbackReply>(`/feedback/${ticketId}/reply`, { method: "POST", body: { content } });
 }
@@ -86,12 +91,17 @@ export async function adminGetFeedbackTicket(id: string) {
   );
 }
 
-export async function adminReplyToFeedback(ticketId: string, content: string, files?: File[]) {
+export async function adminReplyToFeedback(
+  ticketId: string,
+  content: string,
+  files?: File[],
+  upload?: UploadOptions
+) {
   if (files && files.length > 0) {
     const form = new FormData();
     form.append("content", content);
     for (const file of files) form.append("files", file);
-    return apiClient<FeedbackReply>(`/admin/feedback/${ticketId}/reply`, { method: "POST", body: form });
+    return uploadRequest<FeedbackReply>(`/admin/feedback/${ticketId}/reply`, form, upload);
   }
   return apiClient<FeedbackReply>(`/admin/feedback/${ticketId}/reply`, { method: "POST", body: { content } });
 }

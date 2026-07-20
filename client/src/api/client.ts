@@ -218,6 +218,122 @@ export async function apiClient<T>(
   }
 }
 
+/** `code` on an APIResponse whose upload the caller cancelled — not a failure, stay silent. */
+const UPLOAD_ABORTED = "UPLOAD_ABORTED";
+
+type UploadOptions = {
+  method?: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  /** `total` is null when the browser cannot compute the body length. */
+  onProgress?: (loaded: number, total: number | null) => void;
+};
+
+type XhrResult<T> = { status: number; response: APIResponse<T> };
+
+function sendXhr<T>(
+  endpoint: string,
+  body: FormData,
+  method: string,
+  extraHeaders: Record<string, string> | undefined,
+  signal: AbortSignal | undefined,
+  onProgress: UploadOptions["onProgress"],
+  token: string | null
+): Promise<XhrResult<T>> {
+  return new Promise((resolve) => {
+    const aborted: XhrResult<T> = {
+      status: 0,
+      response: { success: false, error: "Upload cancelled", code: UPLOAD_ABORTED },
+    };
+    if (signal?.aborted) {
+      resolve(aborted);
+      return;
+    }
+
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, `${API_BASE_URL}${endpoint}`);
+    // Matches apiClient's credentials:"include" — the file-serve cookie must ride along, and the
+    // Electron renderer's file:// origin makes every API call cross-site.
+    xhr.withCredentials = true;
+
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    for (const [key, value] of Object.entries(extraHeaders ?? {})) {
+      xhr.setRequestHeader(key, value);
+    }
+    // Content-Type is left unset on purpose: the browser derives it from the FormData, including
+    // the multipart boundary. Setting it by hand produces a body the server cannot parse.
+
+    const onAbort = () => xhr.abort();
+    signal?.addEventListener("abort", onAbort);
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+
+    let lastTotal: number | null = null;
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        lastTotal = e.lengthComputable ? e.total : null;
+        onProgress(e.loaded, lastTotal);
+      };
+    }
+
+    xhr.onload = () => {
+      cleanup();
+      // The last upload.onprogress can land below total; settle the bar so it never sticks at 99%.
+      if (onProgress && lastTotal !== null) onProgress(lastTotal, lastTotal);
+
+      if (xhr.status === 204) {
+        resolve({ status: 204, response: { success: true, data: undefined as T } });
+        return;
+      }
+      try {
+        resolve({ status: xhr.status, response: JSON.parse(xhr.responseText) as APIResponse<T> });
+      } catch {
+        // Non-JSON body — a proxy rejection (Cloudflare 413) or a crash page.
+        console.error(`[upload] ${method} ${endpoint}: invalid JSON (HTTP ${xhr.status})`);
+        resolve({
+          status: xhr.status,
+          response: { success: false, error: `HTTP ${xhr.status}: ${xhr.statusText}` },
+        });
+      }
+    };
+
+    xhr.onerror = () => {
+      cleanup();
+      console.error(`[upload] ${method} ${endpoint}: network error`);
+      resolve({ status: 0, response: { success: false, error: "Network request failed" } });
+    };
+
+    xhr.onabort = () => {
+      cleanup();
+      resolve(aborted);
+    };
+
+    xhr.send(body);
+  });
+}
+
+/**
+ * Multipart upload transport. Mirrors apiClient's auth behaviour — Bearer header, credentials,
+ * one 401 refresh + retry, same APIResponse envelope — but runs on XMLHttpRequest because the
+ * Fetch API cannot report upload progress and cannot be cancelled mid-transfer.
+ */
+async function uploadRequest<T>(
+  endpoint: string,
+  body: FormData,
+  options: UploadOptions = {}
+): Promise<APIResponse<T>> {
+  const { method = "POST", headers, signal, onProgress } = options;
+
+  const first = await sendXhr<T>(endpoint, body, method, headers, signal, onProgress, getAccessToken());
+  if (first.status !== 401 || !getRefreshToken()) return first.response;
+
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) return first.response;
+
+  // FormData is replayable, so the retry re-sends the same body. Progress restarts from zero.
+  const retry = await sendXhr<T>(endpoint, body, method, headers, signal, onProgress, getAccessToken());
+  return retry.response;
+}
+
 /**
  * Checks if a JWT access token is expired.
  * Includes a 10s buffer so tokens about to expire are treated as expired,
@@ -251,4 +367,13 @@ async function ensureFreshToken(): Promise<string | null> {
   return getAccessToken();
 }
 
-export { setTokens, clearTokens, getAccessToken, ensureFreshToken, setAuthRejectedHandler };
+export {
+  setTokens,
+  clearTokens,
+  getAccessToken,
+  ensureFreshToken,
+  setAuthRejectedHandler,
+  uploadRequest,
+  UPLOAD_ABORTED,
+};
+export type { UploadOptions };

@@ -4,7 +4,7 @@
  * Both endpoints return updated MemberWithRoles for immediate state sync.
  */
 
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, type UploadOptions } from "./client";
 import type { MemberWithRoles } from "../types";
 
 type UpdateProfileRequest = {
@@ -23,24 +23,18 @@ export async function updateProfile(data: UpdateProfileRequest) {
 }
 
 /** Uploads avatar via multipart/form-data. Browser sets Content-Type with boundary automatically. */
-export async function uploadAvatar(file: File) {
+export async function uploadAvatar(file: File, upload?: UploadOptions) {
   const formData = new FormData();
   formData.append("file", file);
 
-  return apiClient<MemberWithRoles>("/users/me/avatar", {
-    method: "POST",
-    body: formData,
-  });
+  return uploadRequest<MemberWithRoles>("/users/me/avatar", formData, upload);
 }
 
-export async function uploadWallpaper(file: File) {
+export async function uploadWallpaper(file: File, upload?: UploadOptions) {
   const formData = new FormData();
   formData.append("file", file);
 
-  return apiClient<{ wallpaper_url: string }>("/users/me/wallpaper", {
-    method: "POST",
-    body: formData,
-  });
+  return uploadRequest<{ wallpaper_url: string }>("/users/me/wallpaper", formData, upload);
 }
 
 export async function deleteWallpaper() {
