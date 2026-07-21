@@ -39,8 +39,8 @@ func newTestMessageService(
 // an unencrypted server so the existing plaintext cases behave as before.
 type stubServerEncryption struct{ e2ee bool }
 
-func (s stubServerEncryption) GetActiveByID(_ context.Context, _ string) (*models.Server, error) {
-	return &models.Server{E2EEEnabled: s.e2ee}, nil
+func (s stubServerEncryption) IsE2EEEnabled(_ context.Context, _ string) (bool, error) {
+	return s.e2ee, nil
 }
 
 func TestMessageCreate(t *testing.T) {
@@ -568,6 +568,62 @@ func TestCreate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
 	t.Run("should accept a plaintext message when the server does not require encryption", func(t *testing.T) {
 		if _, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"}); err != nil {
 			t.Fatalf("plaintext on an unencrypted server should be allowed: %v", err)
+		}
+	})
+}
+
+// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext edit of
+// an encrypted message would leave readable text sitting beside the ciphertext the UI still renders
+// — a silent leak with no visible symptom. Create was guarded; Update has to be too.
+func TestUpdate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
+	newSvc := func(e2ee bool) MessageService {
+		return NewMessageService(
+			&testutil.MockMessageRepo{
+				GetByIDFn: func(_ context.Context, id string) (*models.Message, error) {
+					return &models.Message{ID: id, ChannelID: "ch1", UserID: "u1", EncryptionVersion: 1}, nil
+				},
+			},
+			&testutil.MockAttachmentRepo{},
+			&testutil.MockChannelRepo{
+				GetByIDFn: func(_ context.Context, _ string) (*models.Channel, error) {
+					return &models.Channel{ID: "ch1", ServerID: "srv1"}, nil
+				},
+			},
+			&testutil.MockUserRepo{
+				GetByIDFn: func(_ context.Context, _ string) (*models.User, error) {
+					return &models.User{ID: "u1", Username: "alice"}, nil
+				},
+				GetByUsernameFn: func(_ context.Context, _ string) (*models.User, error) {
+					return nil, pkg.ErrNotFound
+				},
+			},
+			&testutil.MockMentionRepo{},
+			&testutil.MockRoleMentionRepo{},
+			&testutil.MockRoleRepo{},
+			&testutil.MockReactionRepo{},
+			&testutil.MockReadStateRepo{},
+			&testutil.MockBroadcastAndOnline{},
+			&testutil.MockChannelPermResolver{},
+			&testutil.MockFileURLSigner{},
+			&testutil.MockFileDeleter{},
+			&testutil.MockStorageService{},
+			stubServerEncryption{e2ee: e2ee},
+		)
+	}
+
+	t.Run("should reject a plaintext edit when the server requires encryption", func(t *testing.T) {
+		_, err := newSvc(true).Update(context.Background(), "m1", "u1", &models.UpdateMessageRequest{Content: "leaked"})
+		if !errors.Is(err, pkg.ErrBadRequest) {
+			t.Fatalf("want ErrBadRequest, got %v", err)
+		}
+		if pkg.CodeOf(err) != pkg.CodeEncryptionRequired {
+			t.Errorf("want code %q so the client can explain itself, got %q", pkg.CodeEncryptionRequired, pkg.CodeOf(err))
+		}
+	})
+
+	t.Run("should allow a plaintext edit when the server does not require encryption", func(t *testing.T) {
+		if _, err := newSvc(false).Update(context.Background(), "m1", "u1", &models.UpdateMessageRequest{Content: "fine"}); err != nil {
+			t.Fatalf("plaintext edit on an unencrypted server should be allowed: %v", err)
 		}
 	})
 }

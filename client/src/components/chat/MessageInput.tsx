@@ -70,7 +70,8 @@ function MessageInput({ openSearch }: MessageInputProps) {
   const notifyRejected = useFileRejectionNotice();
   // Both selectors return a boolean, so the composer re-renders when encryption flips — not on
   // every unrelated DM-list or server-list update.
-  const dmE2EE = useDMStore((s) => s.channels.find((ch) => ch.id === channelId)?.e2ee_enabled ?? false);
+  // undefined = the channel list has not arrived yet, which is not the same as "not encrypted".
+  const dmE2EE = useDMStore((s) => s.channels.find((ch) => ch.id === channelId)?.e2ee_enabled);
   // Same fallback as everywhere else: a tab opened before the server list loaded has no serverId,
   // and defaulting to "not encrypted" would hand an encrypted channel the 100MB cap.
   const activeServerId = useServerStore((s) => s.activeServerId);
@@ -130,7 +131,8 @@ function MessageInput({ openSearch }: MessageInputProps) {
   // Encryption buffers the whole file plus its ciphertext in memory, so an encrypted conversation
   // takes a smaller cap than the transport allows. An unknown server state assumes encrypted: the
   // tighter cap is the safe guess, and the send itself refuses until the state is known.
-  const isEncrypted = mode === "dm" ? dmE2EE : mode === "channel" ? (channelE2EE ?? true) : false;
+  const isEncrypted =
+    mode === "dm" ? (dmE2EE ?? true) : mode === "channel" ? (channelE2EE ?? true) : false;
   const attachmentLimit = isEncrypted ? MAX_E2EE_FILE_SIZE : MAX_FILE_SIZE;
 
   // Every way a file enters the composer — drop zone, paste, picker, camera — funnels through here,
@@ -361,7 +363,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
         clearInput(sentContent);
       }
     } finally {
-      endUpload();
+      endUpload(upload);
       setIsSending(false);
     }
 

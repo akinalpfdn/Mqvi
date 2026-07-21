@@ -118,13 +118,16 @@ export async function readWithProgress(
   let loaded = 0;
   try {
     return await drain();
+  } catch (err) {
+    // Giving up part-way leaves the rest of the body unread. Cancel discards it and frees the
+    // connection instead of leaving a locked stream behind; releaseLock alone would not.
+    await reader.cancel().catch(() => {});
+    throw err;
   } finally {
-    // An aborted or failed read leaves the body locked otherwise; releasing lets the stream be
-    // cancelled instead of lingering.
     try {
       reader.releaseLock();
     } catch {
-      // Already released by a completed read.
+      // Already released by cancel() or a completed read.
     }
   }
 

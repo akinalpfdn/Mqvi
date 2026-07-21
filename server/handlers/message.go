@@ -145,7 +145,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		// Previews are stored bytes too. Leaving them out made them an unmetered store: trivial
 		// files with large "thumbnails" cost the uploader nothing.
-		reservedBytes += thumbnailBytes(r.MultipartForm)
+		reservedBytes += thumbnailBytes(r.MultipartForm, len(r.MultipartForm.File["files"]))
 		if err := h.storageService.Reserve(r.Context(), user.ID, reservedBytes); err != nil {
 			pkg.Error(w, err)
 			return

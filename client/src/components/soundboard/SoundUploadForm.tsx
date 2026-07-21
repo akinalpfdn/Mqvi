@@ -278,15 +278,16 @@ function SoundUploadForm({ onClose }: Props) {
       return;
     }
 
+    const upload = beginUpload();
     const res = await soundboardApi.createSound(
       serverId,
       uploadFile,
       name.trim(),
       trimmedDurationMs,
       emoji.trim() || undefined,
-      beginUpload()
+      upload
     );
-    endUpload();
+    endUpload(upload);
     setIsUploading(false);
 
     if (res.success) {

@@ -5,7 +5,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/akinalp/mqvi/services"
 )
@@ -31,18 +30,19 @@ func limitMultipartBody(w http.ResponseWriter, r *http.Request, maxFileBytes int
 	r.Body = http.MaxBytesReader(w, r.Body, perFile*int64(maxFiles))
 }
 
-// thumbnailBytes sums the companion previews in the form. They are charged to the uploader's quota
-// like any other stored bytes, so they must be reserved before the upload starts.
-func thumbnailBytes(form *multipart.Form) int64 {
+// thumbnailBytes sums the companion previews that will actually be stored. They are charged to the
+// uploader's quota like any other stored bytes, so they must be reserved before the upload starts.
+//
+// Counts the same thumb_{i} fields thumbnailFor reads rather than every thumb_* part: summing by
+// prefix would reserve quota for a thumb_999 nobody stores and could fail the send on a quota error
+// the uploader never earned.
+func thumbnailBytes(form *multipart.Form, fileCount int) int64 {
 	if form == nil {
 		return 0
 	}
 	var total int64
-	for name, headers := range form.File {
-		if !strings.HasPrefix(name, thumbnailFieldPrefix) {
-			continue
-		}
-		for _, h := range headers {
+	for i := 0; i < fileCount; i++ {
+		for _, h := range form.File[fmt.Sprintf("%s%d", thumbnailFieldPrefix, i)] {
 			total += h.Size
 		}
 	}

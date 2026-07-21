@@ -125,6 +125,7 @@ function FeedbackSettings() {
 
   const handleSubmit = async () => {
     if (!formSubject.trim() || !formContent.trim()) return;
+    const upload = formFiles.length > 0 ? beginUpload() : undefined;
     try {
       setIsSubmitting(true);
       const res = await createFeedbackTicket(
@@ -134,7 +135,7 @@ function FeedbackSettings() {
           content: formContent.trim(),
           files: formFiles.length > 0 ? formFiles : undefined,
         },
-        formFiles.length > 0 ? beginUpload() : undefined
+        upload
       );
       if (res.success) {
         addToast("success", t("feedbackSubmitSuccess"));
@@ -150,7 +151,7 @@ function FeedbackSettings() {
     } catch {
       addToast("error", t("feedbackSubmitError"));
     } finally {
-      endUpload();
+      endUpload(upload);
       setIsSubmitting(false);
     }
   };
@@ -184,13 +185,14 @@ function FeedbackSettings() {
 
   const handleReply = async () => {
     if (!replyContent.trim() || !activeTicket) return;
+    const upload = replyFiles.length > 0 ? beginUpload() : undefined;
     try {
       setIsSendingReply(true);
       const res = await addFeedbackReply(
         activeTicket.id,
         replyContent.trim(),
         replyFiles.length > 0 ? replyFiles : undefined,
-        replyFiles.length > 0 ? beginUpload() : undefined
+        upload
       );
       if (res.success && res.data) {
         setReplies((prev) => [...prev, res.data!]);
@@ -202,7 +204,7 @@ function FeedbackSettings() {
     } catch {
       addToast("error", t("feedbackReplyError"));
     } finally {
-      endUpload();
+      endUpload(upload);
       setIsSendingReply(false);
     }
   };

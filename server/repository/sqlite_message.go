@@ -183,9 +183,23 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 
 func (r *sqliteMessageRepo) Update(ctx context.Context, message *models.Message) error {
 	now := time.Now()
-	query := `UPDATE messages SET content = ?, edited_at = ? WHERE id = ?`
 
-	result, err := r.db.ExecContext(ctx, query, message.Content, now, message.ID)
+	// Branch on the version the way the DM repo does. Writing only `content` discarded the new
+	// ciphertext on an encrypted edit: the row kept the old ciphertext, the client decrypted that,
+	// and the edit silently did nothing beyond stamping edited_at.
+	var result sql.Result
+	var err error
+	if message.EncryptionVersion == 1 {
+		result, err = r.db.ExecContext(ctx,
+			`UPDATE messages SET ciphertext = ?, sender_device_id = ?, e2ee_metadata = ?, content = NULL, edited_at = ? WHERE id = ?`,
+			message.Ciphertext, message.SenderDeviceID, message.E2EEMetadata, now, message.ID,
+		)
+	} else {
+		result, err = r.db.ExecContext(ctx,
+			`UPDATE messages SET content = ?, edited_at = ? WHERE id = ?`,
+			message.Content, now, message.ID,
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to update message: %w", err)
 	}

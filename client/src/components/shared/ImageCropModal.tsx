@@ -151,15 +151,31 @@ async function getCroppedImage(
     canvas.height
   );
 
-  // Alpha has to survive when the crop creates it (circular corners) OR when the source already had
-  // it. Keying on the shape alone turned a transparent PNG logo into a black-backed JPEG on any
-  // browser without WebP encoding, since a rectangular crop asked for no alpha.
-  return encodeCanvas(canvas, { alpha: isCircle || sourceMayHaveAlpha(imageSrc) });
+  // Alpha has to survive when the crop creates it (circular corners) or when the drawn pixels
+  // actually carry it. Read the canvas rather than guess from the source type: keying on the shape
+  // blackened transparent logos, and keying on "not a JPEG" re-encoded every opaque PNG losslessly.
+  return encodeCanvas(canvas, { alpha: isCircle || hasTransparentPixels(ctx, canvas) });
 }
 
-/** JPEG is the only common source that cannot carry alpha; assume everything else might. */
-function sourceMayHaveAlpha(dataUrl: string): boolean {
-  return !/^data:image\/jpe?g[;,]/i.test(dataUrl);
+/**
+ * Whether any drawn pixel is not fully opaque.
+ *
+ * Every pixel, not a sample: a fixed stride lands on the same columns each row whenever the width is
+ * a multiple of it — which the output sizes are — so a narrow transparent band could slip through
+ * and get flattened to black. This runs once, on apply, over an image already scaled to its output.
+ */
+function hasTransparentPixels(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): boolean {
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  } catch {
+    // Tainted canvas — cannot inspect, so keep alpha rather than risk flattening it.
+    return true;
+  }
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 255) return true;
+  }
+  return false;
 }
 
 function createImage(url: string): Promise<HTMLImageElement> {

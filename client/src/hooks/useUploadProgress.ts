@@ -26,7 +26,10 @@ function useUploadProgress() {
     };
   }, []);
 
-  const end = useCallback(() => {
+  // Takes the options begin() handed out so an earlier upload finishing cannot clear a newer one's
+  // controller — that would silently drop the newer upload's progress and make cancel() a no-op.
+  const end = useCallback((options: UploadOptions | undefined) => {
+    if (controllerRef.current?.signal !== options?.signal) return;
     controllerRef.current = null;
     setProgress(null);
   }, []);

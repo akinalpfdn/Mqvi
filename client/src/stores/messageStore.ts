@@ -8,7 +8,7 @@ import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
 import type { UploadOptions } from "../api/client";
 import { buildAttachmentPreview } from "../utils/attachmentPreview";
-import { mapWithConcurrency } from "../utils/imageEncoding";
+import { mapWithConcurrency } from "../utils/concurrency";
 import { PREVIEW_CONCURRENCY } from "../utils/constants";
 import { useServerStore, selectServerE2EE } from "./serverStore";
 import { useE2EEStore } from "./e2eeStore";
@@ -267,6 +267,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           handleSendError(res);
           return res.success;
         } catch (err) {
+          // A user-initiated cancel is not a failure — no toast and no red console entry.
+          if (err instanceof DOMException && err.name === "AbortError") return false;
           console.error("[messageStore] E2EE encryption failed:", err);
           useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
           return false;

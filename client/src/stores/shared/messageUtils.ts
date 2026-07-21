@@ -33,9 +33,11 @@ export async function encryptFilesForE2EE(
   const thumbs: (GeneratedThumbnail | null)[] = [];
 
   for (let i = 0; i < files.length; i++) {
-    // encryptFile is the expensive step and cannot be interrupted once started, so cancelling used
-    // to still encrypt every remaining file. Checking here stops the batch at the next boundary.
-    if (signal?.aborted) break;
+    // encryptFile is the expensive step and cannot be interrupted once started, so cancelling would
+    // otherwise still encrypt every remaining file. Throwing rather than breaking: a short batch
+    // silently sent fewer attachments than the user picked, and only happened not to because the
+    // transport re-checks the signal.
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const result = await encryptFile(files[i]);
     encrypted.push(
       new File([result.encryptedBlob], `encrypted_${i}.bin`, {
@@ -99,6 +101,10 @@ export function handleSendError(res: {
     key = "chat:uploadTooLargeScan";
   } else if (res.code === "upload_too_large") {
     key = "chat:uploadTooLarge";
+  } else if (res.code === "encryption_required") {
+    // The conversation mandates E2EE and this send went out unencrypted — almost always because
+    // encryption is not ready on this device yet, which the generic failure gave no hint of.
+    key = "chat:encryptionRequired";
   }
 
   useToastStore.getState().addToast("error", i18n.t(key));

@@ -43,7 +43,10 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
   // E2EE is per-server. Plaintext servers can use backend FTS5; only route through the IndexedDB
   // cache when THIS panel's server is encrypted — not whichever server happens to be active.
   const serverE2eeEnabled = useServerStore(selectServerE2EE(effectiveServerId));
-  const useLocalSearch = serverE2eeEnabled && isE2EEReady;
+  // undefined means the server list has not arrived. Treating that as "not encrypted" sent the
+  // query to the backend FTS index, which holds no plaintext for an encrypted server — a silent
+  // zero-result search. Assume encrypted until we know otherwise.
+  const useLocalSearch = (serverE2eeEnabled ?? true) && isE2EEReady;
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);

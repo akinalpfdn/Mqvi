@@ -13,6 +13,10 @@ const (
 	CodePasswordContainsIdentity = "password_contains_identity"
 	CodePasswordTooLong          = "password_too_long"
 	CodePasswordBreached         = "password_breached"
+
+	// The conversation mandates E2EE and the message came in unencrypted. Coded so the client can
+	// say why instead of falling back to a generic send failure.
+	CodeEncryptionRequired = "encryption_required"
 )
 
 type codedError struct {

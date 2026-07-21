@@ -95,14 +95,15 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
   async function handleSubmit() {
     if (!isValid || !reason || submitting) return;
     setSubmitting(true);
+    const upload = files.length > 0 ? beginUpload() : undefined;
     const res = await reportServer(
       serverId,
       reason,
       description.trim(),
       files.length > 0 ? files : undefined,
-      files.length > 0 ? beginUpload() : undefined
+      upload
     );
-    endUpload();
+    endUpload(upload);
     setSubmitting(false);
     if (res.success) {
       addToast("success", t("reportSubmitted"));

@@ -203,7 +203,13 @@ export async function createVideoPoster(
         // assigning NaN throws out of this handler and finish() would never run; assigning the
         // current time is a no-op that never fires `seeked`. Only seek when it can actually move.
         const { duration } = video;
-        if (!Number.isFinite(duration) || duration <= 0) return;
+        if (!Number.isFinite(duration) || duration <= 0) {
+          // Capture falls to `loadeddata`, which needs HAVE_CURRENT_DATA — more than preload
+          // "metadata" is obliged to fetch. Nudge the element to keep going. Not load(), which
+          // restarts resource selection and would re-fire this handler forever.
+          video.preload = "auto";
+          return;
+        }
         try {
           video.currentTime = Math.min(POSTER_SEEK_SECONDS, duration / 2);
           seeking = true;
@@ -241,28 +247,3 @@ export async function createAttachmentPreview(
   return createThumbnail(file);
 }
 
-/**
- * Maps with a ceiling on how many run at once.
- *
- * Decoding is the reason: `Promise.all` over ten 12MP photos holds ten full-size bitmaps at once,
- * which is hundreds of megabytes and an OOM on a mobile WebView. Results stay in input order.
- */
-export async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-
-  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    for (;;) {
-      const index = next++;
-      if (index >= items.length) return;
-      results[index] = await fn(items[index], index);
-    }
-  });
-
-  await Promise.all(workers);
-  return results;
-}

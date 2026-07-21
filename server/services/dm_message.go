@@ -59,6 +59,18 @@ func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, b
 	}, nil
 }
 
+// rejectPlaintextOnEncryptedDM refuses an unencrypted message on a conversation that mandates E2EE.
+// The client alone picks the path, so a client that misreads the state would store it in the clear.
+func rejectPlaintextOnEncryptedDM(channel *models.DMChannel, encryptionVersion int) error {
+	if encryptionVersion == 1 || !channel.E2EEEnabled {
+		return nil
+	}
+	return pkg.WithCode(
+		fmt.Errorf("%w: this conversation requires end-to-end encrypted messages", pkg.ErrBadRequest),
+		pkg.CodeEncryptionRequired,
+	)
+}
+
 // SendMessage creates a DM message. WS broadcast is done via BroadcastCreate after file uploads.
 func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, req *models.CreateDMMessageRequest) (*models.DMMessage, error) {
 	if err := req.Validate(); err != nil {
@@ -70,10 +82,8 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		return nil, err
 	}
 
-	// The client alone picks the encrypted or plaintext path, so a client that misreads this
-	// conversation's state would store the message in the clear. The server has to say no.
-	if req.EncryptionVersion != 1 && channel.E2EEEnabled {
-		return nil, fmt.Errorf("%w: this conversation requires end-to-end encrypted messages", pkg.ErrBadRequest)
+	if err := rejectPlaintextOnEncryptedDM(channel, req.EncryptionVersion); err != nil {
+		return nil, err
 	}
 
 	otherUserID := channel.User1ID
@@ -337,6 +347,12 @@ func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, r
 
 	if msg.UserID != userID {
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
+	}
+
+	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext
+	// edit of an encrypted message leaves readable text beside the ciphertext the UI still shows.
+	if err := rejectPlaintextOnEncryptedDM(channel, req.EncryptionVersion); err != nil {
+		return nil, err
 	}
 
 	if err := s.dmRepo.UpdateMessage(ctx, messageID, req); err != nil {

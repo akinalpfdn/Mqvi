@@ -118,12 +118,13 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
     if (!isValid || !selectedReason || isSubmitting) return;
 
     setIsSubmitting(true);
+    const upload = files.length > 0 ? beginUpload() : undefined;
     try {
       const res = await reportUser(
         userId,
         { reason: selectedReason, description: description.trim() },
         files.length > 0 ? files : undefined,
-        files.length > 0 ? beginUpload() : undefined
+        upload
       );
 
       if (res.success) {
@@ -138,7 +139,7 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
     } catch {
       addToast("error", "Failed to submit report");
     } finally {
-      endUpload();
+      endUpload(upload);
       setIsSubmitting(false);
     }
   }

@@ -4,7 +4,7 @@ import * as dmApi from "../api/dm";
 import type { DMSearchResult } from "../api/dm";
 import type { UploadOptions } from "../api/client";
 import { buildAttachmentPreview } from "../utils/attachmentPreview";
-import { mapWithConcurrency } from "../utils/imageEncoding";
+import { mapWithConcurrency } from "../utils/concurrency";
 import { PREVIEW_CONCURRENCY } from "../utils/constants";
 import type { DMChannelWithUser, DMMessage } from "../types";
 import { useUIStore } from "./uiStore";
@@ -220,7 +220,13 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     const e2eeState = useE2EEStore.getState();
 
     const dmChannel = get().channels.find((ch) => ch.id === channelId);
-    if (dmChannel?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+    // Fail closed, same rule as the channel path: an unknown state must not default to plaintext on
+    // a conversation that turns out to mandate encryption.
+    if (typeof dmChannel?.e2ee_enabled !== "boolean") {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+      return false;
+    }
+    if (dmChannel.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const channel = dmChannel;
       const currentUserId = useAuthStore.getState().user?.id;
 
@@ -278,6 +284,8 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
           return res.success;
         } catch (err) {
           discardLastSentPlaintext(channelId);
+          // A user-initiated cancel is not a failure — no toast and no red console entry.
+          if (err instanceof DOMException && err.name === "AbortError") return false;
           console.error("[dmStore] E2EE encrypt failed:", err);
 
           const errMsg = err instanceof Error ? err.message : "";
@@ -308,7 +316,10 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
     const editState = get();
     let recipientUserId: string | null = null;
-    let editChannelE2EE = false;
+    // undefined until a channel is found — the message may not be cached (edited from search or
+    // pins) or the channel list may not have arrived. Defaulting to false attempted a plaintext
+    // edit on an encrypted conversation, same fail-open sendMessage was hardened against.
+    let editChannelE2EE: boolean | undefined;
     for (const [chId, msgs] of Object.entries(editState.messagesByChannel)) {
       if (msgs.some((m) => m.id === messageId)) {
         const ch = editState.channels.find((c) => c.id === chId);
@@ -318,6 +329,11 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
         }
         break;
       }
+    }
+
+    if (typeof editChannelE2EE !== "boolean") {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+      return false;
     }
 
     if (editChannelE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {

@@ -138,13 +138,14 @@ function AdminFeedbackList() {
   const handleReply = async () => {
     if (!replyContent.trim() || !activeTicket) return;
     setIsSendingReply(true);
+    const upload = replyFiles.length > 0 ? beginUpload() : undefined;
     const res = await adminReplyToFeedback(
       activeTicket.id,
       replyContent.trim(),
       replyFiles.length > 0 ? replyFiles : undefined,
-      replyFiles.length > 0 ? beginUpload() : undefined
+      upload
     );
-    endUpload();
+    endUpload(upload);
     if (res.success && res.data) {
       setReplies((prev) => [...prev, res.data!]);
       setReplyContent("");

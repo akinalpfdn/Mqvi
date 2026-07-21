@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -43,9 +44,9 @@ type messageService struct {
 }
 
 // ServerEncryptionReader reports a server's encryption policy. Narrow on purpose: the message path
-// needs one flag, not the whole server repository.
+// needs one flag, not the whole server row, and it asks on every send.
 type ServerEncryptionReader interface {
-	GetActiveByID(ctx context.Context, serverID string) (*models.Server, error)
+	IsE2EEEnabled(ctx context.Context, serverID string) (bool, error)
 }
 
 func NewMessageService(
@@ -93,12 +94,20 @@ func (s *messageService) rejectPlaintextOnEncryptedServer(ctx context.Context, s
 	if encryptionVersion == 1 {
 		return nil
 	}
-	server, err := s.serverReader.GetActiveByID(ctx, serverID)
+	encrypted, err := s.serverReader.IsE2EEEnabled(ctx, serverID)
 	if err != nil {
+		// A missing server maps to 404, and 4xx bodies carry the error text verbatim — wrapping it
+		// would show the caller this function's name. Anything else is internal and becomes a 500.
+		if errors.Is(err, pkg.ErrNotFound) {
+			return err
+		}
 		return fmt.Errorf("resolve server encryption policy: %w", err)
 	}
-	if server.E2EEEnabled {
-		return fmt.Errorf("%w: this server requires end-to-end encrypted messages", pkg.ErrBadRequest)
+	if encrypted {
+		return pkg.WithCode(
+			fmt.Errorf("%w: this server requires end-to-end encrypted messages", pkg.ErrBadRequest),
+			pkg.CodeEncryptionRequired,
+		)
 	}
 	return nil
 }
@@ -375,6 +384,19 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
 	}
 
+	channel, err := s.channelRepo.GetByID(ctx, message.ChannelID)
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil {
+		return nil, fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
+	}
+	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext
+	// edit of an encrypted message leaves readable text beside the ciphertext the UI still shows.
+	if err := s.rejectPlaintextOnEncryptedServer(ctx, channel.ServerID, req.EncryptionVersion); err != nil {
+		return nil, err
+	}
+
 	if req.EncryptionVersion == 1 {
 		message.Ciphertext = req.Ciphertext
 		message.SenderDeviceID = req.SenderDeviceID
@@ -405,11 +427,7 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 
 	// Re-parse mentions (server can't read E2EE content)
 	if req.EncryptionVersion == 0 {
-		channel, _ := s.channelRepo.GetByID(ctx, message.ChannelID)
-		serverID := ""
-		if channel != nil {
-			serverID = channel.ServerID
-		}
+		serverID := channel.ServerID
 
 		if err := s.mentionRepo.DeleteByMessageID(ctx, id); err != nil {
 			fmt.Printf("[mention] failed to delete old mentions for message %s: %v\n", id, err)

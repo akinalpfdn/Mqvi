@@ -140,6 +140,20 @@ func (r *sqliteServerRepo) Delete(ctx context.Context, serverID string) error {
 	return nil
 }
 
+func (r *sqliteServerRepo) IsE2EEEnabled(ctx context.Context, serverID string) (bool, error) {
+	var enabled bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT e2ee_enabled FROM servers WHERE id = ? AND deleted_at IS NULL`, serverID,
+	).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, pkg.ErrNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to read server encryption flag: %w", err)
+	}
+	return enabled, nil
+}
+
 func (r *sqliteServerRepo) GetActiveByID(ctx context.Context, serverID string) (*models.Server, error) {
 	query := `
 		SELECT id, name, icon_url, owner_id, is_public, e2ee_enabled, approval_required, livekit_instance_id, afk_timeout_minutes,
@@ -601,7 +615,7 @@ func (r *sqliteServerRepo) ListAdminServersPaged(ctx context.Context, params mod
 			 INNER JOIN channels c2 ON m.channel_id = c2.id
 			 WHERE c2.server_id = s.id) AS message_count,
 			COALESCE(
-				(SELECT SUM(a.file_size) FROM attachments a
+				(SELECT SUM(COALESCE(a.file_size, 0) + COALESCE(a.thumb_size, 0)) FROM attachments a
 				 INNER JOIN messages m2 ON a.message_id = m2.id
 				 INNER JOIN channels c3 ON m2.channel_id = c3.id
 				 WHERE c3.server_id = s.id), 0
