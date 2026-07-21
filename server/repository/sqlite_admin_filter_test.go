@@ -7,21 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/akinalp/mqvi/testutil/dbtest"
 )
 
-func openMemDB(t *testing.T, schema string) *sql.DB {
+// openMemDB returns a database with the real migrations applied. It used to take a hand-written
+// schema string, which meant these tests ran against tables that existed nowhere else — a column a
+// migration added, renamed or dropped left them green against a fiction.
+func openMemDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Exec(schema); err != nil {
-		t.Fatalf("schema: %v", err)
-	}
-	return db
+	return dbtest.New(t).DB
 }
 
 func queryIDs(t *testing.T, db *sql.DB, query string, args ...any) []string {
@@ -54,12 +48,7 @@ func eqIDs(t *testing.T, got, want []string) {
 // The user filter combines dimensions with AND, statuses/presence with OR, and treats
 // admin=both / admin=neither as "no filter".
 func TestBuildAdminUserFilter(t *testing.T) {
-	db := openMemDB(t, `
-		CREATE TABLE users (
-			id TEXT PRIMARY KEY, username TEXT, display_name TEXT,
-			is_platform_banned INTEGER DEFAULT 0, deleted_at TEXT,
-			is_hard_deleted INTEGER DEFAULT 0, status TEXT, is_platform_admin INTEGER DEFAULT 0
-		);`)
+	db := openMemDB(t)
 	// id, banned, deleted_at, hard, presence, admin
 	seed := []struct {
 		id, presence          string
@@ -74,8 +63,8 @@ func TestBuildAdminUserFilter(t *testing.T) {
 	}
 	for _, s := range seed {
 		if _, err := db.Exec(
-			`INSERT INTO users (id, username, is_platform_banned, deleted_at, is_hard_deleted, status, is_platform_admin)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO users (id, username, password_hash, is_platform_banned, deleted_at, is_hard_deleted, status, is_platform_admin)
+			 VALUES (?, ?, 'x', ?, ?, ?, ?, ?)`,
 			s.id, s.id, s.banned, s.deleted, s.hard, s.presence, s.isAdmin,
 		); err != nil {
 			t.Fatalf("insert %s: %v", s.id, err)
@@ -104,23 +93,24 @@ func TestBuildAdminUserFilter(t *testing.T) {
 // The server type filter must match the is_platform_managed CASE used in the SELECT,
 // including the "instance id set but instance row missing => managed" edge.
 func TestBuildAdminServerFilter_Type(t *testing.T) {
-	db := openMemDB(t, `
-		CREATE TABLE livekit_instances (id TEXT PRIMARY KEY, is_platform_managed INTEGER DEFAULT 0);
-		CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-		CREATE TABLE servers (
-			id TEXT PRIMARY KEY, name TEXT, owner_id TEXT, livekit_instance_id TEXT, deleted_at TEXT
-		);`)
+	f := dbtest.New(t)
+	db := f.DB
 	if _, err := db.Exec(`
-		INSERT INTO livekit_instances (id, is_platform_managed) VALUES ('li_managed', 1), ('li_self', 0);
-		INSERT INTO users (id, username) VALUES ('o1', 'owner');
+		INSERT INTO livekit_instances (id, url, api_key, api_secret, is_platform_managed)
+			VALUES ('li_managed', 'ws://x', 'k', 's', 1), ('li_self', 'ws://y', 'k', 's', 0);
+		INSERT INTO users (id, username, password_hash) VALUES ('o1', 'owner', 'x');
 		INSERT INTO servers (id, name, owner_id, livekit_instance_id, deleted_at) VALUES
 			('s_managed', 'M', 'o1', 'li_managed', NULL),
 			('s_self',    'S', 'o1', 'li_self',    NULL),
-			('s_orphan',  'O', 'o1', 'li_gone',    NULL),
 			('s_none',    'N', 'o1', NULL,         NULL);
 	`); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	// A server pointing at an instance row that does not exist. The schema's foreign key forbids
+	// that state, so it is written with enforcement off — the filter treats a missing instance as
+	// managed, and this is the only way left to exercise that branch.
+	f.ExecWithoutForeignKeys(
+		`INSERT INTO servers (id, name, owner_id, livekit_instance_id) VALUES ('s_orphan','O','o1','li_gone')`)
 
 	run := func(statuses, types []string) []string {
 		where, args := buildAdminServerFilter(statuses, types, "")

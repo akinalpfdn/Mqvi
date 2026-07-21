@@ -8,41 +8,14 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/pkg"
-	_ "modernc.org/sqlite"
+	"github.com/akinalp/mqvi/testutil/dbtest"
 )
 
+// Real migrations rather than a hand-written subset: these tests touch sessions and reset tokens,
+// whose cascade behaviour only means anything against the schema that actually ships.
 func newUserRepoTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Exec(`
-		PRAGMA foreign_keys=ON;
-		CREATE TABLE users (
-			id TEXT PRIMARY KEY,
-			username TEXT NOT NULL UNIQUE,
-			password_hash TEXT NOT NULL,
-			token_version INTEGER NOT NULL DEFAULT 0
-		);
-		CREATE TABLE sessions (
-			id TEXT PRIMARY KEY,
-			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			refresh_token TEXT NOT NULL UNIQUE,
-			expires_at DATETIME NOT NULL
-		);
-		CREATE TABLE password_reset_tokens (
-			id TEXT PRIMARY KEY,
-			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			token_hash TEXT NOT NULL UNIQUE,
-			expires_at DATETIME NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-	`); err != nil {
-		t.Fatalf("create schema: %v", err)
-	}
-	return db
+	return dbtest.New(t).DB
 }
 
 func TestSQLiteUserRepo_UpdatePasswordConflictDoesNotRotate(t *testing.T) {
