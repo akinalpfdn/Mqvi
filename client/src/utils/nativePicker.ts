@@ -54,10 +54,19 @@ export function nativePathOf(file: File): string | undefined {
 // disk. Assumed equivalent (Chromium backs large blobs with disk) but unmeasured — see PHASE-117.
 async function fileFromNativePath(path: string, name: string, mimeType: string): Promise<File> {
   const response = await fetch(Capacitor.convertFileSrc(path));
-  if (!response.ok) {
+  // Status 0 is not a failure. Only Android's converted URL points at a real local HTTP server;
+  // iOS serves the file through a WKWebView custom scheme handler, and those responses carry no
+  // status even when the entire body arrives. Treating 0 as not-ok refused every iOS pick while
+  // holding the complete file, and the user saw only "could not read this file".
+  if (response.status !== 0 && !response.ok) {
     throw new Error(`Failed to read picked file: HTTP ${response.status}`);
   }
   const blob = await response.blob();
+  // With no status to trust on iOS, the body is the only evidence the read worked.
+  if (blob.size === 0) {
+    throw new Error("Picked file read back empty");
+  }
+  // blob.type is empty over the custom scheme, so the picker's own mime type leads.
   const file = new File([blob], name, { type: mimeType || blob.type });
   nativePaths.set(file, path);
   return file;
@@ -131,7 +140,9 @@ async function runPicker(kind: PickKind, maxBytes: number, maxFiles: number): Pr
       });
     } catch (err) {
       // One unreadable file used to reject the whole call, throwing away everything already read.
-      console.warn(`[nativePicker] skipped ${entry.name}:`, err);
+      // error, not warn: the production build strips warn (vite.config.ts marks it pure), and this
+      // is the only account of a failure the user is being shown a toast about.
+      console.error(`[nativePicker] skipped ${entry.name}:`, err);
       skipped.push(entry.name);
     }
   }
