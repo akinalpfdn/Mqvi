@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/testutil"
 )
 
@@ -29,6 +30,10 @@ func (l *ledger) net() int64 { return l.reserved - l.released }
 // Deleting a message has to hand back exactly what its attachments were charged — the original and
 // the thumbnail. The thumbnail was charged at upload only after 086, and the release had to follow
 // it; a comment in the delete path still claimed thumbnails carried no quota.
+//
+// The charge is stated by the test rather than produced: reserving happens in the upload handler,
+// around the multipart loop, and is not reachable from the service. So this pins the release side
+// against the sizes the row carries — it does not prove the handler charged those same sizes.
 func TestQuotaLedger_DeleteReleasesBothOriginalAndThumbnail(t *testing.T) {
 	fileSize := int64(4096)
 	thumbSize := int64(256)
@@ -44,7 +49,7 @@ func TestQuotaLedger_DeleteReleasesBothOriginalAndThumbnail(t *testing.T) {
 			GetByMessageIDFn: func(_ context.Context, _ string) ([]models.Attachment, error) {
 				return []models.Attachment{{
 					ID: "a1", FileURL: "/u/f.bin", FileSize: &fileSize,
-					ThumbURL: testutilPtr("/u/f_t.webp"), ThumbSize: &thumbSize,
+					ThumbURL: testutil.Ptr("/u/f_t.webp"), ThumbSize: &thumbSize,
 				}}, nil
 			},
 		},
@@ -111,4 +116,55 @@ func TestQuotaLedger_DeleteWithoutThumbnailReleasesOnlyTheFile(t *testing.T) {
 	}
 }
 
-func testutilPtr(s string) *string { return &s }
+// ledgerDMRepo answers the reads DeleteMessage makes and swallows the delete itself.
+type ledgerDMRepo struct {
+	repository.DMRepository
+
+	attachments []models.DMAttachment
+}
+
+func (r *ledgerDMRepo) GetMessageByID(_ context.Context, id string) (*models.DMMessage, error) {
+	return &models.DMMessage{ID: id, DMChannelID: "c1", UserID: "alice"}, nil
+}
+
+func (r *ledgerDMRepo) GetChannelByID(context.Context, string) (*models.DMChannel, error) {
+	return &models.DMChannel{ID: "c1", User1ID: "alice", User2ID: "bob"}, nil
+}
+
+func (r *ledgerDMRepo) GetAttachmentsByMessageIDs(
+	_ context.Context, ids []string,
+) (map[string][]models.DMAttachment, error) {
+	return map[string][]models.DMAttachment{ids[0]: r.attachments}, nil
+}
+
+func (r *ledgerDMRepo) DeleteMessage(context.Context, string) error { return nil }
+
+// The DM delete path collects its own bytes from its own model, so it can fall out of step with the
+// channel one. It did: the thumbnail release was added to the channel path first.
+func TestQuotaLedger_DMDeleteReleasesBothOriginalAndThumbnail(t *testing.T) {
+	fileSize := int64(4096)
+	thumbSize := int64(256)
+	l := &ledger{reserved: fileSize + thumbSize}
+
+	svc := &dmService{
+		dmRepo: &ledgerDMRepo{attachments: []models.DMAttachment{{
+			ID: "a1", FileURL: "/u/f.bin", FileSize: &fileSize,
+			ThumbURL: testutil.Ptr("/u/f_t.webp"), ThumbSize: &thumbSize,
+		}}},
+		hub:            &recordingHub{},
+		fileDeleter:    &testutil.MockFileDeleter{},
+		storageService: l.service(),
+	}
+
+	if err := svc.DeleteMessage(context.Background(), "alice", "m1"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	if l.net() != 0 {
+		t.Errorf(
+			"quota did not settle: charged %d, released %d, leaving %d owed forever",
+			l.reserved, l.released, l.net(),
+		)
+	}
+}
+

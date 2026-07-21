@@ -4,12 +4,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/akinalp/mqvi/testutil/dbtest"
+
 	_ "modernc.org/sqlite"
 )
 
 func TestSQLiteJoinRequestRepo(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteJoinRequestRepo(db)
 
 	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x'),('u2','bob','x');

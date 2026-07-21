@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/akinalp/mqvi/testutil/dbtest"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -12,7 +14,7 @@ import (
 // membership, soft-deleted servers, and not handing back the same sound twice.
 func TestSoundboard_ListForUser(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteSoundboardRepo(db)
 
 	exec := func(q string, args ...any) {
@@ -76,7 +78,7 @@ func TestSoundboard_ListForUser(t *testing.T) {
 // membership would duplicate every sound the day server_members grows a second row per user.
 func TestSoundboard_ListForUser_NoDuplicates(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteSoundboardRepo(db)
 
 	if _, err := db.Exec(`

@@ -10,14 +10,14 @@ one of its kind fails a test instead of a review round.
 | A URL served unsigned | egress guard (`egress_signing_test.go`) | `thumb_url` signed nowhere, so every thumbnail 401'd cross-origin |
 | A model gaining a URL field nobody signs | reflection over `*URL` fields | the same bug, next time, automatically |
 | Channel and DM drifting apart | paired assertions across both models | `thumb_url` signed for channels only; DM delete leaving the thumbnail behind |
-| A policy applied on one path and not its sibling | per-path table (`encryption_policy_test.go`) | encryption enforced on create, open on edit |
+| A policy applied on one path and not its sibling | tests that drive each call site (`dm_encryption_policy_test.go`) | encryption enforced on create, open on edit |
 | Quota charged and never released | ledger balance (`quota_ledger_test.go`) | thumbnails charged at upload, not released on delete |
 | Schema drift | real migrations in every DB test | tests passing against a hand-written table nothing else had |
 | A trigger keyed on an assumption that changed | migration tests | FTS keyed on the old encryption version, so a converted message left the index |
 | Client assuming "unknown" means "off" | store selector tests | plaintext sent to a server whose E2EE flag had not loaded |
 | A translation added to one language | `i18n/parity.test.ts` | keys shipped in EN only; a duplicate key shadowing an earlier one |
 | A primitive with a falsy-value bug | utility tests | `throw null` read as "no failure", resolving with a hole in the results |
-| A race | `go test -race` in CI | nothing yet — which is the point of running it every push |
+| A race | `go test -race ./...`, run locally before pushing | a call-teardown test that lost its event about half the time under `-race` |
 
 ## Where a new test belongs
 

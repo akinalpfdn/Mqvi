@@ -81,6 +81,36 @@ func TestDMAttachment_WithoutThumbnail(t *testing.T) {
 	}
 }
 
+// Deleting a DM takes its attachments with it. The rows own files and quota, so a cascade that
+// silently stopped working would leave both behind with nothing pointing at them. The channel side
+// asserts this; the DM side is a different table with its own foreign key.
+func TestDMAttachment_CascadesWithItsMessage(t *testing.T) {
+	f := dbtest.New(t)
+	repo := NewSQLiteDMRepo(f.DB)
+	ctx := context.Background()
+
+	msgID := f.DMMessage(dbtest.DMMessageSeed{Content: dbtest.Ptr("x")})
+	if err := repo.CreateAttachment(ctx, &models.DMAttachment{
+		DMMessageID: msgID, Filename: "f.bin", FileURL: "/u/f.bin",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if _, err := f.DB.Exec(`DELETE FROM dm_messages WHERE id = ?`, msgID); err != nil {
+		t.Fatalf("delete message: %v", err)
+	}
+
+	var n int
+	if err := f.DB.QueryRow(
+		`SELECT count(*) FROM dm_attachments WHERE dm_message_id = ?`, msgID,
+	).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("attachments left behind after the DM was deleted: %d", n)
+	}
+}
+
 // A DM edit writes through a request struct rather than a model, so its branches are its own. The
 // version has to follow the edit, or the row ends up claiming one thing and holding another.
 func TestDMMessageUpdate_EncryptionVersionTransitions(t *testing.T) {

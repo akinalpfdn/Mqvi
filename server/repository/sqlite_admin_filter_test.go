@@ -10,14 +10,6 @@ import (
 	"github.com/akinalp/mqvi/testutil/dbtest"
 )
 
-// openMemDB returns a database with the real migrations applied. It used to take a hand-written
-// schema string, which meant these tests ran against tables that existed nowhere else — a column a
-// migration added, renamed or dropped left them green against a fiction.
-func openMemDB(t *testing.T) *sql.DB {
-	t.Helper()
-	return dbtest.New(t).DB
-}
-
 func queryIDs(t *testing.T, db *sql.DB, query string, args ...any) []string {
 	t.Helper()
 	rows, err := db.QueryContext(context.Background(), query, args...)
@@ -48,7 +40,7 @@ func eqIDs(t *testing.T, got, want []string) {
 // The user filter combines dimensions with AND, statuses/presence with OR, and treats
 // admin=both / admin=neither as "no filter".
 func TestBuildAdminUserFilter(t *testing.T) {
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	// id, banned, deleted_at, hard, presence, admin
 	seed := []struct {
 		id, presence          string

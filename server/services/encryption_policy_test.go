@@ -9,9 +9,12 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
-// The encryption rule is one rule, and every mutating path has to apply it. It shipped on create and
-// not on edit, and the edit path stayed open through a whole review round — a per-path table is what
-// makes a missing one visible instead of a matter of remembering.
+// The truth table for the rule itself, in both directions and on both implementations.
+//
+// This calls the predicates directly, so it proves they decide correctly — not that anything asks
+// them. Whether each mutating path actually calls one is a separate question and is covered where
+// the call sites live: TestCreate_/TestUpdate_ in message_service_test.go for channels, and
+// TestDMEncryptionPolicy_IsEnforcedOnSendAndEdit for DMs.
 func TestEncryptionPolicy_EveryDirectionOnEveryPath(t *testing.T) {
 	cases := []struct {
 		name            string

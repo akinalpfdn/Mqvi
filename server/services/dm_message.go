@@ -406,7 +406,7 @@ func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string)
 	for _, a := range dmAtts {
 		s.fileDeleter.DeleteFromURL(a.FileURL)
 		// The companion thumbnail is a separate file; without this it outlives its original until
-		// the orphan sweep. It carries no quota, so only the original counts toward the release.
+		// the orphan sweep.
 		if a.ThumbURL != nil {
 			s.fileDeleter.DeleteFromURL(*a.ThumbURL)
 		}

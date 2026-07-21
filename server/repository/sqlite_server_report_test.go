@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/testutil/dbtest"
 	_ "modernc.org/sqlite"
 )
 
 func TestSQLiteServerReportRepo(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteServerReportRepo(db)
 
 	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x'),('admin1','root','x');

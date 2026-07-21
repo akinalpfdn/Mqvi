@@ -8,6 +8,8 @@ import type { Server, ServerListItem } from "../types";
  * link opened before the list loads is enough, and so is a server too old to send the field.
  */
 function state(servers: ServerListItem[], activeServer?: Server) {
+  // The selector takes the whole store state; building all of it would say nothing about the two
+  // fields under test, and there is no partial-state type to widen to.
   return { servers, activeServer } as unknown as Parameters<ReturnType<typeof selectServerE2EE>>[0];
 }
 
@@ -47,6 +49,22 @@ describe("selectServerE2EE", () => {
   });
 });
 
+/**
+ * Every key the list entry declares, checked by the compiler.
+ *
+ * `Record<keyof ServerListItem, ...>` means adding a field to the type breaks this line until it is
+ * listed here — which is the point. Asserting against a hand-written literal instead cannot catch
+ * the failure this test exists for: if the type gains a field and the mapper drops it, both sides
+ * lack it and the assertion passes.
+ */
+const LIST_ITEM_FIELDS: Record<keyof ServerListItem, true> = {
+  id: true,
+  name: true,
+  icon_url: true,
+  verified: true,
+  e2ee_enabled: true,
+};
+
 describe("toServerListItem", () => {
   // Six hand-written literals used to build this shape and each dropped a field, so a rename or an
   // encryption toggle left the entry claiming the server was unencrypted.
@@ -61,12 +79,13 @@ describe("toServerListItem", () => {
 
     const item = toServerListItem(server);
 
-    expect(item).toEqual({
-      id: "s1",
-      name: "Alpha",
-      icon_url: "/icon.png",
-      verified: true,
-      e2ee_enabled: true,
-    });
+    const expected = Object.keys(LIST_ITEM_FIELDS).sort();
+    expect(Object.keys(item).sort(), "the mapper dropped a field the type declares").toEqual(expected);
+
+    for (const key of expected) {
+      expect(item[key as keyof ServerListItem], `${key} was not carried over`).toEqual(
+        server[key as keyof Server],
+      );
+    }
   });
 });

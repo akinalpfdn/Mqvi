@@ -39,5 +39,6 @@ the state is worth testing.
 
 ## Client side
 
-`client/src/testing/fixtures.ts` does the same job for API envelopes, WS events, attachments and
-streamed responses. Same rule: if a test is building a shape by hand, add a factory instead.
+There is no equivalent yet. Add factories next to the first tests that need them, not before — a
+factory written ahead of its callers drifts from the real type without anything noticing, which is
+how the first attempt ended up declaring a shape that would not compile against `Attachment`.

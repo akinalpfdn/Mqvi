@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/testutil/dbtest"
 	_ "modernc.org/sqlite"
 )
 
 func TestDiscovery_ListFiltersAndOrder(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
 	if _, err := db.Exec(`
@@ -76,7 +77,7 @@ func TestDiscovery_ListFiltersAndOrder(t *testing.T) {
 
 func TestDiscovery_BlockedExcluded(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
 	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x');
@@ -98,7 +99,7 @@ func TestDiscovery_BlockedExcluded(t *testing.T) {
 
 func TestDiscovery_FTSSearch(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
 	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x');
@@ -129,7 +130,7 @@ func TestDiscovery_FTSSearch(t *testing.T) {
 
 func TestDiscovery_GetPublicServerItem(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
 	if _, err := db.Exec(`
@@ -164,7 +165,7 @@ func TestDiscovery_GetPublicServerItem(t *testing.T) {
 // a server's description must not fail, and the index must reflect the new text.
 func TestServersFTS_UpdateAndDelete(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
 	if _, err := db.Exec(`

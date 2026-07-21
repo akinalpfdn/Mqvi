@@ -15,13 +15,65 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/akinalp/mqvi/database"
 
 	_ "modernc.org/sqlite"
 )
+
+var (
+	templateOnce  sync.Once
+	templateBytes []byte
+	templateErr   error
+)
+
+// migratedTemplate is the byte image of a fully migrated database, built once per test binary.
+//
+// Applying every migration per fixture cost ~7.5s each under -race, which is most of what the
+// repository suite spent. Migrating once and stamping out copies keeps each fixture on the real
+// schema for a file write. Held as bytes rather than a temp file so nothing is left on disk.
+func migratedTemplate() ([]byte, error) {
+	templateOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "dbtest-template")
+		if err != nil {
+			templateErr = fmt.Errorf("temp dir: %w", err)
+			return
+		}
+		defer func() { _ = os.RemoveAll(dir) }()
+
+		migFS, err := fs.Sub(database.EmbeddedMigrations, "migrations")
+		if err != nil {
+			templateErr = fmt.Errorf("read embedded migrations: %w", err)
+			return
+		}
+		path := filepath.Join(dir, "template.db")
+		db, err := database.New(path, migFS)
+		if err != nil {
+			templateErr = fmt.Errorf("apply migrations: %w", err)
+			return
+		}
+		// Fold the WAL back into the main file, or the copy would be a database missing every write
+		// the migrations just made.
+		if _, err := db.Conn.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+			_ = db.Conn.Close()
+			templateErr = fmt.Errorf("checkpoint: %w", err)
+			return
+		}
+		if err := db.Conn.Close(); err != nil {
+			templateErr = fmt.Errorf("close template: %w", err)
+			return
+		}
+		templateBytes, err = os.ReadFile(path)
+		if err != nil {
+			templateErr = fmt.Errorf("read template: %w", err)
+		}
+	})
+	return templateBytes, templateErr
+}
 
 // Fixture is a migrated database plus seeders for the rows most tests need before they can say
 // anything. Every seeder fails the test on error — a broken fixture is not a test result.
@@ -32,16 +84,29 @@ type Fixture struct {
 }
 
 // New returns a fixture backed by a fully migrated database in the test's temp dir.
+//
+// The database is stamped from the migrated template, then reopened through database.New so the
+// connection carries exactly the pragmas production uses. Migrations are already recorded in the
+// copy, so that second call applies nothing.
 func New(t *testing.T) *Fixture {
 	t.Helper()
+
+	template, err := migratedTemplate()
+	if err != nil {
+		t.Fatalf("dbtest: build template: %v", err)
+	}
 
 	migFS, err := fs.Sub(database.EmbeddedMigrations, "migrations")
 	if err != nil {
 		t.Fatalf("dbtest: read embedded migrations: %v", err)
 	}
-	db, err := database.New(filepath.Join(t.TempDir(), "test.db"), migFS)
+	path := filepath.Join(t.TempDir(), "test.db")
+	if err := os.WriteFile(path, template, 0o600); err != nil {
+		t.Fatalf("dbtest: stamp template: %v", err)
+	}
+	db, err := database.New(path, migFS)
 	if err != nil {
-		t.Fatalf("dbtest: apply migrations: %v", err)
+		t.Fatalf("dbtest: open database: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Conn.Close() })
 
