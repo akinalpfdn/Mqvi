@@ -1,9 +1,7 @@
 /**
- * Human-readable byte sizes.
- *
- * Six near-identical private copies of this already exist (MessageAttachments, EncryptedAttachment,
- * FileViewerOverlay, AdminReportList, MetricsPanel, StorageUsage). This is the canonical one for new
- * code; consolidating the older copies is a separate refactor, not part of the upload work.
+ * Human-readable byte sizes. The canonical implementation — the private copies that used to sit in
+ * the attachment, viewer and admin components now call this. StorageUsage keeps its own, which
+ * formats against a quota rather than a plain size.
  */
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"];

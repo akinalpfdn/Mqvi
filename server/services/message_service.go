@@ -85,16 +85,14 @@ func NewMessageService(
 	}
 }
 
-// rejectPlaintextOnEncryptedServer refuses an unencrypted message on a server that mandates E2EE.
+// enforceServerEncryptionPolicy makes the message's encryption match the server's setting, in both
+// directions.
 //
-// The client picks the encrypted or plaintext path on its own, so a client that misreads the
-// server's state would otherwise store the message in the clear on an encrypted server. The server
-// has to be the one that says no.
-func (s *messageService) rejectPlaintextOnEncryptedServer(ctx context.Context, serverID string, encryptionVersion int) error {
-	if encryptionVersion == 1 {
-		return nil
-	}
-	encrypted, err := s.serverReader.IsE2EEEnabled(ctx, serverID)
+// The client picks the path on its own, so a client that misreads the server's state would store a
+// message in the clear on an encrypted server — or unreadable ciphertext on a plaintext one. The
+// server has to be the one that says no.
+func (s *messageService) enforceServerEncryptionPolicy(ctx context.Context, serverID string, encryptionVersion int) error {
+	serverEncrypted, err := s.serverReader.IsE2EEEnabled(ctx, serverID)
 	if err != nil {
 		// A missing server maps to 404, and 4xx bodies carry the error text verbatim — wrapping it
 		// would show the caller this function's name. Anything else is internal and becomes a 500.
@@ -103,10 +101,21 @@ func (s *messageService) rejectPlaintextOnEncryptedServer(ctx context.Context, s
 		}
 		return fmt.Errorf("resolve server encryption policy: %w", err)
 	}
-	if encrypted {
+
+	if serverEncrypted && encryptionVersion != 1 {
 		return pkg.WithCode(
 			fmt.Errorf("%w: this server requires end-to-end encrypted messages", pkg.ErrBadRequest),
 			pkg.CodeEncryptionRequired,
+		)
+	}
+	// The other direction matters just as much. Nothing validates a ciphertext, so on a plaintext
+	// server anyone could post encryption_version=1 with an arbitrary string: unreadable by every
+	// member, absent from search, and beyond moderation. Since an edit now converts the row, it
+	// would also let someone turn their own quoted message into permanent noise.
+	if !serverEncrypted && encryptionVersion == 1 {
+		return pkg.WithCode(
+			fmt.Errorf("%w: this server does not use end-to-end encryption", pkg.ErrBadRequest),
+			pkg.CodeEncryptionNotAvailable,
 		)
 	}
 	return nil
@@ -234,7 +243,7 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		return nil, fmt.Errorf("%w: missing send messages permission for this channel", pkg.ErrForbidden)
 	}
 
-	if err := s.rejectPlaintextOnEncryptedServer(ctx, channel.ServerID, req.EncryptionVersion); err != nil {
+	if err := s.enforceServerEncryptionPolicy(ctx, channel.ServerID, req.EncryptionVersion); err != nil {
 		return nil, err
 	}
 
@@ -393,10 +402,15 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 	}
 	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext
 	// edit of an encrypted message leaves readable text beside the ciphertext the UI still shows.
-	if err := s.rejectPlaintextOnEncryptedServer(ctx, channel.ServerID, req.EncryptionVersion); err != nil {
+	if err := s.enforceServerEncryptionPolicy(ctx, channel.ServerID, req.EncryptionVersion); err != nil {
 		return nil, err
 	}
 
+	// The edit decides the row's version, not the version it was written at — the server's E2EE
+	// setting can have flipped in between. Without this the repo branched on the stored version and
+	// wrote the wrong side: a plaintext message edited after E2EE was switched on had its content
+	// nulled and no ciphertext saved.
+	message.EncryptionVersion = req.EncryptionVersion
 	if req.EncryptionVersion == 1 {
 		message.Ciphertext = req.Ciphertext
 		message.SenderDeviceID = req.SenderDeviceID
@@ -404,6 +418,9 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		message.Content = nil
 	} else {
 		message.Content = &req.Content
+		message.Ciphertext = nil
+		message.SenderDeviceID = nil
+		message.E2EEMetadata = nil
 	}
 
 	if err := s.messageRepo.Update(ctx, message); err != nil {

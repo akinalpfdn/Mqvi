@@ -317,6 +317,10 @@ type StoredThumbnail struct {
 // storeThumbnail stores a companion preview beside its original, returning nil when there is none
 // or it could not be stored.
 //
+// It goes through the full pipeline, antivirus included, which means two scans per image
+// attachment. Deliberate: the thumbnail is client-supplied and never re-encoded here, so skipping
+// the scan would turn it into a way to host arbitrary bytes.
+//
 // A thumbnail that fails to store must never fail the attachment: the preview is an optimisation,
 // the file is the message. Callers carry on without one and the client renders the original.
 func storeThumbnail(

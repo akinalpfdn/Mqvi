@@ -567,14 +567,23 @@ func (r *sqliteDMRepo) UpdateMessage(ctx context.Context, id string, req *models
 	var result sql.Result
 	var err error
 
+	// Move the row to the edit's version and drop the other representation. Leaving the version
+	// stale let a conversation toggled between plaintext and E2EE end up with content on one side
+	// and a version pointing at the other, so the edit read as if it never happened.
 	if req.EncryptionVersion == 1 {
 		result, err = r.db.ExecContext(ctx,
-			`UPDATE dm_messages SET ciphertext = ?, sender_device_id = ?, e2ee_metadata = ?, edited_at = ? WHERE id = ?`,
+			`UPDATE dm_messages
+			 SET encryption_version = 1, ciphertext = ?, sender_device_id = ?, e2ee_metadata = ?,
+			     content = NULL, edited_at = ?
+			 WHERE id = ?`,
 			req.Ciphertext, req.SenderDeviceID, req.E2EEMetadata, now, id,
 		)
 	} else {
 		result, err = r.db.ExecContext(ctx,
-			"UPDATE dm_messages SET content = ?, edited_at = ? WHERE id = ?",
+			`UPDATE dm_messages
+			 SET encryption_version = 0, content = ?, ciphertext = NULL, sender_device_id = NULL,
+			     e2ee_metadata = NULL, edited_at = ?
+			 WHERE id = ?`,
 			req.Content, now, id,
 		)
 	}

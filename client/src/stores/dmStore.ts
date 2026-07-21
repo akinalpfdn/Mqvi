@@ -288,11 +288,13 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
           if (err instanceof DOMException && err.name === "AbortError") return false;
           console.error("[dmStore] E2EE encrypt failed:", err);
 
+          // No plaintext fallback: the server refuses unencrypted messages on an encrypted DM, so
+          // this only re-uploaded every attachment to earn a second rejection. The problem is the
+          // recipient having no device keys, which is what the user is told.
           const errMsg = err instanceof Error ? err.message : "";
           if (errMsg === "RECIPIENT_NO_KEYS") {
-            const fallbackRes = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload);
-            handleSendError(fallbackRes);
-            return fallbackRes.success;
+            useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
+            return false;
           }
           useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
           return false;
@@ -367,10 +369,11 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
           return res.success;
         } catch (err) {
           console.error("[dmStore] E2EE edit encrypt failed:", err);
+          // Same dead path as sendMessage: a plaintext edit on an encrypted DM is refused.
           const editErrMsg = err instanceof Error ? err.message : "";
           if (editErrMsg === "RECIPIENT_NO_KEYS") {
-            const fallbackRes = await dmApi.editDMMessage(messageId, content);
-            return fallbackRes.success;
+            useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
+            return false;
           }
           useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
           return false;

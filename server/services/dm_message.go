@@ -59,16 +59,23 @@ func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, b
 	}, nil
 }
 
-// rejectPlaintextOnEncryptedDM refuses an unencrypted message on a conversation that mandates E2EE.
-// The client alone picks the path, so a client that misreads the state would store it in the clear.
-func rejectPlaintextOnEncryptedDM(channel *models.DMChannel, encryptionVersion int) error {
-	if encryptionVersion == 1 || !channel.E2EEEnabled {
-		return nil
+// enforceDMEncryptionPolicy makes the message's encryption match the conversation's setting, in both
+// directions. The client alone picks the path, so a client that misreads the state would store the
+// message in the clear — or, the other way, as ciphertext nobody in the conversation can decrypt.
+func enforceDMEncryptionPolicy(channel *models.DMChannel, encryptionVersion int) error {
+	if channel.E2EEEnabled && encryptionVersion != 1 {
+		return pkg.WithCode(
+			fmt.Errorf("%w: this conversation requires end-to-end encrypted messages", pkg.ErrBadRequest),
+			pkg.CodeEncryptionRequired,
+		)
 	}
-	return pkg.WithCode(
-		fmt.Errorf("%w: this conversation requires end-to-end encrypted messages", pkg.ErrBadRequest),
-		pkg.CodeEncryptionRequired,
-	)
+	if !channel.E2EEEnabled && encryptionVersion == 1 {
+		return pkg.WithCode(
+			fmt.Errorf("%w: this conversation does not use end-to-end encryption", pkg.ErrBadRequest),
+			pkg.CodeEncryptionNotAvailable,
+		)
+	}
+	return nil
 }
 
 // SendMessage creates a DM message. WS broadcast is done via BroadcastCreate after file uploads.
@@ -82,7 +89,7 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		return nil, err
 	}
 
-	if err := rejectPlaintextOnEncryptedDM(channel, req.EncryptionVersion); err != nil {
+	if err := enforceDMEncryptionPolicy(channel, req.EncryptionVersion); err != nil {
 		return nil, err
 	}
 
@@ -351,7 +358,7 @@ func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, r
 
 	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext
 	// edit of an encrypted message leaves readable text beside the ciphertext the UI still shows.
-	if err := rejectPlaintextOnEncryptedDM(channel, req.EncryptionVersion); err != nil {
+	if err := enforceDMEncryptionPolicy(channel, req.EncryptionVersion); err != nil {
 		return nil, err
 	}
 

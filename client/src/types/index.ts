@@ -796,11 +796,14 @@ export type ServerListItem = {
   icon_url: string | null;
   verified?: boolean;
   /**
-   * Required, not optional: a channel rendered for a non-active server decides from this whether
-   * its attachments get encrypted. Optional would let a hand-built literal omit it and read as
-   * "not encrypted" — build these with toServerListItem() rather than by hand.
+   * `undefined` is a real state — a server older than this client does not send the field, and the
+   * code reads that as "unknown" rather than "off". Required-but-nullable rather than optional so
+   * both stay true: the wire can omit it, but a hand-written literal cannot, and forgetting it in
+   * one branch is a compile error rather than a value indistinguishable from an old server.
+   *
+   * Build these with toServerListItem(). Operationally: upgrade the server before the clients.
    */
-  e2ee_enabled: boolean;
+  e2ee_enabled: boolean | undefined;
 };
 
 /**

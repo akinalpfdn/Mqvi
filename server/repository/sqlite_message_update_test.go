@@ -116,3 +116,84 @@ func TestMessageUpdate_PersistsContentOnPlaintextEdit(t *testing.T) {
 		t.Errorf("content = %q, want after", content)
 	}
 }
+
+// A server can toggle E2EE between a message being written and being edited, so the stored version
+// and the edit's version disagree. Branching on the stored one nulled the content of a plaintext
+// message without saving any ciphertext — the text was gone for good.
+func TestMessageUpdate_EncryptionVersionTransitions(t *testing.T) {
+	t.Run("should convert a plaintext row to encrypted when E2EE was switched on", func(t *testing.T) {
+		db := newMessageUpdateTestDB(t)
+		repo := NewSQLiteMessageRepo(db)
+		if _, err := db.Exec(
+			`INSERT INTO messages (id, channel_id, user_id, content, encryption_version)
+			 VALUES ('m1', 'ch1', 'u1', 'original text', 0)`,
+		); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+
+		if err := repo.Update(context.Background(), &models.Message{
+			ID:                "m1",
+			EncryptionVersion: 1,
+			Ciphertext:        ptr("CIPHER"),
+			SenderDeviceID:    ptr("dev1"),
+			E2EEMetadata:      ptr("{}"),
+		}); err != nil {
+			t.Fatalf("update: %v", err)
+		}
+
+		var version int
+		var ciphertext sql.NullString
+		var content sql.NullString
+		if err := db.QueryRow(
+			`SELECT encryption_version, ciphertext, content FROM messages WHERE id = 'm1'`,
+		).Scan(&version, &ciphertext, &content); err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if version != 1 {
+			t.Errorf("encryption_version = %d, want 1 — the row must follow the edit", version)
+		}
+		if ciphertext.String != "CIPHER" {
+			t.Errorf("ciphertext = %q, want CIPHER — the edit was dropped and the text lost", ciphertext.String)
+		}
+		if content.Valid {
+			t.Errorf("content = %q, want NULL", content.String)
+		}
+	})
+
+	t.Run("should convert an encrypted row to plaintext when E2EE was switched off", func(t *testing.T) {
+		db := newMessageUpdateTestDB(t)
+		repo := NewSQLiteMessageRepo(db)
+		if _, err := db.Exec(
+			`INSERT INTO messages (id, channel_id, user_id, encryption_version, ciphertext, sender_device_id, e2ee_metadata)
+			 VALUES ('m1', 'ch1', 'u1', 1, 'OLD-CIPHER', 'dev1', '{}')`,
+		); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+
+		if err := repo.Update(context.Background(), &models.Message{
+			ID:                "m1",
+			EncryptionVersion: 0,
+			Content:           ptr("now in the clear"),
+		}); err != nil {
+			t.Fatalf("update: %v", err)
+		}
+
+		var version int
+		var content string
+		var ciphertext sql.NullString
+		if err := db.QueryRow(
+			`SELECT encryption_version, content, ciphertext FROM messages WHERE id = 'm1'`,
+		).Scan(&version, &content, &ciphertext); err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if version != 0 {
+			t.Errorf("encryption_version = %d, want 0", version)
+		}
+		if content != "now in the clear" {
+			t.Errorf("content = %q, want the edited text — the edit was swallowed", content)
+		}
+		if ciphertext.Valid {
+			t.Errorf("ciphertext = %q, want NULL so the row cannot disagree with its version", ciphertext.String)
+		}
+	})
+}

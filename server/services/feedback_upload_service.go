@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"mime/multipart"
+	"path"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
@@ -42,14 +43,30 @@ var allowedFeedbackMimeTypes = map[string]bool{
 	"image/webp": true,
 }
 
-// Video by prefix, not an enumerated list, which always misses a .mov or .m4v. The extension only
-// vetoes genuinely dangerous types (".html" claimed as "video/mp4") — requiring it to resolve to
-// video/ refused legitimate files, since Go maps .webm to audio/webm and does not know .mkv.
+// allowedFeedbackVideoExts is the container list a video attachment may carry.
+//
+// A fixed list rather than a veto on "dangerous" extensions: the Content-Type is the client's claim
+// and nothing more, so an unknown extension used to pass — "video/mp4" on payload.exe was accepted
+// whenever the host's MIME database did not resolve .exe, which made the decision depend on the
+// machine the server happened to run on. An allowlist decides the same way everywhere.
+var allowedFeedbackVideoExts = map[string]bool{
+	".mp4": true, ".m4v": true, ".mov": true, ".webm": true,
+	".mkv": true, ".avi": true, ".ogv": true, ".3gp": true,
+}
+
+// Images get the same treatment as video. The declared type alone let "image/png" on payload.exe
+// through: not an XSS, since the serve layer forces a download, but arbitrary file hosting all the
+// same — the exact thing the video branch was tightened to prevent.
+var allowedFeedbackImageExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true,
+}
+
 func isAllowedFeedbackMime(mimeBase, filename string) bool {
+	ext := strings.ToLower(path.Ext(filename))
 	if strings.HasPrefix(mimeBase, "video/") {
-		return !files.IsUnsafeInline(files.MIMEByExtension(filename))
+		return allowedFeedbackVideoExts[ext]
 	}
-	return allowedFeedbackMimeTypes[mimeBase]
+	return allowedFeedbackMimeTypes[mimeBase] && allowedFeedbackImageExts[ext]
 }
 
 func (s *feedbackUploadService) Upload(ctx context.Context, ticketID string, replyID *string, file multipart.File, header *multipart.FileHeader) (*models.FeedbackAttachment, error) {

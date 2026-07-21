@@ -241,6 +241,12 @@ export const BANNER_OUTPUT_HEIGHT = 1080;
 export const MAX_BADGE_ICON_SIZE = 2 * 1024 * 1024;
 
 /**
+ * Attachments per message. Mirrors maxMessageUploadFiles / maxDMUploadFiles on the server, which
+ * rejects the whole send past this — so the cap has to bite at selection, not at submit.
+ */
+export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
+
+/**
  * How many attachment previews are generated at once.
  *
  * Each one decodes a full-size bitmap, so ten 12MP photos in parallel is hundreds of megabytes and

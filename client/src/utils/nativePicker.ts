@@ -28,8 +28,13 @@ export type PickedAttachment = {
   durationSeconds?: number;
 };
 
+/**
+ * Android only, deliberately. iOS is Capacitor too, but its project has not been synced with the
+ * picker plugin (PHASE-119), so choosing the native path there throws and takes the web `<input>`
+ * fallback out of reach — attaching would be broken outright rather than merely unaccelerated.
+ */
 export function supportsNativePicker(kind: PickKind = "media"): boolean {
-  return isCapacitor() && kind !== "camera";
+  return isCapacitor() && Capacitor.getPlatform() === "android" && kind !== "camera";
 }
 
 // Native path for a picked File. A WeakMap avoids threading it through every File[] holder.
@@ -62,38 +67,52 @@ function isCancellation(err: unknown): boolean {
   return /cancel/i.test(message);
 }
 
-/** What the picker came back with: the files it could read, and the names of any it could not. */
+/** What the picker came back with: what it could read, what it could not, and what was too big. */
 export type PickResult = {
   files: PickedAttachment[];
   skipped: string[];
+  oversized: { name: string }[];
 };
 
 /**
  * Opens the platform picker. Cancelling is not an error and comes back as an empty result.
+ *
+ * `maxBytes` is checked against the size the picker reports, before the file is read. Reading first
+ * pulled the whole thing into the WebView — an 800MB video was fully materialised only to be
+ * rejected by a 25MB cap, which is an OOM on a phone rather than a toast.
+ *
+ * `maxFiles` is how much room the composer has left, handed to the OS picker so it stops the
+ * selection itself rather than letting someone choose fifteen photos and lose the message at submit.
  */
-export async function pickNative(kind: PickKind): Promise<PickResult> {
+export async function pickNative(kind: PickKind, maxBytes: number, maxFiles: number): Promise<PickResult> {
+  if (maxFiles <= 0) return { files: [], skipped: [], oversized: [] };
   try {
-    return await runPicker(kind);
+    return await runPicker(kind, maxBytes, maxFiles);
   } catch (err) {
-    if (isCancellation(err)) return { files: [], skipped: [] };
+    if (isCancellation(err)) return { files: [], skipped: [], oversized: [] };
     throw err;
   }
 }
 
-async function runPicker(kind: PickKind): Promise<PickResult> {
+async function runPicker(kind: PickKind, maxBytes: number, maxFiles: number): Promise<PickResult> {
   const result =
     kind === "media"
-      ? await FilePicker.pickMedia({ readData: false })
-      : await FilePicker.pickFiles({ readData: false });
+      ? await FilePicker.pickMedia({ readData: false, limit: maxFiles })
+      : await FilePicker.pickFiles({ readData: false, limit: maxFiles });
 
   // readData is off on purpose — base64ing a 100 MB video to move it across the bridge would cost
   // far more than it buys, so each file is read from its path instead.
   const picked: PickedAttachment[] = [];
   const skipped: string[] = [];
+  const oversized: { name: string }[] = [];
 
   for (const entry of result.files) {
     if (!entry.path) {
       skipped.push(entry.name);
+      continue;
+    }
+    if (entry.size > maxBytes) {
+      oversized.push({ name: entry.name });
       continue;
     }
     try {
@@ -110,5 +129,5 @@ async function runPicker(kind: PickKind): Promise<PickResult> {
       skipped.push(entry.name);
     }
   }
-  return { files: picked, skipped };
+  return { files: picked, skipped, oversized };
 }

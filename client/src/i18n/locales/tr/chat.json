@@ -75,6 +75,7 @@
   "attachPickPartial": "{{n}} dosya okunamadı, ilki: {{name}}",
   "encryptionStateUnknown": "Bu sohbetin şifreli olup olmadığı henüz bilinmiyor — birazdan tekrar deneyin",
   "encryptionRequired": "Bu sohbet şifreli ve cihazınız henüz hazır değil — birazdan tekrar deneyin",
+  "encryptionNotAvailable": "Bu sohbet artık şifreli değil — sayfayı yenileyip tekrar deneyin",
   "emoji": "Emoji",
   "welcomeDM": "{{user}} ile konuşmanıza hoş geldiniz!",
   "dmStart": "{{user}} ile direkt mesaj geçmişinizin başlangıcı.",

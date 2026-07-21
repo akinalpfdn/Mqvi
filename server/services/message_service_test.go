@@ -22,7 +22,13 @@ func newTestMessageService(
 	reactionRepo *testutil.MockReactionRepo,
 	hub *testutil.MockBroadcastAndOnline,
 	permResolver *testutil.MockChannelPermResolver,
+	// Defaults to a plaintext server; pass one to exercise an encrypted one.
+	encryption ...stubServerEncryption,
 ) MessageService {
+	stub := stubServerEncryption{}
+	if len(encryption) > 0 {
+		stub = encryption[0]
+	}
 	return NewMessageService(
 		msgRepo, attachRepo, chanRepo, userRepo,
 		mentionRepo, roleMentionRepo, roleRepo, reactionRepo,
@@ -31,7 +37,7 @@ func newTestMessageService(
 		&testutil.MockFileURLSigner{},
 		&testutil.MockFileDeleter{},
 		&testutil.MockStorageService{},
-		stubServerEncryption{},
+		stub,
 	)
 }
 
@@ -425,6 +431,8 @@ func TestMessageCreate_E2EE(t *testing.T) {
 				return models.PermSendMessages, nil
 			},
 		},
+		// An encrypted message only belongs on a server that uses encryption.
+		stubServerEncryption{e2ee: true},
 	)
 
 	req := &models.CreateMessageRequest{
@@ -568,6 +576,23 @@ func TestCreate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
 	t.Run("should accept a plaintext message when the server does not require encryption", func(t *testing.T) {
 		if _, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"}); err != nil {
 			t.Fatalf("plaintext on an unencrypted server should be allowed: %v", err)
+		}
+	})
+
+	// Nothing validates a ciphertext, so without this anyone could post an encrypted message to a
+	// plaintext server: unreadable by every member, missing from search, beyond moderation.
+	t.Run("should reject an encrypted message when the server does not use encryption", func(t *testing.T) {
+		cipher, device := "blob", "dev1"
+		_, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{
+			EncryptionVersion: 1,
+			Ciphertext:        &cipher,
+			SenderDeviceID:    &device,
+		})
+		if !errors.Is(err, pkg.ErrBadRequest) {
+			t.Fatalf("want ErrBadRequest, got %v", err)
+		}
+		if pkg.CodeOf(err) != pkg.CodeEncryptionNotAvailable {
+			t.Errorf("want code %q, got %q", pkg.CodeEncryptionNotAvailable, pkg.CodeOf(err))
 		}
 	})
 }

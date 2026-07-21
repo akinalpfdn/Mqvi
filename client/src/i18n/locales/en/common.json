@@ -12,6 +12,7 @@
   "uploadPreparing": "Preparing…",
   "fileTooLarge": "{{name}} is larger than the {{limit}} limit and was not attached.",
   "filesTooLarge": "{{n}} files are larger than the {{limit}} limit and were not attached.",
+  "tooManyFiles": "A message can carry {{limit}} attachments — {{n}} were not added.",
   "fileTooLargeEncrypted": "{{name}} is over the {{limit}} limit for encrypted chats and was not attached.",
   "filesTooLargeEncrypted": "{{n}} files are over the {{limit}} limit for encrypted chats and were not attached.",
   "save": "Save",

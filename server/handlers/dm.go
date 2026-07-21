@@ -263,7 +263,15 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		for i, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
-				continue
+				// Skipping a file here would shift every later attachment's index, and the client pairs
+				// e2ee_file_keys[i] with attachments[i] — the rest would decrypt with the wrong key. Fail
+				// the send instead of delivering a message that cannot be read.
+				_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
+				if unused := reservedBytes - uploadedBytes; unused > 0 {
+					_ = h.storageService.Release(r.Context(), user.ID, unused)
+				}
+				pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to read uploaded file")
+				return
 			}
 
 			thumb := thumbnailFor(r.MultipartForm, i)

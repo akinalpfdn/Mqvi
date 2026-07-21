@@ -18,6 +18,7 @@ import { useLocation } from "react-router-dom";
 import { TransformWrapper, TransformComponent, type ReactZoomPanPinchContentRef } from "react-zoom-pan-pinch";
 import DOMPurify from "dompurify";
 import { useFileViewerStore, type FileViewerItem } from "../../stores/fileViewerStore";
+import { isInlineVideo, isVideoFile } from "../../utils/inlineMedia";
 import { useToastStore } from "../../stores/toastStore";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useBackHandler } from "../../hooks/useBackHandler";
@@ -83,7 +84,12 @@ function classifyMime(mime: string, filename: string): "image" | "video" | "audi
   const m = (mime || "").toLowerCase();
   const name = (filename || "").toLowerCase();
   if (m.startsWith("image/")) return "image";
-  if (m.startsWith("video/")) return "video";
+  // Extension, not the declared type, and only the containers the serve layer hands back inline —
+  // the thumbnail already refuses to promise a .mkv is playable, and opening it must not put a
+  // full-screen player in front of a file the browser will never render.
+  if (m.startsWith("video/") || isVideoFile(name)) {
+    return isInlineVideo(name) ? "video" : "other";
+  }
   if (m.startsWith("audio/")) return "audio";
   if (m === "application/pdf" || name.endsWith(".pdf")) return "pdf";
   if (

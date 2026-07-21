@@ -185,8 +185,15 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
               }
             />
           )}
+          {/* With a preview showing, the error row below is unreachable — a failed open would just
+              do nothing at all and leave the user clicking a picture that never expands. */}
+          {state === "error" && (
+            <span className="msg-attachment-img-error">{t("fileDecryptFailed")}</span>
+          )}
           {/* Without this a poster is indistinguishable from a photo. */}
-          {isVideo && state !== "loading" && <span className="attachment-play-badge" aria-hidden />}
+          {isVideo && state !== "loading" && state !== "error" && (
+            <span className="attachment-play-badge" aria-hidden />
+          )}
         </button>
       );
     }

@@ -18,7 +18,12 @@ import { validateFiles } from "../../utils/fileValidation";
 import { pickNative, supportsNativePicker, type PickKind } from "../../utils/nativePicker";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 import { useServerStore, selectServerE2EE } from "../../stores/serverStore";
-import { MAX_MESSAGE_LENGTH, MAX_FILE_SIZE, MAX_E2EE_FILE_SIZE } from "../../utils/constants";
+import {
+  MAX_MESSAGE_LENGTH,
+  MAX_FILE_SIZE,
+  MAX_E2EE_FILE_SIZE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+} from "../../utils/constants";
 import {
   executeChatCommand,
   getCommandQuery,
@@ -114,9 +119,14 @@ function MessageInput({ openSearch }: MessageInputProps) {
       ref.current?.click();
       return;
     }
-    pickNative(kind)
-      .then(({ files: picked, skipped }) => {
+    pickNative(kind, attachmentLimit, MAX_ATTACHMENTS_PER_MESSAGE - files.length)
+      .then(({ files: picked, skipped, oversized }) => {
         if (picked.length > 0) acceptFiles(picked.map((entry) => entry.file));
+        // Refused on the platform's reported size, so these never reached memory.
+        notifyRejected(oversized, {
+          reason: isEncrypted ? "e2eeSize" : "size",
+          maxBytes: attachmentLimit,
+        });
         // A file the platform would not hand over used to vanish with no explanation.
         if (skipped.length > 0) {
           addToast("error", t("attachPickPartial", { name: skipped[0], n: skipped.length }));
@@ -144,7 +154,21 @@ function MessageInput({ openSearch }: MessageInputProps) {
         reason: isEncrypted ? "e2eeSize" : "size",
         maxBytes: attachmentLimit,
       });
-      if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted]);
+      if (accepted.length === 0) return;
+
+      setFiles((prev) => {
+        // The server refuses the whole send past this count, so the extras have to be dropped here
+        // — picking fifteen photos on a phone used to lose the entire message at submit.
+        const room = MAX_ATTACHMENTS_PER_MESSAGE - prev.length;
+        if (accepted.length > room) {
+          notifyRejected(accepted.slice(Math.max(room, 0)), {
+            reason: "count",
+            max: MAX_ATTACHMENTS_PER_MESSAGE,
+          });
+        }
+        if (room <= 0) return prev;
+        return [...prev, ...accepted.slice(0, room)];
+      });
     },
     [attachmentLimit, isEncrypted, notifyRejected]
   );

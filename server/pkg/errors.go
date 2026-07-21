@@ -17,6 +17,9 @@ const (
 	// The conversation mandates E2EE and the message came in unencrypted. Coded so the client can
 	// say why instead of falling back to a generic send failure.
 	CodeEncryptionRequired = "encryption_required"
+	// The reverse: an encrypted message aimed at a conversation that does not use E2EE, where
+	// nobody could decrypt it.
+	CodeEncryptionNotAvailable = "encryption_not_available"
 )
 
 type codedError struct {

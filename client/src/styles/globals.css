@@ -750,7 +750,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* Attachments */
 .msg-attachments { display:flex;flex-wrap:wrap;gap:8px;margin-top:6px; }
-.msg-attachment-img { max-width:100%;max-height:300px;border-radius:8px;object-fit:contain;cursor:pointer; }
+/* width/height:auto is what lets the UA derive aspect-ratio from the width/height attributes the
+   thumbnail carries. Without it those attributes size the box literally (800x600 clamped to
+   700x300) and object-fit letterboxes the picture inside it — the opposite of the reflow-free
+   layout the attributes are there for. */
+.msg-attachment-img { width:auto;height:auto;max-width:100%;max-height:300px;border-radius:8px;object-fit:contain;cursor:pointer; }
 .msg-attachment-file { display:flex;align-items:center;gap:8px;padding:10px;border-radius:8px;border:1px solid var(--b1);background:var(--bg-1);cursor:pointer;transition:background .1s; }
 .msg-attachment-file:hover { background:var(--bg-h); }
 .msg-attachment-file-icon { width:28px;height:28px;color:var(--t2);flex-shrink:0; }
@@ -4198,6 +4202,14 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .feedback-attachment-thumb img,
 .feedback-attachment-thumb video { width:100%;height:100%;object-fit:cover;background:var(--bg-3); }
 .feedback-attachment-thumb video { pointer-events:none; }
+/* Containers the serve layer only hands back as a download — named rather than rendered, since no
+   media element can show them. */
+.attachment-preview-file {
+  display:flex;align-items:center;justify-content:center;
+  width:100%;height:100%;padding:6px;
+  background:var(--bg-3);color:var(--t2);
+  font-size:13px;text-align:center;word-break:break-all;overflow:hidden;
+}
 
 .feedback-status-select { width:auto;min-width:140px;padding:4px 8px;font-size:16px; }
 .feedback-ticket-user { font-size:13px;color:var(--t2);white-space:nowrap; }
@@ -4939,6 +4951,17 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   transition:stroke-dashoffset .15s linear;
 }
 .progress-ring svg.spin { animation:spin 1s linear infinite; }
+
+/* Shown over the preview when the original fails to decrypt. The file row that normally carries
+   this message is unreachable while a thumbnail is on screen, so the failure had no symptom at all. */
+.msg-attachment-img-error {
+  position:absolute;left:50%;bottom:8px;transform:translateX(-50%);
+  max-width:calc(100% - 16px);
+  padding:4px 10px;border-radius:6px;
+  background:rgba(0,0,0,0.72);color:var(--danger);
+  font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  pointer-events:none;
+}
 
 /* Marks a video poster as playable — without it a still frame reads as a photo. */
 .attachment-play-badge {

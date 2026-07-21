@@ -105,6 +105,10 @@ export function handleSendError(res: {
     // The conversation mandates E2EE and this send went out unencrypted — almost always because
     // encryption is not ready on this device yet, which the generic failure gave no hint of.
     key = "chat:encryptionRequired";
+  } else if (res.code === "encryption_not_available") {
+    // The reverse: this client encrypted for a conversation that does not use E2EE, so its view of
+    // the setting is stale.
+    key = "chat:encryptionNotAvailable";
   }
 
   useToastStore.getState().addToast("error", i18n.t(key));

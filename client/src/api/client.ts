@@ -272,6 +272,10 @@ function sendXhr<T>(
       return;
     }
 
+    // Declared out here so a synchronous throw below can still detach the abort listener. Left
+    // attached it kept the dead xhr alive, and a later cancel() aborted a request never sent.
+    let cleanup = () => {};
+
     // open()/send() can throw synchronously (malformed URL, SecurityError). Callers rely on this
     // layer never throwing — apiClient guarantees the same — so a throw here must come back as a
     // failed response, not a rejected promise nobody catches.
@@ -291,7 +295,7 @@ function sendXhr<T>(
 
       const onAbort = () => xhr.abort();
       signal?.addEventListener("abort", onAbort);
-      const cleanup = () => signal?.removeEventListener("abort", onAbort);
+      cleanup = () => signal?.removeEventListener("abort", onAbort);
 
       let lastTotal: number | null = null;
       if (onProgress) {
@@ -335,6 +339,7 @@ function sendXhr<T>(
 
       xhr.send(body);
     } catch (err) {
+      cleanup();
       const message = err instanceof Error ? err.message : "Upload request failed";
       console.error(`[upload] ${method} ${endpoint}: ${message}`);
       resolve({ status: 0, response: { success: false, error: message } });
