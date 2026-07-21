@@ -1,11 +1,5 @@
-/**
- * Native attachment picking on mobile.
- *
- * Web and Electron keep their `<input type="file">`; only Capacitor routes through the platform
- * pickers. The reason is not UX polish: a web `File` lives in the WebView's memory and native code
- * cannot open it, so a video the browser fails to decode could never be handed to a native frame
- * extractor. Picking natively yields a path that native code CAN open, with no byte copying.
- */
+// Native attachment picking on mobile. Web and Electron keep their `<input type="file">`: only a
+// natively picked file has a path native code can open for frame extraction.
 
 import { Capacitor } from "@capacitor/core";
 import { FilePicker } from "@capawesome/capacitor-file-picker";
@@ -38,29 +32,15 @@ export function supportsNativePicker(kind: PickKind = "media"): boolean {
   return isCapacitor() && kind !== "camera";
 }
 
-/**
- * Native path for a picked File, remembered on the side.
- *
- * A `File` cannot carry extra fields, and threading the path through every place that holds
- * `File[]` — composer state, previews, upload, encryption — would touch a dozen call sites to serve
- * one of them. A WeakMap keeps the association without changing any of those shapes, and entries
- * disappear with the File itself.
- */
+// Native path for a picked File. A WeakMap avoids threading it through every File[] holder.
 const nativePaths = new WeakMap<File, string>();
 
 export function nativePathOf(file: File): string | undefined {
   return nativePaths.get(file);
 }
 
-/**
- * Turns a native path into a File the existing upload path can take.
- *
- * MEMORY NOTE — must be verified on a device before this is trusted for large videos: a web `File`
- * streams from disk during upload, whereas this materialises a Blob. Chromium backs large blobs
- * with disk rather than RAM, which would keep the behaviour equivalent, but that is an assumption
- * until measured. If it does hold the file in memory, the upload has to move to the native side
- * instead — see PHASE-117.
- */
+// Turns a native path into a File. MEMORY: this materialises a Blob where a web File streams from
+// disk. Assumed equivalent (Chromium backs large blobs with disk) but unmeasured — see PHASE-117.
 async function fileFromNativePath(path: string, name: string, mimeType: string): Promise<File> {
   const response = await fetch(Capacitor.convertFileSrc(path));
   if (!response.ok) {
@@ -82,37 +62,53 @@ function isCancellation(err: unknown): boolean {
   return /cancel/i.test(message);
 }
 
+/** What the picker came back with: the files it could read, and the names of any it could not. */
+export type PickResult = {
+  files: PickedAttachment[];
+  skipped: string[];
+};
+
 /**
- * Opens the platform picker. Returns an empty array when the user cancels — cancellation is not an
- * error and must not surface as one.
+ * Opens the platform picker. Cancelling is not an error and comes back as an empty result.
  */
-export async function pickNative(kind: PickKind): Promise<PickedAttachment[]> {
+export async function pickNative(kind: PickKind): Promise<PickResult> {
   try {
     return await runPicker(kind);
   } catch (err) {
-    if (isCancellation(err)) return [];
+    if (isCancellation(err)) return { files: [], skipped: [] };
     throw err;
   }
 }
 
-async function runPicker(kind: PickKind): Promise<PickedAttachment[]> {
+async function runPicker(kind: PickKind): Promise<PickResult> {
   const result =
     kind === "media"
       ? await FilePicker.pickMedia({ readData: false })
       : await FilePicker.pickFiles({ readData: false });
 
+  // readData is off on purpose — base64ing a 100 MB video to move it across the bridge would cost
+  // far more than it buys, so each file is read from its path instead.
   const picked: PickedAttachment[] = [];
+  const skipped: string[] = [];
+
   for (const entry of result.files) {
-    // readData is off on purpose — base64ing a 100 MB video to move it across the bridge would
-    // cost far more than it buys.
-    if (!entry.path) continue;
-    picked.push({
-      file: await fileFromNativePath(entry.path, entry.name, entry.mimeType),
-      nativePath: entry.path,
-      width: entry.width,
-      height: entry.height,
-      durationSeconds: entry.duration,
-    });
+    if (!entry.path) {
+      skipped.push(entry.name);
+      continue;
+    }
+    try {
+      picked.push({
+        file: await fileFromNativePath(entry.path, entry.name, entry.mimeType),
+        nativePath: entry.path,
+        width: entry.width,
+        height: entry.height,
+        durationSeconds: entry.duration,
+      });
+    } catch (err) {
+      // One unreadable file used to reject the whole call, throwing away everything already read.
+      console.warn(`[nativePicker] skipped ${entry.name}:`, err);
+      skipped.push(entry.name);
+    }
   }
-  return picked;
+  return { files: picked, skipped };
 }

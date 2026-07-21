@@ -39,6 +39,13 @@ type messageService struct {
 	urlSigner       FileURLSigner
 	fileDeleter     FileDeleter
 	storageService  StorageService
+	serverReader    ServerEncryptionReader
+}
+
+// ServerEncryptionReader reports a server's encryption policy. Narrow on purpose: the message path
+// needs one flag, not the whole server repository.
+type ServerEncryptionReader interface {
+	GetActiveByID(ctx context.Context, serverID string) (*models.Server, error)
 }
 
 func NewMessageService(
@@ -56,6 +63,7 @@ func NewMessageService(
 	urlSigner FileURLSigner,
 	fileDeleter FileDeleter,
 	storageService StorageService,
+	serverReader ServerEncryptionReader,
 ) MessageService {
 	return &messageService{
 		messageRepo:     messageRepo,
@@ -72,7 +80,27 @@ func NewMessageService(
 		urlSigner:       urlSigner,
 		fileDeleter:     fileDeleter,
 		storageService:  storageService,
+		serverReader:    serverReader,
 	}
+}
+
+// rejectPlaintextOnEncryptedServer refuses an unencrypted message on a server that mandates E2EE.
+//
+// The client picks the encrypted or plaintext path on its own, so a client that misreads the
+// server's state would otherwise store the message in the clear on an encrypted server. The server
+// has to be the one that says no.
+func (s *messageService) rejectPlaintextOnEncryptedServer(ctx context.Context, serverID string, encryptionVersion int) error {
+	if encryptionVersion == 1 {
+		return nil
+	}
+	server, err := s.serverReader.GetActiveByID(ctx, serverID)
+	if err != nil {
+		return fmt.Errorf("resolve server encryption policy: %w", err)
+	}
+	if server.E2EEEnabled {
+		return fmt.Errorf("%w: this server requires end-to-end encrypted messages", pkg.ErrBadRequest)
+	}
+	return nil
 }
 
 // GetByChannelID returns messages with cursor-based pagination.
@@ -179,8 +207,14 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	if _, err := s.channelRepo.GetByID(ctx, channelID); err != nil {
+	channel, err := s.channelRepo.GetByID(ctx, channelID)
+	if err != nil {
 		return nil, err
+	}
+	// The result used to be discarded; it is now read for the server's encryption policy, so a
+	// not-found that comes back as a nil channel must not reach that dereference.
+	if channel == nil {
+		return nil, fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
 	}
 
 	channelPerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
@@ -189,6 +223,10 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	}
 	if !channelPerms.Has(models.PermSendMessages) {
 		return nil, fmt.Errorf("%w: missing send messages permission for this channel", pkg.ErrForbidden)
+	}
+
+	if err := s.rejectPlaintextOnEncryptedServer(ctx, channel.ServerID, req.EncryptionVersion); err != nil {
+		return nil, err
 	}
 
 	message := &models.Message{
@@ -442,6 +480,10 @@ func (s *messageService) Delete(ctx context.Context, serverID string, id string,
 		}
 		if a.FileSize != nil {
 			attachmentBytes += *a.FileSize
+		}
+		// The thumbnail was charged at upload, so it has to be given back here too.
+		if a.ThumbSize != nil {
+			attachmentBytes += *a.ThumbSize
 		}
 	}
 

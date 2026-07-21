@@ -29,15 +29,7 @@ export type EncryptedFileMeta = {
   originalSize: number;
   /** SHA-256 hash of original file (hex) — integrity check */
   digest: string;
-  /**
-   * IV for the companion thumbnail, when one was sent. The thumbnail reuses the file's key with a
-   * distinct IV — safe for AES-GCM, which only forbids reusing a (key, IV) pair — so the payload
-   * grows by one field instead of a whole second key.
-   *
-   * Absent on messages predating thumbnails and on attachments that have none. Lives inside the
-   * encrypted payload, so the server never sees it; the thumbnail's URL and pixel size are the
-   * only parts stored in the clear.
-   */
+  /** Thumbnail IV. Reuses the file key with a distinct IV, which AES-GCM allows. Absent = no preview. */
   thumbIv?: string;
 };
 
@@ -109,14 +101,10 @@ export async function encryptFile(file: File): Promise<EncryptedFileResult> {
 
 
 /**
- * Drains a response body while reporting bytes read.
+ * Drains a response body while reporting bytes read — arrayBuffer() shows nothing on a slow link.
  *
- * arrayBuffer() gives no visibility into a download that can take a minute on a slow link, which
- * is why a large attachment looked frozen. Falls back to arrayBuffer() when the body cannot be
- * streamed, so the caller still gets its data.
+ * Exported for testing: the buffering branches are decrypt-correctness-critical.
  */
-// Exported for direct testing — the buffering (preallocate on known length, short-read, overflow)
-// is decrypt-correctness-critical and hard to exercise through decryptFile's crypto path.
 export async function readWithProgress(
   response: Response,
   onProgress: (loaded: number, total: number | null) => void
@@ -128,42 +116,55 @@ export async function readWithProgress(
   const total = Number.isFinite(totalNum) && totalNum >= 0 ? totalNum : null;
   const reader = response.body.getReader();
   let loaded = 0;
+  try {
+    return await drain();
+  } finally {
+    // An aborted or failed read leaves the body locked otherwise; releasing lets the stream be
+    // cancelled instead of lingering.
+    try {
+      reader.releaseLock();
+    } catch {
+      // Already released by a completed read.
+    }
+  }
 
-  // Known length: fill one preallocated buffer. Collecting chunks and merging afterwards holds the
-  // whole payload twice at peak, a needless spike on a mobile WebView for a download of tens of MB.
-  if (total !== null) {
-    const buffer = new Uint8Array(total);
-    let overflow: Uint8Array[] | null = null;
+  async function drain(): Promise<ArrayBuffer> {
+    // Known length: fill one preallocated buffer. Collecting chunks and merging afterwards holds the
+    // whole payload twice at peak, a needless spike on a mobile WebView for a download of tens of MB.
+    if (total !== null) {
+      const buffer = new Uint8Array(total);
+      let overflow: Uint8Array[] | null = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!overflow && loaded + value.length <= total) {
+          buffer.set(value, loaded);
+        } else {
+          // The body outran its declared length — collect the remainder rather than write out of
+          // bounds. Rare: a chunked or misreported Content-Length.
+          if (!overflow) overflow = [buffer.subarray(0, loaded)];
+          overflow.push(value);
+        }
+        loaded += value.length;
+        onProgress(loaded, total);
+      }
+      if (overflow) return mergeChunks(overflow, loaded);
+      // A truncated response leaves the tail of the preallocated buffer as zeros; return only the
+      // bytes actually read so a decrypt sees the real (short) payload, not zero padding.
+      return loaded === total ? buffer.buffer : buffer.buffer.slice(0, loaded);
+    }
+
+    // Unknown length: nothing to preallocate, so collect and merge.
+    const chunks: Uint8Array[] = [];
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (!overflow && loaded + value.length <= total) {
-        buffer.set(value, loaded);
-      } else {
-        // The body outran its declared length — collect the remainder rather than write out of
-        // bounds. Rare: a chunked or misreported Content-Length.
-        if (!overflow) overflow = [buffer.subarray(0, loaded)];
-        overflow.push(value);
-      }
+      chunks.push(value);
       loaded += value.length;
-      onProgress(loaded, total);
+      onProgress(loaded, null);
     }
-    if (overflow) return mergeChunks(overflow, loaded);
-    // A truncated response leaves the tail of the preallocated buffer as zeros; return only the
-    // bytes actually read so a decrypt sees the real (short) payload, not zero padding.
-    return loaded === total ? buffer.buffer : buffer.buffer.slice(0, loaded);
+    return mergeChunks(chunks, loaded);
   }
-
-  // Unknown length: nothing to preallocate, so collect and merge.
-  const chunks: Uint8Array[] = [];
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    loaded += value.length;
-    onProgress(loaded, null);
-  }
-  return mergeChunks(chunks, loaded);
 }
 
 function mergeChunks(chunks: Uint8Array[], total: number): ArrayBuffer {

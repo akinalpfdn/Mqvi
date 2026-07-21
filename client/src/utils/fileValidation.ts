@@ -1,13 +1,5 @@
-/**
- * fileValidation — File upload validation.
- *
- * Used by file input, drag-drop, and clipboard paste.
- * All MIME types are accepted — XSS prevention is handled server-side at serve time
- * (safe-serve whitelist).
- *
- * Returns the rejected files rather than dropping them: a file that silently disappears is how a
- * 180MB video looked like it was uploading for five minutes with nothing to show for it.
- */
+// Upload validation for file input, drag-drop and paste. All MIME types pass — XSS is handled at
+// serve time. Rejected files are returned, not dropped, so nothing disappears silently.
 
 import { MAX_FILE_SIZE } from "./constants";
 

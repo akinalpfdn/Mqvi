@@ -72,20 +72,9 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
         }
 
         if (isVideo) {
-          // Inline player: plays in place, no new tab. Native controls expose
-          // fullscreen + "save video as" so an overlay handoff is unnecessary.
-          //
-          // #t=0.1 is what gives it a preview frame. preload="metadata" gets the dimensions and
-          // the controls on every platform, but a mobile browser will not paint the first frame
-          // until playback starts — so the message showed a black box with a stretched play
-          // glyph in it. The media fragment makes the browser seek to 0.1s and paint THAT frame,
-          // which it will happily do because the file endpoint serves ranges (http.ServeContent).
-          // The cost is that playback starts 100ms in.
-          //
-          // playsInline: without it iOS hijacks the tap into its own fullscreen player.
-          // With a stored poster none of that applies: the frame is a separate small image, so
-          // preload="none" means the video itself is not touched until the user presses play.
-          // Without one we fall back to the media-fragment trick above.
+          // With a poster the video itself is untouched until play (preload="none"). Without one,
+          // #t=0.1 makes the browser seek and paint a frame — mobile paints nothing otherwise, so
+          // the message showed a black box. playsInline stops iOS hijacking the tap.
           const posterUrl = attachment.thumb_url ? resolveAssetUrl(attachment.thumb_url) : null;
           return (
             <video

@@ -143,6 +143,9 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		for _, fh := range r.MultipartForm.File["files"] {
 			reservedBytes += fh.Size
 		}
+		// Previews are stored bytes too. Leaving them out made them an unmetered store: trivial
+		// files with large "thumbnails" cost the uploader nothing.
+		reservedBytes += thumbnailBytes(r.MultipartForm)
 		if err := h.storageService.Reserve(r.Context(), user.ID, reservedBytes); err != nil {
 			pkg.Error(w, err)
 			return
@@ -187,6 +190,9 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 			if attachment.FileSize != nil {
 				uploadedBytes += *attachment.FileSize
+			}
+			if attachment.ThumbSize != nil {
+				uploadedBytes += *attachment.ThumbSize
 			}
 			attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
 			attachment.ThumbURL = h.urlSigner.SignURLPtr(attachment.ThumbURL)

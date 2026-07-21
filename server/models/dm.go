@@ -101,6 +101,8 @@ type DMAttachment struct {
 	ThumbURL    *string   `json:"thumb_url,omitempty"`
 	ThumbWidth  *int      `json:"thumb_width,omitempty"`
 	ThumbHeight *int      `json:"thumb_height,omitempty"`
+	// Charged to the uploader's quota like the original, so the delete path knows what to release.
+	ThumbSize *int64 `json:"thumb_size,omitempty"`
 }
 
 // CreateDMMessageRequest — E2EE: when encryption_version=1, ciphertext is

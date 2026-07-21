@@ -68,7 +68,7 @@ func NewFileCleanupService(db *sql.DB, fileDeleter FileDeleter, storage StorageS
 
 func (s *fileCleanupService) CollectChannelFiles(ctx context.Context, channelID string) (*CleanupPlan, error) {
 	refs, err := s.queryFileRefs(ctx, true, `
-		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url
+		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url, COALESCE(a.thumb_size, 0)
 		FROM attachments a
 		JOIN messages m ON a.message_id = m.id
 		WHERE m.channel_id = ?`, channelID)
@@ -83,7 +83,7 @@ func (s *fileCleanupService) CollectServerFiles(ctx context.Context, serverID st
 
 	// Message attachments across all channels
 	msgRefs, err := s.queryFileRefs(ctx, true, `
-		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url
+		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url, COALESCE(a.thumb_size, 0)
 		FROM attachments a
 		JOIN messages m ON a.message_id = m.id
 		JOIN channels c ON m.channel_id = c.id
@@ -175,7 +175,7 @@ func (s *fileCleanupService) CollectUserFiles(ctx context.Context, userID string
 
 	// ─── User's own message attachments (in servers they don't own) ───
 	msgRefs, err := s.queryFileRefs(ctx, true, `
-		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url
+		SELECT a.file_url, COALESCE(a.file_size, 0), m.user_id, a.thumb_url, COALESCE(a.thumb_size, 0)
 		FROM attachments a
 		JOIN messages m ON a.message_id = m.id
 		WHERE m.user_id = ?
@@ -191,7 +191,7 @@ func (s *fileCleanupService) CollectUserFiles(ctx context.Context, userID string
 
 	// ─── DM attachments ───
 	dmRefs, err := s.queryOwnedRefs(ctx, userID, true, `
-		SELECT da.file_url, COALESCE(da.file_size, 0), da.thumb_url
+		SELECT da.file_url, COALESCE(da.file_size, 0), da.thumb_url, COALESCE(da.thumb_size, 0)
 		FROM dm_attachments da
 		JOIN dm_messages dm ON da.dm_message_id = dm.id
 		WHERE dm.user_id = ?`, userID)
@@ -273,7 +273,7 @@ func (s *fileCleanupService) CollectUserMessageFiles(ctx context.Context, userID
 
 	// Message attachments
 	msgRefs, err := s.queryOwnedRefs(ctx, userID, true, `
-		SELECT a.file_url, COALESCE(a.file_size, 0), a.thumb_url
+		SELECT a.file_url, COALESCE(a.file_size, 0), a.thumb_url, COALESCE(a.thumb_size, 0)
 		FROM attachments a
 		JOIN messages m ON a.message_id = m.id
 		WHERE m.user_id = ?`, userID)
@@ -284,7 +284,7 @@ func (s *fileCleanupService) CollectUserMessageFiles(ctx context.Context, userID
 
 	// DM attachments
 	dmRefs, err := s.queryOwnedRefs(ctx, userID, true, `
-		SELECT da.file_url, COALESCE(da.file_size, 0), da.thumb_url
+		SELECT da.file_url, COALESCE(da.file_size, 0), da.thumb_url, COALESCE(da.thumb_size, 0)
 		FROM dm_attachments da
 		JOIN dm_messages dm ON da.dm_message_id = dm.id
 		WHERE dm.user_id = ?`, userID)
@@ -388,8 +388,9 @@ func (s *fileCleanupService) queryFileRefs(ctx context.Context, withThumb bool, 
 	for rows.Next() {
 		var r fileRef
 		var thumb sql.NullString
+		var thumbSize int64
 		if withThumb {
-			err = rows.Scan(&r.URL, &r.Size, &r.UserID, &thumb)
+			err = rows.Scan(&r.URL, &r.Size, &r.UserID, &thumb, &thumbSize)
 		} else {
 			err = rows.Scan(&r.URL, &r.Size, &r.UserID)
 		}
@@ -397,23 +398,19 @@ func (s *fileCleanupService) queryFileRefs(ctx context.Context, withThumb bool, 
 			return nil, fmt.Errorf("scan file ref: %w", err)
 		}
 		refs = append(refs, r)
-		refs = appendThumbRef(refs, thumb, r.UserID)
+		refs = appendThumbRef(refs, thumb, thumbSize, r.UserID)
 	}
 	return refs, rows.Err()
 }
 
-// A query may append thumb_url as a trailing column. When it does, a non-null value becomes a
+// A withThumb query returns thumb_url and thumb_size as trailing columns. A non-null URL becomes a
 // second ref so a companion thumbnail is deleted along with its original instead of being orphaned
-// on disk forever. Queries without that column are unaffected.
-//
-// Size 0 on purpose: thumbnails are never charged against the storage quota, which sums file_size
-// only (see the quota subquery in sqlite_server.go). Reclaiming bytes never billed would drift the
-// accounting the other way.
-func appendThumbRef(refs []fileRef, thumb sql.NullString, userID string) []fileRef {
+// on disk, and carries its size so the quota it was charged at upload is given back.
+func appendThumbRef(refs []fileRef, thumb sql.NullString, size int64, userID string) []fileRef {
 	if !thumb.Valid || thumb.String == "" {
 		return refs
 	}
-	return append(refs, fileRef{URL: thumb.String, Size: 0, UserID: userID})
+	return append(refs, fileRef{URL: thumb.String, Size: size, UserID: userID})
 }
 
 // queryOwnedRefs runs a SELECT returning (file_url, file_size) rows tagged with ownerID, plus a
@@ -430,8 +427,9 @@ func (s *fileCleanupService) queryOwnedRefs(ctx context.Context, ownerID string,
 	for rows.Next() {
 		var r fileRef
 		var thumb sql.NullString
+		var thumbSize int64
 		if withThumb {
-			err = rows.Scan(&r.URL, &r.Size, &thumb)
+			err = rows.Scan(&r.URL, &r.Size, &thumb, &thumbSize)
 		} else {
 			err = rows.Scan(&r.URL, &r.Size)
 		}
@@ -440,7 +438,7 @@ func (s *fileCleanupService) queryOwnedRefs(ctx context.Context, ownerID string,
 		}
 		r.UserID = ownerID
 		refs = append(refs, r)
-		refs = appendThumbRef(refs, thumb, ownerID)
+		refs = appendThumbRef(refs, thumb, thumbSize, ownerID)
 	}
 	return refs, rows.Err()
 }

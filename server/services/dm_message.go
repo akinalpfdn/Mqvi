@@ -70,6 +70,12 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		return nil, err
 	}
 
+	// The client alone picks the encrypted or plaintext path, so a client that misreads this
+	// conversation's state would store the message in the clear. The server has to say no.
+	if req.EncryptionVersion != 1 && channel.E2EEEnabled {
+		return nil, fmt.Errorf("%w: this conversation requires end-to-end encrypted messages", pkg.ErrBadRequest)
+	}
+
 	otherUserID := channel.User1ID
 	if channel.User1ID == userID {
 		otherUserID = channel.User2ID
@@ -376,8 +382,17 @@ func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string)
 	}
 	for _, a := range dmAtts {
 		s.fileDeleter.DeleteFromURL(a.FileURL)
+		// The companion thumbnail is a separate file; without this it outlives its original until
+		// the orphan sweep. It carries no quota, so only the original counts toward the release.
+		if a.ThumbURL != nil {
+			s.fileDeleter.DeleteFromURL(*a.ThumbURL)
+		}
 		if a.FileSize != nil {
 			attachmentBytes += *a.FileSize
+		}
+		// The thumbnail was charged at upload, so it has to be given back here too.
+		if a.ThumbSize != nil {
+			attachmentBytes += *a.ThumbSize
 		}
 	}
 

@@ -1,10 +1,5 @@
-/**
- * Owns the progress state and the AbortController for one upload surface.
- *
- * `begin()` returns the UploadOptions to hand to an api function; `cancel()` aborts the request in
- * flight. Deliberately does NOT abort on unmount — leaving a channel while a file uploads should
- * let it finish, not silently throw the send away.
- */
+// Progress state and AbortController for one upload surface. Deliberately does NOT abort on
+// unmount: leaving a channel while a file uploads should let it finish.
 
 import { useCallback, useRef, useState } from "react";
 import type { UploadOptions } from "../api/client";
@@ -16,15 +11,18 @@ function useUploadProgress() {
   const controllerRef = useRef<AbortController | null>(null);
 
   const begin = useCallback((): UploadOptions => {
-    // A previous upload on this surface must not keep running: its onProgress would fight the new
-    // one's, and cancel() would only ever reach the newest controller.
-    controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
     setProgress({ loaded: 0, total: null });
     return {
       signal: controller.signal,
-      onProgress: (loaded, total) => setProgress({ loaded, total }),
+      // An earlier upload on this surface is deliberately left running (see the note above), so its
+      // progress events are ignored rather than aborted — otherwise starting a second send would
+      // kill the first, which is the opposite of what this hook promises.
+      onProgress: (loaded, total) => {
+        if (controllerRef.current !== controller) return;
+        setProgress({ loaded, total });
+      },
     };
   }, []);
 

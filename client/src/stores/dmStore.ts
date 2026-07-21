@@ -4,6 +4,8 @@ import * as dmApi from "../api/dm";
 import type { DMSearchResult } from "../api/dm";
 import type { UploadOptions } from "../api/client";
 import { buildAttachmentPreview } from "../utils/attachmentPreview";
+import { mapWithConcurrency } from "../utils/imageEncoding";
+import { PREVIEW_CONCURRENCY } from "../utils/constants";
 import type { DMChannelWithUser, DMMessage } from "../types";
 import { useUIStore } from "./uiStore";
 import { useToastStore } from "./toastStore";
@@ -292,7 +294,9 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
     // Same generation as the encrypted path, so both produce previews identically.
     const plainThumbs = files
-      ? await Promise.all(files.map((file) => buildAttachmentPreview(file, upload?.signal)))
+      ? await mapWithConcurrency(files, PREVIEW_CONCURRENCY, (file) =>
+          buildAttachmentPreview(file, upload?.signal)
+        )
       : undefined;
     const res = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload, plainThumbs);
     handleSendError(res);

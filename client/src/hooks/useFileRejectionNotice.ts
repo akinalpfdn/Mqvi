@@ -1,12 +1,6 @@
-/**
- * Tells the user which files were refused and why.
- *
- * Lives in hooks/ rather than utils/ so the pure validator keeps no dependency on the store or i18n
- * layers — utils must not reach upward.
- *
- * The count is interpolated as `n`, not `count`: i18next treats `count` as a pluralization trigger
- * and would look for `_one`/`_other` variants that these keys do not define.
- */
+// Tells the user which files were refused and why. In hooks/ so the pure validator keeps no
+// dependency on store or i18n. Count interpolates as `n`: i18next reads `count` as a pluralization
+// trigger and would want _one/_other variants these keys do not define.
 
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";

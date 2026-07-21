@@ -1,11 +1,5 @@
-/**
- * The single place that decides how an outgoing attachment's preview gets made.
- *
- * Order is browser first, native second, nothing third. The browser path works everywhere and needs
- * no plugin; the native path exists only for what Chromium cannot decode — chiefly HEVC video from
- * iPhones, which posted a blank frame before. Callers (channel send, DM send, E2EE encrypt) ask for
- * a preview and do not care which produced it.
- */
+// Decides how an outgoing attachment's preview is made: browser first, native second, none third.
+// The native path exists only for what Chromium cannot decode, chiefly iPhone HEVC video.
 
 import { registerPlugin } from "@capacitor/core";
 import { createAttachmentPreview, type GeneratedThumbnail } from "./imageEncoding";

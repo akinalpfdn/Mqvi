@@ -114,8 +114,12 @@ function MessageInput({ openSearch }: MessageInputProps) {
       return;
     }
     pickNative(kind)
-      .then((picked) => {
+      .then(({ files: picked, skipped }) => {
         if (picked.length > 0) acceptFiles(picked.map((entry) => entry.file));
+        // A file the platform would not hand over used to vanish with no explanation.
+        if (skipped.length > 0) {
+          addToast("error", t("attachPickPartial", { name: skipped[0], n: skipped.length }));
+        }
       })
       .catch((err) => {
         console.error("[MessageInput] Native picker failed:", err);
@@ -124,8 +128,9 @@ function MessageInput({ openSearch }: MessageInputProps) {
   }
 
   // Encryption buffers the whole file plus its ciphertext in memory, so an encrypted conversation
-  // takes a smaller cap than the transport allows.
-  const isEncrypted = mode === "dm" ? dmE2EE : mode === "channel" ? channelE2EE : false;
+  // takes a smaller cap than the transport allows. An unknown server state assumes encrypted: the
+  // tighter cap is the safe guess, and the send itself refuses until the state is known.
+  const isEncrypted = mode === "dm" ? dmE2EE : mode === "channel" ? (channelE2EE ?? true) : false;
   const attachmentLimit = isEncrypted ? MAX_E2EE_FILE_SIZE : MAX_FILE_SIZE;
 
   // Every way a file enters the composer — drop zone, paste, picker, camera — funnels through here,

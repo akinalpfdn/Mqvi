@@ -124,12 +124,9 @@ type RequestOptions = {
  *   const user = await apiClient<User>("/users/me", { method: "PATCH", body: { display_name: "New" } });
  */
 /**
- * Runs one authenticated attempt, and on a 401 refreshes the access token once and retries.
+ * Runs one authenticated attempt, and on a 401 refreshes once and retries.
  *
- * Shared by the fetch transport (apiClient) and the XHR transport (uploadRequest) so the Bearer +
- * one-shot-refresh policy lives in a single place — the two used to carry independent copies that
- * could drift. `send` performs the actual request with whatever token it is given and returns the
- * parsed envelope plus the HTTP status the refresh decision keys on.
+ * Shared by the fetch and XHR transports so the refresh policy cannot drift between them.
  */
 async function withTokenRefresh<T>(
   label: string,
@@ -163,9 +160,8 @@ async function withTokenRefresh<T>(
 }
 
 /**
- * One fetch attempt with a given token, normalised to the same {status, response} shape sendXhr
- * returns so both transports share withTokenRefresh. Never throws — a network error or non-JSON
- * body comes back as a failed envelope, matching the guarantee callers already rely on.
+ * One fetch attempt, normalised to sendXhr's {status, response} shape. Never throws: a network
+ * error or non-JSON body comes back as a failed envelope, as callers already rely on.
  */
 async function sendFetch<T>(
   endpoint: string,
@@ -347,11 +343,8 @@ function sendXhr<T>(
 }
 
 /**
- * Multipart upload transport. Shares apiClient's auth behaviour — Bearer header, one 401 refresh +
- * retry, same APIResponse envelope — through withTokenRefresh, but runs on XMLHttpRequest because
- * the Fetch API cannot report upload progress and cannot be cancelled mid-transfer.
- *
- * FormData is replayable, so a refresh retry re-sends the same body; progress restarts from zero.
+ * Multipart upload transport. On XMLHttpRequest because fetch cannot report upload progress or be
+ * cancelled mid-transfer. A refresh retry re-sends the body, so progress restarts from zero.
  */
 async function uploadRequest<T>(
   endpoint: string,

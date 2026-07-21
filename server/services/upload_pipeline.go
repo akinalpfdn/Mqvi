@@ -300,37 +300,46 @@ type ThumbnailUpload struct {
 	Height int
 }
 
-// maxThumbnailBytes caps a companion preview independently of the attachment cap. A generated
+// MaxThumbnailBytes caps a companion preview independently of the attachment cap. A generated
 // thumbnail is well under 1MB; without a tight bound a client could send the full attachment cap
 // (100MB) as a "thumbnail", which is neither charged to its quota (only file_size counts) nor
 // reserved before upload — an unmetered store. 5MB leaves generous headroom for a real preview.
-const maxThumbnailBytes int64 = 5 * 1024 * 1024
+const MaxThumbnailBytes int64 = 5 * 1024 * 1024
 
-// storeThumbnail stores a companion preview beside its original.
+// StoredThumbnail is what a stored companion preview contributes to its attachment row.
+type StoredThumbnail struct {
+	URL    string
+	Width  *int
+	Height *int
+	Size   int64
+}
+
+// storeThumbnail stores a companion preview beside its original, returning nil when there is none
+// or it could not be stored.
 //
 // A thumbnail that fails to store must never fail the attachment: the preview is an optimisation,
-// the file is the message. Callers get nils and carry on, and the client falls back to rendering
-// the original as it did before thumbnails existed.
+// the file is the message. Callers carry on without one and the client renders the original.
 func storeThumbnail(
 	ctx context.Context,
 	pipeline UploadPipeline,
 	kind files.Kind,
 	scopeID string,
 	thumb *ThumbnailUpload,
-) (url *string, width *int, height *int) {
+) *StoredThumbnail {
 	if thumb == nil || thumb.Header == nil {
-		return nil, nil, nil
+		return nil
 	}
 
-	stored, err := pipeline.Store(ctx, kind, scopeID, thumb.File, thumb.Header, maxThumbnailBytes)
+	stored, err := pipeline.Store(ctx, kind, scopeID, thumb.File, thumb.Header, MaxThumbnailBytes)
 	if err != nil {
 		log.Printf("[upload] thumbnail rejected for %s/%s: %v — attachment kept without one", kind, scopeID, err)
-		return nil, nil, nil
+		return nil
 	}
 
+	result := &StoredThumbnail{URL: stored.RelativeURL, Size: stored.Size}
 	// Dimensions are only useful together; a partial pair would make the client reserve wrong space.
 	if thumb.Width > 0 && thumb.Height > 0 {
-		width, height = &thumb.Width, &thumb.Height
+		result.Width, result.Height = &thumb.Width, &thumb.Height
 	}
-	return &stored.RelativeURL, width, height
+	return result
 }

@@ -72,6 +72,8 @@
   "attachGallery": "Galeri",
   "attachFiles": "Dosyalar",
   "attachPickFailed": "Seçici açılamadı",
+  "attachPickPartial": "{{n}} dosya okunamadı, ilki: {{name}}",
+  "encryptionStateUnknown": "Bu sunucunun şifreli olup olmadığı henüz bilinmiyor — birazdan tekrar deneyin",
   "emoji": "Emoji",
   "welcomeDM": "{{user}} ile konuşmanıza hoş geldiniz!",
   "dmStart": "{{user}} ile direkt mesaj geçmişinizin başlangıcı.",

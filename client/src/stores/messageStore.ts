@@ -8,6 +8,8 @@ import * as messageApi from "../api/messages";
 import * as reactionApi from "../api/reactions";
 import type { UploadOptions } from "../api/client";
 import { buildAttachmentPreview } from "../utils/attachmentPreview";
+import { mapWithConcurrency } from "../utils/imageEncoding";
+import { PREVIEW_CONCURRENCY } from "../utils/constants";
 import { useServerStore, selectServerE2EE } from "./serverStore";
 import { useE2EEStore } from "./e2eeStore";
 import { useAuthStore } from "./authStore";
@@ -216,6 +218,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     // non-active server — explicitServerId exists precisely because that happens.
     const e2eeState = useE2EEStore.getState();
     const targetServerE2EE = selectServerE2EE(serverId)(useServerStore.getState());
+    // Fail closed. Guessing "not encrypted" here would send plaintext to a server that mandates
+    // encryption, and the send path is the only thing that decides — better to refuse than to leak.
+    if (targetServerE2EE === undefined) {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+      return false;
+    }
     if (targetServerE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
       if (currentUserId) {
@@ -270,7 +278,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     // Previews are generated here, not in the api layer, so the encrypted and plaintext paths
     // produce them the same way. Non-images and already-small files come back null.
     const plainThumbs = files
-      ? await Promise.all(files.map((file) => buildAttachmentPreview(file, upload?.signal)))
+      ? await mapWithConcurrency(files, PREVIEW_CONCURRENCY, (file) =>
+          buildAttachmentPreview(file, upload?.signal)
+        )
       : undefined;
     const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId, upload, plainThumbs);
     handleSendError(res);
@@ -283,8 +293,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     // E2EE encrypted edit
     const e2eeState = useE2EEStore.getState();
-    // Same rule as sendMessage: the flag must come from the server being edited in, not the active one.
+    // Same rules as sendMessage: the flag comes from the server being edited in, and an unknown
+    // state refuses rather than rewriting an encrypted message as plaintext.
     const editServerE2EE = selectServerE2EE(serverId)(useServerStore.getState());
+    if (editServerE2EE === undefined) {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+      return false;
+    }
     if (editServerE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
       // Find which channel this message belongs to

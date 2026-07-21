@@ -151,8 +151,15 @@ async function getCroppedImage(
     canvas.height
   );
 
-  // A circular crop leaves the corners transparent, so that alpha has to survive the encode.
-  return encodeCanvas(canvas, { alpha: isCircle });
+  // Alpha has to survive when the crop creates it (circular corners) OR when the source already had
+  // it. Keying on the shape alone turned a transparent PNG logo into a black-backed JPEG on any
+  // browser without WebP encoding, since a rectangular crop asked for no alpha.
+  return encodeCanvas(canvas, { alpha: isCircle || sourceMayHaveAlpha(imageSrc) });
+}
+
+/** JPEG is the only common source that cannot carry alpha; assume everything else might. */
+function sourceMayHaveAlpha(dataUrl: string): boolean {
+  return !/^data:image\/jpe?g[;,]/i.test(dataUrl);
 }
 
 function createImage(url: string): Promise<HTMLImageElement> {

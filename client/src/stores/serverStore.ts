@@ -78,22 +78,16 @@ export function toServerListItem(server: Server): ServerListItem {
 }
 
 /**
- * Whether a server has E2EE on — for ANY server the user is in, not just the active one. Tabs and
- * split view render channels of non-active servers, so reading `activeServer` would answer about
- * the wrong server. `activeServer` is preferred when it matches because it is the freshest copy
- * (settings edits land there first); the list covers everything else.
+ * Whether a server has E2EE on — for any server the user is in, not just the active one.
  *
- * Returns a primitive, so components subscribing through it re-render only when the flag flips.
- *
- * An id known to neither source reads as false. That is a fail-open on a security-shaped question,
- * so callers must pass `serverId ?? activeServerId` rather than a bare optional: with that fallback
- * the unknown case only arises when there is no server context at all, and nothing can be sent.
+ * `undefined` means "not known yet", NOT "off": callers must assume encrypted or refuse to send.
  */
 export function selectServerE2EE(serverId: string | null | undefined) {
-  return (s: ServerState): boolean => {
-    if (!serverId) return false;
-    if (s.activeServer?.id === serverId) return s.activeServer.e2ee_enabled;
-    return s.servers.find((sv) => sv.id === serverId)?.e2ee_enabled ?? false;
+  return (s: ServerState): boolean | undefined => {
+    if (!serverId) return undefined;
+    const source = s.activeServer?.id === serverId ? s.activeServer : s.servers.find((sv) => sv.id === serverId);
+    // Checked rather than `?? false`: an older server omits the field entirely, and that is unknown.
+    return typeof source?.e2ee_enabled === "boolean" ? source.e2ee_enabled : undefined;
   };
 }
 

@@ -33,6 +33,9 @@ export async function encryptFilesForE2EE(
   const thumbs: (GeneratedThumbnail | null)[] = [];
 
   for (let i = 0; i < files.length; i++) {
+    // encryptFile is the expensive step and cannot be interrupted once started, so cancelling used
+    // to still encrypt every remaining file. Checking here stops the batch at the next boundary.
+    if (signal?.aborted) break;
     const result = await encryptFile(files[i]);
     encrypted.push(
       new File([result.encryptedBlob], `encrypted_${i}.bin`, {

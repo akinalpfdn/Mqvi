@@ -34,6 +34,8 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const revokeRef = useRef<string | null>(null);
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  /** Preview decrypt failed — the image falls back to the original rather than sitting on "decrypting". */
+  const [thumbFailed, setThumbFailed] = useState(false);
   const thumbRevokeRef = useRef<string | null>(null);
   const [progress, setProgress] = useState<{ loaded: number; total: number | null } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -104,6 +106,7 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     if (!thumbSource || !fileMeta.thumbIv) return;
 
     let cancelled = false;
+    setThumbFailed(false);
     decryptThumbnail(resolveAssetUrl(thumbSource), fileMeta.key, fileMeta.thumbIv)
       .then((url) => {
         if (cancelled) {
@@ -116,7 +119,11 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
         setThumbUrl(url);
       })
       .catch(() => {
-        // A preview that will not decrypt is not worth failing over; the attachment still opens.
+        // Swallowing this silently left the row stuck on "decrypting" forever, because the fallback
+        // below skips any attachment that HAS a thumbnail. The common trigger is a stale signed URL:
+        // the one in the store expires after an hour, so scrolling back to an old message remounts
+        // this with a 401. Record the failure so the original is fetched instead.
+        if (!cancelled) setThumbFailed(true);
       });
 
     return () => {
@@ -124,15 +131,16 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     };
   }, [canPreview, attachment.thumb_url, fileMeta.thumbIv, fileMeta.key]);
 
-  // An image with no thumbnail predates thumbnails; decrypt it whole so old conversations do not go
-  // blank. A video never fell back this way — that would pull the entire attachment just for a
-  // frame. doDecrypt self-guards against re-entry, so this staying idempotent is what lets it run
-  // outside the preview effect above.
+  // An image whose preview is missing or unusable is decrypted whole, so messages predating
+  // thumbnails — and ones whose thumbnail just failed — still render instead of going blank. A video
+  // never falls back this way: that would pull the entire attachment just for a frame, so it drops
+  // to the file row instead.
   useEffect(() => {
     if (!isImage) return;
-    if (attachment.thumb_url && fileMeta.thumbIv) return;
+    const hasUsablePreview = Boolean(attachment.thumb_url && fileMeta.thumbIv) && !thumbFailed;
+    if (hasUsablePreview) return;
     if (state === "idle") doDecrypt();
-  }, [isImage, attachment.thumb_url, fileMeta.thumbIv, state, doDecrypt]);
+  }, [isImage, attachment.thumb_url, fileMeta.thumbIv, thumbFailed, state, doDecrypt]);
 
   const openInViewer = useCallback(async () => {
     const url = state === "ready" && objectUrl ? objectUrl : await doDecrypt();

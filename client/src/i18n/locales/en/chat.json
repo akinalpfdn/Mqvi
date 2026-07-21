@@ -72,6 +72,8 @@
   "attachGallery": "Gallery",
   "attachFiles": "Files",
   "attachPickFailed": "Could not open the picker",
+  "attachPickPartial": "Couldn't read {{n}} file(s), starting with {{name}}",
+  "encryptionStateUnknown": "Can't tell whether this server is encrypted yet — try again in a moment",
   "emoji": "Emoji",
   "welcomeDM": "Welcome to your conversation with {{user}}!",
   "dmStart": "This is the beginning of your direct message history with {{user}}.",

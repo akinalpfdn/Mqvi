@@ -212,22 +212,10 @@ export function passwordByteLength(password: string): number {
   return new TextEncoder().encode(password).length;
 }
 
-/**
- * Max file upload size (bytes) — 100MB.
- *
- * Must not exceed the server's UPLOAD_MAX_SIZE, and Cloudflare Free caps the request body at 100MB
- * regardless of what the origin allows. This was 500MB, so the client happily spent minutes
- * uploading files the edge was always going to reject.
- */
+/** Max upload (bytes). Bounded by the server's UPLOAD_MAX_SIZE and Cloudflare Free's 100MB body cap. */
 export const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
-/**
- * Max attachment size in an E2EE conversation (bytes) — 25MB.
- *
- * Encryption reads the whole file into memory and produces a second buffer of the same size, so a
- * 100MB attachment costs 200MB+ peak in a mobile WebView. Lifting this needs chunked/streaming
- * encryption, not a bigger number.
- */
+/** Max E2EE attachment. Encryption holds the file plus its ciphertext, so 100MB would peak at 200MB+. */
 export const MAX_E2EE_FILE_SIZE = 25 * 1024 * 1024;
 
 
@@ -251,6 +239,14 @@ export const BANNER_OUTPUT_HEIGHT = 1080;
 
 /** Mirrors badgeIconMaxSize in server/handlers/badge.go. */
 export const MAX_BADGE_ICON_SIZE = 2 * 1024 * 1024;
+
+/**
+ * How many attachment previews are generated at once.
+ *
+ * Each one decodes a full-size bitmap, so ten 12MP photos in parallel is hundreds of megabytes and
+ * an OOM on a mobile WebView. Two keeps the main thread fed without holding the whole batch.
+ */
+export const PREVIEW_CONCURRENCY = 2;
 
 // ─── Feedback / report attachments ───
 

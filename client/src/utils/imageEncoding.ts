@@ -1,10 +1,4 @@
-/**
- * Canvas sizing and encoding for uploads.
- *
- * The crop modal used to hand back a PNG at the crop box's SOURCE resolution — a square crop of a
- * 4000px phone photo became a 3000×3000 lossless PNG, which is how a server icon reached 4 MB on
- * the wire for a slot that renders at a few hundred pixels.
- */
+// Canvas sizing and encoding for uploads.
 
 /**
  * Scales a box down to fit inside another, preserving aspect ratio.
@@ -85,13 +79,7 @@ export function extensionForType(mimeType: string): string {
   return EXTENSIONS[mimeType] ?? "png";
 }
 
-/**
- * Long edge of a generated chat thumbnail, in pixels.
- *
- * The message list caps an image at 300px tall but its width follows the bubble, so a landscape
- * photo can render near 600px wide — and at 2x DPR that is 1200 real pixels. 800 keeps a preview
- * that still looks sharp at those sizes while staying a small fraction of the original.
- */
+/** Long edge of a chat thumbnail. 800 stays sharp at the ~600px-wide, 2x-DPR worst case. */
 const THUMBNAIL_MAX_EDGE = 800;
 
 export type GeneratedThumbnail = {
@@ -100,14 +88,7 @@ export type GeneratedThumbnail = {
   height: number;
 };
 
-/**
- * Builds a small preview of an image file.
- *
- * Returns null whenever a thumbnail would be pointless or impossible — a source smaller than the
- * target, a format the browser cannot decode, an encoder failure. Callers must treat null as
- * normal and send the attachment without one; the preview is an optimisation, the file is the
- * message.
- */
+/** Small preview of an image. Null (source already small, undecodable, encoder failed) is normal. */
 export async function createThumbnail(file: File): Promise<GeneratedThumbnail | null> {
   if (!file.type.startsWith("image/")) return null;
 
@@ -153,13 +134,7 @@ const POSTER_SEEK_SECONDS = 0.5;
 /** Give up rather than hang a send on a video the browser will not decode. */
 const POSTER_TIMEOUT_MS = 10_000;
 
-/**
- * Grabs a still frame from a video to use as its preview.
- *
- * Depends on the browser being able to DECODE the source: HEVC from an iPhone often cannot be
- * decoded in a WebView, and that returns null here. Callers fall back to the previous behaviour —
- * an inline player that pulls part of the video to paint its own frame.
- */
+/** Still frame from a video. Null when the browser cannot decode the source (typically iPhone HEVC). */
 export async function createVideoPoster(
   file: File,
   signal?: AbortSignal
@@ -185,6 +160,7 @@ export async function createVideoPoster(
         window.clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
         video.onloadedmetadata = null;
+        video.onloadeddata = null;
         video.onseeked = null;
         video.onerror = null;
         resolve(result);
@@ -192,13 +168,7 @@ export async function createVideoPoster(
 
       video.onerror = () => finish(null);
 
-      video.onloadedmetadata = () => {
-        if (!video.videoWidth || !video.videoHeight) return finish(null);
-        // A video shorter than the seek target still has a first frame worth showing.
-        video.currentTime = Math.min(POSTER_SEEK_SECONDS, Math.max(0, video.duration / 2));
-      };
-
-      video.onseeked = () => {
+      function capture() {
         try {
           const { width, height } = fitWithin(
             video.videoWidth,
@@ -220,7 +190,33 @@ export async function createVideoPoster(
         } catch {
           finish(null);
         }
+      }
+
+      // Whether we asked for a seek. If we did, the frame is taken on `seeked`; if we did not, on
+      // `loadeddata`. Without this split a video with no usable duration never captured at all and
+      // only the timeout ended it — ten seconds of a blocked send, per file.
+      let seeking = false;
+
+      video.onloadedmetadata = () => {
+        if (!video.videoWidth || !video.videoHeight) return finish(null);
+        // duration is NaN for some sources and 0 for others. currentTime is a restricted double, so
+        // assigning NaN throws out of this handler and finish() would never run; assigning the
+        // current time is a no-op that never fires `seeked`. Only seek when it can actually move.
+        const { duration } = video;
+        if (!Number.isFinite(duration) || duration <= 0) return;
+        try {
+          video.currentTime = Math.min(POSTER_SEEK_SECONDS, duration / 2);
+          seeking = true;
+        } catch {
+          // Leave seeking false — the first frame is captured on loadeddata instead.
+        }
       };
+
+      video.onloadeddata = () => {
+        if (!seeking) capture();
+      };
+
+      video.onseeked = () => capture();
 
       video.src = objectUrl;
     });
@@ -240,6 +236,33 @@ export async function createAttachmentPreview(
   file: File,
   signal?: AbortSignal
 ): Promise<GeneratedThumbnail | null> {
+  if (signal?.aborted) return null;
   if (file.type.startsWith("video/")) return createVideoPoster(file, signal);
   return createThumbnail(file);
+}
+
+/**
+ * Maps with a ceiling on how many run at once.
+ *
+ * Decoding is the reason: `Promise.all` over ten 12MP photos holds ten full-size bitmaps at once,
+ * which is hundreds of megabytes and an OOM on a mobile WebView. Results stay in input order.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }

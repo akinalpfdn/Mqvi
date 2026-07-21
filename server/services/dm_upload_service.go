@@ -55,8 +55,6 @@ func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file m
 		return nil, err
 	}
 
-	thumbURL, thumbW, thumbH := storeThumbnail(ctx, s.pipeline, files.KindDM, dmMessageID, thumb)
-
 	fileSize := stored.Size
 	attachment := &models.DMAttachment{
 		DMMessageID: dmMessageID,
@@ -64,17 +62,18 @@ func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file m
 		FileURL:     stored.RelativeURL,
 		FileSize:    &fileSize,
 		MimeType:    &mimeBase,
-		ThumbURL:    thumbURL,
-		ThumbWidth:  thumbW,
-		ThumbHeight: thumbH,
+	}
+	if t := storeThumbnail(ctx, s.pipeline, files.KindDM, dmMessageID, thumb); t != nil {
+		attachment.ThumbURL, attachment.ThumbWidth, attachment.ThumbHeight = &t.URL, t.Width, t.Height
+		attachment.ThumbSize = &t.Size
 	}
 
 	if err := s.dmRepo.CreateAttachment(ctx, attachment); err != nil {
 		s.pipeline.DeleteFromURL(stored.RelativeURL)
 		// Same reason as the channel path: an orphaned thumbnail has no row and no cleanup query
 		// that can ever find it.
-		if thumbURL != nil {
-			s.pipeline.DeleteFromURL(*thumbURL)
+		if attachment.ThumbURL != nil {
+			s.pipeline.DeleteFromURL(*attachment.ThumbURL)
 		}
 		return nil, fmt.Errorf("failed to create DM attachment record: %w", err)
 	}

@@ -31,7 +31,16 @@ func newTestMessageService(
 		&testutil.MockFileURLSigner{},
 		&testutil.MockFileDeleter{},
 		&testutil.MockStorageService{},
+		stubServerEncryption{},
 	)
+}
+
+// stubServerEncryption answers the one question the message path asks about a server. Defaults to
+// an unencrypted server so the existing plaintext cases behave as before.
+type stubServerEncryption struct{ e2ee bool }
+
+func (s stubServerEncryption) GetActiveByID(_ context.Context, _ string) (*models.Server, error) {
+	return &models.Server{E2EEEnabled: s.e2ee}, nil
 }
 
 func TestMessageCreate(t *testing.T) {
@@ -494,6 +503,7 @@ func TestGetByChannelID_SignsAttachmentThumbURL(t *testing.T) {
 		markingSigner{},
 		&testutil.MockFileDeleter{},
 		&testutil.MockStorageService{},
+		stubServerEncryption{},
 	)
 
 	page, err := svc.GetByChannelID(context.Background(), "ch1", "u1", "", 50)
@@ -511,4 +521,53 @@ func TestGetByChannelID_SignsAttachmentThumbURL(t *testing.T) {
 	if att.ThumbURL == nil || *att.ThumbURL != thumb+"?sig" {
 		t.Errorf("thumb_url not signed: %v", att.ThumbURL)
 	}
+}
+
+// The client alone decides whether to encrypt, so a client that misreads the server's state would
+// store a message in the clear on a server that mandates E2EE. The server must refuse it.
+func TestCreate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
+	newSvc := func(e2ee bool) MessageService {
+		return NewMessageService(
+			&testutil.MockMessageRepo{},
+			&testutil.MockAttachmentRepo{},
+			&testutil.MockChannelRepo{
+				GetByIDFn: func(_ context.Context, _ string) (*models.Channel, error) {
+					return &models.Channel{ID: "ch1", ServerID: "srv1"}, nil
+				},
+			},
+			&testutil.MockUserRepo{
+				GetByIDFn: func(_ context.Context, _ string) (*models.User, error) {
+					return &models.User{ID: "u1", Username: "alice"}, nil
+				},
+			},
+			&testutil.MockMentionRepo{},
+			&testutil.MockRoleMentionRepo{},
+			&testutil.MockRoleRepo{},
+			&testutil.MockReactionRepo{},
+			&testutil.MockReadStateRepo{},
+			&testutil.MockBroadcastAndOnline{},
+			&testutil.MockChannelPermResolver{
+				ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+					return models.PermSendMessages | models.PermReadMessages, nil
+				},
+			},
+			&testutil.MockFileURLSigner{},
+			&testutil.MockFileDeleter{},
+			&testutil.MockStorageService{},
+			stubServerEncryption{e2ee: e2ee},
+		)
+	}
+
+	t.Run("should reject a plaintext message when the server requires encryption", func(t *testing.T) {
+		_, err := newSvc(true).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"})
+		if !errors.Is(err, pkg.ErrBadRequest) {
+			t.Fatalf("want ErrBadRequest, got %v", err)
+		}
+	})
+
+	t.Run("should accept a plaintext message when the server does not require encryption", func(t *testing.T) {
+		if _, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"}); err != nil {
+			t.Fatalf("plaintext on an unencrypted server should be allowed: %v", err)
+		}
+	})
 }

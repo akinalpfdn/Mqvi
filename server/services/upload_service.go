@@ -60,8 +60,6 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 		return nil, err
 	}
 
-	thumbURL, thumbW, thumbH := storeThumbnail(ctx, s.pipeline, files.KindMessage, messageID, thumb)
-
 	fileSize := stored.Size
 	attachment := &models.Attachment{
 		MessageID: messageID,
@@ -69,18 +67,18 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 		FileURL:   stored.RelativeURL,
 		FileSize:  &fileSize,
 		MimeType:  &mimeBase,
-
-		ThumbURL:    thumbURL,
-		ThumbWidth:  thumbW,
-		ThumbHeight: thumbH,
+	}
+	if t := storeThumbnail(ctx, s.pipeline, files.KindMessage, messageID, thumb); t != nil {
+		attachment.ThumbURL, attachment.ThumbWidth, attachment.ThumbHeight = &t.URL, t.Width, t.Height
+		attachment.ThumbSize = &t.Size
 	}
 
 	if err := s.attachmentRepo.Create(ctx, attachment); err != nil {
 		s.pipeline.DeleteFromURL(stored.RelativeURL)
 		// The thumbnail was stored before the row existed; without this it would sit on disk with
 		// nothing referencing it and no cleanup query able to find it.
-		if thumbURL != nil {
-			s.pipeline.DeleteFromURL(*thumbURL)
+		if attachment.ThumbURL != nil {
+			s.pipeline.DeleteFromURL(*attachment.ThumbURL)
 		}
 		return nil, fmt.Errorf("failed to create attachment record: %w", err)
 	}
