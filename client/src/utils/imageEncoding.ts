@@ -68,6 +68,30 @@ export async function encodeCanvas(
   });
 }
 
+/**
+ * Whether any drawn pixel is not fully opaque.
+ *
+ * Every pixel, not a sample: a fixed stride lands on the same columns each row whenever the width is
+ * a multiple of it — which the output sizes are — so a narrow transparent band could slip through
+ * and get flattened to black. This runs once per encode, over an image already scaled to its output.
+ */
+export function hasTransparentPixels(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement
+): boolean {
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  } catch {
+    // Tainted canvas — cannot inspect, so keep alpha rather than risk flattening it.
+    return true;
+  }
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 255) return true;
+  }
+  return false;
+}
+
 const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/jpeg": "jpg",
@@ -120,8 +144,12 @@ export async function createThumbnail(file: File): Promise<GeneratedThumbnail | 
     ctx.drawImage(bitmap, 0, 0, width, height);
     bitmap.close();
 
-    // Alpha is kept: a transparent PNG previewed on a black background looks broken.
-    const blob = await encodeCanvas(canvas, { alpha: true, quality: 0.8 });
+    // Alpha only where the pixels actually carry it. Asking for it unconditionally kept transparent
+    // PNGs from being blackened, but it also forced PNG output on every browser that cannot encode
+    // WebP — Safari before 16.4 — and a photographic PNG at this size runs an order of magnitude
+    // larger than the JPEG of the same frame, roughly doubling what an opaque photo costs to send.
+    const alpha = hasTransparentPixels(ctx, canvas);
+    const blob = await encodeCanvas(canvas, { alpha, quality: 0.8 });
     return blob ? { blob, width, height } : null;
   } catch {
     return null;
