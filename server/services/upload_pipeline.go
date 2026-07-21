@@ -300,6 +300,12 @@ type ThumbnailUpload struct {
 	Height int
 }
 
+// maxThumbnailBytes caps a companion preview independently of the attachment cap. A generated
+// thumbnail is well under 1MB; without a tight bound a client could send the full attachment cap
+// (100MB) as a "thumbnail", which is neither charged to its quota (only file_size counts) nor
+// reserved before upload — an unmetered store. 5MB leaves generous headroom for a real preview.
+const maxThumbnailBytes int64 = 5 * 1024 * 1024
+
 // storeThumbnail stores a companion preview beside its original.
 //
 // A thumbnail that fails to store must never fail the attachment: the preview is an optimisation,
@@ -311,13 +317,12 @@ func storeThumbnail(
 	kind files.Kind,
 	scopeID string,
 	thumb *ThumbnailUpload,
-	maxSize int64,
 ) (url *string, width *int, height *int) {
 	if thumb == nil || thumb.Header == nil {
 		return nil, nil, nil
 	}
 
-	stored, err := pipeline.Store(ctx, kind, scopeID, thumb.File, thumb.Header, maxSize)
+	stored, err := pipeline.Store(ctx, kind, scopeID, thumb.File, thumb.Header, maxThumbnailBytes)
 	if err != nil {
 		log.Printf("[upload] thumbnail rejected for %s/%s: %v — attachment kept without one", kind, scopeID, err)
 		return nil, nil, nil

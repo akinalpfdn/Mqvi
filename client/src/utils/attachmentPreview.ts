@@ -52,8 +52,11 @@ async function nativePoster(file: File): Promise<GeneratedThumbnail | null> {
   }
 }
 
-export async function buildAttachmentPreview(file: File): Promise<GeneratedThumbnail | null> {
-  const browserPreview = await createAttachmentPreview(file);
+export async function buildAttachmentPreview(
+  file: File,
+  signal?: AbortSignal
+): Promise<GeneratedThumbnail | null> {
+  const browserPreview = await createAttachmentPreview(file, signal);
   if (browserPreview) return browserPreview;
   return nativePoster(file);
 }

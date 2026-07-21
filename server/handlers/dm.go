@@ -282,6 +282,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 				uploadedBytes += *attachment.FileSize
 			}
 			attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
+			attachment.ThumbURL = h.urlSigner.SignURLPtr(attachment.ThumbURL)
 			msg.Attachments = append(msg.Attachments, *attachment)
 		}
 

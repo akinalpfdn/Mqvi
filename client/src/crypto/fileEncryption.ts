@@ -115,27 +115,59 @@ export async function encryptFile(file: File): Promise<EncryptedFileResult> {
  * is why a large attachment looked frozen. Falls back to arrayBuffer() when the body cannot be
  * streamed, so the caller still gets its data.
  */
-async function readWithProgress(
+// Exported for direct testing — the buffering (preallocate on known length, short-read, overflow)
+// is decrypt-correctness-critical and hard to exercise through decryptFile's crypto path.
+export async function readWithProgress(
   response: Response,
   onProgress: (loaded: number, total: number | null) => void
 ): Promise<ArrayBuffer> {
-  const header = response.headers.get("Content-Length");
-  const total = header ? Number(header) : null;
   if (!response.body) return response.arrayBuffer();
 
+  const header = response.headers.get("Content-Length");
+  const totalNum = header ? Number(header) : NaN;
+  const total = Number.isFinite(totalNum) && totalNum >= 0 ? totalNum : null;
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
   let loaded = 0;
 
+  // Known length: fill one preallocated buffer. Collecting chunks and merging afterwards holds the
+  // whole payload twice at peak, a needless spike on a mobile WebView for a download of tens of MB.
+  if (total !== null) {
+    const buffer = new Uint8Array(total);
+    let overflow: Uint8Array[] | null = null;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!overflow && loaded + value.length <= total) {
+        buffer.set(value, loaded);
+      } else {
+        // The body outran its declared length — collect the remainder rather than write out of
+        // bounds. Rare: a chunked or misreported Content-Length.
+        if (!overflow) overflow = [buffer.subarray(0, loaded)];
+        overflow.push(value);
+      }
+      loaded += value.length;
+      onProgress(loaded, total);
+    }
+    if (overflow) return mergeChunks(overflow, loaded);
+    // A truncated response leaves the tail of the preallocated buffer as zeros; return only the
+    // bytes actually read so a decrypt sees the real (short) payload, not zero padding.
+    return loaded === total ? buffer.buffer : buffer.buffer.slice(0, loaded);
+  }
+
+  // Unknown length: nothing to preallocate, so collect and merge.
+  const chunks: Uint8Array[] = [];
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     chunks.push(value);
     loaded += value.length;
-    onProgress(loaded, Number.isFinite(total) ? total : null);
+    onProgress(loaded, null);
   }
+  return mergeChunks(chunks, loaded);
+}
 
-  const merged = new Uint8Array(loaded);
+function mergeChunks(chunks: Uint8Array[], total: number): ArrayBuffer {
+  const merged = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
     merged.set(chunk, offset);
@@ -207,13 +239,14 @@ export async function decryptFile(
 /** Generate an encrypted thumbnail for image files. Uses same key with different IV. */
 export async function encryptThumbnail(
   file: File,
-  fileKey: string
+  fileKey: string,
+  signal?: AbortSignal
 ): Promise<EncryptedThumbnailResult | null> {
   // The image work is shared with the plaintext path rather than duplicated. The copy that used to
   // live here decoded without imageOrientation (phone photos came out rotated), encoded JPEG (a
   // transparent PNG got a black background) and capped at 256px, which is soft in a slot that
   // renders up to 300px tall at 2x.
-  const thumbnail = await buildAttachmentPreview(file);
+  const thumbnail = await buildAttachmentPreview(file, signal);
   if (!thumbnail) return null;
 
   try {

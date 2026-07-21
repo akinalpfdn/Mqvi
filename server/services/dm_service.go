@@ -165,6 +165,7 @@ func (s *dmService) enrichMessages(ctx context.Context, messages []models.DMMess
 		atts := attachmentMap[messages[i].ID]
 		for j := range atts {
 			atts[j].FileURL = s.urlSigner.SignURL(atts[j].FileURL)
+			atts[j].ThumbURL = s.urlSigner.SignURLPtr(atts[j].ThumbURL)
 		}
 		messages[i].Attachments = atts
 		if messages[i].Attachments == nil {

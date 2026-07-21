@@ -229,7 +229,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
           let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
 
           if (files && files.length > 0) {
-            const result = await encryptFilesForE2EE(files);
+            const result = await encryptFilesForE2EE(files, upload?.signal);
             encryptedFiles = result.files;
             thumbs = result.thumbs;
             fileMetas = result.metas;
@@ -292,7 +292,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
     // Same generation as the encrypted path, so both produce previews identically.
     const plainThumbs = files
-      ? await Promise.all(files.map((file) => buildAttachmentPreview(file)))
+      ? await Promise.all(files.map((file) => buildAttachmentPreview(file, upload?.signal)))
       : undefined;
     const res = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload, plainThumbs);
     handleSendError(res);

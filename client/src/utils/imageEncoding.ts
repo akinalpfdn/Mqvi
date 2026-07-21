@@ -160,8 +160,12 @@ const POSTER_TIMEOUT_MS = 10_000;
  * decoded in a WebView, and that returns null here. Callers fall back to the previous behaviour —
  * an inline player that pulls part of the video to paint its own frame.
  */
-export async function createVideoPoster(file: File): Promise<GeneratedThumbnail | null> {
+export async function createVideoPoster(
+  file: File,
+  signal?: AbortSignal
+): Promise<GeneratedThumbnail | null> {
   if (!file.type.startsWith("video/")) return null;
+  if (signal?.aborted) return null;
 
   const objectUrl = URL.createObjectURL(file);
   const video = document.createElement("video");
@@ -172,9 +176,14 @@ export async function createVideoPoster(file: File): Promise<GeneratedThumbnail 
   try {
     const frame = await new Promise<GeneratedThumbnail | null>((resolve) => {
       const timer = window.setTimeout(() => finish(null), POSTER_TIMEOUT_MS);
+      // Cancelling the send must not wait out a video the browser is slow to decode (up to the
+      // timeout above). Bail the moment the upload is aborted.
+      const onAbort = () => finish(null);
+      signal?.addEventListener("abort", onAbort);
 
       function finish(result: GeneratedThumbnail | null) {
         window.clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
         video.onloadedmetadata = null;
         video.onseeked = null;
         video.onerror = null;
@@ -227,7 +236,10 @@ export async function createVideoPoster(file: File): Promise<GeneratedThumbnail 
  * The preview for any attachment that can have one — a scaled image or a video's poster frame.
  * Everything else gets null, which every caller treats as normal.
  */
-export async function createAttachmentPreview(file: File): Promise<GeneratedThumbnail | null> {
-  if (file.type.startsWith("video/")) return createVideoPoster(file);
+export async function createAttachmentPreview(
+  file: File,
+  signal?: AbortSignal
+): Promise<GeneratedThumbnail | null> {
+  if (file.type.startsWith("video/")) return createVideoPoster(file, signal);
   return createThumbnail(file);
 }

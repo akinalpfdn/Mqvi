@@ -225,7 +225,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
 
           if (files && files.length > 0) {
-            const result = await encryptFilesForE2EE(files);
+            const result = await encryptFilesForE2EE(files, upload?.signal);
             encryptedFiles = result.files;
             thumbs = result.thumbs;
             fileMetas = result.metas;
@@ -270,7 +270,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     // Previews are generated here, not in the api layer, so the encrypted and plaintext paths
     // produce them the same way. Non-images and already-small files come back null.
     const plainThumbs = files
-      ? await Promise.all(files.map((file) => buildAttachmentPreview(file)))
+      ? await Promise.all(files.map((file) => buildAttachmentPreview(file, upload?.signal)))
       : undefined;
     const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId, upload, plainThumbs);
     handleSendError(res);

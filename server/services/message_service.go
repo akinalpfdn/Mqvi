@@ -121,6 +121,7 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 		attachmentMap := make(map[string][]models.Attachment)
 		for _, a := range attachments {
 			a.FileURL = s.urlSigner.SignURL(a.FileURL)
+			a.ThumbURL = s.urlSigner.SignURLPtr(a.ThumbURL)
 			attachmentMap[a.MessageID] = append(attachmentMap[a.MessageID], a)
 		}
 
@@ -357,6 +358,7 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 	}
 	for i := range attachments {
 		attachments[i].FileURL = s.urlSigner.SignURL(attachments[i].FileURL)
+		attachments[i].ThumbURL = s.urlSigner.SignURLPtr(attachments[i].ThumbURL)
 	}
 	message.Attachments = attachments
 	if message.Attachments == nil {
@@ -433,6 +435,11 @@ func (s *messageService) Delete(ctx context.Context, serverID string, id string,
 	}
 	for _, a := range atts {
 		s.fileDeleter.DeleteFromURL(a.FileURL)
+		// The companion thumbnail is a separate file; without this it outlives its original until
+		// the orphan sweep. It carries no quota, so only the original counts toward the release.
+		if a.ThumbURL != nil {
+			s.fileDeleter.DeleteFromURL(*a.ThumbURL)
+		}
 		if a.FileSize != nil {
 			attachmentBytes += *a.FileSize
 		}

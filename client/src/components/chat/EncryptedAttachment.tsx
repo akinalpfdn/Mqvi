@@ -93,20 +93,15 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     }
   }, [attachment.file_url, fileMeta, state, objectUrl]);
 
-  // On mount, decrypt only the PREVIEW — a few tens of kB instead of the whole attachment. This is
-  // the point of thumbnails: opening a channel used to download and decrypt every image in it at
-  // full size. Messages sent before thumbnails existed have none, so those keep the old behaviour
-  // rather than showing nothing.
+  // Decrypt the small PREVIEW once — a few tens of kB instead of the whole attachment. This is the
+  // point of thumbnails: opening a channel used to download and decrypt every image at full size.
+  // Keyed on the thumbnail's identity alone, NOT on `state`: folding `state`/`doDecrypt` in here
+  // re-ran this on every idle→loading→ready step, re-decrypting the preview and leaking its blob URL
+  // each time the user opened the original.
   useEffect(() => {
     if (!canPreview) return;
-
     const thumbSource = attachment.thumb_url;
-    if (!thumbSource || !fileMeta.thumbIv) {
-      // Only images fell back to decrypting the whole file inline; a video never did, and
-      // starting now would pull the entire attachment just to show a frame.
-      if (isImage && state === "idle") doDecrypt();
-      return;
-    }
+    if (!thumbSource || !fileMeta.thumbIv) return;
 
     let cancelled = false;
     decryptThumbnail(resolveAssetUrl(thumbSource), fileMeta.key, fileMeta.thumbIv)
@@ -115,6 +110,8 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
           URL.revokeObjectURL(url);
           return;
         }
+        // A prior preview (e.g. after the source message was replaced) must be revoked, not leaked.
+        if (thumbRevokeRef.current) URL.revokeObjectURL(thumbRevokeRef.current);
         thumbRevokeRef.current = url;
         setThumbUrl(url);
       })
@@ -125,7 +122,17 @@ function EncryptedAttachment({ attachment, fileMeta }: EncryptedAttachmentProps)
     return () => {
       cancelled = true;
     };
-  }, [canPreview, isImage, attachment.thumb_url, fileMeta, state, doDecrypt]);
+  }, [canPreview, attachment.thumb_url, fileMeta.thumbIv, fileMeta.key]);
+
+  // An image with no thumbnail predates thumbnails; decrypt it whole so old conversations do not go
+  // blank. A video never fell back this way — that would pull the entire attachment just for a
+  // frame. doDecrypt self-guards against re-entry, so this staying idempotent is what lets it run
+  // outside the preview effect above.
+  useEffect(() => {
+    if (!isImage) return;
+    if (attachment.thumb_url && fileMeta.thumbIv) return;
+    if (state === "idle") doDecrypt();
+  }, [isImage, attachment.thumb_url, fileMeta.thumbIv, state, doDecrypt]);
 
   const openInViewer = useCallback(async () => {
     const url = state === "ready" && objectUrl ? objectUrl : await doDecrypt();

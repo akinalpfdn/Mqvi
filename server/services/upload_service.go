@@ -60,7 +60,7 @@ func (s *uploadService) Upload(ctx context.Context, messageID string, file multi
 		return nil, err
 	}
 
-	thumbURL, thumbW, thumbH := storeThumbnail(ctx, s.pipeline, files.KindMessage, messageID, thumb, s.maxSize)
+	thumbURL, thumbW, thumbH := storeThumbnail(ctx, s.pipeline, files.KindMessage, messageID, thumb)
 
 	fileSize := stored.Size
 	attachment := &models.Attachment{

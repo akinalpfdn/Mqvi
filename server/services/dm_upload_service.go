@@ -55,7 +55,7 @@ func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file m
 		return nil, err
 	}
 
-	thumbURL, thumbW, thumbH := storeThumbnail(ctx, s.pipeline, files.KindDM, dmMessageID, thumb, s.maxSize)
+	thumbURL, thumbW, thumbH := storeThumbnail(ctx, s.pipeline, files.KindDM, dmMessageID, thumb)
 
 	fileSize := stored.Size
 	attachment := &models.DMAttachment{

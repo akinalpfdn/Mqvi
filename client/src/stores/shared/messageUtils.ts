@@ -25,7 +25,8 @@ export type EncryptedFileResult = {
  * Shared between channel and DM sendMessage flows.
  */
 export async function encryptFilesForE2EE(
-  files: File[]
+  files: File[],
+  signal?: AbortSignal
 ): Promise<EncryptedFileResult> {
   const encrypted: File[] = [];
   const metas: EncryptedFileMeta[] = [];
@@ -41,7 +42,7 @@ export async function encryptFilesForE2EE(
 
     // Shares the file's key with its own IV, so the payload carries one extra field rather than a
     // second key. Returns null for non-images and for anything already small enough.
-    const thumb = await encryptThumbnail(files[i], result.meta.key);
+    const thumb = await encryptThumbnail(files[i], result.meta.key, signal);
     if (thumb) {
       result.meta.thumbIv = thumb.iv;
       thumbs.push({ blob: thumb.encryptedBlob, width: thumb.width, height: thumb.height });

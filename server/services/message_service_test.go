@@ -437,3 +437,78 @@ func TestMessageCreate_E2EE(t *testing.T) {
 		t.Errorf("encryption_version = %d, want 1", msg.EncryptionVersion)
 	}
 }
+
+// markingSigner appends a marker so a test can tell a signed URL from an unsigned one — the shared
+// MockFileURLSigner is a no-op and cannot.
+type markingSigner struct{}
+
+func (markingSigner) SignURL(fileURL string) string {
+	if fileURL == "" {
+		return fileURL
+	}
+	return fileURL + "?sig"
+}
+
+func (markingSigner) SignURLPtr(fileURL *string) *string {
+	if fileURL == nil || *fileURL == "" {
+		return fileURL
+	}
+	signed := *fileURL + "?sig"
+	return &signed
+}
+
+// A thumbnail is served from the same signature-gated endpoint as its original, so it must be
+// signed at every egress the original is. It was not, which returned 401 for every thumbnail on
+// cross-origin clients (Electron, mobile) where the cookie fallback does not apply.
+func TestGetByChannelID_SignsAttachmentThumbURL(t *testing.T) {
+	thumb := "/api/files/messages/ch1/abcd_thumb.webp"
+	svc := NewMessageService(
+		&testutil.MockMessageRepo{
+			GetByChannelIDFn: func(_ context.Context, _ string, _ string, _ int) ([]models.Message, error) {
+				return []models.Message{{ID: "m1", ChannelID: "ch1", UserID: "u1"}}, nil
+			},
+		},
+		&testutil.MockAttachmentRepo{
+			GetByMessageIDsFn: func(_ context.Context, _ []string) ([]models.Attachment, error) {
+				return []models.Attachment{{
+					ID:        "a1",
+					MessageID: "m1",
+					FileURL:   "/api/files/messages/ch1/abcd.bin",
+					ThumbURL:  &thumb,
+				}}, nil
+			},
+		},
+		&testutil.MockChannelRepo{},
+		&testutil.MockUserRepo{},
+		&testutil.MockMentionRepo{},
+		&testutil.MockRoleMentionRepo{},
+		&testutil.MockRoleRepo{},
+		&testutil.MockReactionRepo{},
+		&testutil.MockReadStateRepo{},
+		&testutil.MockBroadcastAndOnline{},
+		&testutil.MockChannelPermResolver{
+			ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+				return models.PermReadMessages, nil
+			},
+		},
+		markingSigner{},
+		&testutil.MockFileDeleter{},
+		&testutil.MockStorageService{},
+	)
+
+	page, err := svc.GetByChannelID(context.Background(), "ch1", "u1", "", 50)
+	if err != nil {
+		t.Fatalf("GetByChannelID: %v", err)
+	}
+	if len(page.Messages) != 1 || len(page.Messages[0].Attachments) != 1 {
+		t.Fatalf("expected 1 message with 1 attachment, got %+v", page.Messages)
+	}
+
+	att := page.Messages[0].Attachments[0]
+	if att.FileURL != "/api/files/messages/ch1/abcd.bin?sig" {
+		t.Errorf("file_url not signed: %q", att.FileURL)
+	}
+	if att.ThumbURL == nil || *att.ThumbURL != thumb+"?sig" {
+		t.Errorf("thumb_url not signed: %v", att.ThumbURL)
+	}
+}

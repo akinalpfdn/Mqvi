@@ -6,7 +6,7 @@
 
 import type { APIResponse } from "../types";
 import { API_BASE_URL } from "../utils/constants";
-import type { GeneratedThumbnail } from "../utils/imageEncoding";
+import { extensionForType, type GeneratedThumbnail } from "../utils/imageEncoding";
 
 function getAccessToken(): string | null {
   return localStorage.getItem("access_token");
@@ -123,100 +123,104 @@ type RequestOptions = {
  *   const data = await apiClient<User[]>("/users");
  *   const user = await apiClient<User>("/users/me", { method: "PATCH", body: { display_name: "New" } });
  */
+/**
+ * Runs one authenticated attempt, and on a 401 refreshes the access token once and retries.
+ *
+ * Shared by the fetch transport (apiClient) and the XHR transport (uploadRequest) so the Bearer +
+ * one-shot-refresh policy lives in a single place — the two used to carry independent copies that
+ * could drift. `send` performs the actual request with whatever token it is given and returns the
+ * parsed envelope plus the HTTP status the refresh decision keys on.
+ */
+async function withTokenRefresh<T>(
+  label: string,
+  send: (token: string | null) => Promise<XhrResult<T>>
+): Promise<APIResponse<T>> {
+  const token = getAccessToken();
+  const first = await send(token);
+  if (first.status !== 401) return first.response;
+
+  if (!getRefreshToken()) {
+    console.warn(`[api] 401 on ${label} but NO refresh_token in storage`, { hadAuthHeader: !!token });
+    return first.response;
+  }
+
+  console.warn(`[api] 401 on ${label} — attempting refresh`, {
+    timestamp: new Date().toISOString(),
+    hadAuthHeader: !!token,
+  });
+  const refreshed = await refreshAccessToken();
+  console.warn(`[api] refresh result: ${refreshed}`, {
+    hasAccessTokenAfter: !!getAccessToken(),
+    hasRefreshTokenAfter: !!getRefreshToken(),
+  });
+  if (!refreshed) {
+    console.warn(`[api] refresh FAILED on ${label} — returning original 401`);
+    return first.response;
+  }
+
+  const retry = await send(getAccessToken());
+  return retry.response;
+}
+
+/**
+ * One fetch attempt with a given token, normalised to the same {status, response} shape sendXhr
+ * returns so both transports share withTokenRefresh. Never throws — a network error or non-JSON
+ * body comes back as a failed envelope, matching the guarantee callers already rely on.
+ */
+async function sendFetch<T>(
+  endpoint: string,
+  method: string,
+  body: RequestOptions["body"],
+  extraHeaders: Record<string, string> | undefined,
+  signal: AbortSignal | undefined,
+  token: string | null
+): Promise<XhrResult<T>> {
+  const headers: Record<string, string> = { ...extraHeaders };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (body && !(body instanceof FormData)) headers["Content-Type"] = "application/json";
+
+  const fetchOptions: RequestInit = {
+    method,
+    headers,
+    // Send/receive the file-serve session cookie set by /auth/* endpoints. Same-origin web defaults
+    // to "include"; this explicit value is required for the Electron renderer (file:// origin → API
+    // is cross-site).
+    credentials: "include",
+    signal,
+  };
+  if (body) fetchOptions.body = body instanceof FormData ? body : JSON.stringify(body);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${endpoint}`, fetchOptions);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Network request failed";
+    console.error(`[apiClient] ${method} ${endpoint}:`, message);
+    return { status: 0, response: { success: false, error: message } as APIResponse<T> };
+  }
+
+  if (res.status === 204) {
+    return { status: 204, response: { success: true, data: undefined as T } };
+  }
+  try {
+    return { status: res.status, response: (await res.json()) as APIResponse<T> };
+  } catch {
+    console.error(`[apiClient] ${method} ${endpoint}: invalid JSON (HTTP ${res.status})`);
+    return {
+      status: res.status,
+      response: { success: false, error: `HTTP ${res.status}: ${res.statusText}` } as APIResponse<T>,
+    };
+  }
+}
+
 export async function apiClient<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<APIResponse<T>> {
   const { method = "GET", body, headers: extraHeaders, signal } = options;
-
-  const headers: Record<string, string> = {
-    ...extraHeaders,
-  };
-
-  const token = getAccessToken();
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  if (body && !(body instanceof FormData)) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const fetchOptions: RequestInit = {
-    method,
-    headers,
-    // Send/receive the file-serve session cookie set by /auth/* endpoints.
-    // Same-origin web defaults to "include"; this explicit value is required
-    // for the Electron renderer (file:// origin → API is cross-site).
-    credentials: "include",
-    signal,
-  };
-
-  if (body) {
-    fetchOptions.body =
-      body instanceof FormData ? body : JSON.stringify(body);
-  }
-
-  let res: Response;
-
-  try {
-    res = await fetch(`${API_BASE_URL}${endpoint}`, fetchOptions);
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Network request failed";
-    console.error(`[apiClient] ${method} ${endpoint}:`, message);
-    return { success: false, error: message } as APIResponse<T>;
-  }
-
-  // 401 — attempt token refresh
-  if (res.status === 401 && getRefreshToken()) {
-    console.warn(`[apiClient] 401 on ${method} ${endpoint} — attempting refresh`, {
-      timestamp: new Date().toISOString(),
-      hadAuthHeader: !!token,
-    });
-    const refreshed = await refreshAccessToken();
-    console.warn(`[apiClient] refresh result: ${refreshed}`, {
-      hasAccessTokenAfter: !!getAccessToken(),
-      hasRefreshTokenAfter: !!getRefreshToken(),
-    });
-    if (refreshed) {
-      headers["Authorization"] = `Bearer ${getAccessToken()}`;
-      try {
-        res = await fetch(`${API_BASE_URL}${endpoint}`, {
-          ...fetchOptions,
-          headers,
-        });
-        console.warn(`[apiClient] retry after refresh: ${method} ${endpoint} status=${res.status}`);
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Network request failed";
-        console.error(`[apiClient] ${method} ${endpoint} (retry):`, message);
-        return { success: false, error: message } as APIResponse<T>;
-      }
-    } else {
-      console.warn(`[apiClient] refresh FAILED on ${method} ${endpoint} — returning original 401`);
-    }
-  } else if (res.status === 401) {
-    console.warn(`[apiClient] 401 on ${method} ${endpoint} but NO refresh_token in storage`, {
-      hadAuthHeader: !!token,
-    });
-  }
-
-  // 204 No Content — no body to parse
-  if (res.status === 204) {
-    return { success: true, data: undefined as T };
-  }
-
-  try {
-    const data: APIResponse<T> = await res.json();
-    return data;
-  } catch {
-    console.error(`[apiClient] ${method} ${endpoint}: invalid JSON (HTTP ${res.status})`);
-    return {
-      success: false,
-      error: `HTTP ${res.status}: ${res.statusText}`,
-    } as APIResponse<T>;
-  }
+  return withTokenRefresh<T>(`${method} ${endpoint}`, (token) =>
+    sendFetch<T>(endpoint, method, body, extraHeaders, signal, token)
+  );
 }
 
 
@@ -229,7 +233,12 @@ export async function apiClient<T>(
 function appendThumbnails(form: FormData, thumbs?: (GeneratedThumbnail | null)[]): void {
   thumbs?.forEach((thumb, index) => {
     if (!thumb) return;
-    form.append(`thumb_${index}`, thumb.blob, `thumb_${index}`);
+    // The extension is what the serve layer resolves the MIME from. Without one the file is served
+    // as application/octet-stream with nosniff, which a cross-origin <img> (Electron, mobile)
+    // refuses to render. An encrypted thumbnail's blob is untyped and falls back to .png, harmless
+    // because it is fetched as bytes, never loaded as an image element.
+    const name = `thumb_${index}.${extensionForType(thumb.blob.type)}`;
+    form.append(`thumb_${index}`, thumb.blob, name);
     form.append(`thumb_${index}_w`, String(thumb.width));
     form.append(`thumb_${index}_h`, String(thumb.height));
   });
@@ -338,9 +347,11 @@ function sendXhr<T>(
 }
 
 /**
- * Multipart upload transport. Mirrors apiClient's auth behaviour — Bearer header, credentials,
- * one 401 refresh + retry, same APIResponse envelope — but runs on XMLHttpRequest because the
- * Fetch API cannot report upload progress and cannot be cancelled mid-transfer.
+ * Multipart upload transport. Shares apiClient's auth behaviour — Bearer header, one 401 refresh +
+ * retry, same APIResponse envelope — through withTokenRefresh, but runs on XMLHttpRequest because
+ * the Fetch API cannot report upload progress and cannot be cancelled mid-transfer.
+ *
+ * FormData is replayable, so a refresh retry re-sends the same body; progress restarts from zero.
  */
 async function uploadRequest<T>(
   endpoint: string,
@@ -348,16 +359,9 @@ async function uploadRequest<T>(
   options: UploadOptions = {}
 ): Promise<APIResponse<T>> {
   const { method = "POST", headers, signal, onProgress } = options;
-
-  const first = await sendXhr<T>(endpoint, body, method, headers, signal, onProgress, getAccessToken());
-  if (first.status !== 401 || !getRefreshToken()) return first.response;
-
-  const refreshed = await refreshAccessToken();
-  if (!refreshed) return first.response;
-
-  // FormData is replayable, so the retry re-sends the same body. Progress restarts from zero.
-  const retry = await sendXhr<T>(endpoint, body, method, headers, signal, onProgress, getAccessToken());
-  return retry.response;
+  return withTokenRefresh<T>(`${method} ${endpoint}`, (token) =>
+    sendXhr<T>(endpoint, body, method, headers, signal, onProgress, token)
+  );
 }
 
 /**
