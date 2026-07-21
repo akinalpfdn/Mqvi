@@ -29,12 +29,18 @@ export type PickedAttachment = {
 };
 
 /**
- * Android only, deliberately. iOS is Capacitor too, but its project has not been synced with the
- * picker plugin (PHASE-119), so choosing the native path there throws and takes the web `<input>`
- * fallback out of reach — attaching would be broken outright rather than merely unaccelerated.
+ * Both mobile platforms. iOS was held back while its project carried neither the picker plugin nor
+ * a native poster extractor — choosing the native path there would have thrown and taken the web
+ * `<input>` fallback out of reach, breaking attaching outright rather than merely leaving it
+ * unaccelerated. PHASE-05 shipped both, so the gate opens.
+ *
+ * "camera" stays on the web input everywhere: `capture="environment"` already hands over the OS
+ * camera app and produces an image the WebView decodes on its own, so there is nothing to gain.
  */
 export function supportsNativePicker(kind: PickKind = "media"): boolean {
-  return isCapacitor() && Capacitor.getPlatform() === "android" && kind !== "camera";
+  if (!isCapacitor() || kind === "camera") return false;
+  const platform = Capacitor.getPlatform();
+  return platform === "android" || platform === "ios";
 }
 
 // Native path for a picked File. A WeakMap avoids threading it through every File[] holder.

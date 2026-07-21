@@ -28,6 +28,7 @@
 		F4BE564F2F830F7A001A1477 /* NativeVoicePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4BE564E2F830F7A001A1477 /* NativeVoicePlugin.swift */; };
 		F4FC1F6D2FEC13D8007B44CC /* CallManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FC1F6B2FEC13D8007B44CC /* CallManager.swift */; };
 		F4FC1F6E2FEC13D8007B44CC /* P2PCallPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FC1F6C2FEC13D8007B44CC /* P2PCallPlugin.swift */; };
+		F4AB01012FF0A00100AA0001 /* MediaPosterPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AB01002FF0A00100AA0001 /* MediaPosterPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -85,6 +86,7 @@
 		F4BE564E2F830F7A001A1477 /* NativeVoicePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVoicePlugin.swift; sourceTree = "<group>"; };
 		F4FC1F6B2FEC13D8007B44CC /* CallManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallManager.swift; sourceTree = "<group>"; };
 		F4FC1F6C2FEC13D8007B44CC /* P2PCallPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = P2PCallPlugin.swift; sourceTree = "<group>"; };
+		F4AB01002FF0A00100AA0001 /* MediaPosterPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPosterPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -171,6 +173,7 @@
 				F424E60B2F78618B0001B5DF /* MqviViewController.swift */,
 				F424E60C2F78618B0001B5DF /* VoiceCallPlugin.swift */,
 				F424E6082F785E920001B5DF /* ScreenSharePlugin.swift */,
+				F4AB01002FF0A00100AA0001 /* MediaPosterPlugin.swift */,
 				F424E6072F785E0D0001B5DF /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -355,6 +358,7 @@
 				F4FC1F6D2FEC13D8007B44CC /* CallManager.swift in Sources */,
 				F4FC1F6E2FEC13D8007B44CC /* P2PCallPlugin.swift in Sources */,
 				F424E60E2F78618B0001B5DF /* VoiceCallPlugin.swift in Sources */,
+				F4AB01012FF0A00100AA0001 /* MediaPosterPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
