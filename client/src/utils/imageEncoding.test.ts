@@ -1,5 +1,40 @@
 import { describe, it, expect } from "vitest";
-import { fitWithin, extensionForType } from "./imageEncoding";
+import { fitWithin, extensionForType, hasTransparentPixels } from "./imageEncoding";
+
+/** Two pixels' worth of RGBA, so a test can say only what the alpha bytes are. */
+function canvasWithAlpha(...alphas: number[]) {
+  const data = new Uint8ClampedArray(alphas.length * 4);
+  alphas.forEach((alpha, index) => {
+    data[index * 4 + 3] = alpha;
+  });
+  const canvas = { width: alphas.length, height: 1 } as HTMLCanvasElement;
+  const ctx = { getImageData: () => ({ data }) } as unknown as CanvasRenderingContext2D;
+  return { ctx, canvas };
+}
+
+describe("hasTransparentPixels", () => {
+  it("should report no transparency when every pixel is fully opaque", () => {
+    // The case that matters for size: a camera photo encodes as JPEG rather than PNG.
+    const { ctx, canvas } = canvasWithAlpha(255, 255, 255);
+    expect(hasTransparentPixels(ctx, canvas)).toBe(false);
+  });
+
+  it("should report transparency when a single pixel is not fully opaque", () => {
+    const { ctx, canvas } = canvasWithAlpha(255, 254, 255);
+    expect(hasTransparentPixels(ctx, canvas)).toBe(true);
+  });
+
+  it("should assume transparency when the canvas cannot be read", () => {
+    // A tainted canvas throws. Guessing opaque there would flatten a logo's transparency to black.
+    const canvas = { width: 1, height: 1 } as HTMLCanvasElement;
+    const ctx = {
+      getImageData: () => {
+        throw new Error("tainted");
+      },
+    } as unknown as CanvasRenderingContext2D;
+    expect(hasTransparentPixels(ctx, canvas)).toBe(true);
+  });
+});
 
 describe("fitWithin", () => {
   it("should scale a wide image down to the box width", () => {

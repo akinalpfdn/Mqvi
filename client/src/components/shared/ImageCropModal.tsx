@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Cropper from "react-easy-crop";
 import type { Area } from "react-easy-crop";
-import { fitWithin, encodeCanvas } from "../../utils/imageEncoding";
+import { fitWithin, encodeCanvas, hasTransparentPixels } from "../../utils/imageEncoding";
 
 type ImageCropModalProps = {
   /** Data URL of the picked file. */
@@ -155,27 +155,6 @@ async function getCroppedImage(
   // actually carry it. Read the canvas rather than guess from the source type: keying on the shape
   // blackened transparent logos, and keying on "not a JPEG" re-encoded every opaque PNG losslessly.
   return encodeCanvas(canvas, { alpha: isCircle || hasTransparentPixels(ctx, canvas) });
-}
-
-/**
- * Whether any drawn pixel is not fully opaque.
- *
- * Every pixel, not a sample: a fixed stride lands on the same columns each row whenever the width is
- * a multiple of it — which the output sizes are — so a narrow transparent band could slip through
- * and get flattened to black. This runs once, on apply, over an image already scaled to its output.
- */
-function hasTransparentPixels(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): boolean {
-  let data: Uint8ClampedArray;
-  try {
-    data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  } catch {
-    // Tainted canvas — cannot inspect, so keep alpha rather than risk flattening it.
-    return true;
-  }
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] < 255) return true;
-  }
-  return false;
 }
 
 function createImage(url: string): Promise<HTMLImageElement> {

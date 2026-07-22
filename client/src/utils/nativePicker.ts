@@ -29,12 +29,18 @@ export type PickedAttachment = {
 };
 
 /**
- * Android only, deliberately. iOS is Capacitor too, but its project has not been synced with the
- * picker plugin (PHASE-119), so choosing the native path there throws and takes the web `<input>`
- * fallback out of reach — attaching would be broken outright rather than merely unaccelerated.
+ * Both mobile platforms. iOS was held back while its project carried neither the picker plugin nor
+ * a native poster extractor — choosing the native path there would have thrown and taken the web
+ * `<input>` fallback out of reach, breaking attaching outright rather than merely leaving it
+ * unaccelerated. PHASE-05 shipped both, so the gate opens.
+ *
+ * "camera" stays on the web input everywhere: `capture="environment"` already hands over the OS
+ * camera app and produces an image the WebView decodes on its own, so there is nothing to gain.
  */
 export function supportsNativePicker(kind: PickKind = "media"): boolean {
-  return isCapacitor() && Capacitor.getPlatform() === "android" && kind !== "camera";
+  if (!isCapacitor() || kind === "camera") return false;
+  const platform = Capacitor.getPlatform();
+  return platform === "android" || platform === "ios";
 }
 
 // Native path for a picked File. A WeakMap avoids threading it through every File[] holder.
@@ -48,10 +54,19 @@ export function nativePathOf(file: File): string | undefined {
 // disk. Assumed equivalent (Chromium backs large blobs with disk) but unmeasured — see PHASE-117.
 async function fileFromNativePath(path: string, name: string, mimeType: string): Promise<File> {
   const response = await fetch(Capacitor.convertFileSrc(path));
-  if (!response.ok) {
+  // Status 0 is not a failure. Only Android's converted URL points at a real local HTTP server;
+  // iOS serves the file through a WKWebView custom scheme handler, and those responses carry no
+  // status even when the entire body arrives. Treating 0 as not-ok refused every iOS pick while
+  // holding the complete file, and the user saw only "could not read this file".
+  if (response.status !== 0 && !response.ok) {
     throw new Error(`Failed to read picked file: HTTP ${response.status}`);
   }
   const blob = await response.blob();
+  // With no status to trust on iOS, the body is the only evidence the read worked.
+  if (blob.size === 0) {
+    throw new Error("Picked file read back empty");
+  }
+  // blob.type is empty over the custom scheme, so the picker's own mime type leads.
   const file = new File([blob], name, { type: mimeType || blob.type });
   nativePaths.set(file, path);
   return file;
@@ -125,7 +140,9 @@ async function runPicker(kind: PickKind, maxBytes: number, maxFiles: number): Pr
       });
     } catch (err) {
       // One unreadable file used to reject the whole call, throwing away everything already read.
-      console.warn(`[nativePicker] skipped ${entry.name}:`, err);
+      // error, not warn: the production build strips warn (vite.config.ts marks it pure), and this
+      // is the only account of a failure the user is being shown a toast about.
+      console.error(`[nativePicker] skipped ${entry.name}:`, err);
       skipped.push(entry.name);
     }
   }
