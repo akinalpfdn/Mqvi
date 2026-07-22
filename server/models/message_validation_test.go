@@ -7,6 +7,8 @@ import (
 
 type validatable interface{ Validate() error }
 
+// Local rather than testutil.Ptr: testutil imports repository, repository imports models, so a
+// models test that reached for it would close an import cycle.
 func ptr(s string) *string { return &s }
 
 // An encrypted message is only readable if the recipient can tell which device sent it: the client

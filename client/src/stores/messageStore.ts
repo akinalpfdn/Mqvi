@@ -11,7 +11,7 @@ import { buildAttachmentPreview } from "../utils/attachmentPreview";
 import { mapWithConcurrency } from "../utils/concurrency";
 import { PREVIEW_CONCURRENCY } from "../utils/constants";
 import { useServerStore, selectServerE2EE } from "./serverStore";
-import { useE2EEStore } from "./e2eeStore";
+import { useE2EEStore, canEncrypt } from "./e2eeStore";
 import { useAuthStore } from "./authStore";
 import { useReadStateStore } from "./readStateStore";
 import { useToastStore } from "./toastStore";
@@ -224,6 +224,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
       return false;
     }
+    // Encrypted target, device not ready: refuse here rather than falling through to the plaintext
+    // branch below. The server would reject it anyway, but with the wrong reason.
+    if (targetServerE2EE && !canEncrypt(e2eeState)) {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionRequired"));
+      return false;
+    }
     if (targetServerE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const currentUserId = useAuthStore.getState().user?.id;
       if (currentUserId) {
@@ -300,6 +306,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const editServerE2EE = selectServerE2EE(serverId)(useServerStore.getState());
     if (editServerE2EE === undefined) {
       useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+      return false;
+    }
+    if (editServerE2EE && !canEncrypt(e2eeState)) {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionRequired"));
       return false;
     }
     if (editServerE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {

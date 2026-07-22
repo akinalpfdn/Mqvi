@@ -9,7 +9,7 @@ import { PREVIEW_CONCURRENCY } from "../utils/constants";
 import type { DMChannelWithUser, DMMessage } from "../types";
 import { useUIStore } from "./uiStore";
 import { useToastStore } from "./toastStore";
-import { useE2EEStore } from "./e2eeStore";
+import { useE2EEStore, canEncrypt } from "./e2eeStore";
 import { useAuthStore } from "./authStore";
 import {
   encryptDMMessage,
@@ -226,6 +226,10 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
       useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
       return false;
     }
+    if (dmChannel.e2ee_enabled && !canEncrypt(e2eeState)) {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionRequired"));
+      return false;
+    }
     if (dmChannel.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const channel = dmChannel;
       const currentUserId = useAuthStore.getState().user?.id;
@@ -335,6 +339,11 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
     if (typeof editChannelE2EE !== "boolean") {
       useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+      return false;
+    }
+
+    if (editChannelE2EE && !canEncrypt(e2eeState)) {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionRequired"));
       return false;
     }
 

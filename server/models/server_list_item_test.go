@@ -69,10 +69,21 @@ func fillNonZero(t *testing.T, source reflect.Value, target reflect.Type) {
 			f.SetString("x")
 		case reflect.Bool:
 			f.SetBool(true)
+		case reflect.Int, reflect.Int32, reflect.Int64:
+			f.SetInt(1)
+		case reflect.Float32, reflect.Float64:
+			f.SetFloat(1)
+		case reflect.Slice:
+			f.Set(reflect.MakeSlice(f.Type(), 1, 1))
 		case reflect.Ptr:
 			p := reflect.New(f.Type().Elem())
-			if p.Elem().Kind() == reflect.String {
+			switch p.Elem().Kind() {
+			case reflect.String:
 				p.Elem().SetString("x")
+			case reflect.Int, reflect.Int32, reflect.Int64:
+				p.Elem().SetInt(1)
+			case reflect.Bool:
+				p.Elem().SetBool(true)
 			}
 			f.Set(p)
 		default:
