@@ -202,8 +202,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 			if attachment.ThumbSize != nil {
 				uploadedBytes += *attachment.ThumbSize
 			}
-			attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
-			attachment.ThumbURL = h.urlSigner.SignURLPtr(attachment.ThumbURL)
+			services.SignAttachmentURLs(h.urlSigner, attachment)
 			message.Attachments = append(message.Attachments, *attachment)
 		}
 

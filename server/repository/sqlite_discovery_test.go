@@ -5,45 +5,23 @@ import (
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/testutil/dbtest"
 	_ "modernc.org/sqlite"
 )
 
-const discoverySchema = `
-CREATE TABLE servers (
-	id TEXT PRIMARY KEY, name TEXT NOT NULL, icon_url TEXT, banner_url TEXT,
-	description TEXT, category TEXT,
-	is_public INTEGER NOT NULL DEFAULT 0, verified INTEGER NOT NULL DEFAULT 0,
-	featured INTEGER NOT NULL DEFAULT 0, approval_required INTEGER NOT NULL DEFAULT 0,
-	discovery_blocked INTEGER NOT NULL DEFAULT 0,
-	deleted_at TEXT
-);
-CREATE TABLE server_members (server_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY(server_id,user_id));
-CREATE VIRTUAL TABLE servers_fts USING fts5(name, description, content='servers', content_rowid='rowid', tokenize='trigram');
-CREATE TRIGGER servers_ai AFTER INSERT ON servers BEGIN
-	INSERT INTO servers_fts(rowid, name, description) VALUES (NEW.rowid, NEW.name, COALESCE(NEW.description,''));
-END;
--- Mirrors migration 081: an external-content FTS table is pruned with the 'delete' command,
--- never a plain DELETE, which would rebuild the terms from the already-updated content row.
-CREATE TRIGGER servers_au AFTER UPDATE OF name, description ON servers BEGIN
-	INSERT INTO servers_fts(servers_fts, rowid, name, description) VALUES ('delete', OLD.rowid, OLD.name, COALESCE(OLD.description,''));
-	INSERT INTO servers_fts(rowid, name, description) VALUES (NEW.rowid, NEW.name, COALESCE(NEW.description,''));
-END;
-CREATE TRIGGER servers_ad AFTER DELETE ON servers BEGIN
-	INSERT INTO servers_fts(servers_fts, rowid, name, description) VALUES ('delete', OLD.rowid, OLD.name, COALESCE(OLD.description,''));
-END;`
-
 func TestDiscovery_ListFiltersAndOrder(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t, discoverySchema)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
 	if _, err := db.Exec(`
-		INSERT INTO servers (id, name, description, category, is_public, featured, deleted_at) VALUES
-			('s1','Cool Game Server','Best place for gamers','gaming',1,1,NULL),
-			('s2','Music Lounge','Chill beats','music',1,0,NULL),
-			('s3','Private Club','hidden','community',0,0,NULL),
-			('s4','Deleted Public','gone','gaming',1,0,'2020-01-01T00:00:00Z'),
-			('s5','Retro Gamers','Old school','gaming',1,0,NULL);
+		INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x'),('u2','bob','x');
+		INSERT INTO servers (id, name, description, category, is_public, featured, deleted_at, owner_id) VALUES
+			('s1','Cool Game Server','Best place for gamers','gaming',1,1,NULL,'u1'),
+			('s2','Music Lounge','Chill beats','music',1,0,NULL,'u1'),
+			('s3','Private Club','hidden','community',0,0,NULL,'u1'),
+			('s4','Deleted Public','gone','gaming',1,0,'2020-01-01T00:00:00Z','u1'),
+			('s5','Retro Gamers','Old school','gaming',1,0,NULL,'u1');
 		INSERT INTO server_members (server_id, user_id) VALUES
 			('s1','u1'),('s1','u2'),('s2','u2'),('s5','u1');`); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -99,12 +77,13 @@ func TestDiscovery_ListFiltersAndOrder(t *testing.T) {
 
 func TestDiscovery_BlockedExcluded(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t, discoverySchema)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
-	if _, err := db.Exec(`INSERT INTO servers (id, name, category, is_public, discovery_blocked) VALUES
-		('s1','Listed','gaming',1,0),
-		('s2','Admin Blocked','gaming',1,1);`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x');
+		INSERT INTO servers (id, name, category, is_public, discovery_blocked, owner_id) VALUES
+		('s1','Listed','gaming',1,0,'u1'),
+		('s2','Admin Blocked','gaming',1,1,'u1');`); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -120,12 +99,13 @@ func TestDiscovery_BlockedExcluded(t *testing.T) {
 
 func TestDiscovery_FTSSearch(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t, discoverySchema)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
-	if _, err := db.Exec(`INSERT INTO servers (id, name, description, category, is_public) VALUES
-		('s1','Cool Game Server','Best place for gamers','gaming',1),
-		('s2','Music Lounge','Chill beats','music',1);`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x');
+		INSERT INTO servers (id, name, description, category, is_public, owner_id) VALUES
+		('s1','Cool Game Server','Best place for gamers','gaming',1,'u1'),
+		('s2','Music Lounge','Chill beats','music',1,'u1');`); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -150,14 +130,15 @@ func TestDiscovery_FTSSearch(t *testing.T) {
 
 func TestDiscovery_GetPublicServerItem(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t, discoverySchema)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
 	if _, err := db.Exec(`
-		INSERT INTO servers (id, name, category, is_public, deleted_at) VALUES
-			('s1','Public One','gaming',1,NULL),
-			('s2','Private One','gaming',0,NULL),
-			('s3','Deleted One','gaming',1,'2020-01-01T00:00:00Z');
+		INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x');
+		INSERT INTO servers (id, name, category, is_public, deleted_at, owner_id) VALUES
+			('s1','Public One','gaming',1,NULL,'u1'),
+			('s2','Private One','gaming',0,NULL,'u1'),
+			('s3','Deleted One','gaming',1,'2020-01-01T00:00:00Z','u1');
 		INSERT INTO server_members (server_id, user_id) VALUES ('s1','u1');`); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -184,11 +165,12 @@ func TestDiscovery_GetPublicServerItem(t *testing.T) {
 // a server's description must not fail, and the index must reflect the new text.
 func TestServersFTS_UpdateAndDelete(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t, discoverySchema)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteDiscoveryRepo(db)
 
 	if _, err := db.Exec(`
-		INSERT INTO servers (id, name, description, is_public) VALUES ('s1','Alpha','old text',1);
+		INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x');
+		INSERT INTO servers (id, name, description, is_public, owner_id) VALUES ('s1','Alpha','old text',1,'u1');
 		INSERT INTO server_members (server_id, user_id) VALUES ('s1','u1');`); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

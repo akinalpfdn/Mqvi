@@ -6,58 +6,28 @@ import (
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
-	_ "modernc.org/sqlite"
+	"github.com/akinalp/mqvi/testutil/dbtest"
 )
-
-func newMessageUpdateTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Exec(`
-		CREATE TABLE messages (
-			id TEXT PRIMARY KEY,
-			channel_id TEXT NOT NULL,
-			user_id TEXT NOT NULL,
-			content TEXT,
-			edited_at DATETIME,
-			encryption_version INTEGER NOT NULL DEFAULT 0,
-			ciphertext TEXT,
-			sender_device_id TEXT,
-			e2ee_metadata TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-	`); err != nil {
-		t.Fatalf("create schema: %v", err)
-	}
-	return db
-}
-
-func ptr(s string) *string { return &s }
 
 // An encrypted edit has to persist the new ciphertext. Writing only `content` left the old
 // ciphertext in the row, so the client decrypted the original text and the edit vanished — the user
 // saw "(edited)" beside unchanged words.
 func TestMessageUpdate_PersistsCiphertextOnEncryptedEdit(t *testing.T) {
-	db := newMessageUpdateTestDB(t)
-	repo := NewSQLiteMessageRepo(db)
+	f := dbtest.New(t)
+	repo := NewSQLiteMessageRepo(f.DB)
 
-	if _, err := db.Exec(
-		`INSERT INTO messages (id, channel_id, user_id, encryption_version, ciphertext, sender_device_id, e2ee_metadata)
-		 VALUES ('m1', 'ch1', 'u1', 1, 'OLD-CIPHER', 'dev1', '{}')`,
-	); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	id := f.Message(dbtest.MessageSeed{
+		EncryptionVersion: 1,
+		Ciphertext:        dbtest.Ptr("OLD-CIPHER"),
+		SenderDeviceID:    dbtest.Ptr("dev1"),
+	})
 
 	err := repo.Update(context.Background(), &models.Message{
-		ID:                "m1",
+		ID:                id,
 		EncryptionVersion: 1,
-		Ciphertext:        ptr("NEW-CIPHER"),
-		SenderDeviceID:    ptr("dev2"),
-		E2EEMetadata:      ptr(`{"v":2}`),
+		Ciphertext:        dbtest.Ptr("NEW-CIPHER"),
+		SenderDeviceID:    dbtest.Ptr("dev2"),
+		E2EEMetadata:      dbtest.Ptr(`{"v":2}`),
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -66,8 +36,8 @@ func TestMessageUpdate_PersistsCiphertextOnEncryptedEdit(t *testing.T) {
 	var ciphertext, deviceID, metadata string
 	var content sql.NullString
 	var editedAt sql.NullTime
-	if err := db.QueryRow(
-		`SELECT ciphertext, sender_device_id, e2ee_metadata, content, edited_at FROM messages WHERE id = 'm1'`,
+	if err := f.DB.QueryRow(
+		`SELECT ciphertext, sender_device_id, e2ee_metadata, content, edited_at FROM messages WHERE id = ?`, id,
 	).Scan(&ciphertext, &deviceID, &metadata, &content, &editedAt); err != nil {
 		t.Fatalf("read back: %v", err)
 	}
@@ -90,26 +60,21 @@ func TestMessageUpdate_PersistsCiphertextOnEncryptedEdit(t *testing.T) {
 }
 
 func TestMessageUpdate_PersistsContentOnPlaintextEdit(t *testing.T) {
-	db := newMessageUpdateTestDB(t)
-	repo := NewSQLiteMessageRepo(db)
+	f := dbtest.New(t)
+	repo := NewSQLiteMessageRepo(f.DB)
 
-	if _, err := db.Exec(
-		`INSERT INTO messages (id, channel_id, user_id, content, encryption_version)
-		 VALUES ('m1', 'ch1', 'u1', 'before', 0)`,
-	); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	id := f.Message(dbtest.MessageSeed{Content: dbtest.Ptr("before")})
 
 	if err := repo.Update(context.Background(), &models.Message{
-		ID:                "m1",
+		ID:                id,
 		EncryptionVersion: 0,
-		Content:           ptr("after"),
+		Content:           dbtest.Ptr("after"),
 	}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 
 	var content string
-	if err := db.QueryRow(`SELECT content FROM messages WHERE id = 'm1'`).Scan(&content); err != nil {
+	if err := f.DB.QueryRow(`SELECT content FROM messages WHERE id = ?`, id).Scan(&content); err != nil {
 		t.Fatalf("read back: %v", err)
 	}
 	if content != "after" {
@@ -122,30 +87,24 @@ func TestMessageUpdate_PersistsContentOnPlaintextEdit(t *testing.T) {
 // message without saving any ciphertext — the text was gone for good.
 func TestMessageUpdate_EncryptionVersionTransitions(t *testing.T) {
 	t.Run("should convert a plaintext row to encrypted when E2EE was switched on", func(t *testing.T) {
-		db := newMessageUpdateTestDB(t)
-		repo := NewSQLiteMessageRepo(db)
-		if _, err := db.Exec(
-			`INSERT INTO messages (id, channel_id, user_id, content, encryption_version)
-			 VALUES ('m1', 'ch1', 'u1', 'original text', 0)`,
-		); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
+		f := dbtest.New(t)
+		repo := NewSQLiteMessageRepo(f.DB)
+		id := f.Message(dbtest.MessageSeed{Content: dbtest.Ptr("original text")})
 
 		if err := repo.Update(context.Background(), &models.Message{
-			ID:                "m1",
+			ID:                id,
 			EncryptionVersion: 1,
-			Ciphertext:        ptr("CIPHER"),
-			SenderDeviceID:    ptr("dev1"),
-			E2EEMetadata:      ptr("{}"),
+			Ciphertext:        dbtest.Ptr("CIPHER"),
+			SenderDeviceID:    dbtest.Ptr("dev1"),
+			E2EEMetadata:      dbtest.Ptr("{}"),
 		}); err != nil {
 			t.Fatalf("update: %v", err)
 		}
 
 		var version int
-		var ciphertext sql.NullString
-		var content sql.NullString
-		if err := db.QueryRow(
-			`SELECT encryption_version, ciphertext, content FROM messages WHERE id = 'm1'`,
+		var ciphertext, content sql.NullString
+		if err := f.DB.QueryRow(
+			`SELECT encryption_version, ciphertext, content FROM messages WHERE id = ?`, id,
 		).Scan(&version, &ciphertext, &content); err != nil {
 			t.Fatalf("read back: %v", err)
 		}
@@ -161,19 +120,18 @@ func TestMessageUpdate_EncryptionVersionTransitions(t *testing.T) {
 	})
 
 	t.Run("should convert an encrypted row to plaintext when E2EE was switched off", func(t *testing.T) {
-		db := newMessageUpdateTestDB(t)
-		repo := NewSQLiteMessageRepo(db)
-		if _, err := db.Exec(
-			`INSERT INTO messages (id, channel_id, user_id, encryption_version, ciphertext, sender_device_id, e2ee_metadata)
-			 VALUES ('m1', 'ch1', 'u1', 1, 'OLD-CIPHER', 'dev1', '{}')`,
-		); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
+		f := dbtest.New(t)
+		repo := NewSQLiteMessageRepo(f.DB)
+		id := f.Message(dbtest.MessageSeed{
+			EncryptionVersion: 1,
+			Ciphertext:        dbtest.Ptr("OLD-CIPHER"),
+			SenderDeviceID:    dbtest.Ptr("dev1"),
+		})
 
 		if err := repo.Update(context.Background(), &models.Message{
-			ID:                "m1",
+			ID:                id,
 			EncryptionVersion: 0,
-			Content:           ptr("now in the clear"),
+			Content:           dbtest.Ptr("now in the clear"),
 		}); err != nil {
 			t.Fatalf("update: %v", err)
 		}
@@ -181,8 +139,8 @@ func TestMessageUpdate_EncryptionVersionTransitions(t *testing.T) {
 		var version int
 		var content string
 		var ciphertext sql.NullString
-		if err := db.QueryRow(
-			`SELECT encryption_version, content, ciphertext FROM messages WHERE id = 'm1'`,
+		if err := f.DB.QueryRow(
+			`SELECT encryption_version, content, ciphertext FROM messages WHERE id = ?`, id,
 		).Scan(&version, &content, &ciphertext); err != nil {
 			t.Fatalf("read back: %v", err)
 		}

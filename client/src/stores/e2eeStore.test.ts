@@ -33,7 +33,7 @@ vi.mock("./channelStore", () => ({
   useChannelStore: { getState: () => ({ selectedChannelId: null }) },
 }));
 
-import { useE2EEStore } from "./e2eeStore";
+import { useE2EEStore, canEncrypt } from "./e2eeStore";
 import type { DecryptionError } from "./e2eeStore";
 
 function resetStore() {
@@ -153,6 +153,34 @@ describe("e2eeStore", () => {
       expect(state.devices).toHaveLength(0);
       expect(state.hasRecoveryBackup).toBe(false);
       expect(state.isGeneratingKeys).toBe(false);
+    });
+  });
+
+  // ─── Encryption Readiness ───
+
+  /**
+   * The send and edit paths choose between an encrypted branch and a plaintext one, and this
+   * predicate is what stands between them. It used to be folded into the same condition that
+   * picked the branch, so a conversation that mandates encryption, reached while the device was
+   * still initialising, fell through to the plaintext branch and posted in the clear. The server
+   * refuses that — but a client that has to be caught by the server is a client that leaks the day
+   * the server check moves.
+   */
+  describe("canEncrypt", () => {
+    it("should say yes only when the device is initialised and registered", () => {
+      expect(canEncrypt({ initStatus: "ready", localDeviceId: "device-1" })).toBe(true);
+    });
+
+    it("should say no while initialisation is still in flight", () => {
+      for (const initStatus of ["uninitialized", "initializing", "error"] as const) {
+        expect(canEncrypt({ initStatus, localDeviceId: "device-1" }), initStatus).toBe(false);
+      }
+    });
+
+    // A device that never registered has no key to encrypt with, however ready the store claims.
+    it("should say no when this device has no id yet", () => {
+      expect(canEncrypt({ initStatus: "ready", localDeviceId: null })).toBe(false);
+      expect(canEncrypt({ initStatus: "ready", localDeviceId: "" })).toBe(false);
     });
   });
 });

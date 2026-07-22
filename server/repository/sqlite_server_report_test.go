@@ -5,24 +5,17 @@ import (
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/testutil/dbtest"
 	_ "modernc.org/sqlite"
 )
 
 func TestSQLiteServerReportRepo(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t, `
-		CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-		CREATE TABLE servers (id TEXT PRIMARY KEY, name TEXT);
-		CREATE TABLE server_reports (
-			id TEXT PRIMARY KEY, reporter_id TEXT NOT NULL, server_id TEXT NOT NULL,
-			reason TEXT NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
-			resolved_by TEXT, resolved_at TEXT,
-			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-		);`)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteServerReportRepo(db)
 
-	if _, err := db.Exec(`INSERT INTO users (id, username) VALUES ('u1','alice');
-		INSERT INTO servers (id, name) VALUES ('s1','Cool Server');`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x'),('admin1','root','x');
+		INSERT INTO servers (id, name, owner_id) VALUES ('s1','Cool Server','u1');`); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 

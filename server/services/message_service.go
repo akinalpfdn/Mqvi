@@ -166,8 +166,7 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 
 		attachmentMap := make(map[string][]models.Attachment)
 		for _, a := range attachments {
-			a.FileURL = s.urlSigner.SignURL(a.FileURL)
-			a.ThumbURL = s.urlSigner.SignURLPtr(a.ThumbURL)
+			SignAttachmentURLs(s.urlSigner, &a)
 			attachmentMap[a.MessageID] = append(attachmentMap[a.MessageID], a)
 		}
 
@@ -434,8 +433,7 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		return nil, fmt.Errorf("failed to get attachments: %w", err)
 	}
 	for i := range attachments {
-		attachments[i].FileURL = s.urlSigner.SignURL(attachments[i].FileURL)
-		attachments[i].ThumbURL = s.urlSigner.SignURLPtr(attachments[i].ThumbURL)
+		SignAttachmentURLs(s.urlSigner, &attachments[i])
 	}
 	message.Attachments = attachments
 	if message.Attachments == nil {

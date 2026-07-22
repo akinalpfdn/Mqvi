@@ -71,8 +71,12 @@ func TestActiveCall_EndsWhenNobodyReclaimsIt(t *testing.T) {
 		t.Fatal("torn down immediately instead of waiting out the grace window")
 	}
 
+	// Wait for the broadcast, not for the call to disappear. Teardown removes the call and then
+	// publishes, so polling the first and asserting the second assumes an ordering that does not
+	// hold once anything slows the scheduler down — under -race it lost the event about half the
+	// time.
 	deadline := time.Now().Add(2 * time.Second)
-	for callExists(svc, "x") && time.Now().Before(deadline) {
+	for len(hub.eventsFor("caller", ws.OpP2PCallEnd)) == 0 && time.Now().Before(deadline) {
 		time.Sleep(2 * time.Millisecond)
 	}
 

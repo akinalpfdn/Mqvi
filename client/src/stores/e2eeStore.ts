@@ -30,6 +30,18 @@ export type DecryptionError = {
   timestamp: number;
 };
 
+/**
+ * Whether this device can encrypt right now.
+ *
+ * The send and edit paths used to fold this into the same condition that chose the encrypted
+ * branch, so a target that mandates encryption while the device was still initialising fell
+ * through to the plaintext branch. The server refuses that, but only because the server checks —
+ * the client has to say no on its own, and say which of the two reasons it is.
+ */
+export function canEncrypt(e2ee: Pick<E2EEState, "initStatus" | "localDeviceId">): boolean {
+  return e2ee.initStatus === "ready" && !!e2ee.localDeviceId;
+}
+
 type E2EEState = {
   initStatus: E2EEInitStatus;
   /** null = not yet registered */

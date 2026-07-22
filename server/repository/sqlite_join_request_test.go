@@ -4,21 +4,18 @@ import (
 	"context"
 	"testing"
 
+	"github.com/akinalp/mqvi/testutil/dbtest"
+
 	_ "modernc.org/sqlite"
 )
 
 func TestSQLiteJoinRequestRepo(t *testing.T) {
 	ctx := context.Background()
-	db := openMemDB(t, `
-		CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT, display_name TEXT, avatar_url TEXT);
-		CREATE TABLE server_join_requests (
-			server_id TEXT NOT NULL, user_id TEXT NOT NULL, invite_code TEXT,
-			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-			PRIMARY KEY (server_id, user_id)
-		);`)
+	db := dbtest.New(t).DB
 	repo := NewSQLiteJoinRequestRepo(db)
 
-	if _, err := db.Exec(`INSERT INTO users (id, username) VALUES ('u1','alice'),('u2','bob')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x'),('u2','bob','x');
+		 INSERT INTO servers (id, name, owner_id) VALUES ('s1','Alpha','u1');`); err != nil {
 		t.Fatalf("seed users: %v", err)
 	}
 

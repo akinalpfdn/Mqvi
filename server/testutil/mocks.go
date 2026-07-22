@@ -988,3 +988,10 @@ func (m *MockStorageService) SetQuota(ctx context.Context, userID string, quotaB
 
 // MockFileCleanupService: defined inline in test files that need it
 // (not here — *services.CleanupPlan return type would create an import cycle).
+
+// Ptr is the shorthand for the optional pointer fields the models use.
+//
+// testutil/dbtest declares its own copy rather than calling this one: dbtest is imported by
+// repository's tests, and this package imports repository, so depending on it here would close an
+// import cycle.
+func Ptr[T any](v T) *T { return &v }

@@ -5,51 +5,12 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/akinalp/mqvi/testutil/dbtest"
 )
 
 func newFeedbackRepoTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Exec(`
-		CREATE TABLE users (
-			id TEXT PRIMARY KEY,
-			username TEXT NOT NULL,
-			display_name TEXT
-		);
-		CREATE TABLE feedback_tickets (
-			id TEXT PRIMARY KEY,
-			user_id TEXT NOT NULL,
-			type TEXT NOT NULL,
-			subject TEXT NOT NULL,
-			content TEXT NOT NULL,
-			status TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
-		CREATE TABLE feedback_replies (
-			id TEXT PRIMARY KEY,
-			ticket_id TEXT NOT NULL,
-			user_id TEXT NOT NULL,
-			is_admin INTEGER NOT NULL DEFAULT 0,
-			content TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		);
-		CREATE TABLE feedback_ticket_admin_reads (
-			admin_id TEXT NOT NULL,
-			ticket_id TEXT NOT NULL,
-			last_seen_at TEXT NOT NULL,
-			PRIMARY KEY (admin_id, ticket_id)
-		);
-	`); err != nil {
-		t.Fatalf("create schema: %v", err)
-	}
-	return db
+	return dbtest.New(t).DB
 }
 
 func seedTicket(t *testing.T, db *sql.DB, id, userID, ttype, subject, status, createdAt string) {
@@ -70,7 +31,7 @@ func TestSQLiteFeedbackRepo_ListAllForAdmin_Unread(t *testing.T) {
 	db := newFeedbackRepoTestDB(t)
 	repo := NewSQLiteFeedbackRepo(db)
 
-	if _, err := db.Exec(`INSERT INTO users (id, username) VALUES ('u1', 'alice'), ('admin', 'root')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x'), ('admin','root','x')`); err != nil {
 		t.Fatalf("insert users: %v", err)
 	}
 	seedTicket(t, db, "t1", "u1", "bug", "Alpha", "open", "2024-01-01T00:00:00.000Z")
@@ -127,7 +88,7 @@ func TestSQLiteFeedbackRepo_ListAllForAdmin_MultiStatusFilter(t *testing.T) {
 	db := newFeedbackRepoTestDB(t)
 	repo := NewSQLiteFeedbackRepo(db)
 
-	if _, err := db.Exec(`INSERT INTO users (id, username) VALUES ('u1', 'alice')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	seedTicket(t, db, "t1", "u1", "bug", "A", "open", "2024-01-01T00:00:00.000Z")
@@ -158,7 +119,7 @@ func TestSQLiteFeedbackRepo_ListAllForAdmin_Sort(t *testing.T) {
 	db := newFeedbackRepoTestDB(t)
 	repo := NewSQLiteFeedbackRepo(db)
 
-	if _, err := db.Exec(`INSERT INTO users (id, username) VALUES ('u1', 'alice')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	seedTicket(t, db, "t1", "u1", "bug", "Charlie", "open", "2024-01-01T00:00:00.000Z")
@@ -195,6 +156,14 @@ func TestSQLiteFeedbackRepo_MarkTicketSeen_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	db := newFeedbackRepoTestDB(t)
 	repo := NewSQLiteFeedbackRepo(db)
+
+	// The read row points at both an admin and a ticket; the real schema enforces that.
+	if _, err := db.Exec(`
+		INSERT INTO users (id, username, password_hash) VALUES ('u1','alice','x'), ('admin','root','x');
+		INSERT INTO feedback_tickets (id, user_id, type, subject, content) VALUES ('t1','u1','bug','s','c');`,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
 
 	if err := repo.MarkTicketSeen(ctx, "admin", "t1"); err != nil {
 		t.Fatalf("first mark: %v", err)
