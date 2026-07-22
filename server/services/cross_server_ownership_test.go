@@ -8,6 +8,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/testutil"
 )
 
@@ -37,6 +38,43 @@ func roleOn(serverID string) *testutil.MockRoleRepo {
 	return &testutil.MockRoleRepo{
 		GetByIDFn: func(_ context.Context, id string) (*models.Role, error) {
 			return &models.Role{ID: id, ServerID: serverID}, nil
+		},
+	}
+}
+
+// categoryRepoOn and soundRepoOn embed their interfaces so only the lookup the guard makes has to
+// exist; anything else the method reached would nil-panic, which is the signal that the guard did
+// not stop it.
+type categoryRepoOn struct {
+	repository.CategoryRepository
+	serverID string
+}
+
+func (r categoryRepoOn) GetByID(_ context.Context, id string) (*models.Category, error) {
+	return &models.Category{ID: id, ServerID: r.serverID}, nil
+}
+
+type soundRepoOn struct {
+	repository.SoundboardRepository
+	serverID string
+}
+
+func (r soundRepoOn) GetByID(_ context.Context, id string) (*models.SoundboardSound, error) {
+	return &models.SoundboardSound{ID: id, ServerID: r.serverID}, nil
+}
+
+// rolesByPosition lets the actor outrank the target, so ModifyRoles gets past its hierarchy check
+// and reaches the ownership guard underneath.
+func rolesByPosition(actorID string, foreign string) *testutil.MockRoleRepo {
+	return &testutil.MockRoleRepo{
+		GetByUserIDAndServerFn: func(_ context.Context, userID, _ string) ([]models.Role, error) {
+			if userID == actorID {
+				return []models.Role{{ID: "actor-role", Position: 10}}, nil
+			}
+			return []models.Role{{ID: "target-role", Position: 1}}, nil
+		},
+		GetByIDFn: func(_ context.Context, id string) (*models.Role, error) {
+			return &models.Role{ID: id, ServerID: foreign}, nil
 		},
 	}
 }
@@ -101,6 +139,56 @@ func TestCrossServerOwnership_ForeignResourcesAreRefused(t *testing.T) {
 				channelRepo: channelOn(foreignServer),
 			}
 			return s.Unpin(ctx, routeServer, "message-1", "channel-1")
+		}},
+		{"role reorder", func() error {
+			s := &roleService{roleRepo: roleOn(foreignServer)}
+			_, err := s.ReorderRoles(ctx, routeServer, "actor", []models.PositionUpdate{{ID: "role-1", Position: 1}})
+			return err
+		}},
+		{"channel reorder", func() error {
+			s := &channelService{channelRepo: channelOn(foreignServer)}
+			_, err := s.ReorderChannels(ctx, routeServer,
+				&models.ReorderChannelsRequest{Items: []models.PositionUpdate{{ID: "channel-1", Position: 1}}}, "actor")
+			return err
+		}},
+		{"category update", func() error {
+			s := &categoryService{categoryRepo: categoryRepoOn{serverID: foreignServer}}
+			_, err := s.Update(ctx, routeServer, "category-1", &models.UpdateCategoryRequest{})
+			return err
+		}},
+		{"category delete", func() error {
+			s := &categoryService{categoryRepo: categoryRepoOn{serverID: foreignServer}}
+			return s.Delete(ctx, routeServer, "category-1")
+		}},
+		{"category reorder", func() error {
+			s := &categoryService{categoryRepo: categoryRepoOn{serverID: foreignServer}}
+			_, err := s.Reorder(ctx, routeServer, []models.PositionUpdate{{ID: "category-1", Position: 1}})
+			return err
+		}},
+		{"soundboard update", func() error {
+			s := &soundboardService{repo: soundRepoOn{serverID: foreignServer}}
+			_, err := s.Update(ctx, routeServer, "sound-1", &models.UpdateSoundboardSoundRequest{})
+			return err
+		}},
+		{"soundboard delete", func() error {
+			s := &soundboardService{repo: soundRepoOn{serverID: foreignServer}}
+			return s.Delete(ctx, routeServer, "sound-1")
+		}},
+		{"member role assignment", func() error {
+			s := &memberService{roleRepo: rolesByPosition("actor", foreignServer)}
+			_, err := s.ModifyRoles(ctx, routeServer, "actor", "target", []string{"role-1"})
+			return err
+		}},
+		{"message delete", func() error {
+			s := &messageService{
+				messageRepo: &testutil.MockMessageRepo{
+					GetByIDFn: func(_ context.Context, id string) (*models.Message, error) {
+						return &models.Message{ID: id, ChannelID: "channel-1", UserID: "actor"}, nil
+					},
+				},
+				channelRepo: channelOn(foreignServer),
+			}
+			return s.Delete(ctx, routeServer, "message-1", "actor", models.PermManageMessages)
 		}},
 	}
 
