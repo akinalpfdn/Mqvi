@@ -7,7 +7,8 @@ import { useServerStore } from "../../stores/serverStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useActiveMembers } from "../../stores/memberStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import { resolveAssetUrl } from "../../utils/constants";
+import { resolveAssetUrl, BANNER_OUTPUT_WIDTH, BANNER_OUTPUT_HEIGHT } from "../../utils/constants";
+import { extensionForType } from "../../utils/imageEncoding";
 import { SERVER_CATEGORIES, categoryLabelKey } from "../../constants/serverCategories";
 import * as serverApi from "../../api/servers";
 import AvatarUpload from "./AvatarUpload";
@@ -211,7 +212,8 @@ function ServerGeneralSettings() {
     if (!activeServerId) return;
     setIsBannerUploading(true);
     try {
-      const file = new File([blob], "banner.png", { type: "image/png" });
+      // Extension follows the encoder — the serve layer resolves MIME from it.
+      const file = new File([blob], `banner.${extensionForType(blob.type)}`, { type: blob.type });
       const res = await serverApi.uploadServerBanner(activeServerId, file);
       if (res.success && res.data) {
         setServer(res.data);
@@ -319,6 +321,8 @@ function ServerGeneralSettings() {
             image={bannerCropImage}
             aspect={BANNER_ASPECT}
             isBusy={isBannerUploading}
+            maxWidth={BANNER_OUTPUT_WIDTH}
+            maxHeight={BANNER_OUTPUT_HEIGHT}
             onCancel={() => setBannerCropImage(null)}
             onApply={handleBannerUpload}
           />

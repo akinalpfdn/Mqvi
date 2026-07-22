@@ -212,9 +212,63 @@ export function passwordByteLength(password: string): number {
   return new TextEncoder().encode(password).length;
 }
 
-/** Max file upload size (bytes) — 500MB */
-export const MAX_FILE_SIZE = 500 * 1024 * 1024;
+/** Max upload (bytes). Bounded by the server's UPLOAD_MAX_SIZE and Cloudflare Free's 100MB body cap. */
+export const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
+/** Max E2EE attachment. Encryption holds the file plus its ciphertext, so 100MB would peak at 200MB+. */
+export const MAX_E2EE_FILE_SIZE = 25 * 1024 * 1024;
+
+
+/**
+ * Mirrors avatarMaxSize in server/handlers/avatar.go — avatar, wallpaper and server icon all go
+ * through the same processUpload path and share this cap.
+ */
+export const MAX_AVATAR_UPLOAD_SIZE = 8 * 1024 * 1024;
+
+/**
+ * Output cap for avatars and server icons, in pixels.
+ *
+ * 512 rather than the ~300 the UI needs: a 3× DPR profile card wants real pixels, and at this scale
+ * the byte difference is nothing next to the multi-megabyte originals this replaces.
+ */
+export const AVATAR_OUTPUT_SIZE = 512;
+
+/** Output cap for server banners. 16:9, matching --banner-aspect / BANNER_ASPECT. */
+export const BANNER_OUTPUT_WIDTH = 1920;
+export const BANNER_OUTPUT_HEIGHT = 1080;
+
+/** Mirrors badgeIconMaxSize in server/handlers/badge.go. */
+export const MAX_BADGE_ICON_SIZE = 2 * 1024 * 1024;
+
+/**
+ * Attachments per message. Mirrors maxMessageUploadFiles / maxDMUploadFiles on the server, which
+ * rejects the whole send past this — so the cap has to bite at selection, not at submit.
+ */
+export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
+
+/**
+ * How many attachment previews are generated at once.
+ *
+ * Each one decodes a full-size bitmap, so ten 12MP photos in parallel is hundreds of megabytes and
+ * an OOM on a mobile WebView. Two keeps the main thread fed without holding the whole batch.
+ */
+export const PREVIEW_CONCURRENCY = 2;
+
+// ─── Feedback / report attachments ───
+
+const FEEDBACK_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+/**
+ * What a feedback ticket or reply accepts. Mirrors isAllowedFeedbackMime in
+ * server/services/feedback_upload_service.go — video is matched by prefix on both sides so a
+ * container the list never anticipated (.mov from a Mac, .m4v) is not silently refused.
+ */
+export function isFeedbackAttachment(mime: string): boolean {
+  return mime.startsWith("video/") || FEEDBACK_IMAGE_TYPES.includes(mime);
+}
+
+/** Value for the `accept` attribute of every feedback file input. */
+export const FEEDBACK_ACCEPT_ATTR = `${FEEDBACK_IMAGE_TYPES.join(",")},video/*`;
 
 /** Idle detection — timeout in ms. User becomes "idle" after 5 minutes of inactivity. */
 export const IDLE_TIMEOUT = 5 * 60 * 1000;

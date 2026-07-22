@@ -14,6 +14,12 @@ import {
 import type { FeedbackTicket, FeedbackReply, FeedbackType } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { validateFiles, partitionFiles } from "../../utils/fileValidation";
+import { MAX_FILE_SIZE, FEEDBACK_ACCEPT_ATTR, isFeedbackAttachment } from "../../utils/constants";
+import UploadProgress from "../shared/UploadProgress";
+import AttachmentPreview from "../shared/AttachmentPreview";
 import { useImageAttach } from "../../hooks/useImageAttach";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
@@ -45,12 +51,18 @@ function FeedbackSettings() {
   const [formFiles, setFormFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // The new-ticket form and the reply box live in different views, so one channel serves both.
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
+  const notifyRejected = useFileRejectionNotice();
 
   const MAX_FILES = 4;
-  const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
   const addFiles = useCallback((newFiles: File[]) => {
-    const images = newFiles.filter((f) => ALLOWED_TYPES.includes(f.type));
+    const byType = partitionFiles(newFiles, (f) => isFeedbackAttachment(f.type));
+    notifyRejected(byType.rejected, { reason: "type" });
+    const { accepted: images, rejected } = validateFiles(byType.accepted, MAX_FILE_SIZE);
+    notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
     if (images.length === 0) return;
     setFormFiles((prev) => {
       const remaining = MAX_FILES - prev.length;
@@ -61,7 +73,7 @@ function FeedbackSettings() {
       if (images.length > remaining) addToast("warning", t("feedbackMaxFiles"));
       return [...prev, ...images.slice(0, remaining)];
     });
-  }, [addToast, t]);
+  }, [addToast, t, notifyRejected]);
 
   const { isDragging, dragHandlers } = useFileDrop(addFiles);
 
@@ -72,7 +84,7 @@ function FeedbackSettings() {
     handlePaste: handleReplyPaste,
     isDragging: isReplyDragging,
     dragHandlers: replyDragHandlers,
-  } = useImageAttach(setReplyFiles, MAX_FILES, onReplyLimit);
+  } = useImageAttach(setReplyFiles, MAX_FILES, onReplyLimit, isFeedbackAttachment);
 
   function handlePaste(e: React.ClipboardEvent) {
     const items = e.clipboardData?.items;
@@ -113,14 +125,18 @@ function FeedbackSettings() {
 
   const handleSubmit = async () => {
     if (!formSubject.trim() || !formContent.trim()) return;
+    const upload = formFiles.length > 0 ? beginUpload() : undefined;
     try {
       setIsSubmitting(true);
-      const res = await createFeedbackTicket({
-        type: formType,
-        subject: formSubject.trim(),
-        content: formContent.trim(),
-        files: formFiles.length > 0 ? formFiles : undefined,
-      });
+      const res = await createFeedbackTicket(
+        {
+          type: formType,
+          subject: formSubject.trim(),
+          content: formContent.trim(),
+          files: formFiles.length > 0 ? formFiles : undefined,
+        },
+        upload
+      );
       if (res.success) {
         addToast("success", t("feedbackSubmitSuccess"));
         setFormSubject("");
@@ -135,6 +151,7 @@ function FeedbackSettings() {
     } catch {
       addToast("error", t("feedbackSubmitError"));
     } finally {
+      endUpload(upload);
       setIsSubmitting(false);
     }
   };
@@ -168,9 +185,15 @@ function FeedbackSettings() {
 
   const handleReply = async () => {
     if (!replyContent.trim() || !activeTicket) return;
+    const upload = replyFiles.length > 0 ? beginUpload() : undefined;
     try {
       setIsSendingReply(true);
-      const res = await addFeedbackReply(activeTicket.id, replyContent.trim(), replyFiles.length > 0 ? replyFiles : undefined);
+      const res = await addFeedbackReply(
+        activeTicket.id,
+        replyContent.trim(),
+        replyFiles.length > 0 ? replyFiles : undefined,
+        upload
+      );
       if (res.success && res.data) {
         setReplies((prev) => [...prev, res.data!]);
         setReplyContent("");
@@ -181,6 +204,7 @@ function FeedbackSettings() {
     } catch {
       addToast("error", t("feedbackReplyError"));
     } finally {
+      endUpload(upload);
       setIsSendingReply(false);
     }
   };
@@ -311,7 +335,7 @@ function FeedbackSettings() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept={FEEDBACK_ACCEPT_ATTR}
               multiple
               style={{ display: "none" }}
               onChange={(e) => {
@@ -320,6 +344,14 @@ function FeedbackSettings() {
               }}
             />
           </div>
+
+          {uploadProgress && (
+            <UploadProgress
+              loaded={uploadProgress.loaded}
+              total={uploadProgress.total}
+              onCancel={cancelUpload}
+            />
+          )}
 
           <button
             className="settings-btn settings-btn-primary"
@@ -367,7 +399,7 @@ function FeedbackSettings() {
                   className="feedback-attachment-thumb"
                   onClick={(e) => openAttachment(att, e)}
                 >
-                  <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                  <AttachmentPreview url={resolveAssetUrl(att.file_url)} filename={att.filename} mime={att.mime_type} />
                 </a>
               ))}
             </div>
@@ -394,7 +426,7 @@ function FeedbackSettings() {
                   <div className="feedback-attachments">
                     {reply.attachments.map((att) => (
                       <a key={att.id} href={resolveAssetUrl(att.file_url)} rel="noopener noreferrer" className="feedback-attachment-thumb" onClick={(e) => openAttachment(att, e)}>
-                        <img src={resolveAssetUrl(att.file_url)} alt={att.filename} />
+                        <AttachmentPreview url={resolveAssetUrl(att.file_url)} filename={att.filename} mime={att.mime_type} />
                       </a>
                     ))}
                   </div>
@@ -435,7 +467,7 @@ function FeedbackSettings() {
                 <input
                   ref={replyFileInputRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  accept={FEEDBACK_ACCEPT_ATTR}
                   multiple
                   style={{ display: "none" }}
                   onChange={(e) => {
@@ -444,6 +476,13 @@ function FeedbackSettings() {
                   }}
                 />
               </div>
+              {uploadProgress && (
+                <UploadProgress
+                  loaded={uploadProgress.loaded}
+                  total={uploadProgress.total}
+                  onCancel={cancelUpload}
+                />
+              )}
               <button
                 className="settings-btn settings-btn-primary"
                 onClick={handleReply}

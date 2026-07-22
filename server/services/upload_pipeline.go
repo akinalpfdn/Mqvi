@@ -288,3 +288,62 @@ func parseScanTime(value string) (time.Time, error) {
 	}
 	return time.Parse("2006-01-02 15:04:05", value)
 }
+
+// ThumbnailUpload is the companion preview a client sends alongside an attachment.
+//
+// Always optional: old clients send none, non-image attachments have none, and client-side
+// generation is allowed to fail without failing the send. Every consumer must treat nil as normal.
+type ThumbnailUpload struct {
+	File   multipart.File
+	Header *multipart.FileHeader
+	Width  int
+	Height int
+}
+
+// MaxThumbnailBytes caps a companion preview independently of the attachment cap. A generated
+// thumbnail is well under 1MB; without a tight bound a client could send the full attachment cap
+// (100MB) as a "thumbnail", which is neither charged to its quota (only file_size counts) nor
+// reserved before upload — an unmetered store. 5MB leaves generous headroom for a real preview.
+const MaxThumbnailBytes int64 = 5 * 1024 * 1024
+
+// StoredThumbnail is what a stored companion preview contributes to its attachment row.
+type StoredThumbnail struct {
+	URL    string
+	Width  *int
+	Height *int
+	Size   int64
+}
+
+// storeThumbnail stores a companion preview beside its original, returning nil when there is none
+// or it could not be stored.
+//
+// It goes through the full pipeline, antivirus included, which means two scans per image
+// attachment. Deliberate: the thumbnail is client-supplied and never re-encoded here, so skipping
+// the scan would turn it into a way to host arbitrary bytes.
+//
+// A thumbnail that fails to store must never fail the attachment: the preview is an optimisation,
+// the file is the message. Callers carry on without one and the client renders the original.
+func storeThumbnail(
+	ctx context.Context,
+	pipeline UploadPipeline,
+	kind files.Kind,
+	scopeID string,
+	thumb *ThumbnailUpload,
+) *StoredThumbnail {
+	if thumb == nil || thumb.Header == nil {
+		return nil
+	}
+
+	stored, err := pipeline.Store(ctx, kind, scopeID, thumb.File, thumb.Header, MaxThumbnailBytes)
+	if err != nil {
+		log.Printf("[upload] thumbnail rejected for %s/%s: %v — attachment kept without one", kind, scopeID, err)
+		return nil
+	}
+
+	result := &StoredThumbnail{URL: stored.RelativeURL, Size: stored.Size}
+	// Dimensions are only useful together; a partial pair would make the client reserve wrong space.
+	if thumb.Width > 0 && thumb.Height > 0 {
+		result.Width, result.Height = &thumb.Width, &thumb.Height
+	}
+	return result
+}

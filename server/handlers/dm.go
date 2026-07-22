@@ -237,6 +237,9 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		for _, fh := range r.MultipartForm.File["files"] {
 			reservedBytes += fh.Size
 		}
+		// Previews are stored bytes too. Leaving them out made them an unmetered store: trivial
+		// files with large "thumbnails" cost the uploader nothing.
+		reservedBytes += thumbnailBytes(r.MultipartForm, len(r.MultipartForm.File["files"]))
 		if err := h.storageService.Reserve(r.Context(), user.ID, reservedBytes); err != nil {
 			pkg.Error(w, err)
 			return
@@ -257,14 +260,26 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		files := r.MultipartForm.File["files"]
 
 		var uploadedBytes int64
-		for _, fileHeader := range files {
+		for i, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
-				continue
+				// Skipping a file here would shift every later attachment's index, and the client pairs
+				// e2ee_file_keys[i] with attachments[i] — the rest would decrypt with the wrong key. Fail
+				// the send instead of delivering a message that cannot be read.
+				_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
+				if unused := reservedBytes - uploadedBytes; unused > 0 {
+					_ = h.storageService.Release(r.Context(), user.ID, unused)
+				}
+				pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to read uploaded file")
+				return
 			}
 
-			attachment, err := h.dmUploadService.Upload(r.Context(), msg.ID, file, fileHeader, isEncrypted)
+			thumb := thumbnailFor(r.MultipartForm, i)
+			attachment, err := h.dmUploadService.Upload(r.Context(), msg.ID, file, fileHeader, isEncrypted, thumb)
 			file.Close()
+			if thumb != nil {
+				thumb.File.Close()
+			}
 			if err != nil {
 				_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
 				if unused := reservedBytes - uploadedBytes; unused > 0 {
@@ -277,7 +292,11 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			if attachment.FileSize != nil {
 				uploadedBytes += *attachment.FileSize
 			}
+			if attachment.ThumbSize != nil {
+				uploadedBytes += *attachment.ThumbSize
+			}
 			attachment.FileURL = h.urlSigner.SignURL(attachment.FileURL)
+			attachment.ThumbURL = h.urlSigner.SignURLPtr(attachment.ThumbURL)
 			msg.Attachments = append(msg.Attachments, *attachment)
 		}
 

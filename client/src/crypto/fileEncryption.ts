@@ -9,6 +9,7 @@
  */
 
 import { toBase64 } from "./signalProtocol";
+import { buildAttachmentPreview } from "../utils/attachmentPreview";
 
 // ──────────────────────────────────
 // Types
@@ -28,6 +29,8 @@ export type EncryptedFileMeta = {
   originalSize: number;
   /** SHA-256 hash of original file (hex) — integrity check */
   digest: string;
+  /** Thumbnail IV. Reuses the file key with a distinct IV, which AES-GCM allows. Absent = no preview. */
+  thumbIv?: string;
 };
 
 export type EncryptedFileResult = {
@@ -96,18 +99,106 @@ export async function encryptFile(file: File): Promise<EncryptedFileResult> {
   };
 }
 
+
+/**
+ * Drains a response body while reporting bytes read — arrayBuffer() shows nothing on a slow link.
+ *
+ * Exported for testing: the buffering branches are decrypt-correctness-critical.
+ */
+export async function readWithProgress(
+  response: Response,
+  onProgress: (loaded: number, total: number | null) => void
+): Promise<ArrayBuffer> {
+  if (!response.body) return response.arrayBuffer();
+
+  const header = response.headers.get("Content-Length");
+  const totalNum = header ? Number(header) : NaN;
+  const total = Number.isFinite(totalNum) && totalNum >= 0 ? totalNum : null;
+  const reader = response.body.getReader();
+  let loaded = 0;
+  try {
+    return await drain();
+  } catch (err) {
+    // Giving up part-way leaves the rest of the body unread. Cancel discards it and frees the
+    // connection instead of leaving a locked stream behind; releaseLock alone would not.
+    await reader.cancel().catch(() => {});
+    throw err;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Already released by cancel() or a completed read.
+    }
+  }
+
+  async function drain(): Promise<ArrayBuffer> {
+    // Known length: fill one preallocated buffer. Collecting chunks and merging afterwards holds the
+    // whole payload twice at peak, a needless spike on a mobile WebView for a download of tens of MB.
+    if (total !== null) {
+      const buffer = new Uint8Array(total);
+      let overflow: Uint8Array[] | null = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!overflow && loaded + value.length <= total) {
+          buffer.set(value, loaded);
+        } else {
+          // The body outran its declared length — collect the remainder rather than write out of
+          // bounds. Rare: a chunked or misreported Content-Length.
+          if (!overflow) overflow = [buffer.subarray(0, loaded)];
+          overflow.push(value);
+        }
+        loaded += value.length;
+        onProgress(loaded, total);
+      }
+      if (overflow) return mergeChunks(overflow, loaded);
+      // A truncated response leaves the tail of the preallocated buffer as zeros; return only the
+      // bytes actually read so a decrypt sees the real (short) payload, not zero padding.
+      return loaded === total ? buffer.buffer : buffer.buffer.slice(0, loaded);
+    }
+
+    // Unknown length: nothing to preallocate, so collect and merge.
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.length;
+      onProgress(loaded, null);
+    }
+    return mergeChunks(chunks, loaded);
+  }
+}
+
+function mergeChunks(chunks: Uint8Array[], total: number): ArrayBuffer {
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged.buffer;
+}
+
 /** Download and decrypt an encrypted file. Verifies SHA-256 integrity. */
 export async function decryptFile(
   url: string,
-  meta: EncryptedFileMeta
+  meta: EncryptedFileMeta,
+  options?: {
+    /** `total` is null when the response carries no Content-Length. */
+    onProgress?: (loaded: number, total: number | null) => void;
+    signal?: AbortSignal;
+  }
 ): Promise<File> {
   // Download encrypted file
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: options?.signal });
   if (!response.ok) {
     throw new Error(`Failed to download encrypted file: HTTP ${response.status}`);
   }
 
-  const encryptedData = await response.arrayBuffer();
+  const encryptedData = options?.onProgress
+    ? await readWithProgress(response, options.onProgress)
+    : await response.arrayBuffer();
 
   // Decrypt with AES-256-GCM
   const fileKey = fromBase64(meta.key);
@@ -149,42 +240,22 @@ export async function decryptFile(
 // Thumbnail Generation & Encryption
 // ──────────────────────────────────
 
-/** Thumbnail max size (pixels) */
-const THUMBNAIL_MAX_SIZE = 256;
-
 /** Generate an encrypted thumbnail for image files. Uses same key with different IV. */
 export async function encryptThumbnail(
   file: File,
-  fileKey: string
+  fileKey: string,
+  signal?: AbortSignal
 ): Promise<EncryptedThumbnailResult | null> {
-  // Only generate thumbnails for images
-  if (!file.type.startsWith("image/")) {
-    return null;
-  }
+  // The image work is shared with the plaintext path rather than duplicated. The copy that used to
+  // live here decoded without imageOrientation (phone photos came out rotated), encoded JPEG (a
+  // transparent PNG got a black background) and capped at 256px, which is soft in a slot that
+  // renders up to 300px tall at 2x.
+  const thumbnail = await buildAttachmentPreview(file, signal);
+  if (!thumbnail) return null;
 
   try {
-    // Load image
-    const imageBitmap = await createImageBitmap(file);
-    const { width, height } = calculateThumbnailSize(
-      imageBitmap.width,
-      imageBitmap.height
-    );
-
-    // Draw to canvas
-    const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    ctx.drawImage(imageBitmap, 0, 0, width, height);
-    imageBitmap.close();
-
-    // Convert to JPEG (quality: 0.7)
-    const thumbnailBlob = await canvas.convertToBlob({
-      type: "image/jpeg",
-      quality: 0.7,
-    });
-
-    const thumbnailData = new Uint8Array(await thumbnailBlob.arrayBuffer());
+    const { width, height } = thumbnail;
+    const thumbnailData = new Uint8Array(await thumbnail.blob.arrayBuffer());
 
     // Encrypt with different IV (same key)
     const thumbnailIV = crypto.getRandomValues(new Uint8Array(12));
@@ -247,36 +318,16 @@ export async function decryptThumbnail(
     encryptedData
   );
 
-  const blob = new Blob([decrypted], { type: "image/jpeg" });
+  // Deliberately untyped: the encoder picks WebP, PNG or JPEG per platform, and the sender's choice
+  // is not carried in the metadata. Asserting "image/jpeg" on a WebP would be a lie the browser has
+  // to work around; with no type it sniffs the bytes, which it does reliably for images.
+  const blob = new Blob([decrypted]);
   return URL.createObjectURL(blob);
 }
 
 // ──────────────────────────────────
 // Internal Helpers
 // ──────────────────────────────────
-
-/** Calculate thumbnail dimensions, fitting largest edge within THUMBNAIL_MAX_SIZE. */
-function calculateThumbnailSize(
-  originalWidth: number,
-  originalHeight: number
-): { width: number; height: number } {
-  if (
-    originalWidth <= THUMBNAIL_MAX_SIZE &&
-    originalHeight <= THUMBNAIL_MAX_SIZE
-  ) {
-    return { width: originalWidth, height: originalHeight };
-  }
-
-  const ratio = Math.min(
-    THUMBNAIL_MAX_SIZE / originalWidth,
-    THUMBNAIL_MAX_SIZE / originalHeight
-  );
-
-  return {
-    width: Math.round(originalWidth * ratio),
-    height: Math.round(originalHeight * ratio),
-  };
-}
 
 /** base64 → Uint8Array. Local copy to avoid circular dependency with signalProtocol. */
 function fromBase64(b64: string): Uint8Array {

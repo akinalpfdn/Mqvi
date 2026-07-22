@@ -22,7 +22,13 @@ func newTestMessageService(
 	reactionRepo *testutil.MockReactionRepo,
 	hub *testutil.MockBroadcastAndOnline,
 	permResolver *testutil.MockChannelPermResolver,
+	// Defaults to a plaintext server; pass one to exercise an encrypted one.
+	encryption ...stubServerEncryption,
 ) MessageService {
+	stub := stubServerEncryption{}
+	if len(encryption) > 0 {
+		stub = encryption[0]
+	}
 	return NewMessageService(
 		msgRepo, attachRepo, chanRepo, userRepo,
 		mentionRepo, roleMentionRepo, roleRepo, reactionRepo,
@@ -31,7 +37,16 @@ func newTestMessageService(
 		&testutil.MockFileURLSigner{},
 		&testutil.MockFileDeleter{},
 		&testutil.MockStorageService{},
+		stub,
 	)
+}
+
+// stubServerEncryption answers the one question the message path asks about a server. Defaults to
+// an unencrypted server so the existing plaintext cases behave as before.
+type stubServerEncryption struct{ e2ee bool }
+
+func (s stubServerEncryption) IsE2EEEnabled(_ context.Context, _ string) (bool, error) {
+	return s.e2ee, nil
 }
 
 func TestMessageCreate(t *testing.T) {
@@ -416,6 +431,8 @@ func TestMessageCreate_E2EE(t *testing.T) {
 				return models.PermSendMessages, nil
 			},
 		},
+		// An encrypted message only belongs on a server that uses encryption.
+		stubServerEncryption{e2ee: true},
 	)
 
 	req := &models.CreateMessageRequest{
@@ -436,4 +453,202 @@ func TestMessageCreate_E2EE(t *testing.T) {
 	if msg.EncryptionVersion != 1 {
 		t.Errorf("encryption_version = %d, want 1", msg.EncryptionVersion)
 	}
+}
+
+// markingSigner appends a marker so a test can tell a signed URL from an unsigned one — the shared
+// MockFileURLSigner is a no-op and cannot.
+type markingSigner struct{}
+
+func (markingSigner) SignURL(fileURL string) string {
+	if fileURL == "" {
+		return fileURL
+	}
+	return fileURL + "?sig"
+}
+
+func (markingSigner) SignURLPtr(fileURL *string) *string {
+	if fileURL == nil || *fileURL == "" {
+		return fileURL
+	}
+	signed := *fileURL + "?sig"
+	return &signed
+}
+
+// A thumbnail is served from the same signature-gated endpoint as its original, so it must be
+// signed at every egress the original is. It was not, which returned 401 for every thumbnail on
+// cross-origin clients (Electron, mobile) where the cookie fallback does not apply.
+func TestGetByChannelID_SignsAttachmentThumbURL(t *testing.T) {
+	thumb := "/api/files/messages/ch1/abcd_thumb.webp"
+	svc := NewMessageService(
+		&testutil.MockMessageRepo{
+			GetByChannelIDFn: func(_ context.Context, _ string, _ string, _ int) ([]models.Message, error) {
+				return []models.Message{{ID: "m1", ChannelID: "ch1", UserID: "u1"}}, nil
+			},
+		},
+		&testutil.MockAttachmentRepo{
+			GetByMessageIDsFn: func(_ context.Context, _ []string) ([]models.Attachment, error) {
+				return []models.Attachment{{
+					ID:        "a1",
+					MessageID: "m1",
+					FileURL:   "/api/files/messages/ch1/abcd.bin",
+					ThumbURL:  &thumb,
+				}}, nil
+			},
+		},
+		&testutil.MockChannelRepo{},
+		&testutil.MockUserRepo{},
+		&testutil.MockMentionRepo{},
+		&testutil.MockRoleMentionRepo{},
+		&testutil.MockRoleRepo{},
+		&testutil.MockReactionRepo{},
+		&testutil.MockReadStateRepo{},
+		&testutil.MockBroadcastAndOnline{},
+		&testutil.MockChannelPermResolver{
+			ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+				return models.PermReadMessages, nil
+			},
+		},
+		markingSigner{},
+		&testutil.MockFileDeleter{},
+		&testutil.MockStorageService{},
+		stubServerEncryption{},
+	)
+
+	page, err := svc.GetByChannelID(context.Background(), "ch1", "u1", "", 50)
+	if err != nil {
+		t.Fatalf("GetByChannelID: %v", err)
+	}
+	if len(page.Messages) != 1 || len(page.Messages[0].Attachments) != 1 {
+		t.Fatalf("expected 1 message with 1 attachment, got %+v", page.Messages)
+	}
+
+	att := page.Messages[0].Attachments[0]
+	if att.FileURL != "/api/files/messages/ch1/abcd.bin?sig" {
+		t.Errorf("file_url not signed: %q", att.FileURL)
+	}
+	if att.ThumbURL == nil || *att.ThumbURL != thumb+"?sig" {
+		t.Errorf("thumb_url not signed: %v", att.ThumbURL)
+	}
+}
+
+// The client alone decides whether to encrypt, so a client that misreads the server's state would
+// store a message in the clear on a server that mandates E2EE. The server must refuse it.
+func TestCreate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
+	newSvc := func(e2ee bool) MessageService {
+		return NewMessageService(
+			&testutil.MockMessageRepo{},
+			&testutil.MockAttachmentRepo{},
+			&testutil.MockChannelRepo{
+				GetByIDFn: func(_ context.Context, _ string) (*models.Channel, error) {
+					return &models.Channel{ID: "ch1", ServerID: "srv1"}, nil
+				},
+			},
+			&testutil.MockUserRepo{
+				GetByIDFn: func(_ context.Context, _ string) (*models.User, error) {
+					return &models.User{ID: "u1", Username: "alice"}, nil
+				},
+			},
+			&testutil.MockMentionRepo{},
+			&testutil.MockRoleMentionRepo{},
+			&testutil.MockRoleRepo{},
+			&testutil.MockReactionRepo{},
+			&testutil.MockReadStateRepo{},
+			&testutil.MockBroadcastAndOnline{},
+			&testutil.MockChannelPermResolver{
+				ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+					return models.PermSendMessages | models.PermReadMessages, nil
+				},
+			},
+			&testutil.MockFileURLSigner{},
+			&testutil.MockFileDeleter{},
+			&testutil.MockStorageService{},
+			stubServerEncryption{e2ee: e2ee},
+		)
+	}
+
+	t.Run("should reject a plaintext message when the server requires encryption", func(t *testing.T) {
+		_, err := newSvc(true).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"})
+		if !errors.Is(err, pkg.ErrBadRequest) {
+			t.Fatalf("want ErrBadRequest, got %v", err)
+		}
+	})
+
+	t.Run("should accept a plaintext message when the server does not require encryption", func(t *testing.T) {
+		if _, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"}); err != nil {
+			t.Fatalf("plaintext on an unencrypted server should be allowed: %v", err)
+		}
+	})
+
+	// Nothing validates a ciphertext, so without this anyone could post an encrypted message to a
+	// plaintext server: unreadable by every member, missing from search, beyond moderation.
+	t.Run("should reject an encrypted message when the server does not use encryption", func(t *testing.T) {
+		cipher, device := "blob", "dev1"
+		_, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{
+			EncryptionVersion: 1,
+			Ciphertext:        &cipher,
+			SenderDeviceID:    &device,
+		})
+		if !errors.Is(err, pkg.ErrBadRequest) {
+			t.Fatalf("want ErrBadRequest, got %v", err)
+		}
+		if pkg.CodeOf(err) != pkg.CodeEncryptionNotAvailable {
+			t.Errorf("want code %q, got %q", pkg.CodeEncryptionNotAvailable, pkg.CodeOf(err))
+		}
+	})
+}
+
+// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext edit of
+// an encrypted message would leave readable text sitting beside the ciphertext the UI still renders
+// — a silent leak with no visible symptom. Create was guarded; Update has to be too.
+func TestUpdate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
+	newSvc := func(e2ee bool) MessageService {
+		return NewMessageService(
+			&testutil.MockMessageRepo{
+				GetByIDFn: func(_ context.Context, id string) (*models.Message, error) {
+					return &models.Message{ID: id, ChannelID: "ch1", UserID: "u1", EncryptionVersion: 1}, nil
+				},
+			},
+			&testutil.MockAttachmentRepo{},
+			&testutil.MockChannelRepo{
+				GetByIDFn: func(_ context.Context, _ string) (*models.Channel, error) {
+					return &models.Channel{ID: "ch1", ServerID: "srv1"}, nil
+				},
+			},
+			&testutil.MockUserRepo{
+				GetByIDFn: func(_ context.Context, _ string) (*models.User, error) {
+					return &models.User{ID: "u1", Username: "alice"}, nil
+				},
+				GetByUsernameFn: func(_ context.Context, _ string) (*models.User, error) {
+					return nil, pkg.ErrNotFound
+				},
+			},
+			&testutil.MockMentionRepo{},
+			&testutil.MockRoleMentionRepo{},
+			&testutil.MockRoleRepo{},
+			&testutil.MockReactionRepo{},
+			&testutil.MockReadStateRepo{},
+			&testutil.MockBroadcastAndOnline{},
+			&testutil.MockChannelPermResolver{},
+			&testutil.MockFileURLSigner{},
+			&testutil.MockFileDeleter{},
+			&testutil.MockStorageService{},
+			stubServerEncryption{e2ee: e2ee},
+		)
+	}
+
+	t.Run("should reject a plaintext edit when the server requires encryption", func(t *testing.T) {
+		_, err := newSvc(true).Update(context.Background(), "m1", "u1", &models.UpdateMessageRequest{Content: "leaked"})
+		if !errors.Is(err, pkg.ErrBadRequest) {
+			t.Fatalf("want ErrBadRequest, got %v", err)
+		}
+		if pkg.CodeOf(err) != pkg.CodeEncryptionRequired {
+			t.Errorf("want code %q so the client can explain itself, got %q", pkg.CodeEncryptionRequired, pkg.CodeOf(err))
+		}
+	})
+
+	t.Run("should allow a plaintext edit when the server does not require encryption", func(t *testing.T) {
+		if _, err := newSvc(false).Update(context.Background(), "m1", "u1", &models.UpdateMessageRequest{Content: "fine"}); err != nil {
+			t.Fatalf("plaintext edit on an unencrypted server should be allowed: %v", err)
+		}
+	})
 }

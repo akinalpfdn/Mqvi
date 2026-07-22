@@ -2,6 +2,10 @@ import { create } from "zustand";
 import i18n from "../i18n";
 import * as dmApi from "../api/dm";
 import type { DMSearchResult } from "../api/dm";
+import type { UploadOptions } from "../api/client";
+import { buildAttachmentPreview } from "../utils/attachmentPreview";
+import { mapWithConcurrency } from "../utils/concurrency";
+import { PREVIEW_CONCURRENCY } from "../utils/constants";
 import type { DMChannelWithUser, DMMessage } from "../types";
 import { useUIStore } from "./uiStore";
 import { useToastStore } from "./toastStore";
@@ -54,7 +58,7 @@ type DMCoreState = {
   fetchOlderMessages: (channelId: string) => Promise<void>;
   /** Re-fetch the newest page and fold it in — recovers messages a dead socket never delivered */
   resyncChannel: (channelId: string) => Promise<void>;
-  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string) => Promise<boolean>;
+  sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, upload?: UploadOptions) => Promise<boolean>;
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   deleteMessage: (messageId: string) => Promise<boolean>;
 
@@ -212,22 +216,30 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     }
   },
 
-  sendMessage: async (channelId, content, files, replyToId) => {
+  sendMessage: async (channelId, content, files, replyToId, upload) => {
     const e2eeState = useE2EEStore.getState();
 
     const dmChannel = get().channels.find((ch) => ch.id === channelId);
-    if (dmChannel?.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
+    // Fail closed, same rule as the channel path: an unknown state must not default to plaintext on
+    // a conversation that turns out to mandate encryption.
+    if (typeof dmChannel?.e2ee_enabled !== "boolean") {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+      return false;
+    }
+    if (dmChannel.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
       const channel = dmChannel;
       const currentUserId = useAuthStore.getState().user?.id;
 
       if (channel && currentUserId) {
         try {
           let encryptedFiles: File[] | undefined;
+          let thumbs: (import("../utils/imageEncoding").GeneratedThumbnail | null)[] | undefined;
           let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
 
           if (files && files.length > 0) {
-            const result = await encryptFilesForE2EE(files);
+            const result = await encryptFilesForE2EE(files, upload?.signal);
             encryptedFiles = result.files;
+            thumbs = result.thumbs;
             fileMetas = result.metas;
           }
 
@@ -251,7 +263,9 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
             e2eeState.localDeviceId,
             metadata,
             encryptedFiles,
-            replyToId
+            replyToId,
+            upload,
+            thumbs
           );
 
           if (res.success && res.data) {
@@ -270,13 +284,17 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
           return res.success;
         } catch (err) {
           discardLastSentPlaintext(channelId);
+          // A user-initiated cancel is not a failure — no toast and no red console entry.
+          if (err instanceof DOMException && err.name === "AbortError") return false;
           console.error("[dmStore] E2EE encrypt failed:", err);
 
+          // No plaintext fallback: the server refuses unencrypted messages on an encrypted DM, so
+          // this only re-uploaded every attachment to earn a second rejection. The problem is the
+          // recipient having no device keys, which is what the user is told.
           const errMsg = err instanceof Error ? err.message : "";
           if (errMsg === "RECIPIENT_NO_KEYS") {
-            const fallbackRes = await dmApi.sendDMMessage(channelId, content, files, replyToId);
-            handleSendError(fallbackRes);
-            return fallbackRes.success;
+            useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
+            return false;
           }
           useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
           return false;
@@ -284,7 +302,13 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
       }
     }
 
-    const res = await dmApi.sendDMMessage(channelId, content, files, replyToId);
+    // Same generation as the encrypted path, so both produce previews identically.
+    const plainThumbs = files
+      ? await mapWithConcurrency(files, PREVIEW_CONCURRENCY, (file) =>
+          buildAttachmentPreview(file, upload?.signal)
+        )
+      : undefined;
+    const res = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload, plainThumbs);
     handleSendError(res);
     return res.success;
   },
@@ -294,7 +318,10 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
     const editState = get();
     let recipientUserId: string | null = null;
-    let editChannelE2EE = false;
+    // undefined until a channel is found — the message may not be cached (edited from search or
+    // pins) or the channel list may not have arrived. Defaulting to false attempted a plaintext
+    // edit on an encrypted conversation, same fail-open sendMessage was hardened against.
+    let editChannelE2EE: boolean | undefined;
     for (const [chId, msgs] of Object.entries(editState.messagesByChannel)) {
       if (msgs.some((m) => m.id === messageId)) {
         const ch = editState.channels.find((c) => c.id === chId);
@@ -304,6 +331,11 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
         }
         break;
       }
+    }
+
+    if (typeof editChannelE2EE !== "boolean") {
+      useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+      return false;
     }
 
     if (editChannelE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
@@ -337,10 +369,11 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
           return res.success;
         } catch (err) {
           console.error("[dmStore] E2EE edit encrypt failed:", err);
+          // Same dead path as sendMessage: a plaintext edit on an encrypted DM is refused.
           const editErrMsg = err instanceof Error ? err.message : "";
           if (editErrMsg === "RECIPIENT_NO_KEYS") {
-            const fallbackRes = await dmApi.editDMMessage(messageId, content);
-            return fallbackRes.success;
+            useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
+            return false;
           }
           useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
           return false;

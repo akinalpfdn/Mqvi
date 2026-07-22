@@ -7,6 +7,14 @@
     "callsDesc": "Gelen aramalar"
   },
   "loading": "Yükleniyor...",
+  "uploadingProgress": "{{sent}} / {{total}} · %{{percent}}",
+  "uploadingSent": "{{sent}} gönderildi",
+  "uploadPreparing": "Hazırlanıyor…",
+  "fileTooLarge": "{{name}} dosyası {{limit}} sınırından büyük, eklenmedi.",
+  "filesTooLarge": "{{n}} dosya {{limit}} sınırından büyük, eklenmedi.",
+  "tooManyFiles": "Bir mesaja en fazla {{limit}} dosya eklenebilir — {{n}} tanesi eklenmedi.",
+  "fileTooLargeEncrypted": "{{name}} dosyası şifreli sohbetlerdeki {{limit}} sınırının üzerinde, eklenmedi.",
+  "filesTooLargeEncrypted": "{{n}} dosya şifreli sohbetlerdeki {{limit}} sınırının üzerinde, eklenmedi.",
   "save": "Kaydet",
   "cancel": "İptal",
   "delete": "Sil",
@@ -168,5 +176,7 @@
     "showing": "{{from}}–{{to}} / {{total}}",
     "previous": "Önceki",
     "next": "Sonraki"
-  }
+  },
+  "fileTypeNotAllowed": "{{name}} desteklenmeyen bir dosya türü, eklenmedi.",
+  "filesTypeNotAllowed": "{{n}} dosya desteklenmeyen türde, eklenmedi."
 }

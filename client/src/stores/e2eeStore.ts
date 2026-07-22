@@ -296,11 +296,16 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
 
     // Check if any DM channel or the active server has E2EE enabled
     const dmChannels = useDMStore.getState().channels;
-    const activeServer = useServerStore.getState().activeServer;
+    // Every server the user is in, not just the active one — an encrypted server they happen not to
+    // be looking at right now still means their keys matter.
+    const { servers, activeServer } = useServerStore.getState();
 
+    // activeServer stays in the check as a floor: e2ee_enabled is optional on the list item, so a
+    // list delivered by an older server binary mid-deploy would carry undefined for every entry.
     const hasE2EEActivity =
       dmChannels.some((ch) => ch.e2ee_enabled) ||
-      (activeServer?.e2ee_enabled === true);
+      servers.some((sv) => sv.e2ee_enabled === true) ||
+      activeServer?.e2ee_enabled === true;
 
     if (hasE2EEActivity) {
       set({ showRecoveryPrompt: true });

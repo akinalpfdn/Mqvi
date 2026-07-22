@@ -3,6 +3,7 @@
 import { useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useMessageStore } from "../../stores/messageStore";
+import type { UploadOptions } from "../../api/client";
 import { usePinStore } from "../../stores/pinStore";
 import { useMemberStore } from "../../stores/memberStore";
 import { useServerStore } from "../../stores/serverStore";
@@ -77,8 +78,8 @@ function ChannelChatProvider({
 
   // ─── Actions (stable refs) ───
   const sendMessage = useCallback(
-    (content: string, files?: File[], replyToId?: string) =>
-      storeSendMessage(channelId, content, files, replyToId, explicitServerId),
+    (content: string, files?: File[], replyToId?: string, upload?: UploadOptions) =>
+      storeSendMessage(channelId, content, files, replyToId, explicitServerId, upload),
     [channelId, storeSendMessage, explicitServerId]
   );
 

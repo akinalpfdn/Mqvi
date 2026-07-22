@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -39,6 +40,13 @@ type messageService struct {
 	urlSigner       FileURLSigner
 	fileDeleter     FileDeleter
 	storageService  StorageService
+	serverReader    ServerEncryptionReader
+}
+
+// ServerEncryptionReader reports a server's encryption policy. Narrow on purpose: the message path
+// needs one flag, not the whole server row, and it asks on every send.
+type ServerEncryptionReader interface {
+	IsE2EEEnabled(ctx context.Context, serverID string) (bool, error)
 }
 
 func NewMessageService(
@@ -56,6 +64,7 @@ func NewMessageService(
 	urlSigner FileURLSigner,
 	fileDeleter FileDeleter,
 	storageService StorageService,
+	serverReader ServerEncryptionReader,
 ) MessageService {
 	return &messageService{
 		messageRepo:     messageRepo,
@@ -72,7 +81,44 @@ func NewMessageService(
 		urlSigner:       urlSigner,
 		fileDeleter:     fileDeleter,
 		storageService:  storageService,
+		serverReader:    serverReader,
 	}
+}
+
+// enforceServerEncryptionPolicy makes the message's encryption match the server's setting, in both
+// directions.
+//
+// The client picks the path on its own, so a client that misreads the server's state would store a
+// message in the clear on an encrypted server — or unreadable ciphertext on a plaintext one. The
+// server has to be the one that says no.
+func (s *messageService) enforceServerEncryptionPolicy(ctx context.Context, serverID string, encryptionVersion int) error {
+	serverEncrypted, err := s.serverReader.IsE2EEEnabled(ctx, serverID)
+	if err != nil {
+		// A missing server maps to 404, and 4xx bodies carry the error text verbatim — wrapping it
+		// would show the caller this function's name. Anything else is internal and becomes a 500.
+		if errors.Is(err, pkg.ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("resolve server encryption policy: %w", err)
+	}
+
+	if serverEncrypted && encryptionVersion != 1 {
+		return pkg.WithCode(
+			fmt.Errorf("%w: this server requires end-to-end encrypted messages", pkg.ErrBadRequest),
+			pkg.CodeEncryptionRequired,
+		)
+	}
+	// The other direction matters just as much. Nothing validates a ciphertext, so on a plaintext
+	// server anyone could post encryption_version=1 with an arbitrary string: unreadable by every
+	// member, absent from search, and beyond moderation. Since an edit now converts the row, it
+	// would also let someone turn their own quoted message into permanent noise.
+	if !serverEncrypted && encryptionVersion == 1 {
+		return pkg.WithCode(
+			fmt.Errorf("%w: this server does not use end-to-end encryption", pkg.ErrBadRequest),
+			pkg.CodeEncryptionNotAvailable,
+		)
+	}
+	return nil
 }
 
 // GetByChannelID returns messages with cursor-based pagination.
@@ -121,6 +167,7 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 		attachmentMap := make(map[string][]models.Attachment)
 		for _, a := range attachments {
 			a.FileURL = s.urlSigner.SignURL(a.FileURL)
+			a.ThumbURL = s.urlSigner.SignURLPtr(a.ThumbURL)
 			attachmentMap[a.MessageID] = append(attachmentMap[a.MessageID], a)
 		}
 
@@ -178,8 +225,14 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	if _, err := s.channelRepo.GetByID(ctx, channelID); err != nil {
+	channel, err := s.channelRepo.GetByID(ctx, channelID)
+	if err != nil {
 		return nil, err
+	}
+	// The result used to be discarded; it is now read for the server's encryption policy, so a
+	// not-found that comes back as a nil channel must not reach that dereference.
+	if channel == nil {
+		return nil, fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
 	}
 
 	channelPerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
@@ -188,6 +241,10 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	}
 	if !channelPerms.Has(models.PermSendMessages) {
 		return nil, fmt.Errorf("%w: missing send messages permission for this channel", pkg.ErrForbidden)
+	}
+
+	if err := s.enforceServerEncryptionPolicy(ctx, channel.ServerID, req.EncryptionVersion); err != nil {
+		return nil, err
 	}
 
 	message := &models.Message{
@@ -336,6 +393,24 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
 	}
 
+	channel, err := s.channelRepo.GetByID(ctx, message.ChannelID)
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil {
+		return nil, fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
+	}
+	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext
+	// edit of an encrypted message leaves readable text beside the ciphertext the UI still shows.
+	if err := s.enforceServerEncryptionPolicy(ctx, channel.ServerID, req.EncryptionVersion); err != nil {
+		return nil, err
+	}
+
+	// The edit decides the row's version, not the version it was written at — the server's E2EE
+	// setting can have flipped in between. Without this the repo branched on the stored version and
+	// wrote the wrong side: a plaintext message edited after E2EE was switched on had its content
+	// nulled and no ciphertext saved.
+	message.EncryptionVersion = req.EncryptionVersion
 	if req.EncryptionVersion == 1 {
 		message.Ciphertext = req.Ciphertext
 		message.SenderDeviceID = req.SenderDeviceID
@@ -343,6 +418,9 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 		message.Content = nil
 	} else {
 		message.Content = &req.Content
+		message.Ciphertext = nil
+		message.SenderDeviceID = nil
+		message.E2EEMetadata = nil
 	}
 
 	if err := s.messageRepo.Update(ctx, message); err != nil {
@@ -357,6 +435,7 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 	}
 	for i := range attachments {
 		attachments[i].FileURL = s.urlSigner.SignURL(attachments[i].FileURL)
+		attachments[i].ThumbURL = s.urlSigner.SignURLPtr(attachments[i].ThumbURL)
 	}
 	message.Attachments = attachments
 	if message.Attachments == nil {
@@ -365,11 +444,7 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 
 	// Re-parse mentions (server can't read E2EE content)
 	if req.EncryptionVersion == 0 {
-		channel, _ := s.channelRepo.GetByID(ctx, message.ChannelID)
-		serverID := ""
-		if channel != nil {
-			serverID = channel.ServerID
-		}
+		serverID := channel.ServerID
 
 		if err := s.mentionRepo.DeleteByMessageID(ctx, id); err != nil {
 			fmt.Printf("[mention] failed to delete old mentions for message %s: %v\n", id, err)
@@ -433,8 +508,17 @@ func (s *messageService) Delete(ctx context.Context, serverID string, id string,
 	}
 	for _, a := range atts {
 		s.fileDeleter.DeleteFromURL(a.FileURL)
+		// The companion thumbnail is a separate file; without this it outlives its original until
+		// the orphan sweep. It carries no quota, so only the original counts toward the release.
+		if a.ThumbURL != nil {
+			s.fileDeleter.DeleteFromURL(*a.ThumbURL)
+		}
 		if a.FileSize != nil {
 			attachmentBytes += *a.FileSize
+		}
+		// The thumbnail was charged at upload, so it has to be given back here too.
+		if a.ThumbSize != nil {
+			attachmentBytes += *a.ThumbSize
 		}
 	}
 

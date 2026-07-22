@@ -1,6 +1,6 @@
 /** MessageInput — Message compose area. Works in both channel and DM via ChatContext. */
 
-import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatContext } from "../../hooks/useChatContext";
 import { useChatCommandActions } from "../../hooks/useChatCommandActions";
@@ -13,8 +13,17 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useNarrowChat } from "../../hooks/useNarrowChat";
 import { useIsTouch } from "../../hooks/useMediaQuery";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { validateFiles } from "../../utils/fileValidation";
-import { MAX_MESSAGE_LENGTH } from "../../utils/constants";
+import { pickNative, supportsNativePicker, type PickKind } from "../../utils/nativePicker";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { useServerStore, selectServerE2EE } from "../../stores/serverStore";
+import {
+  MAX_MESSAGE_LENGTH,
+  MAX_FILE_SIZE,
+  MAX_E2EE_FILE_SIZE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+} from "../../utils/constants";
 import {
   executeChatCommand,
   getCommandQuery,
@@ -26,6 +35,7 @@ import type { MemberWithRoles } from "../../types";
 import EmojiPicker from "../shared/EmojiPicker";
 import GifPicker from "../shared/GifPicker";
 import MobileBottomSheet from "../shared/MobileBottomSheet";
+import UploadProgress from "../shared/UploadProgress";
 import FilePreview from "./FilePreview";
 import MentionAutocomplete, { type MentionSelection } from "./MentionAutocomplete";
 import CommandAutocomplete from "./CommandAutocomplete";
@@ -62,12 +72,23 @@ function MessageInput({ openSearch }: MessageInputProps) {
     members,
   } = useChatContext();
   const addToast = useToastStore((s) => s.addToast);
+  const notifyRejected = useFileRejectionNotice();
+  // Both selectors return a boolean, so the composer re-renders when encryption flips — not on
+  // every unrelated DM-list or server-list update.
+  // undefined = the channel list has not arrived yet, which is not the same as "not encrypted".
+  const dmE2EE = useDMStore((s) => s.channels.find((ch) => ch.id === channelId)?.e2ee_enabled);
+  // Same fallback as everywhere else: a tab opened before the server list loaded has no serverId,
+  // and defaulting to "not encrypted" would hand an encrypted channel the 100MB cap.
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const channelE2EE = useServerStore(selectServerE2EE(serverId ?? activeServerId));
   const isNarrow = useNarrowChat();
   const isTouch = useIsTouch();
 
   const [content, setContent] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
 
   // Manual resize: null = auto-grow to content (default), a number = user-dragged fixed height.
   const [manualHeight, setManualHeight] = useState<number | null>(null);
@@ -90,19 +111,74 @@ function MessageInput({ openSearch }: MessageInputProps) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [showAttachSheet, setShowAttachSheet] = useState(false);
 
-  function pickFrom(ref: React.RefObject<HTMLInputElement | null>) {
+  // The one place that decides native-vs-web. Mobile picks through the platform so native code gets
+  // a path it can open; everywhere else keeps the input elements above.
+  function pickFrom(kind: PickKind, ref: React.RefObject<HTMLInputElement | null>) {
     setShowAttachSheet(false);
-    ref.current?.click();
+    if (!supportsNativePicker(kind)) {
+      ref.current?.click();
+      return;
+    }
+    pickNative(kind, attachmentLimit, MAX_ATTACHMENTS_PER_MESSAGE - files.length)
+      .then(({ files: picked, skipped, oversized }) => {
+        if (picked.length > 0) acceptFiles(picked.map((entry) => entry.file));
+        // Refused on the platform's reported size, so these never reached memory.
+        notifyRejected(oversized, {
+          reason: isEncrypted ? "e2eeSize" : "size",
+          maxBytes: attachmentLimit,
+        });
+        // A file the platform would not hand over used to vanish with no explanation.
+        if (skipped.length > 0) {
+          addToast("error", t("attachPickPartial", { name: skipped[0], n: skipped.length }));
+        }
+      })
+      .catch((err) => {
+        console.error("[MessageInput] Native picker failed:", err);
+        addToast("error", t("attachPickFailed"));
+      });
   }
 
+  // Encryption buffers the whole file plus its ciphertext in memory, so an encrypted conversation
+  // takes a smaller cap than the transport allows. An unknown server state assumes encrypted: the
+  // tighter cap is the safe guess, and the send itself refuses until the state is known.
+  const isEncrypted =
+    mode === "dm" ? (dmE2EE ?? true) : mode === "channel" ? (channelE2EE ?? true) : false;
+  const attachmentLimit = isEncrypted ? MAX_E2EE_FILE_SIZE : MAX_FILE_SIZE;
+
+  // Every way a file enters the composer — drop zone, paste, picker, camera — funnels through here,
+  // so the limit and the rejection notice cannot diverge between entry points.
+  const acceptFiles = useCallback(
+    (incoming: File[] | FileList) => {
+      const { accepted, rejected } = validateFiles(incoming, attachmentLimit);
+      notifyRejected(rejected, {
+        reason: isEncrypted ? "e2eeSize" : "size",
+        maxBytes: attachmentLimit,
+      });
+      if (accepted.length === 0) return;
+
+      setFiles((prev) => {
+        // The server refuses the whole send past this count, so the extras have to be dropped here
+        // — picking fifteen photos on a phone used to lose the entire message at submit.
+        const room = MAX_ATTACHMENTS_PER_MESSAGE - prev.length;
+        if (accepted.length > room) {
+          notifyRejected(accepted.slice(Math.max(room, 0)), {
+            reason: "count",
+            max: MAX_ATTACHMENTS_PER_MESSAGE,
+          });
+        }
+        if (room <= 0) return prev;
+        return [...prev, ...accepted.slice(0, room)];
+      });
+    },
+    [attachmentLimit, isEncrypted, notifyRejected]
+  );
+
   useEffect(() => {
-    addFilesRef.current = (newFiles: File[]) => {
-      setFiles((prev) => [...prev, ...newFiles]);
-    };
+    addFilesRef.current = acceptFiles;
     return () => {
       addFilesRef.current = null;
     };
-  }, [addFilesRef]);
+  }, [addFilesRef, acceptFiles]);
 
   useEffect(() => {
     // On touch, auto-focusing on every channel/DM switch yanks the soft keyboard open unprompted.
@@ -302,11 +378,18 @@ function MessageInput({ openSearch }: MessageInputProps) {
     setIsSending(true);
     const sentContent = content;
     const replyToId = replyingTo?.id;
-    const success = await sendMessage(messageContent, files, replyToId);
-    if (success) {
-      clearInput(sentContent);
+    // Only files need a progress/cancel channel; a text-only send is over before a bar could paint.
+    const upload = files.length > 0 ? beginUpload() : undefined;
+    try {
+      const success = await sendMessage(messageContent, files, replyToId, upload);
+      // Left intact on failure or cancel, so the same content and files can be re-sent.
+      if (success) {
+        clearInput(sentContent);
+      }
+    } finally {
+      endUpload(upload);
+      setIsSending(false);
     }
-    setIsSending(false);
 
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
@@ -486,20 +569,14 @@ function MessageInput({ openSearch }: MessageInputProps) {
 
     if (pastedFiles.length > 0) {
       e.preventDefault();
-      const valid = validateFiles(pastedFiles);
-      if (valid.length > 0) {
-        setFiles((prev) => [...prev, ...valid]);
-      }
+      acceptFiles(pastedFiles);
     }
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
 
-    const valid = validateFiles(e.target.files);
-    if (valid.length > 0) {
-      setFiles((prev) => [...prev, ...valid]);
-    }
+    acceptFiles(e.target.files);
     e.target.value = "";
   }
 
@@ -554,11 +631,12 @@ function MessageInput({ openSearch }: MessageInputProps) {
 
       <FilePreview files={files} onRemove={handleFileRemove} />
 
-      {isSending && files.length > 0 && (
-        <div className="input-sending-status">
-          <span className="input-sending-spinner" />
-          <span>{t("sendingFiles")}</span>
-        </div>
+      {uploadProgress && (
+        <UploadProgress
+          loaded={uploadProgress.loaded}
+          total={uploadProgress.total}
+          onCancel={cancelUpload}
+        />
       )}
 
       <div className="input-box">
@@ -619,7 +697,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
 
         <MobileBottomSheet isOpen={showAttachSheet} onClose={() => setShowAttachSheet(false)}>
           <div className="mobile-bs-actions-list">
-            <button className="mobile-bs-action" onClick={() => pickFrom(cameraInputRef)}>
+            <button className="mobile-bs-action" onClick={() => pickFrom("camera", cameraInputRef)}>
               <span className="mobile-bs-action-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
@@ -629,7 +707,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
               {t("attachCamera")}
             </button>
 
-            <button className="mobile-bs-action" onClick={() => pickFrom(mediaInputRef)}>
+            <button className="mobile-bs-action" onClick={() => pickFrom("media", mediaInputRef)}>
               <span className="mobile-bs-action-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -640,7 +718,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
               {t("attachGallery")}
             </button>
 
-            <button className="mobile-bs-action" onClick={() => pickFrom(fileInputRef)}>
+            <button className="mobile-bs-action" onClick={() => pickFrom("files", fileInputRef)}>
               <span className="mobile-bs-action-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -731,10 +809,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
         ) : (
           <VoiceRecordButton
             disabled={isSending}
-            onRecorded={(file) => {
-              const valid = validateFiles([file]);
-              if (valid.length > 0) setFiles((prev) => [...prev, ...valid]);
-            }}
+            onRecorded={(file) => acceptFiles([file])}
           />
         )}
       </div>

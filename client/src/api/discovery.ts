@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, type UploadOptions } from "./client";
 import type { Server } from "../types";
 
 /** A public server card from the discovery directory (preview data only). */
@@ -55,7 +55,13 @@ export async function joinPublicServer(id: string) {
 }
 
 /** Report a public server for discovery moderation. Uses multipart when evidence files are given. */
-export async function reportServer(id: string, reason: string, description: string, files?: File[]) {
+export async function reportServer(
+  id: string,
+  reason: string,
+  description: string,
+  files?: File[],
+  upload?: UploadOptions
+) {
   if (files && files.length > 0) {
     const formData = new FormData();
     formData.append("reason", reason);
@@ -63,10 +69,7 @@ export async function reportServer(id: string, reason: string, description: stri
     for (const file of files) {
       formData.append("files", file);
     }
-    return apiClient<{ message: string }>(`/discovery/servers/${id}/report`, {
-      method: "POST",
-      body: formData,
-    });
+    return uploadRequest<{ message: string }>(`/discovery/servers/${id}/report`, formData, upload);
   }
   return apiClient<{ message: string }>(`/discovery/servers/${id}/report`, {
     method: "POST",

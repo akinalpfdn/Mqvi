@@ -17,6 +17,8 @@ import Modal from "../shared/Modal";
 import { useBadgeStore } from "../../stores/badgeStore";
 import { BADGE_ICONS, getBadgeIcon } from "../../utils/badgeIcons";
 import { useConfirm } from "../../hooks/useConfirm";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { MAX_BADGE_ICON_SIZE } from "../../utils/constants";
 import * as badgeApi from "../../api/badges";
 import type { MemberWithRoles, Badge } from "../../types";
 
@@ -41,6 +43,7 @@ type IconTab = "builtin" | "custom";
 function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
   const { t } = useTranslation("common");
   const confirm = useConfirm();
+  const notifyRejected = useFileRejectionNotice();
   const displayName = member.display_name ?? member.username;
 
   const [screen, setScreen] = useState<Screen>("assign");
@@ -155,6 +158,11 @@ function BadgeAssignModal({ member, onClose }: BadgeAssignModalProps) {
   async function handleUploadIcon(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > MAX_BADGE_ICON_SIZE) {
+      notifyRejected([file], { reason: "size", maxBytes: MAX_BADGE_ICON_SIZE });
+      e.target.value = "";
+      return;
+    }
     setUploading(true);
     const res = await badgeApi.uploadBadgeIcon(file);
     if (res.success && res.data) {

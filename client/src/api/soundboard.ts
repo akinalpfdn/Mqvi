@@ -2,7 +2,7 @@
  * Soundboard API — per-server sound management and playback.
  */
 
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, type UploadOptions } from "./client";
 import type { SoundboardSound } from "../types";
 
 export async function getSounds(serverId: string) {
@@ -20,7 +20,8 @@ export async function createSound(
   file: File,
   name: string,
   durationMs: number,
-  emoji?: string
+  emoji?: string,
+  upload?: UploadOptions
 ) {
   const formData = new FormData();
   formData.append("file", file);
@@ -28,10 +29,11 @@ export async function createSound(
   formData.append("duration_ms", String(durationMs));
   if (emoji) formData.append("emoji", emoji);
 
-  return apiClient<SoundboardSound>(`/servers/${serverId}/soundboard/sounds`, {
-    method: "POST",
-    body: formData,
-  });
+  return uploadRequest<SoundboardSound>(
+    `/servers/${serverId}/soundboard/sounds`,
+    formData,
+    upload
+  );
 }
 
 export async function updateSound(

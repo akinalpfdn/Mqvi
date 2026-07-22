@@ -16,6 +16,9 @@ type ServerRepository interface {
 	GetByID(ctx context.Context, serverID string) (*models.Server, error)
 	// GetActiveByID returns the server only if deleted_at IS NULL.
 	GetActiveByID(ctx context.Context, serverID string) (*models.Server, error)
+	// IsE2EEEnabled reads just the encryption flag. Every message send consults it, so it must not
+	// pull the whole server row.
+	IsE2EEEnabled(ctx context.Context, serverID string) (bool, error)
 	Update(ctx context.Context, server *models.Server) error
 	// SetDiscoveryFlag flips a single admin discovery flag (verified/featured/discovery_blocked).
 	// The column is resolved from a whitelist, so `flag` cannot inject SQL.

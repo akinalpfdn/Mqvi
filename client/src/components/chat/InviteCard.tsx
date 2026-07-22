@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useServerStore } from "../../stores/serverStore";
+import { useServerStore, toServerListItem } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
 import { resolveAssetUrl, getInviteUrl, copyToClipboard } from "../../utils/constants";
 import { getInvitePreview, type InvitePreview } from "../../api/invites";
@@ -64,7 +64,7 @@ function InviteCard({ code }: InviteCardProps) {
         const exists = store.servers.some((s) => s.id === server.id);
         if (!exists) {
           useServerStore.setState((state) => ({
-            servers: [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }],
+            servers: [...state.servers, toServerListItem(server)],
           }));
         }
         useServerStore.setState({ activeServerId: server.id, activeServer: server });

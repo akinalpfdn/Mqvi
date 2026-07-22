@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { searchMessages } from "../../api/search";
 import { searchCachedMessages } from "../../crypto/keyStorage";
-import { useServerStore } from "../../stores/serverStore";
+import { useServerStore, selectServerE2EE } from "../../stores/serverStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { useBackHandler } from "../../hooks/useBackHandler";
 import type { SearchResult } from "../../api/search";
@@ -17,21 +17,36 @@ const DEBOUNCE_MS = 300;
 
 type SearchPanelProps = {
   channelId?: string;
+  /**
+   * The server the channel belongs to. Required rather than read from the active server: a tab can
+   * hold a channel of a non-active server, and querying the active server's index for a channel it
+   * does not contain returns nothing at all.
+   */
+  serverId?: string;
   onClose: () => void;
   initialQuery?: string;
   /** Navigate to message's channel on result click */
   onSelectResult?: (message: Message) => void;
 };
 
-function SearchPanel({ channelId, onClose, initialQuery = "", onSelectResult }: SearchPanelProps) {
+function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelectResult }: SearchPanelProps) {
   const { t } = useTranslation("chat");
   const { t: tE2ee } = useTranslation("e2ee");
   useBackHandler(onClose);
   const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
-  // E2EE is per-server. Plaintext servers can use backend FTS5; only route
-  // through the IndexedDB cache when the active server is actually encrypted.
-  const serverE2eeEnabled = useServerStore((s) => s.activeServer?.e2ee_enabled ?? false);
-  const useLocalSearch = serverE2eeEnabled && isE2EEReady;
+  // The prop wins; the active server is only a floor. A tab opened before the server list loaded
+  // carries no serverInfo for its whole life, and dropping the fallback entirely made search in
+  // that tab return nothing — the same shape ChannelChatProvider and MentionAutocomplete use.
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const effectiveServerId = serverId ?? activeServerId ?? undefined;
+
+  // E2EE is per-server. Plaintext servers can use backend FTS5; only route through the IndexedDB
+  // cache when THIS panel's server is encrypted — not whichever server happens to be active.
+  const serverE2eeEnabled = useServerStore(selectServerE2EE(effectiveServerId));
+  // undefined means the server list has not arrived. Treating that as "not encrypted" sent the
+  // query to the backend FTS index, which holds no plaintext for an encrypted server — a silent
+  // zero-result search. Assume encrypted until we know otherwise.
+  const useLocalSearch = (serverE2eeEnabled ?? true) && isE2EEReady;
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -92,9 +107,12 @@ function SearchPanel({ channelId, onClose, initialQuery = "", onSelectResult }: 
       }
 
       // Plaintext — server-side FTS5 search
-      const serverId = useServerStore.getState().activeServerId;
-      if (!serverId) return;
-      const res = await searchMessages(serverId, searchQuery.trim(), channelId, limit, searchOffset);
+      if (!effectiveServerId) {
+        setResults({ messages: [], total_count: 0 });
+        setIsSearching(false);
+        return;
+      }
+      const res = await searchMessages(effectiveServerId, searchQuery.trim(), channelId, limit, searchOffset);
       if (res.success && res.data) {
         setResults(res.data);
       } else {
@@ -102,7 +120,7 @@ function SearchPanel({ channelId, onClose, initialQuery = "", onSelectResult }: 
       }
       setIsSearching(false);
     },
-    [channelId, useLocalSearch]
+    [channelId, effectiveServerId, useLocalSearch]
   );
 
   /** Debounced search on input change */

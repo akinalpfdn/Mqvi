@@ -59,6 +59,25 @@ func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, b
 	}, nil
 }
 
+// enforceDMEncryptionPolicy makes the message's encryption match the conversation's setting, in both
+// directions. The client alone picks the path, so a client that misreads the state would store the
+// message in the clear — or, the other way, as ciphertext nobody in the conversation can decrypt.
+func enforceDMEncryptionPolicy(channel *models.DMChannel, encryptionVersion int) error {
+	if channel.E2EEEnabled && encryptionVersion != 1 {
+		return pkg.WithCode(
+			fmt.Errorf("%w: this conversation requires end-to-end encrypted messages", pkg.ErrBadRequest),
+			pkg.CodeEncryptionRequired,
+		)
+	}
+	if !channel.E2EEEnabled && encryptionVersion == 1 {
+		return pkg.WithCode(
+			fmt.Errorf("%w: this conversation does not use end-to-end encryption", pkg.ErrBadRequest),
+			pkg.CodeEncryptionNotAvailable,
+		)
+	}
+	return nil
+}
+
 // SendMessage creates a DM message. WS broadcast is done via BroadcastCreate after file uploads.
 func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, req *models.CreateDMMessageRequest) (*models.DMMessage, error) {
 	if err := req.Validate(); err != nil {
@@ -67,6 +86,10 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 
 	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := enforceDMEncryptionPolicy(channel, req.EncryptionVersion); err != nil {
 		return nil, err
 	}
 
@@ -333,6 +356,12 @@ func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, r
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
 	}
 
+	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext
+	// edit of an encrypted message leaves readable text beside the ciphertext the UI still shows.
+	if err := enforceDMEncryptionPolicy(channel, req.EncryptionVersion); err != nil {
+		return nil, err
+	}
+
 	if err := s.dmRepo.UpdateMessage(ctx, messageID, req); err != nil {
 		return nil, err
 	}
@@ -376,8 +405,17 @@ func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string)
 	}
 	for _, a := range dmAtts {
 		s.fileDeleter.DeleteFromURL(a.FileURL)
+		// The companion thumbnail is a separate file; without this it outlives its original until
+		// the orphan sweep. It carries no quota, so only the original counts toward the release.
+		if a.ThumbURL != nil {
+			s.fileDeleter.DeleteFromURL(*a.ThumbURL)
+		}
 		if a.FileSize != nil {
 			attachmentBytes += *a.FileSize
+		}
+		// The thumbnail was charged at upload, so it has to be given back here too.
+		if a.ThumbSize != nil {
+			attachmentBytes += *a.ThumbSize
 		}
 	}
 

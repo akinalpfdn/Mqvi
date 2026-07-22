@@ -84,6 +84,28 @@ var extMIMEFallback = map[string]string{
 	".log":  "text/plain",
 }
 
+// IsUnsafeInline reports whether a type must never be rendered inline — markup, script and
+// executables. Exported so upload-time validation and serve-time disposition judge "dangerous"
+// from one list instead of two that can drift.
+func IsUnsafeInline(mimeBase string) bool {
+	return alwaysAttachment[mimeBase]
+}
+
+// MIMEByExtension resolves a filename to a MIME type using the same detection the serve layer uses,
+// so upload-time acceptance and serve-time disposition can never disagree about what a file is.
+// Returns "" when the extension is unknown.
+func MIMEByExtension(filename string) string {
+	ext := strings.ToLower(path.Ext(filename))
+	detected := mime.TypeByExtension(ext)
+	if detected == "" {
+		detected = extMIMEFallback[ext]
+	}
+	if detected == "" {
+		return ""
+	}
+	return strings.TrimSpace(strings.Split(detected, ";")[0])
+}
+
 // ServeDisposition determines the Content-Type and Content-Disposition headers
 // for a file being served. Returns (contentType, disposition).
 //

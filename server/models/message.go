@@ -53,6 +53,13 @@ type Attachment struct {
 	FileSize  *int64    `json:"file_size"`
 	MimeType  *string   `json:"mime_type"`
 	CreatedAt time.Time `json:"created_at"`
+	// Companion preview. Nil for attachments uploaded before thumbnails existed, and for types
+	// that have no preview — every consumer must treat its absence as normal.
+	ThumbURL    *string `json:"thumb_url,omitempty"`
+	ThumbWidth  *int    `json:"thumb_width,omitempty"`
+	ThumbHeight *int    `json:"thumb_height,omitempty"`
+	// Charged to the uploader's quota like the original, so the delete path knows what to release.
+	ThumbSize *int64 `json:"thumb_size,omitempty"`
 }
 
 // MessagePage is the cursor-based pagination response.

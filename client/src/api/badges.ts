@@ -2,7 +2,7 @@
  * Badge API — badge CRUD, assignment, and icon upload.
  */
 
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, type UploadOptions } from "./client";
 import type { Badge, UserBadge } from "../types";
 
 /** List all badge templates. */
@@ -64,11 +64,8 @@ export async function getUserBadges(userId: string) {
 }
 
 /** Upload a custom badge icon image. Returns the URL path. */
-export async function uploadBadgeIcon(file: File) {
+export async function uploadBadgeIcon(file: File, upload?: UploadOptions) {
   const formData = new FormData();
   formData.append("icon", file);
-  return apiClient<{ url: string }>("/badges/icon", {
-    method: "POST",
-    body: formData,
-  });
+  return uploadRequest<{ url: string }>("/badges/icon", formData, upload);
 }

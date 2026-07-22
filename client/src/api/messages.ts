@@ -7,7 +7,8 @@
  * - DELETE /api/servers/{serverId}/messages/{id}           — delete message
  */
 
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, appendThumbnails, type UploadOptions } from "./client";
+import type { GeneratedThumbnail } from "../utils/imageEncoding";
 import type { Message, MessagePage } from "../types";
 
 export async function getMessages(
@@ -35,7 +36,9 @@ export async function sendMessage(
   channelId: string,
   content: string,
   files?: File[],
-  replyToId?: string
+  replyToId?: string,
+  upload?: UploadOptions,
+  thumbs?: (GeneratedThumbnail | null)[]
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -47,10 +50,13 @@ export async function sendMessage(
       formData.append("files", file);
     }
 
-    return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
-      method: "POST",
-      body: formData,
-    });
+    appendThumbnails(formData, thumbs);
+
+    return uploadRequest<Message>(
+      `/servers/${serverId}/channels/${channelId}/messages`,
+      formData,
+      upload
+    );
   }
 
   return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
@@ -70,7 +76,9 @@ export async function sendEncryptedMessage(
   senderDeviceId: string,
   metadata: string,
   files?: File[],
-  replyToId?: string
+  replyToId?: string,
+  upload?: UploadOptions,
+  thumbs?: (GeneratedThumbnail | null)[]
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -85,10 +93,13 @@ export async function sendEncryptedMessage(
       formData.append("files", file);
     }
 
-    return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
-      method: "POST",
-      body: formData,
-    });
+    appendThumbnails(formData, thumbs);
+
+    return uploadRequest<Message>(
+      `/servers/${serverId}/channels/${channelId}/messages`,
+      formData,
+      upload
+    );
   }
 
   return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {

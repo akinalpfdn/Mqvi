@@ -7,7 +7,8 @@
  * Search: FTS5 full-text search within DM channels.
  */
 
-import { apiClient } from "./client";
+import { apiClient, uploadRequest, appendThumbnails, type UploadOptions } from "./client";
+import type { GeneratedThumbnail } from "../utils/imageEncoding";
 import type { DMChannelWithUser, DMMessagePage, DMMessage } from "../types";
 
 export function listDMChannels() {
@@ -36,7 +37,9 @@ export async function sendDMMessage(
   channelId: string,
   content: string,
   files?: File[],
-  replyToId?: string
+  replyToId?: string,
+  upload?: UploadOptions,
+  thumbs?: (GeneratedThumbnail | null)[]
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -48,10 +51,9 @@ export async function sendDMMessage(
       formData.append("files", file);
     }
 
-    return apiClient<DMMessage>(`/dms/${channelId}/messages`, {
-      method: "POST",
-      body: formData,
-    });
+    appendThumbnails(formData, thumbs);
+
+    return uploadRequest<DMMessage>(`/dms/${channelId}/messages`, formData, upload);
   }
 
   return apiClient<DMMessage>(`/dms/${channelId}/messages`, {
@@ -74,7 +76,9 @@ export async function sendEncryptedDMMessage(
   senderDeviceId: string,
   metadata: string,
   files?: File[],
-  replyToId?: string
+  replyToId?: string,
+  upload?: UploadOptions,
+  thumbs?: (GeneratedThumbnail | null)[]
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -89,10 +93,9 @@ export async function sendEncryptedDMMessage(
       formData.append("files", file);
     }
 
-    return apiClient<DMMessage>(`/dms/${channelId}/messages`, {
-      method: "POST",
-      body: formData,
-    });
+    appendThumbnails(formData, thumbs);
+
+    return uploadRequest<DMMessage>(`/dms/${channelId}/messages`, formData, upload);
   }
 
   return apiClient<DMMessage>(`/dms/${channelId}/messages`, {

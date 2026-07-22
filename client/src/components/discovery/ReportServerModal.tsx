@@ -2,7 +2,13 @@ import { useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { reportServer } from "../../api/discovery";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { validateFiles, partitionFiles } from "../../utils/fileValidation";
+import { MAX_FILE_SIZE } from "../../utils/constants";
+import UploadProgress from "../shared/UploadProgress";
 import { useToastStore } from "../../stores/toastStore";
+import { ALLOWED_IMAGE_TYPES } from "../../hooks/useImageAttach";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import FilePreview from "../chat/FilePreview";
 
@@ -16,11 +22,8 @@ const REASONS = [
 ];
 
 const MAX_EVIDENCE_FILES = 4;
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
-function filterImageFiles(files: File[]): File[] {
-  return files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
-}
+const isAllowedImage = (f: File) => ALLOWED_IMAGE_TYPES.includes(f.type);
 
 type Props = {
   serverId: string;
@@ -37,13 +40,19 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
+  const notifyRejected = useFileRejectionNotice();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isValid = reason !== null && description.trim().length >= 10;
 
   const addFiles = useCallback(
     (newFiles: File[]) => {
-      const images = filterImageFiles(newFiles);
+      const byType = partitionFiles(newFiles, isAllowedImage);
+      notifyRejected(byType.rejected, { reason: "type" });
+      const { accepted: images, rejected } = validateFiles(byType.accepted, MAX_FILE_SIZE);
+      notifyRejected(rejected, { reason: "size", maxBytes: MAX_FILE_SIZE });
       if (images.length === 0) return;
       setFiles((prev) => {
         const remaining = MAX_EVIDENCE_FILES - prev.length;
@@ -55,7 +64,7 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
         return [...prev, ...images.slice(0, remaining)];
       });
     },
-    [addToast, t]
+    [addToast, t, notifyRejected]
   );
 
   function handleRemoveFile(index: number) {
@@ -86,7 +95,15 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
   async function handleSubmit() {
     if (!isValid || !reason || submitting) return;
     setSubmitting(true);
-    const res = await reportServer(serverId, reason, description.trim(), files.length > 0 ? files : undefined);
+    const upload = files.length > 0 ? beginUpload() : undefined;
+    const res = await reportServer(
+      serverId,
+      reason,
+      description.trim(),
+      files.length > 0 ? files : undefined,
+      upload
+    );
+    endUpload(upload);
     setSubmitting(false);
     if (res.success) {
       addToast("success", t("reportSubmitted"));
@@ -172,6 +189,14 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
               onChange={handleFileInputChange}
             />
           </div>
+
+          {uploadProgress && (
+            <UploadProgress
+              loaded={uploadProgress.loaded}
+              total={uploadProgress.total}
+              onCancel={cancelUpload}
+            />
+          )}
 
           <div className="report-actions">
             <button className="report-btn report-btn-cancel" onClick={onClose}>

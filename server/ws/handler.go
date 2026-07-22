@@ -261,18 +261,18 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load user's server list for ready event + BroadcastToServer filtering
-	var readyServers []ReadyServerItem
+	var readyServers []models.ServerListItem
 	var serverIDs []string
 	if h.serverListProvider != nil {
 		if servers, err := h.serverListProvider.GetUserServers(r.Context(), claims.UserID); err == nil {
-			readyServers = make([]ReadyServerItem, len(servers))
+			readyServers = make([]models.ServerListItem, len(servers))
 			serverIDs = make([]string, len(servers))
 			for i, s := range servers {
-				readyServers[i] = ReadyServerItem{
-					ID:      s.ID,
-					Name:    s.Name,
-					IconURL: h.urlSigner.SignURLPtr(s.IconURL),
-				}
+				// Copy, then replace only the URL — listing fields by hand is what dropped
+				// `verified` and `e2ee_enabled` here for as long as this event has existed.
+				item := s
+				item.IconURL = h.urlSigner.SignURLPtr(s.IconURL)
+				readyServers[i] = item
 				serverIDs[i] = s.ID
 			}
 		}

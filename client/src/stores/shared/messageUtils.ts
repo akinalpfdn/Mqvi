@@ -4,9 +4,11 @@
  */
 
 import i18n from "../../i18n";
-import { encryptFile } from "../../crypto/fileEncryption";
+import { UPLOAD_ABORTED } from "../../api/client";
+import { encryptFile, encryptThumbnail } from "../../crypto/fileEncryption";
 import { useToastStore } from "../toastStore";
 import type { EncryptedFileMeta } from "../../crypto/fileEncryption";
+import type { GeneratedThumbnail } from "../../utils/imageEncoding";
 import type { ReactionGroup } from "../../types";
 
 // ─── File Encryption ───
@@ -14,6 +16,8 @@ import type { ReactionGroup } from "../../types";
 export type EncryptedFileResult = {
   files: File[];
   metas: EncryptedFileMeta[];
+  /** Encrypted previews, index-aligned with `files`. Null where the source had no usable preview. */
+  thumbs: (GeneratedThumbnail | null)[];
 };
 
 /**
@@ -21,22 +25,40 @@ export type EncryptedFileResult = {
  * Shared between channel and DM sendMessage flows.
  */
 export async function encryptFilesForE2EE(
-  files: File[]
+  files: File[],
+  signal?: AbortSignal
 ): Promise<EncryptedFileResult> {
   const encrypted: File[] = [];
   const metas: EncryptedFileMeta[] = [];
+  const thumbs: (GeneratedThumbnail | null)[] = [];
 
   for (let i = 0; i < files.length; i++) {
+    // encryptFile is the expensive step and cannot be interrupted once started, so cancelling would
+    // otherwise still encrypt every remaining file. Throwing rather than breaking: a short batch
+    // silently sent fewer attachments than the user picked, and only happened not to because the
+    // transport re-checks the signal.
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const result = await encryptFile(files[i]);
     encrypted.push(
       new File([result.encryptedBlob], `encrypted_${i}.bin`, {
         type: "application/octet-stream",
       })
     );
+
+    // Shares the file's key with its own IV, so the payload carries one extra field rather than a
+    // second key. Returns null for non-images and for anything already small enough.
+    const thumb = await encryptThumbnail(files[i], result.meta.key, signal);
+    if (thumb) {
+      result.meta.thumbIv = thumb.iv;
+      thumbs.push({ blob: thumb.encryptedBlob, width: thumb.width, height: thumb.height });
+    } else {
+      thumbs.push(null);
+    }
+
     metas.push(result.meta);
   }
 
-  return { files: encrypted, metas };
+  return { files: encrypted, metas, thumbs };
 }
 
 // ─── Rate Limit Toast ───
@@ -65,6 +87,8 @@ export function handleSendError(res: {
   code?: string;
 }): boolean {
   if (res.success) return false;
+  // The user pressed cancel — that is not a failure, so no toast.
+  if (res.code === UPLOAD_ABORTED) return true;
   if (handleRateLimitError(res)) return true;
 
   const err = res.error?.toLowerCase() ?? "";
@@ -77,6 +101,14 @@ export function handleSendError(res: {
     key = "chat:uploadTooLargeScan";
   } else if (res.code === "upload_too_large") {
     key = "chat:uploadTooLarge";
+  } else if (res.code === "encryption_required") {
+    // The conversation mandates E2EE and this send went out unencrypted — almost always because
+    // encryption is not ready on this device yet, which the generic failure gave no hint of.
+    key = "chat:encryptionRequired";
+  } else if (res.code === "encryption_not_available") {
+    // The reverse: this client encrypted for a conversation that does not use E2EE, so its view of
+    // the setting is stale.
+    key = "chat:encryptionNotAvailable";
   }
 
   useToastStore.getState().addToast("error", i18n.t(key));

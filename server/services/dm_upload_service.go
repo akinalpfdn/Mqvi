@@ -14,7 +14,7 @@ import (
 
 // DMUploadService handles DM file uploads. Parallel to UploadService for channel messages.
 type DMUploadService interface {
-	Upload(ctx context.Context, dmMessageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.DMAttachment, error)
+	Upload(ctx context.Context, dmMessageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool, thumb *ThumbnailUpload) (*models.DMAttachment, error)
 }
 
 type dmUploadService struct {
@@ -35,7 +35,7 @@ func NewDMUploadService(
 	}
 }
 
-func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool) (*models.DMAttachment, error) {
+func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file multipart.File, header *multipart.FileHeader, isEncrypted bool, thumb *ThumbnailUpload) (*models.DMAttachment, error) {
 	if header.Size > s.maxSize {
 		return nil, fmt.Errorf("%w: file too large (max %dMB)", pkg.ErrBadRequest, s.maxSize/(1024*1024))
 	}
@@ -63,9 +63,18 @@ func (s *dmUploadService) Upload(ctx context.Context, dmMessageID string, file m
 		FileSize:    &fileSize,
 		MimeType:    &mimeBase,
 	}
+	if t := storeThumbnail(ctx, s.pipeline, files.KindDM, dmMessageID, thumb); t != nil {
+		attachment.ThumbURL, attachment.ThumbWidth, attachment.ThumbHeight = &t.URL, t.Width, t.Height
+		attachment.ThumbSize = &t.Size
+	}
 
 	if err := s.dmRepo.CreateAttachment(ctx, attachment); err != nil {
 		s.pipeline.DeleteFromURL(stored.RelativeURL)
+		// Same reason as the channel path: an orphaned thumbnail has no row and no cleanup query
+		// that can ever find it.
+		if attachment.ThumbURL != nil {
+			s.pipeline.DeleteFromURL(*attachment.ThumbURL)
+		}
 		return nil, fmt.Errorf("failed to create DM attachment record: %w", err)
 	}
 

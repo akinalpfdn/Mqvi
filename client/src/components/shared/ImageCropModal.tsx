@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Cropper from "react-easy-crop";
 import type { Area } from "react-easy-crop";
+import { fitWithin, encodeCanvas, hasTransparentPixels } from "../../utils/imageEncoding";
 
 type ImageCropModalProps = {
   /** Data URL of the picked file. */
@@ -9,6 +10,12 @@ type ImageCropModalProps = {
   aspect: number;
   isCircle?: boolean;
   isBusy?: boolean;
+  /**
+   * Cap for the produced image. The crop box is in SOURCE pixels, so without this a square crop of
+   * a phone photo is emitted at several thousand pixels a side.
+   */
+  maxWidth: number;
+  maxHeight: number;
   onCancel: () => void;
   onApply: (blob: Blob) => void;
 };
@@ -18,6 +25,8 @@ function ImageCropModal({
   aspect,
   isCircle = false,
   isBusy = false,
+  maxWidth,
+  maxHeight,
   onCancel,
   onApply,
 }: ImageCropModalProps) {
@@ -32,7 +41,7 @@ function ImageCropModal({
 
   async function handleApply() {
     if (!croppedAreaPixels) return;
-    const blob = await getCroppedImage(image, croppedAreaPixels, isCircle);
+    const blob = await getCroppedImage(image, croppedAreaPixels, isCircle, maxWidth, maxHeight);
     if (blob) onApply(blob);
   }
 
@@ -103,15 +112,24 @@ function ImageCropModal({
   );
 }
 
-async function getCroppedImage(imageSrc: string, pixelCrop: Area, isCircle: boolean): Promise<Blob | null> {
+async function getCroppedImage(
+  imageSrc: string,
+  pixelCrop: Area,
+  isCircle: boolean,
+  maxWidth: number,
+  maxHeight: number
+): Promise<Blob | null> {
   const image = await createImage(imageSrc);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
-  // Canvas matches the crop box, not a square — a 16/9 banner must not be letterboxed.
-  canvas.width = pixelCrop.width;
-  canvas.height = pixelCrop.height;
+  // Canvas matches the crop box's SHAPE, not a square — a 16/9 banner must not be letterboxed —
+  // but scaled down to the target. Cropping and downscaling share this one drawImage, so the
+  // pixels are resampled once instead of being encoded and re-decoded in between.
+  const { width, height } = fitWithin(pixelCrop.width, pixelCrop.height, maxWidth, maxHeight);
+  canvas.width = width;
+  canvas.height = height;
 
   if (isCircle) {
     // Ellipse, not arc: a 1:1 crop box can come back a pixel off square.
@@ -133,9 +151,10 @@ async function getCroppedImage(imageSrc: string, pixelCrop: Area, isCircle: bool
     canvas.height
   );
 
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), "image/png", 1);
-  });
+  // Alpha has to survive when the crop creates it (circular corners) or when the drawn pixels
+  // actually carry it. Read the canvas rather than guess from the source type: keying on the shape
+  // blackened transparent logos, and keying on "not a JPEG" re-encoded every opaque PNG losslessly.
+  return encodeCanvas(canvas, { alpha: isCircle || hasTransparentPixels(ctx, canvas) });
 }
 
 function createImage(url: string): Promise<HTMLImageElement> {

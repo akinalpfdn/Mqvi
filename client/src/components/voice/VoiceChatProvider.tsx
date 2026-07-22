@@ -18,6 +18,7 @@ import {
   deleteVoiceMessage,
 } from "../../api/voiceMessages";
 import type { MemberWithRoles, VoiceMessage } from "../../types";
+import type { UploadOptions } from "../../api/client";
 
 const EMPTY_VOICE: VoiceMessage[] = [];
 const EMPTY_STRINGS: string[] = [];
@@ -79,8 +80,8 @@ function VoiceChatProvider({ channelId, channelName, children }: Props) {
   }, [channelId, setForChannel]);
 
   const sendMessage = useCallback(
-    async (content: string, files?: File[]) => {
-      const res = await sendVoiceMessage(channelId, content, files);
+    async (content: string, files?: File[], _replyToId?: string, upload?: UploadOptions) => {
+      const res = await sendVoiceMessage(channelId, content, files, upload);
       return res.success;
     },
     [channelId],

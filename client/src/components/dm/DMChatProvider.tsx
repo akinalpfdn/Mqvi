@@ -3,6 +3,7 @@
 import { useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useDMStore } from "../../stores/dmStore";
+import type { UploadOptions } from "../../api/client";
 import type { DMMessage, MemberWithRoles, User } from "../../types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -54,8 +55,8 @@ function DMChatProvider({
 
   // ─── Actions (stable refs) ───
   const sendMessage = useCallback(
-    (content: string, files?: File[], replyToId?: string) =>
-      storeSendMessage(channelId, content, files, replyToId),
+    (content: string, files?: File[], replyToId?: string, upload?: UploadOptions) =>
+      storeSendMessage(channelId, content, files, replyToId, upload),
     [channelId, storeSendMessage]
   );
 

@@ -60,6 +60,37 @@ type ServerState = {
   toggleE2EE: (serverId: string, enabled: boolean) => Promise<boolean>;
 };
 
+/**
+ * Narrows a full Server to the sidebar list shape.
+ *
+ * Six call sites used to build this literal by hand and each one silently dropped `verified` and
+ * `e2ee_enabled` — a rename or an E2EE toggle made the list entry claim the server was unencrypted.
+ * Use this so a field added later cannot be forgotten in one branch.
+ */
+export function toServerListItem(server: Server): ServerListItem {
+  return {
+    id: server.id,
+    name: server.name,
+    icon_url: server.icon_url,
+    verified: server.verified,
+    e2ee_enabled: server.e2ee_enabled,
+  };
+}
+
+/**
+ * Whether a server has E2EE on — for any server the user is in, not just the active one.
+ *
+ * `undefined` means "not known yet", NOT "off": callers must assume encrypted or refuse to send.
+ */
+export function selectServerE2EE(serverId: string | null | undefined) {
+  return (s: ServerState): boolean | undefined => {
+    if (!serverId) return undefined;
+    const source = s.activeServer?.id === serverId ? s.activeServer : s.servers.find((sv) => sv.id === serverId);
+    // Checked rather than `?? false`: an older server omits the field entirely, and that is unknown.
+    return typeof source?.e2ee_enabled === "boolean" ? source.e2ee_enabled : undefined;
+  };
+}
+
 export const useServerStore = create<ServerState>((set, get) => ({
   servers: [],
   activeServerId: localStorage.getItem(LAST_SERVER_KEY),
@@ -126,7 +157,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
       set((state) => {
         const servers = state.servers.some((s) => s.id === server.id)
           ? state.servers
-          : [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }];
+          : [...state.servers, toServerListItem(server)];
         return {
           servers,
           activeServerId: server.id,
@@ -150,7 +181,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     set((state) => {
       const servers = state.servers.some((s) => s.id === server.id)
         ? state.servers
-        : [...state.servers, { id: server.id, name: server.name, icon_url: server.icon_url }];
+        : [...state.servers, toServerListItem(server)];
       return {
         servers,
         activeServerId: server.id,
@@ -211,7 +242,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
       // Update sidebar list entry
       const servers = state.servers.map((s) =>
         s.id === server.id
-          ? { id: server.id, name: server.name, icon_url: server.icon_url }
+          ? toServerListItem(server)
           : s
       );
       // Update active server detail if applicable

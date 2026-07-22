@@ -146,7 +146,7 @@ type LiveKitConfig struct {
 
 type UploadConfig struct {
 	Dir               string
-	MaxSize           int64 // bytes (default: 500MB)
+	MaxSize           int64 // bytes (default: 100MB — Cloudflare body limit)
 	DefaultQuotaBytes int64 // per-user storage quota (default: 10GB)
 	// PublicURL is the absolute base URL prepended to file URLs when they need
 	// to be served cross-origin or via CDN, e.g. "https://files.mqvi.net".

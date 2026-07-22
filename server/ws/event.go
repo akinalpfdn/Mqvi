@@ -1,5 +1,7 @@
 package ws
 
+import "github.com/akinalp/mqvi/models"
+
 // Event is the WebSocket message format.
 // Seq is a monotonic counter for gap detection on the client side.
 type Event struct {
@@ -160,18 +162,13 @@ type ReadyData struct {
 	// events that only one device may act on (see p2p_call_accept's accepted_by).
 	SessionID       string            `json:"session_id"`
 	OnlineUserIDs   []string          `json:"online_user_ids"`
-	Servers         []ReadyServerItem `json:"servers"`
+	// The sidebar list verbatim. It used to be a parallel ReadyServerItem struct carrying only
+	// id/name/icon_url, which silently dropped `verified` and `e2ee_enabled` — and ready is the only
+	// path that populates this list on the client, so both were always missing.
+	Servers         []models.ServerListItem `json:"servers"`
 	MutedServerIDs  []string          `json:"muted_server_ids"`
 	MutedChannelIDs []string          `json:"muted_channel_ids"`
 	PrefStatus      string            `json:"pref_status"`
-}
-
-// ReadyServerItem is a minimal server representation for the ready event.
-// Separate from models to avoid ws -> models coupling.
-type ReadyServerItem struct {
-	ID      string  `json:"id"`
-	Name    string  `json:"name"`
-	IconURL *string `json:"icon_url"`
 }
 
 type PresenceData struct {

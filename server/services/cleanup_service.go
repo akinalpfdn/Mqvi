@@ -478,8 +478,14 @@ func (s *cleanupService) walkOrphans(ctx context.Context, st *runStats) {
 //
 // TestOrphanWalk_EveryUploadKindHasAReferenceSource fails until a new kind is registered.
 var defaultReferenceSources = map[files.Kind][]string{
-	files.KindMessage:      {`SELECT file_url FROM attachments WHERE file_url IS NOT NULL AND file_url != ''`},
-	files.KindDM:           {`SELECT file_url FROM dm_attachments WHERE file_url IS NOT NULL AND file_url != ''`},
+	files.KindMessage: {
+		`SELECT file_url FROM attachments WHERE file_url IS NOT NULL AND file_url != ''`,
+		`SELECT thumb_url FROM attachments WHERE thumb_url IS NOT NULL AND thumb_url != ''`,
+	},
+	files.KindDM: {
+		`SELECT file_url FROM dm_attachments WHERE file_url IS NOT NULL AND file_url != ''`,
+		`SELECT thumb_url FROM dm_attachments WHERE thumb_url IS NOT NULL AND thumb_url != ''`,
+	},
 	files.KindSoundboard:   {`SELECT file_url FROM soundboard_sounds WHERE file_url IS NOT NULL AND file_url != ''`},
 	files.KindFeedback:     {`SELECT file_url FROM feedback_attachments WHERE file_url IS NOT NULL AND file_url != ''`},
 	files.KindReport:       {`SELECT file_url FROM report_attachments WHERE file_url IS NOT NULL AND file_url != ''`},

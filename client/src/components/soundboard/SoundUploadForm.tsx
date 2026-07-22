@@ -9,6 +9,10 @@ import WaveformTrimmer from "./WaveformTrimmer";
 import { useTranslation } from "react-i18next";
 import { useServerStore } from "../../stores/serverStore";
 import * as soundboardApi from "../../api/soundboard";
+import { useUploadProgress } from "../../hooks/useUploadProgress";
+import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
+import { MAX_FILE_SIZE } from "../../utils/constants";
+import UploadProgress from "../shared/UploadProgress";
 
 type Props = {
   onClose: () => void;
@@ -120,6 +124,9 @@ function SoundUploadForm({ onClose }: Props) {
   const [startInput, setStartInput] = useState("0.0");
   const [endInput, setEndInput] = useState("0.0");
   const [isUploading, setIsUploading] = useState(false);
+  const { progress: uploadProgress, begin: beginUpload, end: endUpload, cancel: cancelUpload } =
+    useUploadProgress();
+  const notifyRejected = useFileRejectionNotice();
   const [error, setError] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -203,6 +210,14 @@ function SoundUploadForm({ onClose }: Props) {
 
     setError("");
 
+    // Video sources get decoded to WAV in-browser before upload, so an oversized pick has to be
+    // refused here — otherwise it is fully decoded first and only then rejected by the server.
+    if (selected.size > MAX_FILE_SIZE) {
+      notifyRejected([selected], { reason: "size", maxBytes: MAX_FILE_SIZE });
+      e.target.value = "";
+      return;
+    }
+
     if (!name) {
       setName(selected.name.replace(/\.[^.]+$/, ""));
     }
@@ -263,7 +278,16 @@ function SoundUploadForm({ onClose }: Props) {
       return;
     }
 
-    const res = await soundboardApi.createSound(serverId, uploadFile, name.trim(), trimmedDurationMs, emoji.trim() || undefined);
+    const upload = beginUpload();
+    const res = await soundboardApi.createSound(
+      serverId,
+      uploadFile,
+      name.trim(),
+      trimmedDurationMs,
+      emoji.trim() || undefined,
+      upload
+    );
+    endUpload(upload);
     setIsUploading(false);
 
     if (res.success) {
@@ -369,6 +393,14 @@ function SoundUploadForm({ onClose }: Props) {
         </div>
 
         {error && <p className="sb-error">{error}</p>}
+
+        {uploadProgress && (
+          <UploadProgress
+            loaded={uploadProgress.loaded}
+            total={uploadProgress.total}
+            onCancel={cancelUpload}
+          />
+        )}
       </div>
 
       <div className="sb-upload-footer">

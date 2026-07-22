@@ -134,6 +134,10 @@ export type Attachment = {
   file_url: string;
   file_size: number | null;
   mime_type: string | null;
+  /** Companion preview. Absent on attachments predating thumbnails and on types with no preview. */
+  thumb_url?: string | null;
+  thumb_width?: number | null;
+  thumb_height?: number | null;
 };
 
 /** Ephemeral voice channel chat message. Wiped server-side on N→0. */
@@ -791,6 +795,15 @@ export type ServerListItem = {
   name: string;
   icon_url: string | null;
   verified?: boolean;
+  /**
+   * `undefined` is a real state — a server older than this client does not send the field, and the
+   * code reads that as "unknown" rather than "off". Required-but-nullable rather than optional so
+   * both stay true: the wire can omit it, but a hand-written literal cannot, and forgetting it in
+   * one branch is a compile error rather than a value indistinguishable from an old server.
+   *
+   * Build these with toServerListItem(). Operationally: upgrade the server before the clients.
+   */
+  e2ee_enabled: boolean | undefined;
 };
 
 /**

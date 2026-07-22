@@ -21,6 +21,7 @@ import PlatformBanDialog from "./PlatformBanDialog";
 import PlatformActionDialog from "./PlatformActionDialog";
 import type { AdminReportListItem } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
+import { formatBytes } from "../../utils/formatBytes";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 
 // --- Column Definition ---
@@ -394,11 +395,10 @@ function AdminReportList() {
     }
   }
 
+  /** Blank rather than "0 B" when the size is unknown — the row shows nothing at all then. */
   function formatFileSize(bytes: number | null) {
     if (bytes === null || bytes === 0) return "";
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / 1048576).toFixed(1)} MB`;
+    return formatBytes(bytes);
   }
 
   // --- Sort indicator ---

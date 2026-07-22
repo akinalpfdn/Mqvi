@@ -1,6 +1,7 @@
 /** MessageAttachments — Renders file/image attachments for a message. */
 
 import { resolveAssetUrl } from "../../utils/constants";
+import { formatBytes } from "../../utils/formatBytes";
 import EncryptedAttachment from "./EncryptedAttachment";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import type { ChatAttachment, ChatMessage } from "../../hooks/useChatContext";
@@ -56,36 +57,34 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
               onClick={() => open(attachment)}
               aria-label={attachment.filename}
             >
+              {/* The preview when there is one — the original is only fetched once opened. Width
+                  and height come from the stored dimensions so the list does not reflow on load. */}
               <img
-                src={resolveAssetUrl(attachment.file_url)}
+                src={resolveAssetUrl(attachment.thumb_url ?? attachment.file_url)}
                 alt={attachment.filename}
                 className="msg-attachment-img"
                 loading="lazy"
+                width={attachment.thumb_width ?? undefined}
+                height={attachment.thumb_height ?? undefined}
               />
             </button>
           );
         }
 
         if (isVideo) {
-          // Inline player: plays in place, no new tab. Native controls expose
-          // fullscreen + "save video as" so an overlay handoff is unnecessary.
-          //
-          // #t=0.1 is what gives it a preview frame. preload="metadata" gets the dimensions and
-          // the controls on every platform, but a mobile browser will not paint the first frame
-          // until playback starts — so the message showed a black box with a stretched play
-          // glyph in it. The media fragment makes the browser seek to 0.1s and paint THAT frame,
-          // which it will happily do because the file endpoint serves ranges (http.ServeContent).
-          // The cost is that playback starts 100ms in.
-          //
-          // playsInline: without it iOS hijacks the tap into its own fullscreen player.
+          // With a poster the video itself is untouched until play (preload="none"). Without one,
+          // #t=0.1 makes the browser seek and paint a frame — mobile paints nothing otherwise, so
+          // the message showed a black box. playsInline stops iOS hijacking the tap.
+          const posterUrl = attachment.thumb_url ? resolveAssetUrl(attachment.thumb_url) : null;
           return (
             <video
               key={attachment.id}
-              src={resolveAssetUrl(attachment.file_url) + "#t=0.1"}
+              src={resolveAssetUrl(attachment.file_url) + (posterUrl ? "" : "#t=0.1")}
+              poster={posterUrl ?? undefined}
               controls
               playsInline
               className="msg-attachment-video"
-              preload="metadata"
+              preload={posterUrl ? "none" : "metadata"}
             />
           );
         }
@@ -128,7 +127,7 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
               </p>
               {attachment.file_size && (
                 <p className="msg-attachment-file-size">
-                  {formatFileSize(attachment.file_size)}
+                  {formatBytes(attachment.file_size)}
                 </p>
               )}
             </div>
@@ -137,13 +136,6 @@ function MessageAttachments({ message }: MessageAttachmentsProps) {
       })}
     </div>
   );
-}
-
-/** Format bytes to human-readable size (1024 -> "1.0 KB") */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default MessageAttachments;

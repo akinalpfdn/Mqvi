@@ -18,9 +18,11 @@ import { useLocation } from "react-router-dom";
 import { TransformWrapper, TransformComponent, type ReactZoomPanPinchContentRef } from "react-zoom-pan-pinch";
 import DOMPurify from "dompurify";
 import { useFileViewerStore, type FileViewerItem } from "../../stores/fileViewerStore";
+import { isInlineVideo, isVideoFile } from "../../utils/inlineMedia";
 import { useToastStore } from "../../stores/toastStore";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useBackHandler } from "../../hooks/useBackHandler";
+import { formatBytes } from "../../utils/formatBytes";
 
 function isTextEntry(el: Element | null): boolean {
   if (!el) return false;
@@ -72,19 +74,22 @@ function sanitizeHtml(input: string): string {
   }) as unknown as string;
 }
 
-function formatBytes(bytes: number | null): string {
+/** Unknown size reads as an em dash rather than "0 B", which would be a claim we cannot make. */
+function formatSize(bytes: number | null): string {
   if (bytes == null || bytes === 0) return "—";
-  const k = 1024;
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${units[i]}`;
+  return formatBytes(bytes);
 }
 
 function classifyMime(mime: string, filename: string): "image" | "video" | "audio" | "pdf" | "docx" | "xlsx" | "other" {
   const m = (mime || "").toLowerCase();
   const name = (filename || "").toLowerCase();
   if (m.startsWith("image/")) return "image";
-  if (m.startsWith("video/")) return "video";
+  // Extension, not the declared type, and only the containers the serve layer hands back inline —
+  // the thumbnail already refuses to promise a .mkv is playable, and opening it must not put a
+  // full-screen player in front of a file the browser will never render.
+  if (m.startsWith("video/") || isVideoFile(name)) {
+    return isInlineVideo(name) ? "video" : "other";
+  }
   if (m.startsWith("audio/")) return "audio";
   if (m === "application/pdf" || name.endsWith(".pdf")) return "pdf";
   if (
@@ -209,7 +214,7 @@ function OverlayShell({ item, onClose }: ShellProps) {
   if (tooLargeForPreview) {
     body = (
       <FallbackPanel
-        message={t("previewTooLarge", { size: formatBytes(item.size) })}
+        message={t("previewTooLarge", { size: formatSize(item.size) })}
         downloadHref={downloadHref}
         downloadName={item.filename}
       />
@@ -248,7 +253,7 @@ function OverlayShell({ item, onClose }: ShellProps) {
       <div className="file-viewer-header">
         <div className="file-viewer-meta">
           <span className="file-viewer-filename" title={item.filename}>{item.filename}</span>
-          <span className="file-viewer-size">{formatBytes(item.size)}</span>
+          <span className="file-viewer-size">{formatSize(item.size)}</span>
         </div>
         <div className="file-viewer-actions">
           {kind === "image" && (
