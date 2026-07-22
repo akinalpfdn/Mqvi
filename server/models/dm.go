@@ -159,6 +159,10 @@ func (r *UpdateDMMessageRequest) Validate() error {
 		if r.Ciphertext == nil || *r.Ciphertext == "" {
 			return fmt.Errorf("ciphertext is required for encrypted messages")
 		}
+		// Same rule as the channel edit: the id the recipient decrypts by must not be nulled out.
+		if r.SenderDeviceID == nil || *r.SenderDeviceID == "" {
+			return fmt.Errorf("sender_device_id is required for encrypted messages")
+		}
 		return nil
 	}
 

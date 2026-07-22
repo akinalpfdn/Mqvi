@@ -123,6 +123,12 @@ func (r *UpdateMessageRequest) Validate() error {
 		if r.Ciphertext == nil || *r.Ciphertext == "" {
 			return fmt.Errorf("ciphertext is required for encrypted messages")
 		}
+		// The edit overwrites the row's sender_device_id with whatever it carries, and recipients
+		// select the decryption session by that id — omitting it here nulls a good one and leaves a
+		// message nobody can read. Create has always demanded it.
+		if r.SenderDeviceID == nil || *r.SenderDeviceID == "" {
+			return fmt.Errorf("sender_device_id is required for encrypted messages")
+		}
 		return nil
 	}
 
