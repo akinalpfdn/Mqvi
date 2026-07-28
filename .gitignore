@@ -112,6 +112,12 @@ deploy/redeploy-prod.sh
 deploy/redeploy-prod.ps1
 
 # ========================
+# Pre-edit backups of the real (IP-bearing) deploy scripts — kept so edits to the
+# untracked scripts can be diffed against their originals; never committed.
+# ========================
+deploy/backup/
+
+# ========================
 # Embedded frontend build
 # ========================
 server/static/dist/

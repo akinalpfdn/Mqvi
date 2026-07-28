@@ -1,0 +1,17 @@
+[Unit]
+Description=mqvi — LiveKit SFU
+After=network-online.target
+Wants=network-online.target
+# Only active where an SFU runs locally (e.g. staging). Production points at a remote SFU and has
+# no livekit.yaml, so this unit stays inactive there — cleanly, without failing the boot.
+ConditionPathExists=/root/mqvi/livekit.yaml
+
+[Service]
+Type=simple
+WorkingDirectory=/root/mqvi
+ExecStart=/root/mqvi/livekit-server --config livekit.yaml
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

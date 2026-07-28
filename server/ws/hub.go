@@ -5,6 +5,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 )
@@ -726,17 +727,41 @@ func (h *Hub) DisconnectUser(userID string) {
 }
 
 // Shutdown closes all client connections (graceful shutdown).
-func (h *Hub) Shutdown() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+// serverShutdownGrace is how long the hub waits after telling clients it is going down, so their
+// WritePump flushes that frame before the socket closes. A single buffered frame writes in well
+// under a millisecond; the window is generous on purpose and is a small fraction of the shutdown
+// budget (srv.Shutdown's 5s, systemd's TimeoutStopSec).
+const serverShutdownGrace = 250 * time.Millisecond
 
+func (h *Hub) Shutdown() {
+	// Snapshot the clients under the lock, then release it — the grace period below must not hold
+	// the hub, or every in-flight ReadPump unregister would block on it.
+	h.mu.Lock()
+	var all []*Client
 	for _, clients := range h.clients {
 		for client := range clients {
-			client.markClosed()
+			all = append(all, client)
 		}
+	}
+	h.mu.Unlock()
+
+	// Tell every connection we are going down. Non-blocking: a client whose buffer is already full
+	// is lagging and will just reconnect the old way. done is still open here, so each WritePump
+	// drains this frame from `send` before there is any close frame to race it.
+	if data, err := json.Marshal(Event{Op: OpServerShutdown}); err == nil {
+		for _, c := range all {
+			c.trySend(data)
+		}
+		time.Sleep(serverShutdownGrace)
+	}
+
+	h.mu.Lock()
+	for _, c := range all {
+		c.markClosed()
 	}
 	h.clients = make(map[string]map[*Client]bool)
 	h.serverClients = make(map[string]map[*Client]bool)
+	h.mu.Unlock()
 	log.Println("[ws] hub shut down, all connections closed")
 }
 
