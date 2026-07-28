@@ -1,0 +1,27 @@
+[Unit]
+Description=mqvi — application server
+After=network-online.target mqvi-livekit.service
+Wants=network-online.target mqvi-livekit.service
+# Wants, not Requires: production points at a REMOTE SFU, so mqvi-livekit is inactive there
+# (ConditionPathExists in that unit) and must not hold the server back.
+
+[Service]
+Type=simple
+# Path is the deploy's RemotePath resolved for root (~/mqvi). Update both fields if it changes.
+WorkingDirectory=/root/mqvi
+ExecStartPre=/root/mqvi/prestart.sh
+ExecStart=/root/mqvi/mqvi-server
+Restart=on-failure
+RestartSec=2
+# The server handles SIGTERM (srv.Shutdown, plus a ~250ms hub grace so the shutdown frame flushes
+# before the sockets close). 15s is comfortably above that and well under systemd's 90s default,
+# so a genuinely wedged process is reaped quickly instead of stalling the deploy.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+# mqvi-server loads .env from WorkingDirectory itself (godotenv), so no EnvironmentFile is needed.
+# No ProtectHome/ProtectSystem hardening here: WorkingDirectory lives under /root, which those
+# directives would hide from the service. Hardening comes with the /opt/mqvi + dedicated-user
+# layout (install.sh already builds those units) — a separate, rehearsed change.
+
+[Install]
+WantedBy=multi-user.target

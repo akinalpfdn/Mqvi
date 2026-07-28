@@ -116,6 +116,17 @@ export function useWebSocket() {
       return;
     }
 
+    // The server is about to close this socket for a deploy (it sends this, then a clean close
+    // frame ~250ms later). Reflect it in the banner now, so the brief gap reads as "reconnecting"
+    // rather than a glitch. The reconnect itself is left to the normal onclose path: its first
+    // attempt is already ~1.5s with ±25% jitter, which is what keeps every client from
+    // reconnecting in lockstep — an aggressive zero-delay reconnect here would only tighten that
+    // herd against the booting process.
+    if (msg.op === "server_shutdown") {
+      if (!exhaustedRef.current) updateStatus("connecting");
+      return;
+    }
+
     const ctx: WSHandlerContext = { sendVoiceJoin };
 
     if (await handleChannelEvent(msg)) return;

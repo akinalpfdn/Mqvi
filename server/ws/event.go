@@ -24,6 +24,11 @@ const (
 const (
 	OpReady         = "ready"
 	OpHeartbeatAck  = "heartbeat_ack"
+	// OpServerShutdown is sent to every connection just before a graceful shutdown closes the
+	// socket, so the client reconnects deliberately (after a small random delay) instead of
+	// discovering the drop on its own backoff. Turns a restart the user would feel into one they
+	// do not.
+	OpServerShutdown = "server_shutdown"
 	OpMessageCreate = "message_create"
 	OpMessageUpdate = "message_update"
 	OpMessageDelete = "message_delete"
