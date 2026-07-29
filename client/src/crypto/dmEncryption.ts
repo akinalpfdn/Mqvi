@@ -294,6 +294,15 @@ export async function decryptDMMessage(
 export async function decryptDMMessages(
   messages: DMMessage[]
 ): Promise<DMMessage[]> {
+  // Before init completes there are no keys to decrypt with, and an attempt is not free:
+  // decryptMessage runs processPreKeyMessage first, which writes session and trusted-identity
+  // records. Return placeholders instead — same contract as decryptChannelMessages.
+  if (useE2EEStore.getState().initStatus !== "ready") {
+    return messages.map((msg) =>
+      msg.encryption_version === 1 ? { ...msg, content: null } : msg
+    );
+  }
+
   const result: DMMessage[] = [];
   const toCache: import("./types").CachedDecryptedMessage[] = [];
 

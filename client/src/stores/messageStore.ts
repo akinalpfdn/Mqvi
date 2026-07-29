@@ -81,6 +81,13 @@ type MessageState = {
  */
 const fetchedChannels = new Set<string>();
 
+/**
+ * Bumped by invalidateFetchCache. A fetch that started before the bump decrypted its page under
+ * key state that no longer applies — without this it would land on top of the refill and put the
+ * placeholders back.
+ */
+let cacheGeneration = 0;
+
 export const useMessageStore = create<MessageState>((set, get) => ({
   messagesByChannel: {},
   hasMoreByChannel: {},
@@ -91,6 +98,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   scrollToMessageId: null,
 
   invalidateFetchCache: () => {
+    cacheGeneration++;
     fetchedChannels.clear();
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
   },
@@ -144,15 +152,19 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     set({ isLoading: true });
 
+    const generation = cacheGeneration;
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) { set({ isLoading: false }); return; }
 
     const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
     if (res.success && res.data) {
-      fetchedChannels.add(channelId);
-
       // Go nil slice -> JSON null; fallback to empty array
       const apiMessages = await decryptChannelMessages(res.data.messages ?? []);
+
+      // The cache was invalidated while this was in flight — E2EE keys arrived, and this page was
+      // decrypted before they did. Dropping it leaves the refill's own fetch to fill the channel.
+      if (generation !== cacheGeneration) { set({ isLoading: false }); return; }
+      fetchedChannels.add(channelId);
 
       set((state) => {
         // Merge WS-buffered messages that arrived during fetch

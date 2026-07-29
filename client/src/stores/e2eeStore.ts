@@ -133,6 +133,10 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
           localDeviceId: deviceId,
         });
 
+        // Anything opened while init was still running was cached without plaintext. The keys
+        // exist now, so refill it — otherwise encrypted history stays blank until a restart.
+        refillAfterKeysReady(false);
+
         // Background: prekey check + device list + backup status + deferred recovery prompt
         get().handlePrekeyLow();
         get().fetchDevices();
@@ -184,14 +188,8 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
 
       get().fetchDevices();
 
-      // Invalidate message cache so messages get re-decrypted
-      useMessageStore.getState().invalidateFetchCache();
-      useDMStore.getState().invalidateFetchCache();
-
-      const activeChannelId = useChannelStore.getState().selectedChannelId;
-      if (activeChannelId) {
-        useMessageStore.getState().fetchMessages(activeChannelId);
-      }
+      // New key material — everything held was decrypted with keys that no longer apply.
+      refillAfterKeysReady(true);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Device setup failed";
@@ -246,14 +244,8 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
       get().handlePrekeyLow();
       get().fetchDevices();
 
-      // Invalidate cache — messages will now decrypt with restored keys
-      useMessageStore.getState().invalidateFetchCache();
-      useDMStore.getState().invalidateFetchCache();
-
-      const activeChannelId = useChannelStore.getState().selectedChannelId;
-      if (activeChannelId) {
-        useMessageStore.getState().fetchMessages(activeChannelId);
-      }
+      // Restored keys — what is held was decrypted with the pre-restore key material.
+      refillAfterKeysReady(true);
 
       return true;
     } catch (err) {
@@ -402,6 +394,44 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
 // ──────────────────────────────────
 // Internal Helpers
 // ──────────────────────────────────
+
+/**
+ * True when something we hold is encrypted but carries no plaintext — content cached while the
+ * keys were still loading. On the way into `ready` no genuine decrypt has run yet, so a null here
+ * can only be gated content, never a real decryption failure.
+ */
+function hasGatedContent(): boolean {
+  for (const messages of Object.values(useMessageStore.getState().messagesByChannel)) {
+    if (messages.some((m) => m.encryption_version === 1 && m.content == null)) return true;
+  }
+  for (const messages of Object.values(useDMStore.getState().messagesByChannel)) {
+    if (messages.some((m) => m.encryption_version === 1 && m.content == null)) return true;
+  }
+  return false;
+}
+
+/**
+ * Drops content cached before the keys existed and refills what is on screen. Every path that
+ * reaches `ready` calls this — the bug it closes was that only two of the three did, so the
+ * ordinary "this device already has keys" launch left encrypted history blank until a restart.
+ *
+ * `force` is for the paths that just replaced the key material (new device, recovery restore):
+ * there the whole cache is stale by definition, whether or not it looks gated.
+ */
+function refillAfterKeysReady(force: boolean): void {
+  if (!force && !hasGatedContent()) return;
+
+  useMessageStore.getState().invalidateFetchCache();
+  useDMStore.getState().invalidateFetchCache();
+
+  // Only what the user is looking at. Anything else refetches on open, because the invalidate
+  // above cleared the "already fetched" set.
+  const channelId = useChannelStore.getState().selectedChannelId;
+  if (channelId) void useMessageStore.getState().fetchMessages(channelId);
+
+  const dmChannelId = useDMStore.getState().selectedDMId;
+  if (dmChannelId) void useDMStore.getState().fetchMessages(dmChannelId);
+}
 
 /** Check recovery backup status in background. Silently continues on error. */
 async function checkRecoveryBackup(

@@ -57,7 +57,12 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
           }
         }
 
-        if (!decrypted) {
+        // The cache lookups above need no keys, so they run either way. A real decrypt does —
+        // and before init completes it cannot succeed, it just burns a decryption-error entry.
+        // The ready transition refetches the conversation. Mirrors channelEventHandlers.
+        if (!decrypted && useE2EEStore.getState().initStatus !== "ready") {
+          dmMsg = { ...dmMsg, content: null };
+        } else if (!decrypted) {
           try {
             const payload = await decryptDMMessage(dmMsg.user_id, dmMsg.ciphertext!, dmMsg.sender_device_id!);
             if (payload) {
@@ -132,7 +137,9 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
           }
         }
 
-        if (!editDecrypted) {
+        if (!editDecrypted && useE2EEStore.getState().initStatus !== "ready") {
+          dmUpdateMsg = { ...dmUpdateMsg, content: null };
+        } else if (!editDecrypted) {
           try {
             const payload = await decryptDMMessage(
               dmUpdateMsg.user_id, dmUpdateMsg.ciphertext!, dmUpdateMsg.sender_device_id!
