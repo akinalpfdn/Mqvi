@@ -100,9 +100,17 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
         dmMsg.dm_channel_id === dmState.selectedDMId && isAppInForeground();
 
       if (!isLookingAtIt) {
+        // The badge still counts a muted conversation — muting silences the interruption, not the
+        // fact that something arrived. The count also has to stay, because the server keeps its
+        // own and the next channel-list snapshot would paint it straight back.
         dmState.incrementDMUnread(dmMsg.dm_channel_id);
-        playNotificationSound();
-        window.electronAPI?.flashFrame();
+
+        const isMuted =
+          dmState.channels.find((ch) => ch.id === dmMsg.dm_channel_id)?.is_muted ?? false;
+        if (!isMuted) {
+          playNotificationSound();
+          window.electronAPI?.flashFrame();
+        }
       }
       // No mark-read here: DMChat's effect fires on the message we just stored and advances the
       // watermark, but only against what actually decrypted. Marking it read here would claim a

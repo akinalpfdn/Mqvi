@@ -2421,6 +2421,25 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .connection-banner-btn:hover { background:rgba(255,255,255,0.35); }
 
 /* ═══════════════════════════════════════
+   ERROR BOUNDARY
+   Rendered when the app itself failed, so it depends on nothing but this stylesheet.
+   ═══════════════════════════════════════ */
+.error-boundary {
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  height:100vh;padding:24px;text-align:center;
+  background:var(--bg-1);color:var(--t0);
+}
+.error-boundary-title { font-size:17px;font-weight:600; }
+.error-boundary-message { font-size:15px;color:var(--t2);max-width:420px; }
+.error-boundary-retry {
+  margin-top:4px;padding:8px 18px;border-radius:6px;border:none;cursor:pointer;
+  font-size:14px;font-weight:600;
+  background:var(--primary);color:#fff;
+  transition:opacity 0.15s;
+}
+.error-boundary-retry:hover { opacity:0.85; }
+
+/* ═══════════════════════════════════════
    TOAST NOTIFICATIONS
    ═══════════════════════════════════════ */
 .toast-container { position:fixed;bottom:24px;right:24px;z-index:10001;display:flex;flex-direction:column-reverse;gap:8px; }

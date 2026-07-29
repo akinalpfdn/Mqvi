@@ -178,5 +178,9 @@
     "next": "Sonraki"
   },
   "fileTypeNotAllowed": "{{name}} desteklenmeyen bir dosya türü, eklenmedi.",
-  "filesTypeNotAllowed": "{{n}} dosya desteklenmeyen türde, eklenmedi."
+  "filesTypeNotAllowed": "{{n}} dosya desteklenmeyen türde, eklenmedi.",
+  "errorReloading": "Bir şeyler ters gitti. Yeniden yükleniyor…",
+  "errorTitle": "Bir şeyler sürekli ters gidiyor",
+  "errorPersistent": "Yeniden yükleme işe yaramadı. Tekrar deneyin; sorun sürerse uygulamayı yeniden başlatın.",
+  "errorRetry": "Tekrar dene"
 }

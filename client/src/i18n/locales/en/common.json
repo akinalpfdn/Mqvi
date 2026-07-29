@@ -178,5 +178,9 @@
     "next": "Next"
   },
   "fileTypeNotAllowed": "{{name}} is not a supported file type and was not attached.",
-  "filesTypeNotAllowed": "{{n}} files are not a supported file type and were not attached."
+  "filesTypeNotAllowed": "{{n}} files are not a supported file type and were not attached.",
+  "errorReloading": "Something went wrong. Reloading…",
+  "errorTitle": "Something keeps going wrong",
+  "errorPersistent": "Reloading did not help. Try again, and if it keeps happening, restart the app.",
+  "errorRetry": "Try again"
 }
