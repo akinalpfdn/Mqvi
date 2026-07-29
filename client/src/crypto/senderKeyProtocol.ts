@@ -15,6 +15,7 @@ import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import * as keyStorage from "./keyStorage";
 import { toBase64, fromBase64 } from "./signalProtocol";
+import { withSessionLock, senderKeyLockKey } from "./sessionLock";
 import {
   type StoredSenderKey,
   type SenderKeyDistributionData,
@@ -29,7 +30,17 @@ import {
 // ──────────────────────────────────
 
 /** Create a new outbound Sender Key distribution for a channel. */
-export async function createDistribution(
+export function createDistribution(
+  channelId: string,
+  userId: string,
+  deviceId: string
+): Promise<SenderKeyDistributionData> {
+  return withSessionLock(senderKeyLockKey(channelId, userId, deviceId), () =>
+    createDistributionLocked(channelId, userId, deviceId)
+  );
+}
+
+async function createDistributionLocked(
   channelId: string,
   userId: string,
   deviceId: string
@@ -70,7 +81,18 @@ export async function createDistribution(
 }
 
 /** Process an inbound Sender Key distribution. Saves the key for decrypting future messages from this sender. */
-export async function processDistribution(
+export function processDistribution(
+  channelId: string,
+  senderUserId: string,
+  senderDeviceId: string,
+  distribution: SenderKeyDistributionData
+): Promise<void> {
+  return withSessionLock(senderKeyLockKey(channelId, senderUserId, senderDeviceId), () =>
+    processDistributionLocked(channelId, senderUserId, senderDeviceId, distribution)
+  );
+}
+
+async function processDistributionLocked(
   channelId: string,
   senderUserId: string,
   senderDeviceId: string,
@@ -97,7 +119,18 @@ export async function processDistribution(
 // ──────────────────────────────────
 
 /** Encrypt a group message with Sender Key. Single encrypt for all channel members. */
-export async function encryptGroupMessage(
+export function encryptGroupMessage(
+  channelId: string,
+  userId: string,
+  deviceId: string,
+  plaintext: string
+): Promise<SenderKeyMessage> {
+  return withSessionLock(senderKeyLockKey(channelId, userId, deviceId), () =>
+    encryptGroupMessageLocked(channelId, userId, deviceId, plaintext)
+  );
+}
+
+async function encryptGroupMessageLocked(
   channelId: string,
   userId: string,
   deviceId: string,
@@ -172,7 +205,18 @@ export async function encryptGroupMessage(
 }
 
 /** Decrypt a group message using the sender's Sender Key. */
-export async function decryptGroupMessage(
+export function decryptGroupMessage(
+  channelId: string,
+  senderUserId: string,
+  senderDeviceId: string,
+  message: SenderKeyMessage
+): Promise<string> {
+  return withSessionLock(senderKeyLockKey(channelId, senderUserId, senderDeviceId), () =>
+    decryptGroupMessageLocked(channelId, senderUserId, senderDeviceId, message)
+  );
+}
+
+async function decryptGroupMessageLocked(
   channelId: string,
   senderUserId: string,
   senderDeviceId: string,

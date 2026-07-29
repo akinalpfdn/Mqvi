@@ -17,6 +17,7 @@ import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { hmac } from "@noble/hashes/hmac.js";
 import * as keyStorage from "./keyStorage";
+import { withSessionLock, signalSessionKey } from "./sessionLock";
 import {
   type StoredIdentityKeyPair,
   type StoredSignedPreKey,
@@ -215,19 +216,31 @@ function verifySignedPreKey(
  * Computes shared secret from recipient's prekey bundle via 3-DH or 4-DH,
  * then initializes a Double Ratchet session.
  */
-export async function processPreKeyBundle(
+type PreKeyBundleInput = {
+  identityKey: string;       // base64 X25519 public
+  signingKey: string;        // base64 Ed25519 public
+  signedPrekeyId: number;
+  signedPrekey: string;      // base64 X25519 public
+  signedPrekeySignature: string;  // base64 Ed25519 signature
+  oneTimePrekeyId?: number;
+  oneTimePrekey?: string;    // base64 X25519 public (optional)
+  registrationId: number;
+};
+
+export function processPreKeyBundle(
   userId: string,
   deviceId: string,
-  bundle: {
-    identityKey: string;       // base64 X25519 public
-    signingKey: string;        // base64 Ed25519 public
-    signedPrekeyId: number;
-    signedPrekey: string;      // base64 X25519 public
-    signedPrekeySignature: string;  // base64 Ed25519 signature
-    oneTimePrekeyId?: number;
-    oneTimePrekey?: string;    // base64 X25519 public (optional)
-    registrationId: number;
-  }
+  bundle: PreKeyBundleInput
+): Promise<void> {
+  return withSessionLock(signalSessionKey(userId, deviceId), () =>
+    processPreKeyBundleLocked(userId, deviceId, bundle)
+  );
+}
+
+async function processPreKeyBundleLocked(
+  userId: string,
+  deviceId: string,
+  bundle: PreKeyBundleInput
 ): Promise<void> {
   const identityKeyPair = await keyStorage.getIdentityKeyPair();
   if (!identityKeyPair) {
@@ -458,7 +471,17 @@ export async function processPreKeyMessage(
 // ──────────────────────────────────
 
 /** Encrypt a message using Double Ratchet. Chain key advances per message (forward secrecy). */
-export async function encryptMessage(
+export function encryptMessage(
+  userId: string,
+  deviceId: string,
+  plaintext: string
+): Promise<SignalWireMessage> {
+  return withSessionLock(signalSessionKey(userId, deviceId), () =>
+    encryptMessageLocked(userId, deviceId, plaintext)
+  );
+}
+
+async function encryptMessageLocked(
   userId: string,
   deviceId: string,
   plaintext: string
@@ -518,7 +541,23 @@ export async function encryptMessage(
 }
 
 /** Decrypt a message using Double Ratchet. Performs DH ratchet step if ratchet key changed. */
-export async function decryptMessage(
+export function decryptMessage(
+  senderUserId: string,
+  senderDeviceId: string,
+  wireMessage: SignalWireMessage
+): Promise<string> {
+  return withSessionLock(signalSessionKey(senderUserId, senderDeviceId), () =>
+    decryptMessageLocked(senderUserId, senderDeviceId, wireMessage)
+  );
+}
+
+/**
+ * The session re-establishment below runs INSIDE this lock on purpose: processPreKeyMessage saves
+ * a session, and a concurrent decrypt reading between that save and the load below would work
+ * from a session that is about to be replaced. It must stay unlocked itself — this is the only
+ * caller, and taking the same key again here would deadlock.
+ */
+async function decryptMessageLocked(
   senderUserId: string,
   senderDeviceId: string,
   wireMessage: SignalWireMessage

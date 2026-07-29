@@ -18,6 +18,7 @@ import * as signalProtocol from "./signalProtocol";
 import * as e2eeApi from "../api/e2ee";
 import * as keyStorage from "./keyStorage";
 import * as deviceManager from "./deviceManager";
+import { withSessionLock, signalSessionKey } from "./sessionLock";
 import { decodePayload, type E2EEPayload } from "./e2eePayload";
 import { useE2EEStore } from "../stores/e2eeStore";
 import type { EncryptedEnvelope, PreKeyBundleResponse, DMMessage } from "../types";
@@ -158,8 +159,13 @@ export async function encryptDMMessage(
       // Skip own device
       if (bundle.device_id === localDeviceId) continue;
 
-      // Delete existing session to force PreKey message for recovery compatibility
-      await keyStorage.deleteSession(currentUserId, bundle.device_id);
+      // Delete existing session to force PreKey message for recovery compatibility.
+      // Under the lock: an unlocked delete can land inside a decrypt's critical section, and that
+      // decrypt's save then puts the session straight back — after which encryptForDevice sees a
+      // session, skips the X3DH, and the self-fanout message is no longer a PreKey message.
+      await withSessionLock(signalSessionKey(currentUserId, bundle.device_id), () =>
+        keyStorage.deleteSession(currentUserId, bundle.device_id)
+      );
 
       const envelope = await encryptForDevice(
         currentUserId,
