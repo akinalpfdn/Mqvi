@@ -46,8 +46,12 @@ type MessageState = {
   // ─── Actions ───
   fetchMessages: (channelId: string, serverId?: string) => Promise<void>;
   fetchOlderMessages: (channelId: string, serverId?: string) => Promise<void>;
-  /** Re-fetch the newest page and fold it in — recovers messages a dead socket never delivered */
-  resyncChannel: (channelId: string, serverId?: string) => Promise<void>;
+  /**
+   * Re-fetch the newest page and fold it in — recovers messages a dead socket never delivered.
+   * `markRead` must be false for a tab the user is not looking at, or reconnecting clears the
+   * badge on every open tab at once.
+   */
+  resyncChannel: (channelId: string, serverId?: string, opts?: { markRead?: boolean }) => Promise<void>;
   /** Clear fetch cache — forces re-fetch + re-decrypt (E2EE restore) */
   invalidateFetchCache: () => void;
   sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, serverId?: string, upload?: UploadOptions) => Promise<boolean>;
@@ -91,7 +95,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
   },
 
-  resyncChannel: async (channelId, explicitServerId?) => {
+  resyncChannel: async (channelId, explicitServerId?, opts?) => {
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return;
 
@@ -125,9 +129,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       };
     });
 
-    const merged = get().messagesByChannel[channelId];
-    if (merged && merged.length > 0) {
-      useReadStateStore.getState().markAsRead(channelId, merged[merged.length - 1].id);
+    // Only the tab on screen. A background tab is marked read by uiStore.setActiveTab when the
+    // user actually switches to it, so nothing is lost by staying quiet here.
+    if (opts?.markRead) {
+      const merged = get().messagesByChannel[channelId];
+      if (merged && merged.length > 0) {
+        useReadStateStore.getState().markAsRead(channelId, merged[merged.length - 1].id);
+      }
     }
   },
 

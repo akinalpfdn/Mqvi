@@ -44,12 +44,19 @@ import type { WSHandlerContext } from "./ws/types";
 const RECONNECT_BASE_DELAY = 1_500;
 const RECONNECT_MAX_DELAY = 20_000;
 
+/**
+ * Floor between two `online`-driven immediate reconnects. A real network restore fires once; a
+ * flapping interface fires repeatedly, and without this floor each fire would cancel the backoff
+ * and connect again — turning the event into a reconnect loop with no backoff at all. The normal
+ * exponential schedule keeps running underneath, so nothing is lost by ignoring the extra events.
+ */
+const ONLINE_RECONNECT_MIN_INTERVAL = 5_000;
+
 /** Typing throttle (ms) — prevents flooding same channel */
 const TYPING_THROTTLE = 3_000;
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
-  const lastSeqRef = useRef<number>(0);
   const missedHeartbeatsRef = useRef<number>(0);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,6 +72,9 @@ export function useWebSocket() {
 
   /** Set while the post-resume probe interval is active (see startHeartbeatRef). */
   const heartbeatProbingRef = useRef<boolean>(false);
+
+  /** Timestamp of the last `online`-driven reconnect — see ONLINE_RECONNECT_MIN_INTERVAL. */
+  const lastOnlineReconnectRef = useRef<number>(0);
 
   /** Restarts the heartbeat interval at the given period. Assigned inside the connect effect. */
   const startHeartbeatRef = useRef<((intervalMs: number) => void) | null>(null);
@@ -430,10 +440,6 @@ export function useWebSocket() {
           return;
         }
 
-        if (msg.seq) {
-          lastSeqRef.current = msg.seq;
-        }
-
         // Route via ref for closure freshness
         routeEventRef.current(msg);
       };
@@ -463,30 +469,74 @@ export function useWebSocket() {
 
     doConnect();
 
+    /**
+     * Abandons the pending backoff and connects now. The armed retry MUST be cancelled first:
+     * doConnect awaits a token refresh before it reaches cleanupTimers, and a timer firing inside
+     * that window starts a second connect under the same connectionId — two sockets, both passing
+     * the staleness guard.
+     */
+    function reconnectNow() {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      reconnectAttemptRef.current = 0;
+      setReconnectAttempt(0);
+      exhaustedRef.current = false;
+      doConnect();
+    }
+
+    /**
+     * Probes a socket that claims to be OPEN after the environment changed under it. The server
+     * drops us after pongWait (90s) while the WebView's timers are frozen, and a half-open socket
+     * never reports the FIN — so OPEN is not proof of life. A shorter period detects a dead socket
+     * in 3 × 10s instead of 3 × 30s.
+     */
+    function probeLiveness() {
+      missedHeartbeatsRef.current = 0;
+      heartbeatProbingRef.current = true;
+      startHeartbeat(WS_HEARTBEAT_PROBE_INTERVAL);
+    }
+
     // App resume listener — mobile background → foreground
     function onAppResume() {
       if (activeConnectionIdRef.current !== myId) return;
 
       const ws = wsRef.current;
       if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
-        reconnectAttemptRef.current = 0;
-        setReconnectAttempt(0);
-        exhaustedRef.current = false;
-        doConnect();
+        reconnectNow();
         return;
       }
 
-      // OPEN is not proof of life: the server drops us after pongWait (90s) while the
-      // WebView's timers are frozen, and a half-open socket never reports the FIN. Probe
-      // at a shorter period so a dead socket is detected in 3 × 10s instead of 3 × 30s.
-      if (ws.readyState === WebSocket.OPEN) {
-        missedHeartbeatsRef.current = 0;
-        heartbeatProbingRef.current = true;
-        startHeartbeat(WS_HEARTBEAT_PROBE_INTERVAL);
+      if (ws.readyState === WebSocket.OPEN) probeLiveness();
+    }
+
+    /**
+     * The OS says the interface came back. Without this the client sits out the rest of its
+     * backoff — up to RECONNECT_MAX_DELAY — after the reason it was failing is already gone.
+     * Rate-floored, because `online` is OS-driven and fires on every flap; onAppResume needs no
+     * such floor since a human triggers it.
+     */
+    function onNetworkOnline() {
+      if (activeConnectionIdRef.current !== myId) return;
+
+      const now = Date.now();
+      if (now - lastOnlineReconnectRef.current < ONLINE_RECONNECT_MIN_INTERVAL) return;
+      lastOnlineReconnectRef.current = now;
+
+      const ws = wsRef.current;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        reconnectNow();
+        return;
       }
+
+      // CONNECTING falls through both branches on purpose: an attempt is already in flight and
+      // restarting it would only throw away progress.
+      if (ws.readyState === WebSocket.OPEN) probeLiveness();
     }
 
     window.addEventListener(APP_RESUME_EVENT, onAppResume);
+    window.addEventListener("online", onNetworkOnline);
 
     return () => {
       // Increment (not reset) to invalidate all callbacks from this connection
@@ -495,6 +545,7 @@ export function useWebSocket() {
       startHeartbeatRef.current = null;
       heartbeatProbingRef.current = false;
       window.removeEventListener(APP_RESUME_EVENT, onAppResume);
+      window.removeEventListener("online", onNetworkOnline);
 
       if (wsRef.current) {
         wsRef.current.close();
