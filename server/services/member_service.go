@@ -241,7 +241,7 @@ func (s *memberService) UpdatePresence(ctx context.Context, userID string, statu
 		return fmt.Errorf("failed to update presence: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToUsers(s.hub.GetPresenceAudience(userID), ws.Event{
 		Op: ws.OpPresence,
 		Data: map[string]string{
 			"user_id": userID,

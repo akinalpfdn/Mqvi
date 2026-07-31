@@ -620,6 +620,8 @@ type MockEventPublisher struct {
 	GetVisibleOnlineUserIDsFn   func() []string
 	IsOnlineFn                  func(userID string) bool
 	GetOnlineUserIDsForServerFn func(serverID string) []string
+	GetPresenceAudienceFn       func(userID string) []string
+	AddPresencePeerFn           func(userA, userB string)
 	SetInvisibleFn              func(userID string, invisible bool)
 	DisconnectUserFn            func(userID string)
 	AddClientServerIDFn         func(userID, serverID string)
@@ -648,6 +650,17 @@ func (m *MockEventPublisher) GetVisibleOnlineUserIDs() []string {
 func (m *MockEventPublisher) GetOnlineUserIDsForServer(serverID string) []string {
 	if m.GetOnlineUserIDsForServerFn != nil {
 		return m.GetOnlineUserIDsForServerFn(serverID)
+	}
+	return nil
+}
+func (m *MockEventPublisher) AddPresencePeer(userA, userB string) {
+	if m.AddPresencePeerFn != nil {
+		m.AddPresencePeerFn(userA, userB)
+	}
+}
+func (m *MockEventPublisher) GetPresenceAudience(userID string) []string {
+	if m.GetPresenceAudienceFn != nil {
+		return m.GetPresenceAudienceFn(userID)
 	}
 	return nil
 }

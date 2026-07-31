@@ -415,6 +415,8 @@ type sentEvent struct {
 	event  ws.Event
 }
 
+func (h *recordingHub) AddPresencePeer(_, _ string) {}
+
 func (h *recordingHub) BroadcastToUser(userID string, e ws.Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

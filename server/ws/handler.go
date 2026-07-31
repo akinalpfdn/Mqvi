@@ -49,6 +49,12 @@ type ServerListProvider interface {
 	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
 }
 
+// PresencePeerProvider returns the users entitled to this user's presence who may share no server
+// with them — friends and DM partners. Loaded once per connection; the hub cannot derive it.
+type PresencePeerProvider interface {
+	ListPresencePeerIDs(ctx context.Context, userID string) ([]string, error)
+}
+
 // MuteChecker returns muted server IDs for the ready event.
 type MuteChecker interface {
 	GetMutedServerIDs(ctx context.Context, userID string) ([]string, error)
@@ -115,7 +121,14 @@ type Handler struct {
 	muteChecker          MuteChecker
 	channelMuteChecker   ChannelMuteChecker
 	urlSigner            URLSigner
+	presencePeers        PresencePeerProvider
 	incomingCallProvider IncomingCallProvider
+}
+
+// SetPresencePeerProvider wires the friend/DM peer source post-construction, keeping the
+// ws -> repository dependency out of the constructor signature.
+func (h *Handler) SetPresencePeerProvider(p PresencePeerProvider) {
+	h.presencePeers = p
 }
 
 // SetIncomingCallProvider wires the (optional) provider used to re-deliver a ringing
@@ -279,6 +292,17 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	client.serverIDs = serverIDs
 
+	// Friends and DM partners: entitled to this user's presence with or without a shared server.
+	// Once per connection, so the presence path itself stays free of the database.
+	if h.presencePeers != nil {
+		if peers, err := h.presencePeers.ListPresencePeerIDs(r.Context(), claims.UserID); err == nil {
+			client.presencePeerIDs = peers
+		} else {
+			// Degrade to server-scoped presence rather than refusing the connection.
+			log.Printf("[ws] presence peer load failed for %s: %v", claims.UserID, err)
+		}
+	}
+
 	// Muted server IDs for notification suppression
 	var mutedServerIDs []string
 	if h.muteChecker != nil {
@@ -312,7 +336,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		Op: OpReady,
 		Data: ReadyData{
 			SessionID:       client.sessionID,
-			OnlineUserIDs:   h.hub.GetVisibleOnlineUserIDs(),
+			OnlineUserIDs:   h.hub.GetVisibleAudienceFor(claims.UserID, serverIDs, client.presencePeerIDs),
 			Servers:         readyServers,
 			MutedServerIDs:  mutedServerIDs,
 			MutedChannelIDs: mutedChannelIDs,

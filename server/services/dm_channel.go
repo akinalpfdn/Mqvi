@@ -89,6 +89,10 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		LastMessageAt: channel.LastMessageAt,
 	}
 
+	// DM partners see each other's presence with or without a shared server. Each live connection
+	// loaded its peer list at connect, so a channel opened now has to be registered on them.
+	s.hub.AddPresencePeer(userID, otherUserID)
+
 	// Notify both users (each sees the other as the "other user")
 	currentUser, err := s.userRepo.GetByID(ctx, userID)
 	if err == nil {
