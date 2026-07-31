@@ -454,19 +454,23 @@ func (h *Hub) BroadcastToUsers(userIDs []string, event Event) {
 		return
 	}
 
-	allowed := make(map[string]bool, len(userIDs))
-	for _, id := range userIDs {
-		allowed[id] = true
-	}
-
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for userID, clients := range h.clients {
-		if !allowed[userID] {
+	// Look the recipients up rather than walking every connection and filtering. Presence is the
+	// caller that made this matter: scoping the audience achieved nothing while delivering it
+	// still cost a pass over the whole platform on every idle flip.
+	//
+	// Deduped because a repeated id would send twice. Callers build their lists from maps today,
+	// but that is their invariant, not this function's.
+	seen := make(map[string]bool, len(userIDs))
+	for _, userID := range userIDs {
+		if seen[userID] {
 			continue
 		}
-		for client := range clients {
+		seen[userID] = true
+
+		for client := range h.clients[userID] {
 			if !client.trySend(data) {
 				go func(c *Client) { h.unregister <- c }(client)
 			}

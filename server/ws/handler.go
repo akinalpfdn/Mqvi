@@ -294,8 +294,15 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 
 	// Friends and DM partners: entitled to this user's presence with or without a shared server.
 	// Once per connection, so the presence path itself stays free of the database.
+	//
+	// Kept in a local as well as on the Client: once this connection is registered, AddPresencePeer
+	// may append to client.presencePeerIDs under the hub lock, and the ready payload below reads it
+	// without one. Reading the field there would be an unsynchronised read of a slice header while
+	// another goroutine grows it.
+	var presencePeers []string
 	if h.presencePeers != nil {
 		if peers, err := h.presencePeers.ListPresencePeerIDs(r.Context(), claims.UserID); err == nil {
+			presencePeers = peers
 			client.presencePeerIDs = peers
 		} else {
 			// Degrade to server-scoped presence rather than refusing the connection.
@@ -336,7 +343,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		Op: OpReady,
 		Data: ReadyData{
 			SessionID:       client.sessionID,
-			OnlineUserIDs:   h.hub.GetVisibleAudienceFor(claims.UserID, serverIDs, client.presencePeerIDs),
+			OnlineUserIDs:   h.hub.GetVisibleAudienceFor(claims.UserID, serverIDs, presencePeers),
 			Servers:         readyServers,
 			MutedServerIDs:  mutedServerIDs,
 			MutedChannelIDs: mutedChannelIDs,

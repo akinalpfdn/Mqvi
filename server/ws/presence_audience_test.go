@@ -187,3 +187,51 @@ func TestGetVisibleAudienceFor_HidesInvisibleUsers(t *testing.T) {
 		t.Fatal("the lurker must still be in the send-side audience")
 	}
 }
+
+// Delivery goes to the audience and nobody else.
+//
+// Note what this does NOT prove: BroadcastToUsers was changed from walking every connection and
+// filtering, to looking each recipient up. Both deliver the same set, so this test passes against
+// either — it guards the contract, not the complexity. The complexity change is verified by
+// reading the function; a unit test cannot see an iteration count without instrumenting a hot
+// path, which is not worth it.
+func TestBroadcastToUsers_DeliversOnlyToTheAudience(t *testing.T) {
+	h := newHubForAudience()
+
+	recipient := connect(h, "recipient", nil, nil)
+	recipient.send = make(chan []byte, 4)
+
+	// A crowd that is not in the audience. If delivery walked h.clients, these would all be
+	// visited; with a lookup they are never touched.
+	bystanders := make([]*Client, 0, 50)
+	for i := 0; i < 50; i++ {
+		c := connect(h, "bystander-"+string(rune('a'+i%26))+string(rune('0'+i/26)), nil, nil)
+		c.send = make(chan []byte, 1)
+		bystanders = append(bystanders, c)
+	}
+
+	h.BroadcastToUsers([]string{"recipient"}, Event{Op: OpPresence})
+
+	if len(recipient.send) != 1 {
+		t.Fatalf("recipient got %d events, want 1", len(recipient.send))
+	}
+	for i, c := range bystanders {
+		if len(c.send) != 0 {
+			t.Fatalf("bystander %d received an event it was not in the audience for", i)
+		}
+	}
+}
+
+// A duplicated id must not send twice. Callers build their lists from maps today, but that is
+// their invariant, not this function's.
+func TestBroadcastToUsers_DedupesRepeatedRecipients(t *testing.T) {
+	h := newHubForAudience()
+	c := connect(h, "u1", nil, nil)
+	c.send = make(chan []byte, 4)
+
+	h.BroadcastToUsers([]string{"u1", "u1", "u1"}, Event{Op: OpPresence})
+
+	if len(c.send) != 1 {
+		t.Fatalf("got %d events, want 1", len(c.send))
+	}
+}
