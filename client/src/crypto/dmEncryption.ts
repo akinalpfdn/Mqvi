@@ -158,14 +158,16 @@ export async function encryptDMMessage(
       // Skip own device
       if (bundle.device_id === localDeviceId) continue;
 
-      // Delete existing session to force PreKey message for recovery compatibility
-      await keyStorage.deleteSession(currentUserId, bundle.device_id);
-
+      // forceNewSession rather than a separate delete: the delete has to be inside the same
+      // critical section as the re-establish and the encrypt, or a concurrent self-fanout — two
+      // sends to different people both reach these same devices — can delete the session this one
+      // just created, and its encrypt then finds nothing to encrypt with.
       const envelope = await encryptForDevice(
         currentUserId,
         bundle,
         localDeviceId,
-        plaintext
+        plaintext,
+        { forceNewSession: true }
       );
       envelopes.push(envelope);
     }
@@ -174,16 +176,23 @@ export async function encryptDMMessage(
   return envelopes;
 }
 
-/** Encrypt for a single device. Establishes X3DH session if none exists. */
+/**
+ * Encrypt for a single device, establishing the X3DH session if there is not one.
+ *
+ * Both steps happen inside one lock, in signalProtocol — see establishAndEncrypt for why they
+ * cannot be composed here.
+ */
 async function encryptForDevice(
   userId: string,
   bundle: PreKeyBundleResponse,
   senderDeviceId: string,
-  plaintext: string
+  plaintext: string,
+  opts?: { forceNewSession?: boolean }
 ): Promise<EncryptedEnvelope> {
-  // Establish session if needed (X3DH key agreement)
-  if (!(await signalProtocol.hasSessionFor(userId, bundle.device_id))) {
-    await signalProtocol.processPreKeyBundle(userId, bundle.device_id, {
+  const wireMessage = await signalProtocol.establishAndEncrypt(
+    userId,
+    bundle.device_id,
+    {
       identityKey: bundle.identity_key,
       // Fallback to identity_key for legacy devices without signing_key
       signingKey: bundle.signing_key ?? bundle.identity_key,
@@ -193,14 +202,9 @@ async function encryptForDevice(
       oneTimePrekeyId: bundle.one_time_prekey_id ?? undefined,
       oneTimePrekey: bundle.one_time_prekey ?? undefined,
       registrationId: bundle.registration_id,
-    });
-  }
-
-  // Encrypt with Double Ratchet
-  const wireMessage = await signalProtocol.encryptMessage(
-    userId,
-    bundle.device_id,
-    plaintext
+    },
+    plaintext,
+    opts
   );
 
   return {
@@ -294,6 +298,15 @@ export async function decryptDMMessage(
 export async function decryptDMMessages(
   messages: DMMessage[]
 ): Promise<DMMessage[]> {
+  // Before init completes there are no keys to decrypt with, and an attempt is not free:
+  // decryptMessage runs processPreKeyMessage first, which writes session and trusted-identity
+  // records. Return placeholders instead — same contract as decryptChannelMessages.
+  if (useE2EEStore.getState().initStatus !== "ready") {
+    return messages.map((msg) =>
+      msg.encryption_version === 1 ? { ...msg, content: null } : msg
+    );
+  }
+
   const result: DMMessage[] = [];
   const toCache: import("./types").CachedDecryptedMessage[] = [];
 

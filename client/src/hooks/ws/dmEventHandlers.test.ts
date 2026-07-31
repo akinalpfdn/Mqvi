@@ -32,6 +32,7 @@ vi.mock("../../utils/pushDismiss", () => ({
 }));
 
 import { handleDMEvent } from "./dmEventHandlers";
+import { playNotificationSound } from "../../utils/sounds";
 import { useDMStore } from "../../stores/dmStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useAppFocusStore } from "../../stores/appFocusStore";
@@ -67,6 +68,61 @@ beforeEach(() => {
     _unreadFetchActive: false,
     _unreadFetchRaced: false,
     _unreadRefetches: 0,
+  });
+});
+
+/**
+ * Muting is a promise about interruption. The channel path has always honoured it; the DM path
+ * never read the flag at all, so the one conversation the user asked to be quiet was the one that
+ * kept making noise.
+ */
+describe("dm_message_create — what muting is allowed to suppress", () => {
+  function incoming(id: string) {
+    return { op: "dm_message_create", d: msg(id, THEM) } as WSMessage;
+  }
+
+  function withChannel(isMuted: boolean) {
+    useDMStore.setState({
+      channels: [{ id: "c1", is_muted: isMuted } as never],
+      dmUnreadCounts: {},
+    });
+  }
+
+  it("stays silent for a muted conversation", async () => {
+    withChannel(true);
+
+    await handleDMEvent(incoming("m1"));
+
+    expect(playNotificationSound).not.toHaveBeenCalled();
+  });
+
+  it("still counts a muted conversation", async () => {
+    withChannel(true);
+
+    await handleDMEvent(incoming("m1"));
+
+    // Muting silences the interruption, not the fact that something arrived. The count also has
+    // to stay: the server keeps its own, and the next channel-list snapshot would restore it.
+    expect(useDMStore.getState().dmUnreadCounts.c1).toBe(1);
+  });
+
+  it("still rings for a conversation that is not muted", async () => {
+    withChannel(false);
+
+    await handleDMEvent(incoming("m1"));
+
+    expect(playNotificationSound).toHaveBeenCalledTimes(1);
+    expect(useDMStore.getState().dmUnreadCounts.c1).toBe(1);
+  });
+
+  it("treats an unknown conversation as unmuted rather than silencing it", async () => {
+    useDMStore.setState({ channels: [], dmUnreadCounts: {} });
+
+    await handleDMEvent(incoming("m1"));
+
+    // Failing the other way would silently drop notifications for any conversation the channel
+    // list has not loaded yet.
+    expect(playNotificationSound).toHaveBeenCalledTimes(1);
   });
 });
 

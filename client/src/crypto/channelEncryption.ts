@@ -26,6 +26,7 @@ import * as senderKeyProtocol from "./senderKeyProtocol.js";
 import * as e2eeApi from "../api/e2ee.js";
 import * as keyStorage from "./keyStorage.js";
 import { fromBase64 } from "./signalProtocol.js";
+import { withSessionLock, senderKeyLockKey } from "./sessionLock.js";
 import { decodePayload, type E2EEPayload } from "./e2eePayload.js";
 import { useE2EEStore } from "../stores/e2eeStore.js";
 import { useServerStore } from "../stores/serverStore.js";
@@ -217,9 +218,25 @@ async function ensureSenderKeyForDecryption(
 
         if (distribution.distributionId === distributionId) {
           if (needsInitialKeyMigration && existingKey) {
-            // Migration: Add initialChainKey to existing key (preserve iteration/chainKey)
-            existingKey.initialChainKey = fromBase64(distribution.chainKey);
-            await keyStorage.saveSenderKey(existingKey);
+            // Migration: add initialChainKey, preserving iteration/chainKey.
+            //
+            // Re-read under the lock rather than writing `existingKey` back. That copy was loaded
+            // before the server round trip above, and this function runs precisely because a
+            // decrypt wants the key — a decrypt landing in that window advances the chain, and
+            // saving the pre-fetch copy would silently undo it.
+            await withSessionLock(
+              senderKeyLockKey(channelId, senderUserId, senderDeviceId),
+              async () => {
+                const current = await keyStorage.getSenderKey(
+                  channelId,
+                  senderUserId,
+                  senderDeviceId
+                );
+                if (!current || current.distributionId !== distributionId) return;
+                current.initialChainKey = fromBase64(distribution.chainKey);
+                await keyStorage.saveSenderKey(current);
+              }
+            );
           } else if (needsKey) {
             await senderKeyProtocol.processDistribution(
               channelId,

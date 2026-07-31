@@ -19,7 +19,8 @@ import { useE2EEStore } from "../../stores/e2eeStore";
 import { useBadgeStore } from "../../stores/badgeStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useJoinRequestStore } from "../../stores/joinRequestStore";
-import { useUIStore } from "../../stores/uiStore";
+import { getOpenConversations } from "../../stores/uiStore";
+import { mapWithConcurrency } from "../../utils/concurrency";
 import type {
   WSMessage,
   MemberWithRoles,
@@ -35,31 +36,38 @@ import type {
 } from "../../types";
 import type { WSHandlerContext } from "./types";
 
+/** Ceiling on parallel resync fetches. A server restart reconnects every client at once; without
+ *  a bound, each one would open a request per tab into the process that just booted. */
+const RESYNC_CONCURRENCY = 4;
+
 /**
- * Refills the channels the user is actually looking at. Anything sent while the socket was
- * down was never delivered and there is no event replay, so without this the open channel
- * silently misses messages until the app is restarted — the stores fetch a channel once and
- * then serve it from memory forever.
+ * Refills every conversation the user has open. Anything sent while the socket was down was never
+ * delivered and there is no event replay, so without this an open channel silently misses messages
+ * until the app is restarted — the stores fetch a channel once and then serve it from memory
+ * forever, and a background tab is never re-fetched on switch either.
+ *
+ * Only the tab on screen is marked read. Reconnecting is not reading: clearing the badge on every
+ * open tab would wipe unread state the user never looked at, and for DMs it would retract the push
+ * from the phone that was going to show it.
  */
-function resyncOpenTabs(): void {
-  const { panels } = useUIStore.getState();
-
-  for (const panel of Object.values(panels)) {
-    const tab = panel.tabs.find((t) => t.id === panel.activeTabId);
-    if (!tab) continue;
-
-    if (tab.type === "text") {
-      void useMessageStore.getState().resyncChannel(tab.channelId, tab.serverInfo?.serverId);
-    } else if (tab.type === "dm") {
-      const dmChannelId = tab.channelId;
-      // Mark read only AFTER the resync lands, and only against what it brought back. Marking
-      // read first would set the watermark to a pre-reconnect message, and the messages that
-      // arrived while the socket was down would keep their badge with nothing left to clear it.
-      // DMChat re-runs its own mark-read when the merged messages arrive, so this only has to
-      // make sure they arrive.
-      void useDMStore.getState().resyncChannel(dmChannelId);
+export async function resyncOpenTabs(): Promise<void> {
+  await mapWithConcurrency(getOpenConversations(), RESYNC_CONCURRENCY, async (open) => {
+    try {
+      if (open.type === "text") {
+        await useMessageStore
+          .getState()
+          .resyncChannel(open.channelId, open.serverId, { markRead: open.isOnScreen });
+      } else {
+        // No markRead flag on the DM path: DMChat owns that decision and gates it on the app
+        // actually being in the foreground, which resync cannot know.
+        await useDMStore.getState().resyncChannel(open.channelId);
+      }
+    } catch (err) {
+      // mapWithConcurrency abandons every remaining item on the first rejection — one unreachable
+      // channel must not cost the user every other tab.
+      console.warn("[ws ready] resync failed", { channelId: open.channelId, err });
     }
-  }
+  });
 }
 
 export async function handleSystemEvent(
@@ -94,7 +102,7 @@ export async function handleSystemEvent(
       if (data.pref_status) useAuthStore.getState().setManualStatus(data.pref_status as UserStatus);
 
       useMemberStore.getState().handleReady(data.online_user_ids);
-      resyncOpenTabs();
+      void resyncOpenTabs();
       useReadStateStore.getState().fetchAllUnreadCounts();
       useDMStore.getState().fetchChannels();
       useDMStore.getState().fetchDMSettings();

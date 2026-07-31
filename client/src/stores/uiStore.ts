@@ -114,6 +114,47 @@ function nextTabId(): string {
   return `tab-${tabIdCounter}`;
 }
 
+/** A text channel or DM the user currently has open in a tab. */
+export type OpenConversation = {
+  channelId: string;
+  type: "text" | "dm";
+  /** Present for text channels, absent for DMs. */
+  serverId?: string;
+  /** Active tab of its panel — visible now, rather than sitting behind a tab bar. */
+  isOnScreen: boolean;
+};
+
+/**
+ * Every conversation with message history that is open across all panels.
+ *
+ * The single source of truth for "what has to be refilled". Anything that clears the message
+ * caches must refill from this list, not from `selectedChannelId` / `selectedDMId`: those hold one
+ * value each, while split view keeps several conversations mounted at once, and a mounted view
+ * whose channelId did not change has no effect left to re-run.
+ *
+ * Safe to use in place of the selection: every path that selects a channel or DM also opens a tab
+ * for it (ChannelTree, QuickSwitcher, DMSection, FriendsView, FriendsSection, DMProfileCard), so
+ * tabs are a superset of the selection.
+ */
+export function getOpenConversations(): OpenConversation[] {
+  const { panels } = useUIStore.getState();
+  const open: OpenConversation[] = [];
+
+  for (const panel of Object.values(panels)) {
+    for (const tab of panel.tabs) {
+      if (tab.type !== "text" && tab.type !== "dm") continue;
+      open.push({
+        channelId: tab.channelId,
+        type: tab.type,
+        serverId: tab.serverInfo?.serverId,
+        isOnScreen: tab.id === panel.activeTabId,
+      });
+    }
+  }
+
+  return open;
+}
+
 /** Find a channel across all panels (enforces single-open rule). */
 function findTabAcrossPanels(
   panels: Record<string, Panel>,

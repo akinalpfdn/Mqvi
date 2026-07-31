@@ -34,6 +34,13 @@ import {
   type DMWsSlice,
 } from "./slices/dmWsSlice";
 
+/**
+ * Bumped by invalidateFetchCache. A fetch that started before the bump decrypted its page under
+ * key state that no longer applies — without this it would land on top of the refill and put the
+ * placeholders back. Mirrors messageStore.
+ */
+let cacheGeneration = 0;
+
 const EMPTY_CHANNELS: DMChannelWithUser[] = [];
 const EMPTY_MESSAGES: DMMessage[] = [];
 const EMPTY_STRINGS: string[] = [];
@@ -146,14 +153,19 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
   fetchMessages: async (channelId) => {
     if (get().messagesByChannel[channelId]) return;
 
-    const e2eeStatus = useE2EEStore.getState().initStatus;
-    if (e2eeStatus !== "ready") return;
-
+    // No E2EE gate. Blocking the whole fetch until init was ready meant a plaintext conversation
+    // rendered empty for as long as E2EE was still starting — and forever if init ended in error.
+    // decryptDMMessages leaves placeholders for what it cannot read yet, and refillAfterKeysReady
+    // refetches once the keys land. Matches messageStore.fetchMessages.
     set({ isLoadingMessages: true });
 
+    const generation = cacheGeneration;
     const res = await dmApi.getDMMessages(channelId, undefined, 50);
     if (res.success && res.data) {
       const messages = await decryptDMMessages(res.data!.messages ?? []);
+
+      // Invalidated while in flight — this page predates the keys. Let the refill's fetch win.
+      if (generation !== cacheGeneration) { set({ isLoadingMessages: false }); return; }
 
       set((state) => ({
         messagesByChannel: {
@@ -172,13 +184,27 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
   },
 
   resyncChannel: async (channelId) => {
-    if (useE2EEStore.getState().initStatus !== "ready") return;
-
+    const generation = cacheGeneration;
     const res = await dmApi.getDMMessages(channelId, undefined, 50);
     if (!res.success || !res.data) return;
     const data = res.data;
 
-    const page = await decryptDMMessages(data.messages ?? []);
+    // Folding placeholders into the held cache would hide real content behind them, and unlike
+    // the mount-time fetch there is nothing to invalidate afterwards. Leave the cache alone and
+    // let refillAfterKeysReady cover it. Matches messageStore.resyncChannel.
+    const raw = data.messages ?? [];
+    if (
+      useE2EEStore.getState().initStatus !== "ready" &&
+      raw.some((m) => m.encryption_version === 1)
+    ) {
+      return;
+    }
+
+    const page = await decryptDMMessages(raw);
+
+    // Keys changed mid-flight — the page would win on id and undo the refill. Same guard as
+    // messageStore.resyncChannel.
+    if (generation !== cacheGeneration) return;
 
     set((state) => {
       const held = state.messagesByChannel[channelId] ?? [];
@@ -484,6 +510,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
   },
 
   invalidateFetchCache: () => {
+    cacheGeneration++;
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
   },
 }));

@@ -124,6 +124,12 @@ function resumeApp() {
   });
 }
 
+function goOnline() {
+  act(() => {
+    window.dispatchEvent(new Event("online"));
+  });
+}
+
 /** Mounts the hook and completes the initial handshake up to `ready`. */
 async function connect() {
   const view = renderHook(() => useWebSocket());
@@ -239,6 +245,82 @@ describe("useWebSocket stale socket handling", () => {
     expect(sockets()).toHaveLength(2);
     expect(latest()).toBe(live);
     expect(result.current.connectionStatus).toBe("connecting");
+  });
+});
+
+describe("useWebSocket network-online recovery", () => {
+  it("should reconnect immediately when the interface returns mid-backoff", async () => {
+    const { result } = await connect();
+
+    await act(async () => {
+      latest().drop();
+    });
+    // Sitting inside the first backoff window — the scheduled retry is ~1.5s away.
+    await advance(200);
+    expect(sockets()).toHaveLength(1);
+
+    goOnline();
+    await advance(0);
+
+    expect(sockets()).toHaveLength(2);
+    expect(result.current.reconnectAttempt).toBe(0);
+
+    // The armed retry must have been cancelled, not left to fire alongside this connect. If it
+    // still ran, a third socket would appear once its delay elapsed.
+    await advance(10_000);
+    expect(sockets()).toHaveLength(2);
+  });
+
+  it("should escape the exhausted state instead of waiting out the capped retry", async () => {
+    ensureFreshToken.mockResolvedValue(null);
+    const { result } = renderHook(() => useWebSocket());
+    await advance(150_000);
+    expect(result.current.connectionStatus).toBe("disconnected");
+
+    ensureFreshToken.mockResolvedValue("token");
+    goOnline();
+    await advance(0);
+
+    expect(sockets()).toHaveLength(1);
+    await act(async () => {
+      latest().accept();
+      latest().deliver({ op: "ready", d: {} });
+    });
+    expect(result.current.connectionStatus).toBe("connected");
+  });
+
+  it("should ignore a repeat online event inside the rate floor", async () => {
+    await connect();
+    await act(async () => {
+      latest().drop();
+    });
+
+    goOnline();
+    await advance(0);
+    expect(sockets()).toHaveLength(2);
+
+    // A flapping interface fires again straight away. Honouring it would cancel the backoff a
+    // second time and turn the event into a reconnect loop with no backoff at all.
+    await act(async () => {
+      latest().drop();
+    });
+    goOnline();
+    await advance(0);
+    expect(sockets()).toHaveLength(2);
+  });
+
+  it("should probe rather than replace a socket that is still open", async () => {
+    await connect();
+    const socket = latest();
+
+    goOnline();
+
+    // Probe cadence is 10s; the steady-state interval is 30s. One beat here proves the probe
+    // started, and the socket count proves nothing was torn down.
+    await advance(10_000);
+    expect(sockets()).toHaveLength(1);
+    expect(socket.heartbeats).toBe(1);
+    expect(socket.readyState).toBe(OPEN);
   });
 });
 

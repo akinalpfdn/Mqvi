@@ -3,12 +3,12 @@
  * Split into DMChat (provider wrapper) and DMChatContent (needs ChatContext).
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useDMStore } from "../../stores/dmStore";
+import { useE2EEStore } from "../../stores/e2eeStore";
 import { useAppFocusStore } from "../../stores/appFocusStore";
 import { authorDisplayName, authorAvatarURL, isAuthorDeleted } from "../../utils/deletedUser";
-import { useE2EEStore } from "../../stores/e2eeStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useBlockStore } from "../../stores/blockStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
@@ -82,10 +82,9 @@ function DMChatContent({
   const markDMReadUpTo = useDMStore((s) => s.markDMReadUpTo);
   const heldMessages = useDMStore((s) => s.messagesByChannel[channelId]);
   const isForeground = useAppFocusStore((s) => s.isForeground);
-  const invalidateMessages = useDMStore((s) => s.invalidateMessages);
-  const fetchMessages = useDMStore((s) => s.fetchMessages);
   const toggleE2EE = useDMStore((s) => s.toggleE2EE);
-  const e2eeInitStatus = useE2EEStore((s) => s.initStatus);
+  // Boolean, not the raw status: this must not re-run on uninitialized -> initializing.
+  const e2eeReady = useE2EEStore((s) => s.initStatus === "ready");
   const channels = useDMStore((s) => s.channels);
   const dmE2EEEnabled = channels.find((ch) => ch.id === channelId)?.e2ee_enabled ?? false;
   const addToast = useToastStore((s) => s.addToast);
@@ -122,25 +121,19 @@ function DMChatContent({
   //
   // isForeground, not document.hasFocus(): on Android that can be false while the app is in front.
   // null means the native app state has not answered yet — claim nothing until it does.
+  //
+  // e2eeReady is a dependency, not a condition. markDMReadUpTo refuses to claim anything while
+  // E2EE is still coming up, and a plaintext conversation now renders during that window — so
+  // without re-running here, the user reads it and the badge stays up until the next message.
   useEffect(() => {
     if (isForeground !== true) return;
     markDMReadUpTo(channelId);
-  }, [channelId, heldMessages, isForeground, markDMReadUpTo]);
+  }, [channelId, heldMessages, isForeground, e2eeReady, markDMReadUpTo]);
 
-  // Invalidate + re-fetch messages when E2EE transitions to "ready".
-  // Prevents race condition where fetchMessages runs before e2eeStore.initialize()
-  // completes, caching all messages with null content.
-  const prevE2eeStatusRef = useRef(e2eeInitStatus);
-  useEffect(() => {
-    const prevStatus = prevE2eeStatusRef.current;
-    prevE2eeStatusRef.current = e2eeInitStatus;
-
-    // Only invalidate on non-ready -> ready transition
-    if (e2eeInitStatus === "ready" && prevStatus !== "ready") {
-      invalidateMessages(channelId);
-      fetchMessages(channelId);
-    }
-  }, [e2eeInitStatus, channelId, invalidateMessages, fetchMessages]);
+  // The "E2EE just became ready, refetch what was cached without keys" effect used to live here.
+  // It only ever covered the open DM, so a conversation cached before init stayed unreadable, and
+  // the channel side had no equivalent at all. e2eeStore.refillAfterKeysReady now does it once for
+  // both, on every path that reaches ready.
 
   // Auto-open search panel when triggered from context menu
   useEffect(() => {

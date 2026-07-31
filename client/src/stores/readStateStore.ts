@@ -15,6 +15,15 @@ import { channelMarkRead } from "./shared/markReadTracking";
 export type MentionWatermark = { at: string; messageId: string };
 
 /**
+ * Per-server bookkeeping for the unread snapshot. `gen` retires a superseded request, `raced`
+ * records that a local change landed while the request was in flight.
+ */
+type UnreadFetchState = { gen: number; raced: boolean; refetches: number };
+
+/** A snapshot that keeps racing local events must not re-fetch forever. */
+const MAX_UNREAD_REFETCHES = 3;
+
+/**
  * Leading edge fires at once, then a window coalesces the burst behind it. Without this, a busy
  * channel POSTs once per incoming message: 31 messages in 10s trips the shared read rate limit,
  * and the 429 that follows lands on the DM mark-read too — so the DM watermark stops moving and
@@ -43,6 +52,11 @@ type ReadStateState = {
   channelServerMap: Record<string, string>;
   /** Tuple watermark per channel — id breaks ties since DATETIME is second-precision */
   lastMentionSeen: Record<string, MentionWatermark>;
+  /** serverId -> in-flight snapshot bookkeeping. See fetchUnreadCounts. */
+  _unreadFetch: Record<string, UnreadFetchState>;
+
+  /** A local unread change happened; any snapshot in flight for that server is now suspect. */
+  noteUnreadRaced: (channelId: string) => void;
 
   fetchUnreadCounts: (serverId: string) => Promise<void>;
   fetchAllUnreadCounts: () => Promise<void>;
@@ -63,10 +77,74 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
   unreadCounts: {},
   channelServerMap: {},
   lastMentionSeen: {},
+  _unreadFetch: {},
 
+  noteUnreadRaced: (channelId) => {
+    const serverId = get().channelServerMap[channelId];
+    set((state) => {
+      const next: Record<string, UnreadFetchState> = {};
+      for (const [sid, tracked] of Object.entries(state._unreadFetch)) {
+        // An unmapped channel cannot be attributed to a server, so no snapshot in flight can be
+        // trusted to already include it.
+        next[sid] = !serverId || sid === serverId ? { ...tracked, raced: true } : tracked;
+      }
+      return { _unreadFetch: next };
+    });
+  },
+
+  /**
+   * Replaces this server's slice of the unread state with the server's snapshot.
+   *
+   * The snapshot is a bare per-channel count. It cannot say whether it was taken before or after
+   * an event that arrived while it was in flight, and guessing either way is wrong: adding on top
+   * double-counts, taking it verbatim drops the badge for a message that really did arrive. So a
+   * raced snapshot is thrown away and a fresh one taken from after the events, bounded so a busy
+   * channel cannot spin here forever. Same rule the DM list follows.
+   */
   fetchUnreadCounts: async (serverId: string) => {
+    const gen = (get()._unreadFetch[serverId]?.gen ?? 0) + 1;
+    set((state) => ({
+      _unreadFetch: {
+        ...state._unreadFetch,
+        [serverId]: {
+          gen,
+          raced: false,
+          refetches: state._unreadFetch[serverId]?.refetches ?? 0,
+        },
+      },
+    }));
+
     const res = await readStateApi.getUnreadCounts(serverId);
-    if (res.success && res.data) {
+
+    // A newer fetch for this server already superseded us; its answer is the fresher truth.
+    if (get()._unreadFetch[serverId]?.gen !== gen) return;
+
+    // The request failed. "It did not say" is not "everything is read" — keep the badges.
+    if (!res.success || !res.data) {
+      set((state) => ({
+        _unreadFetch: {
+          ...state._unreadFetch,
+          [serverId]: { gen, raced: false, refetches: 0 },
+        },
+      }));
+      return;
+    }
+
+    if (get()._unreadFetch[serverId]?.raced) {
+      const spent = get()._unreadFetch[serverId]?.refetches ?? 0;
+      if (spent < MAX_UNREAD_REFETCHES) {
+        set((state) => ({
+          _unreadFetch: {
+            ...state._unreadFetch,
+            [serverId]: { gen, raced: false, refetches: spent + 1 },
+          },
+        }));
+        void get().fetchUnreadCounts(serverId);
+        return;
+      }
+    }
+
+    {
       const mutedChannelIds = useChannelStore.getState().mutedChannelIds;
       const mutedServerIds = useServerStore.getState().mutedServerIds;
       const isServerMuted = mutedServerIds.has(serverId);
@@ -102,6 +180,10 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
           unreadCounts: nextCounts,
           channelServerMap: nextMap,
           lastMentionSeen: nextWatermarks,
+          _unreadFetch: {
+            ...state._unreadFetch,
+            [serverId]: { gen, raced: false, refetches: 0 },
+          },
         };
       });
     }
@@ -119,6 +201,11 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
       get().channelServerMap[channelId] ??
       useServerStore.getState().activeServerId;
     if (!serverId) return;
+
+    // Only an actual change can be undone by a stale snapshot. Marking a channel read that had no
+    // badge changes nothing — noting a race there would cost a re-fetch per server on every
+    // reconnect, because resync marks the open channel read whether or not anything arrived.
+    if (get().unreadCounts[channelId]) get().noteUnreadRaced(channelId);
 
     // Clear local first for instant UI update
     set((state) => {
@@ -145,6 +232,7 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
   },
 
   incrementUnread: (channelId) => {
+    get().noteUnreadRaced(channelId);
     set((state) => ({
       unreadCounts: {
         ...state.unreadCounts,
@@ -154,6 +242,7 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
   },
 
   decrementUnread: (channelId) => {
+    if ((get().unreadCounts[channelId] ?? 0) > 0) get().noteUnreadRaced(channelId);
     set((state) => {
       const current = state.unreadCounts[channelId] ?? 0;
       if (current <= 0) return state;
@@ -174,6 +263,7 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
   },
 
   clearUnread: (channelId) => {
+    if (get().unreadCounts[channelId]) get().noteUnreadRaced(channelId);
     set((state) => {
       if (!state.unreadCounts[channelId]) return state;
       const next = { ...state.unreadCounts };
@@ -226,12 +316,22 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
     // Clear only this server's counts locally
     set((state) => {
       const nextCounts = { ...state.unreadCounts };
+      let cleared = false;
       for (const [chId, sid] of Object.entries(state.channelServerMap)) {
-        if (sid === serverId) {
+        if (sid === serverId && nextCounts[chId]) {
           delete nextCounts[chId];
+          cleared = true;
         }
       }
-      return { unreadCounts: nextCounts };
+      const tracked = state._unreadFetch[serverId];
+      return {
+        unreadCounts: nextCounts,
+        // Server-wide clear — a snapshot taken before it is stale for every channel here. Only
+        // when something was actually cleared; otherwise nothing can be undone.
+        _unreadFetch: cleared && tracked
+          ? { ...state._unreadFetch, [serverId]: { ...tracked, raced: true } }
+          : state._unreadFetch,
+      };
     });
 
     const res = await readStateApi.markAllRead(serverId);

@@ -10,7 +10,8 @@ import * as e2eeApi from "../api/e2ee";
 import type { DeviceInfo } from "../types";
 import { useMessageStore } from "./messageStore";
 import { useDMStore } from "./dmStore";
-import { useChannelStore } from "./channelStore";
+import { getOpenConversations } from "./uiStore";
+import { mapWithConcurrency } from "../utils/concurrency";
 import { useServerStore } from "./serverStore";
 
 // ──────────────────────────────────
@@ -133,6 +134,10 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
           localDeviceId: deviceId,
         });
 
+        // Anything opened while init was still running was cached without plaintext. The keys
+        // exist now, so refill it — otherwise encrypted history stays blank until a restart.
+        void refillAfterKeysReady(false);
+
         // Background: prekey check + device list + backup status + deferred recovery prompt
         get().handlePrekeyLow();
         get().fetchDevices();
@@ -184,14 +189,8 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
 
       get().fetchDevices();
 
-      // Invalidate message cache so messages get re-decrypted
-      useMessageStore.getState().invalidateFetchCache();
-      useDMStore.getState().invalidateFetchCache();
-
-      const activeChannelId = useChannelStore.getState().selectedChannelId;
-      if (activeChannelId) {
-        useMessageStore.getState().fetchMessages(activeChannelId);
-      }
+      // New key material — everything held was decrypted with keys that no longer apply.
+      void refillAfterKeysReady(true);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Device setup failed";
@@ -246,14 +245,8 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
       get().handlePrekeyLow();
       get().fetchDevices();
 
-      // Invalidate cache — messages will now decrypt with restored keys
-      useMessageStore.getState().invalidateFetchCache();
-      useDMStore.getState().invalidateFetchCache();
-
-      const activeChannelId = useChannelStore.getState().selectedChannelId;
-      if (activeChannelId) {
-        useMessageStore.getState().fetchMessages(activeChannelId);
-      }
+      // Restored keys — what is held was decrypted with the pre-restore key material.
+      void refillAfterKeysReady(true);
 
       return true;
     } catch (err) {
@@ -402,6 +395,57 @@ export const useE2EEStore = create<E2EEState>((set, get) => ({
 // ──────────────────────────────────
 // Internal Helpers
 // ──────────────────────────────────
+
+/** Ceiling on parallel refill fetches — same reasoning as the reconnect resync. */
+const REFILL_CONCURRENCY = 4;
+
+/**
+ * True when something we hold is encrypted but carries no plaintext — content cached while the
+ * keys were still loading. On the way into `ready` no genuine decrypt has run yet, so a null here
+ * can only be gated content, never a real decryption failure.
+ */
+function hasGatedContent(): boolean {
+  for (const messages of Object.values(useMessageStore.getState().messagesByChannel)) {
+    if (messages.some((m) => m.encryption_version === 1 && m.content == null)) return true;
+  }
+  for (const messages of Object.values(useDMStore.getState().messagesByChannel)) {
+    if (messages.some((m) => m.encryption_version === 1 && m.content == null)) return true;
+  }
+  return false;
+}
+
+/**
+ * Drops content cached before the keys existed and refills what is on screen. Every path that
+ * reaches `ready` calls this — the bug it closes was that only two of the three did, so the
+ * ordinary "this device already has keys" launch left encrypted history blank until a restart.
+ *
+ * `force` is for the paths that just replaced the key material (new device, recovery restore):
+ * there the whole cache is stale by definition, whether or not it looks gated.
+ */
+async function refillAfterKeysReady(force: boolean): Promise<void> {
+  if (!force && !hasGatedContent()) return;
+
+  useMessageStore.getState().invalidateFetchCache();
+  useDMStore.getState().invalidateFetchCache();
+
+  // Every open conversation, not just the selected one. The invalidate above emptied all of them,
+  // and split view keeps several views mounted — a mounted view whose channelId did not change has
+  // no effect left to re-run, so it would sit blank until the user clicked elsewhere and back.
+  // Bounded for the same reason the reconnect resync is: one request per tab, all at once.
+  await mapWithConcurrency(getOpenConversations(), REFILL_CONCURRENCY, async (open) => {
+    try {
+      if (open.type === "text") {
+        await useMessageStore.getState().fetchMessages(open.channelId, open.serverId);
+      } else {
+        await useDMStore.getState().fetchMessages(open.channelId);
+      }
+    } catch (err) {
+      // One unreachable conversation must not abandon the rest — mapWithConcurrency stops every
+      // worker on the first rejection.
+      console.warn("[e2ee] refill failed", { channelId: open.channelId, err });
+    }
+  });
+}
 
 /** Check recovery backup status in background. Silently continues on error. */
 async function checkRecoveryBackup(
