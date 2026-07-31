@@ -1,7 +1,7 @@
 /** ChannelChatProvider — Maps channel stores (message, pin, member) to ChatContext. */
 
 import { useMemo, useCallback, useRef, type ReactNode } from "react";
-import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
+import { ChatContext, TypingProvider, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useMessageStore } from "../../stores/messageStore";
 import type { UploadOptions } from "../../api/client";
 import { usePinStore } from "../../stores/pinStore";
@@ -164,7 +164,6 @@ function ChannelChatProvider({
       hasMore,
       replyingTo,
       scrollToMessageId,
-      typingUsers,
       sendMessage,
       editMessage,
       deleteMessage,
@@ -185,7 +184,7 @@ function ChannelChatProvider({
     }),
     [
       channelId, channelName, explicitServerId, messages, isLoading, isLoadingMore, hasMore,
-      replyingTo, scrollToMessageId, typingUsers,
+      replyingTo, scrollToMessageId,
       sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
       pinMessage, unpinMessage, isMessagePinned,
@@ -193,7 +192,13 @@ function ChannelChatProvider({
     ]
   );
 
-  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+  // Nested, not merged: typingUsers changes on every keystroke in the channel, and `value` must
+  // stay referentially stable across those changes or every message row re-renders with it.
+  return (
+    <ChatContext.Provider value={value}>
+      <TypingProvider value={typingUsers}>{children}</TypingProvider>
+    </ChatContext.Provider>
+  );
 }
 
 export default ChannelChatProvider;

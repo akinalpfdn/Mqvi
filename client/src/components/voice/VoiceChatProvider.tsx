@@ -21,7 +21,6 @@ import type { MemberWithRoles, VoiceMessage } from "../../types";
 import type { UploadOptions } from "../../api/client";
 
 const EMPTY_VOICE: VoiceMessage[] = [];
-const EMPTY_STRINGS: string[] = [];
 const EMPTY_MEMBERS: MemberWithRoles[] = [];
 
 type Props = {
@@ -124,7 +123,6 @@ function VoiceChatProvider({ channelId, channelName, children }: Props) {
       hasMore: false,
       replyingTo: null,
       scrollToMessageId: null,
-      typingUsers: EMPTY_STRINGS,
       sendMessage,
       editMessage,
       deleteMessage: deleteMessageAction,

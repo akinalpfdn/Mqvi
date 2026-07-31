@@ -68,7 +68,6 @@ export type ChatContextValue = {
   hasMore: boolean;
   replyingTo: ChatMessage | null;
   scrollToMessageId: string | null;
-  typingUsers: string[];
 
   // ─── Message Actions ───
   sendMessage: (content: string, files?: File[], replyToId?: string, upload?: UploadOptions) => Promise<boolean>;
@@ -106,6 +105,24 @@ export type ChatContextValue = {
 // ─── Context ───
 
 const ChatContext = createContext<ChatContextValue | null>(null);
+
+/**
+ * Typing lives in its own context, deliberately.
+ *
+ * It changes on every keystroke anyone in the conversation makes. Folded into the
+ * message-bearing value above, each of those changes minted a new context object and re-rendered
+ * every consumer — including every loaded message row, none of which reads it.
+ *
+ * Keep it that way: adding a frequently-changing field to ChatContextValue puts the cost back.
+ */
+const TypingContext = createContext<string[]>([]);
+
+export const TypingProvider = TypingContext.Provider;
+
+/** Usernames currently typing in this conversation. Empty outside a provider. */
+export function useTypingUsers(): string[] {
+  return useContext(TypingContext);
+}
 
 /**
  * useChatContext — Must be called within ChannelChatProvider or DMChatProvider.
