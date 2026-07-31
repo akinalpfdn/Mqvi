@@ -10,7 +10,7 @@
  * semantics. They are written to fail without the lock — see the phase file for the mutation runs.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { x25519 } from "@noble/curves/ed25519.js";
+import { x25519, ed25519 } from "@noble/curves/ed25519.js";
 
 /**
  * Stand-in for IndexedDB. The two properties that matter are both load-bearing:
@@ -40,17 +40,28 @@ vi.mock("./keyStorage", () => ({
   setMetadata: vi.fn(async () => {
     await Promise.resolve();
   }),
-  hasSession: vi.fn(async () => true),
-  deleteSession: vi.fn(async () => {}),
+  // Real, not stubs: establishAndEncrypt's whole job is to make delete → check → create → encrypt
+  // atomic, so a fake that never deletes and always answers "yes" would pass with or without it.
+  hasSession: vi.fn(async (userId: string, deviceId: string) => {
+    await Promise.resolve();
+    return store.has(`session:${userId}:${deviceId}`);
+  }),
+  deleteSession: vi.fn(async (userId: string, deviceId: string) => {
+    await Promise.resolve();
+    store.delete(`session:${userId}:${deviceId}`);
+  }),
   deleteAllSessionsForUser: vi.fn(async () => {}),
-  getIdentityKeyPair: vi.fn(async () => null),
+  getIdentityKeyPair: vi.fn(async () => {
+    await Promise.resolve();
+    return store.get("identity") ?? null;
+  }),
   getSignedPreKey: vi.fn(async () => null),
   getPreKey: vi.fn(async () => null),
   saveTrustedIdentity: vi.fn(async () => {}),
   getRegistrationData: vi.fn(async () => null),
 }));
 
-import { encryptMessage, decryptMessage } from "./signalProtocol";
+import { encryptMessage, decryptMessage, establishAndEncrypt, toBase64 } from "./signalProtocol";
 import type { StoredSession, SessionState, SignalWireMessage } from "./types";
 
 const PEER_USER = "peer-user";
@@ -170,6 +181,71 @@ describe("concurrent decrypt on one session", () => {
     // after forward secrecy should have retired it, and a ratchet that disagrees with the sender
     // about what it has already read.
     expect(held().state.skippedMessageKeys).toHaveLength(0);
+  });
+});
+
+/**
+ * Self-fanout reaches the sender's own other devices, so two sends to *different* people converge
+ * on the same session. Establishing used to be three separate critical sections — check, create,
+ * encrypt — and the second send's delete could land between the first send's create and its
+ * encrypt, leaving it with no session to encrypt against.
+ */
+describe("concurrent establish-and-encrypt on one device", () => {
+  /** A prekey bundle the real X3DH will accept: the signature over the signed prekey verifies. */
+  function signedBundle() {
+    const theirIdentity = keyPair();
+    const theirSignedPrekey = keyPair();
+    const signingPrivate = ed25519.utils.randomSecretKey();
+    const signingPublic = ed25519.getPublicKey(signingPrivate);
+
+    return {
+      identityKey: toBase64(theirIdentity.publicKey),
+      signingKey: toBase64(signingPublic),
+      signedPrekeyId: 1,
+      signedPrekey: toBase64(theirSignedPrekey.publicKey),
+      signedPrekeySignature: toBase64(
+        ed25519.sign(theirSignedPrekey.publicKey, signingPrivate)
+      ),
+      registrationId: 1,
+    };
+  }
+
+  beforeEach(() => {
+    // X3DH needs our own identity key; without it processPreKeyBundle throws before the race
+    // this test is about.
+    store.set("identity", keyPair());
+  });
+
+  it("should not let one send delete the session another is about to encrypt with", async () => {
+    const bundle = signedBundle();
+    put(baseState({ sendingChainKey: new Uint8Array(32).fill(5) }));
+
+    const results = await Promise.allSettled([
+      establishAndEncrypt(PEER_USER, PEER_DEVICE, bundle, "one", { forceNewSession: true }),
+      establishAndEncrypt(PEER_USER, PEER_DEVICE, bundle, "two", { forceNewSession: true }),
+    ]);
+
+    // Interleaved, the loser's delete lands after the winner's create, and its encryptMessage
+    // then finds no session and throws "No session found" — a failed send, in the user's face.
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+    // Each forced its own fresh session and sent one message on it, so the surviving session is at
+    // 1 — not 2. Both are PreKey messages carrying their own bundle, so the peer can establish
+    // either chain independently.
+    expect(held().state.sendMessageNumber).toBe(1);
+  });
+
+  it("should establish once when two sends race a device with no session", async () => {
+    const bundle = signedBundle();
+    // No session seeded: the first through creates it, the second must find it and reuse it.
+    const results = await Promise.all([
+      establishAndEncrypt(PEER_USER, PEER_DEVICE, bundle, "one"),
+      establishAndEncrypt(PEER_USER, PEER_DEVICE, bundle, "two"),
+    ]);
+
+    expect(results).toHaveLength(2);
+    // Two X3DH runs would mean two sessions, the second overwriting the first — after which the
+    // recipient can only ever establish one of the two chains.
+    expect(held().state.sendMessageNumber).toBe(2);
   });
 });
 

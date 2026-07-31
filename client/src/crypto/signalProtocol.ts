@@ -227,14 +227,35 @@ type PreKeyBundleInput = {
   registrationId: number;
 };
 
-export function processPreKeyBundle(
+/**
+ * Establish a session if there is not one already, then encrypt — as a single critical section.
+ *
+ * The caller must not compose this itself out of `hasSessionFor` + `processPreKeyBundle` +
+ * `encryptMessage`. Those are three separate critical sections, and a concurrent send to the same
+ * device can delete or replace the session in the gaps between them: the loser then encrypts
+ * against a session that no longer exists (`encryptMessage` throws and the send fails) or rides a
+ * chain the recipient never establishes. Reachable through self-fanout, where two sends to
+ * *different* people both target the sender's own other devices.
+ *
+ * `forceNewSession` is for self-fanout: after a recovery restore only key material survives, with
+ * no session state, so the message has to be a PreKey message the peer can establish from.
+ */
+export function establishAndEncrypt(
   userId: string,
   deviceId: string,
-  bundle: PreKeyBundleInput
-): Promise<void> {
-  return withSessionLock(signalSessionKey(userId, deviceId), () =>
-    processPreKeyBundleLocked(userId, deviceId, bundle)
-  );
+  bundle: PreKeyBundleInput,
+  plaintext: string,
+  opts?: { forceNewSession?: boolean }
+): Promise<SignalWireMessage> {
+  return withSessionLock(signalSessionKey(userId, deviceId), async () => {
+    if (opts?.forceNewSession) {
+      await keyStorage.deleteSession(userId, deviceId);
+    }
+    if (!(await keyStorage.hasSession(userId, deviceId))) {
+      await processPreKeyBundleLocked(userId, deviceId, bundle);
+    }
+    return encryptMessageLocked(userId, deviceId, plaintext);
+  });
 }
 
 async function processPreKeyBundleLocked(
@@ -683,13 +704,9 @@ async function decryptMessageLocked(
 // Session Management
 // ──────────────────────────────────
 
-/** Check if a session exists for a user/device pair. */
-export async function hasSessionFor(
-  userId: string,
-  deviceId: string
-): Promise<boolean> {
-  return keyStorage.hasSession(userId, deviceId);
-}
+// hasSessionFor used to live here. It was the "check" half of a check-then-act that
+// establishAndEncrypt now does under one lock; leaving it exported would only invite the same
+// composition back. Callers that need the answer should be inside the lock already.
 
 /** Delete session for a specific user/device pair. */
 export async function deleteSessionFor(
