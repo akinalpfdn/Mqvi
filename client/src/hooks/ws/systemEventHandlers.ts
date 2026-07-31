@@ -19,8 +19,7 @@ import { useE2EEStore } from "../../stores/e2eeStore";
 import { useBadgeStore } from "../../stores/badgeStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useJoinRequestStore } from "../../stores/joinRequestStore";
-import { useUIStore } from "../../stores/uiStore";
-import type { Tab } from "../../stores/uiStore";
+import { getOpenConversations } from "../../stores/uiStore";
 import { mapWithConcurrency } from "../../utils/concurrency";
 import type {
   WSMessage,
@@ -52,31 +51,21 @@ const RESYNC_CONCURRENCY = 4;
  * from the phone that was going to show it.
  */
 export async function resyncOpenTabs(): Promise<void> {
-  const { panels } = useUIStore.getState();
-
-  const targets: { tab: Tab; isOnScreen: boolean }[] = [];
-  for (const panel of Object.values(panels)) {
-    for (const tab of panel.tabs) {
-      if (tab.type !== "text" && tab.type !== "dm") continue;
-      targets.push({ tab, isOnScreen: tab.id === panel.activeTabId });
-    }
-  }
-
-  await mapWithConcurrency(targets, RESYNC_CONCURRENCY, async ({ tab, isOnScreen }) => {
+  await mapWithConcurrency(getOpenConversations(), RESYNC_CONCURRENCY, async (open) => {
     try {
-      if (tab.type === "text") {
+      if (open.type === "text") {
         await useMessageStore
           .getState()
-          .resyncChannel(tab.channelId, tab.serverInfo?.serverId, { markRead: isOnScreen });
+          .resyncChannel(open.channelId, open.serverId, { markRead: open.isOnScreen });
       } else {
         // No markRead flag on the DM path: DMChat owns that decision and gates it on the app
         // actually being in the foreground, which resync cannot know.
-        await useDMStore.getState().resyncChannel(tab.channelId);
+        await useDMStore.getState().resyncChannel(open.channelId);
       }
     } catch (err) {
       // mapWithConcurrency abandons every remaining item on the first rejection — one unreachable
       // channel must not cost the user every other tab.
-      console.warn("[ws ready] resync failed", { channelId: tab.channelId, err });
+      console.warn("[ws ready] resync failed", { channelId: open.channelId, err });
     }
   });
 }

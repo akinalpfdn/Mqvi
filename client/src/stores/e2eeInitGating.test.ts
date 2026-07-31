@@ -55,7 +55,7 @@ vi.mock("../i18n", () => ({ default: { t: (k: string) => k } }));
 import { useE2EEStore } from "./e2eeStore";
 import { useMessageStore } from "./messageStore";
 import { useDMStore } from "./dmStore";
-import { useChannelStore } from "./channelStore";
+import { useUIStore } from "./uiStore";
 import { useServerStore } from "./serverStore";
 import { decryptDMMessages } from "../crypto/dmEncryption";
 import * as signalProtocol from "../crypto/signalProtocol";
@@ -97,15 +97,41 @@ function encryptedDM(id: string): DMMessage {
   } as DMMessage;
 }
 
-function channelMessage(id: string, encrypted: boolean): Message {
+function channelMessage(id: string, encrypted: boolean, channelId = CHANNEL): Message {
   return {
     id,
-    channel_id: CHANNEL,
+    channel_id: channelId,
     user_id: "them",
     content: encrypted ? null : "readable",
     encryption_version: encrypted ? 1 : 0,
     created_at: "2026-07-29 10:00:00",
   } as Message;
+}
+
+/**
+ * The refill targets open tabs, not the selection — split view keeps several conversations
+ * mounted and only one can be "selected". Tests therefore have to open tabs, not select channels.
+ */
+function openTabs(...tabs: { channelId: string; type: "text" | "dm" }[]) {
+  useUIStore.setState({
+    panels: {
+      "panel-1": {
+        id: "panel-1",
+        activeTabId: "tab-0",
+        tabs: tabs.map((t, i) => ({
+          id: `tab-${i}`,
+          channelId: t.channelId,
+          type: t.type,
+          label: t.channelId,
+          serverInfo:
+            t.type === "text"
+              ? { serverId: "server-1", serverName: "s", serverIconUrl: null }
+              : undefined,
+        })),
+      },
+    },
+    activePanelId: "panel-1",
+  });
 }
 
 beforeEach(() => {
@@ -116,7 +142,7 @@ beforeEach(() => {
   useMessageStore.getState().invalidateFetchCache();
   useDMStore.getState().invalidateFetchCache();
   useDMStore.setState({ selectedDMId: null });
-  useChannelStore.setState({ selectedChannelId: null });
+  useUIStore.setState({ panels: {}, activePanelId: "panel-1" });
   // refillAfterKeysReady refetches through messageStore.fetchMessages, which resolves the server
   // from here when the caller passes none — same as setupNewDevice always has.
   useServerStore.setState({ activeServerId: "server-1" });
@@ -189,7 +215,7 @@ describe("decryptDMMessages before the keys exist", () => {
 describe("refill once the keys are ready", () => {
   it("should refill content that was cached while the keys were still loading", async () => {
     useMessageStore.setState({ messagesByChannel: { [CHANNEL]: [channelMessage("c1", true)] } });
-    useChannelStore.setState({ selectedChannelId: CHANNEL });
+    openTabs({ channelId: CHANNEL, type: "text" });
 
     await useE2EEStore.getState().initialize("user-1");
 
@@ -198,10 +224,32 @@ describe("refill once the keys are ready", () => {
     expect(messageApi.getMessages).toHaveBeenCalled();
   });
 
+  /**
+   * Split view keeps several conversations mounted, and a mounted view whose channelId did not
+   * change has no effect left to re-run. Refilling only the "selected" one left the other panel
+   * blank with nothing to correct it.
+   */
+  it("should refill every open conversation, not only the one in front", async () => {
+    const OTHER = "channel-2";
+    useMessageStore.setState({
+      messagesByChannel: {
+        [CHANNEL]: [channelMessage("c1", true)],
+        [OTHER]: [channelMessage("c2", true, OTHER)],
+      },
+    });
+    openTabs({ channelId: CHANNEL, type: "text" }, { channelId: OTHER, type: "text" });
+
+    await useE2EEStore.getState().initialize("user-1");
+
+    const refetched = vi.mocked(messageApi.getMessages).mock.calls.map((c) => c[1]);
+    expect(refetched).toContain(CHANNEL);
+    expect(refetched).toContain(OTHER);
+  });
+
   it("should leave a cache that was never gated untouched", async () => {
     const healthy = channelMessage("c2", false);
     useMessageStore.setState({ messagesByChannel: { [CHANNEL]: [healthy] } });
-    useChannelStore.setState({ selectedChannelId: CHANNEL });
+    openTabs({ channelId: CHANNEL, type: "text" });
 
     await useE2EEStore.getState().initialize("user-1");
 
@@ -215,8 +263,8 @@ describe("refill once the keys are ready", () => {
   it("should discard a fetch that was already in flight when the keys arrived", async () => {
     // Left "uninitialized" on purpose — initialize() returns early on "initializing", so setting
     // that here would skip the refill entirely and the test would prove nothing.
-    useMessageStore.setState({ messagesByChannel: { "other": [channelMessage("gated", true)] } });
-    useChannelStore.setState({ selectedChannelId: "other" });
+    useMessageStore.setState({ messagesByChannel: { "other": [channelMessage("gated", true, "other")] } });
+    openTabs({ channelId: "other", type: "text" });
 
     // A fetch for a second channel is mid-flight when init lands. Its page was decrypted before
     // the keys existed, so letting it write would put the placeholders straight back.
@@ -234,8 +282,59 @@ describe("refill once the keys are ready", () => {
     expect(useMessageStore.getState().messagesByChannel[CHANNEL]).toBeUndefined();
   });
 
+  /**
+   * The reconnect resync and the refill can be in flight at the same time. mergeLatestPage lets
+   * the incoming page win on id, so a resync page decrypted under the old keys would overwrite
+   * what the refill just fetched — and resync marks the channel fetched, so nothing corrects it.
+   */
+  it("should discard a resync whose page predates the keys", async () => {
+    useMessageStore.setState({ messagesByChannel: { [CHANNEL]: [channelMessage("gated", true)] } });
+    openTabs({ channelId: CHANNEL, type: "text" });
+
+    let releaseResync: (v: unknown) => void = () => {};
+    vi.mocked(messageApi.getMessages).mockImplementationOnce(
+      () => new Promise((resolve) => { releaseResync = resolve; }) as never
+    );
+    const resyncing = useMessageStore
+      .getState()
+      .resyncChannel(CHANNEL, "server-1", { markRead: false });
+
+    // Keys land while the resync is still waiting on the server.
+    await useE2EEStore.getState().initialize("user-1");
+
+    releaseResync({
+      success: true,
+      data: { messages: [channelMessage("stale", true)], has_more: false },
+    });
+    await resyncing;
+
+    const held = useMessageStore.getState().messagesByChannel[CHANNEL];
+    expect(held?.some((m) => m.id === "stale")).not.toBe(true);
+  });
+
+  /**
+   * Refill fans out over every open tab while a MessageList may be mounting for one of them.
+   * `fetchedChannels` cannot dedupe that: it is only set once the response is decrypted, so both
+   * callers pass the guard and repeat the whole request.
+   */
+  it("should not fetch the same channel twice when two callers overlap", async () => {
+    let release: (v: unknown) => void = () => {};
+    vi.mocked(messageApi.getMessages).mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; }) as never
+    );
+
+    const first = useMessageStore.getState().fetchMessages(CHANNEL, "server-1");
+    const second = useMessageStore.getState().fetchMessages(CHANNEL, "server-1");
+
+    release({ success: true, data: { messages: [], has_more: false } });
+    await Promise.all([first, second]);
+
+    expect(messageApi.getMessages).toHaveBeenCalledTimes(1);
+  });
+
   it("should refill a gated DM as well as the channel", async () => {
-    useDMStore.setState({ messagesByChannel: { [DM]: [encryptedDM("d1")] }, selectedDMId: DM });
+    useDMStore.setState({ messagesByChannel: { [DM]: [encryptedDM("d1")] } });
+    openTabs({ channelId: DM, type: "dm" });
     vi.mocked(dmApi.getDMMessages).mockResolvedValue({
       success: true,
       data: { messages: [plaintextDM("d2", "readable now")], has_more: false },

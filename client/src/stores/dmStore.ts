@@ -184,6 +184,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
   },
 
   resyncChannel: async (channelId) => {
+    const generation = cacheGeneration;
     const res = await dmApi.getDMMessages(channelId, undefined, 50);
     if (!res.success || !res.data) return;
     const data = res.data;
@@ -200,6 +201,10 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     }
 
     const page = await decryptDMMessages(raw);
+
+    // Keys changed mid-flight — the page would win on id and undo the refill. Same guard as
+    // messageStore.resyncChannel.
+    if (generation !== cacheGeneration) return;
 
     set((state) => {
       const held = state.messagesByChannel[channelId] ?? [];

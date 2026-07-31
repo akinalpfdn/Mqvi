@@ -88,6 +88,14 @@ const fetchedChannels = new Set<string>();
  */
 let cacheGeneration = 0;
 
+/**
+ * Channels with a fetch in flight. `fetchedChannels` cannot serve this: it is only set once the
+ * response is decrypted and accepted, so between entry and that point a second caller passes the
+ * guard and repeats the whole request. Refill now fans out over every open tab, which makes an
+ * overlap with a mounting MessageList easy to hit.
+ */
+const inFlightChannels = new Set<string>();
+
 export const useMessageStore = create<MessageState>((set, get) => ({
   messagesByChannel: {},
   hasMoreByChannel: {},
@@ -104,6 +112,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   resyncChannel: async (channelId, explicitServerId?, opts?) => {
+    const generation = cacheGeneration;
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return;
 
@@ -123,6 +132,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
 
     const page = await decryptChannelMessages(raw);
+
+    // The keys changed while this was in flight. mergeLatestPage lets the page win on id, so
+    // folding this in would overwrite the freshly refilled content with what the old keys could
+    // read — and marking the channel fetched would stop anything from correcting it.
+    if (generation !== cacheGeneration) return;
+
     fetchedChannels.add(channelId);
 
     set((state) => {
@@ -148,7 +163,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   fetchMessages: async (channelId, explicitServerId?) => {
-    if (fetchedChannels.has(channelId)) return;
+    if (fetchedChannels.has(channelId) || inFlightChannels.has(channelId)) return;
 
     set({ isLoading: true });
 
@@ -156,43 +171,49 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) { set({ isLoading: false }); return; }
 
-    const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
-    if (res.success && res.data) {
-      // Go nil slice -> JSON null; fallback to empty array
-      const apiMessages = await decryptChannelMessages(res.data.messages ?? []);
+    inFlightChannels.add(channelId);
+    try {
+      const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
+      if (res.success && res.data) {
+        // Go nil slice -> JSON null; fallback to empty array
+        const apiMessages = await decryptChannelMessages(res.data.messages ?? []);
 
-      // The cache was invalidated while this was in flight — E2EE keys arrived, and this page was
-      // decrypted before they did. Dropping it leaves the refill's own fetch to fill the channel.
-      if (generation !== cacheGeneration) { set({ isLoading: false }); return; }
-      fetchedChannels.add(channelId);
+        // The cache was invalidated while this was in flight — E2EE keys arrived, and this page was
+        // decrypted before they did. Dropping it leaves the refill's own fetch to fill the channel.
+        if (generation !== cacheGeneration) { set({ isLoading: false }); return; }
+        fetchedChannels.add(channelId);
 
-      set((state) => {
-        // Merge WS-buffered messages that arrived during fetch
-        const buffered = state.messagesByChannel[channelId] ?? [];
-        const apiIds = new Set(apiMessages.map((m) => m.id));
-        const newFromWS = buffered.filter((m) => !apiIds.has(m.id));
+        set((state) => {
+          // Merge WS-buffered messages that arrived during fetch
+          const buffered = state.messagesByChannel[channelId] ?? [];
+          const apiIds = new Set(apiMessages.map((m) => m.id));
+          const newFromWS = buffered.filter((m) => !apiIds.has(m.id));
 
-        return {
-          messagesByChannel: {
-            ...state.messagesByChannel,
-            [channelId]: [...apiMessages, ...newFromWS],
-          },
-          hasMoreByChannel: {
-            ...state.hasMoreByChannel,
-            [channelId]: res.data!.has_more,
-          },
-          isLoading: false,
-        };
-      });
+          return {
+            messagesByChannel: {
+              ...state.messagesByChannel,
+              [channelId]: [...apiMessages, ...newFromWS],
+            },
+            hasMoreByChannel: {
+              ...state.hasMoreByChannel,
+              [channelId]: res.data!.has_more,
+            },
+            isLoading: false,
+          };
+        });
 
-      // Auto-mark-read after messages load
-      const allMessages = get().messagesByChannel[channelId];
-      if (allMessages && allMessages.length > 0) {
-        const lastMsg = allMessages[allMessages.length - 1];
-        useReadStateStore.getState().markAsRead(channelId, lastMsg.id);
+        // Auto-mark-read after messages load
+        const allMessages = get().messagesByChannel[channelId];
+        if (allMessages && allMessages.length > 0) {
+          const lastMsg = allMessages[allMessages.length - 1];
+          useReadStateStore.getState().markAsRead(channelId, lastMsg.id);
+        }
+      } else {
+        set({ isLoading: false });
       }
-    } else {
-      set({ isLoading: false });
+    } finally {
+      // Released on every exit path, or the channel could never be fetched again this session.
+      inFlightChannels.delete(channelId);
     }
   },
 

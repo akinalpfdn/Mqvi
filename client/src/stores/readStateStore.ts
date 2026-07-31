@@ -202,7 +202,10 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
       useServerStore.getState().activeServerId;
     if (!serverId) return;
 
-    get().noteUnreadRaced(channelId);
+    // Only an actual change can be undone by a stale snapshot. Marking a channel read that had no
+    // badge changes nothing — noting a race there would cost a re-fetch per server on every
+    // reconnect, because resync marks the open channel read whether or not anything arrived.
+    if (get().unreadCounts[channelId]) get().noteUnreadRaced(channelId);
 
     // Clear local first for instant UI update
     set((state) => {
@@ -239,7 +242,7 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
   },
 
   decrementUnread: (channelId) => {
-    get().noteUnreadRaced(channelId);
+    if ((get().unreadCounts[channelId] ?? 0) > 0) get().noteUnreadRaced(channelId);
     set((state) => {
       const current = state.unreadCounts[channelId] ?? 0;
       if (current <= 0) return state;
@@ -260,7 +263,7 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
   },
 
   clearUnread: (channelId) => {
-    get().noteUnreadRaced(channelId);
+    if (get().unreadCounts[channelId]) get().noteUnreadRaced(channelId);
     set((state) => {
       if (!state.unreadCounts[channelId]) return state;
       const next = { ...state.unreadCounts };
@@ -313,16 +316,19 @@ export const useReadStateStore = create<ReadStateState>((set, get) => ({
     // Clear only this server's counts locally
     set((state) => {
       const nextCounts = { ...state.unreadCounts };
+      let cleared = false;
       for (const [chId, sid] of Object.entries(state.channelServerMap)) {
-        if (sid === serverId) {
+        if (sid === serverId && nextCounts[chId]) {
           delete nextCounts[chId];
+          cleared = true;
         }
       }
       const tracked = state._unreadFetch[serverId];
       return {
         unreadCounts: nextCounts,
-        // Server-wide clear — a snapshot taken before it is stale for every channel here.
-        _unreadFetch: tracked
+        // Server-wide clear — a snapshot taken before it is stale for every channel here. Only
+        // when something was actually cleared; otherwise nothing can be undone.
+        _unreadFetch: cleared && tracked
           ? { ...state._unreadFetch, [serverId]: { ...tracked, raced: true } }
           : state._unreadFetch,
       };
