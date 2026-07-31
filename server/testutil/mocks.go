@@ -18,6 +18,7 @@ type MockUserRepo struct {
 	GetByIDFn                  func(ctx context.Context, id string) (*models.User, error)
 	GetByUsernameFn            func(ctx context.Context, username string) (*models.User, error)
 	GetAllFn                   func(ctx context.Context) ([]models.User, error)
+	GetServerMembersFn         func(ctx context.Context, serverID string) ([]models.User, error)
 	UpdateFn                   func(ctx context.Context, user *models.User) error
 	UpdateStatusFn             func(ctx context.Context, userID string, status models.UserStatus) error
 	UpdatePasswordFn           func(ctx context.Context, userID, oldPasswordHash, newPasswordHash string) (int, error)
@@ -60,6 +61,12 @@ func (m *MockUserRepo) GetByUsername(ctx context.Context, username string) (*mod
 func (m *MockUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
 	if m.GetAllFn != nil {
 		return m.GetAllFn(ctx)
+	}
+	return nil, nil
+}
+func (m *MockUserRepo) GetServerMembers(ctx context.Context, serverID string) ([]models.User, error) {
+	if m.GetServerMembersFn != nil {
+		return m.GetServerMembersFn(ctx, serverID)
 	}
 	return nil, nil
 }
@@ -330,6 +337,7 @@ type MockRoleRepo struct {
 	GetAllByServerFn       func(ctx context.Context, serverID string) ([]models.Role, error)
 	GetDefaultByServerFn   func(ctx context.Context, serverID string) (*models.Role, error)
 	GetByUserIDAndServerFn func(ctx context.Context, userID, serverID string) ([]models.Role, error)
+	GetByServerGroupedByUserFn func(ctx context.Context, serverID string) (map[string][]models.Role, error)
 	GetMaxPositionFn       func(ctx context.Context, serverID string) (int, error)
 	CreateFn               func(ctx context.Context, role *models.Role) error
 	UpdateFn               func(ctx context.Context, role *models.Role) error
@@ -360,6 +368,12 @@ func (m *MockRoleRepo) GetDefaultByServer(ctx context.Context, serverID string) 
 func (m *MockRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serverID string) ([]models.Role, error) {
 	if m.GetByUserIDAndServerFn != nil {
 		return m.GetByUserIDAndServerFn(ctx, userID, serverID)
+	}
+	return nil, nil
+}
+func (m *MockRoleRepo) GetByServerGroupedByUser(ctx context.Context, serverID string) (map[string][]models.Role, error) {
+	if m.GetByServerGroupedByUserFn != nil {
+		return m.GetByServerGroupedByUserFn(ctx, serverID)
 	}
 	return nil, nil
 }

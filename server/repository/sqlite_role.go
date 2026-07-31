@@ -93,6 +93,45 @@ func (r *sqliteRoleRepo) GetDefaultByServer(ctx context.Context, serverID string
 	return role, nil
 }
 
+// GetByServerGroupedByUser loads a whole server's role assignments at once.
+//
+// Same columns, same ORDER BY position DESC as GetByUserIDAndServer, so each user's slice is
+// identical to what the per-user call returns — the roster's effective-permission fold and the
+// UI's highest-role colour both depend on that order.
+func (r *sqliteRoleRepo) GetByServerGroupedByUser(ctx context.Context, serverID string) (map[string][]models.Role, error) {
+	query := `
+		SELECT ur.user_id, r.id, r.server_id, r.name, r.color, r.position, r.permissions, r.is_default, r.is_owner, r.mentionable, r.created_at
+		FROM roles r
+		INNER JOIN user_roles ur ON r.id = ur.role_id AND r.server_id = ur.server_id
+		WHERE ur.server_id = ?
+		ORDER BY r.position DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get roles grouped by user: %w", err)
+	}
+	defer rows.Close()
+
+	byUser := make(map[string][]models.Role)
+	for rows.Next() {
+		var userID string
+		var role models.Role
+		if err := rows.Scan(
+			&userID, &role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
+			&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan grouped role row: %w", err)
+		}
+		byUser[userID] = append(byUser[userID], role)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating grouped role rows: %w", err)
+	}
+
+	return byUser, nil
+}
+
 func (r *sqliteRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serverID string) ([]models.Role, error) {
 	query := `
 		SELECT r.id, r.server_id, r.name, r.color, r.position, r.permissions, r.is_default, r.is_owner, r.mentionable, r.created_at
