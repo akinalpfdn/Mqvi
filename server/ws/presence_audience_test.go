@@ -235,3 +235,42 @@ func TestBroadcastToUsers_DedupesRepeatedRecipients(t *testing.T) {
 		t.Fatalf("got %d events, want 1", len(c.send))
 	}
 }
+
+// The counterpart to AddPresencePeer. Without it, unfriending or blocking left the other side
+// still receiving presence until one of them reconnected.
+func TestRemovePresencePeer_WithdrawsTheEntitlementFromBothSides(t *testing.T) {
+	h := newHubForAudience()
+	a := connect(h, "a", nil, []string{"b", "c"})
+	b := connect(h, "b", nil, []string{"a"})
+
+	h.RemovePresencePeer("a", "b")
+
+	// Only the named pair is dropped — an unrelated friendship survives.
+	if len(a.presencePeerIDs) != 1 || a.presencePeerIDs[0] != "c" {
+		t.Fatalf("a has %v, want [c]", a.presencePeerIDs)
+	}
+	if len(b.presencePeerIDs) != 0 {
+		t.Fatalf("b has %v, want []", b.presencePeerIDs)
+	}
+
+	// And the audience follows: b no longer learns about a.
+	got := sortedAudience(h, "a")
+	if len(got) != 1 || got[0] != "a" {
+		t.Fatalf("audience %v, want [a]", got)
+	}
+}
+
+// The removal must allocate rather than filter in place. The connect handler keeps a local
+// pointing at the same backing array while it builds the ready payload; rewriting that array's
+// elements underneath it is an unsynchronised write to memory another goroutine is reading.
+func TestRemovePresencePeer_DoesNotRewriteTheCallersBackingArray(t *testing.T) {
+	h := newHubForAudience()
+	original := []string{"b", "c"}
+	connect(h, "a", nil, original)
+
+	h.RemovePresencePeer("a", "b")
+
+	if original[0] != "b" || original[1] != "c" {
+		t.Fatalf("the caller's slice was mutated: %v", original)
+	}
+}

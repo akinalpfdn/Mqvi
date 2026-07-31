@@ -36,7 +36,6 @@ type Broadcaster interface {
 type UserStateProvider interface {
 	IsOnline(userID string) bool
 	GetOnlineUserIDs() []string
-	GetVisibleOnlineUserIDs() []string
 	GetOnlineUserIDsForServer(serverID string) []string
 	GetOnlineCountsForServers(serverIDs []string) map[string]int
 }
@@ -69,6 +68,9 @@ type BroadcastAndManage interface {
 // reconnected, because each connection loads its peer list once at connect.
 type PresencePeerRegistrar interface {
 	AddPresencePeer(userA, userB string)
+	// RemovePresencePeer drops the entitlement when the relationship ends — unfriend or block.
+	// A shared server still entitles them; only the friend/DM half is withdrawn.
+	RemovePresencePeer(userA, userB string)
 }
 
 // BroadcastAndRegisterPeers — used by the services that create those relationships.
@@ -562,21 +564,6 @@ func (h *Hub) GetOnlineUserIDs() []string {
 	return ids
 }
 
-// GetVisibleOnlineUserIDs returns connected user IDs excluding invisible users.
-// Used in the ready event to populate the online user list.
-func (h *Hub) GetVisibleOnlineUserIDs() []string {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	ids := make([]string, 0, len(h.clients))
-	for userID := range h.clients {
-		if h.invisibleUsers[userID] {
-			continue
-		}
-		ids = append(ids, userID)
-	}
-	return ids
-}
 
 // GetOnlineUserIDsForServer returns deduplicated user IDs of clients in the given server.
 // Used by services to scope permission checks to server members only.
@@ -657,6 +644,34 @@ func (h *Hub) resolveAudienceLocked(userID string, serverIDs, peerIDs []string) 
 		ids = append(ids, uid)
 	}
 	return ids
+}
+
+// RemovePresencePeer withdraws a friend/DM presence entitlement when the relationship ends.
+//
+// The counterpart to AddPresencePeer: without it an unfriended or blocked user keeps seeing the
+// other's presence until one of them reconnects, because each connection loads its peer list once.
+// A shared server still entitles them — only the friend/DM half is dropped here.
+func (h *Hub) RemovePresencePeer(userA, userB string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// A new slice, not the `s[:0]` filter-in-place idiom: the handler keeps a local pointing at the
+	// same backing array while it builds the ready payload, and rewriting the array's elements
+	// under it is exactly the unsynchronised read this connection path was just fixed for.
+	// Appending is safe by comparison — it only writes past the length the handler's local sees.
+	drop := func(owner, peer string) {
+		for client := range h.clients[owner] {
+			kept := make([]string, 0, len(client.presencePeerIDs))
+			for _, existing := range client.presencePeerIDs {
+				if existing != peer {
+					kept = append(kept, existing)
+				}
+			}
+			client.presencePeerIDs = kept
+		}
+	}
+	drop(userA, userB)
+	drop(userB, userA)
 }
 
 // GetVisibleAudienceFor is the `ready` snapshot counterpart to GetPresenceAudience: the online,

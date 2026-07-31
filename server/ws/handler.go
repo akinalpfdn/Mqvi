@@ -267,7 +267,8 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 
-	// Set invisible BEFORE register so GetVisibleOnlineUserIDs is correct in the ready event.
+	// Set invisible BEFORE the ready payload is built: GetVisibleAudienceFor filters invisible
+	// users, so a late SetInvisible would list this user as online to everyone in their audience.
 	isInvisible := prefStatus == "offline"
 	if isInvisible {
 		h.hub.SetInvisible(claims.UserID, true)

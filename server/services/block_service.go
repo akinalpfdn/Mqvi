@@ -39,14 +39,14 @@ type BlockChecker interface {
 type blockService struct {
 	friendRepo repository.FriendshipRepository
 	userRepo   repository.UserRepository
-	hub        ws.Broadcaster
+	hub        ws.BroadcastAndRegisterPeers
 	urlSigner  FileURLSigner
 }
 
 func NewBlockService(
 	friendRepo repository.FriendshipRepository,
 	userRepo repository.UserRepository,
-	hub ws.Broadcaster,
+	hub ws.BroadcastAndRegisterPeers,
 	urlSigner FileURLSigner,
 ) BlockService {
 	return &blockService{
@@ -117,6 +117,10 @@ func (s *blockService) BlockUser(ctx context.Context, blockerID, targetID string
 	if err := s.friendRepo.Create(ctx, blocked); err != nil {
 		return fmt.Errorf("failed to create block record: %w", err)
 	}
+
+	// Blocking deletes the friendship row but not the DM channel, so the DM half of the entitlement
+	// would survive. Drop both sides.
+	s.hub.RemovePresencePeer(blockerID, targetID)
 
 	// Notify both parties
 	s.hub.BroadcastToUser(blockerID, ws.Event{

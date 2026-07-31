@@ -333,6 +333,10 @@ func (s *friendshipService) RemoveFriend(ctx context.Context, userID, targetUser
 		return err
 	}
 
+	// The friendship was the only thing entitling them to each other's presence unless they also
+	// share a server; withdraw it now rather than at the next reconnect.
+	s.hub.RemovePresencePeer(userID, targetUserID)
+
 	s.hub.BroadcastToUser(targetUserID, ws.Event{
 		Op: ws.OpFriendRemove,
 		Data: map[string]string{

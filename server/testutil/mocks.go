@@ -617,11 +617,11 @@ func (m *MockBroadcaster) BroadcastToServerExcept(serverID, excludeUserID string
 type MockEventPublisher struct {
 	MockBroadcaster
 	GetOnlineUserIDsFn          func() []string
-	GetVisibleOnlineUserIDsFn   func() []string
 	IsOnlineFn                  func(userID string) bool
 	GetOnlineUserIDsForServerFn func(serverID string) []string
 	GetPresenceAudienceFn       func(userID string) []string
 	AddPresencePeerFn           func(userA, userB string)
+	RemovePresencePeerFn        func(userA, userB string)
 	SetInvisibleFn              func(userID string, invisible bool)
 	DisconnectUserFn            func(userID string)
 	AddClientServerIDFn         func(userID, serverID string)
@@ -641,17 +641,16 @@ func (m *MockEventPublisher) GetOnlineUserIDs() []string {
 	}
 	return nil
 }
-func (m *MockEventPublisher) GetVisibleOnlineUserIDs() []string {
-	if m.GetVisibleOnlineUserIDsFn != nil {
-		return m.GetVisibleOnlineUserIDsFn()
-	}
-	return nil
-}
 func (m *MockEventPublisher) GetOnlineUserIDsForServer(serverID string) []string {
 	if m.GetOnlineUserIDsForServerFn != nil {
 		return m.GetOnlineUserIDsForServerFn(serverID)
 	}
 	return nil
+}
+func (m *MockEventPublisher) RemovePresencePeer(userA, userB string) {
+	if m.RemovePresencePeerFn != nil {
+		m.RemovePresencePeerFn(userA, userB)
+	}
 }
 func (m *MockEventPublisher) AddPresencePeer(userA, userB string) {
 	if m.AddPresencePeerFn != nil {
@@ -733,7 +732,6 @@ func (m *MockEmailSender) SendNewReportNotification(_ context.Context, _, _, _, 
 type MockBroadcastAndOnline struct {
 	MockBroadcaster
 	GetOnlineUserIDsFn          func() []string
-	GetVisibleOnlineUserIDsFn   func() []string
 	IsOnlineFn                  func(userID string) bool
 	GetOnlineUserIDsForServerFn func(serverID string) []string
 }
@@ -743,12 +741,6 @@ func (m *MockBroadcastAndOnline) IsOnline(string) bool { return false }
 func (m *MockBroadcastAndOnline) GetOnlineUserIDs() []string {
 	if m.GetOnlineUserIDsFn != nil {
 		return m.GetOnlineUserIDsFn()
-	}
-	return nil
-}
-func (m *MockBroadcastAndOnline) GetVisibleOnlineUserIDs() []string {
-	if m.GetVisibleOnlineUserIDsFn != nil {
-		return m.GetVisibleOnlineUserIDsFn()
 	}
 	return nil
 }
