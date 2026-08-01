@@ -3,29 +3,33 @@
  * Uses backend proxy to keep API key server-side.
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { trendingGifs, searchGifs, type GifResult } from "../../api/gif";
+import { useNarrowChat } from "../../hooks/useNarrowChat";
+import { useAnchoredPicker } from "../../hooks/useAnchoredPicker";
 
 type GifPickerProps = {
   onSelect: (url: string) => void;
   onClose: () => void;
-  /** Narrow column → render as a centered bottom sheet portaled to <body> (never off-screen). */
-  sheet?: boolean;
 };
 
-function GifPicker({ onSelect, onClose, sheet = false }: GifPickerProps) {
+function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const { t } = useTranslation("chat");
+  const narrow = useNarrowChat();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GifResult[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUnavailable, setIsUnavailable] = useState(false);
-  const [flipped, setFlipped] = useState(false);
 
   const pickerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  // Only ever opened from the message composer, so it always portals out of `.chat-area` — see
+  // useAnchoredPicker for why. Narrow column → centered sheet, otherwise anchored to the button.
+  const { markerRef, box } = useAnchoredPicker(!narrow, pickerRef);
 
   // Load trending GIFs on mount
   useEffect(() => {
@@ -42,17 +46,9 @@ function GifPicker({ onSelect, onClose, sheet = false }: GifPickerProps) {
     loadTrending();
   }, []);
 
-  // Focus search input and check viewport overflow (sheet is bottom-anchored, never flips)
   useEffect(() => {
     searchRef.current?.focus();
-
-    if (!sheet && pickerRef.current) {
-      const rect = pickerRef.current.getBoundingClientRect();
-      if (rect.top < 0) {
-        setFlipped(true);
-      }
-    }
-  }, [sheet]);
+  }, []);
 
   // Close on click outside
   useEffect(() => {
@@ -117,8 +113,20 @@ function GifPicker({ onSelect, onClose, sheet = false }: GifPickerProps) {
     onClose();
   }
 
+  // Hidden until measured — one frame at the wrong coordinates reads as a flicker.
+  let style: CSSProperties | undefined;
+  if (!narrow) {
+    style = box
+      ? ({ top: box.top, left: box.left, "--gif-picker-max-h": `${box.maxHeight}px` } as CSSProperties)
+      : { visibility: "hidden" };
+  }
+
   const content = (
-    <div className={`gif-picker${sheet ? " gif-picker-sheet" : flipped ? " gif-picker-flipped" : ""}`} ref={pickerRef}>
+    <div
+      className={`gif-picker ${narrow ? "gif-picker-sheet" : "gif-picker-anchored"}`}
+      ref={pickerRef}
+      style={style}
+    >
       {/* Search input */}
       <div className="gif-picker-header">
         <input
@@ -166,8 +174,9 @@ function GifPicker({ onSelect, onClose, sheet = false }: GifPickerProps) {
     </div>
   );
 
-  // Sheet variant escapes the narrow column's overflow via a body portal.
-  if (sheet) {
+  // Portaled either way to escape `.chat-area`'s overflow/containment. The marker span stays
+  // behind so the anchored variant can still find the button it belongs to.
+  if (narrow) {
     return createPortal(
       <>
         <div className="picker-backdrop" onClick={onClose} />
@@ -177,7 +186,12 @@ function GifPicker({ onSelect, onClose, sheet = false }: GifPickerProps) {
     );
   }
 
-  return content;
+  return (
+    <>
+      <span ref={markerRef} className="picker-marker" aria-hidden="true" />
+      {createPortal(content, document.body)}
+    </>
+  );
 }
 
 export default GifPicker;
