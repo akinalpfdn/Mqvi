@@ -72,6 +72,52 @@ func (r *sqliteFriendshipRepo) GetByPair(ctx context.Context, userID, friendID s
 
 // ListFriends returns accepted friends with user info.
 // UNION covers both directions (I sent + they accepted, they sent + I accepted).
+// ListPresencePeerIDs answers "who is entitled to this user's presence without necessarily sharing
+// a server with them" — accepted friends, plus anyone they hold a DM channel with.
+//
+// Presence is otherwise scoped to shared servers, which the hub can work out in memory. This is
+// the part it cannot, so it is loaded once at connect rather than queried per idle flip.
+// Soft-deleted users are excluded, matching ListFriends.
+func (r *sqliteFriendshipRepo) ListPresencePeerIDs(ctx context.Context, userID string) ([]string, error) {
+	query := `
+		SELECT DISTINCT peer FROM (
+			SELECT f.friend_id AS peer FROM friendships f
+			JOIN users u ON u.id = f.friend_id
+			WHERE f.user_id = ? AND f.status = 'accepted' AND u.deleted_at IS NULL
+			UNION
+			SELECT f.user_id AS peer FROM friendships f
+			JOIN users u ON u.id = f.user_id
+			WHERE f.friend_id = ? AND f.status = 'accepted' AND u.deleted_at IS NULL
+			UNION
+			SELECT d.user2_id AS peer FROM dm_channels d
+			JOIN users u ON u.id = d.user2_id
+			WHERE d.user1_id = ? AND u.deleted_at IS NULL
+			UNION
+			SELECT d.user1_id AS peer FROM dm_channels d
+			JOIN users u ON u.id = d.user1_id
+			WHERE d.user2_id = ? AND u.deleted_at IS NULL
+		) WHERE peer != ?`
+
+	rows, err := r.db.QueryContext(ctx, query, userID, userID, userID, userID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list presence peers: %w", err)
+	}
+	defer rows.Close()
+
+	peers := make([]string, 0)
+	for rows.Next() {
+		var peer string
+		if err := rows.Scan(&peer); err != nil {
+			return nil, fmt.Errorf("failed to scan presence peer: %w", err)
+		}
+		peers = append(peers, peer)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating presence peers: %w", err)
+	}
+	return peers, nil
+}
+
 func (r *sqliteFriendshipRepo) ListFriends(ctx context.Context, userID string) ([]models.FriendshipWithUser, error) {
 	// Soft-deleted/tombstone users are excluded — friendship row stays in DB
 	// (so a recovered user reappears in the list automatically), but they

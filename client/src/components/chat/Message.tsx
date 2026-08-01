@@ -9,7 +9,6 @@ import { copyToClipboard } from "../../utils/constants";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useIsMobile } from "../../hooks/useMediaQuery";
-import { useNarrowChat } from "../../hooks/useNarrowChat";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useLongPress } from "../../hooks/useLongPress";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
@@ -88,7 +87,6 @@ function Message({ message, isCompact }: MessageProps) {
 
   const roles = useActiveRoles();
   const isMobile = useIsMobile();
-  const isNarrow = useNarrowChat();
   const isTouch = useIsTouch();
   const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
@@ -624,7 +622,7 @@ function Message({ message, isCompact }: MessageProps) {
                     <EmojiPicker
                       onSelect={handleEditEmojiSelect}
                       onClose={() => setEditEmojiOpen(false)}
-                      sheet={isNarrow}
+                      column
                     />
                   )}
                 </div>

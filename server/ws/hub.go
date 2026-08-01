@@ -36,7 +36,6 @@ type Broadcaster interface {
 type UserStateProvider interface {
 	IsOnline(userID string) bool
 	GetOnlineUserIDs() []string
-	GetVisibleOnlineUserIDs() []string
 	GetOnlineUserIDsForServer(serverID string) []string
 	GetOnlineCountsForServers(serverIDs []string) map[string]int
 }
@@ -59,6 +58,32 @@ type BroadcastAndOnline interface {
 type BroadcastAndManage interface {
 	Broadcaster
 	ClientManager
+	PresenceAudienceProvider
+}
+
+// PresencePeerRegistrar records a relationship that carries presence — a friendship or a DM —
+// on both users' live connections.
+//
+// Without it, a relationship formed mid-session would not carry presence until one side
+// reconnected, because each connection loads its peer list once at connect.
+type PresencePeerRegistrar interface {
+	AddPresencePeer(userA, userB string)
+	// RemovePresencePeer drops the entitlement when the relationship ends — unfriend or block.
+	// A shared server still entitles them; only the friend/DM half is withdrawn.
+	RemovePresencePeer(userA, userB string)
+}
+
+// BroadcastAndRegisterPeers — used by the services that create those relationships.
+type BroadcastAndRegisterPeers interface {
+	Broadcaster
+	PresencePeerRegistrar
+}
+
+// PresenceAudienceProvider answers who is entitled to see a user's presence change.
+// Its own interface rather than folded into UserStateProvider: MemberService needs this one
+// method and none of the other online-state queries.
+type PresenceAudienceProvider interface {
+	GetPresenceAudience(userID string) []string
 }
 
 // EventPublisher is the full Hub interface. Used in ws package and main wire-up.
@@ -66,11 +91,18 @@ type EventPublisher interface {
 	Broadcaster
 	UserStateProvider
 	ClientManager
+	PresenceAudienceProvider
+	PresencePeerRegistrar
 }
 
-// UserConnectionCallback is called on first-connect and full-disconnect.
+// UserConnectionCallback is called on first-connect.
 // Second arg is unused (kept for signature compatibility).
 type UserConnectionCallback func(userID, _ string)
+
+// UserDisconnectCallback is called when a user's last connection closes. The audience is captured
+// before the connection is torn out of the hub — afterwards the user is no longer in h.clients and
+// it could not be derived at all, so nobody would learn they went offline.
+type UserDisconnectCallback func(userID string, audience []string)
 
 // SessionDisconnectCallback fires on EVERY connection close, with the connection that died.
 // A call is owned by a connection, not a user — see p2pCallService.HandleSessionDisconnect.
@@ -170,7 +202,7 @@ type Hub struct {
 	// Called in separate goroutines to avoid deadlock (callback may call Broadcast
 	// which needs RLock, but add/removeClient holds Lock).
 	onUserFirstConnect      UserConnectionCallback
-	onUserFullyDisconnected UserConnectionCallback
+	onUserFullyDisconnected UserDisconnectCallback
 	onSessionDisconnect     SessionDisconnectCallback
 
 	// Voice callbacks — set in main.go
@@ -307,9 +339,14 @@ func (h *Hub) removeClient(client *Client) {
 	var removed bool
 	var userID string
 	var newAggregate string
+	// Captured before the delete below: once the last connection is gone the user is no longer in
+	// h.clients, and an audience derived afterwards would be empty — so nobody would ever learn
+	// they went offline.
+	var audience []string
 
 	if clients, ok := h.clients[client.userID]; ok {
 		if _, exists := clients[client]; exists {
+			audience = h.presenceAudienceLocked(client.userID)
 			delete(clients, client)
 			client.markClosed()
 			removed = true
@@ -347,7 +384,7 @@ func (h *Hub) removeClient(client *Client) {
 	}
 
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
-		go h.onUserFullyDisconnected(userID, "")
+		go h.onUserFullyDisconnected(userID, audience)
 	} else if partialDisconnect && h.onPresenceManualUpdate != nil {
 		go h.onPresenceManualUpdate(userID, newAggregate, true)
 	}
@@ -419,19 +456,23 @@ func (h *Hub) BroadcastToUsers(userIDs []string, event Event) {
 		return
 	}
 
-	allowed := make(map[string]bool, len(userIDs))
-	for _, id := range userIDs {
-		allowed[id] = true
-	}
-
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for userID, clients := range h.clients {
-		if !allowed[userID] {
+	// Look the recipients up rather than walking every connection and filtering. Presence is the
+	// caller that made this matter: scoping the audience achieved nothing while delivering it
+	// still cost a pass over the whole platform on every idle flip.
+	//
+	// Deduped because a repeated id would send twice. Callers build their lists from maps today,
+	// but that is their invariant, not this function's.
+	seen := make(map[string]bool, len(userIDs))
+	for _, userID := range userIDs {
+		if seen[userID] {
 			continue
 		}
-		for client := range clients {
+		seen[userID] = true
+
+		for client := range h.clients[userID] {
 			if !client.trySend(data) {
 				go func(c *Client) { h.unregister <- c }(client)
 			}
@@ -523,21 +564,6 @@ func (h *Hub) GetOnlineUserIDs() []string {
 	return ids
 }
 
-// GetVisibleOnlineUserIDs returns connected user IDs excluding invisible users.
-// Used in the ready event to populate the online user list.
-func (h *Hub) GetVisibleOnlineUserIDs() []string {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	ids := make([]string, 0, len(h.clients))
-	for userID := range h.clients {
-		if h.invisibleUsers[userID] {
-			continue
-		}
-		ids = append(ids, userID)
-	}
-	return ids
-}
 
 // GetOnlineUserIDsForServer returns deduplicated user IDs of clients in the given server.
 // Used by services to scope permission checks to server members only.
@@ -559,6 +585,147 @@ func (h *Hub) GetOnlineUserIDsForServer(serverID string) []string {
 		ids = append(ids, uid)
 	}
 	return ids
+}
+
+// GetPresenceAudience returns the online users entitled to see a presence change for userID:
+// everyone sharing one of their servers, plus their friends and DM partners.
+//
+// Presence used to go to every connected client on the platform. With many users online that made
+// each idle flip an O(all connections) fan-out, and it told people who share nothing with the
+// subject when that person is at their desk.
+//
+// Entirely in memory: server membership comes from the serverClients index, and the friend/DM half
+// from the peer list each client loaded at connect. Nothing here touches the database, because
+// this runs on every idle flip.
+//
+// The subject is included — their own clients use the event to sync their status across devices.
+func (h *Hub) GetPresenceAudience(userID string) []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.presenceAudienceLocked(userID)
+}
+
+// presenceAudienceLocked gathers the subject's memberships from their live connections, then
+// resolves the audience. Separate from GetPresenceAudience so removeClient can call it while
+// already holding the write lock, before it deletes the user.
+// MUST be called under h.mu (read or write).
+func (h *Hub) presenceAudienceLocked(userID string) []string {
+	var serverIDs, peerIDs []string
+	for client := range h.clients[userID] {
+		serverIDs = append(serverIDs, client.serverIDs...)
+		peerIDs = append(peerIDs, client.presencePeerIDs...)
+	}
+	return h.resolveAudienceLocked(userID, serverIDs, peerIDs)
+}
+
+// resolveAudienceLocked takes the memberships explicitly rather than reading them off h.clients,
+// because a connection that is still being set up is not in there yet: `register` is a channel
+// send picked up asynchronously by Run, so the ready payload is built before addClient has run.
+// Deriving the audience from the map at that moment would return only the subject.
+// MUST be called under h.mu (read or write).
+func (h *Hub) resolveAudienceLocked(userID string, serverIDs, peerIDs []string) []string {
+	audience := make(map[string]bool)
+	audience[userID] = true
+
+	for _, sid := range serverIDs {
+		for peer := range h.serverClients[sid] {
+			audience[peer.userID] = true
+		}
+	}
+	for _, peerID := range peerIDs {
+		// Only if they are actually connected — an offline friend has nothing to receive.
+		if len(h.clients[peerID]) > 0 {
+			audience[peerID] = true
+		}
+	}
+
+	ids := make([]string, 0, len(audience))
+	for uid := range audience {
+		ids = append(ids, uid)
+	}
+	return ids
+}
+
+// RemovePresencePeer withdraws a friend/DM presence entitlement when the relationship ends.
+//
+// The counterpart to AddPresencePeer: without it an unfriended or blocked user keeps seeing the
+// other's presence until one of them reconnects, because each connection loads its peer list once.
+// A shared server still entitles them — only the friend/DM half is dropped here.
+func (h *Hub) RemovePresencePeer(userA, userB string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// A new slice, not the `s[:0]` filter-in-place idiom: the handler keeps a local pointing at the
+	// same backing array while it builds the ready payload, and rewriting the array's elements
+	// under it is exactly the unsynchronised read this connection path was just fixed for.
+	// Appending is safe by comparison — it only writes past the length the handler's local sees.
+	drop := func(owner, peer string) {
+		for client := range h.clients[owner] {
+			kept := make([]string, 0, len(client.presencePeerIDs))
+			for _, existing := range client.presencePeerIDs {
+				if existing != peer {
+					kept = append(kept, existing)
+				}
+			}
+			client.presencePeerIDs = kept
+		}
+	}
+	drop(userA, userB)
+	drop(userB, userA)
+}
+
+// GetVisibleAudienceFor is the `ready` snapshot counterpart to GetPresenceAudience: the online,
+// non-invisible users this one is entitled to see.
+//
+// It has to be the same set the live events use. Seeding the client from a platform-wide list
+// while only scoped events follow would leave people painted online forever — the client would
+// never receive the update saying otherwise.
+//
+// The relationship is symmetric: sharing a server, a friendship or a DM entitles both directions.
+// Invisibility is not — an invisible user still receives everyone else's presence, so it is
+// filtered here and not in GetPresenceAudience.
+func (h *Hub) GetVisibleAudienceFor(userID string, serverIDs, peerIDs []string) []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	audience := h.resolveAudienceLocked(userID, serverIDs, peerIDs)
+	visible := make([]string, 0, len(audience))
+	for _, uid := range audience {
+		if h.invisibleUsers[uid] {
+			continue
+		}
+		visible = append(visible, uid)
+	}
+	return visible
+}
+
+// AddPresencePeer records a new friendship or DM partnership on both users' live connections.
+//
+// Without it a relationship formed mid-session would not carry presence until one side reconnected
+// — a regression against the platform-wide broadcast this replaced. Called from the services that
+// already know: friendship accept and DM channel create.
+func (h *Hub) AddPresencePeer(userA, userB string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Per connection, not per user: a multi-device user has one Client each, and each carries its
+	// own list. Skipping the rest once one already knows would leave the other devices blind.
+	add := func(owner, peer string) {
+		for client := range h.clients[owner] {
+			known := false
+			for _, existing := range client.presencePeerIDs {
+				if existing == peer {
+					known = true
+					break
+				}
+			}
+			if !known {
+				client.presencePeerIDs = append(client.presencePeerIDs, peer)
+			}
+		}
+	}
+	add(userA, userB)
+	add(userB, userA)
 }
 
 // GetOnlineCountsForServers returns the count of distinct connected users per server, computed
@@ -625,7 +792,7 @@ func (h *Hub) OnUserFirstConnect(cb UserConnectionCallback) {
 }
 
 // OnUserFullyDisconnected sets the callback for when a user's last connection closes.
-func (h *Hub) OnUserFullyDisconnected(cb UserConnectionCallback) {
+func (h *Hub) OnUserFullyDisconnected(cb UserDisconnectCallback) {
 	h.onUserFullyDisconnected = cb
 }
 

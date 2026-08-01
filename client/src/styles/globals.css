@@ -794,9 +794,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   border:1px solid var(--panel-border);
   border-radius:var(--panel-radius);
   box-shadow:var(--panel-shadow),var(--panel-inset);
+  /* Set by the panel from the room its chosen side has; unset until measured. */
+  max-height:var(--emoji-picker-max-h,none);
 }
-.msg-hover-actions .emoji-picker { left:auto;right:0; }
-.input-emoji-picker-wrap .emoji-picker { left:auto;right:0; }
 
 /* Reaction picker as a centered bottom sheet (narrow column) — portaled to <body>, so it
    anchors to the viewport with no containment surprises. Compound selector + !important
@@ -804,12 +804,18 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .picker-backdrop { position:fixed;inset:0;z-index:59; }
 .emoji-picker.emoji-picker-sheet { position:fixed !important;left:50% !important;right:auto !important;bottom:16px !important;top:auto !important;transform:translateX(-50%);margin:0 !important;width:min(400px,94vw) !important;z-index:60; }
 .emoji-picker.emoji-picker-sheet em-emoji-picker { width:100% !important;max-height:50vh;border-radius:var(--panel-radius) !important; }
+/* Wide chat column: portaled to <body> and positioned from JS, because `.chat-area` is both the
+   containing block and an overflow-x clip. !important for the same reason as the sheet rule —
+   the mobile @media block sets these with !important. */
+.emoji-picker.emoji-picker-anchored { position:fixed !important;right:auto !important;bottom:auto !important;margin:0 !important;z-index:60; }
+/* Left behind at the call site purely as a handle on the button's wrapper; must not affect layout. */
+.picker-marker { position:absolute;width:0;height:0;pointer-events:none; }
 .gif-picker.gif-picker-sheet { position:fixed !important;left:50% !important;right:auto !important;bottom:16px !important;top:auto !important;transform:translateX(-50%);margin:0 !important;width:min(500px,94vw) !important;max-height:70vh;z-index:60; }
 
 /* ─── GIF Picker ─── */
 .gif-picker { position:absolute;bottom:100%;left:0;width:500px;background:var(--picker-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:10px;box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.5);z-index:100;overflow:hidden;margin-bottom:6px;display:flex;flex-direction:column;max-height:520px; }
-.gif-picker-flipped { bottom:auto;top:100%;margin-bottom:0;margin-top:6px; }
-.input-gif-picker-wrap .gif-picker { left:auto;right:0; }
+/* Wide chat column: portaled to <body> and positioned from JS — same reason as the emoji picker. */
+.gif-picker.gif-picker-anchored { position:fixed !important;right:auto !important;bottom:auto !important;margin:0 !important;z-index:60;max-height:var(--gif-picker-max-h,520px); }
 .gif-picker-header { padding:8px;border-bottom:1px solid var(--b1); }
 .gif-picker-search { width:100%;padding:8px 12px;background:var(--bg-4);border:1px solid var(--b1);border-radius:6px;color:var(--t0);font-size:16px;outline:none;transition:border-color .15s; }
 .gif-picker-search::placeholder { color:var(--t3); }
@@ -3901,11 +3907,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     border-radius: 12px 12px 0 0;
     z-index: 51;
     margin-bottom: 0;
-  }
-  .gif-picker-flipped {
-    bottom: 0 !important;
-    top: auto !important;
-    margin-top: 0;
   }
 
   /* ─── Member Card → Bottom Sheet ─── */

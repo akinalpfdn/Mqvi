@@ -1,7 +1,7 @@
 /** DMChatProvider — Maps DM store to ChatContext (no roles/permissions in DMs). */
 
 import { useMemo, useCallback, useRef, type ReactNode } from "react";
-import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
+import { ChatContext, TypingProvider, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useDMStore } from "../../stores/dmStore";
 import type { UploadOptions } from "../../api/client";
 import type { DMMessage, MemberWithRoles, User } from "../../types";
@@ -161,7 +161,6 @@ function DMChatProvider({
       hasMore,
       replyingTo,
       scrollToMessageId,
-      typingUsers,
       sendMessage,
       editMessage,
       deleteMessage,
@@ -182,14 +181,19 @@ function DMChatProvider({
     }),
     [
       channelId, channelName, messages, isLoadingMessages, hasMore,
-      replyingTo, scrollToMessageId, typingUsers,
+      replyingTo, scrollToMessageId,
       sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
       pinMessage, unpinMessage, isMessagePinned, members, addFilesRef,
     ]
   );
 
-  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+  // Same shape as ChannelChatProvider: typing gets its own provider so `value` stays stable.
+  return (
+    <ChatContext.Provider value={value}>
+      <TypingProvider value={typingUsers}>{children}</TypingProvider>
+    </ChatContext.Provider>
+  );
 }
 
 export default DMChatProvider;

@@ -81,6 +81,11 @@ type Client struct {
 	// updated on join/leave. Used by BroadcastToServer for filtering.
 	serverIDs []string
 
+	// presencePeerIDs: friends and DM partners. They are entitled to this user's presence even
+	// with no server in common, and the hub cannot derive that from its own indexes. Loaded once
+	// at connect rather than queried per presence event — see GetPresenceAudience.
+	presencePeerIDs []string
+
 	// prefStatus: user's preferred presence loaded from DB at connect time.
 	// Used by addClient to set initial per-connection status.
 	prefStatus string

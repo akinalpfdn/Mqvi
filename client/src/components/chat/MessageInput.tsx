@@ -11,7 +11,6 @@ import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useChannelStore } from "../../stores/channelStore";
-import { useNarrowChat } from "../../hooks/useNarrowChat";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { validateFiles } from "../../utils/fileValidation";
@@ -81,7 +80,6 @@ function MessageInput({ openSearch }: MessageInputProps) {
   // and defaulting to "not encrypted" would hand an encrypted channel the 100MB cap.
   const activeServerId = useServerStore((s) => s.activeServerId);
   const channelE2EE = useServerStore(selectServerE2EE(serverId ?? activeServerId));
-  const isNarrow = useNarrowChat();
   const isTouch = useIsTouch();
 
   const [content, setContent] = useState("");
@@ -757,13 +755,11 @@ function MessageInput({ openSearch }: MessageInputProps) {
             </svg>
           </button>
           {showEmojiPicker && (
-            <div className="input-emoji-picker-wrap">
-              <EmojiPicker
-                onSelect={handleEmojiSelect}
-                onClose={() => setShowEmojiPicker(false)}
-                sheet={isNarrow}
-              />
-            </div>
+            <EmojiPicker
+              onSelect={handleEmojiSelect}
+              onClose={() => setShowEmojiPicker(false)}
+              column
+            />
           )}
         </div>
 
@@ -779,13 +775,10 @@ function MessageInput({ openSearch }: MessageInputProps) {
             GIF
           </button>
           {showGifPicker && (
-            <div className="input-gif-picker-wrap">
-              <GifPicker
-                onSelect={handleGifSelect}
-                onClose={() => setShowGifPicker(false)}
-                sheet={isNarrow}
-              />
-            </div>
+            <GifPicker
+              onSelect={handleGifSelect}
+              onClose={() => setShowGifPicker(false)}
+            />
           )}
         </div>
 

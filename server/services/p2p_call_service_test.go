@@ -24,7 +24,6 @@ func (fakeHub) BroadcastToServer(string, ws.Event)                {}
 func (fakeHub) BroadcastToServerExcept(string, string, ws.Event)  {}
 func (fakeHub) IsOnline(string) bool                              { return false }
 func (fakeHub) GetOnlineUserIDs() []string                        { return nil }
-func (fakeHub) GetVisibleOnlineUserIDs() []string                 { return nil }
 func (fakeHub) GetOnlineUserIDsForServer(string) []string         { return nil }
 func (fakeHub) GetOnlineCountsForServers([]string) map[string]int { return nil }
 
@@ -414,6 +413,9 @@ type sentEvent struct {
 	userID string
 	event  ws.Event
 }
+
+func (h *recordingHub) AddPresencePeer(_, _ string) {}
+func (h *recordingHub) RemovePresencePeer(_, _ string) {}
 
 func (h *recordingHub) BroadcastToUser(userID string, e ws.Event) {
 	h.mu.Lock()

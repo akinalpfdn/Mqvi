@@ -12,7 +12,11 @@ import {
 } from "../../api/admin";
 import InstanceForm from "./InstanceForm";
 import SettingsDetailBack from "./SettingsDetailBack";
-import MetricsPanel from "./MetricsPanel";
+import { lazy, Suspense } from "react";
+
+// recharts is ~8 MB on disk and this panel is the only thing using it — admin-only, behind a
+// LiveKit instance selection. Lazy so it is not in every user's first load.
+const MetricsPanel = lazy(() => import("./MetricsPanel"));
 import type { LiveKitInstanceAdmin } from "../../types";
 
 function PlatformSettings() {
@@ -312,7 +316,9 @@ function LiveKitTab() {
               />
             </div>
             <div className="lk-edit-monitoring">
-              <MetricsPanel instanceId={selectedInstance.id} />
+              <Suspense fallback={null}>
+                <MetricsPanel instanceId={selectedInstance.id} />
+              </Suspense>
             </div>
           </div>
         ) : (

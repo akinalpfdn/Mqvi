@@ -38,7 +38,7 @@ type FriendRequestsResponse struct {
 type friendshipService struct {
 	friendRepo  repository.FriendshipRepository
 	userRepo    repository.UserRepository
-	hub         ws.Broadcaster
+	hub         ws.BroadcastAndRegisterPeers
 	dmAcceptor  DMRequestAcceptor
 	urlSigner   FileURLSigner
 }
@@ -46,7 +46,7 @@ type friendshipService struct {
 func NewFriendshipService(
 	friendRepo repository.FriendshipRepository,
 	userRepo repository.UserRepository,
-	hub ws.Broadcaster,
+	hub ws.BroadcastAndRegisterPeers,
 	urlSigner FileURLSigner,
 ) FriendshipService {
 	return &friendshipService{
@@ -179,6 +179,10 @@ func (s *friendshipService) acceptExisting(ctx context.Context, existing *models
 		return nil, err
 	}
 
+	// Friends see each other's presence with or without a shared server, and each live connection
+	// loaded its peer list at connect — so a friendship made now has to be registered on them.
+	s.hub.AddPresencePeer(existing.UserID, acceptorID)
+
 	// Notify original sender
 	s.hub.BroadcastToUser(existing.UserID, ws.Event{
 		Op: ws.OpFriendRequestAccept,
@@ -241,6 +245,9 @@ func (s *friendshipService) AcceptRequest(ctx context.Context, userID, requestID
 	if err != nil {
 		return nil, err
 	}
+
+	// Same reason as the other accept path — register the pair on their live connections.
+	s.hub.AddPresencePeer(friendship.UserID, userID)
 
 	// Notify sender
 	s.hub.BroadcastToUser(friendship.UserID, ws.Event{
@@ -325,6 +332,10 @@ func (s *friendshipService) RemoveFriend(ctx context.Context, userID, targetUser
 	if err := s.friendRepo.DeleteByPair(ctx, userID, targetUserID); err != nil {
 		return err
 	}
+
+	// The friendship was the only thing entitling them to each other's presence unless they also
+	// share a server; withdraw it now rather than at the next reconnect.
+	s.hub.RemovePresencePeer(userID, targetUserID)
 
 	s.hub.BroadcastToUser(targetUserID, ws.Event{
 		Op: ws.OpFriendRemove,

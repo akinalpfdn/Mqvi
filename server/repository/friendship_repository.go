@@ -18,6 +18,10 @@ type FriendshipRepository interface {
 
 	// ListFriends returns accepted friends. Bidirectional: user_id = me OR friend_id = me.
 	ListFriends(ctx context.Context, userID string) ([]models.FriendshipWithUser, error)
+	// ListPresencePeerIDs returns the deduped user IDs this user has an accepted friendship or a
+	// DM channel with — the people entitled to their presence who may share no server with them.
+	// One query, loaded once per WS connection; see PHASE-56.
+	ListPresencePeerIDs(ctx context.Context, userID string) ([]string, error)
 
 	// ListIncoming returns pending requests where friend_id = me.
 	ListIncoming(ctx context.Context, userID string) ([]models.FriendshipWithUser, error)

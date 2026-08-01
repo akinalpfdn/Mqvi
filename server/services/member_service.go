@@ -93,34 +93,26 @@ func NewMemberService(
 	}
 }
 
+// GetAll returns the server's roster: two queries, regardless of how large the platform gets.
+//
+// It used to load every user on the platform and then ask IsMember and GetByUserIDAndServer about
+// each one — 2N+1 queries for N platform users, paid on every server switch. The soft-delete
+// filter now lives in the SQL, and the ordering (by username) comes from the query, as it did
+// before when it was inherited from GetAll.
 func (s *memberService) GetAll(ctx context.Context, serverID string) ([]models.MemberWithRoles, error) {
-	users, err := s.userRepo.GetAll(ctx)
+	users, err := s.userRepo.GetServerMembers(ctx, serverID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get all users: %w", err)
+		return nil, fmt.Errorf("failed to get server members: %w", err)
 	}
 
-	members := make([]models.MemberWithRoles, 0)
+	rolesByUser, err := s.roleRepo.GetByServerGroupedByUser(ctx, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get roles for server %s: %w", serverID, err)
+	}
+
+	members := make([]models.MemberWithRoles, 0, len(users))
 	for i := range users {
-		// Skip soft-deleted/tombstone users — they shouldn't appear in active member lists.
-		// Their messages stay (tombstone preserves messages.user_id), but they themselves
-		// are no longer "members" of the server in the UI sense.
-		if users[i].DeletedAt != nil {
-			continue
-		}
-
-		isMember, err := s.serverRepo.IsMember(ctx, serverID, users[i].ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check membership: %w", err)
-		}
-		if !isMember {
-			continue
-		}
-
-		roles, err := s.roleRepo.GetByUserIDAndServer(ctx, users[i].ID, serverID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get roles for user %s: %w", users[i].ID, err)
-		}
-		m := models.ToMemberWithRoles(&users[i], roles)
+		m := models.ToMemberWithRoles(&users[i], rolesByUser[users[i].ID])
 		m.AvatarURL = s.urlSigner.SignURLPtr(m.AvatarURL)
 		members = append(members, m)
 	}
@@ -249,7 +241,7 @@ func (s *memberService) UpdatePresence(ctx context.Context, userID string, statu
 		return fmt.Errorf("failed to update presence: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToUsers(s.hub.GetPresenceAudience(userID), ws.Event{
 		Op: ws.OpPresence,
 		Data: map[string]string{
 			"user_id": userID,

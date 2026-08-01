@@ -49,6 +49,12 @@ type ServerListProvider interface {
 	GetUserServers(ctx context.Context, userID string) ([]models.ServerListItem, error)
 }
 
+// PresencePeerProvider returns the users entitled to this user's presence who may share no server
+// with them — friends and DM partners. Loaded once per connection; the hub cannot derive it.
+type PresencePeerProvider interface {
+	ListPresencePeerIDs(ctx context.Context, userID string) ([]string, error)
+}
+
 // MuteChecker returns muted server IDs for the ready event.
 type MuteChecker interface {
 	GetMutedServerIDs(ctx context.Context, userID string) ([]string, error)
@@ -115,7 +121,14 @@ type Handler struct {
 	muteChecker          MuteChecker
 	channelMuteChecker   ChannelMuteChecker
 	urlSigner            URLSigner
+	presencePeers        PresencePeerProvider
 	incomingCallProvider IncomingCallProvider
+}
+
+// SetPresencePeerProvider wires the friend/DM peer source post-construction, keeping the
+// ws -> repository dependency out of the constructor signature.
+func (h *Handler) SetPresencePeerProvider(p PresencePeerProvider) {
+	h.presencePeers = p
 }
 
 // SetIncomingCallProvider wires the (optional) provider used to re-deliver a ringing
@@ -254,7 +267,8 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
 
-	// Set invisible BEFORE register so GetVisibleOnlineUserIDs is correct in the ready event.
+	// Set invisible BEFORE the ready payload is built: GetVisibleAudienceFor filters invisible
+	// users, so a late SetInvisible would list this user as online to everyone in their audience.
 	isInvisible := prefStatus == "offline"
 	if isInvisible {
 		h.hub.SetInvisible(claims.UserID, true)
@@ -278,6 +292,24 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	client.serverIDs = serverIDs
+
+	// Friends and DM partners: entitled to this user's presence with or without a shared server.
+	// Once per connection, so the presence path itself stays free of the database.
+	//
+	// Kept in a local as well as on the Client: once this connection is registered, AddPresencePeer
+	// may append to client.presencePeerIDs under the hub lock, and the ready payload below reads it
+	// without one. Reading the field there would be an unsynchronised read of a slice header while
+	// another goroutine grows it.
+	var presencePeers []string
+	if h.presencePeers != nil {
+		if peers, err := h.presencePeers.ListPresencePeerIDs(r.Context(), claims.UserID); err == nil {
+			presencePeers = peers
+			client.presencePeerIDs = peers
+		} else {
+			// Degrade to server-scoped presence rather than refusing the connection.
+			log.Printf("[ws] presence peer load failed for %s: %v", claims.UserID, err)
+		}
+	}
 
 	// Muted server IDs for notification suppression
 	var mutedServerIDs []string
@@ -312,7 +344,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		Op: OpReady,
 		Data: ReadyData{
 			SessionID:       client.sessionID,
-			OnlineUserIDs:   h.hub.GetVisibleOnlineUserIDs(),
+			OnlineUserIDs:   h.hub.GetVisibleAudienceFor(claims.UserID, serverIDs, presencePeers),
 			Servers:         readyServers,
 			MutedServerIDs:  mutedServerIDs,
 			MutedChannelIDs: mutedChannelIDs,

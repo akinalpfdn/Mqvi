@@ -39,7 +39,7 @@ func registerHubCallbacks(
 
 		if targetStatus == models.UserStatusOffline {
 			// Invisible — SetInvisible already called in handler.
-			hub.BroadcastToAll(ws.Event{
+			hub.BroadcastToUsers(hub.GetPresenceAudience(userID), ws.Event{
 				Op: ws.OpPresence,
 				Data: ws.PresenceData{
 					UserID: userID,
@@ -54,7 +54,7 @@ func registerHubCallbacks(
 			log.Printf("[presence] failed to update status for user %s: %v", userID, updateErr)
 		}
 
-		hub.BroadcastToAll(ws.Event{
+		hub.BroadcastToUsers(hub.GetPresenceAudience(userID), ws.Event{
 			Op: ws.OpPresence,
 			Data: ws.PresenceData{
 				UserID: userID,
@@ -64,14 +64,14 @@ func registerHubCallbacks(
 		log.Printf("[presence] user %s connected with status %s (from pref_status)", userID, targetStatus)
 	})
 
-	hub.OnUserFullyDisconnected(func(userID, _ string) {
+	hub.OnUserFullyDisconnected(func(userID string, audience []string) {
 		if updateErr := userRepo.UpdateStatus(context.Background(), userID, models.UserStatusOffline); updateErr != nil {
 			log.Printf("[presence] failed to set offline for user %s: %v", userID, updateErr)
 		}
 
 		hub.SetInvisible(userID, false)
 
-		hub.BroadcastToAll(ws.Event{
+		hub.BroadcastToUsers(audience, ws.Event{
 			Op: ws.OpPresence,
 			Data: ws.PresenceData{
 				UserID: userID,
@@ -113,7 +113,7 @@ func registerHubCallbacks(
 
 		hub.SetInvisible(userID, status == string(models.UserStatusOffline))
 
-		hub.BroadcastToAll(ws.Event{
+		hub.BroadcastToUsers(hub.GetPresenceAudience(userID), ws.Event{
 			Op: ws.OpPresence,
 			Data: ws.PresenceData{
 				UserID: userID,

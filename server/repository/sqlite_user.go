@@ -166,43 +166,48 @@ func (r *sqliteUserRepo) GetActiveByUsername(ctx context.Context, username strin
 	return user, nil
 }
 
-func (r *sqliteUserRepo) GetAll(ctx context.Context) ([]models.User, error) {
+// GetServerMembers scopes the roster to one server's membership.
+//
+// The member list used to be built by loading every user on the platform and asking IsMember
+// about each — 2N+1 queries for N platform users, on every server switch. This is one, and it
+// rides idx_server_members_server.
+//
+// Deliberately narrow: a roster renders nine fields, so there is no reason to read the other
+// seventeen, and password_hash has no business leaving the database for this.
+func (r *sqliteUserRepo) GetServerMembers(ctx context.Context, serverID string) ([]models.User, error) {
 	query := `
-		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
-			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
-			platform_ban_reason, platform_banned_by, platform_banned_at,
-			deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at
-		FROM users ORDER BY username`
+		SELECT u.id, u.username, u.display_name, u.avatar_url, u.status, u.custom_status,
+			u.deleted_at, u.is_hard_deleted, u.created_at
+		FROM server_members sm
+		INNER JOIN users u ON u.id = sm.user_id
+		WHERE sm.server_id = ? AND u.deleted_at IS NULL
+		ORDER BY u.username`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, serverID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get all users: %w", err)
+		return nil, fmt.Errorf("failed to get server members: %w", err)
 	}
 	defer rows.Close()
 
-	var users []models.User
+	users := make([]models.User, 0)
 	for rows.Next() {
 		var user models.User
 		if err := rows.Scan(
-			&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
-			&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-			&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
-			&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
-			&user.DeletedAt, &user.DeletedByAdmin, &user.IsHardDeleted, &user.TokenVersion,
-			&user.FeedbackLastSeenAt, &user.ReportsLastSeenAt,
-			&user.CreatedAt,
+			&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.Status,
+			&user.CustomStatus, &user.DeletedAt, &user.IsHardDeleted, &user.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan user row: %w", err)
+			return nil, fmt.Errorf("failed to scan server member row: %w", err)
 		}
 		users = append(users, user)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating user rows: %w", err)
+		return nil, fmt.Errorf("error iterating server member rows: %w", err)
 	}
 
 	return users, nil
 }
+
 
 func (r *sqliteUserRepo) Update(ctx context.Context, user *models.User) error {
 	query := `

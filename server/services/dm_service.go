@@ -58,7 +58,7 @@ type FriendshipChecker interface {
 type dmService struct {
 	dmRepo         repository.DMRepository
 	userRepo       repository.UserRepository
-	hub            ws.Broadcaster
+	hub            ws.BroadcastAndRegisterPeers
 	blockChecker   BlockChecker
 	friendChecker  FriendshipChecker
 	unhider        DMSettingsUnhider
@@ -71,7 +71,7 @@ type dmService struct {
 func NewDMService(
 	dmRepo repository.DMRepository,
 	userRepo repository.UserRepository,
-	hub ws.Broadcaster,
+	hub ws.BroadcastAndRegisterPeers,
 	blockChecker BlockChecker,
 	friendshipChecker FriendshipChecker,
 	unhider DMSettingsUnhider,

@@ -2,7 +2,6 @@
 
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
-import { useNarrowChat } from "../../hooks/useNarrowChat";
 import EmojiPicker from "../shared/EmojiPicker";
 import type { ChatMessage } from "../../hooks/useChatContext";
 
@@ -23,7 +22,6 @@ function MessageReactions({
 }: MessageReactionsProps) {
   const { t } = useTranslation("chat");
   const currentUser = useAuthStore((s) => s.user);
-  const isNarrow = useNarrowChat();
 
   const hasReactions = message.reactions && message.reactions.length > 0;
   if (!hasReactions && pickerSource !== "bar") return null;
@@ -60,7 +58,7 @@ function MessageReactions({
           <EmojiPicker
             onSelect={onReaction}
             onClose={onPickerClose}
-            sheet={isNarrow}
+            column
           />
         )}
       </div>
