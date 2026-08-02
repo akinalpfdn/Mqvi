@@ -223,9 +223,7 @@ func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) 
 				uploadedBytes += *att.FileSize
 			}
 		}
-		if unused := totalSize - uploadedBytes; unused > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, unused)
-		}
+		releaseQuota(r.Context(), h.storageService, "discovery", user.ID, totalSize-uploadedBytes)
 	}
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "report submitted"})

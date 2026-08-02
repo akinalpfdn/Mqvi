@@ -122,9 +122,7 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 			report.Attachments = append(report.Attachments, *att)
 		}
 
-		if unused := totalSize - uploadedBytes; unused > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, unused)
-		}
+		releaseQuota(r.Context(), h.storageService, "report", user.ID, totalSize-uploadedBytes)
 	}
 
 	for i := range report.Attachments {

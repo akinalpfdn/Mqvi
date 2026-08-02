@@ -248,9 +248,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := h.dmService.SendMessage(r.Context(), user.ID, channelID, &req)
 	if err != nil {
-		if reservedBytes > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, reservedBytes)
-		}
+		releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes)
 		pkg.Error(w, err)
 		return
 	}
@@ -267,9 +265,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 				// e2ee_file_keys[i] with attachments[i] — the rest would decrypt with the wrong key. Fail
 				// the send instead of delivering a message that cannot be read.
 				_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
-				if unused := reservedBytes - uploadedBytes; unused > 0 {
-					_ = h.storageService.Release(r.Context(), user.ID, unused)
-				}
+				releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
 				pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to read uploaded file")
 				return
 			}
@@ -282,9 +278,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			}
 			if err != nil {
 				_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
-				if unused := reservedBytes - uploadedBytes; unused > 0 {
-					_ = h.storageService.Release(r.Context(), user.ID, unused)
-				}
+				releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
 				pkg.Error(w, err)
 				return
 			}
@@ -299,9 +293,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			msg.Attachments = append(msg.Attachments, *attachment)
 		}
 
-		if unused := reservedBytes - uploadedBytes; unused > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, unused)
-		}
+		releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
 	}
 
 	// Broadcast after uploads so clients see attachments

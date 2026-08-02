@@ -154,9 +154,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	message, err := h.messageService.Create(r.Context(), channelID, user.ID, &req)
 	if err != nil {
-		if reservedBytes > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, reservedBytes)
-		}
+		releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes)
 		pkg.Error(w, err)
 		return
 	}
@@ -174,9 +172,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 				// e2ee_file_keys[i] with attachments[i] — the rest would decrypt with the wrong key. Fail
 				// the send instead of delivering a message that cannot be read.
 				_ = h.messageService.Delete(r.Context(), r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages)
-				if unused := reservedBytes - uploadedBytes; unused > 0 {
-					_ = h.storageService.Release(r.Context(), user.ID, unused)
-				}
+				releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes-uploadedBytes)
 				pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to read uploaded file")
 				return
 			}
@@ -189,9 +185,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 			}
 			if err != nil {
 				_ = h.messageService.Delete(r.Context(), r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages)
-				if unused := reservedBytes - uploadedBytes; unused > 0 {
-					_ = h.storageService.Release(r.Context(), user.ID, unused)
-				}
+				releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes-uploadedBytes)
 				pkg.Error(w, err)
 				return
 			}
@@ -207,9 +201,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Release unused reservation (files that failed to upload)
-		if unused := reservedBytes - uploadedBytes; unused > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, unused)
-		}
+		releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes-uploadedBytes)
 	}
 
 	// Set transient server_id so clients can route cross-server notifications

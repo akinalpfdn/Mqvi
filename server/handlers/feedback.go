@@ -140,9 +140,7 @@ func (h *FeedbackHandler) CreateTicket(w http.ResponseWriter, r *http.Request) {
 				}
 				ticket.Attachments = append(ticket.Attachments, *att)
 			}
-			if unused := totalSize - uploadedBytes; unused > 0 {
-				_ = h.storageService.Release(r.Context(), user.ID, unused)
-			}
+			releaseQuota(r.Context(), h.storageService, "feedback", user.ID, totalSize-uploadedBytes)
 		}
 	}
 
@@ -396,9 +394,7 @@ func (h *FeedbackHandler) parseAndCreateReply(w http.ResponseWriter, r *http.Req
 				}
 				reply.Attachments = append(reply.Attachments, *att)
 			}
-			if unused := totalSize - uploadedBytes; unused > 0 {
-				_ = h.storageService.Release(r.Context(), userID, unused)
-			}
+			releaseQuota(r.Context(), h.storageService, "feedback", userID, totalSize-uploadedBytes)
 		}
 	}
 
