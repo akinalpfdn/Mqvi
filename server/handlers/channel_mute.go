@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -22,13 +23,13 @@ func NewChannelMuteHandler(muteService services.ChannelMuteService) *ChannelMute
 // POST /api/servers/{serverId}/channels/{id}/mute
 // Body: {"duration": "1h" | "8h" | "7d" | "forever"}
 func (h *ChannelMuteHandler) Mute(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -57,7 +58,7 @@ func (h *ChannelMuteHandler) Mute(w http.ResponseWriter, r *http.Request) {
 // Unmute removes channel mute for the current user.
 // DELETE /api/servers/{serverId}/channels/{id}/mute
 func (h *ChannelMuteHandler) Unmute(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -80,7 +81,7 @@ func (h *ChannelMuteHandler) Unmute(w http.ResponseWriter, r *http.Request) {
 // ListMuted returns muted channel IDs for the current user.
 // GET /api/channels/mutes
 func (h *ChannelMuteHandler) ListMuted(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

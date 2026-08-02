@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 )
 
@@ -25,7 +26,7 @@ func (f fakeCallChecker) HasActiveCall(string) bool { return f.active }
 func iceReq(u *models.User) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/api/calls/ice-servers", nil)
 	if u != nil {
-		r = r.WithContext(context.WithValue(r.Context(), UserContextKey, u))
+		r = r.WithContext(context.WithValue(r.Context(), ctxkeys.User, u))
 	}
 	return r
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -19,7 +20,7 @@ func NewFriendshipHandler(friendService services.FriendshipService) *FriendshipH
 
 // ListFriends handles GET /api/friends
 func (h *FriendshipHandler) ListFriends(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -37,7 +38,7 @@ func (h *FriendshipHandler) ListFriends(w http.ResponseWriter, r *http.Request) 
 // ListRequests handles GET /api/friends/requests
 // Returns both incoming and outgoing pending requests.
 func (h *FriendshipHandler) ListRequests(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -54,7 +55,7 @@ func (h *FriendshipHandler) ListRequests(w http.ResponseWriter, r *http.Request)
 
 // SendRequest handles POST /api/friends/requests
 func (h *FriendshipHandler) SendRequest(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -77,7 +78,7 @@ func (h *FriendshipHandler) SendRequest(w http.ResponseWriter, r *http.Request) 
 
 // AcceptRequest handles POST /api/friends/requests/{id}/accept
 func (h *FriendshipHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -101,7 +102,7 @@ func (h *FriendshipHandler) AcceptRequest(w http.ResponseWriter, r *http.Request
 // DeclineRequest handles DELETE /api/friends/requests/{id}
 // Declines an incoming request or cancels an outgoing one.
 func (h *FriendshipHandler) DeclineRequest(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -123,7 +124,7 @@ func (h *FriendshipHandler) DeclineRequest(w http.ResponseWriter, r *http.Reques
 
 // RemoveFriend handles DELETE /api/friends/{userId}
 func (h *FriendshipHandler) RemoveFriend(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

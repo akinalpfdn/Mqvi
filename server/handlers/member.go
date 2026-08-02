@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -19,7 +20,7 @@ func NewMemberHandler(memberService services.MemberService) *MemberHandler {
 
 // List handles GET /api/servers/{serverId}/members
 func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -36,7 +37,7 @@ func (h *MemberHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Get handles GET /api/servers/{serverId}/members/{id}
 func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -55,13 +56,13 @@ func (h *MemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // ModifyRoles handles PATCH /api/servers/{serverId}/members/{id}/roles
 func (h *MemberHandler) ModifyRoles(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -91,13 +92,13 @@ func (h *MemberHandler) ModifyRoles(w http.ResponseWriter, r *http.Request) {
 
 // Kick handles DELETE /api/servers/{serverId}/members/{id}
 func (h *MemberHandler) Kick(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -115,13 +116,13 @@ func (h *MemberHandler) Kick(w http.ResponseWriter, r *http.Request) {
 
 // Ban handles POST /api/servers/{serverId}/members/{id}/ban
 func (h *MemberHandler) Ban(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -145,7 +146,7 @@ func (h *MemberHandler) Ban(w http.ResponseWriter, r *http.Request) {
 
 // GetBans handles GET /api/servers/{serverId}/bans (requires BAN_MEMBERS).
 func (h *MemberHandler) GetBans(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -162,7 +163,7 @@ func (h *MemberHandler) GetBans(w http.ResponseWriter, r *http.Request) {
 
 // Unban handles DELETE /api/servers/{serverId}/bans/{id} (requires BAN_MEMBERS).
 func (h *MemberHandler) Unban(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -181,7 +182,7 @@ func (h *MemberHandler) Unban(w http.ResponseWriter, r *http.Request) {
 // UpdateProfile handles PATCH /api/users/me/profile
 // Global endpoint (not server-scoped).
 func (h *MemberHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -19,7 +20,7 @@ func NewInviteHandler(inviteService services.InviteService) *InviteHandler {
 
 // List handles GET /api/servers/{serverId}/invites
 func (h *InviteHandler) List(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -36,13 +37,13 @@ func (h *InviteHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Create handles POST /api/servers/{serverId}/invites
 func (h *InviteHandler) Create(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return

@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -19,7 +20,7 @@ func NewCategoryHandler(categoryService services.CategoryService) *CategoryHandl
 
 // List handles GET /api/servers/{serverId}/categories
 func (h *CategoryHandler) List(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -36,7 +37,7 @@ func (h *CategoryHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Create handles POST /api/servers/{serverId}/categories
 func (h *CategoryHandler) Create(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -79,7 +80,7 @@ func (h *CategoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 // Reorder handles PATCH /api/servers/{serverId}/categories/reorder (requires MANAGE_CHANNELS).
 func (h *CategoryHandler) Reorder(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return

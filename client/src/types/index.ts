@@ -709,7 +709,6 @@ export type AppLog = {
 export type WSMessage = {
   op: string;
   d: unknown;
-  seq?: number;
   /** Server ID — injected by BroadcastToServer for server-scoped events */
   server_id?: string;
 };

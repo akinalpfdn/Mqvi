@@ -7,6 +7,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -23,7 +24,7 @@ func NewSoundboardHandler(service services.SoundboardService, storageService ser
 
 // List returns all sounds for a server.
 func (h *SoundboardHandler) List(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -43,7 +44,7 @@ func (h *SoundboardHandler) List(w http.ResponseWriter, r *http.Request) {
 // ListAll returns the sounds of every server the user is in.
 // GET /api/soundboard/sounds
 func (h *SoundboardHandler) ListAll(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -62,12 +63,12 @@ func (h *SoundboardHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 
 // Create uploads a new sound.
 func (h *SoundboardHandler) Create(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -160,12 +161,12 @@ func (h *SoundboardHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // Play broadcasts a sound to the voice channel.
 func (h *SoundboardHandler) Play(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return

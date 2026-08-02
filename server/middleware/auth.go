@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/akinalp/mqvi/handlers"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
 )
@@ -64,7 +64,7 @@ func (m *AuthMiddleware) Require(next http.Handler) http.Handler {
 
 		user.PasswordHash = ""
 
-		ctx := context.WithValue(r.Context(), handlers.UserContextKey, user)
+		ctx := context.WithValue(r.Context(), ctxkeys.User, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 )
 
 const klipyBaseURL = "https://api.klipy.com"
@@ -41,7 +42,7 @@ func (h *GifHandler) Trending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -79,7 +80,7 @@ func (h *GifHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

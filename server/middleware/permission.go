@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/akinalp/mqvi/handlers"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/repository"
 )
 
@@ -25,13 +25,13 @@ func NewPermissionMiddleware(roleRepo repository.RoleRepository) *PermissionMidd
 // (e.g. "owner OR has ManageMessages").
 func (m *PermissionMiddleware) Load(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := r.Context().Value(handlers.UserContextKey).(*models.User)
+		user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 		if !ok {
 			pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 			return
 		}
 
-		serverID, ok := r.Context().Value(handlers.ServerIDContextKey).(string)
+		serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 		if !ok || serverID == "" {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required for permission check")
 			return
@@ -48,7 +48,7 @@ func (m *PermissionMiddleware) Load(next http.Handler) http.Handler {
 			effectivePerms |= role.Permissions
 		}
 
-		ctx := context.WithValue(r.Context(), handlers.PermissionsContextKey, effectivePerms)
+		ctx := context.WithValue(r.Context(), ctxkeys.Permissions, effectivePerms)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -56,13 +56,13 @@ func (m *PermissionMiddleware) Load(next http.Handler) http.Handler {
 // Require returns a middleware that enforces a specific permission.
 func (m *PermissionMiddleware) Require(perm models.Permission, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := r.Context().Value(handlers.UserContextKey).(*models.User)
+		user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 		if !ok {
 			pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 			return
 		}
 
-		serverID, ok := r.Context().Value(handlers.ServerIDContextKey).(string)
+		serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 		if !ok || serverID == "" {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required for permission check")
 			return
@@ -85,7 +85,7 @@ func (m *PermissionMiddleware) Require(perm models.Permission, next http.Handler
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), handlers.PermissionsContextKey, effectivePerms)
+		ctx := context.WithValue(r.Context(), ctxkeys.Permissions, effectivePerms)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

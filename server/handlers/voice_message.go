@@ -11,6 +11,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
@@ -45,7 +46,7 @@ func NewVoiceMessageHandler(
 // List handles GET /api/voice-channels/{channelId}/messages
 func (h *VoiceMessageHandler) List(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -63,7 +64,7 @@ func (h *VoiceMessageHandler) List(w http.ResponseWriter, r *http.Request) {
 // Accepts JSON or multipart/form-data (for file attachments, field name "files").
 func (h *VoiceMessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -146,7 +147,7 @@ func (h *VoiceMessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 // Update handles PATCH /api/voice-channels/{channelId}/messages/{messageId}
 func (h *VoiceMessageHandler) Update(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("messageId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -169,7 +170,7 @@ func (h *VoiceMessageHandler) Update(w http.ResponseWriter, r *http.Request) {
 // Delete handles DELETE /api/voice-channels/{channelId}/messages/{messageId}
 func (h *VoiceMessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("messageId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -180,4 +181,3 @@ func (h *VoiceMessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-

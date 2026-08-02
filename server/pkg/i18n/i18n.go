@@ -94,26 +94,6 @@ func (l *Localizer) TWithParams(key string, params map[string]string) string {
 	return msg
 }
 
-// DetectLanguage extracts the best supported language from Accept-Language header.
-func DetectLanguage(acceptLanguage string) string {
-	if acceptLanguage == "" {
-		return DefaultLanguage
-	}
-
-	parts := strings.Split(acceptLanguage, ",")
-	for _, part := range parts {
-		lang := strings.TrimSpace(strings.Split(part, ";")[0])
-		lang = strings.Split(lang, "-")[0]
-		lang = strings.ToLower(lang)
-
-		if isSupported(lang) {
-			return lang
-		}
-	}
-
-	return DefaultLanguage
-}
-
 // ─── Helpers ───
 
 func isSupported(lang string) bool {

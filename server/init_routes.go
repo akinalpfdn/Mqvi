@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akinalp/mqvi/handlers"
 	"github.com/akinalp/mqvi/middleware"
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/fileacl"
 	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/pkg/signedurl"
@@ -122,7 +122,7 @@ func initRoutes(
 			return
 		}
 		// ACL check: verify user still has permission to access this file.
-		user, _ := r.Context().Value(handlers.UserContextKey).(*models.User)
+		user, _ := r.Context().Value(ctxkeys.User).(*models.User)
 		if err := fileACL.Check(r.Context(), user, path); err != nil {
 			http.Error(w, "access denied", http.StatusForbidden)
 			return

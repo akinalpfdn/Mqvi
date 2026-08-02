@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -21,7 +22,7 @@ func NewPushTokenHandler(pushTokenService services.PushTokenService) *PushTokenH
 // Register stores or refreshes the caller's push token.
 // POST /api/push/tokens
 func (h *PushTokenHandler) Register(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -45,7 +46,7 @@ func (h *PushTokenHandler) Register(w http.ResponseWriter, r *http.Request) {
 // Unregister removes a push token (called on logout or when notifications are disabled).
 // DELETE /api/push/tokens
 func (h *PushTokenHandler) Unregister(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return

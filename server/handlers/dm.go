@@ -10,6 +10,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -67,7 +68,7 @@ type createDMChannelRequest struct {
 
 // ListChannels handles GET /api/dms
 func (h *DMHandler) ListChannels(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -85,7 +86,7 @@ func (h *DMHandler) ListChannels(w http.ResponseWriter, r *http.Request) {
 // CreateOrGetChannel handles POST /api/dms
 // Finds or creates a DM channel between two users.
 func (h *DMHandler) CreateOrGetChannel(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -114,7 +115,7 @@ func (h *DMHandler) CreateOrGetChannel(w http.ResponseWriter, r *http.Request) {
 // AcceptRequest handles POST /api/dms/{channelId}/accept
 func (h *DMHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -131,7 +132,7 @@ func (h *DMHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) {
 // DeclineRequest handles POST /api/dms/{channelId}/decline
 func (h *DMHandler) DeclineRequest(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -148,7 +149,7 @@ func (h *DMHandler) DeclineRequest(w http.ResponseWriter, r *http.Request) {
 // GetMessages handles GET /api/dms/{channelId}/messages?before=&limit=
 func (h *DMHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -175,7 +176,7 @@ func (h *DMHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 // Accepts JSON or multipart/form-data. Files uploaded after message creation, then WS broadcast.
 func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -293,7 +294,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 // EditMessage handles PATCH /api/dms/messages/{id} (owner only).
 func (h *DMHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -317,7 +318,7 @@ func (h *DMHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 // DeleteMessage handles DELETE /api/dms/messages/{id} (owner only).
 func (h *DMHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -336,7 +337,7 @@ func (h *DMHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 // ToggleReaction handles POST /api/dms/messages/{id}/reactions
 func (h *DMHandler) ToggleReaction(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -366,7 +367,7 @@ func (h *DMHandler) ToggleReaction(w http.ResponseWriter, r *http.Request) {
 // PinMessage handles POST /api/dms/messages/{id}/pin
 func (h *DMHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -383,7 +384,7 @@ func (h *DMHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 // UnpinMessage handles DELETE /api/dms/messages/{id}/pin
 func (h *DMHandler) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := r.PathValue("id")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -400,7 +401,7 @@ func (h *DMHandler) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 // GetPinnedMessages handles GET /api/dms/{channelId}/pinned
 func (h *DMHandler) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -418,7 +419,7 @@ func (h *DMHandler) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
 // MarkRead handles POST /api/dms/channels/{channelId}/read
 func (h *DMHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -454,7 +455,7 @@ func (h *DMHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 // FTS5 full-text search within a DM channel.
 func (h *DMHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -493,7 +494,7 @@ func (h *DMHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
 // Enables or disables E2EE on a DM channel. Either participant can toggle.
 func (h *DMHandler) ToggleE2EE(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return

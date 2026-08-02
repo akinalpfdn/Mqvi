@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -36,7 +37,7 @@ func NewICEServerHandler(provider services.ICEServerProvider, callChecker P2PCal
 // reaches "active" state, otherwise the caller's request precedes its own call
 // registration and is rejected (see Phase 26 constraint).
 func (h *ICEServerHandler) GetICEServers(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

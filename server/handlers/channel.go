@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -20,13 +21,13 @@ func NewChannelHandler(channelService services.ChannelService) *ChannelHandler {
 // List handles GET /api/servers/{serverId}/channels
 // Returns channels grouped by category, filtered by ViewChannel permission.
 func (h *ChannelHandler) List(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -43,7 +44,7 @@ func (h *ChannelHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Create handles POST /api/servers/{serverId}/channels (requires MANAGE_CHANNELS).
 func (h *ChannelHandler) Create(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -99,13 +100,13 @@ func (h *ChannelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // Reorder handles PATCH /api/servers/{serverId}/channels/reorder (requires MANAGE_CHANNELS).
 func (h *ChannelHandler) Reorder(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
