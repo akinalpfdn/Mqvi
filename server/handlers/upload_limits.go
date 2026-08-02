@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -18,6 +20,23 @@ const thumbnailFieldPrefix = "thumb_"
 // the long edge at 800; anything far past that is a client trying to make every viewer render an
 // <img width="1000000000">.
 const maxThumbnailEdge = 8192
+
+// releaseQuota hands a reservation back and reports a failure instead of dropping it.
+//
+// Every compensation site used to be `_ = Release(...)`. A Release that fails and says nothing is a
+// permanent overcount: the bytes are charged to the user forever, they cannot free them, and there
+// is no trace of why. Nothing here can recover from the failure — the response is already decided —
+// but it has to be visible. The service layer already logs its own Release failures this way.
+//
+// The bytes <= 0 guard lives here because every caller had its own copy of it.
+func releaseQuota(ctx context.Context, storage services.StorageService, scope, userID string, bytes int64) {
+	if bytes <= 0 {
+		return
+	}
+	if err := storage.Release(ctx, userID, bytes); err != nil {
+		log.Printf("[%s] failed to release %d bytes of storage quota for user %s: %v", scope, bytes, userID, err)
+	}
+}
 
 func limitMultipartBody(w http.ResponseWriter, r *http.Request, maxFileBytes int64, maxFiles int) {
 	if maxFileBytes <= 0 || maxFiles <= 0 {

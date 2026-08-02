@@ -21,6 +21,33 @@ func NewSQLiteUserRepo(db database.TxQuerier) UserRepository {
 	return &sqliteUserRepo{db: db}
 }
 
+// userColumns and scanUser are a pair: the column list and the destinations it scans into. Adding
+// a users column means editing both, and nothing else — it used to mean six identical edits, and a
+// missed one surfaced as a runtime Scan error rather than a compile failure.
+//
+// Columns only, no SELECT and no FROM: callers append their own WHERE / ORDER BY / LIMIT.
+const userColumns = `id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
+		email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
+		platform_ban_reason, platform_banned_by, platform_banned_at,
+		deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at`
+
+func scanUser(s scanner) (*models.User, error) {
+	var u models.User
+	err := s.Scan(
+		&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL, &u.WallpaperURL,
+		&u.PasswordHash, &u.Status, &u.PrefStatus, &u.CustomStatus, &u.Email,
+		&u.Language, &u.DMPrivacy, &u.IsPlatformAdmin, &u.IsPlatformBanned, &u.HasSeenDownloadPrompt, &u.HasSeenWelcome,
+		&u.PlatformBanReason, &u.PlatformBannedBy, &u.PlatformBannedAt,
+		&u.DeletedAt, &u.DeletedByAdmin, &u.IsHardDeleted, &u.TokenVersion,
+		&u.FeedbackLastSeenAt, &u.ReportsLastSeenAt,
+		&u.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 	query := `
 		INSERT INTO users (id, username, display_name, avatar_url, password_hash, status, email, language, is_platform_admin)
@@ -52,24 +79,9 @@ func (r *sqliteUserRepo) Create(ctx context.Context, user *models.User) error {
 }
 
 func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, error) {
-	query := `
-		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
-			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
-			platform_ban_reason, platform_banned_by, platform_banned_at,
-			deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at
-		FROM users WHERE id = ?`
+	query := `SELECT ` + userColumns + ` FROM users WHERE id = ?`
 
-	user := &models.User{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
-		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-		&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
-		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
-		&user.DeletedAt, &user.DeletedByAdmin, &user.IsHardDeleted, &user.TokenVersion,
-		&user.FeedbackLastSeenAt, &user.ReportsLastSeenAt,
-		&user.CreatedAt,
-	)
-
+	user, err := scanUser(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
 	}
@@ -81,24 +93,9 @@ func (r *sqliteUserRepo) GetByID(ctx context.Context, id string) (*models.User, 
 }
 
 func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*models.User, error) {
-	query := `
-		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
-			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
-			platform_ban_reason, platform_banned_by, platform_banned_at,
-			deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at
-		FROM users WHERE username = ? COLLATE NOCASE`
+	query := `SELECT ` + userColumns + ` FROM users WHERE username = ? COLLATE NOCASE`
 
-	user := &models.User{}
-	err := r.db.QueryRowContext(ctx, query, username).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
-		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-		&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
-		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
-		&user.DeletedAt, &user.DeletedByAdmin, &user.IsHardDeleted, &user.TokenVersion,
-		&user.FeedbackLastSeenAt, &user.ReportsLastSeenAt,
-		&user.CreatedAt,
-	)
-
+	user, err := scanUser(r.db.QueryRowContext(ctx, query, username))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
 	}
@@ -112,23 +109,9 @@ func (r *sqliteUserRepo) GetByUsername(ctx context.Context, username string) (*m
 // GetActiveByID returns the user only if not soft-deleted/tombstone.
 // Used for auth paths where deleted users must be invisible.
 func (r *sqliteUserRepo) GetActiveByID(ctx context.Context, id string) (*models.User, error) {
-	query := `
-		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
-			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
-			platform_ban_reason, platform_banned_by, platform_banned_at,
-			deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at
-		FROM users WHERE id = ? AND deleted_at IS NULL`
+	query := `SELECT ` + userColumns + ` FROM users WHERE id = ? AND deleted_at IS NULL`
 
-	user := &models.User{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
-		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-		&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
-		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
-		&user.DeletedAt, &user.DeletedByAdmin, &user.IsHardDeleted, &user.TokenVersion,
-		&user.FeedbackLastSeenAt, &user.ReportsLastSeenAt,
-		&user.CreatedAt,
-	)
+	user, err := scanUser(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
 	}
@@ -140,23 +123,9 @@ func (r *sqliteUserRepo) GetActiveByID(ctx context.Context, id string) (*models.
 
 // GetActiveByUsername returns the user only if not soft-deleted/tombstone.
 func (r *sqliteUserRepo) GetActiveByUsername(ctx context.Context, username string) (*models.User, error) {
-	query := `
-		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
-			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
-			platform_ban_reason, platform_banned_by, platform_banned_at,
-			deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at
-		FROM users WHERE username = ? COLLATE NOCASE AND deleted_at IS NULL`
+	query := `SELECT ` + userColumns + ` FROM users WHERE username = ? COLLATE NOCASE AND deleted_at IS NULL`
 
-	user := &models.User{}
-	err := r.db.QueryRowContext(ctx, query, username).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
-		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-		&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
-		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
-		&user.DeletedAt, &user.DeletedByAdmin, &user.IsHardDeleted, &user.TokenVersion,
-		&user.FeedbackLastSeenAt, &user.ReportsLastSeenAt,
-		&user.CreatedAt,
-	)
+	user, err := scanUser(r.db.QueryRowContext(ctx, query, username))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
 	}
@@ -207,7 +176,6 @@ func (r *sqliteUserRepo) GetServerMembers(ctx context.Context, serverID string) 
 
 	return users, nil
 }
-
 
 func (r *sqliteUserRepo) Update(ctx context.Context, user *models.User) error {
 	query := `
@@ -394,24 +362,9 @@ func (r *sqliteUserRepo) UpdateWallpaper(ctx context.Context, userID string, wal
 }
 
 func (r *sqliteUserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
-	query := `
-		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
-			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
-			platform_ban_reason, platform_banned_by, platform_banned_at,
-			deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at
-		FROM users WHERE email = ?`
+	query := `SELECT ` + userColumns + ` FROM users WHERE email = ?`
 
-	user := &models.User{}
-	err := r.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.AvatarURL, &user.WallpaperURL,
-		&user.PasswordHash, &user.Status, &user.PrefStatus, &user.CustomStatus, &user.Email,
-		&user.Language, &user.DMPrivacy, &user.IsPlatformAdmin, &user.IsPlatformBanned, &user.HasSeenDownloadPrompt, &user.HasSeenWelcome,
-		&user.PlatformBanReason, &user.PlatformBannedBy, &user.PlatformBannedAt,
-		&user.DeletedAt, &user.DeletedByAdmin, &user.IsHardDeleted, &user.TokenVersion,
-		&user.FeedbackLastSeenAt, &user.ReportsLastSeenAt,
-		&user.CreatedAt,
-	)
-
+	user, err := scanUser(r.db.QueryRowContext(ctx, query, email))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
 	}
@@ -813,18 +766,21 @@ func (r *sqliteUserRepo) DeleteAllMessagesByUser(ctx context.Context, userID str
 // Runs in a transaction so partial deletes cannot occur.
 //
 // Tables manually deleted (would have CASCADEd if user row was deleted):
-//   user_roles, sessions, channel_reads, message_mentions, reactions, dm_reactions,
-//   friendships, server_members, password_reset_tokens, server_mutes, channel_mutes,
-//   e2ee_devices, e2ee_sessions_backup, e2ee_backups, user_badges, user_preferences,
-//   soundboard, user_storage.
+//
+//	user_roles, sessions, channel_reads, message_mentions, reactions, dm_reactions,
+//	friendships, server_members, password_reset_tokens, server_mutes, channel_mutes,
+//	e2ee_devices, e2ee_sessions_backup, e2ee_backups, user_badges, user_preferences,
+//	soundboard, user_storage.
 //
 // Tables NOT deleted (tombstone-preserved via the user row):
-//   messages, dm_messages, dm_channels, pinned_messages, attachments — caller
-//   sees "[deleted user]" via deleted_at flag in JSON response.
+//
+//	messages, dm_messages, dm_channels, pinned_messages, attachments — caller
+//	sees "[deleted user]" via deleted_at flag in JSON response.
 //
 // Tables manually deleted (non-CASCADE FK or no FK):
-//   bans, servers (owned, full cascade including channels/messages/etc),
-//   reports, feedback_tickets, feedback_replies, user_dm_settings.
+//
+//	bans, servers (owned, full cascade including channels/messages/etc),
+//	reports, feedback_tickets, feedback_replies, user_dm_settings.
 //
 // platform_bans is NOT deleted — durable ban survives hard delete.
 func (r *sqliteUserRepo) HardDeleteUser(ctx context.Context, userID string, byAdmin bool) error {
@@ -1093,11 +1049,7 @@ func (r *sqliteUserRepo) Restore(ctx context.Context, userID string) error {
 // ListSoftDeletedExpired returns soft-deleted users (not yet tombstone) past TTL.
 // Used by cleanup worker to identify users ready for tombstone hard-delete.
 func (r *sqliteUserRepo) ListSoftDeletedExpired(ctx context.Context, ttlDays int) ([]models.User, error) {
-	query := `
-		SELECT id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
-			email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
-			platform_ban_reason, platform_banned_by, platform_banned_at,
-			deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at
+	query := `SELECT ` + userColumns + `
 		FROM users
 		WHERE deleted_at IS NOT NULL
 		  AND is_hard_deleted = 0
@@ -1111,19 +1063,11 @@ func (r *sqliteUserRepo) ListSoftDeletedExpired(ctx context.Context, ttlDays int
 
 	var users []models.User
 	for rows.Next() {
-		var u models.User
-		if err := rows.Scan(
-			&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL, &u.WallpaperURL,
-			&u.PasswordHash, &u.Status, &u.PrefStatus, &u.CustomStatus, &u.Email,
-			&u.Language, &u.DMPrivacy, &u.IsPlatformAdmin, &u.IsPlatformBanned, &u.HasSeenDownloadPrompt, &u.HasSeenWelcome,
-			&u.PlatformBanReason, &u.PlatformBannedBy, &u.PlatformBannedAt,
-			&u.DeletedAt, &u.DeletedByAdmin, &u.IsHardDeleted, &u.TokenVersion,
-			&u.FeedbackLastSeenAt, &u.ReportsLastSeenAt,
-			&u.CreatedAt,
-		); err != nil {
+		u, err := scanUser(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan expired user: %w", err)
 		}
-		users = append(users, u)
+		users = append(users, *u)
 	}
 	return users, rows.Err()
 }

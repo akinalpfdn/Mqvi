@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"log"
+	"mime/multipart"
 	"net/http"
 
 	"github.com/akinalp/mqvi/models"
@@ -103,28 +106,21 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		var uploadedBytes int64
-		for _, fileHeader := range files {
-			file, err := fileHeader.Open()
-			if err != nil {
-				continue
-			}
+		attachments, uploadedBytes := uploadBestEffort(
+			r.Context(), files,
+			func(ctx context.Context, file multipart.File, fh *multipart.FileHeader) (*models.ReportAttachment, error) {
+				return h.reportUploadService.Upload(ctx, report.ID, file, fh)
+			},
+			func(a *models.ReportAttachment) int64 { return storedSize(a.FileSize, nil) },
+			func(filename string, err error) {
+				// %q, not %s: the filename comes from the client and a decoded filename* can carry a
+				// newline, which would let a reporter forge whole log lines.
+				log.Printf("[report] skipped evidence %q for report %s: %v", filename, report.ID, err)
+			},
+		)
+		report.Attachments = append(report.Attachments, attachments...)
 
-			att, err := h.reportUploadService.Upload(r.Context(), report.ID, file, fileHeader)
-			file.Close()
-			if err != nil {
-				continue
-			}
-
-			if att.FileSize != nil {
-				uploadedBytes += *att.FileSize
-			}
-			report.Attachments = append(report.Attachments, *att)
-		}
-
-		if unused := totalSize - uploadedBytes; unused > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, unused)
-		}
+		releaseQuota(r.Context(), h.storageService, "report", user.ID, totalSize-uploadedBytes)
 	}
 
 	for i := range report.Attachments {

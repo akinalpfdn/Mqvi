@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -208,24 +211,20 @@ func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) 
 				return
 			}
 		}
-		var uploadedBytes int64
-		for _, fh := range uploadFiles {
-			file, openErr := fh.Open()
-			if openErr != nil {
-				continue
-			}
-			att, upErr := h.reportUpload.Upload(r.Context(), report.ID, file, fh)
-			file.Close()
-			if upErr != nil {
-				continue
-			}
-			if att.FileSize != nil {
-				uploadedBytes += *att.FileSize
-			}
-		}
-		if unused := totalSize - uploadedBytes; unused > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, unused)
-		}
+		// The attachments are stored but not returned — this endpoint answers with an
+		// acknowledgement, not the report.
+		_, uploadedBytes := uploadBestEffort(
+			r.Context(), uploadFiles,
+			func(ctx context.Context, file multipart.File, fh *multipart.FileHeader) (*models.ServerReportAttachment, error) {
+				return h.reportUpload.Upload(ctx, report.ID, file, fh)
+			},
+			func(a *models.ServerReportAttachment) int64 { return storedSize(a.FileSize, nil) },
+			func(filename string, err error) {
+				// %q, not %s — see the note on onSkip: the filename is client-controlled.
+				log.Printf("[discovery] skipped evidence %q for report %s: %v", filename, report.ID, err)
+			},
+		)
+		releaseQuota(r.Context(), h.storageService, "discovery", user.ID, totalSize-uploadedBytes)
 	}
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "report submitted"})

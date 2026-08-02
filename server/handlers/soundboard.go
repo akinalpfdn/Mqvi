@@ -110,7 +110,7 @@ func (h *SoundboardHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	sound, err := h.service.Create(r.Context(), serverID, user.ID, req, file, header, durationMs)
 	if err != nil {
-		_ = h.storageService.Release(r.Context(), user.ID, header.Size)
+		releaseQuota(r.Context(), h.storageService, "soundboard", user.ID, header.Size)
 		pkg.Error(w, err)
 		return
 	}

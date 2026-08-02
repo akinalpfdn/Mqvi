@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 
@@ -248,60 +250,38 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := h.dmService.SendMessage(r.Context(), user.ID, channelID, &req)
 	if err != nil {
-		if reservedBytes > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, reservedBytes)
-		}
+		releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes)
 		pkg.Error(w, err)
 		return
 	}
 
 	if reservedBytes > 0 {
 		isEncrypted := req.EncryptionVersion == 1
-		files := r.MultipartForm.File["files"]
 
-		var uploadedBytes int64
-		for i, fileHeader := range files {
-			file, err := fileHeader.Open()
-			if err != nil {
-				// Skipping a file here would shift every later attachment's index, and the client pairs
-				// e2ee_file_keys[i] with attachments[i] — the rest would decrypt with the wrong key. Fail
-				// the send instead of delivering a message that cannot be read.
-				_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
-				if unused := reservedBytes - uploadedBytes; unused > 0 {
-					_ = h.storageService.Release(r.Context(), user.ID, unused)
+		attachments, uploadedBytes, err := uploadEachFile(
+			r.Context(), r.MultipartForm.File["files"], r.MultipartForm,
+			func(ctx context.Context, file multipart.File, header *multipart.FileHeader, thumb *services.ThumbnailUpload) (*models.DMAttachment, error) {
+				attachment, err := h.dmUploadService.Upload(ctx, msg.ID, file, header, isEncrypted, thumb)
+				if err != nil {
+					return nil, err
 				}
-				pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to read uploaded file")
-				return
-			}
+				services.SignDMAttachmentURLs(h.urlSigner, attachment)
+				return attachment, nil
+			},
+			func(a *models.DMAttachment) int64 { return storedSize(a.FileSize, a.ThumbSize) },
+		)
+		msg.Attachments = append(msg.Attachments, attachments...)
 
-			thumb := thumbnailFor(r.MultipartForm, i)
-			attachment, err := h.dmUploadService.Upload(r.Context(), msg.ID, file, fileHeader, isEncrypted, thumb)
-			file.Close()
-			if thumb != nil {
-				thumb.File.Close()
-			}
-			if err != nil {
-				_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
-				if unused := reservedBytes - uploadedBytes; unused > 0 {
-					_ = h.storageService.Release(r.Context(), user.ID, unused)
-				}
-				pkg.Error(w, err)
-				return
-			}
-
-			if attachment.FileSize != nil {
-				uploadedBytes += *attachment.FileSize
-			}
-			if attachment.ThumbSize != nil {
-				uploadedBytes += *attachment.ThumbSize
-			}
-			services.SignDMAttachmentURLs(h.urlSigner, attachment)
-			msg.Attachments = append(msg.Attachments, *attachment)
+		if err != nil {
+			// The message goes too: a partial set would mis-key every attachment after the missing
+			// one. See uploadEachFile.
+			_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
+			releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
+			respondUploadFailure(w, err)
+			return
 		}
 
-		if unused := reservedBytes - uploadedBytes; unused > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, unused)
-		}
+		releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
 	}
 
 	// Broadcast after uploads so clients see attachments

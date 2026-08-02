@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
@@ -19,19 +20,48 @@ func NewSQLiteRoleRepo(db database.TxQuerier) RoleRepository {
 	return &sqliteRoleRepo{db: db}
 }
 
-// ─── Read ───
+// roleColumns and scanRoleInto are a pair: the column list and the destinations it scans into.
+// Adding a roles column means editing both, and nothing else.
+const roleColumns = `id, server_id, name, color, position, permissions, is_default, is_owner, mentionable, created_at`
 
-func (r *sqliteRoleRepo) GetByID(ctx context.Context, id string) (*models.Role, error) {
-	query := `
-		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, mentionable, created_at
-		FROM roles WHERE id = ?`
+// The joined reads must qualify the columns — user_roles also has a server_id, so the bare list is
+// ambiguous there. Derived from roleColumns rather than written out again, so the two cannot drift.
+var roleColumnsQualified = qualifyColumns(roleColumns, "r")
 
-	role := &models.Role{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
+func qualifyColumns(columns, alias string) string {
+	parts := strings.Split(columns, ",")
+	for i, part := range parts {
+		parts[i] = alias + "." + strings.TrimSpace(part)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// leading covers the one query that selects an extra column before the role (the grouped read
+// takes user_id first); without it that call site would need its own copy of the destinations.
+func scanRoleInto(s scanner, role *models.Role, leading ...any) error {
+	dest := make([]any, 0, len(leading)+10)
+	dest = append(dest, leading...)
+	dest = append(dest,
 		&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
 		&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
 	)
+	return s.Scan(dest...)
+}
 
+func scanRole(s scanner) (*models.Role, error) {
+	var role models.Role
+	if err := scanRoleInto(s, &role); err != nil {
+		return nil, err
+	}
+	return &role, nil
+}
+
+// ─── Read ───
+
+func (r *sqliteRoleRepo) GetByID(ctx context.Context, id string) (*models.Role, error) {
+	query := `SELECT ` + roleColumns + ` FROM roles WHERE id = ?`
+
+	role, err := scanRole(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
 	}
@@ -43,9 +73,7 @@ func (r *sqliteRoleRepo) GetByID(ctx context.Context, id string) (*models.Role, 
 }
 
 func (r *sqliteRoleRepo) GetAllByServer(ctx context.Context, serverID string) ([]models.Role, error) {
-	query := `
-		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, mentionable, created_at
-		FROM roles WHERE server_id = ? ORDER BY position DESC`
+	query := `SELECT ` + roleColumns + ` FROM roles WHERE server_id = ? ORDER BY position DESC`
 
 	rows, err := r.db.QueryContext(ctx, query, serverID)
 	if err != nil {
@@ -56,10 +84,7 @@ func (r *sqliteRoleRepo) GetAllByServer(ctx context.Context, serverID string) ([
 	var roles []models.Role
 	for rows.Next() {
 		var role models.Role
-		if err := rows.Scan(
-			&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
-			&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
-		); err != nil {
+		if err := scanRoleInto(rows, &role); err != nil {
 			return nil, fmt.Errorf("failed to scan role row: %w", err)
 		}
 		roles = append(roles, role)
@@ -73,16 +98,9 @@ func (r *sqliteRoleRepo) GetAllByServer(ctx context.Context, serverID string) ([
 }
 
 func (r *sqliteRoleRepo) GetDefaultByServer(ctx context.Context, serverID string) (*models.Role, error) {
-	query := `
-		SELECT id, server_id, name, color, position, permissions, is_default, is_owner, mentionable, created_at
-		FROM roles WHERE server_id = ? AND is_default = 1 LIMIT 1`
+	query := `SELECT ` + roleColumns + ` FROM roles WHERE server_id = ? AND is_default = 1 LIMIT 1`
 
-	role := &models.Role{}
-	err := r.db.QueryRowContext(ctx, query, serverID).Scan(
-		&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
-		&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
-	)
-
+	role, err := scanRole(r.db.QueryRowContext(ctx, query, serverID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
 	}
@@ -100,7 +118,7 @@ func (r *sqliteRoleRepo) GetDefaultByServer(ctx context.Context, serverID string
 // UI's highest-role colour both depend on that order.
 func (r *sqliteRoleRepo) GetByServerGroupedByUser(ctx context.Context, serverID string) (map[string][]models.Role, error) {
 	query := `
-		SELECT ur.user_id, r.id, r.server_id, r.name, r.color, r.position, r.permissions, r.is_default, r.is_owner, r.mentionable, r.created_at
+		SELECT ur.user_id, ` + roleColumnsQualified + `
 		FROM roles r
 		INNER JOIN user_roles ur ON r.id = ur.role_id AND r.server_id = ur.server_id
 		WHERE ur.server_id = ?
@@ -116,10 +134,7 @@ func (r *sqliteRoleRepo) GetByServerGroupedByUser(ctx context.Context, serverID 
 	for rows.Next() {
 		var userID string
 		var role models.Role
-		if err := rows.Scan(
-			&userID, &role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
-			&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
-		); err != nil {
+		if err := scanRoleInto(rows, &role, &userID); err != nil {
 			return nil, fmt.Errorf("failed to scan grouped role row: %w", err)
 		}
 		byUser[userID] = append(byUser[userID], role)
@@ -134,7 +149,7 @@ func (r *sqliteRoleRepo) GetByServerGroupedByUser(ctx context.Context, serverID 
 
 func (r *sqliteRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serverID string) ([]models.Role, error) {
 	query := `
-		SELECT r.id, r.server_id, r.name, r.color, r.position, r.permissions, r.is_default, r.is_owner, r.mentionable, r.created_at
+		SELECT ` + roleColumnsQualified + `
 		FROM roles r
 		INNER JOIN user_roles ur ON r.id = ur.role_id AND r.server_id = ur.server_id
 		WHERE ur.user_id = ? AND ur.server_id = ?
@@ -149,10 +164,7 @@ func (r *sqliteRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serve
 	var roles []models.Role
 	for rows.Next() {
 		var role models.Role
-		if err := rows.Scan(
-			&role.ID, &role.ServerID, &role.Name, &role.Color, &role.Position,
-			&role.Permissions, &role.IsDefault, &role.IsOwner, &role.Mentionable, &role.CreatedAt,
-		); err != nil {
+		if err := scanRoleInto(rows, &role); err != nil {
 			return nil, fmt.Errorf("failed to scan role row: %w", err)
 		}
 		roles = append(roles, role)

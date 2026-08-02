@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 
@@ -154,9 +156,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	message, err := h.messageService.Create(r.Context(), channelID, user.ID, &req)
 	if err != nil {
-		if reservedBytes > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, reservedBytes)
-		}
+		releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes)
 		pkg.Error(w, err)
 		return
 	}
@@ -164,52 +164,32 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Upload files after message creation
 	if reservedBytes > 0 {
 		isEncrypted := req.EncryptionVersion == 1
-		files := r.MultipartForm.File["files"]
 
-		var uploadedBytes int64
-		for i, fileHeader := range files {
-			file, err := fileHeader.Open()
-			if err != nil {
-				// Skipping a file here would shift every later attachment's index, and the client pairs
-				// e2ee_file_keys[i] with attachments[i] — the rest would decrypt with the wrong key. Fail
-				// the send instead of delivering a message that cannot be read.
-				_ = h.messageService.Delete(r.Context(), r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages)
-				if unused := reservedBytes - uploadedBytes; unused > 0 {
-					_ = h.storageService.Release(r.Context(), user.ID, unused)
+		attachments, uploadedBytes, err := uploadEachFile(
+			r.Context(), r.MultipartForm.File["files"], r.MultipartForm,
+			func(ctx context.Context, file multipart.File, header *multipart.FileHeader, thumb *services.ThumbnailUpload) (*models.Attachment, error) {
+				attachment, err := h.uploadService.Upload(ctx, message.ID, file, header, isEncrypted, thumb)
+				if err != nil {
+					return nil, err
 				}
-				pkg.ErrorWithMessage(w, http.StatusBadRequest, "failed to read uploaded file")
-				return
-			}
+				services.SignAttachmentURLs(h.urlSigner, attachment)
+				return attachment, nil
+			},
+			func(a *models.Attachment) int64 { return storedSize(a.FileSize, a.ThumbSize) },
+		)
+		message.Attachments = append(message.Attachments, attachments...)
 
-			thumb := thumbnailFor(r.MultipartForm, i)
-			attachment, err := h.uploadService.Upload(r.Context(), message.ID, file, fileHeader, isEncrypted, thumb)
-			file.Close()
-			if thumb != nil {
-				thumb.File.Close()
-			}
-			if err != nil {
-				_ = h.messageService.Delete(r.Context(), r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages)
-				if unused := reservedBytes - uploadedBytes; unused > 0 {
-					_ = h.storageService.Release(r.Context(), user.ID, unused)
-				}
-				pkg.Error(w, err)
-				return
-			}
-
-			if attachment.FileSize != nil {
-				uploadedBytes += *attachment.FileSize
-			}
-			if attachment.ThumbSize != nil {
-				uploadedBytes += *attachment.ThumbSize
-			}
-			services.SignAttachmentURLs(h.urlSigner, attachment)
-			message.Attachments = append(message.Attachments, *attachment)
+		if err != nil {
+			// The message goes too: a partial set would mis-key every attachment after the missing
+			// one. See uploadEachFile.
+			_ = h.messageService.Delete(r.Context(), r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages)
+			releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes-uploadedBytes)
+			respondUploadFailure(w, err)
+			return
 		}
 
-		// Release unused reservation (files that failed to upload)
-		if unused := reservedBytes - uploadedBytes; unused > 0 {
-			_ = h.storageService.Release(r.Context(), user.ID, unused)
-		}
+		// Release unused reservation (declared sizes are only an estimate)
+		releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes-uploadedBytes)
 	}
 
 	// Set transient server_id so clients can route cross-server notifications
