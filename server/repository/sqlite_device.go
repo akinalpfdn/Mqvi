@@ -18,6 +18,41 @@ func NewSQLiteDeviceRepo(db database.TxQuerier) DeviceRepository {
 	return &sqliteDeviceRepo{db: db}
 }
 
+// Two shapes are read out of user_devices, each from two places: the whole device row, and the
+// subset that forms an X3DH prekey bundle. Each column list is paired with the scanner that
+// consumes it, so adding a column is one edit rather than a synchronised pair of them.
+const deviceColumns = `id, user_id, device_id, display_name, identity_key, signing_key,
+		signed_prekey, signed_prekey_id, signed_prekey_signature,
+		registration_id, last_seen_at, created_at`
+
+func scanDevice(s scanner) (*models.Device, error) {
+	var d models.Device
+	err := s.Scan(
+		&d.ID, &d.UserID, &d.DeviceID, &d.DisplayName, &d.IdentityKey, &d.SigningKey,
+		&d.SignedPrekey, &d.SignedPrekeyID, &d.SignedPrekeySig,
+		&d.RegistrationID, &d.LastSeenAt, &d.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+const prekeyBundleColumns = `device_id, registration_id, identity_key, signing_key,
+		signed_prekey_id, signed_prekey, signed_prekey_signature`
+
+func scanPrekeyBundle(s scanner) (*models.PrekeyBundle, error) {
+	var b models.PrekeyBundle
+	err := s.Scan(
+		&b.DeviceID, &b.RegistrationID, &b.IdentityKey, &b.SigningKey,
+		&b.SignedPrekeyID, &b.SignedPrekey, &b.SignedPrekeySig,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 // Register creates or re-registers a device (upsert on user_id + device_id).
 func (r *sqliteDeviceRepo) Register(ctx context.Context, device *models.Device) error {
 	query := `
@@ -48,19 +83,11 @@ func (r *sqliteDeviceRepo) Register(ctx context.Context, device *models.Device) 
 }
 
 func (r *sqliteDeviceRepo) GetByUserAndDevice(ctx context.Context, userID, deviceID string) (*models.Device, error) {
-	query := `
-		SELECT id, user_id, device_id, display_name, identity_key, signing_key,
-			signed_prekey, signed_prekey_id, signed_prekey_signature,
-			registration_id, last_seen_at, created_at
+	query := `SELECT ` + deviceColumns + `
 		FROM user_devices
 		WHERE user_id = ? AND device_id = ?`
 
-	d := &models.Device{}
-	err := r.db.QueryRowContext(ctx, query, userID, deviceID).Scan(
-		&d.ID, &d.UserID, &d.DeviceID, &d.DisplayName, &d.IdentityKey, &d.SigningKey,
-		&d.SignedPrekey, &d.SignedPrekeyID, &d.SignedPrekeySig,
-		&d.RegistrationID, &d.LastSeenAt, &d.CreatedAt,
-	)
+	d, err := scanDevice(r.db.QueryRowContext(ctx, query, userID, deviceID))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, pkg.ErrNotFound
@@ -71,10 +98,7 @@ func (r *sqliteDeviceRepo) GetByUserAndDevice(ctx context.Context, userID, devic
 }
 
 func (r *sqliteDeviceRepo) ListByUser(ctx context.Context, userID string) ([]models.Device, error) {
-	query := `
-		SELECT id, user_id, device_id, display_name, identity_key, signing_key,
-			signed_prekey, signed_prekey_id, signed_prekey_signature,
-			registration_id, last_seen_at, created_at
+	query := `SELECT ` + deviceColumns + `
 		FROM user_devices
 		WHERE user_id = ?
 		ORDER BY created_at DESC`
@@ -87,15 +111,11 @@ func (r *sqliteDeviceRepo) ListByUser(ctx context.Context, userID string) ([]mod
 
 	var devices []models.Device
 	for rows.Next() {
-		var d models.Device
-		if err := rows.Scan(
-			&d.ID, &d.UserID, &d.DeviceID, &d.DisplayName, &d.IdentityKey, &d.SigningKey,
-			&d.SignedPrekey, &d.SignedPrekeyID, &d.SignedPrekeySig,
-			&d.RegistrationID, &d.LastSeenAt, &d.CreatedAt,
-		); err != nil {
+		d, err := scanDevice(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan device: %w", err)
 		}
-		devices = append(devices, d)
+		devices = append(devices, *d)
 	}
 	return devices, rows.Err()
 }
@@ -227,17 +247,11 @@ func (r *sqliteDeviceRepo) CountPrekeys(ctx context.Context, userID, deviceID st
 
 // GetPrekeyBundle returns a full X3DH prekey bundle, consuming one OTP if available.
 func (r *sqliteDeviceRepo) GetPrekeyBundle(ctx context.Context, userID, deviceID string) (*models.PrekeyBundle, error) {
-	query := `
-		SELECT device_id, registration_id, identity_key, signing_key,
-			signed_prekey_id, signed_prekey, signed_prekey_signature
+	query := `SELECT ` + prekeyBundleColumns + `
 		FROM user_devices
 		WHERE user_id = ? AND device_id = ?`
 
-	bundle := &models.PrekeyBundle{}
-	err := r.db.QueryRowContext(ctx, query, userID, deviceID).Scan(
-		&bundle.DeviceID, &bundle.RegistrationID, &bundle.IdentityKey, &bundle.SigningKey,
-		&bundle.SignedPrekeyID, &bundle.SignedPrekey, &bundle.SignedPrekeySig,
-	)
+	bundle, err := scanPrekeyBundle(r.db.QueryRowContext(ctx, query, userID, deviceID))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, pkg.ErrNotFound
@@ -259,9 +273,7 @@ func (r *sqliteDeviceRepo) GetPrekeyBundle(ctx context.Context, userID, deviceID
 
 // GetPrekeyBundles returns prekey bundles for all of a user's devices.
 func (r *sqliteDeviceRepo) GetPrekeyBundles(ctx context.Context, userID string) ([]models.PrekeyBundle, error) {
-	query := `
-		SELECT device_id, registration_id, identity_key, signing_key,
-			signed_prekey_id, signed_prekey, signed_prekey_signature
+	query := `SELECT ` + prekeyBundleColumns + `
 		FROM user_devices
 		WHERE user_id = ?
 		ORDER BY created_at ASC`
@@ -274,14 +286,11 @@ func (r *sqliteDeviceRepo) GetPrekeyBundles(ctx context.Context, userID string) 
 
 	var bundles []models.PrekeyBundle
 	for rows.Next() {
-		var b models.PrekeyBundle
-		if err := rows.Scan(
-			&b.DeviceID, &b.RegistrationID, &b.IdentityKey, &b.SigningKey,
-			&b.SignedPrekeyID, &b.SignedPrekey, &b.SignedPrekeySig,
-		); err != nil {
+		b, err := scanPrekeyBundle(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan device for bundle: %w", err)
 		}
-		bundles = append(bundles, b)
+		bundles = append(bundles, *b)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
