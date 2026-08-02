@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -34,7 +35,7 @@ type markReadRequest struct {
 func (h *ReadStateHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -61,7 +62,7 @@ func (h *ReadStateHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 // MarkAllRead marks all channels in the server as read.
 // POST /api/servers/{serverId}/channels/read-all
 func (h *ReadStateHandler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -71,7 +72,7 @@ func (h *ReadStateHandler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -94,7 +95,7 @@ type markMentionSeenRequest struct {
 func (h *ReadStateHandler) MarkMentionSeen(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -121,13 +122,13 @@ func (h *ReadStateHandler) MarkMentionSeen(w http.ResponseWriter, r *http.Reques
 // GetUnreads returns unread message counts for all channels in the server.
 // GET /api/servers/{serverId}/channels/unread
 func (h *ReadStateHandler) GetUnreads(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return

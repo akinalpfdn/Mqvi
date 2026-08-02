@@ -12,6 +12,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
@@ -58,7 +59,7 @@ func NewAvatarHandler(
 // Deletes the old avatar file from disk if present.
 // POST /api/users/me/avatar (multipart/form-data)
 func (h *AvatarHandler) UploadUserAvatar(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -89,7 +90,7 @@ func (h *AvatarHandler) UploadUserAvatar(w http.ResponseWriter, r *http.Request)
 // Deletes the old wallpaper file from disk if present.
 // POST /api/users/me/wallpaper (multipart/form-data)
 func (h *AvatarHandler) UploadUserWallpaper(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -114,7 +115,7 @@ func (h *AvatarHandler) UploadUserWallpaper(w http.ResponseWriter, r *http.Reque
 // DeleteUserWallpaper removes the current user's wallpaper (file + DB column).
 // DELETE /api/users/me/wallpaper
 func (h *AvatarHandler) DeleteUserWallpaper(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -134,7 +135,7 @@ func (h *AvatarHandler) DeleteUserWallpaper(w http.ResponseWriter, r *http.Reque
 // Deletes the old icon file from disk if present.
 // POST /api/servers/{serverId}/icon (multipart/form-data)
 func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -168,7 +169,7 @@ func (h *AvatarHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 // Deletes the old banner file from disk if present.
 // POST /api/servers/{serverId}/banner (multipart/form-data)
 func (h *AvatarHandler) UploadServerBanner(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return

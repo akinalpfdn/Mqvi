@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -24,7 +25,7 @@ func NewE2EEHandler(e2eeService services.E2EEService) *E2EEHandler {
 // Server stores an opaque blob -- cannot read the keys without the recovery password.
 // PUT /api/e2ee/key-backup
 func (h *E2EEHandler) UpsertKeyBackup(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -48,7 +49,7 @@ func (h *E2EEHandler) UpsertKeyBackup(w http.ResponseWriter, r *http.Request) {
 // Returns 200 + null if no backup exists (backup is optional).
 // GET /api/e2ee/key-backup
 func (h *E2EEHandler) GetKeyBackup(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -65,7 +66,7 @@ func (h *E2EEHandler) GetKeyBackup(w http.ResponseWriter, r *http.Request) {
 
 // DeleteKeyBackup -- DELETE /api/e2ee/key-backup
 func (h *E2EEHandler) DeleteKeyBackup(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -85,7 +86,7 @@ func (h *E2EEHandler) DeleteKeyBackup(w http.ResponseWriter, r *http.Request) {
 // Session data is an opaque blob -- server cannot read the contents.
 // POST /api/servers/{serverId}/channels/{channelId}/group-sessions
 func (h *E2EEHandler) CreateGroupSession(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -120,7 +121,7 @@ func (h *E2EEHandler) CreateGroupSession(w http.ResponseWriter, r *http.Request)
 // GetGroupSessions returns all active group sessions for a channel.
 // GET /api/servers/{serverId}/channels/{channelId}/group-sessions
 func (h *E2EEHandler) GetGroupSessions(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return

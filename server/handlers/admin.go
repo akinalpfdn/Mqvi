@@ -10,6 +10,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -55,7 +56,7 @@ func NewAdminHandler(
 // GetBadges -- GET /api/admin/badges
 // Returns whether the current admin has unseen feedback or reports.
 func (h *AdminHandler) GetBadges(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -70,7 +71,7 @@ func (h *AdminHandler) GetBadges(w http.ResponseWriter, r *http.Request) {
 
 // MarkFeedbackSeen -- POST /api/admin/feedback/mark-seen
 func (h *AdminHandler) MarkFeedbackSeen(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -84,7 +85,7 @@ func (h *AdminHandler) MarkFeedbackSeen(w http.ResponseWriter, r *http.Request) 
 
 // MarkReportsSeen -- POST /api/admin/reports/mark-seen
 func (h *AdminHandler) MarkReportsSeen(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -429,7 +430,7 @@ func (h *AdminHandler) GetLiveKitInstanceMetricsTimeSeries(w http.ResponseWriter
 // PlatformBanUser -- POST /api/admin/users/{id}/ban
 // Body: { "reason": "...", "delete_messages": true/false }
 func (h *AdminHandler) PlatformBanUser(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -457,7 +458,7 @@ func (h *AdminHandler) PlatformBanUser(w http.ResponseWriter, r *http.Request) {
 
 // PlatformUnbanUser -- DELETE /api/admin/users/{id}/ban
 func (h *AdminHandler) PlatformUnbanUser(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -482,7 +483,7 @@ func (h *AdminHandler) PlatformUnbanUser(w http.ResponseWriter, r *http.Request)
 // hard_delete=false (default) → soft-delete (recoverable, 30-day TTL).
 // hard_delete=true → tombstone (anonymize, irreversible).
 func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -522,7 +523,7 @@ func (h *AdminHandler) HardDeleteUser(w http.ResponseWriter, r *http.Request) {
 // AdminRestoreUser -- POST /api/admin/users/{id}/restore
 // Restores a soft-deleted user (admin override). Tombstones cannot be restored.
 func (h *AdminHandler) AdminRestoreUser(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -545,7 +546,7 @@ func (h *AdminHandler) AdminRestoreUser(w http.ResponseWriter, r *http.Request) 
 // SetUserPlatformAdmin -- PATCH /api/admin/users/{id}/platform-admin
 // Body: { "is_admin": true/false }
 func (h *AdminHandler) SetUserPlatformAdmin(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -576,7 +577,7 @@ func (h *AdminHandler) SetUserPlatformAdmin(w http.ResponseWriter, r *http.Reque
 // hard_delete=false (default) → soft delete (restorable, 30-day TTL).
 // hard_delete=true → permanent delete (skip TTL).
 func (h *AdminHandler) AdminDeleteServer(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -616,7 +617,7 @@ func (h *AdminHandler) AdminDeleteServer(w http.ResponseWriter, r *http.Request)
 // AdminRestoreServer -- POST /api/admin/servers/{serverId}/restore
 // Restores any soft-deleted server (admin override — works regardless of deleted_by_admin).
 func (h *AdminHandler) AdminRestoreServer(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -671,7 +672,7 @@ func (h *AdminHandler) ListReports(w http.ResponseWriter, r *http.Request) {
 // UpdateReportStatus -- PATCH /api/admin/reports/{id}/status
 // Body: { "status": "reviewed" | "resolved" | "dismissed" | "pending" }
 func (h *AdminHandler) UpdateReportStatus(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -730,7 +731,7 @@ func (h *AdminHandler) ListServerReports(w http.ResponseWriter, r *http.Request)
 
 // UpdateServerReportStatus -- PATCH /api/admin/server-reports/{id}/status
 func (h *AdminHandler) UpdateServerReportStatus(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return

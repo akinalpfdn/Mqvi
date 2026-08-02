@@ -8,6 +8,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/files"
 	"github.com/akinalp/mqvi/services"
 )
@@ -40,7 +41,7 @@ func (h *BadgeHandler) ListBadges(w http.ResponseWriter, r *http.Request) {
 
 // CreateBadge handles POST /api/badges
 func (h *BadgeHandler) CreateBadge(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -63,7 +64,7 @@ func (h *BadgeHandler) CreateBadge(w http.ResponseWriter, r *http.Request) {
 
 // UpdateBadge handles PATCH /api/badges/{id}
 func (h *BadgeHandler) UpdateBadge(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -88,7 +89,7 @@ func (h *BadgeHandler) UpdateBadge(w http.ResponseWriter, r *http.Request) {
 
 // DeleteBadge handles DELETE /api/badges/{id}
 func (h *BadgeHandler) DeleteBadge(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -106,7 +107,7 @@ func (h *BadgeHandler) DeleteBadge(w http.ResponseWriter, r *http.Request) {
 
 // AssignBadge handles POST /api/badges/{id}/assign
 func (h *BadgeHandler) AssignBadge(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -137,7 +138,7 @@ func (h *BadgeHandler) AssignBadge(w http.ResponseWriter, r *http.Request) {
 
 // UnassignBadge handles DELETE /api/badges/{id}/assign/{userId}
 func (h *BadgeHandler) UnassignBadge(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -173,7 +174,7 @@ func (h *BadgeHandler) GetUserBadges(w http.ResponseWriter, r *http.Request) {
 // UploadBadgeIcon handles POST /api/badges/icon (multipart/form-data)
 // Saves the icon image to disk and returns the URL path.
 func (h *BadgeHandler) UploadBadgeIcon(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

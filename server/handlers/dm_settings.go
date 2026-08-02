@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -21,7 +22,7 @@ func NewDMSettingsHandler(service services.DMSettingsService) *DMSettingsHandler
 // GetSettings returns pinned + muted DM channel IDs for initial load.
 // GET /api/dms/settings
 func (h *DMSettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -38,7 +39,7 @@ func (h *DMSettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) 
 
 // HideDM -- POST /api/dms/{channelId}/hide
 func (h *DMSettingsHandler) HideDM(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -55,7 +56,7 @@ func (h *DMSettingsHandler) HideDM(w http.ResponseWriter, r *http.Request) {
 
 // UnhideDM -- DELETE /api/dms/{channelId}/hide
 func (h *DMSettingsHandler) UnhideDM(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -72,7 +73,7 @@ func (h *DMSettingsHandler) UnhideDM(w http.ResponseWriter, r *http.Request) {
 
 // PinConversation -- POST /api/dms/{channelId}/pin-conversation
 func (h *DMSettingsHandler) PinConversation(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -89,7 +90,7 @@ func (h *DMSettingsHandler) PinConversation(w http.ResponseWriter, r *http.Reque
 
 // UnpinConversation -- DELETE /api/dms/{channelId}/pin-conversation
 func (h *DMSettingsHandler) UnpinConversation(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -107,7 +108,7 @@ func (h *DMSettingsHandler) UnpinConversation(w http.ResponseWriter, r *http.Req
 // MuteDM -- POST /api/dms/{channelId}/mute
 // Body: { "duration": "1h" | "8h" | "7d" | "forever" }
 func (h *DMSettingsHandler) MuteDM(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -138,7 +139,7 @@ func (h *DMSettingsHandler) MuteDM(w http.ResponseWriter, r *http.Request) {
 
 // UnmuteDM -- DELETE /api/dms/{channelId}/mute
 func (h *DMSettingsHandler) UnmuteDM(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

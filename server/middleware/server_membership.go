@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/akinalp/mqvi/handlers"
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/repository"
 )
 
@@ -22,10 +22,10 @@ func NewServerMembershipMiddleware(serverRepo repository.ServerRepository) *Serv
 }
 
 // Require returns 403 if the user is not a server member or 404 if the server is soft-deleted.
-// On success, adds serverID to context via handlers.ServerIDContextKey.
+// On success, adds serverID to context via ctxkeys.ServerID.
 func (m *ServerMembershipMiddleware) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := r.Context().Value(handlers.UserContextKey).(*models.User)
+		user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 		if !ok {
 			pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 			return
@@ -54,7 +54,7 @@ func (m *ServerMembershipMiddleware) Require(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), handlers.ServerIDContextKey, serverID)
+		ctx := context.WithValue(r.Context(), ctxkeys.ServerID, serverID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -69,7 +69,7 @@ func (m *ServerMembershipMiddleware) RequireServerID(next http.Handler) http.Han
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "serverId is required")
 			return
 		}
-		ctx := context.WithValue(r.Context(), handlers.ServerIDContextKey, serverID)
+		ctx := context.WithValue(r.Context(), ctxkeys.ServerID, serverID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

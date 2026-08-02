@@ -5,6 +5,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -20,7 +21,7 @@ func NewPinHandler(pinService services.PinService) *PinHandler {
 func (h *PinHandler) ListPins(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -42,7 +43,7 @@ func (h *PinHandler) Pin(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	messageID := r.PathValue("messageId")
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

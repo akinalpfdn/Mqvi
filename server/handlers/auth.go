@@ -10,6 +10,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/authcookie"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -179,7 +180,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 // Me handles GET /api/users/me (requires auth middleware).
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -198,7 +199,7 @@ func (h *AuthHandler) signTokenURLs(tokens *services.AuthTokens) {
 
 // ChangePassword handles POST /api/users/me/password
 func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -233,7 +234,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 // ChangeEmail handles PUT /api/users/me/email
 // Requires current password. Empty new_email removes the email (sets NULL).
 func (h *AuthHandler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -351,7 +352,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 // Body: { "password": "..." }
 // Soft-deletes the current user (recoverable via login). Disconnects sessions/WS.
 func (h *AuthHandler) SoftDeleteSelf(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -420,11 +421,3 @@ func (h *AuthHandler) RestoreAccount(w http.ResponseWriter, r *http.Request) {
 	h.signTokenURLs(tokens)
 	pkg.JSON(w, http.StatusOK, tokens)
 }
-
-// contextKey is a typed key for context values to avoid collisions.
-type contextKey string
-
-const UserContextKey contextKey = "user"
-
-// ServerIDContextKey carries the active server ID, set by ServerMembershipMiddleware.
-const ServerIDContextKey contextKey = "server_id"

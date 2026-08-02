@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -21,7 +22,7 @@ func NewPreferencesHandler(svc services.PreferencesService) *PreferencesHandler 
 
 // Get returns the user's preferences JSON blob.
 func (h *PreferencesHandler) Get(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -38,7 +39,7 @@ func (h *PreferencesHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Update merges partial preferences into the user's existing preferences.
 func (h *PreferencesHandler) Update(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

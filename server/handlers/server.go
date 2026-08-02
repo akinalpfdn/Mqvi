@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -21,7 +22,7 @@ func NewServerHandler(serverService services.ServerService) *ServerHandler {
 // ListMyServers returns all servers the user is a member of.
 // GET /api/servers
 func (h *ServerHandler) ListMyServers(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -40,7 +41,7 @@ func (h *ServerHandler) ListMyServers(w http.ResponseWriter, r *http.Request) {
 // POST /api/servers
 // Body: { "name": "...", "host_type": "mqvi_hosted"|"self_hosted", ... }
 func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -65,7 +66,7 @@ func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 // POST /api/servers/join
 // Body: { "invite_code": "abc123" }
 func (h *ServerHandler) JoinServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -93,7 +94,7 @@ func (h *ServerHandler) JoinServer(w http.ResponseWriter, r *http.Request) {
 
 // ListJoinRequests -- GET /api/servers/{serverId}/requests (PermApproveMembers)
 func (h *ServerHandler) ListJoinRequests(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -108,7 +109,7 @@ func (h *ServerHandler) ListJoinRequests(w http.ResponseWriter, r *http.Request)
 
 // CountJoinRequests -- GET /api/servers/{serverId}/requests/count (PermApproveMembers)
 func (h *ServerHandler) CountJoinRequests(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -123,7 +124,7 @@ func (h *ServerHandler) CountJoinRequests(w http.ResponseWriter, r *http.Request
 
 // ApproveJoinRequest -- POST /api/servers/{serverId}/requests/{userId}/approve (PermApproveMembers)
 func (h *ServerHandler) ApproveJoinRequest(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -142,7 +143,7 @@ func (h *ServerHandler) ApproveJoinRequest(w http.ResponseWriter, r *http.Reques
 
 // RejectJoinRequest -- DELETE /api/servers/{serverId}/requests/{userId} (PermApproveMembers)
 func (h *ServerHandler) RejectJoinRequest(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -162,7 +163,7 @@ func (h *ServerHandler) RejectJoinRequest(w http.ResponseWriter, r *http.Request
 // GetServer returns server details. Protected by membership middleware.
 // GET /api/servers/{serverId}
 func (h *ServerHandler) GetServer(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -180,7 +181,7 @@ func (h *ServerHandler) GetServer(w http.ResponseWriter, r *http.Request) {
 // UpdateServer updates server settings. Requires admin permission.
 // PATCH /api/servers/{serverId}
 func (h *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -204,13 +205,13 @@ func (h *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
 // DeleteServer soft-deletes a server. Owner only. Restorable for 30 days.
 // DELETE /api/servers/{serverId}
 func (h *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -227,13 +228,13 @@ func (h *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
 // RestoreServer un-soft-deletes a server. Owner only.
 // POST /api/servers/{serverId}/restore
 func (h *ServerHandler) RestoreServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -250,13 +251,13 @@ func (h *ServerHandler) RestoreServer(w http.ResponseWriter, r *http.Request) {
 // HardDeleteServer permanently deletes a soft-deleted server (skip 30-day TTL). Owner only.
 // DELETE /api/servers/{serverId}/permanent
 func (h *ServerHandler) HardDeleteServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -273,7 +274,7 @@ func (h *ServerHandler) HardDeleteServer(w http.ResponseWriter, r *http.Request)
 // GetDeletedServers lists soft-deleted servers owned by the current user (for restore UI).
 // GET /api/users/me/deleted-servers
 func (h *ServerHandler) GetDeletedServers(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -291,13 +292,13 @@ func (h *ServerHandler) GetDeletedServers(w http.ResponseWriter, r *http.Request
 // LeaveServer leaves a server. Owner cannot leave -- must transfer ownership first.
 // POST /api/servers/{serverId}/leave
 func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -315,7 +316,7 @@ func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
 // PATCH /api/servers/reorder
 // Body: { "items": [{ "id": "serverId", "position": 0 }, ...] }
 func (h *ServerHandler) ReorderServers(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -340,7 +341,7 @@ func (h *ServerHandler) ReorderServers(w http.ResponseWriter, r *http.Request) {
 // Secrets are excluded. Requires admin permission.
 // GET /api/servers/{serverId}/livekit
 func (h *ServerHandler) GetLiveKitSettings(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return

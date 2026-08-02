@@ -5,6 +5,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -21,7 +22,7 @@ func NewLinkPreviewHandler(service services.LinkPreviewService) *LinkPreviewHand
 // Get returns Open Graph metadata for the given URL.
 // GET /api/link-preview?url=https://example.com
 func (h *LinkPreviewHandler) Get(w http.ResponseWriter, r *http.Request) {
-	_, ok := r.Context().Value(UserContextKey).(*models.User)
+	_, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

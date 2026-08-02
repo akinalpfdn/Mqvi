@@ -7,6 +7,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -31,7 +32,7 @@ func NewVoiceHandler(voiceService services.VoiceService, urlSigner services.File
 // Token handles POST /api/servers/{serverId}/voice/token
 // Generates a LiveKit JWT for the server's LiveKit instance.
 func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -64,7 +65,7 @@ func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
 // ScreenShareToken handles POST /api/servers/{serverId}/voice/screen-token
 // Generates a LiveKit JWT for iOS native screen share (separate identity).
 func (h *VoiceHandler) ScreenShareToken(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

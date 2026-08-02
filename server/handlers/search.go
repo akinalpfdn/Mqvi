@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -19,7 +20,7 @@ func NewSearchHandler(searchService services.SearchService) *SearchHandler {
 // Search handles GET /api/servers/{serverId}/search?q=query&channel_id=optional&limit=25&offset=0
 // FTS5 full-text search scoped to the server's channels.
 func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return

@@ -11,6 +11,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -34,7 +35,7 @@ func NewFeedbackHandler(service services.FeedbackService, uploadService services
 
 // GetMyBadge -- GET /api/feedback/badge
 func (h *FeedbackHandler) GetMyBadge(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -49,7 +50,7 @@ func (h *FeedbackHandler) GetMyBadge(w http.ResponseWriter, r *http.Request) {
 
 // MarkMySeen -- POST /api/feedback/mark-seen
 func (h *FeedbackHandler) MarkMySeen(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -64,7 +65,7 @@ func (h *FeedbackHandler) MarkMySeen(w http.ResponseWriter, r *http.Request) {
 // CreateTicket -- POST /api/feedback
 // Accepts JSON or multipart/form-data (with optional files[]).
 func (h *FeedbackHandler) CreateTicket(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -144,7 +145,7 @@ func (h *FeedbackHandler) CreateTicket(w http.ResponseWriter, r *http.Request) {
 
 // ListMyTickets -- GET /api/feedback?limit=20&offset=0
 func (h *FeedbackHandler) ListMyTickets(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -168,7 +169,7 @@ func (h *FeedbackHandler) ListMyTickets(w http.ResponseWriter, r *http.Request) 
 
 // GetTicket -- GET /api/feedback/{id}
 func (h *FeedbackHandler) GetTicket(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -194,7 +195,7 @@ func (h *FeedbackHandler) GetTicket(w http.ResponseWriter, r *http.Request) {
 // AddReply -- POST /api/feedback/{id}/reply
 // Accepts JSON or multipart/form-data (with optional files[]).
 func (h *FeedbackHandler) AddReply(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -221,7 +222,7 @@ func (h *FeedbackHandler) AddReply(w http.ResponseWriter, r *http.Request) {
 
 // DeleteTicket -- DELETE /api/feedback/{id}
 func (h *FeedbackHandler) DeleteTicket(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -240,7 +241,7 @@ func (h *FeedbackHandler) DeleteTicket(w http.ResponseWriter, r *http.Request) {
 // AdminListTickets -- GET /api/admin/feedback?status=open&status=closed&type=bug&sort=updated_at&dir=desc
 // status and type are repeatable (or comma-separated) for multi-select filtering.
 func (h *FeedbackHandler) AdminListTickets(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "admin not found in context")
 		return
@@ -268,7 +269,7 @@ func (h *FeedbackHandler) AdminListTickets(w http.ResponseWriter, r *http.Reques
 
 // AdminGetTicket -- GET /api/admin/feedback/{id}
 func (h *FeedbackHandler) AdminGetTicket(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "admin not found in context")
 		return
@@ -295,7 +296,7 @@ func (h *FeedbackHandler) AdminGetTicket(w http.ResponseWriter, r *http.Request)
 // AdminReply -- POST /api/admin/feedback/{id}/reply
 // Accepts JSON or multipart/form-data (with optional files[]).
 func (h *FeedbackHandler) AdminReply(w http.ResponseWriter, r *http.Request) {
-	admin, ok := r.Context().Value(UserContextKey).(*models.User)
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "admin not found in context")
 		return

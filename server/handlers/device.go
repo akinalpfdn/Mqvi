@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -21,7 +22,7 @@ func NewDeviceHandler(deviceService services.DeviceService) *DeviceHandler {
 // Register registers a new device with optional prekey upload.
 // POST /api/devices
 func (h *DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -45,7 +46,7 @@ func (h *DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
 // List returns the current user's devices.
 // GET /api/devices
 func (h *DeviceHandler) List(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -63,7 +64,7 @@ func (h *DeviceHandler) List(w http.ResponseWriter, r *http.Request) {
 // Delete removes a user's device.
 // DELETE /api/devices/{deviceId}
 func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -86,7 +87,7 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // UploadPrekeys uploads new one-time prekeys for a device.
 // POST /api/devices/{deviceId}/prekeys
 func (h *DeviceHandler) UploadPrekeys(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -115,7 +116,7 @@ func (h *DeviceHandler) UploadPrekeys(w http.ResponseWriter, r *http.Request) {
 // UpdateSignedPrekey rotates the device's signed prekey.
 // PUT /api/devices/{deviceId}/signed-prekey
 func (h *DeviceHandler) UpdateSignedPrekey(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -144,7 +145,7 @@ func (h *DeviceHandler) UpdateSignedPrekey(w http.ResponseWriter, r *http.Reques
 // GetPrekeyCount returns remaining prekey count for a device.
 // GET /api/devices/{deviceId}/prekey-count
 func (h *DeviceHandler) GetPrekeyCount(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -168,7 +169,7 @@ func (h *DeviceHandler) GetPrekeyCount(w http.ResponseWriter, r *http.Request) {
 // ListPublicDevices returns another user's public device info.
 // GET /api/users/{userId}/devices
 func (h *DeviceHandler) ListPublicDevices(w http.ResponseWriter, r *http.Request) {
-	_, ok := r.Context().Value(UserContextKey).(*models.User)
+	_, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -193,7 +194,7 @@ func (h *DeviceHandler) ListPublicDevices(w http.ResponseWriter, r *http.Request
 // Called when initiating X3DH -- separate session per device.
 // GET /api/users/{userId}/prekey-bundles
 func (h *DeviceHandler) GetPrekeyBundles(w http.ResponseWriter, r *http.Request) {
-	_, ok := r.Context().Value(UserContextKey).(*models.User)
+	_, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
 		return

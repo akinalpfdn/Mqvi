@@ -5,6 +5,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/repository"
 )
 
@@ -19,7 +20,7 @@ func NewDownloadPromptHandler(userRepo repository.UserRepository) *DownloadPromp
 
 // Dismiss marks the download prompt as seen so it won't show again.
 func (h *DownloadPromptHandler) Dismiss(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -35,7 +36,7 @@ func (h *DownloadPromptHandler) Dismiss(w http.ResponseWriter, r *http.Request) 
 
 // DismissWelcome marks the welcome modal as seen so it won't show again.
 func (h *DownloadPromptHandler) DismissWelcome(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

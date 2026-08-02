@@ -10,6 +10,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -50,7 +51,7 @@ func NewMessageHandler(
 func (h *MessageHandler) List(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -79,7 +80,7 @@ func (h *MessageHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -205,7 +206,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *MessageHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -230,13 +231,13 @@ func (h *MessageHandler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *MessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	perms, _ := r.Context().Value(PermissionsContextKey).(models.Permission)
+	perms, _ := r.Context().Value(ctxkeys.Permissions).(models.Permission)
 	serverID := r.PathValue("serverId")
 
 	if err := h.messageService.Delete(r.Context(), serverID, id, user.ID, perms); err != nil {
@@ -246,9 +247,6 @@ func (h *MessageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "message deleted"})
 }
-
-// PermissionsContextKey carries the user's effective permissions in request context.
-const PermissionsContextKey contextKey = "permissions"
 
 func isMultipart(contentType string) bool {
 	return len(contentType) >= 19 && contentType[:19] == "multipart/form-data"

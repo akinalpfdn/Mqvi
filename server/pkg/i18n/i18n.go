@@ -1,9 +1,10 @@
 // Package i18n provides backend localization.
 //
-// Language detection priority:
-//  1. User's DB language preference (if authenticated)
-//  2. Accept-Language header
-//  3. Default (en)
+// Its only consumer is push notification content, which resolves the language from the recipient's
+// users.language column. Nothing localizes an HTTP response: pkg.Error returns the sentinel error's
+// own English text, and no handler builds a Localizer. Incoming Accept-Language headers are not
+// read anywhere — a DetectLanguage helper existed here from the package's first commit until
+// 2026-08-01 and never had a caller.
 package i18n
 
 import (
@@ -92,26 +93,6 @@ func (l *Localizer) TWithParams(key string, params map[string]string) string {
 		msg = strings.ReplaceAll(msg, "{{"+k+"}}", v)
 	}
 	return msg
-}
-
-// DetectLanguage extracts the best supported language from Accept-Language header.
-func DetectLanguage(acceptLanguage string) string {
-	if acceptLanguage == "" {
-		return DefaultLanguage
-	}
-
-	parts := strings.Split(acceptLanguage, ",")
-	for _, part := range parts {
-		lang := strings.TrimSpace(strings.Split(part, ";")[0])
-		lang = strings.Split(lang, "-")[0]
-		lang = strings.ToLower(lang)
-
-		if isSupported(lang) {
-			return lang
-		}
-	}
-
-	return DefaultLanguage
 }
 
 // ─── Helpers ───

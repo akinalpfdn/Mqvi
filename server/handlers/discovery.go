@@ -12,6 +12,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -67,7 +68,7 @@ func (h *DiscoveryHandler) rateLimited(w http.ResponseWriter, userID string) boo
 
 // ListPublicServers -- GET /api/discovery/servers?q=&category=&featured=&page=&limit=
 func (h *DiscoveryHandler) ListPublicServers(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -106,7 +107,7 @@ func (h *DiscoveryHandler) ListPublicServers(w http.ResponseWriter, r *http.Requ
 
 // GetPublicServer -- GET /api/discovery/servers/{id}
 func (h *DiscoveryHandler) GetPublicServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -126,7 +127,7 @@ func (h *DiscoveryHandler) GetPublicServer(w http.ResponseWriter, r *http.Reques
 
 // JoinPublicServer -- POST /api/discovery/servers/{id}/join
 func (h *DiscoveryHandler) JoinPublicServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -156,7 +157,7 @@ func (h *DiscoveryHandler) JoinPublicServer(w http.ResponseWriter, r *http.Reque
 
 // ReportServer -- POST /api/discovery/servers/{id}/report
 func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

@@ -5,6 +5,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -19,7 +20,7 @@ func NewBlockHandler(service services.BlockService) *BlockHandler {
 
 // BlockUser -- POST /api/users/{userId}/block
 func (h *BlockHandler) BlockUser(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -41,7 +42,7 @@ func (h *BlockHandler) BlockUser(w http.ResponseWriter, r *http.Request) {
 
 // UnblockUser -- DELETE /api/users/{userId}/block
 func (h *BlockHandler) UnblockUser(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
@@ -63,7 +64,7 @@ func (h *BlockHandler) UnblockUser(w http.ResponseWriter, r *http.Request) {
 
 // ListBlocked -- GET /api/users/blocked
 func (h *BlockHandler) ListBlocked(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return

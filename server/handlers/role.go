@@ -6,6 +6,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -20,7 +21,7 @@ func NewRoleHandler(roleService services.RoleService) *RoleHandler {
 // List handles GET /api/servers/{serverId}/roles
 // Returns all roles ordered by position DESC.
 func (h *RoleHandler) List(w http.ResponseWriter, r *http.Request) {
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -38,13 +39,13 @@ func (h *RoleHandler) List(w http.ResponseWriter, r *http.Request) {
 // Create handles POST /api/servers/{serverId}/roles
 // Requires MANAGE_ROLES + hierarchy check.
 func (h *RoleHandler) Create(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -68,13 +69,13 @@ func (h *RoleHandler) Create(w http.ResponseWriter, r *http.Request) {
 // Update handles PATCH /api/servers/{serverId}/roles/{id}
 // Requires MANAGE_ROLES + hierarchy check.
 func (h *RoleHandler) Update(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -100,13 +101,13 @@ func (h *RoleHandler) Update(w http.ResponseWriter, r *http.Request) {
 // Delete handles DELETE /api/servers/{serverId}/roles/{id}
 // Requires MANAGE_ROLES + hierarchy check.
 func (h *RoleHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
@@ -125,13 +126,13 @@ func (h *RoleHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // Reorder handles PATCH /api/servers/{serverId}/roles/reorder
 // Requires MANAGE_ROLES.
 func (h *RoleHandler) Reorder(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
-	serverID, ok := r.Context().Value(ServerIDContextKey).(string)
+	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
 		return
