@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -120,26 +122,18 @@ func (h *FeedbackHandler) CreateTicket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if quotaOK {
-			var uploadedBytes int64
-			for _, fh := range fileHeaders {
-				f, openErr := fh.Open()
-				if openErr != nil {
+			attachments, uploadedBytes := uploadBestEffort(
+				r.Context(), fileHeaders,
+				func(ctx context.Context, f multipart.File, fh *multipart.FileHeader) (*models.FeedbackAttachment, error) {
+					return h.uploadService.Upload(ctx, ticket.ID, nil, f, fh)
+				},
+				func(a *models.FeedbackAttachment) int64 { return storedSize(a.FileSize, nil) },
+				func(filename string, err error) {
 					h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &user.ID, nil,
-						fmt.Sprintf("failed to open uploaded file %s: %v", fh.Filename, openErr), nil)
-					continue
-				}
-				att, uploadErr := h.uploadService.Upload(r.Context(), ticket.ID, nil, f, fh)
-				f.Close()
-				if uploadErr != nil {
-					h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &user.ID, nil,
-						fmt.Sprintf("failed to upload file %s for ticket %s: %v", fh.Filename, ticket.ID, uploadErr), nil)
-					continue
-				}
-				if att.FileSize != nil {
-					uploadedBytes += *att.FileSize
-				}
-				ticket.Attachments = append(ticket.Attachments, *att)
-			}
+						fmt.Sprintf("failed to upload file %s for ticket %s: %v", filename, ticket.ID, err), nil)
+				},
+			)
+			ticket.Attachments = append(ticket.Attachments, attachments...)
 			releaseQuota(r.Context(), h.storageService, "feedback", user.ID, totalSize-uploadedBytes)
 		}
 	}
@@ -374,26 +368,18 @@ func (h *FeedbackHandler) parseAndCreateReply(w http.ResponseWriter, r *http.Req
 			}
 		}
 		if quotaOK {
-			var uploadedBytes int64
-			for _, fh := range fileHeaders {
-				f, openErr := fh.Open()
-				if openErr != nil {
+			attachments, uploadedBytes := uploadBestEffort(
+				r.Context(), fileHeaders,
+				func(ctx context.Context, f multipart.File, fh *multipart.FileHeader) (*models.FeedbackAttachment, error) {
+					return h.uploadService.Upload(ctx, ticketID, &reply.ID, f, fh)
+				},
+				func(a *models.FeedbackAttachment) int64 { return storedSize(a.FileSize, nil) },
+				func(filename string, err error) {
 					h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &userID, nil,
-						fmt.Sprintf("failed to open reply attachment %s: %v", fh.Filename, openErr), nil)
-					continue
-				}
-				att, uploadErr := h.uploadService.Upload(r.Context(), ticketID, &reply.ID, f, fh)
-				f.Close()
-				if uploadErr != nil {
-					h.appLog.Log(models.LogLevelError, models.LogCategoryFeedback, &userID, nil,
-						fmt.Sprintf("failed to upload reply attachment %s: %v", fh.Filename, uploadErr), nil)
-					continue
-				}
-				if att.FileSize != nil {
-					uploadedBytes += *att.FileSize
-				}
-				reply.Attachments = append(reply.Attachments, *att)
-			}
+						fmt.Sprintf("failed to upload reply attachment %s: %v", filename, err), nil)
+				},
+			)
+			reply.Attachments = append(reply.Attachments, attachments...)
 			releaseQuota(r.Context(), h.storageService, "feedback", userID, totalSize-uploadedBytes)
 		}
 	}
