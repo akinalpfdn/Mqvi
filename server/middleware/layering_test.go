@@ -13,6 +13,10 @@ import (
 //
 // Nothing in the compiler stops the import coming back — the next person who needs a constant from
 // handlers will just add it and it will build. This is the thing that says no.
+//
+// Scope: direct imports in this directory only. A transitive path (middleware → x → handlers) or a
+// future middleware subpackage would slip past. There are no subpackages today; widen the parse if
+// that changes.
 func TestMiddleware_DoesNotImportHandlers(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly)

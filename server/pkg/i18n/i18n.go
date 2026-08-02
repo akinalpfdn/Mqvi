@@ -1,9 +1,10 @@
 // Package i18n provides backend localization.
 //
-// Language detection priority:
-//  1. User's DB language preference (if authenticated)
-//  2. Accept-Language header
-//  3. Default (en)
+// Its only consumer is push notification content, which resolves the language from the recipient's
+// users.language column. Nothing localizes an HTTP response: pkg.Error returns the sentinel error's
+// own English text, and no handler builds a Localizer. Incoming Accept-Language headers are not
+// read anywhere — a DetectLanguage helper existed here from the package's first commit until
+// 2026-08-01 and never had a caller.
 package i18n
 
 import (
