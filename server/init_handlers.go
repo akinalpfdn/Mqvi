@@ -106,5 +106,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 	h.WS.SetIncomingCallProvider(svcs.P2PCall)
 	// Friends and DM partners get presence even with no server in common — see PHASE-56.
 	h.WS.SetPresencePeerProvider(repos.Friendship)
+	// Bound what one account can cost at the WS door: concurrent sockets, and handshake rate.
+	h.WS.SetConnectionLimits(cfg.WSLimits.MaxConnectionsPerUser, cfg.WSLimits.ConnectsPerMinute)
 	return h
 }

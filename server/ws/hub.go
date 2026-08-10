@@ -198,6 +198,19 @@ type Hub struct {
 	// Protected by mu (same lock as clients).
 	invisibleUsers map[string]bool
 
+	// maxConnectionsPerUser caps concurrent sockets for one account. Lives on the hub rather than
+	// the handler because only the hub can enforce it: the check has to happen under the same lock
+	// that registers, or it races the handshake. Protected by mu.
+	//
+	// 0 means unlimited, which is what an unwired hub gets — config.Load refuses a configured 0, so
+	// production cannot reach that state by accident.
+	maxConnectionsPerUser int
+
+	// refusals tallies rejected connections for a periodic log. All three refusal kinds land here
+	// rather than in the handler, because one of them is decided by the hub and splitting the tally
+	// would mean two independent flush clocks reporting halves of the same story.
+	refusals refusalCounter
+
 	// Presence callbacks — set in main.go.
 	// Called in separate goroutines to avoid deadlock (callback may call Broadcast
 	// which needs RLock, but add/removeClient holds Lock).
@@ -273,7 +286,12 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.register:
-			h.addClient(client)
+			if !h.addClient(client) {
+				// Over the cap. Closing the socket makes ReadPump exit, which unregisters — and
+				// removeClient ignores a client it never held.
+				client.markClosed()
+				_ = client.conn.Close()
+			}
 
 		case client := <-h.unregister:
 			h.removeClient(client)
@@ -283,8 +301,33 @@ func (h *Hub) Run() {
 
 // addClient registers a new client. Fires OnUserFirstConnect for the user's
 // first connection. For subsequent connections, recomputes aggregate status.
-func (h *Hub) addClient(client *Client) {
+//
+// Returns false when the user is already at the connection cap, leaving the client unregistered —
+// the caller closes it.
+func (h *Hub) addClient(client *Client) bool {
 	h.mu.Lock()
+
+	// The cap, enforced where it cannot be raced. The handler checks it too, but that check reads
+	// the count and lets go, and the count does not rise until this function runs — an upgrade,
+	// four DB queries and a channel hop later. Anything opening connections faster than a handshake
+	// completes reads the same stale number and sails past, which made the "cap" whatever the rate
+	// limiter allowed rather than what was configured. Here the check and the registration are the
+	// same critical section, so there is no window at all.
+	//
+	// Refusing this late means closing an open socket instead of answering 429. That is the price
+	// of correctness, and it is only paid by connections that raced — the ordinary over-cap connect
+	// is still refused politely by the handler before the upgrade.
+	//
+	// Reporting the refusal instead of tearing down here keeps the socket handling in Run, so this
+	// stays a pure decision about hub state and can be tested without a real connection.
+	if h.maxConnectionsPerUser > 0 && len(h.clients[client.userID]) >= h.maxConnectionsPerUser {
+		h.mu.Unlock()
+		// Counted, never logged per event: this is the racing path, so it is the one an attacker
+		// produces in volume — and it runs in Run, where a synchronous write would stall every
+		// connect and disconnect on the server behind it.
+		h.countRefusal(&h.refusals.atRegister)
+		return false
+	}
 
 	isFirstConnection := len(h.clients[client.userID]) == 0
 
@@ -326,6 +369,8 @@ func (h *Hub) addClient(client *Client) {
 	} else if !isFirstConnection && h.onPresenceManualUpdate != nil {
 		go h.onPresenceManualUpdate(client.userID, aggregateForExisting, true)
 	}
+
+	return true
 }
 
 // removeClient unregisters a client and closes its send channel.
@@ -564,7 +609,6 @@ func (h *Hub) GetOnlineUserIDs() []string {
 	return ids
 }
 
-
 // GetOnlineUserIDsForServer returns deduplicated user IDs of clients in the given server.
 // Used by services to scope permission checks to server members only.
 func (h *Hub) GetOnlineUserIDsForServer(serverID string) []string {
@@ -598,6 +642,73 @@ func (h *Hub) GetOnlineUserIDsForServer(serverID string) []string {
 // from the peer list each client loaded at connect. Nothing here touches the database, because
 // this runs on every idle flip.
 //
+// refusalCounter tallies rejected connections for the periodic log.
+//
+// Counted rather than logged per event: what gets rejected is a churn loop or a connection race,
+// so a line per refusal hands the disk to whoever is causing them — and the registration refusal
+// happens inside Run, the single goroutine every connect and disconnect passes through, where
+// synchronous log I/O would stall the whole hub. Same call the per-connection event limiter made
+// in phase 43.
+type refusalCounter struct {
+	mu         sync.Mutex
+	overCap    int // refused before the upgrade, politely
+	atRegister int // refused after the handshake, having raced past the early check
+	tooFast    int // over the handshake rate limit
+	lastFlush  time.Time
+}
+
+// refusalFlushInterval bounds how often the tally reaches the log: one line a minute at worst,
+// however hard the door is being hammered.
+const refusalFlushInterval = time.Minute
+
+// countRefusal records one refusal and emits at most one aggregate line per interval.
+//
+// The first refusal after a quiet spell flushes immediately — lastFlush starts at the zero time —
+// so an operator learns the door started refusing without waiting out an interval.
+func (h *Hub) countRefusal(kind *int) {
+	h.refusals.mu.Lock()
+	*kind++
+	overCap, atRegister, tooFast := h.refusals.overCap, h.refusals.atRegister, h.refusals.tooFast
+	due := time.Since(h.refusals.lastFlush) >= refusalFlushInterval
+	if due {
+		h.refusals.lastFlush = time.Now()
+		h.refusals.overCap, h.refusals.atRegister, h.refusals.tooFast = 0, 0, 0
+	}
+	h.refusals.mu.Unlock()
+
+	if due {
+		log.Printf("[ws] refused connections in the last interval: %d over the per-user cap, %d of those at registration, %d too fast",
+			overCap, atRegister, tooFast)
+	}
+}
+
+// RefusedOverCap and RefusedTooFast are the handler's two pre-upgrade refusal kinds.
+func (h *Hub) RefusedOverCap() { h.countRefusal(&h.refusals.overCap) }
+func (h *Hub) RefusedTooFast() { h.countRefusal(&h.refusals.tooFast) }
+
+// SetMaxConnectionsPerUser sets the concurrent-socket cap. 0 disables it, which only an unwired
+// hub sees — config.Load rejects a configured 0.
+func (h *Hub) SetMaxConnectionsPerUser(n int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.maxConnectionsPerUser = n
+}
+
+// AtConnectionLimit reports whether the user is already at the cap.
+//
+// This is a fast path for the handshake, not the enforcement point. It reads and releases, and the
+// count does not rise until `register` is picked up — a whole upgrade and four DB queries later —
+// so connects fired faster than a handshake completes all see the same stale number. Its job is to
+// refuse the ordinary case cheaply, with a clean 429 and before any DB work. addClient is what
+// actually holds the line.
+//
+// A socket whose peer vanished still counts until ReadPump notices, up to pongWait.
+func (h *Hub) AtConnectionLimit(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.maxConnectionsPerUser > 0 && len(h.clients[userID]) >= h.maxConnectionsPerUser
+}
+
 // The subject is included — their own clients use the event to sync their status across devices.
 func (h *Hub) GetPresenceAudience(userID string) []string {
 	h.mu.RLock()

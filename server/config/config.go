@@ -21,6 +21,7 @@ type Config struct {
 	Upload          UploadConfig
 	Antivirus       AntivirusConfig
 	FileRateLimit   FileRateLimitConfig
+	WSLimits        WSLimitsConfig
 	Email           EmailConfig
 	Klipy           KlipyConfig
 	TURN            TURNConfig
@@ -179,6 +180,25 @@ type FileRateLimitConfig struct {
 	IPPerMin   int
 }
 
+// WSLimitsConfig bounds what one account can cost at the WebSocket door.
+//
+// Both are per-user, not per-IP: a shared NAT puts a whole office behind one address, and the
+// thing being protected — handshake DB work and the per-connection event budget — is charged to
+// an account either way.
+type WSLimitsConfig struct {
+	// MaxConnectionsPerUser caps concurrent sockets for one account. Every open socket carries its
+	// own inbound event budget, so N sockets is N times the intended rate. Must sit well above a
+	// real device count: desktop, phone, web, Electron, a second tab, plus a reconnect that
+	// overlaps a socket the server has not reaped yet.
+	MaxConnectionsPerUser int
+
+	// ConnectsPerMinute throttles handshakes. Each one costs six DB queries before the socket is
+	// even open, so an unthrottled connect/disconnect loop is a database amplifier. Must sit above
+	// what a redeploy produces: Hub.Shutdown tells every connection to reconnect at once, so a
+	// user with several devices spends several handshakes in one second through no fault of theirs.
+	ConnectsPerMinute int
+}
+
 // Load reads configuration from environment variables.
 // Falls back to .env file in development.
 func Load() (*Config, error) {
@@ -218,6 +238,29 @@ func Load() (*Config, error) {
 	fileRateUser, err := strconv.Atoi(getEnv("MQVI_FILE_RATE_USER_PER_MIN", "600"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid MQVI_FILE_RATE_USER_PER_MIN: %w", err)
+	}
+
+	// 10 covers desktop + phone + web + Electron with room for extra tabs and a reconnect that
+	// overlaps a socket the server has not reaped yet (a dropped one lingers up to pongWait).
+	wsMaxConns, err := strconv.Atoi(getEnv("MQVI_WS_MAX_CONNECTIONS_PER_USER", "10"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MQVI_WS_MAX_CONNECTIONS_PER_USER: %w", err)
+	}
+	if wsMaxConns < 1 {
+		return nil, fmt.Errorf("MQVI_WS_MAX_CONNECTIONS_PER_USER must be at least 1, got %d", wsMaxConns)
+	}
+
+	// 60/min. The number is set by the worst case the client itself can produce, not by what looks
+	// tidy: the reconnect backoff resets on `onopen`, so a socket that opens and dies immediately —
+	// a captive portal, a proxy that completes the handshake then drops, a network switch mid-flight
+	// — restarts at the 1.5s floor every time and lands around 40 attempts a minute. A limit under
+	// that would throttle the user whose connection is already failing.
+	wsConnectsPerMin, err := strconv.Atoi(getEnv("MQVI_WS_CONNECTS_PER_MINUTE", "60"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MQVI_WS_CONNECTS_PER_MINUTE: %w", err)
+	}
+	if wsConnectsPerMin < 1 {
+		return nil, fmt.Errorf("MQVI_WS_CONNECTS_PER_MINUTE must be at least 1, got %d", wsConnectsPerMin)
 	}
 
 	fileRateIP, err := strconv.Atoi(getEnv("MQVI_FILE_RATE_IP_PER_MIN", "2000"))
@@ -385,6 +428,10 @@ func Load() (*Config, error) {
 		FileRateLimit: FileRateLimitConfig{
 			UserPerMin: fileRateUser,
 			IPPerMin:   fileRateIP,
+		},
+		WSLimits: WSLimitsConfig{
+			MaxConnectionsPerUser: wsMaxConns,
+			ConnectsPerMinute:     wsConnectsPerMin,
 		},
 		Email: EmailConfig{
 			ResendAPIKey: getEnv("RESEND_API_KEY", ""),

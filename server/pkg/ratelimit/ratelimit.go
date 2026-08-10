@@ -22,6 +22,7 @@ type LoginRateLimiter struct {
 	maxAttempts int
 	window      time.Duration
 	stopCleanup chan struct{}
+	stopOnce    sync.Once
 }
 
 func NewLoginRateLimiter(maxAttempts int, window time.Duration) *LoginRateLimiter {
@@ -84,6 +85,13 @@ func (rl *LoginRateLimiter) RetryAfterSeconds(ip string) int {
 	}
 	seconds := int(remaining.Seconds()) + 1
 	return seconds
+}
+
+// Stop ends the cleanup goroutine. Only needed by a caller that replaces a limiter during the
+// process's life; the ones built at startup live as long as the process and never call it.
+// Safe to call more than once.
+func (rl *LoginRateLimiter) Stop() {
+	rl.stopOnce.Do(func() { close(rl.stopCleanup) })
 }
 
 func (rl *LoginRateLimiter) cleanupLoop() {

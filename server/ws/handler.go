@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -123,6 +125,31 @@ type Handler struct {
 	urlSigner            URLSigner
 	presencePeers        PresencePeerProvider
 	incomingCallProvider IncomingCallProvider
+
+	// Handshake rate limit. Nil means unlimited, which is what the tests and any caller that has
+	// not wired it get. The concurrent-socket cap lives on the hub — see SetConnectionLimits.
+	connectLimiter *ratelimit.LoginRateLimiter
+}
+
+// SetConnectionLimits wires the door limits post-construction, keeping config out of the ws
+// package's constructor signature. connectsPerMinute or maxConnections <= 0 disables that limit.
+func (h *Handler) SetConnectionLimits(maxConnections, connectsPerMinute int) {
+	// The cap is enforced by the hub, under the lock that registers a client — the handler only
+	// gets a cheap pre-upgrade look at it.
+	h.hub.SetMaxConnectionsPerUser(maxConnections)
+	// Replacing a limiter would otherwise orphan its cleanup goroutine and silently hand everyone
+	// a fresh budget. Called once today; this keeps a second call from being a quiet leak.
+	if h.connectLimiter != nil {
+		h.connectLimiter.Stop()
+		h.connectLimiter = nil
+	}
+	if connectsPerMinute > 0 {
+		// Keyed by user id, not IP. The limiter is a generic string-keyed window; the type name is
+		// historical. Per-user is the right key here: a shared NAT would otherwise let one office
+		// exhaust the budget for everyone behind it, and the cost being bounded — handshake DB work
+		// — is charged to an account regardless of where it came from.
+		h.connectLimiter = ratelimit.NewLoginRateLimiter(connectsPerMinute, time.Minute)
+	}
 }
 
 // SetPresencePeerProvider wires the friend/DM peer source post-construction, keeping the
@@ -177,6 +204,37 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			"error": err.Error(),
 		})
 		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	// Both door checks sit here: after the token is verified (so the key is a real user and not
+	// something a stranger picked) and before the first DB query. A handshake costs six of them
+	// plus the ready marshal, so an unthrottled connect loop is a database amplifier — throttling
+	// it after paying that cost would not be throttling.
+	if h.connectLimiter != nil && !h.connectLimiter.Allow(claims.UserID) {
+		h.hub.RefusedTooFast()
+		w.Header().Set("Retry-After", strconv.Itoa(h.connectLimiter.RetryAfterSeconds(claims.UserID)))
+		http.Error(w, "too many connection attempts", http.StatusTooManyRequests)
+		return
+	}
+
+	// Every open socket carries its own inbound event budget, so N sockets is N times the rate the
+	// per-connection limiter was set to allow. This refuses the ordinary over-cap connect early and
+	// politely; Hub.addClient is where the cap is actually enforced, under the registration lock.
+	//
+	// Reject the newcomer rather than evict the oldest. Evicting reads as friendlier to a
+	// multi-device user, but the evicted client reconnects — and that connect evicts the next
+	// oldest, and so on: a benign situation (someone with too many tabs) turns into a churn loop
+	// paying six DB queries a cycle until the limiter above cuts it off, by which point several of
+	// their tabs are broken instead of one. Rejecting fails once, cleanly, and leaves the working
+	// connections alone.
+	//
+	// The cost of that choice: a socket whose peer vanished holds its slot until ReadPump gives up,
+	// up to pongWait (90s). Locking a user out would take maxConnections deaths inside that window,
+	// which is not a shape real networks produce — and the cap is configurable if it ever is.
+	if h.hub.AtConnectionLimit(claims.UserID) {
+		h.hub.RefusedOverCap()
+		http.Error(w, "too many open connections", http.StatusTooManyRequests)
 		return
 	}
 
