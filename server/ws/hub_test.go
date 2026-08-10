@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 )
 
 // The hub decides who receives what. Every bug in here is silent in the same way: a message reaches
@@ -238,6 +239,67 @@ func TestRemoveClient_DropsTheServerKeyWhenItsLastMemberLeaves(t *testing.T) {
 
 	if exists {
 		t.Error("an empty server kept its index entry — the map never shrinks")
+	}
+}
+
+// ─── Connect / disconnect callback edges ───
+
+// These two callbacks are what tell the rest of the system a user came online or went offline, and
+// both are edge-triggered on purpose. Firing per connection instead of per user is not a subtle
+// bug: opening a second tab would announce you as newly online, and closing it would announce you
+// as offline while you are still sitting in the first one.
+//
+// They run on their own goroutines, so the test waits for them rather than assuming.
+
+func waitFor(t *testing.T, ch <-chan string) (string, bool) {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v, true
+	case <-time.After(time.Second):
+		return "", false
+	}
+}
+
+func expectQuiet(t *testing.T, ch <-chan string, what string) {
+	t.Helper()
+	select {
+	case v := <-ch:
+		t.Errorf("%s fired for %q when it should not have", what, v)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestAddClient_AnnouncesTheFirstConnectionOnly(t *testing.T) {
+	h := newHub()
+	fired := make(chan string, 4)
+	h.onUserFirstConnect = func(userID, _ string) { fired <- userID }
+
+	h.addClient(&Client{userID: "u1", send: make(chan []byte, 4), done: make(chan struct{})})
+	if got, ok := waitFor(t, fired); !ok || got != "u1" {
+		t.Fatalf("first connect did not announce: got %q ok=%t", got, ok)
+	}
+
+	// A second device is the same user arriving again, not a new arrival.
+	h.addClient(&Client{userID: "u1", send: make(chan []byte, 4), done: make(chan struct{})})
+	expectQuiet(t, fired, "onUserFirstConnect")
+}
+
+func TestRemoveClient_AnnouncesOnlyTheLastDisconnection(t *testing.T) {
+	h := newHub()
+	gone := make(chan string, 4)
+	h.onUserFullyDisconnected = func(userID string, _ []string) { gone <- userID }
+
+	first := join(h, "u1")
+	second := join(h, "u1")
+
+	h.removeClient(first)
+	// Still on their other device: announcing them offline here is the bug this guards.
+	expectQuiet(t, gone, "onUserFullyDisconnected")
+
+	h.removeClient(second)
+	if got, ok := waitFor(t, gone); !ok || got != "u1" {
+		t.Fatalf("last disconnect did not announce: got %q ok=%t", got, ok)
 	}
 }
 
