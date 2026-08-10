@@ -55,6 +55,7 @@ const {
   decryptGroupMessage,
   clearChannelSenderKeys,
 } = await import("./senderKeyProtocol");
+import type { SenderKeyDistributionData } from "./types";
 
 const CHANNEL = "channel-1";
 const SENDER = { userId: "sender", deviceId: "sender-1" };
@@ -75,9 +76,9 @@ beforeEach(() => {
 });
 
 /** Hand a member the sender's current distribution and let them install it. */
-async function distributeTo(recipient: Device, distribution: unknown): Promise<void> {
+async function distributeTo(recipient: Device, distribution: SenderKeyDistributionData): Promise<void> {
   await as(recipient, () =>
-    processDistribution(CHANNEL, SENDER.userId, SENDER.deviceId, distribution as never)
+    processDistribution(CHANNEL, SENDER.userId, SENDER.deviceId, distribution)
   );
 }
 

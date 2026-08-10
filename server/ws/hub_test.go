@@ -11,6 +11,12 @@ import (
 // someone it should not, or fails to reach someone it should, and nothing errors. The existing ws
 // tests cover a single client's lifecycle; these cover the routing.
 
+// The shared harness for every test in this package.
+//
+// There used to be three of these — one grown per phase that needed a hub — differing only in
+// which fields they bothered to set. A fourth was the obvious next step, so they are one now.
+// Anything a single test needs beyond this belongs in that test, not in a second constructor.
+
 func newHub() *Hub {
 	return &Hub{
 		clients:        make(map[string]map[*Client]bool),
@@ -20,14 +26,17 @@ func newHub() *Hub {
 	}
 }
 
-// join registers one connection for a user in the given servers, the way addClient would.
-func join(h *Hub, userID string, serverIDs ...string) *Client {
+// join registers one connection the way addClient would: buffered channels so a broadcast can
+// actually be delivered and counted, "online" status so aggregate presence has something to fold,
+// and both indexes populated. serverIDs and peers may be nil.
+func join(h *Hub, userID string, serverIDs, peers []string) *Client {
 	c := &Client{
-		userID:    userID,
-		serverIDs: serverIDs,
-		send:      make(chan []byte, 8),
-		done:      make(chan struct{}),
-		status:    "online",
+		userID:          userID,
+		serverIDs:       serverIDs,
+		presencePeerIDs: peers,
+		send:            make(chan []byte, 8),
+		done:            make(chan struct{}),
+		status:          "online",
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -39,6 +48,21 @@ func join(h *Hub, userID string, serverIDs ...string) *Client {
 		h.addClientToServerIndex(c, sid)
 	}
 	return c
+}
+
+// attach adds n connections for one user. For tests that only care how many there are.
+func attach(h *Hub, userID string, n int) {
+	for i := 0; i < n; i++ {
+		join(h, userID, nil, nil)
+	}
+}
+
+// connCount reads the hub's socket count for a user. The hub exposes no accessor — nothing in
+// production needs one — so the tests read it under the same lock the hub uses.
+func connCount(h *Hub, userID string) int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients[userID])
 }
 
 // received drains a client's queue and returns the ops it got.
@@ -66,9 +90,9 @@ func countReceived(c *Client) int { return len(received(c)) }
 // concerned, and an event crossing between them leaks a private conversation.
 func TestBroadcastToServer_NeverCrossesIntoAnotherServer(t *testing.T) {
 	h := newHub()
-	inA := join(h, "a-member", "server-a")
-	inB := join(h, "b-member", "server-b")
-	inBoth := join(h, "both", "server-a", "server-b")
+	inA := join(h, "a-member", []string{"server-a"}, nil)
+	inB := join(h, "b-member", []string{"server-b"}, nil)
+	inBoth := join(h, "both", []string{"server-a", "server-b"}, nil)
 
 	h.BroadcastToServer("server-a", Event{Op: OpMessageCreate})
 
@@ -85,7 +109,7 @@ func TestBroadcastToServer_NeverCrossesIntoAnotherServer(t *testing.T) {
 
 func TestBroadcastToServer_StampsTheServerID(t *testing.T) {
 	h := newHub()
-	c := join(h, "u1", "server-a")
+	c := join(h, "u1", []string{"server-a"}, nil)
 
 	h.BroadcastToServer("server-a", Event{Op: OpMessageCreate})
 
@@ -104,9 +128,9 @@ func TestBroadcastToServer_StampsTheServerID(t *testing.T) {
 // their own action echoes back to them.
 func TestBroadcastToServerExcept_SkipsEveryConnectionOfTheExcludedUser(t *testing.T) {
 	h := newHub()
-	sender1 := join(h, "sender", "server-a")
-	sender2 := join(h, "sender", "server-a") // second device
-	other := join(h, "other", "server-a")
+	sender1 := join(h, "sender", []string{"server-a"}, nil)
+	sender2 := join(h, "sender", []string{"server-a"}, nil) // second device
+	other := join(h, "other", []string{"server-a"}, nil)
 
 	h.BroadcastToServerExcept("server-a", "sender", Event{Op: OpMessageCreate})
 
@@ -120,9 +144,9 @@ func TestBroadcastToServerExcept_SkipsEveryConnectionOfTheExcludedUser(t *testin
 
 func TestBroadcastToAllExcept_SkipsEveryConnectionOfTheExcludedUser(t *testing.T) {
 	h := newHub()
-	excluded1 := join(h, "excluded")
-	excluded2 := join(h, "excluded")
-	other := join(h, "other")
+	excluded1 := join(h, "excluded", nil, nil)
+	excluded2 := join(h, "excluded", nil, nil)
+	other := join(h, "other", nil, nil)
 
 	h.BroadcastToAllExcept("excluded", Event{Op: OpPresence})
 
@@ -136,9 +160,9 @@ func TestBroadcastToAllExcept_SkipsEveryConnectionOfTheExcludedUser(t *testing.T
 
 func TestBroadcastToUser_ReachesEveryDeviceAndNobodyElse(t *testing.T) {
 	h := newHub()
-	mine1 := join(h, "me")
-	mine2 := join(h, "me")
-	theirs := join(h, "them")
+	mine1 := join(h, "me", nil, nil)
+	mine2 := join(h, "me", nil, nil)
+	theirs := join(h, "them", nil, nil)
 
 	h.BroadcastToUser("me", Event{Op: OpPresence})
 
@@ -161,7 +185,7 @@ func TestBroadcastToUser_ReachesEveryDeviceAndNobodyElse(t *testing.T) {
 
 func TestAddClientServerID_StartsDeliveringTheNewServer(t *testing.T) {
 	h := newHub()
-	c := join(h, "u1")
+	c := join(h, "u1", nil, nil)
 
 	h.BroadcastToServer("server-new", Event{Op: OpMessageCreate})
 	if got := countReceived(c); got != 0 {
@@ -178,7 +202,7 @@ func TestAddClientServerID_StartsDeliveringTheNewServer(t *testing.T) {
 
 func TestRemoveClientServerID_StopsDeliveringThatServer(t *testing.T) {
 	h := newHub()
-	c := join(h, "u1", "server-a", "server-b")
+	c := join(h, "u1", []string{"server-a", "server-b"}, nil)
 
 	h.RemoveClientServerID("u1", "server-a")
 
@@ -199,8 +223,8 @@ func TestRemoveClientServerID_StopsDeliveringThatServer(t *testing.T) {
 // dead entries accumulate and every later broadcast walks them.
 func TestRemoveClient_ClearsTheServerIndex(t *testing.T) {
 	h := newHub()
-	leaving := join(h, "leaving", "server-a", "server-b")
-	staying := join(h, "staying", "server-a")
+	leaving := join(h, "leaving", []string{"server-a", "server-b"}, nil)
+	staying := join(h, "staying", []string{"server-a"}, nil)
 
 	h.removeClient(leaving)
 
@@ -229,7 +253,7 @@ func TestRemoveClient_ClearsTheServerIndex(t *testing.T) {
 // grows one permanent entry per server that ever had a connection.
 func TestRemoveClient_DropsTheServerKeyWhenItsLastMemberLeaves(t *testing.T) {
 	h := newHub()
-	only := join(h, "only", "server-a")
+	only := join(h, "only", []string{"server-a"}, nil)
 
 	h.removeClient(only)
 
@@ -290,8 +314,8 @@ func TestRemoveClient_AnnouncesOnlyTheLastDisconnection(t *testing.T) {
 	gone := make(chan string, 4)
 	h.onUserFullyDisconnected = func(userID string, _ []string) { gone <- userID }
 
-	first := join(h, "u1")
-	second := join(h, "u1")
+	first := join(h, "u1", nil, nil)
+	second := join(h, "u1", nil, nil)
 
 	h.removeClient(first)
 	// Still on their other device: announcing them offline here is the bug this guards.
@@ -324,7 +348,7 @@ func TestAggregateStatus_TakesTheMostActiveConnection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHub()
 			for _, s := range tc.statuses {
-				join(h, "u1").status = s
+				join(h, "u1", nil, nil).status = s
 			}
 
 			h.mu.RLock()
@@ -358,8 +382,8 @@ func TestAggregateStatus_IsOfflineWhenNothingIsConnected(t *testing.T) {
 // live voice state of anyone appearing offline.
 func TestInvisibility_HiddenFromTheClientListButNotFromTheOrphanSweep(t *testing.T) {
 	h := newHub()
-	join(h, "lurker", "server-a")
-	join(h, "watcher", "server-a")
+	join(h, "lurker", []string{"server-a"}, nil)
+	join(h, "watcher", []string{"server-a"}, nil)
 	h.SetInvisible("lurker", true)
 
 	visible := h.GetVisibleAudienceFor("watcher", []string{"server-a"}, nil)
@@ -383,8 +407,8 @@ func TestInvisibility_HiddenFromTheClientListButNotFromTheOrphanSweep(t *testing
 
 func TestSetInvisible_IsReversible(t *testing.T) {
 	h := newHub()
-	join(h, "lurker", "server-a")
-	join(h, "watcher", "server-a")
+	join(h, "lurker", []string{"server-a"}, nil)
+	join(h, "watcher", []string{"server-a"}, nil)
 
 	h.SetInvisible("lurker", true)
 	h.SetInvisible("lurker", false)
@@ -407,7 +431,7 @@ func TestSetInvisible_IsReversible(t *testing.T) {
 // once, so a duplicate would mean the counter is not atomic.
 func TestSeq_IsUniqueAcrossConcurrentBroadcasts(t *testing.T) {
 	h := newHub()
-	c := join(h, "u1", "server-a")
+	c := join(h, "u1", []string{"server-a"}, nil)
 	// Wide enough that no send is dropped for a full buffer, which would hide a duplicate.
 	c.send = make(chan []byte, 4096)
 
@@ -456,8 +480,8 @@ func TestSeq_IsUniqueAcrossConcurrentBroadcasts(t *testing.T) {
 // socket would otherwise stall delivery for everyone — and the client is dropped instead.
 func TestBroadcast_DropsAStuckClientInsteadOfBlocking(t *testing.T) {
 	h := newHub()
-	stuck := join(h, "stuck")
-	healthy := join(h, "healthy")
+	stuck := join(h, "stuck", nil, nil)
+	healthy := join(h, "healthy", nil, nil)
 
 	// Fill the stuck client's buffer.
 	for i := 0; i < cap(stuck.send); i++ {

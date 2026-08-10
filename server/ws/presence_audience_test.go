@@ -9,30 +9,7 @@ import (
 // flip was an O(all connections) fan-out, and it told people who share nothing with the subject
 // when that person is at their desk. These pin who is entitled to it now.
 
-func newHubForAudience() *Hub {
-	return &Hub{
-		clients:        make(map[string]map[*Client]bool),
-		serverClients:  make(map[string]map[*Client]bool),
-		invisibleUsers: make(map[string]bool),
-	}
-}
-
-// connect registers one connection with the server memberships and peer list it would have
-// loaded at handshake.
-func connect(h *Hub, userID string, serverIDs, peers []string) *Client {
-	c := &Client{userID: userID, serverIDs: serverIDs, presencePeerIDs: peers}
-	if h.clients[userID] == nil {
-		h.clients[userID] = make(map[*Client]bool)
-	}
-	h.clients[userID][c] = true
-	for _, sid := range serverIDs {
-		if h.serverClients[sid] == nil {
-			h.serverClients[sid] = make(map[*Client]bool)
-		}
-		h.serverClients[sid][c] = true
-	}
-	return c
-}
+// newHub and join live in hub_test.go.
 
 func sortedAudience(h *Hub, userID string) []string {
 	got := h.GetPresenceAudience(userID)
@@ -41,10 +18,10 @@ func sortedAudience(h *Hub, userID string) []string {
 }
 
 func TestGetPresenceAudience_ReachesServerMatesAndSkipsStrangers(t *testing.T) {
-	h := newHubForAudience()
-	connect(h, "subject", []string{"s1"}, nil)
-	connect(h, "servermate", []string{"s1"}, nil)
-	connect(h, "stranger", []string{"s2"}, nil)
+	h := newHub()
+	join(h, "subject", []string{"s1"}, nil)
+	join(h, "servermate", []string{"s1"}, nil)
+	join(h, "stranger", []string{"s2"}, nil)
 
 	got := sortedAudience(h, "subject")
 
@@ -56,9 +33,9 @@ func TestGetPresenceAudience_ReachesServerMatesAndSkipsStrangers(t *testing.T) {
 }
 
 func TestGetPresenceAudience_ReachesAFriendWithNoSharedServer(t *testing.T) {
-	h := newHubForAudience()
-	connect(h, "subject", []string{"s1"}, []string{"friend"})
-	connect(h, "friend", []string{"s2"}, []string{"subject"})
+	h := newHub()
+	join(h, "subject", []string{"s1"}, []string{"friend"})
+	join(h, "friend", []string{"s2"}, []string{"subject"})
 
 	got := sortedAudience(h, "subject")
 
@@ -70,8 +47,8 @@ func TestGetPresenceAudience_ReachesAFriendWithNoSharedServer(t *testing.T) {
 }
 
 func TestGetPresenceAudience_SkipsAnOfflineFriend(t *testing.T) {
-	h := newHubForAudience()
-	connect(h, "subject", []string{"s1"}, []string{"absent-friend"})
+	h := newHub()
+	join(h, "subject", []string{"s1"}, []string{"absent-friend"})
 
 	got := sortedAudience(h, "subject")
 
@@ -81,10 +58,10 @@ func TestGetPresenceAudience_SkipsAnOfflineFriend(t *testing.T) {
 }
 
 func TestGetPresenceAudience_CountsAMultiDeviceRecipientOnce(t *testing.T) {
-	h := newHubForAudience()
-	connect(h, "subject", []string{"s1"}, nil)
-	connect(h, "mate", []string{"s1"}, nil)
-	connect(h, "mate", []string{"s1"}, nil) // second device
+	h := newHub()
+	join(h, "subject", []string{"s1"}, nil)
+	join(h, "mate", []string{"s1"}, nil)
+	join(h, "mate", []string{"s1"}, nil) // second device
 
 	got := sortedAudience(h, "subject")
 
@@ -97,10 +74,10 @@ func TestGetPresenceAudience_CountsAMultiDeviceRecipientOnce(t *testing.T) {
 // the user, so an audience derived at callback time is empty and nobody learns they went offline.
 // removeClient captures it before the delete; this asserts the capture, not the callback.
 func TestRemoveClient_AudienceCapturedBeforeTheUserIsGone(t *testing.T) {
-	h := newHubForAudience()
-	subject := connect(h, "subject", []string{"s1"}, []string{"friend"})
-	connect(h, "servermate", []string{"s1"}, nil)
-	connect(h, "friend", []string{"s2"}, []string{"subject"})
+	h := newHub()
+	subject := join(h, "subject", []string{"s1"}, []string{"friend"})
+	join(h, "servermate", []string{"s1"}, nil)
+	join(h, "friend", []string{"s2"}, []string{"subject"})
 
 	captured := h.GetPresenceAudience("subject")
 
@@ -120,10 +97,10 @@ func TestRemoveClient_AudienceCapturedBeforeTheUserIsGone(t *testing.T) {
 }
 
 func TestAddPresencePeer_RegistersOnEveryConnectionOfBothUsers(t *testing.T) {
-	h := newHubForAudience()
-	a1 := connect(h, "a", []string{"s1"}, nil)
-	a2 := connect(h, "a", []string{"s1"}, nil) // second device
-	b1 := connect(h, "b", []string{"s2"}, nil)
+	h := newHub()
+	a1 := join(h, "a", []string{"s1"}, nil)
+	a2 := join(h, "a", []string{"s1"}, nil) // second device
+	b1 := join(h, "b", []string{"s2"}, nil)
 
 	h.AddPresencePeer("a", "b")
 
@@ -150,9 +127,9 @@ func TestAddPresencePeer_RegistersOnEveryConnectionOfBothUsers(t *testing.T) {
 // h.clients. Reading memberships off the map there would return only the subject, and the client
 // would paint an empty online list.
 func TestGetVisibleAudienceFor_WorksBeforeTheConnectionIsRegistered(t *testing.T) {
-	h := newHubForAudience()
-	connect(h, "servermate", []string{"s1"}, nil)
-	connect(h, "friend", []string{"s2"}, []string{"newcomer"})
+	h := newHub()
+	join(h, "servermate", []string{"s1"}, nil)
+	join(h, "friend", []string{"s2"}, []string{"newcomer"})
 
 	// "newcomer" is mid-handshake: not in h.clients yet, but the handler holds its memberships.
 	got := h.GetVisibleAudienceFor("newcomer", []string{"s1"}, []string{"friend"})
@@ -170,9 +147,9 @@ func TestGetVisibleAudienceFor_WorksBeforeTheConnectionIsRegistered(t *testing.T
 }
 
 func TestGetVisibleAudienceFor_HidesInvisibleUsers(t *testing.T) {
-	h := newHubForAudience()
-	connect(h, "subject", []string{"s1"}, nil)
-	connect(h, "lurker", []string{"s1"}, nil)
+	h := newHub()
+	join(h, "subject", []string{"s1"}, nil)
+	join(h, "lurker", []string{"s1"}, nil)
 	h.invisibleUsers["lurker"] = true
 
 	got := h.GetVisibleAudienceFor("subject", []string{"s1"}, nil)
@@ -196,18 +173,15 @@ func TestGetVisibleAudienceFor_HidesInvisibleUsers(t *testing.T) {
 // reading the function; a unit test cannot see an iteration count without instrumenting a hot
 // path, which is not worth it.
 func TestBroadcastToUsers_DeliversOnlyToTheAudience(t *testing.T) {
-	h := newHubForAudience()
+	h := newHub()
 
-	recipient := connect(h, "recipient", nil, nil)
-	recipient.send = make(chan []byte, 4)
+	recipient := join(h, "recipient", nil, nil)
 
 	// A crowd that is not in the audience. If delivery walked h.clients, these would all be
 	// visited; with a lookup they are never touched.
 	bystanders := make([]*Client, 0, 50)
 	for i := 0; i < 50; i++ {
-		c := connect(h, "bystander-"+string(rune('a'+i%26))+string(rune('0'+i/26)), nil, nil)
-		c.send = make(chan []byte, 1)
-		bystanders = append(bystanders, c)
+		bystanders = append(bystanders, join(h, "bystander-"+string(rune('a'+i%26))+string(rune('0'+i/26)), nil, nil))
 	}
 
 	h.BroadcastToUsers([]string{"recipient"}, Event{Op: OpPresence})
@@ -225,9 +199,8 @@ func TestBroadcastToUsers_DeliversOnlyToTheAudience(t *testing.T) {
 // A duplicated id must not send twice. Callers build their lists from maps today, but that is
 // their invariant, not this function's.
 func TestBroadcastToUsers_DedupesRepeatedRecipients(t *testing.T) {
-	h := newHubForAudience()
-	c := connect(h, "u1", nil, nil)
-	c.send = make(chan []byte, 4)
+	h := newHub()
+	c := join(h, "u1", nil, nil)
 
 	h.BroadcastToUsers([]string{"u1", "u1", "u1"}, Event{Op: OpPresence})
 
@@ -239,9 +212,9 @@ func TestBroadcastToUsers_DedupesRepeatedRecipients(t *testing.T) {
 // The counterpart to AddPresencePeer. Without it, unfriending or blocking left the other side
 // still receiving presence until one of them reconnected.
 func TestRemovePresencePeer_WithdrawsTheEntitlementFromBothSides(t *testing.T) {
-	h := newHubForAudience()
-	a := connect(h, "a", nil, []string{"b", "c"})
-	b := connect(h, "b", nil, []string{"a"})
+	h := newHub()
+	a := join(h, "a", nil, []string{"b", "c"})
+	b := join(h, "b", nil, []string{"a"})
 
 	h.RemovePresencePeer("a", "b")
 
@@ -264,9 +237,9 @@ func TestRemovePresencePeer_WithdrawsTheEntitlementFromBothSides(t *testing.T) {
 // pointing at the same backing array while it builds the ready payload; rewriting that array's
 // elements underneath it is an unsynchronised write to memory another goroutine is reading.
 func TestRemovePresencePeer_DoesNotRewriteTheCallersBackingArray(t *testing.T) {
-	h := newHubForAudience()
+	h := newHub()
 	original := []string{"b", "c"}
-	connect(h, "a", nil, original)
+	join(h, "a", nil, original)
 
 	h.RemovePresencePeer("a", "b")
 
