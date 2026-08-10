@@ -14,6 +14,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { x25519, ed25519 } from "@noble/curves/ed25519.js";
+import { must } from "../test/must";
 
 type Device = {
   userId: string;
@@ -104,8 +105,8 @@ function newDevice(userId: string, deviceId: string): Device {
 
 /** The server's view of a device: its published prekey bundle. */
 function bundleFor(d: Device) {
-  const spk = d.signedPreKeys.get(1)!;
-  const otp = d.preKeys.get(100)!;
+  const spk = must(d.signedPreKeys.get(1), "signed prekey 1");
+  const otp = must(d.preKeys.get(100), "one-time prekey 100");
   return {
     device_id: d.deviceId,
     registration_id: d.registrationId,
@@ -191,9 +192,8 @@ describe("multi-device DM fan-out", () => {
 
     const byDevice = new Map(envelopes.map((e) => [e.recipient_device_id, e]));
     for (const target of [aliceLaptop, bobPhone, bobTablet]) {
-      const envelope = byDevice.get(target.deviceId);
-      expect(envelope, `no envelope for ${target.deviceId}`).toBeDefined();
-      expect(await openOn(target, "alice", "alice-phone", envelope!)).toBe(
+      const envelope = must(byDevice.get(target.deviceId), `an envelope for ${target.deviceId}`);
+      expect(await openOn(target, "alice", "alice-phone", envelope)).toBe(
         "the same words to everyone"
       );
     }
@@ -219,7 +219,10 @@ describe("multi-device DM fan-out", () => {
     );
 
     expect(envelopes.map((e) => e.recipient_device_id)).toContain("bob-desktop");
-    const forDesktop = envelopes.find((e) => e.recipient_device_id === "bob-desktop")!;
+    const forDesktop = must(
+      envelopes.find((e) => e.recipient_device_id === "bob-desktop"),
+      "an envelope for bob-desktop"
+    );
     expect(await openOn(bobDesktop, "alice", "alice-phone", forDesktop)).toBe("second");
   });
 

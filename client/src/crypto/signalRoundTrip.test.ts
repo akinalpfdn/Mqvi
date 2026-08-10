@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { x25519, ed25519 } from "@noble/curves/ed25519.js";
+import { must } from "../test/must";
 
 type Device = {
   identity: { publicKey: Uint8Array; privateKey: Uint8Array };
@@ -91,8 +92,8 @@ async function as<T>(d: Device, fn: () => Promise<T>): Promise<T> {
 
 /** The bundle a device publishes for others to start a session with. */
 function bundleOf(d: Device, withOneTime = true) {
-  const spk = d.signedPreKeys.get(1)!;
-  const otp = d.preKeys.get(100)!;
+  const spk = must(d.signedPreKeys.get(1), "signed prekey 1");
+  const otp = must(d.preKeys.get(100), "one-time prekey 100");
   return {
     registrationId: d.registration.registrationId,
     identityKey: toBase64(d.identity.publicKey),
@@ -107,7 +108,13 @@ function bundleOf(d: Device, withOneTime = true) {
 /** Bob receives a prekey message from Alice: complete X3DH, store the session, then decrypt. */
 async function bobReceivesFirst(bob: Device, wire: SignalWireMessage): Promise<string> {
   return as(bob, async () => {
-    const state = await processPreKeyMessage(ALICE.userId, ALICE.deviceId, wire.preKeyInfo!);
+    // preKeyInfo is what makes it a first message; without it there is nothing to complete X3DH
+    // from and the test is not testing what it says it is.
+    const state = await processPreKeyMessage(
+      ALICE.userId,
+      ALICE.deviceId,
+      must(wire.preKeyInfo, "preKeyInfo on the first message")
+    );
     const session: StoredSession = {
       userId: ALICE.userId,
       deviceId: ALICE.deviceId,

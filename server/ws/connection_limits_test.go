@@ -24,25 +24,10 @@ const (
 	defaultConnectsPerMinute = 60 // MQVI_WS_CONNECTS_PER_MINUTE
 )
 
-func newHubForLimits() *Hub {
-	return &Hub{
-		clients:        make(map[string]map[*Client]bool),
-		serverClients:  make(map[string]map[*Client]bool),
-		invisibleUsers: make(map[string]bool),
-	}
-}
-
-func attach(h *Hub, userID string, n int) {
-	if h.clients[userID] == nil {
-		h.clients[userID] = make(map[*Client]bool)
-	}
-	for i := 0; i < n; i++ {
-		h.clients[userID][&Client{userID: userID}] = true
-	}
-}
+// newHub, join, attach and connCount live in hub_test.go.
 
 func TestConnectionCount_CountsOnlyTheUsersOwnSockets(t *testing.T) {
-	h := newHubForLimits()
+	h := newHub()
 	attach(h, "u1", 3)
 	attach(h, "u2", 5)
 
@@ -57,7 +42,7 @@ func TestConnectionCount_CountsOnlyTheUsersOwnSockets(t *testing.T) {
 // The cap is a per-user bound, so one account filling it must not affect anyone else. Getting this
 // wrong would turn a single abusive account into a platform-wide outage.
 func TestConnectionCount_IsNotSharedBetweenUsers(t *testing.T) {
-	h := newHubForLimits()
+	h := newHub()
 	attach(h, "flooder", 50)
 	attach(h, "innocent", 1)
 
@@ -69,7 +54,7 @@ func TestConnectionCount_IsNotSharedBetweenUsers(t *testing.T) {
 // Concurrent connects read the count without holding the lock across the handshake, so the check
 // races by design. What must not happen is a torn read or a panic.
 func TestConnectionCount_SafeUnderConcurrentReads(t *testing.T) {
-	h := newHubForLimits()
+	h := newHub()
 	attach(h, "u1", 4)
 
 	var wg sync.WaitGroup
@@ -145,7 +130,7 @@ func TestDefaultConnectRate_StopsAChurnLoop(t *testing.T) {
 // Refusals are counted, not logged one by one: what gets refused is a loop or a race, so a line
 // per refusal would let whoever is causing them fill the disk.
 func TestCountRefusal_EmitsAtMostOneLinePerInterval(t *testing.T) {
-	h := newHubForLimits()
+	h := newHub()
 	h.refusals.lastFlush = time.Now() // start mid-interval so the first call does not flush
 
 	for i := 0; i < 1000; i++ {
@@ -161,7 +146,7 @@ func TestCountRefusal_EmitsAtMostOneLinePerInterval(t *testing.T) {
 }
 
 func TestCountRefusal_FlushResetsEveryTally(t *testing.T) {
-	h := newHubForLimits()
+	h := newHub()
 	h.refusals.lastFlush = time.Now()
 	h.RefusedOverCap()
 	h.RefusedTooFast()
@@ -188,7 +173,7 @@ func TestCountRefusal_FlushResetsEveryTally(t *testing.T) {
 // and it runs inside Run, the single goroutine every connect and disconnect passes through. It
 // must go through the same tally rather than writing a line each time.
 func TestAddClient_RefusalIsCountedNotLogged(t *testing.T) {
-	h := newHubForLimits()
+	h := newHub()
 	h.SetMaxConnectionsPerUser(1)
 	h.refusals.lastFlush = time.Now()
 	attach(h, "u1", 1)
@@ -207,7 +192,7 @@ func TestAddClient_RefusalIsCountedNotLogged(t *testing.T) {
 // Unwired limits must not become a silent refusal. Tests and any caller that skips
 // SetConnectionLimits get zero values, and zero has to mean unlimited.
 func TestZeroLimits_MeanUnlimited(t *testing.T) {
-	h := &Handler{hub: newHubForLimits()}
+	h := &Handler{hub: newHub()}
 	attach(h.hub, "u1", 500)
 
 	if h.connectLimiter != nil {
@@ -220,14 +205,14 @@ func TestZeroLimits_MeanUnlimited(t *testing.T) {
 
 func TestSetConnectionLimits_DisablesTheRateLimiterWhenNotPositive(t *testing.T) {
 	for _, perMinute := range []int{0, -1} {
-		h := &Handler{hub: newHubForLimits()}
+		h := &Handler{hub: newHub()}
 		h.SetConnectionLimits(10, perMinute)
 		if h.connectLimiter != nil {
 			t.Errorf("connectsPerMinute=%d created a limiter — it must disable the check", perMinute)
 		}
 	}
 
-	h := &Handler{hub: newHubForLimits()}
+	h := &Handler{hub: newHub()}
 	h.SetConnectionLimits(10, 30)
 	if h.connectLimiter == nil {
 		t.Error("connectsPerMinute=30 created no limiter")
@@ -243,7 +228,7 @@ func TestSetConnectionLimits_DisablesTheRateLimiterWhenNotPositive(t *testing.T)
 // Calling it twice must not orphan the previous limiter's cleanup goroutine, and must not hand
 // everyone a fresh budget by silently swapping the counter out.
 func TestSetConnectionLimits_IsSafeToCallTwice(t *testing.T) {
-	h := &Handler{hub: newHubForLimits()}
+	h := &Handler{hub: newHub()}
 	h.SetConnectionLimits(10, 30)
 	first := h.connectLimiter
 
@@ -261,7 +246,7 @@ func TestSetConnectionLimits_IsSafeToCallTwice(t *testing.T) {
 // than a handshake completes therefore all pass the early check. addClient has to be the thing
 // that holds the line, or the cap is really just whatever the rate limiter allows.
 func TestAddClient_EnforcesTheCapEvenWhenEveryConnectPassedTheEarlyCheck(t *testing.T) {
-	h := newHubForLimits()
+	h := newHub()
 	h.SetMaxConnectionsPerUser(3)
 
 	// Ten connections that all read the count as 0 before any of them registered — which is what
@@ -287,7 +272,7 @@ func TestAddClient_EnforcesTheCapEvenWhenEveryConnectPassedTheEarlyCheck(t *test
 // And the refusal must leave nothing behind: a client that was never registered still unregisters
 // when its ReadPump exits, and that must not fire a disconnect for a user who never connected.
 func TestRemoveClient_IgnoresAClientItNeverHeld(t *testing.T) {
-	h := newHubForLimits()
+	h := newHub()
 	attach(h, "u1", 1)
 	var fired bool
 	h.onUserFullyDisconnected = func(string, []string) { fired = true }
@@ -321,7 +306,7 @@ func (p panicUserInfo) GetByID(context.Context, string) (*models.User, error) {
 func newHandlerUnderTest(t *testing.T, maxConns, perMinute int) *Handler {
 	t.Helper()
 	h := &Handler{
-		hub:              newHubForLimits(),
+		hub:              newHub(),
 		tokenValidator:   stubTokenValidator{userID: "u1"},
 		userInfoProvider: panicUserInfo{t: t},
 	}
@@ -391,12 +376,4 @@ func TestHandleConnection_LimitsAreScopedToOneAccount(t *testing.T) {
 	if rec := connectOnce(h); rec.Code == http.StatusTooManyRequests {
 		t.Error("an unrelated account was refused because another user filled its own cap")
 	}
-}
-
-// connCount reads the hub's socket count for a user. The hub exposes no accessor for it — nothing
-// in production needs one — so the tests reach in under the same lock the hub uses.
-func connCount(h *Hub, userID string) int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.clients[userID])
 }

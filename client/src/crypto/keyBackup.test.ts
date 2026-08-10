@@ -87,6 +87,17 @@ function plain(value: unknown): unknown {
   );
 }
 
+/** The categories a backup is supposed to carry, snapshotted for before/after comparison. */
+function snapshot() {
+  return {
+    identity: plain(store.identity),
+    signing: plain(store.signing),
+    registration: plain(store.registration),
+    signedPreKeys: plain(store.signedPreKeys),
+    preKeys: plain(store.preKeys),
+  };
+}
+
 function seedEverything(): void {
   store.identity = { publicKey: bytes(1), privateKey: bytes(2) };
   store.signing = { publicKey: bytes(3), privateKey: bytes(4) };
@@ -105,7 +116,7 @@ beforeEach(() => {
 describe("key backup", () => {
   it("should restore every field exactly as it was backed up", async () => {
     seedEverything();
-    const before = plain(store);
+    const before = snapshot();
 
     const backup = await createBackup("correct horse battery staple");
 
@@ -115,8 +126,8 @@ describe("key backup", () => {
     const ok = await restoreFromBackup(backup, "correct horse battery staple");
     expect(ok).toBe(true);
 
-    expect(plain(store.identity)).toEqual((before as Record<string, unknown>).identity);
-    expect(plain(store.signing)).toEqual((before as Record<string, unknown>).signing);
+    expect(plain(store.identity)).toEqual(before.identity);
+    expect(plain(store.signing)).toEqual(before.signing);
     // The three fields the backup carries. `createdAt` is deliberately not among them — restore
     // stamps it fresh, since this device's registration begins now, and nothing reads it.
     expect(store.registration).toMatchObject({
@@ -124,23 +135,23 @@ describe("key backup", () => {
       deviceId: "device-1",
       userId: "user-1",
     });
-    expect(plain(store.signedPreKeys)).toEqual((before as Record<string, unknown>).signedPreKeys);
-    expect(plain(store.preKeys)).toEqual((before as Record<string, unknown>).preKeys);
+    expect(plain(store.signedPreKeys)).toEqual(before.signedPreKeys);
+    expect(plain(store.preKeys)).toEqual(before.preKeys);
     expect(store.metadata.get("nextPrekeyId")).toBe(99);
   });
 
   it("should refuse a wrong password without destroying the keys already on the device", async () => {
     seedEverything();
     const backup = await createBackup("the real password");
-    const before = plain(store);
+    const before = snapshot();
 
     const ok = await restoreFromBackup(backup, "not the real password");
 
     expect(ok).toBe(false);
     // AES-GCM is authenticated, so the wrong key fails before anything is written. If this ever
     // regresses, a mistyped password wipes the device it was typed on.
-    expect(plain(store.identity)).toEqual((before as Record<string, unknown>).identity);
-    expect(plain(store.registration)).toEqual((before as Record<string, unknown>).registration);
+    expect(plain(store.identity)).toEqual(before.identity);
+    expect(plain(store.registration)).toEqual(before.registration);
   });
 
   it("should refuse a tampered payload", async () => {
