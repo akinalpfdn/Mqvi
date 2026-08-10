@@ -15,16 +15,8 @@ import (
 // feature would be dead with nothing to show for it. This asserts the frame is actually sitting in
 // the send buffer, which only happens if the notify ran while done was still open.
 func TestHubShutdown_NotifiesEachClientBeforeClosingIt(t *testing.T) {
-	h := &Hub{
-		clients:       map[string]map[*Client]bool{},
-		serverClients: map[string]map[*Client]bool{},
-	}
-	c := &Client{
-		userID: "u1",
-		send:   make(chan []byte, sendBufferSize),
-		done:   make(chan struct{}),
-	}
-	h.clients["u1"] = map[*Client]bool{c: true}
+	h := newHub()
+	c := join(h, "u1", nil, nil)
 
 	h.Shutdown()
 
@@ -55,13 +47,11 @@ func TestHubShutdown_NotifiesEachClientBeforeClosingIt(t *testing.T) {
 // A lagging client with a full send buffer must not hold up the shutdown of everyone else. trySend
 // is non-blocking, so a full buffer is skipped, not waited on.
 func TestHubShutdown_DoesNotBlockOnAClientWhoseBufferIsFull(t *testing.T) {
-	h := &Hub{
-		clients:       map[string]map[*Client]bool{},
-		serverClients: map[string]map[*Client]bool{},
+	h := newHub()
+	full := join(h, "slow", nil, nil)
+	for len(full.send) < cap(full.send) {
+		full.send <- []byte("already queued")
 	}
-	full := &Client{userID: "slow", send: make(chan []byte, 1), done: make(chan struct{})}
-	full.send <- []byte("already queued") // buffer now full
-	h.clients["slow"] = map[*Client]bool{full: true}
 
 	done := make(chan struct{})
 	go func() {
