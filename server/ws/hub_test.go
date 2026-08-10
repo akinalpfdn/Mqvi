@@ -464,6 +464,9 @@ func TestBroadcast_DropsAStuckClientInsteadOfBlocking(t *testing.T) {
 		stuck.send <- []byte("{}")
 	}
 
+	// Racing `done` against `h.unregister` in one select would be a coin flip: the broadcast queues
+	// the removal on its own goroutine, so either channel can be ready first and neither order is a
+	// defect. Only the blocking question belongs here; the removal is checked after.
 	done := make(chan struct{})
 	go func() {
 		h.BroadcastToAll(Event{Op: OpPresence})
@@ -472,20 +475,21 @@ func TestBroadcast_DropsAStuckClientInsteadOfBlocking(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-h.unregister:
-		t.Fatal("read the unregister channel before the broadcast returned")
+	case <-time.After(time.Second):
+		t.Fatal("the broadcast blocked on a client that stopped reading — one stuck socket would " +
+			"stall delivery for everyone")
 	}
 
 	if got := countReceived(healthy); got != 1 {
-		t.Errorf("the healthy client got %d events, want 1 — one stuck socket stalled delivery", got)
+		t.Errorf("the healthy client got %d events, want 1", got)
 	}
-	// The stuck client is queued for removal on its own goroutine.
+
 	select {
 	case c := <-h.unregister:
 		if c != stuck {
 			t.Error("the wrong client was queued for removal")
 		}
-	default:
+	case <-time.After(time.Second):
 		t.Error("the stuck client was not queued for removal — it would stay and keep failing")
 	}
 }
