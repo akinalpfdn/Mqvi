@@ -20,6 +20,9 @@ function MembersSettings() {
   const { t } = useTranslation("settings");
   const members = useActiveMembers();
   const fetchMembers = useMemberStore((s) => s.fetchMembers);
+  const modifyMemberRoles = useMemberStore((s) => s.modifyMemberRoles);
+  const kickMember = useMemberStore((s) => s.kickMember);
+  const banMember = useMemberStore((s) => s.banMember);
   const roles = useActiveRoles();
   const fetchRoles = useRoleStore((s) => s.fetchRoles);
   const currentUser = useAuthStore((s) => s.user);
@@ -120,10 +123,8 @@ function MembersSettings() {
   async function handleSaveRoles() {
     if (!selectedMemberId || !hasChanges) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    const res = await memberApi.modifyMemberRoles(serverId, selectedMemberId, editRoleIds);
-    if (res.data) {
+    const res = await modifyMemberRoles(selectedMemberId, editRoleIds);
+    if (res.ok) {
       setHasChanges(false);
       addToast("success", t("memberRolesSaved"));
     } else {
@@ -141,10 +142,8 @@ function MembersSettings() {
     });
     if (!ok) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    const res = await memberApi.kickMember(serverId, selectedMember.id);
-    if (res.data) {
+    const res = await kickMember(selectedMember.id);
+    if (res.ok) {
       addToast("success", t("memberKicked"));
       setSelectedMemberId(null);
     } else {
@@ -162,10 +161,8 @@ function MembersSettings() {
     });
     if (!ok) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    const res = await memberApi.banMember(serverId, selectedMember.id, "Banned by admin");
-    if (res.data) {
+    const res = await banMember(selectedMember.id, "Banned by admin");
+    if (res.ok) {
       addToast("success", t("memberBanned"));
       setSelectedMemberId(null);
     } else {

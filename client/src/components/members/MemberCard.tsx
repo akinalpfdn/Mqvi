@@ -14,7 +14,7 @@ import { useUserBadges } from "../../hooks/useUserBadges";
 import { useLogout } from "../../hooks/useLogout";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
-import { useActiveMembers } from "../../stores/memberStore";
+import { useActiveMembers, useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useFriendStore } from "../../stores/friendStore";
@@ -22,8 +22,6 @@ import { useBlockStore } from "../../stores/blockStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import * as memberApi from "../../api/members";
-import { useServerStore } from "../../stores/serverStore";
 import ReportModal from "../shared/ReportModal";
 
 const BADGE_ADMIN_USER_ID = "95a8b295072f98a5";
@@ -159,9 +157,7 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
       danger: true,
     });
     if (!ok) return;
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    await memberApi.kickMember(serverId, userId);
+    await useMemberStore.getState().kickMember(userId);
     onClose();
   }
 
@@ -172,9 +168,7 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
       danger: true,
     });
     if (!ok) return;
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    await memberApi.banMember(serverId, userId, "");
+    await useMemberStore.getState().banMember(userId, "");
     onClose();
   }
 

@@ -223,6 +223,22 @@ describe("a mutation the server rejects", () => {
 
     expect(categoryIds()).toEqual(["c1"]);
   });
+
+  it("should not rename the category", async () => {
+    api.updateCategory.mockResolvedValue(fail);
+
+    expect(await useChannelStore.getState().updateCategory("c1", { name: "renamed" })).toBe(false);
+
+    expect(useChannelStore.getState().categories[0].category.name).toBe("c1");
+  });
+
+  it("should not add the category, and should report the failure", async () => {
+    api.createCategory.mockResolvedValue(fail);
+
+    expect(await useChannelStore.getState().createCategory("c2")).toBeNull();
+
+    expect(categoryIds()).toEqual(["c1"]);
+  });
 });
 
 // These two effects used to sit in the WS handler, which meant the client that performed the action
