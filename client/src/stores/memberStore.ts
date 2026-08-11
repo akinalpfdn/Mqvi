@@ -9,10 +9,7 @@ import * as memberApi from "../api/members";
 import { useServerStore } from "./serverStore";
 import { useAuthStore } from "./authStore";
 import { useChannelStore } from "./channelStore";
-import type { MemberWithRoles, UserStatus, Role } from "../types";
-
-/** Outcome of a moderation call. `error` is the server's message, shown in place of a generic one. */
-export type MutationResult = { ok: boolean; error?: string };
+import type { MemberWithRoles, UserStatus, Role, MutationResult } from "../types";
 
 type MemberState = {
   membersByServer: Record<string, MemberWithRoles[]>;
