@@ -5,8 +5,6 @@ import { useTranslation } from "react-i18next";
 import { useChannelStore } from "../../stores/channelStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
-import * as channelApi from "../../api/channels";
-import { useServerStore } from "../../stores/serverStore";
 import ChannelPermissionEditor from "./ChannelPermissionEditor";
 import SettingsDetailBack from "./SettingsDetailBack";
 import CreateChannelModal from "../channels/CreateChannelModal";
@@ -19,6 +17,10 @@ function ChannelSettings() {
   const { t } = useTranslation("channels");
   const { t: tSettings } = useTranslation("settings");
   const categories = useChannelStore((s) => s.categories);
+  const updateChannel = useChannelStore((s) => s.updateChannel);
+  const deleteChannel = useChannelStore((s) => s.deleteChannel);
+  const updateCategory = useChannelStore((s) => s.updateCategory);
+  const deleteCategory = useChannelStore((s) => s.deleteCategory);
   const addToast = useToastStore((s) => s.addToast);
   const confirm = useConfirm();
 
@@ -101,10 +103,7 @@ function ChannelSettings() {
     });
     if (!ok) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    const res = await channelApi.deleteChannel(serverId, channelId);
-    if (res.success) {
+    if (await deleteChannel(channelId)) {
       addToast("success", t("channelDeleted"));
       if (selectedChannel?.id === channelId) setSelectedChannel(null);
     } else {
@@ -117,15 +116,8 @@ function ChannelSettings() {
     const trimmed = editName.trim();
     if (!trimmed || trimmed === selectedChannel.name) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-
     setIsSavingName(true);
-    const res = await channelApi.updateChannel(serverId, selectedChannel.id, {
-      name: trimmed,
-    });
-
-    if (res.success) {
+    if (await updateChannel(selectedChannel.id, { name: trimmed })) {
       addToast("success", t("channelUpdated"));
     } else {
       addToast("error", t("channelUpdateError"));
@@ -139,16 +131,9 @@ function ChannelSettings() {
     const currentCatId = selectedChannel.category_id ?? "";
     if (newCategoryId === currentCatId) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-
     setEditCategoryId(newCategoryId);
     setIsSavingCategory(true);
-    const res = await channelApi.updateChannel(serverId, selectedChannel.id, {
-      category_id: newCategoryId,
-    });
-
-    if (res.success) {
+    if (await updateChannel(selectedChannel.id, { category_id: newCategoryId })) {
       addToast("success", t("channelUpdated"));
     } else {
       addToast("error", t("channelUpdateError"));
@@ -171,10 +156,7 @@ function ChannelSettings() {
     });
     if (!ok) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    const res = await channelApi.deleteCategory(serverId, catId);
-    if (res.success) {
+    if (await deleteCategory(catId)) {
       addToast("success", t("categoryDeleted"));
       if (selectedCategory?.id === catId) setSelectedCategory(null);
     } else {
@@ -187,15 +169,8 @@ function ChannelSettings() {
     const trimmed = editCatName.trim();
     if (!trimmed || trimmed === selectedCategory.name) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-
     setIsSavingCatName(true);
-    const res = await channelApi.updateCategory(serverId, selectedCategory.id, {
-      name: trimmed,
-    });
-
-    if (res.success) {
+    if (await updateCategory(selectedCategory.id, { name: trimmed })) {
       addToast("success", t("categoryUpdated"));
     } else {
       addToast("error", t("categoryUpdateError"));
