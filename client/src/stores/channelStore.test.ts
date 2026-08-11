@@ -40,6 +40,9 @@ vi.mock("./serverStore", () => ({
 
 const { useChannelStore } = await import("./channelStore");
 
+// Channel carries seventeen fields, none of which the store's mutations read: they key on `id` and
+// hand the object to a handler that stores it whole. Spelling out the rest would bury the three
+// fields these assertions are actually about.
 const channel = (id: string, categoryId: string | null, name = id): Channel =>
   ({ id, name, type: "text", category_id: categoryId, position: 0 }) as Channel;
 

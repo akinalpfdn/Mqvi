@@ -11,12 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChatContext, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useVoiceMessageStore } from "../../stores/voiceMessageStore";
-import {
-  listVoiceMessages,
-  sendVoiceMessage,
-  editVoiceMessage,
-  deleteVoiceMessage,
-} from "../../api/voiceMessages";
+import { listVoiceMessages } from "../../api/voiceMessages";
 import type { MemberWithRoles, VoiceMessage } from "../../types";
 import type { UploadOptions } from "../../api/client";
 
@@ -34,6 +29,9 @@ function VoiceChatProvider({ channelId, channelName, children }: Props) {
     (s) => s.messagesByChannel[channelId] ?? EMPTY_VOICE,
   );
   const setForChannel = useVoiceMessageStore((s) => s.setForChannel);
+  const send = useVoiceMessageStore((s) => s.send);
+  const edit = useVoiceMessageStore((s) => s.edit);
+  const del = useVoiceMessageStore((s) => s.del);
 
   // Adapt VoiceMessage → ChatMessage shape with safe defaults for the fields
   // shared components might read (reply/pin/reactions) — voice chat has none.
@@ -79,27 +77,19 @@ function VoiceChatProvider({ channelId, channelName, children }: Props) {
   }, [channelId, setForChannel]);
 
   const sendMessage = useCallback(
-    async (content: string, files?: File[], _replyToId?: string, upload?: UploadOptions) => {
-      const res = await sendVoiceMessage(channelId, content, files, upload);
-      return res.success;
-    },
-    [channelId],
+    (content: string, files?: File[], _replyToId?: string, upload?: UploadOptions) =>
+      send(channelId, content, files, upload),
+    [channelId, send],
   );
 
   const editMessage = useCallback(
-    async (id: string, content: string) => {
-      const res = await editVoiceMessage(channelId, id, content);
-      return res.success;
-    },
-    [channelId],
+    (id: string, content: string) => edit(channelId, id, content),
+    [channelId, edit],
   );
 
   const deleteMessageAction = useCallback(
-    async (id: string) => {
-      const res = await deleteVoiceMessage(channelId, id);
-      return res.success;
-    },
-    [channelId],
+    (id: string) => del(channelId, id),
+    [channelId, del],
   );
 
   const fetchMessages = useCallback(async () => {

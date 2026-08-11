@@ -28,6 +28,8 @@ vi.mock("./uiStore", () => ({ useUIStore: { getState: () => ({}) } }));
 
 const { useServerStore } = await import("./serverStore");
 
+// Only the five fields below are read here — the four these tests assert on, plus `id` to match by.
+// A complete Server literal would be thirty lines of noise repeated per fixture.
 const server = (over: Partial<Server> = {}): Server =>
   ({
     id: "s1",

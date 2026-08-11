@@ -15,7 +15,6 @@ import { useActiveMembers } from "../../stores/memberStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useConfirmStore } from "../../stores/confirmStore";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import * as soundboardApi from "../../api/soundboard";
 import SoundUploadForm from "./SoundUploadForm";
 
 function SoundboardPanel() {
@@ -25,6 +24,7 @@ function SoundboardPanel() {
   const playingSound = useSoundboardStore((s) => s.playingSound);
   const playSound = useSoundboardStore((s) => s.playSound);
   const fetchSounds = useSoundboardStore((s) => s.fetchSounds);
+  const deleteSound = useSoundboardStore((s) => s.deleteSound);
   const volume = useSoundboardStore((s) => s.volume);
   const muted = useSoundboardStore((s) => s.muted);
   const setVolume = useSoundboardStore((s) => s.setVolume);
@@ -99,7 +99,7 @@ function SoundboardPanel() {
       danger: true,
     });
     if (ok) {
-      await soundboardApi.deleteSound(serverId, soundId);
+      await deleteSound(serverId, soundId);
     }
   };
 

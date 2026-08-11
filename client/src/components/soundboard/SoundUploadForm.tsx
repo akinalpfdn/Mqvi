@@ -8,7 +8,7 @@ import EmojiPicker from "../shared/EmojiPicker";
 import WaveformTrimmer from "./WaveformTrimmer";
 import { useTranslation } from "react-i18next";
 import { useServerStore } from "../../stores/serverStore";
-import * as soundboardApi from "../../api/soundboard";
+import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 import { MAX_FILE_SIZE } from "../../utils/constants";
@@ -114,6 +114,7 @@ async function trimAudioToWav(file: File, startMs: number, endMs: number): Promi
 function SoundUploadForm({ onClose }: Props) {
   const { t } = useTranslation("soundboard");
   const serverId = useServerStore((s) => s.activeServerId);
+  const createSound = useSoundboardStore((s) => s.createSound);
 
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("");
@@ -279,7 +280,7 @@ function SoundUploadForm({ onClose }: Props) {
     }
 
     const upload = beginUpload();
-    const res = await soundboardApi.createSound(
+    const res = await createSound(
       serverId,
       uploadFile,
       name.trim(),
@@ -290,7 +291,7 @@ function SoundUploadForm({ onClose }: Props) {
     endUpload(upload);
     setIsUploading(false);
 
-    if (res.success) {
+    if (res.ok) {
       onClose();
     } else {
       setError(res.error ?? t("uploadFailed"));

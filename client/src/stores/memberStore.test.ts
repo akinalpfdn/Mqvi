@@ -36,6 +36,9 @@ vi.mock("./channelStore", () => ({
 
 const { useMemberStore } = await import("./memberStore");
 
+// A full MemberWithRoles is a User plus a Role[], and Role alone has a dozen permission fields. The
+// store keys on `id` and stores the object whole, so only these five say anything here. `as unknown`
+// is needed because the partial roles do not overlap Role enough for a direct assertion.
 const member = (id: string, roleNames: string[] = []): MemberWithRoles =>
   ({
     id,
