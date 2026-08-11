@@ -11,8 +11,15 @@ import { useVoiceStore } from "./voiceStore";
 import { useUIStore } from "./uiStore";
 import type { Server, ServerListItem, CreateServerRequest } from "../types";
 
-/** The fields a server settings screen may change. Mirrors the api's accepted body. */
-type UpdateServerRequest = Parameters<typeof serversApi.updateServer>[1];
+/**
+ * The fields a server settings screen may change.
+ *
+ * `e2ee_enabled` is deliberately not among them even though the endpoint accepts it: toggleE2EE
+ * owns that field, because enabling encryption also has to prompt for a recovery password. Routing
+ * it through here would turn E2EE on and skip the prompt, leaving the user with no way back into
+ * their messages.
+ */
+type UpdateServerRequest = Omit<Parameters<typeof serversApi.updateServer>[1], "e2ee_enabled">;
 
 /** Same shape createServer returns, so callers keep showing the server's own error text. */
 type ServerMutation = { server: Server | null; error?: string };

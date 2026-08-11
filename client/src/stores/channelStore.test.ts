@@ -133,8 +133,13 @@ describe("channel mutations without the socket", () => {
   });
 });
 
-// The other half of moving the update onto the client. The server echoes every one of these back,
-// and the acting client processes its own echo like anyone else's.
+// The other half of moving the update onto the client: the acting client processes its own echo
+// like anyone else's, so a handler that appends rather than merges shows the thing twice.
+//
+// One exception, worth knowing before trusting the first test below: the `channel_create` echo
+// currently calls fetchChannels(), not handleChannelCreate, so that path cannot double-apply today.
+// The idempotency is there because the handler is now reachable from the store action, and so that
+// swapping the echo to the cheaper handler stays a safe change.
 describe("the echo replaying a local mutation", () => {
   it("should not add the channel a second time", async () => {
     const created = channel("ch2", "c1");
