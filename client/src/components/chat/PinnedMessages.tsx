@@ -4,6 +4,8 @@ import { useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { usePinStore } from "../../stores/pinStore";
 import { useActiveMembers } from "../../stores/memberStore";
+import { useActiveRoles } from "../../stores/roleStore";
+import { mentionsToText } from "../../utils/mentions";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import { useAuthStore } from "../../stores/authStore";
 import { useBackHandler } from "../../hooks/useBackHandler";
@@ -25,6 +27,7 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
   const unpinAction = usePinStore((s) => s.unpin);
   const isLoading = usePinStore((s) => s.isLoading);
   const members = useActiveMembers();
+  const roles = useActiveRoles();
   const currentUser = useAuthStore((s) => s.user);
 
   const pins = getPinsForChannel(channelId);
@@ -102,7 +105,7 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
 
                 {/* Message content */}
                 <div className="pinned-item-content">
-                  {pin.message?.content ?? ""}
+                  {pin.message?.content ? mentionsToText(pin.message.content, members, roles) : ""}
                 </div>
 
                 {/* Unpin button — requires ManageMessages */}

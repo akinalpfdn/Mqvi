@@ -11,6 +11,9 @@ import type { SearchResult } from "../../api/search";
 import type { Message } from "../../types";
 import Avatar from "../shared/Avatar";
 import { authorDisplayName, authorAvatarURL } from "../../utils/deletedUser";
+import { useActiveMembers } from "../../stores/memberStore";
+import { useActiveRoles } from "../../stores/roleStore";
+import { mentionsToText } from "../../utils/mentions";
 
 /** Debounce delay (ms) */
 const DEBOUNCE_MS = 300;
@@ -33,6 +36,8 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
   const { t } = useTranslation("chat");
   const { t: tE2ee } = useTranslation("e2ee");
   useBackHandler(onClose);
+  const members = useActiveMembers();
+  const roles = useActiveRoles();
   const isE2EEReady = useE2EEStore((s) => s.initStatus === "ready");
   // The prop wins; the active server is only a floor. A tab opened before the server list loaded
   // carries no serverInfo for its whole life, and dropping the fallback entirely made search in
@@ -234,7 +239,7 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
                     <span className="search-result-time">{formatDate(msg.created_at)}</span>
                   </div>
                   <div className="search-result-content">
-                    {msg.content ?? ""}
+                    {msg.content ? mentionsToText(msg.content, members, roles) : ""}
                   </div>
                 </div>
               );

@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { formatMessageTime, formatFullDateTime } from "../../utils/dateFormat";
+import { mentionsToText } from "../../utils/mentions";
 import { useAuthStore } from "../../stores/authStore";
 import { useChatContext, type ChatMessage } from "../../hooks/useChatContext";
 import { copyToClipboard } from "../../utils/constants";
@@ -555,7 +556,9 @@ function Message({ message, isCompact }: MessageProps) {
                         message.referenced_message.author.username)}
                   </span>
                   <span className="msg-reply-content">
-                    {message.referenced_message.content ?? t("noContent")}
+                    {message.referenced_message.content
+                      ? mentionsToText(message.referenced_message.content, members, roles)
+                      : t("noContent")}
                   </span>
                 </>
               ) : (
