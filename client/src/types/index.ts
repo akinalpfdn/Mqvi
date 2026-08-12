@@ -965,3 +965,11 @@ export type SoundboardPlayEvent = {
   server_id: string;
   channel_id: string;
 };
+
+/**
+ * Outcome of a store mutation whose caller shows the server's own refusal text.
+ *
+ * Moderation and approval endpoints answer with something specific and worth reading ("cannot kick
+ * a member with a higher role"); a bare boolean would force a generic message in its place.
+ */
+export type MutationResult = { ok: boolean; error?: string };

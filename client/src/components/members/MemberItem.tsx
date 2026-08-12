@@ -9,15 +9,13 @@ import { useContextMenu } from "../../hooks/useContextMenu";
 import type { ContextMenuItem } from "../../hooks/useContextMenu";
 import { copyToClipboard } from "../../utils/constants";
 import { useAuthStore } from "../../stores/authStore";
-import { useActiveMembers } from "../../stores/memberStore";
+import { useActiveMembers, useMemberStore } from "../../stores/memberStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useFriendStore } from "../../stores/friendStore";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
-import * as memberApi from "../../api/members";
-import { useServerStore } from "../../stores/serverStore";
 import type { MemberWithRoles } from "../../types";
 import MemberCard from "./MemberCard";
 import RoleEditorPopup from "./RoleEditorPopup";
@@ -205,8 +203,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
               danger: true,
             });
             if (ok) {
-              const serverId = useServerStore.getState().activeServerId;
-              if (serverId) await memberApi.kickMember(serverId, member.id);
+              await useMemberStore.getState().kickMember(member.id);
             }
           },
           danger: true,
@@ -225,8 +222,7 @@ function MemberItem({ member, isOnline }: MemberItemProps) {
               danger: true,
             });
             if (ok) {
-              const serverId = useServerStore.getState().activeServerId;
-              if (serverId) await memberApi.banMember(serverId, member.id, "");
+              await useMemberStore.getState().banMember(member.id, "");
             }
           },
           danger: true,

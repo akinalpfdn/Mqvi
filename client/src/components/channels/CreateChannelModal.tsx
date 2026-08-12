@@ -7,9 +7,7 @@ import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useChannelStore } from "../../stores/channelStore";
-import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
-import * as channelApi from "../../api/channels";
 import ChannelPermissionEditor from "../settings/ChannelPermissionEditor";
 import EmojiPicker from "../shared/EmojiPicker";
 import type { Channel } from "../../types";
@@ -30,6 +28,8 @@ function CreateChannelModal({
   const { t } = useTranslation("channels");
   const { t: tCommon } = useTranslation("common");
   const categories = useChannelStore((s) => s.categories);
+  const createChannel = useChannelStore((s) => s.createChannel);
+  const createCategory = useChannelStore((s) => s.createCategory);
   const addToast = useToastStore((s) => s.addToast);
 
   // ─── State ───
@@ -79,16 +79,13 @@ function CreateChannelModal({
     const trimmed = name.trim();
     if (!trimmed || isCreating) return;
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-
     setIsCreating(true);
 
     if (mode === "category") {
       // Create category and close
-      const res = await channelApi.createCategory(serverId, { name: trimmed });
+      const created = await createCategory(trimmed);
       setIsCreating(false);
-      if (res.success) {
+      if (created) {
         addToast("success", t("categoryCreated"));
         onClose();
       } else {
@@ -96,15 +93,15 @@ function CreateChannelModal({
       }
     } else {
       // Create channel and go to step 2
-      const res = await channelApi.createChannel(serverId, {
+      const created = await createChannel({
         name: trimmed,
         type: channelType,
         category_id: categoryId || undefined,
       });
       setIsCreating(false);
-      if (res.success && res.data) {
+      if (created) {
         addToast("success", t("channelCreated"));
-        setCreatedChannel(res.data);
+        setCreatedChannel(created);
         setStep(2);
       } else {
         addToast("error", t("channelCreateError"));

@@ -8,9 +8,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useRoleStore, useActiveRoles } from "../../stores/roleStore";
 import { useAuthStore } from "../../stores/authStore";
-import { useActiveMembers } from "../../stores/memberStore";
-import * as memberApi from "../../api/members";
-import { useServerStore } from "../../stores/serverStore";
+import { useActiveMembers, useMemberStore } from "../../stores/memberStore";
 import { useToastStore } from "../../stores/toastStore";
 import type { MemberWithRoles } from "../../types";
 
@@ -25,6 +23,7 @@ function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
   const addToast = useToastStore((s) => s.addToast);
   const roles = useActiveRoles();
   const fetchRoles = useRoleStore((s) => s.fetchRoles);
+  const modifyMemberRoles = useMemberStore((s) => s.modifyMemberRoles);
   const currentUser = useAuthStore((s) => s.user);
   const members = useActiveMembers();
   const popupRef = useRef<HTMLDivElement>(null);
@@ -111,10 +110,8 @@ function RoleEditorPopup({ member, position, onClose }: RoleEditorPopupProps) {
     if (!hasChanges || isSaving) return;
     setIsSaving(true);
 
-    const serverId = useServerStore.getState().activeServerId;
-    if (!serverId) return;
-    const res = await memberApi.modifyMemberRoles(serverId, member.id, editRoleIds);
-    if (res.data) {
+    const res = await modifyMemberRoles(member.id, editRoleIds);
+    if (res.ok) {
       addToast("success", t("success"));
       onClose();
     } else {

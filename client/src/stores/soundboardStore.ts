@@ -4,8 +4,9 @@
  */
 
 import { create } from "zustand";
-import type { SoundboardSound, SoundboardPlayEvent } from "../types";
+import type { SoundboardSound, SoundboardPlayEvent, MutationResult } from "../types";
 import * as soundboardApi from "../api/soundboard";
+import type { UploadOptions } from "../api/client";
 import { useVoiceStore } from "./voiceStore";
 import { SERVER_URL } from "../utils/constants";
 
@@ -62,6 +63,19 @@ type SoundboardState = {
   setVolume: (v: number) => void;
   toggleMuted: () => void;
   stopPlayback: () => void;
+
+  // ─── Mutations ───
+  // The list updates on the acting client instead of waiting for the soundboard_sound_* echo.
+  // Both apply through the handler the echo uses, so the two paths cannot drift.
+  createSound: (
+    serverId: string,
+    file: File,
+    name: string,
+    durationMs: number,
+    emoji?: string,
+    upload?: UploadOptions
+  ) => Promise<MutationResult>;
+  deleteSound: (serverId: string, soundId: string) => Promise<boolean>;
 
   handleSoundCreate: (sound: SoundboardSound) => void;
   handleSoundUpdate: (sound: SoundboardSound) => void;
@@ -131,8 +145,35 @@ export const useSoundboardStore = create<SoundboardState>((set, get) => ({
   // only held that server's sounds. It now holds every server the user is in, and the events
   // only reach members of the server they came from — so the sound belongs in the list no
   // matter which server the user happens to be looking at.
+  // ─── Mutations ───
+
+  createSound: async (serverId, file, name, durationMs, emoji, upload) => {
+    const res = await soundboardApi.createSound(serverId, file, name, durationMs, emoji, upload);
+    if (!res.success || !res.data) return { ok: false, error: res.error };
+
+    get().handleSoundCreate(res.data);
+    return { ok: true };
+  },
+
+  deleteSound: async (serverId, soundId) => {
+    const res = await soundboardApi.deleteSound(serverId, soundId);
+    if (!res.success) return false;
+
+    get().handleSoundDelete({ id: soundId, server_id: serverId });
+    return true;
+  },
+
   handleSoundCreate: (sound) => {
-    set((s) => ({ sounds: [...s.sounds, sound] }));
+    set((s) => {
+      // The uploader applies this itself and the echo replays it moments later; appending blindly
+      // would list the sound twice. Replace, so a re-sent event also refreshes it.
+      if (s.sounds.some((existing) => existing.id === sound.id)) {
+        return {
+          sounds: s.sounds.map((existing) => (existing.id === sound.id ? sound : existing)),
+        };
+      }
+      return { sounds: [...s.sounds, sound] };
+    });
   },
 
   handleSoundUpdate: (sound) => {

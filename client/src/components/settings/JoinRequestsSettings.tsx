@@ -5,11 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useServerStore } from "../../stores/serverStore";
 import { useJoinRequestStore } from "../../stores/joinRequestStore";
-import {
-  listJoinRequests,
-  approveJoinRequest,
-  rejectJoinRequest,
-} from "../../api/joinRequests";
+import { listJoinRequests } from "../../api/joinRequests";
 import type { JoinRequest } from "../../types";
 import { resolveAssetUrl } from "../../utils/constants";
 
@@ -21,6 +17,8 @@ function JoinRequestsSettings() {
     activeServerId ? s.pendingCounts[activeServerId] : undefined
   );
   const setPendingCount = useJoinRequestStore((s) => s.setPendingCount);
+  const approve = useJoinRequestStore((s) => s.approve);
+  const reject = useJoinRequestStore((s) => s.reject);
 
   const [requests, setRequests] = useState<JoinRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,9 +64,9 @@ function JoinRequestsSettings() {
   async function handleApprove(req: JoinRequest) {
     if (!activeServerId) return;
     setBusy(req.user_id, true);
-    const res = await approveJoinRequest(activeServerId, req.user_id);
+    const res = await approve(activeServerId, req.user_id);
     setBusy(req.user_id, false);
-    if (res.success) {
+    if (res.ok) {
       setRequests((prev) => prev.filter((r) => r.user_id !== req.user_id));
       addToast("success", t("joinRequestApproved", { user: req.display_name ?? req.username }));
     } else {
@@ -80,9 +78,9 @@ function JoinRequestsSettings() {
   async function handleReject(req: JoinRequest) {
     if (!activeServerId) return;
     setBusy(req.user_id, true);
-    const res = await rejectJoinRequest(activeServerId, req.user_id);
+    const res = await reject(activeServerId, req.user_id);
     setBusy(req.user_id, false);
-    if (res.success) {
+    if (res.ok) {
       setRequests((prev) => prev.filter((r) => r.user_id !== req.user_id));
     } else {
       addToast("error", res.error ?? t("joinRequestActionError"));

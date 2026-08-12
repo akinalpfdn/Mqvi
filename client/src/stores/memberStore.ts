@@ -7,7 +7,9 @@
 import { create } from "zustand";
 import * as memberApi from "../api/members";
 import { useServerStore } from "./serverStore";
-import type { MemberWithRoles, UserStatus, Role } from "../types";
+import { useAuthStore } from "./authStore";
+import { useChannelStore } from "./channelStore";
+import type { MemberWithRoles, UserStatus, Role, MutationResult } from "../types";
 
 type MemberState = {
   membersByServer: Record<string, MemberWithRoles[]>;
@@ -28,6 +30,17 @@ type MemberState = {
   handleMemberJoin: (serverId: string, member: MemberWithRoles) => void;
   handleMemberLeave: (serverId: string, userId: string) => void;
   handleMemberUpdate: (serverId: string, member: MemberWithRoles) => void;
+  // ─── Mutations ───
+  // The member list updates on the acting client instead of waiting for the WS echo. Each applies
+  // its result through the same handler the echo uses, so the two paths cannot drift.
+  //
+  // These return the server's message rather than a bare boolean, unlike channelStore's: moderation
+  // refusals are specific and worth showing ("cannot kick a member with a higher role"), and
+  // MembersSettings already surfaced them.
+  modifyMemberRoles: (userId: string, roleIds: string[]) => Promise<MutationResult>;
+  kickMember: (userId: string) => Promise<MutationResult>;
+  banMember: (userId: string, reason: string) => Promise<MutationResult>;
+
   handleRoleCreate: (serverId: string, role: Role) => void;
   handleRoleUpdate: (serverId: string, role: Role) => void;
   handleRoleDelete: (serverId: string, roleId: string) => void;
@@ -196,6 +209,49 @@ export const useMemberStore = create<MemberState>((set, get) => ({
         },
       };
     });
+  },
+
+  // ─── Mutations ───
+
+  modifyMemberRoles: async (userId, roleIds) => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return { ok: false };
+
+    const res = await memberApi.modifyMemberRoles(serverId, userId, roleIds);
+    if (!res.success || !res.data) return { ok: false, error: res.error };
+
+    get().handleMemberUpdate(serverId, res.data);
+
+    // Changing your OWN roles changes which channels you can see. The member_update handler does
+    // this too, but it cannot be folded into handleMemberUpdate: a profile update calls that once
+    // per cached server, and the refetch must fire once.
+    if (userId === useAuthStore.getState().user?.id) {
+      useChannelStore.getState().fetchChannels();
+    }
+    return { ok: true };
+  },
+
+  kickMember: async (userId) => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return { ok: false };
+
+    const res = await memberApi.kickMember(serverId, userId);
+    if (!res.success) return { ok: false, error: res.error };
+
+    get().handleMemberLeave(serverId, userId);
+    return { ok: true };
+  },
+
+  banMember: async (userId, reason) => {
+    const serverId = useServerStore.getState().activeServerId;
+    if (!serverId) return { ok: false };
+
+    const res = await memberApi.banMember(serverId, userId, reason);
+    if (!res.success) return { ok: false, error: res.error };
+
+    // A ban removes them from the server too — the server emits member_leave, not a ban event.
+    get().handleMemberLeave(serverId, userId);
+    return { ok: true };
   },
 
   handleRoleCreate: (_serverId, _role) => {

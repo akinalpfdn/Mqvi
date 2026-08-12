@@ -11,6 +11,19 @@ import { useVoiceStore } from "./voiceStore";
 import { useUIStore } from "./uiStore";
 import type { Server, ServerListItem, CreateServerRequest } from "../types";
 
+/**
+ * The fields a server settings screen may change.
+ *
+ * `e2ee_enabled` is deliberately not among them even though the endpoint accepts it: toggleE2EE
+ * owns that field, because enabling encryption also has to prompt for a recovery password. Routing
+ * it through here would turn E2EE on and skip the prompt, leaving the user with no way back into
+ * their messages.
+ */
+type UpdateServerRequest = Omit<Parameters<typeof serversApi.updateServer>[1], "e2ee_enabled">;
+
+/** Same shape createServer returns, so callers keep showing the server's own error text. */
+type ServerMutation = { server: Server | null; error?: string };
+
 /** Persist last active server across page reloads */
 const LAST_SERVER_KEY = "mqvi_last_server";
 
@@ -42,6 +55,14 @@ type ServerState = {
   reorderServers: (items: { id: string; position: number }[]) => Promise<boolean>;
 
   // ─── WS Event Handlers ───
+
+  // ─── Mutations ───
+  // The sidebar entry and the active-server detail update on the acting client instead of waiting
+  // for the server_update echo. Each applies its result through handleServerUpdate, the same
+  // handler the echo uses. Shaped like createServer, since every caller shows res.error.
+  updateServer: (serverId: string, data: UpdateServerRequest) => Promise<ServerMutation>;
+  uploadServerIcon: (serverId: string, file: File) => Promise<ServerMutation>;
+  uploadServerBanner: (serverId: string, file: File) => Promise<ServerMutation>;
 
   handleServerUpdate: (server: Server) => void;
   handleServerCreate: (server: ServerListItem) => void;
@@ -236,6 +257,32 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   // ─── WS Event Handlers ───
+
+  // ─── Mutations ───
+
+  updateServer: async (serverId, data) => {
+    const res = await serversApi.updateServer(serverId, data);
+    if (!res.success || !res.data) return { server: null, error: res.error };
+
+    get().handleServerUpdate(res.data);
+    return { server: res.data };
+  },
+
+  uploadServerIcon: async (serverId, file) => {
+    const res = await serversApi.uploadServerIcon(serverId, file);
+    if (!res.success || !res.data) return { server: null, error: res.error };
+
+    get().handleServerUpdate(res.data);
+    return { server: res.data };
+  },
+
+  uploadServerBanner: async (serverId, file) => {
+    const res = await serversApi.uploadServerBanner(serverId, file);
+    if (!res.success || !res.data) return { server: null, error: res.error };
+
+    get().handleServerUpdate(res.data);
+    return { server: res.data };
+  },
 
   handleServerUpdate: (server) => {
     set((state) => {

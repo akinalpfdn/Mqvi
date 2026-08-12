@@ -37,7 +37,6 @@ import ChannelItem from "./ChannelItem";
 import VoiceParticipantList from "./VoiceParticipantList";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
-import * as channelApi from "../../api/channels";
 import type { Channel, User } from "../../types";
 
 type ChannelTreeProps = {
@@ -139,6 +138,10 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
   const addToast = useToastStore((s) => s.addToast);
   const mutedChannelIds = useChannelStore((s) => s.mutedChannelIds);
   const unmuteChannel = useChannelStore((s) => s.unmuteChannel);
+  const updateChannel = useChannelStore((s) => s.updateChannel);
+  const deleteChannel = useChannelStore((s) => s.deleteChannel);
+  const updateCategory = useChannelStore((s) => s.updateCategory);
+  const deleteCategory = useChannelStore((s) => s.deleteCategory);
   const { t: tCh } = useTranslation("channels");
 
   // MANAGE_CHANNELS permission
@@ -610,8 +613,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
             danger: true,
           });
           if (!ok) return;
-          const res = await channelApi.deleteCategory(activeServerId!, categoryId);
-          if (res.success) {
+          if (await deleteCategory(categoryId)) {
             addToast("success", tCh("categoryDeleted"));
           } else {
             addToast("error", tCh("categoryDeleteError"));
@@ -654,8 +656,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
             danger: true,
           });
           if (!ok) return;
-          const res = await channelApi.deleteChannel(activeServerId!, ch.id);
-          if (res.success) {
+          if (await deleteChannel(ch.id)) {
             addToast("success", tCh("channelDeleted"));
           } else {
             addToast("error", tCh("channelDeleteError"));
@@ -694,8 +695,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
     if (!id || !name || !activeServerId) return;
 
-    const res = await channelApi.updateCategory(activeServerId, id, { name });
-    if (res.success) {
+    if (await updateCategory(id, { name })) {
       addToast("success", tCh("categoryUpdated"));
     } else {
       addToast("error", tCh("categoryUpdateError"));
@@ -709,8 +709,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
 
     if (!id || !name || !activeServerId) return;
 
-    const res = await channelApi.updateChannel(activeServerId, id, { name });
-    if (res.success) {
+    if (await updateChannel(id, { name })) {
       addToast("success", tCh("channelUpdated"));
     } else {
       addToast("error", tCh("channelUpdateError"));

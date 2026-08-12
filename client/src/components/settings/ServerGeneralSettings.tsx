@@ -32,6 +32,9 @@ function ServerGeneralSettings() {
   const addToast = useToastStore((s) => s.addToast);
   const activeServerId = useServerStore((s) => s.activeServerId);
   const deleteServerAction = useServerStore((s) => s.deleteServer);
+  const updateServer = useServerStore((s) => s.updateServer);
+  const uploadServerIcon = useServerStore((s) => s.uploadServerIcon);
+  const uploadServerBanner = useServerStore((s) => s.uploadServerBanner);
   const currentUser = useAuthStore((s) => s.user);
 
   const [server, setServer] = useState<Server | null>(null);
@@ -123,7 +126,7 @@ function ServerGeneralSettings() {
     setIsSaving(true);
     try {
       if (!activeServerId) return;
-      const res = await serverApi.updateServer(activeServerId, {
+      const res = await updateServer(activeServerId, {
         name: editName,
         is_public: editIsPublic,
         approval_required: editApprovalRequired,
@@ -131,12 +134,12 @@ function ServerGeneralSettings() {
         category: editCategory,
         afk_timeout_minutes: editAFKTimeout,
       });
-      if (res.success && res.data) {
-        setServer(res.data);
-        setEditIsPublic(res.data.is_public);
-        setEditApprovalRequired(res.data.approval_required);
-        setEditDescription(res.data.description ?? "");
-        setEditCategory(res.data.category ?? "");
+      if (res.server) {
+        setServer(res.server);
+        setEditIsPublic(res.server.is_public);
+        setEditApprovalRequired(res.server.approval_required);
+        setEditDescription(res.server.description ?? "");
+        setEditCategory(res.server.category ?? "");
         addToast("success", t("serverSaved"));
       } else {
         addToast("error", res.error ?? t("serverSaveError"));
@@ -159,12 +162,12 @@ function ServerGeneralSettings() {
 
     setIsLkSaving(true);
     try {
-      const res = await serverApi.updateServer(activeServerId, {
+      const res = await updateServer(activeServerId, {
         livekit_url: editLkUrl.trim(),
         livekit_key: editLkKey.trim(),
         livekit_secret: editLkSecret.trim(),
       });
-      if (res.success) {
+      if (res.server) {
         addToast("success", t("livekitSaved"));
         // Update local lkSettings with new URL
         setLkSettings((prev) =>
@@ -186,9 +189,9 @@ function ServerGeneralSettings() {
   async function handleIconUpload(file: File) {
     if (!activeServerId) return;
     try {
-      const res = await serverApi.uploadServerIcon(activeServerId, file);
-      if (res.success && res.data) {
-        setServer(res.data);
+      const res = await uploadServerIcon(activeServerId, file);
+      if (res.server) {
+        setServer(res.server);
         addToast("success", t("serverSaved"));
       } else {
         addToast("error", res.error ?? t("serverSaveError"));
@@ -214,9 +217,9 @@ function ServerGeneralSettings() {
     try {
       // Extension follows the encoder — the serve layer resolves MIME from it.
       const file = new File([blob], `banner.${extensionForType(blob.type)}`, { type: blob.type });
-      const res = await serverApi.uploadServerBanner(activeServerId, file);
-      if (res.success && res.data) {
-        setServer(res.data);
+      const res = await uploadServerBanner(activeServerId, file);
+      if (res.server) {
+        setServer(res.server);
         addToast("success", t("serverSaved"));
       } else {
         addToast("error", res.error ?? t("serverSaveError"));
