@@ -35,7 +35,7 @@ type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
 function VoiceStateManager() {
   const { t: tVoice } = useTranslation("voice");
   const room = useRoomContext();
-  const { localParticipant } = useLocalParticipant();
+  const { localParticipant, isScreenShareEnabled } = useLocalParticipant();
   const isMuted = useVoiceStore((s) => s.isMuted);
   const isStreaming = useVoiceStore((s) => s.isStreaming);
   const inputMode = useVoiceStore((s) => s.inputMode);
@@ -176,7 +176,23 @@ function VoiceStateManager() {
   // One sharing concept, two engines: getDisplayMedia ("Net Görüntü") or the native helper
   // ("Akıcı Görüntü") — presence follows either being live.
   const isNativeCapturing = useVoiceStore((s) => s.isNativeCapturing);
+
+  // Two different questions, and they were the same flag until now.
+  //
+  // isSharing = "the user wants to share". True from the button click, before the picker even
+  // opens. Share audio and the picked-source bookkeeping below need this one: the source id is
+  // recorded at pick time, and clearing it on anything narrower would leave the audio unscoped.
+  //
+  // isSharePublished = "a track is actually on the wire". `isScreenShareEnabled` is the SDK's own
+  // !!getTrackPublication(ScreenShare), so it flips only once getDisplayMedia has resolved — i.e.
+  // after the user picked. `isNativeCapturing` is already publish-accurate: the helper sets it
+  // after it reports ready.
+  //
+  // Only presence uses the second one. Sending intent told the whole channel someone was streaming
+  // while they were still reading window titles in the picker — and told them again that it
+  // stopped if the picker was cancelled.
   const isSharing = isStreaming || isNativeCapturing;
+  const isSharePublished = isScreenShareEnabled || isNativeCapturing;
 
   // Screen share audio (Electron). Scoped to the picked source by the native capture: a shared
   // window contributes only its own audio — not the film playing next to it — while a shared
@@ -262,17 +278,17 @@ function VoiceStateManager() {
     return () => window.electronAPI?.removeGameCaptureListeners();
   }, [tVoice]);
 
-  const streamingSentRef = useRef(isSharing);
+  const streamingSentRef = useRef(isSharePublished);
   useEffect(() => {
     if (!initialSyncDone.current) return;
-    if (streamingSentRef.current === isSharing) return;
-    streamingSentRef.current = isSharing;
+    if (streamingSentRef.current === isSharePublished) return;
+    streamingSentRef.current = isSharePublished;
     useVoiceStore.getState()._wsSend?.("voice_state_update_request", {
-      is_streaming: isSharing,
+      is_streaming: isSharePublished,
       // The ceiling the sharer picked, sent only when starting — the server clears it on stop.
-      share_quality: isSharing ? useVoiceStore.getState().screenShareQuality : undefined,
+      share_quality: isSharePublished ? useVoiceStore.getState().screenShareQuality : undefined,
     });
-  }, [isSharing]);
+  }, [isSharePublished]);
 
   // Capacitor: listen for native screen share stopped (user stops externally)
   useEffect(() => {
