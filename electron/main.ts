@@ -28,6 +28,7 @@ import { readFile } from "fs/promises";
 import path from "path";
 import {
   classify,
+  createDetectionSmoother,
   GpuAverages,
   loadGamesList,
   readInstalledGames,
@@ -205,6 +206,8 @@ const GAME_PROBE_INTERVAL_MS = 1500;
  * measured machine had seven — so this has headroom, at the cost of one EnumWindows sweep each.
  */
 const GAME_PROBE_TOP = 20;
+/** Consecutive polls the game may go unseen before the row is cleared — ~4.5s at 1500ms. */
+const GAME_PROBE_MISS_TOLERANCE = 3;
 
 const gpuAverages = new GpuAverages();
 const admittedGamePids = new Set<string>();
@@ -212,6 +215,7 @@ let gamesList: SuffixIndex | null = null;
 let installedGames: Awaited<ReturnType<typeof readInstalledGames>> = [];
 /** Last thing we told the renderer, so an unchanged detection costs no icon fetch and no IPC. */
 let lastDetectedKey = "";
+const detectionSmoother = createDetectionSmoother(GAME_PROBE_MISS_TOLERANCE);
 
 /** Set by the game row before it triggers a sharp share: the next getDisplayMedia answers with this
  *  source instead of showing the picker. Consumed once. */
@@ -277,6 +281,7 @@ function stopGameProbe(): void {
   const child = gameProbeProcess;
   gameProbeProcess = null;
   lastDetectedKey = "";
+  detectionSmoother.reset();
   admittedGamePids.clear();
   gpuAverages.clear();
   if (!child) return;
@@ -340,6 +345,9 @@ async function startGameProbe(): Promise<void> {
   child.on("exit", () => {
     if (generation !== gameProbeGeneration) return;
     gameProbeProcess = null;
+    // The sensor is gone, so there is nothing left to be uncertain about — clear now, no tolerance.
+    detectionSmoother.reset();
+    lastDetectedKey = "";
     mainWindow?.webContents.send("game-detected", null);
   });
 
@@ -377,12 +385,15 @@ async function handleProbeLine(line: string, generation: number): Promise<void> 
     }
   }
 
-  const game = classify(candidates, {
-    installed: installedGames,
-    list: gamesList,
-    averageGpu: (pid) => gpuAverages.average(pid),
-    admitted: admittedGamePids,
-  });
+  // Smoothed, not raw: one poll that cannot read the game must not blink the row off and on.
+  const game = detectionSmoother.next(
+    classify(candidates, {
+      installed: installedGames,
+      list: gamesList,
+      averageGpu: (pid) => gpuAverages.average(pid),
+      admitted: admittedGamePids,
+    })
+  );
 
   const key = game ? `${game.pid}:${game.sourceId}:${game.name}` : "";
   if (key === lastDetectedKey) return;

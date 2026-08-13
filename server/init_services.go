@@ -82,6 +82,9 @@ type RateLimiters struct {
 	Feedback  *ratelimit.MessageRateLimiter
 	ICE       *ratelimit.MessageRateLimiter
 	Discovery *ratelimit.MessageRateLimiter
+	// Screen-share token minting. Every call costs either a 4-hour JWT or an app_logs row, and
+	// nothing else bounded it.
+	ScreenShare *ratelimit.MessageRateLimiter
 	// Mark-read gets its own buckets, and DM and channel get one EACH. Not the message limiter:
 	// marking a conversation read must not spend the budget needed to send a message. And not one
 	// shared read bucket either — MessageRateLimiter keys on the user, so a busy channel would
@@ -287,6 +290,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
 	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
+	// Same shape as ICE: an authenticated, user-initiated credential mint. Generous on purpose —
+	// a share that fails makes people retry, and those are the users we least want to lock out.
+	screenShareLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)
 	// Both clients coalesce mark-read to at most ~1/s per conversation, so even a split view with
 	// several chats open and the window being focused repeatedly stays far under this. A loop does
 	// not. Separate buckets so neither path can spend the other's tokens.
@@ -354,6 +360,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Feedback:    feedbackLimiter,
 		ICE:         iceLimiter,
 		Discovery:   discoveryLimiter,
+		ScreenShare: screenShareLimiter,
 		DMRead:      dmReadLimiter,
 		ChannelRead: channelReadLimiter,
 	}

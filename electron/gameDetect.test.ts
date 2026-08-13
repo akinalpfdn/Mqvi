@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   classify, SuffixIndex, GpuAverages, admitKey, GPU_FLOOR_PERCENT, GPU_WINDOW_SAMPLES,
-  type ProbeCandidate,
+  createDetectionSmoother,
+  type ProbeCandidate, type DetectedGame,
 } from "./gameDetect";
 
 // Real values, as game-probe.exe reported them on 2026-07-17.
@@ -273,5 +274,95 @@ describe("SuffixIndex", () => {
 
   it("should return null for an unknown executable", () => {
     expect(new SuffixIndex([{ exe: "a/b.exe", name: "B" }]).match("C:\\x\\c.exe")).toBeNull();
+  });
+});
+
+// The row used to blink while someone was playing: the probe reports every 1.5s, classify decides
+// from that one report, and a single unreadable poll cleared the row until the next one. These pin
+// the smoothing — including that it only ever delays *hiding*, never showing.
+describe("createDetectionSmoother", () => {
+  const game = (name: string, pid = 1): DetectedGame => ({
+    name,
+    pid,
+    hwnd: 100,
+    sourceId: `window:100:0`,
+    via: "library",
+  });
+
+  it("should keep showing the game through a single unreadable poll", () => {
+    const s = createDetectionSmoother(3);
+    s.next(game("Diablo"));
+
+    expect(s.next(null)?.name).toBe("Diablo");
+  });
+
+  it("should keep showing it through the second miss too", () => {
+    const s = createDetectionSmoother(3);
+    s.next(game("Diablo"));
+    s.next(null);
+
+    expect(s.next(null)?.name).toBe("Diablo");
+  });
+
+  it("should clear on the third consecutive miss", () => {
+    const s = createDetectionSmoother(3);
+    s.next(game("Diablo"));
+    s.next(null);
+    s.next(null);
+
+    // Three polls at 1500ms: the row goes away ~4.5s after the game actually closed.
+    expect(s.next(null)).toBeNull();
+  });
+
+  it("should start the count over when the game comes back", () => {
+    const s = createDetectionSmoother(3);
+    s.next(game("Diablo"));
+    s.next(null);
+    s.next(null);
+    s.next(game("Diablo")); // seen again — the two misses must not carry over
+
+    expect(s.next(null)?.name).toBe("Diablo");
+    expect(s.next(null)?.name).toBe("Diablo");
+    expect(s.next(null)).toBeNull();
+  });
+
+  // Smoothing a miss is a kindness; smoothing a *switch* would show the wrong game's name.
+  it("should switch to a different game immediately", () => {
+    const s = createDetectionSmoother(3);
+    s.next(game("Diablo", 1));
+
+    expect(s.next(game("Elden Ring", 2))?.name).toBe("Elden Ring");
+  });
+
+  it("should stay empty when nothing was showing", () => {
+    const s = createDetectionSmoother(3);
+
+    expect(s.next(null)).toBeNull();
+    expect(s.next(null)).toBeNull();
+  });
+
+  // Leaving voice stops the probe. Holding a row for another 4.5s there would offer to share a
+  // game into a channel the user is no longer in.
+  it("should drop the row at once on reset", () => {
+    const s = createDetectionSmoother(3);
+    s.next(game("Diablo"));
+
+    s.reset();
+
+    expect(s.next(null)).toBeNull();
+  });
+
+  it("should not let a pre-reset miss streak shorten the next game's grace", () => {
+    const s = createDetectionSmoother(3);
+    s.next(game("Diablo"));
+    s.next(null);
+    s.next(null);
+
+    s.reset();
+    s.next(game("Elden Ring", 2));
+
+    expect(s.next(null)?.name).toBe("Elden Ring");
+    expect(s.next(null)?.name).toBe("Elden Ring");
+    expect(s.next(null)).toBeNull();
   });
 });

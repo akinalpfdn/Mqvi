@@ -65,7 +65,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Message:           handlers.NewMessageHandler(svcs.Message, svcs.Upload, svcs.Storage, cfg.Upload.MaxSize, limiters.Message, urlSigner),
 		Member:            handlers.NewMemberHandler(svcs.Member),
 		Role:              handlers.NewRoleHandler(svcs.Role),
-		Voice:             handlers.NewVoiceHandler(svcs.Voice, urlSigner),
+		Voice:             handlers.NewVoiceHandler(svcs.Voice, urlSigner, limiters.ScreenShare),
 		Server:            handlers.NewServerHandler(svcs.Server),
 		Discovery:         handlers.NewDiscoveryHandler(svcs.Discovery, svcs.Server, svcs.Report, svcs.ServerReportUpload, svcs.Storage, urlSigner, cfg.Upload.MaxSize, limiters.Discovery),
 		Invite:            handlers.NewInviteHandler(svcs.Invite),

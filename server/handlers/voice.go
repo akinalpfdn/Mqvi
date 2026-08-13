@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/ctxkeys"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -21,12 +23,17 @@ type voiceHandlerService interface {
 }
 
 type VoiceHandler struct {
-	voiceService voiceHandlerService
-	urlSigner    services.FileURLSigner
+	voiceService  voiceHandlerService
+	urlSigner     services.FileURLSigner
+	screenShareRL *ratelimit.MessageRateLimiter
 }
 
-func NewVoiceHandler(voiceService services.VoiceService, urlSigner services.FileURLSigner) *VoiceHandler {
-	return &VoiceHandler{voiceService: voiceService, urlSigner: urlSigner}
+func NewVoiceHandler(
+	voiceService services.VoiceService,
+	urlSigner services.FileURLSigner,
+	screenShareRL *ratelimit.MessageRateLimiter,
+) *VoiceHandler {
+	return &VoiceHandler{voiceService: voiceService, urlSigner: urlSigner, screenShareRL: screenShareRL}
 }
 
 // Token handles POST /api/servers/{serverId}/voice/token
@@ -68,6 +75,20 @@ func (h *VoiceHandler) ScreenShareToken(w http.ResponseWriter, r *http.Request) 
 	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	// Gated BEFORE the service call, unlike the ICE handler which gates first and limits after.
+	// Every outcome here costs something: a success mints a 4-hour JWT and may create the room's
+	// E2EE passphrase, and a refusal writes an app_logs row. Limiting only the successes would
+	// leave a member able to fill the screen_share log with refusals at request rate.
+	//
+	// Deliberately generous. The failure this logging exists to diagnose makes people retry, and a
+	// tight bound would lock out exactly the users already suffering from it.
+	if h.screenShareRL != nil && !h.screenShareRL.Allow(user.ID) {
+		retryAfter := h.screenShareRL.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many screen share requests")
 		return
 	}
 

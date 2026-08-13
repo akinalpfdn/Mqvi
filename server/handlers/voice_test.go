@@ -3,11 +3,16 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 )
 
 // stubVoiceService implements the narrow voiceHandlerService interface for
@@ -151,5 +156,118 @@ func TestVoiceStates_SignsAvatarOnEgress(t *testing.T) {
 	got := env.Data
 	if len(got) != 1 || got[0].AvatarURL != "/api/files/avatars/u1/a.png?signed=1" {
 		t.Fatalf("expected avatar to carry signer output, got %+v", got)
+	}
+}
+
+// ─── Screen-share token rate limit ───
+
+// Nothing bounded this endpoint. Every call costs either a 4-hour JWT and possibly the room's E2EE
+// passphrase, or — since refusals are now recorded — an app_logs row. On a platform with a real
+// user count that is a member-reachable way to bury the operational log the refusals exist to fill.
+
+// countingVoiceService records how many times the service was reached, so a test can prove the
+// limiter answered instead of the service.
+type countingVoiceService struct {
+	stubVoiceService
+	tokenCalls int
+	err        error
+}
+
+func (s *countingVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
+	s.tokenCalls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &models.VoiceTokenResponse{Token: "t", URL: "wss://lk", ChannelID: "ch1"}, nil
+}
+
+func screenShareRequest(h *VoiceHandler, userID string) *httptest.ResponseRecorder {
+	body := strings.NewReader(`{"channel_id":"ch1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/screen-token", body)
+	req.SetPathValue("serverId", "s1")
+	req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: userID, Username: "u"}))
+	rec := httptest.NewRecorder()
+	h.ScreenShareToken(rec, req)
+	return rec
+}
+
+func TestScreenShareToken_RefusesOverTheLimit(t *testing.T) {
+	svc := &countingVoiceService{}
+	h := &VoiceHandler{
+		voiceService:  svc,
+		urlSigner:     passthroughSigner{},
+		screenShareRL: ratelimit.NewMessageRateLimiter(3, time.Minute, time.Minute),
+	}
+
+	for i := 0; i < 3; i++ {
+		if rec := screenShareRequest(h, "spammer"); rec.Code != http.StatusOK {
+			t.Fatalf("request %d: got %d, want 200 — the allowance must be usable", i+1, rec.Code)
+		}
+	}
+
+	rec := screenShareRequest(h, "spammer")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("got %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("no Retry-After — a client cannot tell how long to back off")
+	}
+	if svc.tokenCalls != 3 {
+		t.Errorf("service was reached %d times, want 3 — the 4th must not mint a token", svc.tokenCalls)
+	}
+}
+
+// The whole point of gating before the service rather than after it: a member who is not in the
+// channel gets refused by the service, and each of those refusals writes a log row. If rejected
+// requests did not spend the budget, that path would stay floodable at request rate.
+func TestScreenShareToken_RejectedRequestsSpendTheBudgetToo(t *testing.T) {
+	svc := &countingVoiceService{err: errors.New("must be in the voice channel to screen share")}
+	h := &VoiceHandler{
+		voiceService:  svc,
+		urlSigner:     passthroughSigner{},
+		screenShareRL: ratelimit.NewMessageRateLimiter(3, time.Minute, time.Minute),
+	}
+
+	for i := 0; i < 3; i++ {
+		screenShareRequest(h, "spammer")
+	}
+
+	if rec := screenShareRequest(h, "spammer"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("got %d, want 429 — failing requests must count", rec.Code)
+	}
+	if svc.tokenCalls != 3 {
+		t.Errorf("service reached %d times, want 3 — the 4th must be stopped before it can log", svc.tokenCalls)
+	}
+}
+
+func TestScreenShareToken_LimitIsPerUser(t *testing.T) {
+	svc := &countingVoiceService{}
+	h := &VoiceHandler{
+		voiceService:  svc,
+		urlSigner:     passthroughSigner{},
+		screenShareRL: ratelimit.NewMessageRateLimiter(2, time.Minute, time.Minute),
+	}
+
+	screenShareRequest(h, "noisy")
+	screenShareRequest(h, "noisy")
+	if rec := screenShareRequest(h, "noisy"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("noisy user got %d, want 429", rec.Code)
+	}
+
+	// One member burning their allowance must not stop anyone else from sharing.
+	if rec := screenShareRequest(h, "innocent"); rec.Code != http.StatusOK {
+		t.Fatalf("unrelated user got %d, want 200", rec.Code)
+	}
+}
+
+// The limiter is optional on the struct. A handler built without one still has to work.
+func TestScreenShareToken_WorksWithNoLimiter(t *testing.T) {
+	svc := &countingVoiceService{}
+	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{}}
+
+	for i := 0; i < 5; i++ {
+		if rec := screenShareRequest(h, "u1"); rec.Code != http.StatusOK {
+			t.Fatalf("request %d: got %d, want 200", i+1, rec.Code)
+		}
 	}
 }

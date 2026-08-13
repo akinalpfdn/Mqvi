@@ -454,3 +454,42 @@ export class GpuAverages {
     return [...this.samples.keys()];
   }
 }
+
+/**
+ * Smooths the detector's answer across polls.
+ *
+ * The probe reports every GAME_PROBE_INTERVAL_MS and `classify` decides from that one report alone.
+ * A single poll that cannot see the game — its exe path momentarily unreadable behind anti-cheat,
+ * its window rect empty during a fullscreen mode switch — therefore cleared the row, and the next
+ * poll brought it straight back. From the user's side the "share your game" row blinks while they
+ * are playing.
+ *
+ * Only *misses* are smoothed, and only after something was already showing. A different game
+ * replaces the current one on the very next poll, and a miss with an empty row stays empty — this
+ * delays hiding, never showing.
+ */
+export function createDetectionSmoother(tolerance: number) {
+  let holding: DetectedGame | null = null;
+  let missStreak = 0;
+
+  return {
+    /** What the row should show for this poll, given what classify() found. */
+    next(detected: DetectedGame | null): DetectedGame | null {
+      if (detected) {
+        missStreak = 0;
+        holding = detected;
+        return detected;
+      }
+      if (holding && ++missStreak < tolerance) return holding;
+      missStreak = 0;
+      holding = null;
+      return null;
+    },
+
+    /** Leaving voice, or the probe dying: drop the row now rather than after the tolerance. */
+    reset(): void {
+      holding = null;
+      missStreak = 0;
+    },
+  };
+}
