@@ -151,15 +151,32 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	}, nil
 }
 
+// logScreenShareRefusal records a screen-share token that was NOT issued, under the `screen_share`
+// category. Failures only — a working share writes nothing, so anything in that category is a
+// share someone tried and did not get. `reason` is a short stable code, not prose, so the admin
+// log can be scanned by cause.
+func (s *voiceService) logScreenShareRefusal(level models.LogLevel, userID, channelID, reason string, extra map[string]string) {
+	if s.appLogger == nil {
+		return
+	}
+	metadata := map[string]string{"reason": reason, "channel_id": channelID}
+	for k, v := range extra {
+		metadata[k] = v
+	}
+	s.appLogger.Log(level, models.LogCategoryScreenShare, &userID, nil, "screen share token refused: "+reason, metadata)
+}
+
 // GenerateScreenShareToken generates a LiveKit token for the iOS native screen share connection.
 // The identity is "{userID}_ss" so it joins the same room as a separate participant
 // that only publishes the screen share track. The main JS SDK connection stays active for voice.
 func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error) {
 	channel, err := s.channelGetter.GetByID(ctx, channelID)
 	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelWarn, userID, channelID, "channel_lookup_failed", map[string]string{"error": err.Error()})
 		return nil, err
 	}
 	if channel.Type != models.ChannelTypeVoice {
+		s.logScreenShareRefusal(models.LogLevelWarn, userID, channelID, "not_a_voice_channel", map[string]string{"type": string(channel.Type)})
 		return nil, fmt.Errorf("%w: not a voice channel", pkg.ErrBadRequest)
 	}
 
@@ -168,20 +185,31 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 	state, inVoice := s.states[userID]
 	s.mu.RUnlock()
 	if !inVoice || state.ChannelID != channelID {
+		// Split the two cases: "in no voice channel at all" and "in a different one" fail the same
+		// check but mean different things — the second is a real client/server divergence.
+		extra := map[string]string{"in_voice": "false"}
+		if inVoice {
+			extra["in_voice"] = "true"
+			extra["state_channel_id"] = state.ChannelID
+		}
+		s.logScreenShareRefusal(models.LogLevelWarn, userID, channelID, "not_in_voice_channel", extra)
 		return nil, fmt.Errorf("%w: must be in the voice channel to screen share", pkg.ErrBadRequest)
 	}
 
 	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
 	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_instance_missing", map[string]string{"server_id": channel.ServerID, "error": err.Error()})
 		return nil, fmt.Errorf("failed to get livekit instance for server %s: %w", channel.ServerID, err)
 	}
 
 	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
 	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_key_decrypt_failed", nil)
 		return nil, fmt.Errorf("failed to decrypt livekit api key: %w", err)
 	}
 	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
 	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_secret_decrypt_failed", nil)
 		return nil, fmt.Errorf("failed to decrypt livekit api secret: %w", err)
 	}
 
@@ -215,11 +243,15 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 
 	token, err := at.ToJWT()
 	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "jwt_sign_failed", nil)
 		return nil, fmt.Errorf("failed to generate screen share token: %w", err)
 	}
 
 	passphrase, err := s.getOrCreateRoomPassphrase(roomName)
 	if err != nil {
+		// The client refuses a token with no passphrase, so this reads to the user as a plain
+		// failure to start — worth seeing here rather than only in the client's console.
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "passphrase_failed", nil)
 		return nil, fmt.Errorf("failed to create E2EE passphrase: %w", err)
 	}
 
