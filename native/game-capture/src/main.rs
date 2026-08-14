@@ -35,6 +35,15 @@ use mqvi_game_capture::capture::ScreenCapture;
 use mqvi_game_capture::mf_encoder::HwEncoder;
 use mqvi_game_capture::nv12;
 use tokio::sync::oneshot;
+#[cfg(windows)]
+use windows::core::PCWSTR;
+#[cfg(windows)]
+use windows::Win32::Foundation::HANDLE;
+#[cfg(windows)]
+use windows::Win32::System::Threading::{
+    AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, AvSetMmThreadPriority,
+    AVRT_PRIORITY_HIGH,
+};
 
 /// Consecutive encode failures that mean the encoder is gone for good, not glitching (1s at 30fps).
 const MAX_CONSECUTIVE_ENCODE_ERRORS: u32 = 30;
@@ -563,6 +572,60 @@ fn target_bitrate(width: u32, height: u32, fps: u32) -> u64 {
     by_pixels.clamp(1_500_000, 12_000_000)
 }
 
+/// Registers the calling thread with the Multimedia Class Scheduler for as long as it lives.
+///
+/// Measured, not guessed: on a machine where Battlefield 6 held the CPU at 95%+, the pump fed
+/// 8–23 fps instead of 30 while `sent` tracked `fed` exactly — the encoder was keeping up with
+/// everything it was given, and the shortfall was upstream of it. Diablo and Forza, which leave
+/// CPU headroom, held 30. The pump was a plain `std::thread::spawn` at normal priority competing
+/// with a game across every core.
+///
+/// MMCSS is what Windows provides for exactly this: a media thread gets guaranteed slices, and the
+/// scheduler still caps all MMCSS threads together (SystemResponsiveness) so this cannot starve
+/// the machine. Ours sleeps to an absolute schedule between frames, so it is a well-behaved
+/// tenant — high priority, low duty cycle.
+///
+/// Best effort by design. MMCSS can be disabled or the service absent; a share that runs at normal
+/// priority is worse, not broken, and must not fail to start over this.
+#[cfg(windows)]
+struct MmcssHandle(HANDLE);
+
+#[cfg(windows)]
+impl MmcssHandle {
+    fn register(task: &str) -> Option<Self> {
+        let wide: Vec<u16> = task.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut index = 0u32;
+        unsafe {
+            match AvSetMmThreadCharacteristicsW(PCWSTR(wide.as_ptr()), &mut index) {
+                Ok(h) if !h.is_invalid() => {
+                    if let Err(e) = AvSetMmThreadPriority(h, AVRT_PRIORITY_HIGH) {
+                        // Registered but not promoted: still better than nothing, so keep it.
+                        log::warn!("MMCSS priority not raised: {e}");
+                    }
+                    log::info!("MMCSS: pump registered as '{task}'");
+                    Some(Self(h))
+                }
+                Ok(_) => None,
+                Err(e) => {
+                    log::warn!("MMCSS unavailable, pump runs at normal priority: {e}");
+                    None
+                }
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for MmcssHandle {
+    fn drop(&mut self) {
+        // Every exit path — clean stop, encoder error, `?` on a rebuild — gives the registration
+        // back. Leaking it would leave a dead thread's slot held in the scheduler's task group.
+        unsafe {
+            let _ = AvRevertMmThreadCharacteristics(self.0);
+        }
+    }
+}
+
 /// MF hardware-encode pump (dedicated OS thread): NV12 (synthetic or WGC-captured screen) →
 /// hardware H264/H265 → livekit PreEncoded. Blocking encode() lives off the tokio runtime.
 fn encoded_pump(
@@ -573,6 +636,12 @@ fn encoded_pump(
     ready: oneshot::Sender<String>,
 ) -> Result<()> {
     let VideoConfig { mut width, mut height, fps, hevc, max } = cfg;
+
+    // Held for the life of the pump; dropping it reverts the registration. "Capture" is the task
+    // profile Windows ships for this kind of thread.
+    #[cfg(windows)]
+    let _mmcss = MmcssHandle::register("Capture");
+
     // Start at a third of what we reserved, and let WebRTC's feedback ramp it to what the link
     // really allows — starting at the ceiling floods the pipe before the first estimate arrives,
     // which shows up as corruption in the opening seconds.
