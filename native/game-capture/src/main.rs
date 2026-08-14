@@ -32,7 +32,7 @@ use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
 use mqvi_game_capture::capture::ScreenCapture;
-use mqvi_game_capture::mf_encoder::HwEncoder;
+use mqvi_game_capture::mf_encoder::{describe_hardware_encoders, HwEncoder};
 use mqvi_game_capture::nv12;
 use tokio::sync::oneshot;
 #[cfg(windows)]
@@ -448,11 +448,21 @@ async fn run() -> Result<()> {
     let (ready_tx, ready_rx) = oneshot::channel::<String>();
     let (died_tx, mut died_rx) = oneshot::channel::<String>();
     let cfg = VideoConfig { width, height, fps, hevc, max };
+    // Read before the pump runs, so a failure can say what this machine actually offers. An encode
+    // error cannot separate "this GPU exposes no H264 encoder at all" from "the encoder is right
+    // there and refused our settings", and those are different problems with different answers.
+    let encoders = if use_mf { describe_hardware_encoders() } else { String::new() };
+    if use_mf {
+        log::info!("hardware encoders — {encoders}");
+    }
     let mf_thread = if use_mf {
         let (src, stop) = (rtc_source.clone(), stop.clone());
         Some(std::thread::spawn(move || {
             if let Err(e) = encoded_pump(src, cfg, capture, stop, ready_tx) {
-                log::error!("encode thread failed: {e:#}");
+                // Bare, with no prefix of its own: the error the app finally reports embeds this
+                // same text, so an identical opening lets the reporter fold the two into one line
+                // instead of spending its length budget saying it twice.
+                log::error!("{e:#}");
                 let _ = died_tx.send(format!("{e:#}"));
             }
         }))
@@ -465,6 +475,7 @@ async fn run() -> Result<()> {
     // delivers. Announcing readiness before that is how a machine with no hardware encoder ends up
     // with the app committed to a stream that stays black forever.
     let mut startup_error = None;
+    let mut no_frames = false;
     let mut streaming = !use_mf;
     if use_mf {
         tokio::select! {
@@ -473,8 +484,12 @@ async fn run() -> Result<()> {
                     log::info!("encoding with {encoder}");
                     streaming = true;
                 }
-                // Sender dropped: the pump bailed before delivering anything.
-                Err(_) => startup_error = Some(anyhow!("the hardware encoder produced no frames")),
+                // Sender dropped: the pump bailed before delivering anything. Which of its dozen
+                // failures it was is on `died_rx`, but not reliably readable until the thread has
+                // finished — so the message is built after the join below, not here. Reporting
+                // "no frames" on its own names the symptom and drops the fault: v2.23.1 shipped
+                // that and the first production report was unactionable.
+                Err(_) => no_frames = true,
             },
             _ = &mut stop_signal => log::info!("asked to stop before the first frame"),
         }
@@ -491,9 +506,11 @@ async fn run() -> Result<()> {
                     break;
                 }
                 reason = &mut died_rx => {
+                    // The same trap as the startup path: `reason` IS the cause, so putting a
+                    // generic sentence in the error throws away the only line that names the fault.
                     // Exiting is the only way the app learns: it watches for our process to end.
-                    log::error!("encoder stopped: {reason:?}");
-                    startup_error = Some(anyhow!("encoder stopped mid-stream"));
+                    let cause = reason.unwrap_or_else(|_| "no reason given".into());
+                    startup_error = Some(anyhow!("{cause} (encoder stopped mid-stream)"));
                     break;
                 }
                 event = events.recv() => {
@@ -523,6 +540,18 @@ async fn run() -> Result<()> {
     if let Some(t) = mf_thread {
         let _ = t.join();
     }
+    // Every failure inside the pump funnels through `died_tx` — encoder creation, a rejected input
+    // type, frames refused, frames accepted but never returned. The join above is what makes this
+    // readable: the thread has run its error handler by now, so the cause is already in the channel.
+    if no_frames {
+        startup_error = Some(match died_rx.try_recv() {
+            Ok(cause) => anyhow!("{cause} (no frames produced; {encoders})"),
+            // The pump only returns Ok once `stop` is set, and that happens above — so reaching
+            // this means it ended without going through its own error handler.
+            Err(_) => anyhow!("no frames produced and no reason reported; {encoders}"),
+        });
+    }
+
     log::info!("shutdown: closing room");
     room.close().await.ok();
     log::info!("shutdown: done");

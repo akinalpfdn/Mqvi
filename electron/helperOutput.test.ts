@@ -44,12 +44,20 @@ describe("createOutputTracker", () => {
     expect(t.said()).toBe(STATS_MSG);
   });
 
-  it("should take the newest of several errors", () => {
+  it("should keep every distinct error, oldest first", () => {
     const t = createOutputTracker();
     t.push("Error: first\n");
     t.push("Error: second\n");
 
-    expect(t.said()).toBe("Error: second");
+    expect(t.said()).toBe("Error: first | Error: second");
+  });
+
+  it("should replace an error with a fuller wording of the same one", () => {
+    const t = createOutputTracker();
+    t.push("Error: SetOutputType\n");
+    t.push("Error: SetOutputType: not supported for D3D device\n");
+
+    expect(t.said()).toBe("Error: SetOutputType: not supported for D3D device");
   });
 
   it("should split a multi-line chunk", () => {
@@ -123,6 +131,28 @@ describe("createOutputTracker", () => {
     t.push("Error: died before flushing");
 
     expect(t.said()).toBe("Error: died before flushing");
+  });
+
+  // The whole failure, end to end, from output measured by running the real helper: its encoder
+  // was pointed at a resolution the MFT rejects, and `probe-encoders` supplied the inventory
+  // through the same function the helper calls. v2.23.1 reported this as "the hardware encoder
+  // produced no frames" — the symptom, with the fault and the machine's capability both lost.
+  const CAUSE = "SetOutputType: The input type is not supported for D3D device. (0xC00D6D76)";
+  const INVENTORY = "h264: NVIDIA H.264 Encoder MFT; h265: NVIDIA HEVC Encoder MFT";
+
+  it("should report the fault and the machine's encoders as one line the server keeps whole", () => {
+    const t = createOutputTracker();
+    t.push(`[2026-08-14T16:33:10Z ERROR mqvi_game_capture] ${CAUSE}\n`);
+    t.push("[2026-08-14T16:33:10Z INFO  mqvi_game_capture] shutdown: signalling pump\n");
+    t.push("[2026-08-14T16:33:10Z INFO  mqvi_game_capture] shutdown: joining encode thread\n");
+    t.push("[2026-08-14T16:33:10Z INFO  mqvi_game_capture] shutdown: done\n");
+    t.push(`Error: ${CAUSE} (no frames produced; ${INVENTORY})\n`);
+
+    // Folded into one entry, not two: the helper's final error opens with the same text the pump
+    // logged, so the budget is spent on the inventory rather than on saying the cause twice.
+    expect(t.said()).toBe(`Error: ${CAUSE} (no frames produced; ${INVENTORY})`);
+    // The server truncates `detail` at 200 characters. Nothing here may depend on being kept.
+    expect(t.said().length).toBeLessThanOrEqual(200);
   });
 
   it("should bound a very deep cause chain", () => {

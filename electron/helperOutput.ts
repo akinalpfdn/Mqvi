@@ -28,13 +28,37 @@ const MAX_ERROR_LEN = 300;
 const LOG_PREFIX = /^\[[^\]]*mqvi_game_capture\]\s*/;
 
 export function createOutputTracker(): OutputTracker {
-  let lastError = "";
+  // Every distinct error, oldest first. NOT just the newest: the helper reports a failure twice —
+  // the pump logs the real cause as it dies, then `main` prints a generic wrapper on its way out.
+  // Keeping only the newest reported "the hardware encoder produced no frames" to production and
+  // threw away the line that named the fault. Oldest-first also puts the root cause where the
+  // server's 200-character cut cannot reach it.
+  const errors: string[] = [];
   let lastLine = "";
   // Whether the previous meaningful line was an error, so its indented causes attach to it.
   let inError = false;
   // Rust's stderr is unbuffered and anyhow's Debug impl writes in fragments, so a chunk boundary
   // can land inside a line. Kept here until the newline that ends it arrives.
   let pending = "";
+
+  const totalLen = () => errors.reduce((n, e) => n + e.length + 3, 0);
+
+  const addError = (line: string) => {
+    for (let i = 0; i < errors.length; i++) {
+      // One wrapping the other is the same failure said twice; keep the more specific wording.
+      if (errors[i].includes(line)) return;
+      if (line.includes(errors[i])) {
+        errors[i] = line;
+        return;
+      }
+    }
+    if (totalLen() < MAX_ERROR_LEN) errors.push(line);
+  };
+
+  /** Attaches an anyhow cause line to the error it belongs to. */
+  const addCause = (line: string) => {
+    if (errors.length && totalLen() < MAX_ERROR_LEN) errors[errors.length - 1] += `; ${line}`;
+  };
 
   const take = (raw: string) => {
     const full = raw.trim();
@@ -45,7 +69,7 @@ export function createOutputTracker(): OutputTracker {
     // inner cause ("0: transport error") reads as the whole failure and the message that named what
     // failed is gone — so the causes are folded back onto it.
     if (inError && (/^\s/.test(raw) || CHAIN_HEADER.test(full))) {
-      if (!CHAIN_HEADER.test(full) && lastError.length < MAX_ERROR_LEN) lastError += `; ${full}`;
+      if (!CHAIN_HEADER.test(full)) addCause(full);
       return;
     }
 
@@ -55,7 +79,7 @@ export function createOutputTracker(): OutputTracker {
     inError = ERROR_LINE.test(full);
     const line = full.replace(LOG_PREFIX, "");
     lastLine = line;
-    if (inError) lastError = line;
+    if (inError) addError(line);
   };
 
   return {
@@ -71,9 +95,9 @@ export function createOutputTracker(): OutputTracker {
         take(pending);
         pending = "";
       }
-      // An error wins over a merely-recent line: the helper narrates once a second, so a stats line
+      // Errors win over a merely-recent line: the helper narrates once a second, so a stats line
       // can land between the failure and the exit.
-      return lastError || lastLine;
+      return errors.join(" | ") || lastLine;
     },
   };
 }

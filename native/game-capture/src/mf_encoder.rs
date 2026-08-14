@@ -322,6 +322,58 @@ impl Drop for Activators {
 }
 
 /// Enumerates the machine's hardware encoder MFTs for `subtype` and activates the first one.
+/// Names this machine's hardware encoders, for the failure report. Never fails — whatever it
+/// cannot determine, it says.
+///
+/// This buys the distinction an encode error cannot make on its own. "This GPU exposes no H264
+/// encoder at all" and "the encoder is right there and refused our settings" both reach the
+/// operator as one failed share, and Media Foundation being absent outright — a Windows N install
+/// with no Media Feature Pack — looks like neither.
+pub fn describe_hardware_encoders() -> String {
+    if let Err(e) = HwEncoder::startup() {
+        return format!("media foundation unavailable: {e:#}");
+    }
+    // SAFETY: MF is initialised above, and each call owns and frees its own activator array.
+    unsafe { format!("h264: {}; h265: {}", names_for(MFVideoFormat_H264), names_for(MFVideoFormat_HEVC)) }
+}
+
+/// Friendly names of the hardware encoder MFTs producing `subtype`, or why there are none.
+unsafe fn names_for(subtype: GUID) -> String {
+    let out_type = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: subtype };
+    let mut activators: *mut Option<IMFActivate> = std::ptr::null_mut();
+    let mut count = 0u32;
+    if let Err(e) = MFTEnumEx(
+        MFT_CATEGORY_VIDEO_ENCODER,
+        MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+        None,
+        Some(&out_type),
+        &mut activators,
+        &mut count,
+    ) {
+        return format!("enumeration failed ({e})");
+    }
+    if count == 0 || activators.is_null() {
+        return "none".into();
+    }
+    let _owned = Activators { ptr: activators, count: count as usize };
+
+    let mut names = Vec::new();
+    for act in std::slice::from_raw_parts(activators, count as usize) {
+        let Some(act) = act else { continue };
+        let mut name = PWSTR::null();
+        let mut nlen = 0u32;
+        if act.GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut name, &mut nlen).is_ok() {
+            names.push(name.to_string().unwrap_or_default());
+            CoTaskMemFree(Some(name.0 as *const _));
+        }
+    }
+    if names.is_empty() {
+        format!("{count} unnamed")
+    } else {
+        names.join(", ")
+    }
+}
+
 unsafe fn create_hw_encoder(subtype: GUID) -> Result<(IMFTransform, String)> {
     let out_type = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: subtype };
     let mut activators: *mut Option<IMFActivate> = std::ptr::null_mut();
