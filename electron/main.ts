@@ -35,6 +35,8 @@ import {
   type ProbeCandidate,
   type SuffixIndex,
 } from "./gameDetect";
+import { createRedactor } from "./redact";
+import { createOutputTracker } from "./helperOutput";
 
 /** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
@@ -147,6 +149,9 @@ const GAME_CAPTURE_READY = "MQVI-READY";
 
 /** Connect + publish budget. Past this the helper is considered failed and the app uses sharp. */
 const GAME_CAPTURE_READY_TIMEOUT_MS = 15_000;
+
+/** How long a dead helper's pipes get to drain before the failure is reported without them. */
+const GAME_CAPTURE_DRAIN_MS = 500;
 
 /** How long the helper gets to close its capture session and leave the room before we force it. */
 const GAME_CAPTURE_EXIT_TIMEOUT_MS = 3_000;
@@ -1428,24 +1433,44 @@ function setupIPC(): void {
       return await new Promise((resolve) => {
         let settled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
+        let drainTimer: ReturnType<typeof setTimeout> | undefined;
 
         const settle = (r: { started: boolean; error?: string }) => {
           if (settled) return;
           settled = true;
           if (timer) clearTimeout(timer);
+          if (drainTimer) clearTimeout(drainTimer);
           resolve(r);
         };
 
-        // Stays on this side: nothing in the renderer ever read these, and the helper narrates a
-        // line a second. Visible when the app is started from a terminal, which is where anyone
-        // debugging a share wants them anyway.
+        // What the helper said, so a failure can report the cause instead of the exit code. The
+        // console.log below stays too — it is what makes `npm run dev` useful.
+        const output = createOutputTracker();
+
+        // Redacted by exact value: the helper is handed a LiveKit token and the room's E2EE
+        // passphrase on stdin, and its text now reaches the operator's log and any screenshot of
+        // it. The helper prints neither today — this is so a line added later cannot.
+        const redact = createRedactor([opts.token, opts.e2eePassphrase]);
+
         const forward = (d: Buffer) => {
-          const msg = d.toString().trim();
-          console.log(`[game-capture] ${msg}`);
+          // Not trimmed before the tracker sees it: leading whitespace is how an anyhow cause line
+          // is told apart from a fresh message, and it is the tracker that reassembles lines.
+          const msg = redact(d.toString());
+          console.log(`[game-capture] ${msg.trimEnd()}`);
+          output.push(msg);
           if (msg.includes(GAME_CAPTURE_READY)) settle({ started: true });
         };
+
         child.stdout?.on("data", forward);
         child.stderr?.on("data", forward);
+
+        const reportExit = (code: number | null) => {
+          const said = output.said();
+          settle({
+            started: false,
+            error: said ? `${said} (exit ${code})` : `helper exited (code ${code})`,
+          });
+        };
 
         child.on("exit", (code) => {
           console.log(`[main] Game capture exited code=${code}`);
@@ -1455,8 +1480,14 @@ function setupIPC(): void {
             gameCaptureProcess = null;
             mainWindow?.webContents.send("game-capture-stopped", code);
           }
-          settle({ started: false, error: `helper exited (code ${code})` });
+          // Deliberately not reporting yet. The helper's last act is to print why it is dying, and
+          // `exit` can fire while that line is still in the pipe — which is exactly how the first
+          // production report came back as a bare exit code. `close` is the event that means the
+          // pipes are drained; this only bounds the wait in case one never closes.
+          drainTimer = setTimeout(() => reportExit(code), GAME_CAPTURE_DRAIN_MS);
         });
+
+        child.on("close", (code) => reportExit(code));
 
         child.on("error", (err) => {
           console.error("[main] Game capture spawn error:", err);
@@ -1477,7 +1508,15 @@ function setupIPC(): void {
             gameCaptureGeneration++;
           }
           void endGameCapture(child);
-          settle({ started: false, error: "helper did not start publishing in time" });
+          // Carries how far it got. "Timed out" alone cannot distinguish a helper stuck connecting
+          // from one that never found the window.
+          const said = output.said();
+          settle({
+            started: false,
+            error: said
+              ? `did not start publishing in time, last: ${said}`
+              : "helper did not start publishing in time, said nothing",
+          });
         }, GAME_CAPTURE_READY_TIMEOUT_MS);
       });
     }
