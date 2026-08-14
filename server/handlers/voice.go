@@ -117,6 +117,18 @@ func (h *VoiceHandler) ScreenShareToken(w http.ResponseWriter, r *http.Request) 
 	pkg.JSON(w, http.StatusOK, resp)
 }
 
+// truncateRunes caps a string at n runes, never splitting one.
+func truncateRunes(s string, n int) string {
+	if len(s) <= n {
+		return s // n bytes is an upper bound on n runes, so this is the common fast path
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
+
 // ScreenShareFallback handles POST /api/servers/{serverId}/voice/screen-share-fallback
 //
 // The client reporting that "Akıcı Görüntü" could not start and it used "Net Görüntü" instead.
@@ -146,17 +158,27 @@ func (h *VoiceHandler) ScreenShareFallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Closed set, not free text: this lands in app_logs, and an unvalidated reason would let any
-	// member write arbitrary content into the operator's log and make it unscannable by cause.
+	// Both member-controlled fields are bounded before anything reaches app_logs, and no
+	// MaxBytesReader caps a JSON body on this route.
+	//
+	// Closed set for the reason: an unvalidated one would let any member write arbitrary content
+	// into the operator's log and make the category unscannable by cause.
 	if !models.ScreenShareFallbackReasons[req.Reason] {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown reason")
 		return
 	}
-
-	detail := req.Detail
-	if len(detail) > models.ScreenShareFallbackDetailMax {
-		detail = detail[:models.ScreenShareFallbackDetailMax]
+	// The channel id has a known shape, so an oversized one is not our client — refuse it rather
+	// than trim it into something that looks like a real id.
+	if len(req.ChannelID) > models.ScreenShareChannelIDMax {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "channel_id too long")
+		return
 	}
+
+	// Detail has no known shape — it carries the helper's own error, which is the diagnostic value
+	// — so it is bounded by length instead. Cut on a rune boundary: a Windows path can hold
+	// non-ASCII (`C:\Users\akınalp\…`), and slicing bytes would leave a split rune that json turns
+	// into a replacement character.
+	detail := truncateRunes(req.Detail, models.ScreenShareFallbackDetailMax)
 
 	h.voiceService.RecordScreenShareFallback(user.ID, req.ChannelID, req.Reason, detail)
 	w.WriteHeader(http.StatusNoContent)

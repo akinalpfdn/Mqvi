@@ -28,8 +28,13 @@ export async function getScreenShareToken(serverId: string, channelId: string) {
   });
 }
 
-/** Why "Akıcı Görüntü" could not start. A closed set — the server rejects anything else. */
-export type ScreenShareFallbackReason = "no_token" | "helper_failed" | "unsupported";
+/**
+ * Why "Akıcı Görüntü" could not start. A closed set — the server rejects anything else.
+ *
+ * No "unsupported": the picker only offers smooth where it can run, so a platform that cannot do
+ * it never reports a fallback because it never attempted one.
+ */
+export type ScreenShareFallbackReason = "no_token" | "helper_failed";
 
 /**
  * Tells the server that smooth capture failed and the browser path was used instead.

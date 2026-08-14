@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/ctxkeys"
@@ -29,7 +30,7 @@ func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, 
 	return nil, nil
 }
 func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _ string) {}
-func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState { return s.all }
+func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState      { return s.all }
 
 // passthroughSigner is a FileURLSigner that returns its input unchanged so
 // tests assert on the path, not on signature artifacts.
@@ -388,5 +389,69 @@ func TestScreenShareFallback_IsRateLimitedWithTheTokenEndpoint(t *testing.T) {
 	}
 	if len(svc.calls) != 2 {
 		t.Errorf("recorded %d rows past the limit, want 2", len(svc.calls))
+	}
+}
+
+// Both fields a member controls are bounded before anything reaches app_logs, and no
+// MaxBytesReader caps a JSON body on this route — the reason whitelist alone would have left
+// channel_id as an unbounded write into the operator's log.
+func TestScreenShareFallback_RejectsAnOversizedChannelID(t *testing.T) {
+	h, svc := fallbackHandler()
+	long := strings.Repeat("c", models.ScreenShareChannelIDMax+1)
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"`+long+`","reason":"no_token"}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatalf("an unbounded channel_id reached the log: %d chars", len(svc.calls[0].channelID))
+	}
+}
+
+func TestScreenShareFallback_AcceptsARealChannelID(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	// What the server actually generates: lower(hex(randomblob(8))).
+	if rec := fallbackRequest(h, "u1", `{"channel_id":"00b1cbc85d5607d6","reason":"no_token"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d, want 204 — a real id must pass", rec.Code)
+	}
+	if len(svc.calls) != 1 || svc.calls[0].channelID != "00b1cbc85d5607d6" {
+		t.Fatalf("recorded %+v", svc.calls)
+	}
+}
+
+// A helper error can carry a Windows path, and a Windows path can carry non-ASCII
+// (`C:\Users\akınalp\…`). Cutting bytes would split the rune at the boundary and json would store
+// a replacement character in its place.
+func TestScreenShareFallback_TruncatesDetailOnARuneBoundary(t *testing.T) {
+	h, svc := fallbackHandler()
+	// Two bytes per rune, so a byte-cut at the limit lands mid-rune.
+	long := strings.Repeat("ı", models.ScreenShareFallbackDetailMax+50)
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","reason":"helper_failed","detail":"`+long+`"}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d, want 204", rec.Code)
+	}
+	stored := svc.calls[0].detail
+	if !utf8.ValidString(stored) {
+		t.Errorf("stored detail is not valid UTF-8: %q", stored)
+	}
+	if got := utf8.RuneCountInString(stored); got != models.ScreenShareFallbackDetailMax {
+		t.Errorf("stored %d runes, want %d", got, models.ScreenShareFallbackDetailMax)
+	}
+}
+
+// The reason set is closed, and "unsupported" is not in it: a platform that cannot run the helper
+// is never offered it, so it has no fallback to report.
+func TestScreenShareFallback_RejectsTheRetiredUnsupportedReason(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	if rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","reason":"unsupported"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatal("a retired reason was recorded")
 	}
 }

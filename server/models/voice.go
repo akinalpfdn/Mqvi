@@ -49,12 +49,19 @@ type ScreenShareFallbackRequest struct {
 
 // ScreenShareFallbackReasons is the closed set the client may report. Anything else is rejected
 // rather than stored, so the log stays scannable by cause.
+//
+// There is deliberately no "unsupported": smooth capture is only offered where it can run, so a
+// platform that cannot do it never reports a fallback — it never attempted one.
 var ScreenShareFallbackReasons = map[string]bool{
 	"no_token":      true, // the screen-token request was refused or carried no passphrase
 	"helper_failed": true, // the native helper never reported that it was publishing
-	"unsupported":   true, // not Windows, or no Electron bridge — smooth cannot run at all here
 }
 
 // ScreenShareFallbackDetailMax is how much of Detail survives: long enough for a helper error,
 // short enough that a member cannot use the field as storage.
 const ScreenShareFallbackDetailMax = 200
+
+// ScreenShareChannelIDMax bounds the other field a member controls. Channel ids are 16 hex chars
+// (`lower(hex(randomblob(8)))`); this is generous room around that, and the point is only that the
+// value cannot be unbounded — it lands in app_logs metadata, and nothing else caps a JSON body.
+const ScreenShareChannelIDMax = 64

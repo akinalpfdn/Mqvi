@@ -90,6 +90,25 @@ function saveMuteState(state: { isMuted: boolean; isDeafened: boolean }): void {
 
 const initialMuteState = loadMuteState();
 
+/**
+ * Why smooth capture did not start, carried back to whoever asked for it.
+ *
+ * `reason` is absent when nothing was attempted — no active channel, no Electron bridge. That is
+ * not a fallback and must not be announced or logged as one; only the two real failures carry a
+ * reason, along with the ids needed to report them.
+ */
+export type SmoothCaptureFailure =
+  | { ok: false; reason?: undefined }
+  | {
+      ok: false;
+      reason: voiceApi.ScreenShareFallbackReason;
+      detail?: string;
+      serverId: string;
+      channelId: string;
+    };
+
+export type SmoothCaptureResult = { ok: true } | SmoothCaptureFailure;
+
 type VoiceCoreState = {
   /** channelId -> VoiceState[] mapping */
   voiceStates: Record<string, VoiceState[]>;
@@ -146,7 +165,16 @@ type VoiceCoreActions = {
    * helper instead of getDisplayMedia. Returns false if it couldn't start, so the caller can fall
    * back to "Net Görüntü".
    */
-  startNativeSmoothCapture: (sourceId: string) => Promise<boolean>;
+  startNativeSmoothCapture: (sourceId: string) => Promise<SmoothCaptureResult>;
+  /**
+   * Tell the user, and the operator, that smooth capture did not start.
+   *
+   * Separate from starting it because only the caller knows whether the failure is worth
+   * announcing: backing out of the picker while the helper comes up also lands here, and warning
+   * someone about a thing they just cancelled — then filing it as a fallback — makes the log worse
+   * rather than better.
+   */
+  reportSmoothFallback: (failure: SmoothCaptureFailure) => void;
   stopNativeSmoothCapture: () => void;
   setPickedShareSourceId: (sourceId: string | null) => void;
   setRtt: (rtt: number) => void;
@@ -413,25 +441,18 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   startNativeSmoothCapture: async (sourceId: string) => {
     const serverId = useServerStore.getState().activeServerId;
     const channelId = get().currentVoiceChannelId;
-    if (!serverId || !channelId || !window.electronAPI) return false;
+    // Not reportable: nothing was attempted, and the picker does not offer smooth here anyway.
+    if (!serverId || !channelId || !window.electronAPI) return { ok: false };
     // Before the token round-trip, not after: the helper is Windows-only, so anywhere else this
     // would mint a screen-share token and hand the room passphrase to a path that only rejects it.
-    if (window.electronAPI.platform !== "win32") return false;
-
-    // Every way this can fail happens on this machine, and the user then silently gets the browser
-    // path instead of the one they picked. Say so, and tell the server — the people who hit this
-    // cannot be asked to open a console, and the operator has no other way to count it.
-    const fellBack = (reason: voiceApi.ScreenShareFallbackReason, detail?: string) => {
-      useToastStore.getState().addToast("warning", i18n.t("voice:smoothFellBackToSharp"));
-      void voiceApi.reportScreenShareFallback(serverId, channelId, reason, detail);
-      return false;
-    };
+    // Also not reportable: the picker does not offer smooth here, so nothing was attempted.
+    if (window.electronAPI.platform !== "win32") return { ok: false };
 
     // Screen-token = the {userId}_ss identity + the room's E2EE passphrase; the native helper
     // publishes with these, so it decrypts on every client exactly like any screen share.
     const resp = await voiceApi.getScreenShareToken(serverId, channelId);
     if (!resp.success || !resp.data?.e2ee_passphrase) {
-      return fellBack("no_token", resp.error);
+      return { ok: false, reason: "no_token", detail: resp.error, serverId, channelId };
     }
     const { url, token, e2ee_passphrase } = resp.data;
     // Resolves only once the helper is really publishing — a false here means nothing was ever
@@ -445,12 +466,23 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       maxHeight: get().screenShareQuality === "720p" ? 720 : 1080,
     });
     if (!res.started) {
-      return fellBack("helper_failed", res.error);
+      return { ok: false, reason: "helper_failed", detail: res.error, serverId, channelId };
     }
     // Presence is derived from (isStreaming || isNativeCapturing) in VoiceStateManager — one
     // sharing concept, two engines — so nothing to broadcast here.
     set({ isNativeCapturing: true });
-    return true;
+    return { ok: true };
+  },
+
+  reportSmoothFallback: (failure) => {
+    if (!failure.reason) return; // nothing was attempted — see startNativeSmoothCapture
+    useToastStore.getState().addToast("warning", i18n.t("voice:smoothFellBackToSharp"));
+    void voiceApi.reportScreenShareFallback(
+      failure.serverId,
+      failure.channelId,
+      failure.reason,
+      failure.detail
+    );
   },
 
   stopNativeSmoothCapture: () => {
