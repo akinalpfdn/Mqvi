@@ -23,6 +23,9 @@ type ScreenShareContextMenuProps = {
   /** The share this menu belongs to — read for the info line, never modified. */
   trackRef: TrackReferenceOrPlaceholder;
   position: { x: number; y: number };
+  /** Your own share. The volume control is meaningless on it — you are not listening to yourself —
+   *  but everything else here is not, and hiding the whole menu took the stats switch with it. */
+  isLocalUser: boolean;
   onClose: () => void;
 };
 
@@ -31,6 +34,7 @@ function ScreenShareContextMenu({
   displayName,
   trackRef,
   position,
+  isLocalUser,
   onClose,
 }: ScreenShareContextMenuProps) {
   const { t } = useTranslation("voice");
@@ -161,46 +165,50 @@ function ScreenShareContextMenu({
           </div>
         )}
 
-        <div className="voice-ctx-label">{t("screenShareVolume")}</div>
+        {!isLocalUser && (
+          <>
+            <div className="voice-ctx-label">{t("screenShareVolume")}</div>
 
-        <div className="voice-ctx-slider">
-          <svg
-            style={{ width: 14, height: 14, cursor: "pointer", opacity: currentVolume === 0 ? 0.5 : 1 }}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-            onClick={handleToggleMute}
-          >
-            {currentVolume > 0 ? (
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+            <div className="voice-ctx-slider">
+              <svg
+                style={{ width: 14, height: 14, cursor: "pointer", opacity: currentVolume === 0 ? 0.5 : 1 }}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+                onClick={handleToggleMute}
+              >
+                {currentVolume > 0 ? (
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                  />
+                ) : (
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 9l-6 6M11 9l6 6"
+                  />
+                )}
+              </svg>
+              <input
+                type="range"
+                min={0}
+                max={200}
+                value={currentVolume}
+                onChange={handleVolumeChange}
+                className="voice-ctx-range"
+                style={{
+                  background: `linear-gradient(to right, var(--primary) ${(currentVolume / 200) * 100}%, var(--bg-5) ${(currentVolume / 200) * 100}%)`,
+                }}
               />
-            ) : (
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 9l-6 6M11 9l6 6"
-              />
-            )}
-          </svg>
-          <input
-            type="range"
-            min={0}
-            max={200}
-            value={currentVolume}
-            onChange={handleVolumeChange}
-            className="voice-ctx-range"
-            style={{
-              background: `linear-gradient(to right, var(--primary) ${(currentVolume / 200) * 100}%, var(--bg-5) ${(currentVolume / 200) * 100}%)`,
-            }}
-          />
-          <span className="voice-ctx-vol-value">{currentVolume}%</span>
-        </div>
+              <span className="voice-ctx-vol-value">{currentVolume}%</span>
+            </div>
 
-        <div className="voice-ctx-sep" />
+            <div className="voice-ctx-sep" />
+          </>
+        )}
 
         <div className="voice-ctx-label">{t("streamStats")}</div>
 
