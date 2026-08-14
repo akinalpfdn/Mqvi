@@ -1460,7 +1460,7 @@ function setupIPC(): void {
           output.push(msg);
           if (msg.includes(GAME_CAPTURE_READY)) settle({ started: true });
         };
-
+
         child.stdout?.on("data", forward);
         child.stderr?.on("data", forward);
 
