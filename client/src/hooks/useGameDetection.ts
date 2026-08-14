@@ -15,6 +15,7 @@ export function useGameDetection(isInVoice: boolean) {
 
   const screenShareMode = useVoiceStore((s) => s.screenShareMode);
   const startNativeSmoothCapture = useVoiceStore((s) => s.startNativeSmoothCapture);
+  const reportSmoothFallback = useVoiceStore((s) => s.reportSmoothFallback);
   const setPickedShareSourceId = useVoiceStore((s) => s.setPickedShareSourceId);
 
   // The probe exists to feed this row, so it lives exactly as long as the row can be on screen.
@@ -54,13 +55,15 @@ export function useGameDetection(isInVoice: boolean) {
 
       try {
         if (screenShareMode === "smooth") {
-          const started = await startNativeSmoothCapture(game.sourceId);
-          if (started) {
+          const result = await startNativeSmoothCapture(game.sourceId);
+          if (result.ok) {
             setPickedShareSourceId(game.sourceId);
             return;
           }
-          // The helper couldn't come up. Fall through to sharp with the same window rather than
-          // leaving the user with a button that did nothing.
+          // The helper couldn't come up. Say so and record it, then fall through to sharp with the
+          // same window rather than leaving the user with a button that did nothing. No cancel
+          // path here, unlike the picker — the row is one click, so every failure is a real one.
+          reportSmoothFallback(result);
         }
 
         await window.electronAPI?.setPrePickedSource?.(game.sourceId);
@@ -74,7 +77,7 @@ export function useGameDetection(isInVoice: boolean) {
         setIsStarting(false);
       }
     },
-    [game, isStarting, screenShareMode, startNativeSmoothCapture, setPickedShareSourceId]
+    [game, isStarting, screenShareMode, startNativeSmoothCapture, reportSmoothFallback, setPickedShareSourceId]
   );
 
   return { game, isStarting, shareGame };

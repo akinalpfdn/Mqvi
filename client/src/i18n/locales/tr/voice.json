@@ -13,6 +13,7 @@
   "screenModeSharp": "Net Görüntü",
   "screenModeSharpHint": "metin, kod, sunum",
   "smoothCaptureStopped": "Akıcı Görüntü beklenmedik şekilde durdu. Ekran paylaşımı sona erdi.",
+  "smoothFellBackToSharp": "Akıcı Görüntü başlatılamadı — Net Görüntü ile paylaşılıyor.",
   "screenPickerStarting": "Başlatılıyor…",
   "voiceConnected": "Ses Bağlı",
   "noOneInVoice": "Bu ses kanalında kimse yok",

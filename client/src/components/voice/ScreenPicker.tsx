@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useVoiceStore } from "../../stores/voiceStore";
+import { useVoiceStore, type SmoothCaptureResult } from "../../stores/voiceStore";
 
 interface PickerSource {
   id: string;
@@ -36,6 +36,12 @@ function ScreenPicker() {
   const startNativeSmoothCapture = useVoiceStore((s) => s.startNativeSmoothCapture);
   const stopNativeSmoothCapture = useVoiceStore((s) => s.stopNativeSmoothCapture);
   const setPickedShareSourceId = useVoiceStore((s) => s.setPickedShareSourceId);
+  const reportSmoothFallback = useVoiceStore((s) => s.reportSmoothFallback);
+
+  // The helper is Windows-only. Offering the choice everywhere meant a macOS or Linux user could
+  // pick "Akıcı Görüntü", get "Net Görüntü" on every single share, and never be told why — the
+  // same silent lie this whole arc has been closing, just on a platform nobody here tests on.
+  const smoothAvailable = window.electronAPI?.platform === "win32";
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -55,7 +61,9 @@ function ScreenPicker() {
       // Both engines' audio is scoped to this source — record it before either starts.
       setPickedShareSourceId(source.id);
 
-      if (screenShareMode !== "smooth") {
+      // `smoothAvailable` and not just the mode: the setting persists and defaults to "smooth", so
+      // a machine that cannot run the helper would otherwise attempt it on every share.
+      if (!smoothAvailable || screenShareMode !== "smooth") {
         window.electronAPI?.sendScreenPickerResult(source.id);
         setSources(null);
         return;
@@ -66,20 +74,26 @@ function ScreenPicker() {
       // main is waiting on exactly one result — send it whatever happens, or it waits forever.
       setStartingId(source.id);
       cancelledRef.current = false;
-      let started = false;
+      let result: SmoothCaptureResult = { ok: false };
       try {
-        started = await startNativeSmoothCapture(source.id);
+        result = await startNativeSmoothCapture(source.id);
       } catch (err) {
         console.error("[ScreenPicker] smooth capture failed:", err);
       }
       setStartingId(null);
+      const started = result.ok;
 
       if (cancelledRef.current) {
         // Backed out while it was coming up. handleCancel already answered main, and the helper
         // may have published by now — stop it, or we'd be sharing what the user just cancelled.
+        //
+        // Deliberately silent: reporting here would warn the user about something they chose to
+        // abandon, and file it as a fallback in the operator's log. Cancelling is not a failure.
         if (started) stopNativeSmoothCapture();
         return;
       }
+
+      if (!result.ok) reportSmoothFallback(result);
 
       // The helper carries the video, so cancel getDisplayMedia; if it never started, fall
       // through to sharp with this same source.
@@ -92,6 +106,7 @@ function ScreenPicker() {
       startNativeSmoothCapture,
       stopNativeSmoothCapture,
       setPickedShareSourceId,
+      reportSmoothFallback,
     ]
   );
 
@@ -194,25 +209,29 @@ function ScreenPicker() {
         </div>
 
         <div className="sp-footer">
-          <div className="sp-mode">
-            <span className="sp-audio-label">{t("screenModeLabel")}</span>
-            <div className="sp-mode-opts">
-              <button
-                className={`sp-mode-opt${screenShareMode === "smooth" ? " sp-mode-opt-active" : ""}`}
-                onClick={() => setScreenShareMode("smooth")}
-              >
-                <span className="sp-mode-name">{t("screenModeSmooth")}</span>
-                <span className="sp-mode-hint">{t("screenModeSmoothHint")}</span>
-              </button>
-              <button
-                className={`sp-mode-opt${screenShareMode === "sharp" ? " sp-mode-opt-active" : ""}`}
-                onClick={() => setScreenShareMode("sharp")}
-              >
-                <span className="sp-mode-name">{t("screenModeSharp")}</span>
-                <span className="sp-mode-hint">{t("screenModeSharpHint")}</span>
-              </button>
+          {/* Hidden where the helper cannot run: a choice that silently resolves to the same thing
+              either way is worse than no choice. */}
+          {smoothAvailable && (
+            <div className="sp-mode">
+              <span className="sp-audio-label">{t("screenModeLabel")}</span>
+              <div className="sp-mode-opts">
+                <button
+                  className={`sp-mode-opt${screenShareMode === "smooth" ? " sp-mode-opt-active" : ""}`}
+                  onClick={() => setScreenShareMode("smooth")}
+                >
+                  <span className="sp-mode-name">{t("screenModeSmooth")}</span>
+                  <span className="sp-mode-hint">{t("screenModeSmoothHint")}</span>
+                </button>
+                <button
+                  className={`sp-mode-opt${screenShareMode === "sharp" ? " sp-mode-opt-active" : ""}`}
+                  onClick={() => setScreenShareMode("sharp")}
+                >
+                  <span className="sp-mode-name">{t("screenModeSharp")}</span>
+                  <span className="sp-mode-hint">{t("screenModeSharpHint")}</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
           <label className="sp-audio-toggle">
             <span className="sp-audio-label">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

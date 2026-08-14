@@ -43,6 +43,9 @@ features = [
     "Win32_Foundation",
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",
+    # MMCSS (avrt.dll): the capture/encode pump registers as a multimedia thread so a game that
+    # saturates the CPU cannot starve it out of the scheduler.
+    "Win32_System_Threading",
     # WGC + D3D11 interop for zero-copy screen/game capture (NGC-03)
     "Graphics_Capture",
     # GraphicsCaptureAccess::RequestAccessAsync returns an AppCapabilityAccessStatus — without this

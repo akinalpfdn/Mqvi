@@ -108,17 +108,17 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
     handleFullscreenToggle();
   }, [isFullscreen, watchingCount, focusScreenShare, realUserId, handleFullscreenToggle]);
 
-  // Always suppress the browser/native context menu on the video — even for
-  // own stream where we don't open ours. Without this, fullscreen <video>
-  // shows the browser's media menu (Save as…, Picture-in-Picture, etc.).
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      if (isLocalUser) return;
-      setCtxMenu({ x: e.clientX, y: e.clientY });
-    },
-    [isLocalUser]
-  );
+  // Always suppress the browser/native context menu on the video: in fullscreen a <video> otherwise
+  // shows the browser's own media menu (Save as…, Picture-in-Picture).
+  //
+  // Opens on your own share too. It used to be blocked there because the volume slider is
+  // meaningless on it — but the stats switch lives in the same menu, so blocking it left the
+  // overlay stuck on your own stream with no way to turn it off. The menu hides the volume section
+  // instead.
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  }, []);
 
   return (
     <div
@@ -195,6 +195,7 @@ function ScreenSharePanel({ trackRef }: ScreenSharePanelProps) {
           displayName={displayName}
           trackRef={trackRef}
           position={ctxMenu}
+          isLocalUser={isLocalUser}
           onClose={() => setCtxMenu(null)}
         />
       )}
