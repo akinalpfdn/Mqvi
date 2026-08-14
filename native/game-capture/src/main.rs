@@ -448,13 +448,6 @@ async fn run() -> Result<()> {
     let (ready_tx, ready_rx) = oneshot::channel::<String>();
     let (died_tx, mut died_rx) = oneshot::channel::<String>();
     let cfg = VideoConfig { width, height, fps, hevc, max };
-    // Read before the pump runs, so a failure can say what this machine actually offers. An encode
-    // error cannot separate "this GPU exposes no H264 encoder at all" from "the encoder is right
-    // there and refused our settings", and those are different problems with different answers.
-    let encoders = if use_mf { describe_hardware_encoders() } else { String::new() };
-    if use_mf {
-        log::info!("hardware encoders — {encoders}");
-    }
     let mf_thread = if use_mf {
         let (src, stop) = (rtc_source.clone(), stop.clone());
         Some(std::thread::spawn(move || {
@@ -544,6 +537,14 @@ async fn run() -> Result<()> {
     // type, frames refused, frames accepted but never returned. The join above is what makes this
     // readable: the thread has run its error handler by now, so the cause is already in the channel.
     if no_frames {
+        // Read here and nowhere else. A working share must not pay for it, and more to the point
+        // must not be put at risk by it: this is fresh Media Foundation code, and running it on the
+        // path that already failed means the worst it can cost is a report, never a share.
+        //
+        // The distinction it buys is the one an encode error cannot make alone — "this GPU exposes
+        // no H264 encoder at all" and "the encoder is right there and refused our settings" reach
+        // the operator as the same failed share otherwise.
+        let encoders = describe_hardware_encoders();
         startup_error = Some(match died_rx.try_recv() {
             Ok(cause) => anyhow!("{cause} (no frames produced; {encoders})"),
             // The pump only returns Ok once `stop` is set, and that happens above — so reaching
