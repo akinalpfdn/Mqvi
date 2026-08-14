@@ -28,6 +28,28 @@ export async function getScreenShareToken(serverId: string, channelId: string) {
   });
 }
 
+/** Why "Akıcı Görüntü" could not start. A closed set — the server rejects anything else. */
+export type ScreenShareFallbackReason = "no_token" | "helper_failed" | "unsupported";
+
+/**
+ * Tells the server that smooth capture failed and the browser path was used instead.
+ *
+ * Everything that can fail there fails on this machine, so the server has no other way to know it
+ * happened — and the people it happens to cannot be asked to fetch a log. Fire-and-forget: the
+ * share is already running either way.
+ */
+export async function reportScreenShareFallback(
+  serverId: string,
+  channelId: string,
+  reason: ScreenShareFallbackReason,
+  detail?: string
+) {
+  return apiClient<void>(`/servers/${serverId}/voice/screen-share-fallback`, {
+    method: "POST",
+    body: { channel_id: channelId, reason, detail },
+  });
+}
+
 /** Returns all active voice states (who is in which voice channel). */
 export async function getVoiceStates(serverId: string) {
   return apiClient<VoiceState[]>(`/servers/${serverId}/voice/states`);

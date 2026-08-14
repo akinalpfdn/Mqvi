@@ -19,6 +19,7 @@ import (
 type voiceHandlerService interface {
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
+	RecordScreenShareFallback(userID, channelID, reason, detail string)
 	GetAllVoiceStates() []models.VoiceState
 }
 
@@ -114,6 +115,51 @@ func (h *VoiceHandler) ScreenShareToken(w http.ResponseWriter, r *http.Request) 
 	}
 
 	pkg.JSON(w, http.StatusOK, resp)
+}
+
+// ScreenShareFallback handles POST /api/servers/{serverId}/voice/screen-share-fallback
+//
+// The client reporting that "Akıcı Görüntü" could not start and it used "Net Görüntü" instead.
+// Every step that can fail there runs on the user's machine — the helper is missing, the GPU has
+// no encoder, the capture target vanished — so without this the operator cannot see it at all,
+// and the user cannot be asked to fetch a log.
+func (h *VoiceHandler) ScreenShareFallback(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	// Shares the screen-token bucket on purpose: one attempt costs one token and, if it fails, one
+	// fallback report. Its own bucket would let a member write twice as many log rows as they can
+	// make attempts.
+	if h.screenShareRL != nil && !h.screenShareRL.Allow(user.ID) {
+		retryAfter := h.screenShareRL.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many screen share requests")
+		return
+	}
+
+	var req models.ScreenShareFallbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Closed set, not free text: this lands in app_logs, and an unvalidated reason would let any
+	// member write arbitrary content into the operator's log and make it unscannable by cause.
+	if !models.ScreenShareFallbackReasons[req.Reason] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown reason")
+		return
+	}
+
+	detail := req.Detail
+	if len(detail) > models.ScreenShareFallbackDetailMax {
+		detail = detail[:models.ScreenShareFallbackDetailMax]
+	}
+
+	h.voiceService.RecordScreenShareFallback(user.ID, req.ChannelID, req.Reason, detail)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // VoiceStates handles GET /api/servers/{serverId}/voice/states

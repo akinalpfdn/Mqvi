@@ -28,6 +28,7 @@ func (s *stubVoiceService) GenerateToken(_ context.Context, _, _, _, _ string) (
 func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
 	return nil, nil
 }
+func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _ string) {}
 func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState { return s.all }
 
 // passthroughSigner is a FileURLSigner that returns its input unchanged so
@@ -269,5 +270,123 @@ func TestScreenShareToken_WorksWithNoLimiter(t *testing.T) {
 		if rec := screenShareRequest(h, "u1"); rec.Code != http.StatusOK {
 			t.Fatalf("request %d: got %d, want 200", i+1, rec.Code)
 		}
+	}
+}
+
+// ─── Screen-share fallback reporting ───
+
+// Smooth capture fails entirely on the user's machine, so without this report the operator cannot
+// see it at all — and the users it happens to cannot be asked to fetch a log. The rows land in the
+// same `screen_share` category as refused tokens, which is a table an operator has to be able to
+// scan: that is what the closed reason set and the truncation below protect.
+
+type recordingVoiceService struct {
+	stubVoiceService
+	calls []fallbackCall
+}
+
+type fallbackCall struct{ userID, channelID, reason, detail string }
+
+func (s *recordingVoiceService) RecordScreenShareFallback(userID, channelID, reason, detail string) {
+	s.calls = append(s.calls, fallbackCall{userID, channelID, reason, detail})
+}
+
+func fallbackRequest(h *VoiceHandler, userID, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/screen-share-fallback", strings.NewReader(body))
+	req.SetPathValue("serverId", "s1")
+	req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: userID, Username: "u"}))
+	rec := httptest.NewRecorder()
+	h.ScreenShareFallback(rec, req)
+	return rec
+}
+
+func fallbackHandler() (*VoiceHandler, *recordingVoiceService) {
+	svc := &recordingVoiceService{}
+	return &VoiceHandler{
+		voiceService:  svc,
+		urlSigner:     passthroughSigner{},
+		screenShareRL: ratelimit.NewMessageRateLimiter(20, time.Minute, time.Minute),
+	}, svc
+}
+
+func TestScreenShareFallback_RecordsAKnownReason(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","reason":"helper_failed","detail":"no hardware encoder MFT available"}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d, want 204", rec.Code)
+	}
+	if len(svc.calls) != 1 {
+		t.Fatalf("recorded %d calls, want 1", len(svc.calls))
+	}
+	got := svc.calls[0]
+	if got.userID != "u1" || got.channelID != "ch1" || got.reason != "helper_failed" {
+		t.Errorf("recorded %+v, want u1/ch1/helper_failed", got)
+	}
+	// The detail is the whole point of the row — it is what says *why* the helper refused.
+	if got.detail != "no hardware encoder MFT available" {
+		t.Errorf("detail = %q, want the helper's message", got.detail)
+	}
+}
+
+// The reason lands in an operator's log. Free text there is a member writing whatever they like
+// into it, and a category nobody can scan by cause.
+func TestScreenShareFallback_RejectsAReasonItDoesNotKnow(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","reason":"<script>alert(1)</script>"}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatalf("an unknown reason reached the log: %+v", svc.calls)
+	}
+}
+
+func TestScreenShareFallback_RejectsAnEmptyReason(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	if rec := fallbackRequest(h, "u1", `{"channel_id":"ch1"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatal("a reasonless report was recorded")
+	}
+}
+
+// Detail is free text by necessity — it carries the helper's own error. Bounding its length is
+// what stops the field being used as storage.
+func TestScreenShareFallback_TruncatesAnOversizedDetail(t *testing.T) {
+	h, svc := fallbackHandler()
+	long := strings.Repeat("A", models.ScreenShareFallbackDetailMax*10)
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","reason":"no_token","detail":"`+long+`"}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d, want 204 — an overlong detail is trimmed, not refused", rec.Code)
+	}
+	if got := len(svc.calls[0].detail); got != models.ScreenShareFallbackDetailMax {
+		t.Errorf("stored %d chars, want %d", got, models.ScreenShareFallbackDetailMax)
+	}
+}
+
+func TestScreenShareFallback_IsRateLimitedWithTheTokenEndpoint(t *testing.T) {
+	svc := &recordingVoiceService{}
+	h := &VoiceHandler{
+		voiceService:  svc,
+		urlSigner:     passthroughSigner{},
+		screenShareRL: ratelimit.NewMessageRateLimiter(2, time.Minute, time.Minute),
+	}
+
+	fallbackRequest(h, "spammer", `{"channel_id":"ch1","reason":"no_token"}`)
+	fallbackRequest(h, "spammer", `{"channel_id":"ch1","reason":"no_token"}`)
+
+	if rec := fallbackRequest(h, "spammer", `{"channel_id":"ch1","reason":"no_token"}`); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("got %d, want 429 — a member must not be able to fill the log at request rate", rec.Code)
+	}
+	if len(svc.calls) != 2 {
+		t.Errorf("recorded %d rows past the limit, want 2", len(svc.calls))
 	}
 }

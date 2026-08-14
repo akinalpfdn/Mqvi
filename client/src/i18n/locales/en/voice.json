@@ -13,6 +13,7 @@
   "screenModeSharp": "Sharp Video",
   "screenModeSharpHint": "text, code, presentations",
   "smoothCaptureStopped": "Smooth Video stopped unexpectedly. Screen sharing has ended.",
+  "smoothFellBackToSharp": "Smooth Video could not start — sharing with Sharp Video instead.",
   "screenPickerStarting": "Starting…",
   "voiceConnected": "Voice Connected",
   "noOneInVoice": "No one is in this voice channel",

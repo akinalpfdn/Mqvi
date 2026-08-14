@@ -166,6 +166,27 @@ func (s *voiceService) logScreenShareRefusal(level models.LogLevel, userID, chan
 	s.appLogger.Log(level, models.LogCategoryScreenShare, &userID, nil, "screen share token refused: "+reason, metadata)
 }
 
+// RecordScreenShareFallback notes that a client asked for the native capture path and ended up on
+// the browser one. Filed under the same `screen_share` category as a refused token, because from
+// the operator's side they are the same question — "who tried to share and did not get what they
+// picked" — and a refusal often causes the fallback that follows it.
+//
+// Warn, not Error: the user is still sharing. Something worked.
+func (s *voiceService) RecordScreenShareFallback(userID, channelID, reason, detail string) {
+	extra := map[string]string{"fell_back_to": "sharp"}
+	if detail != "" {
+		extra["detail"] = detail
+	}
+	if s.appLogger != nil {
+		metadata := map[string]string{"reason": reason, "channel_id": channelID}
+		for k, v := range extra {
+			metadata[k] = v
+		}
+		s.appLogger.Log(models.LogLevelWarn, models.LogCategoryScreenShare, &userID,
+			nil, "smooth capture fell back to sharp: "+reason, metadata)
+	}
+}
+
 // GenerateScreenShareToken generates a LiveKit token for the iOS native screen share connection.
 // The identity is "{userID}_ss" so it joins the same room as a separate participant
 // that only publishes the screen share track. The main JS SDK connection stays active for voice.

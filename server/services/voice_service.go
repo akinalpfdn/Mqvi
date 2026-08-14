@@ -48,6 +48,9 @@ type AFKTimeoutGetter interface {
 type VoiceService interface {
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
+	// RecordScreenShareFallback logs a client-side drop from the native capture path to the
+	// browser one. Fire-and-forget: the share already succeeded, so nothing waits on this.
+	RecordScreenShareFallback(userID, channelID, reason, detail string)
 	JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error
 	LeaveChannel(userID string) error
 	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string) error

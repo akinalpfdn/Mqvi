@@ -24,6 +24,8 @@ import {
 } from "../utils/nativePlugins";
 import { ensureMicPermission } from "../utils/devicePermissions";
 import { ensureFreshToken } from "../api/client";
+import { useToastStore } from "./toastStore";
+import i18n from "../i18n";
 import { useServerStore } from "./serverStore";
 import { useAuthStore } from "./authStore";
 import {
@@ -416,12 +418,20 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     // would mint a screen-share token and hand the room passphrase to a path that only rejects it.
     if (window.electronAPI.platform !== "win32") return false;
 
+    // Every way this can fail happens on this machine, and the user then silently gets the browser
+    // path instead of the one they picked. Say so, and tell the server — the people who hit this
+    // cannot be asked to open a console, and the operator has no other way to count it.
+    const fellBack = (reason: voiceApi.ScreenShareFallbackReason, detail?: string) => {
+      useToastStore.getState().addToast("warning", i18n.t("voice:smoothFellBackToSharp"));
+      void voiceApi.reportScreenShareFallback(serverId, channelId, reason, detail);
+      return false;
+    };
+
     // Screen-token = the {userId}_ss identity + the room's E2EE passphrase; the native helper
     // publishes with these, so it decrypts on every client exactly like any screen share.
     const resp = await voiceApi.getScreenShareToken(serverId, channelId);
     if (!resp.success || !resp.data?.e2ee_passphrase) {
-      console.error("[voice] smooth capture: screen-token failed", resp.error);
-      return false;
+      return fellBack("no_token", resp.error);
     }
     const { url, token, e2ee_passphrase } = resp.data;
     // Resolves only once the helper is really publishing — a false here means nothing was ever
@@ -435,8 +445,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       maxHeight: get().screenShareQuality === "720p" ? 720 : 1080,
     });
     if (!res.started) {
-      console.error("[voice] smooth capture failed to start:", res.error);
-      return false;
+      return fellBack("helper_failed", res.error);
     }
     // Presence is derived from (isStreaming || isNativeCapturing) in VoiceStateManager — one
     // sharing concept, two engines — so nothing to broadcast here.

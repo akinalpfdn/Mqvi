@@ -33,3 +33,28 @@ type VoiceTokenResponse struct {
 	ChannelID      string `json:"channel_id"`
 	E2EEPassphrase string `json:"e2ee_passphrase,omitempty"`
 }
+
+// ScreenShareFallbackRequest is the client saying "Akıcı Görüntü could not start, I used Net
+// Görüntü instead" — the one failure the operator cannot see from the server, because every step
+// that fails happens on the user's machine.
+type ScreenShareFallbackRequest struct {
+	ChannelID string `json:"channel_id"`
+	// Reason is a code from ScreenShareFallbackReasons, not free text: it lands in app_logs, so an
+	// unvalidated string would let any member write whatever they like into the operator's log.
+	Reason string `json:"reason"`
+	// Detail is the underlying error, kept for diagnosis and truncated by the handler. Never
+	// interpreted, only stored.
+	Detail string `json:"detail,omitempty"`
+}
+
+// ScreenShareFallbackReasons is the closed set the client may report. Anything else is rejected
+// rather than stored, so the log stays scannable by cause.
+var ScreenShareFallbackReasons = map[string]bool{
+	"no_token":      true, // the screen-token request was refused or carried no passphrase
+	"helper_failed": true, // the native helper never reported that it was publishing
+	"unsupported":   true, // not Windows, or no Electron bridge — smooth cannot run at all here
+}
+
+// ScreenShareFallbackDetailMax is how much of Detail survives: long enough for a helper error,
+// short enough that a member cannot use the field as storage.
+const ScreenShareFallbackDetailMax = 200
