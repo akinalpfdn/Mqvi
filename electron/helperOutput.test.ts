@@ -137,10 +137,12 @@ describe("createOutputTracker", () => {
   // was pointed at a resolution the MFT rejects, and `probe-encoders` supplied the inventory
   // through the same function the helper calls. v2.23.1 reported this as "the hardware encoder
   // produced no frames" — the symptom, with the fault and the machine's capability both lost.
-  const CAUSE = "SetOutputType: The input type is not supported for D3D device. (0xC00D6D76)";
-  const INVENTORY = "h264: NVIDIA H.264 Encoder MFT; h265: NVIDIA HEVC Encoder MFT";
+  const CAUSE =
+    "no hardware encoder accepted the settings — AMDh264Encoder: SetOutputType: " +
+    "The input type is not supported for D3D device. (0xC00D6D76)";
+  const INVENTORY = "h264: AMDh264Encoder, NVIDIA H.264 Encoder MFT; h265: NVIDIA HEVC Encoder MFT";
 
-  it("should report the fault and the machine's encoders as one line the server keeps whole", () => {
+  it("should fold the helper's two tellings of a failure into one, root cause first", () => {
     const t = createOutputTracker();
     t.push(`[2026-08-14T16:33:10Z ERROR mqvi_game_capture] ${CAUSE}\n`);
     t.push("[2026-08-14T16:33:10Z INFO  mqvi_game_capture] shutdown: signalling pump\n");
@@ -148,11 +150,16 @@ describe("createOutputTracker", () => {
     t.push("[2026-08-14T16:33:10Z INFO  mqvi_game_capture] shutdown: done\n");
     t.push(`Error: ${CAUSE} (no frames produced; ${INVENTORY})\n`);
 
-    // Folded into one entry, not two: the helper's final error opens with the same text the pump
-    // logged, so the budget is spent on the inventory rather than on saying the cause twice.
+    // One entry, not two: the helper's final error opens with the same text the pump logged, so the
+    // length budget is not spent saying the cause twice.
     expect(t.said()).toBe(`Error: ${CAUSE} (no frames produced; ${INVENTORY})`);
-    // The server truncates `detail` at 200 characters. Nothing here may depend on being kept.
-    expect(t.said().length).toBeLessThanOrEqual(200);
+
+    // The server keeps the first 200 characters. Which encoders refused, and why, must sit inside
+    // that window; the machine-wide inventory trailing it may be cut, and is redundant here anyway
+    // because the refusal list already names every encoder that was tried.
+    const kept = t.said().slice(0, 200);
+    expect(kept).toContain("AMDh264Encoder");
+    expect(kept).toContain("0xC00D6D76");
   });
 
   it("should bound a very deep cause chain", () => {

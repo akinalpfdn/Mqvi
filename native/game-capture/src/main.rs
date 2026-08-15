@@ -810,7 +810,10 @@ fn encoded_pump(
             Err(e) => {
                 consecutive_errors += 1;
                 if consecutive_errors >= MAX_CONSECUTIVE_ENCODE_ERRORS {
-                    bail!("hardware encoder failed {consecutive_errors} frames in a row: {e:#}");
+                    // Named: a machine can offer several encoders and the report is read without
+                    // any way to ask which one was in play.
+                    let which = enc.name().to_string();
+                    bail!("{which} failed {consecutive_errors} frames in a row: {e:#}");
                 }
                 log::warn!("encode error (continuing): {e:#}");
                 Vec::new()
@@ -864,7 +867,10 @@ fn encoded_pump(
                 if sent == 0 {
                     silent_reports += 1;
                     if silent_reports >= MAX_SILENT_REPORTS {
-                        bail!("encoder accepted {fed} frames but produced nothing for {silent_reports}s");
+                        bail!(
+                            "{} accepted {fed} frames but produced nothing for {silent_reports}s",
+                            enc.name()
+                        );
                     }
                 } else {
                     silent_reports = 0;

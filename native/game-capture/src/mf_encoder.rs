@@ -10,7 +10,7 @@
 use std::mem::ManuallyDrop;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use windows::core::{Interface, GUID, PWSTR, VARIANT};
 use windows::Win32::Media::MediaFoundation::{
     eAVEncCommonRateControlMode_CBR, ICodecAPI, IMFActivate, IMFMediaEventGenerator, IMFSample,
@@ -64,34 +64,12 @@ impl HwEncoder {
     pub fn new(width: u32, height: u32, fps: u32, bitrate_bps: u32, hevc: bool) -> Result<Self> {
         unsafe {
             let subtype = if hevc { MFVideoFormat_HEVC } else { MFVideoFormat_H264 };
-            let (transform, name) = create_hw_encoder(subtype)?;
-
-            // Unlock the async hardware MFT so we may drive it.
-            let attrs = transform.GetAttributes().context("GetAttributes")?;
-            attrs.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1).context("async unlock")?;
+            let (transform, name) = create_hw_encoder(subtype, width, height, fps, bitrate_bps)?;
 
             let codec_api = transform.cast::<ICodecAPI>().ok();
             // Keep the encoder's default periodic IDR interval (~1s). A very long GOP removes the
             // recovery points, so any packet loss accumulates into runaway corruption — far worse
             // than the small periodic keyframe hitch on a low-bitrate stream.
-
-            // Encoders want the OUTPUT type set before the input type.
-            let out = MFCreateMediaType()?;
-            out.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-            out.SetGUID(&MF_MT_SUBTYPE, &subtype)?;
-            out.SetUINT32(&MF_MT_AVG_BITRATE, bitrate_bps)?;
-            out.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
-            out.SetUINT64(&MF_MT_FRAME_SIZE, pack(width, height))?;
-            out.SetUINT64(&MF_MT_FRAME_RATE, pack(fps, 1))?;
-            transform.SetOutputType(0, &out, 0).context("SetOutputType")?;
-
-            let inp = MFCreateMediaType()?;
-            inp.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-            inp.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12)?;
-            inp.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
-            inp.SetUINT64(&MF_MT_FRAME_SIZE, pack(width, height))?;
-            inp.SetUINT64(&MF_MT_FRAME_RATE, pack(fps, 1))?;
-            transform.SetInputType(0, &inp, 0).context("SetInputType (NV12)")?;
 
             // Real-time streaming config: low latency (also disables B-frames on NVENC) + CBR.
             match &codec_api {
@@ -321,7 +299,6 @@ impl Drop for Activators {
     }
 }
 
-/// Enumerates the machine's hardware encoder MFTs for `subtype` and activates the first one.
 /// Names this machine's hardware encoders, for the failure report. Never fails — whatever it
 /// cannot determine, it says.
 ///
@@ -360,21 +337,79 @@ unsafe fn names_for(subtype: GUID) -> String {
     let mut names = Vec::new();
     for act in std::slice::from_raw_parts(activators, count as usize) {
         let Some(act) = act else { continue };
-        let mut name = PWSTR::null();
-        let mut nlen = 0u32;
-        if act.GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut name, &mut nlen).is_ok() {
-            names.push(name.to_string().unwrap_or_default());
-            CoTaskMemFree(Some(name.0 as *const _));
+        // An MFT that will not give its name still counts — dropping it would under-report what is
+        // installed, and a bare "" in the list reads like a parsing bug.
+        match friendly_name(act) {
+            n if n.is_empty() => names.push("<unnamed>".to_string()),
+            n => names.push(n),
         }
     }
     if names.is_empty() {
-        format!("{count} unnamed")
+        "none".into()
     } else {
         names.join(", ")
     }
 }
 
-unsafe fn create_hw_encoder(subtype: GUID) -> Result<(IMFTransform, String)> {
+/// The MFT's display name, or "" if it does not offer one.
+unsafe fn friendly_name(act: &IMFActivate) -> String {
+    let mut name = PWSTR::null();
+    let mut len = 0u32;
+    if act.GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut name, &mut len).is_ok() {
+        let s = name.to_string().unwrap_or_default();
+        CoTaskMemFree(Some(name.0 as *const _));
+        s
+    } else {
+        String::new()
+    }
+}
+
+/// Brings up one enumerated encoder and settles its formats. Everything that can rule a particular
+/// MFT out happens here, so the caller can simply move on to the next the machine offers.
+unsafe fn activate_and_negotiate(
+    act: &IMFActivate,
+    subtype: GUID,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate_bps: u32,
+) -> Result<IMFTransform> {
+    let transform: IMFTransform = act.ActivateObject().context("ActivateObject")?;
+
+    // Unlock the async hardware MFT so we may drive it.
+    let attrs = transform.GetAttributes().context("GetAttributes")?;
+    attrs.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1).context("async unlock")?;
+
+    // Encoders want the OUTPUT type set before the input type.
+    let out = MFCreateMediaType()?;
+    out.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+    out.SetGUID(&MF_MT_SUBTYPE, &subtype)?;
+    out.SetUINT32(&MF_MT_AVG_BITRATE, bitrate_bps)?;
+    out.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
+    out.SetUINT64(&MF_MT_FRAME_SIZE, pack(width, height))?;
+    out.SetUINT64(&MF_MT_FRAME_RATE, pack(fps, 1))?;
+    transform.SetOutputType(0, &out, 0).context("SetOutputType")?;
+
+    let inp = MFCreateMediaType()?;
+    inp.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+    inp.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12)?;
+    inp.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
+    inp.SetUINT64(&MF_MT_FRAME_SIZE, pack(width, height))?;
+    inp.SetUINT64(&MF_MT_FRAME_RATE, pack(fps, 1))?;
+    transform.SetInputType(0, &inp, 0).context("SetInputType (NV12)")?;
+
+    Ok(transform)
+}
+
+/// Enumerates the machine's hardware encoder MFTs for `subtype` and returns the first one that
+/// accepts our configuration, with its name.
+unsafe fn create_hw_encoder(
+    subtype: GUID,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate_bps: u32,
+) -> Result<(IMFTransform, String)> {
     let out_type = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: subtype };
     let mut activators: *mut Option<IMFActivate> = std::ptr::null_mut();
     let mut count = 0u32;
@@ -392,24 +427,34 @@ unsafe fn create_hw_encoder(subtype: GUID) -> Result<(IMFTransform, String)> {
     }
     let _owned = Activators { ptr: activators, count: count as usize };
 
-    let act = (*activators).clone().ok_or_else(|| anyhow!("null activator"))?;
-
-    let mut name = PWSTR::null();
-    let mut nlen = 0u32;
-    let friendly = if act
-        .GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut name, &mut nlen)
-        .is_ok()
-    {
-        let s = name.to_string().unwrap_or_default();
-        CoTaskMemFree(Some(name.0 as *const _));
-        s
-    } else {
-        String::new()
-    };
-
-    let transform: IMFTransform = act.ActivateObject().context("ActivateObject")?;
-
-    Ok((transform, friendly))
+    // Every encoder the machine lists, in the order it lists them — not just the first. Sorting is
+    // by the system's notion of merit, which says nothing about whether an MFT will accept our
+    // configuration. A Ryzen 7000 desktop (integrated Radeon alongside a discrete card) reported
+    // "AMDh264Encoder, AMDh264Encoder, NVIDIA H.264 Encoder MFT" and smooth capture failed outright
+    // on it, because the integrated one sorts first, refuses SetOutputType, and the working encoder
+    // two places down was never reached.
+    //
+    // Deliberately vendor-blind: whoever accepts the settings gets the job.
+    let mut refused: Vec<String> = Vec::new();
+    for act in std::slice::from_raw_parts(activators, count as usize) {
+        let Some(act) = act else { continue };
+        let name = friendly_name(act);
+        match activate_and_negotiate(act, subtype, width, height, fps, bitrate_bps) {
+            Ok(transform) => {
+                if !refused.is_empty() {
+                    log::warn!("using {name} after {} refused: {}", refused.len(), refused.join("; "));
+                }
+                return Ok((transform, name));
+            }
+            Err(e) => {
+                // Releases whatever ActivateObject built before the negotiation went wrong.
+                let _ = act.ShutdownObject();
+                log::warn!("encoder {name} refused: {e:#}");
+                refused.push(format!("{name}: {e:#}"));
+            }
+        }
+    }
+    bail!("no hardware encoder accepted the settings — {}", refused.join("; "))
 }
 
 #[cfg(test)]
