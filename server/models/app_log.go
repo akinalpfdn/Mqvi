@@ -16,6 +16,9 @@ const (
 	LogCategoryVoice       LogCategory = "voice"
 	LogCategoryVideo       LogCategory = "video"
 	LogCategoryScreenShare LogCategory = "screen_share"
+	// LogCategoryNoiseReduction covers the mic denoiser failing to attach — invisible otherwise,
+	// because the user just sounds noisy and nothing on the server ever hears about it.
+	LogCategoryNoiseReduction LogCategory = "noise_reduction"
 	LogCategoryWS          LogCategory = "ws"
 	LogCategoryAuth        LogCategory = "auth"
 	LogCategoryGeneral     LogCategory = "general"

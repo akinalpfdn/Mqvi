@@ -239,9 +239,14 @@ function UserBar({
                   aria-checked={noiseReductionMode === mode}
                   aria-label={t(`noiseReduction_${mode}`)}
                   data-label={t(`noiseReduction_${mode}`)}
-                  // Keyboard only in practice: a pointer tap is already handled by the container,
-                  // and this fires afterwards with the same value. Enter/Space needs it.
-                  onClick={() => setNoiseReductionMode(mode)}
+                  // Keyboard only — `detail` is 0 for Enter/Space and ≥1 for a real click. The
+                  // container already handled the pointer on pointerdown, and re-applying here is
+                  // not the no-op it looks like: if that selection was refused in between (Strong
+                  // on hardware GTCRN cannot run), this fires on pointerup and puts the refused
+                  // mode straight back, leaving the slider showing something that is not running.
+                  onClick={(e) => {
+                    if (e.detail === 0) setNoiseReductionMode(mode);
+                  }}
                 />
               ))}
             </div>

@@ -85,6 +85,9 @@ type RateLimiters struct {
 	// Screen-share token minting. Every call costs either a 4-hour JWT or an app_logs row, and
 	// nothing else bounded it.
 	ScreenShare *ratelimit.MessageRateLimiter
+	// Its own bucket: this report follows no minted credential and a processor swap is cheap to
+	// trigger, so it must not be able to spend the screen-share budget.
+	NoiseReduction *ratelimit.MessageRateLimiter
 	// Mark-read gets its own buckets, and DM and channel get one EACH. Not the message limiter:
 	// marking a conversation read must not spend the budget needed to send a message. And not one
 	// shared read bucket either — MessageRateLimiter keys on the user, so a busy channel would
@@ -293,6 +296,10 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// Same shape as ICE: an authenticated, user-initiated credential mint. Generous on purpose —
 	// a share that fails makes people retry, and those are the users we least want to lock out.
 	screenShareLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)
+	// Tighter than the screen-share bucket: a client with a real problem reports once per attach,
+	// and an attach only happens on a mode change or a track publish. Ten a minute is already far
+	// more than any honest client produces.
+	noiseReductionLimiter := ratelimit.NewMessageRateLimiter(10, 1*time.Minute, 30*time.Second)
 	// Both clients coalesce mark-read to at most ~1/s per conversation, so even a split view with
 	// several chats open and the window being focused repeatedly stays far under this. A loop does
 	// not. Separate buckets so neither path can spend the other's tokens.
@@ -360,7 +367,8 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Feedback:    feedbackLimiter,
 		ICE:         iceLimiter,
 		Discovery:   discoveryLimiter,
-		ScreenShare: screenShareLimiter,
+		ScreenShare:    screenShareLimiter,
+		NoiseReduction: noiseReductionLimiter,
 		DMRead:      dmReadLimiter,
 		ChannelRead: channelReadLimiter,
 	}

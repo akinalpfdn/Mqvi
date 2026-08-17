@@ -55,6 +55,38 @@ export async function reportScreenShareFallback(
   });
 }
 
+/** Which denoiser was being attached when it failed. Mirrors the server's closed set. */
+export type NoiseReductionEngine = "rnnoise" | "gtcrn" | "vadgate";
+
+/**
+ * Why it failed. `unsupported_sample_rate` is the known one — GTCRN's model runs at 16 kHz and its
+ * worklet accepts only 16/48 kHz, and the device's rate is not ours to choose. `attach_failed` is
+ * everything else, and is the more serious of the two: the user has no denoising at all.
+ */
+export type NoiseReductionFailureReason = "unsupported_sample_rate" | "attach_failed";
+
+/**
+ * Tells the server the mic denoiser would not attach.
+ *
+ * A screen share that fails is at least visible to the person sharing. A denoiser that never
+ * attached is visible to nobody: the user simply sounds noisy and concludes the feature is weak.
+ * Before this the only trace was a console.error nobody reads in a packaged app.
+ *
+ * Fire-and-forget — the call carries on regardless, the person is just unfiltered.
+ */
+export async function reportNoiseReductionFailure(
+  serverId: string,
+  channelId: string,
+  engine: NoiseReductionEngine,
+  reason: NoiseReductionFailureReason,
+  detail?: string
+) {
+  return apiClient<void>(`/servers/${serverId}/voice/noise-reduction-failure`, {
+    method: "POST",
+    body: { channel_id: channelId, engine, reason, detail },
+  });
+}
+
 /** Returns all active voice states (who is in which voice channel). */
 export async function getVoiceStates(serverId: string) {
   return apiClient<VoiceState[]>(`/servers/${serverId}/voice/states`);

@@ -28,7 +28,7 @@ import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
-import { getScreenShareToken } from "../../api/voice";
+import * as voiceApi from "../../api/voice";
 import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
 
@@ -137,7 +137,7 @@ function VoiceStateManager() {
           const channelId = useVoiceStore.getState().currentVoiceChannelId;
           if (!serverId || !channelId) return;
 
-          const response = await getScreenShareToken(serverId, channelId);
+          const response = await voiceApi.getScreenShareToken(serverId, channelId);
           if (cancelled || !response.success || !response.data) {
             console.error("[VoiceStateManager] Failed to get screen share token:", response.error);
             return;
@@ -772,7 +772,29 @@ function VoiceStateManager() {
       .getState()
       .addToast("warning", tVoice("strongUnavailableHere", { rate: err.sampleRate }));
     useVoiceStore.getState().setNoiseReductionMode("standard");
+    reportProcessorFailure("gtcrn", "unsupported_sample_rate", `${err.sampleRate} Hz`);
     return true;
+  }
+
+  /**
+   * Sends an attach failure to the operator's log. The user is told nothing here — for the
+   * unsupported-rate case they already got a toast, and for anything else there is nothing they
+   * could act on. What matters is that it stops being invisible on this side.
+   */
+  function reportProcessorFailure(
+    engine: voiceApi.NoiseReductionEngine,
+    reason: voiceApi.NoiseReductionFailureReason,
+    detail: string
+  ) {
+    const serverId = useServerStore.getState().activeServerId;
+    const channelId = useVoiceStore.getState().currentVoiceChannelId;
+    if (!serverId || !channelId) return;
+    void voiceApi.reportNoiseReductionFailure(serverId, channelId, engine, reason, detail);
+  }
+
+  /** The processor kinds the server knows about — "none" never reaches an attach. */
+  function engineOf(kind: ProcessorKind): voiceApi.NoiseReductionEngine | null {
+    return kind === "none" ? null : kind;
   }
 
   function getDesiredProcessor(mode: NoiseReductionMode, sens: number): ProcessorKind {
@@ -840,6 +862,10 @@ function VoiceStateManager() {
       if (cancelled) return;
       if (handleStrongUnavailable(err)) return;
       console.error("[VoiceStateManager] Failed to switch audio processor:", err);
+      const engine = engineOf(desired);
+      if (engine) {
+        reportProcessorFailure(engine, "attach_failed", err instanceof Error ? err.message : String(err));
+      }
     });
 
     return () => { cancelled = true; };
@@ -870,6 +896,10 @@ function VoiceStateManager() {
           processorRef.current = null;
           if (handleStrongUnavailable(err)) return;
           console.error("[VoiceStateManager] Failed to apply processor on publish:", err);
+          const engine = engineOf(desired);
+          if (engine) {
+            reportProcessorFailure(engine, "attach_failed", err instanceof Error ? err.message : String(err));
+          }
         });
     }
 

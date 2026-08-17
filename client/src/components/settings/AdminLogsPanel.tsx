@@ -26,6 +26,7 @@ const CATEGORY_OPTIONS: { value: string; labelKey: string }[] = [
   { value: "livekit", labelKey: "platformLogsCategoryLiveKit" },
   { value: "video", labelKey: "platformLogsCategoryVideo" },
   { value: "screen_share", labelKey: "platformLogsCategoryScreenShare" },
+  { value: "noise_reduction", labelKey: "platformLogsCategoryNoiseReduction" },
   { value: "ws", labelKey: "platformLogsCategoryWs" },
   { value: "auth", labelKey: "platformLogsCategoryAuth" },
   { value: "general", labelKey: "platformLogsCategoryGeneral" },

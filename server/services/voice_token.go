@@ -187,6 +187,28 @@ func (s *voiceService) RecordScreenShareFallback(userID, channelID, reason, deta
 	}
 }
 
+// RecordNoiseReductionFailure notes that a mic denoiser could not be attached on a client.
+//
+// Warn rather than error even for a full attach failure: the call itself carries on, the user is
+// simply unfiltered. Error level is for things that stop someone using the app.
+func (s *voiceService) RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string) {
+	if s.appLogger == nil {
+		return
+	}
+	metadata := map[string]string{
+		"reason":     reason,
+		"engine":     engine,
+		"channel_id": channelID,
+	}
+	if detail != "" {
+		metadata["detail"] = detail
+	}
+	// Says which engine in the message, not just the metadata: the log list is scanned by eye, and
+	// "gtcrn" vs "rnnoise" is the first thing that narrows a report.
+	s.appLogger.Log(models.LogLevelWarn, models.LogCategoryNoiseReduction, &userID,
+		nil, "noise reduction "+engine+" failed to attach: "+reason, metadata)
+}
+
 // GenerateScreenShareToken generates a LiveKit token for the iOS native screen share connection.
 // The identity is "{userID}_ss" so it joins the same room as a separate participant
 // that only publishes the screen share track. The main JS SDK connection stays active for voice.

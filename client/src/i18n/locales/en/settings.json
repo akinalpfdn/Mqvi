@@ -631,6 +631,7 @@
   "platformLogsCategoryVoice": "Voice",
   "platformLogsCategoryVideo": "Video",
   "platformLogsCategoryScreenShare": "Screen Share",
+  "platformLogsCategoryNoiseReduction": "Noise Reduction",
   "platformLogsCategoryWs": "WebSocket",
   "platformLogsCategoryAuth": "Auth",
   "platformLogsCategoryGeneral": "General",
