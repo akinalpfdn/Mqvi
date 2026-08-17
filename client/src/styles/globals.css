@@ -636,7 +636,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .ub-nr-slider:hover { background:var(--t3); }
 .ub-nr-slider.ub-nr-standard, .ub-nr-slider.ub-nr-strong { background:var(--green); }
 .ub-nr-stop { flex:1;border:none;background:none;padding:0;margin:0;cursor:pointer;border-radius:999px;z-index:1; }
-.ub-nr-stop:focus-visible { outline:2px solid var(--text-primary);outline-offset:-2px; }
+.ub-nr-stop:focus-visible { outline:2px solid var(--t0);outline-offset:-2px; }
 .ub-nr-slider.dragging .ub-nr-stop { cursor:grabbing; }
 
 /* Its own label rather than `title`: the browser holds a native tooltip back about a second, and
@@ -659,7 +659,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   -webkit-backdrop-filter:var(--panel-backdrop);
   border:1px solid var(--panel-border);
   box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.4);
-  color:var(--text-primary);
+  color:var(--t0);
   font-size:13px;line-height:1.2;white-space:nowrap;
   opacity:0;visibility:hidden;pointer-events:none;z-index:60;
 }
@@ -1512,11 +1512,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* Three named choices where a switch would only offer two. Labelled rather than dotted, because
    picking between Standard and Strong is a real decision and the row has space for the words. */
 .vs-segment { display:inline-flex;flex-shrink:0;border:1px solid var(--t3);border-radius:8px;overflow:hidden; }
-.vs-segment-item { border:none;background:var(--bg-5);color:var(--text-secondary);font-size:13px;padding:6px 14px;cursor:pointer;transition:background .15s,color .15s;white-space:nowrap; }
+.vs-segment-item { border:none;background:var(--bg-5);color:var(--t2);font-size:13px;padding:6px 14px;cursor:pointer;transition:background .15s,color .15s;white-space:nowrap; }
 .vs-segment-item + .vs-segment-item { border-left:1px solid var(--t3); }
-.vs-segment-item:hover { background:var(--t3);color:var(--text-primary); }
+.vs-segment-item:hover { background:var(--t3);color:var(--t0); }
 .vs-segment-item.active { background:var(--primary);color:#fff; }
-.vs-segment-item:focus-visible { outline:2px solid var(--text-primary);outline-offset:-2px; }
+.vs-segment-item:focus-visible { outline:2px solid var(--t0);outline-offset:-2px; }
 
 .vs-switch { position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0; }
 .vs-switch input { opacity:0;width:0;height:0;position:absolute; }

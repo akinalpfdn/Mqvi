@@ -20,6 +20,8 @@ import gtcrnWorkletPath from "@sapphi-red/web-noise-suppressor/gtcrnWorklet.js?u
 import gtcrnWasmPath from "@sapphi-red/web-noise-suppressor/gtcrn.wasm?url";
 import vadGateWorkletPath from "../../audio/vadGateWorklet.js?url";
 import { sensitivityToThreshold } from "../../audio/micSensitivity";
+import { gtcrnSupportsSampleRate } from "../../audio/gtcrnSampleRate";
+import { useToastStore } from "../../stores/toastStore";
 
 
 /** Segment order, quietest processing first. */
@@ -84,6 +86,7 @@ function sliderTrackStyle(value: number, max: number): React.CSSProperties {
 
 function VoiceSettings() {
   const { t } = useTranslation("settings");
+  const { t: tVoice } = useTranslation("voice");
 
   // ─── Store state ───
   const inputMode = useVoiceStore((s) => s.inputMode);
@@ -163,11 +166,22 @@ function VoiceSettings() {
       let denoiseNode: (AudioWorkletNode & { destroy(): void }) | null = null;
       let vadGateNode: AudioWorkletNode | null = null;
 
-      if (nrMode !== "off") {
+      // The same rate limit that applies in a call. Without it the test just shows a dead level
+      // meter: GTCRN's worklet throws where nothing can catch it and emits silence.
+      let engine = nrMode;
+      if (engine === "strong" && !gtcrnSupportsSampleRate(ctx.sampleRate)) {
+        useToastStore
+          .getState()
+          .addToast("warning", tVoice("strongUnavailableHere", { rate: ctx.sampleRate }));
+        useVoiceStore.getState().setNoiseReductionMode("standard");
+        engine = "standard";
+      }
+
+      if (engine !== "off") {
         // Whichever engine the user picked — the point of this test is to hear what a call will
         // actually sound like, and previewing RNNoise while the call runs GTCRN would make the
         // audition worthless.
-        const strong = nrMode === "strong";
+        const strong = engine === "strong";
         const wasmBinary = strong
           ? await loadGtcrn({ url: gtcrnWasmPath })
           : await loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseSimdWasmPath });

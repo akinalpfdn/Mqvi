@@ -211,7 +211,6 @@
   "micTest": "Test Mic",
   "micTestStop": "Stop Test",
   "noiseReduction": "Noise Reduction",
-  "noiseReductionDesc": "ML-based noise suppression (RNNoise). Removes background noise, fans, and keyboard clicks from your mic.",
   "noiseReduction_off": "Off",
   "noiseReduction_standard": "Standard",
   "noiseReduction_strong": "Strong",

@@ -25,6 +25,7 @@ import {
   ensureWorkletRegistered,
   type DenoiseEngineNode,
 } from "./DenoiseProcessorBase";
+import { gtcrnSupportsSampleRate, GtcrnUnsupportedSampleRateError } from "./gtcrnSampleRate";
 
 /** WASM binary cache — the module is stateless, so every instance can share one fetch. */
 let wasmBinaryPromise: Promise<ArrayBuffer> | null = null;
@@ -40,6 +41,13 @@ class GtcrnProcessor extends DenoiseProcessorBase {
   name = "gtcrn-noise-suppressor";
 
   protected async prepareEngine(ctx: AudioContext): Promise<ArrayBuffer> {
+    // Before the fetch and before the worklet: the context's rate comes from the hardware
+    // (LiveKit builds it with a bare `new AudioContext()`), and 44.1 kHz is ordinary on macOS
+    // and on plenty of headsets.
+    if (!gtcrnSupportsSampleRate(ctx.sampleRate)) {
+      throw new GtcrnUnsupportedSampleRateError(ctx.sampleRate);
+    }
+
     const [wasmBinary] = await Promise.all([
       getWasmBinary(),
       ensureWorkletRegistered(ctx, "gtcrn", gtcrnWorkletPath),

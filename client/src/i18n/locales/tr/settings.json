@@ -211,7 +211,6 @@
   "micTest": "Mikrofon Testi",
   "micTestStop": "Testi Durdur",
   "noiseReduction": "Gürültü Azaltma",
-  "noiseReductionDesc": "ML tabanlı gürültü bastırma (RNNoise). Mikrofondaki arka plan sesi, fan ve klavye seslerini temizler.",
   "noiseReduction_off": "Kapalı",
   "noiseReduction_standard": "Standart",
   "noiseReduction_strong": "Güçlü",

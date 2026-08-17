@@ -69,6 +69,7 @@
   "noiseReduction_off": "Kapalı",
   "noiseReduction_standard": "Standart",
   "noiseReduction_strong": "Güçlü",
+  "strongUnavailableHere": "Güçlü gürültü azaltma 48 kHz ses aygıtı gerektiriyor — seninki {{rate}} Hz. Standart'a geçildi.",
   "noiseReductionOn": "Gürültü azaltmayı kapat",
   "noiseReductionOff": "Gürültü azaltmayı aç",
   "on": "AÇIK",

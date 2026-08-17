@@ -69,6 +69,7 @@
   "noiseReduction_off": "Off",
   "noiseReduction_standard": "Standard",
   "noiseReduction_strong": "Strong",
+  "strongUnavailableHere": "Strong noise reduction needs a 48 kHz audio device — yours runs at {{rate}} Hz. Switched to Standard.",
   "noiseReductionOn": "Turn off noise reduction",
   "noiseReductionOff": "Turn on noise reduction",
   "on": "ON",

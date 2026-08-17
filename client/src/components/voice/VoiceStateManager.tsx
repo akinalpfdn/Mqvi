@@ -23,6 +23,7 @@ import type { NoiseReductionMode } from "../../stores/slices/voiceSettingsSlice"
 import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
 import { GtcrnProcessor } from "../../audio/GtcrnProcessor";
+import { GtcrnUnsupportedSampleRateError } from "../../audio/gtcrnSampleRate";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
@@ -759,6 +760,21 @@ function VoiceStateManager() {
   const inputVolumeRef = useRef(inputVolume);
   inputVolumeRef.current = inputVolume;
 
+  /**
+   * "Strong" cannot run on this machine's audio hardware. Moves the **setting**, not just the
+   * engine: leaving the slider on Strong while Standard runs is a state the user cannot see and
+   * cannot correct. The toast is what makes the change theirs rather than something that happened
+   * to them. Returns whether it handled the error.
+   */
+  function handleStrongUnavailable(err: unknown): boolean {
+    if (!(err instanceof GtcrnUnsupportedSampleRateError)) return false;
+    useToastStore
+      .getState()
+      .addToast("warning", tVoice("strongUnavailableHere", { rate: err.sampleRate }));
+    useVoiceStore.getState().setNoiseReductionMode("standard");
+    return true;
+  }
+
   function getDesiredProcessor(mode: NoiseReductionMode, sens: number): ProcessorKind {
     if (mode === "standard") return "rnnoise";
     if (mode === "strong") return "gtcrn";
@@ -809,14 +825,21 @@ function VoiceStateManager() {
       if (desired !== "none") {
         const processor = createProcessor(desired, micSensitivity, inputVolume);
         processorRef.current = processor;
-        await audioTrack!.setProcessor(processor);
+        try {
+          await audioTrack!.setProcessor(processor);
+        } catch (err) {
+          // init() failed, so nothing is attached to the track. Drop the reference before the next
+          // run mistakes it for a live processor and tries to stop it.
+          processorRef.current = null;
+          throw err;
+        }
       }
     }
 
     switchProcessor().catch((err) => {
-      if (!cancelled) {
-        console.error("[VoiceStateManager] Failed to switch audio processor:", err);
-      }
+      if (cancelled) return;
+      if (handleStrongUnavailable(err)) return;
+      console.error("[VoiceStateManager] Failed to switch audio processor:", err);
     });
 
     return () => { cancelled = true; };
@@ -843,7 +866,11 @@ function VoiceStateManager() {
       processorRef.current = processor;
       audioTrack.setProcessor(processor)
         .then(() => { /* processor applied */ })
-        .catch((err) => console.error("[VoiceStateManager] Failed to apply processor on publish:", err));
+        .catch((err) => {
+          processorRef.current = null;
+          if (handleStrongUnavailable(err)) return;
+          console.error("[VoiceStateManager] Failed to apply processor on publish:", err);
+        });
     }
 
     room.on(RoomEvent.LocalTrackPublished, handleLocalTrackPublished);
