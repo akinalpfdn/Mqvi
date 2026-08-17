@@ -19,8 +19,10 @@ import type {
   RemoteParticipant,
 } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
+import type { NoiseReductionMode } from "../../stores/slices/voiceSettingsSlice";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
+import { GtcrnProcessor } from "../../audio/GtcrnProcessor";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
@@ -30,7 +32,30 @@ import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
 
 /** Both processors expose setMicSensitivity and setInputVolume */
-type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
+type AudioProcessor = RNNoiseProcessor | GtcrnProcessor | VadGateProcessor;
+
+/** Which processor the current settings call for. "none" means publish the track untouched. */
+type ProcessorKind = "rnnoise" | "gtcrn" | "vadgate" | "none";
+
+/**
+ * One place that turns a kind into an instance. Both application sites (the settings effect and
+ * the first-publish handler) go through it, so a new engine cannot be wired into one and forgotten
+ * in the other.
+ */
+function createProcessor(
+  kind: Exclude<ProcessorKind, "none">,
+  sensitivity: number,
+  inputVolume: number
+): AudioProcessor {
+  switch (kind) {
+    case "rnnoise":
+      return new RNNoiseProcessor(sensitivity, inputVolume);
+    case "gtcrn":
+      return new GtcrnProcessor(sensitivity, inputVolume);
+    case "vadgate":
+      return new VadGateProcessor(sensitivity, inputVolume);
+  }
+}
 
 function VoiceStateManager() {
   const { t: tVoice } = useTranslation("voice");
@@ -48,7 +73,7 @@ function VoiceStateManager() {
   const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const pickedShareSourceId = useVoiceStore((s) => s.pickedShareSourceId);
-  const noiseReduction = useVoiceStore((s) => s.noiseReduction);
+  const noiseReductionMode = useVoiceStore((s) => s.noiseReductionMode);
   const micSensitivity = useVoiceStore((s) => s.micSensitivity);
   const inputVolume = useVoiceStore((s) => s.inputVolume);
   const outputDevice = useVoiceStore((s) => s.outputDevice);
@@ -727,22 +752,25 @@ function VoiceStateManager() {
 
   // Audio processor management: NR on -> RNNoise, NR off + sens<100 -> VadGate, else none
   const processorRef = useRef<AudioProcessor | null>(null);
-  const noiseReductionRef = useRef(noiseReduction);
-  noiseReductionRef.current = noiseReduction;
+  const noiseReductionRef = useRef(noiseReductionMode);
+  noiseReductionRef.current = noiseReductionMode;
   const micSensitivityRef = useRef(micSensitivity);
   micSensitivityRef.current = micSensitivity;
   const inputVolumeRef = useRef(inputVolume);
   inputVolumeRef.current = inputVolume;
 
-  function getDesiredProcessor(nr: boolean, sens: number): "rnnoise" | "vadgate" | "none" {
-    if (nr) return "rnnoise";
+  function getDesiredProcessor(mode: NoiseReductionMode, sens: number): ProcessorKind {
+    if (mode === "standard") return "rnnoise";
+    if (mode === "strong") return "gtcrn";
+    // Denoising off, but the sensitivity gate is a separate control and still applies.
     if (sens < 100) return "vadgate";
     return "none";
   }
 
-  function getCurrentProcessorType(): "rnnoise" | "vadgate" | "none" {
+  function getCurrentProcessorType(): ProcessorKind {
     if (!processorRef.current) return "none";
     if (processorRef.current instanceof RNNoiseProcessor) return "rnnoise";
+    if (processorRef.current instanceof GtcrnProcessor) return "gtcrn";
     return "vadgate";
   }
 
@@ -754,7 +782,7 @@ function VoiceStateManager() {
     const audioTrack = pub?.track as LocalAudioTrack | undefined;
     if (!audioTrack) return;
 
-    const desired = getDesiredProcessor(noiseReduction, micSensitivity);
+    const desired = getDesiredProcessor(noiseReductionMode, micSensitivity);
     const current = getCurrentProcessorType();
 
     if (desired === current) {
@@ -778,16 +806,10 @@ function VoiceStateManager() {
 
       if (cancelled) return;
 
-      if (desired === "rnnoise") {
-        const processor = new RNNoiseProcessor(micSensitivity, inputVolume);
+      if (desired !== "none") {
+        const processor = createProcessor(desired, micSensitivity, inputVolume);
         processorRef.current = processor;
         await audioTrack!.setProcessor(processor);
-        // RNNoise + VAD gate active
-      } else if (desired === "vadgate") {
-        const processor = new VadGateProcessor(micSensitivity, inputVolume);
-        processorRef.current = processor;
-        await audioTrack!.setProcessor(processor);
-        // VAD gate active
       }
     }
 
@@ -798,7 +820,7 @@ function VoiceStateManager() {
     });
 
     return () => { cancelled = true; };
-  }, [noiseReduction, micSensitivity, inputVolume, localParticipant]);
+  }, [noiseReductionMode, micSensitivity, inputVolume, localParticipant]);
 
   // Apply processor when mic track is first published (settings already active on join).
   // The effect above won't catch this since noiseReduction/micSensitivity haven't changed.
@@ -813,13 +835,11 @@ function VoiceStateManager() {
       const audioTrack = pub.track as LocalAudioTrack | undefined;
       if (!audioTrack) return;
 
-      let processor: AudioProcessor;
-      if (desired === "rnnoise") {
-        processor = new RNNoiseProcessor(micSensitivityRef.current, inputVolumeRef.current);
-      } else {
-        processor = new VadGateProcessor(micSensitivityRef.current, inputVolumeRef.current);
-      }
-
+      const processor = createProcessor(
+        desired,
+        micSensitivityRef.current,
+        inputVolumeRef.current
+      );
       processorRef.current = processor;
       audioTrack.setProcessor(processor)
         .then(() => { /* processor applied */ })

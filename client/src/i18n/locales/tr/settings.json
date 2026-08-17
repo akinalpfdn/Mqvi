@@ -170,14 +170,12 @@
   "joinRequestReject": "Reddet",
   "joinRequestApproved": "{{user}} onaylandı",
   "joinRequestActionError": "İşlem başarısız, lütfen tekrar deneyin",
-
   "afkTimeout": "AFK Ses Zaman Aşımı",
   "afkTimeoutDesc": "Bu süre boyunca aktif olmayan kullanıcılar ses kanalından çıkarılır.",
   "afkTimeout15": "15 dakika",
   "afkTimeout30": "30 dakika",
   "afkTimeout45": "45 dakika",
   "afkTimeout60": "1 saat",
-
   "livekitSettings": "Ses Sunucusu (LiveKit)",
   "livekitSettingsDesc": "Bu sunucudaki ses ve görüntü için LiveKit bağlantısını yönetin.",
   "livekitUrl": "LiveKit URL",
@@ -191,7 +189,6 @@
   "livekitPlatformManaged": "Bu sunucu mqvi'nin ses altyapısını kullanıyor. Yapılandırma gerekmez.",
   "livekitNoInstance": "Bu sunucu için ses sunucusu yapılandırılmamış.",
   "livekitCurrentUrl": "Mevcut URL",
-
   "voiceInputMode": "Giriş Modu",
   "voiceActivity": "Ses Etkinliği",
   "voiceActivityDesc": "Konuştuğunuzda otomatik iletim",
@@ -215,6 +212,12 @@
   "micTestStop": "Testi Durdur",
   "noiseReduction": "Gürültü Azaltma",
   "noiseReductionDesc": "ML tabanlı gürültü bastırma (RNNoise). Mikrofondaki arka plan sesi, fan ve klavye seslerini temizler.",
+  "noiseReduction_off": "Kapalı",
+  "noiseReduction_standard": "Standart",
+  "noiseReduction_strong": "Güçlü",
+  "noiseReductionDesc_off": "Gürültü bastırma yok. Yalnızca aşağıdaki hassasiyet eşiği uygulanır.",
+  "noiseReductionDesc_standard": "RNNoise. Fan, uğultu, klima gibi sabit gürültüleri temizler; sesiniz tam bant kalır.",
+  "noiseReductionDesc_strong": "GTCRN. Standart'ın kaldıramadığı klavye ve arka plan konuşmasını da temizler. Karşılığında sesinizin en tiz tonları kaybolur.",
   "joinLeaveSounds": "Giriş/Çıkış Sesleri",
   "joinLeaveSoundsDesc": "Biri ses kanalına girip çıktığında ses çal",
   "shortcuts": "Klavye Kısayolları",
@@ -226,7 +229,6 @@
   "screenShareAudio": "Ekran Paylaşımı Sesi",
   "screenShareAudioDesc": "Ekran paylaşırken sistem sesini paylaş (oyun, müzik). Ses sohbeti otomatik olarak hariç tutulur.",
   "screenShareAudioDescBrowser": "Ekran paylaşırken sistem sesini paylaş. Ses kanalında yankıya neden olabilir.",
-
   "selectChannelToEdit": "İzinlerini düzenlemek için bir kanal seçin",
   "selectRoleToEdit": "Override düzenlemek için bir rol seçin",
   "textPermissions": "Metin İzinleri",
@@ -237,7 +239,6 @@
   "permOverrideInherit": "Devral",
   "permOverrideAllow": "İzin Ver",
   "permOverrideDeny": "Reddet",
-
   "themeTitle": "Tema",
   "themeDescription": "Arayüz için bir renk paleti seçin",
   "blurTitle": "Arka plan bulanıklığı",
@@ -278,7 +279,6 @@
   "themeSageTerminalDesc": "Yeşil-siyah terminal estetiği, retro-futuristik",
   "themeSlateOcean": "Arduvaz Okyanus",
   "themeSlateOceanDesc": "Derin lacivert-gri, profesyonel ve zamansız",
-
   "noMemberSelected": "Rollerini yönetmek için bir üye seçin",
   "memberCurrentRoles": "Mevcut Roller",
   "memberNoRoles": "Atanmış rol yok",
@@ -304,13 +304,11 @@
   "confirmUnban": "\"{{name}}\" adlı üyenin yasağını kaldırmak istediğinizden emin misiniz? Sunucuya tekrar katılabilecek.",
   "memberUnbanned": "Yasak kaldırıldı",
   "memberUnbanError": "Yasak kaldırılırken hata oluştu",
-
   "updateDownloading": "v{{version}} güncelleme indiriliyor...",
   "updateReady": "v{{version}} güncelleme hazır",
   "updateRestart": "Yeniden Başlat",
   "updateLater": "Daha Sonra",
   "updateError": "Güncelleme başarısız",
-
   "security": "Güvenlik",
   "encryption": "Şifreleme",
   "blockedUsers": "Engellenen Kullanıcılar",
@@ -349,7 +347,6 @@
   "passwordSameAsOld": "Yeni şifre mevcut şifreden farklı olmalıdır",
   "wrongCurrentPassword": "Mevcut şifre hatalı",
   "passwordChangeError": "Şifre değiştirilemedi",
-
   "platformSettings": "Platform",
   "platformAdmin": "LiveKit Sunucuları",
   "platformLiveKitInstances": "LiveKit Sunucuları",
@@ -387,7 +384,6 @@
   "saving": "Kaydediliyor...",
   "save": "Kaydet",
   "cancel": "İptal",
-
   "platformServersTab": "Sunucular",
   "platformServerName": "Sunucu",
   "platformServerID": "Sunucu ID",
@@ -410,7 +406,6 @@
   "platformServerNoServers": "Platformda sunucu bulunmuyor",
   "platformServerNoResults": "Aramanızla eşleşen sunucu bulunamadı",
   "platformServerSearchPlaceholder": "Ad, ID veya kurucu ile ara...",
-
   "platformUsersTab": "Kullanıcılar",
   "platformUserUsername": "Kullanıcı Adı",
   "platformUserDisplayName": "Görünen Ad",
@@ -481,12 +476,10 @@
   "platformRemoveAdminConfirm": "{{username}} kullanıcısının platform admin yetkisini kaldırmak istediğinizden emin misiniz?",
   "platformAdminSuccess": "Admin durumu güncellendi",
   "platformAdminError": "Admin durumu güncellenirken hata oluştu",
-
   "platformUserUnban": "Yasağı Kaldır",
   "platformUnbanConfirm": "{{username}} kullanıcısının yasağını kaldırmak istediğinize emin misiniz? Tekrar giriş yapabilecek.",
   "platformUnbanSuccess": "{{username}} kullanıcısının yasağı kaldırıldı",
   "platformUnbanError": "Yasak kaldırılırken hata oluştu",
-
   "platformUserQuota": "Kota",
   "platformUserSetQuota": "Depolama Kotası Ayarla",
   "platformQuotaTitle": "Depolama Kotası — {{username}}",
@@ -495,7 +488,6 @@
   "platformQuotaInvalid": "Geçerli bir kota değeri girin",
   "platformQuotaSuccess": "{{username}} için kota güncellendi",
   "platformQuotaError": "Kota güncellenirken hata oluştu",
-
   "platformServerDelete": "Sunucuyu Sil",
   "platformServerSendDMOwner": "Sahibine Mesaj Gönder",
   "badgeVerified": "Doğrulanmış rozeti",
@@ -514,7 +506,6 @@
   "platformServerHardDeleteNowTitle": "30 günlük süreyi atla?",
   "platformServerHardDeleteNowConfirm": "\"{{name}}\" sunucusu şimdi kalıcı olarak silinecek. 30 günlük geçici silme süresi atlanır — kanallar, mesajlar, dosyalar ve LiveKit instance'ı hemen silinir, işlem geri alınamaz.",
   "platformServerHardDeleteNowButton": "Kalıcı olarak sil",
-
   "platformMetrics": "İzleme",
   "platformMetricsRefresh": "Yenile",
   "platformMetricsRefreshing": "Yenileniyor...",
@@ -534,7 +525,6 @@
   "platformMetricsPacketsOut": "Giden Paket",
   "platformMetricsNack": "NACK'ler",
   "platformMetricsLoadError": "Metrikler yüklenemedi",
-
   "platformMetricsHistory": "Kapasite Geçmişi",
   "platformMetricsHistoryNoData": "Henüz tarihsel veri yok. Veri toplama her 5 dakikada otomatik olarak başlar.",
   "platformMetricsPeriod24h": "24 Saat",
@@ -558,15 +548,12 @@
   "platformMetricsScreenShares": "Ekran Paylaşımı",
   "platformMetricsStreamers": "Yayın Yapan",
   "platformMetricsViewers": "İzleyen",
-
   "platformMetricsCPU": "Sunucu CPU",
   "platformMetricsBwIn": "Gelen Bant Genişliği",
   "platformMetricsBwOut": "Giden Bant Genişliği",
-
   "platformHetznerServerId": "Hetzner Sunucu ID",
   "platformHetznerServerIdPlaceholder": "12345678",
   "platformHetznerServerIdHint": "Hetzner Cloud Console'daki sayısal ID. Boş bırakılırsa Hetzner metrikleri devre dışı kalır.",
-
   "platformReportsTab": "Raporlar",
   "platformServerReportsTab": "Sunucu Şikayetleri",
   "platformServerReportServer": "Sunucu",
@@ -601,7 +588,6 @@
   "platformReportAttachments": "Rapor Dosyaları",
   "platformReportNoAttachments": "Dosya yok",
   "platformReportFileCount": "{{count}} dosya",
-
   "connections": "Bağlantılar",
   "connectionsTitle": "Sunucu Bağlantıları",
   "connectionsDescription": "Backend sunucu bağlantılarını yönet. Kendi sunucunu barındırıyorsan burayı kullan.",
@@ -621,7 +607,6 @@
   "connectionsReloadWarning": "Bağlantı değiştirildiğinde uygulama yeniden yüklenecek ve tekrar giriş yapmanız gerekecek.",
   "connectionsInvalidUrl": "Geçerli bir URL girin (http:// veya https://)",
   "connectionsNameRequired": "Bağlantı adı gerekli",
-
   "general": "Genel",
   "desktopSettings": "Masaüstü Ayarları",
   "openAtLogin": "Başlangıçta mqvi'yi Aç",
@@ -630,7 +615,6 @@
   "startMinimizedDesc": "Uygulama başlatıldığında arka planda sistem tepsisinde çalışır",
   "closeToTray": "Kapat Düğmesi Başlat Çubuğuna Küçült",
   "closeToTrayDesc": "X düğmesine bastığınızda uygulama kapanmak yerine sistem tepsisine küçülür",
-
   "platformLogsTab": "Günlükler",
   "platformLogsTitle": "Uygulama Günlükleri",
   "platformLogsClearAll": "Tümünü Temizle",
@@ -655,7 +639,6 @@
   "platformLogsCategoryLiveKit": "LiveKit",
   "platformLogsCategoryCleaner": "Temizleyici",
   "platformLogsPage": "Sayfa {{current}} / {{total}}",
-
   "feedback": "Geri Bildirim",
   "help": "Yardım",
   "feedbackNewTicket": "Yeni Bildirim",
@@ -695,7 +678,6 @@
   "feedbackStatus_in_progress": "İşleniyor",
   "feedbackStatus_resolved": "Çözüldü",
   "feedbackStatus_closed": "Kapatıldı",
-
   "platformFeedbackTab": "Geri Bildirim",
   "adminFeedbackTitle": "Geri Bildirim Talepleri",
   "adminFeedbackEmpty": "Henüz geri bildirim talebi yok.",
@@ -715,7 +697,6 @@
   "feedbackUnreadTitle": "Yeni etkinlik",
   "feedbackJustNow": "az önce",
   "storageUsage": "Depolama",
-
   "deleteAccount": "Hesabı sil",
   "deleteAccountSection": "Hesabı sil",
   "deleteAccountDescription": "Hesabınızı geçici olarak siler. Şifrenizle tekrar giriş yaparak 30 gün içinde geri yükleyebilirsiniz.",
@@ -725,7 +706,6 @@
   "deleteAccountConfirm": "Hesabımı sil",
   "deleteAccountSuccess": "Hesap silindi. Çıkış yapılıyor.",
   "deleteAccountFailed": "Hesap silinemedi",
-
   "deletedServers": "Silinen sunucular",
   "deletedServersDescription": "Sahip olduğunuz geçici silinmiş sunucular. 30 gün içinde geri yükleyebilir veya beklemeyi atlayarak kalıcı olarak silebilirsiniz.",
   "deletedServersEmpty": "Silinen sunucunuz yok.",

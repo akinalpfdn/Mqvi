@@ -630,6 +630,47 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .ub-switch-thumb { position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;transition:transform .2s;pointer-events:none; }
 .ub-switch.active .ub-switch-thumb { transform:translateX(16px); }
 
+/* Noise reduction: three stops on one track. Same pill language as .ub-switch, widened so each
+   mode has its own hit area — the thumb says which is live, the stops make any of them one tap. */
+.ub-nr-slider { position:relative;display:flex;width:60px;height:20px;border-radius:999px;background:var(--bg-5);transition:background .2s;flex-shrink:0; }
+.ub-nr-slider:hover { background:var(--t3); }
+.ub-nr-slider.ub-nr-standard, .ub-nr-slider.ub-nr-strong { background:var(--green); }
+.ub-nr-stop { flex:1;border:none;background:none;padding:0;margin:0;cursor:pointer;border-radius:999px;z-index:1; }
+.ub-nr-stop:focus-visible { outline:2px solid var(--text-primary);outline-offset:-2px; }
+.ub-nr-slider.dragging .ub-nr-stop { cursor:grabbing; }
+
+/* Its own label rather than `title`: the browser holds a native tooltip back about a second, and
+   this control is only discoverable if hovering a stop names it straight away. No transition and
+   no delay on purpose — every other hover in the app is the slow native one.
+   Surface is --picker-bg, not --panel-bg: this sits inside the user bar, which is already a
+   frosted panel, so there is no fresh backdrop left for a nested backdrop-filter to blur and
+   --panel-bg's 8% white washes out to nothing. The popups that read well (device picker, emoji,
+   GIF) are portalled and fixed, so their blur works; a CSS-only label cannot be. --picker-bg is
+   the token that exists for exactly this — opaque enough to read over anything.
+   Right-aligned to the track rather than centred on each stop: the slider sits at the end of the
+   row, so a centred label runs off the sidebar. Anchoring right grows it inward instead, and the
+   position stays put as the pointer moves between stops. */
+.ub-nr-stop::after {
+  content:attr(data-label);
+  position:absolute;bottom:calc(100% + 8px);right:0;
+  padding:5px 9px;border-radius:8px;
+  background:var(--picker-bg);
+  backdrop-filter:var(--panel-backdrop);
+  -webkit-backdrop-filter:var(--panel-backdrop);
+  border:1px solid var(--panel-border);
+  box-shadow:var(--panel-inset),0 8px 24px rgba(0,0,0,0.4);
+  color:var(--text-primary);
+  font-size:13px;line-height:1.2;white-space:nowrap;
+  opacity:0;visibility:hidden;pointer-events:none;z-index:60;
+}
+.ub-nr-stop:hover::after, .ub-nr-stop:focus-visible::after { opacity:1;visibility:visible; }
+/* While dragging the pointer is not "pointing at" a stop in any meaningful way, and three labels
+   flashing past under the cursor is noise. */
+.ub-nr-slider.dragging .ub-nr-stop::after { visibility:hidden;opacity:0; }
+.ub-nr-thumb { position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;transition:transform .2s;pointer-events:none; }
+.ub-nr-standard .ub-nr-thumb { transform:translateX(20px); }
+.ub-nr-strong .ub-nr-thumb { transform:translateX(40px); }
+
 /* Resize handle — draggable strip on sidebar & members panel edges */
 .resize-handle { position:absolute;top:0;width:4px;height:100%;cursor:col-resize;z-index:10;transition:background .15s; }
 .resize-handle:hover { background:var(--primary-m); }
@@ -1468,6 +1509,15 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* Toggle switch — on/off with clear state */
 .vs-toggle-row { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+/* Three named choices where a switch would only offer two. Labelled rather than dotted, because
+   picking between Standard and Strong is a real decision and the row has space for the words. */
+.vs-segment { display:inline-flex;flex-shrink:0;border:1px solid var(--t3);border-radius:8px;overflow:hidden; }
+.vs-segment-item { border:none;background:var(--bg-5);color:var(--text-secondary);font-size:13px;padding:6px 14px;cursor:pointer;transition:background .15s,color .15s;white-space:nowrap; }
+.vs-segment-item + .vs-segment-item { border-left:1px solid var(--t3); }
+.vs-segment-item:hover { background:var(--t3);color:var(--text-primary); }
+.vs-segment-item.active { background:var(--primary);color:#fff; }
+.vs-segment-item:focus-visible { outline:2px solid var(--text-primary);outline-offset:-2px; }
+
 .vs-switch { position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0; }
 .vs-switch input { opacity:0;width:0;height:0;position:absolute; }
 .vs-switch-slider { position:absolute;inset:0;background:var(--bg-5);border:2px solid var(--t3);border-radius:999px;cursor:pointer;transition:background .2s,border-color .2s; }

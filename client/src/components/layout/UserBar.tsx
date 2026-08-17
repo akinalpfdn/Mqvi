@@ -3,7 +3,7 @@
  * Shows mic/deafen/screen/disconnect when in voice, status picker on avatar click.
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
@@ -17,7 +17,11 @@ import { useSoundboardStore } from "../../stores/soundboardStore";
 import SoundboardPanel from "../soundboard/SoundboardPanel";
 import GameShareRow from "../voice/GameShareRow";
 import type { ScreenShareQuality } from "../../stores/voiceStore";
+import type { NoiseReductionMode } from "../../stores/slices/voiceSettingsSlice";
 import { createPortal } from "react-dom";
+
+/** Slider order, quietest processing first. Drives both the stops and the thumb position. */
+const NOISE_REDUCTION_MODES: readonly NoiseReductionMode[] = ["off", "standard", "strong"];
 
 type UserBarProps = {
   onToggleMute: () => void;
@@ -47,8 +51,45 @@ function UserBar({
   const isSharing = isStreaming || isNativeCapturing;
   const openSettings = useSettingsStore((s) => s.openSettings);
 
-  const noiseReduction = useVoiceStore((s) => s.noiseReduction);
-  const setNoiseReduction = useVoiceStore((s) => s.setNoiseReduction);
+  const noiseReductionMode = useVoiceStore((s) => s.noiseReductionMode);
+  const setNoiseReductionMode = useVoiceStore((s) => s.setNoiseReductionMode);
+
+  // Drag the thumb, not just tap a stop. Pointer capture is what makes it work once the pointer
+  // leaves the track: without it the stop buttons swallow the moves and the drag dies on the
+  // first boundary.
+  const nrSliderRef = useRef<HTMLDivElement | null>(null);
+  const [nrDragging, setNrDragging] = useState(false);
+
+  const nrModeAt = useCallback((clientX: number): NoiseReductionMode | null => {
+    const rect = nrSliderRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return null;
+    const ratio = (clientX - rect.left) / rect.width;
+    const index = Math.floor(ratio * NOISE_REDUCTION_MODES.length);
+    return NOISE_REDUCTION_MODES[Math.min(NOISE_REDUCTION_MODES.length - 1, Math.max(0, index))];
+  }, []);
+
+  const handleNrPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      nrSliderRef.current?.setPointerCapture(e.pointerId);
+      setNrDragging(true);
+      const mode = nrModeAt(e.clientX);
+      if (mode) setNoiseReductionMode(mode);
+    },
+    [nrModeAt, setNoiseReductionMode]
+  );
+
+  const handleNrPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!nrDragging) return;
+      const mode = nrModeAt(e.clientX);
+      // Guarded: dragging within one stop would otherwise write the same value every frame.
+      if (mode && mode !== useVoiceStore.getState().noiseReductionMode) setNoiseReductionMode(mode);
+    },
+    [nrDragging, nrModeAt, setNoiseReductionMode]
+  );
+
+  const endNrDrag = useCallback(() => setNrDragging(false), []);
   const rtt = useVoiceStore((s) => s.rtt);
   const isInVoice = !!currentVoiceChannelId;
   const isPanelOpen = useSoundboardStore((s) => s.isPanelOpen);
@@ -174,15 +215,36 @@ function UserBar({
               </svg>
               <span>{t("noiseReduction")}</span>
             </div>
-            <button
-              className={`ub-switch${noiseReduction ? " active" : ""}`}
-              onClick={() => setNoiseReduction(!noiseReduction)}
-              title={noiseReduction ? t("noiseReductionOff") : t("noiseReductionOn")}
-              role="switch"
-              aria-checked={noiseReduction}
+            {/* Three stops rather than a switch: the reason to touch this is "my noise is getting
+                through, try the stronger one", and a binary control can neither show that a third
+                mode exists nor reach it. Each stop is its own radio, so any mode is one tap away
+                and nothing depends on invisible history. */}
+            <div
+              ref={nrSliderRef}
+              className={`ub-nr-slider ub-nr-${noiseReductionMode}${nrDragging ? " dragging" : ""}`}
+              role="radiogroup"
+              aria-label={t("noiseReduction")}
+              onPointerDown={handleNrPointerDown}
+              onPointerMove={handleNrPointerMove}
+              onPointerUp={endNrDrag}
+              onLostPointerCapture={endNrDrag}
             >
-              <span className="ub-switch-thumb" />
-            </button>
+              <span className="ub-nr-thumb" aria-hidden="true" />
+              {NOISE_REDUCTION_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className="ub-nr-stop"
+                  role="radio"
+                  aria-checked={noiseReductionMode === mode}
+                  aria-label={t(`noiseReduction_${mode}`)}
+                  data-label={t(`noiseReduction_${mode}`)}
+                  // Keyboard only in practice: a pointer tap is already handled by the container,
+                  // and this fires afterwards with the same value. Enter/Space needs it.
+                  onClick={() => setNoiseReductionMode(mode)}
+                />
+              ))}
+            </div>
           </div>
           {/* The game you're playing, if any — one click, no picker. Renders nothing otherwise. */}
           <GameShareRow

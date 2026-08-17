@@ -20,6 +20,16 @@ export type ScreenShareQuality = "720p" | "1080p";
  */
 export type ScreenShareMode = "smooth" | "sharp";
 
+/**
+ * Which denoiser runs on the mic:
+ * - "off"      — no denoising; the sensitivity gate still applies.
+ * - "standard" — RNNoise, full-band. Steady noise (fan, hum) goes; the voice keeps its top end.
+ * - "strong"   — GTCRN. Removes what RNNoise structurally cannot (keyboard, background speech),
+ *                but its model runs at 16 kHz, so everything above 8 kHz is lost and the voice
+ *                comes out duller. A trade the user makes, not an upgrade we apply for them.
+ */
+export type NoiseReductionMode = "off" | "standard" | "strong";
+
 /** What the overlay on a screen share shows. "stats" is a superset of "fps", which is why this is
  *  one setting and not two toggles that could disagree. */
 export type StreamStatsMode = "none" | "fps" | "stats";
@@ -83,7 +93,7 @@ export type VoiceSettings = {
   /** Multiplier applied on top of masterVolume for in-app SFX (mute/deafen, join/leave, watch start/stop). */
   appSoundVolume: number;
   localMutedUsers: Record<string, boolean>;
-  noiseReduction: boolean;
+  noiseReductionMode: NoiseReductionMode;
   screenShareVolumes: Record<string, number>;
   screenShareAudio: boolean;
   screenShareQuality: ScreenShareQuality;
@@ -109,7 +119,7 @@ export const DEFAULT_SETTINGS: VoiceSettings = {
   notificationVolume: 100,
   appSoundVolume: 100,
   localMutedUsers: {},
-  noiseReduction: true,
+  noiseReductionMode: "standard",
   screenShareVolumes: {},
   screenShareAudio: false,
   screenShareQuality: "720p",
@@ -123,13 +133,35 @@ export const DEFAULT_SETTINGS: VoiceSettings = {
   deafenShortcut: DEFAULT_DEAFEN_SHORTCUT,
 };
 
+/** The shape written before noise reduction became three modes. */
+type LegacySettings = { noiseReduction?: boolean };
+
+/**
+ * Turns whatever is on disk into the current shape.
+ *
+ * `noiseReduction` used to be a boolean and is still sitting in every existing user's localStorage
+ * and in `voice_settings` on the server, so it arrives on other devices too. The merge below is a
+ * plain spread with no validation, so without this the old boolean would land in a field typed as a
+ * string union and the mode would read as neither "off" nor "standard".
+ */
+export function migrateSettings(parsed: Partial<VoiceSettings> & LegacySettings): VoiceSettings {
+  const { noiseReduction, ...rest } = parsed;
+  const merged = { ...DEFAULT_SETTINGS, ...rest };
+
+  // Only when the new key is absent: once someone has chosen a mode, a stale boolean left behind by
+  // an older client on another device must not overwrite it.
+  if (parsed.noiseReductionMode === undefined && typeof noiseReduction === "boolean") {
+    merged.noiseReductionMode = noiseReduction ? "standard" : "off";
+  }
+  return merged;
+}
+
 /** Loads voice settings from localStorage with partial merge (new keys get defaults). */
 export function loadSettings(): VoiceSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    const parsed = JSON.parse(raw) as Partial<VoiceSettings>;
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    return migrateSettings(JSON.parse(raw) as Partial<VoiceSettings> & LegacySettings);
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -159,7 +191,7 @@ function currentSettings(s: VoiceSettings): VoiceSettings {
     notificationVolume: s.notificationVolume,
     appSoundVolume: s.appSoundVolume,
     localMutedUsers: s.localMutedUsers,
-    noiseReduction: s.noiseReduction,
+    noiseReductionMode: s.noiseReductionMode,
     screenShareVolumes: s.screenShareVolumes,
     screenShareAudio: s.screenShareAudio,
     screenShareQuality: s.screenShareQuality,
@@ -192,7 +224,7 @@ export type VoiceSettingsSlice = VoiceSettings & {
   setScreenShareMode: (mode: ScreenShareMode) => void;
   setStreamStatsMode: (mode: StreamStatsMode) => void;
   setStreamStatsCorner: (corner: StreamStatsCorner) => void;
-  setNoiseReduction: (enabled: boolean) => void;
+  setNoiseReductionMode: (mode: NoiseReductionMode) => void;
   setMuteShortcut: (binding: ShortcutBinding) => void;
   setDeafenShortcut: (binding: ShortcutBinding) => void;
   toggleLocalMute: (userId: string) => void;
@@ -220,7 +252,7 @@ export const createVoiceSettingsSlice: StateCreator<
     notificationVolume: initial.notificationVolume,
     appSoundVolume: initial.appSoundVolume,
     localMutedUsers: initial.localMutedUsers,
-    noiseReduction: initial.noiseReduction,
+    noiseReductionMode: initial.noiseReductionMode,
     screenShareVolumes: initial.screenShareVolumes,
     screenShareAudio: initial.screenShareAudio,
     screenShareQuality: initial.screenShareQuality,
@@ -316,8 +348,8 @@ export const createVoiceSettingsSlice: StateCreator<
       saveSettings(currentSettings(get()));
     },
 
-    setNoiseReduction: (enabled) => {
-      set({ noiseReduction: enabled });
+    setNoiseReductionMode: (mode) => {
+      set({ noiseReductionMode: mode });
       saveSettings(currentSettings(get()));
     },
 
@@ -372,6 +404,14 @@ export const createVoiceSettingsSlice: StateCreator<
           (merged as Record<string, unknown>)[key] = settings[key];
         }
       }
+      // The copy above drops `noiseReduction` because it is no longer a key of VoiceSettings, and
+      // the server still holds it for anyone who has not saved since the upgrade. On a device with
+      // no localStorage to migrate from, that silently turns a deliberate "off" back into
+      // "standard" — so the legacy boolean is read here too, and only when the server has no mode.
+      const legacy = (settings as { noiseReduction?: boolean }).noiseReduction;
+      if (settings.noiseReductionMode === undefined && typeof legacy === "boolean") {
+        merged.noiseReductionMode = legacy ? "standard" : "off";
+      }
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
       } catch {
@@ -395,7 +435,7 @@ export const createVoiceSettingsSlice: StateCreator<
         streamStatsMode: merged.streamStatsMode,
         streamStatsCorner: merged.streamStatsCorner,
         localMutedUsers: merged.localMutedUsers,
-        noiseReduction: merged.noiseReduction,
+        noiseReductionMode: merged.noiseReductionMode,
         screenShareVolumes: merged.screenShareVolumes,
         muteShortcut: merged.muteShortcut,
         deafenShortcut: merged.deafenShortcut,

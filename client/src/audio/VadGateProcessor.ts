@@ -17,6 +17,7 @@ import { Track } from "livekit-client";
 import type { TrackProcessor, AudioProcessorOptions } from "livekit-client";
 
 import vadGateWorkletPath from "./vadGateWorklet.js?url";
+import { sensitivityToThreshold } from "./micSensitivity";
 
 /** AudioWorklet registration cache — prevents duplicate addModule() calls per AudioContext. */
 const registeredContexts = new WeakMap<AudioContext, Promise<void>>();
@@ -28,20 +29,6 @@ function ensureWorkletRegistered(ctx: AudioContext): Promise<void> {
     registeredContexts.set(ctx, p);
   }
   return p;
-}
-
-/**
- * Converts micSensitivity (0-100) to RMS threshold (quadratic curve).
- * Same mapping as RNNoiseProcessor for consistent behavior.
- *
- *   100 -> 0     (gate disabled)
- *   50  -> 0.01  (moderate)
- *   0   -> 0.04  (very aggressive)
- */
-function sensitivityToThreshold(sensitivity: number): number {
-  const clamped = Math.max(0, Math.min(100, sensitivity));
-  const inverted = (100 - clamped) / 100;
-  return 0.04 * inverted * inverted;
 }
 
 class VadGateProcessor
