@@ -199,7 +199,7 @@ function SettingsNav({ drawerOpen = false, onNavigate }: SettingsNavProps) {
 
       {/* App Version — desktop only */}
       {!isMobile && (
-        <p className="settings-nav-version">mqvi v2.23.3</p>
+        <p className="settings-nav-version">mqvi v2.24.0</p>
       )}
     </nav>
     <ConnectionsModal isOpen={showConnections} onClose={() => setShowConnections(false)} />
