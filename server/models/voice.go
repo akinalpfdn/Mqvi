@@ -65,3 +65,35 @@ const ScreenShareFallbackDetailMax = 200
 // (`lower(hex(randomblob(8)))`); this is generous room around that, and the point is only that the
 // value cannot be unbounded — it lands in app_logs metadata, and nothing else caps a JSON body.
 const ScreenShareChannelIDMax = 64
+
+// NoiseReductionFailureRequest is the client saying "the mic denoiser did not attach".
+//
+// Same blind spot as the screen-share fallback and worse in one way: a share that fails is visible
+// to the person sharing, whereas a denoiser that never attached is not visible to anyone. The user
+// simply sounds noisy and assumes the feature is weak. Until this existed the only record was a
+// console.error nobody reads in a packaged app.
+type NoiseReductionFailureRequest struct {
+	ChannelID string `json:"channel_id"`
+	// Engine is which denoiser was being attached, from NoiseReductionEngines.
+	Engine string `json:"engine"`
+	// Reason is a code from NoiseReductionFailureReasons, not free text — it lands in app_logs.
+	Reason string `json:"reason"`
+	// Detail is the underlying error, kept for diagnosis and truncated by the handler. Never
+	// interpreted, only stored.
+	Detail string `json:"detail,omitempty"`
+}
+
+// NoiseReductionEngines is the closed set of denoisers the client may name.
+var NoiseReductionEngines = map[string]bool{
+	"rnnoise": true, // "Standard" — RNNoise, full-band
+	"gtcrn":   true, // "Strong" — GTCRN, 16 kHz model
+	"vadgate": true, // no denoising, sensitivity gate only
+}
+
+// NoiseReductionFailureReasons is the closed set of causes, so the category stays scannable.
+var NoiseReductionFailureReasons = map[string]bool{
+	// The device's audio rate is one GTCRN cannot run; the client dropped to "Standard" and said so.
+	"unsupported_sample_rate": true,
+	// Anything else thrown while attaching. The user has no denoising at all and was not told.
+	"attach_failed": true,
+}

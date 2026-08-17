@@ -30,6 +30,7 @@ func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, 
 	return nil, nil
 }
 func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _ string) {}
+func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string) {}
 func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState      { return s.all }
 
 // passthroughSigner is a FileURLSigner that returns its input unchanged so
@@ -453,5 +454,164 @@ func TestScreenShareFallback_RejectsTheRetiredUnsupportedReason(t *testing.T) {
 	}
 	if len(svc.calls) != 0 {
 		t.Fatal("a retired reason was recorded")
+	}
+}
+
+// ── Noise reduction failure reports ────────────────────────────────────────────────────────────
+//
+// A denoiser that never attaches is invisible: the call carries on, the person just sounds noisy
+// and assumes the feature is weak. Nothing on the server hears about it, so this endpoint is the
+// only record — which also makes it a member-writable path into an operator's log, and the closed
+// sets below are what keep it scannable.
+
+type noiseCall struct{ userID, channelID, engine, reason, detail string }
+
+type noiseRecordingService struct {
+	stubVoiceService
+	calls []noiseCall
+}
+
+func (s *noiseRecordingService) RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string) {
+	s.calls = append(s.calls, noiseCall{userID, channelID, engine, reason, detail})
+}
+
+func noiseHandler() (*VoiceHandler, *noiseRecordingService) {
+	svc := &noiseRecordingService{}
+	return &VoiceHandler{
+		voiceService:     svc,
+		urlSigner:        passthroughSigner{},
+		noiseReductionRL: ratelimit.NewMessageRateLimiter(10, time.Minute, time.Minute),
+	}, svc
+}
+
+func noiseRequest(h *VoiceHandler, userID, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/noise-reduction-failure", strings.NewReader(body))
+	req.SetPathValue("serverId", "s1")
+	req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: userID, Username: "u"}))
+	rec := httptest.NewRecorder()
+	h.NoiseReductionFailure(rec, req)
+	return rec
+}
+
+func TestNoiseReductionFailure_RecordsAKnownFailure(t *testing.T) {
+	h, svc := noiseHandler()
+
+	rec := noiseRequest(h, "u1", `{"channel_id":"ch1","engine":"gtcrn","reason":"unsupported_sample_rate","detail":"44100 Hz"}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d, want 204", rec.Code)
+	}
+	if len(svc.calls) != 1 {
+		t.Fatalf("recorded %d calls, want 1", len(svc.calls))
+	}
+	got := svc.calls[0]
+	if got.userID != "u1" || got.channelID != "ch1" || got.engine != "gtcrn" {
+		t.Errorf("recorded %+v, want u1/ch1/gtcrn", got)
+	}
+	// The detail is what makes the row actionable — without the rate there is nothing to act on.
+	if got.detail != "44100 Hz" {
+		t.Errorf("detail = %q, want the rejected rate", got.detail)
+	}
+}
+
+func TestNoiseReductionFailure_RejectsAnEngineItDoesNotKnow(t *testing.T) {
+	h, svc := noiseHandler()
+
+	rec := noiseRequest(h, "u1", `{"channel_id":"ch1","engine":"<script>","reason":"attach_failed"}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatalf("an unknown engine reached the log: %+v", svc.calls)
+	}
+}
+
+func TestNoiseReductionFailure_RejectsAReasonItDoesNotKnow(t *testing.T) {
+	h, svc := noiseHandler()
+
+	rec := noiseRequest(h, "u1", `{"channel_id":"ch1","engine":"rnnoise","reason":"whatever-i-like"}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatalf("an unknown reason reached the log: %+v", svc.calls)
+	}
+}
+
+// Both codes must be present. An empty one is not "unspecified", it is a row nobody can read.
+func TestNoiseReductionFailure_RejectsEmptyCodes(t *testing.T) {
+	h, svc := noiseHandler()
+
+	if rec := noiseRequest(h, "u1", `{"channel_id":"ch1","engine":"","reason":"attach_failed"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("empty engine: got %d, want 400", rec.Code)
+	}
+	if rec := noiseRequest(h, "u1", `{"channel_id":"ch1","engine":"rnnoise","reason":""}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("empty reason: got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatalf("an empty code reached the log: %+v", svc.calls)
+	}
+}
+
+// Detail is free-form by design — it carries the underlying error — so length is the only bound,
+// and nothing else caps the JSON body on this route.
+func TestNoiseReductionFailure_TruncatesAnOversizedDetail(t *testing.T) {
+	h, svc := noiseHandler()
+
+	body := `{"channel_id":"ch1","engine":"rnnoise","reason":"attach_failed","detail":"` + strings.Repeat("ı", 500) + `"}`
+	rec := noiseRequest(h, "u1", body)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d, want 204", rec.Code)
+	}
+	// Runes, not bytes: "ı" is two bytes, and cutting mid-rune would store a replacement character.
+	if n := len([]rune(svc.calls[0].detail)); n != models.ScreenShareFallbackDetailMax {
+		t.Errorf("detail kept %d runes, want %d", n, models.ScreenShareFallbackDetailMax)
+	}
+}
+
+func TestNoiseReductionFailure_RejectsAnOversizedChannelID(t *testing.T) {
+	h, svc := noiseHandler()
+
+	body := `{"channel_id":"` + strings.Repeat("a", models.ScreenShareChannelIDMax+1) + `","engine":"rnnoise","reason":"attach_failed"}`
+	rec := noiseRequest(h, "u1", body)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatalf("an oversized channel id reached the log: %+v", svc.calls)
+	}
+}
+
+// Its own bucket, not the screen-share one: this report follows no minted credential, and a
+// processor swap is cheap to trigger by toggling a setting.
+func TestNoiseReductionFailure_IsRateLimitedOnItsOwnBucket(t *testing.T) {
+	svc := &noiseRecordingService{}
+	h := &VoiceHandler{
+		voiceService:     svc,
+		urlSigner:        passthroughSigner{},
+		screenShareRL:    ratelimit.NewMessageRateLimiter(20, time.Minute, time.Minute),
+		noiseReductionRL: ratelimit.NewMessageRateLimiter(2, time.Minute, time.Minute),
+	}
+	body := `{"channel_id":"ch1","engine":"rnnoise","reason":"attach_failed"}`
+
+	for i := 0; i < 2; i++ {
+		if rec := noiseRequest(h, "u1", body); rec.Code != http.StatusNoContent {
+			t.Fatalf("report %d: got %d, want 204", i+1, rec.Code)
+		}
+	}
+	rec := noiseRequest(h, "u1", body)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("third report: got %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("a 429 without Retry-After leaves the client guessing")
+	}
+	// The screen-share bucket must be untouched — spending one must not spend the other.
+	if !h.screenShareRL.Allow("u1") {
+		t.Error("the noise reports drained the screen-share bucket")
 	}
 }

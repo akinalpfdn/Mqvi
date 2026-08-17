@@ -20,21 +20,29 @@ type voiceHandlerService interface {
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	RecordScreenShareFallback(userID, channelID, reason, detail string)
+	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
 	GetAllVoiceStates() []models.VoiceState
 }
 
 type VoiceHandler struct {
-	voiceService  voiceHandlerService
-	urlSigner     services.FileURLSigner
-	screenShareRL *ratelimit.MessageRateLimiter
+	voiceService     voiceHandlerService
+	urlSigner        services.FileURLSigner
+	screenShareRL    *ratelimit.MessageRateLimiter
+	noiseReductionRL *ratelimit.MessageRateLimiter
 }
 
 func NewVoiceHandler(
 	voiceService services.VoiceService,
 	urlSigner services.FileURLSigner,
 	screenShareRL *ratelimit.MessageRateLimiter,
+	noiseReductionRL *ratelimit.MessageRateLimiter,
 ) *VoiceHandler {
-	return &VoiceHandler{voiceService: voiceService, urlSigner: urlSigner, screenShareRL: screenShareRL}
+	return &VoiceHandler{
+		voiceService:     voiceService,
+		urlSigner:        urlSigner,
+		screenShareRL:    screenShareRL,
+		noiseReductionRL: noiseReductionRL,
+	}
 }
 
 // Token handles POST /api/servers/{serverId}/voice/token
@@ -181,6 +189,58 @@ func (h *VoiceHandler) ScreenShareFallback(w http.ResponseWriter, r *http.Reques
 	detail := truncateRunes(req.Detail, models.ScreenShareFallbackDetailMax)
 
 	h.voiceService.RecordScreenShareFallback(user.ID, req.ChannelID, req.Reason, detail)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// NoiseReductionFailure handles POST /api/servers/{serverId}/voice/noise-reduction-failure
+//
+// The client reporting that the mic denoiser would not attach. Everything that can fail there is on
+// the user's machine — the audio hardware runs at a rate the model cannot, a worklet will not load
+// — and the failure is silent by nature: the person simply sounds noisy and assumes the feature is
+// poor. Nothing on the server would ever hear about it.
+func (h *VoiceHandler) NoiseReductionFailure(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	// Its own bucket, unlike the screen-share report which shares the token bucket it follows.
+	// This one follows no minted credential, and it fires from a processor swap — cheap to trigger
+	// by toggling a setting, so it must not be able to spend another feature's budget. Tight
+	// because a client with a real problem reports once per attach, not in a loop.
+	if h.noiseReductionRL != nil && !h.noiseReductionRL.Allow(user.ID) {
+		retryAfter := h.noiseReductionRL.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many noise reduction reports")
+		return
+	}
+
+	var req models.NoiseReductionFailureRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Closed sets for both codes, same reasoning as the screen-share report: they land in the
+	// operator's log, and an unvalidated string is a member writing arbitrary content into it.
+	if !models.NoiseReductionEngines[req.Engine] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown engine")
+		return
+	}
+	if !models.NoiseReductionFailureReasons[req.Reason] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown reason")
+		return
+	}
+	if len(req.ChannelID) > models.ScreenShareChannelIDMax {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "channel_id too long")
+		return
+	}
+	// Same rune-boundary truncation as the screen-share detail, and for the same reason: this is a
+	// free-form error string with no known shape, and nothing else caps the JSON body.
+	detail := truncateRunes(req.Detail, models.ScreenShareFallbackDetailMax)
+
+	h.voiceService.RecordNoiseReductionFailure(user.ID, req.ChannelID, req.Engine, req.Reason, detail)
 	w.WriteHeader(http.StatusNoContent)
 }
 

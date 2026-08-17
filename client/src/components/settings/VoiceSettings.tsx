@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore } from "../../stores/voiceStore";
 import type { InputMode } from "../../stores/voiceStore";
+import type { NoiseReductionMode } from "../../stores/slices/voiceSettingsSlice";
 import {
   DEFAULT_MUTE_SHORTCUT,
   DEFAULT_DEAFEN_SHORTCUT,
@@ -11,13 +12,20 @@ import {
   type ShortcutBinding,
 } from "../../stores/slices/voiceSettingsSlice";
 import { isElectron } from "../../utils/constants";
-import { RnnoiseWorkletNode, loadRnnoise } from "@sapphi-red/web-noise-suppressor";
+import { RnnoiseWorkletNode, loadRnnoise, GtcrnWorkletNode, loadGtcrn } from "@sapphi-red/web-noise-suppressor";
 import rnnoiseWorkletPath from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
 import rnnoiseWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
 import rnnoiseSimdWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
+import gtcrnWorkletPath from "@sapphi-red/web-noise-suppressor/gtcrnWorklet.js?url";
+import gtcrnWasmPath from "@sapphi-red/web-noise-suppressor/gtcrn.wasm?url";
 import vadGateWorkletPath from "../../audio/vadGateWorklet.js?url";
-import { sensitivityToThreshold } from "../../audio/RNNoiseProcessor";
+import { sensitivityToThreshold } from "../../audio/micSensitivity";
+import { gtcrnSupportsSampleRate } from "../../audio/gtcrnSampleRate";
+import { useToastStore } from "../../stores/toastStore";
 
+
+/** Segment order, quietest processing first. */
+const NOISE_REDUCTION_MODES: readonly NoiseReductionMode[] = ["off", "standard", "strong"];
 
 /** Simplified MediaDeviceInfo for select options. */
 type DeviceOption = {
@@ -78,6 +86,7 @@ function sliderTrackStyle(value: number, max: number): React.CSSProperties {
 
 function VoiceSettings() {
   const { t } = useTranslation("settings");
+  const { t: tVoice } = useTranslation("voice");
 
   // ─── Store state ───
   const inputMode = useVoiceStore((s) => s.inputMode);
@@ -88,7 +97,7 @@ function VoiceSettings() {
   const masterVolume = useVoiceStore((s) => s.masterVolume);
   const inputVolume = useVoiceStore((s) => s.inputVolume);
   const soundsEnabled = useVoiceStore((s) => s.soundsEnabled);
-  const noiseReduction = useVoiceStore((s) => s.noiseReduction);
+  const noiseReductionMode = useVoiceStore((s) => s.noiseReductionMode);
   const notificationVolume = useVoiceStore((s) => s.notificationVolume);
   const appSoundVolume = useVoiceStore((s) => s.appSoundVolume);
 
@@ -100,7 +109,7 @@ function VoiceSettings() {
   const setMasterVolume = useVoiceStore((s) => s.setMasterVolume);
   const setInputVolume = useVoiceStore((s) => s.setInputVolume);
   const setSoundsEnabled = useVoiceStore((s) => s.setSoundsEnabled);
-  const setNoiseReduction = useVoiceStore((s) => s.setNoiseReduction);
+  const setNoiseReductionMode = useVoiceStore((s) => s.setNoiseReductionMode);
   const setNotificationVolume = useVoiceStore((s) => s.setNotificationVolume);
   const setAppSoundVolume = useVoiceStore((s) => s.setAppSoundVolume);
 
@@ -125,7 +134,7 @@ function VoiceSettings() {
     analyser: AnalyserNode;
     gainNode: GainNode;
     raf: number;
-    rnnoiseNode: RnnoiseWorkletNode | null;
+    denoiseNode: (AudioWorkletNode & { destroy(): void }) | null;
     vadGateNode: AudioWorkletNode | null;
     loopbackAudio: HTMLAudioElement | null;
   } | null>(null);
@@ -144,7 +153,7 @@ function VoiceSettings() {
       const source = ctx.createMediaStreamSource(stream);
 
       // Read current settings
-      const nr = useVoiceStore.getState().noiseReduction;
+      const nrMode = useVoiceStore.getState().noiseReductionMode;
       const sens = useVoiceStore.getState().micSensitivity;
       const inVol = useVoiceStore.getState().inputVolume;
 
@@ -154,33 +163,45 @@ function VoiceSettings() {
       source.connect(gainNode);
 
       let lastNode: AudioNode = gainNode;
-      let rnnoiseNode: RnnoiseWorkletNode | null = null;
+      let denoiseNode: (AudioWorkletNode & { destroy(): void }) | null = null;
       let vadGateNode: AudioWorkletNode | null = null;
 
-      if (nr) {
-        // Full pipeline: source -> RNNoise -> VAD gate
-        const wasmBinary = await loadRnnoise({
-          url: rnnoiseWasmPath,
-          simdUrl: rnnoiseSimdWasmPath,
-        });
+      // The same rate limit that applies in a call. Without it the test just shows a dead level
+      // meter: GTCRN's worklet throws where nothing can catch it and emits silence.
+      let engine = nrMode;
+      if (engine === "strong" && !gtcrnSupportsSampleRate(ctx.sampleRate)) {
+        useToastStore
+          .getState()
+          .addToast("warning", tVoice("strongUnavailableHere", { rate: ctx.sampleRate }));
+        useVoiceStore.getState().setNoiseReductionMode("standard");
+        engine = "standard";
+      }
+
+      if (engine !== "off") {
+        // Whichever engine the user picked — the point of this test is to hear what a call will
+        // actually sound like, and previewing RNNoise while the call runs GTCRN would make the
+        // audition worthless.
+        const strong = engine === "strong";
+        const wasmBinary = strong
+          ? await loadGtcrn({ url: gtcrnWasmPath })
+          : await loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseSimdWasmPath });
 
         await Promise.all([
-          ctx.audioWorklet.addModule(rnnoiseWorkletPath),
+          ctx.audioWorklet.addModule(strong ? gtcrnWorkletPath : rnnoiseWorkletPath),
           ctx.audioWorklet.addModule(vadGateWorkletPath),
         ]);
 
-        rnnoiseNode = new RnnoiseWorkletNode(ctx, {
-          wasmBinary,
-          maxChannels: 1,
-        });
+        denoiseNode = strong
+          ? new GtcrnWorkletNode(ctx, { wasmBinary, maxChannels: 1 })
+          : new RnnoiseWorkletNode(ctx, { wasmBinary, maxChannels: 1 });
 
         vadGateNode = new AudioWorkletNode(ctx, "vad-gate-processor");
         vadGateNode.port.postMessage({
           threshold: sensitivityToThreshold(sens),
         });
 
-        gainNode.connect(rnnoiseNode);
-        rnnoiseNode.connect(vadGateNode);
+        gainNode.connect(denoiseNode);
+        denoiseNode.connect(vadGateNode);
         lastNode = vadGateNode;
       } else if (sens < 100) {
         // VAD gate only (no noise reduction but sensitivity threshold active)
@@ -221,7 +242,7 @@ function VoiceSettings() {
         }
       }
 
-      micTestRef.current = { stream, ctx, analyser, gainNode, raf: 0, rnnoiseNode, vadGateNode, loopbackAudio };
+      micTestRef.current = { stream, ctx, analyser, gainNode, raf: 0, denoiseNode, vadGateNode, loopbackAudio };
       micTestRef.current.raf = requestAnimationFrame(tick);
       setIsTesting(true);
     } catch (err) {
@@ -231,14 +252,14 @@ function VoiceSettings() {
 
   const stopMicTest = useCallback(() => {
     if (!micTestRef.current) return;
-    const { stream, ctx, raf, rnnoiseNode, vadGateNode, loopbackAudio } = micTestRef.current;
+    const { stream, ctx, raf, denoiseNode, vadGateNode, loopbackAudio } = micTestRef.current;
     cancelAnimationFrame(raf);
     stream.getTracks().forEach((t) => t.stop());
     if (loopbackAudio) {
       loopbackAudio.pause();
       loopbackAudio.srcObject = null;
     }
-    try { rnnoiseNode?.disconnect(); rnnoiseNode?.destroy(); } catch {}
+    try { denoiseNode?.disconnect(); denoiseNode?.destroy(); } catch {}
     try { vadGateNode?.disconnect(); } catch {}
     ctx.close().catch(() => {});
     micTestRef.current = null;
@@ -250,14 +271,14 @@ function VoiceSettings() {
   useEffect(() => {
     return () => {
       if (micTestRef.current) {
-        const { stream, ctx, raf, rnnoiseNode, loopbackAudio } = micTestRef.current;
+        const { stream, ctx, raf, denoiseNode, loopbackAudio } = micTestRef.current;
         cancelAnimationFrame(raf);
         stream.getTracks().forEach((t) => t.stop());
         if (loopbackAudio) {
           loopbackAudio.pause();
           loopbackAudio.srcObject = null;
         }
-        try { rnnoiseNode?.disconnect(); rnnoiseNode?.destroy(); } catch {}
+        try { denoiseNode?.disconnect(); denoiseNode?.destroy(); } catch {}
         ctx.close().catch(() => {});
         micTestRef.current = null;
       }
@@ -296,7 +317,7 @@ function VoiceSettings() {
       startMicTest();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noiseReduction]);
+  }, [noiseReductionMode]);
 
   // ─── Device enumeration ───
   useEffect(() => {
@@ -640,16 +661,24 @@ function VoiceSettings() {
         <div className="vs-toggle-row">
           <div>
             <div className="vs-label">{t("noiseReduction")}</div>
-            <div className="vs-desc">{t("noiseReductionDesc")}</div>
+            {/* The description follows the choice: "Strong" trades voice bandwidth for quiet, and
+                someone picking it should be told that before they wonder why they sound duller. */}
+            <div className="vs-desc">{t(`noiseReductionDesc_${noiseReductionMode}`)}</div>
           </div>
-          <label className="vs-switch">
-            <input
-              type="checkbox"
-              checked={noiseReduction}
-              onChange={(e) => setNoiseReduction(e.target.checked)}
-            />
-            <span className="vs-switch-slider" />
-          </label>
+          <div className="vs-segment" role="radiogroup" aria-label={t("noiseReduction")}>
+            {NOISE_REDUCTION_MODES.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={noiseReductionMode === mode}
+                className={`vs-segment-item${noiseReductionMode === mode ? " active" : ""}`}
+                onClick={() => setNoiseReductionMode(mode)}
+              >
+                {t(`noiseReduction_${mode}`)}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

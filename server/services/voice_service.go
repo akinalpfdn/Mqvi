@@ -51,6 +51,9 @@ type VoiceService interface {
 	// RecordScreenShareFallback logs a client-side drop from the native capture path to the
 	// browser one. Fire-and-forget: the share already succeeded, so nothing waits on this.
 	RecordScreenShareFallback(userID, channelID, reason, detail string)
+	// RecordNoiseReductionFailure logs a mic denoiser that would not attach on a client. Also
+	// fire-and-forget: the call is unaffected, the user is just unfiltered.
+	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
 	JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error
 	LeaveChannel(userID string) error
 	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string) error

@@ -19,18 +19,44 @@ import type {
   RemoteParticipant,
 } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
+import type { NoiseReductionMode } from "../../stores/slices/voiceSettingsSlice";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
+import { GtcrnProcessor } from "../../audio/GtcrnProcessor";
+import { GtcrnUnsupportedSampleRateError } from "../../audio/gtcrnSampleRate";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
-import { getScreenShareToken } from "../../api/voice";
+import * as voiceApi from "../../api/voice";
 import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
 
 /** Both processors expose setMicSensitivity and setInputVolume */
-type AudioProcessor = RNNoiseProcessor | VadGateProcessor;
+type AudioProcessor = RNNoiseProcessor | GtcrnProcessor | VadGateProcessor;
+
+/** Which processor the current settings call for. "none" means publish the track untouched. */
+type ProcessorKind = "rnnoise" | "gtcrn" | "vadgate" | "none";
+
+/**
+ * One place that turns a kind into an instance. Both application sites (the settings effect and
+ * the first-publish handler) go through it, so a new engine cannot be wired into one and forgotten
+ * in the other.
+ */
+function createProcessor(
+  kind: Exclude<ProcessorKind, "none">,
+  sensitivity: number,
+  inputVolume: number
+): AudioProcessor {
+  switch (kind) {
+    case "rnnoise":
+      return new RNNoiseProcessor(sensitivity, inputVolume);
+    case "gtcrn":
+      return new GtcrnProcessor(sensitivity, inputVolume);
+    case "vadgate":
+      return new VadGateProcessor(sensitivity, inputVolume);
+  }
+}
 
 function VoiceStateManager() {
   const { t: tVoice } = useTranslation("voice");
@@ -48,7 +74,7 @@ function VoiceStateManager() {
   const watchingScreenShares = useVoiceStore((s) => s.watchingScreenShares);
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const pickedShareSourceId = useVoiceStore((s) => s.pickedShareSourceId);
-  const noiseReduction = useVoiceStore((s) => s.noiseReduction);
+  const noiseReductionMode = useVoiceStore((s) => s.noiseReductionMode);
   const micSensitivity = useVoiceStore((s) => s.micSensitivity);
   const inputVolume = useVoiceStore((s) => s.inputVolume);
   const outputDevice = useVoiceStore((s) => s.outputDevice);
@@ -111,7 +137,7 @@ function VoiceStateManager() {
           const channelId = useVoiceStore.getState().currentVoiceChannelId;
           if (!serverId || !channelId) return;
 
-          const response = await getScreenShareToken(serverId, channelId);
+          const response = await voiceApi.getScreenShareToken(serverId, channelId);
           if (cancelled || !response.success || !response.data) {
             console.error("[VoiceStateManager] Failed to get screen share token:", response.error);
             return;
@@ -727,22 +753,62 @@ function VoiceStateManager() {
 
   // Audio processor management: NR on -> RNNoise, NR off + sens<100 -> VadGate, else none
   const processorRef = useRef<AudioProcessor | null>(null);
-  const noiseReductionRef = useRef(noiseReduction);
-  noiseReductionRef.current = noiseReduction;
+  const noiseReductionRef = useRef(noiseReductionMode);
+  noiseReductionRef.current = noiseReductionMode;
   const micSensitivityRef = useRef(micSensitivity);
   micSensitivityRef.current = micSensitivity;
   const inputVolumeRef = useRef(inputVolume);
   inputVolumeRef.current = inputVolume;
 
-  function getDesiredProcessor(nr: boolean, sens: number): "rnnoise" | "vadgate" | "none" {
-    if (nr) return "rnnoise";
+  /**
+   * "Strong" cannot run on this machine's audio hardware. Moves the **setting**, not just the
+   * engine: leaving the slider on Strong while Standard runs is a state the user cannot see and
+   * cannot correct. The toast is what makes the change theirs rather than something that happened
+   * to them. Returns whether it handled the error.
+   */
+  function handleStrongUnavailable(err: unknown): boolean {
+    if (!(err instanceof GtcrnUnsupportedSampleRateError)) return false;
+    useToastStore
+      .getState()
+      .addToast("warning", tVoice("strongUnavailableHere", { rate: err.sampleRate }));
+    useVoiceStore.getState().setNoiseReductionMode("standard");
+    reportProcessorFailure("gtcrn", "unsupported_sample_rate", `${err.sampleRate} Hz`);
+    return true;
+  }
+
+  /**
+   * Sends an attach failure to the operator's log. The user is told nothing here — for the
+   * unsupported-rate case they already got a toast, and for anything else there is nothing they
+   * could act on. What matters is that it stops being invisible on this side.
+   */
+  function reportProcessorFailure(
+    engine: voiceApi.NoiseReductionEngine,
+    reason: voiceApi.NoiseReductionFailureReason,
+    detail: string
+  ) {
+    const serverId = useServerStore.getState().activeServerId;
+    const channelId = useVoiceStore.getState().currentVoiceChannelId;
+    if (!serverId || !channelId) return;
+    void voiceApi.reportNoiseReductionFailure(serverId, channelId, engine, reason, detail);
+  }
+
+  /** The processor kinds the server knows about — "none" never reaches an attach. */
+  function engineOf(kind: ProcessorKind): voiceApi.NoiseReductionEngine | null {
+    return kind === "none" ? null : kind;
+  }
+
+  function getDesiredProcessor(mode: NoiseReductionMode, sens: number): ProcessorKind {
+    if (mode === "standard") return "rnnoise";
+    if (mode === "strong") return "gtcrn";
+    // Denoising off, but the sensitivity gate is a separate control and still applies.
     if (sens < 100) return "vadgate";
     return "none";
   }
 
-  function getCurrentProcessorType(): "rnnoise" | "vadgate" | "none" {
+  function getCurrentProcessorType(): ProcessorKind {
     if (!processorRef.current) return "none";
     if (processorRef.current instanceof RNNoiseProcessor) return "rnnoise";
+    if (processorRef.current instanceof GtcrnProcessor) return "gtcrn";
     return "vadgate";
   }
 
@@ -754,7 +820,7 @@ function VoiceStateManager() {
     const audioTrack = pub?.track as LocalAudioTrack | undefined;
     if (!audioTrack) return;
 
-    const desired = getDesiredProcessor(noiseReduction, micSensitivity);
+    const desired = getDesiredProcessor(noiseReductionMode, micSensitivity);
     const current = getCurrentProcessorType();
 
     if (desired === current) {
@@ -778,27 +844,32 @@ function VoiceStateManager() {
 
       if (cancelled) return;
 
-      if (desired === "rnnoise") {
-        const processor = new RNNoiseProcessor(micSensitivity, inputVolume);
+      if (desired !== "none") {
+        const processor = createProcessor(desired, micSensitivity, inputVolume);
         processorRef.current = processor;
-        await audioTrack!.setProcessor(processor);
-        // RNNoise + VAD gate active
-      } else if (desired === "vadgate") {
-        const processor = new VadGateProcessor(micSensitivity, inputVolume);
-        processorRef.current = processor;
-        await audioTrack!.setProcessor(processor);
-        // VAD gate active
+        try {
+          await audioTrack!.setProcessor(processor);
+        } catch (err) {
+          // init() failed, so nothing is attached to the track. Drop the reference before the next
+          // run mistakes it for a live processor and tries to stop it.
+          processorRef.current = null;
+          throw err;
+        }
       }
     }
 
     switchProcessor().catch((err) => {
-      if (!cancelled) {
-        console.error("[VoiceStateManager] Failed to switch audio processor:", err);
+      if (cancelled) return;
+      if (handleStrongUnavailable(err)) return;
+      console.error("[VoiceStateManager] Failed to switch audio processor:", err);
+      const engine = engineOf(desired);
+      if (engine) {
+        reportProcessorFailure(engine, "attach_failed", err instanceof Error ? err.message : String(err));
       }
     });
 
     return () => { cancelled = true; };
-  }, [noiseReduction, micSensitivity, inputVolume, localParticipant]);
+  }, [noiseReductionMode, micSensitivity, inputVolume, localParticipant]);
 
   // Apply processor when mic track is first published (settings already active on join).
   // The effect above won't catch this since noiseReduction/micSensitivity haven't changed.
@@ -813,17 +884,23 @@ function VoiceStateManager() {
       const audioTrack = pub.track as LocalAudioTrack | undefined;
       if (!audioTrack) return;
 
-      let processor: AudioProcessor;
-      if (desired === "rnnoise") {
-        processor = new RNNoiseProcessor(micSensitivityRef.current, inputVolumeRef.current);
-      } else {
-        processor = new VadGateProcessor(micSensitivityRef.current, inputVolumeRef.current);
-      }
-
+      const processor = createProcessor(
+        desired,
+        micSensitivityRef.current,
+        inputVolumeRef.current
+      );
       processorRef.current = processor;
       audioTrack.setProcessor(processor)
         .then(() => { /* processor applied */ })
-        .catch((err) => console.error("[VoiceStateManager] Failed to apply processor on publish:", err));
+        .catch((err) => {
+          processorRef.current = null;
+          if (handleStrongUnavailable(err)) return;
+          console.error("[VoiceStateManager] Failed to apply processor on publish:", err);
+          const engine = engineOf(desired);
+          if (engine) {
+            reportProcessorFailure(engine, "attach_failed", err instanceof Error ? err.message : String(err));
+          }
+        });
     }
 
     room.on(RoomEvent.LocalTrackPublished, handleLocalTrackPublished);

@@ -170,14 +170,12 @@
   "joinRequestReject": "Reject",
   "joinRequestApproved": "{{user}} was approved",
   "joinRequestActionError": "Action failed, please try again",
-
   "afkTimeout": "AFK Voice Timeout",
   "afkTimeoutDesc": "Users inactive for this duration will be disconnected from voice channels.",
   "afkTimeout15": "15 minutes",
   "afkTimeout30": "30 minutes",
   "afkTimeout45": "45 minutes",
   "afkTimeout60": "1 hour",
-
   "livekitSettings": "Voice Server (LiveKit)",
   "livekitSettingsDesc": "Manage the LiveKit connection for voice and video in this server.",
   "livekitUrl": "LiveKit URL",
@@ -191,7 +189,6 @@
   "livekitPlatformManaged": "This server uses mqvi's voice infrastructure. No configuration needed.",
   "livekitNoInstance": "No voice server configured for this server.",
   "livekitCurrentUrl": "Current URL",
-
   "voiceInputMode": "Input Mode",
   "voiceActivity": "Voice Activity",
   "voiceActivityDesc": "Automatically transmit when you speak",
@@ -214,7 +211,12 @@
   "micTest": "Test Mic",
   "micTestStop": "Stop Test",
   "noiseReduction": "Noise Reduction",
-  "noiseReductionDesc": "ML-based noise suppression (RNNoise). Removes background noise, fans, and keyboard clicks from your mic.",
+  "noiseReduction_off": "Off",
+  "noiseReduction_standard": "Standard",
+  "noiseReduction_strong": "Strong",
+  "noiseReductionDesc_off": "No noise suppression. Only the sensitivity threshold below applies.",
+  "noiseReductionDesc_standard": "RNNoise. Removes steady noise — fans, hum, air conditioning — and keeps your voice full-band.",
+  "noiseReductionDesc_strong": "GTCRN. Also removes keyboard clicks and background speech, which Standard cannot. Your voice loses its highest tones in exchange.",
   "joinLeaveSounds": "Join/Leave Sounds",
   "joinLeaveSoundsDesc": "Play a sound when someone joins or leaves voice",
   "shortcuts": "Keyboard Shortcuts",
@@ -226,7 +228,6 @@
   "screenShareAudio": "Screen Share Audio",
   "screenShareAudioDesc": "Share system audio when screen sharing (game, music). Voice chat audio is automatically excluded.",
   "screenShareAudioDescBrowser": "Share system audio when screen sharing. May cause echo in voice chat.",
-
   "selectChannelToEdit": "Select a channel to edit its permissions",
   "selectRoleToEdit": "Select a role to edit overrides",
   "textPermissions": "Text Permissions",
@@ -237,7 +238,6 @@
   "permOverrideInherit": "Inherit",
   "permOverrideAllow": "Allow",
   "permOverrideDeny": "Deny",
-
   "themeTitle": "Theme",
   "themeDescription": "Choose a color palette for the interface",
   "blurTitle": "Background blur",
@@ -278,7 +278,6 @@
   "themeSageTerminalDesc": "Green-black terminal aesthetic, retro-futuristic",
   "themeSlateOcean": "Slate Ocean",
   "themeSlateOceanDesc": "Deep navy-gray, professional and timeless",
-
   "noMemberSelected": "Select a member to manage their roles",
   "memberCurrentRoles": "Current Roles",
   "memberNoRoles": "No roles assigned",
@@ -304,13 +303,11 @@
   "confirmUnban": "Are you sure you want to unban \"{{name}}\"? They will be able to rejoin the server.",
   "memberUnbanned": "Ban has been revoked",
   "memberUnbanError": "Failed to revoke ban",
-
   "updateDownloading": "Downloading update v{{version}}...",
   "updateReady": "Update v{{version}} ready",
   "updateRestart": "Restart",
   "updateLater": "Later",
   "updateError": "Update failed",
-
   "security": "Security",
   "encryption": "Encryption",
   "blockedUsers": "Blocked Users",
@@ -349,7 +346,6 @@
   "passwordSameAsOld": "New password must be different from current password",
   "wrongCurrentPassword": "Current password is incorrect",
   "passwordChangeError": "Failed to change password",
-
   "platformSettings": "Platform",
   "platformAdmin": "LiveKit Instances",
   "platformLiveKitInstances": "LiveKit Instances",
@@ -387,7 +383,6 @@
   "saving": "Saving...",
   "save": "Save",
   "cancel": "Cancel",
-
   "platformServersTab": "Servers",
   "platformServerName": "Server",
   "platformServerID": "Server ID",
@@ -410,7 +405,6 @@
   "platformServerNoServers": "No servers on the platform",
   "platformServerNoResults": "No servers match your search",
   "platformServerSearchPlaceholder": "Search by name, ID or creator...",
-
   "platformUsersTab": "Users",
   "platformUserUsername": "Username",
   "platformUserDisplayName": "Display Name",
@@ -481,12 +475,10 @@
   "platformRemoveAdminConfirm": "Remove {{username}}'s platform admin status?",
   "platformAdminSuccess": "Admin status updated",
   "platformAdminError": "Failed to update admin status",
-
   "platformUserUnban": "Unban User",
   "platformUnbanConfirm": "Are you sure you want to unban {{username}}? They will be able to log in again.",
   "platformUnbanSuccess": "{{username}} has been unbanned",
   "platformUnbanError": "Failed to unban user",
-
   "platformUserQuota": "Quota",
   "platformUserSetQuota": "Set Storage Quota",
   "platformQuotaTitle": "Storage Quota — {{username}}",
@@ -495,7 +487,6 @@
   "platformQuotaInvalid": "Enter a valid quota value",
   "platformQuotaSuccess": "Quota updated for {{username}}",
   "platformQuotaError": "Failed to update quota",
-
   "platformServerDelete": "Delete Server",
   "platformServerSendDMOwner": "Send DM to Owner",
   "badgeVerified": "Verified badge",
@@ -514,7 +505,6 @@
   "platformServerHardDeleteNowTitle": "Skip 30-day TTL?",
   "platformServerHardDeleteNowConfirm": "Permanently delete \"{{name}}\" now? This skips the 30-day soft-delete window — channels, messages, files and the LiveKit instance are removed immediately and the action cannot be undone.",
   "platformServerHardDeleteNowButton": "Permanently delete",
-
   "platformMetrics": "Monitoring",
   "platformMetricsRefresh": "Refresh",
   "platformMetricsRefreshing": "Refreshing...",
@@ -534,7 +524,6 @@
   "platformMetricsPacketsOut": "Packets Out",
   "platformMetricsNack": "NACKs",
   "platformMetricsLoadError": "Failed to load metrics",
-
   "platformMetricsHistory": "Capacity History",
   "platformMetricsHistoryNoData": "No historical data available yet. Data collection starts automatically every 5 minutes.",
   "platformMetricsPeriod24h": "24 Hours",
@@ -558,15 +547,12 @@
   "platformMetricsScreenShares": "Screen Shares",
   "platformMetricsStreamers": "Streaming",
   "platformMetricsViewers": "Watching",
-
   "platformMetricsCPU": "Server CPU",
   "platformMetricsBwIn": "Bandwidth In",
   "platformMetricsBwOut": "Bandwidth Out",
-
   "platformHetznerServerId": "Hetzner Server ID",
   "platformHetznerServerIdPlaceholder": "12345678",
   "platformHetznerServerIdHint": "Numeric ID from Hetzner Cloud Console. Leave empty to disable Hetzner metrics.",
-
   "platformReportsTab": "Reports",
   "platformServerReportsTab": "Server Reports",
   "platformServerReportServer": "Server",
@@ -601,7 +587,6 @@
   "platformReportAttachments": "Report Attachments",
   "platformReportNoAttachments": "No attachments",
   "platformReportFileCount": "{{count}} file(s)",
-
   "connections": "Connections",
   "connectionsTitle": "Server Connections",
   "connectionsDescription": "Manage backend server connections. Use this if you're self-hosting your own server.",
@@ -621,7 +606,6 @@
   "connectionsReloadWarning": "Switching connections will reload the app and you will need to log in again.",
   "connectionsInvalidUrl": "Please enter a valid URL (http:// or https://)",
   "connectionsNameRequired": "Connection name is required",
-
   "general": "General",
   "desktopSettings": "Desktop Settings",
   "openAtLogin": "Open mqvi at Startup",
@@ -630,7 +614,6 @@
   "startMinimizedDesc": "When the app starts, it will launch in the background in the system tray",
   "closeToTray": "Minimize to Tray on Close",
   "closeToTrayDesc": "When you click the X button, the app will minimize to the system tray instead of quitting",
-
   "platformLogsTab": "Logs",
   "platformLogsTitle": "Application Logs",
   "platformLogsClearAll": "Clear All",
@@ -648,6 +631,7 @@
   "platformLogsCategoryVoice": "Voice",
   "platformLogsCategoryVideo": "Video",
   "platformLogsCategoryScreenShare": "Screen Share",
+  "platformLogsCategoryNoiseReduction": "Noise Reduction",
   "platformLogsCategoryWs": "WebSocket",
   "platformLogsCategoryAuth": "Auth",
   "platformLogsCategoryGeneral": "General",
@@ -655,7 +639,6 @@
   "platformLogsCategoryLiveKit": "LiveKit",
   "platformLogsCategoryCleaner": "Cleaner",
   "platformLogsPage": "Page {{current}} of {{total}}",
-
   "feedback": "Feedback",
   "help": "Help",
   "feedbackNewTicket": "New Ticket",
@@ -695,7 +678,6 @@
   "feedbackStatus_in_progress": "In Progress",
   "feedbackStatus_resolved": "Resolved",
   "feedbackStatus_closed": "Closed",
-
   "platformFeedbackTab": "Feedback",
   "adminFeedbackTitle": "Feedback Tickets",
   "adminFeedbackEmpty": "No feedback tickets yet.",
@@ -715,7 +697,6 @@
   "feedbackUnreadTitle": "New activity",
   "feedbackJustNow": "just now",
   "storageUsage": "Storage",
-
   "deleteAccount": "Delete account",
   "deleteAccountSection": "Delete account",
   "deleteAccountDescription": "Soft-deletes your account. Recoverable for 30 days by logging in again with your password.",
@@ -725,7 +706,6 @@
   "deleteAccountConfirm": "Delete my account",
   "deleteAccountSuccess": "Account deleted. You will be logged out.",
   "deleteAccountFailed": "Failed to delete account",
-
   "deletedServers": "Deleted servers",
   "deletedServersDescription": "Soft-deleted servers you own. Restore them within 30 days, or delete permanently to skip the wait.",
   "deletedServersEmpty": "You have no deleted servers.",
