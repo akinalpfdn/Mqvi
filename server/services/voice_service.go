@@ -47,7 +47,7 @@ type LiveKitInstanceGetter interface {
 type ChannelBindingStore interface {
 	GetChannelBinding(ctx context.Context, channelID string) (string, error)
 	SetChannelBinding(ctx context.Context, channelID, instanceID string) error
-	ClearChannelBinding(ctx context.Context, channelID string) error
+	ClearChannelBinding(ctx context.Context, channelID, instanceID string) error
 }
 
 // OnlineUserChecker checks connected users. Used by orphan state cleanup.

@@ -159,7 +159,8 @@ func (s *voiceService) enforceServerMicMuteAtSFU(serverID, channelID, userID str
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	roomClient, err := s.newLiveKitRoomClient(ctx, serverID, channelID)
+	// No instance hint: the user being muted is in the channel, so it is bound.
+	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, "")
 	if err != nil {
 		log.Printf("[voice] serverMute: room client init failed for server %s: %v", serverID, err)
 		s.logError(models.LogCategoryVoice, &userID, "serverMute: room client init failed", map[string]string{
@@ -288,7 +289,9 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	state.ServerID = targetServerID
 	delete(s.livekitAbsentSince, targetUserID) // new room — reset LiveKit absence grace
 
-	s.cleanupRoomPassphraseIfEmpty(sourceChannelID)
+	// Kept for the teardown below: once the binding is released nothing else knows which
+	// instance the source room was on, and removing from the wrong one leaves a phantom.
+	releasedInstance := s.cleanupRoomPassphraseIfEmpty(sourceChannelID)
 
 	// Broadcast leave(source) + join(target). If both channels are on the same
 	// server, one BroadcastToServer covers both events' audiences.
@@ -352,7 +355,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	})
 
 	// Remove phantom from old LiveKit room (best-effort)
-	go s.removeParticipantFromLiveKit(sourceServerID, sourceChannelID, targetUserID)
+	go s.removeParticipantFromLiveKit(sourceServerID, sourceChannelID, targetUserID, releasedInstance)
 
 	log.Printf("[voice] user %s moved user %s from channel %s to %s",
 		moverUserID, targetUserID, sourceChannelID, targetChannelID)
@@ -410,7 +413,7 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 		s.stopChannelTimerLocked(channelID, serverID)
 	}
 
-	s.cleanupRoomPassphraseIfEmpty(channelID)
+	releasedInstance := s.cleanupRoomPassphraseIfEmpty(channelID)
 
 	s.mu.Unlock()
 
@@ -418,7 +421,7 @@ func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUser
 		Op: ws.OpVoiceForceDisconnect,
 	})
 
-	go s.removeParticipantFromLiveKit(serverID, channelID, targetUserID)
+	go s.removeParticipantFromLiveKit(serverID, channelID, targetUserID, releasedInstance)
 
 	log.Printf("[voice] admin %s disconnected user %s from channel %s",
 		disconnecterUserID, targetUserID, channelID)

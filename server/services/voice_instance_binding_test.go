@@ -275,9 +275,13 @@ func (f *fakeBindingStore) SetChannelBinding(_ context.Context, channelID, insta
 	return nil
 }
 
-func (f *fakeBindingStore) ClearChannelBinding(_ context.Context, channelID string) error {
+// Mirrors the real conditional delete: only removes the row if it still names instanceID, so a
+// clear that arrives after a fresh claim leaves the new binding alone.
+func (f *fakeBindingStore) ClearChannelBinding(_ context.Context, channelID, instanceID string) error {
 	f.mu.Lock()
-	delete(f.rows, channelID)
+	if f.rows[channelID] == instanceID {
+		delete(f.rows, channelID)
+	}
 	f.mu.Unlock()
 	f.cleared <- channelID
 	return nil
@@ -683,5 +687,178 @@ func TestResolveRoomInstance_AFailedDecryptLeavesNoBinding(t *testing.T) {
 	s.mu.RUnlock()
 	if bound {
 		t.Errorf("channel left bound to %s after the credentials failed to decrypt", claimed)
+	}
+}
+
+// ── Teardown must not claim ────────────────────────────────────────────────────────────────────
+
+// The bug this guards was invisible with one instance and fatal with several: every teardown path
+// releases the binding when the channel empties and then immediately asks for a room client. While
+// that went through the claiming resolver it re-bound the channel it had just freed, from a
+// background context with no region — so geo routing worked exactly once per channel, an empty
+// channel stayed bound forever, and the SFU removal addressed a machine the participant was never
+// on. Reproduced end to end before the fix.
+func TestTeardown_DoesNotReclaimTheChannelItJustReleased(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	first, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+	s.mu.Lock()
+	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "chan1", ServerID: "srv1"}
+	s.mu.Unlock()
+
+	// Exactly what LeaveChannel does: drop the state, release, then tear down off the lock.
+	s.mu.Lock()
+	delete(s.states, "u1")
+	released := s.cleanupRoomPassphraseIfEmpty("chan1")
+	s.mu.Unlock()
+
+	if released != first.InstanceID {
+		t.Fatalf("release reported %q, want the instance the call was on (%q)", released, first.InstanceID)
+	}
+
+	s.removeParticipantFromLiveKit("srv1", "chan1", "u1", released)
+
+	s.mu.RLock()
+	leaked, bound := s.channelInstances["chan1"]
+	s.mu.RUnlock()
+	if bound {
+		t.Errorf("teardown left the empty channel bound to %q", leaked)
+	}
+}
+
+// The consequence that actually matters to users: without the fix the second call in any channel
+// ignored the joiner's region, because teardown had re-bound the channel to a region-blind pick.
+func TestTeardown_RegionRoutingStillAppliesToTheNextCall(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	first, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	s.mu.Lock()
+	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "chan1", ServerID: "srv1"}
+	delete(s.states, "u1")
+	released := s.cleanupRoomPassphraseIfEmpty("chan1")
+	s.mu.Unlock()
+	s.removeParticipantFromLiveKit("srv1", "chan1", "u1", released)
+
+	second, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if second.InstanceID != first.InstanceID {
+		t.Errorf("second call from the same region landed on %q, first was on %q", second.InstanceID, first.InstanceID)
+	}
+	if second.InstanceID != "lk-"+models.RegionUSEast {
+		t.Errorf("second call on %q — region routing did not apply", second.InstanceID)
+	}
+}
+
+// A teardown for a channel that still has people in it follows the live binding, and must not
+// disturb it.
+func TestTeardown_WithOccupantsLeftFollowsTheLiveBinding(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	s.mu.Lock()
+	s.states["u2"] = &models.VoiceState{UserID: "u2", ChannelID: "chan1", ServerID: "srv1"}
+	released := s.cleanupRoomPassphraseIfEmpty("chan1") // u2 is still in — must not release
+	s.mu.Unlock()
+
+	if released != "" {
+		t.Errorf("released %q while the channel still had someone in it", released)
+	}
+
+	// The only part of teardown that touches bindings. Called directly so the test does not wait on
+	// a real SFU round trip to a fake URL.
+	if _, err := s.newLiveKitRoomClient(context.Background(), "chan1", released); err != nil {
+		t.Fatalf("teardown could not reach the live room: %v", err)
+	}
+
+	s.mu.RLock()
+	still, bound := s.channelInstances["chan1"]
+	s.mu.RUnlock()
+	if !bound || still != room.InstanceID {
+		t.Errorf("live binding is now %q/%v, want %q", still, bound, room.InstanceID)
+	}
+}
+
+// A late clear from a finished session must not erase the binding of the call running now.
+func TestBindingStore_StaleClearDoesNotEraseAFreshClaim(t *testing.T) {
+	s, _ := bindingHarness(t)
+	store := newFakeBindingStore()
+	s.bindingStore = store
+
+	first, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+
+	s.mu.Lock()
+	s.releaseChannelInstanceLocked("chan1")
+	s.mu.Unlock()
+	<-store.cleared
+
+	// A different region, so the second session genuinely lands elsewhere — with both sessions on
+	// the same instance a stale clear and a current one are indistinguishable, and the case that
+	// can actually split a room is the one where they differ.
+	second, err := s.resolveRoomInstance(withRegion(models.RegionEUCentral), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if second.InstanceID == first.InstanceID {
+		t.Fatalf("test setup: both sessions landed on %q", first.InstanceID)
+	}
+
+	// The clear from the first session, arriving late. It names the old instance, so it must be a
+	// no-op against the row the second session just wrote.
+	if err := store.ClearChannelBinding(context.Background(), "chan1", first.InstanceID); err != nil {
+		t.Fatalf("late clear: %v", err)
+	}
+	<-store.cleared
+
+	got, ok := store.get("chan1")
+	if !ok || got != second.InstanceID {
+		t.Errorf("stored binding is %q/%v after a late clear, want the running call's %q",
+			got, ok, second.InstanceID)
+	}
+}
+
+// The other half of the late-clear guard: a re-claim onto the SAME instance. The named delete
+// cannot tell that apart from the clear it was queued for, so the queued clear also checks whether
+// the channel has been claimed again before deleting anything.
+//
+// Made deterministic by the lock: the clear goroutine takes a read lock before it looks, so while
+// this test holds the write lock the goroutine cannot observe anything. The re-claim is therefore
+// guaranteed to be in place by the time it runs.
+func TestBindingStore_ClearSkipsAChannelThatWasClaimedAgain(t *testing.T) {
+	s, _ := bindingHarness(t)
+	store := newFakeBindingStore()
+	s.bindingStore = store
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+
+	s.mu.Lock()
+	s.releaseChannelInstanceLocked("chan1") // spawns the clear; it blocks on RLock below
+	// A new session claims the same instance before the clear can look.
+	s.channelInstances["chan1"] = room.InstanceID
+	s.mu.Unlock()
+
+	// The goroutine can run now. If it skipped, the row survives; if it deleted, it erased the
+	// binding of a call that is in progress.
+	time.Sleep(100 * time.Millisecond)
+
+	got, ok := store.get("chan1")
+	if !ok || got != room.InstanceID {
+		t.Errorf("stored binding is %q/%v — the queued clear erased a re-claimed channel", got, ok)
 	}
 }

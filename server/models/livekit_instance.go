@@ -131,6 +131,18 @@ const (
 	RegionAPSoutheast = "ap-southeast"
 )
 
+// OrderedRegions is the same set as a stable list, served to the admin UI so the picker cannot
+// drift from what the server accepts. A map has no order and the picker must not reshuffle between
+// loads, so the order lives here rather than being derived.
+var OrderedRegions = []string{
+	RegionUnknown,
+	RegionEUCentral,
+	RegionEUNorth,
+	RegionUSEast,
+	RegionUSWest,
+	RegionAPSoutheast,
+}
+
 // ValidRegions is the set accepted on write. Kept in one place so the admin UI, the request
 // validation and the selection in GEO-05 cannot drift apart.
 var ValidRegions = map[string]bool{

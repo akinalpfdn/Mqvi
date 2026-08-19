@@ -143,6 +143,14 @@ func (h *AdminHandler) ListLiveKitInstances(w http.ResponseWriter, r *http.Reque
 	pkg.JSON(w, http.StatusOK, instances)
 }
 
+// ListLiveKitRegions -- GET /api/admin/livekit-regions
+//
+// The picker in the admin UI used to hardcode this list, which meant adding a region on the server
+// silently left it unofferable. Serving the server's own set removes the drift.
+func (h *AdminHandler) ListLiveKitRegions(w http.ResponseWriter, r *http.Request) {
+	pkg.JSON(w, http.StatusOK, models.OrderedRegions)
+}
+
 // GetLiveKitInstance -- GET /api/admin/livekit-instances/{id}
 func (h *AdminHandler) GetLiveKitInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

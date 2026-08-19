@@ -191,29 +191,65 @@ func credentialsFrom(inst *models.LiveKitInstance, encryptionKey []byte) (*roomC
 // releaseChannelInstanceLocked drops the binding once the channel is empty, so the next session
 // picks afresh instead of inheriting a choice made for people who have all left.
 //
+// Returns the instance the channel was released from, or "" if it was not bound. The caller needs
+// it: the SFU teardown that follows has to talk to the instance the room actually lived on, and
+// once the binding is gone nothing else can say which one that was. Guessing there means sending
+// RemoveParticipant to a machine the participant was never on.
+//
 // MUST be called under mu.Lock, and only after confirming the channel is empty — the caller does
 // that check because it shares it with the passphrase cleanup.
-func (s *voiceService) releaseChannelInstanceLocked(channelID string) {
+func (s *voiceService) releaseChannelInstanceLocked(channelID string) string {
 	instanceID, ok := s.channelInstances[channelID]
 	if !ok {
-		return
+		return ""
 	}
 	delete(s.channelInstances, channelID)
 	log.Printf("[voice] channel %s released livekit instance %s", channelID, instanceID)
 
 	if s.bindingStore == nil {
-		return
+		return instanceID
 	}
 	// Off the lock and off the caller's path: this runs inside the voice mutex, which must never
 	// hold across I/O, and the room is already gone either way. Bounded so it cannot outlive a
-	// shutdown.
+	// shutdown. The delete names the instance so a late clear cannot erase a fresh claim.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := s.bindingStore.ClearChannelBinding(ctx, channelID); err != nil {
+		// A new session may have claimed this channel while the clear was queued. Skip rather than
+		// delete a row that now describes a call in progress.
+		s.mu.RLock()
+		_, reclaimed := s.channelInstances[channelID]
+		s.mu.RUnlock()
+		if reclaimed {
+			return
+		}
+		// Named delete as well as the check above: the two cover different orderings, and the one
+		// that matters is a re-claim landing on a *different* instance — that is the only case where
+		// losing the row could put the next joiner in a same-named room on another SFU. A re-claim
+		// onto the same instance can still lose its row in the gap between the check and the delete,
+		// which is harmless: a restart there picks again under the same conditions and returns the
+		// same instance.
+		if err := s.bindingStore.ClearChannelBinding(ctx, channelID, instanceID); err != nil {
 			log.Printf("[voice] failed to clear binding for channel %s: %v", channelID, err)
 		}
 	}()
+	return instanceID
+}
+
+// boundRoomInstance resolves the instance a channel is ALREADY on, and never claims one.
+//
+// This is what every server-side LiveKit operation needs — removing a participant, listing a room,
+// enforcing a mute. All of them act on a room that exists; none of them is a join. Routing them
+// through the claiming resolver was a real bug: the teardown that runs when the last person leaves
+// fires immediately after the binding is released, so it re-claimed the channel it had just freed,
+// bound an empty channel to a region-blind pick, and then talked to that instance instead of the
+// one the participant was actually on.
+func (s *voiceService) boundRoomInstance(ctx context.Context, channelID string) (*roomCredentials, error) {
+	bound, found := s.boundInstance(ctx, channelID)
+	if !found {
+		return nil, fmt.Errorf("%w: channel %s is not bound to a livekit instance", pkg.ErrNotFound, channelID)
+	}
+	return s.credentialsByID(ctx, bound)
 }
 
 // storedBinding reads a persisted binding. A missing row is the normal state, not a problem.

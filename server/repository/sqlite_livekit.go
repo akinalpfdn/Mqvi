@@ -444,9 +444,15 @@ func (r *sqliteLiveKitRepo) SetChannelBinding(ctx context.Context, channelID, in
 	return nil
 }
 
-func (r *sqliteLiveKitRepo) ClearChannelBinding(ctx context.Context, channelID string) error {
+func (r *sqliteLiveKitRepo) ClearChannelBinding(ctx context.Context, channelID, instanceID string) error {
+	// Conditional on the instance, because the clear runs off the caller's path while a fresh claim
+	// may already have written a new row for the same channel. An unconditional delete arriving
+	// late would erase the binding of a call that is currently running: memory would still be
+	// right, the table would not, and a restart in that state sends the next joiner to a different
+	// instance and splits the room.
 	if _, err := r.db.ExecContext(ctx,
-		`DELETE FROM channel_voice_bindings WHERE channel_id = ?`, channelID,
+		`DELETE FROM channel_voice_bindings WHERE channel_id = ? AND instance_id = ?`,
+		channelID, instanceID,
 	); err != nil {
 		return fmt.Errorf("clear channel binding %s: %w", channelID, err)
 	}

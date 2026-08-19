@@ -21,6 +21,15 @@ import type {
   Server,
 } from "../types";
 
+/**
+ * The regions the server will accept. Fetched rather than hardcoded: a list kept in the client
+ * drifts the moment a region is added server-side, and the symptom is an instance nobody can be
+ * routed to because the operator was never offered its region.
+ */
+export async function listLiveKitRegions() {
+  return apiClient<string[]>("/admin/livekit-regions");
+}
+
 export async function listLiveKitInstances() {
   return apiClient<LiveKitInstanceAdmin[]>("/admin/livekit-instances");
 }

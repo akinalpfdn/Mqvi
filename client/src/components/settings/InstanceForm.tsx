@@ -3,13 +3,6 @@
 import { useTranslation } from "react-i18next";
 import type { LiveKitInstanceAdmin } from "../../types";
 
-/**
- * Must match the server's closed set (models.ValidRegions). Free text would let a typo create a
- * region nobody is ever matched to — an instance that quietly serves no one — so the operator
- * picks rather than types.
- */
-const REGIONS = ["", "eu-central", "eu-north", "us-east", "us-west", "ap-southeast"] as const;
-
 type InstanceFormProps = {
   mode: "create" | "edit";
   instance?: LiveKitInstanceAdmin | null;
@@ -25,6 +18,12 @@ type InstanceFormProps = {
   setFormHetznerServerID: (v: string) => void;
   formRegion: string;
   setFormRegion: (v: string) => void;
+  /**
+   * Comes from the server (models.OrderedRegions) rather than a copy kept here — a client-side list
+   * drifts the moment a region is added, and the symptom is an instance nobody can be routed to
+   * because its region was never offered. Empty until the fetch lands.
+   */
+  regions: string[];
   isSaving: boolean;
   onSave: () => void;
   onCancel?: () => void;
@@ -49,6 +48,7 @@ function InstanceForm({
   setFormHetznerServerID,
   formRegion,
   setFormRegion,
+  regions,
   isSaving,
   onSave,
   onCancel,
@@ -142,7 +142,7 @@ function InstanceForm({
           value={formRegion}
           onChange={(e) => setFormRegion(e.target.value)}
         >
-          {REGIONS.map((r) => (
+          {(regions.length > 0 ? regions : [formRegion]).map((r) => (
             <option key={r || "unknown"} value={r}>
               {r || t("platformInstanceRegionUnknown")}
             </option>

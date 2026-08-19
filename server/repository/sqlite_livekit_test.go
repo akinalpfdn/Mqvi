@@ -127,7 +127,16 @@ func TestLiveKitRepo_ChannelBindingRoundTrip(t *testing.T) {
 	if err := repo.SetChannelBinding(ctx, "chan1", "lk1"); err != nil {
 		t.Fatalf("re-set: %v", err)
 	}
-	if err := repo.ClearChannelBinding(ctx, "chan1"); err != nil {
+	// A clear naming a different instance must not touch the row: it is a late clear from a session
+	// that already ended, and the row it would delete belongs to the call running right now.
+	if err := repo.ClearChannelBinding(ctx, "chan1", "lk-old"); err != nil {
+		t.Fatalf("stale clear: %v", err)
+	}
+	if got, err := repo.GetChannelBinding(ctx, "chan1"); err != nil || got != "lk1" {
+		t.Fatalf("a stale clear erased a live binding: %q, %v", got, err)
+	}
+
+	if err := repo.ClearChannelBinding(ctx, "chan1", "lk1"); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
 	if _, err := repo.GetChannelBinding(ctx, "chan1"); !errors.Is(err, pkg.ErrNotFound) {

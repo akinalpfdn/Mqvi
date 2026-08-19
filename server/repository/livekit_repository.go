@@ -30,7 +30,9 @@ type LiveKitRepository interface {
 	// forget where a running call lives and send the next joiner somewhere else.
 	GetChannelBinding(ctx context.Context, channelID string) (string, error)
 	SetChannelBinding(ctx context.Context, channelID, instanceID string) error
-	ClearChannelBinding(ctx context.Context, channelID string) error
+	// ClearChannelBinding removes the binding only if it still names instanceID, so a clear that
+	// arrives after a fresh claim cannot erase it.
+	ClearChannelBinding(ctx context.Context, channelID, instanceID string) error
 	IncrementServerCount(ctx context.Context, instanceID string) error
 	DecrementServerCount(ctx context.Context, instanceID string) error
 	Update(ctx context.Context, instance *models.LiveKitInstance) error

@@ -39,15 +39,19 @@ func (s *voiceService) getOrCreateRoomPassphrase(roomName string) (string, error
 // outlived the room would break forward secrecy; a binding that outlived it would pin the next
 // session to an instance chosen for people who have all left.
 //
+// Returns the LiveKit instance the channel was released from, or "" if the channel is still
+// occupied or was never bound. Callers that follow up with an SFU teardown must pass it along —
+// after the release nothing else knows which instance the room was on.
+//
 // MUST be called under mu.Lock (caller holds lock).
-func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
+func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) string {
 	for _, state := range s.states {
 		if state.ChannelID == channelID {
-			return
+			return ""
 		}
 	}
 
-	s.releaseChannelInstanceLocked(channelID)
+	released := s.releaseChannelInstanceLocked(channelID)
 
 	// Room empty — clean up all matching room names (format: "{serverID}:{channelID}")
 	suffix := ":" + channelID
@@ -57,4 +61,6 @@ func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
 			log.Printf("[voice] cleaned up E2EE passphrase for room %s", roomName)
 		}
 	}
+
+	return released
 }

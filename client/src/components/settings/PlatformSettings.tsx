@@ -6,6 +6,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import {
   listLiveKitInstances,
+  listLiveKitRegions,
   createLiveKitInstance,
   updateLiveKitInstance,
   deleteLiveKitInstance,
@@ -46,6 +47,8 @@ function LiveKitTab() {
   const [formMaxServers, setFormMaxServers] = useState(0);
   const [formHetznerServerID, setFormHetznerServerID] = useState("");
   const [formRegion, setFormRegion] = useState("");
+  // Served by the API so the picker cannot drift from what the server accepts.
+  const [regions, setRegions] = useState<string[]>([]);
 
   // Delete migration target
   const [migrateTargetId, setMigrateTargetId] = useState("");
@@ -75,6 +78,22 @@ function LiveKitTab() {
   useEffect(() => {
     fetchInstances();
   }, [fetchInstances]);
+
+  // Fetched once. A failure leaves the list empty, and the form falls back to showing only the
+  // instance's current region — better than offering a stale set that the server may reject.
+  useEffect(() => {
+    let cancelled = false;
+    listLiveKitRegions()
+      .then((res) => {
+        if (!cancelled && res.success && res.data) setRegions(res.data);
+      })
+      .catch(() => {
+        /* the form degrades to the current value on its own */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (isCreating) {
@@ -234,6 +253,7 @@ function LiveKitTab() {
     formHetznerServerID,
     formRegion,
     setFormRegion,
+    regions,
     setFormHetznerServerID,
     isSaving,
   };

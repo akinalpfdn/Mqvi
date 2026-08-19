@@ -233,6 +233,7 @@ func initRoutes(
 	mux.Handle("GET /api/calls/ice-servers", auth(h.ICEServer.GetICEServers))
 
 	// Platform Admin — LiveKit
+	mux.Handle("GET /api/admin/livekit-regions", authAdmin(h.Admin.ListLiveKitRegions))
 	mux.Handle("GET /api/admin/livekit-instances", authAdmin(h.Admin.ListLiveKitInstances))
 	mux.Handle("GET /api/admin/livekit-instances/{id}/metrics/timeseries", authAdmin(h.Admin.GetLiveKitInstanceMetricsTimeSeries))
 	mux.Handle("GET /api/admin/livekit-instances/{id}/metrics/history", authAdmin(h.Admin.GetLiveKitInstanceMetricsHistory))
