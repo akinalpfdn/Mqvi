@@ -557,3 +557,131 @@ func TestPickInstance_RegionIsChosenAfreshAfterTheChannelEmpties(t *testing.T) {
 		t.Errorf("second session on %s, want the us-east instance", second.InstanceID)
 	}
 }
+
+// ── Recovery from a binding that stopped working ───────────────────────────────────────────────
+
+// vanishingGetter serves an instance until it is told the instance is gone, then reports it missing
+// the way the repository does when the row has been deleted.
+type vanishingGetter struct {
+	uniqueInstanceGetter
+	gone     map[string]bool
+	byIDHits int
+}
+
+func (g *vanishingGetter) GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error) {
+	g.byIDHits++
+	if g.gone[id] {
+		return nil, pkg.ErrNotFound
+	}
+	return g.uniqueInstanceGetter.GetByID(ctx, id)
+}
+
+// An admin deleting an instance cascades the persisted row away but cannot reach this process's
+// memory, so the claim survives its instance. Migration 090 says such a channel must choose again
+// rather than fail; before this, the in-memory path returned the error forever while the persisted
+// path recovered — the same failure was survivable through one door and permanent through the other.
+func TestResolveRoomInstance_RebindsWhenTheClaimedInstanceIsDeleted(t *testing.T) {
+	s, _ := bindingHarness(t)
+	getter := &vanishingGetter{
+		uniqueInstanceGetter: uniqueInstanceGetter{
+			apiKey: s.encryptionKeyFixture(t, "devkey"), apiSecret: s.encryptionKeyFixture(t, "devsecret"),
+		},
+		gone: map[string]bool{},
+	}
+	s.livekitGetter = getter
+
+	first, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+	getter.gone[first.InstanceID] = true // the admin deletes it mid-call
+
+	second, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("channel became permanently unjoinable after its instance was deleted: %v", err)
+	}
+	if second.InstanceID == first.InstanceID {
+		t.Errorf("rebound to the deleted instance %s", second.InstanceID)
+	}
+}
+
+// flakyGetter fails a lookup once with a transient error, as a database hiccup would.
+type flakyGetter struct {
+	uniqueInstanceGetter
+	failNext bool
+}
+
+func (g *flakyGetter) GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error) {
+	if g.failNext {
+		g.failNext = false
+		return nil, fmt.Errorf("database is temporarily unavailable")
+	}
+	return g.uniqueInstanceGetter.GetByID(ctx, id)
+}
+
+// The other half of the same rule, and the more dangerous one: a transient lookup failure must NOT
+// rebind. Releasing the binding of a call that is still running is exactly how the next joiner ends
+// up in a same-named room on a different SFU, hearing nobody and seeing no error.
+func TestResolveRoomInstance_TransientLookupFailureKeepsTheBinding(t *testing.T) {
+	s, _ := bindingHarness(t)
+	getter := &flakyGetter{uniqueInstanceGetter: uniqueInstanceGetter{
+		apiKey: s.encryptionKeyFixture(t, "devkey"), apiSecret: s.encryptionKeyFixture(t, "devsecret"),
+	}}
+	s.livekitGetter = getter
+
+	first, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+
+	getter.failNext = true
+	if _, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1"); err == nil {
+		t.Fatal("a transient database failure was swallowed")
+	}
+
+	// The binding must have survived, so the call stays in one place once the database recovers.
+	after, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("join after recovery: %v", err)
+	}
+	if after.InstanceID != first.InstanceID {
+		t.Errorf("a database hiccup moved a live call from %s to %s", first.InstanceID, after.InstanceID)
+	}
+}
+
+// undecryptableGetter hands out an instance whose stored credentials are not valid ciphertext.
+type undecryptableGetter struct{ uniqueInstanceGetter }
+
+func (g *undecryptableGetter) GetPlatformInstanceForRegion(_ context.Context, _ string) (*models.LiveKitInstance, error) {
+	inst := g.instance("lk-corrupt")
+	inst.APIKey = "not encrypted at all"
+	return inst, nil
+}
+
+func (g *undecryptableGetter) GetByServerID(_ context.Context, _ string) (*models.LiveKitInstance, error) {
+	inst := g.instance("lk-corrupt")
+	inst.APIKey = "not encrypted at all"
+	return inst, nil
+}
+
+// A pick whose credentials cannot be decrypted must leave nothing behind. Claiming first and
+// decrypting after would bind the channel to an instance that exists but cannot be used — and the
+// recovery above deliberately does not fire for that, because the instance is not missing. The
+// channel would stay unjoinable for as long as the claim lived.
+func TestResolveRoomInstance_AFailedDecryptLeavesNoBinding(t *testing.T) {
+	s, _ := bindingHarness(t)
+	s.livekitGetter = &undecryptableGetter{uniqueInstanceGetter: uniqueInstanceGetter{
+		apiKey: s.encryptionKeyFixture(t, "devkey"), apiSecret: s.encryptionKeyFixture(t, "devsecret"),
+	}}
+
+	if _, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1"); err == nil {
+		t.Fatal("undecryptable credentials produced a usable room")
+	}
+
+	s.mu.RLock()
+	claimed, bound := s.channelInstances["chan1"]
+	s.mu.RUnlock()
+	if bound {
+		t.Errorf("channel left bound to %s after the credentials failed to decrypt", claimed)
+	}
+}

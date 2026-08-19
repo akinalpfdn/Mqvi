@@ -37,27 +37,22 @@ type roomCredentials struct {
 //
 // MUST NOT be called while holding s.mu — it does DB lookups.
 func (s *voiceService) resolveRoomInstance(ctx context.Context, serverID, channelID string) (*roomCredentials, error) {
-	// Already claimed: the common case, and the only one that must be cheap.
-	s.mu.RLock()
-	claimed, ok := s.channelInstances[channelID]
-	s.mu.RUnlock()
-	if ok {
-		return s.credentialsByID(ctx, claimed)
-	}
-
-	// Nothing in memory. Before choosing, ask whether a call is already running here — after a
-	// restart the process has forgotten the binding while the clients are still connected to the
-	// SFU, and picking afresh would send the next joiner to a different instance and split a live
-	// room. Persistence exists for this one case.
-	if stored, found := s.storedBinding(ctx, channelID); found {
-		adopted := s.adoptBinding(channelID, stored)
-		creds, err := s.credentialsByID(ctx, adopted)
+	// Follow the binding this channel already has, wherever it is recorded.
+	if bound, found := s.boundInstance(ctx, channelID); found {
+		creds, err := s.credentialsByID(ctx, bound)
 		if err == nil {
 			return creds, nil
 		}
-		// The instance the row names is gone. Drop the stale binding and choose again rather than
-		// refuse the join — a channel bound to nothing must not be unjoinable.
-		log.Printf("[voice] channel %s was bound to unusable instance %s (%v); rebinding", channelID, adopted, err)
+		// Only a *missing* instance justifies choosing again. Migration 090 says a channel bound to
+		// an instance that no longer exists must rebind rather than fail, and it is reachable: an
+		// admin deleting an instance cascades the row away while this process still holds the claim
+		// in memory. But a transient database error must NOT rebind — releasing the binding of a
+		// call that is still running is how the next joiner ends up in a same-named room on another
+		// SFU, hearing nobody.
+		if !errors.Is(err, pkg.ErrNotFound) {
+			return nil, err
+		}
+		log.Printf("[voice] channel %s was bound to missing instance %s; rebinding", channelID, bound)
 		s.mu.Lock()
 		s.releaseChannelInstanceLocked(channelID)
 		s.mu.Unlock()
@@ -65,6 +60,15 @@ func (s *voiceService) resolveRoomInstance(ctx context.Context, serverID, channe
 
 	// Unclaimed. Pick outside the lock — this is a DB call and the voice mutex guards a hot map.
 	candidate, err := s.pickInstance(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt before claiming, not after. A claim written for credentials that then fail to decrypt
+	// would leave the channel bound to something unusable, and the lookup above only rebinds when
+	// the instance is *missing* — this one exists, so the channel would stay unjoinable for as long
+	// as the claim lives. Not creating the state beats cleaning it up.
+	creds, err := credentialsFrom(candidate, s.encryptionKey)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +81,7 @@ func (s *voiceService) resolveRoomInstance(ctx context.Context, serverID, channe
 	if winner, taken := s.channelInstances[channelID]; taken {
 		s.mu.Unlock()
 		if winner == candidate.ID {
-			return credentialsFrom(candidate, s.encryptionKey)
+			return creds, nil
 		}
 		return s.credentialsByID(ctx, winner)
 	}
@@ -86,7 +90,33 @@ func (s *voiceService) resolveRoomInstance(ctx context.Context, serverID, channe
 
 	s.persistBinding(ctx, channelID, candidate.ID)
 	log.Printf("[voice] channel %s claimed livekit instance %s", channelID, candidate.ID)
-	return credentialsFrom(candidate, s.encryptionKey)
+	return creds, nil
+}
+
+// boundInstance reports the instance this channel is already bound to, memory first.
+//
+// The two sources used to be handled separately and drifted apart: the persisted one recovered from
+// a dead instance and the in-memory one did not, so the same failure was survivable through one door
+// and permanent through the other. One lookup, one recovery path.
+//
+// The memory hit must stay cheap — it is every join after the first — so the database is only
+// consulted on a miss, which happens once per channel per process lifetime.
+func (s *voiceService) boundInstance(ctx context.Context, channelID string) (string, bool) {
+	s.mu.RLock()
+	claimed, ok := s.channelInstances[channelID]
+	s.mu.RUnlock()
+	if ok {
+		return claimed, true
+	}
+
+	// Nothing in memory. After a restart the process has forgotten the binding while the clients are
+	// still connected to the SFU, and picking afresh would send the next joiner to a different
+	// instance and split a live room. Persistence exists for this one case.
+	stored, found := s.storedBinding(ctx, channelID)
+	if !found {
+		return "", false
+	}
+	return s.adoptBinding(channelID, stored), true
 }
 
 // pickInstance chooses the instance for a channel that has none yet.

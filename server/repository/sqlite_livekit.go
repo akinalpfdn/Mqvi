@@ -49,10 +49,11 @@ func (r *sqliteLiveKitRepo) Create(ctx context.Context, instance *models.LiveKit
 }
 
 func (r *sqliteLiveKitRepo) GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error) {
-	// Use COUNT(*) instead of stored server_count to avoid drift from increment/decrement bugs.
+	// Counted live rather than read from the stored server_count column, which drifts. Aliased to a
+	// different name so the two can never shadow each other in an expression - see liveServerCount.
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
-		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
+		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS live_server_count,
 		       max_servers, hetzner_server_id, region, created_at
 		FROM livekit_instances WHERE id = ?`
 
@@ -75,7 +76,7 @@ func (r *sqliteLiveKitRepo) GetByID(ctx context.Context, id string) (*models.Liv
 func (r *sqliteLiveKitRepo) GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error) {
 	query := `
 		SELECT li.id, li.url, li.api_key, li.api_secret, li.is_platform_managed,
-		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = li.id) AS server_count,
+		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = li.id) AS live_server_count,
 		       li.max_servers, li.hetzner_server_id, li.created_at
 		FROM livekit_instances li
 		INNER JOIN servers s ON s.livekit_instance_id = li.id
@@ -251,7 +252,7 @@ func (r *sqliteLiveKitRepo) Delete(ctx context.Context, id string) error {
 func (r *sqliteLiveKitRepo) ListPlatformInstances(ctx context.Context) ([]models.LiveKitInstance, error) {
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
-		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
+		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS live_server_count,
 		       max_servers, hetzner_server_id, region, created_at
 		FROM livekit_instances
 		WHERE is_platform_managed = 1
