@@ -45,6 +45,7 @@ function LiveKitTab() {
   const [formApiSecret, setFormApiSecret] = useState("");
   const [formMaxServers, setFormMaxServers] = useState(0);
   const [formHetznerServerID, setFormHetznerServerID] = useState("");
+  const [formRegion, setFormRegion] = useState("");
 
   // Delete migration target
   const [migrateTargetId, setMigrateTargetId] = useState("");
@@ -82,6 +83,7 @@ function LiveKitTab() {
       setFormApiSecret("");
       setFormMaxServers(0);
       setFormHetznerServerID("");
+      setFormRegion("");
     } else {
       const inst = instances.find((i) => i.id === selectedId);
       if (inst) {
@@ -90,6 +92,7 @@ function LiveKitTab() {
         setFormApiSecret("");
         setFormMaxServers(inst.max_servers);
         setFormHetznerServerID(inst.hetzner_server_id ?? "");
+        setFormRegion(inst.region ?? "");
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,6 +109,7 @@ function LiveKitTab() {
         api_secret: formApiSecret,
         max_servers: formMaxServers,
         hetzner_server_id: formHetznerServerID || undefined,
+        region: formRegion || undefined,
       });
       if (res.success && res.data) {
         setInstances((prev) => [...prev, res.data!]);
@@ -143,6 +147,7 @@ function LiveKitTab() {
       body.max_servers = formMaxServers;
     if (formHetznerServerID !== (current.hetzner_server_id ?? ""))
       body.hetzner_server_id = formHetznerServerID;
+    if (formRegion !== (current.region ?? "")) body.region = formRegion;
 
     if (Object.keys(body).length === 0) {
       addToast("info", t("platformNoChanges"));
@@ -227,6 +232,8 @@ function LiveKitTab() {
     formMaxServers,
     setFormMaxServers,
     formHetznerServerID,
+    formRegion,
+    setFormRegion,
     setFormHetznerServerID,
     isSaving,
   };

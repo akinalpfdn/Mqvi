@@ -17,7 +17,10 @@ type LiveKitInstance struct {
 	ServerCount       int       `json:"server_count"`
 	MaxServers        int       `json:"max_servers"` // 0 = unlimited
 	HetznerServerID   string    `json:"hetzner_server_id"`
-	CreatedAt         time.Time `json:"created_at"`
+	// Region is operator-facing only. Which SFU a member is on is not theirs to see, and telling
+	// them where it sits adds nothing they can act on.
+	Region    string    `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // LiveKitInstanceAdminView — credentials are NEVER exposed, even to admins.
@@ -28,6 +31,7 @@ type LiveKitInstanceAdminView struct {
 	ServerCount       int       `json:"server_count"`
 	MaxServers        int       `json:"max_servers"`
 	HetznerServerID   string    `json:"hetzner_server_id"`
+	Region            string    `json:"region"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
@@ -37,6 +41,7 @@ type CreateLiveKitInstanceRequest struct {
 	APISecret       string `json:"api_secret"`
 	MaxServers      int    `json:"max_servers"`
 	HetznerServerID string `json:"hetzner_server_id"`
+	Region          string `json:"region"`
 }
 
 func (r *CreateLiveKitInstanceRequest) Validate() error {
@@ -55,6 +60,10 @@ func (r *CreateLiveKitInstanceRequest) Validate() error {
 	if r.MaxServers < 0 {
 		return fmt.Errorf("max_servers must be >= 0")
 	}
+	r.Region = strings.TrimSpace(r.Region)
+	if err := ValidateRegion(r.Region); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -66,6 +75,7 @@ type UpdateLiveKitInstanceRequest struct {
 	APISecret       *string `json:"api_secret"`
 	MaxServers      *int    `json:"max_servers"`
 	HetznerServerID *string `json:"hetzner_server_id"`
+	Region          *string `json:"region"`
 }
 
 func (r *UpdateLiveKitInstanceRequest) Validate() error {
@@ -92,6 +102,51 @@ func (r *UpdateLiveKitInstanceRequest) Validate() error {
 	}
 	if r.MaxServers != nil && *r.MaxServers < 0 {
 		return fmt.Errorf("max_servers must be >= 0")
+	}
+	if r.Region != nil {
+		trimmed := strings.TrimSpace(*r.Region)
+		r.Region = &trimmed
+		if err := ValidateRegion(trimmed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Regions a LiveKit instance may be placed in.
+//
+// A closed set rather than free text: the value drives which SFU a call is sent to, and an operator
+// typo would silently create a region nobody is ever matched to — an instance that quietly serves
+// no one. Broad areas, not datacenter names, because the question being answered is "roughly where
+// are you" and instances move between facilities within an area.
+//
+// Empty is valid and means unknown. Every instance that predates the column is unknown until an
+// operator says otherwise, and unknown must stay usable — it simply is not chosen for proximity.
+const (
+	RegionUnknown     = ""
+	RegionEUCentral   = "eu-central"
+	RegionEUNorth     = "eu-north"
+	RegionUSEast      = "us-east"
+	RegionUSWest      = "us-west"
+	RegionAPSoutheast = "ap-southeast"
+)
+
+// ValidRegions is the set accepted on write. Kept in one place so the admin UI, the request
+// validation and the selection in GEO-05 cannot drift apart.
+var ValidRegions = map[string]bool{
+	RegionUnknown:     true,
+	RegionEUCentral:   true,
+	RegionEUNorth:     true,
+	RegionUSEast:      true,
+	RegionUSWest:      true,
+	RegionAPSoutheast: true,
+}
+
+// ValidateRegion rejects anything outside the set. A bad region is worse than none: an unknown
+// region falls through to load-based selection, while a misspelled one looks deliberate.
+func ValidateRegion(region string) error {
+	if !ValidRegions[region] {
+		return fmt.Errorf("unknown region %q", region)
 	}
 	return nil
 }

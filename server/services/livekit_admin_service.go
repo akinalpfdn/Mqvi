@@ -144,6 +144,7 @@ func (s *livekitAdminService) CreateInstance(ctx context.Context, req *models.Cr
 		ServerCount:       0,
 		MaxServers:        req.MaxServers,
 		HetznerServerID:   req.HetznerServerID,
+		Region:            req.Region,
 	}
 
 	if err := s.livekitRepo.Create(ctx, instance); err != nil {
@@ -190,6 +191,9 @@ func (s *livekitAdminService) UpdateInstance(ctx context.Context, instanceID str
 	}
 	if req.HetznerServerID != nil {
 		inst.HetznerServerID = *req.HetznerServerID
+	}
+	if req.Region != nil {
+		inst.Region = *req.Region
 	}
 
 	if err := s.livekitRepo.Update(ctx, inst); err != nil {
@@ -498,6 +502,7 @@ func toAdminView(inst *models.LiveKitInstance) models.LiveKitInstanceAdminView {
 		ServerCount:       inst.ServerCount,
 		MaxServers:        inst.MaxServers,
 		HetznerServerID:   inst.HetznerServerID,
+		Region:            inst.Region,
 		CreatedAt:         inst.CreatedAt,
 	}
 }

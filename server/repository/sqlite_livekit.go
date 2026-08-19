@@ -29,12 +29,13 @@ func (r *sqliteLiveKitRepo) Create(ctx context.Context, instance *models.LiveKit
 	}
 
 	query := `
-		INSERT INTO livekit_instances (id, url, api_key, api_secret, is_platform_managed, server_count, max_servers, hetzner_server_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		INSERT INTO livekit_instances (id, url, api_key, api_secret, is_platform_managed, server_count, max_servers, hetzner_server_id, region)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := r.db.ExecContext(ctx, query,
 		generatedID, instance.URL, instance.APIKey, instance.APISecret,
 		instance.IsPlatformManaged, instance.ServerCount, instance.MaxServers, instance.HetznerServerID,
+		instance.Region,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create livekit instance: %w", err)
@@ -52,13 +53,13 @@ func (r *sqliteLiveKitRepo) GetByID(ctx context.Context, id string) (*models.Liv
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
 		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
-		       max_servers, hetzner_server_id, created_at
+		       max_servers, hetzner_server_id, region, created_at
 		FROM livekit_instances WHERE id = ?`
 
 	inst := &models.LiveKitInstance{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&inst.ID, &inst.URL, &inst.APIKey, &inst.APISecret,
-		&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.CreatedAt,
+		&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.Region, &inst.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -83,7 +84,7 @@ func (r *sqliteLiveKitRepo) GetByServerID(ctx context.Context, serverID string) 
 	inst := &models.LiveKitInstance{}
 	err := r.db.QueryRowContext(ctx, query, serverID).Scan(
 		&inst.ID, &inst.URL, &inst.APIKey, &inst.APISecret,
-		&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.CreatedAt,
+		&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.Region, &inst.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -102,7 +103,7 @@ func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context) 
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
 		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
-		       max_servers, hetzner_server_id, created_at
+		       max_servers, hetzner_server_id, region, created_at
 		FROM livekit_instances
 		WHERE is_platform_managed = 1
 		  AND (max_servers = 0 OR (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) < max_servers)
@@ -112,7 +113,7 @@ func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context) 
 	inst := &models.LiveKitInstance{}
 	err := r.db.QueryRowContext(ctx, query).Scan(
 		&inst.ID, &inst.URL, &inst.APIKey, &inst.APISecret,
-		&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.CreatedAt,
+		&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.Region, &inst.CreatedAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -164,10 +165,11 @@ func (r *sqliteLiveKitRepo) DecrementServerCount(ctx context.Context, instanceID
 }
 
 func (r *sqliteLiveKitRepo) Update(ctx context.Context, instance *models.LiveKitInstance) error {
-	query := `UPDATE livekit_instances SET url = ?, api_key = ?, api_secret = ?, max_servers = ?, hetzner_server_id = ? WHERE id = ?`
+	query := `UPDATE livekit_instances SET url = ?, api_key = ?, api_secret = ?, max_servers = ?, hetzner_server_id = ?, region = ? WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query,
-		instance.URL, instance.APIKey, instance.APISecret, instance.MaxServers, instance.HetznerServerID, instance.ID,
+		instance.URL, instance.APIKey, instance.APISecret, instance.MaxServers, instance.HetznerServerID,
+		instance.Region, instance.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update livekit instance: %w", err)
@@ -206,7 +208,7 @@ func (r *sqliteLiveKitRepo) ListPlatformInstances(ctx context.Context) ([]models
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
 		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
-		       max_servers, hetzner_server_id, created_at
+		       max_servers, hetzner_server_id, region, created_at
 		FROM livekit_instances
 		WHERE is_platform_managed = 1
 		ORDER BY created_at ASC`
@@ -222,7 +224,7 @@ func (r *sqliteLiveKitRepo) ListPlatformInstances(ctx context.Context) ([]models
 		var inst models.LiveKitInstance
 		if err := rows.Scan(
 			&inst.ID, &inst.URL, &inst.APIKey, &inst.APISecret,
-			&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.CreatedAt,
+			&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.Region, &inst.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan livekit instance row: %w", err)
 		}

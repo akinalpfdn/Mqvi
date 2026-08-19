@@ -3,6 +3,13 @@
 import { useTranslation } from "react-i18next";
 import type { LiveKitInstanceAdmin } from "../../types";
 
+/**
+ * Must match the server's closed set (models.ValidRegions). Free text would let a typo create a
+ * region nobody is ever matched to — an instance that quietly serves no one — so the operator
+ * picks rather than types.
+ */
+const REGIONS = ["", "eu-central", "eu-north", "us-east", "us-west", "ap-southeast"] as const;
+
 type InstanceFormProps = {
   mode: "create" | "edit";
   instance?: LiveKitInstanceAdmin | null;
@@ -16,6 +23,8 @@ type InstanceFormProps = {
   setFormMaxServers: (v: number) => void;
   formHetznerServerID: string;
   setFormHetznerServerID: (v: string) => void;
+  formRegion: string;
+  setFormRegion: (v: string) => void;
   isSaving: boolean;
   onSave: () => void;
   onCancel?: () => void;
@@ -38,6 +47,8 @@ function InstanceForm({
   setFormMaxServers,
   formHetznerServerID,
   setFormHetznerServerID,
+  formRegion,
+  setFormRegion,
   isSaving,
   onSave,
   onCancel,
@@ -56,7 +67,8 @@ function InstanceForm({
         formApiKey !== "" ||
         formApiSecret !== "" ||
         formMaxServers !== instance.max_servers ||
-        formHetznerServerID !== (instance.hetzner_server_id ?? "")
+        formHetznerServerID !== (instance.hetzner_server_id ?? "") ||
+        formRegion !== (instance.region ?? "")
       : false;
 
   return (
@@ -121,6 +133,22 @@ function InstanceForm({
         <span className="settings-hint">
           {t("platformInstanceMaxServersHint")}
         </span>
+      </div>
+
+      <div className="settings-field">
+        <label className="settings-label">{t("platformInstanceRegion")}</label>
+        <select
+          className="settings-input"
+          value={formRegion}
+          onChange={(e) => setFormRegion(e.target.value)}
+        >
+          {REGIONS.map((r) => (
+            <option key={r || "unknown"} value={r}>
+              {r || t("platformInstanceRegionUnknown")}
+            </option>
+          ))}
+        </select>
+        <span className="settings-hint">{t("platformInstanceRegionHint")}</span>
       </div>
 
       <div className="settings-field">
