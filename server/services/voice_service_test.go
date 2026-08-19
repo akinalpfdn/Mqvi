@@ -54,6 +54,7 @@ func TestRemoveParticipantFromLiveKit_ReachesSFUAfterChannelDeleted(t *testing.T
 			},
 		},
 		lk,
+		nil, // binding store: this test keeps the binding in memory only
 		&testutil.MockChannelPermResolver{},
 		&testutil.MockBroadcaster{},
 		nil, // onlineChecker
@@ -91,6 +92,7 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 			},
 		},
 		&mockLiveKitGetter{},
+		nil, // binding store: these tests keep the binding in memory only
 		&testutil.MockChannelPermResolver{},
 		hub,
 		nil, // onlineChecker

@@ -14,6 +14,13 @@ type LiveKitRepository interface {
 	GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error)
 	// GetLeastLoadedPlatformInstance returns the platform-managed instance with fewest servers (load balancing).
 	GetLeastLoadedPlatformInstance(ctx context.Context) (*models.LiveKitInstance, error)
+
+	// Channel→instance bindings. Written when a channel claims an instance and deleted when it
+	// empties, so the table only holds calls in progress. Persisted purely so a restart does not
+	// forget where a running call lives and send the next joiner somewhere else.
+	GetChannelBinding(ctx context.Context, channelID string) (string, error)
+	SetChannelBinding(ctx context.Context, channelID, instanceID string) error
+	ClearChannelBinding(ctx context.Context, channelID string) error
 	IncrementServerCount(ctx context.Context, instanceID string) error
 	DecrementServerCount(ctx context.Context, instanceID string) error
 	Update(ctx context.Context, instance *models.LiveKitInstance) error

@@ -35,6 +35,18 @@ type LiveKitInstanceGetter interface {
 	GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error)
 }
 
+// ChannelBindingStore persists which instance a channel's room lives on. Separate from
+// LiveKitInstanceGetter because it answers a different question — not "what is this instance" but
+// "where is this call happening" — and only the restart path needs it.
+//
+// Optional: a nil store keeps the binding in memory only, which is correct behaviour with a single
+// instance and is what the service tests run with.
+type ChannelBindingStore interface {
+	GetChannelBinding(ctx context.Context, channelID string) (string, error)
+	SetChannelBinding(ctx context.Context, channelID, instanceID string) error
+	ClearChannelBinding(ctx context.Context, channelID string) error
+}
+
 // OnlineUserChecker checks connected users. Used by orphan state cleanup.
 type OnlineUserChecker interface {
 	GetOnlineUserIDs() []string
@@ -127,6 +139,7 @@ type voiceService struct {
 
 	channelGetter    ChannelGetter
 	livekitGetter    LiveKitInstanceGetter
+	bindingStore     ChannelBindingStore
 	permResolver     ChannelPermResolver
 	hub              ws.Broadcaster
 	onlineChecker    OnlineUserChecker
@@ -139,6 +152,7 @@ type voiceService struct {
 func NewVoiceService(
 	channelGetter ChannelGetter,
 	livekitGetter LiveKitInstanceGetter,
+	bindingStore ChannelBindingStore,
 	permResolver ChannelPermResolver,
 	hub ws.Broadcaster,
 	onlineChecker OnlineUserChecker,
@@ -156,6 +170,7 @@ func NewVoiceService(
 		channelStartedAt:   make(map[string]time.Time),
 		channelInstances:   make(map[string]string),
 		channelGetter:      channelGetter,
+		bindingStore:       bindingStore,
 		livekitGetter:      livekitGetter,
 		permResolver:       permResolver,
 		hub:                hub,

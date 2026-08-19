@@ -366,3 +366,42 @@ func (r *sqliteLiveKitRepo) MigrateOneServer(ctx context.Context, serverID, newI
 
 	return nil
 }
+
+// GetChannelBinding returns the instance a channel is bound to, or pkg.ErrNotFound when it has
+// none — which is the normal state for a channel nobody is in.
+func (r *sqliteLiveKitRepo) GetChannelBinding(ctx context.Context, channelID string) (string, error) {
+	var instanceID string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT instance_id FROM channel_voice_bindings WHERE channel_id = ?`, channelID,
+	).Scan(&instanceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", pkg.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get channel binding %s: %w", channelID, err)
+	}
+	return instanceID, nil
+}
+
+// SetChannelBinding records the claim. Upsert rather than insert: a restart can re-adopt a binding
+// it already holds, and racing that against the row already existing must not fail the join.
+func (r *sqliteLiveKitRepo) SetChannelBinding(ctx context.Context, channelID, instanceID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO channel_voice_bindings (channel_id, instance_id) VALUES (?, ?)
+		 ON CONFLICT(channel_id) DO UPDATE SET instance_id = excluded.instance_id`,
+		channelID, instanceID,
+	)
+	if err != nil {
+		return fmt.Errorf("set channel binding %s -> %s: %w", channelID, instanceID, err)
+	}
+	return nil
+}
+
+func (r *sqliteLiveKitRepo) ClearChannelBinding(ctx context.Context, channelID string) error {
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM channel_voice_bindings WHERE channel_id = ?`, channelID,
+	); err != nil {
+		return fmt.Errorf("clear channel binding %s: %w", channelID, err)
+	}
+	return nil
+}

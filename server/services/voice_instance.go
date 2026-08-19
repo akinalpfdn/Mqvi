@@ -2,10 +2,13 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/crypto"
 )
 
@@ -41,6 +44,24 @@ func (s *voiceService) resolveRoomInstance(ctx context.Context, serverID, channe
 		return s.credentialsByID(ctx, claimed)
 	}
 
+	// Nothing in memory. Before choosing, ask whether a call is already running here — after a
+	// restart the process has forgotten the binding while the clients are still connected to the
+	// SFU, and picking afresh would send the next joiner to a different instance and split a live
+	// room. Persistence exists for this one case.
+	if stored, found := s.storedBinding(ctx, channelID); found {
+		adopted := s.adoptBinding(channelID, stored)
+		creds, err := s.credentialsByID(ctx, adopted)
+		if err == nil {
+			return creds, nil
+		}
+		// The instance the row names is gone. Drop the stale binding and choose again rather than
+		// refuse the join — a channel bound to nothing must not be unjoinable.
+		log.Printf("[voice] channel %s was bound to unusable instance %s (%v); rebinding", channelID, adopted, err)
+		s.mu.Lock()
+		s.releaseChannelInstanceLocked(channelID)
+		s.mu.Unlock()
+	}
+
 	// Unclaimed. Pick outside the lock — this is a DB call and the voice mutex guards a hot map.
 	candidate, err := s.pickInstance(ctx, serverID)
 	if err != nil {
@@ -62,6 +83,7 @@ func (s *voiceService) resolveRoomInstance(ctx context.Context, serverID, channe
 	s.channelInstances[channelID] = candidate.ID
 	s.mu.Unlock()
 
+	s.persistBinding(ctx, channelID, candidate.ID)
 	log.Printf("[voice] channel %s claimed livekit instance %s", channelID, candidate.ID)
 	return credentialsFrom(candidate, s.encryptionKey)
 }
@@ -115,9 +137,71 @@ func credentialsFrom(inst *models.LiveKitInstance, encryptionKey []byte) (*roomC
 // MUST be called under mu.Lock, and only after confirming the channel is empty — the caller does
 // that check because it shares it with the passphrase cleanup.
 func (s *voiceService) releaseChannelInstanceLocked(channelID string) {
-	if instanceID, ok := s.channelInstances[channelID]; ok {
-		delete(s.channelInstances, channelID)
-		log.Printf("[voice] channel %s released livekit instance %s", channelID, instanceID)
+	instanceID, ok := s.channelInstances[channelID]
+	if !ok {
+		return
+	}
+	delete(s.channelInstances, channelID)
+	log.Printf("[voice] channel %s released livekit instance %s", channelID, instanceID)
+
+	if s.bindingStore == nil {
+		return
+	}
+	// Off the lock and off the caller's path: this runs inside the voice mutex, which must never
+	// hold across I/O, and the room is already gone either way. Bounded so it cannot outlive a
+	// shutdown.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.bindingStore.ClearChannelBinding(ctx, channelID); err != nil {
+			log.Printf("[voice] failed to clear binding for channel %s: %v", channelID, err)
+		}
+	}()
+}
+
+// storedBinding reads a persisted binding. A missing row is the normal state, not a problem.
+func (s *voiceService) storedBinding(ctx context.Context, channelID string) (string, bool) {
+	if s.bindingStore == nil {
+		return "", false
+	}
+	instanceID, err := s.bindingStore.GetChannelBinding(ctx, channelID)
+	if err != nil {
+		if !errors.Is(err, pkg.ErrNotFound) {
+			log.Printf("[voice] failed to read binding for channel %s: %v", channelID, err)
+		}
+		return "", false
+	}
+	return instanceID, true
+}
+
+// adoptBinding takes a persisted binding into memory, yielding to anyone who claimed first.
+func (s *voiceService) adoptBinding(channelID, instanceID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if winner, taken := s.channelInstances[channelID]; taken {
+		return winner
+	}
+	s.channelInstances[channelID] = instanceID
+	return instanceID
+}
+
+// persistBinding records the claim so a restart can find it again.
+//
+// Best effort, and the trade is deliberate: a failed write leaves runtime behaviour completely
+// correct — memory is authoritative while the process lives — and only degrades recovery if this
+// exact process dies before the call ends. Failing the join instead would turn a database hiccup
+// into people being unable to talk, which is the worse outcome.
+func (s *voiceService) persistBinding(ctx context.Context, channelID, instanceID string) {
+	if s.bindingStore == nil {
+		return
+	}
+	if err := s.bindingStore.SetChannelBinding(ctx, channelID, instanceID); err != nil {
+		log.Printf("[voice] failed to persist binding %s -> %s: %v", channelID, instanceID, err)
+		if s.appLogger != nil {
+			s.appLogger.Log(models.LogLevelWarn, models.LogCategoryVoice, nil, nil,
+				"voice channel instance binding not persisted; a restart may split this call",
+				map[string]string{"channel_id": channelID, "instance_id": instanceID, "error": err.Error()})
+		}
 	}
 }
 

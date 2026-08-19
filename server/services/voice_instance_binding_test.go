@@ -6,8 +6,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/crypto"
 )
 
@@ -170,4 +172,236 @@ func TestCleanupRoomPassphraseIfEmpty_KeepsTheBindingWhileOccupied(t *testing.T)
 	if after.InstanceID != before.InstanceID {
 		t.Fatalf("occupied channel moved from %s to %s", before.InstanceID, after.InstanceID)
 	}
+}
+
+// Migration used to split live calls: the row changed and new joiners went to the new instance
+// while everyone already connected stayed on the old one. Nothing detected it, because the room
+// name is the same on both. The channel binding fixes this without any migration-specific code —
+// an occupied channel keeps the instance it claimed, and only picks up the server's new default
+// once it empties. This test is what says that is true rather than hoped.
+func TestChannelBinding_SurvivesTheServerMovingInstances(t *testing.T) {
+	s, getter := bindingHarness(t)
+	ctx := context.Background()
+
+	// Someone is in the channel, so the channel is bound and occupied.
+	before, err := s.resolveRoomInstance(ctx, "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("initial resolve: %v", err)
+	}
+	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "chan1"}
+
+	// The admin moves the server. The getter now hands out a different instance for srv1, which is
+	// exactly what a migrated server looks like from here.
+	picksBefore := getter.picks.Load()
+
+	// A second person joins the occupied channel.
+	joiner, err := s.resolveRoomInstance(ctx, "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("joiner resolve: %v", err)
+	}
+	if joiner.InstanceID != before.InstanceID {
+		t.Fatalf("joiner went to %s while the call is on %s — the migration split the room",
+			joiner.InstanceID, before.InstanceID)
+	}
+	if got := getter.picks.Load(); got != picksBefore {
+		t.Errorf("the server default was consulted for an occupied channel (%d new picks)", got-picksBefore)
+	}
+
+	// Everyone leaves; only now may the channel adopt the server's new instance.
+	delete(s.states, "u1")
+	s.mu.Lock()
+	s.cleanupRoomPassphraseIfEmpty("chan1")
+	s.mu.Unlock()
+
+	after, err := s.resolveRoomInstance(ctx, "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("post-empty resolve: %v", err)
+	}
+	if after.InstanceID == before.InstanceID {
+		t.Errorf("still on %s after emptying — the migration never took effect", after.InstanceID)
+	}
+}
+
+// ── Restart recovery ───────────────────────────────────────────────────────────────────────────
+//
+// A restart clears the in-memory binding while the clients stay connected to the SFU — the process
+// forgets where a call is happening, but the call is still happening. Picking afresh would send the
+// next joiner elsewhere and split it, and nothing would report that: the room name is identical on
+// both instances, so both halves work and neither hears the other.
+
+type fakeBindingStore struct {
+	mu      sync.Mutex
+	rows    map[string]string
+	cleared chan string
+	getErr  error
+	setErr  error
+}
+
+func newFakeBindingStore() *fakeBindingStore {
+	return &fakeBindingStore{rows: map[string]string{}, cleared: make(chan string, 8)}
+}
+
+func (f *fakeBindingStore) GetChannelBinding(_ context.Context, channelID string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.getErr != nil {
+		return "", f.getErr
+	}
+	id, ok := f.rows[channelID]
+	if !ok {
+		return "", pkg.ErrNotFound
+	}
+	return id, nil
+}
+
+func (f *fakeBindingStore) SetChannelBinding(_ context.Context, channelID, instanceID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.rows[channelID] = instanceID
+	return nil
+}
+
+func (f *fakeBindingStore) ClearChannelBinding(_ context.Context, channelID string) error {
+	f.mu.Lock()
+	delete(f.rows, channelID)
+	f.mu.Unlock()
+	f.cleared <- channelID
+	return nil
+}
+
+func (f *fakeBindingStore) get(channelID string) (string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id, ok := f.rows[channelID]
+	return id, ok
+}
+
+func TestResolveRoomInstance_AdoptsAStoredBindingAfterRestart(t *testing.T) {
+	s, getter := bindingHarness(t)
+	store := newFakeBindingStore()
+	s.bindingStore = store
+	ctx := context.Background()
+
+	// A call is in progress on lk-live; the process then forgets everything but the row.
+	store.rows["chan1"] = "lk-live"
+	picksBefore := getter.picks.Load()
+
+	room, err := s.resolveRoomInstance(ctx, "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	if room.InstanceID != "lk-live" {
+		t.Fatalf("joined %s while the call is on lk-live — the restart split the room", room.InstanceID)
+	}
+	if got := getter.picks.Load(); got != picksBefore {
+		t.Errorf("chose a new instance despite a live binding (%d picks)", got-picksBefore)
+	}
+}
+
+func TestResolveRoomInstance_PersistsTheClaim(t *testing.T) {
+	s, _ := bindingHarness(t)
+	store := newFakeBindingStore()
+	s.bindingStore = store
+
+	room, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	// Without this row the next restart has nothing to recover from.
+	got, ok := store.get("chan1")
+	if !ok || got != room.InstanceID {
+		t.Fatalf("stored %q (present=%v), want %q", got, ok, room.InstanceID)
+	}
+}
+
+func TestReleaseChannelInstance_ClearsTheStoredRow(t *testing.T) {
+	s, _ := bindingHarness(t)
+	store := newFakeBindingStore()
+	s.bindingStore = store
+	ctx := context.Background()
+
+	if _, err := s.resolveRoomInstance(ctx, "srv1", "chan1"); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	s.mu.Lock()
+	s.cleanupRoomPassphraseIfEmpty("chan1")
+	s.mu.Unlock()
+
+	select {
+	case <-store.cleared:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the row was never cleared — a dead call would be recovered after the next restart")
+	}
+	if _, ok := store.get("chan1"); ok {
+		t.Error("row still present after clear")
+	}
+}
+
+// The row can name an instance that has since been deleted. Refusing the join would make the
+// channel permanently unusable; choosing again is the only sane answer.
+func TestResolveRoomInstance_RebindsWhenTheStoredInstanceIsGone(t *testing.T) {
+	s, _ := bindingHarness(t)
+	store := newFakeBindingStore()
+	store.rows["chan1"] = "lk-deleted"
+	s.bindingStore = store
+	s.livekitGetter = &missingInstanceGetter{uniqueInstanceGetter: uniqueInstanceGetter{
+		apiKey: s.encryptionKeyFixture(t, "devkey"), apiSecret: s.encryptionKeyFixture(t, "devsecret"),
+	}, missing: "lk-deleted"}
+
+	room, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve should have rebound, got: %v", err)
+	}
+	if room.InstanceID == "lk-deleted" {
+		t.Fatal("still bound to the deleted instance")
+	}
+}
+
+// A store that is unavailable must not stop people talking: memory stays authoritative and only
+// restart recovery degrades.
+func TestResolveRoomInstance_JoinStillWorksWhenTheStoreFails(t *testing.T) {
+	s, _ := bindingHarness(t)
+	store := newFakeBindingStore()
+	store.getErr = fmt.Errorf("database is down")
+	store.setErr = fmt.Errorf("database is down")
+	s.bindingStore = store
+
+	first, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("join refused because the store failed: %v", err)
+	}
+	second, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+	if first.InstanceID != second.InstanceID {
+		t.Errorf("in-memory binding lost when the store failed: %s then %s", first.InstanceID, second.InstanceID)
+	}
+}
+
+type missingInstanceGetter struct {
+	uniqueInstanceGetter
+	missing string
+}
+
+func (g *missingInstanceGetter) GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error) {
+	if id == g.missing {
+		return nil, pkg.ErrNotFound
+	}
+	return g.uniqueInstanceGetter.GetByID(ctx, id)
+}
+
+func (s *voiceService) encryptionKeyFixture(t *testing.T, plain string) string {
+	t.Helper()
+	enc, err := crypto.Encrypt(plain, s.encryptionKey)
+	if err != nil {
+		t.Fatalf("encrypt %s: %v", plain, err)
+	}
+	return enc
 }

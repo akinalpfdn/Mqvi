@@ -87,6 +87,7 @@ func voiceServiceThatCanMint(t *testing.T) (VoiceService, *captureLogger) {
 			},
 		},
 		&workingLiveKitGetter{apiKey: apiKey, apiSecret: apiSecret},
+		nil, // binding store: these tests keep the binding in memory only
 		&testutil.MockChannelPermResolver{},
 		&testutil.MockBroadcaster{},
 		nil, nil, key, &testutil.MockFileURLSigner{},
@@ -179,7 +180,7 @@ func TestScreenShareToken_RefusesAndLogsForATextChannel(t *testing.T) {
 				return &models.Channel{ID: id, ServerID: "srv1", Type: models.ChannelTypeText}, nil
 			},
 		},
-		&mockLiveKitGetter{}, &testutil.MockChannelPermResolver{}, hub,
+		&mockLiveKitGetter{}, nil, &testutil.MockChannelPermResolver{}, hub,
 		nil, nil, nil, &testutil.MockFileURLSigner{},
 	)
 	svc.SetAppLogger(logger)
