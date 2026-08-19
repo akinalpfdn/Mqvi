@@ -32,7 +32,13 @@ func (s *voiceService) getOrCreateRoomPassphrase(roomName string) (string, error
 	return passphrase, nil
 }
 
-// cleanupRoomPassphraseIfEmpty deletes the passphrase when a room becomes empty (forward secrecy).
+// cleanupRoomPassphraseIfEmpty deletes the passphrase when a room becomes empty (forward secrecy),
+// and releases the channel's LiveKit instance binding at the same moment.
+//
+// The two share this one emptiness check on purpose: they are the same lifetime. A passphrase that
+// outlived the room would break forward secrecy; a binding that outlived it would pin the next
+// session to an instance chosen for people who have all left.
+//
 // MUST be called under mu.Lock (caller holds lock).
 func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
 	for _, state := range s.states {
@@ -40,6 +46,8 @@ func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) {
 			return
 		}
 	}
+
+	s.releaseChannelInstanceLocked(channelID)
 
 	// Room empty — clean up all matching room names (format: "{serverID}:{channelID}")
 	suffix := ":" + channelID

@@ -17,6 +17,10 @@ func (m *mockLiveKitGetter) GetByServerID(_ context.Context, _ string) (*models.
 	return nil, fmt.Errorf("no livekit instance in test")
 }
 
+func (m *mockLiveKitGetter) GetByID(_ context.Context, _ string) (*models.LiveKitInstance, error) {
+	return nil, fmt.Errorf("no livekit instance in test")
+}
+
 // recordingLiveKitGetter records the serverID it was queried with, then errors to stop
 // before the real SFU network call.
 type recordingLiveKitGetter struct {
@@ -27,6 +31,10 @@ type recordingLiveKitGetter struct {
 func (m *recordingLiveKitGetter) GetByServerID(_ context.Context, serverID string) (*models.LiveKitInstance, error) {
 	m.callCount++
 	m.lastServerID = serverID
+	return nil, fmt.Errorf("stop before network call")
+}
+
+func (m *recordingLiveKitGetter) GetByID(_ context.Context, _ string) (*models.LiveKitInstance, error) {
 	return nil, fmt.Errorf("stop before network call")
 }
 

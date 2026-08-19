@@ -59,7 +59,12 @@ func voiceServiceWithLogger() (VoiceService, *captureLogger) {
 type workingLiveKitGetter struct{ apiKey, apiSecret string }
 
 func (m *workingLiveKitGetter) GetByServerID(_ context.Context, _ string) (*models.LiveKitInstance, error) {
-	return &models.LiveKitInstance{URL: "wss://lk.test", APIKey: m.apiKey, APISecret: m.apiSecret}, nil
+	return &models.LiveKitInstance{ID: "lk1", URL: "wss://lk.test", APIKey: m.apiKey, APISecret: m.apiSecret}, nil
+}
+
+// Reached once the channel is bound: the binding stores an id, so every later token re-reads by it.
+func (m *workingLiveKitGetter) GetByID(_ context.Context, id string) (*models.LiveKitInstance, error) {
+	return &models.LiveKitInstance{ID: id, URL: "wss://lk.test", APIKey: m.apiKey, APISecret: m.apiSecret}, nil
 }
 
 func voiceServiceThatCanMint(t *testing.T) (VoiceService, *captureLogger) {
