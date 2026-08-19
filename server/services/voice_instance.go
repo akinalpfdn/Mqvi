@@ -115,7 +115,7 @@ func (s *voiceService) pickInstance(ctx context.Context, serverID string) (*mode
 		return inst, nil
 	}
 
-	best, err := s.livekitGetter.GetLeastLoadedPlatformInstance(ctx, region)
+	best, err := s.livekitGetter.GetPlatformInstanceForRegion(ctx, region)
 	if err != nil {
 		// Never fail a join over placement. The server's instance always worked before regions
 		// existed and still does.

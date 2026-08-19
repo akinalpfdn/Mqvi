@@ -407,7 +407,7 @@ func runStartupCleanup(db *database.DB, repos *Repositories, cfg *config.Config,
 
 	// Seed platform LiveKit instance
 	if cfg.LiveKit.URL != "" && cfg.LiveKit.APIKey != "" && cfg.LiveKit.APISecret != "" {
-		platformInstance, seedErr := repos.LiveKit.GetLeastLoadedPlatformInstance(context.Background(), "")
+		platformInstance, seedErr := repos.LiveKit.GetLeastLoadedPlatformInstance(context.Background())
 		if seedErr != nil {
 			encKey, encErr := crypto.Encrypt(cfg.LiveKit.APIKey, encryptionKey)
 			if encErr != nil {

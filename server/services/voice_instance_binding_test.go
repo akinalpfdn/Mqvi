@@ -33,11 +33,11 @@ func (g *uniqueInstanceGetter) GetByServerID(_ context.Context, _ string) (*mode
 
 // Returns a stable instance per region so a test can assert "this joiner was placed in eu-north"
 // rather than merely "somewhere". An empty preference behaves like the plain least-loaded pick.
-func (g *uniqueInstanceGetter) GetLeastLoadedPlatformInstance(_ context.Context, preferRegion string) (*models.LiveKitInstance, error) {
-	if preferRegion == "" {
+func (g *uniqueInstanceGetter) GetPlatformInstanceForRegion(_ context.Context, region string) (*models.LiveKitInstance, error) {
+	if region == "" {
 		return g.instance("lk-least-loaded"), nil
 	}
-	return g.instance("lk-" + preferRegion), nil
+	return g.instance("lk-" + region), nil
 }
 
 func (g *uniqueInstanceGetter) GetByID(_ context.Context, id string) (*models.LiveKitInstance, error) {
@@ -508,7 +508,7 @@ func (g *selfHostedGetter) GetByServerID(_ context.Context, _ string) (*models.L
 
 type brokenSelectorGetter struct{ uniqueInstanceGetter }
 
-func (g *brokenSelectorGetter) GetLeastLoadedPlatformInstance(_ context.Context, _ string) (*models.LiveKitInstance, error) {
+func (g *brokenSelectorGetter) GetPlatformInstanceForRegion(_ context.Context, _ string) (*models.LiveKitInstance, error) {
 	return nil, fmt.Errorf("no instance available")
 }
 

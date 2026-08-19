@@ -447,10 +447,10 @@ func TestVoiceState_ServerMuteDeafen(t *testing.T) {
 	}
 }
 
-func (m *mockLiveKitGetter) GetLeastLoadedPlatformInstance(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
+func (m *mockLiveKitGetter) GetPlatformInstanceForRegion(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
 	return m.GetByServerID(ctx, "")
 }
 
-func (m *recordingLiveKitGetter) GetLeastLoadedPlatformInstance(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
+func (m *recordingLiveKitGetter) GetPlatformInstanceForRegion(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
 	return m.GetByServerID(ctx, "")
 }

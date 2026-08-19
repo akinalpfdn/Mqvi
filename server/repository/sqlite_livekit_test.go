@@ -92,7 +92,7 @@ func TestLiveKitRepo_PreExistingInstanceHasUnknownRegion(t *testing.T) {
 		t.Errorf("region = %q, want empty", got.Region)
 	}
 
-	least, err := repo.GetLeastLoadedPlatformInstance(ctx, "")
+	least, err := repo.GetLeastLoadedPlatformInstance(ctx)
 	if err != nil {
 		t.Fatalf("an instance with no region became unselectable: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestLeastLoaded_PrefersTheCallersRegion(t *testing.T) {
 	seedInstance(t, conn, "eu", models.RegionEUCentral, 0)
 	seedInstance(t, conn, "us", models.RegionUSEast, 0)
 
-	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	got, err := repo.GetPlatformInstanceForRegion(context.Background(), models.RegionUSEast)
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestLeastLoaded_RegionBeatsLoad(t *testing.T) {
 	seedInstance(t, conn, "us", models.RegionUSEast, 0)
 	loadInstance(t, conn, "us", 5)
 
-	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	got, err := repo.GetPlatformInstanceForRegion(context.Background(), models.RegionUSEast)
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestLeastLoaded_RegionWithNoInstanceStillYieldsOne(t *testing.T) {
 	conn, repo := newLiveKitDB(t)
 	seedInstance(t, conn, "eu", models.RegionEUCentral, 0)
 
-	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionAPSoutheast)
+	got, err := repo.GetPlatformInstanceForRegion(context.Background(), models.RegionAPSoutheast)
 	if err != nil {
 		t.Fatalf("a caller in an unserved region could not be placed: %v", err)
 	}
@@ -223,20 +223,55 @@ func TestLeastLoaded_RegionWithNoInstanceStillYieldsOne(t *testing.T) {
 	}
 }
 
-// Capacity is the one hard filter. A full instance in the right region must lose to an available
-// one anywhere, or max_servers means nothing.
-func TestLeastLoaded_FullInstanceInTheRightRegionLoses(t *testing.T) {
+// Capacity must never exile a caller from their own region. max_servers counts *registered
+// servers*, which says nothing about how many people an SFU is carrying right now, so it is far too
+// crude a signal to send somebody across an ocean with. A full instance next door still beats an
+// empty one on another continent.
+func TestForRegion_CapacityNeverExilesFromTheRegion(t *testing.T) {
 	conn, repo := newLiveKitDB(t)
 	seedInstance(t, conn, "us", models.RegionUSEast, 2)
-	loadInstance(t, conn, "us", 2)
+	loadInstance(t, conn, "us", 2) // at its cap
 	seedInstance(t, conn, "eu", models.RegionEUCentral, 0)
 
-	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	got, err := repo.GetPlatformInstanceForRegion(context.Background(), models.RegionUSEast)
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
-	if got.ID != "eu" {
-		t.Errorf("picked %q — a full instance was handed out", got.ID)
+	if got.ID != "us" {
+		t.Errorf("picked %q — a caller was sent out of their region over a server-count cap", got.ID)
+	}
+}
+
+// Within one region capacity still counts, just as a preference rather than a gate: given a choice,
+// don't pile onto the one that is already at its cap.
+func TestForRegion_PrefersRoomWithinTheRegion(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "us-full", models.RegionUSEast, 1)
+	loadInstance(t, conn, "us-full", 1) // at its cap, and the emptier of the two by server_count
+	seedInstance(t, conn, "us-open", models.RegionUSEast, 0)
+	loadInstance(t, conn, "us-open", 3)
+
+	got, err := repo.GetPlatformInstanceForRegion(context.Background(), models.RegionUSEast)
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if got.ID != "us-open" {
+		t.Errorf("picked %q — room lost to raw load inside the region", got.ID)
+	}
+}
+
+// Routing can never refuse over capacity. Registration still can, and must — that is the one
+// question max_servers is actually denominated in.
+func TestLeastLoaded_RegistrationStillRefusesWhenEverythingIsFull(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "us", models.RegionUSEast, 1)
+	loadInstance(t, conn, "us", 1)
+
+	if _, err := repo.GetLeastLoadedPlatformInstance(context.Background()); !errors.Is(err, pkg.ErrNotFound) {
+		t.Errorf("registration err = %v, want ErrNotFound — the server cap stopped applying", err)
+	}
+	if _, err := repo.GetPlatformInstanceForRegion(context.Background(), models.RegionUSEast); err != nil {
+		t.Errorf("routing refused a call because an instance was at its server cap: %v", err)
 	}
 }
 
@@ -247,7 +282,7 @@ func TestLeastLoaded_TieBreaksOnLoadWithinARegion(t *testing.T) {
 	seedInstance(t, conn, "us2", models.RegionUSEast, 0)
 	loadInstance(t, conn, "us1", 3)
 
-	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	got, err := repo.GetPlatformInstanceForRegion(context.Background(), models.RegionUSEast)
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -264,7 +299,7 @@ func TestLeastLoaded_NoPreferenceIsPlainLeastLoaded(t *testing.T) {
 	loadInstance(t, conn, "eu", 4)
 	seedInstance(t, conn, "us", models.RegionUSEast, 0)
 
-	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), "")
+	got, err := repo.GetPlatformInstanceForRegion(context.Background(), "")
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -281,7 +316,7 @@ func TestLeastLoaded_UnknownRegionRowDoesNotOutrankLoad(t *testing.T) {
 	loadInstance(t, conn, "legacy", 4)
 	seedInstance(t, conn, "us", models.RegionUSEast, 0)
 
-	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), "")
+	got, err := repo.GetPlatformInstanceForRegion(context.Background(), "")
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -293,7 +328,7 @@ func TestLeastLoaded_UnknownRegionRowDoesNotOutrankLoad(t *testing.T) {
 func TestLeastLoaded_NoInstanceAtAllIsNotFound(t *testing.T) {
 	_, repo := newLiveKitDB(t)
 
-	_, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	_, err := repo.GetPlatformInstanceForRegion(context.Background(), models.RegionUSEast)
 	if !errors.Is(err, pkg.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}

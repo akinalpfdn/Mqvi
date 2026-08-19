@@ -97,35 +97,77 @@ func (r *sqliteLiveKitRepo) GetByServerID(ctx context.Context, serverID string) 
 	return inst, nil
 }
 
-// GetLeastLoadedPlatformInstance returns the platform-managed instance with fewest servers
-// that still has capacity. max_servers = 0 means unlimited.
-func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context, preferRegion string) (*models.LiveKitInstance, error) {
-	query := `
+// liveServerCount counts servers actually pointing at the instance.
+//
+// It is spelled out rather than reused through the SELECT alias on purpose. `livekit_instances` has
+// a *stored* `server_count` column, maintained by Increment/DecrementServerCount and read by nobody
+// who decides anything, and inside a SQL expression that real column shadows an output alias of the
+// same name. Writing `server_count < max_servers` therefore compares against the stale stored value
+// — which is 0 for every row these queries can see — so the capacity test silently always passed.
+// The alias below is named differently so the two can never be confused again.
+const liveServerCount = `(SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id)`
+
+// platformInstanceColumns is the shared SELECT list for the two platform-instance queries below.
+const platformInstanceColumns = `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
-		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
+		       ` + liveServerCount + ` AS live_server_count,
 		       max_servers, hetzner_server_id, region, created_at
 		FROM livekit_instances
-		WHERE is_platform_managed = 1
-		  AND (max_servers = 0 OR (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) < max_servers)
-		-- Region first, load second. Expressed as ORDER BY rather than WHERE so a region with no
-		-- instance, or one that is full, still yields somebody instead of failing the join.
-		ORDER BY (region = ? AND ? != '') DESC, server_count ASC
-		LIMIT 1`
+		WHERE is_platform_managed = 1`
 
+// hasRoom is true when an instance is under its max_servers cap. 0 means unlimited.
+const hasRoom = `(max_servers = 0 OR ` + liveServerCount + ` < max_servers)`
+
+func (r *sqliteLiveKitRepo) scanPlatformInstance(row *sql.Row, what string) (*models.LiveKitInstance, error) {
 	inst := &models.LiveKitInstance{}
-	err := r.db.QueryRowContext(ctx, query, preferRegion, preferRegion).Scan(
+	err := row.Scan(
 		&inst.ID, &inst.URL, &inst.APIKey, &inst.APISecret,
 		&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.Region, &inst.CreatedAt,
 	)
-
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, pkg.ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get least loaded platform instance: %w", err)
+		return nil, fmt.Errorf("failed to get %s: %w", what, err)
 	}
-
 	return inst, nil
+}
+
+// GetLeastLoadedPlatformInstance picks an instance to register a new server on.
+//
+// Capacity is a hard filter here, and deliberately so: the question is literally "can this instance
+// take another server", max_servers is denominated in servers, and running out is a real answer —
+// the caller degrades the new server to no-voice rather than overfilling an instance.
+func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context) (*models.LiveKitInstance, error) {
+	query := platformInstanceColumns + `
+		  AND ` + hasRoom + `
+		ORDER BY live_server_count ASC
+		LIMIT 1`
+
+	return r.scanPlatformInstance(r.db.QueryRowContext(ctx, query), "least loaded platform instance")
+}
+
+// GetPlatformInstanceForRegion picks where a voice call should be hosted.
+//
+// Three ordering terms, and the order between them is the whole policy:
+//
+//  1. Region, absolute. A caller whose region has an instance stays there no matter how busy it is.
+//     Being nearer beats being emptier — a European must not be sent to Virginia because Virginia
+//     happens to be idle.
+//  2. Room, within the region. Preferred, never required.
+//  3. Load, as the tie-break.
+//
+// Nothing here is a WHERE clause, so this cannot refuse. A region with no instance, or one whose
+// instances are all at their cap, still yields somebody — placement must never be the reason a
+// person cannot talk. That is also why capacity is only a preference: max_servers counts registered
+// servers, which is unrelated to how many people an SFU is carrying right now, so it is far too
+// crude a signal to exile a caller across an ocean with.
+func (r *sqliteLiveKitRepo) GetPlatformInstanceForRegion(ctx context.Context, region string) (*models.LiveKitInstance, error) {
+	query := platformInstanceColumns + `
+		ORDER BY (region = ? AND ? != '') DESC, ` + hasRoom + ` DESC, live_server_count ASC
+		LIMIT 1`
+
+	return r.scanPlatformInstance(r.db.QueryRowContext(ctx, query, region, region), "platform instance for region")
 }
 
 func (r *sqliteLiveKitRepo) IncrementServerCount(ctx context.Context, instanceID string) error {

@@ -205,6 +205,6 @@ func TestScreenShareToken_SurvivesWithNoLogger(t *testing.T) {
 	}
 }
 
-func (m *workingLiveKitGetter) GetLeastLoadedPlatformInstance(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
+func (m *workingLiveKitGetter) GetPlatformInstanceForRegion(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
 	return m.GetByServerID(ctx, "")
 }

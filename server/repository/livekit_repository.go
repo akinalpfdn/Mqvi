@@ -12,10 +12,18 @@ type LiveKitRepository interface {
 	GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error)
 	// GetByServerID returns the LiveKit instance linked to a server (JOIN on servers.livekit_instance_id).
 	GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error)
-	// GetLeastLoadedPlatformInstance returns the platform-managed instance with fewest servers (load balancing).
-	// preferRegion is a preference, not a filter: instances elsewhere stay eligible, they just
-	// sort after. An empty preference reduces to plain least-loaded, which is the pre-region behaviour.
-	GetLeastLoadedPlatformInstance(ctx context.Context, preferRegion string) (*models.LiveKitInstance, error)
+	// GetLeastLoadedPlatformInstance answers "may I register another server on this instance" —
+	// the platform-managed instance with the fewest servers that is still under its max_servers cap.
+	// Capacity is a hard filter here and the unit is right: the question really is about servers.
+	GetLeastLoadedPlatformInstance(ctx context.Context) (*models.LiveKitInstance, error)
+	// GetPlatformInstanceForRegion answers the different question "where should this call go".
+	//
+	// Region is absolute: a caller whose region has an instance is never sent elsewhere, however
+	// loaded that instance is. Capacity only separates two instances within the same region, and it
+	// cannot exile anybody — max_servers counts registered servers, which says nothing about how
+	// many people an SFU is currently carrying, so it must never be the reason a call crosses an
+	// ocean. An empty region reduces to plain least-loaded.
+	GetPlatformInstanceForRegion(ctx context.Context, region string) (*models.LiveKitInstance, error)
 
 	// Channel→instance bindings. Written when a channel claims an instance and deleted when it
 	// empties, so the table only holds calls in progress. Persisted purely so a restart does not
