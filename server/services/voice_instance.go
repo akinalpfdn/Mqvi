@@ -10,6 +10,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/crypto"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 )
 
 // roomCredentials — where a voice channel's LiveKit room lives, and how to sign for it.
@@ -90,15 +91,41 @@ func (s *voiceService) resolveRoomInstance(ctx context.Context, serverID, channe
 
 // pickInstance chooses the instance for a channel that has none yet.
 //
-// Today it answers with the server's instance, which is what every channel used before the binding
-// existed — so with a single platform instance this whole mechanism is invisible. GEO-05 replaces
-// the body with a region-aware choice; nothing outside this function needs to know.
+// Only the first joiner reaches this — everyone after follows the binding — so one person's region
+// places the call for the whole channel. That is why the region comes from the Cloudflare edge and
+// not from anything the client can set, and why every uncertain case here falls back to the
+// server's own instance: that is what every channel used before regions existed, so with a single
+// platform instance the whole mechanism stays invisible.
 func (s *voiceService) pickInstance(ctx context.Context, serverID string) (*models.LiveKitInstance, error) {
 	inst, err := s.livekitGetter.GetByServerID(ctx, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("livekit instance lookup for server %s: %w", serverID, err)
 	}
-	return inst, nil
+
+	// A self-hosted server owns its LiveKit. There is nothing to choose between, and moving such a
+	// call onto platform hardware would be both wrong and a surprise to whoever runs it.
+	if !inst.IsPlatformManaged {
+		return inst, nil
+	}
+
+	region, _ := ctx.Value(ctxkeys.ClientRegion).(string)
+	if region == models.RegionUnknown {
+		// No signal — the header is missing, or the caller is a background sweep with no request
+		// behind it. Either way this is the pre-region behaviour: the server's own instance.
+		return inst, nil
+	}
+
+	best, err := s.livekitGetter.GetLeastLoadedPlatformInstance(ctx, region)
+	if err != nil {
+		// Never fail a join over placement. The server's instance always worked before regions
+		// existed and still does.
+		log.Printf("[voice] region-aware pick failed for %s (region %s), using the server default: %v", serverID, region, err)
+		return inst, nil
+	}
+	if best.ID != inst.ID {
+		log.Printf("[voice] server %s default is %s; placing this call on %s for region %s", serverID, inst.ID, best.ID, region)
+	}
+	return best, nil
 }
 
 // credentialsByID re-reads an instance the channel is already bound to.

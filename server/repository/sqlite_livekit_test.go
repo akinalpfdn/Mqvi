@@ -92,7 +92,7 @@ func TestLiveKitRepo_PreExistingInstanceHasUnknownRegion(t *testing.T) {
 		t.Errorf("region = %q, want empty", got.Region)
 	}
 
-	least, err := repo.GetLeastLoadedPlatformInstance(ctx)
+	least, err := repo.GetLeastLoadedPlatformInstance(ctx, "")
 	if err != nil {
 		t.Fatalf("an instance with no region became unselectable: %v", err)
 	}
@@ -142,5 +142,159 @@ func seedChannelForBinding(t *testing.T, conn *sql.DB, channelID string) {
 		`INSERT INTO channels (id, name, type) VALUES (?, 'general', 'voice')`, channelID,
 	); err != nil {
 		t.Fatalf("seed channel %s: %v", channelID, err)
+	}
+}
+
+// seedInstance writes a platform instance directly, so a test can state its region and capacity
+// without going through Create's id generation.
+func seedInstance(t *testing.T, conn *sql.DB, id, region string, maxServers int) {
+	t.Helper()
+	if _, err := conn.Exec(
+		`INSERT INTO livekit_instances (id, url, api_key, api_secret, is_platform_managed, server_count, max_servers, hetzner_server_id, region)
+		 VALUES (?, ?, 'k', 's', 1, 0, ?, '', ?)`,
+		id, "wss://"+id+".test", maxServers, region,
+	); err != nil {
+		t.Fatalf("seed instance %s: %v", id, err)
+	}
+}
+
+// loadInstance attaches n servers to an instance. Load is a live COUNT over the servers table, not
+// the stored server_count column, so nothing but real rows moves it.
+func loadInstance(t *testing.T, conn *sql.DB, instanceID string, n int) {
+	t.Helper()
+	if _, err := conn.Exec(`INSERT OR IGNORE INTO users (id, username, password_hash) VALUES ('u1', 'u1', 'x')`); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	for i := 0; i < n; i++ {
+		if _, err := conn.Exec(
+			`INSERT INTO servers (id, name, owner_id, livekit_instance_id) VALUES (?, 's', 'u1', ?)`,
+			instanceID+"-srv-"+string(rune('a'+i)), instanceID,
+		); err != nil {
+			t.Fatalf("load %s: %v", instanceID, err)
+		}
+	}
+}
+
+// The whole point of the region column: a caller in North America must not be sent to Germany while
+// an Ashburn instance sits there.
+func TestLeastLoaded_PrefersTheCallersRegion(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "eu", models.RegionEUCentral, 0)
+	seedInstance(t, conn, "us", models.RegionUSEast, 0)
+
+	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if got.ID != "us" {
+		t.Errorf("picked %q, want the us-east instance", got.ID)
+	}
+}
+
+// Region wins over load, and it must: a nearer box carrying a few more calls still sounds better
+// than a distant idle one. Without this the ordering would silently be load-first.
+func TestLeastLoaded_RegionBeatsLoad(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "eu", models.RegionEUCentral, 0)
+	seedInstance(t, conn, "us", models.RegionUSEast, 0)
+	loadInstance(t, conn, "us", 5)
+
+	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if got.ID != "us" {
+		t.Errorf("picked %q — the emptier box in the wrong region won", got.ID)
+	}
+}
+
+// No instance in the asked-for region is the normal state during a rollout: one region exists and
+// everyone else must still be able to talk. The preference is an ORDER BY, never a filter.
+func TestLeastLoaded_RegionWithNoInstanceStillYieldsOne(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "eu", models.RegionEUCentral, 0)
+
+	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionAPSoutheast)
+	if err != nil {
+		t.Fatalf("a caller in an unserved region could not be placed: %v", err)
+	}
+	if got.ID != "eu" {
+		t.Errorf("picked %q, want the only instance", got.ID)
+	}
+}
+
+// Capacity is the one hard filter. A full instance in the right region must lose to an available
+// one anywhere, or max_servers means nothing.
+func TestLeastLoaded_FullInstanceInTheRightRegionLoses(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "us", models.RegionUSEast, 2)
+	loadInstance(t, conn, "us", 2)
+	seedInstance(t, conn, "eu", models.RegionEUCentral, 0)
+
+	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if got.ID != "eu" {
+		t.Errorf("picked %q — a full instance was handed out", got.ID)
+	}
+}
+
+// Within one region, load decides. This is the pre-region behaviour and it must survive.
+func TestLeastLoaded_TieBreaksOnLoadWithinARegion(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "us1", models.RegionUSEast, 0)
+	seedInstance(t, conn, "us2", models.RegionUSEast, 0)
+	loadInstance(t, conn, "us1", 3)
+
+	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if got.ID != "us2" {
+		t.Errorf("picked %q, want the emptier one in the same region", got.ID)
+	}
+}
+
+// An empty preference must behave exactly as it did before regions existed — plain least-loaded —
+// because two callers still pass "" and a background sweep has no region at all.
+func TestLeastLoaded_NoPreferenceIsPlainLeastLoaded(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "eu", models.RegionEUCentral, 0)
+	loadInstance(t, conn, "eu", 4)
+	seedInstance(t, conn, "us", models.RegionUSEast, 0)
+
+	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), "")
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if got.ID != "us" {
+		t.Errorf("picked %q, want the emptier one", got.ID)
+	}
+}
+
+// An unknown region is stored as the empty string, and it must not accidentally match a caller who
+// also has no preference in a way that outranks load.
+func TestLeastLoaded_UnknownRegionRowDoesNotOutrankLoad(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "legacy", models.RegionUnknown, 0)
+	loadInstance(t, conn, "legacy", 4)
+	seedInstance(t, conn, "us", models.RegionUSEast, 0)
+
+	got, err := repo.GetLeastLoadedPlatformInstance(context.Background(), "")
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if got.ID != "us" {
+		t.Errorf("picked %q — a regionless row matched an empty preference and beat load", got.ID)
+	}
+}
+
+func TestLeastLoaded_NoInstanceAtAllIsNotFound(t *testing.T) {
+	_, repo := newLiveKitDB(t)
+
+	_, err := repo.GetLeastLoadedPlatformInstance(context.Background(), models.RegionUSEast)
+	if !errors.Is(err, pkg.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }

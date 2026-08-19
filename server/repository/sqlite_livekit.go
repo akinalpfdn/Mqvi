@@ -99,7 +99,7 @@ func (r *sqliteLiveKitRepo) GetByServerID(ctx context.Context, serverID string) 
 
 // GetLeastLoadedPlatformInstance returns the platform-managed instance with fewest servers
 // that still has capacity. max_servers = 0 means unlimited.
-func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context) (*models.LiveKitInstance, error) {
+func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context, preferRegion string) (*models.LiveKitInstance, error) {
 	query := `
 		SELECT id, url, api_key, api_secret, is_platform_managed,
 		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) AS server_count,
@@ -107,11 +107,13 @@ func (r *sqliteLiveKitRepo) GetLeastLoadedPlatformInstance(ctx context.Context) 
 		FROM livekit_instances
 		WHERE is_platform_managed = 1
 		  AND (max_servers = 0 OR (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = livekit_instances.id) < max_servers)
-		ORDER BY server_count ASC
+		-- Region first, load second. Expressed as ORDER BY rather than WHERE so a region with no
+		-- instance, or one that is full, still yields somebody instead of failing the join.
+		ORDER BY (region = ? AND ? != '') DESC, server_count ASC
 		LIMIT 1`
 
 	inst := &models.LiveKitInstance{}
-	err := r.db.QueryRowContext(ctx, query).Scan(
+	err := r.db.QueryRowContext(ctx, query, preferRegion, preferRegion).Scan(
 		&inst.ID, &inst.URL, &inst.APIKey, &inst.APISecret,
 		&inst.IsPlatformManaged, &inst.ServerCount, &inst.MaxServers, &inst.HetznerServerID, &inst.Region, &inst.CreatedAt,
 	)

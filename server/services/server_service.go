@@ -200,7 +200,7 @@ func (s *serverService) CreateServer(ctx context.Context, ownerID string, req *m
 		livekitInstanceID = &instance.ID
 
 	case "mqvi_hosted":
-		instance, err := s.livekitRepo.GetLeastLoadedPlatformInstance(ctx)
+		instance, err := s.livekitRepo.GetLeastLoadedPlatformInstance(ctx, "")
 		if err != nil {
 			log.Printf("[server] no platform livekit instance available, creating server without voice: %v", err)
 		} else {

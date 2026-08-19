@@ -13,6 +13,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg/ctxkeys"
+	"github.com/akinalp/mqvi/pkg/georegion"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 )
 
@@ -613,5 +614,80 @@ func TestNoiseReductionFailure_IsRateLimitedOnItsOwnBucket(t *testing.T) {
 	// The screen-share bucket must be untouched — spending one must not spend the other.
 	if !h.screenShareRL.Allow("u1") {
 		t.Error("the noise reports drained the screen-share bucket")
+	}
+}
+
+// ── Region propagation ─────────────────────────────────────────────────────────────────────────
+
+// regionCapturingService records what the handler put in the context. This is the seam where the
+// Cloudflare header becomes a placement decision, and if the handler stopped setting it every
+// service-level test would still pass while everyone silently landed on the default instance.
+type regionCapturingService struct {
+	stubVoiceService
+	gotRegion string
+	sawKey    bool
+}
+
+func (s *regionCapturingService) GenerateToken(ctx context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
+	s.gotRegion, s.sawKey = ctx.Value(ctxkeys.ClientRegion).(string)
+	return &models.VoiceTokenResponse{Token: "t", URL: "wss://x", ChannelID: "c1"}, nil
+}
+
+func postToken(t *testing.T, svc voiceHandlerService, country string) {
+	t.Helper()
+	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{}}
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/token", strings.NewReader(`{"channel_id":"c1"}`))
+	req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "u1", Username: "u"}))
+	if country != "" {
+		req.Header.Set(georegion.CountryHeader, country)
+	}
+	rec := httptest.NewRecorder()
+	h.Token(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestToken_PassesTheCallersRegionToTheService(t *testing.T) {
+	svc := &regionCapturingService{}
+	postToken(t, svc, "CA")
+
+	if !svc.sawKey {
+		t.Fatal("the handler did not put a region in the context at all")
+	}
+	if svc.gotRegion != models.RegionUSEast {
+		t.Errorf("region = %q, want %q", svc.gotRegion, models.RegionUSEast)
+	}
+}
+
+// No header is the everyday case off Cloudflare, and it must reach the service as an explicit
+// "unknown" rather than as a guess.
+func TestToken_NoCountryHeaderIsUnknownRegion(t *testing.T) {
+	svc := &regionCapturingService{}
+	postToken(t, svc, "")
+
+	if !svc.sawKey {
+		t.Fatal("the handler did not put a region in the context at all")
+	}
+	if svc.gotRegion != models.RegionUnknown {
+		t.Errorf("region = %q, want unknown", svc.gotRegion)
+	}
+}
+
+// The header is client-supplied on the wire; only Cloudflare's copy is trusted. A caller who sets a
+// country themselves against a Cloudflare-fronted deployment has theirs overwritten at the edge —
+// this asserts the handler reads that one header and invents nothing else.
+func TestToken_IgnoresAnyOtherCountryHeader(t *testing.T) {
+	svc := &regionCapturingService{}
+	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{}}
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/token", strings.NewReader(`{"channel_id":"c1"}`))
+	req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "u1", Username: "u"}))
+	req.Header.Set("X-Country", "SG")
+	req.Header.Set("CF-Connecting-Country", "SG")
+	rec := httptest.NewRecorder()
+	h.Token(rec, req)
+
+	if svc.gotRegion != models.RegionUnknown {
+		t.Errorf("region = %q — a header other than %s was trusted", svc.gotRegion, georegion.CountryHeader)
 	}
 }

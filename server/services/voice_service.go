@@ -33,6 +33,8 @@ type ChannelGetter interface {
 type LiveKitInstanceGetter interface {
 	GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error)
 	GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error)
+	// preferRegion is a preference, not a filter — an empty one means plain least-loaded.
+	GetLeastLoadedPlatformInstance(ctx context.Context, preferRegion string) (*models.LiveKitInstance, error)
 }
 
 // ChannelBindingStore persists which instance a channel's room lives on. Separate from

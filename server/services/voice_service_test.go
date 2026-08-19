@@ -446,3 +446,11 @@ func TestVoiceState_ServerMuteDeafen(t *testing.T) {
 		t.Error("u1 not found in voice states")
 	}
 }
+
+func (m *mockLiveKitGetter) GetLeastLoadedPlatformInstance(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
+	return m.GetByServerID(ctx, "")
+}
+
+func (m *recordingLiveKitGetter) GetLeastLoadedPlatformInstance(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
+	return m.GetByServerID(ctx, "")
+}

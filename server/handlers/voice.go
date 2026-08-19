@@ -9,6 +9,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/ctxkeys"
+	"github.com/akinalp/mqvi/pkg/georegion"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -69,7 +70,12 @@ func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
 	if user.DisplayName != nil {
 		displayName = *user.DisplayName
 	}
-	resp, err := h.voiceService.GenerateToken(r.Context(), user.ID, user.Username, displayName, req.ChannelID)
+	// Where the caller is, read from Cloudflare's edge rather than from anything the client sends:
+	// the first person into a channel picks the instance for everyone in it, so a forgeable signal
+	// would let one person place the call badly for the rest.
+	ctx := context.WithValue(r.Context(), ctxkeys.ClientRegion, georegion.FromRequest(r))
+
+	resp, err := h.voiceService.GenerateToken(ctx, user.ID, user.Username, displayName, req.ChannelID)
 	if err != nil {
 		pkg.Error(w, err)
 		return

@@ -11,6 +11,7 @@ import (
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/crypto"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 )
 
 // A getter that hands out a DIFFERENT instance every time it is asked to pick.
@@ -30,6 +31,15 @@ func (g *uniqueInstanceGetter) GetByServerID(_ context.Context, _ string) (*mode
 	return g.instance(fmt.Sprintf("lk-%d", n)), nil
 }
 
+// Returns a stable instance per region so a test can assert "this joiner was placed in eu-north"
+// rather than merely "somewhere". An empty preference behaves like the plain least-loaded pick.
+func (g *uniqueInstanceGetter) GetLeastLoadedPlatformInstance(_ context.Context, preferRegion string) (*models.LiveKitInstance, error) {
+	if preferRegion == "" {
+		return g.instance("lk-least-loaded"), nil
+	}
+	return g.instance("lk-" + preferRegion), nil
+}
+
 func (g *uniqueInstanceGetter) GetByID(_ context.Context, id string) (*models.LiveKitInstance, error) {
 	g.byIDCalls.Add(1)
 	return g.instance(id), nil
@@ -38,6 +48,7 @@ func (g *uniqueInstanceGetter) GetByID(_ context.Context, id string) (*models.Li
 func (g *uniqueInstanceGetter) instance(id string) *models.LiveKitInstance {
 	return &models.LiveKitInstance{
 		ID: id, URL: "wss://" + id + ".test", APIKey: g.apiKey, APISecret: g.apiSecret,
+		IsPlatformManaged: true,
 	}
 }
 
@@ -404,4 +415,145 @@ func (s *voiceService) encryptionKeyFixture(t *testing.T, plain string) string {
 		t.Fatalf("encrypt %s: %v", plain, err)
 	}
 	return enc
+}
+
+// ── Region-aware placement ─────────────────────────────────────────────────────────────────────
+
+func withRegion(region string) context.Context {
+	return context.WithValue(context.Background(), ctxkeys.ClientRegion, region)
+}
+
+func TestPickInstance_PlacesTheCallInTheJoinersRegion(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if room.InstanceID != "lk-"+models.RegionUSEast {
+		t.Errorf("placed on %s, want the us-east instance", room.InstanceID)
+	}
+}
+
+// No signal must mean no change: this is the behaviour every call had before regions existed, and
+// it is what a background sweep with no request behind it gets.
+func TestPickInstance_UnknownRegionUsesTheServerDefault(t *testing.T) {
+	s, getter := bindingHarness(t)
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionUnknown), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	// GetByServerID hands out lk-1, lk-2…; the region-aware path would have returned lk-<region>.
+	if room.InstanceID != "lk-1" {
+		t.Errorf("placed on %s, want the server default", room.InstanceID)
+	}
+	if n := getter.picks.Load(); n != 1 {
+		t.Errorf("server default consulted %d times, want 1", n)
+	}
+}
+
+func TestPickInstance_NoContextRegionUsesTheServerDefault(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	room, err := s.resolveRoomInstance(context.Background(), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if room.InstanceID != "lk-1" {
+		t.Errorf("placed on %s, want the server default", room.InstanceID)
+	}
+}
+
+// A self-hosted server owns its LiveKit. Moving such a call onto platform hardware would be wrong
+// and a surprise to whoever runs it — the region must be ignored entirely.
+func TestPickInstance_NeverMovesASelfHostedServer(t *testing.T) {
+	s, _ := bindingHarness(t)
+	s.livekitGetter = &selfHostedGetter{uniqueInstanceGetter: uniqueInstanceGetter{
+		apiKey: s.encryptionKeyFixture(t, "devkey"), apiSecret: s.encryptionKeyFixture(t, "devsecret"),
+	}}
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionAPSoutheast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if room.InstanceID != "lk-self-hosted" {
+		t.Fatalf("a self-hosted call was moved to %s", room.InstanceID)
+	}
+}
+
+// Placement must never be the reason someone cannot talk.
+func TestPickInstance_FallsBackWhenRegionSelectionFails(t *testing.T) {
+	s, _ := bindingHarness(t)
+	s.livekitGetter = &brokenSelectorGetter{uniqueInstanceGetter: uniqueInstanceGetter{
+		apiKey: s.encryptionKeyFixture(t, "devkey"), apiSecret: s.encryptionKeyFixture(t, "devsecret"),
+	}}
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("join refused because placement failed: %v", err)
+	}
+	if room.InstanceID != "lk-1" {
+		t.Errorf("placed on %s, want the server default", room.InstanceID)
+	}
+}
+
+type selfHostedGetter struct{ uniqueInstanceGetter }
+
+func (g *selfHostedGetter) GetByServerID(_ context.Context, _ string) (*models.LiveKitInstance, error) {
+	inst := g.instance("lk-self-hosted")
+	inst.IsPlatformManaged = false
+	return inst, nil
+}
+
+type brokenSelectorGetter struct{ uniqueInstanceGetter }
+
+func (g *brokenSelectorGetter) GetLeastLoadedPlatformInstance(_ context.Context, _ string) (*models.LiveKitInstance, error) {
+	return nil, fmt.Errorf("no instance available")
+}
+
+// The rule that makes a channel one room: the first joiner's region places the call, and everyone
+// after follows the binding no matter where they are. A Canadian joining a German channel goes to
+// Germany — being sent to Ashburn would put them alone in a room of the same name.
+func TestPickInstance_LaterJoinersFollowTheFirstRegardlessOfRegion(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	first, err := s.resolveRoomInstance(withRegion(models.RegionEUCentral), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first joiner: %v", err)
+	}
+	second, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("second joiner: %v", err)
+	}
+
+	if second.InstanceID != first.InstanceID {
+		t.Errorf("second joiner landed on %s while the first is on %s — same room name, two SFUs",
+			second.InstanceID, first.InstanceID)
+	}
+}
+
+// Once everyone leaves, the next session must be free to choose again rather than inherit a
+// placement made for people who have all gone.
+func TestPickInstance_RegionIsChosenAfreshAfterTheChannelEmpties(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	first, err := s.resolveRoomInstance(withRegion(models.RegionEUCentral), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first session: %v", err)
+	}
+	s.mu.Lock()
+	s.releaseChannelInstanceLocked("chan1")
+	s.mu.Unlock()
+
+	second, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("second session: %v", err)
+	}
+	if second.InstanceID == first.InstanceID {
+		t.Errorf("both sessions landed on %s — the release did not free the choice", second.InstanceID)
+	}
+	if second.InstanceID != "lk-"+models.RegionUSEast {
+		t.Errorf("second session on %s, want the us-east instance", second.InstanceID)
+	}
 }
