@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/models"
-	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/ws"
 
 	livekit "github.com/livekit/protocol/livekit"
@@ -176,20 +175,12 @@ func (s *voiceService) sweepOrphanStates() {
 // and returns a room-service client. Shared by every server-side LiveKit operation
 // (participant removal, participant listing, server-mute enforcement).
 // MUST NOT be called under mu.Lock (does DB lookups).
-func (s *voiceService) newLiveKitRoomClient(ctx context.Context, serverID string) (*lksdk.RoomServiceClient, error) {
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, serverID)
+func (s *voiceService) newLiveKitRoomClient(ctx context.Context, serverID, channelID string) (*lksdk.RoomServiceClient, error) {
+	room, err := s.resolveRoomInstance(ctx, serverID, channelID)
 	if err != nil {
-		return nil, fmt.Errorf("livekit instance lookup for server %s: %w", serverID, err)
+		return nil, err
 	}
-	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("api key decrypt: %w", err)
-	}
-	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("api secret decrypt: %w", err)
-	}
-	return lksdk.NewRoomServiceClient(lkInstance.URL, apiKey, apiSecret), nil
+	return lksdk.NewRoomServiceClient(room.URL, room.APIKey, room.APISecret), nil
 }
 
 // removeParticipantFromLiveKit explicitly removes a participant from the LiveKit server.
@@ -205,7 +196,7 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	roomClient, err := s.newLiveKitRoomClient(ctx, serverID)
+	roomClient, err := s.newLiveKitRoomClient(ctx, serverID, channelID)
 	if err != nil {
 		log.Printf("[voice] removeParticipant: room client init failed for server %s: %v", serverID, err)
 		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: room client init failed", map[string]string{
@@ -214,7 +205,7 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID 
 		return
 	}
 
-	roomName := serverID + ":" + channelID
+	roomName := generateRoomName(serverID, channelID)
 
 	_, err = roomClient.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{
 		Room:     roomName,
@@ -352,12 +343,12 @@ func (s *voiceService) sweepAFKUsers() {
 // share still counts as present. LiveKit is the source of truth for room membership.
 // MUST NOT be called under s.mu (does DB lookups + network I/O).
 func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
-	roomClient, err := s.newLiveKitRoomClient(ctx, serverID)
+	roomClient, err := s.newLiveKitRoomClient(ctx, serverID, channelID)
 	if err != nil {
 		return nil, err
 	}
 
-	roomName := serverID + ":" + channelID
+	roomName := generateRoomName(serverID, channelID)
 
 	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomName})
 	if err != nil {

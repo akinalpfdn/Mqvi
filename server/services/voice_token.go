@@ -10,7 +10,6 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
-	"github.com/akinalp/mqvi/pkg/crypto"
 
 	"github.com/livekit/protocol/auth"
 )
@@ -24,28 +23,12 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("%w: not a voice channel", pkg.ErrBadRequest)
 	}
 
-	// channel -> server -> livekit_instance lookup
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
+	room, err := s.resolveRoomInstance(ctx, channel.ServerID, channelID)
 	if err != nil {
-		s.logError(models.LogCategoryVoice, &userID, "LiveKit instance lookup failed", map[string]string{
+		s.logError(models.LogCategoryVoice, &userID, "LiveKit instance unavailable", map[string]string{
 			"server_id": channel.ServerID, "error": err.Error(),
 		})
-		return nil, fmt.Errorf("failed to get livekit instance for server %s: %w", channel.ServerID, err)
-	}
-
-	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
-	if err != nil {
-		s.logError(models.LogCategoryVoice, &userID, "LiveKit API key decryption failed", map[string]string{
-			"instance_id": lkInstance.ID, "error": err.Error(),
-		})
-		return nil, fmt.Errorf("failed to decrypt livekit api key: %w", err)
-	}
-	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
-	if err != nil {
-		s.logError(models.LogCategoryVoice, &userID, "LiveKit API secret decryption failed", map[string]string{
-			"instance_id": lkInstance.ID, "error": err.Error(),
-		})
-		return nil, fmt.Errorf("failed to decrypt livekit api secret: %w", err)
+		return nil, err
 	}
 
 	// Resolve effective permissions (role base + channel overrides)
@@ -90,10 +73,9 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	canSubscribe := true
 	canPublishData := true
 
-	at := auth.NewAccessToken(apiKey, apiSecret)
+	at := auth.NewAccessToken(room.APIKey, room.APISecret)
 
-	// Room name = "{serverID}:{channelID}" to avoid collisions across servers
-	roomName := channel.ServerID + ":" + channelID
+	roomName := generateRoomName(channel.ServerID, channelID)
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
@@ -145,7 +127,7 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 
 	return &models.VoiceTokenResponse{
 		Token:          token,
-		URL:            lkInstance.URL,
+		URL:            room.URL,
 		ChannelID:      channelID,
 		E2EEPassphrase: passphrase,
 	}, nil
@@ -239,30 +221,21 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		return nil, fmt.Errorf("%w: must be in the voice channel to screen share", pkg.ErrBadRequest)
 	}
 
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
+	// Same resolver as the join token, and that is the point: the sub-participant must land in the
+	// same room on the same instance, or the share is published where nobody is listening.
+	room, err := s.resolveRoomInstance(ctx, channel.ServerID, channelID)
 	if err != nil {
 		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_instance_missing", map[string]string{"server_id": channel.ServerID, "error": err.Error()})
-		return nil, fmt.Errorf("failed to get livekit instance for server %s: %w", channel.ServerID, err)
-	}
-
-	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
-	if err != nil {
-		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_key_decrypt_failed", nil)
-		return nil, fmt.Errorf("failed to decrypt livekit api key: %w", err)
-	}
-	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
-	if err != nil {
-		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_secret_decrypt_failed", nil)
-		return nil, fmt.Errorf("failed to decrypt livekit api secret: %w", err)
+		return nil, err
 	}
 
 	canPublish := true
 	canSubscribe := false   // screen share participant doesn't need to subscribe
 	canPublishData := false // no data channel needed
 
-	at := auth.NewAccessToken(apiKey, apiSecret)
+	at := auth.NewAccessToken(room.APIKey, room.APISecret)
 
-	roomName := channel.ServerID + ":" + channelID
+	roomName := generateRoomName(channel.ServerID, channelID)
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
@@ -300,7 +273,7 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 
 	return &models.VoiceTokenResponse{
 		Token:          token,
-		URL:            lkInstance.URL,
+		URL:            room.URL,
 		ChannelID:      channelID,
 		E2EEPassphrase: passphrase,
 	}, nil

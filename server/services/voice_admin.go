@@ -159,7 +159,7 @@ func (s *voiceService) enforceServerMicMuteAtSFU(serverID, channelID, userID str
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	roomClient, err := s.newLiveKitRoomClient(ctx, serverID)
+	roomClient, err := s.newLiveKitRoomClient(ctx, serverID, channelID)
 	if err != nil {
 		log.Printf("[voice] serverMute: room client init failed for server %s: %v", serverID, err)
 		s.logError(models.LogCategoryVoice, &userID, "serverMute: room client init failed", map[string]string{
@@ -168,7 +168,7 @@ func (s *voiceService) enforceServerMicMuteAtSFU(serverID, channelID, userID str
 		return
 	}
 
-	roomName := serverID + ":" + channelID
+	roomName := generateRoomName(serverID, channelID)
 	req := &livekit.UpdateParticipantRequest{
 		Room:       roomName,
 		Identity:   userID,
