@@ -23,14 +23,6 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("%w: not a voice channel", pkg.ErrBadRequest)
 	}
 
-	room, err := s.resolveRoomInstance(ctx, channel.ServerID, channelID)
-	if err != nil {
-		s.logError(models.LogCategoryVoice, &userID, "LiveKit instance unavailable", map[string]string{
-			"server_id": channel.ServerID, "error": err.Error(),
-		})
-		return nil, err
-	}
-
 	// Resolve effective permissions (role base + channel overrides)
 	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
 	if err != nil {
@@ -68,6 +60,24 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 			return nil, fmt.Errorf("%w: voice channel is full", pkg.ErrBadRequest)
 		}
 	}
+
+	// Only now. Resolving claims the channel's LiveKit instance on first use — an actual write, to
+	// memory and to channel_voice_bindings — and it used to run before any of the checks above. A
+	// member without PermConnectVoice could therefore pin a staff-only channel to an instance chosen
+	// for their region and then be refused, and the binding outlived the refusal. Everything above
+	// this line is read-only; nothing below is reachable without passing it.
+	room, err := s.resolveRoomInstance(ctx, channel.ServerID, channelID)
+	if err != nil {
+		s.logError(models.LogCategoryVoice, &userID, "LiveKit instance unavailable", map[string]string{
+			"server_id": channel.ServerID, "error": err.Error(),
+		})
+		return nil, err
+	}
+
+	// The claim above outlives this request; the voice state that governs its lifetime does not
+	// exist until the websocket join arrives. Mark the gap so neither the release path nor the
+	// abandoned-binding sweep treats the channel as empty while this caller is still connecting.
+	s.markPendingJoin(channelID, userID)
 
 	canPublish := effectivePerms.Has(models.PermSpeak)
 	canSubscribe := true

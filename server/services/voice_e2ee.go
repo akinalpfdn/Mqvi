@@ -50,6 +50,13 @@ func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) string {
 			return ""
 		}
 	}
+	// Someone holds a token for this channel and is still completing the LiveKit handshake. They are
+	// not in s.states yet, so without this the last person leaving would release the binding under
+	// them — and the joiner who follows would pick again, open a room of the same name on another
+	// SFU, and hear nobody. Nothing would error.
+	if s.hasPendingJoinLocked(channelID) {
+		return ""
+	}
 
 	released := s.releaseChannelInstanceLocked(channelID)
 

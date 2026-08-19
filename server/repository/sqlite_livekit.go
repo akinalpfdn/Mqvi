@@ -77,7 +77,7 @@ func (r *sqliteLiveKitRepo) GetByServerID(ctx context.Context, serverID string) 
 	query := `
 		SELECT li.id, li.url, li.api_key, li.api_secret, li.is_platform_managed,
 		       (SELECT COUNT(*) FROM servers WHERE livekit_instance_id = li.id) AS live_server_count,
-		       li.max_servers, li.hetzner_server_id, li.created_at
+		       li.max_servers, li.hetzner_server_id, li.region, li.created_at
 		FROM livekit_instances li
 		INNER JOIN servers s ON s.livekit_instance_id = li.id
 		WHERE s.id = ?`

@@ -342,3 +342,36 @@ func TestLeastLoaded_NoInstanceAtAllIsNotFound(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// GetByServerID had no test and shipped broken: the region column was added to its Scan but not to
+// its SELECT, so every call returned "expected 9 destination arguments in Scan, not 10". It is the
+// only way pickInstance reaches a server's own instance, which means every voice join on a channel
+// with no binding failed — every first join, and every join after a restart. It compiled, vetted,
+// and the whole suite stayed green because the service tests use a stub getter.
+func TestLiveKitRepo_GetByServerIDReturnsTheInstanceWithItsRegion(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	seedInstance(t, conn, "lk1", models.RegionUSEast, 0)
+	loadInstance(t, conn, "lk1", 1) // also creates the server row that points at it
+
+	inst, err := repo.GetByServerID(context.Background(), "lk1-srv-a")
+	if err != nil {
+		t.Fatalf("GetByServerID: %v", err)
+	}
+	if inst.ID != "lk1" {
+		t.Errorf("got instance %q, want lk1", inst.ID)
+	}
+	if inst.Region != models.RegionUSEast {
+		t.Errorf("region = %q, want %q — the column is scanned but not selected", inst.Region, models.RegionUSEast)
+	}
+	if inst.ServerCount != 1 {
+		t.Errorf("server_count = %d, want 1", inst.ServerCount)
+	}
+}
+
+func TestLiveKitRepo_GetByServerIDIsNotFoundForAnUnknownServer(t *testing.T) {
+	_, repo := newLiveKitDB(t)
+
+	if _, err := repo.GetByServerID(context.Background(), "nope"); !errors.Is(err, pkg.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}

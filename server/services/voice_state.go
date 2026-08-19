@@ -89,6 +89,9 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		releasedInstance = s.cleanupRoomPassphraseIfEmpty(oldChannelID)
 	}
 
+	// The websocket join landed, so the token-time marker has done its job.
+	s.clearPendingJoinLocked(channelID, userID)
+
 	// Capture before insertion so we can detect the 0 → 1 transition.
 	newChannelWasEmpty := s.countInChannelLocked(channelID) == 0
 

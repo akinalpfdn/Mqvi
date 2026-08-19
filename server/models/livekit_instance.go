@@ -9,14 +9,14 @@ import (
 // LiveKitInstance — credentials are stored AES-256-GCM encrypted in DB.
 // Values here are decrypted; json:"-" prevents them from ever reaching the client.
 type LiveKitInstance struct {
-	ID                string    `json:"id"`
-	URL               string    `json:"url"`
-	APIKey            string    `json:"-"`
-	APISecret         string    `json:"-"`
-	IsPlatformManaged bool      `json:"is_platform_managed"`
-	ServerCount       int       `json:"server_count"`
-	MaxServers        int       `json:"max_servers"` // 0 = unlimited
-	HetznerServerID   string    `json:"hetzner_server_id"`
+	ID                string `json:"id"`
+	URL               string `json:"url"`
+	APIKey            string `json:"-"`
+	APISecret         string `json:"-"`
+	IsPlatformManaged bool   `json:"is_platform_managed"`
+	ServerCount       int    `json:"server_count"`
+	MaxServers        int    `json:"max_servers"` // 0 = unlimited
+	HetznerServerID   string `json:"hetzner_server_id"`
 	// Region is operator-facing only. Which SFU a member is on is not theirs to see, and telling
 	// them where it sits adds nothing they can act on.
 	Region    string    `json:"-"`

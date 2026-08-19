@@ -137,6 +137,11 @@ type voiceService struct {
 	livekitAbsentSince map[string]time.Time          // userID -> first seen absent from the LiveKit room (reconcile grace)
 	channelStartedAt   map[string]time.Time          // channelID -> moment the channel went from 0→1 participant
 	channelInstances   map[string]string             // channelID -> LiveKit instance id, claimed by the first token request
+	// channelID -> userID -> deadline. A token has been minted but the websocket join has not
+	// arrived yet. Without this the channel looks empty during the LiveKit handshake, which both
+	// leaks bindings (a token nobody uses pins the channel forever) and lets the last person
+	// leaving release a binding out from under someone who is still connecting.
+	pendingJoins map[string]map[string]time.Time
 	onChannelEmpty     func(string)                  // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
 	mu                 sync.RWMutex
 
@@ -172,6 +177,7 @@ func NewVoiceService(
 		livekitAbsentSince: make(map[string]time.Time),
 		channelStartedAt:   make(map[string]time.Time),
 		channelInstances:   make(map[string]string),
+		pendingJoins:       make(map[string]map[string]time.Time),
 		channelGetter:      channelGetter,
 		bindingStore:       bindingStore,
 		livekitGetter:      livekitGetter,

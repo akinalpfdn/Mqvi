@@ -152,6 +152,16 @@ func (s *voiceService) pickInstance(ctx context.Context, serverID string) (*mode
 		log.Printf("[voice] region-aware pick failed for %s (region %s), using the server default: %v", serverID, region, err)
 		return inst, nil
 	}
+	// The query orders by region, it does not filter by it — deliberately, so a region with no
+	// instance still yields somebody. That means "best" can be in a completely different region, and
+	// moving the call there is only right if it is actually nearer. It is not: right after migration
+	// 091 every instance reads as unknown, so the region term is 0 for all of them and the ordering
+	// collapses to plain least-loaded. A German caller on a busy Nuremberg instance would be sent to
+	// a fresh Ashburn box across the Atlantic — the exact opposite of the point — while the log
+	// claimed it had placed them by region.
+	if best.Region != region {
+		return inst, nil
+	}
 	if best.ID != inst.ID {
 		log.Printf("[voice] server %s default is %s; placing this call on %s for region %s", serverID, inst.ID, best.ID, region)
 	}
@@ -303,4 +313,85 @@ func (s *voiceService) persistBinding(ctx context.Context, channelID, instanceID
 // unambiguous when both agree.
 func generateRoomName(serverID, channelID string) string {
 	return serverID + ":" + channelID
+}
+
+// pendingJoinTTL bounds how long a minted token keeps a channel "occupied" without a websocket
+// join. It only has to cover the LiveKit handshake between the token response and the client's
+// join, which is hundreds of milliseconds; a minute is generous and keeps a token that is never
+// used from pinning a channel for longer than that.
+const pendingJoinTTL = time.Minute
+
+// markPendingJoin records that a token was issued for this channel and the join has not landed yet.
+//
+// The binding is claimed here, at token time, but everything that ends its life keys off s.states,
+// which only exists once the websocket join arrives. That gap is what this closes.
+func (s *voiceService) markPendingJoin(channelID, userID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pendingJoins == nil {
+		s.pendingJoins = make(map[string]map[string]time.Time)
+	}
+	if s.pendingJoins[channelID] == nil {
+		s.pendingJoins[channelID] = make(map[string]time.Time)
+	}
+	s.pendingJoins[channelID][userID] = time.Now().Add(pendingJoinTTL)
+}
+
+// clearPendingJoinLocked drops the marker once the real voice state exists.
+// MUST be called under mu.Lock.
+func (s *voiceService) clearPendingJoinLocked(channelID, userID string) {
+	pending, ok := s.pendingJoins[channelID]
+	if !ok {
+		return
+	}
+	delete(pending, userID)
+	if len(pending) == 0 {
+		delete(s.pendingJoins, channelID)
+	}
+}
+
+// hasPendingJoinLocked reports whether anyone is still mid-handshake into this channel, pruning
+// expired markers as it goes. MUST be called under mu.Lock.
+func (s *voiceService) hasPendingJoinLocked(channelID string) bool {
+	pending, ok := s.pendingJoins[channelID]
+	if !ok {
+		return false
+	}
+	now := time.Now()
+	for userID, deadline := range pending {
+		if now.After(deadline) {
+			delete(pending, userID)
+		}
+	}
+	if len(pending) == 0 {
+		delete(s.pendingJoins, channelID)
+		return false
+	}
+	return true
+}
+
+// sweepAbandonedBindingsLocked releases bindings for channels that have neither participants nor
+// anyone still connecting.
+//
+// Needed because the ordinary release only fires when somebody leaves, and a channel that was
+// claimed by a token nobody ever used has nobody to leave. Without this those bindings are
+// permanent: the channel stays pinned to an instance picked for a person who never arrived, and
+// migration 090's promise that the table holds only calls in progress is false.
+//
+// MUST be called under mu.Lock.
+func (s *voiceService) sweepAbandonedBindingsLocked() {
+	if len(s.channelInstances) == 0 {
+		return
+	}
+	occupied := make(map[string]bool, len(s.states))
+	for _, st := range s.states {
+		occupied[st.ChannelID] = true
+	}
+	for channelID := range s.channelInstances {
+		if occupied[channelID] || s.hasPendingJoinLocked(channelID) {
+			continue
+		}
+		log.Printf("[voice] releasing abandoned binding for channel %s (no participants, nobody connecting)", channelID)
+		s.releaseChannelInstanceLocked(channelID)
+	}
 }

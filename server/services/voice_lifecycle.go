@@ -166,6 +166,11 @@ func (s *voiceService) sweepOrphanStates() {
 		}
 	}
 
+	// Bindings whose channel has nobody in it and nobody arriving. The ordinary release only runs
+	// when somebody leaves, so a channel claimed by a token that was never used has no one to
+	// trigger it and would stay pinned forever.
+	s.sweepAbandonedBindingsLocked()
+
 	s.mu.Unlock()
 
 	// LiveKit cleanup outside lock (involves DB calls)

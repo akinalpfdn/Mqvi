@@ -12,6 +12,7 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/ctxkeys"
+	"github.com/akinalp/mqvi/testutil"
 )
 
 // A getter that hands out a DIFFERENT instance every time it is asked to pick.
@@ -33,11 +34,32 @@ func (g *uniqueInstanceGetter) GetByServerID(_ context.Context, _ string) (*mode
 
 // Returns a stable instance per region so a test can assert "this joiner was placed in eu-north"
 // rather than merely "somewhere". An empty preference behaves like the plain least-loaded pick.
+//
+// The returned instance carries the region on the struct, not just in its id. The real query orders
+// by region without filtering, so it can hand back an instance from somewhere else entirely, and
+// the caller checks the field before moving a call there. A fake that left Region empty would make
+// that check untestable.
 func (g *uniqueInstanceGetter) GetPlatformInstanceForRegion(_ context.Context, region string) (*models.LiveKitInstance, error) {
 	if region == "" {
 		return g.instance("lk-least-loaded"), nil
 	}
-	return g.instance("lk-" + region), nil
+	inst := g.instance("lk-" + region)
+	inst.Region = region
+	return inst, nil
+}
+
+// mismatchedRegionGetter answers every region request with an instance that is somewhere else —
+// exactly what the ordering-not-filtering query does when no instance carries the asked-for region,
+// which is the state of every deployment until an operator sets one.
+type mismatchedRegionGetter struct {
+	uniqueInstanceGetter
+	elsewhere string
+}
+
+func (g *mismatchedRegionGetter) GetPlatformInstanceForRegion(_ context.Context, _ string) (*models.LiveKitInstance, error) {
+	inst := g.instance("lk-far-away")
+	inst.Region = g.elsewhere
+	return inst, nil
 }
 
 func (g *uniqueInstanceGetter) GetByID(_ context.Context, id string) (*models.LiveKitInstance, error) {
@@ -64,13 +86,22 @@ func bindingHarness(t *testing.T) (*voiceService, *uniqueInstanceGetter) {
 		t.Fatalf("encrypt api secret: %v", err)
 	}
 	getter := &uniqueInstanceGetter{apiKey: apiKey, apiSecret: apiSecret}
-	return &voiceService{
-		states:           make(map[string]*models.VoiceState),
-		roomPassphrases:  make(map[string]string),
-		channelInstances: make(map[string]string),
-		livekitGetter:    getter,
-		encryptionKey:    key,
-	}, getter
+	// Built through the real constructor rather than a struct literal. A hand-built service silently
+	// misses every field added later — this harness went nil on pendingJoins the moment that map was
+	// introduced, and a test that constructs the service differently from production is testing a
+	// different object. nil dependencies are fine: nothing these tests exercise reaches them.
+	svc := NewVoiceService(
+		nil, // channelGetter
+		getter,
+		nil, // bindingStore: in-memory only unless a test sets one
+		nil, // permResolver
+		nil, // hub
+		nil, // onlineChecker
+		nil, // afkTimeoutGetter
+		key,
+		nil, // urlSigner
+	).(*voiceService)
+	return svc, getter
 }
 
 func TestResolveRoomInstance_SecondCallFollowsTheFirst(t *testing.T) {
@@ -860,5 +891,291 @@ func TestBindingStore_ClearSkipsAChannelThatWasClaimedAgain(t *testing.T) {
 	got, ok := store.get("chan1")
 	if !ok || got != room.InstanceID {
 		t.Errorf("stored binding is %q/%v — the queued clear erased a re-claimed channel", got, ok)
+	}
+}
+
+// The query orders by region but does not filter by it, so it can return an instance on another
+// continent. Moving a call there is worse than doing nothing: right after the region column ships
+// every instance reads as unknown, the region term is 0 for all of them, and the ordering collapses
+// to plain least-loaded — which would send a German caller to whichever box was added most recently.
+func TestPickInstance_IgnoresACandidateFromAnotherRegion(t *testing.T) {
+	s, _ := bindingHarness(t)
+	s.livekitGetter = &mismatchedRegionGetter{
+		uniqueInstanceGetter: uniqueInstanceGetter{
+			apiKey: s.encryptionKeyFixture(t, "devkey"), apiSecret: s.encryptionKeyFixture(t, "devsecret"),
+		},
+		elsewhere: models.RegionUSEast,
+	}
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionEUCentral), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if room.InstanceID == "lk-far-away" {
+		t.Error("a eu-central caller was placed on a us-east instance because the ordering had nothing nearer")
+	}
+	if room.InstanceID != "lk-1" {
+		t.Errorf("placed on %s, want the server's own instance", room.InstanceID)
+	}
+}
+
+// Every instance unknown is the real state of a deployment the day the column ships. Nobody should
+// move anywhere until an operator has said where the instances are.
+func TestPickInstance_UnsetRegionsLeaveEveryCallWhereItWas(t *testing.T) {
+	s, _ := bindingHarness(t)
+	s.livekitGetter = &mismatchedRegionGetter{
+		uniqueInstanceGetter: uniqueInstanceGetter{
+			apiKey: s.encryptionKeyFixture(t, "devkey"), apiSecret: s.encryptionKeyFixture(t, "devsecret"),
+		},
+		elsewhere: models.RegionUnknown,
+	}
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionEUCentral), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if room.InstanceID != "lk-1" {
+		t.Errorf("placed on %s, want the server's own instance", room.InstanceID)
+	}
+}
+
+// ── The gap between the token and the websocket join ───────────────────────────────────────────
+
+// The binding is claimed when the token is minted; the voice state that governs its lifetime only
+// exists once the websocket join arrives. In between, the channel looks empty to everything that
+// would clean up after it.
+//
+// This is the split-room case: the last person leaves while someone else is still completing the
+// LiveKit handshake. Release the binding there and the next joiner picks again, opens a room of the
+// same name on another SFU, and hears nobody — with no error anywhere.
+func TestPendingJoin_LastLeaverDoesNotReleaseUnderAConnectingJoiner(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+	s.mu.Lock()
+	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "chan1", ServerID: "srv1"}
+	s.mu.Unlock()
+
+	// V asks for a token and starts connecting. No voice state yet.
+	s.markPendingJoin("chan1", "v")
+
+	// U leaves. The channel has no states, but V is mid-handshake.
+	s.mu.Lock()
+	delete(s.states, "u1")
+	released := s.cleanupRoomPassphraseIfEmpty("chan1")
+	s.mu.Unlock()
+
+	if released != "" {
+		t.Fatalf("released %q while a joiner was still connecting", released)
+	}
+
+	s.mu.RLock()
+	still, bound := s.channelInstances["chan1"]
+	s.mu.RUnlock()
+	if !bound || still != room.InstanceID {
+		t.Fatalf("binding is %q/%v, want it held at %q for the connecting joiner", still, bound, room.InstanceID)
+	}
+
+	// V's join lands on the same instance rather than a fresh pick.
+	got, err := s.resolveRoomInstance(withRegion(models.RegionEUCentral), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("connecting joiner: %v", err)
+	}
+	if got.InstanceID != room.InstanceID {
+		t.Errorf("the connecting joiner landed on %q while the room is on %q — same name, two SFUs",
+			got.InstanceID, room.InstanceID)
+	}
+}
+
+// A token nobody uses must not pin the channel forever. Nothing leaves, so the ordinary release
+// never fires; the periodic sweep is the only thing that can free it.
+func TestPendingJoin_AnUnusedTokenStopsPinningTheChannel(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	if _, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1"); err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	s.markPendingJoin("chan1", "u1")
+
+	// While the marker is live the channel is held.
+	s.mu.Lock()
+	s.sweepAbandonedBindingsLocked()
+	_, boundEarly := s.channelInstances["chan1"]
+	s.mu.Unlock()
+	if !boundEarly {
+		t.Fatal("the sweep freed a channel someone was still connecting to")
+	}
+
+	// The join never arrives and the marker expires.
+	s.mu.Lock()
+	s.pendingJoins["chan1"]["u1"] = time.Now().Add(-time.Second)
+	s.sweepAbandonedBindingsLocked()
+	leaked, stillBound := s.channelInstances["chan1"]
+	s.mu.Unlock()
+
+	if stillBound {
+		t.Errorf("channel still pinned to %q by a token that was never used", leaked)
+	}
+}
+
+// The sweep must never touch a channel that has people in it.
+func TestPendingJoin_SweepLeavesOccupiedChannelsAlone(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	room, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1")
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	s.mu.Lock()
+	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "chan1", ServerID: "srv1"}
+	s.sweepAbandonedBindingsLocked()
+	still, bound := s.channelInstances["chan1"]
+	s.mu.Unlock()
+
+	if !bound || still != room.InstanceID {
+		t.Errorf("the sweep released a live call: %q/%v, want %q", still, bound, room.InstanceID)
+	}
+}
+
+// A landed join clears the marker, so the channel's lifetime goes back to being governed by the
+// voice state alone and an expiring marker cannot free a live call later.
+func TestPendingJoin_ClearedOnceTheJoinLands(t *testing.T) {
+	s, _ := bindingHarness(t)
+
+	s.markPendingJoin("chan1", "u1")
+	s.mu.Lock()
+	s.clearPendingJoinLocked("chan1", "u1")
+	pending := s.hasPendingJoinLocked("chan1")
+	_, mapEntry := s.pendingJoins["chan1"]
+	s.mu.Unlock()
+
+	if pending {
+		t.Error("marker survived the join")
+	}
+	if mapEntry {
+		t.Error("empty channel entry left in pendingJoins — the map would grow forever")
+	}
+}
+
+// ── Wiring: the mechanism above is only worth anything if the real paths use it ────────────────
+
+// tokenHarness drives GenerateToken and JoinChannel for real, rather than poking the helpers
+// directly. Testing the mechanism proves it works; only this proves it is switched on.
+func tokenHarness(t *testing.T, perms models.Permission) (*voiceService, *uniqueInstanceGetter) {
+	t.Helper()
+	key := make([]byte, 32)
+	apiKey, err := crypto.Encrypt("devkey", key)
+	if err != nil {
+		t.Fatalf("encrypt api key: %v", err)
+	}
+	apiSecret, err := crypto.Encrypt("devsecret", key)
+	if err != nil {
+		t.Fatalf("encrypt api secret: %v", err)
+	}
+	getter := &uniqueInstanceGetter{apiKey: apiKey, apiSecret: apiSecret}
+	svc := NewVoiceService(
+		&testutil.MockChannelRepo{
+			GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
+				return &models.Channel{ID: id, ServerID: "srv1", Type: models.ChannelTypeVoice}, nil
+			},
+		},
+		getter,
+		nil,
+		&testutil.MockChannelPermResolver{
+			ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+				return perms, nil
+			},
+		},
+		&testutil.MockBroadcaster{},
+		&testutil.MockBroadcastAndOnline{}, // onlineChecker: the orphan sweep dereferences it
+		nil,                                // afkTimeoutGetter
+		key,
+		&testutil.MockFileURLSigner{},
+	).(*voiceService)
+	return svc, getter
+}
+
+func TestGenerateToken_MarksTheChannelWhileTheJoinerConnects(t *testing.T) {
+	s, _ := tokenHarness(t, models.PermConnectVoice|models.PermSpeak)
+
+	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err != nil {
+		t.Fatalf("token: %v", err)
+	}
+
+	s.mu.Lock()
+	pending := s.hasPendingJoinLocked("chan1")
+	s.mu.Unlock()
+	if !pending {
+		t.Error("minting a token did not mark the channel — the binding it just claimed is unprotected")
+	}
+}
+
+func TestJoinChannel_ClearsTheMarkerTheTokenLeft(t *testing.T) {
+	s, _ := tokenHarness(t, models.PermConnectVoice|models.PermSpeak)
+
+	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	if err := s.JoinChannel("u1", "u", "", "", "chan1", false, false); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	s.mu.Lock()
+	pending := s.hasPendingJoinLocked("chan1")
+	s.mu.Unlock()
+	if pending {
+		t.Error("the marker outlived the join it was waiting for")
+	}
+}
+
+// The claim is a write. Before this it ran ahead of the permission check, so a member without
+// PermConnectVoice could pin a staff-only channel to an instance picked for their region and then
+// be refused — and nothing released it afterwards.
+func TestGenerateToken_RefusedCallerLeavesNoBinding(t *testing.T) {
+	s, getter := tokenHarness(t, 0) // no permissions at all
+
+	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err == nil {
+		t.Fatal("a caller with no voice permission was issued a token")
+	}
+
+	s.mu.RLock()
+	claimed, bound := s.channelInstances["chan1"]
+	s.mu.RUnlock()
+	if bound {
+		t.Errorf("a refused caller claimed %q for the channel", claimed)
+	}
+	s.mu.Lock()
+	pending := s.hasPendingJoinLocked("chan1")
+	s.mu.Unlock()
+	if pending {
+		t.Error("a refused caller left the channel marked as connecting")
+	}
+	if n := getter.picks.Load(); n != 0 {
+		t.Errorf("instance selection ran %d times for a caller who was refused", n)
+	}
+}
+
+// The sweep has to be reached by the periodic pass, not merely exist.
+func TestOrphanSweep_ReleasesAnAbandonedBinding(t *testing.T) {
+	s, _ := tokenHarness(t, models.PermConnectVoice)
+
+	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	// The join never arrives and the marker ages out.
+	s.mu.Lock()
+	s.pendingJoins["chan1"]["u1"] = time.Now().Add(-time.Second)
+	s.mu.Unlock()
+
+	s.sweepOrphanStates()
+
+	s.mu.RLock()
+	leaked, bound := s.channelInstances["chan1"]
+	s.mu.RUnlock()
+	if bound {
+		t.Errorf("the periodic sweep left the channel pinned to %q by a token nobody used", leaked)
 	}
 }
