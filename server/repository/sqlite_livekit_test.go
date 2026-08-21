@@ -375,3 +375,39 @@ func TestLiveKitRepo_GetByServerIDIsNotFoundForAnUnknownServer(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// Deleting an instance is gated on live calls, not on registered servers. Since placement became
+// per-channel and by region the two are unrelated: a freshly added region carries calls with no
+// servers registered against it, which is also what makes it the most attractive target.
+func TestLiveKitRepo_CountChannelBindingsSeesCallsWithNoServers(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	ctx := context.Background()
+	seedInstance(t, conn, "lk-new-region", models.RegionUSEast, 0) // zero servers registered
+	seedChannelForBinding(t, conn, "chanA")
+	seedChannelForBinding(t, conn, "chanB")
+
+	if n, err := repo.CountChannelBindings(ctx, "lk-new-region"); err != nil || n != 0 {
+		t.Fatalf("empty instance: %d, %v", n, err)
+	}
+
+	for _, ch := range []string{"chanA", "chanB"} {
+		if err := repo.SetChannelBinding(ctx, ch, "lk-new-region"); err != nil {
+			t.Fatalf("bind %s: %v", ch, err)
+		}
+	}
+
+	n, err := repo.CountChannelBindings(ctx, "lk-new-region")
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("counted %d live calls, want 2 — an instance with no servers looked idle", n)
+	}
+
+	if err := repo.ClearChannelBinding(ctx, "chanA", "lk-new-region"); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if n, err := repo.CountChannelBindings(ctx, "lk-new-region"); err != nil || n != 1 {
+		t.Errorf("after one call ended: %d, %v", n, err)
+	}
+}

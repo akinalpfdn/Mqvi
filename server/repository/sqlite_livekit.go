@@ -444,6 +444,22 @@ func (r *sqliteLiveKitRepo) SetChannelBinding(ctx context.Context, channelID, in
 	return nil
 }
 
+// CountChannelBindings reports how many voice channels currently have a room on this instance.
+//
+// Distinct from server_count, and since GEO-05 the two have nothing to do with each other: a
+// channel picks its instance by the first joiner's region, not by which instance its server is
+// registered against. An instance can carry live calls with zero servers on it — which is exactly
+// what a newly added region looks like.
+func (r *sqliteLiveKitRepo) CountChannelBindings(ctx context.Context, instanceID string) (int, error) {
+	var n int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM channel_voice_bindings WHERE instance_id = ?`, instanceID,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count channel bindings for instance %s: %w", instanceID, err)
+	}
+	return n, nil
+}
+
 func (r *sqliteLiveKitRepo) ClearChannelBinding(ctx context.Context, channelID, instanceID string) error {
 	// Conditional on the instance, because the clear runs off the caller's path while a fresh claim
 	// may already have written a new row for the same channel. An unconditional delete arriving

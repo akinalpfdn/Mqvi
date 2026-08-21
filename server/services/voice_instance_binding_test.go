@@ -1179,3 +1179,120 @@ func TestOrphanSweep_ReleasesAnAbandonedBinding(t *testing.T) {
 		t.Errorf("the periodic sweep left the channel pinned to %q by a token nobody used", leaked)
 	}
 }
+
+// ── Occupied but never bound ───────────────────────────────────────────────────────────────────
+
+// A channel can hold voice state with no binding: MoveUser rewrites state.ChannelID without
+// claiming, and the websocket join path never claims at all. Server-side operations then hit a
+// channel that has people in it and no room — and must behave as they did before bindings existed,
+// which is "the room is empty", not "the lookup failed".
+//
+// Failing meant the reconciliation sweep skipped the channel with `continue`, so phantom
+// participants were never reaped and the channel timer counted forever — reintroducing the stale
+// timer bug that sweep exists to fix.
+func TestUnbound_ReconciliationSeesAnEmptyRoomRatherThanFailing(t *testing.T) {
+	s, _ := bindingHarness(t)
+	s.mu.Lock()
+	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "moved-to", ServerID: "srv1"}
+	s.mu.Unlock()
+
+	inRoom, err := s.listLiveKitParticipants(context.Background(), "srv1", "moved-to")
+	if err != nil {
+		t.Fatalf("reconciliation could not query an unbound channel: %v", err)
+	}
+	if len(inRoom) != 0 {
+		t.Errorf("reported %d participants in a room that does not exist", len(inRoom))
+	}
+}
+
+// Teardown for a room that was never opened is a no-op, not an error worth logging.
+func TestUnbound_TeardownIsASilentNoOp(t *testing.T) {
+	s, getter := bindingHarness(t)
+
+	s.removeParticipantFromLiveKit("srv1", "never-bound", "u1", "")
+
+	if n := getter.byIDCalls.Load(); n != 0 {
+		t.Errorf("teardown made %d instance lookups for a channel with no room", n)
+	}
+	s.mu.RLock()
+	_, bound := s.channelInstances["never-bound"]
+	s.mu.RUnlock()
+	if bound {
+		t.Error("teardown claimed an instance for a channel it was only tidying up")
+	}
+}
+
+// A binding this process never held in memory still has to be cleared when the call ends. After a
+// restart the clients re-assert over the websocket without asking for a token, so nothing adopts
+// the row; left behind, the next session on that channel inherits a placement made for people who
+// are long gone and region routing silently stops applying there.
+func TestUnbound_StoredBindingIsClearedWhenTheCallEnds(t *testing.T) {
+	s, _ := bindingHarness(t)
+	store := newFakeBindingStore()
+	s.bindingStore = store
+	if err := store.SetChannelBinding(context.Background(), "chan1", "lk-from-before-the-restart"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Websocket re-assert: state exists, nothing was adopted.
+	s.mu.Lock()
+	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "chan1", ServerID: "srv1"}
+	s.mu.Unlock()
+
+	s.mu.Lock()
+	delete(s.states, "u1")
+	s.cleanupRoomPassphraseIfEmpty("chan1")
+	s.mu.Unlock()
+
+	// Bounded wait, not a bare receive: the clear runs off the caller's path, and a plain
+	// `<-store.cleared` turns "it never happened" into a hung test instead of a failing one.
+	select {
+	case <-store.cleared:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stored binding was never cleared")
+	}
+
+	if got, ok := store.get("chan1"); ok {
+		t.Errorf("stored binding %q outlived the call that used it", got)
+	}
+}
+
+// The token is issued before the marker used to be set, and the sweep runs every five seconds.
+// A tick landing in that gap released a binding whose token had already gone out.
+func TestPendingJoin_SweepCannotCatchTheGapAfterTheClaim(t *testing.T) {
+	s, _ := tokenHarness(t, models.PermConnectVoice|models.PermSpeak)
+
+	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	s.mu.Lock()
+	s.sweepAbandonedBindingsLocked()
+	claimed, bound := s.channelInstances["chan1"]
+	s.mu.Unlock()
+
+	if !bound {
+		t.Fatalf("a sweep tick released the binding of a token that had just been issued (was %q)", claimed)
+	}
+}
+
+// The screen share sub-participant joins a room that exists. Claiming there would pin the channel
+// using a request that carries no region at all — the screen-share handler never sets one.
+func TestScreenShare_FollowsTheBindingInsteadOfClaiming(t *testing.T) {
+	s, getter := tokenHarness(t, models.PermConnectVoice|models.PermSpeak)
+	s.mu.Lock()
+	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "chan1", ServerID: "srv1"}
+	s.mu.Unlock()
+
+	if _, err := s.GenerateScreenShareToken(context.Background(), "u1", "u", "", "chan1"); err == nil {
+		t.Fatal("a screen share opened a room for an unbound channel")
+	}
+	s.mu.RLock()
+	claimed, bound := s.channelInstances["chan1"]
+	s.mu.RUnlock()
+	if bound {
+		t.Errorf("screen share claimed %q for a channel with no voice room", claimed)
+	}
+	if n := getter.picks.Load(); n != 0 {
+		t.Errorf("screen share ran instance selection %d times", n)
+	}
+}

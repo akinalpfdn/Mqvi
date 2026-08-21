@@ -214,6 +214,20 @@ func (s *livekitAdminService) DeleteInstance(ctx context.Context, instanceID, ta
 		return fmt.Errorf("%w: only platform-managed instances can be deleted via admin API", pkg.ErrForbidden)
 	}
 
+	// Live calls, which server_count no longer says anything about. Since placement became
+	// per-channel and by region, an instance can be hosting rooms with no servers registered against
+	// it — the normal state of a freshly added region, and the state that makes it the most
+	// attractive target for the next call. Deleting it cascades channel_voice_bindings away, so the
+	// running calls rebind and the next joiner opens a same-named room on another SFU: both halves
+	// work, neither hears the other, nothing errors.
+	liveCalls, callsErr := s.livekitRepo.CountChannelBindings(ctx, instanceID)
+	if callsErr != nil {
+		return fmt.Errorf("failed to count live calls on instance: %w", callsErr)
+	}
+	if liveCalls > 0 {
+		return fmt.Errorf("%w: instance is hosting %d live voice channel(s); wait for them to end", pkg.ErrBadRequest, liveCalls)
+	}
+
 	// Migrate attached servers if any
 	if inst.ServerCount > 0 {
 		if targetInstanceID == "" {

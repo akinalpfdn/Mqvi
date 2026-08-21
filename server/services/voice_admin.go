@@ -5,6 +5,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -159,8 +160,13 @@ func (s *voiceService) enforceServerMicMuteAtSFU(serverID, channelID, userID str
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// No instance hint: the user being muted is in the channel, so it is bound.
 	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, "")
+	if errors.Is(err, errChannelNotBound) {
+		// No room to enforce against yet. Safe to skip rather than log an error: GenerateToken bakes
+		// a server mute into the publish grant, so the token this user needs before they can be in
+		// any room will carry it (see the server-mute durability block there).
+		return
+	}
 	if err != nil {
 		log.Printf("[voice] serverMute: room client init failed for server %s: %v", serverID, err)
 		s.logError(models.LogCategoryVoice, &userID, "serverMute: room client init failed", map[string]string{

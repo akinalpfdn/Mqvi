@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -61,6 +62,11 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		}
 	}
 
+	// Marked before the claim, not after. The claim persists a row and the abandoned-binding sweep
+	// runs every five seconds; a tick landing in between saw a channel with no participants and
+	// nobody connecting, and released a binding whose token had already gone out.
+	s.markPendingJoin(channelID, userID)
+
 	// Only now. Resolving claims the channel's LiveKit instance on first use — an actual write, to
 	// memory and to channel_voice_bindings — and it used to run before any of the checks above. A
 	// member without PermConnectVoice could therefore pin a staff-only channel to an instance chosen
@@ -73,11 +79,6 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		})
 		return nil, err
 	}
-
-	// The claim above outlives this request; the voice state that governs its lifetime does not
-	// exist until the websocket join arrives. Mark the gap so neither the release path nor the
-	// abandoned-binding sweep treats the channel as empty while this caller is still connecting.
-	s.markPendingJoin(channelID, userID)
 
 	canPublish := effectivePerms.Has(models.PermSpeak)
 	canSubscribe := true
@@ -231,11 +232,17 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		return nil, fmt.Errorf("%w: must be in the voice channel to screen share", pkg.ErrBadRequest)
 	}
 
-	// Same resolver as the join token, and that is the point: the sub-participant must land in the
-	// same room on the same instance, or the share is published where nobody is listening.
-	room, err := s.resolveRoomInstance(ctx, channel.ServerID, channelID)
+	// Follows the binding rather than claiming one. The sub-participant joins a room that already
+	// exists — the sharer is in it — so this is not a first join, and claiming here would pick an
+	// instance from a request that carries no region (the screen-share handler sets none), pinning
+	// the channel to somewhere the voice call is not.
+	room, err := s.boundRoomInstance(ctx, channelID)
 	if err != nil {
-		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_instance_missing", map[string]string{"server_id": channel.ServerID, "error": err.Error()})
+		reason := "livekit_instance_missing"
+		if errors.Is(err, errChannelNotBound) {
+			reason = "channel_not_bound"
+		}
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, reason, map[string]string{"server_id": channel.ServerID, "error": err.Error()})
 		return nil, err
 	}
 

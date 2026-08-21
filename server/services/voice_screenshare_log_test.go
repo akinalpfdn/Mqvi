@@ -88,7 +88,11 @@ func voiceServiceThatCanMint(t *testing.T) (VoiceService, *captureLogger) {
 		},
 		&workingLiveKitGetter{apiKey: apiKey, apiSecret: apiSecret},
 		nil, // binding store: these tests keep the binding in memory only
-		&testutil.MockChannelPermResolver{},
+		&testutil.MockChannelPermResolver{
+			ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
+				return models.PermConnectVoice | models.PermSpeak, nil
+			},
+		},
 		&testutil.MockBroadcaster{},
 		nil, nil, key, &testutil.MockFileURLSigner{},
 	)
@@ -98,6 +102,12 @@ func voiceServiceThatCanMint(t *testing.T) (VoiceService, *captureLogger) {
 
 func TestScreenShareToken_SuccessWritesNothing(t *testing.T) {
 	svc, logger := voiceServiceThatCanMint(t)
+	// The voice token first, as a real client does. It is what claims the channel's LiveKit
+	// instance; the screen share sub-participant follows that binding rather than making its own,
+	// so a test that skips this step is testing a state a real sharer is never in.
+	if _, err := svc.GenerateToken(context.Background(), "u1", "alice", "Alice", "ch1"); err != nil {
+		t.Fatalf("voice token: %v", err)
+	}
 	if err := svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false); err != nil {
 		t.Fatalf("join: %v", err)
 	}

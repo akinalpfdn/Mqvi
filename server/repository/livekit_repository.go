@@ -33,6 +33,10 @@ type LiveKitRepository interface {
 	// ClearChannelBinding removes the binding only if it still names instanceID, so a clear that
 	// arrives after a fresh claim cannot erase it.
 	ClearChannelBinding(ctx context.Context, channelID, instanceID string) error
+	// CountChannelBindings counts the voice channels whose room is on this instance. Unrelated to
+	// server_count: placement is per channel and by region, so an instance with no servers
+	// registered against it can still be carrying calls.
+	CountChannelBindings(ctx context.Context, instanceID string) (int, error)
 	IncrementServerCount(ctx context.Context, instanceID string) error
 	DecrementServerCount(ctx context.Context, instanceID string) error
 	Update(ctx context.Context, instance *models.LiveKitInstance) error

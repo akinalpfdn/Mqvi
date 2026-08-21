@@ -5,6 +5,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -221,6 +222,9 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID,
 	defer cancel()
 
 	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, instanceID)
+	if errors.Is(err, errChannelNotBound) {
+		return // no room was ever opened for this channel, so there is no participant to remove
+	}
 	if err != nil {
 		log.Printf("[voice] removeParticipant: room client init failed for server %s: %v", serverID, err)
 		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: room client init failed", map[string]string{
@@ -367,9 +371,15 @@ func (s *voiceService) sweepAFKUsers() {
 // share still counts as present. LiveKit is the source of truth for room membership.
 // MUST NOT be called under s.mu (does DB lookups + network I/O).
 func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
-	// No instance hint: this only ever runs for channels that currently have people in them, so the
-	// channel is bound and following that binding is exactly right.
 	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, "")
+	if errors.Is(err, errChannelNotBound) {
+		// No binding means no room, so nobody is in it. Say that rather than erroring: the caller
+		// skips a channel it cannot query, and skipping means phantom participants are never reaped
+		// and the channel timer runs forever. Before per-channel binding this path always resolved
+		// and LiveKit answered for an absent room, which is the behaviour being restored here.
+		// A genuinely mid-move user is covered by livekitAbsentGrace, not by pretending to see them.
+		return map[string]bool{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}

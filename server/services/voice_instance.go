@@ -211,6 +211,11 @@ func credentialsFrom(inst *models.LiveKitInstance, encryptionKey []byte) (*roomC
 func (s *voiceService) releaseChannelInstanceLocked(channelID string) string {
 	instanceID, ok := s.channelInstances[channelID]
 	if !ok {
+		// Nothing in memory, but the row can still be there: after a restart the clients re-assert
+		// over the websocket without asking for a new token, so nothing ever adopted the binding
+		// into this process. Left alone, the row outlives the call and the next session on that
+		// channel adopts a placement made for people who are long gone.
+		s.clearStoredBindingIfAny(channelID)
 		return ""
 	}
 	delete(s.channelInstances, channelID)
@@ -257,10 +262,22 @@ func (s *voiceService) releaseChannelInstanceLocked(channelID string) string {
 func (s *voiceService) boundRoomInstance(ctx context.Context, channelID string) (*roomCredentials, error) {
 	bound, found := s.boundInstance(ctx, channelID)
 	if !found {
-		return nil, fmt.Errorf("%w: channel %s is not bound to a livekit instance", pkg.ErrNotFound, channelID)
+		return nil, fmt.Errorf("%w: channel %s", errChannelNotBound, channelID)
 	}
 	return s.credentialsByID(ctx, bound)
 }
+
+// errChannelNotBound says no LiveKit room exists for this channel, which is a different answer from
+// "the lookup failed" and callers must treat it differently.
+//
+// A room only comes into being when a token is minted and the channel claims an instance. A channel
+// can hold voice state without that having happened: MoveUser rewrites state.ChannelID and hands
+// out a force-move grant, leaving the target unbound until the moved client asks for its token, and
+// the websocket join path never claims at all. Server-side operations that hit this must behave as
+// they did before the binding existed — as if the room were simply empty — not fail. Failing meant
+// the reconciliation sweep skipped the channel entirely and phantom participants were never reaped,
+// which is the stale-timer bug that sweep was written to fix.
+var errChannelNotBound = errors.New("channel is not bound to a livekit instance")
 
 // storedBinding reads a persisted binding. A missing row is the normal state, not a problem.
 func (s *voiceService) storedBinding(ctx context.Context, channelID string) (string, bool) {
@@ -394,4 +411,32 @@ func (s *voiceService) sweepAbandonedBindingsLocked() {
 		log.Printf("[voice] releasing abandoned binding for channel %s (no participants, nobody connecting)", channelID)
 		s.releaseChannelInstanceLocked(channelID)
 	}
+}
+
+// clearStoredBindingIfAny deletes a persisted binding this process never held in memory.
+//
+// Off the caller's path because it reads before it deletes and the caller holds the voice mutex.
+// The read is what makes the delete conditional on the right instance, so a row written by a
+// session that started in the meantime survives.
+func (s *voiceService) clearStoredBindingIfAny(channelID string) {
+	if s.bindingStore == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		stored, found := s.storedBinding(ctx, channelID)
+		if !found {
+			return
+		}
+		s.mu.RLock()
+		_, reclaimed := s.channelInstances[channelID]
+		s.mu.RUnlock()
+		if reclaimed {
+			return
+		}
+		if err := s.bindingStore.ClearChannelBinding(ctx, channelID, stored); err != nil {
+			log.Printf("[voice] failed to clear orphaned binding for channel %s: %v", channelID, err)
+		}
+	}()
 }
