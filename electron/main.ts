@@ -1678,6 +1678,24 @@ function setupAutoUpdater(): void {
   }, 5 * 60 * 1000);
 }
 
+// ─── Renderer Priority While Occluded ───
+//
+// A macOS game taking a native fullscreen Space leaves this window fully occluded, and Chromium
+// then backgrounds the renderer. That is not a cosmetic slowdown here: the LiveKit E2EE SFrame
+// worker encrypts every outgoing audio frame and decrypts every incoming one, and the denoise
+// AudioWorklet sits on the mic path — all in this renderer. Starved of priority they miss their
+// deadlines and voice degrades in BOTH directions (crackling, choppy) the moment the game opens,
+// even at its main menu, and recovers the instant the window is focused again.
+//
+// webPreferences.backgroundThrottling: false does NOT cover this. Electron documents it as
+// throttling "animations and timers" plus the Page Visibility API; renderer process priority and
+// occlusion are a separate mechanism reachable only from these switches, and they must be set
+// before the app is ready.
+//
+// The cost is that a hidden window keeps full priority — the trade every voice app makes.
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+
 // ─── Single Instance Lock ───
 const gotTheLock = app.requestSingleInstanceLock();
 
