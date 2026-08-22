@@ -99,6 +99,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** Stop watching. Call on voice leave — the probe is not meant to outlive the row. */
   stopGameDetection: (): Promise<void> => ipcRenderer.invoke("stop-game-detection"),
 
+  /** Keep the OS from suspending the app while in a voice channel. Call on join and on leave.
+   *  Separate from game detection: that is Windows-only, this matters most on macOS. */
+  setVoiceActive: (active: boolean): Promise<void> =>
+    ipcRenderer.invoke("set-voice-active", active),
+
   /** Answer the next getDisplayMedia with this source instead of showing the picker. Consumed once;
    *  pass null to clear. Only needed for sharp shares — smooth never goes through getDisplayMedia. */
   setPrePickedSource: (sourceId: string | null): Promise<void> =>

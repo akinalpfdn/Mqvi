@@ -28,6 +28,7 @@ import SettingsModal from "../settings/SettingsModal";
 import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
+import { useVoiceSuspensionBlocker } from "../../hooks/useVoiceSuspensionBlocker";
 import { useIdleDetection } from "../../hooks/useIdleDetection";
 import { useVoiceActivityReporter } from "../../hooks/useVoiceActivityReporter";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
@@ -218,6 +219,9 @@ function AppLayout() {
     sendVoiceLeave,
     sendVoiceStateUpdate,
   });
+
+  // Hold off OS app suspension for as long as the user is in a call (Electron only).
+  useVoiceSuspensionBlocker();
 
   // Global keyboard shortcuts
   useKeyboardShortcuts({ toggleMute, toggleDeafen });

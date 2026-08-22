@@ -16,6 +16,7 @@ import {
   nativeImage,
   desktopCapturer,
   powerMonitor,
+  powerSaveBlocker,
   safeStorage,
   screen,
   shell,
@@ -199,6 +200,9 @@ let gameProbeGeneration = 0;
 /** Held across the awaits in startGameProbe, where gameProbeProcess is still null but a probe is
  *  already on its way — otherwise a second start spawns a second one. */
 let gameProbeStarting = false;
+
+/** Active powerSaveBlocker id while the renderer is in a voice channel, or null. */
+let voiceSuspensionBlockerId: number | null = null;
 
 const GAME_PROBE_INTERVAL_MS = 1500;
 
@@ -1350,6 +1354,27 @@ function setupIPC(): void {
 
   ipcMain.handle("stop-game-detection", () => {
     stopGameProbe();
+  });
+
+  // ─── App Suspension While In Voice ───
+  //
+  // Its own channel rather than riding on game detection: that one is Windows-only (it drives
+  // game-probe.exe), and the platform that needs this is macOS, where App Nap can demote a
+  // backgrounded app even with the occlusion switches in place.
+  //
+  // "prevent-app-suspension", not "prevent-display-sleep": a call must not stop the screen from
+  // sleeping. Idempotent on both edges — the renderer re-asserts on reconnect and remount.
+  ipcMain.handle("set-voice-active", (_e, active: boolean) => {
+    if (active) {
+      if (voiceSuspensionBlockerId === null) {
+        voiceSuspensionBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+      }
+      return;
+    }
+    if (voiceSuspensionBlockerId !== null) {
+      powerSaveBlocker.stop(voiceSuspensionBlockerId);
+      voiceSuspensionBlockerId = null;
+    }
   });
 
   // Sharp shares still go through getDisplayMedia; this is how the row skips the picker for them.
