@@ -227,7 +227,7 @@ One branch = one concern. If your branch does two things, split it.
 - `strict: true` — no `any`, no `as` without comment
 - Components: one file = one component
 - State: Zustand stores for global, `useState` for local UI only
-- Styling: Tailwind with theme tokens from `globals.css @theme` — no inline styles
+- Styling: semantic CSS classes in `globals.css`, built from `:root` custom-property tokens — no Tailwind, no inline styles
 - i18n: all user-facing strings via `t()` with both EN and TR translations
 
 ### General

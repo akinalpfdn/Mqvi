@@ -111,9 +111,28 @@ The read endpoints are rate-limited, and the push guarantee has to survive that
 
 ## Styling
 
-Centralised theme tokens in `client/src/styles/globals.css` under `@theme`. **No inline colours,
-fonts or arbitrary pixel values in components** — `--color-*`, `--font-*`, `--spacing-*` only. New
-value → add a token first.
+**There is no Tailwind.** No Tailwind package is installed and there is no `@theme` block —
+utility classes like `bg-background`, `w-sidebar` or `font-sans` do not exist and silently do
+nothing if written. `CLAUDE.md` described them for months; that description was wrong and has been
+corrected.
+
+The real model: **CSS custom properties plus hand-written semantic classes.** Components carry
+class names like `ub-game-row`; the styles for them live in `client/src/styles/globals.css`
+(5047 lines, 64 distinct tokens) reading `var(--…)`. Only two CSS files exist in the whole
+client: `globals.css` and `landing.css`.
+
+Token families: `--bg-0..5` (surface layers), `--t0..3` (text), `--f-ui` / `--f-m` (Manrope,
+Source Code Pro), `--input-*`, `--mobile-*`, `--overlay-backdrop*`, `--panel-bg`, `--picker-bg`,
+`--keyboard-inset`.
+
+**Themes are applied at runtime, not by CSS.** `client/src/styles/themes.ts` holds **11 palettes**
+(`ocean`, `aurora`, `midnight`, `ember`, `deepTeal`, `crispLight`, `velvetNight`, `nordicFrost`,
+`obsidianRose`, `sageTerminal`, `slateOcean`) and `applyTheme(id)` writes 27 of the tokens onto
+`:root` with `root.style.setProperty()`. So a token's value at runtime may come from JavaScript,
+not from the stylesheet — grepping `globals.css` alone will not tell you what colour something is.
+
+**No inline colours, fonts or arbitrary pixel values in components.** New value → add a token, then
+a class.
 
 Minimum font size is **13px everywhere** (names, labels, badges, status text). The only exception is
 notification count badges inside 16px circles. Voice: avatar ≥36px, name ≥13px.

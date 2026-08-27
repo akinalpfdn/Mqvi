@@ -5,8 +5,8 @@
 <h1 align="center">mqvi</h1>
 
 <p align="center">
-  Ses, video ve metin destekli acik kaynakli iletisim platformu.<br/>
-  Kimlik dogrulama yok. Veri toplama yok. Self-host destegi.
+  Ses, video ve metin destekli açık kaynaklı iletişim platformu.<br/>
+  Kimlik doğrulama yok. Veri toplama yok. Self-host desteği.
 </p>
 
 <p align="center">
@@ -17,465 +17,176 @@
 
 <p align="center">
   <a href="https://mqvi.net">Web Sitesi</a> &middot;
-  <a href="#ozellikler">Ozellikler</a> &middot;
-  <a href="#self-host-sadece-ses-sunucusu">Self-Host</a> &middot;
-  <a href="#gelistirme">Gelistirme</a> &middot;
-  <a href="#yol-haritasi">Yol Haritasi</a>
+  <a href="#özellikler">Özellikler</a> &middot;
+  <a href="SELF-HOSTING.md">Self-Host</a> &middot;
+  <a href="ARCHITECTURE.md">Mimari</a> &middot;
+  <a href="#yol-haritası">Yol Haritası</a>
 </p>
 
 <p align="center">
   <a href="README.md">🇬🇧 English</a>
 </p>
 
+<!--
+  Ekran görüntüleri buraya. Önerilen set, bu sırayla:
+    docs-assets/hero.png      — sunucu + kanal listesi + dolu bir sohbet, güncel tema
+    docs-assets/voice.png     — ses kanalı, katılımcılar, biri ekran paylaşıyor
+    docs-assets/mobile.png    — aynı sohbet telefonda
+    docs-assets/demo.gif      — sese katıl → konuşma göstergesi → ekran paylaşımını başlat (10-15 sn)
+-->
+
 ---
 
 ## Neden mqvi?
 
-Populer iletisim platformlari kullanicilarindan giderek daha fazla resmi kimlik belgesi talep ediyor. Defalarca veri ihlali yasanmis platformlara pasaportunuzu veya kimliginizi guvenebilir misiniz?
+Popüler iletişim platformları kullanıcılarından giderek daha çok devlet kimliği istiyor. Yaşanan
+onca veri ihlalinden sonra, pasaportunuzu ya da kimliğinizi onlara emanet etmek çoğu insanın
+almak zorunda olmadığı bir risk.
 
-**mqvi** basit bir ilke uzerine insa edildi: konusmalariniz sizden baska kimsenin olmamali.
+**mqvi basit bir ilke üzerine kurulu: konuşmalarınız sizden başka kimsenin olmamalı.**
 
-- Telefon numarasi veya kimlik belgesi gerekmiyor
-- Sifir veri toplama
-- Tum kaynak kodu acik — guvenme, dogrula
-- Tam kontrol icin kendi sunucunda barindir
+- Telefon numarası ya da kimlik gerekmez
+- Sıfır veri toplama
+- Kaynak kodun tamamı açık — güvenmeyin, doğrulayın
+- Tam kontrol için kendi sunucunuzda çalıştırın
 
 ---
 
-## Ozellikler
+## Tek komutla kendi sunucunuz
 
-### Iletisim
-- **Metin Kanallari** — Dosya/gorsel paylasimi, yazma gostergesi ve mesaj duzenleme ile anlik mesajlasma
-- **Ses & Video** — [LiveKit](https://livekit.io) SFU ile dusuk gecikmeli ses ve video
-- **Ekran Paylasimi** — VP9 codec ve uyarlanabilir bitrate ile 1080p/30fps
-- **Direkt Mesajlar** — Arkadas sistemi ile bire bir ozel konusmalar, tanimadigin kullanicilardan DM istegi kabul/red
-- **Emoji Tepkileri** — Mesajlara emoji ile tepki ver
-- **Soundboard** — Ses kanallarinda paylasilan ses kliplerini yukle ve oynat
+```bash
+curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/install.sh | sudo bash
+```
 
-### Gizlilik & Sifreleme
-- **Uctan uca sesli sifreleme** — Her zaman acik. Sunucu tarafindan her oda icin uretilen parola ile LiveKit SFrame — ses ve video makinenden cikmadan once sifrelenir.
-- **Opsiyonel mesaj E2EE'si** — DM bazinda veya sunucu bazinda ac. DM'ler icin Signal Protokolu (X3DH + Double Ratchet), kanallar icin Sender Key Protokolu.
-- **Sifreli dosya paylasimi** — E2EE konusmalarinda AES-256-GCM dosya sifrelemesi.
-- **Cihaz kimligi & anahtar kurtarma** — Cihaz basi kimlik anahtarlari ve cihazlar arasi geri yukleme icin kurtarma parolasi.
+Tamamı bu. Kurulum betiği ayrı bir sistem kullanıcısı oluşturur, arayüzü gömülü hazır binary'yi
+indirir, ses ve video için bir LiveKit SFU kurar, gizli anahtarlarınızı üretir, sıkılaştırılmış
+systemd birimlerini yerleştirir ve Caddy'yi otomatik HTTPS ile yapılandırır. Go, Node.js veya
+Docker gerekmez. Alan adı da gerekmez — yoksa ücretsiz bir `sslip.io` adresine düşer ve yine gerçek
+bir sertifika alır, çünkü tarayıcılar HTTPS olmadan mikrofonu ve ekran paylaşımını engeller.
 
-### Organizasyon
-- **Coklu Sunucu** — Tek hesapla birden fazla sunucuya katil ve yonet (Discord tarzi)
-- **Kanallar & Kategoriler** — Konusmalari metin ve ses kanallarina ayir
-- **Roller & Izinler** — Kanal seviyesinde override'lar ile detayli izin sistemi
-- **Davet Sistemi** — Davet kodlari ile sunucuya katilimi kontrol et
-- **Mesaj Sabitleme** — Onemli mesajlari kanala sabitle
-- **Tam Metin Arama** — Mesaj gecmisinde arama (FTS5 trigram tokenizer)
+Kayıt olan **ilk hesap sunucunun sahibi** olur.
 
-### Ses Ozellikleri
-- **Bas-Konus & Ses Aktivitesi Algilama**
-- **Kullanici Basi Ses Kontrolu** — Bireysel kullanici ses seviyelerini ayarla (%0–200)
-- **Mikrofon Hassasiyeti** — Ayarlanabilir VAD esigi
-- **Gurultu Bastirma** — LiveKit uzerinden dahili
-- **Yerel WASAPI loopback capture** (Windows) — Echo'suz process-exclusive ekran paylasimi sesi
-- **Giris/Cikis Sesleri**
-- **AFK Otomatik Cikis** — Bosta kullanicilari ses kanalindan ayarlanabilir sure sonra at
+Hesabınız mqvi.net'te kalsın, sadece **ses trafiği** kendi makinenizden geçsin ister misiniz? O da
+tek satır. İkisi de burada: **[SELF-HOSTING.md](SELF-HOSTING.md)**.
 
-### Kullanici Deneyimi
-- **Masaustu Uygulamasi** — Windows, macOS ve Linux icin otomatik guncellemeli Electron uygulamasi
-- **Frosted Glass Arayuz** — Ozel duvar kagitlari (hizli yeniden yukleme icin IndexedDB'de yerel olarak cache'lenir) ile modern seffaf arayuz
-- **Durum Sistemi** — Cevrimici, bosta, rahatsiz etme, gorunmez durumu ve otomatik bosta algilama
-- **Okunmamis Takibi** — Kanal basi okunmamis sayilari ve @bahsetme rozetleri
-- **Klavye Kisayollari** — Fareye dokunmadan gezin
-- **Sag Tik Menuleri** — Her yerde sag tik islemleri
-- **Ozel Temalar** — Birden fazla renk temasi
-- **Uygulama Ici Geri Bildirim** — Ekran goruntusu ekleyerek hata bildirimi ve ozellik onerisi gonder
-- **Coklu Dil** — Turkce ve Ingilizce, daha fazla dil icin altyapi hazir
+---
+
+## Özellikler
+
+**İletişim** — dosya paylaşımı, düzenleme ve yazıyor göstergesiyle metin kanalları; kendi
+barındırdığınız [LiveKit](https://livekit.io) SFU üzerinden düşük gecikmeli ses ve video; 1080p'ye
+kadar ekran paylaşımı; arkadaş sistemi ve yabancılardan gelen isteklerin onaya bağlı olduğu direkt
+mesajlar; emoji tepkileri; sesli mesajlar; ortak soundboard.
+
+**Gizlilik** — ses ve video **her zaman** uçtan uca şifreli, oda başına SFrame anahtarıyla. Mesaj
+şifrelemesi sunucu ya da DM bazında isteğe bağlı: direkt mesajlarda Signal Protokolü (X3DH + Double
+Ratchet), kanallarda Sender Key, dosyalarda AES-256-GCM. Cihaz başına kimlik anahtarı ve parolayla
+kurtarma.
+
+**Organizasyon** — tek hesapla birden çok sunucu, kanallar ve kategoriler, kanal bazında geçersiz
+kılmalarla ayrıntılı rol ve yetki sistemi, davetler, katılım onayı, herkese açık sunucu keşfi, mesaj
+sabitleme ve tam metin arama.
+
+**Ses** — bas-konuş ya da ses algılama, kullanıcı başına ses seviyesi, iki gürültü engelleme motoru
+(RNNoise ve sinir ağı tabanlı GTCRN), AFK'da otomatik düşürme, ve Windows'ta ekran görüntüsünü GPU'da
+kodlayan yerel bir yakalama yolu — oyun paylaşmak size FPS'e mal olmuyor.
+
+**Her yerde** — Windows, macOS ve Linux için otomatik güncellenen masaüstü uygulamaları (fark tabanlı
+güncelleme ile), push bildirimleri ve yerel çağrı desteği olan iOS ve Android uygulamaları, ve web.
+
+**Ayrıntılar** — boşta algılamalı durum sistemi, kanal bazında okunmamış ve bahsedilme rozetleri,
+klavye kısayolları, sağ tık menüleri, özel temalar ve duvar kâğıtları, uygulama içi yardım merkezi,
+ekran görüntüsü ekleyebildiğiniz geri bildirim, ve baştan sona İngilizce + Türkçe.
+
+---
+
+## Nasıl çalışır
+
+```
+                    mqvi.net (merkezi)
+                    ├── Kullanıcı hesapları
+                    ├── Arkadaş listeleri
+                    ├── Şifreli DM'ler
+                    └── Sunucu dizini
+                         /          \
+              ┌─────────┘            └──────────┐
+              ▼                                  ▼
+    Genel Barındırma                      Kendi Sunucunuz
+    (mqvi tarafından)                     (sizin altyapınız)
+    ├── Metin ve ses kanalları            ├── Metin ve ses kanalları
+    ├── Mesajlar ve dosyalar              ├── Mesajlar ve dosyalar
+    └── Roller ve yetkiler                └── Roller ve yetkiler
+```
+
+mqvi.net'teki tek hesabınız kimliğinizi, arkadaşlarınızı, DM'lerinizi ve üyeliklerinizi taşır —
+kullanmaya başlamak için kurulacak bir şey yok. Kanalların ve sesin yaşadığı **sunucular** ise ya
+bizde ya sizde barınır. Ya da platformun tamamını kendiniz çalıştırıp kimseye bağlı kalmazsınız.
 
 ---
 
 ## Teknoloji
 
 | Katman | Teknoloji |
-|--------|-----------|
-| Backend | Go (net/http + gorilla/websocket) |
-| Frontend | React + TypeScript + Vite + Tailwind CSS |
-| Masaustu | Electron (Windows, macOS, Linux) |
-| State | Zustand |
-| Ses/Video | LiveKit (self-hosted SFU), SFrame E2EE ile |
-| Veritabani | SQLite (modernc.org/sqlite, saf Go), FTS5 trigram arama |
-| Kimlik Dogrulama | JWT (access + refresh token) |
-| E2EE | Signal Protokolu (X3DH + Double Ratchet), Sender Key, `@noble/curves` |
+|---|---|
+| Backend | Go — `net/http` + `gorilla/websocket` |
+| Veritabanı | SQLite (`modernc.org/sqlite`, saf Go), FTS5 trigram arama |
+| Frontend | React + TypeScript + Vite, Zustand, tema token'lı elle yazılmış CSS |
+| Masaüstü | Electron |
+| Mobil | Capacitor (iOS + Android) |
+| Ses/Video | LiveKit, kendi barındırdığınız, SFrame E2EE ile |
+| Mesaj E2EE | Signal Protokolü (X3DH + Double Ratchet), Sender Key, `@noble/curves` |
+| Kimlik | JWT access + refresh |
+
+Sunucu, arayüzü gömülü **tek bir statik binary** olarak derleniyor — tek komutluk kurulumun hiçbir
+runtime istememesinin sebebi bu.
 
 ---
 
-## Nasil Calisiyor?
+## Geliştirme
 
-```
-                    mqvi.net (merkezi)
-                    ├── Kullanici hesaplari
-                    ├── Arkadas listeleri
-                    ├── Sifreli DM'ler
-                    └── Sunucu dizini
-                         /          \
-              ┌─────────┘            └──────────┐
-              ▼                                  ▼
-    Genel Barindirma                      Self-Hosted Sunucu
-    (mqvi tarafindan yonetilir)           (senin altyapin)
-    ├── Metin & ses kanallari             ├── Metin & ses kanallari
-    ├── Mesajlar & dosyalar               ├── Mesajlar & dosyalar
-    └── Roller & izinler                  └── Roller & izinler
+```bash
+git clone https://github.com/akinalpfdn/Mqvi.git && cd Mqvi
+
+cd server && go run .                      # backend
+cd client && npm install && npm run dev     # frontend, ayrı terminal
+npm run electron:dev                        # masaüstü kabuğu, kök dizinden
 ```
 
-Tum kullanicilarin **mqvi.net** uzerinde tek bir hesabi vardir. Hesabin, arkadaslarin, DM'lerin ve sunucu uyelikerin merkezi olarak tutulur. mqvi'yi kullanmaya baslamak icin ekstra alan adi veya kurulum gerekmez. (Projeyi forklayip her seyi kendi basina da yonetebilirsin — asagida [Tam Sunucu](#self-host-tam-sunucu) bolumune bak.)
+Go 1.22+, Node 22+ ve ses için bir LiveKit sunucusu gerekiyor — `deploy/livekit-setup.sh` yerelde
+saniyeler içinde bir tane kuruyor.
 
-**Sunucular** (kanallarin ve ses sohbetinin yasadigi yer) iki sekilde barindirabilir:
-
-### Genel Barindirma
-Uygulamadan dogrudan bir sunucu olustur. Altyapiyi biz yonetiyoruz — teknik bilgi gerekmez.
-
-### Kendi Sunucunu Getir
-Tam kontrol icin kendi ses/video sunucunu calistir. Asagidaki [Self-Host: Sadece Ses Sunucusu](#self-host-sadece-ses-sunucusu) bolumune bak.
+**[ARCHITECTURE.md](ARCHITECTURE.md)** parçaların nasıl birleştiğini anlatıyor: katmanlar, WebSocket
+hub'ı, ses kanallarının LiveKit instance'larına nasıl bağlandığı, şifreleme modeli ve test
+disiplini. Alt sistem bazında daha derin notlar [`architecture/`](architecture/) altında,
+[`DECISIONS.md`](DECISIONS.md) ise işlerin neden böyle olduğunu kaydediyor.
 
 ---
 
-## Self-Host: Sadece Ses Sunucusu
+## Yol Haritası
 
-mqvi.net hesabini normal kullan — sunucu olustur, arkadas ekle, sohbet et. Tek fark: ses ve video trafigi bizim altyapimiz yerine **senin kendi LiveKit sunucundan** gecer. Konusmalarin bizim altyapimiza asla dokunmaz.
+**Çıkanlar** — metin kanalları, her zaman açık E2EE ile ses ve video, Windows'ta yerel GPU
+yakalamayla ekran paylaşımı, roller ve yetkiler, tepkiler, soundboard, sesli mesajlar, DM'ler ve
+arkadaşlar, sabitleme, tam metin arama, davetler ve katılım onayı, sunucu keşfi, durum ve AFK
+yönetimi, temalar ve duvar kâğıtları, yardım merkezi, otomatik güncellenen masaüstü uygulamaları,
+push bildirimleri ve yerel çağrı desteğiyle **iOS ve Android uygulamaları**, çok sunuculu mimari,
+tek komutla self-host, DM / kanal / dosya / ses için uçtan uca şifreleme ve anahtar yedekleme, ve
+birden çok SFU arasında bölge farkındalıklı ses yönlendirme.
 
-### Linux
-
-Sunucuna SSH ile baglan ve calistir:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.sh | sudo bash
-```
-
-Script otomatik olarak:
-1. LiveKit binary'sini indirir
-2. Firewall portlarini acar (UFW / firewalld)
-3. Guvenli API kimlik bilgileri uretir
-4. `livekit.yaml` yapilandirma dosyasi olusturur
-5. LiveKit'i systemd servisi olarak baslatir
-
-**Gereksinimler:** Herhangi bir Linux sunucu (Ubuntu 22.04+ / Debian 12+ onerilir), 1 GB RAM, 1 CPU cekirdegi. Hetzner, DigitalOcean veya Contabo gibi saglayicilar aylik 3–5$'a sunar.
-
-### Windows
-
-**PowerShell'i Yonetici olarak** ac ve calistir:
-
-```powershell
-irm https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.ps1 | iex
-```
-
-Script otomatik olarak:
-1. LiveKit binary'sini indirir
-2. Windows Firewall portlarini acar
-3. UPnP ile router port yonlendirmesi dener
-4. Guvenli API kimlik bilgileri uretir
-5. `livekit.yaml` yapilandirma dosyasi olusturur
-6. LiveKit'i baslangicta otomatik calisacak sekilde ayarlar (Gorev Zamanlayici)
-
-**Gereksinimler:** Windows 10/11. Kendi bilgisayarini kullaniyorsan, surekli acik ve internete bagli olmali.
-
-### Kurulumdan Sonra
-
-Script tamamlandiginda 3 deger goreceksin:
-
-| Deger | Ornek |
-|-------|-------|
-| **URL** | `ws://203.0.113.10:7880` |
-| **API Key** | `LiveKitKeyf3a1b2c4` |
-| **API Secret** | `aBcDeFgHiJkLmNoPqRsTuVwXyZ012345` |
-
-mqvi'ye git, yeni sunucu olustur, **"Self-Hosted"** sec ve bu 3 degeri gir. Bu kadar.
-
-### Sorun Giderme
-
-| Sorun | Cozum |
-|-------|-------|
-| Ses hic baglanmiyor | Portlar muhtemelen kapali. `sudo ufw status` (Linux) calistir veya Windows Firewall'u kontrol et. Bulut saglayicinin web firewall'unu da kontrol et. |
-| Baglaniyorum ama ses gelmiyor | 50000–60000 UDP portlari engellenmiyor olabilir. Saglayicinin bu portlarda UDP trafikine izin verdiginden emin ol. |
-| "Connection refused" hatasi | LiveKit calismıyor olabilir. `systemctl status livekit` (Linux) calistir veya Gorev Yoneticisi'nde `livekit-server` ara (Windows). |
-| Yerel agda calisiyor ama disaridan calismiyor | `livekit.yaml` dosyanda `use_external_ip: true` ayarinin oldugundan emin ol. Windows'ta ayrica router'inin 7880, 7881, 7882 ve 50000–60000 portlarini yonlendirdiginden emin ol. |
+**Planlanan** — eklenti ve bot API'si, sunucular arası federasyon.
 
 ---
 
-## Self-Host: Tam Sunucu
+## Katkı
 
-mqvi platformunun tamamini kendi altyapinda calistir. mqvi.net'ten tamamen bagimsiz — her seyi sen kontrol edersin: hesaplar, mesajlar, dosyalar, ses.
-
-### Gereksinimler
-
-- Linux sunucu (Ubuntu 22.04+ / Debian 12+ onerilir), x86_64 veya arm64
-- Minimum 2 vCPU, 4 GB RAM
-- Alan adi opsiyonel — yoksa kurulum otomatik olarak ucretsiz `sslip.io` hostname'ine duser ve yine HTTPS calisir (tarayicilar duz HTTP'de ses/video'yu engeller).
-
-### Tek Komutla Kurulum
-
-Sunucuna SSH ile baglan ve calistir:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/install.sh | sudo bash
-```
-
-Script sana mqvi'nin nasil yayinlanacagini sorar:
-
-1. **Kendi alan adinla HTTPS** (onerilir) — Caddy ve Let's Encrypt'i otomatik kurar.
-2. **sslip.io ile HTTPS** — alan adi gerekmez. Public IP'nden `1-2-3-4.sslip.io` gibi bir hostname uretir ve buna gercek Let's Encrypt sertifikasi alir. Ses/video kutudan cikar cikmaz calisir.
-3. **Sadece HTTP** — test amacli. Tarayici mikrofon, kamera ve ekran paylasimini engeller.
-
-Interaktif olmayan kurulum istiyorsan flag'lerle:
-
-```bash
-# Kendi alan adin, ozel internal port
-sudo bash install.sh --domain demo.example.com --port 9092 -y
-
-# sslip.io ile her sey default
-sudo bash install.sh -y
-
-# Sunucunda zaten Caddy var ve baska siteleri sunuyor — script bunu otomatik
-# algilar, kendi Caddy'sini kurmaz, yapistirmak icin Caddyfile snippet'i basar
-sudo bash install.sh --domain demo.example.com --port 9092 -y
-
-# Ozel portta sadece HTTP
-sudo bash install.sh --no-tls --port 8080 -y
-```
-
-Script ne yapar:
-
-1. `mqvi` adinda ozel bir sistem kullanicisi ve `/opt/mqvi` dizini olusturur
-2. Mimarin icin hazir `mqvi-server` binary'sini indirir (~40 MB, frontend + migration'lar + i18n hepsi gomulu — Go, Node.js veya Docker gerekmez)
-3. LiveKit SFU binary'sini indirir
-4. Rastgele sirlarla `.env` ve `livekit.yaml` uretir
-5. Her iki servis icin systemd unit'lerini sertlestirilmis ayarlarla kurar (`ProtectSystem=strict`, `NoNewPrivileges`, ozel kullanici)
-6. (TLS modlarinda) Caddy'i kurar ve yapilandirir, ya da Caddy zaten varsa dokunmaz ve snippet basar
-7. Firewall portlarini acar (UFW / firewalld varsa)
-8. Her seyi baslatir, acilista otomatik calisacak sekilde ayarlar
-
-Scripti tekrar calistirmak guvenli — mevcut `.env` ve `livekit.yaml` korunur, sirlarin degismez. Flag'ler mevcut `.env`'i ezmez.
-
-Kurulum bittiginde script public URL'i basar — `https://alanadin` veya `https://1-2-3-4.sslip.io`. Kayit olan ilk kullanici sunucu sahibi olur.
-
-### Servisleri yonetmek
-
-```bash
-# Loglar
-journalctl -u mqvi-server -f
-journalctl -u mqvi-livekit -f
-
-# Yeniden baslat / durdur
-systemctl restart mqvi-server
-systemctl stop mqvi-server mqvi-livekit
-
-# Yeni bir surume guncelle
-curl -fsSL https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/install.sh | sudo bash
-systemctl restart mqvi-server
-```
-
-Verilerin `/opt/mqvi/data/` altinda tutulur (SQLite veritabani + yuklenen dosyalar). Yedegini al.
-
-### Manuel Caddy snippet (existing-Caddy modu)
-
-Sunucunda baska siteler icin zaten Caddy calisiyorsa, kurulum bunu algilar ve kendi kopyasini kurmaz. Script ciktisinda asagidaki gibi bir snippet gorursun — `Caddyfile`'ina yapistir:
-
-```
-demo.example.com {
-    reverse_proxy 127.0.0.1:9092
-    encode zstd gzip
-    request_body {
-        max_size 30MB
-    }
-}
-```
-
-Sonra `sudo systemctl reload caddy`.
-
-### Firewall portlari
-
-Install scripti UFW veya firewalld aktifse bunlari otomatik acar. Bulut saglayici firewall'u kullaniyorsan (AWS Security Group, Hetzner Cloud Firewall gibi), orada da ac:
-
-| Port | Protokol | Amac |
-|------|----------|------|
-| `80` | TCP | HTTP (Let's Encrypt challenge, HTTPS yonlendirme) — sadece TLS modlarinda |
-| `443` | TCP | HTTPS — sadece TLS modlarinda |
-| `<--port degerin>` | TCP | Web Arayuzu + API — yalnizca `--no-tls` modunda public; TLS modlarinda Caddy arkasinda localhost-only |
-| `7880` | TCP | LiveKit sinyal |
-| `7881` | TCP | LiveKit TURN aktarma |
-| `7882` | UDP | LiveKit medya |
-| `50000–50200` | UDP | LiveKit ICE adaylari |
-
-### Ortam degiskenleri
-
-Install scripti makul varsayilanlar uretir. Degistirmek istersen `/opt/mqvi/.env` dosyasini duzenle ve `systemctl restart mqvi-server`. Tum secenekler icin [`.env.example`](deploy/.env.example) dosyasina bak:
-
-| Degisken | Varsayilan | Aciklama |
-|----------|-----------|----------|
-| `SERVER_HOST` | `127.0.0.1` (TLS) / `0.0.0.0` (TLS yok) | Bind adresi — Caddy on tarafsa localhost, degilse public |
-| `SERVER_PORT` | `9090` | Internal HTTP portu (kurulumda `--port` ile degistirilebilir) |
-| `CORS_ORIGINS` | *uretilir* | Public URL'ine otomatik atanir (`https://alanadin` veya `https://<ip>.sslip.io`) |
-| `JWT_SECRET` | *uretilir* | Token imzalama icin rastgele string |
-| `ENCRYPTION_KEY` | *uretilir* | Saklanan LiveKit kimlik bilgilerini sifrelemek icin AES-256 anahtar |
-| `DATABASE_PATH` | `/opt/mqvi/data/mqvi.db` | SQLite veritabani yolu |
-| `UPLOAD_DIR` | `/opt/mqvi/data/uploads` | Dosya yukleme dizini |
-| `UPLOAD_MAX_SIZE` | `26214400` | Maksimum yukleme boyutu (25 MB) |
-| `LIVEKIT_URL` | `ws://127.0.0.1:7880` | Otomatik olusturulan yerel LiveKit instance |
-| `LIVEKIT_API_KEY` | *uretilir* | `livekit.yaml` ile eslesir |
-| `LIVEKIT_API_SECRET` | *uretilir* | `livekit.yaml` ile eslesir |
-
----
-
-## Gelistirme
-
-### Onkokullar
-
-- Go 1.22+
-- Node.js 22+
-- npm
-- LiveKit Server (ses/video icin — asagiya bak)
-
-### Kurulum
-
-```bash
-# Klonla
-git clone https://github.com/akinalpfdn/Mqvi.git
-cd Mqvi
-
-# Backend
-cd server
-cp ../deploy/.env.example .env   # .env dosyasini kopyala ve duzenle (JWT_SECRET, ENCRYPTION_KEY ayarla)
-go mod download
-go run .
-
-# Frontend (ayri terminal)
-cd client
-npm install
-npm run dev
-```
-
-Vite dev sunucusu `/api` ve `/ws` isteklerini `localhost:9090`'a yonlendirir.
-
-### LiveKit (Ses/Video)
-
-Ses ve video icin calisan bir [LiveKit](https://livekit.io) sunucusu gerekir. LiveKit olmadan metin sohbeti calisiyor ama ses kanallarina baglanamezsiniz.
-
-```bash
-# Hizli kurulum — projenin scriptini kullan:
-# Linux:
-sudo bash deploy/livekit-setup.sh
-# Windows (Yonetici olarak PowerShell):
-irm https://raw.githubusercontent.com/akinalpfdn/Mqvi/main/deploy/livekit-setup.ps1 | iex
-
-# Veya manuel kur: https://docs.livekit.io/home/self-hosting/local/
-livekit-server --config deploy/livekit.yaml --dev
-```
-
-`.env` dosyandaki `LIVEKIT_URL`, `LIVEKIT_API_KEY` ve `LIVEKIT_API_SECRET` degerlerini LiveKit yapilandirmana gore ayarla.
-
-### Kaynaktan Derleme
-
-**Windows (PowerShell):**
-```powershell
-powershell -ExecutionPolicy Bypass -File deploy\build.ps1
-```
-
-**Linux / macOS:**
-```bash
-# Frontend
-cd client && npm install && npm run build && cd ..
-
-# Frontend'i sunucuya kopyala (gomme icin)
-rm -rf server/static/dist && cp -r client/dist server/static/dist
-
-# Backend (gomulu frontend ile tek binary)
-cd server
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../deploy/package/mqvi-server .
-cd ..
-```
-
-### Proje Yapisi
-
-```
-mqvi/
-├── server/               # Go backend
-│   ├── main.go           # Giris noktasi + baglanti
-│   ├── config/           # Ortam tabanli yapilandirma
-│   ├── models/           # Alan struct'lari
-│   ├── repository/       # Veri erisimi (ham SQL)
-│   ├── services/         # Is mantigi
-│   ├── handlers/         # HTTP/WS istek isleme
-│   ├── middleware/        # Auth, izinler, rate limiting
-│   ├── ws/               # WebSocket hub + olaylar
-│   ├── database/         # SQLite + gomulu migration'lar
-│   ├── static/           # Gomulu frontend (derlemede doldurulur)
-│   └── pkg/              # Paylasilan araclar
-│       ├── i18n/         # Backend i18n + gomulu ceviriler
-│       └── crypto/       # AES-256-GCM sifreleme
-├── client/               # React frontend
-│   └── src/
-│       ├── api/          # API istemci fonksiyonlari
-│       ├── stores/       # Zustand durum yonetimi
-│       ├── hooks/        # Ozel React hook'lar
-│       ├── components/   # UI bileşenleri
-│       ├── styles/       # Tema + genel stiller
-│       ├── i18n/         # Frontend cevirileri (EN + TR)
-│       └── types/        # TypeScript tipleri
-├── electron/             # Electron masaustu sarmalayici
-│   ├── main.ts           # Ana islem
-│   └── preload.ts        # Onyukleme scripti (guvenli IPC)
-├── deploy/               # Derleme & dagitim scriptleri
-│   ├── build.ps1         # Windows derleme scripti
-│   ├── start.sh          # Sunucu baslama scripti
-│   ├── livekit-setup.sh  # LiveKit otomatik kurulum (Linux)
-│   ├── livekit-setup.ps1 # LiveKit otomatik kurulum (Windows)
-│   ├── livekit.yaml      # LiveKit yapilandirma sablonu
-│   └── .env.example      # Ortam yapilandirma sablonu
-└── docker-compose.yml    # Docker gelistirme ortami
-```
-
-### Mimari
-
-```
-handlers/ → services/ → repository/ → SQLite
-    ↕            ↕
-middleware    ws/hub (WebSocket broadcast)
-```
-
-- **Katmanli mimari**: handler'lar HTTP'yi parse eder, servisler is mantigi icerir, repository'ler veri erisimini yonetir
-- **Constructor dependency injection**: global state yok, tum bagimliliklar constructor uzerinden enjekte edilir
-- **Interface segregation**: tuketiciler concrete tiplere degil minimal interface'lere bagimlidir
-- **WebSocket hub**: anlik olay yayinlama icin fan-out deseni
-
----
-
-## Yol Haritasi
-
-### Tamamlandi
-- Anlik mesajlasma ile metin kanallari
-- Her zaman acik SFrame E2EE ile ses & goruntulu gorusmeler (LiveKit)
-- Windows'ta yerel WASAPI loopback capture ile ekran paylasimi (1080p/30fps)
-- Kanal bazli override'lar ile rol & izin sistemi
-- Emoji tepkileri & soundboard
-- Direkt mesajlar, arkadas sistemi, DM istekleri
-- Mesaj sabitleme & tam metin arama (FTS5 trigram)
-- Davet sistemi
-- Durum, otomatik bosta algilama, AFK otomatik cikis
-- Klavye kisayollari & sag tik menuleri
-- Ozel temalar, duvar kagitlari, frosted glass arayuz
-- Coklu dil destegi (EN + TR)
-- Windows, macOS ve Linux icin masaustu uygulamasi (Electron, otomatik guncelleme)
-- Coklu sunucu mimarisi
-- Tek komutla self-host kurulumu (tam sunucu)
-- Uctan uca sifreleme: DM (Signal Protokolu), kanal (Sender Key), ses (SFrame), dosya sifreleme, anahtar yedekleme & kurtarma
-- Ekran goruntulu uygulama ici geri bildirim
-
-### Planlanan
-- Mobil uygulamalar (iOS & Android)
-- Plugin / bot API
-- Sunucular arasi federasyon
-
----
-
-## Katkida Bulunma
-
-Katkilar memnuniyetle karsilanir! Issue acmadan veya PR gondermeden once [Katki Kilavuzu](CONTRIBUTING.md)'nu okumanizi rica ederiz.
+Katkılar memnuniyetle karşılanır. Issue açmadan veya pull request göndermeden önce lütfen
+[Katkı Rehberi](CONTRIBUTING.md)'ni, ilk değişikliğinizden önce de
+[ARCHITECTURE.md](ARCHITECTURE.md)'yi okuyun.
 
 ---
 
 ## Lisans
 
-[AGPL-3.0](LICENSE) — kisisel ve ticari olmayan kullanim serbesttir. Ticari kullanim icin [ayri bir lisans](COMMERCIAL-LICENSE.md) gereklidir. Katki sartlari icin [CLA.md](CLA.md) dosyasina bakin.
+[AGPL-3.0](LICENSE) — kurumunuz içinde dahil olmak üzere kullanmakta, değiştirmekte ve kendi
+sunucunuzda çalıştırmakta özgürsünüz. Değiştirilmiş bir sürümü dağıtır ya da ağ üzerinden başkalarına
+sunarsanız, kaynağınızı aynı lisansla yayınlamanız gerekir. Bu şartların dışındaki ticari kullanım
+[ayrı bir lisans](COMMERCIAL-LICENSE.md) gerektirir. Katkı şartları [CLA.md](CLA.md)'de.
