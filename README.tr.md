@@ -206,8 +206,8 @@ saniyeler içinde bir tane kuruyor.
 
 **[ARCHITECTURE.md](ARCHITECTURE.md)** parçaların nasıl birleştiğini anlatıyor: katmanlar, WebSocket
 hub'ı, ses kanallarının LiveKit instance'larına nasıl bağlandığı, şifreleme modeli ve test
-disiplini. Alt sistem bazında daha derin notlar [`architecture/`](architecture/) altında,
-[`DECISIONS.md`](DECISIONS.md) ise işlerin neden böyle olduğunu kaydediyor.
+disiplini. Alt sistem bazında daha derin notlar — tuhaf görünen kararların gerekçeleri dahil —
+[`architecture/`](architecture/) altında.
 
 ---
 

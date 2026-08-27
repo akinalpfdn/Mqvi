@@ -222,7 +222,6 @@ cd client && npx tsc -b && npx vitest run
 
 ## Where the detail lives
 
-- `architecture/` — per-subsystem engineering notes, including the traps that are invisible from the
-  code and the history behind decisions that look odd
-- `DECISIONS.md` — dated decision log: what was chosen, what was rejected, and why
+- `architecture/` — per-subsystem engineering notes: the traps that are invisible from the code, the
+  history behind decisions that look odd, and what each invariant is defending
 - `CONTRIBUTING.md` — how to propose and submit changes

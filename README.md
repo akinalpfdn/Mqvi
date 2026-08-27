@@ -206,8 +206,8 @@ locally in a few seconds.
 
 **[ARCHITECTURE.md](ARCHITECTURE.md)** explains how the pieces fit together: the layering, the
 WebSocket hub, how voice channels bind to LiveKit instances, the encryption model, and the testing
-conventions. Deeper per-subsystem notes live in [`architecture/`](architecture/), and
-[`DECISIONS.md`](DECISIONS.md) records why things are the way they are.
+conventions. Deeper per-subsystem notes, including the reasoning behind decisions that look odd,
+live in [`architecture/`](architecture/).
 
 ---
 
