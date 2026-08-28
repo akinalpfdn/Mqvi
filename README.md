@@ -2,8 +2,6 @@
   <img src="icons/mqvi-icon-512x512.png" alt="mqvi" width="80" />
 </p>
 
-<h1 align="center">mqvi</h1>
-
 <p align="center">
   <b>An open-source communication platform — voice, video and text — with always-on call encryption.</b><br/>
   Create an account at <a href="https://mqvi.net">mqvi.net</a> and start talking, or host the whole thing yourself.

@@ -2,8 +2,6 @@
   <img src="icons/mqvi-icon-512x512.png" alt="mqvi" width="80" />
 </p>
 
-<h1 align="center">mqvi</h1>
-
 <p align="center">
   <b>Açık kaynaklı bir iletişim platformu — ses, video ve metin — çağrılarda her zaman açık şifrelemeyle.</b><br/>
   <a href="https://mqvi.net">mqvi.net</a>'te hesap açıp konuşmaya başlayın, ya da tamamını kendi sunucunuzda çalıştırın.
