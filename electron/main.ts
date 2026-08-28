@@ -1721,6 +1721,29 @@ function setupAutoUpdater(): void {
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
+// ─── macOS Game Mode and the audio service ───
+//
+// The switches above stop Chromium backgrounding the RENDERER. macOS Game Mode is a second,
+// independent layer on top: it lowers the system priority of background processes whenever a
+// game goes fullscreen, and Chromium runs audio capture AND playout in its own sandboxed
+// utility process. Starved there, both directions crackle at once — which is how this was told
+// apart from anything on the mic path, since the denoise worklet only touches outgoing audio.
+//
+// Measured on a Mac running Dota 2: unsandboxing the audio service removes it entirely.
+// Disabling AudioWorkletThreadRealtimePriority changed nothing, which is what ruled the worklet
+// chain out. Game Mode needs Apple Silicon and macOS 14+, and it cannot be switched off
+// globally — only per game, from the menu-bar control while that game is fullscreen.
+//
+// We drop the SANDBOX, not the process. AudioServiceOutOfProcess would also work but costs more:
+// it moves audio into the browser process, so a crashing audio driver takes the whole app down
+// instead of a restartable utility process. Keep that distinction if this line is ever revisited.
+//
+// darwin only. Everywhere else the sandboxed audio service stays exactly as Chromium ships it —
+// there is no Game Mode to work around, so unsandboxing would be a security cost with no gain.
+if (process.platform === "darwin") {
+  app.commandLine.appendSwitch("disable-features", "AudioServiceSandbox");
+}
+
 // ─── Single Instance Lock ───
 const gotTheLock = app.requestSingleInstanceLock();
 

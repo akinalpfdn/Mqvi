@@ -143,6 +143,55 @@ load-bearing** — a renderer reload skips the cleanup and leaves the main proce
 nobody will release; the mount-time assert is what frees it. Do not "optimise" it into a
 rising-edge-only call.
 
+### The second layer: macOS Game Mode
+
+The occlusion switches above are only half the story, and shipping them revealed the other half.
+With the renderer no longer backgrounded, voice became usable during a game but still produced
+regular pops and crackles — **in both directions at once**.
+
+That symmetry is the diagnostic. The denoise worklet chain only touches the **outgoing** path, so
+it cannot explain incoming pops; and disabling `AudioWorkletThreadRealtimePriority` changed
+nothing, ruling out the worklet thread as the place the deadline was missed. What sits on both
+directions is Chromium's **audio utility process**, which does capture and playout together.
+
+**macOS Game Mode** lowers the system priority of background processes whenever a game goes
+fullscreen. It needs Apple Silicon and macOS 14+, activates automatically, has no System Settings
+pane, and can only be turned off per game from the menu-bar control while that game is fullscreen.
+It is why a plain fullscreen window does not reproduce this but a game does.
+
+Fix, darwin only:
+
+```
+app.commandLine.appendSwitch("disable-features", "AudioServiceSandbox");
+```
+
+`AudioServiceOutOfProcess` also works but is the worse trade — it moves audio into the browser
+process, so a crashing audio driver takes the whole app down instead of a restartable utility
+process. We drop the sandbox, not the process. See the 2026-08-27 entry in `DECISIONS.md`.
+
+**Why this is not a general fix.** Discord and Steam have no such problem because their voice does
+not run in a browser engine at all — Discord uses a native `discord_voice.node` module and the
+renderer only draws UI. mqvi runs the whole voice path in the renderer: LiveKit's JS SDK, the
+Web Audio graph, the E2EE worker. Moving voice native is the real architectural answer and stays
+open; `native/game-capture` already proves a native process can join a LiveKit room with E2EE.
+
+**Testing flags without a build.** Chromium switches apply per launch and are not persisted, so a
+flag can be A/B tested against an installed app:
+
+```
+open -a mqvi --args --disable-features=AudioServiceSandbox
+```
+
+Two traps. The app must be **fully quit first** (Cmd+Q — the red close button only hides it when
+close-to-tray is on), because `requestSingleInstanceLock` makes a second launch quit immediately
+and focus the running instance, silently discarding the flag. And verify it actually applied:
+
+```
+ps aux | grep -q AudioServiceSandbox && echo "FLAG AKTIF" || echo "FLAG YOK"
+```
+
+Without that check a launch failure is indistinguishable from the flag not helping.
+
 ## Mobile specifics
 
 - `client/ios/App/App/Info.plist` declares `UIBackgroundModes`: `audio`, `voip`,
