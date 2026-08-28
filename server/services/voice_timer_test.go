@@ -30,6 +30,7 @@ func newTimerTestVoiceService(online []string, perms models.Permission) (*voiceS
 			},
 		},
 		&mockLiveKitGetter{},
+		nil, // binding store: these tests keep the binding in memory only
 		&testutil.MockChannelPermResolver{
 			ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
 				return perms, nil

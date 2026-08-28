@@ -5,13 +5,13 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
-	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/ws"
 
 	livekit "github.com/livekit/protocol/livekit"
@@ -42,6 +42,9 @@ type orphanEntry struct {
 	userID    string
 	channelID string
 	serverID  string
+	// The instance the channel was released from when this orphan emptied it, or "" if others
+	// remain. The SFU teardown has to address that exact instance.
+	instanceID string
 }
 
 type afkEntry struct {
@@ -148,8 +151,8 @@ func (s *voiceService) sweepOrphanStates() {
 			s.stopChannelTimerLocked(channelID, serverID)
 		}
 
-		s.cleanupRoomPassphraseIfEmpty(channelID)
-		orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID, serverID: serverID})
+		releasedInstance := s.cleanupRoomPassphraseIfEmpty(channelID)
+		orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID, serverID: serverID, instanceID: releasedInstance})
 		log.Printf("[voice] orphan cleanup: removed user %s from channel %s (offline for %s)", userID, channelID, now.Sub(offlineTime).Round(time.Second))
 		s.logWarn(models.LogCategoryVoice, &userID, "orphan cleanup: stale voice state removed", map[string]string{
 			"channel_id":      channelID,
@@ -164,32 +167,45 @@ func (s *voiceService) sweepOrphanStates() {
 		}
 	}
 
+	// Bindings whose channel has nobody in it and nobody arriving. The ordinary release only runs
+	// when somebody leaves, so a channel claimed by a token that was never used has no one to
+	// trigger it and would stay pinned forever.
+	s.sweepAbandonedBindingsLocked()
+
 	s.mu.Unlock()
 
 	// LiveKit cleanup outside lock (involves DB calls)
 	for _, o := range orphans {
-		s.removeParticipantFromLiveKit(o.serverID, o.channelID, o.userID)
+		s.removeParticipantFromLiveKit(o.serverID, o.channelID, o.userID, o.instanceID)
 	}
 }
 
-// newLiveKitRoomClient resolves the server's LiveKit instance, decrypts its credentials,
-// and returns a room-service client. Shared by every server-side LiveKit operation
-// (participant removal, participant listing, server-mute enforcement).
+// newLiveKitRoomClient builds a room-service client for a room that already exists. Shared by
+// every server-side LiveKit operation (participant removal, participant listing, server-mute
+// enforcement).
+//
+// It deliberately does NOT go through resolveRoomInstance: that one claims an instance for an
+// unbound channel, and none of these callers is a join. The teardown path in particular runs
+// immediately after the binding is released, so claiming there re-bound the channel it had just
+// freed and then addressed the wrong machine.
+//
+// instanceID pins the target. Teardown callers pass the instance they just released, because after
+// a release nothing else can say where the room was. "" means "wherever the channel is currently
+// bound", which is right for callers acting on a channel that still has people in it.
+//
 // MUST NOT be called under mu.Lock (does DB lookups).
-func (s *voiceService) newLiveKitRoomClient(ctx context.Context, serverID string) (*lksdk.RoomServiceClient, error) {
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, serverID)
-	if err != nil {
-		return nil, fmt.Errorf("livekit instance lookup for server %s: %w", serverID, err)
+func (s *voiceService) newLiveKitRoomClient(ctx context.Context, channelID, instanceID string) (*lksdk.RoomServiceClient, error) {
+	var room *roomCredentials
+	var err error
+	if instanceID != "" {
+		room, err = s.credentialsByID(ctx, instanceID)
+	} else {
+		room, err = s.boundRoomInstance(ctx, channelID)
 	}
-	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
 	if err != nil {
-		return nil, fmt.Errorf("api key decrypt: %w", err)
+		return nil, err
 	}
-	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("api secret decrypt: %w", err)
-	}
-	return lksdk.NewRoomServiceClient(lkInstance.URL, apiKey, apiSecret), nil
+	return lksdk.NewRoomServiceClient(room.URL, room.APIKey, room.APISecret), nil
 }
 
 // removeParticipantFromLiveKit explicitly removes a participant from the LiveKit server.
@@ -201,11 +217,14 @@ func (s *voiceService) newLiveKitRoomClient(ctx context.Context, serverID string
 // from the channel row: a channel's ServerID is immutable, so the two always match, and
 // passing it keeps teardown working after the channel row is deleted (channel/server
 // delete) — a channel lookup here would fail and silently skip the SFU removal.
-func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID string) {
+func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID, instanceID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	roomClient, err := s.newLiveKitRoomClient(ctx, serverID)
+	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, instanceID)
+	if errors.Is(err, errChannelNotBound) {
+		return // no room was ever opened for this channel, so there is no participant to remove
+	}
 	if err != nil {
 		log.Printf("[voice] removeParticipant: room client init failed for server %s: %v", serverID, err)
 		s.logError(models.LogCategoryVoice, &userID, "removeParticipant: room client init failed", map[string]string{
@@ -214,7 +233,7 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID 
 		return
 	}
 
-	roomName := serverID + ":" + channelID
+	roomName := generateRoomName(serverID, channelID)
 
 	_, err = roomClient.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{
 		Room:     roomName,
@@ -352,12 +371,20 @@ func (s *voiceService) sweepAFKUsers() {
 // share still counts as present. LiveKit is the source of truth for room membership.
 // MUST NOT be called under s.mu (does DB lookups + network I/O).
 func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
-	roomClient, err := s.newLiveKitRoomClient(ctx, serverID)
+	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, "")
+	if errors.Is(err, errChannelNotBound) {
+		// No binding means no room, so nobody is in it. Say that rather than erroring: the caller
+		// skips a channel it cannot query, and skipping means phantom participants are never reaped
+		// and the channel timer runs forever. Before per-channel binding this path always resolved
+		// and LiveKit answered for an absent room, which is the behaviour being restored here.
+		// A genuinely mid-move user is covered by livekitAbsentGrace, not by pretending to see them.
+		return map[string]bool{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	roomName := serverID + ":" + channelID
+	roomName := generateRoomName(serverID, channelID)
 
 	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomName})
 	if err != nil {

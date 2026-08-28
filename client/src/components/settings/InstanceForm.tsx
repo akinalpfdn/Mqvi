@@ -16,6 +16,14 @@ type InstanceFormProps = {
   setFormMaxServers: (v: number) => void;
   formHetznerServerID: string;
   setFormHetznerServerID: (v: string) => void;
+  formRegion: string;
+  setFormRegion: (v: string) => void;
+  /**
+   * Comes from the server (models.OrderedRegions) rather than a copy kept here — a client-side list
+   * drifts the moment a region is added, and the symptom is an instance nobody can be routed to
+   * because its region was never offered. Empty until the fetch lands.
+   */
+  regions: string[];
   isSaving: boolean;
   onSave: () => void;
   onCancel?: () => void;
@@ -38,6 +46,9 @@ function InstanceForm({
   setFormMaxServers,
   formHetznerServerID,
   setFormHetznerServerID,
+  formRegion,
+  setFormRegion,
+  regions,
   isSaving,
   onSave,
   onCancel,
@@ -56,7 +67,8 @@ function InstanceForm({
         formApiKey !== "" ||
         formApiSecret !== "" ||
         formMaxServers !== instance.max_servers ||
-        formHetznerServerID !== (instance.hetzner_server_id ?? "")
+        formHetznerServerID !== (instance.hetzner_server_id ?? "") ||
+        formRegion !== (instance.region ?? "")
       : false;
 
   return (
@@ -121,6 +133,22 @@ function InstanceForm({
         <span className="settings-hint">
           {t("platformInstanceMaxServersHint")}
         </span>
+      </div>
+
+      <div className="settings-field">
+        <label className="settings-label">{t("platformInstanceRegion")}</label>
+        <select
+          className="settings-input"
+          value={formRegion}
+          onChange={(e) => setFormRegion(e.target.value)}
+        >
+          {(regions.length > 0 ? regions : [formRegion]).map((r) => (
+            <option key={r || "unknown"} value={r}>
+              {r || t("platformInstanceRegionUnknown")}
+            </option>
+          ))}
+        </select>
+        <span className="settings-hint">{t("platformInstanceRegionHint")}</span>
       </div>
 
       <div className="settings-field">

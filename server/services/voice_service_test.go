@@ -17,11 +17,17 @@ func (m *mockLiveKitGetter) GetByServerID(_ context.Context, _ string) (*models.
 	return nil, fmt.Errorf("no livekit instance in test")
 }
 
-// recordingLiveKitGetter records the serverID it was queried with, then errors to stop
-// before the real SFU network call.
+func (m *mockLiveKitGetter) GetByID(_ context.Context, _ string) (*models.LiveKitInstance, error) {
+	return nil, fmt.Errorf("no livekit instance in test")
+}
+
+// recordingLiveKitGetter records what it was queried with, then errors to stop before the real SFU
+// network call.
 type recordingLiveKitGetter struct {
-	callCount    int
-	lastServerID string
+	callCount      int
+	lastServerID   string
+	byIDCount      int
+	lastInstanceID string
 }
 
 func (m *recordingLiveKitGetter) GetByServerID(_ context.Context, serverID string) (*models.LiveKitInstance, error) {
@@ -30,12 +36,21 @@ func (m *recordingLiveKitGetter) GetByServerID(_ context.Context, serverID strin
 	return nil, fmt.Errorf("stop before network call")
 }
 
-// Phase 44 fix: on channel delete the channel row is gone by the time teardown runs, so
-// removeParticipantFromLiveKit must reach the SFU-removal path via the caller-supplied
-// serverID instead of re-fetching the channel. Pre-fix it did GetByID(channelID) first
-// and silently returned when that failed — so the participant was never removed from the
-// SFU. This test drives a deleted-channel scenario and asserts the LiveKit lookup is
-// still reached with the right serverID.
+func (m *recordingLiveKitGetter) GetByID(_ context.Context, id string) (*models.LiveKitInstance, error) {
+	m.byIDCount++
+	m.lastInstanceID = id
+	return nil, fmt.Errorf("stop before network call")
+}
+
+// Phase 44 fix, still guarded: on channel delete the channel row is gone by the time teardown runs,
+// so removeParticipantFromLiveKit must reach the SFU-removal path without re-fetching the channel.
+// Pre-fix it did GetByID(channelID) first and silently returned when that failed — so the
+// participant was never removed from the SFU.
+//
+// The mechanism changed with per-channel instance binding: the caller now hands teardown the exact
+// instance the room was released from, rather than a serverID to look the instance up by. The
+// invariant is the same and is what this asserts — a deleted channel row must not stop the SFU
+// removal, and the lookup must address the instance the participant was actually on.
 func TestRemoveParticipantFromLiveKit_ReachesSFUAfterChannelDeleted(t *testing.T) {
 	lk := &recordingLiveKitGetter{}
 	svc := NewVoiceService(
@@ -46,6 +61,7 @@ func TestRemoveParticipantFromLiveKit_ReachesSFUAfterChannelDeleted(t *testing.T
 			},
 		},
 		lk,
+		nil, // binding store: this test keeps the binding in memory only
 		&testutil.MockChannelPermResolver{},
 		&testutil.MockBroadcaster{},
 		nil, // onlineChecker
@@ -54,13 +70,19 @@ func TestRemoveParticipantFromLiveKit_ReachesSFUAfterChannelDeleted(t *testing.T
 		&testutil.MockFileURLSigner{},
 	).(*voiceService)
 
-	svc.removeParticipantFromLiveKit("srv1", "deleted-chan", "u1")
+	svc.removeParticipantFromLiveKit("srv1", "deleted-chan", "u1", "lk-the-room-was-here")
 
-	if lk.callCount != 1 {
-		t.Fatalf("LiveKit lookup should be reached even with a deleted channel; got %d calls (pre-fix: 0)", lk.callCount)
+	if lk.byIDCount != 1 {
+		t.Fatalf("LiveKit lookup should be reached even with a deleted channel; got %d calls (pre-fix: 0)", lk.byIDCount)
 	}
-	if lk.lastServerID != "srv1" {
-		t.Fatalf("LiveKit lookup should use the passed serverID; got %q want %q", lk.lastServerID, "srv1")
+	if lk.lastInstanceID != "lk-the-room-was-here" {
+		t.Fatalf("teardown addressed %q, want the instance the room was released from", lk.lastInstanceID)
+	}
+	// Teardown must never fall back to "the server's instance". With more than one instance that is
+	// a different machine from the one the participant is on, and the removal would silently target
+	// an empty room while the phantom lingers until ICE timeout.
+	if lk.callCount != 0 {
+		t.Fatalf("teardown resolved by serverID (%d calls) instead of the released instance", lk.callCount)
 	}
 }
 
@@ -83,6 +105,7 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 			},
 		},
 		&mockLiveKitGetter{},
+		nil, // binding store: these tests keep the binding in memory only
 		&testutil.MockChannelPermResolver{},
 		hub,
 		nil, // onlineChecker
@@ -435,4 +458,12 @@ func TestVoiceState_ServerMuteDeafen(t *testing.T) {
 	if !found {
 		t.Error("u1 not found in voice states")
 	}
+}
+
+func (m *mockLiveKitGetter) GetPlatformInstanceForRegion(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
+	return m.GetByServerID(ctx, "")
+}
+
+func (m *recordingLiveKitGetter) GetPlatformInstanceForRegion(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
+	return m.GetByServerID(ctx, "")
 }

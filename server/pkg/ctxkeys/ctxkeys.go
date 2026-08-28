@@ -20,3 +20,8 @@ const ServerID contextKey = "server_id"
 // Permissions is the user's effective permission set for the active server, set by
 // PermissionMiddleware.
 const Permissions contextKey = "permissions"
+
+// ClientRegion is the caller's rough location, derived from Cloudflare's CF-IPCountry header by
+// the voice handler. Empty means unknown, which callers must treat as "no preference" rather than
+// as an error — see pkg/georegion.
+const ClientRegion contextKey = "client_region"

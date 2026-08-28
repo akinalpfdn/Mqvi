@@ -144,6 +144,7 @@ func (s *livekitAdminService) CreateInstance(ctx context.Context, req *models.Cr
 		ServerCount:       0,
 		MaxServers:        req.MaxServers,
 		HetznerServerID:   req.HetznerServerID,
+		Region:            req.Region,
 	}
 
 	if err := s.livekitRepo.Create(ctx, instance); err != nil {
@@ -191,6 +192,9 @@ func (s *livekitAdminService) UpdateInstance(ctx context.Context, instanceID str
 	if req.HetznerServerID != nil {
 		inst.HetznerServerID = *req.HetznerServerID
 	}
+	if req.Region != nil {
+		inst.Region = *req.Region
+	}
 
 	if err := s.livekitRepo.Update(ctx, inst); err != nil {
 		return nil, fmt.Errorf("failed to update livekit instance: %w", err)
@@ -208,6 +212,20 @@ func (s *livekitAdminService) DeleteInstance(ctx context.Context, instanceID, ta
 
 	if !inst.IsPlatformManaged {
 		return fmt.Errorf("%w: only platform-managed instances can be deleted via admin API", pkg.ErrForbidden)
+	}
+
+	// Live calls, which server_count no longer says anything about. Since placement became
+	// per-channel and by region, an instance can be hosting rooms with no servers registered against
+	// it — the normal state of a freshly added region, and the state that makes it the most
+	// attractive target for the next call. Deleting it cascades channel_voice_bindings away, so the
+	// running calls rebind and the next joiner opens a same-named room on another SFU: both halves
+	// work, neither hears the other, nothing errors.
+	liveCalls, callsErr := s.livekitRepo.CountChannelBindings(ctx, instanceID)
+	if callsErr != nil {
+		return fmt.Errorf("failed to count live calls on instance: %w", callsErr)
+	}
+	if liveCalls > 0 {
+		return fmt.Errorf("%w: instance is hosting %d live voice channel(s); wait for them to end", pkg.ErrBadRequest, liveCalls)
 	}
 
 	// Migrate attached servers if any
@@ -498,6 +516,7 @@ func toAdminView(inst *models.LiveKitInstance) models.LiveKitInstanceAdminView {
 		ServerCount:       inst.ServerCount,
 		MaxServers:        inst.MaxServers,
 		HetznerServerID:   inst.HetznerServerID,
+		Region:            inst.Region,
 		CreatedAt:         inst.CreatedAt,
 	}
 }

@@ -4,13 +4,13 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
-	"github.com/akinalp/mqvi/pkg/crypto"
 
 	"github.com/livekit/protocol/auth"
 )
@@ -22,30 +22,6 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	}
 	if channel.Type != models.ChannelTypeVoice {
 		return nil, fmt.Errorf("%w: not a voice channel", pkg.ErrBadRequest)
-	}
-
-	// channel -> server -> livekit_instance lookup
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
-	if err != nil {
-		s.logError(models.LogCategoryVoice, &userID, "LiveKit instance lookup failed", map[string]string{
-			"server_id": channel.ServerID, "error": err.Error(),
-		})
-		return nil, fmt.Errorf("failed to get livekit instance for server %s: %w", channel.ServerID, err)
-	}
-
-	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
-	if err != nil {
-		s.logError(models.LogCategoryVoice, &userID, "LiveKit API key decryption failed", map[string]string{
-			"instance_id": lkInstance.ID, "error": err.Error(),
-		})
-		return nil, fmt.Errorf("failed to decrypt livekit api key: %w", err)
-	}
-	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
-	if err != nil {
-		s.logError(models.LogCategoryVoice, &userID, "LiveKit API secret decryption failed", map[string]string{
-			"instance_id": lkInstance.ID, "error": err.Error(),
-		})
-		return nil, fmt.Errorf("failed to decrypt livekit api secret: %w", err)
 	}
 
 	// Resolve effective permissions (role base + channel overrides)
@@ -86,14 +62,31 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		}
 	}
 
+	// Marked before the claim, not after. The claim persists a row and the abandoned-binding sweep
+	// runs every five seconds; a tick landing in between saw a channel with no participants and
+	// nobody connecting, and released a binding whose token had already gone out.
+	s.markPendingJoin(channelID, userID)
+
+	// Only now. Resolving claims the channel's LiveKit instance on first use — an actual write, to
+	// memory and to channel_voice_bindings — and it used to run before any of the checks above. A
+	// member without PermConnectVoice could therefore pin a staff-only channel to an instance chosen
+	// for their region and then be refused, and the binding outlived the refusal. Everything above
+	// this line is read-only; nothing below is reachable without passing it.
+	room, err := s.resolveRoomInstance(ctx, channel.ServerID, channelID)
+	if err != nil {
+		s.logError(models.LogCategoryVoice, &userID, "LiveKit instance unavailable", map[string]string{
+			"server_id": channel.ServerID, "error": err.Error(),
+		})
+		return nil, err
+	}
+
 	canPublish := effectivePerms.Has(models.PermSpeak)
 	canSubscribe := true
 	canPublishData := true
 
-	at := auth.NewAccessToken(apiKey, apiSecret)
+	at := auth.NewAccessToken(room.APIKey, room.APISecret)
 
-	// Room name = "{serverID}:{channelID}" to avoid collisions across servers
-	roomName := channel.ServerID + ":" + channelID
+	roomName := generateRoomName(channel.ServerID, channelID)
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
@@ -145,7 +138,7 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 
 	return &models.VoiceTokenResponse{
 		Token:          token,
-		URL:            lkInstance.URL,
+		URL:            room.URL,
 		ChannelID:      channelID,
 		E2EEPassphrase: passphrase,
 	}, nil
@@ -239,30 +232,27 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		return nil, fmt.Errorf("%w: must be in the voice channel to screen share", pkg.ErrBadRequest)
 	}
 
-	lkInstance, err := s.livekitGetter.GetByServerID(ctx, channel.ServerID)
+	// Follows the binding rather than claiming one. The sub-participant joins a room that already
+	// exists — the sharer is in it — so this is not a first join, and claiming here would pick an
+	// instance from a request that carries no region (the screen-share handler sets none), pinning
+	// the channel to somewhere the voice call is not.
+	room, err := s.boundRoomInstance(ctx, channelID)
 	if err != nil {
-		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_instance_missing", map[string]string{"server_id": channel.ServerID, "error": err.Error()})
-		return nil, fmt.Errorf("failed to get livekit instance for server %s: %w", channel.ServerID, err)
-	}
-
-	apiKey, err := crypto.Decrypt(lkInstance.APIKey, s.encryptionKey)
-	if err != nil {
-		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_key_decrypt_failed", nil)
-		return nil, fmt.Errorf("failed to decrypt livekit api key: %w", err)
-	}
-	apiSecret, err := crypto.Decrypt(lkInstance.APISecret, s.encryptionKey)
-	if err != nil {
-		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "livekit_secret_decrypt_failed", nil)
-		return nil, fmt.Errorf("failed to decrypt livekit api secret: %w", err)
+		reason := "livekit_instance_missing"
+		if errors.Is(err, errChannelNotBound) {
+			reason = "channel_not_bound"
+		}
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, reason, map[string]string{"server_id": channel.ServerID, "error": err.Error()})
+		return nil, err
 	}
 
 	canPublish := true
 	canSubscribe := false   // screen share participant doesn't need to subscribe
 	canPublishData := false // no data channel needed
 
-	at := auth.NewAccessToken(apiKey, apiSecret)
+	at := auth.NewAccessToken(room.APIKey, room.APISecret)
 
-	roomName := channel.ServerID + ":" + channelID
+	roomName := generateRoomName(channel.ServerID, channelID)
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
@@ -300,7 +290,7 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 
 	return &models.VoiceTokenResponse{
 		Token:          token,
-		URL:            lkInstance.URL,
+		URL:            room.URL,
 		ChannelID:      channelID,
 		E2EEPassphrase: passphrase,
 	}, nil

@@ -461,6 +461,8 @@ export type LiveKitInstanceAdmin = {
   server_count: number;
   max_servers: number;
   hetzner_server_id: string;
+  /** Where the instance physically is. Empty means unknown — still usable, just never chosen for proximity. */
+  region: string;
   created_at: string;
 };
 
@@ -470,6 +472,7 @@ export type CreateLiveKitInstanceRequest = {
   api_secret: string;
   max_servers: number;
   hetzner_server_id?: string;
+  region?: string;
 };
 
 export type UpdateLiveKitInstanceRequest = {
@@ -478,6 +481,7 @@ export type UpdateLiveKitInstanceRequest = {
   api_secret?: string;
   max_servers?: number;
   hetzner_server_id?: string;
+  region?: string;
 };
 
 /** Parsed Prometheus metrics from LiveKit instance. */

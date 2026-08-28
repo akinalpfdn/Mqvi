@@ -12,8 +12,31 @@ type LiveKitRepository interface {
 	GetByID(ctx context.Context, id string) (*models.LiveKitInstance, error)
 	// GetByServerID returns the LiveKit instance linked to a server (JOIN on servers.livekit_instance_id).
 	GetByServerID(ctx context.Context, serverID string) (*models.LiveKitInstance, error)
-	// GetLeastLoadedPlatformInstance returns the platform-managed instance with fewest servers (load balancing).
+	// GetLeastLoadedPlatformInstance answers "may I register another server on this instance" —
+	// the platform-managed instance with the fewest servers that is still under its max_servers cap.
+	// Capacity is a hard filter here and the unit is right: the question really is about servers.
 	GetLeastLoadedPlatformInstance(ctx context.Context) (*models.LiveKitInstance, error)
+	// GetPlatformInstanceForRegion answers the different question "where should this call go".
+	//
+	// Region is absolute: a caller whose region has an instance is never sent elsewhere, however
+	// loaded that instance is. Capacity only separates two instances within the same region, and it
+	// cannot exile anybody — max_servers counts registered servers, which says nothing about how
+	// many people an SFU is currently carrying, so it must never be the reason a call crosses an
+	// ocean. An empty region reduces to plain least-loaded.
+	GetPlatformInstanceForRegion(ctx context.Context, region string) (*models.LiveKitInstance, error)
+
+	// Channel→instance bindings. Written when a channel claims an instance and deleted when it
+	// empties, so the table only holds calls in progress. Persisted purely so a restart does not
+	// forget where a running call lives and send the next joiner somewhere else.
+	GetChannelBinding(ctx context.Context, channelID string) (string, error)
+	SetChannelBinding(ctx context.Context, channelID, instanceID string) error
+	// ClearChannelBinding removes the binding only if it still names instanceID, so a clear that
+	// arrives after a fresh claim cannot erase it.
+	ClearChannelBinding(ctx context.Context, channelID, instanceID string) error
+	// CountChannelBindings counts the voice channels whose room is on this instance. Unrelated to
+	// server_count: placement is per channel and by region, so an instance with no servers
+	// registered against it can still be carrying calls.
+	CountChannelBindings(ctx context.Context, instanceID string) (int, error)
 	IncrementServerCount(ctx context.Context, instanceID string) error
 	DecrementServerCount(ctx context.Context, instanceID string) error
 	Update(ctx context.Context, instance *models.LiveKitInstance) error

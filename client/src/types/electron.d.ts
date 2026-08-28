@@ -101,6 +101,8 @@ interface ElectronAPI {
   startGameDetection: () => Promise<void>;
   /** Stop watching. Call on voice leave. */
   stopGameDetection: () => Promise<void>;
+  /** Keep the OS from suspending the app while in a voice channel. */
+  setVoiceActive?: (active: boolean) => Promise<void>;
   /** The game to offer, or null when there is nothing. */
   onGameDetected: (cb: (game: DetectedGame | null) => void) => void;
   removeGameDetectionListeners: () => void;

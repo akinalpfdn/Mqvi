@@ -40,6 +40,8 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 
 	var oldChannelID string
 	var oldServerID string
+	// The instance the old channel was released from, needed by the phantom teardown below.
+	var releasedInstance string
 
 	s.mu.Lock()
 
@@ -84,8 +86,11 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			s.stopChannelTimerLocked(oldChannelID, oldServerID)
 		}
 
-		s.cleanupRoomPassphraseIfEmpty(oldChannelID)
+		releasedInstance = s.cleanupRoomPassphraseIfEmpty(oldChannelID)
 	}
+
+	// The websocket join landed, so the token-time marker has done its job.
+	s.clearPendingJoinLocked(channelID, userID)
 
 	// Capture before insertion so we can detect the 0 → 1 transition.
 	newChannelWasEmpty := s.countInChannelLocked(channelID) == 0
@@ -130,7 +135,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	// Use oldServerID — the phantom is in the OLD channel's room, which may be on a
 	// different server than the one just joined.
 	if oldChannelID != "" && oldChannelID != channelID {
-		go s.removeParticipantFromLiveKit(oldServerID, oldChannelID, userID)
+		go s.removeParticipantFromLiveKit(oldServerID, oldChannelID, userID, releasedInstance)
 	}
 
 	log.Printf("[voice] user %s joined channel %s", userID, channelID)
@@ -210,13 +215,14 @@ func (s *voiceService) LeaveChannel(userID string) error {
 		s.stopChannelTimerLocked(channelID, serverID)
 	}
 
-	// Clean up E2EE passphrase if room is empty (forward secrecy)
-	s.cleanupRoomPassphraseIfEmpty(channelID)
+	// Clean up E2EE passphrase if room is empty (forward secrecy). The returned instance is what
+	// the teardown below must talk to — after the release nothing else can say where the room was.
+	releasedInstance := s.cleanupRoomPassphraseIfEmpty(channelID)
 
 	s.mu.Unlock()
 
 	// Remove from LiveKit (best-effort, outside lock — involves DB calls)
-	go s.removeParticipantFromLiveKit(serverID, channelID, userID)
+	go s.removeParticipantFromLiveKit(serverID, channelID, userID, releasedInstance)
 
 	log.Printf("[voice] user %s left channel %s", userID, channelID)
 	return nil

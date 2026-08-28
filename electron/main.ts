@@ -16,6 +16,7 @@ import {
   nativeImage,
   desktopCapturer,
   powerMonitor,
+  powerSaveBlocker,
   safeStorage,
   screen,
   shell,
@@ -199,6 +200,9 @@ let gameProbeGeneration = 0;
 /** Held across the awaits in startGameProbe, where gameProbeProcess is still null but a probe is
  *  already on its way — otherwise a second start spawns a second one. */
 let gameProbeStarting = false;
+
+/** Active powerSaveBlocker id while the renderer is in a voice channel, or null. */
+let voiceSuspensionBlockerId: number | null = null;
 
 const GAME_PROBE_INTERVAL_MS = 1500;
 
@@ -1352,6 +1356,27 @@ function setupIPC(): void {
     stopGameProbe();
   });
 
+  // ─── App Suspension While In Voice ───
+  //
+  // Its own channel rather than riding on game detection: that one is Windows-only (it drives
+  // game-probe.exe), and the platform that needs this is macOS, where App Nap can demote a
+  // backgrounded app even with the occlusion switches in place.
+  //
+  // "prevent-app-suspension", not "prevent-display-sleep": a call must not stop the screen from
+  // sleeping. Idempotent on both edges — the renderer re-asserts on reconnect and remount.
+  ipcMain.handle("set-voice-active", (_e, active: boolean) => {
+    if (active) {
+      if (voiceSuspensionBlockerId === null) {
+        voiceSuspensionBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+      }
+      return;
+    }
+    if (voiceSuspensionBlockerId !== null) {
+      powerSaveBlocker.stop(voiceSuspensionBlockerId);
+      voiceSuspensionBlockerId = null;
+    }
+  });
+
   // Sharp shares still go through getDisplayMedia; this is how the row skips the picker for them.
   // Cleared on read, and cleared here too so an abandoned share can't leak into the next one.
   ipcMain.handle("set-prepicked-source", (_e, sourceId: string | null) => {
@@ -1676,6 +1701,47 @@ function setupAutoUpdater(): void {
   setInterval(() => {
     autoUpdater.checkForUpdates().catch(() => {});
   }, 5 * 60 * 1000);
+}
+
+// ─── Renderer Priority While Occluded ───
+//
+// A macOS game taking a native fullscreen Space leaves this window fully occluded, and Chromium
+// then backgrounds the renderer. That is not a cosmetic slowdown here: the LiveKit E2EE SFrame
+// worker encrypts every outgoing audio frame and decrypts every incoming one, and the denoise
+// AudioWorklet sits on the mic path — all in this renderer. Starved of priority they miss their
+// deadlines and voice degrades in BOTH directions (crackling, choppy) the moment the game opens,
+// even at its main menu, and recovers the instant the window is focused again.
+//
+// webPreferences.backgroundThrottling: false does NOT cover this. Electron documents it as
+// throttling "animations and timers" plus the Page Visibility API; renderer process priority and
+// occlusion are a separate mechanism reachable only from these switches, and they must be set
+// before the app is ready.
+//
+// The cost is that a hidden window keeps full priority — the trade every voice app makes.
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+
+// ─── macOS Game Mode and the audio service ───
+//
+// The switches above stop Chromium backgrounding the RENDERER. macOS Game Mode is a second,
+// independent layer on top: it lowers the system priority of background processes whenever a
+// game goes fullscreen, and Chromium runs audio capture AND playout in its own sandboxed
+// utility process. Starved there, both directions crackle at once — which is how this was told
+// apart from anything on the mic path, since the denoise worklet only touches outgoing audio.
+//
+// Measured on a Mac running Dota 2: unsandboxing the audio service removes it entirely.
+// Disabling AudioWorkletThreadRealtimePriority changed nothing, which is what ruled the worklet
+// chain out. Game Mode needs Apple Silicon and macOS 14+, and it cannot be switched off
+// globally — only per game, from the menu-bar control while that game is fullscreen.
+//
+// We drop the SANDBOX, not the process. AudioServiceOutOfProcess would also work but costs more:
+// it moves audio into the browser process, so a crashing audio driver takes the whole app down
+// instead of a restartable utility process. Keep that distinction if this line is ever revisited.
+//
+// darwin only. Everywhere else the sandboxed audio service stays exactly as Chromium ships it —
+// there is no Game Mode to work around, so unsandboxing would be a security cost with no gain.
+if (process.platform === "darwin") {
+  app.commandLine.appendSwitch("disable-features", "AudioServiceSandbox");
 }
 
 // ─── Single Instance Lock ───
