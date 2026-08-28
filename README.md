@@ -37,10 +37,6 @@
 </p>
 
 <p align="center">
-  <img src="docs-assets/hero.webp" alt="mqvi" width="860" />
-</p>
-
-<p align="center">
   <img src="docs-assets/demo.gif" alt="mqvi in use" width="860" />
 </p>
 
@@ -67,18 +63,21 @@
 - ✅ **Self-hostable in one command** — the same platform, on your own machine, with no runtime to
   install.
 - 🚧 **Plugin and bot API** — planned.
-- 🚧 **Federation between servers** — planned.
 
-<table>
-  <tr>
-    <td width="62%"><img src="docs-assets/voice.webp" alt="Voice channel with screen sharing" /></td>
-    <td width="38%"><img src="docs-assets/mobile.webp" alt="Mobile" /></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>A voice channel, someone sharing their screen</sub></td>
-    <td align="center"><sub>The same chat on a phone</sub></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs-assets/hero.webp" alt="Channels and chat" width="820" /><br/>
+  <sub>Servers, channels and chat</sub>
+</p>
+
+<p align="center">
+  <img src="docs-assets/mobile.webp" alt="The same chat on a phone" width="260" /><br/>
+  <sub>The same chat on a phone — iOS and Android from the same codebase</sub>
+</p>
+
+<p align="center">
+  <img src="docs-assets/voice.webp" alt="Voice channel with screen sharing" width="820" /><br/>
+  <sub>A voice channel, someone sharing their screen</sub>
+</p>
 
 ---
 
@@ -155,13 +154,15 @@ Checked in August 2026. Where a competitor is better, the table says so.
 | Voice & video E2EE | ✓ every call | ✓ every call | ✓ (Element Call) | ✗ planned |
 | Message E2EE | ✓ opt-in | ✗ | ✓ on by default in DMs | ✗ planned |
 | Phone or ID to sign up | never | often | never | never |
-| **Federation** | **✗ planned** | ✗ | **✓** | ✗ |
-| **Bots and third-party apps** | **✗ planned** | **✓ large ecosystem** | **✓** | — |
-| **Independent audit of the crypto** | **✗** | **✓** | **✓** | — |
+| Federation | ✗ | ✗ | ✓ | ✗ |
+| Bots and third-party apps | ✗ planned | ✓ large ecosystem | ✓ | — |
+| Independent audit of the crypto | ✗ | ✓ | ✓ | — |
 
-The bold rows are the ones mqvi loses, and they are the honest reasons to pick something else:
+The last three rows are the ones mqvi loses, and they are the honest reasons to pick something
+else:
 
-- **No federation.** Matrix's whole point is that servers talk to each other. mqvi's do not, yet.
+- **No federation.** Matrix's whole point is that servers talk to each other. mqvi's do not, and
+  it is not on the roadmap.
 - **No bot or app ecosystem.** Discord's is enormous and a decade old. mqvi has none at all.
 - **The encryption has not been independently audited.** The primitives come from `@noble/curves`,
   which Cure53 and Trail of Bits have audited — but this project's own X3DH, Double Ratchet and

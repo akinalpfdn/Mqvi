@@ -37,10 +37,6 @@
 </p>
 
 <p align="center">
-  <img src="docs-assets/hero.webp" alt="mqvi" width="860" />
-</p>
-
-<p align="center">
   <img src="docs-assets/demo.gif" alt="mqvi kullanımda" width="860" />
 </p>
 
@@ -66,18 +62,21 @@
 - ✅ **Telefon ve kimlik asla istenmiyor** — e-posta bile isteğe bağlı.
 - ✅ **Tek komutla self-host** — aynı platform, kendi makinenizde, kurulacak hiçbir runtime olmadan.
 - 🚧 **Eklenti ve bot API'si** — planlanan.
-- 🚧 **Sunucular arası federasyon** — planlanan.
 
-<table>
-  <tr>
-    <td width="62%"><img src="docs-assets/voice.webp" alt="Ses kanalı ve ekran paylaşımı" /></td>
-    <td width="38%"><img src="docs-assets/mobile.webp" alt="Mobil" /></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Ses kanalı, ekran paylaşımı açık</sub></td>
-    <td align="center"><sub>Aynı sohbet, telefonda</sub></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs-assets/hero.webp" alt="Kanallar ve sohbet" width="820" /><br/>
+  <sub>Sunucular, kanallar ve sohbet</sub>
+</p>
+
+<p align="center">
+  <img src="docs-assets/mobile.webp" alt="Aynı sohbet telefonda" width="260" /><br/>
+  <sub>Aynı sohbet telefonda — iOS ve Android, aynı kod tabanından</sub>
+</p>
+
+<p align="center">
+  <img src="docs-assets/voice.webp" alt="Ses kanalı ve ekran paylaşımı" width="820" /><br/>
+  <sub>Ses kanalı, ekran paylaşımı açık</sub>
+</p>
 
 ---
 
@@ -154,14 +153,14 @@ Ağustos 2026'da kontrol edildi. Rakip daha iyiyse tablo bunu da yazıyor.
 | Ses ve video E2EE | ✓ her çağrıda | ✓ her çağrıda | ✓ (Element Call) | ✗ planlanan |
 | Mesaj E2EE | ✓ isteğe bağlı | ✗ | ✓ DM'lerde varsayılan | ✗ planlanan |
 | Kayıt için telefon/kimlik | asla | sıklıkla | asla | asla |
-| **Federasyon** | **✗ planlanan** | ✗ | **✓** | ✗ |
-| **Bot ve üçüncü parti uygulamalar** | **✗ planlanan** | **✓ devasa ekosistem** | **✓** | — |
-| **Bağımsız kripto denetimi** | **✗** | **✓** | **✓** | — |
+| Federasyon | ✗ | ✗ | ✓ | ✗ |
+| Bot ve üçüncü parti uygulamalar | ✗ planlanan | ✓ devasa ekosistem | ✓ | — |
+| Bağımsız kripto denetimi | ✗ | ✓ | ✓ | — |
 
-Kalın satırlar mqvi'nin kaybettikleri, ve başka bir şey seçmek için dürüst sebepler:
+Son üç satır mqvi'nin kaybettikleri, ve başka bir şey seçmek için dürüst sebepler:
 
 - **Federasyon yok.** Matrix'in bütün varlık sebebi sunucuların birbiriyle konuşması. mqvi'ninkiler
-  henüz konuşmuyor.
+  konuşmuyor, ve yol haritasında da yok.
 - **Bot veya uygulama ekosistemi yok.** Discord'unki devasa ve on yıllık. mqvi'de hiç yok.
 - **Şifreleme bağımsız denetimden geçmedi.** Primitifler `@noble/curves`'ten geliyor ve o kütüphaneyi
   Cure53 ile Trail of Bits denetledi — ama bu projenin kendi X3DH, Double Ratchet ve Sender Key
