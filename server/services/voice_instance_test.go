@@ -23,3 +23,38 @@ func TestGenerateRoomName_IsStable(t *testing.T) {
 		t.Errorf("got %q, want %q — the wire format changed, existing rooms will not match", got, want)
 	}
 }
+
+func TestParseRoomName_InvertsGenerateRoomName(t *testing.T) {
+	serverID, channelID, ok := ParseRoomName(generateRoomName("2556be2191737aa5", "f09d4499301a5686"))
+	if !ok || serverID != "2556be2191737aa5" || channelID != "f09d4499301a5686" {
+		t.Fatalf("round trip failed: %q %q %v", serverID, channelID, ok)
+	}
+	if _, _, ok := ParseRoomName(generateRoomName("default", "c1")); !ok {
+		t.Fatal("the seeded server id \"default\" must parse")
+	}
+}
+
+func TestParseRoomName_RejectsMalformed(t *testing.T) {
+	for _, room := range []string{"", "abc", ":c1", "s1:", "a:b:c", ":"} {
+		if _, _, ok := ParseRoomName(room); ok {
+			t.Errorf("%q parsed; a room that is not serverID:channelID must be rejected, not guessed", room)
+		}
+	}
+}
+
+func TestSplitParticipantIdentity(t *testing.T) {
+	tests := []struct {
+		in, user string
+		ss       bool
+	}{
+		{"u1", "u1", false},
+		{"u1_ss", "u1", true},
+		{"u1_ss_ss", "u1_ss", true}, // only the outer suffix is the sub-participant marker
+	}
+	for _, tt := range tests {
+		user, ss := SplitParticipantIdentity(tt.in)
+		if user != tt.user || ss != tt.ss {
+			t.Errorf("%q: got (%q,%v) want (%q,%v)", tt.in, user, ss, tt.user, tt.ss)
+		}
+	}
+}
