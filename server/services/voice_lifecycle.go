@@ -25,6 +25,20 @@ import (
 // the full duration regardless of when the disconnect happens.
 const orphanGracePeriod = 35 * time.Second
 
+// sfuRecheckInterval bounds how often the orphan sweep asks the SFU about one websocket-less user it
+// has already confirmed present. Between asks the user is simply kept; the reconciliation sweep
+// still runs on its own cadence underneath.
+const sfuRecheckInterval = 60 * time.Second
+
+// wsAbsentCeiling is the floor beneath the AFK timeout: a user with no WebSocket for this long is
+// reaped even while the SFU still reports them present. Where AFK is enabled the AFK sweep fires
+// first — LastActivity is refreshed only over the WebSocket (OpVoiceActivity), so a backgrounded
+// client is idle by definition and goes at afk_timeout_minutes, default 60. This only decides
+// anything where an admin set AFK to 0, and it is what stops a forgotten phone from holding the
+// channel's timer, binding and ephemeral chat forever. Blind to audio on purpose: the SFU cannot
+// tell a suspended microphone from a quiet one, and a user it drops can simply rejoin.
+const wsAbsentCeiling = 2 * time.Hour
+
 // livekitReconcileInterval / livekitAbsentGrace govern the LiveKit reconciliation
 // sweep. LiveKit (the SFU actually carrying the audio) is the source of truth for
 // who is really in a call. The WS-presence-based orphan sweep can't reap a session
@@ -78,12 +92,22 @@ func (s *voiceService) StartOrphanCleanup() {
 	}()
 }
 
-// sweepOrphanStates uses two-phase per-user tracking:
-//  1. First time a user with voice state is seen offline → record offlineSince timestamp
-//  2. User comes back online before grace expires → clear tracking, no broadcast
-//  3. Grace period expires → broadcast leave, remove state, cleanup LiveKit
+// sweepOrphanStates decides, every 5 seconds, whether a user whose WebSocket has been gone for
+// orphanGracePeriod is still in the call — and the SFU has the deciding vote. The WebSocket dying
+// is necessary to reap but never sufficient: a backgrounded iOS client loses its WebView, and with
+// it the socket, while its LiveKit session keeps carrying audio (DECISIONS.md, 2026-09-07). Three
+// phases, the same shape as sweepLiveKitReconciliation, because the SFU query is network I/O and
+// s.mu must never be held across it:
+//  1. Under Lock: track first-seen-offline per user, clear anyone back online (unchanged).
+//  2. Under Lock: collect grace-expired candidates by channel. Do NOT reap yet.
+//     Without the lock: ask LiveKit who is in each candidate channel.
+//  3. Under Lock: a user the SFU still has is kept; a user it does not have is re-verified and
+//     reaped exactly as before. A channel the SFU could not answer for is skipped whole — in doubt,
+//     keep. The reconciliation sweep's own absence grace is the backstop for the ghost this leaves.
 //
-// This guarantees orphanGracePeriod of grace regardless of ticker phase.
+// Cost: steady state runs no query at all — phase 2 only fires for candidates past the grace, and
+// a user the SFU confirmed is not asked about again for sfuRecheckInterval. The grace itself is
+// unchanged, so the guard tests define the timing.
 func (s *voiceService) sweepOrphanStates() {
 	onlineIDs := s.onlineChecker.GetOnlineUserIDs()
 	onlineSet := make(map[string]bool, len(onlineIDs))
@@ -92,48 +116,150 @@ func (s *voiceService) sweepOrphanStates() {
 	}
 
 	now := time.Now()
-	var orphans []orphanEntry
+
+	// candidate is a user past the grace whose fate the SFU decides.
+	type candidate struct {
+		userID    string
+		serverID  string
+		channelID string
+	}
+	byChannel := make(map[string][]candidate)
 
 	s.mu.Lock()
 
-	// Phase 1: Track newly offline users, clear returned-online users
+	// Phase 1: track newly offline users, clear returned-online users.
 	for userID := range s.states {
 		if onlineSet[userID] {
-			// Back online — clear any pending offline tracking
 			delete(s.offlineSince, userID)
+			delete(s.sfuPresentAt, userID)
 		} else if _, tracked := s.offlineSince[userID]; !tracked {
-			// First time seeing this user offline — start grace timer
 			s.offlineSince[userID] = now
 		}
 	}
 
-	// Phase 2: Only remove users who exceeded the grace period
+	// Phase 2a: collect, do not reap. The SFU has not been asked yet.
 	for userID, offlineTime := range s.offlineSince {
 		if now.Sub(offlineTime) < orphanGracePeriod {
-			continue // Still within grace — do not touch
+			continue
 		}
-
 		state, ok := s.states[userID]
 		if !ok {
-			// Voice state already removed (explicit leave during grace) — clean tracker
 			delete(s.offlineSince, userID)
+			delete(s.sfuPresentAt, userID)
+			continue
+		}
+		// Confirmed present recently — no point asking again this tick. The entry goes whenever
+		// offlineSince goes, so it cannot outlive the offline episode it belongs to.
+		if at, ok := s.sfuPresentAt[userID]; ok && now.Sub(at) < sfuRecheckInterval {
+			continue
+		}
+		byChannel[state.ChannelID] = append(byChannel[state.ChannelID], candidate{
+			userID: userID, serverID: state.ServerID, channelID: state.ChannelID,
+		})
+	}
+
+	// Stale trackers for users who left voice explicitly during the grace.
+	for userID := range s.offlineSince {
+		if _, ok := s.states[userID]; !ok {
+			delete(s.offlineSince, userID)
+			delete(s.sfuPresentAt, userID)
+		}
+	}
+
+	// Bindings whose channel has nobody in it and nobody arriving. Runs here, on every tick, rather
+	// than after the reap as it used to: the reap now lives in a second lock section that ticks with
+	// no candidates never reach, and a reap that empties a channel already releases its binding
+	// through cleanupRoomPassphraseIfEmpty. A candidate is still in s.states at this point, so the
+	// occupancy this sweep reads is unchanged by the move.
+	s.sweepAbandonedBindingsLocked()
+
+	s.mu.Unlock()
+
+	if len(byChannel) == 0 {
+		return
+	}
+
+	// Phase 2b: ask the SFU, no lock held.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var gone, present []candidate
+	for channelID, cands := range byChannel {
+		inRoom, err := s.listLiveKitParticipants(ctx, cands[0].serverID, channelID)
+		if err != nil {
+			// Unreachable is not absent. Nobody in this channel is touched this tick.
+			log.Printf("[voice] orphan sweep: cannot list channel %s, keeping %d candidate(s): %v", channelID, len(cands), err)
+			continue
+		}
+		for _, c := range cands {
+			if inRoom[c.userID] {
+				present = append(present, c)
+			} else {
+				gone = append(gone, c)
+			}
+		}
+	}
+
+	// The online set is sampled again: a user who reconnected while the SFU was being asked must
+	// not be reaped on the strength of a snapshot taken before they came back.
+	onlineNow := make(map[string]bool)
+	for _, id := range s.onlineChecker.GetOnlineUserIDs() {
+		onlineNow[id] = true
+	}
+	now = time.Now()
+
+	var orphans []orphanEntry
+
+	// Phase 3: act under Lock, re-verifying each candidate against the state it has now.
+	s.mu.Lock()
+
+	// ceiled marks a present user whose websocket has been gone past wsAbsentCeiling; they join the
+	// reap below and the log says why, because "absent from SFU" would be false for them.
+	ceiled := make(map[string]bool)
+	for _, c := range present {
+		state, ok := s.states[c.userID]
+		if !ok || state.ChannelID != c.channelID {
+			continue
+		}
+		if since, tracked := s.offlineSince[c.userID]; tracked && now.Sub(since) >= wsAbsentCeiling {
+			ceiled[c.userID] = true
+			gone = append(gone, c)
+			continue
+		}
+		s.sfuPresentAt[c.userID] = now
+		log.Printf("[voice] orphan sweep: user %s has no websocket but the SFU still has them in channel %s; keeping", c.userID, c.channelID)
+	}
+
+	for _, c := range gone {
+		state, ok := s.states[c.userID]
+		if !ok || state.ChannelID != c.channelID {
+			continue // left or moved between phases — nothing to reap
+		}
+		if onlineNow[c.userID] {
+			delete(s.offlineSince, c.userID)
+			delete(s.sfuPresentAt, c.userID)
+			continue // back before we acted; phase 1 would clear them next tick anyway
+		}
+		offlineTime, tracked := s.offlineSince[c.userID]
+		if !tracked {
 			continue
 		}
 
-		// Grace expired — confirmed abandoned session
+		// Grace expired and the SFU agrees — confirmed abandoned session. Unchanged from here.
 		channelID := state.ChannelID
 		serverID := state.ServerID
 		username := state.Username
 		displayName := state.DisplayName
 		avatarURL := s.urlSigner.SignURL(state.AvatarURL)
-		delete(s.states, userID)
-		delete(s.offlineSince, userID)
-		delete(s.livekitAbsentSince, userID)
+		delete(s.states, c.userID)
+		delete(s.offlineSince, c.userID)
+		delete(s.sfuPresentAt, c.userID)
+		delete(s.livekitAbsentSince, c.userID)
 
 		s.broadcastToServer(serverID, ws.Event{
 			Op: ws.OpVoiceStateUpdate,
 			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:      userID,
+				UserID:      c.userID,
 				ChannelID:   channelID,
 				Username:    username,
 				DisplayName: displayName,
@@ -152,25 +278,18 @@ func (s *voiceService) sweepOrphanStates() {
 		}
 
 		releasedInstance := s.cleanupRoomPassphraseIfEmpty(channelID)
-		orphans = append(orphans, orphanEntry{userID: userID, channelID: channelID, serverID: serverID, instanceID: releasedInstance})
-		log.Printf("[voice] orphan cleanup: removed user %s from channel %s (offline for %s)", userID, channelID, now.Sub(offlineTime).Round(time.Second))
-		s.logWarn(models.LogCategoryVoice, &userID, "orphan cleanup: stale voice state removed", map[string]string{
+		orphans = append(orphans, orphanEntry{userID: c.userID, channelID: channelID, serverID: serverID, instanceID: releasedInstance})
+		reason := "absent from SFU"
+		if ceiled[c.userID] {
+			reason = "SFU still had them, no websocket past the ceiling"
+		}
+		log.Printf("[voice] orphan cleanup: removed user %s from channel %s (offline for %s, %s)", c.userID, channelID, now.Sub(offlineTime).Round(time.Second), reason)
+		s.logWarn(models.LogCategoryVoice, &c.userID, "orphan cleanup: stale voice state removed", map[string]string{
 			"channel_id":      channelID,
 			"offline_seconds": fmt.Sprintf("%.0f", now.Sub(offlineTime).Seconds()),
+			"reap_reason":     reason,
 		})
 	}
-
-	// Clean stale trackers (user left voice explicitly during grace)
-	for userID := range s.offlineSince {
-		if _, ok := s.states[userID]; !ok {
-			delete(s.offlineSince, userID)
-		}
-	}
-
-	// Bindings whose channel has nobody in it and nobody arriving. The ordinary release only runs
-	// when somebody leaves, so a channel claimed by a token that was never used has no one to
-	// trigger it and would stay pinned forever.
-	s.sweepAbandonedBindingsLocked()
 
 	s.mu.Unlock()
 
