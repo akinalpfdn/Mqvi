@@ -31,7 +31,7 @@ function ConfirmDialog() {
   const cancelLabel = options.cancelLabel ?? t("cancel");
 
   return createPortal(
-    <div className="modal-backdrop" onClick={cancelAction}>
+    <div className="modal-backdrop modal-backdrop-confirm" onClick={cancelAction}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         {/* Title */}
         {options.title && (

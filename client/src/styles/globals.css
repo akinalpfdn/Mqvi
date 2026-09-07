@@ -2519,6 +2519,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
    MODAL (Generic)
    ═══════════════════════════════════════ */
 .modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:50;display:flex;align-items:center;justify-content:center; }
+/* The promise-based confirm must sit above every surface that can open it — member-card 51, role editor 52, pickers 60, soundboard sp-overlay 150 — and below disc-overlay 500. At the shared 50 it rendered behind the full-screen mobile member card, so logout from the profile was unreachable. */
+.modal-backdrop.modal-backdrop-confirm { z-index:300; }
 .modal-card { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;max-width:480px;width:100%;padding:24px;box-shadow:var(--panel-inset),0 12px 48px rgba(0,0,0,0.5);max-height:calc(100vh - 40px);overflow-y:auto; }
 .modal-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:16px; }
 .modal-title { font-size:18px;font-weight:700;color:var(--t0); }
