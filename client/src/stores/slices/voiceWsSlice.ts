@@ -1,7 +1,9 @@
 /**
  * voiceWsSlice — WebSocket event handlers for voice state.
  *
- * Pure state transformers — no side effects beyond updating Zustand state.
+ * Pure state transformers — no side effects beyond updating Zustand state,
+ * except the disconnect handlers, which also tear down the native voice
+ * session (iOS room + mobile foreground service) the way leaveVoiceChannel does.
  * Handlers cross-slice: disconnect handlers also reset screenshare fields
  * owned by voiceScreenShareSlice. Legal because slices share a single store.
  */
@@ -10,6 +12,7 @@ import type { StateCreator } from "zustand";
 import type { VoiceState, VoiceStateUpdateData } from "../../types";
 import type { VoiceStore } from "../voiceStore";
 import { clearVoiceRecoveryMark } from "../shared/voiceRecovery";
+import { stopNativeVoiceSession } from "../../utils/nativePlugins";
 
 export type VoiceWsSlice = {
   afkKickInfo: { channelName: string; serverName: string } | null;
@@ -174,6 +177,7 @@ export const createVoiceWsSlice: StateCreator<
 
   handleForceDisconnect: () => {
     clearVoiceRecoveryMark();
+    stopNativeVoiceSession();
     // Admin force-disconnected us — same cleanup as leave but no WS event sent
     // (server already cleared state). isMuted/isDeafened preserved.
     set({
@@ -192,6 +196,7 @@ export const createVoiceWsSlice: StateCreator<
 
   handleAFKKick: (channelName: string, serverName: string) => {
     clearVoiceRecoveryMark();
+    stopNativeVoiceSession();
     set({
       currentVoiceChannelId: null,
       currentVoiceServerId: null,
@@ -211,6 +216,7 @@ export const createVoiceWsSlice: StateCreator<
 
   handleVoiceReplaced: () => {
     clearVoiceRecoveryMark();
+    stopNativeVoiceSession();
     // Another session took over voice — leave silently, skip auto-rejoin.
     set({
       wasReplaced: true,

@@ -210,6 +210,16 @@ export async function onNativeVoiceDisconnected(handler: (error: string) => void
   return () => listener.remove();
 }
 
+/**
+ * Stop everything native a voice session started: the iOS native room and the
+ * mobile foreground service. Web tears its room down via connect=false; every
+ * path that clears voice state (leave, kick, AFK, replaced) must call this.
+ */
+export function stopNativeVoiceSession(): void {
+  if (useNativeVoice()) void nativeVoiceDisconnect();
+  void stopVoiceCallService();
+}
+
 // ─── Status Bar & Keyboard ───
 
 /**
