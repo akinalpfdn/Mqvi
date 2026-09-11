@@ -26,7 +26,7 @@ setLogLevel(LogLevel.warn);
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
-import { useNativeVoice } from "../../utils/nativePlugins";
+import { useNativeVoice, nativeVoiceConnect, onNativeVoiceDisconnected } from "../../utils/nativePlugins";
 import VoiceStateManager from "./VoiceStateManager";
 
 type VoiceProviderProps = {
@@ -169,6 +169,69 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     },
     [leaveVoiceChannel, t]
   );
+
+  /**
+   * iOS native voice counterpart of handleDisconnected. The native SDK reports a
+   * drop only after its own reconnects are exhausted or the server removed us.
+   * Same rejoin policy, but the reconnect is an explicit native connect with the
+   * refreshed token because the JS LiveKitRoom is never connected on iOS.
+   */
+  const handleNativeDisconnected = useCallback(
+    (error: string) => {
+      const { currentVoiceChannelId, _wsSend, wasReplaced } = useVoiceStore.getState();
+
+      if (wasReplaced) {
+        useVoiceStore.setState({ wasReplaced: false });
+        return;
+      }
+
+      // Store already left (explicit leave raced the native callback).
+      if (!currentVoiceChannelId) return;
+
+      if (rejoinAttemptsRef.current < MAX_REJOIN_ATTEMPTS) {
+        rejoinAttemptsRef.current++;
+        const channelToRejoin = currentVoiceChannelId;
+
+        useVoiceStore
+          .getState()
+          .refreshVoiceToken(channelToRejoin)
+          .then(async (tokenResp) => {
+            if (!tokenResp || !_wsSend) return false;
+            const { isMuted, isDeafened } = useVoiceStore.getState();
+            const connected = await nativeVoiceConnect(tokenResp.url, tokenResp.token, isMuted, isDeafened);
+            if (!connected) return false;
+            _wsSend("voice_join", { channel_id: channelToRejoin });
+            return true;
+          })
+          .catch(() => false)
+          .then((rejoined) => {
+            if (rejoined) return;
+            useToastStore.getState().addToast("error", t("youWereDisconnected"), 6000);
+            leaveVoiceChannel();
+          });
+        return;
+      }
+
+      console.error("[VoiceProvider] native voice dropped:", error);
+      useToastStore.getState().addToast("error", t("youWereDisconnected"), 6000);
+      leaveVoiceChannel();
+    },
+    [leaveVoiceChannel, t]
+  );
+
+  useEffect(() => {
+    if (!isNativeVoice || !isInVoice) return;
+    let remove: (() => void) | null = null;
+    let cancelled = false;
+    onNativeVoiceDisconnected(handleNativeDisconnected).then((dispose) => {
+      if (cancelled) dispose();
+      else remove = dispose;
+    });
+    return () => {
+      cancelled = true;
+      remove?.();
+    };
+  }, [isNativeVoice, isInVoice, handleNativeDisconnected]);
 
   const handleError = useCallback(
     (err: Error) => {

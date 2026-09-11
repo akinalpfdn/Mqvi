@@ -38,8 +38,10 @@ public class NativeVoicePlugin: CAPPlugin, CAPBridgedPlugin, RoomDelegate {
 
         Task { @MainActor in
             do {
-                // Disconnect existing room if any
+                // Drop ownership before disconnecting so the old room's
+                // didDisconnect callback is not reported as an unexpected drop.
                 if let existing = self.room {
+                    self.room = nil
                     await existing.disconnect()
                 }
 
@@ -68,9 +70,9 @@ public class NativeVoicePlugin: CAPPlugin, CAPBridgedPlugin, RoomDelegate {
     @objc func disconnect(_ call: CAPPluginCall) {
         Task { @MainActor in
             if let room = self.room {
+                self.room = nil
                 await room.disconnect()
             }
-            self.room = nil
             call.resolve(["disconnected": true])
         }
     }
@@ -134,10 +136,15 @@ public class NativeVoicePlugin: CAPPlugin, CAPBridgedPlugin, RoomDelegate {
 
     // MARK: - RoomDelegate
 
-    public func room(_ room: Room, didDisconnectWithError error: (any Error)?) {
-        // Notify JS that native voice disconnected unexpectedly
-        self.notifyListeners("nativeVoiceDisconnected", data: [
-            "error": error?.localizedDescription ?? ""
-        ])
+    /// Fires after the SDK's own reconnects are exhausted or the server removed us.
+    /// Intentional disconnects drop ownership first, so `room` no longer matches.
+    public func room(_ room: Room, didDisconnectWithError error: LiveKitError?) {
+        Task { @MainActor in
+            guard room === self.room else { return }
+            self.room = nil
+            self.notifyListeners("nativeVoiceDisconnected", data: [
+                "error": error?.localizedDescription ?? ""
+            ])
+        }
     }
 }

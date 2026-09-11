@@ -96,7 +96,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback, svcs.FeedbackUpload, svcs.Storage, svcs.SettingsBadge, cfg.Upload.MaxSize, limiters.Feedback, svcs.AppLog, urlSigner),
 		Soundboard:        handlers.NewSoundboardHandler(svcs.Soundboard, svcs.Storage, cfg.Upload.MaxSize, urlSigner),
 		Storage:           handlers.NewStorageHandler(svcs.Storage),
-		LiveKitWebhook:    handlers.NewLiveKitWebhookHandler(repos.LiveKit, encryptionKey, svcs.AppLog),
+		LiveKitWebhook:    handlers.NewLiveKitWebhookHandler(repos.LiveKit, encryptionKey, svcs.AppLog, svcs.Voice),
 		VoiceMessage:      handlers.NewVoiceMessageHandler(svcs.VoiceMessage, svcs.UploadPipeline, urlSigner, limiters.Message, cfg.Upload.MaxSize),
 		ICEServer:         handlers.NewICEServerHandler(svcs.TURN, svcs.P2PCall, limiters.ICE),
 		PushToken:         handlers.NewPushTokenHandler(svcs.PushToken),

@@ -120,7 +120,7 @@ deploy/backup/
 # ========================
 # Embedded frontend build
 # ========================
-server/static/dist/
+server/static/dist/*
 !server/static/dist/.gitkeep
 
 # ========================

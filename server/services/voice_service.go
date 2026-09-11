@@ -1,12 +1,13 @@
 // Package services — VoiceService interface, struct, and construction.
 //
 // Method implementations are split across concern-based files in this package:
-//   voice_token.go       — LiveKit token generation (voice + screen share)
-//   voice_state.go       — join/leave/update channel + state queries
-//   voice_admin.go       — server mute/deafen, move, force-disconnect
-//   voice_screenshare.go — screen share viewer tracking
-//   voice_lifecycle.go   — orphan/AFK sweeps + LiveKit participant removal
-//   voice_e2ee.go        — per-room SFrame passphrase helpers
+//
+//	voice_token.go       — LiveKit token generation (voice + screen share)
+//	voice_state.go       — join/leave/update channel + state queries
+//	voice_admin.go       — server mute/deafen, move, force-disconnect
+//	voice_screenshare.go — screen share viewer tracking
+//	voice_lifecycle.go   — orphan/AFK sweeps + LiveKit participant removal
+//	voice_e2ee.go        — per-room SFrame passphrase helpers
 //
 // All files share the single `voiceService` struct and its single `sync.RWMutex`,
 // so the concerns can cross-read each other's state without lock-ordering risk.
@@ -135,15 +136,16 @@ type voiceService struct {
 	forceMoveGrants    map[string]forceMoveGrant     // userID -> one-time bypass (consumed on token gen)
 	offlineSince       map[string]time.Time          // userID -> first seen offline (grace period tracking)
 	livekitAbsentSince map[string]time.Time          // userID -> first seen absent from the LiveKit room (reconcile grace)
+	sfuPresentAt       map[string]time.Time          // userID -> when the SFU last confirmed a websocket-less user present (orphan sweep re-check throttle)
 	channelStartedAt   map[string]time.Time          // channelID -> moment the channel went from 0→1 participant
 	channelInstances   map[string]string             // channelID -> LiveKit instance id, claimed by the first token request
 	// channelID -> userID -> deadline. A token has been minted but the websocket join has not
 	// arrived yet. Without this the channel looks empty during the LiveKit handshake, which both
 	// leaks bindings (a token nobody uses pins the channel forever) and lets the last person
 	// leaving release a binding out from under someone who is still connecting.
-	pendingJoins map[string]map[string]time.Time
-	onChannelEmpty     func(string)                  // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
-	mu                 sync.RWMutex
+	pendingJoins   map[string]map[string]time.Time
+	onChannelEmpty func(string) // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
+	mu             sync.RWMutex
 
 	channelGetter    ChannelGetter
 	livekitGetter    LiveKitInstanceGetter
@@ -175,6 +177,7 @@ func NewVoiceService(
 		forceMoveGrants:    make(map[string]forceMoveGrant),
 		offlineSince:       make(map[string]time.Time),
 		livekitAbsentSince: make(map[string]time.Time),
+		sfuPresentAt:       make(map[string]time.Time),
 		channelStartedAt:   make(map[string]time.Time),
 		channelInstances:   make(map[string]string),
 		pendingJoins:       make(map[string]map[string]time.Time),

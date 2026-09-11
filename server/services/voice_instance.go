@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
@@ -330,6 +331,24 @@ func (s *voiceService) persistBinding(ctx context.Context, channelID, instanceID
 // unambiguous when both agree.
 func generateRoomName(serverID, channelID string) string {
 	return serverID + ":" + channelID
+}
+
+// ParseRoomName inverts generateRoomName. IDs are 16 hex characters or the literal "default", so a
+// room with an empty side or a second ':' is not one of ours and is rejected rather than guessed at.
+func ParseRoomName(room string) (serverID, channelID string, ok bool) {
+	serverID, channelID, found := strings.Cut(room, ":")
+	if !found || serverID == "" || channelID == "" || strings.Contains(channelID, ":") {
+		return "", "", false
+	}
+	return serverID, channelID, true
+}
+
+// SplitParticipantIdentity strips the screen-share sub-participant suffix so the identity resolves
+// to the user who owns it. A "_ss" identity leaving is the user's second track going away, never
+// the user leaving. Same normalisation listLiveKitParticipants applies.
+func SplitParticipantIdentity(identity string) (userID string, isScreenShare bool) {
+	userID = strings.TrimSuffix(identity, "_ss")
+	return userID, userID != identity
 }
 
 // pendingJoinTTL bounds how long a minted token keeps a channel "occupied" without a websocket

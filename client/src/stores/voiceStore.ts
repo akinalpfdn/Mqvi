@@ -18,8 +18,8 @@ import { create } from "zustand";
 import type { VoiceState, VoiceStateUpdateData, VoiceTokenResponse } from "../types";
 import * as voiceApi from "../api/voice";
 import {
-  startVoiceCallService, stopVoiceCallService,
-  useNativeVoice, nativeVoiceConnect, nativeVoiceDisconnect,
+  startVoiceCallService,
+  useNativeVoice, nativeVoiceConnect, stopNativeVoiceSession,
   nativeVoiceSetMic, nativeVoiceSetDeafened,
 } from "../utils/nativePlugins";
 import { ensureMicPermission } from "../utils/devicePermissions";
@@ -326,14 +326,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
 
   leaveVoiceChannel: () => {
     clearVoiceRecoveryMark();
-
-    // iOS: disconnect native voice
-    if (useNativeVoice()) {
-      nativeVoiceDisconnect();
-    }
-
-    // Stop native foreground service (mobile only)
-    stopVoiceCallService();
+    stopNativeVoiceSession();
 
     // Send unwatch WS events for all active screen share watches before clearing
     const { watchingScreenShares, _wsSend, currentVoiceChannelId, voiceStates } = get();
