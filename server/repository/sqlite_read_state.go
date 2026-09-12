@@ -84,11 +84,14 @@ func (r *sqliteReadStateRepo) DecrementUnreadForDeleted(ctx context.Context, cha
 		  )`
 
 	// friendships.created_at is always written from Go as a bound time.Time (never
-	// CURRENT_TIMESTAMP), so binding the message time the same way — same driver, same
-	// layout, both UTC — keeps the text comparison in chronological order without a
-	// Go-side round trip per delete. TestDecrementUnreadForDeleted_BlockTiming pins this
-	// against the real driver, including a one-nanosecond gap.
-	_, err := r.db.ExecContext(ctx, query, channelID, authorID, deletedAt, authorID, deletedAt.UTC())
+	// CURRENT_TIMESTAMP), so binding the cut-off the same way — same driver, same layout,
+	// both UTC — keeps the text comparison in chronological order without a Go-side round
+	// trip per delete. messages.created_at is second-precision while blocks carry
+	// nanoseconds, so the cut-off is the end of the message's second: a block inside that
+	// second counts as "before" (conservative — a counter that may never have risen is not
+	// lowered). TestDecrementUnreadForDeleted_BlockTiming pins this against the real driver.
+	blockCutoff := deletedAt.UTC().Truncate(time.Second).Add(time.Second)
+	_, err := r.db.ExecContext(ctx, query, channelID, authorID, deletedAt, authorID, blockCutoff)
 	if err != nil {
 		return fmt.Errorf("failed to decrement unread counts on delete: %w", err)
 	}

@@ -122,19 +122,17 @@ func (s *blockService) BlockUser(ctx context.Context, blockerID, targetID string
 	// would survive. Drop both sides.
 	s.hub.RemovePresencePeer(blockerID, targetID)
 
-	// Notify both parties
-	s.hub.BroadcastToUser(blockerID, ws.Event{
+	// Notify both parties with one shape — user_id is always the blocker — so every device
+	// of either side (blockStore.handleUserBlock) can tell which role it plays.
+	blockEvent := ws.Event{
 		Op: ws.OpUserBlock,
 		Data: map[string]string{
-			"user_id": targetID,
+			"user_id":         blockerID,
+			"blocked_user_id": targetID,
 		},
-	})
-	s.hub.BroadcastToUser(targetID, ws.Event{
-		Op: ws.OpUserBlock,
-		Data: map[string]string{
-			"user_id": blockerID,
-		},
-	})
+	}
+	s.hub.BroadcastToUser(blockerID, blockEvent)
+	s.hub.BroadcastToUser(targetID, blockEvent)
 
 	return nil
 }
@@ -161,7 +159,8 @@ func (s *blockService) UnblockUser(ctx context.Context, blockerID, targetID stri
 	s.hub.BroadcastToUser(blockerID, ws.Event{
 		Op: ws.OpUserUnblock,
 		Data: map[string]string{
-			"user_id": targetID,
+			"user_id":           blockerID,
+			"unblocked_user_id": targetID,
 		},
 	})
 

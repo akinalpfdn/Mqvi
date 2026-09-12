@@ -93,10 +93,23 @@ func TestDecrementUnreadForDeleted_BlockTiming(t *testing.T) {
 			wantBlocker: 3,
 		},
 		{
-			// Same second, block first: still shielded — no string-format tie-break involved.
+			// Previous second, nanosecond precision on the block side.
 			name:        "should leave the blocker's counter alone when the block is one nanosecond older",
 			blockedAt:   messageAt.Add(-time.Nanosecond),
 			wantBlocker: 3,
+		},
+		{
+			// Production shape: message time is whole seconds, the block carries sub-second precision
+			// and lands inside the same second. Real order is unknowable, so it counts as "before".
+			name:        "should leave the blocker's counter alone when the block is inside the message's second",
+			blockedAt:   messageAt.Add(700 * time.Millisecond),
+			wantBlocker: 3,
+		},
+		{
+			// First instant of the next second: the message was already counted.
+			name:        "should decrement the blocker's counter when the block is in the next second",
+			blockedAt:   messageAt.Add(time.Second),
+			wantBlocker: 2,
 		},
 		{
 			// Message came first and was counted; the block afterwards still owes the decrement.
