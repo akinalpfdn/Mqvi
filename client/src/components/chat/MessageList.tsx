@@ -193,6 +193,13 @@ function MessageList() {
   useEffect(() => {
     if (!scrollToMessageId) return;
 
+    // A collapsed (blocked) target has no DOM node yet: reveal it and let the effect re-run.
+    const target = messages.find((m) => m.id === scrollToMessageId);
+    if (target && isHidden(target)) {
+      setRevealedIds((prev) => new Set([...Array.from(prev), target.id]));
+      return;
+    }
+
     const el = document.getElementById(`msg-${scrollToMessageId}`);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -205,7 +212,7 @@ function MessageList() {
     }
 
     setScrollToMessageId(null);
-  }, [scrollToMessageId, setScrollToMessageId]);
+  }, [scrollToMessageId, setScrollToMessageId, messages, isHidden]);
 
   function scrollToBottom() {
     if (scrollRef.current) {

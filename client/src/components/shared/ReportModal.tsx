@@ -183,6 +183,10 @@ function ReportModal({ userId, username, message, onClose }: ReportModalProps) {
               <blockquote className="report-message-excerpt">
                 {message.excerpt || t("reportMessageNoText")}
               </blockquote>
+              <p className="report-share-notice">
+                {t("reportShareNotice")}
+                {message.encrypted && <> {t("reportShareNoticeE2EE")}</>}
+              </p>
             </div>
           )}
 

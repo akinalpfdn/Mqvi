@@ -5,7 +5,7 @@
   "introDesc": "mqvi is an open-source communication platform. We are committed to transparency about what data we collect and how we handle it. This policy applies to the mqvi instance hosted at mqvi.net.",
   "dataCollectedTitle": "What We Collect",
   "dataItem1": "Account information: username, display name, and optionally your email address (used only for password recovery).",
-  "dataItem2": "Messages: text messages you send in servers and direct messages are stored on our servers to deliver them to recipients. Where end-to-end encryption is enabled, we store only the encrypted form and cannot read the content.",
+  "dataItem2": "Messages: text messages you send in servers and direct messages are stored on our servers to deliver them to recipients. Where end-to-end encryption is enabled, we store only the encrypted form and cannot read the content. The one exception is reporting: when you report a message, its text (up to 500 characters) is sent to our moderation team together with the report, even in end-to-end encrypted conversations.",
   "dataItem3": "Files: images, videos, and other files you upload are stored on our servers for delivery.",
   "dataItem4": "Basic usage data: timestamps of account creation and last activity for operational purposes.",
   "dataItem5": "Push notification tokens: if you enable notifications on mobile, a device token issued by Apple or Google is stored to deliver them. It is removed when your account is deleted.",

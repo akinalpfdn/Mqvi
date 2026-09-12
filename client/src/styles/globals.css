@@ -2991,6 +2991,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .report-textarea { width:100%;min-height:80px;padding:10px 12px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:6px;color:var(--t0);font-size:16px;resize:vertical;outline:none;transition:border-color .15s; }
 .report-textarea::placeholder { color:var(--t3); }
 .report-textarea:focus { border-color:var(--primary); }
+.report-share-notice { margin:8px 0 0;font-size:13px;color:var(--t3);line-height:1.45; }
 .report-message-excerpt { margin:0;padding:10px 12px;background:var(--input-bg);border-left:3px solid var(--danger);border-radius:6px;color:var(--t1);font-size:14px;line-height:1.45;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto; }
 .report-actions { display:flex;gap:8px;justify-content:flex-end;margin-top:8px; }
 .report-btn { padding:8px 20px;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:background .12s,opacity .12s; }

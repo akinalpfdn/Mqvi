@@ -766,9 +766,10 @@ function Message({ message, isCompact }: MessageProps) {
           userId={message.user_id}
           username={message.author.username}
           message={{
-            kind: mode === "dm" ? "dm" : "channel",
+            kind: mode === "dm" ? "dm" : mode === "voice" ? "voice" : "channel",
             id: message.id,
             excerpt: (message.content ?? "").slice(0, REPORT_EXCERPT_MAX),
+            encrypted: message.encryption_version === 1,
           }}
           onClose={() => setReportOpen(false)}
         />

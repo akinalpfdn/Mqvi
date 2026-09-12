@@ -45,11 +45,14 @@ type Report struct {
 	ResolvedAt     *string      `json:"resolved_at"`
 	CreatedAt      string       `json:"created_at"`
 	// Message context — set for message-level reports, nil for profile reports.
-	MessageID   *string `json:"message_id"`
-	DMMessageID *string `json:"dm_message_id"`
-	// MessageExcerpt is supplied by the reporting client and never verified
-	// server-side (E2EE DMs are opaque here). Admin UI labels it as such.
+	MessageID      *string `json:"message_id"`
+	DMMessageID    *string `json:"dm_message_id"`
+	VoiceMessageID *string `json:"voice_message_id"`
+	// MessageExcerpt is a snapshot of the reported text that outlives the message.
+	// ExcerptSource says who took it: "server" (copied from stored plaintext) or
+	// "client" (reporter-supplied, E2EE content the server cannot read).
 	MessageExcerpt *string            `json:"message_excerpt"`
+	ExcerptSource  *string            `json:"excerpt_source"`
 	Attachments    []ReportAttachment `json:"attachments"`
 }
 
@@ -126,18 +129,24 @@ type ServerReportWithInfo struct {
 
 const MaxReportExcerptLength = 500
 
+const (
+	ExcerptSourceServer = "server"
+	ExcerptSourceClient = "client"
+)
+
 type CreateReportRequest struct {
 	Reason      string `json:"reason"`
 	Description string `json:"description"`
-	// Optional message context. At most one of MessageID / DMMessageID.
+	// Optional message context. At most one of the three ids.
 	MessageID      string `json:"message_id"`
 	DMMessageID    string `json:"dm_message_id"`
+	VoiceMessageID string `json:"voice_message_id"`
 	MessageExcerpt string `json:"message_excerpt"`
 }
 
 // HasMessageContext reports whether this is a message-level report.
 func (r *CreateReportRequest) HasMessageContext() bool {
-	return r.MessageID != "" || r.DMMessageID != ""
+	return r.MessageID != "" || r.DMMessageID != "" || r.VoiceMessageID != ""
 }
 
 func (r *CreateReportRequest) Validate() error {
@@ -158,9 +167,16 @@ func (r *CreateReportRequest) Validate() error {
 
 	r.MessageID = strings.TrimSpace(r.MessageID)
 	r.DMMessageID = strings.TrimSpace(r.DMMessageID)
+	r.VoiceMessageID = strings.TrimSpace(r.VoiceMessageID)
 	r.MessageExcerpt = strings.TrimSpace(r.MessageExcerpt)
-	if r.MessageID != "" && r.DMMessageID != "" {
-		return fmt.Errorf("report may reference a channel message or a DM message, not both")
+	refs := 0
+	for _, id := range []string{r.MessageID, r.DMMessageID, r.VoiceMessageID} {
+		if id != "" {
+			refs++
+		}
+	}
+	if refs > 1 {
+		return fmt.Errorf("report may reference only one message")
 	}
 	if r.MessageExcerpt != "" && !r.HasMessageContext() {
 		return fmt.Errorf("message excerpt requires a message reference")

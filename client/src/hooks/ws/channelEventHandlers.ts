@@ -95,12 +95,6 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
         return true;
       }
 
-      // Blocked author: the message stays in the store (collapsed in the list) but never
-      // raises unread, plays a sound, or flashes the window.
-      if (useBlockStore.getState().isBlocked(message.user_id)) {
-        return true;
-      }
-
       const uiState = useUIStore.getState();
       const panel = uiState.panels[uiState.activePanelId];
       const activeTab = panel?.tabs.find((t) => t.id === panel.activeTabId);
@@ -110,6 +104,8 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
       if (isViewingThisChannel) {
         useReadStateStore.getState().markAsRead(message.channel_id, message.id);
       } else {
+        // Blocked author: stored (collapsed in the list) but never raises unread, sound, or flash.
+        if (useBlockStore.getState().isBlocked(message.user_id)) return true;
         const isServerMuted = msgServerId ? useServerStore.getState().isServerMuted(msgServerId) : false;
         const isChannelMuted = useChannelStore.getState().mutedChannelIds.has(message.channel_id);
         if (!isServerMuted && !isChannelMuted) {

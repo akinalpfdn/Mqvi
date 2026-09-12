@@ -38,6 +38,8 @@
   "reportTitle": "Report {{username}}",
   "reportMessageExcerptLabel": "Reported Message",
   "reportMessageNoText": "(no text content — attach a screenshot as evidence)",
+  "reportShareNotice": "The text of this message is sent to the moderation team together with your report.",
+  "reportShareNoticeE2EE": "This conversation is end-to-end encrypted; the text leaves your device only because you are reporting it.",
   "reportReasonLabel": "Reason",
   "reportDescriptionLabel": "Description",
   "reportDescriptionPlaceholder": "Please describe the issue in detail (min 10 characters)...",

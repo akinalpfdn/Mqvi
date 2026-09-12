@@ -236,7 +236,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, repos.Channel, hub, channelPermService)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
-	reportService := services.NewReportService(repos.Report, repos.ServerReport, repos.User, repos.Server, repos.Message, repos.DM, urlSigner, emailSender)
+	reportService := services.NewReportService(repos.Report, repos.ServerReport, repos.User, repos.Server, repos.Message, repos.DM, repos.VoiceMessage, urlSigner, emailSender)
 	reportUploadService := services.NewReportUploadService(repos.Report, uploadPipeline, cfg.Upload.MaxSize)
 	serverReportUploadService := services.NewServerReportUploadService(repos.ServerReport, uploadPipeline, cfg.Upload.MaxSize)
 

@@ -5,7 +5,7 @@
   "introDesc": "mqvi açık kaynaklı bir iletişim platformudur. Hangi verileri topladığımız ve nasıl işlediğimiz konusunda şeffaf olmayı taahhüt ediyoruz. Bu politika mqvi.net adresinde barındırılan mqvi sunucusu için geçerlidir.",
   "dataCollectedTitle": "Topladığımız Veriler",
   "dataItem1": "Hesap bilgileri: kullanıcı adı, görünen ad ve isteğe bağlı olarak e-posta adresiniz (yalnızca şifre sıfırlama için kullanılır).",
-  "dataItem2": "Mesajlar: sunucularda ve özel mesajlarda gönderdiğin metinler, alıcılara iletilebilmek için sunucularımızda saklanır. Uçtan uca şifrelemenin etkin olduğu yerlerde yalnızca şifreli hali saklanır ve içeriği okuyamayız.",
+  "dataItem2": "Mesajlar: sunucularda ve özel mesajlarda gönderdiğin metinler, alıcılara iletilebilmek için sunucularımızda saklanır. Uçtan uca şifrelemenin etkin olduğu yerlerde yalnızca şifreli hali saklanır ve içeriği okuyamayız. Tek istisna şikayet: bir mesajı şikayet ettiğinde metni (en fazla 500 karakter) şikayetle birlikte moderasyon ekibimize gönderilir; uçtan uca şifreli konuşmalar dahil.",
   "dataItem3": "Dosyalar: yüklediğiniz resim, video ve diğer dosyalar iletim için sunucularımızda saklanır.",
   "dataItem4": "Temel kullanım verileri: hesap oluşturma ve son aktivite zaman damgaları, operasyonel amaçlarla tutulur.",
   "dataItem5": "Bildirim token'ları: mobilde bildirimleri açarsan, iletim için Apple veya Google tarafından verilen bir cihaz token'ı saklanır. Hesabın silindiğinde bu token da silinir.",

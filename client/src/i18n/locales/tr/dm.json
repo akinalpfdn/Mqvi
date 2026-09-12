@@ -11,7 +11,7 @@
   "unmuteDM": "Sessizden Çıkar",
   "voiceCall": "Sesli Arama",
   "videoCall": "Görüntülü Arama",
-  "reportUser": "Rapor Et",
+  "reportUser": "Kullanıcıyı Şikayet Et",
   "copyUserId": "Kullanıcı ID'sini Kopyala",
   "addFriend": "Arkadaş Ekle",
   "removeFriend": "Arkadaşlıktan Çıkar",
@@ -25,7 +25,7 @@
   "dmUnmuted": "Sessizden çıkarıldı",
   "userBlocked": "Kullanıcı engellendi",
   "userUnblocked": "Engel kaldırıldı",
-  "reportSubmitted": "Rapor gönderildi",
+  "reportSubmitted": "Şikayet gönderildi",
   "userIdCopied": "Kullanıcı ID kopyalandı",
   "friendRequestSent": "Arkadaşlık isteği gönderildi",
   "friendRemoved": "Arkadaşlıktan çıkarıldı",
@@ -35,9 +35,11 @@
   "mute1Week": "1 Hafta",
   "muteForever": "Kapatana Kadar",
 
-  "reportTitle": "{{username}} Kullanıcısını Raporla",
+  "reportTitle": "{{username}} Kullanıcısını Şikayet Et",
   "reportMessageExcerptLabel": "Şikayet Edilen Mesaj",
   "reportMessageNoText": "(metin içeriği yok — kanıt olarak ekran görüntüsü ekleyin)",
+  "reportShareNotice": "Bu mesajın metni şikayetinizle birlikte moderasyon ekibine gönderilir.",
+  "reportShareNoticeE2EE": "Bu konuşma uçtan uca şifreli; metin cihazınızdan yalnızca siz şikayet ettiğiniz için çıkar.",
   "reportReasonLabel": "Neden",
   "reportDescriptionLabel": "Açıklama",
   "reportDescriptionPlaceholder": "Lütfen sorunu detaylı şekilde açıklayın (en az 10 karakter)...",
@@ -46,7 +48,7 @@
   "reportReasonInappropriate": "Uygunsuz İçerik",
   "reportReasonImpersonation": "Kimliğe Bürünme",
   "reportReasonOther": "Diğer",
-  "reportSubmit": "Raporu Gönder",
+  "reportSubmit": "Şikayeti Gönder",
   "reportCancel": "İptal",
 
   "blockConfirmTitle": "{{username}} Engellensin mi?",
@@ -55,7 +57,7 @@
   "blockAlsoReport": "Bu kullanıcıyı mqvi ekibine de şikayet et",
   "blockAlsoReportHint": "Engelledikten sonra bir neden seçmen istenecek.",
 
-  "alreadyReported": "Bu kullanıcı için zaten bekleyen bir raporunuz var",
+  "alreadyReported": "Bu kullanıcı için zaten bekleyen bir şikayetiniz var",
 
   "reportEvidenceLabel": "Kanıt (İsteğe Bağlı)",
   "reportEvidenceHint": "Ekran görüntülerini sürükleyin veya yapıştırın (max 4 resim)",

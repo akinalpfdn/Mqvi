@@ -23,14 +23,14 @@ func NewSQLiteReportRepo(db database.TxQuerier) ReportRepository {
 func (r *sqliteReportRepo) Create(ctx context.Context, report *models.Report) error {
 	query := `
 		INSERT INTO reports (id, reporter_id, reported_user_id, reason, description,
-		                     message_id, dm_message_id, message_excerpt)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		                     message_id, dm_message_id, voice_message_id, message_excerpt, excerpt_source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
 		report.ID, report.ReporterID, report.ReportedUserID,
 		report.Reason, report.Description,
-		report.MessageID, report.DMMessageID, report.MessageExcerpt,
+		report.MessageID, report.DMMessageID, report.VoiceMessageID, report.MessageExcerpt, report.ExcerptSource,
 	).Scan(&report.CreatedAt)
 
 	if err != nil {
@@ -43,7 +43,7 @@ func (r *sqliteReportRepo) GetByID(ctx context.Context, id string) (*models.Repo
 	query := `
 		SELECT id, reporter_id, reported_user_id, reason, description,
 		       status, resolved_by, resolved_at, created_at,
-		       message_id, dm_message_id, message_excerpt
+		       message_id, dm_message_id, voice_message_id, message_excerpt, excerpt_source
 		FROM reports WHERE id = ?`
 
 	var report models.Report
@@ -54,7 +54,7 @@ func (r *sqliteReportRepo) GetByID(ctx context.Context, id string) (*models.Repo
 		&report.ID, &report.ReporterID, &report.ReportedUserID,
 		&report.Reason, &report.Description,
 		&report.Status, &resolvedBy, &resolvedAt, &report.CreatedAt,
-		&report.MessageID, &report.DMMessageID, &report.MessageExcerpt,
+		&report.MessageID, &report.DMMessageID, &report.VoiceMessageID, &report.MessageExcerpt, &report.ExcerptSource,
 	)
 
 	if err == sql.ErrNoRows {
@@ -112,7 +112,7 @@ func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.Repor
 	baseQuery := `
 		SELECT r.id, r.reporter_id, r.reported_user_id, r.reason, r.description,
 		       r.status, r.resolved_by, r.resolved_at, r.created_at,
-		       r.message_id, r.dm_message_id, r.message_excerpt,
+		       r.message_id, r.dm_message_id, r.voice_message_id, r.message_excerpt, r.excerpt_source,
 		       reporter.username, reporter.display_name,
 		       reported.username, reported.display_name
 		FROM reports r
@@ -151,7 +151,7 @@ func (r *sqliteReportRepo) listByStatus(ctx context.Context, status models.Repor
 		if err := rows.Scan(
 			&rw.ID, &rw.ReporterID, &rw.ReportedUserID, &rw.Reason, &rw.Description,
 			&rw.Status, &resolvedBy, &resolvedAt, &rw.CreatedAt,
-			&rw.MessageID, &rw.DMMessageID, &rw.MessageExcerpt,
+			&rw.MessageID, &rw.DMMessageID, &rw.VoiceMessageID, &rw.MessageExcerpt, &rw.ExcerptSource,
 			&rw.ReporterUsername, &reporterDisplay,
 			&rw.ReportedUsername, &reportedDisplay,
 		); err != nil {
@@ -207,16 +207,17 @@ func (r *sqliteReportRepo) UpdateStatus(ctx context.Context, id string, status m
 
 // HasPendingReport checks for a duplicate pending report: same reporter, target and
 // message context. A profile report and a message report on the same user are distinct.
-func (r *sqliteReportRepo) HasPendingReport(ctx context.Context, reporterID, targetID, messageID, dmMessageID string) (bool, error) {
+func (r *sqliteReportRepo) HasPendingReport(ctx context.Context, reporterID, targetID, messageID, dmMessageID, voiceMessageID string) (bool, error) {
 	query := `
 		SELECT EXISTS(
 			SELECT 1 FROM reports
 			WHERE reporter_id = ? AND reported_user_id = ? AND status = 'pending'
 			  AND IFNULL(message_id, '') = ? AND IFNULL(dm_message_id, '') = ?
+			  AND IFNULL(voice_message_id, '') = ?
 		)`
 
 	var exists bool
-	if err := r.db.QueryRowContext(ctx, query, reporterID, targetID, messageID, dmMessageID).Scan(&exists); err != nil {
+	if err := r.db.QueryRowContext(ctx, query, reporterID, targetID, messageID, dmMessageID, voiceMessageID).Scan(&exists); err != nil {
 		return false, fmt.Errorf("failed to check pending report: %w", err)
 	}
 	return exists, nil

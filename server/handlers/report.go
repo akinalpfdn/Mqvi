@@ -74,6 +74,7 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		req.Description = r.FormValue("description")
 		req.MessageID = r.FormValue("message_id")
 		req.DMMessageID = r.FormValue("dm_message_id")
+		req.VoiceMessageID = r.FormValue("voice_message_id")
 		req.MessageExcerpt = r.FormValue("message_excerpt")
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

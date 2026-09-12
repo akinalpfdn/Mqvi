@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -33,6 +34,7 @@ type reportService struct {
 	serverRepo       repository.ServerRepository
 	messageRepo      repository.MessageRepository
 	dmRepo           repository.DMRepository
+	voiceMsgRepo     repository.VoiceMessageRepository
 	urlSigner        FileURLSigner
 	emailSender      email.EmailSender
 }
@@ -44,6 +46,7 @@ func NewReportService(
 	serverRepo repository.ServerRepository,
 	messageRepo repository.MessageRepository,
 	dmRepo repository.DMRepository,
+	voiceMsgRepo repository.VoiceMessageRepository,
 	urlSigner FileURLSigner,
 	emailSender email.EmailSender,
 ) ReportService {
@@ -54,6 +57,7 @@ func NewReportService(
 		serverRepo:       serverRepo,
 		messageRepo:      messageRepo,
 		dmRepo:           dmRepo,
+		voiceMsgRepo:     voiceMsgRepo,
 		urlSigner:        urlSigner,
 		emailSender:      emailSender,
 	}
@@ -164,12 +168,13 @@ func (s *reportService) CreateReport(ctx context.Context, reporterID, targetID s
 		return nil, fmt.Errorf("failed to look up user: %w", err)
 	}
 
-	if err := s.verifyMessageContext(ctx, reporterID, targetID, req); err != nil {
+	excerptSource, err := s.resolveMessageContext(ctx, reporterID, targetID, req)
+	if err != nil {
 		return nil, err
 	}
 
 	// Duplicate check — one pending report per (reporter, target, message context)
-	hasPending, err := s.reportRepo.HasPendingReport(ctx, reporterID, targetID, req.MessageID, req.DMMessageID)
+	hasPending, err := s.reportRepo.HasPendingReport(ctx, reporterID, targetID, req.MessageID, req.DMMessageID, req.VoiceMessageID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check pending report: %w", err)
 	}
@@ -186,7 +191,9 @@ func (s *reportService) CreateReport(ctx context.Context, reporterID, targetID s
 		Status:         models.ReportStatusPending,
 		MessageID:      nilIfEmpty(req.MessageID),
 		DMMessageID:    nilIfEmpty(req.DMMessageID),
+		VoiceMessageID: nilIfEmpty(req.VoiceMessageID),
 		MessageExcerpt: nilIfEmpty(req.MessageExcerpt),
+		ExcerptSource:  nilIfEmpty(excerptSource),
 	}
 
 	if err := s.reportRepo.Create(ctx, report); err != nil {
@@ -198,42 +205,80 @@ func (s *reportService) CreateReport(ctx context.Context, reporterID, targetID s
 	return report, nil
 }
 
-// verifyMessageContext ensures a referenced message exists, was written by the
-// reported user, and (for DMs) that the reporter is a participant. The excerpt
-// itself is not verified — E2EE DM content is opaque to the server.
-func (s *reportService) verifyMessageContext(ctx context.Context, reporterID, targetID string, req *models.CreateReportRequest) error {
-	if req.MessageID != "" {
+// resolveMessageContext verifies the referenced message (exists, written by the
+// reported user, reporter may see it) and fixes the excerpt that will outlive it.
+// Plaintext content is snapshotted server-side and the reporter's text discarded;
+// E2EE content is opaque here, so the reporter's excerpt is kept and labelled.
+func (s *reportService) resolveMessageContext(ctx context.Context, reporterID, targetID string, req *models.CreateReportRequest) (string, error) {
+	switch {
+	case req.MessageID != "":
 		msg, err := s.messageRepo.GetByID(ctx, req.MessageID)
 		if err != nil {
-			if errors.Is(err, pkg.ErrNotFound) {
-				return fmt.Errorf("%w: message not found", pkg.ErrNotFound)
-			}
-			return fmt.Errorf("failed to look up message: %w", err)
+			return "", messageLookupError("message", err)
 		}
 		if msg.UserID != targetID {
-			return fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
+			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
 		}
-	}
-	if req.DMMessageID != "" {
+		if msg.EncryptionVersion != 0 {
+			return clientExcerpt(req), nil
+		}
+		return serverExcerpt(req, msg.Content), nil
+
+	case req.DMMessageID != "":
 		msg, err := s.dmRepo.GetMessageByID(ctx, req.DMMessageID)
 		if err != nil {
-			if errors.Is(err, pkg.ErrNotFound) {
-				return fmt.Errorf("%w: message not found", pkg.ErrNotFound)
-			}
-			return fmt.Errorf("failed to look up DM message: %w", err)
+			return "", messageLookupError("DM message", err)
 		}
 		if msg.UserID != targetID {
-			return fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
+			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
 		}
 		ch, err := s.dmRepo.GetChannelByID(ctx, msg.DMChannelID)
 		if err != nil {
-			return fmt.Errorf("failed to look up DM channel: %w", err)
+			return "", fmt.Errorf("failed to look up DM channel: %w", err)
 		}
 		if ch.User1ID != reporterID && ch.User2ID != reporterID {
-			return fmt.Errorf("%w: not a participant of this conversation", pkg.ErrForbidden)
+			return "", fmt.Errorf("%w: not a participant of this conversation", pkg.ErrForbidden)
 		}
+		if msg.EncryptionVersion != 0 {
+			return clientExcerpt(req), nil
+		}
+		return serverExcerpt(req, msg.Content), nil
+
+	case req.VoiceMessageID != "":
+		// Voice chat is wiped when the session ends; the snapshot is the only copy that survives.
+		msg, err := s.voiceMsgRepo.GetByID(ctx, req.VoiceMessageID)
+		if err != nil {
+			return "", messageLookupError("voice message", err)
+		}
+		if msg.UserID != targetID {
+			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
+		}
+		return serverExcerpt(req, msg.Content), nil
 	}
-	return nil
+	return "", nil
+}
+
+func messageLookupError(kind string, err error) error {
+	if errors.Is(err, pkg.ErrNotFound) {
+		return fmt.Errorf("%w: %s not found", pkg.ErrNotFound, kind)
+	}
+	return fmt.Errorf("failed to look up %s: %w", kind, err)
+}
+
+// serverExcerpt replaces whatever the client sent with the stored text.
+func serverExcerpt(req *models.CreateReportRequest, content *string) string {
+	req.MessageExcerpt = ""
+	if content != nil {
+		req.MessageExcerpt = truncateRunes(strings.TrimSpace(*content), models.MaxReportExcerptLength)
+	}
+	return models.ExcerptSourceServer
+}
+
+func clientExcerpt(req *models.CreateReportRequest) string {
+	if req.MessageExcerpt == "" {
+		return ""
+	}
+	return models.ExcerptSourceClient
 }
 
 // notifyAdmins emails platform admins about the new report in a detached

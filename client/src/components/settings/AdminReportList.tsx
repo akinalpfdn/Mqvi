@@ -454,14 +454,18 @@ function AdminReportList() {
         );
 
       case "message": {
-        if (!report.message_id && !report.dm_message_id) {
+        if (!report.message_id && !report.dm_message_id && !report.voice_message_id) {
           return <span className="admin-report-text-muted">{"\u2014"}</span>;
         }
         const excerpt = report.message_excerpt ?? "";
+        const hint =
+          report.excerpt_source === "server"
+            ? t("platformReportMessageHintServer")
+            : t("platformReportMessageHintClient");
         return (
           <span
             className="admin-report-desc-cell"
-            title={`${excerpt}\n\n${t("platformReportMessageHint")}`}
+            title={`${excerpt}\n\n${hint}`}
           >
             {excerpt || <span className="admin-report-text-muted">{t("platformReportMessageNoText")}</span>}
           </span>

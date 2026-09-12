@@ -133,7 +133,7 @@
   "confirmRemoveFriend": "{{username}} adlı kullanıcıyı arkadaş listenizden çıkarmak istiyor musunuz?",
   "block": "Engelle",
   "unblock": "Engeli Kaldır",
-  "report": "Raporla",
+  "report": "Şikayet Et",
   "connectionConnecting": "Sunucuya bağlanılıyor...",
   "connectionRetrying": "Sunucuya bağlanılıyor... (deneme {{attempt}}/{{max}})",
   "connectionFailed": "Sunucuya bağlanılamadı",

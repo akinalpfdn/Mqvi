@@ -616,10 +616,13 @@ export type AdminReportListItem = {
   reporter_display_name: string | null;
   reported_username: string;
   reported_display_name: string | null;
-  /** Message-level reports only; excerpt is reporter-supplied, not server-verified. */
+  /** Message-level reports only. excerpt_source: "server" = snapshot of stored plaintext,
+   *  "client" = reporter-supplied (E2EE), null = no text. */
   message_id: string | null;
   dm_message_id: string | null;
+  voice_message_id: string | null;
   message_excerpt: string | null;
+  excerpt_source: "server" | "client" | null;
   attachments: ReportAttachment[];
 };
 
