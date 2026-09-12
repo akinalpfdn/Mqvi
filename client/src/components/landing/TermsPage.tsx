@@ -44,6 +44,11 @@ function TermsPage() {
       </section>
 
       <section>
+        <h2>{t("zeroToleranceTitle")}</h2>
+        <p>{t("zeroToleranceDesc")}</p>
+      </section>
+
+      <section>
         <h2>{t("moderationTitle")}</h2>
         <p>{t("moderationDesc")}</p>
       </section>
