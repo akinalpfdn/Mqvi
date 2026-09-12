@@ -35,6 +35,8 @@ type reportService struct {
 	messageRepo      repository.MessageRepository
 	dmRepo           repository.DMRepository
 	voiceMsgRepo     repository.VoiceMessageRepository
+	permResolver     ChannelPermResolver
+	voiceMembership  VoiceChannelMembershipChecker
 	urlSigner        FileURLSigner
 	emailSender      email.EmailSender
 }
@@ -47,6 +49,8 @@ func NewReportService(
 	messageRepo repository.MessageRepository,
 	dmRepo repository.DMRepository,
 	voiceMsgRepo repository.VoiceMessageRepository,
+	permResolver ChannelPermResolver,
+	voiceMembership VoiceChannelMembershipChecker,
 	urlSigner FileURLSigner,
 	emailSender email.EmailSender,
 ) ReportService {
@@ -58,6 +62,8 @@ func NewReportService(
 		messageRepo:      messageRepo,
 		dmRepo:           dmRepo,
 		voiceMsgRepo:     voiceMsgRepo,
+		permResolver:     permResolver,
+		voiceMembership:  voiceMembership,
 		urlSigner:        urlSigner,
 		emailSender:      emailSender,
 	}
@@ -219,6 +225,15 @@ func (s *reportService) resolveMessageContext(ctx context.Context, reporterID, t
 		if msg.UserID != targetID {
 			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
 		}
+		// The response echoes the server snapshot, so this is a read of the channel:
+		// gate it exactly like GetByChannelID.
+		perms, err := s.permResolver.ResolveChannelPermissions(ctx, reporterID, msg.ChannelID)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve channel permissions: %w", err)
+		}
+		if !perms.Has(models.PermReadMessages) {
+			return "", fmt.Errorf("%w: missing read messages permission for this channel", pkg.ErrForbidden)
+		}
 		if msg.EncryptionVersion != 0 {
 			return clientExcerpt(req), nil
 		}
@@ -252,6 +267,11 @@ func (s *reportService) resolveMessageContext(ctx context.Context, reporterID, t
 		}
 		if msg.UserID != targetID {
 			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
+		}
+		// Voice chat is visible to current participants only; same gate as List.
+		state := s.voiceMembership.GetUserVoiceState(reporterID)
+		if state == nil || state.ChannelID != msg.ChannelID {
+			return "", fmt.Errorf("%w: not currently in voice channel", pkg.ErrForbidden)
 		}
 		return serverExcerpt(req, msg.Content), nil
 	}

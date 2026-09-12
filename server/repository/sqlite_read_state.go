@@ -69,9 +69,17 @@ func (r *sqliteReadStateRepo) DecrementUnreadForDeleted(ctx context.Context, cha
 		  AND (
 		      last_read_message_id IS NULL
 		      OR ? > (SELECT created_at FROM messages WHERE id = last_read_message_id)
-		  )` + blockedAuthorFilter
+		  )
+		  AND user_id NOT IN (
+		      SELECT user_id FROM friendships
+		      WHERE status = 'blocked' AND friend_id = ? AND created_at < ?
+		  )`
 
-	_, err := r.db.ExecContext(ctx, query, channelID, authorID, deletedAt, authorID)
+	// Only a block that predates the message kept the counter from rising (see
+	// IncrementUnreadCounts); a later block still owes the decrement. friendships.created_at
+	// is CURRENT_TIMESTAMP text, so compare against the same UTC layout.
+	blockedBefore := deletedAt.UTC().Format("2006-01-02 15:04:05")
+	_, err := r.db.ExecContext(ctx, query, channelID, authorID, deletedAt, authorID, blockedBefore)
 	if err != nil {
 		return fmt.Errorf("failed to decrement unread counts on delete: %w", err)
 	}

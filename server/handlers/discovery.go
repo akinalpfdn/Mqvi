@@ -32,6 +32,8 @@ type DiscoveryHandler struct {
 	urlSigner        services.FileURLSigner
 	maxUploadSize    int64
 	limiter          *ratelimit.MessageRateLimiter
+	// Reports email every platform admin; they get their own, much smaller budget.
+	reportLimiter *ratelimit.MessageRateLimiter
 }
 
 func NewDiscoveryHandler(
@@ -43,6 +45,7 @@ func NewDiscoveryHandler(
 	urlSigner services.FileURLSigner,
 	maxUploadSize int64,
 	limiter *ratelimit.MessageRateLimiter,
+	reportLimiter *ratelimit.MessageRateLimiter,
 ) *DiscoveryHandler {
 	return &DiscoveryHandler{
 		discoveryService: discoveryService,
@@ -53,6 +56,7 @@ func NewDiscoveryHandler(
 		urlSigner:        urlSigner,
 		maxUploadSize:    maxUploadSize,
 		limiter:          limiter,
+		reportLimiter:    reportLimiter,
 	}
 }
 
@@ -162,7 +166,9 @@ func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) 
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
-	if h.rateLimited(w, user.ID) {
+	if h.reportLimiter != nil && !h.reportLimiter.Allow(user.ID) {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", h.reportLimiter.CooldownSeconds(user.ID)))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many reports, try again later")
 		return
 	}
 	serverID := r.PathValue("id")

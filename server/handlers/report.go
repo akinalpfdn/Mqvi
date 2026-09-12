@@ -6,10 +6,12 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/ctxkeys"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -23,6 +25,9 @@ type ReportHandler struct {
 	storageService      services.StorageService
 	maxUploadSize       int64
 	urlSigner           services.FileURLSigner
+	// Every report emails all platform admins; without a limiter one user could
+	// turn a target's message history into an inbox flood.
+	limiter *ratelimit.MessageRateLimiter
 }
 
 func NewReportHandler(
@@ -30,6 +35,7 @@ func NewReportHandler(
 	reportUploadService services.ReportUploadService,
 	storageService services.StorageService,
 	maxUploadSize int64,
+	limiter *ratelimit.MessageRateLimiter,
 	urlSigner services.FileURLSigner,
 ) *ReportHandler {
 	return &ReportHandler{
@@ -37,6 +43,7 @@ func NewReportHandler(
 		reportUploadService: reportUploadService,
 		storageService:      storageService,
 		maxUploadSize:       maxUploadSize,
+		limiter:             limiter,
 		urlSigner:           urlSigner,
 	}
 }
@@ -54,6 +61,13 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 	targetID := r.PathValue("userId")
 	if targetID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "userId is required")
+		return
+	}
+
+	if h.limiter != nil && !h.limiter.Allow(user.ID) {
+		retryAfter := h.limiter.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many reports, try again later")
 		return
 	}
 

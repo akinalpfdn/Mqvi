@@ -67,27 +67,50 @@ func TestIncrementUnreadCounts_SkipsReadersWhoBlockedTheAuthor(t *testing.T) {
 	}
 }
 
-func TestDecrementUnreadForDeleted_DoesNotTouchBlockersCounter(t *testing.T) {
-	db, repo := newReadStateDB(t)
-	ctx := context.Background()
+func TestDecrementUnreadForDeleted_BlockTiming(t *testing.T) {
+	tests := []struct {
+		name        string
+		blockedAt   string // friendships.created_at for blocker→author
+		messageAt   time.Time
+		wantBlocker int
+	}{
+		{
+			// Block came first: the counter never rose for this message, so it must not fall.
+			name:        "should leave the blocker's counter alone when the block predates the message",
+			blockedAt:   "2026-09-01 10:00:00",
+			messageAt:   time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC),
+			wantBlocker: 3,
+		},
+		{
+			// Message came first and was counted; the block afterwards still owes the decrement.
+			name:        "should decrement the blocker's counter when the block came after the message",
+			blockedAt:   "2026-09-12 12:00:00",
+			messageAt:   time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC),
+			wantBlocker: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, repo := newReadStateDB(t)
+			ctx := context.Background()
+			if _, err := db.Exec(`UPDATE friendships SET created_at = ? WHERE id = 'f1'`, tt.blockedAt); err != nil {
+				t.Fatalf("seed block time: %v", err)
+			}
+			if _, err := db.Exec(`UPDATE channel_reads SET unread_count = 3 WHERE user_id IN ('blocker', 'bystander')`); err != nil {
+				t.Fatalf("seed counts: %v", err)
+			}
 
-	if err := repo.IncrementUnreadCounts(ctx, "c1", "author"); err != nil {
-		t.Fatalf("increment: %v", err)
-	}
-	// Pretend the blocker read something else meanwhile so a wrong decrement would be visible.
-	if _, err := db.Exec(`UPDATE channel_reads SET unread_count = 3 WHERE user_id = 'blocker'`); err != nil {
-		t.Fatalf("seed blocker count: %v", err)
-	}
+			if err := repo.DecrementUnreadForDeleted(ctx, "c1", "author", tt.messageAt); err != nil {
+				t.Fatalf("decrement: %v", err)
+			}
 
-	if err := repo.DecrementUnreadForDeleted(ctx, "c1", "author", time.Now()); err != nil {
-		t.Fatalf("decrement: %v", err)
-	}
-
-	if got := unreadOf(t, db, "bystander"); got != 0 {
-		t.Fatalf("bystander unread: want 0, got %d", got)
-	}
-	if got := unreadOf(t, db, "blocker"); got != 3 {
-		t.Fatalf("blocker unread: want 3 (untouched), got %d", got)
+			if got := unreadOf(t, db, "bystander"); got != 2 {
+				t.Fatalf("bystander unread: want 2, got %d", got)
+			}
+			if got := unreadOf(t, db, "blocker"); got != tt.wantBlocker {
+				t.Fatalf("blocker unread: want %d, got %d", tt.wantBlocker, got)
+			}
+		})
 	}
 }
 

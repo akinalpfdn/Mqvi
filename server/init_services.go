@@ -81,6 +81,8 @@ type RateLimiters struct {
 	ForgotPwd *ratelimit.LoginRateLimiter
 	ResetPwd  *ratelimit.LoginRateLimiter
 	Feedback  *ratelimit.MessageRateLimiter
+	// User + server reports: each one emails every platform admin.
+	Report    *ratelimit.MessageRateLimiter
 	ICE       *ratelimit.MessageRateLimiter
 	Discovery *ratelimit.MessageRateLimiter
 	// Screen-share token minting. Every call costs either a 4-hour JWT or an app_logs row, and
@@ -237,7 +239,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, repos.Channel, hub, channelPermService)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
-	reportService := services.NewReportService(repos.Report, repos.ServerReport, repos.User, repos.Server, repos.Message, repos.DM, repos.VoiceMessage, urlSigner, emailSender)
+	reportService := services.NewReportService(repos.Report, repos.ServerReport, repos.User, repos.Server, repos.Message, repos.DM, repos.VoiceMessage, channelPermService, voiceService, urlSigner, emailSender)
 	reportUploadService := services.NewReportUploadService(repos.Report, uploadPipeline, cfg.Upload.MaxSize)
 	serverReportUploadService := services.NewServerReportUploadService(repos.ServerReport, uploadPipeline, cfg.Upload.MaxSize)
 
@@ -293,6 +295,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	forgotPwdLimiter := ratelimit.NewLoginRateLimiter(3, 5*time.Minute)                    // 3 forgot-password per 5 min per IP
 	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                     // 5 reset attempts per 5 min per IP
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
+	reportLimiter := ratelimit.NewMessageRateLimiter(5, 10*time.Minute, 60*time.Second)    // 5 reports per 10 min per user, 60s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
 	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
 	// Same shape as ICE: an authenticated, user-initiated credential mint. Generous on purpose —
@@ -368,6 +371,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		ForgotPwd:      forgotPwdLimiter,
 		ResetPwd:       resetPwdLimiter,
 		Feedback:       feedbackLimiter,
+		Report:         reportLimiter,
 		ICE:            iceLimiter,
 		Discovery:      discoveryLimiter,
 		ScreenShare:    screenShareLimiter,

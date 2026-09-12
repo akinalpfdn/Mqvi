@@ -76,6 +76,28 @@ func (s stubVoiceMessageRepo) GetByID(_ context.Context, id string) (*models.Voi
 	return s.msg, nil
 }
 
+type stubPermResolver struct {
+	ChannelPermResolver
+	perms map[string]models.Permission // reporterID -> perms; missing = none
+}
+
+func (s stubPermResolver) ResolveChannelPermissions(_ context.Context, userID, _ string) (models.Permission, error) {
+	return s.perms[userID], nil
+}
+
+type stubVoiceMembership struct {
+	VoiceChannelMembershipChecker
+	inChannel map[string]string // userID -> channelID
+}
+
+func (s stubVoiceMembership) GetUserVoiceState(userID string) *models.VoiceState {
+	ch, ok := s.inChannel[userID]
+	if !ok {
+		return nil
+	}
+	return &models.VoiceState{UserID: userID, ChannelID: ch}
+}
+
 func strPtr(s string) *string { return &s }
 
 func TestCreateReport_MessageContext(t *testing.T) {
@@ -96,6 +118,7 @@ func TestCreateReport_MessageContext(t *testing.T) {
 		dmMsg       *models.DMMessage
 		dmCh        *models.DMChannel
 		voiceMsg    *models.VoiceMessage
+		noAccess    bool // reporter cannot read the channel / is not in the voice channel
 		wantErr     error
 		wantExcerpt string
 		wantSource  string
@@ -123,6 +146,13 @@ func TestCreateReport_MessageContext(t *testing.T) {
 			msg:         e2eeChannelMsg,
 			wantExcerpt: "decrypted locally",
 			wantSource:  models.ExcerptSourceClient,
+		},
+		{
+			name:     "should refuse a channel message the reporter cannot read",
+			req:      func() models.CreateReportRequest { r := base; r.MessageID = "m1"; return r },
+			msg:      plainChannelMsg,
+			noAccess: true,
+			wantErr:  pkg.ErrForbidden,
 		},
 		{
 			name:    "should refuse a channel message written by someone else",
@@ -171,6 +201,13 @@ func TestCreateReport_MessageContext(t *testing.T) {
 			wantSource:  models.ExcerptSourceServer,
 		},
 		{
+			name:     "should refuse a voice-chat message when the reporter is not in that voice channel",
+			req:      func() models.CreateReportRequest { r := base; r.VoiceMessageID = "v1"; return r },
+			voiceMsg: voiceMsg,
+			noAccess: true,
+			wantErr:  pkg.ErrForbidden,
+		},
+		{
 			name:     "should refuse a voice-chat message written by someone else",
 			req:      func() models.CreateReportRequest { r := base; r.VoiceMessageID = "v1"; return r },
 			voiceMsg: &models.VoiceMessage{ID: "v1", ChannelID: "vc1", UserID: other},
@@ -191,9 +228,15 @@ func TestCreateReport_MessageContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &stubReportRepo{}
+			perms := stubPermResolver{perms: map[string]models.Permission{}}
+			voice := stubVoiceMembership{inChannel: map[string]string{}}
+			if !tt.noAccess {
+				perms.perms["u-reporter"] = models.PermReadMessages
+				voice.inChannel["u-reporter"] = "vc1"
+			}
 			svc := NewReportService(repo, nil, stubActiveUserRepo{}, nil,
 				stubMessageRepo{msg: tt.msg}, stubDMRepoForReport{msg: tt.dmMsg, ch: tt.dmCh},
-				stubVoiceMessageRepo{msg: tt.voiceMsg}, nil, nil)
+				stubVoiceMessageRepo{msg: tt.voiceMsg}, perms, voice, nil, nil)
 
 			req := tt.req()
 			report, err := svc.CreateReport(context.Background(), "u-reporter", "u-target", &req)

@@ -6,8 +6,9 @@ import { useTranslation } from "react-i18next";
 
 type BlockConfirmDialogProps = {
   username: string;
-  /** Called with the checkbox value; the caller blocks, then opens ReportModal when asked. */
-  onConfirm: (alsoReport: boolean) => void;
+  /** Called with the checkbox value; the caller blocks, then opens ReportModal when asked.
+   *  Buttons are disabled until the returned promise settles. */
+  onConfirm: (alsoReport: boolean) => void | Promise<void>;
   onClose: () => void;
 };
 
@@ -15,6 +16,17 @@ function BlockConfirmDialog({ username, onConfirm, onClose }: BlockConfirmDialog
   const { t } = useTranslation("dm");
   const { t: tCommon } = useTranslation("common");
   const [alsoReport, setAlsoReport] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+
+  async function handleConfirm() {
+    if (isBusy) return;
+    setIsBusy(true);
+    try {
+      await onConfirm(alsoReport);
+    } finally {
+      setIsBusy(false);
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -46,12 +58,13 @@ function BlockConfirmDialog({ username, onConfirm, onClose }: BlockConfirmDialog
         </label>
 
         <div className="modal-actions">
-          <button className="settings-btn settings-btn-secondary" onClick={onClose}>
+          <button className="settings-btn settings-btn-secondary" onClick={onClose} disabled={isBusy}>
             {tCommon("cancel")}
           </button>
           <button
             className="settings-btn settings-btn-danger"
-            onClick={() => onConfirm(alsoReport)}
+            onClick={handleConfirm}
+            disabled={isBusy}
             autoFocus
           >
             {t("blockConfirmButton")}

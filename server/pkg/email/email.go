@@ -5,6 +5,7 @@ package email
 import (
 	"context"
 	"fmt"
+	"html"
 
 	"github.com/resend/resend-go/v3"
 )
@@ -321,7 +322,7 @@ func (s *resendSender) SendNewReportNotification(ctx context.Context, toEmail, r
       </p>
     </td></tr></table>
   </td></tr></table>
-</body></html>`, reporterUsername, reportedUsername, reason, adminLink)
+</body></html>`, reporterUsername, reportedUsername, html.EscapeString(reason), adminLink)
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
@@ -359,7 +360,7 @@ func (s *resendSender) SendNewServerReportNotification(ctx context.Context, toEm
       </p>
     </td></tr></table>
   </td></tr></table>
-</body></html>`, reporterUsername, serverName, reason, adminLink)
+</body></html>`, reporterUsername, html.EscapeString(serverName), html.EscapeString(reason), adminLink)
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),

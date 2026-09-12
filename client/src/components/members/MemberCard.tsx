@@ -501,9 +501,11 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
           username={displayName ?? username}
           onClose={() => setShowBlockConfirm(false)}
           onConfirm={async (alsoReport) => {
-            setShowBlockConfirm(false);
             // Block first; the report is optional and must not undo or delay the block.
+            // The dialog stays mounted until the request resolves so childModalOpenRef keeps
+            // the card open — otherwise an outside click would unmount the report modal's host.
             const ok = await blockUser(userId);
+            setShowBlockConfirm(false);
             if (ok && alsoReport) setShowReport(true);
           }}
         />

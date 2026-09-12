@@ -220,7 +220,7 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
         ) : (
           <>
             <p className="search-count">
-              {t("searchResultCount", { count: visibleResults.length })}
+              {t("searchResultCount", { count: results.total_count })}
             </p>
             {visibleResults.map((msg) => {
               const displayName = authorDisplayName(msg.author);
