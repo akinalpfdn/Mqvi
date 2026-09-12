@@ -295,9 +295,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	forgotPwdLimiter := ratelimit.NewLoginRateLimiter(3, 5*time.Minute)                    // 3 forgot-password per 5 min per IP
 	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                     // 5 reset attempts per 5 min per IP
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
-	reportLimiter := ratelimit.NewMessageRateLimiter(5, 10*time.Minute, 60*time.Second)    // 5 reports per 10 min per user, 60s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
 	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
+	// Reports: 5 per 10 min per user. Cooldown equals the window on purpose — Allow restarts the
+	// window when a cooldown ends, so a shorter cooldown would make the real rate 5 per cooldown.
+	reportLimiter := ratelimit.NewMessageRateLimiter(5, 10*time.Minute, 10*time.Minute)
 	// Same shape as ICE: an authenticated, user-initiated credential mint. Generous on purpose —
 	// a share that fails makes people retry, and those are the users we least want to lock out.
 	screenShareLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)

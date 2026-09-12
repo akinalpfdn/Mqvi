@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/database"
@@ -64,15 +63,12 @@ func (r *sqliteReadStateRepo) IncrementUnreadCounts(ctx context.Context, channel
 //
 // Readers who blocked the author before the message existed never had it counted
 // (IncrementUnreadCounts skips them), so they are excluded; a block placed after
-// the message still owes the decrement. The block time is compared in Go because
-// friendships.created_at is written as a bound time.Time while message times are
-// CURRENT_TIMESTAMP text — the driver normalises both on scan, SQL text compare would not.
+// the message still owes the decrement. Known drift, accepted: an unblock deletes
+// the friendship row, so a later delete of a message that was never counted for
+// that reader lowers their counter by one (and the reverse: a message hidden at
+// arrival becomes visible but was never counted). Both self-heal on the next
+// mark-as-read, which resets the counter to zero.
 func (r *sqliteReadStateRepo) DecrementUnreadForDeleted(ctx context.Context, channelID, authorID string, deletedAt time.Time) error {
-	shielded, err := r.blockersBefore(ctx, authorID, deletedAt)
-	if err != nil {
-		return err
-	}
-
 	query := `
 		UPDATE channel_reads
 		SET unread_count = CASE WHEN unread_count > 0 THEN unread_count - 1 ELSE 0 END
@@ -81,45 +77,22 @@ func (r *sqliteReadStateRepo) DecrementUnreadForDeleted(ctx context.Context, cha
 		  AND (
 		      last_read_message_id IS NULL
 		      OR ? > (SELECT created_at FROM messages WHERE id = last_read_message_id)
+		  )
+		  AND user_id NOT IN (
+		      SELECT user_id FROM friendships
+		      WHERE status = 'blocked' AND friend_id = ? AND created_at < ?
 		  )`
-	args := []any{channelID, authorID, deletedAt}
-	if len(shielded) > 0 {
-		query += " AND user_id NOT IN (" + strings.TrimSuffix(strings.Repeat("?,", len(shielded)), ",") + ")"
-		for _, id := range shielded {
-			args = append(args, id)
-		}
-	}
 
-	if _, err := r.db.ExecContext(ctx, query, args...); err != nil {
+	// friendships.created_at is always written from Go as a bound time.Time (never
+	// CURRENT_TIMESTAMP), so binding the message time the same way — same driver, same
+	// layout, both UTC — keeps the text comparison in chronological order without a
+	// Go-side round trip per delete. TestDecrementUnreadForDeleted_BlockTiming pins this
+	// against the real driver, including a one-nanosecond gap.
+	_, err := r.db.ExecContext(ctx, query, channelID, authorID, deletedAt, authorID, deletedAt.UTC())
+	if err != nil {
 		return fmt.Errorf("failed to decrement unread counts on delete: %w", err)
 	}
 	return nil
-}
-
-// blockersBefore returns the users who had already blocked authorID at the given time.
-func (r *sqliteReadStateRepo) blockersBefore(ctx context.Context, authorID string, at time.Time) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT user_id, created_at FROM friendships WHERE status = 'blocked' AND friend_id = ?`, authorID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list blockers of %s: %w", authorID, err)
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		var blockedAt time.Time
-		if err := rows.Scan(&id, &blockedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan blocker row: %w", err)
-		}
-		if blockedAt.Before(at) {
-			ids = append(ids, id)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating blocker rows: %w", err)
-	}
-	return ids, nil
 }
 
 // GetUnreadCounts returns per-channel unread counts + mention watermarks.

@@ -37,7 +37,7 @@ func NewResendSender(apiKey, fromEmail, appURL string) EmailSender {
 func (s *resendSender) SendPasswordReset(ctx context.Context, toEmail, token string) error {
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", s.appURL, token)
 
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	body := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -84,7 +84,7 @@ func (s *resendSender) SendPasswordReset(ctx context.Context, toEmail, token str
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "Reset Your Password — mqvi",
-		Html:    html,
+		Html:    body,
 	}
 
 	_, err := s.client.Emails.SendWithContext(ctx, params)
@@ -96,7 +96,7 @@ func (s *resendSender) SendPasswordReset(ctx context.Context, toEmail, token str
 }
 
 func (s *resendSender) SendPlatformBanNotification(ctx context.Context, toEmail, reason string) error {
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	body := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -138,7 +138,7 @@ func (s *resendSender) SendPlatformBanNotification(ctx context.Context, toEmail,
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "Your Account Has Been Suspended — mqvi",
-		Html:    html,
+		Html:    body,
 	}
 
 	_, err := s.client.Emails.SendWithContext(ctx, params)
@@ -152,7 +152,7 @@ func (s *resendSender) SendPlatformBanNotification(ctx context.Context, toEmail,
 // SendAccountDeleteNotification must be called BEFORE the user is deleted
 // (otherwise we lose the email address).
 func (s *resendSender) SendAccountDeleteNotification(ctx context.Context, toEmail, reason string) error {
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	body := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -195,7 +195,7 @@ func (s *resendSender) SendAccountDeleteNotification(ctx context.Context, toEmai
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "Your Account Has Been Deleted — mqvi",
-		Html:    html,
+		Html:    body,
 	}
 
 	_, err := s.client.Emails.SendWithContext(ctx, params)
@@ -207,7 +207,7 @@ func (s *resendSender) SendAccountDeleteNotification(ctx context.Context, toEmai
 }
 
 func (s *resendSender) SendServerDeleteNotification(ctx context.Context, toEmail, serverName, reason string) error {
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	body := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -250,7 +250,7 @@ func (s *resendSender) SendServerDeleteNotification(ctx context.Context, toEmail
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "Your Server Has Been Deleted — mqvi",
-		Html:    html,
+		Html:    body,
 	}
 
 	_, err := s.client.Emails.SendWithContext(ctx, params)
@@ -263,7 +263,7 @@ func (s *resendSender) SendServerDeleteNotification(ctx context.Context, toEmail
 
 func (s *resendSender) SendNewFeedbackNotification(ctx context.Context, toEmail, ticketType, subject, fromUsername string) error {
 	adminLink := s.appURL + "/channels"
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	body := fmt.Sprintf(`<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background-color:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
   <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#1a1a2e;padding:40px 0;"><tr><td align="center">
     <table width="480" cellpadding="0" cellspacing="0" style="background-color:#16213e;border-radius:8px;padding:40px;"><tr><td>
@@ -290,7 +290,7 @@ func (s *resendSender) SendNewFeedbackNotification(ctx context.Context, toEmail,
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "New Feedback — mqvi",
-		Html:    html,
+		Html:    body,
 	}
 	_, err := s.client.Emails.SendWithContext(ctx, params)
 	if err != nil {
@@ -301,7 +301,7 @@ func (s *resendSender) SendNewFeedbackNotification(ctx context.Context, toEmail,
 
 func (s *resendSender) SendNewReportNotification(ctx context.Context, toEmail, reporterUsername, reportedUsername, reason string) error {
 	adminLink := s.appURL + "/channels"
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	body := fmt.Sprintf(`<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background-color:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
   <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#1a1a2e;padding:40px 0;"><tr><td align="center">
     <table width="480" cellpadding="0" cellspacing="0" style="background-color:#16213e;border-radius:8px;padding:40px;"><tr><td>
@@ -328,7 +328,7 @@ func (s *resendSender) SendNewReportNotification(ctx context.Context, toEmail, r
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "New User Report — mqvi",
-		Html:    html,
+		Html:    body,
 	}
 	_, err := s.client.Emails.SendWithContext(ctx, params)
 	if err != nil {
@@ -339,7 +339,7 @@ func (s *resendSender) SendNewReportNotification(ctx context.Context, toEmail, r
 
 func (s *resendSender) SendNewServerReportNotification(ctx context.Context, toEmail, reporterUsername, serverName, reason string) error {
 	adminLink := s.appURL + "/channels"
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	body := fmt.Sprintf(`<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background-color:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
   <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#1a1a2e;padding:40px 0;"><tr><td align="center">
     <table width="480" cellpadding="0" cellspacing="0" style="background-color:#16213e;border-radius:8px;padding:40px;"><tr><td>
@@ -366,7 +366,7 @@ func (s *resendSender) SendNewServerReportNotification(ctx context.Context, toEm
 		From:    fmt.Sprintf("mqvi <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "New Server Report — mqvi",
-		Html:    html,
+		Html:    body,
 	}
 	_, err := s.client.Emails.SendWithContext(ctx, params)
 	if err != nil {
