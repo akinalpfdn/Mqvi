@@ -13,8 +13,12 @@ type FriendshipRepository interface {
 
 	GetByID(ctx context.Context, id string) (*models.Friendship, error)
 
-	// GetByPair finds the record between two users (direction-independent).
+	// GetByPair finds the record between two users (direction-independent). With mutual
+	// blocks two rows exist; callers that only ask "is anything between them" are fine,
+	// callers acting on ONE side's row must use GetDirected.
 	GetByPair(ctx context.Context, userID, friendID string) (*models.Friendship, error)
+	// GetDirected finds the record where userID is the row owner (blocker / requester).
+	GetDirected(ctx context.Context, userID, friendID string) (*models.Friendship, error)
 
 	// ListFriends returns accepted friends. Bidirectional: user_id = me OR friend_id = me.
 	ListFriends(ctx context.Context, userID string) ([]models.FriendshipWithUser, error)

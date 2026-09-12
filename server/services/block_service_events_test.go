@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -26,6 +27,24 @@ func (s *stubBlockFriendRepo) GetByPair(_ context.Context, a, b string) (*models
 		}
 	}
 	return nil, fmt.Errorf("%w: pair", pkg.ErrNotFound)
+}
+
+func (s *stubBlockFriendRepo) GetDirected(_ context.Context, a, b string) (*models.Friendship, error) {
+	for _, f := range s.rows {
+		if f.UserID == a && f.FriendID == b {
+			return f, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: directed", pkg.ErrNotFound)
+}
+
+func (s *stubBlockFriendRepo) blockRow(blocker, blocked string) *models.Friendship {
+	for _, f := range s.rows {
+		if f.UserID == blocker && f.FriendID == blocked && f.Status == models.FriendshipStatusBlocked {
+			return f
+		}
+	}
+	return nil
 }
 
 func (s *stubBlockFriendRepo) Create(_ context.Context, f *models.Friendship) error {
@@ -105,5 +124,38 @@ func TestBlockEvents_CarryBlockerAndTargetToBothParties(t *testing.T) {
 	d := dataOf(t, hub.sent[0].event)
 	if d["user_id"] != "alice" || d["unblocked_user_id"] != "bob" {
 		t.Fatalf("unblock payload: want {user_id: alice, unblocked_user_id: bob}, got %v", d)
+	}
+}
+
+// Blocking back must not erase the first block: both rows coexist, and an unblock only
+// removes the caller's own row. Before this rule the second block silently deleted the first.
+func TestMutualBlock_KeepsBothRows(t *testing.T) {
+	repo := &stubBlockFriendRepo{rows: map[string]*models.Friendship{}}
+	svc := NewBlockService(repo, stubBlockUserRepo{}, &stubBlockHub{}, nil)
+	ctx := context.Background()
+
+	if err := svc.BlockUser(ctx, "bob", "alice"); err != nil {
+		t.Fatalf("bob blocks alice: %v", err)
+	}
+	if err := svc.BlockUser(ctx, "alice", "bob"); err != nil {
+		t.Fatalf("alice blocks bob back: %v", err)
+	}
+	if repo.blockRow("bob", "alice") == nil || repo.blockRow("alice", "bob") == nil {
+		t.Fatalf("both block rows must exist after a mutual block, got %d rows", len(repo.rows))
+	}
+
+	if err := svc.UnblockUser(ctx, "alice", "bob"); err != nil {
+		t.Fatalf("alice unblocks bob: %v", err)
+	}
+	if repo.blockRow("alice", "bob") != nil {
+		t.Fatalf("alice's row must be gone after her unblock")
+	}
+	if repo.blockRow("bob", "alice") == nil {
+		t.Fatalf("bob's block must survive alice's unblock")
+	}
+
+	// Alice cannot unblock a block she does not own.
+	if err := svc.UnblockUser(ctx, "alice", "bob"); !errors.Is(err, pkg.ErrBadRequest) {
+		t.Fatalf("second unblock: want %v, got %v", pkg.ErrBadRequest, err)
 	}
 }
