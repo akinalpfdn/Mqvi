@@ -3,6 +3,7 @@
 import { useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { usePinStore } from "../../stores/pinStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { useActiveMembers } from "../../stores/memberStore";
 import { useActiveRoles } from "../../stores/roleStore";
 import { mentionsToText } from "../../utils/mentions";
@@ -31,6 +32,10 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
   const currentUser = useAuthStore((s) => s.user);
 
   const pins = getPinsForChannel(channelId);
+  const blockedUserIds = useBlockStore((s) => s.blockedUserIds);
+  const visiblePins = pins.filter(
+    (pin) => !pin.message?.author || !blockedUserIds.includes(pin.message.author.id),
+  );
 
   // Check ManageMessages permission for current user
   const currentMember = members.find((m) => m.id === currentUser?.id);
@@ -80,10 +85,10 @@ function PinnedMessages({ channelId, onClose }: PinnedMessagesProps) {
       <div className="pinned-list">
         {isLoading ? (
           <p className="pinned-empty">{t("noPinnedMessages")}</p>
-        ) : pins.length === 0 ? (
+        ) : visiblePins.length === 0 ? (
           <p className="pinned-empty">{t("noPinnedMessages")}</p>
         ) : (
-          pins.map((pin) => {
+          visiblePins.map((pin) => {
             const author = pin.message?.author;
             const displayName = authorDisplayName(author);
             const avatarUrl = authorAvatarURL(author);

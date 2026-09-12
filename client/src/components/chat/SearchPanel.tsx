@@ -6,6 +6,7 @@ import { searchMessages } from "../../api/search";
 import { searchCachedMessages } from "../../crypto/keyStorage";
 import { useServerStore, selectServerE2EE } from "../../stores/serverStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { useBackHandler } from "../../hooks/useBackHandler";
 import type { SearchResult } from "../../api/search";
 import type { Message } from "../../types";
@@ -54,6 +55,7 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
   const useLocalSearch = (serverE2eeEnabled ?? true) && isE2EEReady;
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult | null>(null);
+  const blockedUserIds = useBlockStore((s) => s.blockedUserIds);
   const [isSearching, setIsSearching] = useState(false);
   const [offset, setOffset] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -219,7 +221,7 @@ function SearchPanel({ channelId, serverId, onClose, initialQuery = "", onSelect
             <p className="search-count">
               {t("searchResultCount", { count: results.total_count })}
             </p>
-            {results.messages.map((msg) => {
+            {results.messages.filter((m) => !blockedUserIds.includes(m.user_id)).map((msg) => {
               const displayName = authorDisplayName(msg.author);
               const avatarUrl = authorAvatarURL(msg.author);
 

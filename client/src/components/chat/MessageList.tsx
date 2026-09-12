@@ -1,14 +1,16 @@
 /** MessageList — Scrollable message container with auto-scroll, infinite scroll, and compact mode. */
 
-import { useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useChatContext } from "../../hooks/useChatContext";
+import { useChatContext, type ChatMessage } from "../../hooks/useChatContext";
+import { useBlockStore } from "../../stores/blockStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useActiveMembers } from "../../stores/memberStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { MessageSkeleton } from "../shared/Skeleton";
 import Message from "./Message";
 import CallLogRow from "./CallLogRow";
+import BlockedMessagesRow from "./BlockedMessagesRow";
 import { useChatLayoutStore } from "../../hooks/useNarrowChat";
 
 /** Below this column width the message layout switches to the compact (mobile-style) mode.
@@ -39,6 +41,14 @@ function MessageList() {
 
   const currentUser = useAuthStore((s) => s.user);
   const members = useActiveMembers();
+  const blockedUserIds = useBlockStore((s) => s.blockedUserIds);
+
+  // Blocked authors' messages collapse into one row; "show" reveals them for this visit only.
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
+  const isHidden = useCallback(
+    (msg: ChatMessage) => blockedUserIds.includes(msg.user_id) && !revealedIds.has(msg.id),
+    [blockedUserIds, revealedIds],
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -74,6 +84,7 @@ function MessageList() {
 
     const ids: string[] = [];
     for (const msg of messages) {
+      if (blockedUserIds.includes(msg.user_id)) continue;
       if (lastMentionSeen) {
         if (msg.created_at < lastMentionSeen.at) continue;
         if (msg.created_at === lastMentionSeen.at && msg.id <= lastMentionSeen.messageId) continue;
@@ -90,7 +101,7 @@ function MessageList() {
       }
     }
     return ids;
-  }, [messages, currentUser, members, lastMentionSeen]);
+  }, [messages, currentUser, members, lastMentionSeen, blockedUserIds]);
 
   const mentionCount = mentionMessageIds.length;
 
@@ -112,6 +123,7 @@ function MessageList() {
 
   useEffect(() => {
     stickToBottomRef.current = false;
+    setRevealedIds(new Set());
     if (channelId) fetchMessages();
   }, [channelId, fetchMessages]);
 
@@ -241,6 +253,8 @@ function MessageList() {
     if (current.reply_to_id) return false;
 
     const previous = messages[index - 1];
+    // A collapsed blocked message cannot lend its header to the next one.
+    if (isHidden(previous)) return false;
 
     if (current.user_id !== previous.user_id) return false;
 
@@ -249,6 +263,42 @@ function MessageList() {
       new Date(previous.created_at).getTime();
 
     return timeDiff < COMPACT_THRESHOLD;
+  }
+
+  /** Consecutive hidden (blocked) messages become one BlockedMessagesRow. */
+  function renderMessages(): ReactNode[] {
+    const nodes: ReactNode[] = [];
+    let run: ChatMessage[] = [];
+    const flushRun = () => {
+      if (run.length === 0) return;
+      const ids = run.map((m) => m.id);
+      nodes.push(
+        <BlockedMessagesRow
+          key={`blocked-${ids[0]}`}
+          count={ids.length}
+          onReveal={() => setRevealedIds((prev) => new Set([...Array.from(prev), ...ids]))}
+        />,
+      );
+      run = [];
+    };
+    messages.forEach((msg, index) => {
+      if (isHidden(msg)) {
+        run.push(msg);
+        return;
+      }
+      flushRun();
+      nodes.push(
+        <div key={msg.id} id={`msg-${msg.id}`}>
+          {msg.message_type === "call" && msg.call_meta ? (
+            <CallLogRow meta={msg.call_meta} createdAt={msg.created_at} />
+          ) : (
+            <Message message={msg} isCompact={isCompact(index)} />
+          )}
+        </div>,
+      );
+    });
+    flushRun();
+    return nodes;
   }
 
   if (!channelId) {
@@ -303,18 +353,7 @@ function MessageList() {
           </div>
         ) : (
           <div ref={contentRef} style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: "8px 0" }}>
-            {messages.map((msg, index) => (
-              <div key={msg.id} id={`msg-${msg.id}`}>
-                {msg.message_type === "call" && msg.call_meta ? (
-                  <CallLogRow meta={msg.call_meta} createdAt={msg.created_at} />
-                ) : (
-                  <Message
-                    message={msg}
-                    isCompact={isCompact(index)}
-                  />
-                )}
-              </div>
-            ))}
+            {renderMessages()}
           </div>
         )}
       </div>
