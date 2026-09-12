@@ -17,6 +17,9 @@ type MobileMessageActionsProps = {
   onEdit: () => void;
   /** Delete handler — owner or manage perms */
   onDelete: () => void;
+  /** Report handler — other users' messages only */
+  onReport: () => void;
+  canReport: boolean;
   /** Emoji reaction handler */
   onReaction: (emoji: string) => void;
   /** Copy message content */
@@ -38,6 +41,8 @@ function MobileMessageActions({
   onPinToggle,
   onEdit,
   onDelete,
+  onReport,
+  canReport,
   onReaction,
   onCopy,
   canManageMessages,
@@ -133,6 +138,19 @@ function MobileMessageActions({
               </svg>
             </span>
             {tCommon("delete")}
+          </button>
+        )}
+
+        {/* Report — other users' messages */}
+        {canReport && (
+          <button className="mobile-bs-action destructive" onClick={() => handleAction(onReport)}>
+            <span className="mobile-bs-action-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 22V4" />
+                <path d="M4 4h12l-2 4 2 4H4" />
+              </svg>
+            </span>
+            {t("reportMessage")}
           </button>
         )}
       </div>

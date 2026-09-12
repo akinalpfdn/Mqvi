@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { formatMessageTime, formatFullDateTime } from "../../utils/dateFormat";
 import { mentionsToText } from "../../utils/mentions";
 import { useAuthStore } from "../../stores/authStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { useChatContext, type ChatMessage } from "../../hooks/useChatContext";
 import { copyToClipboard } from "../../utils/constants";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -25,6 +26,8 @@ import MessageAttachments from "./MessageAttachments";
 import MessageHoverActions from "./MessageHoverActions";
 import MessageReactions from "./MessageReactions";
 import MobileMessageActions from "./MobileMessageActions";
+import ReportModal from "../shared/ReportModal";
+import { REPORT_EXCERPT_MAX } from "../../api/report";
 import { useUserBadges } from "../../hooks/useUserBadges";
 import { useActiveRoles } from "../../stores/roleStore";
 import type { MemberWithRoles, User } from "../../types";
@@ -105,9 +108,15 @@ function Message({ message, isCompact }: MessageProps) {
   const [pickerSource, setPickerSource] = useState<"bar" | "hover" | null>(null);
   const [editEmojiOpen, setEditEmojiOpen] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [profileTarget, setProfileTarget] = useState<{ user: User; top: number; left: number } | null>(null);
 
   const isOwner = currentUser?.id === message.user_id;
+  // Report: other users' messages only; a deleted author has nothing left to eject.
+  const canReport = !isOwner && !!message.author && !message.author.deleted_at;
+  const blockedUserIds = useBlockStore((s) => s.blockedUserIds);
+  const isReplyToBlocked =
+    !!message.referenced_message?.author && blockedUserIds.includes(message.referenced_message.author.id);
 
   // Role info — skipped in DM where showRoleColors=false, members=[]
   const member = showRoleColors ? members.find((m) => m.id === message.user_id) : undefined;
@@ -341,6 +350,16 @@ function Message({ message, isCompact }: MessageProps) {
       });
     }
 
+    // Report — other users' messages
+    if (canReport) {
+      items.push({
+        label: t("reportMessage"),
+        onClick: () => setReportOpen(true),
+        danger: true,
+        separator: true,
+      });
+    }
+
     // Copy ID — everyone (debug/power user)
     items.push({
       label: t("copyId"),
@@ -548,6 +567,9 @@ function Message({ message, isCompact }: MessageProps) {
             <div className="msg-reply-preview" onClick={handleScrollToReply}>
               <div className="msg-reply-bar" />
               {message.referenced_message?.author ? (
+                isReplyToBlocked ? (
+                  <span className="msg-reply-deleted">{t("blockedMessageReply")}</span>
+                ) : (
                 <>
                   <span className="msg-reply-author">
                     {message.referenced_message.author.deleted_at
@@ -561,6 +583,7 @@ function Message({ message, isCompact }: MessageProps) {
                       : t("noContent")}
                   </span>
                 </>
+                )
               ) : (
                 <span className="msg-reply-deleted">{t("replyDeleted")}</span>
               )}
@@ -699,6 +722,8 @@ function Message({ message, isCompact }: MessageProps) {
               setIsEditing(true);
             }}
             onDelete={handleDelete}
+            onReport={() => setReportOpen(true)}
+            showReport={canReport}
             showReply={mode !== "voice"}
             showReactions={mode !== "voice"}
             showPin={mode !== "voice"}
@@ -725,12 +750,27 @@ function Message({ message, isCompact }: MessageProps) {
             setIsEditing(true);
           }}
           onDelete={handleDelete}
+          onReport={() => setReportOpen(true)}
+          canReport={canReport}
           onReaction={handleReaction}
           onCopy={() => {
             if (message.content) copyToClipboard(message.content);
           }}
           canManageMessages={canManageMessages}
           isPinned={isPinned}
+        />
+      )}
+
+      {reportOpen && message.author && (
+        <ReportModal
+          userId={message.user_id}
+          username={message.author.username}
+          message={{
+            kind: mode === "dm" ? "dm" : "channel",
+            id: message.id,
+            excerpt: (message.content ?? "").slice(0, REPORT_EXCERPT_MAX),
+          }}
+          onClose={() => setReportOpen(false)}
         />
       )}
 

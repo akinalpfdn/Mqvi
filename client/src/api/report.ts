@@ -16,7 +16,28 @@ export type ReportReason =
 export type CreateReportRequest = {
   reason: ReportReason;
   description: string;
+  /** Message-level report: exactly one of these, plus an excerpt of the text. */
+  message_id?: string;
+  dm_message_id?: string;
+  message_excerpt?: string;
 };
+
+/** Message being reported, as seen by the reporter's client. */
+export type ReportMessageContext = {
+  kind: "channel" | "dm";
+  id: string;
+  excerpt: string;
+};
+
+/** Max excerpt length accepted by the server (models.MaxReportExcerptLength). */
+export const REPORT_EXCERPT_MAX = 500;
+
+export function messageContextToRequest(ctx: ReportMessageContext): Pick<CreateReportRequest, "message_id" | "dm_message_id" | "message_excerpt"> {
+  return {
+    ...(ctx.kind === "channel" ? { message_id: ctx.id } : { dm_message_id: ctx.id }),
+    message_excerpt: ctx.excerpt.slice(0, REPORT_EXCERPT_MAX),
+  };
+}
 
 export type ReportAttachment = {
   id: string;
@@ -50,6 +71,9 @@ export function reportUser(
     const formData = new FormData();
     formData.append("reason", req.reason);
     formData.append("description", req.description);
+    if (req.message_id) formData.append("message_id", req.message_id);
+    if (req.dm_message_id) formData.append("dm_message_id", req.dm_message_id);
+    if (req.message_excerpt) formData.append("message_excerpt", req.message_excerpt);
     for (const file of files) {
       formData.append("files", file);
     }

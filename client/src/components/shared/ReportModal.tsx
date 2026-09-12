@@ -6,7 +6,7 @@
 import { useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { reportUser, type ReportReason } from "../../api/report";
+import { reportUser, messageContextToRequest, type ReportReason, type ReportMessageContext } from "../../api/report";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 import { validateFiles, partitionFiles } from "../../utils/fileValidation";
@@ -20,6 +20,8 @@ import FilePreview from "../chat/FilePreview";
 type ReportModalProps = {
   userId: string;
   username: string;
+  /** Present for message-level reports; the excerpt is shown read-only and sent with the report. */
+  message?: ReportMessageContext;
   onClose: () => void;
 };
 
@@ -39,7 +41,7 @@ const REASONS: { value: ReportReason; key: string }[] = [
 
 const isAllowedImage = (f: File) => ALLOWED_IMAGE_TYPES.includes(f.type);
 
-function ReportModal({ userId, username, onClose }: ReportModalProps) {
+function ReportModal({ userId, username, message, onClose }: ReportModalProps) {
   const { t } = useTranslation("dm");
   const addToast = useToastStore((s) => s.addToast);
 
@@ -122,7 +124,11 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
     try {
       const res = await reportUser(
         userId,
-        { reason: selectedReason, description: description.trim() },
+        {
+          reason: selectedReason,
+          description: description.trim(),
+          ...(message ? messageContextToRequest(message) : {}),
+        },
         files.length > 0 ? files : undefined,
         upload
       );
@@ -171,6 +177,15 @@ function ReportModal({ userId, username, onClose }: ReportModalProps) {
 
         {/* Body */}
         <div className="report-body">
+          {message && (
+            <div className="report-field">
+              <label className="report-label">{t("reportMessageExcerptLabel")}</label>
+              <blockquote className="report-message-excerpt">
+                {message.excerpt || t("reportMessageNoText")}
+              </blockquote>
+            </div>
+          )}
+
           {/* Reason Selection */}
           <div className="report-field">
             <label className="report-label">{t("reportReasonLabel")}</label>

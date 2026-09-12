@@ -36,6 +36,8 @@
   "muteForever": "Kapatana Kadar",
 
   "reportTitle": "{{username}} Kullanıcısını Raporla",
+  "reportMessageExcerptLabel": "Şikayet Edilen Mesaj",
+  "reportMessageNoText": "(metin içeriği yok — kanıt olarak ekran görüntüsü ekleyin)",
   "reportReasonLabel": "Neden",
   "reportDescriptionLabel": "Açıklama",
   "reportDescriptionPlaceholder": "Lütfen sorunu detaylı şekilde açıklayın (en az 10 karakter)...",
@@ -50,6 +52,8 @@
   "blockConfirmTitle": "{{username}} Engellensin mi?",
   "blockConfirmMessage": "Engellenen kullanıcılar size mesaj gönderemez ve mesajlarını göremezsiniz. Emin misiniz?",
   "blockConfirmButton": "Engelle",
+  "blockAlsoReport": "Bu kullanıcıyı mqvi ekibine de şikayet et",
+  "blockAlsoReportHint": "Engelledikten sonra bir neden seçmen istenecek.",
 
   "alreadyReported": "Bu kullanıcı için zaten bekleyen bir raporunuz var",
 

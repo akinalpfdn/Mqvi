@@ -726,6 +726,9 @@ func (m *MockEmailSender) SendNewFeedbackNotification(_ context.Context, _, _, _
 func (m *MockEmailSender) SendNewReportNotification(_ context.Context, _, _, _, _ string) error {
 	return nil
 }
+func (m *MockEmailSender) SendNewServerReportNotification(_ context.Context, _, _, _, _ string) error {
+	return nil
+}
 
 // ─── MockBroadcastAndOnline satisfies ws.BroadcastAndOnline ───
 

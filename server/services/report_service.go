@@ -31,6 +31,8 @@ type reportService struct {
 	serverReportRepo repository.ServerReportRepository
 	userRepo         repository.UserRepository
 	serverRepo       repository.ServerRepository
+	messageRepo      repository.MessageRepository
+	dmRepo           repository.DMRepository
 	urlSigner        FileURLSigner
 	emailSender      email.EmailSender
 }
@@ -40,6 +42,8 @@ func NewReportService(
 	serverReportRepo repository.ServerReportRepository,
 	userRepo repository.UserRepository,
 	serverRepo repository.ServerRepository,
+	messageRepo repository.MessageRepository,
+	dmRepo repository.DMRepository,
 	urlSigner FileURLSigner,
 	emailSender email.EmailSender,
 ) ReportService {
@@ -48,6 +52,8 @@ func NewReportService(
 		serverReportRepo: serverReportRepo,
 		userRepo:         userRepo,
 		serverRepo:       serverRepo,
+		messageRepo:      messageRepo,
+		dmRepo:           dmRepo,
 		urlSigner:        urlSigner,
 		emailSender:      emailSender,
 	}
@@ -59,7 +65,8 @@ func (s *reportService) CreateServerReport(ctx context.Context, reporterID, serv
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
-	if _, err := s.serverRepo.GetActiveByID(ctx, serverID); err != nil {
+	srv, err := s.serverRepo.GetActiveByID(ctx, serverID)
+	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
 			return nil, fmt.Errorf("%w: server not found", pkg.ErrNotFound)
 		}
@@ -85,7 +92,35 @@ func (s *reportService) CreateServerReport(ctx context.Context, reporterID, serv
 	if err := s.serverReportRepo.Create(ctx, report); err != nil {
 		return nil, fmt.Errorf("failed to create server report: %w", err)
 	}
+
+	s.notifyAdminsServerReport(report, srv.Name)
+
 	return report, nil
+}
+
+// notifyAdminsServerReport mirrors notifyAdmins for discovery server reports.
+func (s *reportService) notifyAdminsServerReport(report *models.ServerReport, serverName string) {
+	if s.emailSender == nil || s.userRepo == nil {
+		return
+	}
+	go func() {
+		bg := context.Background()
+		reporter, err := s.userRepo.GetByID(bg, report.ReporterID)
+		if err != nil {
+			log.Printf("[report] lookup reporter %s: %v", report.ReporterID, err)
+			return
+		}
+		emails, err := s.userRepo.ListPlatformAdminEmails(bg)
+		if err != nil {
+			log.Printf("[report] list admin emails: %v", err)
+			return
+		}
+		for _, addr := range emails {
+			if err := s.emailSender.SendNewServerReportNotification(bg, addr, reporter.Username, serverName, string(report.Reason)); err != nil {
+				log.Printf("[report] notify admin %s (server report): %v", addr, err)
+			}
+		}
+	}()
 }
 
 func (s *reportService) ListServerReports(ctx context.Context, status string, limit, offset int) ([]models.ServerReportWithInfo, int, error) {
@@ -129,8 +164,12 @@ func (s *reportService) CreateReport(ctx context.Context, reporterID, targetID s
 		return nil, fmt.Errorf("failed to look up user: %w", err)
 	}
 
-	// Duplicate check — prevent multiple pending reports for the same pair
-	hasPending, err := s.reportRepo.HasPendingReport(ctx, reporterID, targetID)
+	if err := s.verifyMessageContext(ctx, reporterID, targetID, req); err != nil {
+		return nil, err
+	}
+
+	// Duplicate check — one pending report per (reporter, target, message context)
+	hasPending, err := s.reportRepo.HasPendingReport(ctx, reporterID, targetID, req.MessageID, req.DMMessageID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check pending report: %w", err)
 	}
@@ -145,6 +184,9 @@ func (s *reportService) CreateReport(ctx context.Context, reporterID, targetID s
 		Reason:         models.ReportReason(req.Reason),
 		Description:    req.Description,
 		Status:         models.ReportStatusPending,
+		MessageID:      nilIfEmpty(req.MessageID),
+		DMMessageID:    nilIfEmpty(req.DMMessageID),
+		MessageExcerpt: nilIfEmpty(req.MessageExcerpt),
 	}
 
 	if err := s.reportRepo.Create(ctx, report); err != nil {
@@ -154,6 +196,44 @@ func (s *reportService) CreateReport(ctx context.Context, reporterID, targetID s
 	s.notifyAdmins(report)
 
 	return report, nil
+}
+
+// verifyMessageContext ensures a referenced message exists, was written by the
+// reported user, and (for DMs) that the reporter is a participant. The excerpt
+// itself is not verified — E2EE DM content is opaque to the server.
+func (s *reportService) verifyMessageContext(ctx context.Context, reporterID, targetID string, req *models.CreateReportRequest) error {
+	if req.MessageID != "" {
+		msg, err := s.messageRepo.GetByID(ctx, req.MessageID)
+		if err != nil {
+			if errors.Is(err, pkg.ErrNotFound) {
+				return fmt.Errorf("%w: message not found", pkg.ErrNotFound)
+			}
+			return fmt.Errorf("failed to look up message: %w", err)
+		}
+		if msg.UserID != targetID {
+			return fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
+		}
+	}
+	if req.DMMessageID != "" {
+		msg, err := s.dmRepo.GetMessageByID(ctx, req.DMMessageID)
+		if err != nil {
+			if errors.Is(err, pkg.ErrNotFound) {
+				return fmt.Errorf("%w: message not found", pkg.ErrNotFound)
+			}
+			return fmt.Errorf("failed to look up DM message: %w", err)
+		}
+		if msg.UserID != targetID {
+			return fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
+		}
+		ch, err := s.dmRepo.GetChannelByID(ctx, msg.DMChannelID)
+		if err != nil {
+			return fmt.Errorf("failed to look up DM channel: %w", err)
+		}
+		if ch.User1ID != reporterID && ch.User2ID != reporterID {
+			return fmt.Errorf("%w: not a participant of this conversation", pkg.ErrForbidden)
+		}
+	}
+	return nil
 }
 
 // notifyAdmins emails platform admins about the new report in a detached

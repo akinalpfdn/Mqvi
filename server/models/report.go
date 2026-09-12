@@ -35,15 +35,21 @@ const (
 
 // Report — time fields are strings because modernc.org/sqlite doesn't auto-convert to time.Time.
 type Report struct {
-	ID             string             `json:"id"`
-	ReporterID     string             `json:"reporter_id"`
-	ReportedUserID string             `json:"reported_user_id"`
-	Reason         ReportReason       `json:"reason"`
-	Description    string             `json:"description"`
-	Status         ReportStatus       `json:"status"`
-	ResolvedBy     *string            `json:"resolved_by"`
-	ResolvedAt     *string            `json:"resolved_at"`
-	CreatedAt      string             `json:"created_at"`
+	ID             string       `json:"id"`
+	ReporterID     string       `json:"reporter_id"`
+	ReportedUserID string       `json:"reported_user_id"`
+	Reason         ReportReason `json:"reason"`
+	Description    string       `json:"description"`
+	Status         ReportStatus `json:"status"`
+	ResolvedBy     *string      `json:"resolved_by"`
+	ResolvedAt     *string      `json:"resolved_at"`
+	CreatedAt      string       `json:"created_at"`
+	// Message context — set for message-level reports, nil for profile reports.
+	MessageID   *string `json:"message_id"`
+	DMMessageID *string `json:"dm_message_id"`
+	// MessageExcerpt is supplied by the reporting client and never verified
+	// server-side (E2EE DMs are opaque here). Admin UI labels it as such.
+	MessageExcerpt *string            `json:"message_excerpt"`
 	Attachments    []ReportAttachment `json:"attachments"`
 }
 
@@ -118,9 +124,20 @@ type ServerReportWithInfo struct {
 	ServerName       string `json:"server_name"`
 }
 
+const MaxReportExcerptLength = 500
+
 type CreateReportRequest struct {
 	Reason      string `json:"reason"`
 	Description string `json:"description"`
+	// Optional message context. At most one of MessageID / DMMessageID.
+	MessageID      string `json:"message_id"`
+	DMMessageID    string `json:"dm_message_id"`
+	MessageExcerpt string `json:"message_excerpt"`
+}
+
+// HasMessageContext reports whether this is a message-level report.
+func (r *CreateReportRequest) HasMessageContext() bool {
+	return r.MessageID != "" || r.DMMessageID != ""
 }
 
 func (r *CreateReportRequest) Validate() error {
@@ -137,6 +154,19 @@ func (r *CreateReportRequest) Validate() error {
 	}
 	if descLen > 1000 {
 		return fmt.Errorf("description must be at most 1000 characters")
+	}
+
+	r.MessageID = strings.TrimSpace(r.MessageID)
+	r.DMMessageID = strings.TrimSpace(r.DMMessageID)
+	r.MessageExcerpt = strings.TrimSpace(r.MessageExcerpt)
+	if r.MessageID != "" && r.DMMessageID != "" {
+		return fmt.Errorf("report may reference a channel message or a DM message, not both")
+	}
+	if r.MessageExcerpt != "" && !r.HasMessageContext() {
+		return fmt.Errorf("message excerpt requires a message reference")
+	}
+	if utf8.RuneCountInString(r.MessageExcerpt) > MaxReportExcerptLength {
+		return fmt.Errorf("message excerpt must be at most %d characters", MaxReportExcerptLength)
 	}
 
 	return nil

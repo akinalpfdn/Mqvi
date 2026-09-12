@@ -901,6 +901,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .msg-reply-author { font-weight:600;color:var(--t1);white-space:nowrap; }
 .msg-reply-content { color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .msg-reply-deleted { color:var(--t3);font-style:italic; }
+.msg-blocked-row { display:flex;align-items:center;gap:10px;padding:6px 16px;font-size:13px;color:var(--t3);font-style:italic; }
+.msg-blocked-row button { background:none;border:none;padding:0;font-size:13px;color:var(--t2);text-decoration:underline;cursor:pointer; }
+.msg-blocked-row button:hover { color:var(--t0); }
 
 /* Scroll-to highlight animation */
 .msg-highlight { background:var(--primary-s);transition:background 2s ease-out; }
@@ -2526,6 +2529,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .modal-title { font-size:18px;font-weight:700;color:var(--t0); }
 .modal-text { font-size:14px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
 .modal-actions { display:flex;gap:8px;justify-content:flex-end; }
+.block-confirm-check { display:flex;align-items:flex-start;gap:10px;margin:-8px 0 20px;font-size:13px;color:var(--t1);cursor:pointer;line-height:1.5; }
+.block-confirm-check input[type="checkbox"] { margin-top:3px;width:16px;height:16px;flex-shrink:0;accent-color:var(--primary);cursor:pointer; }
+.block-confirm-hint { display:block;font-size:13px;color:var(--t3); }
 
 /* ═══════════════════════════════════════
    VOICE ROOM (LiveKit)
@@ -2985,6 +2991,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .report-textarea { width:100%;min-height:80px;padding:10px 12px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:6px;color:var(--t0);font-size:16px;resize:vertical;outline:none;transition:border-color .15s; }
 .report-textarea::placeholder { color:var(--t3); }
 .report-textarea:focus { border-color:var(--primary); }
+.report-message-excerpt { margin:0;padding:10px 12px;background:var(--input-bg);border-left:3px solid var(--danger);border-radius:6px;color:var(--t1);font-size:14px;line-height:1.45;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto; }
 .report-actions { display:flex;gap:8px;justify-content:flex-end;margin-top:8px; }
 .report-btn { padding:8px 20px;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:background .12s,opacity .12s; }
 .report-btn-cancel { background:transparent;color:var(--t1);border:1px solid var(--b2); }

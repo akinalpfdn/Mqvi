@@ -31,6 +31,7 @@ type SortKey =
   | "reported_username"
   | "reason"
   | "description"
+  | "message"
   | "attachments"
   | "created_at"
   | "status";
@@ -49,6 +50,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "reported_username", labelKey: "platformReportReported", defaultWidth: 140, minWidth: 100, sortable: true, align: "left" },
   { key: "reason", labelKey: "platformReportReason", defaultWidth: 140, minWidth: 100, sortable: true, align: "left" },
   { key: "description", labelKey: "platformReportDescription", defaultWidth: 250, minWidth: 120, sortable: false, align: "left" },
+  { key: "message", labelKey: "platformReportMessage", defaultWidth: 220, minWidth: 120, sortable: false, align: "left" },
   { key: "attachments", labelKey: "platformReportFiles", defaultWidth: 70, minWidth: 55, sortable: true, align: "center" },
   { key: "created_at", labelKey: "platformReportDate", defaultWidth: 155, minWidth: 120, sortable: true, align: "left" },
   { key: "status", labelKey: "platformReportStatus", defaultWidth: 180, minWidth: 140, sortable: true, align: "left" },
@@ -194,7 +196,8 @@ function AdminReportList() {
         (r) =>
           r.reporter_username.toLowerCase().includes(q) ||
           r.reported_username.toLowerCase().includes(q) ||
-          r.description.toLowerCase().includes(q),
+          r.description.toLowerCase().includes(q) ||
+          (r.message_excerpt?.toLowerCase().includes(q) ?? false),
       );
     }
 
@@ -449,6 +452,21 @@ function AdminReportList() {
             {report.description}
           </span>
         );
+
+      case "message": {
+        if (!report.message_id && !report.dm_message_id) {
+          return <span className="admin-report-text-muted">{"\u2014"}</span>;
+        }
+        const excerpt = report.message_excerpt ?? "";
+        return (
+          <span
+            className="admin-report-desc-cell"
+            title={`${excerpt}\n\n${t("platformReportMessageHint")}`}
+          >
+            {excerpt || <span className="admin-report-text-muted">{t("platformReportMessageNoText")}</span>}
+          </span>
+        );
+      }
 
       case "attachments": {
         const count = report.attachments.length;

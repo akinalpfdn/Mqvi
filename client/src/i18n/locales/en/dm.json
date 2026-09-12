@@ -36,6 +36,8 @@
   "muteForever": "Until I Turn It Back On",
 
   "reportTitle": "Report {{username}}",
+  "reportMessageExcerptLabel": "Reported Message",
+  "reportMessageNoText": "(no text content — attach a screenshot as evidence)",
   "reportReasonLabel": "Reason",
   "reportDescriptionLabel": "Description",
   "reportDescriptionPlaceholder": "Please describe the issue in detail (min 10 characters)...",
@@ -50,6 +52,8 @@
   "blockConfirmTitle": "Block {{username}}",
   "blockConfirmMessage": "Blocked users cannot send you messages and you won't see their messages. Are you sure?",
   "blockConfirmButton": "Block",
+  "blockAlsoReport": "Also report this user to the mqvi team",
+  "blockAlsoReportHint": "You will be asked for a reason after blocking.",
 
   "alreadyReported": "You already have a pending report for this user",
 
