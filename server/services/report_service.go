@@ -222,17 +222,17 @@ func (s *reportService) resolveMessageContext(ctx context.Context, reporterID, t
 		if err != nil {
 			return "", messageLookupError("message", err)
 		}
-		if msg.UserID != targetID {
-			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
-		}
-		// The response echoes the server snapshot, so this is a read of the channel:
-		// gate it exactly like GetByChannelID.
+		// Access first, author second: an outsider must not learn whether an id exists
+		// or who wrote it. Same gate as GetByChannelID, same 404 as a missing message.
 		perms, err := s.permResolver.ResolveChannelPermissions(ctx, reporterID, msg.ChannelID)
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve channel permissions: %w", err)
 		}
 		if !perms.Has(models.PermReadMessages) {
-			return "", fmt.Errorf("%w: missing read messages permission for this channel", pkg.ErrForbidden)
+			return "", notAccessible("message")
+		}
+		if msg.UserID != targetID {
+			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
 		}
 		if msg.EncryptionVersion != 0 {
 			return clientExcerpt(req), nil
@@ -244,15 +244,15 @@ func (s *reportService) resolveMessageContext(ctx context.Context, reporterID, t
 		if err != nil {
 			return "", messageLookupError("DM message", err)
 		}
-		if msg.UserID != targetID {
-			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
-		}
 		ch, err := s.dmRepo.GetChannelByID(ctx, msg.DMChannelID)
 		if err != nil {
 			return "", fmt.Errorf("failed to look up DM channel: %w", err)
 		}
 		if ch.User1ID != reporterID && ch.User2ID != reporterID {
-			return "", fmt.Errorf("%w: not a participant of this conversation", pkg.ErrForbidden)
+			return "", notAccessible("DM message")
+		}
+		if msg.UserID != targetID {
+			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
 		}
 		if msg.EncryptionVersion != 0 {
 			return clientExcerpt(req), nil
@@ -265,13 +265,13 @@ func (s *reportService) resolveMessageContext(ctx context.Context, reporterID, t
 		if err != nil {
 			return "", messageLookupError("voice message", err)
 		}
-		if msg.UserID != targetID {
-			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
-		}
 		// Voice chat is visible to current participants only; same gate as List.
 		state := s.voiceMembership.GetUserVoiceState(reporterID)
 		if state == nil || state.ChannelID != msg.ChannelID {
-			return "", fmt.Errorf("%w: not currently in voice channel", pkg.ErrForbidden)
+			return "", notAccessible("voice message")
+		}
+		if msg.UserID != targetID {
+			return "", fmt.Errorf("%w: message was not written by the reported user", pkg.ErrForbidden)
 		}
 		return serverExcerpt(req, msg.Content), nil
 	}
@@ -280,9 +280,14 @@ func (s *reportService) resolveMessageContext(ctx context.Context, reporterID, t
 
 func messageLookupError(kind string, err error) error {
 	if errors.Is(err, pkg.ErrNotFound) {
-		return fmt.Errorf("%w: %s not found", pkg.ErrNotFound, kind)
+		return notAccessible(kind)
 	}
 	return fmt.Errorf("failed to look up %s: %w", kind, err)
+}
+
+// notAccessible is the single answer for "does not exist" and "you may not see it".
+func notAccessible(kind string) error {
+	return fmt.Errorf("%w: %s not found", pkg.ErrNotFound, kind)
 }
 
 // serverExcerpt replaces whatever the client sent with the stored text.

@@ -148,17 +148,25 @@ func TestCreateReport_MessageContext(t *testing.T) {
 			wantSource:  models.ExcerptSourceClient,
 		},
 		{
-			name:     "should refuse a channel message the reporter cannot read",
+			name:     "should answer not-found for a channel message the reporter cannot read",
 			req:      func() models.CreateReportRequest { r := base; r.MessageID = "m1"; return r },
 			msg:      plainChannelMsg,
 			noAccess: true,
-			wantErr:  pkg.ErrForbidden,
+			wantErr:  pkg.ErrNotFound,
 		},
 		{
 			name:    "should refuse a channel message written by someone else",
 			req:     func() models.CreateReportRequest { r := base; r.MessageID = "m1"; return r },
 			msg:     &models.Message{ID: "m1", ChannelID: "c1", UserID: other},
 			wantErr: pkg.ErrForbidden,
+		},
+		{
+			// Outsider probing an author: must get the same 404 as for a missing id, never the 403.
+			name:     "should not reveal the author of an unreadable channel message",
+			req:      func() models.CreateReportRequest { r := base; r.MessageID = "m1"; return r },
+			msg:      &models.Message{ID: "m1", ChannelID: "c1", UserID: other},
+			noAccess: true,
+			wantErr:  pkg.ErrNotFound,
 		},
 		{
 			name:    "should refuse an unknown channel message",
@@ -187,11 +195,11 @@ func TestCreateReport_MessageContext(t *testing.T) {
 			wantSource:  models.ExcerptSourceClient,
 		},
 		{
-			name:    "should refuse a DM message when the reporter is not a participant",
+			name:    "should answer not-found for a DM message when the reporter is not a participant",
 			req:     func() models.CreateReportRequest { r := base; r.DMMessageID = "d1"; return r },
 			dmMsg:   plainDMMsg,
 			dmCh:    foreignDMChannel,
-			wantErr: pkg.ErrForbidden,
+			wantErr: pkg.ErrNotFound,
 		},
 		{
 			name:        "should snapshot a voice-chat message",
@@ -201,11 +209,11 @@ func TestCreateReport_MessageContext(t *testing.T) {
 			wantSource:  models.ExcerptSourceServer,
 		},
 		{
-			name:     "should refuse a voice-chat message when the reporter is not in that voice channel",
+			name:     "should answer not-found for a voice-chat message when the reporter is not in that voice channel",
 			req:      func() models.CreateReportRequest { r := base; r.VoiceMessageID = "v1"; return r },
 			voiceMsg: voiceMsg,
 			noAccess: true,
-			wantErr:  pkg.ErrForbidden,
+			wantErr:  pkg.ErrNotFound,
 		},
 		{
 			name:     "should refuse a voice-chat message written by someone else",

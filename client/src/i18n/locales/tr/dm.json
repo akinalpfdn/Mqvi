@@ -58,6 +58,7 @@
   "blockAlsoReportHint": "Engelledikten sonra bir neden seçmen istenecek.",
 
   "alreadyReported": "Bu kullanıcı için zaten bekleyen bir şikayetiniz var",
+  "reportRateLimited": "Çok fazla şikayet gönderdiniz. Yeniden şikayet etmeden önce biraz bekleyin.",
 
   "reportEvidenceLabel": "Kanıt (İsteğe Bağlı)",
   "reportEvidenceHint": "Ekran görüntülerini sürükleyin veya yapıştırın (max 4 resim)",

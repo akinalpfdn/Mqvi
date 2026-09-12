@@ -1,6 +1,6 @@
 /** BlockConfirmDialog — Block confirmation with an opt-in "also report this user" step. */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -28,16 +28,22 @@ function BlockConfirmDialog({ username, onConfirm, onClose }: BlockConfirmDialog
     }
   }
 
+  // While the block request runs the dialog must stay mounted: its host (MemberCard)
+  // relies on it to stay open for the follow-up report modal.
+  const close = useCallback(() => {
+    if (!isBusy) onClose();
+  }, [isBusy, onClose]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") close();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [close]);
 
   return createPortal(
-    <div className="modal-backdrop modal-backdrop-confirm" onClick={onClose}>
+    <div className="modal-backdrop modal-backdrop-confirm" onClick={close}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">{t("blockConfirmTitle", { username })}</h2>
@@ -58,7 +64,7 @@ function BlockConfirmDialog({ username, onConfirm, onClose }: BlockConfirmDialog
         </label>
 
         <div className="modal-actions">
-          <button className="settings-btn settings-btn-secondary" onClick={onClose} disabled={isBusy}>
+          <button className="settings-btn settings-btn-secondary" onClick={close} disabled={isBusy}>
             {tCommon("cancel")}
           </button>
           <button

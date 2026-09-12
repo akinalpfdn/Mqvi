@@ -58,6 +58,7 @@
   "blockAlsoReportHint": "You will be asked for a reason after blocking.",
 
   "alreadyReported": "You already have a pending report for this user",
+  "reportRateLimited": "You have sent too many reports. Please wait a while before reporting again.",
 
   "reportEvidenceLabel": "Evidence (Optional)",
   "reportEvidenceHint": "Drag & drop or paste screenshots (max 4 images)",

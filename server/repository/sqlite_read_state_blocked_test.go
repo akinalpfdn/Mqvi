@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/database"
+	"github.com/akinalp/mqvi/models"
 	_ "modernc.org/sqlite"
 )
 
@@ -38,9 +39,20 @@ func newReadStateDB(t *testing.T) (*sql.DB, *sqliteReadStateRepo) {
 	exec(`INSERT INTO servers (id, name, owner_id) VALUES ('s1', 'S', 'author')`)
 	exec(`INSERT INTO channels (id, server_id, name, type) VALUES ('c1', 's1', 'general', 'text')`)
 	exec(`INSERT INTO channel_reads (user_id, channel_id) VALUES ('blocker', 'c1'), ('bystander', 'c1')`)
-	// friendships: user_id = blocker, friend_id = blocked.
-	exec(`INSERT INTO friendships (id, user_id, friend_id, status) VALUES ('f1', 'blocker', 'author', 'blocked'), ('f2', 'norow_blocker', 'author', 'blocked')`)
+	// Blocks go through the production repository so created_at is written exactly as
+	// block_service writes it (a bound time.Time), not as hand-typed text.
+	block(t, db.Conn, "f1", "blocker", "author", time.Now().UTC())
+	block(t, db.Conn, "f2", "norow_blocker", "author", time.Now().UTC())
 	return db.Conn, &sqliteReadStateRepo{db: db.Conn}
+}
+
+// block writes a blocker→blocked friendship row the way BlockUser does.
+func block(t *testing.T, db *sql.DB, id, blocker, blocked string, at time.Time) {
+	t.Helper()
+	f := &models.Friendship{ID: id, UserID: blocker, FriendID: blocked, Status: models.FriendshipStatusBlocked, CreatedAt: at, UpdatedAt: at}
+	if err := NewSQLiteFriendshipRepo(db).Create(context.Background(), f); err != nil {
+		t.Fatalf("create block %s: %v", id, err)
+	}
 }
 
 func unreadOf(t *testing.T, db *sql.DB, userID string) int {
@@ -68,24 +80,28 @@ func TestIncrementUnreadCounts_SkipsReadersWhoBlockedTheAuthor(t *testing.T) {
 }
 
 func TestDecrementUnreadForDeleted_BlockTiming(t *testing.T) {
+	messageAt := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name        string
-		blockedAt   string // friendships.created_at for blocker→author
-		messageAt   time.Time
+		blockedAt   time.Time
 		wantBlocker int
 	}{
 		{
 			// Block came first: the counter never rose for this message, so it must not fall.
 			name:        "should leave the blocker's counter alone when the block predates the message",
-			blockedAt:   "2026-09-01 10:00:00",
-			messageAt:   time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC),
+			blockedAt:   messageAt.Add(-24 * time.Hour),
+			wantBlocker: 3,
+		},
+		{
+			// Same second, block first: still shielded — no string-format tie-break involved.
+			name:        "should leave the blocker's counter alone when the block is one nanosecond older",
+			blockedAt:   messageAt.Add(-time.Nanosecond),
 			wantBlocker: 3,
 		},
 		{
 			// Message came first and was counted; the block afterwards still owes the decrement.
 			name:        "should decrement the blocker's counter when the block came after the message",
-			blockedAt:   "2026-09-12 12:00:00",
-			messageAt:   time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC),
+			blockedAt:   messageAt.Add(2 * time.Hour),
 			wantBlocker: 2,
 		},
 	}
@@ -93,14 +109,15 @@ func TestDecrementUnreadForDeleted_BlockTiming(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db, repo := newReadStateDB(t)
 			ctx := context.Background()
-			if _, err := db.Exec(`UPDATE friendships SET created_at = ? WHERE id = 'f1'`, tt.blockedAt); err != nil {
-				t.Fatalf("seed block time: %v", err)
+			if _, err := db.Exec(`DELETE FROM friendships WHERE id = 'f1'`); err != nil {
+				t.Fatalf("reset block: %v", err)
 			}
+			block(t, db, "f1", "blocker", "author", tt.blockedAt)
 			if _, err := db.Exec(`UPDATE channel_reads SET unread_count = 3 WHERE user_id IN ('blocker', 'bystander')`); err != nil {
 				t.Fatalf("seed counts: %v", err)
 			}
 
-			if err := repo.DecrementUnreadForDeleted(ctx, "c1", "author", tt.messageAt); err != nil {
+			if err := repo.DecrementUnreadForDeleted(ctx, "c1", "author", messageAt); err != nil {
 				t.Fatalf("decrement: %v", err)
 			}
 

@@ -139,6 +139,8 @@ function ReportModal({ userId, username, message, onClose }: ReportModalProps) {
       } else if (res.error?.includes("already")) {
         addToast("warning", t("alreadyReported"));
         onClose();
+      } else if (res.error?.includes("too many")) {
+        addToast("warning", t("reportRateLimited"));
       } else {
         addToast("error", res.error ?? "Failed to submit report");
       }
