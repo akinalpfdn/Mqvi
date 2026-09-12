@@ -50,6 +50,7 @@ type Services struct {
 	DMSettings         services.DMSettingsService
 	Block              services.BlockService
 	Report             services.ReportService
+	ReportModeration   services.ReportModerationService
 	ReportUpload       services.ReportUploadService
 	ServerReportUpload services.ServerReportUploadService
 	AdminUser          services.AdminUserService
@@ -255,6 +256,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	feedbackService := services.NewFeedbackService(repos.Feedback, repos.User, fileLocator, storageService, emailSender)
 	settingsBadgeService := services.NewSettingsBadgeService(repos.User, repos.Feedback, repos.Report)
 	voiceMessageService := services.NewVoiceMessageService(repos.VoiceMessage, voiceService, hub, urlSigner, fileLocator)
+	reportModerationService := services.NewReportModerationService(repos.Report, messageService, dmService, voiceMessageService)
 	// Wipe ephemeral voice chat when the last participant leaves the channel.
 	// 5-minute timeout so a hung DB call can't leak the goroutine indefinitely.
 	voiceService.SetOnChannelEmpty(func(channelID string) {
@@ -335,6 +337,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		DMSettings:         dmSettingsService,
 		Block:              blockService,
 		Report:             reportService,
+		ReportModeration:   reportModerationService,
 		ReportUpload:       reportUploadService,
 		ServerReportUpload: serverReportUploadService,
 		AdminUser:          adminUserService,
@@ -359,18 +362,18 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	}
 
 	limiters := &RateLimiters{
-		Login:       loginLimiter,
-		Message:     messageLimiter,
-		Register:    registerLimiter,
-		ForgotPwd:   forgotPwdLimiter,
-		ResetPwd:    resetPwdLimiter,
-		Feedback:    feedbackLimiter,
-		ICE:         iceLimiter,
-		Discovery:   discoveryLimiter,
+		Login:          loginLimiter,
+		Message:        messageLimiter,
+		Register:       registerLimiter,
+		ForgotPwd:      forgotPwdLimiter,
+		ResetPwd:       resetPwdLimiter,
+		Feedback:       feedbackLimiter,
+		ICE:            iceLimiter,
+		Discovery:      discoveryLimiter,
 		ScreenShare:    screenShareLimiter,
 		NoiseReduction: noiseReductionLimiter,
-		DMRead:      dmReadLimiter,
-		ChannelRead: channelReadLimiter,
+		DMRead:         dmReadLimiter,
+		ChannelRead:    channelReadLimiter,
 	}
 
 	return svcs, limiters, metricsCollector

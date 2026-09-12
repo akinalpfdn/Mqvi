@@ -253,6 +253,7 @@ func initRoutes(
 	// Platform Admin — Reports
 	mux.Handle("GET /api/admin/reports", authAdmin(h.Admin.ListReports))
 	mux.Handle("PATCH /api/admin/reports/{id}/status", authAdmin(h.Admin.UpdateReportStatus))
+	mux.Handle("DELETE /api/admin/reports/{id}/message", authAdmin(h.Admin.DeleteReportedMessage))
 	mux.Handle("GET /api/admin/server-reports", authAdmin(h.Admin.ListServerReports))
 	mux.Handle("PATCH /api/admin/server-reports/{id}/status", authAdmin(h.Admin.UpdateServerReportStatus))
 	mux.Handle("POST /api/admin/reports/mark-seen", authAdmin(h.Admin.MarkReportsSeen))

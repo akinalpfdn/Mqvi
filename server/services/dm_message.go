@@ -394,6 +394,26 @@ func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string)
 		return fmt.Errorf("%w: you can only delete your own messages", pkg.ErrForbidden)
 	}
 
+	return s.deleteDMMessage(ctx, msg, channel)
+}
+
+// DeleteMessageAsModerator is the report-handling path; no membership check.
+func (s *dmService) DeleteMessageAsModerator(ctx context.Context, messageID string) error {
+	msg, err := s.dmRepo.GetMessageByID(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	channel, err := s.dmRepo.GetChannelByID(ctx, msg.DMChannelID)
+	if err != nil {
+		return err
+	}
+	return s.deleteDMMessage(ctx, msg, channel)
+}
+
+// deleteDMMessage is the shared core: files, row, quota, broadcast to both participants.
+func (s *dmService) deleteDMMessage(ctx context.Context, msg *models.DMMessage, channel *models.DMChannel) error {
+	messageID := msg.ID
+
 	// Collect attachment info before delete (CASCADE removes attachment rows)
 	var attachmentBytes int64
 	var dmAtts []models.DMAttachment

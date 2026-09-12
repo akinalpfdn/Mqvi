@@ -35,6 +35,8 @@ type DMService interface {
 	CreateCallLog(ctx context.Context, callerID, receiverID string, meta models.CallMeta) error
 	EditMessage(ctx context.Context, userID, messageID string, req *models.UpdateDMMessageRequest) (*models.DMMessage, error)
 	DeleteMessage(ctx context.Context, userID, messageID string) error
+	// DeleteMessageAsModerator removes a DM message for platform moderation; the admin is not a participant.
+	DeleteMessageAsModerator(ctx context.Context, messageID string) error
 
 	AcceptRequest(ctx context.Context, userID, channelID string) error
 	DeclineRequest(ctx context.Context, userID, channelID string) error

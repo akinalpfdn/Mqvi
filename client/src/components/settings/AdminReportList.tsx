@@ -11,7 +11,8 @@ import { useToastStore } from "../../stores/toastStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
-import { listAdminReports, updateReportStatus, platformBanUser, hardDeleteUser } from "../../api/admin";
+import { listAdminReports, updateReportStatus, platformBanUser, hardDeleteUser, deleteReportedMessage } from "../../api/admin";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useSettingsBadgeStore } from "../../stores/settingsBadgeStore";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
@@ -130,6 +131,7 @@ const STATUS_KEY_MAP: Record<string, string> = {
 function AdminReportList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const openAttachment = useAttachmentViewer();
 
@@ -283,6 +285,15 @@ function AdminReportList() {
       onClick: () => handleSendDM(report.reported_user_id, report.reported_display_name ?? report.reported_username),
     });
 
+    if (report.message_id || report.dm_message_id || report.voice_message_id) {
+      items.push({
+        label: t("platformReportDeleteMessage"),
+        danger: true,
+        separator: true,
+        onClick: () => handleDeleteReportedMessage(report),
+      });
+    }
+
     items.push({
       label: t("platformReportBanReported"),
       danger: true,
@@ -297,6 +308,22 @@ function AdminReportList() {
     });
 
     return items;
+  }
+
+  async function handleDeleteReportedMessage(report: AdminReportListItem) {
+    const ok = await confirm({
+      message: t("platformReportDeleteMessageConfirm"),
+      confirmLabel: t("platformReportDeleteMessage"),
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await deleteReportedMessage(report.id);
+    if (res.success) {
+      addToast("success", t("platformReportDeleteMessageSuccess"));
+      fetchReports();
+    } else {
+      addToast("error", t("platformReportDeleteMessageError"));
+    }
   }
 
   async function handleSendDM(userId: string, displayName: string) {
