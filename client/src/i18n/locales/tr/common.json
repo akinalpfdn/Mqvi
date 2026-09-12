@@ -134,7 +134,6 @@
   "block": "Engelle",
   "unblock": "Engeli Kaldır",
   "report": "Raporla",
-  "confirmBlock": "{{username}} adlı kullanıcıyı engellemek istediğinize emin misiniz? Size mesaj veya arkadaşlık isteği gönderemeyecek.",
   "connectionConnecting": "Sunucuya bağlanılıyor...",
   "connectionRetrying": "Sunucuya bağlanılıyor... (deneme {{attempt}}/{{max}})",
   "connectionFailed": "Sunucuya bağlanılamadı",

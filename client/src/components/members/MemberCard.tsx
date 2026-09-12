@@ -23,6 +23,7 @@ import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { hasPermission, Permissions } from "../../utils/permissions";
 import ReportModal from "../shared/ReportModal";
+import BlockConfirmDialog from "../shared/BlockConfirmDialog";
 
 const BADGE_ADMIN_USER_ID = "95a8b295072f98a5";
 
@@ -76,6 +77,7 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
   const [showRoleEditor, setShowRoleEditor] = useState(false);
   const [showBadgeAssign, setShowBadgeAssign] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
 
   const isBlocked = useBlockStore((s) => s.isBlocked)(userId);
   const blockUser = useBlockStore((s) => s.blockUser);
@@ -103,7 +105,7 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
   const inReq = incoming.find((r) => r.user_id === userId);
 
   const childModalOpenRef = useRef(false);
-  childModalOpenRef.current = showBadgeAssign || showRoleEditor || showReport;
+  childModalOpenRef.current = showBadgeAssign || showRoleEditor || showReport || showBlockConfirm;
 
   useLayoutEffect(() => {
     const card = cardRef.current;
@@ -374,12 +376,7 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
                     if (isBlocked) {
                       await unblockUser(userId);
                     } else {
-                      const ok = await confirm({
-                        message: t("confirmBlock", { username }),
-                        confirmLabel: t("block"),
-                        danger: true,
-                      });
-                      if (ok) await blockUser(userId);
+                      setShowBlockConfirm(true);
                     }
                   }}
                 >
@@ -496,6 +493,19 @@ function MemberCard({ member, user: userProp, position, onClose }: MemberCardPro
         <BadgeAssignModal
           member={member ?? { id: userId, username, display_name: displayName, avatar_url: avatarUrl, custom_status: customStatus, created_at: createdAt, status: "online", roles: [], effective_permissions: 0 } as MemberWithRoles}
           onClose={() => setShowBadgeAssign(false)}
+        />
+      )}
+
+      {showBlockConfirm && (
+        <BlockConfirmDialog
+          username={displayName ?? username}
+          onClose={() => setShowBlockConfirm(false)}
+          onConfirm={async (alsoReport) => {
+            setShowBlockConfirm(false);
+            // Block first; the report is optional and must not undo or delay the block.
+            const ok = await blockUser(userId);
+            if (ok && alsoReport) setShowReport(true);
+          }}
         />
       )}
 
