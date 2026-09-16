@@ -1,0 +1,358 @@
+import AVFoundation
+import Capacitor
+import Foundation
+import LiveKitWebRTC
+
+/// Native peer connection for p2p calls on iOS.
+///
+/// The media runs here instead of in WKWebView because the WebView cannot capture the
+/// microphone while CallKit owns the audio session: a call answered from the system screen
+/// connected but stayed silent in both directions. The call itself is unchanged — still
+/// peer to peer, still signalled over the app's WebSocket by the JS layer, which owns the
+/// call state machine and hands this plugin only SDP and ICE.
+///
+/// This phase carries audio. Video keeps running in the WebView until the native render
+/// layer lands.
+@objc(NativeP2PCallPlugin)
+public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "NativeP2PCallPlugin"
+    public let jsName = "NativeP2PCall"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "acceptRemoteOffer", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "acceptRemoteAnswer", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "addIceCandidate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setMicEnabled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "restartIce", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "closeCall", returnType: CAPPluginReturnPromise)
+    ]
+
+    /// One factory for the process: it owns the audio device module, and a second one would
+    /// fight the first over the microphone.
+    private static let factory: LKRTCPeerConnectionFactory = {
+        LKRTCPeerConnectionFactory(
+            encoderFactory: LKRTCDefaultVideoEncoderFactory(),
+            decoderFactory: LKRTCDefaultVideoDecoderFactory()
+        )
+    }()
+
+    /// Everything below is touched from JS calls and from WebRTC's own delegate queue.
+    private let lock = NSLock()
+    private var peerConnection: LKRTCPeerConnection?
+    private var audioTrack: LKRTCAudioTrack?
+    private var callId: String?
+    private var isCaller = false
+    /// Renegotiation is the offerer's job; the answerer only ever answers.
+    private var makingOffer = false
+
+    // MARK: - JS surface
+
+    @objc func start(_ call: CAPPluginCall) {
+        guard let callId = call.getString("callId") else {
+            call.reject("callId is required")
+            return
+        }
+        let isCaller = call.getBool("isCaller") ?? false
+        let iceServers = Self.parseIceServers(call.getArray("iceServers"))
+
+        requestMicrophone { [weak self] granted in
+            guard let self else { return }
+            guard granted else {
+                call.reject("microphone permission denied")
+                return
+            }
+            self.lock.lock()
+            self.callId = callId
+            self.isCaller = isCaller
+            self.lock.unlock()
+
+            guard let pc = self.buildPeerConnection(iceServers: iceServers) else {
+                call.reject("failed to create peer connection")
+                return
+            }
+            // The offerer offers immediately; the answerer waits for the offer, which is what
+            // creates its side of the negotiation.
+            if isCaller {
+                self.createOffer(on: pc)
+            }
+            call.resolve()
+        }
+    }
+
+    @objc func acceptRemoteOffer(_ call: CAPPluginCall) {
+        guard let sdp = call.getString("sdp") else {
+            call.reject("sdp is required")
+            return
+        }
+        guard let pc = currentPeerConnection() else {
+            call.reject("no active call")
+            return
+        }
+        let offer = LKRTCSessionDescription(type: .offer, sdp: sdp)
+        pc.setRemoteDescription(offer) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                call.reject("setRemoteDescription(offer) failed: \(error.localizedDescription)")
+                return
+            }
+            pc.answer(for: Self.mediaConstraints()) { answer, error in
+                guard let answer else {
+                    call.reject("createAnswer failed: \(error?.localizedDescription ?? "unknown")")
+                    return
+                }
+                pc.setLocalDescription(answer) { error in
+                    if let error {
+                        call.reject("setLocalDescription(answer) failed: \(error.localizedDescription)")
+                        return
+                    }
+                    self.emitLocalDescription(type: "answer", sdp: answer.sdp)
+                    call.resolve()
+                }
+            }
+        }
+    }
+
+    @objc func acceptRemoteAnswer(_ call: CAPPluginCall) {
+        guard let sdp = call.getString("sdp") else {
+            call.reject("sdp is required")
+            return
+        }
+        guard let pc = currentPeerConnection() else {
+            call.reject("no active call")
+            return
+        }
+        pc.setRemoteDescription(LKRTCSessionDescription(type: .answer, sdp: sdp)) { error in
+            if let error {
+                // A late answer against a stable state is survivable; the call keeps running.
+                print("[p2p-native] setRemoteDescription(answer): \(error.localizedDescription)")
+            }
+            call.resolve()
+        }
+    }
+
+    @objc func addIceCandidate(_ call: CAPPluginCall) {
+        guard let sdp = call.getString("candidate") else {
+            call.reject("candidate is required")
+            return
+        }
+        guard let pc = currentPeerConnection() else {
+            call.resolve() // the call is gone; the candidate is meaningless
+            return
+        }
+        let candidate = LKRTCIceCandidate(
+            sdp: sdp,
+            sdpMLineIndex: Int32(call.getInt("sdpMLineIndex") ?? 0),
+            sdpMid: call.getString("sdpMid")
+        )
+        pc.add(candidate) { error in
+            if let error {
+                print("[p2p-native] addIceCandidate: \(error.localizedDescription)")
+            }
+            call.resolve()
+        }
+    }
+
+    @objc func setMicEnabled(_ call: CAPPluginCall) {
+        let enabled = call.getBool("enabled") ?? true
+        lock.lock()
+        audioTrack?.isEnabled = enabled
+        lock.unlock()
+        call.resolve()
+    }
+
+    @objc func restartIce(_ call: CAPPluginCall) {
+        guard let pc = currentPeerConnection() else {
+            call.resolve()
+            return
+        }
+        // Only the offerer can restart; the answerer asks the peer to, in the JS layer.
+        if isCallerNow() {
+            pc.restartIce()
+        }
+        call.resolve()
+    }
+
+    @objc func closeCall(_ call: CAPPluginCall) {
+        teardown()
+        call.resolve()
+    }
+
+    // MARK: - internals
+
+    private func requestMicrophone(_ completion: @escaping (Bool) -> Void) {
+        let session = AVAudioSession.sharedInstance()
+        switch session.recordPermission {
+        case .granted:
+            completion(true)
+        case .denied:
+            completion(false)
+        default:
+            session.requestRecordPermission { granted in
+                DispatchQueue.main.async { completion(granted) }
+            }
+        }
+    }
+
+    private func buildPeerConnection(iceServers: [LKRTCIceServer]) -> LKRTCPeerConnection? {
+        let config = LKRTCConfiguration()
+        config.iceServers = iceServers
+        config.sdpSemantics = .unifiedPlan
+        // Trickle ICE: candidates go out as they are gathered, the way the web engine does it.
+        config.continualGatheringPolicy = .gatherContinually
+
+        guard let pc = Self.factory.peerConnection(
+            with: config,
+            constraints: Self.mediaConstraints(),
+            delegate: self
+        ) else { return nil }
+
+        let source = Self.factory.audioSource(with: Self.audioConstraints())
+        let track = Self.factory.audioTrack(with: source, trackId: "mqvi-audio")
+        pc.add(track, streamIds: ["mqvi"])
+
+        lock.lock()
+        peerConnection = pc
+        audioTrack = track
+        lock.unlock()
+        return pc
+    }
+
+    private func createOffer(on pc: LKRTCPeerConnection) {
+        lock.lock()
+        if makingOffer {
+            lock.unlock()
+            return
+        }
+        makingOffer = true
+        lock.unlock()
+
+        pc.offer(for: Self.mediaConstraints()) { [weak self] offer, error in
+            guard let self else { return }
+            guard let offer else {
+                self.finishOffer()
+                print("[p2p-native] createOffer: \(error?.localizedDescription ?? "unknown")")
+                return
+            }
+            pc.setLocalDescription(offer) { error in
+                self.finishOffer()
+                if let error {
+                    print("[p2p-native] setLocalDescription(offer): \(error.localizedDescription)")
+                    return
+                }
+                self.emitLocalDescription(type: "offer", sdp: offer.sdp)
+            }
+        }
+    }
+
+    private func finishOffer() {
+        lock.lock()
+        makingOffer = false
+        lock.unlock()
+    }
+
+    private func currentPeerConnection() -> LKRTCPeerConnection? {
+        lock.lock()
+        defer { lock.unlock() }
+        return peerConnection
+    }
+
+    private func isCallerNow() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isCaller
+    }
+
+    private func teardown() {
+        lock.lock()
+        let pc = peerConnection
+        peerConnection = nil
+        audioTrack = nil
+        callId = nil
+        makingOffer = false
+        lock.unlock()
+        pc?.close()
+    }
+
+    private func emitLocalDescription(type: String, sdp: String) {
+        notifyListeners("localDescription", data: ["type": type, "sdp": sdp], retainUntilConsumed: true)
+    }
+
+    private static func mediaConstraints() -> LKRTCMediaConstraints {
+        LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+    }
+
+    /// Matches what the web engine asks getUserMedia for.
+    private static func audioConstraints() -> LKRTCMediaConstraints {
+        LKRTCMediaConstraints(
+            mandatoryConstraints: [
+                "googEchoCancellation": "true",
+                "googNoiseSuppression": "true",
+                "googAutoGainControl": "true"
+            ],
+            optionalConstraints: nil
+        )
+    }
+
+    private static func parseIceServers(_ raw: JSArray?) -> [LKRTCIceServer] {
+        guard let raw else { return [] }
+        return raw.compactMap { entry in
+            guard let dict = entry as? JSObject else { return nil }
+            let urls: [String]
+            if let list = dict["urls"] as? [String] {
+                urls = list
+            } else if let single = dict["urls"] as? String {
+                urls = [single]
+            } else {
+                return nil
+            }
+            return LKRTCIceServer(
+                urlStrings: urls,
+                username: dict["username"] as? String,
+                credential: dict["credential"] as? String
+            )
+        }
+    }
+}
+
+// MARK: - LKRTCPeerConnectionDelegate
+
+extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate) {
+        notifyListeners("iceCandidate", data: [
+            "candidate": candidate.sdp,
+            "sdpMid": candidate.sdpMid ?? "",
+            "sdpMLineIndex": Int(candidate.sdpMLineIndex)
+        ], retainUntilConsumed: true)
+    }
+
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCPeerConnectionState) {
+        notifyListeners("connectionState", data: ["state": Self.name(for: newState)])
+    }
+
+    public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection) {
+        // The answerer never offers: doing so mid-call is what produces glare.
+        guard isCallerNow(), peerConnection.signalingState == .stable else { return }
+        createOffer(on: peerConnection)
+    }
+
+    // Unused, but the protocol requires them.
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceConnectionState) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove candidates: [LKRTCIceCandidate]) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didOpen dataChannel: LKRTCDataChannel) {}
+
+    private static func name(for state: RTCPeerConnectionState) -> String {
+        switch state {
+        case .new: return "new"
+        case .connecting: return "connecting"
+        case .connected: return "connected"
+        case .disconnected: return "disconnected"
+        case .failed: return "failed"
+        case .closed: return "closed"
+        @unknown default: return "unknown"
+        }
+    }
+}

@@ -17,7 +17,9 @@
 import { create } from "zustand";
 import i18n from "../i18n";
 import type { CallEngineEvents, CallMediaEngine } from "../call/CallMediaEngine";
+import { NativeCallEngine } from "../call/NativeCallEngine";
 import { WebCallEngine } from "../call/WebCallEngine";
+import { getCapacitorPlatform } from "../utils/constants";
 import { dismissIncomingCallUI } from "../native/p2pCall";
 import { startVoiceCallService, stopVoiceCallService } from "../utils/nativePlugins";
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
@@ -98,11 +100,17 @@ type P2PCallStore = {
 };
 
 /**
- * The engine that runs a call's media. One implementation today — the peer connection in
- * this page. Phase 165 selects a native one on iOS, where WKWebView cannot capture while
- * CallKit owns the audio session.
+ * The engine that runs a call's media.
+ *
+ * iOS voice calls run natively: WKWebView cannot capture the microphone while CallKit owns
+ * the audio session, which is why a call answered from the system screen connected and then
+ * stayed silent in both directions. Video calls stay in the page until the native render
+ * layer lands — a native video track cannot be drawn into the WebView.
  */
-function createEngine(events: CallEngineEvents): CallMediaEngine {
+function createEngine(events: CallEngineEvents, callType: P2PCallType): CallMediaEngine {
+  if (getCapacitorPlatform() === "ios" && callType === "voice") {
+    return new NativeCallEngine(events);
+  }
   return new WebCallEngine(events);
 }
 
@@ -240,7 +248,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       onConnectionLost: () => {
         if (isCurrentCall()) get().endCall();
       },
-    });
+    }, activeCall.call_type);
 
     set({ engine });
     return engine;
