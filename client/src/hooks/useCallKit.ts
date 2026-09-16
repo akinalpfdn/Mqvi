@@ -27,10 +27,14 @@ export function useCallKit(): void {
     if (getCapacitorPlatform() !== "ios") return;
 
     const handles: PluginListenerHandle[] = [];
-    // call_ids that entered via CallKit (answered) — only these get dismissed via
-    // P2PCall.endCall when they later clear in-app. Outgoing/foreground calls never
-    // touched CallKit and must not be dismissed.
+    // call_ids answered from the CallKit screen. These stay live in CallKit for the whole
+    // call and are only dismissed once they clear in-app.
     const callKitCalls = new Set<string>();
+    // Every incoming call id seen on this device. The VoIP push reports the call to CallKit
+    // even while the app is foreground, so answering or declining inside the app leaves that
+    // screen up unless we take it down: the server excludes the device that acted from the
+    // cancel push. Outgoing calls never enter this set, and must never be dismissed.
+    const reportedCalls = new Set<string>();
     let pendingAccept: string | null = null;
     let pendingTimer: ReturnType<typeof setTimeout> | null = null;
     let lastCallId: string | null = null;
@@ -81,7 +85,9 @@ export function useCallKit(): void {
       );
       handles.push(
         await P2PCall.addListener("callEnded", ({ call_id }) => {
-          callKitCalls.delete(call_id); // CallKit already ended it natively
+          // CallKit already ended it natively — nothing left to dismiss.
+          callKitCalls.delete(call_id);
+          reportedCalls.delete(call_id);
           if (pendingAccept === call_id) clearPending();
           const store = useP2PCallStore.getState();
           if (store.incomingCall?.id === call_id) store.declineCall(call_id);
@@ -93,7 +99,9 @@ export function useCallKit(): void {
     void setup().catch((err) => console.error("[callkit] setup failed:", err));
 
     const unsubscribe = useP2PCallStore.subscribe((state) => {
-      const currentId = state.activeCall?.id ?? state.incomingCall?.id ?? null;
+      const incomingId = state.incomingCall?.id ?? null;
+      const activeId = state.activeCall?.id ?? null;
+      const currentId = activeId ?? incomingId;
 
       if (pendingAccept && state.incomingCall?.id === pendingAccept) {
         const id = pendingAccept;
@@ -101,10 +109,21 @@ export function useCallKit(): void {
         state.acceptCall(id);
       }
 
-      // Dismiss CallKit only for a CallKit-originated call that has now cleared in-app.
-      if (lastCallId && currentId === null && callKitCalls.has(lastCallId)) {
+      if (incomingId) reportedCalls.add(incomingId);
+
+      // Answered inside the app: CallKit is still showing this call and nothing else will take
+      // it down. A call answered from the CallKit screen is left alone — there it is genuinely
+      // the system's active call until it ends.
+      if (activeId && reportedCalls.has(activeId) && !callKitCalls.has(activeId)) {
+        reportedCalls.delete(activeId);
+        void P2PCall.endCall({ call_id: activeId });
+      }
+
+      // Cleared in-app (declined, ended, timed out): take down whatever CallKit still holds.
+      if (lastCallId && currentId === null && (callKitCalls.has(lastCallId) || reportedCalls.has(lastCallId))) {
         const id = lastCallId;
         callKitCalls.delete(id);
+        reportedCalls.delete(id);
         void P2PCall.endCall({ call_id: id });
       }
       lastCallId = currentId;
