@@ -5,8 +5,17 @@ const { ensureFreshToken } = vi.hoisted(() => ({ ensureFreshToken: vi.fn() }));
 
 vi.mock("../api/client", () => ({ ensureFreshToken }));
 vi.mock("../utils/nativePlugins", () => ({ APP_RESUME_EVENT: "mqvi:app-resume" }));
+const { sendWSRef } = vi.hoisted(() => ({
+  sendWSRef: { current: null as null | ((op: string, data?: unknown) => void) },
+}));
 vi.mock("../stores/p2pCallStore", () => ({
-  useP2PCallStore: { getState: () => ({ registerSendWS: vi.fn() }) },
+  useP2PCallStore: {
+    getState: () => ({
+      registerSendWS: (fn: (op: string, data?: unknown) => void) => {
+        sendWSRef.current = fn;
+      },
+    }),
+  },
 }));
 vi.mock("../stores/voiceStore", () => ({
   useVoiceStore: { getState: () => ({ isMuted: false, isDeafened: false }) },
@@ -377,5 +386,62 @@ describe("useWebSocket resume probe", () => {
     await advance(30_000);
     expect(socket.heartbeats).toBe(3);
     expect(socket.readyState).not.toBe(OPEN);
+  });
+});
+
+/**
+ * A call declined from the native call UI is usually declined with no socket at all: the app was
+ * launched into the background by the VoIP push. Dropping that message leaves the caller ringing
+ * until the server's ring timeout.
+ */
+describe("useWebSocket call teardown queue", () => {
+  it("should deliver a decline that was sent before the socket opened", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => {
+      sendWSRef.current?.("p2p_call_decline", { call_id: "c1" });
+    });
+    expect(latest().sent).toHaveLength(0);
+
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.map((s) => JSON.parse(s))).toContainEqual({
+      op: "p2p_call_decline",
+      d: { call_id: "c1" },
+    });
+  });
+
+  it("should not replay a teardown older than the ring timeout", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => {
+      sendWSRef.current?.("p2p_call_end", { call_id: "c1" });
+    });
+    await advance(61_000);
+
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.some((s) => JSON.parse(s).op === "p2p_call_end")).toBe(false);
+  });
+
+  it("should drop everything else sent with no socket", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => {
+      sendWSRef.current?.("p2p_call_initiate", { receiver_id: "them" });
+    });
+
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.some((s) => JSON.parse(s).op === "p2p_call_initiate")).toBe(false);
   });
 });

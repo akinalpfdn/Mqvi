@@ -55,6 +55,12 @@ const ONLINE_RECONNECT_MIN_INTERVAL = 5_000;
 /** Typing throttle (ms) — prevents flooding same channel */
 const TYPING_THROTTLE = 3_000;
 
+/** Call teardown ops held while the socket is down (see sendWS). */
+const QUEUED_CALL_OPS = new Set(["p2p_call_decline", "p2p_call_end"]);
+/** Past the server's 60s ring timeout the call is gone; sending then is noise. */
+const QUEUED_CALL_OP_TTL = 60_000;
+const MAX_QUEUED_CALL_OPS = 8;
+
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const missedHeartbeatsRef = useRef<number>(0);
@@ -268,16 +274,29 @@ export function useWebSocket() {
     []
   );
 
+  const pendingCallOpsRef = useRef<{ op: string; data?: unknown; at: number }[]>([]);
+
   /**
    * sendWS — Generic WS sender, used by P2P call store.
    * Single function instead of per-event helpers since store knows its own op codes.
+   *
+   * A call torn down from the native call UI usually has no live socket: the app was launched
+   * into the background by the VoIP push and never connected. Dropping that message leaves the
+   * OTHER party ringing until the server's ring timeout, so the two teardown ops are held and
+   * flushed on the next open. Nothing else is queued — a replayed initiate or accept would act
+   * on a call that is long gone.
    */
   const sendWS = useCallback((op: string, data?: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({ op, d: data })
       );
+      return;
     }
+    if (!QUEUED_CALL_OPS.has(op)) return;
+    const queue = pendingCallOpsRef.current;
+    queue.push({ op, data, at: Date.now() });
+    if (queue.length > MAX_QUEUED_CALL_OPS) queue.shift();
   }, []);
 
   // Register WS sender in P2P call store
@@ -400,6 +419,15 @@ export function useWebSocket() {
         heartbeatProbingRef.current = false;
 
         startHeartbeat(WS_HEARTBEAT_INTERVAL);
+
+        // Deliver the call teardowns that happened while there was no socket. Older than the
+        // server's ring timeout the call is gone anyway, so they are dropped rather than sent.
+        const queued = pendingCallOpsRef.current;
+        pendingCallOpsRef.current = [];
+        for (const item of queued) {
+          if (Date.now() - item.at > QUEUED_CALL_OP_TTL) continue;
+          socket.send(JSON.stringify({ op: item.op, d: item.data }));
+        }
 
         // Proactive token refresh every 10min while WS is open.
         // Access token expires at 15min — 10min gives 5min buffer.

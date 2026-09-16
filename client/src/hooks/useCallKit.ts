@@ -18,6 +18,7 @@ import { registerPushToken } from "../api/push";
 import { cacheVoipToken } from "../utils/pushToken";
 import { P2PCall } from "../native/p2pCall";
 import { useP2PCallStore } from "../stores/p2pCallStore";
+import { useAuthStore } from "../stores/authStore";
 
 // Just past the server's 60s ring timeout.
 const PENDING_ACCEPT_TTL = 65_000;
@@ -100,8 +101,8 @@ export function useCallKit(): void {
 
     const unsubscribe = useP2PCallStore.subscribe((state) => {
       const incomingId = state.incomingCall?.id ?? null;
-      const activeId = state.activeCall?.id ?? null;
-      const currentId = activeId ?? incomingId;
+      const active = state.activeCall;
+      const currentId = active?.id ?? incomingId;
 
       if (pendingAccept && state.incomingCall?.id === pendingAccept) {
         const id = pendingAccept;
@@ -109,14 +110,23 @@ export function useCallKit(): void {
         state.acceptCall(id);
       }
 
-      if (incomingId) reportedCalls.add(incomingId);
+      // Only a call we are RECEIVING was reported to CallKit. handleCallInitiate mirrors the
+      // event into incomingCall for the caller too, so the field alone does not say which side
+      // this device is on — dismissing an outgoing call's screen would take down a call the
+      // system never showed.
+      const myId = useAuthStore.getState().user?.id;
+      if (incomingId && state.incomingCall?.receiver_id === myId) {
+        reportedCalls.add(incomingId);
+      }
 
       // Answered inside the app: CallKit is still showing this call and nothing else will take
-      // it down. A call answered from the CallKit screen is left alone — there it is genuinely
-      // the system's active call until it ends.
-      if (activeId && reportedCalls.has(activeId) && !callKitCalls.has(activeId)) {
-        reportedCalls.delete(activeId);
-        void P2PCall.endCall({ call_id: activeId });
+      // it down. The status is what says "answered" — handleCallInitiate puts a RINGING call in
+      // activeCall as well as incomingCall, so the presence of an active call means nothing.
+      // A call answered from the CallKit screen is left alone: there it is genuinely the
+      // system's active call until it ends.
+      if (active && active.status === "active" && reportedCalls.has(active.id) && !callKitCalls.has(active.id)) {
+        reportedCalls.delete(active.id);
+        void P2PCall.endCall({ call_id: active.id });
       }
 
       // Cleared in-app (declined, ended, timed out): take down whatever CallKit still holds.
