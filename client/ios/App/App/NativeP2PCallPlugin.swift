@@ -66,7 +66,13 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             self.isCaller = isCaller
             self.lock.unlock()
 
+            // Take the session before the connection exists: when the call came in through
+            // CallKit the system has already activated it, and this is what enables the audio
+            // unit for it.
+            CallAudioSession.begin()
+
             guard let pc = self.buildPeerConnection(iceServers: iceServers) else {
+                CallAudioSession.end()
                 call.reject("failed to create peer connection")
                 return
             }
@@ -263,6 +269,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func teardown() {
+        CallAudioSession.end()
         lock.lock()
         let pc = peerConnection
         peerConnection = nil
@@ -325,7 +332,7 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         ], retainUntilConsumed: true)
     }
 
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCPeerConnectionState) {
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCPeerConnectionState) {
         notifyListeners("connectionState", data: ["state": Self.name(for: newState)])
     }
 
@@ -336,15 +343,15 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
     }
 
     // Unused, but the protocol requires them.
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: LKRTCSignalingState) {}
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {}
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream) {}
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceConnectionState) {}
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceConnectionState) {}
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceGatheringState) {}
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove candidates: [LKRTCIceCandidate]) {}
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didOpen dataChannel: LKRTCDataChannel) {}
 
-    private static func name(for state: RTCPeerConnectionState) -> String {
+    private static func name(for state: LKRTCPeerConnectionState) -> String {
         switch state {
         case .new: return "new"
         case .connecting: return "connecting"

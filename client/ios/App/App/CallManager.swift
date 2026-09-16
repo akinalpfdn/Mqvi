@@ -227,12 +227,12 @@ extension CallManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        // The session is now the call's. WebKit's WebRTC pipeline picks up this route; the app
-        // must not activate or reconfigure it here.
-        print("[callkit] audio session activated")
+        // The system activated the session for this call. Hand it to the audio owner, which
+        // is what lets the native peer connection start its audio unit at the right moment.
+        CallAudioSession.callKitDidActivate(audioSession)
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        print("[callkit] audio session deactivated")
+        CallAudioSession.callKitDidDeactivate(audioSession)
     }
 }
