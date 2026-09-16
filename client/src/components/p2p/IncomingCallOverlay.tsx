@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
 import { silenceAndroidCallRing } from "../../native/p2pCall";
+import { getCapacitorPlatform } from "../../utils/constants";
 import Avatar from "../shared/Avatar";
 
 /**
@@ -69,6 +70,7 @@ async function playRingtone(): Promise<() => void> {
 function IncomingCallOverlay() {
   const { t } = useTranslation("common");
   const incomingCall = useP2PCallStore((s) => s.incomingCall);
+  const systemRingingCallId = useP2PCallStore((s) => s.systemRingingCallId);
   const acceptCall = useP2PCallStore((s) => s.acceptCall);
   const declineCall = useP2PCallStore((s) => s.declineCall);
   const currentUserId = useAuthStore((s) => s.user?.id);
@@ -82,6 +84,11 @@ function IncomingCallOverlay() {
       // This overlay is the ring now. Silence the Android notification that was posted while
       // the app was backgrounded, or the two ring over each other until its 50s timeout.
       silenceAndroidCallRing();
+      // On iOS the system rings through CallKit, so a second web-audio ring is just noise —
+      // but only when CallKit actually got the call. A receiver whose push was withheld (Do Not
+      // Disturb, invisible) or never delivered has no system ring, and silence there would mean
+      // no ring at all.
+      if (getCapacitorPlatform() === "ios" && systemRingingCallId === incomingCall.id) return;
       playRingtone().then((stop) => {
         if (cancelled) {
           stop();
@@ -98,7 +105,7 @@ function IncomingCallOverlay() {
         stopRingtoneRef.current = null;
       }
     };
-  }, [incomingCall]);
+  }, [incomingCall, systemRingingCallId]);
 
   if (!incomingCall || !currentUserId) return null;
 

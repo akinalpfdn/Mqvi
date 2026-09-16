@@ -31,6 +31,8 @@ type P2PCallStore = {
 
   /** Incoming call notification — used by IncomingCallOverlay */
   incomingCall: P2PCall | null;
+  /** iOS: the call CallKit is ringing right now. The in-app ring stays quiet for it. */
+  systemRingingCallId: string | null;
 
   /** Local media stream (mic + optional camera) */
   localStream: MediaStream | null;
@@ -375,6 +377,7 @@ export function createPeerConnection(
 export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   activeCall: null,
   incomingCall: null,
+  systemRingingCallId: null,
   localStream: null,
   remoteStream: null,
   peerConnection: null,

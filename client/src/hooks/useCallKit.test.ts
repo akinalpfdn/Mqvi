@@ -7,12 +7,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 
 const { endCall, getVoipToken, addListener, nativeListeners } = vi.hoisted(() => {
-  const nativeListeners: Record<string, (data: { call_id: string }) => void> = {};
+  const nativeListeners: Record<string, (data: { call_id: string; muted?: boolean }) => void> = {};
   return {
     nativeListeners,
     endCall: vi.fn(async () => {}),
     getVoipToken: vi.fn(async () => ({ token: "" })),
-    addListener: vi.fn(async (event: string, cb: (data: { call_id: string }) => void) => {
+    addListener: vi.fn(async (event: string, cb: (data: { call_id: string; muted?: boolean }) => void) => {
       nativeListeners[event] = cb;
       return { remove: vi.fn() };
     }),
@@ -60,6 +60,7 @@ beforeEach(() => {
   useP2PCallStore.setState({
     activeCall: null,
     incomingCall: null,
+    systemRingingCallId: null,
     _sendWS: vi.fn(),
     _sessionId: "session-1",
   } as never);
@@ -109,6 +110,46 @@ describe("useCallKit — dismissing the system call screen", () => {
 
     useP2PCallStore.setState({ activeCall: null, incomingCall: null });
     expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID });
+  });
+
+  it("should mark the call as ringing in the system, and clear it once answered", async () => {
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callReported).toBeDefined());
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    nativeListeners.callReported({ call_id: CALL_ID });
+    expect(useP2PCallStore.getState().systemRingingCallId).toBe(CALL_ID);
+
+    useP2PCallStore.getState().handleCallAccept({ call_id: CALL_ID, accepted_by: "session-1" });
+    expect(useP2PCallStore.getState().systemRingingCallId).toBeNull();
+  });
+
+  it("should leave the in-app ring alone when CallKit never reported the call", async () => {
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callReported).toBeDefined());
+
+    // Push withheld (invisible receiver) — no callReported ever arrives.
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+
+    expect(useP2PCallStore.getState().systemRingingCallId).toBeNull();
+  });
+
+  it("should mirror the system mute button into the call", async () => {
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callMuted).toBeDefined());
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    useP2PCallStore.getState().handleCallAccept({ call_id: CALL_ID, accepted_by: "session-1" });
+
+    nativeListeners.callMuted({ call_id: CALL_ID, muted: true } as never);
+    expect(useP2PCallStore.getState().isMuted).toBe(true);
+
+    // Already muted — a repeat must not toggle it back on.
+    nativeListeners.callMuted({ call_id: CALL_ID, muted: true } as never);
+    expect(useP2PCallStore.getState().isMuted).toBe(true);
+
+    nativeListeners.callMuted({ call_id: CALL_ID, muted: false } as never);
+    expect(useP2PCallStore.getState().isMuted).toBe(false);
   });
 
   it("should leave an outgoing call alone", () => {

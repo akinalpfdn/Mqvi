@@ -20,8 +20,8 @@ import { P2PCall } from "../native/p2pCall";
 import { useP2PCallStore } from "../stores/p2pCallStore";
 import { useAuthStore } from "../stores/authStore";
 
-// Just past the server's 60s ring timeout.
-const PENDING_ACCEPT_TTL = 65_000;
+// Just past the ring budget — after that the call is gone and a late answer means nothing.
+const PENDING_ACCEPT_TTL = 35_000;
 
 export function useCallKit(): void {
   useEffect(() => {
@@ -85,6 +85,20 @@ export function useCallKit(): void {
         }),
       );
       handles.push(
+        await P2PCall.addListener("callReported", ({ call_id }) => {
+          // CallKit is ringing this one; the in-app overlay must not ring on top of it.
+          reportedCalls.add(call_id);
+          useP2PCallStore.setState({ systemRingingCallId: call_id });
+        }),
+      );
+      handles.push(
+        await P2PCall.addListener("callMuted", ({ call_id, muted }) => {
+          const store = useP2PCallStore.getState();
+          if (store.activeCall?.id !== call_id) return;
+          if (store.isMuted !== muted) store.toggleMute();
+        }),
+      );
+      handles.push(
         await P2PCall.addListener("callEnded", ({ call_id }) => {
           // CallKit already ended it natively — nothing left to dismiss.
           callKitCalls.delete(call_id);
@@ -117,6 +131,12 @@ export function useCallKit(): void {
       const myId = useAuthStore.getState().user?.id;
       if (incomingId && state.incomingCall?.receiver_id === myId) {
         reportedCalls.add(incomingId);
+      }
+
+      // The system stops ringing the moment the call is answered or gone; drop the flag with it
+      // so a later call that CallKit never rings is not silenced by a stale id.
+      if (state.systemRingingCallId && state.systemRingingCallId !== incomingId) {
+        useP2PCallStore.setState({ systemRingingCallId: null });
       }
 
       // Answered inside the app: CallKit is still showing this call and nothing else will take

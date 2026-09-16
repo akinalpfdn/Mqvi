@@ -9,22 +9,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Configure audio session for voice/video calls.
-        // .playAndRecord: simultaneous input + output (required for calls).
-        // .allowBluetooth: support AirPods / BT headsets.
-        // .defaultToSpeaker: route to speaker when no headphones connected.
-        // .mixWithOthers: don't interrupt other audio apps when not in a call.
+        // Category only — never setActive. WebKit's WebRTC needs .defaultToSpeaker to come out
+        // of the speaker instead of the earpiece, so the category stays here for channel voice.
+        // Activation is what must not happen: a session this app had already activated, with
+        // .mixWithOthers on top, is what left CallKit-answered calls connected but silent in
+        // both directions. For a call the system activates the session and tells us in
+        // CallManager.didActivate.
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setCategory(
                 .playAndRecord,
                 mode: .voiceChat,
-                options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .mixWithOthers]
+                options: [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
             )
-            // Minimize audio latency — 0.005s (5ms) buffer duration.
-            // Default is ~0.023s (23ms). Lower = less delay, especially in background.
+            // Minimize audio latency — 5ms buffer instead of the ~23ms default.
             try audioSession.setPreferredIOBufferDuration(0.005)
-            try audioSession.setActive(true)
         } catch {
             print("Failed to configure AVAudioSession: \(error.localizedDescription)")
         }

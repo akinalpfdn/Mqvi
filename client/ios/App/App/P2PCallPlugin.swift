@@ -49,4 +49,12 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
     func onCallEnded(callId: String) {
         notifyListeners("callEnded", data: ["call_id": callId], retainUntilConsumed: true)
     }
+
+    func onCallMuted(callId: String, muted: Bool) {
+        notifyListeners("callMuted", data: ["call_id": callId, "muted": muted], retainUntilConsumed: true)
+    }
+
+    func onCallReported(callId: String) {
+        notifyListeners("callReported", data: ["call_id": callId], retainUntilConsumed: true)
+    }
 }

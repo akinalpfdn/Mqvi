@@ -33,6 +33,16 @@ export interface P2PCallPlugin {
     eventName: "callEnded",
     listener: (data: { call_id: string }) => void,
   ): Promise<PluginListenerHandle>;
+
+  addListener(
+    eventName: "callReported",
+    listener: (data: { call_id: string }) => void,
+  ): Promise<PluginListenerHandle>;
+
+  addListener(
+    eventName: "callMuted",
+    listener: (data: { call_id: string; muted: boolean }) => void,
+  ): Promise<PluginListenerHandle>;
 }
 
 export const P2PCall = registerPlugin<P2PCallPlugin>("P2PCall");

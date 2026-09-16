@@ -99,9 +99,9 @@ type p2pCallService struct {
 }
 
 // ringingTimeout auto-cleans a call that is never answered. Slightly longer than
-// the client-side outgoing timeout so a well-behaved client ends it first; this
+// the client-side outgoing timeout (30s) so a well-behaved client ends it first; this
 // is a server-side backstop against a client that never sends decline/end.
-const ringingTimeout = 60 * time.Second
+const ringingTimeout = 35 * time.Second
 
 func (s *p2pCallService) SetAppLogger(logger P2PAppLogger) {
 	s.appLogger = logger

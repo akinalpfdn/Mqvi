@@ -15,6 +15,10 @@ protocol CallManagerListener: AnyObject {
     func onVoipToken(_ token: String)
     func onCallAnswered(callId: String)
     func onCallEnded(callId: String)
+    /// The system call screen's mute button was toggled.
+    func onCallMuted(callId: String, muted: Bool)
+    /// CallKit accepted the incoming call and is ringing it. The app must not ring on top.
+    func onCallReported(callId: String)
 }
 
 final class CallManager: NSObject {
@@ -31,6 +35,8 @@ final class CallManager: NSObject {
     private var bufferedToken: String?
     private var bufferedAnswered: [String] = []
     private var bufferedEnded: [String] = []
+    private var bufferedMuted: [(String, Bool)] = []
+    private var bufferedReported: [String] = []
 
     override init() {
         let config = CXProviderConfiguration()
@@ -40,6 +46,24 @@ final class CallManager: NSObject {
         provider = CXProvider(configuration: config)
         super.init()
         provider.setDelegate(self, queue: nil)
+    }
+
+    /// Category and mode only — never setActive. For a CallKit call the system activates the
+    /// session and calls didActivate; activating it here (or at launch) leaves the call
+    /// connected with no audio in either direction, because WebKit's WebRTC pipeline is then
+    /// running against a session it does not own.
+    private func configureAudioSessionForCall() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(
+                .playAndRecord,
+                mode: .voiceChat,
+                options: [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
+            )
+            try session.setPreferredIOBufferDuration(0.005)
+        } catch {
+            print("[callkit] audio session configuration failed: \(error.localizedDescription)")
+        }
     }
 
     /// Register for VoIP pushes. Call from AppDelegate.didFinishLaunching.
@@ -63,15 +87,32 @@ final class CallManager: NSObject {
     private func reportIncomingCall(callId: String, callerName: String, hasVideo: Bool, completion: @escaping () -> Void) {
         let uuid = UUID(uuidString: callId) ?? UUID()
         calls[uuid] = callId
+        configureAudioSessionForCall()
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: callerName)
         update.localizedCallerName = callerName
         update.hasVideo = hasVideo
-        provider.reportNewIncomingCall(with: uuid, update: update) { error in
+        // Holding is not implemented: an unhandled hold action times out and CallKit may end the
+        // call, so the button must not be offered at all.
+        update.supportsHolding = false
+        update.supportsGrouping = false
+        update.supportsUngrouping = false
+        update.supportsDTMF = false
+        provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
             if let error = error {
                 print("[callkit] reportNewIncomingCall failed: \(error.localizedDescription)")
+            } else {
+                self?.notifyReported(callId: callId)
             }
             completion()
+        }
+    }
+
+    private func notifyReported(callId: String) {
+        if let listener = listener {
+            listener.onCallReported(callId: callId)
+        } else {
+            bufferedReported.append(callId)
         }
     }
 
@@ -80,8 +121,12 @@ final class CallManager: NSObject {
         if let token = bufferedToken { listener.onVoipToken(token) }
         bufferedAnswered.forEach { listener.onCallAnswered(callId: $0) }
         bufferedEnded.forEach { listener.onCallEnded(callId: $0) }
+        bufferedMuted.forEach { listener.onCallMuted(callId: $0.0, muted: $0.1) }
+        bufferedReported.forEach { listener.onCallReported(callId: $0) }
+        bufferedReported.removeAll()
         bufferedAnswered.removeAll()
         bufferedEnded.removeAll()
+        bufferedMuted.removeAll()
     }
 }
 
@@ -170,9 +215,24 @@ extension CallManager: CXProviderDelegate {
         action.fulfill()
     }
 
-    func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        // WebRTC/LiveKit uses the activated session for call audio.
+    func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+        if let callId = calls[action.callUUID] {
+            if let listener = listener {
+                listener.onCallMuted(callId: callId, muted: action.isMuted)
+            } else {
+                bufferedMuted.append((callId, action.isMuted))
+            }
+        }
+        action.fulfill()
     }
 
-    func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {}
+    func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
+        // The session is now the call's. WebKit's WebRTC pipeline picks up this route; the app
+        // must not activate or reconfigure it here.
+        print("[callkit] audio session activated")
+    }
+
+    func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+        print("[callkit] audio session deactivated")
+    }
 }
