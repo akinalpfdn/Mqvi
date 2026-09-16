@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useNativeVideoLayout } from "../../hooks/useNativeVideoLayout";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useCinemaMode } from "../../hooks/useCinemaMode";
 import CinemaButton from "../shared/CinemaButton";
@@ -20,7 +21,16 @@ import P2PStreamContextMenu from "./P2PStreamContextMenu";
 
 // ─── Draggable Local PiP ───
 
-function DraggableVideo({ stream, onClick }: { stream: MediaStream; onClick?: () => void }) {
+function DraggableVideo({
+  stream,
+  onClick,
+  onElement,
+}: {
+  /** Null when the picture is drawn natively; the box still positions it. */
+  stream: MediaStream | null;
+  onClick?: () => void;
+  onElement?: (el: HTMLDivElement | null) => void;
+}) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
@@ -31,6 +41,12 @@ function DraggableVideo({ stream, onClick }: { stream: MediaStream; onClick?: ()
     },
     [stream],
   );
+
+  // The native layer needs this box's position, and only the parent knows what to do with it.
+  useEffect(() => {
+    onElement?.(wrapRef.current);
+    return () => onElement?.(null);
+  }, [onElement]);
 
   // Clamp position within parent bounds
   const clamp = useCallback((el: HTMLDivElement) => {
@@ -124,7 +140,13 @@ function P2PCallScreen() {
   const remoteStream = useP2PCallStore((s) => s.remoteStream);
   const callDuration = useP2PCallStore((s) => s.callDuration);
   const isVideoOn = useP2PCallStore((s) => s.isVideoOn);
+  const isNativeVideo = useP2PCallStore((s) => s.isNativeVideo);
+  const nativeRemoteVideo = useP2PCallStore((s) => s.hasRemoteVideo);
   const currentUserId = useAuthStore((s) => s.user?.id);
+
+  // Boxes the native layer draws into. Refs as state: the hook has to re-run when they arrive.
+  const [bigEl, setBigEl] = useState<HTMLElement | null>(null);
+  const [pipEl, setPipEl] = useState<HTMLElement | null>(null);
 
   // Remote audio is rendered by P2PAudioSink at app level (survives tab switches); this screen
   // is visuals only. Every <video> here stays muted.
@@ -174,8 +196,14 @@ function P2PCallScreen() {
   const isActive = activeCall?.status === "active";
   const isScreenSharing = useP2PCallStore((s) => s.isScreenSharing);
 
-  const hasRemoteVideo = remoteStream?.getVideoTracks().some((tr) => tr.enabled);
-  const hasLocalVideo = localStream?.getVideoTracks().some((tr) => tr.enabled);
+  // A natively drawn call has no streams to inspect; the engine reports what the peer sends
+  // and the store knows whether our own camera is on.
+  const hasRemoteVideo = isNativeVideo
+    ? nativeRemoteVideo
+    : remoteStream?.getVideoTracks().some((tr) => tr.enabled);
+  const hasLocalVideo = isNativeVideo
+    ? isVideoOn
+    : localStream?.getVideoTracks().some((tr) => tr.enabled);
 
   // ─── Camera swap (WhatsApp-style) ───
   // The PiP always shows your own camera as the secondary view; when both peers
@@ -196,6 +224,15 @@ function P2PCallScreen() {
   const handlePipClick = useCallback(() => {
     if (bothHaveVideo) setIsSwapped((s) => !s);
   }, [bothHaveVideo]);
+
+  // Swapping does not move the tracks, it moves the boxes: the remote feed goes wherever the
+  // big box is, which after a swap is the small one.
+  useNativeVideoLayout({
+    active: isNativeVideo && !!activeCall && activeCall.status === "active",
+    remoteEl: effectiveSwapped ? pipEl : bigEl,
+    localEl: effectiveSwapped ? bigEl : pipEl,
+    mirrorLocal: true,
+  });
 
   // The big feed's srcObject follows whichever stream is foregrounded (muted —
   // audio always comes from the hidden <audio> element).
@@ -253,7 +290,11 @@ function P2PCallScreen() {
             onContextMenu={handleContextMenu}
             onDoubleClick={handleDoubleClick}
           >
-            {bigHasVideo ? (
+            {bigHasVideo && isNativeVideo ? (
+              // The picture is drawn over this box by the native layer; the box only holds
+              // the place and gives the hook something to measure.
+              <div ref={setBigEl} className="p2p-remote-video p2p-native-surface" />
+            ) : bigHasVideo ? (
               <video
                 ref={bigVideoRef}
                 className="p2p-remote-video"
@@ -273,10 +314,11 @@ function P2PCallScreen() {
             )}
 
             {/* Floating PiP — your own camera; tap to swap when both are on camera */}
-            {localHasCam && pipStream && (
+            {localHasCam && (isNativeVideo || pipStream) && (
               <DraggableVideo
-                stream={pipStream}
+                stream={isNativeVideo ? null : pipStream}
                 onClick={bothHaveVideo ? handlePipClick : undefined}
+                onElement={isNativeVideo ? setPipEl : undefined}
               />
             )}
 

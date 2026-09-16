@@ -23,6 +23,9 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "acceptRemoteAnswer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addIceCandidate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMicEnabled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setVideoEnabled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setVideoLayout", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hideVideo", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setIceServers", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "restartIce", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeCall", returnType: CAPPluginReturnPromise)
@@ -41,6 +44,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private let lock = NSLock()
     private var peerConnection: LKRTCPeerConnection?
     private var audioTrack: LKRTCAudioTrack?
+    private var videoTrack: LKRTCVideoTrack?
+    private var camera: NativeCallCamera?
     private var callId: String?
     private var isCaller = false
     /// Renegotiation is the offerer's job; the answerer only ever answers.
@@ -54,6 +59,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let isCaller = call.getBool("isCaller") ?? false
+        let wantsVideo = call.getString("callType") == "video"
         let iceServers = Self.parseIceServers(call.getArray("iceServers"))
 
         requestMicrophone { [weak self] granted in
@@ -75,6 +81,21 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let pc = self.buildPeerConnection(iceServers: iceServers) else {
                 CallAudioSession.end()
                 call.reject("failed to create peer connection")
+                return
+            }
+
+            // A video call publishes the camera from the start, both sides. Toggling it later
+            // only flips the track, so a mid-call toggle never has to renegotiate.
+            if wantsVideo {
+                self.requestCamera { granted in
+                    if granted {
+                        self.addVideoTrack(to: pc)
+                    } else {
+                        print("[p2p-native] camera permission denied; continuing with audio only")
+                    }
+                    if isCaller { self.createOffer(on: pc) }
+                    call.resolve()
+                }
                 return
             }
             // The offerer offers immediately; the answerer waits for the offer, which is what
@@ -182,6 +203,53 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
+    @objc func setVideoEnabled(_ call: CAPPluginCall) {
+        let enabled = call.getBool("enabled") ?? true
+        lock.lock()
+        let track = videoTrack
+        let camera = self.camera
+        lock.unlock()
+
+        guard let track else {
+            call.resolve(["enabled": false])
+            return
+        }
+        track.isEnabled = enabled
+        Task { @MainActor in
+            if enabled { camera?.start(position: camera?.position ?? .front) } else { camera?.stop() }
+            NativeCallVideo.shared.setLocalTrack(enabled ? track : nil)
+            call.resolve(["enabled": enabled])
+        }
+    }
+
+    /// Where the two feeds belong, in web-view points. The call screen owns the layout; this
+    /// only follows it.
+    @objc func setVideoLayout(_ call: CAPPluginCall) {
+        let remote = Self.rect(from: call.getObject("remote"))
+        let local = Self.rect(from: call.getObject("local"))
+        let radius = call.getDouble("cornerRadius") ?? 0
+        let mirror = call.getBool("mirrorLocal") ?? true
+        Task { @MainActor in
+            if let webView = self.webView {
+                NativeCallVideo.shared.attach(to: webView)
+            }
+            NativeCallVideo.shared.layout(
+                remote: remote,
+                local: local,
+                cornerRadius: CGFloat(radius),
+                mirrorLocal: mirror
+            )
+            call.resolve()
+        }
+    }
+
+    @objc func hideVideo(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            NativeCallVideo.shared.hide()
+            call.resolve()
+        }
+    }
+
     @objc func restartIce(_ call: CAPPluginCall) {
         guard let pc = currentPeerConnection() else {
             call.resolve()
@@ -200,6 +268,49 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     // MARK: - internals
+
+    private func requestCamera(_ completion: @escaping (Bool) -> Void) {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            completion(true)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async { completion(granted) }
+            }
+        default:
+            completion(false)
+        }
+    }
+
+    private func addVideoTrack(to pc: LKRTCPeerConnection) {
+        let source = Self.factory.videoSource()
+        let track = Self.factory.videoTrack(with: source, trackId: "mqvi-video")
+        pc.add(track, streamIds: ["mqvi"])
+
+        lock.lock()
+        videoTrack = track
+        lock.unlock()
+
+        // The capturer and the views are main-actor bound: they drive UIKit and the capture
+        // session, both of which expect the main thread.
+        Task { @MainActor in
+            let camera = NativeCallCamera(source: source)
+            self.lock.lock()
+            self.camera = camera
+            self.lock.unlock()
+            camera.start()
+            NativeCallVideo.shared.setLocalTrack(track)
+        }
+    }
+
+    private static func rect(from object: JSObject?) -> CGRect? {
+        guard let object,
+              let x = object["x"] as? Double,
+              let y = object["y"] as? Double,
+              let width = object["width"] as? Double,
+              let height = object["height"] as? Double else { return nil }
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
 
     private func requestMicrophone(_ completion: @escaping (Bool) -> Void) {
         let session = AVAudioSession.sharedInstance()
@@ -288,11 +399,19 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CallAudioSession.end()
         lock.lock()
         let pc = peerConnection
+        let camera = self.camera
         peerConnection = nil
         audioTrack = nil
+        videoTrack = nil
+        self.camera = nil
         callId = nil
         makingOffer = false
         lock.unlock()
+
+        Task { @MainActor in
+            camera?.stop()
+            NativeCallVideo.shared.teardown()
+        }
         pc?.close()
     }
 
@@ -350,6 +469,26 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
 
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCPeerConnectionState) {
         notifyListeners("connectionState", data: ["state": Self.name(for: newState)])
+    }
+
+    /// The remote video arrives here; the surface draws it.
+    public func peerConnection(
+        _ peerConnection: LKRTCPeerConnection,
+        didAdd rtpReceiver: LKRTCRtpReceiver,
+        streams mediaStreams: [LKRTCMediaStream]
+    ) {
+        guard let track = rtpReceiver.track as? LKRTCVideoTrack else { return }
+        Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(track) }
+        notifyListeners("remoteVideo", data: ["available": true])
+    }
+
+    public func peerConnection(
+        _ peerConnection: LKRTCPeerConnection,
+        didRemove rtpReceiver: LKRTCRtpReceiver
+    ) {
+        guard rtpReceiver.track is LKRTCVideoTrack else { return }
+        Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(nil) }
+        notifyListeners("remoteVideo", data: ["available": false])
     }
 
     public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection) {

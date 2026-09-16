@@ -17,6 +17,8 @@ import type { CallEngineEvents, CallEngineStart, CallMediaEngine } from "./CallM
 import { DISCONNECT_GRACE_MS, IceRecovery } from "./IceRecovery";
 
 export class NativeCallEngine implements CallMediaEngine {
+  readonly rendersVideoNatively = true;
+
   private readonly events: CallEngineEvents;
   private readonly handles: PluginListenerHandle[] = [];
 
@@ -81,6 +83,11 @@ export class NativeCallEngine implements CallMediaEngine {
         this.onConnectionState(state);
       }),
     );
+    this.handles.push(
+      await NativeP2PCall.addListener("remoteVideo", ({ available }) => {
+        if (!this.closed) this.events.onRemoteVideo(available);
+      }),
+    );
 
     if (this.closed) return;
     const iceServers = await fetchIceServers();
@@ -90,6 +97,7 @@ export class NativeCallEngine implements CallMediaEngine {
     await NativeP2PCall.start({
       callId: opts.callId,
       isCaller: opts.isCaller,
+      callType: opts.callType,
       iceServers: iceServers.map((server) => ({
         urls: server.urls,
         username: server.username,
@@ -129,9 +137,15 @@ export class NativeCallEngine implements CallMediaEngine {
     );
   }
 
-  /** The camera is not on this engine yet; a video call runs on the web engine. */
-  async setVideoEnabled(): Promise<boolean> {
-    return false;
+  async setVideoEnabled(enabled: boolean): Promise<boolean> {
+    if (this.closed) return false;
+    try {
+      const result = await NativeP2PCall.setVideoEnabled({ enabled });
+      return result.enabled;
+    } catch (err) {
+      console.error("[p2p] native setVideoEnabled failed:", err);
+      return false;
+    }
   }
 
   async startScreenShare(): Promise<boolean> {

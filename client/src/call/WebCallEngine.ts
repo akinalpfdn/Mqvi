@@ -48,6 +48,8 @@ function applyDegradationPreference(pc: RTCPeerConnection): void {
 }
 
 export class WebCallEngine implements CallMediaEngine {
+  readonly rendersVideoNatively = false;
+
   private readonly events: CallEngineEvents;
 
   private pc: RTCPeerConnection | null = null;
@@ -372,6 +374,9 @@ export class WebCallEngine implements CallMediaEngine {
         this.remoteStream = stream;
       }
       this.events.onRemoteStream(this.remoteStream);
+      this.events.onRemoteVideo(
+        this.remoteStream.getVideoTracks().some((track) => track.enabled),
+      );
     };
 
     pc.onconnectionstatechange = () => {

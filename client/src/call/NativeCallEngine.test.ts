@@ -40,6 +40,7 @@ function events() {
     onLocalDescription: vi.fn(),
     onIceCandidate: vi.fn(),
     onRemoteStream: vi.fn(),
+    onRemoteVideo: vi.fn(),
     onLocalStream: vi.fn(),
     onIceRestartNeeded: vi.fn(),
     onScreenShareEnded: vi.fn(),

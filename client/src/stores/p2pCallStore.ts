@@ -45,6 +45,10 @@ type P2PCallStore = {
 
   /** Media engine for the current call — owns the connection, the mic and the camera. */
   engine: CallMediaEngine | null;
+  /** The engine draws the video outside the page (iOS); the call screen leaves it a hole. */
+  isNativeVideo: boolean;
+  /** Whether the peer is sending video. On a natively drawn call there is no stream to ask. */
+  hasRemoteVideo: boolean;
   /** Creates and wires the engine for this call if there is none yet. */
   _ensureEngine: () => CallMediaEngine | null;
 
@@ -102,13 +106,13 @@ type P2PCallStore = {
 /**
  * The engine that runs a call's media.
  *
- * iOS voice calls run natively: WKWebView cannot capture the microphone while CallKit owns
- * the audio session, which is why a call answered from the system screen connected and then
- * stayed silent in both directions. Video calls stay in the page until the native render
- * layer lands — a native video track cannot be drawn into the WebView.
+ * iOS runs natively, audio and video: WKWebView cannot capture the microphone while CallKit
+ * owns the audio session, which is why a call answered from the system screen connected and
+ * then stayed silent in both directions. The video is drawn by the native layer over the web
+ * view, since a native track cannot be handed to a page element.
  */
-function createEngine(events: CallEngineEvents, callType: P2PCallType): CallMediaEngine {
-  if (getCapacitorPlatform() === "ios" && callType === "voice") {
+function createEngine(events: CallEngineEvents): CallMediaEngine {
+  if (getCapacitorPlatform() === "ios") {
     return new NativeCallEngine(events);
   }
   return new WebCallEngine(events);
@@ -123,6 +127,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   localStream: null,
   remoteStream: null,
   engine: null,
+  isNativeVideo: false,
+  hasRemoteVideo: false,
   isMuted: false,
   isVideoOn: false,
   isScreenSharing: false,
@@ -242,15 +248,18 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       onRemoteStream: (stream) => {
         if (isCurrentCall()) set({ remoteStream: stream });
       },
+      onRemoteVideo: (available) => {
+        if (isCurrentCall()) set({ hasRemoteVideo: available });
+      },
       onScreenShareEnded: () => {
         if (isCurrentCall()) set({ isScreenSharing: false });
       },
       onConnectionLost: () => {
         if (isCurrentCall()) get().endCall();
       },
-    }, activeCall.call_type);
+    });
 
-    set({ engine });
+    set({ engine, isNativeVideo: engine.rendersVideoNatively });
     return engine;
   },
 
@@ -294,6 +303,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       localStream: null,
       remoteStream: null,
       engine: null,
+      isNativeVideo: false,
+      hasRemoteVideo: false,
       isMuted: false,
       isVideoOn: false,
       isScreenSharing: false,

@@ -14,6 +14,8 @@ export type NativeIceCandidate = {
   sdpMLineIndex: number;
 };
 
+export type NativeVideoRect = { x: number; y: number; width: number; height: number };
+
 export type NativeConnectionState =
   | "new"
   | "connecting"
@@ -27,12 +29,22 @@ type NativeP2PCallPlugin = {
   start(options: {
     callId: string;
     isCaller: boolean;
+    callType: "voice" | "video";
     iceServers: { urls: string | string[]; username?: string; credential?: string }[];
   }): Promise<void>;
   acceptRemoteOffer(options: { sdp: string }): Promise<void>;
   acceptRemoteAnswer(options: { sdp: string }): Promise<void>;
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;
   setMicEnabled(options: { enabled: boolean }): Promise<void>;
+  setVideoEnabled(options: { enabled: boolean }): Promise<{ enabled: boolean }>;
+  /** Where the two feeds belong, in CSS pixels of the web view. */
+  setVideoLayout(options: {
+    remote: NativeVideoRect | null;
+    local: NativeVideoRect | null;
+    cornerRadius: number;
+    mirrorLocal: boolean;
+  }): Promise<void>;
+  hideVideo(): Promise<void>;
   setIceServers(options: {
     iceServers: { urls: string | string[]; username?: string; credential?: string }[];
   }): Promise<void>;
@@ -50,6 +62,10 @@ type NativeP2PCallPlugin = {
   addListener(
     eventName: "connectionState",
     listener: (data: { state: NativeConnectionState }) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: "remoteVideo",
+    listener: (data: { available: boolean }) => void,
   ): Promise<PluginListenerHandle>;
 };
 

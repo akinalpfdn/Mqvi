@@ -80,8 +80,8 @@ describe("engine selection", () => {
     expect(await engineFor("ios", "voice")).toBe("native");
   });
 
-  it("should keep an iOS video call in the page until the native render layer exists", async () => {
-    expect(await engineFor("ios", "video")).toBe("web");
+  it("should run an iOS video call natively as well", async () => {
+    expect(await engineFor("ios", "video")).toBe("native");
   });
 
   it("should keep Android in the page", async () => {

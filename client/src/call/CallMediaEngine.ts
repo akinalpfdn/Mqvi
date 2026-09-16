@@ -22,6 +22,8 @@ export type CallEngineEvents = {
   onIceCandidate(candidate: RTCIceCandidateInit): void;
   /** Remote media for the UI. Null on an engine that renders natively. */
   onRemoteStream(stream: MediaStream | null): void;
+  /** Whether the peer is sending video. The only signal a natively-rendered call can give. */
+  onRemoteVideo(available: boolean): void;
   /** Local media for the self-preview. Null on an engine that renders natively. */
   onLocalStream(stream: MediaStream | null): void;
   /** This side cannot restart ICE itself (only the offerer can) and asks the peer to. */
@@ -40,6 +42,12 @@ export type CallEngineStart = {
 };
 
 export interface CallMediaEngine {
+  /**
+   * True when the engine draws the video itself, outside the page. The call screen then keeps
+   * its media area transparent and reports where the feeds belong instead of rendering them.
+   */
+  readonly rendersVideoNatively: boolean;
+
   /** Caller: acquires media and offers. Receiver: prepares, then waits for the offer. */
   start(opts: CallEngineStart): Promise<void>;
   /** A remote offer — initial or renegotiation. Answers through onLocalDescription. */
