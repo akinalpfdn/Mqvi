@@ -135,8 +135,8 @@ func (c *capturingFCM) SendData(context.Context, []string, push.DataMessage) ([]
 
 type disabledAPNs struct{}
 
-func (disabledAPNs) Enabled() bool                                           { return false }
-func (disabledAPNs) SendVoIP(context.Context, string, map[string]any) error  { return nil }
+func (disabledAPNs) Enabled() bool                                          { return false }
+func (disabledAPNs) SendVoIP(context.Context, string, map[string]any) error { return nil }
 func (disabledAPNs) SendAlert(context.Context, string, string, map[string]any) error {
 	return nil
 }
@@ -617,5 +617,65 @@ func TestNotifyDM_SilentWhenPushWasNeverConfigured(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if logs.Len() != 0 {
 		t.Errorf("push is not configured on this deployment, yet every message logged:\n%s", logs.String())
+	}
+}
+
+// invisibleUsers answers every lookup with a user who is invisible, which is the status that
+// makes NotifyCall withhold the ring push.
+type invisibleUsers struct{}
+
+func (invisibleUsers) GetByID(_ context.Context, id string) (*models.User, error) {
+	return &models.User{ID: id, Username: id, PrefStatus: models.UserStatusOffline}, nil
+}
+
+// The field bug this guards: with the ring push withheld for an invisible user, the cancel push
+// still went out. CallManager cannot ignore a VoIP push — it must report the call to CallKit
+// before ending it — so the device flashed a call screen for a call it never received.
+func TestNotifyCallCancel_SilentWhenTheRingPushWasSuppressed(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	sink := &capturingAPNs{sent: make(chan string, 4)}
+	s := NewPushService(disabledFCM{}, sink, repo, invisibleUsers{}, nil, nil, testPushConfig(0))
+
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "call1", "alice")
+	select {
+	case tok := <-sink.sent:
+		t.Fatalf("ring push went to %q although the receiver is invisible", tok)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	s.NotifyCallCancel("rcv", "call1", "")
+	select {
+	case tok := <-sink.sent:
+		t.Fatalf("cancel push went to %q for a call that never rang", tok)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// A second cancel for the same call (declined elsewhere, then the ring timeout) stays silent.
+	s.NotifyCallCancel("rcv", "call1", "")
+	select {
+	case tok := <-sink.sent:
+		t.Fatalf("repeat cancel push went to %q", tok)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// The other half: an online receiver rings, and their cancel must still go out.
+func TestNotifyCall_RingsAndCancelsForAnOnlineReceiver(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	sink := &capturingAPNs{sent: make(chan string, 4)}
+	s := NewPushService(disabledFCM{}, sink, repo, fakeUsers{}, nil, nil, testPushConfig(0))
+
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "call2", "alice")
+	if got := <-sink.sent; got != "voip-tablet" {
+		t.Fatalf("ring pushed %q, want voip-tablet", got)
+	}
+
+	s.NotifyCallCancel("rcv", "call2", "")
+	if got := <-sink.sent; got != "voip-tablet" {
+		t.Fatalf("cancel pushed %q, want voip-tablet", got)
 	}
 }

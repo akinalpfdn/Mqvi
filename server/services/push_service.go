@@ -55,6 +55,10 @@ const (
 	// Past the cap, records are dropped and retraction becomes unconditional. See saturated.
 	maxTrackedNotifications = 100_000
 
+	// Ring pushes we withheld, remembered just long enough for the matching cancel to arrive.
+	maxTrackedSuppressedCalls = 1024
+	suppressedCallTTL         = 5 * time.Minute
+
 	pushTimeout = 15 * time.Second
 )
 
@@ -116,6 +120,11 @@ type pushService struct {
 	// most of them, and which is exactly the traffic that overflows FCM's queue for an offline
 	// device and takes the real call notifications down with it.
 	outstanding map[string]struct{}
+	// suppressedCalls holds the ids of calls whose ring push was withheld (DND / invisible),
+	// with the time it happened. The cancel push for such a call must be withheld too: the
+	// device never rang, and CallManager cannot ignore a VoIP push — iOS kills the app unless
+	// it reports a call to CallKit first, so the cancel would flash a phantom call on screen.
+	suppressedCalls map[string]time.Time
 }
 
 func NewPushService(
@@ -137,12 +146,13 @@ func NewPushService(
 	return &pushService{
 		fcm: fcm, apns: apnsSender, tokenRepo: tokenRepo, users: users,
 		presence: presence, reads: reads,
-		dmDelay:        cfg.DMDelay,
-		readRetraction: cfg.ReadRetraction,
-		sem:            make(chan struct{}, maxConcurrent),
-		fcmBreaker:     breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
-		apnsBreaker:    breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
-		outstanding:    make(map[string]struct{}),
+		dmDelay:         cfg.DMDelay,
+		readRetraction:  cfg.ReadRetraction,
+		sem:             make(chan struct{}, maxConcurrent),
+		fcmBreaker:      breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
+		apnsBreaker:     breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
+		outstanding:     make(map[string]struct{}),
+		suppressedCalls: make(map[string]time.Time),
 	}
 }
 
@@ -200,6 +210,40 @@ func (s *pushService) dispatch(userID, kind string, sheddable bool, fn func(cont
 		defer cancel()
 		fn(ctx)
 	}()
+}
+
+// markCallSuppressed records that the ring push for this call was withheld.
+func (s *pushService) markCallSuppressed(callID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepSuppressedCallsLocked()
+	if len(s.suppressedCalls) >= maxTrackedSuppressedCalls {
+		// Full: the cancel will go out and flash a call screen on a device that never rang.
+		// Noisy but harmless, and unbounded growth here would not be.
+		log.Printf("[push] suppressed-call table full, cancel for %s will be sent", callID)
+		return
+	}
+	s.suppressedCalls[callID] = time.Now()
+}
+
+// callPushSuppressed reports whether this call's ring push was withheld. It peeks rather than
+// consumes: a call can be cancelled twice (declined on another device, then the ring timeout),
+// and the second cancel must stay suppressed as well.
+func (s *pushService) callPushSuppressed(callID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepSuppressedCallsLocked()
+	_, ok := s.suppressedCalls[callID]
+	return ok
+}
+
+func (s *pushService) sweepSuppressedCallsLocked() {
+	cutoff := time.Now().Add(-suppressedCallTTL)
+	for id, at := range s.suppressedCalls {
+		if at.Before(cutoff) {
+			delete(s.suppressedCalls, id)
+		}
+	}
 }
 
 func outstandingKey(userID, dmChannelID string) string { return userID + "|" + dmChannelID }
@@ -529,6 +573,7 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 	s.dispatch(receiverID, "call", false, func(ctx context.Context) {
 		lang, suppress := s.recipientPush(ctx, receiverID)
 		if suppress {
+			s.markCallSuppressed(callID)
 			s.suppressed(receiverID, "call", reasonDND)
 			return
 		}
@@ -606,6 +651,13 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 	}
 	// Never shed: a device left ringing for a call that is already over is worse than the load.
 	s.dispatch(receiverID, "call_cancel", false, func(ctx context.Context) {
+		// No ring push went out for this call, so no device is ringing. Sending the cancel
+		// anyway makes iOS report and instantly end a call the user never received.
+		if s.callPushSuppressed(callID) {
+			s.suppressed(receiverID, "call_cancel", reasonDND)
+			return
+		}
+
 		tokens, err := s.tokenRepo.ListByUser(ctx, receiverID)
 		if err != nil {
 			s.failed.Add(1)
