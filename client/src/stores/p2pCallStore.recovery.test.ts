@@ -1,3 +1,8 @@
+/**
+ * The bounded ICE-restart recovery, now owned by WebCallEngine. Same contract as when it
+ * lived in the store: the offerer restarts ICE itself, the answerer asks the offerer to,
+ * credentials are refreshed between attempts, and the call ends once the cap is reached.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { fetchIceServers, fetchIceServersForRecovery } = vi.hoisted(() => ({
@@ -5,19 +10,18 @@ const { fetchIceServers, fetchIceServersForRecovery } = vi.hoisted(() => ({
   fetchIceServersForRecovery: vi.fn(),
 }));
 vi.mock("../api/calls", () => ({ fetchIceServers, fetchIceServersForRecovery }));
-vi.mock("../i18n", () => ({ default: { t: (k: string) => k } }));
-vi.mock("./toastStore", () => ({ useToastStore: { getState: () => ({ addToast: vi.fn() }) } }));
 
-import { createPeerConnection } from "./p2pCallStore";
-import type { P2PCall } from "../types";
+import { WebCallEngine } from "../call/WebCallEngine";
+import type { CallEngineEvents } from "../call/CallMediaEngine";
 
 const REFRESH_SERVERS = [{ urls: "stun:refreshed" }];
 
-// Minimal fake RTCPeerConnection — only what the recovery path touches.
+// Minimal fake RTCPeerConnection — only what the engine touches.
 function fakePC() {
   return {
     connectionState: "new" as RTCPeerConnectionState,
     signalingState: "stable" as RTCSignalingState,
+    remoteDescription: null as unknown,
     onicecandidate: null as ((e: unknown) => void) | null,
     ontrack: null as ((e: unknown) => void) | null,
     onconnectionstatechange: null as (() => void) | null,
@@ -26,65 +30,75 @@ function fakePC() {
     setConfiguration: vi.fn(),
     getConfiguration: () => ({}),
     close: vi.fn(),
+    addTrack: vi.fn(),
     getSenders: () => [],
     getReceivers: () => [],
+    setRemoteDescription: vi.fn(async () => {}),
+    setLocalDescription: vi.fn(async () => {}),
+    createAnswer: vi.fn(async () => ({ type: "answer", sdp: "answer-sdp" })),
+    createOffer: vi.fn(async () => ({ type: "offer", sdp: "offer-sdp" })),
+    addIceCandidate: vi.fn(async () => {}),
   };
 }
 
+const emptyStream = {
+  getTracks: () => [],
+  getAudioTracks: () => [],
+  getVideoTracks: () => [],
+} as unknown as MediaStream;
+
 let pc: ReturnType<typeof fakePC>;
 const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+const originalSessionDescription = globalThis.RTCSessionDescription;
+
+function events(): CallEngineEvents & { spies: Record<string, ReturnType<typeof vi.fn>> } {
+  const spies = {
+    onLocalDescription: vi.fn(),
+    onIceCandidate: vi.fn(),
+    onRemoteStream: vi.fn(),
+    onLocalStream: vi.fn(),
+    onIceRestartNeeded: vi.fn(),
+    onScreenShareEnded: vi.fn(),
+    onConnectionLost: vi.fn(),
+  };
+  return { ...spies, spies } as never;
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
-  fetchIceServers.mockReset().mockResolvedValue(REFRESH_SERVERS);
+  fetchIceServers.mockReset().mockResolvedValue([]);
   fetchIceServersForRecovery.mockReset().mockResolvedValue(REFRESH_SERVERS);
   pc = fakePC();
-  // A plain function (not an arrow) so `new RTCPeerConnection()` is valid; returning
-  // an object makes the constructor yield our fake.
+  // A plain function so `new RTCPeerConnection()` is valid; returning an object makes the
+  // constructor yield our fake.
   globalThis.RTCPeerConnection = function FakeRTCPeerConnection() {
     return pc;
   } as unknown as typeof RTCPeerConnection;
+  globalThis.RTCSessionDescription = function FakeDescription(init: unknown) {
+    return init;
+  } as unknown as typeof RTCSessionDescription;
+  Object.defineProperty(globalThis.navigator, "mediaDevices", {
+    value: { getUserMedia: vi.fn(async () => emptyStream) },
+    configurable: true,
+  });
 });
 
 afterEach(() => {
   vi.useRealTimers();
   globalThis.RTCPeerConnection = originalRTCPeerConnection;
+  globalThis.RTCSessionDescription = originalSessionDescription;
 });
 
-function makeCall(): P2PCall {
-  return {
-    id: "c1",
-    caller_id: "A",
-    caller_username: "a",
-    caller_display_name: null,
-    caller_avatar: null,
-    receiver_id: "B",
-    receiver_username: "b",
-    receiver_display_name: null,
-    receiver_avatar: null,
-    call_type: "voice",
-    status: "active",
-    created_at: "",
-  };
-}
-
-// Builds a PC via the real factory with a fake store, and marks it current.
-function harness(isCaller: boolean) {
-  const call = makeCall();
-  const store: Record<string, unknown> = {
-    peerConnection: null,
-    activeCall: call,
-    endCall: vi.fn(),
-    _triggerIceRestart: null,
-  };
-  const set = (p: unknown) =>
-    Object.assign(store, typeof p === "function" ? (p as (s: unknown) => object)(store) : p);
-  const get = () => store as never;
-  const sendWS = vi.fn();
-
-  const created = createPeerConnection(call, [], isCaller, sendWS, set as never, get);
-  store.peerConnection = created; // simulate set({ peerConnection: pc })
-  return { store, sendWS, pc: created as unknown as ReturnType<typeof fakePC> };
+/** Builds an engine whose connection exists and is current. */
+async function harness(isCaller: boolean) {
+  const ev = events();
+  const engine = new WebCallEngine(ev);
+  await engine.start({ callId: "c1", callType: "voice", isCaller });
+  if (!isCaller) {
+    // The answerer builds its connection from the first offer.
+    await engine.acceptRemoteOffer("remote-offer");
+  }
+  return { engine, ev, pc };
 }
 
 function fail() {
@@ -94,74 +108,73 @@ function fail() {
 
 describe("ICE-restart recovery", () => {
   it("caller refreshes credentials and restarts ICE on failure", async () => {
-    const { pc: conn } = harness(true);
+    await harness(true);
     fail();
     await vi.advanceTimersByTimeAsync(0);
-    expect(conn.setConfiguration).toHaveBeenCalledWith({ iceServers: REFRESH_SERVERS });
-    expect(conn.restartIce).toHaveBeenCalledTimes(1);
+    expect(pc.setConfiguration).toHaveBeenCalledWith({ iceServers: REFRESH_SERVERS });
+    expect(pc.restartIce).toHaveBeenCalledTimes(1);
   });
 
-  it("receiver requests a restart instead of calling restartIce", async () => {
-    const { pc: conn, sendWS } = harness(false);
+  it("receiver asks the peer to restart instead of calling restartIce", async () => {
+    const { ev } = await harness(false);
     fail();
     await vi.advanceTimersByTimeAsync(0);
-    expect(conn.restartIce).not.toHaveBeenCalled();
-    expect(sendWS).toHaveBeenCalledWith(
-      "p2p_signal",
-      expect.objectContaining({ type: "ice-restart", call_id: "c1" }),
-    );
+    expect(pc.restartIce).not.toHaveBeenCalled();
+    expect(ev.onIceRestartNeeded).toHaveBeenCalledTimes(1);
   });
 
-  it("retries up to the cap, then ends the call", async () => {
-    const { pc: conn, store } = harness(true);
+  it("retries up to the cap, then reports the call lost", async () => {
+    const { ev } = await harness(true);
     fail();
     await vi.advanceTimersByTimeAsync(0); // attempt 1
-    expect(conn.restartIce).toHaveBeenCalledTimes(1);
+    expect(pc.restartIce).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(7000); // attempt 2
-    expect(conn.restartIce).toHaveBeenCalledTimes(2);
+    expect(pc.restartIce).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(7000); // cap reached
-    expect(store.endCall).toHaveBeenCalledTimes(1);
+    expect(ev.onConnectionLost).toHaveBeenCalledTimes(1);
   });
 
   it("stops retrying once reconnected", async () => {
-    const { pc: conn, store } = harness(true);
+    const { ev } = await harness(true);
     fail();
     await vi.advanceTimersByTimeAsync(0); // attempt 1
-    conn.connectionState = "connected";
-    conn.onconnectionstatechange?.();
+    pc.connectionState = "connected";
+    pc.onconnectionstatechange?.();
     await vi.advanceTimersByTimeAsync(7000);
-    expect(conn.restartIce).toHaveBeenCalledTimes(1); // no further attempts
-    expect(store.endCall).not.toHaveBeenCalled();
+    expect(pc.restartIce).toHaveBeenCalledTimes(1); // no further attempts
+    expect(ev.onConnectionLost).not.toHaveBeenCalled();
   });
 
   it("an incoming ice-restart request drives the caller's recovery", async () => {
-    const { store, pc: conn } = harness(true);
-    expect(typeof store._triggerIceRestart).toBe("function");
-    (store._triggerIceRestart as () => void)();
+    const { engine } = await harness(true);
+    engine.restartIce();
     await vi.advanceTimersByTimeAsync(0);
-    expect(conn.restartIce).toHaveBeenCalledTimes(1);
+    expect(pc.restartIce).toHaveBeenCalledTimes(1);
   });
 
-  it("receiver exposes no recovery trigger", () => {
-    const { store } = harness(false);
-    expect(store._triggerIceRestart).toBeNull();
+  it("the same request on the receiver asks the peer rather than restarting", async () => {
+    const { engine, ev } = await harness(false);
+    engine.restartIce();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.restartIce).not.toHaveBeenCalled();
+    expect(ev.onIceRestartNeeded).toHaveBeenCalledTimes(1);
   });
 
-  it("a superseded PC cannot trigger recovery", async () => {
-    const { pc: conn, store } = harness(true);
-    store.peerConnection = {}; // a newer PC replaced us
+  it("a closed engine cannot trigger recovery", async () => {
+    const { engine } = await harness(true);
+    engine.close();
     fail();
     await vi.advanceTimersByTimeAsync(0);
-    expect(conn.restartIce).not.toHaveBeenCalled();
+    expect(pc.restartIce).not.toHaveBeenCalled();
   });
 
   it("keeps the existing config when the recovery fetch fails (no STUN downgrade)", async () => {
     fetchIceServersForRecovery.mockResolvedValue(null);
-    const { pc: conn } = harness(true);
+    await harness(true);
     fail();
     await vi.advanceTimersByTimeAsync(0);
-    expect(conn.setConfiguration).not.toHaveBeenCalled(); // didn't strip TURN
-    expect(conn.restartIce).toHaveBeenCalledTimes(1); // still restarts with existing config
+    expect(pc.setConfiguration).not.toHaveBeenCalled(); // did not strip TURN
+    expect(pc.restartIce).toHaveBeenCalledTimes(1); // still restarts with the existing config
   });
 
   it("does not restart if the connection recovers during the credential fetch", async () => {
@@ -171,12 +184,12 @@ describe("ICE-restart recovery", () => {
         resolveFetch = r;
       }),
     );
-    const { pc: conn } = harness(true);
+    await harness(true);
     fail(); // starts recovery, suspends on the pending fetch
-    conn.connectionState = "connected"; // recovers on its own meanwhile
-    conn.onconnectionstatechange?.();
+    pc.connectionState = "connected"; // recovers on its own meanwhile
+    pc.onconnectionstatechange?.();
     resolveFetch(REFRESH_SERVERS);
     await vi.advanceTimersByTimeAsync(0);
-    expect(conn.restartIce).not.toHaveBeenCalled();
+    expect(pc.restartIce).not.toHaveBeenCalled();
   });
 });

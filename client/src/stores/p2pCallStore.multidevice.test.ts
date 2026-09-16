@@ -53,10 +53,8 @@ function reset(sessionId: string | null = THIS_DEVICE) {
     incomingCall: null,
     localStream: null,
     remoteStream: null,
-    peerConnection: null,
+    engine: null,
     _durationInterval: null,
-    _pendingCandidates: [],
-    _triggerIceRestart: null,
     _sessionId: sessionId,
   });
 }

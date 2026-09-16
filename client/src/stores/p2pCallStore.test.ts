@@ -34,10 +34,8 @@ beforeEach(() => {
     incomingCall: null,
     localStream: null,
     remoteStream: null,
-    peerConnection: null,
+    engine: null,
     _durationInterval: null,
-    _pendingCandidates: [],
-    _triggerIceRestart: null,
   });
 });
 
@@ -80,22 +78,27 @@ describe("handleCallBusy — stale-busy protection", () => {
 });
 
 describe("handleSignal — ice-restart dispatch", () => {
-  it("drives recovery via _triggerIceRestart when the call id matches", () => {
-    const trigger = vi.fn();
-    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), _triggerIceRestart: trigger });
+  function engineWithRestart() {
+    const restartIce = vi.fn();
+    return { restartIce, engine: { restartIce } as never };
+  }
+
+  it("asks the engine to restart ICE when the call id matches", () => {
+    const { restartIce, engine } = engineWithRestart();
+    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), engine });
     void useP2PCallStore.getState().handleSignal({ call_id: "A", type: "ice-restart" });
-    expect(trigger).toHaveBeenCalledTimes(1);
+    expect(restartIce).toHaveBeenCalledTimes(1);
   });
 
   it("ignores an ice-restart for a different call", () => {
-    const trigger = vi.fn();
-    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), _triggerIceRestart: trigger });
+    const { restartIce, engine } = engineWithRestart();
+    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), engine });
     void useP2PCallStore.getState().handleSignal({ call_id: "B", type: "ice-restart" });
-    expect(trigger).not.toHaveBeenCalled();
+    expect(restartIce).not.toHaveBeenCalled();
   });
 
-  it("is a no-op on the receiver (no recovery trigger set)", () => {
-    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), _triggerIceRestart: null });
+  it("is a no-op when there is no engine yet", () => {
+    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), engine: null });
     expect(() => void useP2PCallStore.getState().handleSignal({ call_id: "A", type: "ice-restart" })).not.toThrow();
   });
 });

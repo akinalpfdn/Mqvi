@@ -15,8 +15,9 @@
  */
 
 import { create } from "zustand";
-import { fetchIceServers, fetchIceServersForRecovery } from "../api/calls";
 import i18n from "../i18n";
+import type { CallEngineEvents, CallMediaEngine } from "../call/CallMediaEngine";
+import { WebCallEngine } from "../call/WebCallEngine";
 import { dismissIncomingCallUI } from "../native/p2pCall";
 import { startVoiceCallService, stopVoiceCallService } from "../utils/nativePlugins";
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
@@ -40,20 +41,10 @@ type P2PCallStore = {
   /** Remote media stream (received via WebRTC ontrack) */
   remoteStream: MediaStream | null;
 
-  /** WebRTC peer connection instance */
-  peerConnection: RTCPeerConnection | null;
-
-  /**
-   * ICE candidate queue — buffers candidates arriving before remote description is set.
-   * Flushed after setRemoteDescription completes.
-   */
-  _pendingCandidates: RTCIceCandidateInit[];
-
-  /**
-   * Set by the caller's peer connection so an incoming "ice-restart" request
-   * (sent by the receiver when it detects a failure) can drive recovery.
-   */
-  _triggerIceRestart: (() => void) | null;
+  /** Media engine for the current call — owns the connection, the mic and the camera. */
+  engine: CallMediaEngine | null;
+  /** Creates and wires the engine for this call if there is none yet. */
+  _ensureEngine: () => CallMediaEngine | null;
 
   isMuted: boolean;
   isVideoOn: boolean;
@@ -106,270 +97,13 @@ type P2PCallStore = {
   handleSignal: (data: P2PSignalPayload) => void;
 };
 
-// ─── Helper: getUserMedia ───
-
-async function getMediaStream(callType: P2PCallType): Promise<MediaStream> {
-  return navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-    video: callType === "video"
-      ? {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
-        }
-      : false,
-  });
-}
-
-// ─── Degradation Preference ───
-
-/** Sets "balanced" degradation on video senders — both FPS and resolution degrade proportionally. */
-function applyDegradationPreference(pc: RTCPeerConnection): void {
-  for (const sender of pc.getSenders()) {
-    if (sender.track?.kind !== "video") continue;
-
-    const params = sender.getParameters();
-    params.degradationPreference = "balanced";
-    sender.setParameters(params).catch((err) => {
-      console.warn("[p2p] Failed to set degradationPreference:", err);
-    });
-  }
-}
-
-// ─── PeerConnection Factory ───
-
-// Mid-call recovery: on a failed connection, attempt an ICE restart (TURN relay
-// candidates are already in the pool) before giving up. Bounded so a truly dead
-// call still ends. Each attempt gets its own window (enough for TURN/TLS fallback
-// and slow ICE gathering); after the cap with no reconnect, the call ends.
-const MAX_ICE_RESTARTS = 2;
-const ICE_RESTART_ATTEMPT_MS = 7_000;
-
 /**
- * Creates RTCPeerConnection with standard handlers.
- * Single creation point prevents race conditions from duplicate PC creation.
- * isCaller drives ICE-restart recovery — only the offerer regenerates the offer.
- * Exported for unit-testing the recovery state machine.
+ * The engine that runs a call's media. One implementation today — the peer connection in
+ * this page. Phase 165 selects a native one on iOS, where WKWebView cannot capture while
+ * CallKit owns the audio session.
  */
-export function createPeerConnection(
-  activeCall: P2PCall,
-  iceServers: RTCIceServer[],
-  isCaller: boolean,
-  sendWS: (op: string, data?: unknown) => void,
-  set: (partial: Partial<P2PCallStore> | ((state: P2PCallStore) => Partial<P2PCallStore>)) => void,
-  get: () => P2PCallStore,
-): RTCPeerConnection {
-  const pc = new RTCPeerConnection({ iceServers });
-
-  // Every callback bails if this PC is no longer the store's active connection —
-  // a PC that lost a concurrent-offer race, was discarded, or belonged to a call
-  // the user already left must not mutate or end the current call.
-  const isCurrent = () => get().peerConnection === pc;
-  // Closure read — dodges TS's stale narrowing of readonly connectionState after await.
-  const isConnected = () => pc.connectionState === "connected";
-
-  // Relay new ICE candidates to the other peer
-  pc.onicecandidate = (event) => {
-    if (!isCurrent()) return;
-    if (event.candidate) {
-      sendWS("p2p_signal", {
-        call_id: activeCall.id,
-        type: "ice-candidate",
-        candidate: event.candidate.toJSON(),
-      });
-    }
-  };
-
-  // Handle remote media tracks.
-  // event.streams[0] may be empty for mid-call addTransceiver (screen share) —
-  // in that case, add the track to existing remoteStream to preserve audio.
-  pc.ontrack = (event) => {
-    if (!isCurrent()) return;
-    if (event.streams[0]) {
-      set({ remoteStream: event.streams[0] });
-    } else {
-      const existing = get().remoteStream;
-      const stream = new MediaStream(existing ? existing.getTracks() : []);
-      stream.addTrack(event.track);
-      set({ remoteStream: stream });
-    }
-  };
-
-  // Connection-state monitoring with mid-call recovery.
-  // "disconnected" may be a transient blip → grace wait; "failed" (or a disconnect
-  // that doesn't recover) → ICE-restart recovery before ending.
-  //
-  // Recovery is an explicit, bounded retry loop run on BOTH peers — failure
-  // detection isn't symmetric, so either side may notice first. Each attempt
-  // refreshes ICE credentials (a relayed reconnect may need a fresh TURN
-  // allocation, and the original creds can be near expiry) then acts: the caller
-  // regenerates the offer via restartIce; the receiver asks the caller to, via an
-  // "ice-restart" signal. After the cap with no reconnect, the call ends.
-  let disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let recovering = false;
-  let attempts = 0;
-
-  const clearDisconnectedTimer = () => {
-    if (disconnectedTimer) {
-      clearTimeout(disconnectedTimer);
-      disconnectedTimer = null;
-    }
-  };
-
-  const stopRecovery = () => {
-    recovering = false;
-    attempts = 0;
-    if (retryTimer) {
-      clearTimeout(retryTimer);
-      retryTimer = null;
-    }
-  };
-
-  const endNow = () => {
-    clearDisconnectedTimer();
-    stopRecovery();
-    const current = get();
-    if (current.activeCall) current.endCall();
-  };
-
-  // On fetch failure this returns null — keep the existing (TURN) config rather
-  // than downgrade to STUN-only right when a relayed reconnect is needed.
-  const refreshIceServers = async () => {
-    const iceServers = await fetchIceServersForRecovery();
-    if (!isCurrent() || !iceServers) return;
-    try {
-      // Spread the current config so we only swap iceServers — passing a bare
-      // { iceServers } would reset any other fields (iceTransportPolicy, etc.) to
-      // their defaults if they're ever added at creation time.
-      pc.setConfiguration({ ...pc.getConfiguration(), iceServers });
-    } catch (err) {
-      console.error("[p2p] setConfiguration during recovery failed:", err);
-    }
-  };
-
-  // The caller drives the actual restart; the receiver requests it.
-  const recoveryAction = () => {
-    if (isCaller) {
-      try {
-        pc.restartIce();
-      } catch (err) {
-        console.error("[p2p] restartIce error:", err);
-      }
-    } else {
-      sendWS("p2p_signal", { call_id: activeCall.id, type: "ice-restart" });
-    }
-  };
-
-  const recoveryStep = async () => {
-    if (!isCurrent() || isConnected()) {
-      stopRecovery();
-      return;
-    }
-    if (attempts >= MAX_ICE_RESTARTS) {
-      console.warn("[p2p] ICE restart cap reached, ending call");
-      endNow();
-      return;
-    }
-    attempts++;
-    console.warn(`[p2p] ICE restart attempt ${attempts}/${MAX_ICE_RESTARTS} (${isCaller ? "caller" : "receiver"})`);
-    await refreshIceServers();
-    // Re-check after the await — the call may have ended or reconnected meanwhile.
-    if (!isCurrent() || !recovering || isConnected()) {
-      stopRecovery();
-      return;
-    }
-    recoveryAction();
-    // Reconnect, retry, or give up after this attempt's window.
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      void recoveryStep();
-    }, ICE_RESTART_ATTEMPT_MS);
-  };
-
-  const startRecovery = () => {
-    if (recovering) return; // idempotent — own failure + an incoming request may coincide
-    recovering = true;
-    attempts = 0;
-    void recoveryStep();
-  };
-
-  // Let an incoming "ice-restart" request (receiver → caller) drive recovery.
-  if (isCaller) {
-    set({ _triggerIceRestart: startRecovery });
-  }
-
-  pc.onconnectionstatechange = () => {
-    if (!isCurrent()) return;
-    switch (pc.connectionState) {
-      case "connected":
-        clearDisconnectedTimer();
-        stopRecovery();
-        return;
-      case "connecting":
-        clearDisconnectedTimer();
-        return;
-      case "failed":
-        clearDisconnectedTimer();
-        startRecovery();
-        return;
-      case "closed":
-        endNow();
-        return;
-      case "disconnected": {
-        const timeout = pc.signalingState !== "stable" ? 10000 : 5000;
-        console.warn("[p2p] PeerConnection disconnected, waiting for recovery...", { signalingState: pc.signalingState, timeout });
-        if (!disconnectedTimer) {
-          disconnectedTimer = setTimeout(() => {
-            disconnectedTimer = null;
-            if (!isCurrent()) return;
-            if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
-              startRecovery();
-            }
-          }, timeout);
-        }
-        return;
-      }
-    }
-  };
-
-  // onnegotiationneeded — auto offer creation after addTrack.
-  // makingOffer flag and signalingState guard prevent glare (simultaneous offers)
-  // and m-line order inconsistency. This is the sole offer creation point for
-  // both initial offers and mid-call renegotiation.
-  let makingOffer = false;
-  pc.onnegotiationneeded = async () => {
-    if (!isCurrent()) return;
-    if (makingOffer || pc.signalingState !== "stable") return;
-    try {
-      makingOffer = true;
-      const call = get().activeCall;
-      if (!call) return;
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      // Re-check after the awaits — don't send an offer for a PC/call we've left.
-      if (!isCurrent() || get().activeCall?.id !== call.id) return;
-
-      sendWS("p2p_signal", {
-        call_id: call.id,
-        type: "offer",
-        sdp: offer.sdp,
-      });
-    } catch (err) {
-      console.error("[p2p] Renegotiation error:", err);
-    } finally {
-      makingOffer = false;
-    }
-  };
-
-  return pc;
+function createEngine(events: CallEngineEvents): CallMediaEngine {
+  return new WebCallEngine(events);
 }
 
 // ─── Store ───
@@ -380,7 +114,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   systemRingingCallId: null,
   localStream: null,
   remoteStream: null,
-  peerConnection: null,
+  engine: null,
   isMuted: false,
   isVideoOn: false,
   isScreenSharing: false,
@@ -388,8 +122,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   callDuration: 0,
   _durationInterval: null,
   _sessionId: null,
-  _pendingCandidates: [],
-  _triggerIceRestart: null,
   _sendWS: null,
 
   setSessionId: (id) => set({ _sessionId: id }),
@@ -447,148 +179,71 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   toggleMute: () => {
-    const { localStream, isMuted } = get();
-    if (localStream) {
-      for (const track of localStream.getAudioTracks()) {
-        track.enabled = isMuted;
-      }
-    }
-    set({ isMuted: !isMuted });
+    const { engine, isMuted } = get();
+    const next = !isMuted;
+    engine?.setMicEnabled(!next);
+    set({ isMuted: next });
   },
 
   toggleVideo: () => {
-    const { localStream, isVideoOn, peerConnection, activeCall } = get();
-    if (!localStream || !peerConnection || !activeCall) return;
-
-    if (isVideoOn) {
-      for (const track of localStream.getVideoTracks()) {
-        track.enabled = false;
-      }
-      set({ isVideoOn: false });
-    } else {
-      const existingVideoTrack = localStream.getVideoTracks()[0];
-      if (existingVideoTrack) {
-        existingVideoTrack.enabled = true;
-        set({ isVideoOn: true });
-      } else {
-        // Acquire new video track — addTrack triggers onnegotiationneeded for auto renegotiation.
-        navigator.mediaDevices
-          .getUserMedia({
-            video: {
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              frameRate: { ideal: 30 },
-            },
-          })
-          .then((videoStream) => {
-            const videoTrack = videoStream.getVideoTracks()[0];
-            localStream.addTrack(videoTrack);
-            peerConnection.addTrack(videoTrack, localStream);
-            set({ isVideoOn: true });
-          })
-          .catch((err) => {
-            console.error("[p2p] Failed to get video:", err);
-          });
-      }
-    }
+    const { engine, isVideoOn } = get();
+    if (!engine) return;
+    // The engine reports the state it actually reached, so a denied camera cannot leave the
+    // button lit.
+    void engine.setVideoEnabled(!isVideoOn).then((enabled) => set({ isVideoOn: enabled }));
   },
 
   toggleScreenShare: () => {
-    const { isScreenSharing, peerConnection, localStream, activeCall } = get();
-    if (!peerConnection || !activeCall || !localStream) return;
-
+    const { engine, isScreenSharing } = get();
+    if (!engine) return;
     if (isScreenSharing) {
-      // Stop screen share — replace screen track with camera track or null
-      const screenSender = (peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender;
-
-      if (screenSender) {
-        const cameraTrack = localStream.getVideoTracks()[0];
-        screenSender.replaceTrack(cameraTrack ?? null).catch(() => {});
-        (peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender = undefined;
-      }
-
+      engine.stopScreenShare();
       set({ isScreenSharing: false });
-    } else {
-      // Start screen share.
-      // If a video sender exists, use replaceTrack (no renegotiation needed).
-      // Otherwise (voice-only call), add a sendonly video transceiver first —
-      // addTransceiver triggers onnegotiationneeded for auto renegotiation.
-      navigator.mediaDevices
-        .getDisplayMedia({
-          video: {
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            frameRate: { ideal: 60 },
-          },
-        })
-        .then(async (screenStream) => {
-          const screenTrack = screenStream.getVideoTracks()[0];
-          const pc = get().peerConnection;
-          if (!pc) {
-            screenTrack.stop();
-            return;
-          }
-
-          const senders = pc.getSenders();
-          let videoSender = senders.find((s) => s.track?.kind === "video");
-
-          if (!videoSender) {
-            // Voice-only call — add video transceiver, wait for renegotiation to complete.
-            // Two-phase wait: first wait for renegotiation to start (state leaves "stable"),
-            // then wait for it to finish (state returns to "stable").
-            const transceiver = pc.addTransceiver("video", { direction: "sendrecv" });
-            videoSender = transceiver.sender;
-
-            await new Promise<void>((resolve) => {
-              const waitForStart = () => {
-                if (pc.signalingState !== "stable") {
-                  const waitForEnd = () => {
-                    if (pc.signalingState === "stable") {
-                      resolve();
-                    } else {
-                      setTimeout(waitForEnd, 50);
-                    }
-                  };
-                  waitForEnd();
-                } else {
-                  setTimeout(waitForStart, 20);
-                }
-              };
-              setTimeout(waitForStart, 20);
-            });
-          }
-
-          await videoSender.replaceTrack(screenTrack);
-
-          const screenParams = videoSender.getParameters();
-          screenParams.degradationPreference = "balanced";
-          await videoSender.setParameters(screenParams).catch(() => {});
-
-          // Store sender reference for stop
-          (pc as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender = videoSender;
-
-          // Handle browser native "stop sharing" button
-          screenTrack.onended = () => {
-            const current = get();
-            if (!current.isScreenSharing) return;
-
-            const sender = (current.peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })?._screenSender;
-            if (sender && current.localStream) {
-              const cam = current.localStream.getVideoTracks()[0];
-              sender.replaceTrack(cam ?? null).catch(() => {});
-            }
-            if (current.peerConnection) {
-              (current.peerConnection as RTCPeerConnection & { _screenSender?: RTCRtpSender })._screenSender = undefined;
-            }
-            set({ isScreenSharing: false });
-          };
-
-          set({ isScreenSharing: true });
-        })
-        .catch((err) => {
-          console.error("[p2p] Screen share error:", err);
-        });
+      return;
     }
+    void engine.startScreenShare().then((started) => set({ isScreenSharing: started }));
+  },
+
+  _ensureEngine: () => {
+    const existing = get().engine;
+    if (existing) return existing;
+
+    const activeCall = get().activeCall;
+    if (!activeCall) return null;
+    const callId = activeCall.id;
+
+    // Every callback re-checks the call: a late event from an engine whose call has ended
+    // must not signal into, or mutate, the call that replaced it.
+    const isCurrentCall = () => get().activeCall?.id === callId;
+    const signal = (payload: Record<string, unknown>) => {
+      if (!isCurrentCall()) return;
+      get()._sendWS?.("p2p_signal", { call_id: callId, ...payload });
+    };
+
+    const engine = createEngine({
+      onLocalDescription: (desc) => signal({ type: desc.type, sdp: desc.sdp }),
+      onIceCandidate: (candidate) => signal({ type: "ice-candidate", candidate }),
+      onIceRestartNeeded: () => signal({ type: "ice-restart" }),
+      onLocalStream: (stream) => {
+        if (!isCurrentCall()) return;
+        set({ localStream: stream, isVideoOn: activeCall.call_type === "video" });
+        // Android 14+ refuses a microphone foreground service unless the mic is already in
+        // use, so this waits for the stream instead of firing on accept.
+        if (stream) startVoiceCallService("p2p");
+      },
+      onRemoteStream: (stream) => {
+        if (isCurrentCall()) set({ remoteStream: stream });
+      },
+      onScreenShareEnded: () => {
+        if (isCurrentCall()) set({ isScreenSharing: false });
+      },
+      onConnectionLost: () => {
+        if (isCurrentCall()) get().endCall();
+      },
+    });
+
+    set({ engine });
+    return engine;
   },
 
   startWebRTC: async (isCaller) => {
@@ -596,91 +251,30 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     if (!activeCall || !_sendWS) return;
     const callId = activeCall.id;
 
+    const engine = get()._ensureEngine();
+    if (!engine) return;
+
     try {
-      // Receiver defers stream acquisition to handleSignal("offer") to avoid
-      // race condition with concurrent getUserMedia calls.
-      if (!isCaller) {
-        return;
-      }
-
-      const stream = await getMediaStream(activeCall.call_type);
-      // The call may have ended during getUserMedia — don't leak the stream.
-      if (get().activeCall?.id !== callId) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      set({
-        localStream: stream,
-        isVideoOn: activeCall.call_type === "video",
-      });
-
-      // Start the mic foreground service only now that getUserMedia holds the mic. Android 14+
-      // rejects a microphone FGS unless RECORD_AUDIO is granted AND the mic is actively in use;
-      // starting it on call-accept (before this) is what crashed the app. Balanced by cleanup's
-      // stop; the "p2p" holder is idempotent.
-      startVoiceCallService("p2p");
-
-      // Fetch ICE servers (STUN + TURN) now that the call is active — the backend
-      // gates issuance on an accepted call. Falls back to STUN-only on failure.
-      const iceServers = await fetchIceServers();
-      // ... and again after the ICE fetch, before building the connection.
-      if (get().activeCall?.id !== callId) {
-        stream.getTracks().forEach((track) => track.stop());
-        if (get().localStream === stream) set({ localStream: null });
-        return;
-      }
-
-      const pc = createPeerConnection(activeCall, iceServers, isCaller, _sendWS, set, get);
-
-      // addTrack triggers onnegotiationneeded -> handler auto-creates offer.
-      // No explicit createOffer here to avoid duplicate offers.
-      for (const track of stream.getTracks()) {
-        pc.addTrack(track, stream);
-      }
-
-      applyDegradationPreference(pc);
-      set({ peerConnection: pc });
+      await engine.start({ callId, callType: activeCall.call_type, isCaller });
     } catch (err) {
       console.error("[p2p] WebRTC start error:", err);
-      // Only tear down if still on the same call — a late failure from a call the
-      // user already left must not clean up the new one.
+      // Only tear down if still on the same call — a late failure from a call the user has
+      // already left must not clean up the new one.
       if (get().activeCall?.id === callId) get().cleanup();
     }
   },
 
   cleanup: () => {
-    const { localStream, remoteStream, peerConnection, _durationInterval } = get();
+    const { engine, _durationInterval } = get();
 
     // Release the mic foreground service this call may have started. The "p2p" holder is
     // idempotent, so a ringing/declined call that never started it is a no-op, and an overlapping
     // channel-voice call keeps its own "voice" hold.
     stopVoiceCallService("p2p");
 
-    // Stop all sender/receiver tracks (includes screen share tracks not in localStream)
-    if (peerConnection) {
-      for (const sender of peerConnection.getSenders()) {
-        if (sender.track) sender.track.stop();
-      }
-      for (const receiver of peerConnection.getReceivers()) {
-        if (receiver.track) receiver.track.stop();
-      }
-    }
-
-    // Safety net — stop remaining tracks on local/remote streams
-    if (localStream) {
-      for (const track of localStream.getTracks()) {
-        track.stop();
-      }
-    }
-    if (remoteStream) {
-      for (const track of remoteStream.getTracks()) {
-        track.stop();
-      }
-    }
-
-    if (peerConnection) {
-      peerConnection.close();
-    }
+    // The engine owns the connection and every track it opened, including a screen-share
+    // track that never belonged to the local stream.
+    engine?.close();
 
     if (_durationInterval) {
       clearInterval(_durationInterval);
@@ -691,15 +285,13 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       incomingCall: null,
       localStream: null,
       remoteStream: null,
-      peerConnection: null,
+      engine: null,
       isMuted: false,
       isVideoOn: false,
       isScreenSharing: false,
       remoteVolume: 100,
       callDuration: 0,
       _durationInterval: null,
-      _pendingCandidates: [],
-      _triggerIceRestart: null,
     });
   },
 
@@ -807,160 +399,51 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   },
 
   handleSignal: async (data) => {
-    const { peerConnection, activeCall, _sendWS } = get();
+    const { activeCall } = get();
 
-    // Ignore signals that don't belong to the current call — a delayed offer/
-    // answer/candidate from a previous call must not drive negotiation for the
-    // one in progress.
+    // Ignore signals that do not belong to the current call — a delayed offer, answer or
+    // candidate from a previous call must not drive negotiation for the one in progress.
     if (!activeCall || data.call_id !== activeCall.id) return;
     const callId = activeCall.id;
 
-    // The dispatcher doesn't await this handler, so any rejection from
-    // setRemoteDescription/createAnswer/addIceCandidate (e.g. the PC closing
-    // mid-negotiation) would be an unhandled rejection — contain it here.
+    // The dispatcher does not await this handler, so a rejection from the engine would be an
+    // unhandled rejection — contain it here.
     try {
       switch (data.type) {
-      case "offer": {
-        // Two scenarios:
-        // A) Initial offer (new call): PC doesn't exist — create it, add local tracks, send answer.
-        // B) Renegotiation (mid-call): PC exists — set new remote description, send new answer.
-
-        let pc = peerConnection;
-
-        if (!pc) {
-          if (!_sendWS) break;
-
-          // Receiver creates its PC on the first offer — call is active here, so
-          // fetching ICE servers passes the backend gate. STUN-only on failure.
-          const iceServers = await fetchIceServers();
-          // The call may have ended/changed during the async fetch.
-          if (get().activeCall?.id !== callId) break;
-
-          // This path only runs for the receiver (the caller offers from
-          // startWebRTC), so it never drives the ICE restart.
-          pc = createPeerConnection(activeCall, iceServers, false, _sendWS, set, get);
-
-          // addTrack fires onnegotiationneeded async, but setRemoteDescription
-          // synchronously changes signalingState to "have-remote-offer" —
-          // the onnegotiationneeded guard prevents glare.
-          let stream = get().localStream;
-          let acquired = false;
-          if (!stream) {
-            try {
-              stream = await getMediaStream(activeCall.call_type);
-              acquired = true;
-            } catch (err) {
-              console.error("[p2p] Failed to get media in handleSignal:", err);
-            }
+        case "offer": {
+          if (!data.sdp) break;
+          let engine = get().engine;
+          if (!engine) {
+            // The offer beat the accept handler. Only the receiver can be here; the caller
+            // offers from startWebRTC.
+            engine = get()._ensureEngine();
+            if (!engine) break;
+            await engine.start({ callId, callType: activeCall.call_type, isCaller: false });
+            if (get().activeCall?.id !== callId) break;
           }
-
-          // Abandon the PC if the call ended during the awaits, or if a
-          // concurrent offer handler already created the connection.
-          if (get().activeCall?.id !== callId || get().peerConnection) {
-            pc.close();
-            if (acquired) stream?.getTracks().forEach((track) => track.stop());
-            break;
-          }
-
-          if (acquired && stream) {
-            set({ localStream: stream, isVideoOn: activeCall.call_type === "video" });
-            // Same as the caller path — start the mic FGS only after the mic is actually in use.
-            startVoiceCallService("p2p");
-          }
-          if (stream) {
-            for (const track of stream.getTracks()) {
-              pc.addTrack(track, stream);
-            }
-          }
-
-          applyDegradationPreference(pc);
-          set({ peerConnection: pc });
-        }
-
-        await pc.setRemoteDescription(
-          new RTCSessionDescription({ type: "offer", sdp: data.sdp })
-        );
-
-        // Bail if the call changed during the await — don't drain the shared
-        // candidate queue into a connection for a call we've since left.
-        if (get().activeCall?.id !== callId) break;
-
-        // Flush queued ICE candidates
-        const pendingOffer = get()._pendingCandidates;
-        if (pendingOffer.length > 0) {
-          set({ _pendingCandidates: [] });
-          for (const c of pendingOffer) {
-            await pc.addIceCandidate(new RTCIceCandidate(c));
-          }
-        }
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        // Only send the answer if still on the same call — and tag it with the
-        // captured id, never whatever call happens to be active now.
-        const ws = get()._sendWS;
-        if (ws && get().activeCall?.id === callId) {
-          ws("p2p_signal", {
-            call_id: callId,
-            type: "answer",
-            sdp: answer.sdp,
-          });
-        }
-        break;
-      }
-
-      case "answer": {
-        // In glare or renegotiation race conditions, a late answer may arrive
-        // when state is already "stable" — try-catch handles this safely.
-        if (!peerConnection) return;
-        try {
-          await peerConnection.setRemoteDescription(
-            new RTCSessionDescription({ type: "answer", sdp: data.sdp })
-          );
-        } catch (err) {
-          console.warn("[p2p] Could not set remote answer (state:", peerConnection.signalingState, "):", err);
+          await engine.acceptRemoteOffer(data.sdp);
           break;
         }
 
-        // Bail if the call changed during the await (see offer case).
-        if (get().activeCall?.id !== callId) break;
-
-        // Flush queued ICE candidates
-        const pendingAnswer = get()._pendingCandidates;
-        if (pendingAnswer.length > 0) {
-          set({ _pendingCandidates: [] });
-          for (const c of pendingAnswer) {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(c));
-          }
+        case "answer": {
+          if (!data.sdp) break;
+          await get().engine?.acceptRemoteAnswer(data.sdp);
+          break;
         }
-        break;
-      }
 
-      case "ice-candidate": {
-        // ICE candidates may arrive before SDP offer/answer via WS.
-        // addIceCandidate throws InvalidStateError if remoteDescription is null — queue and flush later.
-        if (!data.candidate) break;
-
-        const candidateInit = data.candidate as RTCIceCandidateInit;
-
-        if (!peerConnection || !peerConnection.remoteDescription) {
-          set((state) => ({
-            _pendingCandidates: [...state._pendingCandidates, candidateInit],
-          }));
-        } else {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(candidateInit));
+        case "ice-candidate": {
+          if (!data.candidate) break;
+          await get().engine?.addIceCandidate(data.candidate);
+          break;
         }
-        break;
-      }
 
-      case "ice-restart": {
-        // The other peer (the receiver) detected a failure and asked us to
-        // restart ICE. Only the caller exposes _triggerIceRestart, so this is a
-        // no-op on the receiver; it's idempotent if we're already recovering.
-        get()._triggerIceRestart?.();
-        break;
-      }
+        case "ice-restart": {
+          // The peer detected a failure and asked us to restart ICE. Only the offerer can do
+          // it; on the answerer the engine treats it as a no-op, and it is idempotent while a
+          // recovery is already running.
+          get().engine?.restartIce();
+          break;
+        }
       }
     } catch (err) {
       console.error("[p2p] handleSignal error:", err);
