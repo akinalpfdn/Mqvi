@@ -23,6 +23,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "acceptRemoteAnswer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addIceCandidate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMicEnabled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setIceServers", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "restartIce", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeCall", returnType: CAPPluginReturnPromise)
     ]
@@ -163,6 +164,21 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         lock.lock()
         audioTrack?.isEnabled = enabled
         lock.unlock()
+        call.resolve()
+    }
+
+    /// Fresh TURN credentials mid-call: a relayed reconnect may need a new allocation, and
+    /// the one the call started with can be near expiry.
+    @objc func setIceServers(_ call: CAPPluginCall) {
+        guard let pc = currentPeerConnection() else {
+            call.resolve()
+            return
+        }
+        let config = pc.configuration
+        config.iceServers = Self.parseIceServers(call.getArray("iceServers"))
+        if !pc.setConfiguration(config) {
+            print("[p2p-native] setConfiguration during recovery failed")
+        }
         call.resolve()
     }
 

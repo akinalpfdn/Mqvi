@@ -8,19 +8,18 @@
  * screen-share sender swap.
  */
 
-import { fetchIceServers, fetchIceServersForRecovery } from "../api/calls";
+import { fetchIceServers } from "../api/calls";
 import type { P2PCallType } from "../types";
 import type {
   CallEngineEvents,
   CallEngineStart,
   CallMediaEngine,
 } from "./CallMediaEngine";
-
-// Mid-call recovery: on a failed connection, attempt an ICE restart (TURN relay candidates
-// are already in the pool) before giving up. Bounded so a truly dead call still ends. Each
-// attempt gets its own window (enough for TURN/TLS fallback and slow ICE gathering).
-const MAX_ICE_RESTARTS = 2;
-const ICE_RESTART_ATTEMPT_MS = 7_000;
+import {
+  DISCONNECT_GRACE_MS,
+  DISCONNECT_GRACE_NEGOTIATING_MS,
+  IceRecovery,
+} from "./IceRecovery";
 
 async function getMediaStream(callType: P2PCallType): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
@@ -64,13 +63,39 @@ export class WebCallEngine implements CallMediaEngine {
   private pendingCandidates: RTCIceCandidateInit[] = [];
 
   private makingOffer = false;
-  private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private recovering = false;
-  private attempts = 0;
+  private readonly recovery: IceRecovery;
 
   constructor(events: CallEngineEvents) {
     this.events = events;
+    this.recovery = new IceRecovery({
+      isCaller: () => this.opts?.isCaller ?? false,
+      isAlive: () => !this.closed && this.pc !== null,
+      isConnected: () => this.pc?.connectionState === "connected",
+      // A negotiation in flight has further to travel before it can recover.
+      gracePeriodMs: () =>
+        this.pc && this.pc.signalingState !== "stable"
+          ? DISCONNECT_GRACE_NEGOTIATING_MS
+          : DISCONNECT_GRACE_MS,
+      applyIceServers: (servers) => {
+        const pc = this.pc;
+        if (!pc) return;
+        try {
+          // Spread the current configuration so only iceServers changes.
+          pc.setConfiguration({ ...pc.getConfiguration(), iceServers: servers });
+        } catch (err) {
+          console.error("[p2p] setConfiguration during recovery failed:", err);
+        }
+      },
+      restartIce: () => {
+        try {
+          this.pc?.restartIce();
+        } catch (err) {
+          console.error("[p2p] restartIce error:", err);
+        }
+      },
+      requestRestart: () => this.events.onIceRestartNeeded(),
+      onGiveUp: () => this.events.onConnectionLost(),
+    });
   }
 
   async start(opts: CallEngineStart): Promise<void> {
@@ -280,14 +305,13 @@ export class WebCallEngine implements CallMediaEngine {
   }
 
   restartIce(): void {
-    this.startRecovery();
+    this.recovery.start();
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.clearDisconnectedTimer();
-    this.stopRecovery();
+    this.recovery.dispose();
 
     const pc = this.pc;
     if (pc) {
@@ -352,40 +376,7 @@ export class WebCallEngine implements CallMediaEngine {
 
     pc.onconnectionstatechange = () => {
       if (!isCurrent()) return;
-      switch (pc.connectionState) {
-        case "connected":
-          this.clearDisconnectedTimer();
-          this.stopRecovery();
-          return;
-        case "connecting":
-          this.clearDisconnectedTimer();
-          return;
-        case "failed":
-          this.clearDisconnectedTimer();
-          this.startRecovery();
-          return;
-        case "closed":
-          this.endNow();
-          return;
-        case "disconnected": {
-          // May be a transient blip; give it a window before treating it as failure.
-          const timeout = pc.signalingState !== "stable" ? 10000 : 5000;
-          console.warn("[p2p] PeerConnection disconnected, waiting for recovery...", {
-            signalingState: pc.signalingState,
-            timeout,
-          });
-          if (!this.disconnectedTimer) {
-            this.disconnectedTimer = setTimeout(() => {
-              this.disconnectedTimer = null;
-              if (!isCurrent()) return;
-              if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
-                this.startRecovery();
-              }
-            }, timeout);
-          }
-          return;
-        }
-      }
+      this.recovery.handleState(pc.connectionState);
     };
 
     // Sole offer creation point, initial and renegotiation. The makingOffer flag and the
@@ -409,85 +400,4 @@ export class WebCallEngine implements CallMediaEngine {
     return pc;
   }
 
-  private clearDisconnectedTimer(): void {
-    if (this.disconnectedTimer) {
-      clearTimeout(this.disconnectedTimer);
-      this.disconnectedTimer = null;
-    }
-  }
-
-  private stopRecovery(): void {
-    this.recovering = false;
-    this.attempts = 0;
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-  }
-
-  private endNow(): void {
-    this.clearDisconnectedTimer();
-    this.stopRecovery();
-    this.events.onConnectionLost();
-  }
-
-  /** On fetch failure keep the current (TURN) configuration rather than downgrade to STUN. */
-  private async refreshIceServers(pc: RTCPeerConnection): Promise<void> {
-    const iceServers = await fetchIceServersForRecovery();
-    if (this.pc !== pc || this.closed || !iceServers) return;
-    try {
-      // Spread the current configuration so only iceServers changes.
-      pc.setConfiguration({ ...pc.getConfiguration(), iceServers });
-    } catch (err) {
-      console.error("[p2p] setConfiguration during recovery failed:", err);
-    }
-  }
-
-  private async recoveryStep(pc: RTCPeerConnection): Promise<void> {
-    const alive = () => this.pc === pc && !this.closed;
-    // Closure reads, so TypeScript does not narrow the state away across the awaits.
-    const isConnected = () => pc.connectionState === "connected";
-    if (!alive() || isConnected()) {
-      this.stopRecovery();
-      return;
-    }
-    if (this.attempts >= MAX_ICE_RESTARTS) {
-      console.warn("[p2p] ICE restart cap reached, ending call");
-      this.endNow();
-      return;
-    }
-    this.attempts++;
-    const role = this.opts?.isCaller ? "caller" : "receiver";
-    console.warn(`[p2p] ICE restart attempt ${this.attempts}/${MAX_ICE_RESTARTS} (${role})`);
-    await this.refreshIceServers(pc);
-    if (!alive() || !this.recovering || isConnected()) {
-      this.stopRecovery();
-      return;
-    }
-
-    // Only the offerer can restart ICE; the answerer asks it to.
-    if (this.opts?.isCaller) {
-      try {
-        pc.restartIce();
-      } catch (err) {
-        console.error("[p2p] restartIce error:", err);
-      }
-    } else {
-      this.events.onIceRestartNeeded();
-    }
-
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null;
-      void this.recoveryStep(pc);
-    }, ICE_RESTART_ATTEMPT_MS);
-  }
-
-  private startRecovery(): void {
-    const pc = this.pc;
-    if (!pc || this.closed) return;
-    if (this.recovering) return; // own failure and a peer request may coincide
-    this.recovering = true;
-    this.attempts = 0;
-    void this.recoveryStep(pc);
-  }
 }

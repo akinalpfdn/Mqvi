@@ -1,0 +1,166 @@
+/**
+ * IceRecovery — the bounded reconnect both call engines run.
+ *
+ * Failure detection is not symmetric: either peer may notice first, so both run this. Only
+ * the offerer can restart ICE, so the answerer asks the offerer to. Each attempt refreshes
+ * the ICE credentials first, because a relayed reconnect may need a fresh TURN allocation and
+ * the original one can be near expiry. After the cap with no reconnect, the call ends rather
+ * than sitting there dead.
+ */
+
+import { fetchIceServersForRecovery } from "../api/calls";
+
+export const MAX_ICE_RESTARTS = 2;
+export const ICE_RESTART_ATTEMPT_MS = 7_000;
+/** A "disconnected" state is often a blip; give it a window before treating it as failure. */
+export const DISCONNECT_GRACE_MS = 5_000;
+/** Longer while a negotiation is in flight — the state machine has further to travel. */
+export const DISCONNECT_GRACE_NEGOTIATING_MS = 10_000;
+
+export type RecoveryConnectionState =
+  | "new"
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "failed"
+  | "closed"
+  | "unknown";
+
+export type RecoveryHost = {
+  /** The offerer restarts ICE itself; the answerer asks the peer to. */
+  isCaller(): boolean;
+  /** False once the engine is closed or its connection has been replaced. */
+  isAlive(): boolean;
+  isConnected(): boolean;
+  /** How long a "disconnected" may last before it counts as failure. */
+  gracePeriodMs(): number;
+  applyIceServers(servers: RTCIceServer[]): void | Promise<void>;
+  /** Offerer side: regenerate the offer with fresh ICE. */
+  restartIce(): void;
+  /** Answerer side: ask the offerer to do it. */
+  requestRestart(): void;
+  /** Recovery is exhausted. */
+  onGiveUp(): void;
+};
+
+export class IceRecovery {
+  private readonly host: RecoveryHost;
+
+  private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private recovering = false;
+  private attempts = 0;
+
+  constructor(host: RecoveryHost) {
+    this.host = host;
+  }
+
+  /** Feed every connection-state change here. */
+  handleState(state: RecoveryConnectionState): void {
+    if (!this.host.isAlive()) return;
+    switch (state) {
+      case "connected":
+        this.clearGrace();
+        this.stop();
+        return;
+      case "connecting":
+        this.clearGrace();
+        return;
+      case "failed":
+        this.clearGrace();
+        this.start();
+        return;
+      case "closed":
+        this.giveUp();
+        return;
+      case "disconnected": {
+        if (this.disconnectedTimer) return;
+        const timeout = this.host.gracePeriodMs();
+        console.warn("[p2p] connection disconnected, waiting for recovery...", { timeout });
+        this.disconnectedTimer = setTimeout(() => {
+          this.disconnectedTimer = null;
+          if (!this.host.isAlive() || this.host.isConnected()) return;
+          this.start();
+        }, timeout);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  /** Also the entry point for a restart the peer asked for. Idempotent while running. */
+  start(): void {
+    if (!this.host.isAlive() || this.recovering) return;
+    this.recovering = true;
+    this.attempts = 0;
+    void this.step();
+  }
+
+  stop(): void {
+    this.recovering = false;
+    this.attempts = 0;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+  }
+
+  dispose(): void {
+    this.clearGrace();
+    this.stop();
+  }
+
+  // ─── internals ───
+
+  private clearGrace(): void {
+    if (this.disconnectedTimer) {
+      clearTimeout(this.disconnectedTimer);
+      this.disconnectedTimer = null;
+    }
+  }
+
+  private giveUp(): void {
+    this.clearGrace();
+    this.stop();
+    this.host.onGiveUp();
+  }
+
+  private async step(): Promise<void> {
+    if (!this.host.isAlive() || this.host.isConnected()) {
+      this.stop();
+      return;
+    }
+    if (this.attempts >= MAX_ICE_RESTARTS) {
+      console.warn("[p2p] ICE restart cap reached, ending call");
+      this.giveUp();
+      return;
+    }
+    this.attempts++;
+    const role = this.host.isCaller() ? "caller" : "receiver";
+    console.warn(`[p2p] ICE restart attempt ${this.attempts}/${MAX_ICE_RESTARTS} (${role})`);
+
+    // On fetch failure keep the current (TURN) configuration rather than downgrade to STUN
+    // exactly when a relayed reconnect is needed.
+    const servers = await fetchIceServersForRecovery();
+    if (!this.host.isAlive()) {
+      this.stop();
+      return;
+    }
+    if (servers) await this.host.applyIceServers(servers);
+
+    // Re-check after the awaits: the call may have ended or recovered on its own.
+    if (!this.host.isAlive() || !this.recovering || this.host.isConnected()) {
+      this.stop();
+      return;
+    }
+
+    if (this.host.isCaller()) this.host.restartIce();
+    else this.host.requestRestart();
+
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.step();
+    }, ICE_RESTART_ATTEMPT_MS);
+  }
+}

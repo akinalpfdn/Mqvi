@@ -33,6 +33,9 @@ type NativeP2PCallPlugin = {
   acceptRemoteAnswer(options: { sdp: string }): Promise<void>;
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;
   setMicEnabled(options: { enabled: boolean }): Promise<void>;
+  setIceServers(options: {
+    iceServers: { urls: string | string[]; username?: string; credential?: string }[];
+  }): Promise<void>;
   restartIce(): Promise<void>;
   closeCall(): Promise<void>;
 

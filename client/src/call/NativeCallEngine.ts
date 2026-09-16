@@ -14,6 +14,7 @@ import { fetchIceServers } from "../api/calls";
 import { NativeP2PCall, type NativeConnectionState } from "../native/nativeP2PCall";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type { CallEngineEvents, CallEngineStart, CallMediaEngine } from "./CallMediaEngine";
+import { DISCONNECT_GRACE_MS, IceRecovery } from "./IceRecovery";
 
 export class NativeCallEngine implements CallMediaEngine {
   private readonly events: CallEngineEvents;
@@ -21,12 +22,40 @@ export class NativeCallEngine implements CallMediaEngine {
 
   private started = false;
   private closed = false;
+  private state: NativeConnectionState = "new";
+  private isCaller = false;
+  private readonly recovery: IceRecovery;
   /** Candidates that arrived before a remote description; the native side rejects those. */
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private hasRemoteDescription = false;
 
   constructor(events: CallEngineEvents) {
     this.events = events;
+    this.recovery = new IceRecovery({
+      isCaller: () => this.isCaller,
+      isAlive: () => !this.closed && this.started,
+      isConnected: () => this.state === "connected",
+      // The native side does not surface the signalling state, so every disconnect gets the
+      // shorter window. A renegotiation in flight is the rarer case and it still recovers,
+      // just one attempt sooner.
+      gracePeriodMs: () => DISCONNECT_GRACE_MS,
+      applyIceServers: async (servers) => {
+        await NativeP2PCall.setIceServers({
+          iceServers: servers.map((server) => ({
+            urls: server.urls,
+            username: server.username,
+            credential: typeof server.credential === "string" ? server.credential : undefined,
+          })),
+        }).catch((err) => console.error("[p2p] native setIceServers failed:", err));
+      },
+      restartIce: () => {
+        void NativeP2PCall.restartIce().catch((err) =>
+          console.error("[p2p] native restartIce failed:", err),
+        );
+      },
+      requestRestart: () => this.events.onIceRestartNeeded(),
+      onGiveUp: () => this.events.onConnectionLost(),
+    });
   }
 
   async start(opts: CallEngineStart): Promise<void> {
@@ -57,6 +86,7 @@ export class NativeCallEngine implements CallMediaEngine {
     const iceServers = await fetchIceServers();
     if (this.closed) return;
 
+    this.isCaller = opts.isCaller;
     await NativeP2PCall.start({
       callId: opts.callId,
       isCaller: opts.isCaller,
@@ -110,16 +140,16 @@ export class NativeCallEngine implements CallMediaEngine {
 
   stopScreenShare(): void {}
 
+  /** The peer asked for a restart; it drives the same bounded loop as our own failures. */
   restartIce(): void {
     if (this.closed) return;
-    void NativeP2PCall.restartIce().catch((err) =>
-      console.error("[p2p] native restartIce failed:", err),
-    );
+    this.recovery.start();
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.recovery.dispose();
     this.pendingCandidates = [];
     for (const handle of this.handles) void handle.remove();
     this.handles.length = 0;
@@ -149,10 +179,7 @@ export class NativeCallEngine implements CallMediaEngine {
 
   private onConnectionState(state: NativeConnectionState): void {
     if (this.closed) return;
-    // Recovery parity with the web engine (bounded ICE restarts) lands in its own phase;
-    // until then a connection that dies is reported so the call ends instead of hanging.
-    if (state === "failed" || state === "closed") {
-      this.events.onConnectionLost();
-    }
+    this.state = state;
+    this.recovery.handleState(state);
   }
 }
