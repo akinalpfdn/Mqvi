@@ -12,7 +12,7 @@ import { useEffect } from "react";
 import { NativeP2PCall } from "../native/nativeP2PCall";
 
 /** Matches the PiP's border radius in globals.css, so the native corner follows the CSS one. */
-const PIP_CORNER_RADIUS = 10;
+const PIP_CORNER_RADIUS = 8;
 
 type Rect = { x: number; y: number; width: number; height: number } | null;
 

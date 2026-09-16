@@ -24,6 +24,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "addIceCandidate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMicEnabled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setVideoEnabled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "switchCamera", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setVideoLayout", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hideVideo", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setIceServers", returnType: CAPPluginReturnPromise),
@@ -219,6 +220,22 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             if enabled { camera?.start(position: camera?.position ?? .front) } else { camera?.stop() }
             NativeCallVideo.shared.setLocalTrack(enabled ? track : nil)
             call.resolve(["enabled": enabled])
+        }
+    }
+
+    @objc func switchCamera(_ call: CAPPluginCall) {
+        lock.lock()
+        let camera = self.camera
+        lock.unlock()
+
+        guard let camera else {
+            call.resolve(["facing": "front"])
+            return
+        }
+        Task { @MainActor in
+            camera.flip { position in
+                call.resolve(["facing": position == .front ? "front" : "back"])
+            }
         }
     }
 

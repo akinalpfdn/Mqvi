@@ -133,15 +133,21 @@ final class NativeCallCamera {
         capturer.stopCapture()
     }
 
-    /// Returns the position it ended up on, so the web layer never claims a switch that failed.
-    @discardableResult
-    func flip() -> AVCaptureDevice.Position {
+    /// Flips to the other camera and reports where it ended up, so the web layer never claims
+    /// a switch that a single-camera device could not make.
+    func flip(completion: @escaping (AVCaptureDevice.Position) -> Void) {
         let next: AVCaptureDevice.Position = position == .front ? .back : .front
-        guard Self.device(for: next) != nil else { return position }
-        capturer.stopCapture { [weak self] in
-            Task { @MainActor in self?.start(position: next) }
+        guard Self.device(for: next) != nil else {
+            completion(position)
+            return
         }
-        return next
+        capturer.stopCapture { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.start(position: next)
+                completion(self.position)
+            }
+        }
     }
 
     private static func device(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {

@@ -13,7 +13,12 @@
 import { fetchIceServers } from "../api/calls";
 import { NativeP2PCall, type NativeConnectionState } from "../native/nativeP2PCall";
 import type { PluginListenerHandle } from "@capacitor/core";
-import type { CallEngineEvents, CallEngineStart, CallMediaEngine } from "./CallMediaEngine";
+import type {
+  CallEngineEvents,
+  CallEngineStart,
+  CallMediaEngine,
+  CameraFacing,
+} from "./CallMediaEngine";
 import { DISCONNECT_GRACE_MS, IceRecovery } from "./IceRecovery";
 
 export class NativeCallEngine implements CallMediaEngine {
@@ -145,6 +150,17 @@ export class NativeCallEngine implements CallMediaEngine {
     } catch (err) {
       console.error("[p2p] native setVideoEnabled failed:", err);
       return false;
+    }
+  }
+
+  async switchCamera(): Promise<CameraFacing | null> {
+    if (this.closed) return null;
+    try {
+      const { facing } = await NativeP2PCall.switchCamera();
+      return facing;
+    } catch (err) {
+      console.error("[p2p] native switchCamera failed:", err);
+      return null;
     }
   }
 

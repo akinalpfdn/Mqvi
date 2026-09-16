@@ -14,6 +14,7 @@ import type {
   CallEngineEvents,
   CallEngineStart,
   CallMediaEngine,
+  CameraFacing,
 } from "./CallMediaEngine";
 import {
   DISCONNECT_GRACE_MS,
@@ -65,6 +66,7 @@ export class WebCallEngine implements CallMediaEngine {
   private pendingCandidates: RTCIceCandidateInit[] = [];
 
   private makingOffer = false;
+  private facing: CameraFacing = "front";
   private readonly recovery: IceRecovery;
 
   constructor(events: CallEngineEvents) {
@@ -226,6 +228,49 @@ export class WebCallEngine implements CallMediaEngine {
       console.error("[p2p] Failed to get video:", err);
       return false;
     }
+  }
+
+  async switchCamera(): Promise<CameraFacing | null> {
+    const pc = this.pc;
+    const stream = this.localStream;
+    if (!pc || !stream || this.closed) return null;
+
+    const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+    if (!sender) return null;
+
+    const next: CameraFacing = this.facing === "front" ? "back" : "front";
+    let replacement: MediaStream;
+    try {
+      replacement = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: next === "front" ? "user" : "environment",
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
+        },
+      });
+    } catch (err) {
+      // A device with one camera rejects the constraint; the call keeps the camera it has.
+      console.error("[p2p] camera switch failed:", err);
+      return null;
+    }
+
+    const track = replacement.getVideoTracks()[0];
+    if (this.closed || this.pc !== pc || !track) {
+      replacement.getTracks().forEach((t) => t.stop());
+      return null;
+    }
+
+    // replaceTrack swaps the outgoing picture without renegotiating.
+    await sender.replaceTrack(track);
+    const previous = stream.getVideoTracks()[0];
+    if (previous) {
+      stream.removeTrack(previous);
+      previous.stop();
+    }
+    stream.addTrack(track);
+    this.facing = next;
+    return next;
   }
 
   async startScreenShare(): Promise<boolean> {

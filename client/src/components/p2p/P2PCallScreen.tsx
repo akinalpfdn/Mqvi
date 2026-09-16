@@ -142,6 +142,7 @@ function P2PCallScreen() {
   const isVideoOn = useP2PCallStore((s) => s.isVideoOn);
   const isNativeVideo = useP2PCallStore((s) => s.isNativeVideo);
   const nativeRemoteVideo = useP2PCallStore((s) => s.hasRemoteVideo);
+  const cameraFacing = useP2PCallStore((s) => s.cameraFacing);
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   // Boxes the native layer draws into. Refs as state: the hook has to re-run when they arrive.
@@ -231,7 +232,8 @@ function P2PCallScreen() {
     active: isNativeVideo && !!activeCall && activeCall.status === "active",
     remoteEl: effectiveSwapped ? pipEl : bigEl,
     localEl: effectiveSwapped ? bigEl : pipEl,
-    mirrorLocal: true,
+    // Your own face is shown mirrored, the way every call app does it; the back camera is not.
+    mirrorLocal: cameraFacing === "front",
   });
 
   // The big feed's srcObject follows whichever stream is foregrounded (muted —

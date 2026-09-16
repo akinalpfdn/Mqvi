@@ -15,6 +15,8 @@ import type { P2PCallType } from "../types";
 
 export type CallDescription = { type: "offer" | "answer"; sdp: string };
 
+export type CameraFacing = "front" | "back";
+
 export type CallEngineEvents = {
   /** Local SDP is ready and must be signalled to the peer. */
   onLocalDescription(desc: CallDescription): void;
@@ -57,6 +59,11 @@ export interface CallMediaEngine {
   setMicEnabled(enabled: boolean): void;
   /** Returns the camera state actually reached, so the store never claims more than happened. */
   setVideoEnabled(enabled: boolean): Promise<boolean>;
+  /**
+   * Flips between front and back camera. Returns where it ended up, or null when there is
+   * nothing to flip — a desktop with one camera, or a call with the camera off.
+   */
+  switchCamera(): Promise<CameraFacing | null>;
   startScreenShare(): Promise<boolean>;
   stopScreenShare(): void;
   /** Offerer-side ICE restart, triggered by the peer's request. */

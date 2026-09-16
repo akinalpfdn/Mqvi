@@ -16,7 +16,7 @@
 
 import { create } from "zustand";
 import i18n from "../i18n";
-import type { CallEngineEvents, CallMediaEngine } from "../call/CallMediaEngine";
+import type { CallEngineEvents, CallMediaEngine, CameraFacing } from "../call/CallMediaEngine";
 import { NativeCallEngine } from "../call/NativeCallEngine";
 import { WebCallEngine } from "../call/WebCallEngine";
 import { getCapacitorPlatform } from "../utils/constants";
@@ -54,6 +54,8 @@ type P2PCallStore = {
 
   isMuted: boolean;
   isVideoOn: boolean;
+  /** Which camera is publishing. Drives the mirror on your own preview. */
+  cameraFacing: CameraFacing;
   isScreenSharing: boolean;
 
   /** Remote audio output volume, 0–200 (100 = normal). Above 100 amplifies via Web Audio. */
@@ -89,6 +91,7 @@ type P2PCallStore = {
   endCall: () => void;
   toggleMute: () => void;
   toggleVideo: () => void;
+  switchCamera: () => void;
   toggleScreenShare: () => void;
   startWebRTC: (isCaller: boolean) => Promise<void>;
   cleanup: () => void;
@@ -131,6 +134,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   hasRemoteVideo: false,
   isMuted: false,
   isVideoOn: false,
+  cameraFacing: "front",
   isScreenSharing: false,
   remoteVolume: 100,
   callDuration: 0,
@@ -205,6 +209,15 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     // The engine reports the state it actually reached, so a denied camera cannot leave the
     // button lit.
     void engine.setVideoEnabled(!isVideoOn).then((enabled) => set({ isVideoOn: enabled }));
+  },
+
+  switchCamera: () => {
+    const { engine, isVideoOn } = get();
+    if (!engine || !isVideoOn) return;
+    // The engine reports where it landed; a phone with one camera stays where it was.
+    void engine.switchCamera().then((facing) => {
+      if (facing) set({ cameraFacing: facing });
+    });
   },
 
   toggleScreenShare: () => {
@@ -307,6 +320,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       hasRemoteVideo: false,
       isMuted: false,
       isVideoOn: false,
+      cameraFacing: "front",
       isScreenSharing: false,
       remoteVolume: 100,
       callDuration: 0,

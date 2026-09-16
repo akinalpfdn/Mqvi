@@ -17,6 +17,7 @@ const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.ho
       addIceCandidate: vi.fn(async () => {}),
       setMicEnabled: vi.fn(async () => {}),
       setIceServers: vi.fn(async () => {}),
+      switchCamera: vi.fn(async (): Promise<{ facing: "front" | "back" }> => ({ facing: "front" })),
       restartIce: vi.fn(async () => {}),
       closeCall: vi.fn(async () => {}),
       addListener: vi.fn(async (event: string, cb: (data: never) => void) => {
@@ -142,5 +143,29 @@ describe("native engine recovery", () => {
       sdpMid: "0",
       sdpMLineIndex: 0,
     });
+  });
+});
+
+describe("native engine camera", () => {
+  it("should report the camera the native side ended up on", async () => {
+    plugin.switchCamera.mockResolvedValue({ facing: "back" });
+    const { engine } = await engineFor(true);
+
+    expect(await engine.switchCamera()).toBe("back");
+  });
+
+  it("should report nothing when the native side cannot switch", async () => {
+    plugin.switchCamera.mockRejectedValue(new Error("no second camera"));
+    const { engine } = await engineFor(true);
+
+    expect(await engine.switchCamera()).toBeNull();
+  });
+
+  it("should not touch the camera once the call is closed", async () => {
+    const { engine } = await engineFor(true);
+    engine.close();
+
+    expect(await engine.switchCamera()).toBeNull();
+    expect(plugin.switchCamera).not.toHaveBeenCalled();
   });
 });

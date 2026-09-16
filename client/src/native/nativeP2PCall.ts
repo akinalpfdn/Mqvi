@@ -37,6 +37,7 @@ type NativeP2PCallPlugin = {
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;
   setMicEnabled(options: { enabled: boolean }): Promise<void>;
   setVideoEnabled(options: { enabled: boolean }): Promise<{ enabled: boolean }>;
+  switchCamera(): Promise<{ facing: "front" | "back" }>;
   /** Where the two feeds belong, in CSS pixels of the web view. */
   setVideoLayout(options: {
     remote: NativeVideoRect | null;

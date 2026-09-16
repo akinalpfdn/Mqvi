@@ -6,6 +6,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
+import { isCapacitor } from "../../utils/constants";
 
 type P2PCallControlsProps = {
   minimal?: boolean;
@@ -20,11 +21,15 @@ function P2PCallControls({ minimal = false }: P2PCallControlsProps) {
   const toggleMute = useP2PCallStore((s) => s.toggleMute);
   const toggleVideo = useP2PCallStore((s) => s.toggleVideo);
   const toggleScreenShare = useP2PCallStore((s) => s.toggleScreenShare);
+  const switchCamera = useP2PCallStore((s) => s.switchCamera);
   const endCall = useP2PCallStore((s) => s.endCall);
   const declineCall = useP2PCallStore((s) => s.declineCall);
 
   const isVideo = activeCall?.call_type === "video";
   const isRinging = activeCall?.status === "ringing";
+  // Only a phone or tablet has two cameras to flip between, and sharing a screen has no camera
+  // to flip at all.
+  const canSwitchCamera = isCapacitor() && isVideo && isVideoOn && !isScreenSharing;
 
   function handleEnd() {
     if (isRinging && activeCall) {
@@ -69,6 +74,18 @@ function P2PCallControls({ minimal = false }: P2PCallControlsProps) {
                   <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z" />
                 </svg>
               )}
+            </button>
+          )}
+
+          {canSwitchCamera && (
+            <button
+              className="p2p-ctrl-btn"
+              onClick={switchCamera}
+              title={t("switchCamera")}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-8 12a5 5 0 0 1-4.9-4H5.5l2.5-2.5L10.5 13H8.6a3.4 3.4 0 0 0 6.3.9l1.4 1.02A5 5 0 0 1 12 17zm4.9-5.5L14.4 9h1.9a3.4 3.4 0 0 0-6.3-.9L8.6 7.08A5 5 0 0 1 16.9 11h1.6l-1.6 1.6z" />
+              </svg>
             </button>
           )}
 
