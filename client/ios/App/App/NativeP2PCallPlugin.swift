@@ -501,8 +501,6 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         didAdd rtpReceiver: LKRTCRtpReceiver,
         streams mediaStreams: [LKRTCMediaStream]
     ) {
-        let kind = rtpReceiver.track?.kind ?? "none"
-        print("[p2p-native] receiver added: kind=\(kind)")
         guard let track = rtpReceiver.track as? LKRTCVideoTrack else { return }
         Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(track) }
         notifyListeners("remoteVideo", data: ["available": true])

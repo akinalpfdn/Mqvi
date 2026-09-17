@@ -22,11 +22,12 @@ final class NativeCallVideo {
     private let remoteView = LKRTCMTLVideoView()
     private let localView = LKRTCMTLVideoView()
 
-    private weak var remoteTrack: LKRTCVideoTrack?
-    private weak var localTrack: LKRTCVideoTrack?
+    // Strong on purpose. A receiver hands out a fresh Obj-C wrapper for its track every time it
+    // is asked, and nothing else keeps that wrapper alive; letting it go deallocates it, and its
+    // dealloc unhooks the renderer from the native track, so the surface never sees a frame.
+    private var remoteTrack: LKRTCVideoTrack?
+    private var localTrack: LKRTCVideoTrack?
     private var attached = false
-    private var lastLoggedRemote: CGRect?
-    private var hasLoggedLayout = false
 
     private init() {
         container.isUserInteractionEnabled = false
@@ -51,7 +52,6 @@ final class NativeCallVideo {
     }
 
     func setRemoteTrack(_ track: LKRTCVideoTrack?) {
-        print("[p2p-native] remote track \(track == nil ? "cleared" : "attached"), attached=\(attached)")
         if let current = remoteTrack, current !== track {
             current.remove(remoteView)
         }
@@ -71,11 +71,6 @@ final class NativeCallVideo {
 
     /// Positions, in web-view points, straight from the call screen's layout.
     func layout(remote: CGRect?, local: CGRect?, cornerRadius: CGFloat, mirrorLocal: Bool) {
-        if !hasLoggedLayout || remote != lastLoggedRemote {
-            hasLoggedLayout = true
-            lastLoggedRemote = remote
-            print("[p2p-native] layout remote=\(remote.map { "\(Int($0.width))x\(Int($0.height))@\(Int($0.origin.x)),\(Int($0.origin.y))" } ?? "none") local=\(local == nil ? "none" : "set")")
-        }
         apply(rect: remote, to: remoteView, cornerRadius: 0, mirrored: false)
         apply(rect: local, to: localView, cornerRadius: cornerRadius, mirrored: mirrorLocal)
     }
@@ -202,20 +197,15 @@ final class NativeCallCamera {
 
     /// Flips to the other camera and reports where it ended up, so the web layer never claims
     /// a switch that a single-camera device could not make.
-    /// Uses the completion form of stop for the same reason `start` does.
     func flip(completion: @escaping (AVCaptureDevice.Position) -> Void) {
         let next: AVCaptureDevice.Position = position == .front ? .back : .front
         guard Self.device(for: next) != nil else {
             completion(position)
             return
         }
-        capturer.stopCapture { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                self.start(position: next)
-                completion(self.position)
-            }
-        }
+        // `start` already goes through a completed stop; stopping here as well stopped it twice.
+        start(position: next)
+        completion(position)
     }
 
     private static func device(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {

@@ -58,6 +58,7 @@ export class WebCallEngine implements CallMediaEngine {
   private remoteStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
   private screenTrack: MediaStreamTrack | null = null;
+  private watchedRemoteTrack: MediaStreamTrack | null = null;
 
   private opts: CallEngineStart | null = null;
   private closed = false;
@@ -379,6 +380,30 @@ export class WebCallEngine implements CallMediaEngine {
 
   // ─── internals ───
 
+  /**
+   * A peer that turns its camera off stops sending frames, and the element it was drawn in
+   * keeps the last one forever. The track's mute events are the only notice of it: `enabled`
+   * on a remote track is our own setting, not theirs.
+   */
+  private watchRemoteVideo(stream: MediaStream): void {
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      this.events.onRemoteVideo(false);
+      return;
+    }
+    if (this.watchedRemoteTrack === track) return;
+    this.watchedRemoteTrack = track;
+
+    const report = () => {
+      if (this.closed) return;
+      this.events.onRemoteVideo(!track.muted && track.readyState === "live");
+    };
+    track.addEventListener("mute", report);
+    track.addEventListener("unmute", report);
+    track.addEventListener("ended", report);
+    report();
+  }
+
   private setLocalStream(stream: MediaStream): void {
     this.localStream = stream;
     this.events.onLocalStream(stream);
@@ -420,9 +445,7 @@ export class WebCallEngine implements CallMediaEngine {
         this.remoteStream = stream;
       }
       this.events.onRemoteStream(this.remoteStream);
-      this.events.onRemoteVideo(
-        this.remoteStream.getVideoTracks().some((track) => track.enabled),
-      );
+      this.watchRemoteVideo(this.remoteStream);
     };
 
     pc.onconnectionstatechange = () => {
