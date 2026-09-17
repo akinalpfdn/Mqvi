@@ -7,7 +7,8 @@
  * fullscreen, dragging the PiP, switching tabs.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import type { PluginListenerHandle } from "@capacitor/core";
 
 import { NativeP2PCall } from "../native/nativeP2PCall";
 
@@ -35,11 +36,53 @@ function same(a: Rect, b: Rect): boolean {
 
 export function useNativeVideoLayout(options: {
   active: boolean;
+  /** The call area the feeds are confined to — the box the page clips them against. */
+  clipEl: HTMLElement | null;
   remoteEl: HTMLElement | null;
   localEl: HTMLElement | null;
   mirrorLocal: boolean;
 }): void {
-  const { active, remoteEl, localEl, mirrorLocal } = options;
+  const { active, clipEl, remoteEl, localEl, mirrorLocal } = options;
+
+  // Last shape reported for each feed, kept so a swap can re-apply it: the picture-in-picture
+  // box changes which feed it holds, and the native side only reports a shape when it changes.
+  const shapes = useRef<{ remote: string | null; local: string | null }>({ remote: null, local: null });
+
+  // The page cannot measure a picture it does not hold, so the box that frames a natively drawn
+  // feed gets its aspect ratio from the feed itself. Without it an empty <video> falls back to
+  // the browser's 300x150 default and a portrait camera is framed landscape.
+  useEffect(() => {
+    if (!active) return;
+
+    const apply = () => {
+      for (const [element, aspect] of [
+        [remoteEl, shapes.current.remote],
+        [localEl, shapes.current.local],
+      ] as const) {
+        if (!element) continue;
+        if (aspect) element.style.setProperty("--pip-aspect", aspect);
+        else element.style.removeProperty("--pip-aspect");
+      }
+    };
+    apply();
+
+    let handle: PluginListenerHandle | null = null;
+    let cancelled = false;
+    void NativeP2PCall.addListener("videoSize", (data) => {
+      shapes.current[data.source] = `${data.width} / ${data.height}`;
+      apply();
+    })
+      .then((listener) => {
+        if (cancelled) void listener.remove();
+        else handle = listener;
+      })
+      .catch((err) => console.error("[p2p] native videoSize listener failed:", err));
+
+    return () => {
+      cancelled = true;
+      void handle?.remove();
+    };
+  }, [active, remoteEl, localEl]);
 
   useEffect(() => {
     if (!active) {
@@ -48,24 +91,28 @@ export function useNativeVideoLayout(options: {
       return;
     }
 
+    let lastClip: Rect = null;
     let lastRemote: Rect = null;
     let lastLocal: Rect = null;
     let first = true;
     let frame = 0;
 
     const publish = () => {
+      const clip = rectOf(clipEl);
       const remote = rectOf(remoteEl);
       const local = rectOf(localEl);
-      if (!first && same(remote, lastRemote) && same(local, lastLocal)) return;
+      if (!first && same(clip, lastClip) && same(remote, lastRemote) && same(local, lastLocal)) return;
       console.log(
         `[p2p] video layout: remote=${remote ? `${Math.round(remote.width)}x${Math.round(remote.height)}` : "none"}` +
           ` local=${local ? `${Math.round(local.width)}x${Math.round(local.height)}` : "none"}` +
           ` (elements: remote=${remoteEl ? "yes" : "no"} local=${localEl ? "yes" : "no"})`,
       );
       first = false;
+      lastClip = clip;
       lastRemote = remote;
       lastLocal = local;
       void NativeP2PCall.setVideoLayout({
+        clip,
         remote,
         local,
         cornerRadius: PIP_CORNER_RADIUS,
@@ -86,5 +133,5 @@ export function useNativeVideoLayout(options: {
       cancelAnimationFrame(frame);
       void NativeP2PCall.hideVideo().catch(() => {});
     };
-  }, [active, remoteEl, localEl, mirrorLocal]);
+  }, [active, clipEl, remoteEl, localEl, mirrorLocal]);
 }

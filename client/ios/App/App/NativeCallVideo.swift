@@ -15,8 +15,13 @@ import UIKit
 /// future change could quietly close. Over costs the page the ability to draw on top of the
 /// video, and the page compensates by pulling the rectangles when something should cover it.
 @MainActor
-final class NativeCallVideo {
+final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
     static let shared = NativeCallVideo()
+
+    /// Reports a feed's shape, as "remote"/"local" and its pixel size. The page sizes the
+    /// picture-in-picture box and has no element to measure for a natively drawn feed, so
+    /// without this a portrait camera ends up in a box left at the browser's default 2:1.
+    var onVideoSize: ((String, CGSize) -> Void)?
 
     private let container = UIView()
     private let remoteView = LKRTCMTLVideoView()
@@ -28,14 +33,21 @@ final class NativeCallVideo {
     private var remoteTrack: LKRTCVideoTrack?
     private var localTrack: LKRTCVideoTrack?
     private var attached = false
+    /// The web view the rectangles are measured against; its origin turns them into our parent's
+    /// coordinates.
+    private weak var hostView: UIView?
 
-    private init() {
+    private override init() {
+        super.init()
         container.isUserInteractionEnabled = false
         container.backgroundColor = .clear
         for view in [remoteView, localView] {
-            view.videoContentMode = .scaleAspectFill
+            // Fit, not fill, to match the web's `object-fit: contain`: the same call must not be
+            // framed one way on the desktop and cropped another way here.
+            view.videoContentMode = .scaleAspectFit
             view.clipsToBounds = true
             view.isHidden = true
+            view.delegate = self
             container.addSubview(view)
         }
     }
@@ -44,9 +56,9 @@ final class NativeCallVideo {
 
     /// Puts the container over the web view, without taking touches from it.
     func attach(to webView: UIView) {
+        hostView = webView
         guard !attached, let parent = webView.superview else { return }
-        container.frame = webView.frame
-        container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.clipsToBounds = true
         parent.insertSubview(container, aboveSubview: webView)
         attached = true
     }
@@ -69,10 +81,28 @@ final class NativeCallVideo {
         localView.isHidden = track == nil
     }
 
-    /// Positions, in web-view points, straight from the call screen's layout.
-    func layout(remote: CGRect?, local: CGRect?, cornerRadius: CGFloat, mirrorLocal: Bool) {
-        apply(rect: remote, to: remoteView, cornerRadius: 0, mirrored: false)
-        apply(rect: local, to: localView, cornerRadius: cornerRadius, mirrored: mirrorLocal)
+    /// Positions, in web-view points, straight from the call screen's layout. `clip` is the call
+    /// area the page keeps its boxes inside; the views are bounded by it for the same reason the
+    /// page sets `overflow: hidden` on it — a box that grows past the edge, because a swap gave
+    /// it a wider feed, must be cut off rather than drawn across the rest of the app.
+    func layout(clip: CGRect?, remote: CGRect?, local: CGRect?, cornerRadius: CGFloat, mirrorLocal: Bool) {
+        guard let clip, clip.width > 1, clip.height > 1 else {
+            hide()
+            return
+        }
+        let origin = hostView?.frame.origin ?? .zero
+        container.frame = clip.offsetBy(dx: origin.x, dy: origin.y)
+
+        apply(rect: remote?.offsetBy(dx: -clip.minX, dy: -clip.minY), to: remoteView, cornerRadius: 0, mirrored: false)
+        apply(rect: local?.offsetBy(dx: -clip.minX, dy: -clip.minY), to: localView, cornerRadius: cornerRadius, mirrored: mirrorLocal)
+
+        // Which feed is the small one changes when the page swaps them, and the subview added
+        // last always draws on top. Without this the picture-in-picture sits under the full-size
+        // feed the moment the two are swapped.
+        if let remote, let local {
+            let remoteIsSmaller = remote.width * remote.height <= local.width * local.height
+            container.bringSubviewToFront(remoteIsSmaller ? remoteView : localView)
+        }
     }
 
     /// The call screen is gone (tab switch, call ended, app backgrounded): show nothing, but
@@ -91,6 +121,13 @@ final class NativeCallVideo {
     }
 
     // MARK: - internals
+
+    @objc nonisolated public func videoView(_ videoView: LKRTCVideoRenderer, didChangeVideoSize size: CGSize) {
+        Task { @MainActor in
+            guard size.width > 0, size.height > 0 else { return }
+            self.onVideoSize?(videoView === self.remoteView ? "remote" : "local", size)
+        }
+    }
 
     private func apply(rect: CGRect?, to view: LKRTCMTLVideoView, cornerRadius: CGFloat, mirrored: Bool) {
         guard let rect, rect.width > 1, rect.height > 1 else {

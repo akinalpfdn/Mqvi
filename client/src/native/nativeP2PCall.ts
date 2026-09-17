@@ -16,6 +16,12 @@ export type NativeIceCandidate = {
 
 export type NativeVideoRect = { x: number; y: number; width: number; height: number };
 
+export type NativeVideoSize = {
+  source: "remote" | "local";
+  width: number;
+  height: number;
+};
+
 export type NativeConnectionState =
   | "new"
   | "connecting"
@@ -40,6 +46,8 @@ type NativeP2PCallPlugin = {
   switchCamera(): Promise<{ facing: "front" | "back" }>;
   /** Where the two feeds belong, in CSS pixels of the web view. */
   setVideoLayout(options: {
+    /** The call area both feeds are bounded by, the way the page clips them to it. */
+    clip: NativeVideoRect | null;
     remote: NativeVideoRect | null;
     local: NativeVideoRect | null;
     cornerRadius: number;
@@ -67,6 +75,11 @@ type NativeP2PCallPlugin = {
   addListener(
     eventName: "remoteVideo",
     listener: (data: { available: boolean }) => void,
+  ): Promise<PluginListenerHandle>;
+  /** A feed's pixel shape, so the page can give a natively drawn box the right aspect ratio. */
+  addListener(
+    eventName: "videoSize",
+    listener: (data: NativeVideoSize) => void,
   ): Promise<PluginListenerHandle>;
 };
 

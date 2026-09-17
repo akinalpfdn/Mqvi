@@ -3250,7 +3250,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .p2p-local-video-wrap.dragging { cursor:grabbing;box-shadow:0 4px 20px rgba(0,0,0,.4); }
 .p2p-local-video-wrap.swappable { cursor:pointer; }
 .p2p-local-video-wrap.swappable.dragging { cursor:grabbing; }
-.p2p-local-video-wrap video { display:block;width:auto;height:120px;max-width:45vw;object-fit:contain;background:var(--bg-0);border-radius:8px;border:2px solid var(--b2); }
+/* --pip-aspect is set from the feed's own shape when the picture is drawn natively, where this
+   element carries no source to be measured. With a stream it stays auto: the video sizes itself. */
+.p2p-local-video-wrap video { display:block;width:auto;height:120px;max-width:45vw;aspect-ratio:var(--pip-aspect,auto);object-fit:contain;background:var(--bg-0);border-radius:8px;border:2px solid var(--b2); }
 @media (orientation:portrait) { .p2p-local-video-wrap video { height:160px; } }
 
 /* Duration */

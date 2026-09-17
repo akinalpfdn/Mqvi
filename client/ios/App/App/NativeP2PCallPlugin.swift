@@ -54,6 +54,20 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - JS surface
 
+    public override func load() {
+        Task { @MainActor in
+            NativeCallVideo.shared.onVideoSize = { [weak self] source, size in
+                // Retained: the camera's first frame can land before the call screen has
+                // subscribed, and a shape that never changes again would never be re-sent.
+                self?.notifyListeners("videoSize", data: [
+                    "source": source,
+                    "width": Double(size.width),
+                    "height": Double(size.height)
+                ], retainUntilConsumed: true)
+            }
+        }
+    }
+
     @objc func start(_ call: CAPPluginCall) {
         guard let callId = call.getString("callId") else {
             call.reject("callId is required")
@@ -244,6 +258,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Where the two feeds belong, in web-view points. The call screen owns the layout; this
     /// only follows it.
     @objc func setVideoLayout(_ call: CAPPluginCall) {
+        let clip = Self.rect(from: call.getObject("clip"))
         let remote = Self.rect(from: call.getObject("remote"))
         let local = Self.rect(from: call.getObject("local"))
         let radius = call.getDouble("cornerRadius") ?? 0
@@ -253,6 +268,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 NativeCallVideo.shared.attach(to: webView)
             }
             NativeCallVideo.shared.layout(
+                clip: clip,
                 remote: remote,
                 local: local,
                 cornerRadius: CGFloat(radius),

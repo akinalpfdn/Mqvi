@@ -21,6 +21,9 @@ import P2PStreamContextMenu from "./P2PStreamContextMenu";
 
 // ─── Draggable Local PiP ───
 
+/** Movement past this is a drag; anything less is a tap, and a tap must not move the box. */
+const DRAG_SLOP = 5;
+
 function DraggableVideo({
   stream,
   onClick,
@@ -33,7 +36,14 @@ function DraggableVideo({
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
-  const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  // origX/origY stay null until the pointer actually moves: that is the moment the box leaves
+  // its corner, and a tap-to-swap must not be that moment.
+  const dragState = useRef<{
+    startX: number;
+    startY: number;
+    origX: number | null;
+    origY: number | null;
+  } | null>(null);
 
   const videoRef = useCallback(
     (node: HTMLVideoElement | null) => {
@@ -48,10 +58,12 @@ function DraggableVideo({
     return () => onElement?.(null);
   }, [onElement]);
 
-  // Clamp position within parent bounds
+  // Clamp position within parent bounds. Only meaningful once the box has been dragged: while it
+  // is still pinned to a corner it cannot leave the parent, and writing left/top here would tear
+  // it off that corner.
   const clamp = useCallback((el: HTMLDivElement) => {
     const parent = el.parentElement;
-    if (!parent) return;
+    if (!parent || !el.style.left) return;
     const pr = parent.getBoundingClientRect();
     const er = el.getBoundingClientRect();
     let x = parseInt(el.style.left || "0", 10);
@@ -67,25 +79,7 @@ function DraggableVideo({
     if (!el) return;
     e.preventDefault();
     el.setPointerCapture(e.pointerId);
-    setDragging(true);
-
-    // Switch from right/bottom positioning to left/top for drag
-    const parent = el.parentElement;
-    if (parent && !el.style.left) {
-      const pr = parent.getBoundingClientRect();
-      const er = el.getBoundingClientRect();
-      el.style.left = `${er.left - pr.left}px`;
-      el.style.top = `${er.top - pr.top}px`;
-      el.style.right = "auto";
-      el.style.bottom = "auto";
-    }
-
-    dragState.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: parseInt(el.style.left || "0", 10),
-      origY: parseInt(el.style.top || "0", 10),
-    };
+    dragState.current = { startX: e.clientX, startY: e.clientY, origX: null, origY: null };
   }, []);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
@@ -94,9 +88,39 @@ function DraggableVideo({
     if (!el || !ds) return;
     const dx = e.clientX - ds.startX;
     const dy = e.clientY - ds.startY;
+
+    // Switch from corner positioning to left/top, but only once this is a real drag. Doing it on
+    // every press pinned the box by its left edge, and a box pinned left grows rightwards — so a
+    // tap-to-swap followed by a wider feed pushed the picture out past the edge of the call area.
+    if (ds.origX === null || ds.origY === null) {
+      if (Math.hypot(dx, dy) < DRAG_SLOP) return;
+      const parent = el.parentElement;
+      if (!parent) return;
+      const pr = parent.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      el.style.left = `${er.left - pr.left}px`;
+      el.style.top = `${er.top - pr.top}px`;
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      ds.origX = parseInt(el.style.left, 10);
+      ds.origY = parseInt(el.style.top, 10);
+      setDragging(true);
+    }
+
     el.style.left = `${ds.origX + dx}px`;
     el.style.top = `${ds.origY + dy}px`;
     clamp(el);
+  }, [clamp]);
+
+  // A swap changes which feed the box holds, and with it the box's width. If it has been dragged
+  // it is positioned from the left, so growing would push it past the edge unless it is pulled
+  // back in.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => clamp(el));
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [clamp]);
 
   const onPointerUp = useCallback(
@@ -105,7 +129,7 @@ function DraggableVideo({
       setDragging(false);
       dragState.current = null;
       // Tap (no meaningful movement) acts as a click → swap; a real drag does not.
-      if (onClick && ds && Math.hypot(e.clientX - ds.startX, e.clientY - ds.startY) < 5) {
+      if (onClick && ds && Math.hypot(e.clientX - ds.startX, e.clientY - ds.startY) < DRAG_SLOP) {
         onClick();
       }
     },
@@ -231,6 +255,8 @@ function P2PCallScreen() {
   // big box is, which after a swap is the small one.
   useNativeVideoLayout({
     active: isNativeVideo && !!activeCall && activeCall.status === "active",
+    // The full-bleed surface fills the media area, so its box is the area the feeds live in.
+    clipEl: bigEl,
     remoteEl: effectiveSwapped ? pipEl : bigEl,
     localEl: effectiveSwapped ? bigEl : pipEl,
     // Your own face is shown mirrored, the way every call app does it; the back camera is not.
