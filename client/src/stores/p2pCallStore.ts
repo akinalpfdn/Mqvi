@@ -253,7 +253,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       onIceRestartNeeded: () => signal({ type: "ice-restart" }),
       onLocalStream: (stream) => {
         if (!isCurrentCall()) return;
-        set({ localStream: stream, isVideoOn: activeCall.call_type === "video" });
+        set({ localStream: stream });
         // Android 14+ refuses a microphone foreground service unless the mic is already in
         // use, so this waits for the stream instead of firing on accept.
         if (stream) startVoiceCallService("p2p");
@@ -263,6 +263,9 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       },
       onRemoteVideo: (available) => {
         if (isCurrentCall()) set({ hasRemoteVideo: available });
+      },
+      onLocalVideo: (available) => {
+        if (isCurrentCall()) set({ isVideoOn: available });
       },
       onScreenShareEnded: () => {
         if (isCurrentCall()) set({ isScreenSharing: false });

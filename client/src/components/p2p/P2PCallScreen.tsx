@@ -195,6 +195,7 @@ function P2PCallScreen() {
 
   const isRinging = activeCall?.status === "ringing";
   const isActive = activeCall?.status === "active";
+  const isVideoCall = activeCall?.call_type === "video";
   const isScreenSharing = useP2PCallStore((s) => s.isScreenSharing);
 
   // A natively drawn call has no streams to inspect; the engine reports what the peer sends
@@ -292,9 +293,11 @@ function P2PCallScreen() {
             onContextMenu={handleContextMenu}
             onDoubleClick={handleDoubleClick}
           >
-            {bigHasVideo && isNativeVideo ? (
-              // The picture is drawn over this box by the native layer; the box only holds
-              // the place and gives the hook something to measure.
+            {isNativeVideo && isVideoCall ? (
+              // The picture is drawn over this box by the native layer, which also decides
+              // whether there is anything to draw. The box is always here: gating it on the
+              // remote track arriving would be a loop, since the track can only be shown once
+              // there is a box to put it in.
               <div ref={setBigEl} className="p2p-remote-video p2p-native-surface" />
             ) : bigHasVideo ? (
               <video
@@ -316,7 +319,7 @@ function P2PCallScreen() {
             )}
 
             {/* Floating PiP — your own camera; tap to swap when both are on camera */}
-            {localHasCam && (isNativeVideo || pipStream) && (
+            {((isNativeVideo && isVideoCall) || (localHasCam && pipStream)) && (
               <DraggableVideo
                 stream={isNativeVideo ? null : pipStream}
                 onClick={bothHaveVideo ? handlePipClick : undefined}
@@ -327,7 +330,7 @@ function P2PCallScreen() {
             {/* Hover overlay — fullscreen + cinema, stacked. A flex column, not two boxes with
                 offsets picked to miss each other: the gap is the browser's problem, and it
                 cannot get it wrong on a device we have never seen. */}
-            {bigHasVideo && (
+            {bigHasVideo && !isNativeVideo && (
               <div className="p2p-stream-overlay">
                 <div className="media-controls">
                 <button

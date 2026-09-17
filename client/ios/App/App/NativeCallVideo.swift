@@ -25,6 +25,8 @@ final class NativeCallVideo {
     private weak var remoteTrack: LKRTCVideoTrack?
     private weak var localTrack: LKRTCVideoTrack?
     private var attached = false
+    private var lastLoggedRemote: CGRect?
+    private var hasLoggedLayout = false
 
     private init() {
         container.isUserInteractionEnabled = false
@@ -49,6 +51,7 @@ final class NativeCallVideo {
     }
 
     func setRemoteTrack(_ track: LKRTCVideoTrack?) {
+        print("[p2p-native] remote track \(track == nil ? "cleared" : "attached"), attached=\(attached)")
         if let current = remoteTrack, current !== track {
             current.remove(remoteView)
         }
@@ -68,6 +71,11 @@ final class NativeCallVideo {
 
     /// Positions, in web-view points, straight from the call screen's layout.
     func layout(remote: CGRect?, local: CGRect?, cornerRadius: CGFloat, mirrorLocal: Bool) {
+        if !hasLoggedLayout || remote != lastLoggedRemote {
+            hasLoggedLayout = true
+            lastLoggedRemote = remote
+            print("[p2p-native] layout remote=\(remote.map { "\(Int($0.width))x\(Int($0.height))@\(Int($0.origin.x)),\(Int($0.origin.y))" } ?? "none") local=\(local == nil ? "none" : "set")")
+        }
         apply(rect: remote, to: remoteView, cornerRadius: 0, mirrored: false)
         apply(rect: local, to: localView, cornerRadius: cornerRadius, mirrored: mirrorLocal)
     }
@@ -111,30 +119,90 @@ final class NativeCallCamera {
     private(set) var position: AVCaptureDevice.Position = .front
     private var capturing = false
 
+    /// Whether the call wants the camera on. iOS refuses camera capture in the background, so
+    /// a call answered from the lock screen starts with no picture; this is what says the
+    /// picture is owed once the app comes forward.
+    private var wanted = false
+    private var observers: [NSObjectProtocol] = []
+
     init(source: LKRTCVideoSource) {
         self.source = source
         capturer = LKRTCCameraVideoCapturer(delegate: source)
+
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.wanted, !self.capturing else { return }
+                self.start(position: self.position)
+            }
+        })
+        observers.append(center.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.capturing else { return }
+                // iOS interrupts the session anyway; stopping cleanly keeps the capturer in a
+                // state it can be restarted from.
+                self.capturer.stopCapture()
+                self.capturing = false
+            }
+        })
+    }
+
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     var isFrontFacing: Bool { position == .front }
 
     func start(position: AVCaptureDevice.Position = .front) {
+        wanted = true
+        guard UIApplication.shared.applicationState != .background else {
+            // Nothing to do yet: the notification above starts it when the app comes forward.
+            self.position = position
+            return
+        }
         guard let device = Self.device(for: position),
               let format = Self.format(for: device),
               let fps = Self.frameRate(for: format) else { return }
         self.position = position
+
+        // Starting while a session is still running — or still tearing down — leaves the
+        // capturer producing nothing, and the other side sits on the last frame it received.
+        // Always go through a completed stop first.
+        if capturing {
+            capturing = false
+            capturer.stopCapture { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.wanted else { return }
+                    self.capturing = true
+                    self.capturer.startCapture(with: device, format: format, fps: fps)
+                }
+            }
+            return
+        }
         capturing = true
         capturer.startCapture(with: device, format: format, fps: fps)
     }
 
     func stop() {
+        wanted = false
         guard capturing else { return }
         capturing = false
         capturer.stopCapture()
     }
 
+    /// Turning the camera off and on again: the session is stopped and started cleanly, so the
+    /// picture resumes instead of freezing where it stopped.
+    func setEnabled(_ enabled: Bool) {
+        if enabled { start(position: position) } else { stop() }
+    }
+
     /// Flips to the other camera and reports where it ended up, so the web layer never claims
     /// a switch that a single-camera device could not make.
+    /// Uses the completion form of stop for the same reason `start` does.
     func flip(completion: @escaping (AVCaptureDevice.Position) -> Void) {
         let next: AVCaptureDevice.Position = position == .front ? .back : .front
         guard Self.device(for: next) != nil else {

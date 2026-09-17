@@ -26,6 +26,8 @@ export type CallEngineEvents = {
   onRemoteStream(stream: MediaStream | null): void;
   /** Whether the peer is sending video. The only signal a natively-rendered call can give. */
   onRemoteVideo(available: boolean): void;
+  /** Whether our own camera is publishing. A denied camera must not leave the button lit. */
+  onLocalVideo(available: boolean): void;
   /** Local media for the self-preview. Null on an engine that renders natively. */
   onLocalStream(stream: MediaStream | null): void;
   /** This side cannot restart ICE itself (only the offerer can) and asks the peer to. */

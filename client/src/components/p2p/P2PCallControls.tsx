@@ -22,6 +22,7 @@ function P2PCallControls({ minimal = false }: P2PCallControlsProps) {
   const toggleVideo = useP2PCallStore((s) => s.toggleVideo);
   const toggleScreenShare = useP2PCallStore((s) => s.toggleScreenShare);
   const switchCamera = useP2PCallStore((s) => s.switchCamera);
+  const isNativeVideo = useP2PCallStore((s) => s.isNativeVideo);
   const endCall = useP2PCallStore((s) => s.endCall);
   const declineCall = useP2PCallStore((s) => s.declineCall);
 
@@ -30,6 +31,9 @@ function P2PCallControls({ minimal = false }: P2PCallControlsProps) {
   // Only a phone or tablet has two cameras to flip between, and sharing a screen has no camera
   // to flip at all.
   const canSwitchCamera = isCapacitor() && isVideo && isVideoOn && !isScreenSharing;
+  // A natively drawn call has no screen capture behind it: iOS shares a screen through the
+  // broadcast extension, which is wired to channel voice, not to a p2p peer connection.
+  const canShareScreen = !isNativeVideo;
 
   function handleEnd() {
     if (isRinging && activeCall) {
@@ -89,15 +93,17 @@ function P2PCallControls({ minimal = false }: P2PCallControlsProps) {
             </button>
           )}
 
-          <button
-            className={`p2p-ctrl-btn ${isScreenSharing ? "active" : ""}`}
-            onClick={toggleScreenShare}
-            title={t("screenShare")}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z" />
-            </svg>
-          </button>
+          {canShareScreen && (
+            <button
+              className={`p2p-ctrl-btn ${isScreenSharing ? "active" : ""}`}
+              onClick={toggleScreenShare}
+              title={t("screenShare")}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z" />
+              </svg>
+            </button>
+          )}
         </>
       )}
 

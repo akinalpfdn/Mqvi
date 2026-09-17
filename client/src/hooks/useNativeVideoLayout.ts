@@ -43,6 +43,7 @@ export function useNativeVideoLayout(options: {
 
   useEffect(() => {
     if (!active) {
+      console.log("[p2p] video layout inactive — native surface hidden");
       void NativeP2PCall.hideVideo().catch(() => {});
       return;
     }
@@ -56,6 +57,11 @@ export function useNativeVideoLayout(options: {
       const remote = rectOf(remoteEl);
       const local = rectOf(localEl);
       if (!first && same(remote, lastRemote) && same(local, lastLocal)) return;
+      console.log(
+        `[p2p] video layout: remote=${remote ? `${Math.round(remote.width)}x${Math.round(remote.height)}` : "none"}` +
+          ` local=${local ? `${Math.round(local.width)}x${Math.round(local.height)}` : "none"}` +
+          ` (elements: remote=${remoteEl ? "yes" : "no"} local=${localEl ? "yes" : "no"})`,
+      );
       first = false;
       lastRemote = remote;
       lastLocal = local;

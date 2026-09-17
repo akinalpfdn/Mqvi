@@ -11,7 +11,7 @@ const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.ho
     fetchIceServers: vi.fn(),
     fetchIceServersForRecovery: vi.fn(),
     plugin: {
-      start: vi.fn(async () => {}),
+      start: vi.fn(async () => ({ video: false })),
       acceptRemoteOffer: vi.fn(async () => {}),
       acceptRemoteAnswer: vi.fn(async () => {}),
       addIceCandidate: vi.fn(async () => {}),
@@ -42,6 +42,7 @@ function events() {
     onIceCandidate: vi.fn(),
     onRemoteStream: vi.fn(),
     onRemoteVideo: vi.fn(),
+    onLocalVideo: vi.fn(),
     onLocalStream: vi.fn(),
     onIceRestartNeeded: vi.fn(),
     onScreenShareEnded: vi.fn(),

@@ -31,7 +31,7 @@ type NativeP2PCallPlugin = {
     isCaller: boolean;
     callType: "voice" | "video";
     iceServers: { urls: string | string[]; username?: string; credential?: string }[];
-  }): Promise<void>;
+  }): Promise<{ video: boolean }>;
   acceptRemoteOffer(options: { sdp: string }): Promise<void>;
   acceptRemoteAnswer(options: { sdp: string }): Promise<void>;
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;

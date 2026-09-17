@@ -99,7 +99,7 @@ export class NativeCallEngine implements CallMediaEngine {
     if (this.closed) return;
 
     this.isCaller = opts.isCaller;
-    await NativeP2PCall.start({
+    const { video } = await NativeP2PCall.start({
       callId: opts.callId,
       isCaller: opts.isCaller,
       callType: opts.callType,
@@ -110,6 +110,9 @@ export class NativeCallEngine implements CallMediaEngine {
       })),
     });
     this.started = true;
+    // A video call publishes the camera from the start; the button has to know that, and it
+    // has to know when a denied camera means it did not.
+    this.events.onLocalVideo(video);
   }
 
   async acceptRemoteOffer(sdp: string): Promise<void> {
@@ -146,6 +149,7 @@ export class NativeCallEngine implements CallMediaEngine {
     if (this.closed) return false;
     try {
       const result = await NativeP2PCall.setVideoEnabled({ enabled });
+      this.events.onLocalVideo(result.enabled);
       return result.enabled;
     } catch (err) {
       console.error("[p2p] native setVideoEnabled failed:", err);

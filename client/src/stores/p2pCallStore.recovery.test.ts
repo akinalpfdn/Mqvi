@@ -57,6 +57,8 @@ function events(): CallEngineEvents & { spies: Record<string, ReturnType<typeof 
     onIceCandidate: vi.fn(),
     onRemoteStream: vi.fn(),
     onLocalStream: vi.fn(),
+    onRemoteVideo: vi.fn(),
+    onLocalVideo: vi.fn(),
     onIceRestartNeeded: vi.fn(),
     onScreenShareEnded: vi.fn(),
     onConnectionLost: vi.fn(),

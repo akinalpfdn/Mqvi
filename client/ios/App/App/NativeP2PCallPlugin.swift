@@ -95,7 +95,9 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                         print("[p2p-native] camera permission denied; continuing with audio only")
                     }
                     if isCaller { self.createOffer(on: pc) }
-                    call.resolve()
+                    // The button must follow the camera, not the intention: a denied camera
+                    // leaves the call running with video off.
+                    call.resolve(["video": granted])
                 }
                 return
             }
@@ -104,7 +106,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             if isCaller {
                 self.createOffer(on: pc)
             }
-            call.resolve()
+            call.resolve(["video": false])
         }
     }
 
@@ -217,7 +219,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         track.isEnabled = enabled
         Task { @MainActor in
-            if enabled { camera?.start(position: camera?.position ?? .front) } else { camera?.stop() }
+            camera?.setEnabled(enabled)
             NativeCallVideo.shared.setLocalTrack(enabled ? track : nil)
             call.resolve(["enabled": enabled])
         }
@@ -484,21 +486,29 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         ], retainUntilConsumed: true)
     }
 
+    // Spelled out because this one is optional in the protocol: a signature Swift infers
+    // differently compiles fine and is simply never called.
+    @objc(peerConnection:didChangeConnectionState:)
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCPeerConnectionState) {
         notifyListeners("connectionState", data: ["state": Self.name(for: newState)])
     }
 
-    /// The remote video arrives here; the surface draws it.
+    /// The remote video arrives here; the surface draws it. Optional in the protocol, so the
+    /// selector is spelled out.
+    @objc(peerConnection:didAddReceiver:streams:)
     public func peerConnection(
         _ peerConnection: LKRTCPeerConnection,
         didAdd rtpReceiver: LKRTCRtpReceiver,
         streams mediaStreams: [LKRTCMediaStream]
     ) {
+        let kind = rtpReceiver.track?.kind ?? "none"
+        print("[p2p-native] receiver added: kind=\(kind)")
         guard let track = rtpReceiver.track as? LKRTCVideoTrack else { return }
         Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(track) }
         notifyListeners("remoteVideo", data: ["available": true])
     }
 
+    @objc(peerConnection:didRemoveReceiver:)
     public func peerConnection(
         _ peerConnection: LKRTCPeerConnection,
         didRemove rtpReceiver: LKRTCRtpReceiver

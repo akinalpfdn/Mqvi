@@ -382,6 +382,7 @@ export class WebCallEngine implements CallMediaEngine {
   private setLocalStream(stream: MediaStream): void {
     this.localStream = stream;
     this.events.onLocalStream(stream);
+    this.events.onLocalVideo(stream.getVideoTracks().some((track) => track.enabled));
   }
 
   private async flushCandidates(pc: RTCPeerConnection): Promise<void> {

@@ -10,6 +10,7 @@ class MqviViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(ScreenSharePlugin())
         bridge?.registerPluginInstance(NativeVoicePlugin())
         bridge?.registerPluginInstance(P2PCallPlugin())
+        bridge?.registerPluginInstance(NativeP2PCallPlugin())
         bridge?.registerPluginInstance(MediaPosterPlugin())
     }
 
