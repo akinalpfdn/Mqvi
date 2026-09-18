@@ -40,8 +40,6 @@ export function useCallKit(): void {
     let pendingAccept: string | null = null;
     let pendingTimer: ReturnType<typeof setTimeout> | null = null;
     let lastCallId: string | null = null;
-    // Declined on the CallKit screen before the call reached the store (app launched by the push).
-    const pendingDeclines = new Map<string, ReturnType<typeof setTimeout>>();
     // The CallKit-rung call once it has shown up as incoming; its flag clears when it leaves.
     let systemRingSeen: string | null = null;
     // Muted on the CallKit screen before the call reached the store; applied when it does.
@@ -55,14 +53,6 @@ export function useCallKit(): void {
       }
     }
 
-    // Sent now (queued if the socket is down) so the caller stops ringing; a re-delivery of the
-    // call is declined again when it arrives.
-    function declineUnseen(callId: string): void {
-      useP2PCallStore.getState()._sendWS?.("p2p_call_decline", { call_id: callId });
-      const existing = pendingDeclines.get(callId);
-      if (existing) clearTimeout(existing);
-      pendingDeclines.set(callId, setTimeout(() => pendingDeclines.delete(callId), PENDING_ACCEPT_TTL));
-    }
 
     function setPending(callId: string): void {
       if (pendingTimer) clearTimeout(pendingTimer);
@@ -126,7 +116,7 @@ export function useCallKit(): void {
           }
           if (store.incomingCall?.id === call_id) store.declineCall(call_id);
           else if (store.activeCall?.id === call_id) store.endCall();
-          else declineUnseen(call_id);
+          else store.declineUnseenCall(call_id); // app launched by the push, call not here yet
         }),
       );
     }
@@ -152,12 +142,6 @@ export function useCallKit(): void {
         if (state.isMuted !== muted) state.toggleMute();
       }
 
-      if (incomingId && pendingDeclines.has(incomingId)) {
-        clearTimeout(pendingDeclines.get(incomingId));
-        pendingDeclines.delete(incomingId);
-        state.declineCall(incomingId);
-        return;
-      }
 
       // Only a call we are RECEIVING was reported to CallKit. handleCallInitiate mirrors the
       // event into incomingCall for the caller too, so the field alone does not say which side
@@ -210,8 +194,6 @@ export function useCallKit(): void {
 
     return () => {
       clearPending();
-      pendingDeclines.forEach((timer) => clearTimeout(timer));
-      pendingDeclines.clear();
       pendingMutes.clear();
       handles.forEach((h) => void h.remove());
       unsubscribe();

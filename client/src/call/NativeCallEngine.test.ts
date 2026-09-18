@@ -17,6 +17,7 @@ const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.ho
       setIceServers: vi.fn(async () => {}),
       switchCamera: vi.fn(async (): Promise<{ facing: "front" | "back" }> => ({ facing: "front" })),
       restartIce: vi.fn(async () => {}),
+      resendPendingOffer: vi.fn(async () => ({ resent: false })),
       closeCall: vi.fn(async () => {}),
       addListener: vi.fn(async (event: string, cb: (data: never) => void) => {
         listeners[event] = cb;
@@ -171,6 +172,32 @@ describe("native engine recovery", () => {
       sdpMid: "0",
       sdpMLineIndex: 0,
     });
+  });
+});
+
+describe("native engine after a socket replacement", () => {
+  it("should re-send an unanswered offer and leave it at that", async () => {
+    const { engine } = await engineFor(true);
+    plugin.resendPendingOffer.mockResolvedValueOnce({ resent: true });
+    engine.resync();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plugin.resendPendingOffer).toHaveBeenCalledTimes(1);
+    expect(plugin.restartIce).not.toHaveBeenCalled();
+  });
+
+  it("should recover a call that has not connected when there is no offer to re-send", async () => {
+    const { engine, ev } = await engineFor(false);
+    engine.resync();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ev.onIceRestartNeeded).toHaveBeenCalledTimes(1); // the receiver asks for a new offer
+  });
+
+  it("should leave a connected call alone", async () => {
+    const { engine } = await engineFor(true);
+    connectionState("connected");
+    engine.resync();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plugin.restartIce).not.toHaveBeenCalled();
   });
 });
 

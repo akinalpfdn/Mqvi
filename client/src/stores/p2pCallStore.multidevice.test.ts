@@ -20,6 +20,7 @@ vi.mock("../native/p2pCall", () => ({
 }));
 
 import { useP2PCallStore } from "./p2pCallStore";
+import { INSTANCE_ID } from "../utils/deviceId";
 import { useAuthStore } from "./authStore";
 import type { P2PCall } from "../types";
 
@@ -57,6 +58,7 @@ function reset(sessionId: string | null = THIS_DEVICE) {
     _durationInterval: null,
     _acceptSentFor: null,
     _localEnd: null,
+    _endedHere: {},
     _sessionId: sessionId,
   });
 }
@@ -266,5 +268,81 @@ describe("handleCallEnd — the phone's call history says how the call ended", (
     useP2PCallStore.getState().handleCallEnd({ call_id: "call-1", reason });
 
     expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1", expected);
+  });
+});
+
+describe("recognising this app across a reconnect", () => {
+  // The accept was sent from the old socket; its broadcast arrives on the new one.
+  it("goes active when its own accept names the old session but this app", () => {
+    useP2PCallStore.setState({ activeCall: call(), incomingCall: call(), _sessionId: "session-new" });
+
+    useP2PCallStore.getState().handleCallAccept({
+      call_id: "call-1",
+      accepted_by: "session-old",
+      accepted_by_instance: INSTANCE_ID,
+    });
+
+    expect(useP2PCallStore.getState().activeCall?.status).toBe("active");
+  });
+
+  it("drops the call when another app answered, whatever the sessions say", () => {
+    useP2PCallStore.setState({ activeCall: call(), incomingCall: call() });
+
+    useP2PCallStore.getState().handleCallAccept({
+      call_id: "call-1",
+      accepted_by: THIS_DEVICE,
+      accepted_by_instance: "another-tab",
+    });
+
+    expect(useP2PCallStore.getState().activeCall).toBeNull();
+  });
+
+  it("keeps its own outgoing call when the initiate lands on a new socket", () => {
+    useP2PCallStore.setState({ _sessionId: "session-new" });
+    const outgoing = call({ caller_id: ME, receiver_id: THEM, initiated_by: "session-old", initiated_by_instance: INSTANCE_ID } as never);
+
+    useP2PCallStore.getState().handleCallInitiate(outgoing);
+
+    expect(useP2PCallStore.getState().activeCall?.id).toBe("call-1");
+  });
+});
+
+describe("a call ended here before the server heard", () => {
+  const sent: { op: string; data?: unknown }[] = [];
+
+  beforeEach(() => {
+    sent.length = 0;
+    useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
+  });
+
+  // The server re-sends a ringing call on connect, before the queued decline reaches it.
+  it.each([
+    ["declined", () => useP2PCallStore.getState().declineCall("call-1"), "p2p_call_decline"],
+    [
+      "declined after answering",
+      () => {
+        useP2PCallStore.getState().acceptCall("call-1");
+        useP2PCallStore.getState().declineCall("call-1");
+      },
+      "p2p_call_end",
+    ],
+    [
+      "hung up after answering",
+      () => {
+        useP2PCallStore.getState().acceptCall("call-1");
+        useP2PCallStore.getState().endCall();
+      },
+      "p2p_call_end",
+    ],
+  ])("does not ring again for a call %s", (_label, end, op) => {
+    useP2PCallStore.getState().handleCallInitiate(call());
+    end();
+    sent.length = 0;
+
+    useP2PCallStore.getState().handleCallInitiate(call());
+
+    expect(useP2PCallStore.getState().incomingCall).toBeNull();
+    expect(useP2PCallStore.getState().activeCall).toBeNull();
+    expect(sent).toEqual([{ op, data: { call_id: "call-1" } }]);
   });
 });

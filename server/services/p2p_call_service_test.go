@@ -537,7 +537,7 @@ func TestAcceptFromTheAnsweringAppOnANewConnectionReclaimsTheCall(t *testing.T) 
 		t.Error("the dead connection's teardown is still pending")
 	}
 	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
-	if data, _ := own[len(own)-1].Data.(map[string]string); data["accepted_by"] != "new-sess" {
+	if data, _ := own[len(own)-1].Data.(map[string]string); data["accepted_by"] != "new-sess" || data["accepted_by_instance"] != "app-1" {
 		t.Errorf("new connection not told it holds the call, got %v", own[len(own)-1].Data)
 	}
 	signals := hub.eventsFor("caller", ws.OpP2PSignal)
@@ -804,7 +804,7 @@ func TestInitiateNamesTheCallingSession(t *testing.T) {
 		ringTimers:  map[string]*time.Timer{},
 	}
 
-	if err := svc.InitiateCall("caller", "desktop-sess", "", "rcv", models.P2PCallTypeVoice); err != nil {
+	if err := svc.InitiateCall("caller", "desktop-sess", "desktop-app", "rcv", models.P2PCallTypeVoice); err != nil {
 		t.Fatalf("InitiateCall: %v", err)
 	}
 
@@ -819,6 +819,10 @@ func TestInitiateNamesTheCallingSession(t *testing.T) {
 	if bc.InitiatedBy != "desktop-sess" {
 		t.Errorf("initiated_by = %q, want desktop-sess — the caller's other devices cannot tell the call is not theirs", bc.InitiatedBy)
 	}
+	// The session changes on a reconnect; the app must still recognise its own call.
+	if bc.InitiatedByInstance != "desktop-app" {
+		t.Errorf("initiated_by_instance = %q, want desktop-app", bc.InitiatedByInstance)
+	}
 
 	// The receiver has no business knowing which of the caller's devices dialled.
 	theirs := hub.eventsFor("rcv", ws.OpP2PCallInitiate)
@@ -826,8 +830,8 @@ func TestInitiateNamesTheCallingSession(t *testing.T) {
 		t.Fatalf("receiver got %d initiate events, want 1", len(theirs))
 	}
 	rbc := theirs[0].Data.(models.P2PCallBroadcast)
-	if rbc.InitiatedBy != "" {
-		t.Errorf("the receiver's copy leaked initiated_by = %q", rbc.InitiatedBy)
+	if rbc.InitiatedBy != "" || rbc.InitiatedByInstance != "" {
+		t.Errorf("the receiver's copy leaked who dialled: %q / %q", rbc.InitiatedBy, rbc.InitiatedByInstance)
 	}
 }
 

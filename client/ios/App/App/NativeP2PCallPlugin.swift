@@ -23,6 +23,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getVideoSizes", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setIceServers", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "restartIce", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "resendPendingOffer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeCall", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "discardOrphanedCall", returnType: CAPPluginReturnPromise)
     ]
@@ -355,15 +356,27 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         // An unanswered offer blocks a restart until the answer comes; it may have been lost on
         // the way, so send it again instead.
-        lock.lock()
-        let offering = makingOffer
-        lock.unlock()
-        if pc.signalingState == .haveLocalOffer, !offering, let offer = pc.localDescription {
-            emitLocalDescription(from: pc, type: "offer", sdp: offer.sdp)
-        } else {
+        if !resendPendingOffer(on: pc) {
             pc.restartIce()
         }
         call.resolve()
+    }
+
+    @objc func resendPendingOffer(_ call: CAPPluginCall) {
+        guard let pc = currentPeerConnection() else {
+            call.resolve(["resent": false])
+            return
+        }
+        call.resolve(["resent": resendPendingOffer(on: pc)])
+    }
+
+    private func resendPendingOffer(on pc: LKRTCPeerConnection) -> Bool {
+        lock.lock()
+        let offering = makingOffer
+        lock.unlock()
+        guard pc.signalingState == .haveLocalOffer, !offering, let offer = pc.localDescription else { return false }
+        emitLocalDescription(from: pc, type: "offer", sdp: offer.sdp)
+        return true
     }
 
     @objc func closeCall(_ call: CAPPluginCall) {

@@ -370,6 +370,7 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, receiverI
 	// session is clobbered, while a phone in a pocket holds an open microphone.
 	callerCopy := broadcast
 	callerCopy.InitiatedBy = sessionID
+	callerCopy.InitiatedByInstance = instanceID
 	s.hub.BroadcastToUser(callerID, ws.Event{
 		Op:   ws.OpP2PCallInitiate,
 		Data: callerCopy,
@@ -427,7 +428,7 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, instanceID, deviceID, cal
 		log.Printf("[p2p] call %s answer reclaimed by session %s", callID, sessionID)
 		s.hub.BroadcastToUser(userID, ws.Event{
 			Op:   ws.OpP2PCallAccept,
-			Data: map[string]string{"call_id": callID, "accepted_by": sessionID},
+			Data: map[string]string{"call_id": callID, "accepted_by": sessionID, "accepted_by_instance": instanceID},
 		})
 		// The caller's offer went to the dead connection; have it sent again.
 		s.hub.BroadcastToUser(callerID, ws.Event{
@@ -474,7 +475,7 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, instanceID, deviceID, cal
 	// caller's offer alongside the winner (signalling is user-wide too).
 	s.hub.BroadcastToUser(userID, ws.Event{
 		Op:   ws.OpP2PCallAccept,
-		Data: map[string]string{"call_id": callID, "accepted_by": sessionID},
+		Data: map[string]string{"call_id": callID, "accepted_by": sessionID, "accepted_by_instance": instanceID},
 	})
 
 	// Sibling devices with no live WS are still ringing on the incoming-call push alone.

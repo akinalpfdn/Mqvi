@@ -21,6 +21,7 @@ import { NativeCallEngine } from "../call/NativeCallEngine";
 import { WebCallEngine } from "../call/WebCallEngine";
 import { getCapacitorPlatform } from "../utils/constants";
 import { dismissIncomingCallUI } from "../native/p2pCall";
+import { INSTANCE_ID } from "../utils/deviceId";
 import { startVoiceCallService, stopVoiceCallService } from "../utils/nativePlugins";
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
 import { useAuthStore } from "./authStore";
@@ -30,6 +31,11 @@ import { registerP2PCallControl } from "./shared/p2pCallControl";
 // ─── Types ───
 
 export type LocalEnd = { callId: string; how: "hungUp" | "declined" | "failed" };
+
+type EndedHere = { op: "p2p_call_decline" | "p2p_call_end"; until: number };
+
+/** Past the ring timeout the server no longer re-sends the call. */
+const ENDED_HERE_TTL = 60_000;
 
 type P2PCallStore = {
   /** Active call (ringing or active) — null means not in a call */
@@ -90,6 +96,11 @@ type P2PCallStore = {
    */
   _sessionId: string | null;
   setSessionId: (id: string | null) => void;
+  /**
+   * Calls this device ended before the server heard, with what was sent. The server re-sends a
+   * ringing call on connect, before the queued decline or end reaches it; that must not ring.
+   */
+  _endedHere: Record<string, EndedHere>;
 
   // ─── WS Send ───
 
@@ -104,6 +115,8 @@ type P2PCallStore = {
   resumeCallAfterReconnect: () => void;
   acceptCall: (callId: string) => void;
   declineCall: (callId: string) => void;
+  /** Declined on the system call screen before the call reached the app. */
+  declineUnseenCall: (callId: string) => void;
   /** `how` is what the phone's call history records for this device's own end. */
   endCall: (how?: LocalEnd["how"]) => void;
   toggleMute: () => void;
@@ -116,7 +129,7 @@ type P2PCallStore = {
   // ─── WS Event Handlers ───
 
   handleCallInitiate: (data: P2PCall) => void;
-  handleCallAccept: (data: { call_id: string; accepted_by?: string }) => void;
+  handleCallAccept: (data: { call_id: string; accepted_by?: string; accepted_by_instance?: string }) => void;
   handleCallDecline: (data: { call_id: string; reason?: string; declined_by?: string }) => void;
   handleCallEnd: (data: { call_id: string; reason?: string; ended_by?: string }) => void;
   handleCallBusy: (data: { receiver_id: string }) => void;
@@ -132,6 +145,30 @@ function createEngine(events: CallEngineEvents): CallMediaEngine {
 }
 
 // ─── Store ───
+
+function rememberEnded(
+  current: Record<string, EndedHere>,
+  callId: string,
+  op: EndedHere["op"],
+): Record<string, EndedHere> {
+  const now = Date.now();
+  const next: Record<string, EndedHere> = {};
+  for (const [id, entry] of Object.entries(current)) {
+    if (entry.until > now) next[id] = entry;
+  }
+  next[callId] = { op, until: now + ENDED_HERE_TTL };
+  return next;
+}
+
+/**
+ * Whether a broadcast's "who did this" names another running app. The instance survives a
+ * reconnect; the session does not, so this app's own accept from its old socket would otherwise
+ * read as a stranger's. The session is the fallback for a server that sends no instance.
+ */
+function namesAnotherApp(session: string | undefined, instance: string | undefined, mySession: string | null): boolean {
+  if (instance) return instance !== INSTANCE_ID;
+  return session !== undefined && session !== mySession;
+}
 
 /** Media that fails to start ends the call on the server too, or the peer sits in a silent call. */
 function endCallThatFailedToStart(callId: string, err: unknown): void {
@@ -172,6 +209,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   callDuration: 0,
   _durationInterval: null,
   _sessionId: null,
+  _endedHere: {},
   _sendWS: null,
 
   setSessionId: (id) => set({ _sessionId: id }),
@@ -216,6 +254,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     // the way out, and the peer's on the way in. Re-send ours and ask for theirs.
     _sendWS("p2p_signal", { call_id: activeCall.id, type: "video-query" });
     set({ _videoAnnounced: null });
+    // Signals are not queued either: an offer or answer lost on the way leaves nobody negotiating.
+    get().engine?.resync();
   },
 
   acceptCall: (callId) => {
@@ -227,25 +267,34 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   },
 
   declineCall: (callId) => {
-    const { _sendWS, _acceptSentFor, activeCall } = get();
+    const { _sendWS, _acceptSentFor, activeCall, _endedHere } = get();
     // Already answered: the server may hold the call as active, where a decline is refused and
     // the caller is left in a silent call. An end works on a ringing and an answered call alike.
-    if (_acceptSentFor === callId) {
-      _sendWS?.("p2p_call_end", { call_id: callId });
-      set({ _localEnd: { callId, how: "declined" } });
-      if (activeCall?.id === callId) get().cleanup();
-      else set({ incomingCall: null, _acceptSentFor: null });
-      return;
+    const op = _acceptSentFor === callId ? "p2p_call_end" : "p2p_call_decline";
+    _sendWS?.(op, { call_id: callId });
+    set({ _localEnd: { callId, how: "declined" }, _endedHere: rememberEnded(_endedHere, callId, op) });
+    if (op === "p2p_call_decline") {
+      set({ incomingCall: null, activeCall: null });
+    } else if (activeCall?.id === callId) {
+      get().cleanup();
+    } else {
+      set({ incomingCall: null, _acceptSentFor: null });
     }
-    if (!_sendWS) return;
+  },
 
-    _sendWS("p2p_call_decline", { call_id: callId });
-    set({ incomingCall: null, activeCall: null, _localEnd: { callId, how: "declined" } });
+  declineUnseenCall: (callId) => {
+    get()._sendWS?.("p2p_call_decline", { call_id: callId });
+    set({ _endedHere: rememberEnded(get()._endedHere, callId, "p2p_call_decline") });
   },
 
   endCall: (how = "hungUp") => {
-    const { _sendWS, activeCall } = get();
-    if (activeCall) set({ _localEnd: { callId: activeCall.id, how } });
+    const { _sendWS, activeCall, _endedHere } = get();
+    if (activeCall) {
+      set({
+        _localEnd: { callId: activeCall.id, how },
+        _endedHere: rememberEnded(_endedHere, activeCall.id, "p2p_call_end"),
+      });
+    }
     // Name the call: a late hang-up would otherwise end whatever call came after it.
     _sendWS?.("p2p_call_end", activeCall ? { call_id: activeCall.id } : undefined);
     // Local teardown even with no socket to tell the server: the microphone stops now.
@@ -429,14 +478,21 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   // ─── WS Event Handlers ───
 
   handleCallInitiate: (data) => {
-    const { activeCall, _sessionId } = get();
+    const { activeCall, _sessionId, _endedHere } = get();
+
+    // Ended here while the server had not heard yet; its re-delivery must not ring again.
+    const ended = _endedHere[data.id];
+    if (ended && ended.until > Date.now()) {
+      get()._sendWS?.(ended.op, { call_id: data.id });
+      return;
+    }
 
     // The caller's OTHER devices see the outgoing call too. It is not theirs: taking it would
     // flip them to active on accept, open a microphone, and send a second SDP offer for the
     // same call. The server names the session that dialled.
     const userId = useAuthStore.getState().user?.id;
     const isCaller = data.caller_id === userId;
-    if (isCaller && data.initiated_by !== undefined && data.initiated_by !== _sessionId) {
+    if (isCaller && namesAnotherApp(data.initiated_by, data.initiated_by_instance, _sessionId)) {
       return;
     }
 
@@ -463,7 +519,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     // the one that took the call. On the others, drop it: falling through would flip them
     // to "active" and start WebRTC, and since signalling is user-wide too they would
     // answer the caller's offer alongside the device that really answered.
-    if (!isCaller && data.accepted_by !== undefined && data.accepted_by !== _sessionId) {
+    if (!isCaller && namesAnotherApp(data.accepted_by, data.accepted_by_instance, _sessionId)) {
       dismissIncomingCallUI(data.call_id, "answeredElsewhere");
       get().cleanup();
       return;

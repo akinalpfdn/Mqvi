@@ -66,6 +66,7 @@ beforeEach(() => {
     incomingCall: null,
     systemRingingCallId: null,
     _localEnd: null,
+    _endedHere: {},
     _sendWS: vi.fn(),
     _sessionId: "session-1",
   } as never);

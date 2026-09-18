@@ -69,6 +69,9 @@ type P2PCallBroadcast struct {
 	// instead of opening a microphone and negotiating a second, competing WebRTC session.
 	// Empty on the receiver's copy, and on any event from a server that predates this.
 	InitiatedBy string `json:"initiated_by,omitempty"`
+	// InitiatedByInstance names the running app that dialled. Unlike the session it survives a
+	// reconnect, so the app still recognises its own call if the broadcast lands on a new socket.
+	InitiatedByInstance string `json:"initiated_by_instance,omitempty"`
 }
 
 // P2PSignalPayload — WebRTC signaling data (SDP offer/answer or ICE candidate).

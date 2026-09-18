@@ -96,11 +96,7 @@ export class WebCallEngine implements CallMediaEngine {
         if (!pc) return;
         // An unanswered offer blocks a restart until the answer comes; it may have been lost on
         // the way, so send it again instead.
-        const pending = pc.signalingState === "have-local-offer" ? pc.localDescription : null;
-        if (pending?.sdp && !this.makingOffer) {
-          this.events.onLocalDescription({ type: "offer", sdp: pending.sdp });
-          return;
-        }
+        if (this.resendPendingOffer()) return;
         try {
           pc.restartIce();
         } catch (err) {
@@ -387,6 +383,26 @@ export class WebCallEngine implements CallMediaEngine {
 
   restartIce(): void {
     this.recovery.start();
+  }
+
+  resync(): void {
+    if (this.closed) return;
+    const pc = this.pc;
+    if (!pc) {
+      // The receiver builds its connection from the offer, which may have gone to the dead socket.
+      if (this.opts && !this.opts.isCaller) this.events.onIceRestartNeeded();
+      return;
+    }
+    if (this.resendPendingOffer()) return;
+    if (pc.connectionState !== "connected") this.recovery.start();
+  }
+
+  private resendPendingOffer(): boolean {
+    const pc = this.pc;
+    const pending = pc?.signalingState === "have-local-offer" ? pc.localDescription : null;
+    if (!pending?.sdp || this.makingOffer) return false;
+    this.events.onLocalDescription({ type: "offer", sdp: pending.sdp });
+    return true;
   }
 
   close(): void {

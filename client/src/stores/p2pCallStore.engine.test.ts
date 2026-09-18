@@ -38,6 +38,9 @@ vi.mock("../call/WebCallEngine", () => ({
     setRemoteVolume(percent: number) {
       this.record.calls.push(`setRemoteVolume:${percent}`);
     }
+    resync() {
+      this.record.calls.push("resync");
+    }
     setVideoEnabled() {
       this.record.calls.push("setVideoEnabled");
       return new Promise<boolean>((resolve) => pendingVideo.push(resolve));
@@ -393,6 +396,12 @@ describe("announcing the picture after a reconnect", () => {
 
     useP2PCallStore.getState().resumeCallAfterReconnect();
     expect(signals()).toEqual(["video-query", "video-on"]);
+  });
+
+  it("should have the engine re-send whatever negotiation the old socket may have lost", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+    expect(engineInstances[0].calls).toContain("resync");
   });
 
   it("should answer the peer's question with our picture", async () => {

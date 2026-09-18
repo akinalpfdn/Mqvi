@@ -161,6 +161,40 @@ describe("ICE-restart recovery", () => {
     expect(ev.onLocalDescription).toHaveBeenLastCalledWith({ type: "offer", sdp: "pending-offer" });
   });
 
+  it("after a socket replacement, re-sends an offer that was never answered", async () => {
+    const { engine, ev } = await harness(true);
+    pc.signalingState = "have-local-offer";
+    (pc as { localDescription?: unknown }).localDescription = { type: "offer", sdp: "lost-offer" };
+    engine.resync();
+    expect(ev.onLocalDescription).toHaveBeenLastCalledWith({ type: "offer", sdp: "lost-offer" });
+    expect(pc.restartIce).not.toHaveBeenCalled();
+  });
+
+  it("after a socket replacement, the receiver asks for the offer it never got", async () => {
+    const ev = events();
+    const engine = new WebCallEngine(ev);
+    await engine.start({ callId: "c1", callType: "voice", isCaller: false }); // no offer yet, no connection
+    engine.resync();
+    expect(ev.onIceRestartNeeded).toHaveBeenCalledTimes(1);
+  });
+
+  it("after a socket replacement, recovers a connection that is not up", async () => {
+    const { engine } = await harness(true);
+    engine.resync();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.restartIce).toHaveBeenCalledTimes(1);
+  });
+
+  it("after a socket replacement, leaves a connected call alone", async () => {
+    const { engine, ev } = await harness(true);
+    pc.connectionState = "connected";
+    pc.onconnectionstatechange?.();
+    engine.resync();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.restartIce).not.toHaveBeenCalled();
+    expect(ev.onLocalDescription).not.toHaveBeenCalledWith(expect.objectContaining({ sdp: "lost-offer" }));
+  });
+
   it("the same request on the receiver asks the peer rather than restarting", async () => {
     const { engine, ev } = await harness(false);
     engine.restartIce();

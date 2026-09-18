@@ -244,6 +244,15 @@ export class NativeCallEngine implements CallMediaEngine {
     this.recovery.start();
   }
 
+  resync(): void {
+    if (this.closed || !this.started) return;
+    void NativeP2PCall.resendPendingOffer()
+      .then(({ resent }) => {
+        if (!resent && !this.closed && this.state !== "connected") this.recovery.start();
+      })
+      .catch((err) => console.error("[p2p] native resendPendingOffer failed:", err));
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;

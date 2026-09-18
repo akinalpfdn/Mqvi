@@ -59,6 +59,11 @@ export interface CallMediaEngine {
   stopScreenShare(): void;
   /** Offerer-side ICE restart, triggered by the peer's request. */
   restartIce(): void;
+  /**
+   * The socket was replaced, and whatever negotiation was in flight may have died with the old
+   * one. Re-sends an unanswered offer, asks for an offer that never came, or recovers ICE.
+   */
+  resync(): void;
   /** Releases the microphone, camera and connection. Safe to call twice. */
   close(): void;
 }

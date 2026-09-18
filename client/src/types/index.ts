@@ -436,6 +436,8 @@ export type P2PCall = {
    * negotiating a second, competing WebRTC session. Absent from a server that predates it.
    */
   initiated_by?: string;
+  /** The running app that dialled; unlike the session it survives a reconnect. */
+  initiated_by_instance?: string;
 };
 
 /**

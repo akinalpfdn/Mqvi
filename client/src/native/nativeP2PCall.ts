@@ -59,6 +59,8 @@ type NativeP2PCallPlugin = {
     iceServers: { urls: string | string[]; username?: string; credential?: string }[];
   }): Promise<void>;
   restartIce(): Promise<void>;
+  /** Sends our offer again if it is still unanswered. */
+  resendPendingOffer(): Promise<{ resent: boolean }>;
   closeCall(): Promise<void>;
   /** Ends a call a previous page left running. See discardOrphanedNativeCall. */
   discardOrphanedCall(): Promise<{ discarded: boolean }>;
