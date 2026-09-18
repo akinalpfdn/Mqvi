@@ -440,11 +440,16 @@ type recordingPush struct {
 	mu        sync.Mutex
 	cancelled []string // receiverIDs told to stop ringing
 	excluded  []string // the device exempted from each cancel
+	rang      []string // call ids whose ring push was sent
 }
 
 func (p *recordingPush) NotifyDM(_, _, _ string, _ bool, _, _, _ string)           {}
 func (p *recordingPush) NotifyDMRead(_, _ string)                                  {}
-func (p *recordingPush) NotifyCall(_, _ string, _ models.P2PCallType, _, _ string) {}
+func (p *recordingPush) NotifyCall(_, _ string, _ models.P2PCallType, callID, _ string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rang = append(p.rang, callID)
+}
 func (p *recordingPush) NotifyCallCancel(receiverID, _, excludeDeviceID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -464,11 +469,25 @@ func ringingCallService() (*p2pCallService, *recordingHub, *recordingPush) {
 	svc := &p2pCallService{
 		hub:          hub,
 		pushNotifier: push,
-		activeCalls:  map[string]*models.P2PCall{"x": {ID: "x", CallerID: "caller", ReceiverID: "rcv", Status: models.P2PCallStatusRinging}},
-		userCalls:    map[string]string{"caller": "x", "rcv": "x"},
-		ringTimers:   map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
+		// RingPushed as InitiateCall leaves a ringing call once its push has gone out.
+		activeCalls: map[string]*models.P2PCall{"x": {ID: "x", CallerID: "caller", ReceiverID: "rcv", Status: models.P2PCallStatusRinging, RingPushed: true}},
+		userCalls:   map[string]string{"caller": "x", "rcv": "x"},
+		ringTimers:  map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
 	}
 	return svc, hub, push
+}
+
+// A call ended before its ring was handed to push sends no cancel: iOS would show it as a call.
+func TestEndingACallWhoseRingNeverWentOutSendsNoCancelPush(t *testing.T) {
+	svc, _, push := ringingCallService()
+	svc.activeCalls["x"].RingPushed = false
+
+	if err := svc.EndCall("caller", "caller-dev", "x"); err != nil {
+		t.Fatalf("EndCall: %v", err)
+	}
+	if got, _ := push.cancels(); len(got) != 0 {
+		t.Fatalf("cancel push sent for a ring that never went out: %v", got)
+	}
 }
 
 func TestAcceptCallStopsSiblingDevices(t *testing.T) {

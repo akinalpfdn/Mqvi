@@ -65,6 +65,7 @@ beforeEach(() => {
     activeCall: null,
     incomingCall: null,
     systemRingingCallId: null,
+    _localEnd: null,
     _sendWS: vi.fn(),
     _sessionId: "session-1",
   } as never);
@@ -89,7 +90,7 @@ describe("useCallKit — dismissing the system call screen", () => {
     useP2PCallStore.getState().handleCallInitiate(ringingCall());
     useP2PCallStore.getState().handleCallAccept({ call_id: CALL_ID, accepted_by: "session-1" });
 
-    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID });
+    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID, reason: "answeredElsewhere" });
     expect(endCall).toHaveBeenCalledTimes(1);
   });
 
@@ -97,9 +98,18 @@ describe("useCallKit — dismissing the system call screen", () => {
     renderHook(() => useCallKit());
 
     useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    useP2PCallStore.getState().declineCall(CALL_ID);
+
+    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID, reason: "local" });
+  });
+
+  it("should record a call cleared without this device ending it as ended by the other side", () => {
+    renderHook(() => useCallKit());
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
     useP2PCallStore.setState({ activeCall: null, incomingCall: null });
 
-    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID });
+    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID, reason: "remoteEnded" });
   });
 
   it("should keep the system call alive when the user answered in CallKit, and drop it at the end", async () => {
@@ -112,8 +122,20 @@ describe("useCallKit — dismissing the system call screen", () => {
 
     expect(endCall).not.toHaveBeenCalled();
 
-    useP2PCallStore.setState({ activeCall: null, incomingCall: null });
-    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID });
+    useP2PCallStore.getState().endCall();
+    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID, reason: "local" });
+  });
+
+  it("should record a call whose media failed as failed, not as the user's hang-up", async () => {
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callAnswered).toBeDefined());
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    nativeListeners.callAnswered({ call_id: CALL_ID });
+    useP2PCallStore.getState().handleCallAccept({ call_id: CALL_ID, accepted_by: "session-1" });
+    useP2PCallStore.getState().endCall("failed");
+
+    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID, reason: "failed" });
   });
 
   it("should mark the call as ringing in the system, and clear it once answered", async () => {
@@ -198,6 +220,17 @@ describe("useCallKit — dismissing the system call screen", () => {
     useP2PCallStore.getState().handleCallInitiate(ringingCall());
     expect(useP2PCallStore.getState().incomingCall).toBeNull();
     expect(sendWS).toHaveBeenCalledWith("p2p_call_decline", { call_id: CALL_ID });
+  });
+
+  it("should keep a CallKit mute made before the call reached the app", async () => {
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callMuted).toBeDefined());
+
+    nativeListeners.callMuted({ call_id: CALL_ID, muted: true } as never); // WS not connected yet
+    expect(useP2PCallStore.getState().isMuted).toBe(false);
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    expect(useP2PCallStore.getState().isMuted).toBe(true);
   });
 
   it("should leave an outgoing call alone", () => {

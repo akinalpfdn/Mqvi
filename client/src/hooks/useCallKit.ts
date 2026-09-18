@@ -44,6 +44,8 @@ export function useCallKit(): void {
     const pendingDeclines = new Map<string, ReturnType<typeof setTimeout>>();
     // The CallKit-rung call once it has shown up as incoming; its flag clears when it leaves.
     let systemRingSeen: string | null = null;
+    // Muted on the CallKit screen before the call reached the store; applied when it does.
+    const pendingMutes = new Map<string, boolean>();
 
     function clearPending(): void {
       pendingAccept = null;
@@ -107,7 +109,10 @@ export function useCallKit(): void {
       handles.push(
         await P2PCall.addListener("callMuted", ({ call_id, muted }) => {
           const store = useP2PCallStore.getState();
-          if (store.activeCall?.id !== call_id) return;
+          if (store.activeCall?.id !== call_id) {
+            pendingMutes.set(call_id, muted);
+            return;
+          }
           if (store.isMuted !== muted) store.toggleMute();
         }),
       );
@@ -116,6 +121,7 @@ export function useCallKit(): void {
           // CallKit already ended it natively — nothing left to dismiss.
           callKitCalls.delete(call_id);
           reportedCalls.delete(call_id);
+          pendingMutes.delete(call_id);
           if (pendingAccept === call_id) clearPending();
           const store = useP2PCallStore.getState();
           if (store.systemRingingCallId === call_id) {
@@ -139,6 +145,12 @@ export function useCallKit(): void {
         const id = pendingAccept;
         clearPending();
         state.acceptCall(id);
+      }
+
+      if (active && pendingMutes.has(active.id)) {
+        const muted = pendingMutes.get(active.id);
+        pendingMutes.delete(active.id);
+        if (state.isMuted !== muted) state.toggleMute();
       }
 
       if (incomingId && pendingDeclines.has(incomingId)) {
@@ -173,7 +185,7 @@ export function useCallKit(): void {
       // system's active call until it ends.
       if (active && active.status === "active" && reportedCalls.has(active.id) && !callKitCalls.has(active.id)) {
         reportedCalls.delete(active.id);
-        void P2PCall.endCall({ call_id: active.id });
+        void P2PCall.endCall({ call_id: active.id, reason: "answeredElsewhere" });
       }
 
       // Cleared in-app (declined, ended, timed out): take down whatever CallKit still holds.
@@ -181,7 +193,10 @@ export function useCallKit(): void {
         const id = lastCallId;
         callKitCalls.delete(id);
         reportedCalls.delete(id);
-        void P2PCall.endCall({ call_id: id });
+        // Ends from the peer or another device already went out with their own reason.
+        const how = state._localEnd?.callId === id ? state._localEnd.how : null;
+        const reason = how === "failed" ? "failed" : how ? "local" : "remoteEnded";
+        void P2PCall.endCall({ call_id: id, reason });
       }
       lastCallId = currentId;
     });
@@ -198,6 +213,7 @@ export function useCallKit(): void {
       clearPending();
       pendingDeclines.forEach((timer) => clearTimeout(timer));
       pendingDeclines.clear();
+      pendingMutes.clear();
       handles.forEach((h) => void h.remove());
       unsubscribe();
       unsubscribeMute();

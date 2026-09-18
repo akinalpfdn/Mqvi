@@ -2,6 +2,7 @@ import UIKit
 import AVFoundation
 import UserNotifications
 import Capacitor
+import LiveKitWebRTC
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -9,12 +10,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Category only — never setActive. WebKit's WebRTC needs .defaultToSpeaker to come out
-        // of the speaker instead of the earpiece, so the category stays here for channel voice.
-        // Activation is what must not happen: a session this app had already activated, with
-        // .mixWithOthers on top, is what left CallKit-answered calls connected but silent in
-        // both directions. For a call the system activates the session and tells us in
-        // CallManager.didActivate.
+        // Category only, never setActive: a session the app activated itself left CallKit calls
+        // silent. Calls and channel voice activate it through WebRTC when they need it.
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setCategory(
@@ -44,14 +41,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
-    /// Reactivate audio session after interruption (e.g., phone call ends).
-    /// Without this, WebRTC audio stays muted after an interruption.
+    /// Reactivates the session after an interruption, only while a call or channel voice holds it:
+    /// doing it unconditionally stopped other apps' audio after every Siri or phone call.
     @objc private func handleAudioInterruption(_ notification: Notification) {
         guard let info = notification.userInfo,
               let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
 
-        if type == .ended {
+        if type == .ended, LKRTCAudioSession.sharedInstance().isActive {
             do {
                 try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
             } catch {

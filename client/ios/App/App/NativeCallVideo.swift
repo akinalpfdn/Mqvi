@@ -88,13 +88,28 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
     }
 
     /// `clip` bounds the views like the page's `overflow: hidden` bounds its boxes.
-    func layout(clip: CGRect?, remote: CGRect?, local: CGRect?, cornerRadius: CGFloat, mirrorLocal: Bool) {
+    func layout(clip: CGRect?, remote: CGRect?, local: CGRect?, holes: [CGRect], cornerRadius: CGFloat, mirrorLocal: Bool) {
         guard let clip, clip.width > 1, clip.height > 1 else {
             hide()
             return
         }
         let origin = hostView?.frame.origin ?? .zero
         container.frame = clip.offsetBy(dx: origin.x, dy: origin.y)
+
+        // What the page draws over the video is cut out, so it shows through instead of under it.
+        // The page merges overlapping holes, which even-odd filling needs.
+        if holes.isEmpty {
+            container.layer.mask = nil
+        } else {
+            let path = UIBezierPath(rect: container.bounds)
+            for hole in holes {
+                path.append(UIBezierPath(rect: hole.offsetBy(dx: -clip.minX, dy: -clip.minY)))
+            }
+            let mask = CAShapeLayer()
+            mask.path = path.cgPath
+            mask.fillRule = .evenOdd
+            container.layer.mask = mask
+        }
 
         apply(rect: remote?.offsetBy(dx: -clip.minX, dy: -clip.minY), to: remoteView, cornerRadius: 0, mirrored: false)
         apply(rect: local?.offsetBy(dx: -clip.minX, dy: -clip.minY), to: localView, cornerRadius: cornerRadius, mirrored: mirrorLocal)
@@ -152,6 +167,8 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
 final class NativeCallCamera {
     private let capturer: LKRTCCameraVideoCapturer
     private let source: LKRTCVideoSource
+    /// The camera failed to start; the call has to stop claiming a picture.
+    var onStartFailed: (@MainActor () -> Void)?
 
     private(set) var position: AVCaptureDevice.Position = .front
     private var wanted = false
@@ -248,9 +265,11 @@ final class NativeCallCamera {
             Task { @MainActor in
                 self.busy = false
                 if let error {
-                    // No retry here, or a broken camera would loop.
+                    // Not retried: a broken camera would loop, and the UI now says it is off.
                     print("[p2p-native] camera start failed: \(error.localizedDescription)")
                     self.running = nil
+                    self.wanted = false
+                    self.onStartFailed?()
                     return
                 }
                 self.reconcile()

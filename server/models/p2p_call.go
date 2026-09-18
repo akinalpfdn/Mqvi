@@ -37,6 +37,10 @@ type P2PCall struct {
 	// the receiver's other devices are still ringing until then.
 	CallerSessionID   string `json:"-"`
 	ReceiverSessionID string `json:"-"`
+
+	// The ring push was handed to the push service (under the call service's lock). A cancel
+	// push without it would reach a device that never rang, which iOS shows as a phantom call.
+	RingPushed bool `json:"-"`
 }
 
 // P2PCallBroadcast — broadcast payload carrying both caller and receiver info.

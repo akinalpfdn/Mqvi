@@ -225,7 +225,7 @@ func (s *p2pCallService) timeoutRinging(callID string) {
 		})
 	}
 	// Nobody acted — the ring simply expired — so no device is exempt.
-	s.cancelReceiverPush(call.ReceiverID, callID, "")
+	s.cancelReceiverPush(call, "")
 
 	s.logCall(call.CallerID, call.ReceiverID, call.CallType, models.CallOutcomeMissed, 0)
 }
@@ -249,9 +249,11 @@ func actingReceiverDevice(actorID, actorDeviceID, receiverID string) string {
 // cancelReceiverPush stops a backgrounded receiver's ring (CallKit / Android call
 // notification) when a still-ringing call is torn down by the caller or the ring
 // timeout — the WS OpP2PCallEnd can't reach a device that only has the push.
-func (s *p2pCallService) cancelReceiverPush(receiverID, callID, excludeDeviceID string) {
-	if s.pushNotifier != nil {
-		s.pushNotifier.NotifyCallCancel(receiverID, callID, excludeDeviceID)
+// cancelReceiverPush stops the receiver's push ring, if one was ever sent. Callers read the call
+// after the locked section that removed it or moved it out of ringing, so RingPushed is final.
+func (s *p2pCallService) cancelReceiverPush(call *models.P2PCall, excludeDeviceID string) {
+	if s.pushNotifier != nil && call.RingPushed {
+		s.pushNotifier.NotifyCallCancel(call.ReceiverID, call.ID, excludeDeviceID)
 	}
 }
 
@@ -372,20 +374,23 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, receiverID string, ca
 	})
 
 	// Push every device of the receiver — the server can't tell which are backgrounded.
-	// A foregrounded app rings from the WS event and swallows the push (see PushNotifier).
-	if s.pushNotifier != nil {
+	// Handed over under the lock, and only while still ringing: an end then either came first
+	// (no ring, and no cancel for it) or comes after, when the ring gate orders its cancel.
+	// NotifyCall only opens the gate and spawns its send; the push service never takes s.mu.
+	s.mu.Lock()
+	current, stillLive := s.activeCalls[call.ID]
+	ringing := stillLive && current.Status == models.P2PCallStatusRinging
+	if ringing && s.pushNotifier != nil {
+		call.RingPushed = true
 		s.pushNotifier.NotifyCall(receiverID, pushDisplayName(caller), callType, call.ID, callerID)
 	}
+	s.mu.Unlock()
 
 	// An end that ran mid-announcement beat the initiate to the clients; repeat it (they ignore extras).
-	s.mu.RLock()
-	_, stillLive := s.activeCalls[call.ID]
-	s.mu.RUnlock()
 	if !stillLive {
 		end := ws.Event{Op: ws.OpP2PCallEnd, Data: map[string]string{"call_id": call.ID}}
 		s.hub.BroadcastToUser(receiverID, end)
 		s.hub.BroadcastToUser(callerID, end)
-		s.cancelReceiverPush(receiverID, call.ID, "")
 	}
 
 	return nil
@@ -445,7 +450,7 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, deviceID, callID string) 
 
 	// Sibling devices with no live WS are still ringing on the incoming-call push alone.
 	// Never the device that answered: on iOS that push lands on the live call.
-	s.cancelReceiverPush(userID, callID, deviceID)
+	s.cancelReceiverPush(call, deviceID)
 
 	return nil
 }
@@ -498,8 +503,7 @@ func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
 
 	// The call was ringing (guarded above), so the receiver's other devices still are — and a
 	// backgrounded one has only the push. Never the device that just declined.
-	s.cancelReceiverPush(call.ReceiverID, callID,
-		actingReceiverDevice(userID, deviceID, call.ReceiverID))
+	s.cancelReceiverPush(call, actingReceiverDevice(userID, deviceID, call.ReceiverID))
 
 	// The receiver declining is "declined"; the caller cancelling is "missed". A completed call
 	// cannot reach here any more — it is not ringing.
@@ -564,8 +568,7 @@ func (s *p2pCallService) endCall(userID, deviceID, wantCallID string, writeLog b
 	// Hanging up while still ringing: stop the receiver's devices, including any that
 	// are backgrounded and ringing on the push alone.
 	if call.Status == models.P2PCallStatusRinging {
-		s.cancelReceiverPush(call.ReceiverID, callID,
-			actingReceiverDevice(userID, deviceID, call.ReceiverID))
+		s.cancelReceiverPush(call, actingReceiverDevice(userID, deviceID, call.ReceiverID))
 	}
 
 	if !writeLog {
@@ -770,7 +773,7 @@ func (s *p2pCallService) teardownLocked(userID, callID string, call *models.P2PC
 	// returns early above) — stop the backgrounded receiver's push ring. No device acted,
 	// so none is exempt.
 	if call.Status == models.P2PCallStatusRinging {
-		s.cancelReceiverPush(call.ReceiverID, callID, "")
+		s.cancelReceiverPush(call, "")
 	}
 
 	if call.Status == models.P2PCallStatusActive {

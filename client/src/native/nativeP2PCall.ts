@@ -45,6 +45,8 @@ type NativeP2PCallPlugin = {
   setVideoLayout(options: {
     /** The call area both feeds are bounded by, the way the page clips them to it. */
     clip: NativeVideoRect | null;
+    /** What the page draws over the feeds; cut out of the video so it shows through. */
+    holes: NativeVideoRect[];
     remote: NativeVideoRect | null;
     local: NativeVideoRect | null;
     cornerRadius: number;
@@ -76,6 +78,11 @@ type NativeP2PCallPlugin = {
   ): Promise<PluginListenerHandle>;
   addListener(
     eventName: "remoteVideo",
+    listener: (data: { callId: string; available: boolean }) => void,
+  ): Promise<PluginListenerHandle>;
+  /** Our camera stopped (it failed to start); the call no longer has a picture of ours. */
+  addListener(
+    eventName: "localVideo",
     listener: (data: { callId: string; available: boolean }) => void,
   ): Promise<PluginListenerHandle>;
   /** A feed's pixel shape, so the page can give a natively drawn box the right aspect ratio. */

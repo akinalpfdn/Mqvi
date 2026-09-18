@@ -286,8 +286,8 @@ describe("start is idempotent and safe to cancel", () => {
       engine.start({ callId: "c1", callType: "voice", isCaller: false }),
     ]);
     expect(plugin.start).toHaveBeenCalledTimes(1);
-    // Four events, one listener each — a second begin would have made it eight.
-    expect(plugin.addListener).toHaveBeenCalledTimes(4);
+    // One listener per event — a second begin would have doubled them.
+    expect(plugin.addListener).toHaveBeenCalledTimes(5);
   });
 
   it("should remove listeners that finish attaching after close", async () => {
@@ -382,21 +382,51 @@ describe("a call that never connects", () => {
     expect(ev.onConnectionLost).not.toHaveBeenCalled();
   });
 
-  it("should not count the time start spends on permission prompts", async () => {
-    let letStartFinish!: () => void;
-    plugin.start.mockImplementationOnce(
-      () =>
-        new Promise<{ video: boolean }>((resolve) => {
-          letStartFinish = () => resolve({ video: false });
-        }),
-    );
+  it("should end a call whose start never gets past a permission prompt", async () => {
+    plugin.start.mockImplementationOnce(() => new Promise<{ video: boolean }>(() => {}));
     const ev = events();
     const engine = new NativeCallEngine(ev);
-    const starting = engine.start({ callId: "c1", callType: "voice", isCaller: false });
-    await vi.advanceTimersByTimeAsync(59_000); // reading the microphone prompt
-    letStartFinish();
-    await starting;
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(ev.onConnectionLost).not.toHaveBeenCalled();
+    void engine.start({ callId: "c1", callType: "voice", isCaller: false });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ev.onConnectionLost).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("native engine offers", () => {
+  it("should apply one offer only after the previous one has been answered", async () => {
+    const { engine } = await engineFor(false);
+    const order: string[] = [];
+    let finishFirst!: () => void;
+    plugin.acceptRemoteOffer
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            order.push("start:1");
+            finishFirst = () => {
+              order.push("end:1");
+              resolve();
+            };
+          }),
+      )
+      .mockImplementationOnce(async () => {
+        order.push("start:2");
+      });
+
+    const first = engine.acceptRemoteOffer("offer-1");
+    const second = engine.acceptRemoteOffer("offer-2");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual(["start:1"]);
+
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["start:1", "end:1", "start:2"]);
+  });
+});
+
+describe("native engine camera failure", () => {
+  it("should report the camera off when the plugin says it failed to start", async () => {
+    const { ev } = await engineFor(true);
+    listeners.localVideo?.({ callId: "c1", available: false } as never);
+    expect(ev.onLocalVideo).toHaveBeenLastCalledWith(false);
   });
 });

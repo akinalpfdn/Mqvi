@@ -70,6 +70,13 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many reports, try again later")
 		return
 	}
+	// Only a report actually filed counts; an invalid or duplicate one gives its slot back.
+	filed := false
+	defer func() {
+		if h.limiter != nil && !filed {
+			h.limiter.Refund(user.ID)
+		}
+	}()
 
 	var req models.CreateReportRequest
 	contentType := r.Header.Get("Content-Type")
@@ -102,6 +109,7 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		pkg.Error(w, err)
 		return
 	}
+	filed = true
 
 	// Null protection -- return [] instead of null in JSON
 	report.Attachments = []models.ReportAttachment{}

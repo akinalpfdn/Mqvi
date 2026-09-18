@@ -13,11 +13,23 @@ import type { PluginListenerHandle } from "@capacitor/core";
 
 import { getCapacitorPlatform } from "../utils/constants";
 
+/**
+ * How a call left CallKit, for the phone's call history. "local" is the user hanging up in the
+ * app, sent to CallKit as an end action; the rest are reported with the matching reason.
+ */
+export type CallKitEndReason =
+  | "local"
+  | "remoteEnded"
+  | "unanswered"
+  | "answeredElsewhere"
+  | "declinedElsewhere"
+  | "failed";
+
 export interface P2PCallPlugin {
   /** iOS. Current VoIP (PushKit) token, "" if not yet available. */
   getVoipToken(): Promise<{ token: string }>;
   /** iOS. Dismiss the CallKit UI when the call ends/declines in-app. */
-  endCall(options: { call_id: string }): Promise<void>;
+  endCall(options: { call_id: string; reason?: CallKitEndReason }): Promise<void>;
   /** iOS. Mirror an in-app mute onto the system call screen. */
   setMuted(options: { call_id: string; muted: boolean }): Promise<void>;
   /** Android. Cancel the ringing incoming-call notification. */
@@ -54,10 +66,10 @@ export const P2PCall = registerPlugin<P2PCallPlugin>("P2PCall");
  * declined or ended on another of the user's devices. Called alongside the in-app
  * teardown; the server also sends a cancel push for devices with no live socket.
  */
-export function dismissIncomingCallUI(callId: string): void {
+export function dismissIncomingCallUI(callId: string, reason: CallKitEndReason = "remoteEnded"): void {
   const platform = getCapacitorPlatform();
   if (platform === "ios") {
-    void P2PCall.endCall({ call_id: callId }).catch((err) =>
+    void P2PCall.endCall({ call_id: callId, reason }).catch((err) =>
       console.error("[p2p] failed to dismiss CallKit:", err),
     );
   } else if (platform === "android") {

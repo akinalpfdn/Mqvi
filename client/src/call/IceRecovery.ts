@@ -11,7 +11,7 @@ export const ICE_RESTART_ATTEMPT_MS = 7_000;
 export const DISCONNECT_GRACE_MS = 5_000;
 /** Longer while a negotiation is in flight — the state machine has further to travel. */
 export const DISCONNECT_GRACE_NEGOTIATING_MS = 10_000;
-/** A call that never connects ends after this; it leaves room for the peer's permission prompt. */
+/** A call that never connects ends after this, permission prompts on either side included. */
 export const FIRST_CONNECT_TIMEOUT_MS = 60_000;
 
 export type RecoveryConnectionState =
@@ -101,14 +101,15 @@ export class IceRecovery {
   }
 
   /**
-   * Arm once the local side is ready. Recovery only reacts to a connection that dropped; one that
-   * never came up (a rejected offer, ICE that never completes) otherwise sat silent forever.
+   * Arm when the engine starts. Recovery only reacts to a connection that dropped; one that never
+   * came up (a prompt left open, a rejected offer, ICE that never completes) sat silent forever.
+   * No isAlive check on firing: the connection may not exist yet, and dispose clears the timer.
    */
   armFirstConnect(): void {
     if (this.everConnected || this.firstConnectTimer) return;
     this.firstConnectTimer = setTimeout(() => {
       this.firstConnectTimer = null;
-      if (this.everConnected || !this.host.isAlive()) return;
+      if (this.everConnected) return;
       console.warn("[p2p] call never connected, ending it");
       this.giveUp();
     }, FIRST_CONNECT_TIMEOUT_MS);

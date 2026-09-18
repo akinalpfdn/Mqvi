@@ -291,6 +291,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func setVideoLayout(_ call: CAPPluginCall) {
         let clip = Self.rect(from: call.getObject("clip"))
+        let holes = (call.getArray("holes") ?? []).compactMap { Self.rect(from: $0 as? JSObject) }
         let remote = Self.rect(from: call.getObject("remote"))
         let local = Self.rect(from: call.getObject("local"))
         let radius = call.getDouble("cornerRadius") ?? 0
@@ -303,6 +304,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 clip: clip,
                 remote: remote,
                 local: local,
+                holes: holes,
                 cornerRadius: CGFloat(radius),
                 mirrorLocal: mirror
             )
@@ -357,7 +359,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         DispatchQueue.main.async {
-            CallManager.shared.endCall(callId: orphan)
+            CallManager.shared.endCall(callId: orphan, reason: "failed")
             call.resolve(["discarded": true])
         }
     }
@@ -388,6 +390,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
         Task { @MainActor in
             let camera = NativeCallCamera(source: source)
+            camera.onStartFailed = { [weak self] in self?.cameraFailed(generation: gen) }
             // Checked and stored under the lock teardown reads it with, so a camera never outlives its call.
             self.lock.lock()
             let current = self.generation == gen
@@ -397,6 +400,19 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             camera.start()
             NativeCallVideo.shared.setLocalTrack(track)
         }
+    }
+
+    /// Turns the video off and tells the page, so the button and the peer stop showing a picture.
+    @MainActor
+    private func cameraFailed(generation gen: Int) {
+        lock.lock()
+        let track = generation == gen ? videoTrack : nil
+        let callId = self.callId
+        lock.unlock()
+        guard let track, let callId else { return }
+        track.isEnabled = false
+        NativeCallVideo.shared.setLocalTrack(nil)
+        notifyListeners("localVideo", data: ["callId": callId, "available": false])
     }
 
     private static func rect(from object: JSObject?) -> CGRect? {

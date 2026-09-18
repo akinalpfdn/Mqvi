@@ -460,3 +460,21 @@ describe("a repeated accept", () => {
     }
   });
 });
+
+describe("an offer on a device that did not take the call", () => {
+  it("should not answer on a ringing sibling that missed the accept", async () => {
+    useP2PCallStore.setState({ activeCall: { ...makeCall(), status: "ringing" }, _acceptSentFor: null });
+    await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "offer", sdp: "o" });
+    expect(engineInstances).toHaveLength(0);
+  });
+
+  it("should still answer on the device that sent the accept, if the offer beats it", async () => {
+    useP2PCallStore.setState({
+      activeCall: { ...makeCall(), status: "ringing" },
+      incomingCall: { ...makeCall(), status: "ringing" },
+    });
+    useP2PCallStore.getState().acceptCall("c1");
+    await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "offer", sdp: "o" });
+    expect(engineInstances[0].calls).toContain("acceptRemoteOffer:o");
+  });
+});

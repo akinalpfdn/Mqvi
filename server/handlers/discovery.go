@@ -169,6 +169,13 @@ func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) 
 	if h.rateLimited(w, h.reportLimiter, user.ID) {
 		return
 	}
+	// Only a report actually filed counts; an invalid or duplicate one gives its slot back.
+	filed := false
+	defer func() {
+		if h.reportLimiter != nil && !filed {
+			h.reportLimiter.Refund(user.ID)
+		}
+	}()
 	serverID := r.PathValue("id")
 	if serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server id is required")
@@ -201,6 +208,7 @@ func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) 
 		pkg.Error(w, err)
 		return
 	}
+	filed = true
 
 	// Evidence uploads are optional and best-effort — a failed upload never blocks the report.
 	if isMultipart(contentType) && r.MultipartForm != nil {

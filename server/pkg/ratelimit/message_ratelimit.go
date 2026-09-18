@@ -83,6 +83,16 @@ func (rl *MessageRateLimiter) Allow(userID string) bool {
 	return true
 }
 
+// Refund gives back a slot an Allow consumed, for a request rejected before it did anything.
+// Cooldowns stand: a refused attempt was still an attempt.
+func (rl *MessageRateLimiter) Refund(userID string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if b, ok := rl.buckets[userID]; ok && b.count > 0 {
+		b.count--
+	}
+}
+
 // CooldownSeconds returns the remaining cooldown in seconds for the Retry-After header.
 func (rl *MessageRateLimiter) CooldownSeconds(userID string) int {
 	rl.mu.RLock()

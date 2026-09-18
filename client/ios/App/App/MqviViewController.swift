@@ -39,14 +39,9 @@ class MqviViewController: CAPBridgeViewController {
         )
     }
 
+    // No setActive here: channel voice and calls own the session natively. Activating it on every
+    // transition stopped other apps' audio, and a pre-activated session silences CallKit calls.
     @objc private func appDidEnterBackground() {
-        // Keep audio session active
-        do {
-            try AVAudioSession.sharedInstance().setActive(true, options: [])
-        } catch {
-            print("[MqviViewController] Failed to keep audio session active: \(error)")
-        }
-
         // iOS 15+: Tell WKWebView NOT to suspend media playback.
         // This is the key API — without it, WebRTC audio freezes when backgrounded.
         if #available(iOS 15.0, *) {
@@ -55,12 +50,6 @@ class MqviViewController: CAPBridgeViewController {
     }
 
     @objc private func appWillEnterForeground() {
-        do {
-            try AVAudioSession.sharedInstance().setActive(true, options: [])
-        } catch {
-            print("[MqviViewController] Failed to reactivate audio session: \(error)")
-        }
-
         // Resume media in case it was partially suspended
         if #available(iOS 15.0, *) {
             webView?.setAllMediaPlaybackSuspended(false, completionHandler: nil)

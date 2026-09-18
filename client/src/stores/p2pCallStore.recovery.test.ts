@@ -209,3 +209,14 @@ describe("a web call that never connects", () => {
     expect(ev.spies.onConnectionLost).not.toHaveBeenCalled();
   });
 });
+
+describe("a web receiver whose offer never comes", () => {
+  it("should end the call, though it has no connection yet", async () => {
+    const ev = events();
+    const engine = new WebCallEngine(ev);
+    await engine.start({ callId: "c1", callType: "voice", isCaller: false }); // no offer follows
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ev.spies.onConnectionLost).toHaveBeenCalledTimes(1);
+    engine.close();
+  });
+});

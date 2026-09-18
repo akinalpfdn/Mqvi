@@ -123,9 +123,11 @@ func (g *endsCallOnLookup) GetActiveByID(_ context.Context, id string) (*models.
 // An end that beat the initiate is repeated after it.
 func TestInitiateCall_RepeatsAnEndThatBeatItsAnnouncement(t *testing.T) {
 	hub := &recordingHub{}
+	push := &recordingPush{}
 	svc := &p2pCallService{
 		friendChecker: fakeFriendChecker{},
 		hub:           hub,
+		pushNotifier:  push,
 		urlSigner:     fakeURLSigner{},
 		activeCalls:   map[string]*models.P2PCall{},
 		userCalls:     map[string]string{},
@@ -149,6 +151,13 @@ func TestInitiateCall_RepeatsAnEndThatBeatItsAnnouncement(t *testing.T) {
 		if last != ws.OpP2PCallEnd {
 			t.Errorf("%s: the last word was %q, want an end after the initiate", user, last)
 		}
+	}
+
+	// It ended before its ring was handed over: no ring push, and so no cancel push either.
+	push.mu.Lock()
+	defer push.mu.Unlock()
+	if len(push.rang) != 0 || len(push.cancelled) != 0 {
+		t.Fatalf("pushes for a call already over: rang=%v cancelled=%v", push.rang, push.cancelled)
 	}
 }
 

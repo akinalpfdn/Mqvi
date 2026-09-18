@@ -41,6 +41,7 @@ export class NativeCallEngine implements CallMediaEngine {
   private ready: Promise<void> | null = null;
   /** The call this engine was started for; plugin events naming another call are dropped. */
   private callId: string | null = null;
+  private offerChain: Promise<void> = Promise.resolve();
   private state: NativeConnectionState = "new";
   private isCaller = false;
   private readonly recovery: IceRecovery;
@@ -94,6 +95,7 @@ export class NativeCallEngine implements CallMediaEngine {
 
   private async begin(opts: CallEngineStart): Promise<void> {
     if (this.closed) return;
+    this.recovery.armFirstConnect();
     this.callId = opts.callId;
     const mine = (data: { callId: string }) => !this.closed && data.callId === this.callId;
 
@@ -120,6 +122,11 @@ export class NativeCallEngine implements CallMediaEngine {
     await this.listen(
       NativeP2PCall.addListener("remoteVideo", (data) => {
         if (mine(data)) this.events.onRemoteVideo(data.available);
+      }),
+    );
+    await this.listen(
+      NativeP2PCall.addListener("localVideo", (data) => {
+        if (mine(data)) this.events.onLocalVideo(data.available);
       }),
     );
 
@@ -153,13 +160,19 @@ export class NativeCallEngine implements CallMediaEngine {
     }
     if (this.closed) return;
     this.started = true;
-    this.recovery.armFirstConnect();
     // A video call publishes the camera from the start; the button has to know that, and it
     // has to know when a denied camera means it did not.
     this.events.onLocalVideo(video);
   }
 
-  async acceptRemoteOffer(sdp: string): Promise<void> {
+  /** One offer at a time: the plugin's set-remote/answer/set-local callbacks would interleave. */
+  acceptRemoteOffer(sdp: string): Promise<void> {
+    const run = this.offerChain.then(() => this.applyRemoteOffer(sdp));
+    this.offerChain = run.catch(() => {});
+    return run;
+  }
+
+  private async applyRemoteOffer(sdp: string): Promise<void> {
     if (!(await this.waitUntilStarted())) return;
     await NativeP2PCall.acceptRemoteOffer({ sdp });
     this.hasRemoteDescription = true;

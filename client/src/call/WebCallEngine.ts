@@ -105,6 +105,7 @@ export class WebCallEngine implements CallMediaEngine {
 
   async start(opts: CallEngineStart): Promise<void> {
     this.opts = opts;
+    this.recovery.armFirstConnect();
     if (!opts.isCaller) return; // the receiver builds its connection from the first offer
 
     const stream = await getMediaStream(opts.callType);
@@ -122,7 +123,6 @@ export class WebCallEngine implements CallMediaEngine {
     // createOffer here, or the peer gets two.
     for (const track of stream.getTracks()) pc.addTrack(track, stream);
     applyDegradationPreference(pc);
-    this.recovery.armFirstConnect();
   }
 
   /** One offer at a time: two at once each built a connection and opened the microphone. */
@@ -164,7 +164,6 @@ export class WebCallEngine implements CallMediaEngine {
         for (const track of stream.getTracks()) pc.addTrack(track, stream);
       }
       applyDegradationPreference(pc);
-      this.recovery.armFirstConnect();
     }
 
     await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
@@ -276,8 +275,19 @@ export class WebCallEngine implements CallMediaEngine {
       return null;
     }
 
-    // replaceTrack swaps the outgoing picture without renegotiating.
-    await sender.replaceTrack(track);
+    // replaceTrack swaps the outgoing picture without renegotiating. A call closed meanwhile
+    // makes it throw; the new camera must be stopped either way or its light stays on.
+    try {
+      await sender.replaceTrack(track);
+    } catch (err) {
+      track.stop();
+      if (!this.closed) console.error("[p2p] camera switch failed:", err);
+      return null;
+    }
+    if (this.closed || this.pc !== pc) {
+      track.stop();
+      return null;
+    }
     const previous = stream.getVideoTracks()[0];
     if (previous) {
       stream.removeTrack(previous);
@@ -325,7 +335,17 @@ export class WebCallEngine implements CallMediaEngine {
       return false;
     }
 
-    await videoSender.replaceTrack(screenTrack);
+    try {
+      await videoSender.replaceTrack(screenTrack);
+    } catch (err) {
+      screenTrack.stop(); // a call closed meanwhile; do not leave the screen being captured
+      if (!this.closed) console.error("[p2p] screen share failed:", err);
+      return false;
+    }
+    if (this.closed || this.pc !== pc) {
+      screenTrack.stop();
+      return false;
+    }
     const params = videoSender.getParameters();
     params.degradationPreference = "balanced";
     await videoSender.setParameters(params).catch(() => {});

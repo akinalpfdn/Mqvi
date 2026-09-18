@@ -1,4 +1,4 @@
-/** Keeps the native video views on the call screen's boxes, and off any box the page covers. */
+/** Keeps the native video views on the call screen's boxes, with holes where the page draws over them. */
 
 import { useEffect, useRef } from "react";
 import type { PluginListenerHandle } from "@capacitor/core";
@@ -9,6 +9,8 @@ import { NativeP2PCall } from "../native/nativeP2PCall";
 const PIP_CORNER_RADIUS = 8;
 /** Keeps the samples off the box's own border, where the hit test can land on a neighbour. */
 const SAMPLE_INSET = 2;
+/** Hit-testing for overlays runs at most this often, even while boxes are tracked every frame. */
+const OCCLUSION_INTERVAL_MS = 100;
 /** After a change or user input, measure every frame for this long. */
 const BUSY_MS = 500;
 /** Otherwise measure this often: the page still moves or gets covered without input. */
@@ -35,27 +37,91 @@ function same(a: Rect, b: Rect): boolean {
   );
 }
 
-/**
- * `rect` unless the page draws something over it, which a native view would hide.
- * Samples a 3x3 grid instead of every overlay having to announce itself.
- */
-export function uncovered(rect: Rect, clip: Rect, boxes: readonly (HTMLElement | null)[]): Rect {
-  if (!rect || !clip) return rect;
-  // Only the part inside the call area is drawn, so only that part is sampled.
-  const left = Math.max(rect.x, clip.x) + SAMPLE_INSET;
-  const top = Math.max(rect.y, clip.y) + SAMPLE_INSET;
-  const right = Math.min(rect.x + rect.width, clip.x + clip.width) - SAMPLE_INSET;
-  const bottom = Math.min(rect.y + rect.height, clip.y + clip.height) - SAMPLE_INSET;
-  if (right <= left || bottom <= top) return rect;
+/** Samples per side of each box; denser catches smaller overlays. */
+const GRID = 5;
 
-  for (const fx of [0, 0.5, 1]) {
-    for (const fy of [0, 0.5, 1]) {
-      const hit = document.elementFromPoint(left + (right - left) * fx, top + (bottom - top) * fy);
-      if (!hit) continue; // off-screen: nothing there to cover it
-      if (!boxes.some((box) => box !== null && (box === hit || box.contains(hit)))) return null;
+/** The overlay a hit belongs to: its top-most box short of the video, skipping pass-through layers. */
+function overlayRoot(hit: Element, boxes: readonly (HTMLElement | null)[]): Element {
+  const chain: Element[] = [];
+  for (let el: Element | null = hit; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+    if (boxes.some((box) => box !== null && el.contains(box))) break;
+    chain.push(el);
+  }
+  // A pointer-events:none layer (a toast container, say) spans far more than what it shows.
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (getComputedStyle(chain[i]).pointerEvents !== "none") return chain[i];
+  }
+  return hit;
+}
+
+function overlaps(a: NonNullable<Rect>, b: NonNullable<Rect>): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+function union(a: NonNullable<Rect>, b: NonNullable<Rect>): NonNullable<Rect> {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return {
+    x,
+    y,
+    width: Math.max(a.x + a.width, b.x + b.width) - x,
+    height: Math.max(a.y + a.height, b.y + b.height) - y,
+  };
+}
+
+/**
+ * What the page draws over the video boxes, as rectangles for the native layer to cut out.
+ * Overlapping ones are merged: the native mask cuts with even-odd filling.
+ */
+export function coverings(
+  rects: readonly Rect[],
+  clip: Rect,
+  boxes: readonly (HTMLElement | null)[],
+): NonNullable<Rect>[] {
+  if (!clip) return [];
+  const found = new Set<Element>();
+  for (const rect of rects) {
+    if (!rect) continue;
+    // Only the part inside the call area is drawn, so only that part is sampled.
+    const left = Math.max(rect.x, clip.x) + SAMPLE_INSET;
+    const top = Math.max(rect.y, clip.y) + SAMPLE_INSET;
+    const right = Math.min(rect.x + rect.width, clip.x + clip.width) - SAMPLE_INSET;
+    const bottom = Math.min(rect.y + rect.height, clip.y + clip.height) - SAMPLE_INSET;
+    if (right <= left || bottom <= top) continue;
+    for (let i = 0; i < GRID; i++) {
+      for (let j = 0; j < GRID; j++) {
+        const x = left + ((right - left) * i) / (GRID - 1);
+        const y = top + ((bottom - top) * j) / (GRID - 1);
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || boxes.some((box) => box !== null && (box === hit || box.contains(hit)))) continue;
+        found.add(overlayRoot(hit, boxes));
+      }
     }
   }
-  return rect;
+
+  const holes: NonNullable<Rect>[] = [];
+  for (const el of found) {
+    const r = el.getBoundingClientRect();
+    if (r.width >= 1 && r.height >= 1) holes.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+  }
+  // Merge until no two overlap: a merged hole can reach one it did not touch before.
+  for (let merged = true; merged; ) {
+    merged = false;
+    for (let i = 0; i < holes.length && !merged; i++) {
+      for (let j = i + 1; j < holes.length; j++) {
+        if (!overlaps(holes[i], holes[j])) continue;
+        holes[i] = union(holes[i], holes[j]);
+        holes.splice(j, 1);
+        merged = true;
+        break;
+      }
+    }
+  }
+  return holes;
+}
+
+function sameHoles(a: readonly Rect[], b: readonly Rect[]): boolean {
+  return a.length === b.length && a.every((hole, i) => same(hole, b[i]));
 }
 
 export function useNativeVideoLayout(options: {
@@ -129,13 +195,29 @@ export function useNativeVideoLayout(options: {
     let frame = 0;
     let busyUntil = 0;
     let lastRun = 0;
+    let lastOcclusion = -Infinity;
+    let holes: NonNullable<Rect>[] = [];
+    let lastHoles: NonNullable<Rect>[] = [];
 
     const publish = (now: number) => {
       const clip = rectOf(clipEl);
-      const remote = uncovered(rectOf(remoteEl), clip, boxes);
-      const local = uncovered(rectOf(localEl), clip, boxes);
-      if (!first && same(clip, lastClip) && same(remote, lastRemote) && same(local, lastLocal)) return;
+      const remote = rectOf(remoteEl);
+      const local = rectOf(localEl);
+      if (now - lastOcclusion >= OCCLUSION_INTERVAL_MS) {
+        lastOcclusion = now;
+        holes = coverings([remote, local], clip, boxes);
+      }
+      if (
+        !first &&
+        same(clip, lastClip) &&
+        same(remote, lastRemote) &&
+        same(local, lastLocal) &&
+        sameHoles(holes, lastHoles)
+      ) {
+        return;
+      }
       first = false;
+      lastHoles = holes;
       busyUntil = now + BUSY_MS;
       lastClip = clip;
       lastRemote = remote;
@@ -144,6 +226,7 @@ export function useNativeVideoLayout(options: {
         clip,
         remote,
         local,
+        holes,
         cornerRadius: PIP_CORNER_RADIUS,
         mirrorLocal,
       }).catch((err) => console.error("[p2p] native setVideoLayout failed:", err));

@@ -29,6 +29,8 @@ import { registerP2PCallControl } from "./shared/p2pCallControl";
 
 // ─── Types ───
 
+export type LocalEnd = { callId: string; how: "hungUp" | "declined" | "failed" };
+
 type P2PCallStore = {
   /** Active call (ringing or active) — null means not in a call */
   activeCall: P2PCall | null;
@@ -66,6 +68,10 @@ type P2PCallStore = {
   _mediaChanging: boolean;
   /** What we last told the peer about our picture; null means tell it again. */
   _videoAnnounced: boolean | null;
+  /** The call this device sent an accept for; only it may answer the caller's offer. */
+  _acceptSentFor: string | null;
+  /** How this device itself last ended a call; read by useCallKit once the call is gone. */
+  _localEnd: LocalEnd | null;
   isScreenSharing: boolean;
 
   /** Remote audio output volume, 0–200 (100 = normal). Above 100 amplifies via Web Audio. */
@@ -98,7 +104,8 @@ type P2PCallStore = {
   resumeCallAfterReconnect: () => void;
   acceptCall: (callId: string) => void;
   declineCall: (callId: string) => void;
-  endCall: () => void;
+  /** `how` is what the phone's call history records for this device's own end. */
+  endCall: (how?: LocalEnd["how"]) => void;
   toggleMute: () => void;
   toggleVideo: () => void;
   switchCamera: () => void;
@@ -130,7 +137,7 @@ function createEngine(events: CallEngineEvents): CallMediaEngine {
 function endCallThatFailedToStart(callId: string, err: unknown): void {
   console.error("[p2p] WebRTC start error:", err);
   const store = useP2PCallStore.getState();
-  if (store.activeCall?.id === callId) store.endCall();
+  if (store.activeCall?.id === callId) store.endCall("failed");
 }
 
 /** hasRemoteVideo is only ever written through this, so the two inputs cannot drift apart. */
@@ -158,6 +165,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   cameraFacing: "front",
   _mediaChanging: false,
   _videoAnnounced: null,
+  _acceptSentFor: null,
+  _localEnd: null,
   isScreenSharing: false,
   remoteVolume: 100,
   callDuration: 0,
@@ -206,6 +215,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     const { _sendWS, incomingCall } = get();
     if (!_sendWS || !incomingCall) return;
 
+    set({ _acceptSentFor: callId });
     _sendWS("p2p_call_accept", { call_id: callId });
   },
 
@@ -214,11 +224,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     if (!_sendWS) return;
 
     _sendWS("p2p_call_decline", { call_id: callId });
-    set({ incomingCall: null, activeCall: null });
+    set({ incomingCall: null, activeCall: null, _localEnd: { callId, how: "declined" } });
   },
 
-  endCall: () => {
+  endCall: (how = "hungUp") => {
     const { _sendWS, activeCall } = get();
+    if (activeCall) set({ _localEnd: { callId: activeCall.id, how } });
     // Name the call: a late hang-up would otherwise end whatever call came after it.
     _sendWS?.("p2p_call_end", activeCall ? { call_id: activeCall.id } : undefined);
     // Local teardown even with no socket to tell the server: the microphone stops now.
@@ -319,7 +330,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
         if (isCurrentCall()) set({ isScreenSharing: false });
       },
       onConnectionLost: () => {
-        if (isCurrentCall()) get().endCall();
+        if (isCurrentCall()) get().endCall("failed");
       },
     });
 
@@ -391,6 +402,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       cameraFacing: "front",
       _mediaChanging: false,
   _videoAnnounced: null,
+  _acceptSentFor: null,
       isScreenSharing: false,
       remoteVolume: 100,
       callDuration: 0,
@@ -436,7 +448,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     // to "active" and start WebRTC, and since signalling is user-wide too they would
     // answer the caller's offer alongside the device that really answered.
     if (!isCaller && data.accepted_by !== undefined && data.accepted_by !== _sessionId) {
-      dismissIncomingCallUI(data.call_id);
+      dismissIncomingCallUI(data.call_id, "answeredElsewhere");
       get().cleanup();
       return;
     }
@@ -465,29 +477,30 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     const declinedBySelf = data.declined_by === useAuthStore.getState().user?.id;
 
     if (activeCall && activeCall.id === data.call_id) {
-      if (declinedBySelf) dismissIncomingCallUI(data.call_id);
+      if (declinedBySelf) dismissIncomingCallUI(data.call_id, "declinedElsewhere");
       else useToastStore.getState().addToast("info", t("common:callDeclined"));
       get().cleanup();
       return;
     }
 
     if (incomingCall && incomingCall.id === data.call_id) {
-      if (declinedBySelf) dismissIncomingCallUI(data.call_id);
+      if (declinedBySelf) dismissIncomingCallUI(data.call_id, "declinedElsewhere");
       set({ incomingCall: null });
     }
   },
 
   handleCallEnd: (data) => {
     const { activeCall, incomingCall } = get();
+    const reason = data.reason === "timeout" ? "unanswered" : data.reason === "disconnect" ? "failed" : "remoteEnded";
     // A delayed end for a call we already left must not tear down the current
     // one. Only clean up when it matches; otherwise at most drop a stale incoming.
     if (activeCall && activeCall.id === data.call_id) {
-      dismissIncomingCallUI(data.call_id);
+      dismissIncomingCallUI(data.call_id, reason);
       get().cleanup();
       return;
     }
     if (incomingCall && incomingCall.id === data.call_id) {
-      dismissIncomingCallUI(data.call_id);
+      dismissIncomingCallUI(data.call_id, reason);
       set({ incomingCall: null });
     }
   },
@@ -519,6 +532,9 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
           if (!data.sdp) break;
           let engine = get().engine;
           if (!engine) {
+            // A sibling device that missed the accept is still ringing and must not answer: it
+            // would open its microphone for a call another device took.
+            if (activeCall.status !== "active" && get()._acceptSentFor !== callId) break;
             // The offer beat the accept handler. Only the receiver can be here; the caller
             // offers from startWebRTC.
             engine = get()._ensureEngine();

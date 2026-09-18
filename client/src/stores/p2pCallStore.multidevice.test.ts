@@ -15,7 +15,7 @@ vi.mock("./toastStore", () => ({ useToastStore: { getState: () => ({ addToast })
 
 const dismissIncomingCallUI = vi.fn();
 vi.mock("../native/p2pCall", () => ({
-  dismissIncomingCallUI: (id: string) => dismissIncomingCallUI(id),
+  dismissIncomingCallUI: (id: string, reason?: string) => dismissIncomingCallUI(id, reason),
   presentIncomingCallUI: vi.fn(),
 }));
 
@@ -84,7 +84,7 @@ describe("handleCallAccept — exactly one device may answer", () => {
     const s = useP2PCallStore.getState();
     expect(s.activeCall).toBeNull();
     expect(s.incomingCall).toBeNull();
-    expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1");
+    expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1", "answeredElsewhere");
   });
 
   // The caller is not a receiver device. accepted_by names one of the RECEIVER's sessions, so it
@@ -145,7 +145,7 @@ describe("handleCallDecline — declining on one device is not a rejection to yo
     useP2PCallStore.getState().handleCallDecline({ call_id: "call-1", declined_by: ME });
 
     expect(useP2PCallStore.getState().activeCall).toBeNull();
-    expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1");
+    expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1", "declinedElsewhere");
     // "Call declined" is what the OTHER party is told. Showing it to the person who declined is
     // the app telling you that you rejected yourself.
     expect(addToast).not.toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe("handleCallDecline — declining on one device is not a rejection to yo
     useP2PCallStore.getState().handleCallDecline({ call_id: "call-1", declined_by: ME });
 
     expect(useP2PCallStore.getState().incomingCall).toBeNull();
-    expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1");
+    expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1", "declinedElsewhere");
   });
 });
 
@@ -212,5 +212,19 @@ describe("resumeCallAfterReconnect", () => {
     useP2PCallStore.getState().resumeCallAfterReconnect();
 
     expect(sent).toEqual([]);
+  });
+});
+
+describe("handleCallEnd — the phone's call history says how the call ended", () => {
+  it.each([
+    ["timeout", "unanswered"],
+    ["disconnect", "failed"],
+    [undefined, "remoteEnded"],
+  ])("records an end with reason %s as %s", (reason, expected) => {
+    useP2PCallStore.setState({ activeCall: call(), incomingCall: call() });
+
+    useP2PCallStore.getState().handleCallEnd({ call_id: "call-1", reason });
+
+    expect(dismissIncomingCallUI).toHaveBeenCalledWith("call-1", expected);
   });
 });

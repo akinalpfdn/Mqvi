@@ -34,6 +34,8 @@ final class CallManager: NSObject {
     private var calls: [UUID: String] = [:] // CallKit UUID -> our call_id
     /// Mute as CallKit shows it, so the app echoing a CallKit toggle does not send it back.
     private var mutedState: [UUID: Bool] = [:]
+    /// Calls the app asked CallKit to end, so the end action's echo is not reported back as the user's.
+    private var endingInApp: Set<UUID> = []
 
     private var bufferedToken: String?
     private var bufferedAnswered: [String] = []
@@ -76,13 +78,39 @@ final class CallManager: NSObject {
 
     func currentVoipToken() -> String? { bufferedToken }
 
-    /// Dismiss the CallKit call from the app side (call ended / declined in-app, or
-    /// the server ring timed out).
-    func endCall(callId: String) {
+    /// Dismiss the CallKit call from the app side. "local" is this user hanging up or declining
+    /// in the app, which the call history records as theirs; anything else is reported with its reason.
+    func endCall(callId: String, reason: String) {
         guard let uuid = UUID(uuidString: callId) else { return }
-        provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
+        guard reason == "local" else {
+            report(uuid, endedWith: Self.endedReason(reason))
+            return
+        }
+        // Already gone from CallKit (the user ended it there): nothing left to end.
+        guard calls[uuid] != nil else { return }
+        endingInApp.insert(uuid)
+        callController.request(CXTransaction(action: CXEndCallAction(call: uuid))) { [weak self] error in
+            guard let self, let error else { return }
+            print("[callkit] end call failed: \(error.localizedDescription)")
+            self.endingInApp.remove(uuid)
+            self.report(uuid, endedWith: .remoteEnded)
+        }
+    }
+
+    private func report(_ uuid: UUID, endedWith reason: CXCallEndedReason) {
+        provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
         calls.removeValue(forKey: uuid)
         mutedState.removeValue(forKey: uuid)
+    }
+
+    private static func endedReason(_ reason: String) -> CXCallEndedReason {
+        switch reason {
+        case "unanswered": return .unanswered
+        case "answeredElsewhere": return .answeredElsewhere
+        case "declinedElsewhere": return .declinedElsewhere
+        case "failed": return .failed
+        default: return .remoteEnded
+        }
     }
 
     /// Mirrors an in-app mute onto a call CallKit is showing.
@@ -207,6 +235,7 @@ extension CallManager: CXProviderDelegate {
     func providerDidReset(_ provider: CXProvider) {
         calls.removeAll()
         mutedState.removeAll()
+        endingInApp.removeAll()
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
@@ -221,7 +250,10 @@ extension CallManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        if let callId = calls[action.callUUID] {
+        if endingInApp.remove(action.callUUID) != nil {
+            calls.removeValue(forKey: action.callUUID)
+            mutedState.removeValue(forKey: action.callUUID)
+        } else if let callId = calls[action.callUUID] {
             if let listener = listener {
                 listener.onCallEnded(callId: callId)
             } else {

@@ -36,8 +36,9 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
             call.reject("call_id is required")
             return
         }
+        let reason = call.getString("reason") ?? "remoteEnded"
         DispatchQueue.main.async {
-            CallManager.shared.endCall(callId: callId)
+            CallManager.shared.endCall(callId: callId, reason: reason)
             call.resolve()
         }
     }
