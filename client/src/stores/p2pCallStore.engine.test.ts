@@ -32,6 +32,9 @@ vi.mock("../call/WebCallEngine", () => ({
     setMicEnabled(enabled: boolean) {
       this.record.calls.push(`setMicEnabled:${enabled}`);
     }
+    setRemoteVolume(percent: number) {
+      this.record.calls.push(`setRemoteVolume:${percent}`);
+    }
     async setVideoEnabled() {
       return true;
     }
@@ -127,6 +130,16 @@ describe("store → engine", () => {
     expect(useP2PCallStore.getState().engine).toBeNull();
   });
 
+  it("should hand the peer's volume to the engine, clamped to the slider's range", async () => {
+    // A native call plays the audio itself; the page's <audio> element never exists there.
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.getState().setRemoteVolume(150);
+    useP2PCallStore.getState().setRemoteVolume(900);
+
+    expect(engineInstances[0].calls).toContain("setRemoteVolume:150");
+    expect(engineInstances[0].calls).toContain("setRemoteVolume:200");
+  });
+
   it("should mute through the engine, not by touching tracks itself", async () => {
     await useP2PCallStore.getState().startWebRTC(true);
     useP2PCallStore.getState().toggleMute();
@@ -178,5 +191,68 @@ describe("engine → store", () => {
       "p2p_signal",
       expect.objectContaining({ sdp: "late" }),
     );
+  });
+});
+
+/**
+ * Whether the peer's picture is shown. A track cannot answer that on its own: a camera turned
+ * off still sends black frames, so the peer showed a black box instead of the avatar. The peer
+ * says it explicitly; a peer that never does (an older client) is judged by its track, as before.
+ */
+describe("the peer's picture", () => {
+  const videoSignals = () =>
+    sendWS.mock.calls
+      .map(([, data]) => (data as { type: string }).type)
+      .filter((type) => type === "video-on" || type === "video-off");
+
+  beforeEach(() => {
+    useP2PCallStore.setState({ hasRemoteVideo: false, remoteTrackVideo: false, peerVideoOff: false });
+  });
+
+  it("should fall back to the avatar when the peer turns its camera off, though the track stays", async () => {
+    await useP2PCallStore.getState().startWebRTC(false);
+    engineInstances[0].events.onRemoteVideo(true);
+    expect(useP2PCallStore.getState().hasRemoteVideo).toBe(true);
+
+    await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "video-off" });
+    expect(useP2PCallStore.getState().hasRemoteVideo).toBe(false);
+
+    await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "video-on" });
+    expect(useP2PCallStore.getState().hasRemoteVideo).toBe(true);
+  });
+
+  it("should judge a peer that never announces by its track alone", async () => {
+    await useP2PCallStore.getState().startWebRTC(false);
+    engineInstances[0].events.onRemoteVideo(true);
+    expect(useP2PCallStore.getState().hasRemoteVideo).toBe(true);
+    engineInstances[0].events.onRemoteVideo(false);
+    expect(useP2PCallStore.getState().hasRemoteVideo).toBe(false);
+  });
+
+  it("should not show a picture the peer announces before any track exists", async () => {
+    await useP2PCallStore.getState().startWebRTC(false);
+    await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "video-on" });
+    expect(useP2PCallStore.getState().hasRemoteVideo).toBe(false);
+  });
+
+  it("should announce once per change, counting a screen share as a picture", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    sendWS.mockClear();
+
+    useP2PCallStore.setState({ isVideoOn: true });
+    useP2PCallStore.setState({ isScreenSharing: true }); // still sending a picture
+    useP2PCallStore.setState({ isVideoOn: false }); // the screen is still on the track
+    useP2PCallStore.setState({ isScreenSharing: false });
+
+    expect(videoSignals()).toEqual(["video-on", "video-off"]);
+  });
+
+  it("should stop announcing once the call is over", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.getState().cleanup();
+    sendWS.mockClear();
+
+    useP2PCallStore.setState({ activeCall: makeCall(), isVideoOn: true });
+    expect(videoSignals()).toEqual([]);
   });
 });

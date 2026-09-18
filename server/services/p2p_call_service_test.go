@@ -361,7 +361,7 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			t.Error("receiver mapping must be kept so PendingIncomingCall can replay")
 		}
 		if _, ok := svc.ringTimers["x"]; !ok {
-			t.Error("ring timer must keep running to time out at 60s")
+			t.Error("ring timer must keep running so the ring still times out")
 		}
 	})
 

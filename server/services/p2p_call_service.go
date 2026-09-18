@@ -61,6 +61,8 @@ type P2PCallService interface {
 	// the teardown that death scheduled. Media is peer-to-peer, so a WebSocket blip is not a
 	// hang-up — but the new session must be adopted or its signals would be rejected.
 	ResumeCall(userID, sessionID, callID string) error
+	// EndCallBetween ends userID's call if it is with otherID, as though userID hung up.
+	EndCallBetween(userID, otherID string)
 	GetUserCall(userID string) *models.P2PCall
 	// PendingIncomingCall returns the broadcast for a user's active RINGING incoming
 	// call (they are the receiver), or nil — used to re-deliver it on (re)connect.
@@ -551,6 +553,29 @@ func (s *p2pCallService) EndCall(userID, deviceID, wantCallID string) error {
 	return nil
 }
 
+// EndCallBetween ends userID's call if the other party is otherID, exactly as if userID had hung
+// up. Blocking is what calls it: a new call needs a friendship the block deletes, but one already
+// ringing or running would go on — its media is peer to peer and never touches the server again.
+func (s *p2pCallService) EndCallBetween(userID, otherID string) {
+	s.mu.RLock()
+	callID, inCall := s.userCalls[userID]
+	withOther := false
+	if inCall {
+		if call, ok := s.activeCalls[callID]; ok {
+			withOther = call.CallerID == otherID || call.ReceiverID == otherID
+		}
+	}
+	s.mu.RUnlock()
+	if !withOther {
+		return
+	}
+	// EndCall re-checks under its own lock that userID is still in this call, so a call that
+	// ended in between is left alone. No device acted, so none is exempt from the cancel push.
+	if err := s.EndCall(userID, "", callID); err != nil {
+		log.Printf("[p2p] end call %s between %s and %s: %v", callID, userID, otherID, err)
+	}
+}
+
 // RelaySignal forwards WebRTC signaling data (SDP/ICE) to the other party.
 // Server does not inspect the payload.
 func (s *p2pCallService) RelaySignal(senderID, senderSessionID, callID string, signal ws.P2PSignalData) error {
@@ -625,7 +650,7 @@ func (s *p2pCallService) HandleSessionDisconnect(userID, sessionID string) {
 
 	// A receiver whose socket drops while the call is still RINGING may be a mobile client
 	// backgrounding to answer from its push notification. Keep the call alive so reconnect +
-	// PendingIncomingCall can re-deliver it; the ring timer still times it out at 60s. No
+	// PendingIncomingCall can re-deliver it; the ring timer still times it out (ringingTimeout). No
 	// receiver session owns a ringing call yet — every one of their devices is still ringing.
 	if call.Status == models.P2PCallStatusRinging && call.ReceiverID == userID {
 		s.mu.Unlock()

@@ -54,6 +54,8 @@ export class WebCallEngine implements CallMediaEngine {
   private readonly events: CallEngineEvents;
 
   private pc: RTCPeerConnection | null = null;
+  /** Serializes incoming offers; see acceptRemoteOffer. */
+  private offerChain: Promise<void> = Promise.resolve();
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
@@ -124,7 +126,19 @@ export class WebCallEngine implements CallMediaEngine {
     applyDegradationPreference(pc);
   }
 
-  async acceptRemoteOffer(sdp: string): Promise<void> {
+  /**
+   * Offers are applied one at a time. Two that arrive together — an older native caller sent
+   * an audio-only offer and then one with video — each found no connection, each built one and
+   * each asked for the microphone; the loser was never closed and still sent its answer. In
+   * order, the second offer simply renegotiates the connection the first one built.
+   */
+  acceptRemoteOffer(sdp: string): Promise<void> {
+    const run = this.offerChain.then(() => this.applyRemoteOffer(sdp));
+    this.offerChain = run.catch(() => {});
+    return run;
+  }
+
+  private async applyRemoteOffer(sdp: string): Promise<void> {
     if (this.closed || !this.opts) return;
 
     let pc = this.pc;
@@ -159,12 +173,13 @@ export class WebCallEngine implements CallMediaEngine {
     }
 
     await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
-    if (this.closed) return;
+    if (this.closed || this.pc !== pc) return;
     await this.flushCandidates(pc);
 
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    if (this.closed || !answer.sdp) return;
+    // Only the connection this call still holds may answer.
+    if (this.closed || this.pc !== pc || !answer.sdp) return;
     this.events.onLocalDescription({ type: "answer", sdp: answer.sdp });
   }
 
@@ -197,6 +212,9 @@ export class WebCallEngine implements CallMediaEngine {
     if (!this.localStream) return;
     for (const track of this.localStream.getAudioTracks()) track.enabled = enabled;
   }
+
+  /** P2PAudioSink plays the remote stream and applies the volume from the store. */
+  setRemoteVolume(): void {}
 
   async setVideoEnabled(enabled: boolean): Promise<boolean> {
     const pc = this.pc;
@@ -416,7 +434,13 @@ export class WebCallEngine implements CallMediaEngine {
     this.pendingCandidates = [];
     for (const candidate of pending) {
       if (this.closed || this.pc !== pc) return;
-      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      // One bad candidate must not cost the rest, or — since this runs before the answer is
+      // created — the answer itself.
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn("[p2p] Skipping a candidate the connection rejected:", err);
+      }
     }
   }
 

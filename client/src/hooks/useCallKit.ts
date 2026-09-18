@@ -161,10 +161,21 @@ export function useCallKit(): void {
       lastCallId = currentId;
     });
 
+    // The system call screen has its own mute button. A toggle made in the app has to reach it,
+    // or the two show different states. The native side ignores a call CallKit is not showing
+    // and skips a state it already has, so a toggle that came from CallKit is not sent back.
+    const unsubscribeMute = useP2PCallStore.subscribe((state, prev) => {
+      if (state.isMuted === prev.isMuted || !state.activeCall) return;
+      void P2PCall.setMuted({ call_id: state.activeCall.id, muted: state.isMuted }).catch((err) =>
+        console.error("[callkit] setMuted failed:", err),
+      );
+    });
+
     return () => {
       clearPending();
       handles.forEach((h) => void h.remove());
       unsubscribe();
+      unsubscribeMute();
     };
   }, []);
 }

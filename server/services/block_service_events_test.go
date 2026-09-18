@@ -90,7 +90,7 @@ func dataOf(t *testing.T, e ws.Event) map[string]string {
 
 func TestBlockEvents_CarryBlockerAndTargetToBothParties(t *testing.T) {
 	hub := &stubBlockHub{}
-	svc := NewBlockService(&stubBlockFriendRepo{rows: map[string]*models.Friendship{}}, stubBlockUserRepo{}, hub, nil)
+	svc := NewBlockService(&stubBlockFriendRepo{rows: map[string]*models.Friendship{}}, stubBlockUserRepo{}, hub, nil, &recordingCallEnder{})
 
 	if err := svc.BlockUser(context.Background(), "alice", "bob"); err != nil {
 		t.Fatalf("block: %v", err)
@@ -131,7 +131,7 @@ func TestBlockEvents_CarryBlockerAndTargetToBothParties(t *testing.T) {
 // removes the caller's own row. Before this rule the second block silently deleted the first.
 func TestMutualBlock_KeepsBothRows(t *testing.T) {
 	repo := &stubBlockFriendRepo{rows: map[string]*models.Friendship{}}
-	svc := NewBlockService(repo, stubBlockUserRepo{}, &stubBlockHub{}, nil)
+	svc := NewBlockService(repo, stubBlockUserRepo{}, &stubBlockHub{}, nil, &recordingCallEnder{})
 	ctx := context.Background()
 
 	if err := svc.BlockUser(ctx, "bob", "alice"); err != nil {
@@ -157,5 +157,39 @@ func TestMutualBlock_KeepsBothRows(t *testing.T) {
 	// Alice cannot unblock a block she does not own.
 	if err := svc.UnblockUser(ctx, "alice", "bob"); !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("second unblock: want %v, got %v", pkg.ErrBadRequest, err)
+	}
+}
+
+// recordingCallEnder records which pairs had their call ended.
+type recordingCallEnder struct{ ended [][2]string }
+
+func (r *recordingCallEnder) EndCallBetween(userID, otherID string) {
+	r.ended = append(r.ended, [2]string{userID, otherID})
+}
+
+// Blocking ends a call already under way with the person blocked; a new one is refused anyway,
+// since calling needs the friendship the block removes.
+func TestBlockUser_EndsTheCallWithTheBlockedUser(t *testing.T) {
+	calls := &recordingCallEnder{}
+	svc := NewBlockService(&stubBlockFriendRepo{rows: map[string]*models.Friendship{}}, stubBlockUserRepo{}, &stubBlockHub{}, nil, calls)
+
+	if err := svc.BlockUser(context.Background(), "alice", "bob"); err != nil {
+		t.Fatalf("block: %v", err)
+	}
+	if len(calls.ended) != 1 || calls.ended[0] != [2]string{"alice", "bob"} {
+		t.Fatalf("want the alice-bob call ended once, got %v", calls.ended)
+	}
+}
+
+// A block that fails must not end anything: the two are still connected as before.
+func TestBlockUser_LeavesTheCallAloneWhenTheBlockFails(t *testing.T) {
+	calls := &recordingCallEnder{}
+	svc := NewBlockService(&stubBlockFriendRepo{rows: map[string]*models.Friendship{}}, stubBlockUserRepo{}, &stubBlockHub{}, nil, calls)
+
+	if err := svc.BlockUser(context.Background(), "alice", "alice"); err == nil {
+		t.Fatal("blocking yourself should fail")
+	}
+	if len(calls.ended) != 0 {
+		t.Fatalf("a failed block ended a call: %v", calls.ended)
 	}
 }

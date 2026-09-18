@@ -36,11 +36,17 @@ type BlockChecker interface {
 	IsBlocked(ctx context.Context, userA, userB string) (bool, error)
 }
 
+// CallEnder ends a call between two users, if there is one.
+type CallEnder interface {
+	EndCallBetween(userID, otherID string)
+}
+
 type blockService struct {
 	friendRepo repository.FriendshipRepository
 	userRepo   repository.UserRepository
 	hub        ws.BroadcastAndRegisterPeers
 	urlSigner  FileURLSigner
+	calls      CallEnder
 }
 
 func NewBlockService(
@@ -48,10 +54,12 @@ func NewBlockService(
 	userRepo repository.UserRepository,
 	hub ws.BroadcastAndRegisterPeers,
 	urlSigner FileURLSigner,
+	calls CallEnder,
 ) BlockService {
 	return &blockService{
 		friendRepo: friendRepo,
 		userRepo:   userRepo,
+		calls:      calls,
 		hub:        hub,
 		urlSigner:  urlSigner,
 	}
@@ -130,6 +138,10 @@ func (s *blockService) BlockUser(ctx context.Context, blockerID, targetID string
 	}
 	s.hub.BroadcastToUser(blockerID, blockEvent)
 	s.hub.BroadcastToUser(targetID, blockEvent)
+
+	// A call already ringing or running between them does not stop by itself: the media is peer
+	// to peer and never passes the server again, so the blocked person could keep talking.
+	s.calls.EndCallBetween(blockerID, targetID)
 
 	return nil
 }

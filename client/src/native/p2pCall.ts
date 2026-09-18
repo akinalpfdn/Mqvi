@@ -18,6 +18,8 @@ export interface P2PCallPlugin {
   getVoipToken(): Promise<{ token: string }>;
   /** iOS. Dismiss the CallKit UI when the call ends/declines in-app. */
   endCall(options: { call_id: string }): Promise<void>;
+  /** iOS. Mirror an in-app mute onto the system call screen. */
+  setMuted(options: { call_id: string; muted: boolean }): Promise<void>;
   /** Android. Cancel the ringing incoming-call notification. */
   cancelIncomingCall(): Promise<void>;
 

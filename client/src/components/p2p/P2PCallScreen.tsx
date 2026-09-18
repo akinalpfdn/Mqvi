@@ -167,17 +167,22 @@ function P2PCallScreen() {
   const callDuration = useP2PCallStore((s) => s.callDuration);
   const isVideoOn = useP2PCallStore((s) => s.isVideoOn);
   const isNativeVideo = useP2PCallStore((s) => s.isNativeVideo);
-  const nativeRemoteVideo = useP2PCallStore((s) => s.hasRemoteVideo);
+  const hasRemoteVideo = useP2PCallStore((s) => s.hasRemoteVideo);
   const cameraFacing = useP2PCallStore((s) => s.cameraFacing);
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   // Boxes the native layer draws into. Refs as state: the hook has to re-run when they arrive.
   const [bigEl, setBigEl] = useState<HTMLElement | null>(null);
   const [pipEl, setPipEl] = useState<HTMLElement | null>(null);
+  const [mediaEl, setMediaEl] = useState<HTMLElement | null>(null);
 
   // Remote audio is rendered by P2PAudioSink at app level (survives tab switches); this screen
   // is visuals only. Every <video> here stays muted.
   const mediaAreaRef = useRef<HTMLDivElement>(null);
+  const attachMediaArea = useCallback((el: HTMLDivElement | null) => {
+    mediaAreaRef.current = el;
+    setMediaEl(el);
+  }, []);
   const isTouch = useIsTouch();
   const { isCinema, enter: enterCinema, exit: exitCinema } = useCinemaMode(mediaAreaRef);
 
@@ -221,14 +226,11 @@ function P2PCallScreen() {
 
   const isRinging = activeCall?.status === "ringing";
   const isActive = activeCall?.status === "active";
-  const isVideoCall = activeCall?.call_type === "video";
   const isScreenSharing = useP2PCallStore((s) => s.isScreenSharing);
 
-  // A natively drawn call has no streams to inspect; the engine reports what the peer sends
-  // and the store knows whether our own camera is on.
-  const hasRemoteVideo = isNativeVideo
-    ? nativeRemoteVideo
-    : remoteStream?.getVideoTracks().some((tr) => tr.enabled);
+  // Our own camera: the store knows it on a native call, the local stream on a web one. The
+  // peer's picture always comes from the store (hasRemoteVideo) — a remote track's `enabled`
+  // is our own setting and says nothing about what the peer is sending.
   const hasLocalVideo = isNativeVideo
     ? isVideoOn
     : localStream?.getVideoTracks().some((tr) => tr.enabled);
@@ -257,8 +259,9 @@ function P2PCallScreen() {
   // big box is, which after a swap is the small one.
   useNativeVideoLayout({
     active: isNativeVideo && !!activeCall && activeCall.status === "active",
-    // The full-bleed surface fills the media area, so its box is the area the feeds live in.
-    clipEl: bigEl,
+    // The media area itself, not the surface: the surface comes and goes with the peer's
+    // picture, and your own picture-in-picture has to stay bounded while it is gone.
+    clipEl: mediaEl,
     remoteEl: effectiveSwapped ? pipEl : bigEl,
     localEl: effectiveSwapped ? bigEl : pipEl,
     // Your own face is shown mirrored, the way every call app does it; the back camera is not.
@@ -316,16 +319,16 @@ function P2PCallScreen() {
       ) : isActive ? (
         <div className="p2p-call-screen p2p-active">
           <div
-            ref={mediaAreaRef}
+            ref={attachMediaArea}
             className={`p2p-media-area${isCinema ? " cinema" : ""}`}
             onContextMenu={handleContextMenu}
             onDoubleClick={handleDoubleClick}
           >
-            {isNativeVideo && isVideoCall ? (
-              // The picture is drawn over this box by the native layer, which also decides
-              // whether there is anything to draw. The box is always here: gating it on the
-              // remote track arriving would be a loop, since the track can only be shown once
-              // there is a box to put it in.
+            {isNativeVideo && bigHasVideo ? (
+              // The native layer draws over this box. Keyed on there being a picture, not on the
+              // call type: a voice call still gets one when the peer shares a screen, and a video
+              // call falls back to the avatar when the peer turns the camera off. No loop — the
+              // native side attaches the track on its own; the box only says where to draw it.
               <div ref={setBigEl} className="p2p-remote-video p2p-native-surface" />
             ) : bigHasVideo ? (
               <video
@@ -347,7 +350,7 @@ function P2PCallScreen() {
             )}
 
             {/* Floating PiP — your own camera; tap to swap when both are on camera */}
-            {((isNativeVideo && isVideoCall) || (localHasCam && pipStream)) && (
+            {localHasCam && (isNativeVideo || pipStream) && (
               <DraggableVideo
                 stream={isNativeVideo ? null : pipStream}
                 onClick={bothHaveVideo ? handlePipClick : undefined}

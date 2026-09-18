@@ -6,11 +6,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 
-const { endCall, getVoipToken, addListener, nativeListeners } = vi.hoisted(() => {
+const { endCall, setMuted, getVoipToken, addListener, nativeListeners } = vi.hoisted(() => {
   const nativeListeners: Record<string, (data: { call_id: string; muted?: boolean }) => void> = {};
   return {
     nativeListeners,
     endCall: vi.fn(async () => {}),
+    setMuted: vi.fn(async () => {}),
     getVoipToken: vi.fn(async () => ({ token: "" })),
     addListener: vi.fn(async (event: string, cb: (data: { call_id: string; muted?: boolean }) => void) => {
       nativeListeners[event] = cb;
@@ -20,7 +21,7 @@ const { endCall, getVoipToken, addListener, nativeListeners } = vi.hoisted(() =>
 });
 
 vi.mock("../native/p2pCall", () => ({
-  P2PCall: { endCall, getVoipToken, addListener },
+  P2PCall: { endCall, setMuted, getVoipToken, addListener },
   dismissIncomingCallUI: vi.fn(),
 }));
 vi.mock("../api/push", () => ({ registerPushToken: vi.fn(async () => ({ success: true })) }));
@@ -153,6 +154,19 @@ describe("useCallKit — dismissing the system call screen", () => {
 
     nativeListeners.callMuted({ call_id: CALL_ID, muted: false } as never);
     expect(useP2PCallStore.getState().isMuted).toBe(false);
+  });
+
+  it("should mirror an in-app mute onto the system call screen", async () => {
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callMuted).toBeDefined());
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    useP2PCallStore.getState().handleCallAccept({ call_id: CALL_ID, accepted_by: "session-1" });
+
+    useP2PCallStore.getState().toggleMute();
+    expect(setMuted).toHaveBeenLastCalledWith({ call_id: CALL_ID, muted: true });
+    useP2PCallStore.getState().toggleMute();
+    expect(setMuted).toHaveBeenLastCalledWith({ call_id: CALL_ID, muted: false });
   });
 
   it("should leave an outgoing call alone", () => {

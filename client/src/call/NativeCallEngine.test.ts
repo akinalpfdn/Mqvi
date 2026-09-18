@@ -16,6 +16,7 @@ const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.ho
       acceptRemoteAnswer: vi.fn(async () => {}),
       addIceCandidate: vi.fn(async () => {}),
       setMicEnabled: vi.fn(async () => {}),
+      setRemoteVolume: vi.fn(async () => {}),
       setIceServers: vi.fn(async () => {}),
       switchCamera: vi.fn(async (): Promise<{ facing: "front" | "back" }> => ({ facing: "front" })),
       restartIce: vi.fn(async () => {}),
@@ -104,6 +105,30 @@ describe("native engine recovery", () => {
     expect(ev.onConnectionLost).toHaveBeenCalledTimes(1);
   });
 
+  it("should run one recovery, not two, when the connection flaps during a credential fetch", async () => {
+    const pending: ((servers: RTCIceServer[]) => void)[] = [];
+    fetchIceServersForRecovery.mockImplementation(
+      () => new Promise<RTCIceServer[]>((resolve) => pending.push(resolve)),
+    );
+    await engineFor(true);
+
+    connectionState("failed"); // run 1 starts fetching credentials
+    connectionState("connected"); // recovered on its own — run 1 is over
+    connectionState("failed"); // run 2 starts, while run 1's fetch is still out
+    await vi.advanceTimersByTimeAsync(0);
+    pending.forEach((resolve) => resolve(REFRESHED));
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Only the current run restarts; the stale one sees it is over and stays quiet.
+    expect(plugin.restartIce).toHaveBeenCalledTimes(1);
+
+    // One retry timer, so one more attempt after the window — not two.
+    await vi.advanceTimersByTimeAsync(7000);
+    pending.forEach((resolve) => resolve(REFRESHED));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plugin.restartIce).toHaveBeenCalledTimes(2);
+  });
+
   it("should treat a brief disconnect as a blip and recover without restarting", async () => {
     await engineFor(true);
     connectionState("disconnected");
@@ -144,6 +169,14 @@ describe("native engine recovery", () => {
       sdpMid: "0",
       sdpMLineIndex: 0,
     });
+  });
+});
+
+describe("native engine volume", () => {
+  it("should pass the peer's volume to the plugin, which plays the audio", async () => {
+    const { engine } = await engineFor(true);
+    engine.setRemoteVolume(150);
+    expect(plugin.setRemoteVolume).toHaveBeenCalledWith({ volume: 150 });
   });
 });
 

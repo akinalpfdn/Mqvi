@@ -200,7 +200,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)
 
 	// BlockService before DMService (DMService uses it as BlockChecker)
-	blockService := services.NewBlockService(repos.Friendship, repos.User, hub, urlSigner)
+	blockService := services.NewBlockService(repos.Friendship, repos.User, hub, urlSigner, p2pCallService)
 
 	// DMSettingsService before DMService (DMService uses it as DMSettingsUnhider)
 	dmSettingsService := services.NewDMSettingsService(repos.DMSettings, repos.DM, hub)

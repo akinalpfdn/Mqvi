@@ -185,6 +185,13 @@ export class NativeCallEngine implements CallMediaEngine {
     );
   }
 
+  setRemoteVolume(percent: number): void {
+    if (this.closed) return;
+    void NativeP2PCall.setRemoteVolume({ volume: percent }).catch((err) =>
+      console.error("[p2p] native setRemoteVolume failed:", err),
+    );
+  }
+
   async setVideoEnabled(enabled: boolean): Promise<boolean> {
     if (this.closed) return false;
     try {
@@ -258,7 +265,12 @@ export class NativeCallEngine implements CallMediaEngine {
     this.pendingCandidates = [];
     for (const candidate of pending) {
       if (this.closed) return;
-      await this.sendCandidate(candidate);
+      // One bad candidate must not cost the ones after it.
+      try {
+        await this.sendCandidate(candidate);
+      } catch (err) {
+        console.warn("[p2p] Skipping a candidate the native side rejected:", err);
+      }
     }
   }
 

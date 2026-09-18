@@ -59,6 +59,9 @@ export interface CallMediaEngine {
   acceptRemoteAnswer(sdp: string): Promise<void>;
   addIceCandidate(candidate: RTCIceCandidateInit): Promise<void>;
   setMicEnabled(enabled: boolean): void;
+  /** The peer's volume, 0–200%. Only an engine that plays the audio itself applies it; the web
+   * engine's audio goes through P2PAudioSink, which reads the store. */
+  setRemoteVolume(percent: number): void;
   /** Returns the camera state actually reached, so the store never claims more than happened. */
   setVideoEnabled(enabled: boolean): Promise<boolean>;
   /**

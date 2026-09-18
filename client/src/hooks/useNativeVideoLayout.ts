@@ -1,10 +1,11 @@
 /**
  * Keeps the native video views sitting exactly where the call screen's boxes are.
  *
- * On iOS the two feeds are drawn behind the web view, so the page cannot contain them — it can
- * only say where they belong. This hook measures the media area and the picture-in-picture box
- * and sends those rectangles down whenever they move: layout changes, rotation, cinema mode,
- * fullscreen, dragging the PiP, switching tabs.
+ * On iOS the two feeds are drawn in native views layered over the web view, so the page cannot
+ * contain them — it can only say where they belong. This hook measures the media area and the
+ * picture-in-picture box and sends those rectangles down whenever they move: layout changes,
+ * rotation, cinema mode, fullscreen, dragging the PiP, switching tabs. Being on top also means
+ * the page cannot draw over the video, so a box the page covers is withheld; see `uncovered`.
  */
 
 import { useEffect, useRef } from "react";
@@ -14,8 +15,10 @@ import { NativeP2PCall } from "../native/nativeP2PCall";
 
 /** Matches the PiP's border radius in globals.css, so the native corner follows the CSS one. */
 const PIP_CORNER_RADIUS = 8;
+/** Keeps the samples off the box's own border, where the hit test can land on a neighbour. */
+const SAMPLE_INSET = 2;
 
-type Rect = { x: number; y: number; width: number; height: number } | null;
+export type Rect = { x: number; y: number; width: number; height: number } | null;
 
 function rectOf(element: HTMLElement | null): Rect {
   if (!element) return null;
@@ -32,6 +35,36 @@ function same(a: Rect, b: Rect): boolean {
     Math.abs(a.width - b.width) < 0.5 &&
     Math.abs(a.height - b.height) < 0.5
   );
+}
+
+/**
+ * `rect` if the page leaves it uncovered, otherwise null.
+ *
+ * A native view draws over everything the page renders, so anything the page puts over a video
+ * box — the stream context menu, the incoming-call overlay, a toast, the drawer, a settings or
+ * report modal — would sit underneath the video, unseen and unusable. Rather than have every
+ * overlay announce itself (and the next one added forget to), this asks the page directly: a
+ * 3×3 grid of points inside the box, and at each the topmost element must be one of the video
+ * boxes. Anything else on top means the box is covered, and its view stays hidden until it is
+ * not. All-or-nothing, since a native view cannot be partially masked by the page.
+ */
+export function uncovered(rect: Rect, clip: Rect, boxes: readonly (HTMLElement | null)[]): Rect {
+  if (!rect || !clip) return rect;
+  // Only the part inside the call area is drawn, so only that part is sampled.
+  const left = Math.max(rect.x, clip.x) + SAMPLE_INSET;
+  const top = Math.max(rect.y, clip.y) + SAMPLE_INSET;
+  const right = Math.min(rect.x + rect.width, clip.x + clip.width) - SAMPLE_INSET;
+  const bottom = Math.min(rect.y + rect.height, clip.y + clip.height) - SAMPLE_INSET;
+  if (right <= left || bottom <= top) return rect;
+
+  for (const fx of [0, 0.5, 1]) {
+    for (const fy of [0, 0.5, 1]) {
+      const hit = document.elementFromPoint(left + (right - left) * fx, top + (bottom - top) * fy);
+      if (!hit) continue; // off-screen: nothing there to cover it
+      if (!boxes.some((box) => box !== null && (box === hit || box.contains(hit)))) return null;
+    }
+  }
+  return rect;
 }
 
 export function useNativeVideoLayout(options: {
@@ -86,11 +119,11 @@ export function useNativeVideoLayout(options: {
 
   useEffect(() => {
     if (!active) {
-      console.log("[p2p] video layout inactive — native surface hidden");
       void NativeP2PCall.hideVideo().catch(() => {});
       return;
     }
 
+    const boxes = [remoteEl, localEl] as const;
     let lastClip: Rect = null;
     let lastRemote: Rect = null;
     let lastLocal: Rect = null;
@@ -99,14 +132,9 @@ export function useNativeVideoLayout(options: {
 
     const publish = () => {
       const clip = rectOf(clipEl);
-      const remote = rectOf(remoteEl);
-      const local = rectOf(localEl);
+      const remote = uncovered(rectOf(remoteEl), clip, boxes);
+      const local = uncovered(rectOf(localEl), clip, boxes);
       if (!first && same(clip, lastClip) && same(remote, lastRemote) && same(local, lastLocal)) return;
-      console.log(
-        `[p2p] video layout: remote=${remote ? `${Math.round(remote.width)}x${Math.round(remote.height)}` : "none"}` +
-          ` local=${local ? `${Math.round(local.width)}x${Math.round(local.height)}` : "none"}` +
-          ` (elements: remote=${remoteEl ? "yes" : "no"} local=${localEl ? "yes" : "no"})`,
-      );
       first = false;
       lastClip = clip;
       lastRemote = remote;
@@ -120,9 +148,10 @@ export function useNativeVideoLayout(options: {
       }).catch((err) => console.error("[p2p] native setVideoLayout failed:", err));
     };
 
-    // A rect can move without any event firing — the PiP is dragged with transforms, cinema
-    // mode animates, the keyboard pushes the layout. Polling on animation frames is the only
-    // thing that catches all of it, and it is two getBoundingClientRect calls per frame.
+    // A rect can move, or be covered, without any event firing — the PiP is dragged with
+    // transforms, cinema mode animates, the keyboard pushes the layout, a modal opens elsewhere
+    // in the app. Polling on animation frames is the only thing that catches all of it: two
+    // getBoundingClientRect calls and at most eighteen hit tests per frame.
     const tick = () => {
       publish();
       frame = requestAnimationFrame(tick);

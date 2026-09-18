@@ -47,8 +47,17 @@ type P2PCallStore = {
   engine: CallMediaEngine | null;
   /** The engine draws the video outside the page (iOS); the call screen leaves it a hole. */
   isNativeVideo: boolean;
-  /** Whether the peer is sending video. On a natively drawn call there is no stream to ask. */
+  /**
+   * Whether there is a picture from the peer to show. Both engines read it; a remote track's
+   * `enabled` is our own setting, not the peer's, so the stream cannot answer this. Derived
+   * from the two below.
+   */
   hasRemoteVideo: boolean;
+  /** The engine sees a live, flowing remote video track. */
+  remoteTrackVideo: boolean;
+  /** The peer said it stopped putting a picture on that track. Stays false for a peer that
+   * never says — an older client — so its track alone decides, as before. */
+  peerVideoOff: boolean;
   /** Creates and wires the engine for this call if there is none yet. */
   _ensureEngine: () => CallMediaEngine | null;
 
@@ -123,7 +132,16 @@ function createEngine(events: CallEngineEvents): CallMediaEngine {
 
 // ─── Store ───
 
-export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
+/** hasRemoteVideo is only ever written through this, so the two inputs cannot drift apart. */
+function remoteVideo(
+  current: Pick<P2PCallStore, "remoteTrackVideo" | "peerVideoOff">,
+  patch: Partial<Pick<P2PCallStore, "remoteTrackVideo" | "peerVideoOff">>,
+): Pick<P2PCallStore, "remoteTrackVideo" | "peerVideoOff" | "hasRemoteVideo"> {
+  const next = { ...current, ...patch };
+  return { ...next, hasRemoteVideo: next.remoteTrackVideo && !next.peerVideoOff };
+}
+
+export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   activeCall: null,
   incomingCall: null,
   systemRingingCallId: null,
@@ -132,6 +150,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
   engine: null,
   isNativeVideo: false,
   hasRemoteVideo: false,
+  remoteTrackVideo: false,
+  peerVideoOff: false,
   isMuted: false,
   isVideoOn: false,
   cameraFacing: "front",
@@ -146,7 +166,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
 
   registerSendWS: (fn) => set({ _sendWS: fn }),
 
-  setRemoteVolume: (volume) => set({ remoteVolume: Math.max(0, Math.min(200, volume)) }),
+  setRemoteVolume: (volume) => {
+    const remoteVolume = Math.max(0, Math.min(200, volume));
+    set({ remoteVolume });
+    get().engine?.setRemoteVolume(remoteVolume);
+  },
 
   // ─── Actions ───
 
@@ -262,7 +286,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
         if (isCurrentCall()) set({ remoteStream: stream });
       },
       onRemoteVideo: (available) => {
-        if (isCurrentCall()) set({ hasRemoteVideo: available });
+        if (isCurrentCall()) set(remoteVideo(get(), { remoteTrackVideo: available }));
       },
       onLocalVideo: (available) => {
         if (isCurrentCall()) set({ isVideoOn: available });
@@ -276,6 +300,24 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
     });
 
     set({ engine, isNativeVideo: engine.rendersVideoNatively });
+
+    // Tell the peer whenever we start or stop putting a picture on the video track. Driven by
+    // the state rather than by each toggle, so the camera button, the screen share, a camera the
+    // engine reports as denied and anything added later all announce the same way. Lives exactly
+    // as long as this engine — keyed on the call alone, an engine rebuilt for the same call left
+    // two announcers running.
+    let announced: boolean | null = null;
+    const unsubscribe = api.subscribe((state) => {
+      if (!isCurrentCall() || state.engine !== engine) {
+        unsubscribe();
+        return;
+      }
+      const sending = state.isVideoOn || state.isScreenSharing;
+      if (sending === announced) return;
+      announced = sending;
+      signal({ type: sending ? "video-on" : "video-off" });
+    });
+
     return engine;
   },
 
@@ -321,6 +363,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
       engine: null,
       isNativeVideo: false,
       hasRemoteVideo: false,
+      remoteTrackVideo: false,
+      peerVideoOff: false,
       isMuted: false,
       isVideoOn: false,
       cameraFacing: "front",
@@ -474,10 +518,16 @@ export const useP2PCallStore = create<P2PCallStore>((set, get) => ({
         }
 
         case "ice-restart": {
-          // The peer detected a failure and asked us to restart ICE. Only the offerer can do
-          // it; on the answerer the engine treats it as a no-op, and it is idempotent while a
-          // recovery is already running.
+          // The peer detected a failure and asked us to restart ICE. The offerer restarts; the
+          // answerer runs the same bounded recovery, which on its side means asking the offerer.
+          // Idempotent while a recovery is already running.
           get().engine?.restartIce();
+          break;
+        }
+
+        case "video-on":
+        case "video-off": {
+          set(remoteVideo(get(), { peerVideoOff: data.type === "video-off" }));
           break;
         }
       }

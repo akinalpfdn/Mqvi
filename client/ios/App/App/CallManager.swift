@@ -30,7 +30,12 @@ final class CallManager: NSObject {
 
     private var voipRegistry: PKPushRegistry?
     private let provider: CXProvider
+    private let callController = CXCallController()
     private var calls: [UUID: String] = [:] // CallKit UUID -> our call_id
+    /// Mute as the system call screen shows it. CallKit's own toggle is recorded when it arrives;
+    /// an in-app toggle is sent only when it differs, so the app following a CallKit toggle does
+    /// not echo it back as a second request.
+    private var mutedState: [UUID: Bool] = [:]
 
     private var bufferedToken: String?
     private var bufferedAnswered: [String] = []
@@ -82,6 +87,21 @@ final class CallManager: NSObject {
         guard let uuid = UUID(uuidString: callId) else { return }
         provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
         calls.removeValue(forKey: uuid)
+        mutedState.removeValue(forKey: uuid)
+    }
+
+    /// The app muted or unmuted a call that CallKit is showing. Without this the system call
+    /// screen kept the old state. A call CallKit does not know about is not ours to update.
+    func setMuted(callId: String, muted: Bool) {
+        guard let uuid = UUID(uuidString: callId), calls[uuid] != nil else { return }
+        guard mutedState[uuid, default: false] != muted else { return }
+        mutedState[uuid] = muted
+        let action = CXSetMutedCallAction(call: uuid, muted: muted)
+        callController.request(CXTransaction(action: action)) { error in
+            if let error {
+                print("[callkit] set muted failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func reportIncomingCall(callId: String, callerName: String, hasVideo: Bool, completion: @escaping () -> Void) {
@@ -169,6 +189,7 @@ extension CallManager: PKPushRegistryDelegate {
         if calls[uuid] != nil {
             provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
             calls.removeValue(forKey: uuid)
+            mutedState.removeValue(forKey: uuid)
             completion()
             return
         }
@@ -178,6 +199,7 @@ extension CallManager: PKPushRegistryDelegate {
         provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] _ in
             self?.provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
             self?.calls.removeValue(forKey: uuid)
+            self?.mutedState.removeValue(forKey: uuid)
             completion()
         }
     }
@@ -190,6 +212,7 @@ extension CallManager: PKPushRegistryDelegate {
 extension CallManager: CXProviderDelegate {
     func providerDidReset(_ provider: CXProvider) {
         calls.removeAll()
+        mutedState.removeAll()
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
@@ -211,11 +234,13 @@ extension CallManager: CXProviderDelegate {
                 bufferedEnded.append(callId)
             }
             calls.removeValue(forKey: action.callUUID)
+            mutedState.removeValue(forKey: action.callUUID)
         }
         action.fulfill()
     }
 
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+        mutedState[action.callUUID] = action.isMuted
         if let callId = calls[action.callUUID] {
             if let listener = listener {
                 listener.onCallMuted(callId: callId, muted: action.isMuted)

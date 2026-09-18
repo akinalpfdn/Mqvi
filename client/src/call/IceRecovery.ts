@@ -50,6 +50,14 @@ export class IceRecovery {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private recovering = false;
   private attempts = 0;
+  /**
+   * Which recovery run is current. Moved on by every start and stop, and checked by a step after
+   * each await: `recovering` alone could not tell runs apart. A stop and a new start during one
+   * step's credential fetch set it back to true, the stale step read that as its own, and two
+   * loops ran side by side — double restarts, the cap reached early, and an orphaned retry
+   * timer that stop could no longer clear.
+   */
+  private run = 0;
 
   constructor(host: RecoveryHost) {
     this.host = host;
@@ -94,10 +102,11 @@ export class IceRecovery {
     if (!this.host.isAlive() || this.recovering) return;
     this.recovering = true;
     this.attempts = 0;
-    void this.step();
+    void this.step(++this.run);
   }
 
   stop(): void {
+    this.run++;
     this.recovering = false;
     this.attempts = 0;
     if (this.retryTimer) {
@@ -126,7 +135,8 @@ export class IceRecovery {
     this.host.onGiveUp();
   }
 
-  private async step(): Promise<void> {
+  private async step(run: number): Promise<void> {
+    if (run !== this.run) return;
     if (!this.host.isAlive() || this.host.isConnected()) {
       this.stop();
       return;
@@ -143,6 +153,7 @@ export class IceRecovery {
     // On fetch failure keep the current (TURN) configuration rather than downgrade to STUN
     // exactly when a relayed reconnect is needed.
     const servers = await fetchIceServersForRecovery();
+    if (run !== this.run) return; // stopped, or replaced by a newer run, while fetching
     if (!this.host.isAlive()) {
       this.stop();
       return;
@@ -150,7 +161,8 @@ export class IceRecovery {
     if (servers) await this.host.applyIceServers(servers);
 
     // Re-check after the awaits: the call may have ended or recovered on its own.
-    if (!this.host.isAlive() || !this.recovering || this.host.isConnected()) {
+    if (run !== this.run) return;
+    if (!this.host.isAlive() || this.host.isConnected()) {
       this.stop();
       return;
     }
@@ -160,7 +172,7 @@ export class IceRecovery {
 
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      void this.step();
+      void this.step(run);
     }, ICE_RESTART_ATTEMPT_MS);
   }
 }

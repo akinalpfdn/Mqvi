@@ -42,6 +42,7 @@ type NativeP2PCallPlugin = {
   acceptRemoteAnswer(options: { sdp: string }): Promise<void>;
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;
   setMicEnabled(options: { enabled: boolean }): Promise<void>;
+  setRemoteVolume(options: { volume: number }): Promise<void>;
   setVideoEnabled(options: { enabled: boolean }): Promise<{ enabled: boolean }>;
   switchCamera(): Promise<{ facing: "front" | "back" }>;
   /** Where the two feeds belong, in CSS pixels of the web view. */

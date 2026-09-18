@@ -21,6 +21,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "acceptRemoteAnswer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addIceCandidate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMicEnabled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setRemoteVolume", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setVideoEnabled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "switchCamera", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setVideoLayout", returnType: CAPPluginReturnPromise),
@@ -44,6 +45,11 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private var peerConnection: LKRTCPeerConnection?
     private var audioTrack: LKRTCAudioTrack?
     private var videoTrack: LKRTCVideoTrack?
+    /// The peer's audio, held so the volume can reach it. Remote audio plays natively here, so
+    /// the page's <audio> element — where the web engine applies the volume — never exists.
+    private var remoteAudioTrack: LKRTCAudioTrack?
+    /// Gain for the peer's audio; 1 is unchanged. Kept so a track that arrives later gets it.
+    private var remoteGain: Double = 1
     private var camera: NativeCallCamera?
     private var callId: String?
     private var isCaller = false
@@ -234,6 +240,19 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         lock.lock()
         audioTrack?.isEnabled = enabled
         lock.unlock()
+        call.resolve()
+    }
+
+    /// The peer's volume as a percentage, 0–200 like the web slider. The audio source takes a
+    /// gain in 0...10, so 100% is 1 and 200% is 2.
+    @objc func setRemoteVolume(_ call: CAPPluginCall) {
+        let percent = min(max(call.getDouble("volume") ?? 100, 0), 200)
+        lock.lock()
+        remoteGain = percent / 100
+        let track = remoteAudioTrack
+        let gain = remoteGain
+        lock.unlock()
+        track?.source.volume = gain
         call.resolve()
     }
 
@@ -532,6 +551,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         peerConnection = nil
         audioTrack = nil
         videoTrack = nil
+        remoteAudioTrack = nil
+        remoteGain = 1
         self.camera = nil
         callId = nil
         makingOffer = false
@@ -617,16 +638,24 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         notifyListeners("connectionState", data: ["callId": callId, "state": Self.name(for: newState)])
     }
 
-    /// The remote video arrives here; the surface draws it. Optional in the protocol, so the
-    /// selector is spelled out.
+    /// The remote tracks arrive here: audio is kept for the volume, video goes to the surface.
+    /// Optional in the protocol, so the selector is spelled out.
     @objc(peerConnection:didAddReceiver:streams:)
     public func peerConnection(
         _ peerConnection: LKRTCPeerConnection,
         didAdd rtpReceiver: LKRTCRtpReceiver,
         streams mediaStreams: [LKRTCMediaStream]
     ) {
-        guard let callId = callId(owning: peerConnection),
-              let track = rtpReceiver.track as? LKRTCVideoTrack else { return }
+        guard let callId = callId(owning: peerConnection) else { return }
+        if let audio = rtpReceiver.track as? LKRTCAudioTrack {
+            lock.lock()
+            remoteAudioTrack = audio
+            let gain = remoteGain
+            lock.unlock()
+            audio.source.volume = gain
+            return
+        }
+        guard let track = rtpReceiver.track as? LKRTCVideoTrack else { return }
         Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(track) }
         notifyListeners("remoteVideo", data: ["callId": callId, "available": true])
     }
