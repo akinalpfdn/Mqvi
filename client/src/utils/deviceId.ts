@@ -11,6 +11,8 @@
  * far as push notifications are concerned.
  */
 
+import { randomId } from "./randomId";
+
 const DEVICE_ID_KEY = "mqvi_device_id";
 
 /**
@@ -18,7 +20,7 @@ const DEVICE_ID_KEY = "mqvi_device_id";
  * window. Only it tells the server "the app that answered is back on a new socket" apart from
  * "another tab of the same install", which shares the device id.
  */
-export const INSTANCE_ID = crypto.randomUUID();
+export const INSTANCE_ID = randomId();
 
 let cached: string | null = null;
 
@@ -27,7 +29,7 @@ export function getDeviceId(): string {
 
   let id = localStorage.getItem(DEVICE_ID_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = randomId();
     localStorage.setItem(DEVICE_ID_KEY, id);
   }
   cached = id;

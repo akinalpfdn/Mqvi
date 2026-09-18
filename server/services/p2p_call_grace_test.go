@@ -342,7 +342,7 @@ func TestResumeAndAccept_OfACallThatEndedSendTheEndAgain(t *testing.T) {
 func TestEveryEndStopsBothGraceWindows(t *testing.T) {
 	ends := map[string]func(*p2pCallService){
 		// Errors ignored: the call exists, and only the timers are under test.
-		"end":     func(s *p2pCallService) { _ = s.EndCall("caller", "", "x") },
+		"end":     func(s *p2pCallService) { _ = s.EndCall("caller", "", "", "x") },
 		"decline": func(s *p2pCallService) { _ = s.DeclineCall("rcv", "", "x") },
 		"timeout": func(s *p2pCallService) { s.timeoutRinging("x") },
 	}
@@ -359,6 +359,70 @@ func TestEveryEndStopsBothGraceWindows(t *testing.T) {
 		svc.mu.RUnlock()
 		if left != 0 {
 			t.Errorf("%s left %d grace timers running", name, left)
+		}
+	}
+}
+
+// The caller locked the phone while it rang; the answer went to the dead socket. Back on a new
+// one, it must learn the call was answered, or it rings on and its 30 s timeout hangs it up.
+func TestResume_TellsARingingCallerItsCallWasAnswered(t *testing.T) {
+	svc, hub := activeCallService(time.Hour)
+	svc.activeCalls["x"].CallerInstanceID = "caller-app"
+	svc.activeCalls["x"].ReceiverInstanceID = "rcv-app"
+
+	if err := svc.ResumeCall("caller", "caller-sess-2", "caller-app", "x"); err != nil {
+		t.Fatalf("ResumeCall: %v", err)
+	}
+	accepts := hub.eventsFor("caller", ws.OpP2PCallAccept)
+	if len(accepts) != 1 || accepts[0].Data.(map[string]string)["call_id"] != "x" {
+		t.Fatalf("the caller was not told its call was answered: %v", accepts)
+	}
+}
+
+// Another device of the receiver rang, missed the answer, and came back. It is not in the call,
+// but it must be told who is, or it rings until the call ends.
+func TestResume_TellsASiblingThatMissedTheAnswerWhoHasTheCall(t *testing.T) {
+	svc, hub := activeCallService(time.Hour)
+	svc.activeCalls["x"].ReceiverInstanceID = "phone-app"
+
+	err := svc.ResumeCall("rcv", "tablet-sess", "tablet-app", "x")
+	if !errors.Is(err, pkg.ErrForbidden) {
+		t.Fatalf("a sibling took the call: %v", err)
+	}
+	if got := svc.activeCalls["x"].ReceiverSessionID; got != "rcv-sess" {
+		t.Errorf("the call moved to %q", got)
+	}
+	accepts := hub.eventsFor("rcv", ws.OpP2PCallAccept)
+	if len(accepts) != 1 || accepts[0].Data.(map[string]string)["accepted_by_instance"] != "phone-app" {
+		t.Errorf("the sibling was not told the phone has the call: %v", accepts)
+	}
+}
+
+// A sibling still showing the ring must not hang up the call the phone answered — by declining
+// after a rejected accept, or by logging out.
+func TestEnd_FromAnAppNotInTheAnsweredCallLeavesItRunning(t *testing.T) {
+	svc, hub := activeCallService(time.Hour)
+	svc.activeCalls["x"].ReceiverInstanceID = "phone-app"
+
+	if err := svc.EndCall("rcv", "tablet-app", "tablet-dev", "x"); !errors.Is(err, pkg.ErrForbidden) {
+		t.Fatalf("the tablet hung up the phone's call: %v", err)
+	}
+	if !callExists(svc, "x") {
+		t.Fatal("the live call was ended")
+	}
+	if n := len(hub.eventsFor("rcv", ws.OpP2PCallAccept)); n != 1 {
+		t.Errorf("the tablet was not told who has the call (%d accepts)", n)
+	}
+
+	// The app in the call, and an app too old to say which it is, still hang up.
+	for _, instance := range []string{"phone-app", ""} {
+		svc, _ := activeCallService(time.Hour)
+		svc.activeCalls["x"].ReceiverInstanceID = "phone-app"
+		if err := svc.EndCall("rcv", instance, "phone-dev", "x"); err != nil {
+			t.Errorf("instance %q could not hang up: %v", instance, err)
+		}
+		if callExists(svc, "x") {
+			t.Errorf("instance %q: call still up", instance)
 		}
 	}
 }

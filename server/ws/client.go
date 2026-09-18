@@ -561,7 +561,7 @@ func (c *Client) handleP2PCallEnd(event Event) {
 		}
 	}
 	if c.hub.onP2PCallEnd != nil {
-		c.hub.onP2PCallEnd(c.userID, c.deviceID, data.CallID)
+		c.hub.onP2PCallEnd(c.userID, c.instanceID, c.deviceID, data.CallID)
 	}
 }
 

@@ -244,7 +244,7 @@ func TestCallLogging(t *testing.T) {
 	t.Run("completed with duration on end", func(t *testing.T) {
 		rec := &recordingCallLogger{ch: make(chan models.CallMeta, 1)}
 		svc := newSvc(rec, map[string]*models.P2PCall{"x": active(5 * time.Second)}, map[string]string{"caller": "x", "rcv": "x"})
-		if err := svc.EndCall("caller", "caller-dev", ""); err != nil {
+		if err := svc.EndCall("caller", "", "caller-dev", ""); err != nil {
 			t.Fatal(err)
 		}
 		m := waitCallLog(t, rec.ch)
@@ -482,7 +482,7 @@ func TestEndingACallWhoseRingNeverWentOutSendsNoCancelPush(t *testing.T) {
 	svc, _, push := ringingCallService()
 	svc.activeCalls["x"].RingPushed = false
 
-	if err := svc.EndCall("caller", "caller-dev", "x"); err != nil {
+	if err := svc.EndCall("caller", "", "caller-dev", "x"); err != nil {
 		t.Fatalf("EndCall: %v", err)
 	}
 	if got, _ := push.cancels(); len(got) != 0 {
@@ -632,14 +632,18 @@ func TestConcurrentAcceptHasOneWinner(t *testing.T) {
 		t.Fatalf("%d devices were rejected, want %d", rejected, devices-1)
 	}
 
+	// The win is announced, and each loser is told again who holds the call. Every one of them
+	// must name the same winner, or a loser's device would think it answered.
 	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
-	if len(own) != 1 {
-		t.Fatalf("%d accept broadcasts — the losers' devices would each think they answered", len(own))
+	if len(own) != devices {
+		t.Fatalf("%d accept broadcasts, want %d (the win plus one answer per loser)", len(own), devices)
 	}
-	data, _ := own[0].Data.(map[string]string)
-	if want := fmt.Sprintf("sess-%d", winnerIdx); data["accepted_by"] != want {
-		t.Errorf("accepted_by is %q but the call was won by %q — the sibling devices would hang up the wrong one",
-			data["accepted_by"], want)
+	want := fmt.Sprintf("sess-%d", winnerIdx)
+	for _, e := range own {
+		if data, _ := e.Data.(map[string]string); data["accepted_by"] != want {
+			t.Errorf("accepted_by is %q but the call was won by %q — the sibling devices would hang up the wrong one",
+				data["accepted_by"], want)
+		}
 	}
 }
 
@@ -670,7 +674,7 @@ func TestDeclineByReceiverStopsSiblingDevices(t *testing.T) {
 func TestCallerCancelStopsOwnOtherDevices(t *testing.T) {
 	svc, hub, push := ringingCallService()
 
-	if err := svc.EndCall("caller", "caller-dev", ""); err != nil {
+	if err := svc.EndCall("caller", "", "caller-dev", ""); err != nil {
 		t.Fatalf("EndCall: %v", err)
 	}
 
@@ -703,7 +707,7 @@ func TestEndingAnActiveCallSendsNoCancelPush(t *testing.T) {
 		ringTimers:   map[string]*time.Timer{},
 	}
 
-	if err := svc.EndCall("rcv", "rcv-dev", ""); err != nil {
+	if err := svc.EndCall("rcv", "", "rcv-dev", ""); err != nil {
 		t.Fatalf("EndCall: %v", err)
 	}
 	if len(push.cancelled) != 0 {

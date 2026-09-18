@@ -100,11 +100,25 @@ describe("native engine recovery", () => {
 
   it("should end the call after the attempt cap", async () => {
     const { ev } = await engineFor(true);
+    connectionState("connected");
     connectionState("failed");
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(7000);
     expect(plugin.restartIce).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(7000);
+    expect(ev.onConnectionLost).toHaveBeenCalledTimes(1);
+  });
+
+  // A peer answering from the lock screen may sit on a permission prompt; the cap's 14 s must
+  // not undercut the first-connect window that exists for exactly that.
+  it("should leave a call that never connected to the first-connect window", async () => {
+    const { ev } = await engineFor(true);
+    connectionState("failed");
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(plugin.restartIce).toHaveBeenCalledTimes(2);
+    expect(ev.onConnectionLost).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(ev.onConnectionLost).toHaveBeenCalledTimes(1);
   });
 

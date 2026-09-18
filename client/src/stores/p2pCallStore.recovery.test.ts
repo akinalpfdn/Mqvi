@@ -123,6 +123,8 @@ describe("ICE-restart recovery", () => {
 
   it("retries up to the cap, then reports the call lost", async () => {
     const { ev } = await harness(true);
+    pc.connectionState = "connected";
+    pc.onconnectionstatechange?.();
     fail();
     await vi.advanceTimersByTimeAsync(0); // attempt 1
     expect(pc.restartIce).toHaveBeenCalledTimes(1);

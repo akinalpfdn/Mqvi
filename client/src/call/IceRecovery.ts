@@ -160,6 +160,13 @@ export class IceRecovery {
       return;
     }
     if (this.attempts >= MAX_ICE_RESTARTS) {
+      // Never connected: the first-connect window ends it, which leaves room for permission
+      // prompts and a peer still coming back on a new socket.
+      if (!this.everConnected && this.firstConnectTimer) {
+        console.warn("[p2p] ICE restart cap reached before connecting; waiting on the first-connect window");
+        this.stop();
+        return;
+      }
       console.warn("[p2p] ICE restart cap reached, ending call");
       this.giveUp();
       return;

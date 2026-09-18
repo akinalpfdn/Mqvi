@@ -182,7 +182,7 @@ func TestEndCallBetween_WritesNoCallLog(t *testing.T) {
 	// A hang-up still logs.
 	svc.activeCalls["y"] = &models.P2PCall{ID: "y", CallerID: "alice", ReceiverID: "bob", Status: models.P2PCallStatusActive}
 	svc.userCalls["alice"], svc.userCalls["bob"] = "y", "y"
-	if err := svc.EndCall("alice", "", "y"); err != nil {
+	if err := svc.EndCall("alice", "", "", "y"); err != nil {
 		t.Fatalf("end: %v", err)
 	}
 	waitCallLog(t, logs.ch)
