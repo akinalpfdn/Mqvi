@@ -349,6 +349,9 @@ type P2PCallEndData struct {
 	CallID string `json:"call_id,omitempty"`
 
 	// InstanceID is set only by a page hanging up the call the page before it ran (an iOS
-	// reload): that page's instance holds the call. It lets a user end only their own call.
+	// reload): that page's instance holds the call. It is the client's word, not proof — any app
+	// of the user could name the owner. That is the intended limit: the owner check stops a stale
+	// app ending an answered call by accident (stale apps never send this), it is not a security
+	// boundary, and it never lets anyone end another user's call.
 	InstanceID string `json:"instance_id,omitempty"`
 }

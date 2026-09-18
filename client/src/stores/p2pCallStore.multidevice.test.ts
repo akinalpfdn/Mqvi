@@ -21,6 +21,7 @@ vi.mock("../native/p2pCall", () => ({
 
 import { useP2PCallStore } from "./p2pCallStore";
 import { INSTANCE_ID } from "../utils/deviceId";
+import { endP2PCallForLogout } from "./shared/p2pCallControl";
 import { useAuthStore } from "./authStore";
 import type { P2PCall } from "../types";
 
@@ -384,6 +385,41 @@ describe("a call the previous page left running", () => {
     useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
 
     useP2PCallStore.getState().endOrphanedCall("call-1");
+
+    expect(sent).toEqual([{ op: "p2p_call_end", data: { call_id: "call-1" } }]);
+  });
+});
+
+describe("signing out with a call on screen", () => {
+  const sent: { op: string; data?: unknown }[] = [];
+
+  beforeEach(() => {
+    sent.length = 0;
+    useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
+  });
+
+  // Signing out of the desktop is not declining: the phone in the user's hand keeps ringing.
+  it("drops an unanswered incoming call here without ending it for the other devices", () => {
+    useP2PCallStore.getState().handleCallInitiate(call());
+
+    endP2PCallForLogout();
+
+    expect(useP2PCallStore.getState().activeCall).toBeNull();
+    expect(sent).toEqual([]);
+  });
+
+  it.each([
+    ["an answered call", () => useP2PCallStore.setState({ activeCall: call({ status: "active" }) })],
+    ["an incoming call this app accepted", () => {
+      useP2PCallStore.getState().handleCallInitiate(call());
+      useP2PCallStore.getState().acceptCall("call-1");
+    }],
+    ["an outgoing call", () => useP2PCallStore.getState().handleCallInitiate(call({ caller_id: ME, receiver_id: THEM }))],
+  ])("hangs up %s", (_label, setup) => {
+    setup();
+    sent.length = 0;
+
+    endP2PCallForLogout();
 
     expect(sent).toEqual([{ op: "p2p_call_end", data: { call_id: "call-1" } }]);
   });

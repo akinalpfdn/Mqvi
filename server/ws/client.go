@@ -566,7 +566,7 @@ func (c *Client) handleP2PCallEnd(event Event) {
 }
 
 // endingInstance is the app a hang-up speaks for: this connection's, unless it names the page it
-// replaced.
+// replaced. Taken on the client's word — see P2PCallEndData.InstanceID for why that is enough.
 func endingInstance(connection string, data P2PCallEndData) string {
 	if data.InstanceID != "" && len(data.InstanceID) <= 64 {
 		return data.InstanceID

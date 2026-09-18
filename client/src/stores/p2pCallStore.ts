@@ -695,4 +695,14 @@ registerP2PCallControl({
   hasLiveMedia: () => useP2PCallStore.getState().activeCall?.status === "active",
   hasCall: () => useP2PCallStore.getState().activeCall !== null,
   end: () => useP2PCallStore.getState().endCall(),
+  leave: () => {
+    const { activeCall, _acceptSentFor, endCall, cleanup } = useP2PCallStore.getState();
+    // Signing out of one device is not declining: the user's other devices keep ringing.
+    const unanswered =
+      activeCall?.status === "ringing" &&
+      activeCall.receiver_id === useAuthStore.getState().user?.id &&
+      _acceptSentFor !== activeCall.id;
+    if (unanswered) cleanup();
+    else endCall();
+  },
 });

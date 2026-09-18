@@ -6,6 +6,8 @@ type P2PCallControl = {
   /** Any call at all, ringing included. */
   hasCall(): boolean;
   end(): void;
+  /** Hangs up what this app is in; an incoming call it never answered is only dropped here. */
+  leave(): void;
 };
 
 let control: P2PCallControl | null = null;
@@ -21,5 +23,5 @@ export function endP2PCallForVoice(): void {
 
 /** Signing out must not leave a call running with no screen to end it from. */
 export function endP2PCallForLogout(): void {
-  if (control?.hasCall()) control.end();
+  if (control?.hasCall()) control.leave();
 }

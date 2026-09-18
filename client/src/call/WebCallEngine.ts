@@ -14,6 +14,24 @@ import {
   IceRecovery,
 } from "./IceRecovery";
 
+/** One camera track facing the given way, or null when it will not open. */
+async function openCamera(facing: CameraFacing): Promise<MediaStreamTrack | null> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: facing === "front" ? "user" : "environment",
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30 },
+      },
+    });
+    return stream.getVideoTracks()[0] ?? null;
+  } catch (err) {
+    console.error(`[p2p] could not open the ${facing} camera:`, err);
+    return null;
+  }
+}
+
 async function getMediaStream(callType: P2PCallType): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
     audio: {
@@ -249,6 +267,22 @@ export class WebCallEngine implements CallMediaEngine {
       }
       const videoTrack = videoStream.getVideoTracks()[0];
       stream.addTrack(videoTrack);
+      // A camera lost in a failed switch left its sender sending nothing; reuse it, or a second
+      // video line would be negotiated next to a dead one.
+      const idle = pc
+        .getTransceivers()
+        .find((t) => t.receiver.track.kind === "video" && !t.sender.track && t.currentDirection !== "recvonly");
+      if (idle) {
+        try {
+          await idle.sender.replaceTrack(videoTrack);
+        } catch (err) {
+          // A call closed meanwhile; the camera must not stay on.
+          stream.removeTrack(videoTrack);
+          videoTrack.stop();
+          throw err;
+        }
+        return true;
+      }
       // addTrack triggers onnegotiationneeded, which renegotiates.
       pc.addTrack(videoTrack, stream);
       return true;
@@ -258,35 +292,49 @@ export class WebCallEngine implements CallMediaEngine {
     }
   }
 
+  /**
+   * Most phones cannot open two cameras at once, so the one in use is stopped before the other is
+   * asked for; if the other will not open, the first comes back. The picture goes dark for the
+   * moment in between, which beats a button that silently does nothing.
+   */
   async switchCamera(): Promise<CameraFacing | null> {
     const pc = this.pc;
     const stream = this.localStream;
     if (!pc || !stream || this.closed) return null;
 
     const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-    if (!sender) return null;
+    const previous = stream.getVideoTracks()[0];
+    if (!sender || !previous) return null;
 
-    const next: CameraFacing = this.facing === "front" ? "back" : "front";
-    let replacement: MediaStream;
-    try {
-      replacement = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: next === "front" ? "user" : "environment",
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
-        },
-      });
-    } catch (err) {
-      // A device with one camera rejects the constraint; the call keeps the camera it has.
-      console.error("[p2p] camera switch failed:", err);
+    const from = this.facing;
+    const to: CameraFacing = from === "front" ? "back" : "front";
+    stream.removeTrack(previous);
+    previous.stop();
+
+    let facing: CameraFacing = to;
+    let track = await openCamera(to);
+    if (!track) {
+      // One camera, or the other is busy: the call keeps the one it had.
+      facing = from;
+      track = await openCamera(from);
+    }
+    if (this.closed || this.pc !== pc) {
+      track?.stop();
       return null;
     }
-
-    const track = replacement.getVideoTracks()[0];
-    if (this.closed || this.pc !== pc || !track) {
-      replacement.getTracks().forEach((t) => t.stop());
+    // While a screen is shared the sender carries the screen; the camera waits in the stream,
+    // where stopping the share picks it up.
+    const sharing = this.screenTrack !== null;
+    if (!track) {
+      // Neither camera would open again: say so, rather than show a live button over nothing.
+      if (!sharing) await sender.replaceTrack(null).catch(() => {});
+      this.events.onLocalVideo(false);
       return null;
+    }
+    if (sharing) {
+      stream.addTrack(track);
+      this.facing = facing;
+      return facing === to ? to : null;
     }
 
     // replaceTrack swaps the outgoing picture without renegotiating. A call closed meanwhile
@@ -302,15 +350,11 @@ export class WebCallEngine implements CallMediaEngine {
       track.stop();
       return null;
     }
-    const previous = stream.getVideoTracks()[0];
-    if (previous) {
-      stream.removeTrack(previous);
-      previous.stop();
-    }
     stream.addTrack(track);
-    this.facing = next;
-    return next;
+    this.facing = facing;
+    return facing === to ? to : null;
   }
+
 
   async startScreenShare(): Promise<boolean> {
     const pc = this.pc;

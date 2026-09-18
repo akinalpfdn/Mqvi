@@ -1,7 +1,18 @@
 /** What the page draws over the native video is cut out of it, overlay by overlay. */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 
-import { coverings, type Rect } from "./useNativeVideoLayout";
+const { hideVideo } = vi.hoisted(() => ({ hideVideo: vi.fn(async () => {}) }));
+vi.mock("../native/nativeP2PCall", () => ({
+  NativeP2PCall: {
+    hideVideo,
+    setVideoLayout: vi.fn(async () => {}),
+    getVideoSizes: vi.fn(async () => ({})),
+    addListener: vi.fn(async () => ({ remove: vi.fn() })),
+  },
+}));
+
+import { coverings, useNativeVideoLayout, type Rect } from "./useNativeVideoLayout";
 
 const CLIP: Rect = { x: 0, y: 0, width: 400, height: 800 };
 const BOX: Rect = { x: 0, y: 0, width: 400, height: 800 };
@@ -75,5 +86,35 @@ describe("coverings", () => {
   it("should ignore points that fall off the screen", () => {
     topmostAt(() => null);
     expect(coverings([BOX], CLIP, [surface, pip])).toEqual([]);
+  });
+});
+
+describe("useNativeVideoLayout hiding the native feeds", () => {
+  const box = () => document.createElement("div");
+
+  // Hiding for every new box blanked both feeds for a frame on each flip and swap.
+  it("should keep the feeds up when only the layout inputs change", () => {
+    const props = { active: true, clipEl: box(), remoteEl: box(), localEl: box(), mirrorLocal: true };
+    const { rerender } = renderHook((p) => useNativeVideoLayout(p), { initialProps: props });
+    hideVideo.mockClear();
+
+    rerender({ ...props, mirrorLocal: false });
+    rerender({ ...props, remoteEl: props.localEl, localEl: props.remoteEl });
+
+    expect(hideVideo).not.toHaveBeenCalled();
+  });
+
+  it("should hide the feeds when the call's video goes away, and on unmount", () => {
+    const props = { active: true, clipEl: box(), remoteEl: box(), localEl: box(), mirrorLocal: true };
+    const { rerender, unmount } = renderHook((p) => useNativeVideoLayout(p), { initialProps: props });
+    hideVideo.mockClear();
+
+    rerender({ ...props, active: false });
+    expect(hideVideo).toHaveBeenCalled();
+
+    rerender(props);
+    hideVideo.mockClear();
+    unmount();
+    expect(hideVideo).toHaveBeenCalled();
   });
 });

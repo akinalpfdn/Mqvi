@@ -181,11 +181,20 @@ export function useNativeVideoLayout(options: {
     };
   }, [active, remoteEl, localEl]);
 
+  // Hidden only when the call's video goes away. A new box, clip or mirror is just the next
+  // layout: hiding for it blanked both feeds for a frame on every flip and swap.
   useEffect(() => {
     if (!active) {
       void NativeP2PCall.hideVideo().catch(() => {});
       return;
     }
+    return () => {
+      void NativeP2PCall.hideVideo().catch(() => {});
+    };
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
 
     const boxes = [remoteEl, localEl] as const;
     let lastClip: Rect = null;
@@ -253,7 +262,6 @@ export function useNativeVideoLayout(options: {
       cancelAnimationFrame(frame);
       for (const type of WAKE_EVENTS) window.removeEventListener(type, wake, { capture: true });
       window.visualViewport?.removeEventListener("resize", wake);
-      void NativeP2PCall.hideVideo().catch(() => {});
     };
   }, [active, clipEl, remoteEl, localEl, mirrorLocal]);
 }
