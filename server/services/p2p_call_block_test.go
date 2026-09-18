@@ -11,9 +11,7 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// Blocking someone has to end a call with them. A new call needs a friendship the block deletes,
-// but a call already ringing or running went on: its media is peer to peer and never touches the
-// server again, so the blocked person could keep talking.
+// Blocking ends a call already ringing or running: P2P media would outlast the block.
 func TestEndCallBetween(t *testing.T) {
 	newSvc := func(status models.P2PCallStatus) (*p2pCallService, *recordingHub) {
 		hub := &recordingHub{}
@@ -70,8 +68,7 @@ func TestEndCallBetween(t *testing.T) {
 	})
 }
 
-// blockedMidway answers the first friendship check as friends and every later one as blocked: the
-// block lands between InitiateCall's first check and the moment the call is registered.
+// blockedMidway reports friends once, then blocked: the block lands before registration.
 type blockedMidway struct{ calls int }
 
 func (b *blockedMidway) GetByPair(_ context.Context, _, _ string) (*models.Friendship, error) {
@@ -82,8 +79,7 @@ func (b *blockedMidway) GetByPair(_ context.Context, _, _ string) (*models.Frien
 	return &models.Friendship{Status: models.FriendshipStatusBlocked}, nil
 }
 
-// A block in that window found no call for EndCallBetween to end, and the blocked person rang.
-// The call is checked again once registered, and dropped before anyone hears of it.
+// The recheck after registration drops the call before anyone is rung.
 func TestInitiateCall_DropsACallBlockedBeforeItWasRegistered(t *testing.T) {
 	hub := &recordingHub{}
 	svc := &p2pCallService{
@@ -107,5 +103,51 @@ func TestInitiateCall_DropsACallBlockedBeforeItWasRegistered(t *testing.T) {
 	}
 	if len(hub.eventsFor("bob", ws.OpP2PCallInitiate)) != 0 {
 		t.Error("the blocked user was rung")
+	}
+}
+
+// endsCallOnLookup blocks alice while bob is looked up: registered, not yet announced.
+type endsCallOnLookup struct{ svc *p2pCallService }
+
+func (g *endsCallOnLookup) GetByID(_ context.Context, id string) (*models.User, error) {
+	if id == "bob" {
+		g.svc.EndCallBetween("bob", "alice")
+	}
+	return &models.User{ID: id, Username: id}, nil
+}
+
+func (g *endsCallOnLookup) GetActiveByID(_ context.Context, id string) (*models.User, error) {
+	return &models.User{ID: id, Username: id}, nil
+}
+
+// An end that beat the initiate is repeated after it.
+func TestInitiateCall_RepeatsAnEndThatBeatItsAnnouncement(t *testing.T) {
+	hub := &recordingHub{}
+	svc := &p2pCallService{
+		friendChecker: fakeFriendChecker{},
+		hub:           hub,
+		urlSigner:     fakeURLSigner{},
+		activeCalls:   map[string]*models.P2PCall{},
+		userCalls:     map[string]string{},
+		ringTimers:    map[string]*time.Timer{},
+	}
+	svc.userGetter = &endsCallOnLookup{svc: svc}
+
+	if err := svc.InitiateCall("alice", "alice-sess", "bob", models.P2PCallTypeVoice); err != nil {
+		t.Fatalf("initiate: %v", err)
+	}
+
+	for _, user := range []string{"alice", "bob"} {
+		last := ""
+		hub.mu.Lock()
+		for _, e := range hub.sent {
+			if e.userID == user && (e.event.Op == ws.OpP2PCallInitiate || e.event.Op == ws.OpP2PCallEnd) {
+				last = e.event.Op
+			}
+		}
+		hub.mu.Unlock()
+		if last != ws.OpP2PCallEnd {
+			t.Errorf("%s: the last word was %q, want an end after the initiate", user, last)
+		}
 	}
 }

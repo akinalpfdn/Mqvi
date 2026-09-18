@@ -199,12 +199,7 @@ export async function nativeVoiceDisconnect(): Promise<void> {
   await done;
 }
 
-/**
- * Resolves once any native voice disconnect in flight has finished. LiveKit lets go of the
- * shared audio session asynchronously, after its disconnect call has already returned; the
- * native call engine waits on this before it takes the session, or LiveKit could reset it
- * under the call that just started and leave it silent.
- */
+/** Settles when a native voice disconnect in flight is done: LiveKit lets go of the session late. */
 export function nativeVoiceReleased(): Promise<void> {
   return voiceReleased;
 }

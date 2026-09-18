@@ -167,8 +167,7 @@ func (r *recordingCallEnder) EndCallBetween(userID, otherID string) {
 	r.ended = append(r.ended, [2]string{userID, otherID})
 }
 
-// Blocking ends a call already under way with the person blocked; a new one is refused anyway,
-// since calling needs the friendship the block removes.
+// Blocking ends a call under way with the blocked person.
 func TestBlockUser_EndsTheCallWithTheBlockedUser(t *testing.T) {
 	calls := &recordingCallEnder{}
 	svc := NewBlockService(&stubBlockFriendRepo{rows: map[string]*models.Friendship{}}, stubBlockUserRepo{}, &stubBlockHub{}, nil, calls)

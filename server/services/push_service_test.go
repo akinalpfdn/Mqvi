@@ -713,9 +713,7 @@ func (o *orderedAPNs) SendAlert(context.Context, string, string, map[string]any)
 }
 func (o *orderedAPNs) SendBackground(context.Context, string, map[string]any) error { return nil }
 
-// The ring and its cancel run on separate goroutines. A caller who hung up at once had the cancel
-// checked before the ring had looked the receiver up, so a ring about to be withheld was still
-// cancelled — and iOS, which must report every VoIP push to CallKit, flashed a phantom call.
+// A cancel racing a ring about to be withheld must not go out: iOS would flash a phantom call.
 func TestNotifyCallCancel_WaitsForAWithheldRingStillBeingDecided(t *testing.T) {
 	repo := &fakeTokenRepo{tokens: []models.PushToken{
 		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
@@ -741,10 +739,7 @@ func TestNotifyCallCancel_WaitsForAWithheldRingStillBeingDecided(t *testing.T) {
 	}
 }
 
-// The same race for a receiver who is online: the caller hangs up while the ring is still being
-// decided. The cancel used to overtake the ring and leave the device ringing for a call already
-// over. Now the ring sees the cancel before it sends, and nothing reaches the device at all. A
-// cancel after a ring that did go out still follows it (TestNotifyCall_RingsAndCancelsForAnOnlineReceiver).
+// A hang-up while the ring is still deciding stops both; a sent ring's cancel still follows it.
 func TestNotifyCallCancel_StopsARingStillBeingDecided(t *testing.T) {
 	repo := &fakeTokenRepo{tokens: []models.PushToken{
 		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
@@ -779,10 +774,7 @@ func (c *callAPNs) SendVoIP(_ context.Context, _ string, payload map[string]any)
 func (c *callAPNs) SendAlert(context.Context, string, string, map[string]any) error { return nil }
 func (c *callAPNs) SendBackground(context.Context, string, map[string]any) error    { return nil }
 
-// With the push pool full, a ring can wait for a slot longer than any fixed deadline. The cancel
-// used to give up waiting after one, go first, and leave the ring to follow it: a device ringing
-// for a call that was already over. A ring that was cancelled before it could go out now stays
-// home, and so does its cancel.
+// A ring cancelled while queued behind a full pool sends nothing, and neither does its cancel.
 func TestNotifyCall_ARingCancelledWhileQueuedSendsNothing(t *testing.T) {
 	repo := &fakeTokenRepo{tokens: []models.PushToken{
 		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},

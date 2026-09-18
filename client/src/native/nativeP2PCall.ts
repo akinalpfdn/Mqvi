@@ -1,10 +1,4 @@
-/**
- * Bridge to the native peer connection (ios/App/App/NativeP2PCallPlugin.swift).
- *
- * The call itself stays where it was: the store drives it and signals SDP and ICE over the
- * WebSocket. Only the media engine lives natively, because WKWebView cannot capture the
- * microphone while CallKit owns the audio session.
- */
+/** Bridge to NativeP2PCallPlugin.swift, which runs the media; the store keeps the call. */
 
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
@@ -65,9 +59,7 @@ type NativeP2PCallPlugin = {
   /** Ends a call a previous page left running. See discardOrphanedNativeCall. */
   discardOrphanedCall(): Promise<{ discarded: boolean }>;
 
-  // Call events name the call they belong to. The native side already drops events from a
-  // connection it has let go of; the engine checks the id as well, since the plugin's
-  // listeners outlive any one call.
+  // Call events carry their call id; the plugin's listeners outlive any one call.
   addListener(
     eventName: "localDescription",
     listener: (data: { callId: string; type: "offer" | "answer"; sdp: string }) => void,
@@ -94,13 +86,8 @@ type NativeP2PCallPlugin = {
 export const NativeP2PCall = registerPlugin<NativeP2PCallPlugin>("NativeP2PCall");
 
 /**
- * Run once as the page boots, before any call can start. A reload — the error screen's
- * automatic one, the connection banner's refresh, iOS killing the web content process — gives
- * us a fresh page but keeps the native plugin, which Capacitor only strips of its listeners. A
- * call the old page was running — or was still starting, behind a permission prompt — would go
- * on holding the microphone, the camera and the video views with nothing left to end it. The
- * native side ends it either way, and never touches an audio session it did not open: a call
- * answered on the lock screen has CallKit's session live before the page loads.
+ * Run at boot: a reload keeps the native plugin, so a call the old page ran (or was starting)
+ * is ended here. Native only closes an audio session it opened itself.
  */
 export function discardOrphanedNativeCall(): void {
   if (getCapacitorPlatform() !== "ios") return;

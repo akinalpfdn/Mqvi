@@ -60,9 +60,7 @@ function DraggableVideo({
     return () => onElement?.(null);
   }, [onElement]);
 
-  // Clamp position within parent bounds. Only meaningful once the box has been dragged: while it
-  // is still pinned to a corner it cannot leave the parent, and writing left/top here would tear
-  // it off that corner.
+  // Clamp into the parent. Skipped while still pinned to a corner, which writing left/top would undo.
   const clamp = useCallback((el: HTMLDivElement) => {
     const parent = el.parentElement;
     if (!parent || !el.style.left) return;
@@ -91,9 +89,7 @@ function DraggableVideo({
     const dx = e.clientX - ds.startX;
     const dy = e.clientY - ds.startY;
 
-    // Switch from corner positioning to left/top, but only once this is a real drag. Doing it on
-    // every press pinned the box by its left edge, and a box pinned left grows rightwards — so a
-    // tap-to-swap followed by a wider feed pushed the picture out past the edge of the call area.
+    // Leave the corner only on a real drag: a tapped box pinned left grew past the edge on a swap.
     if (ds.origX === null || ds.origY === null) {
       if (Math.hypot(dx, dy) < DRAG_SLOP) return;
       const parent = el.parentElement;
@@ -114,9 +110,7 @@ function DraggableVideo({
     clamp(el);
   }, [clamp]);
 
-  // A swap changes which feed the box holds, and with it the box's width. If it has been dragged
-  // it is positioned from the left, so growing would push it past the edge unless it is pulled
-  // back in.
+  // A swap can widen the box; a dragged one is pulled back inside.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -228,9 +222,7 @@ function P2PCallScreen() {
   const isActive = activeCall?.status === "active";
   const isScreenSharing = useP2PCallStore((s) => s.isScreenSharing);
 
-  // Our own camera: the store knows it on a native call, the local stream on a web one. The
-  // peer's picture always comes from the store (hasRemoteVideo) — a remote track's `enabled`
-  // is our own setting and says nothing about what the peer is sending.
+  // The peer's picture always comes from the store: a remote track's `enabled` is our setting.
   const hasLocalVideo = isNativeVideo
     ? isVideoOn
     : localStream?.getVideoTracks().some((tr) => tr.enabled);
@@ -325,10 +317,7 @@ function P2PCallScreen() {
             onDoubleClick={handleDoubleClick}
           >
             {isNativeVideo && bigHasVideo ? (
-              // The native layer draws over this box. Keyed on there being a picture, not on the
-              // call type: a voice call still gets one when the peer shares a screen, and a video
-              // call falls back to the avatar when the peer turns the camera off. No loop — the
-              // native side attaches the track on its own; the box only says where to draw it.
+              // Keyed on there being a picture, not the call type: a voice call can carry a screen share.
               <div ref={setBigEl} className="p2p-remote-video p2p-native-surface" />
             ) : bigHasVideo ? (
               <video

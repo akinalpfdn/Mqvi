@@ -189,7 +189,11 @@ describe("resumeCallAfterReconnect", () => {
 
     useP2PCallStore.getState().resumeCallAfterReconnect();
 
-    expect(sent).toEqual([{ op: "p2p_call_resume", data: { call_id: "call-1" } }]);
+    // Resume first: the server only relays signals from the session that owns the call.
+    expect(sent).toEqual([
+      { op: "p2p_call_resume", data: { call_id: "call-1" } },
+      { op: "p2p_signal", data: { call_id: "call-1", type: "video-query" } },
+    ]);
   });
 
   it("says nothing when there is no call", () => {

@@ -1,11 +1,6 @@
 /**
- * IceRecovery — the bounded reconnect both call engines run.
- *
- * Failure detection is not symmetric: either peer may notice first, so both run this. Only
- * the offerer can restart ICE, so the answerer asks the offerer to. Each attempt refreshes
- * the ICE credentials first, because a relayed reconnect may need a fresh TURN allocation and
- * the original one can be near expiry. After the cap with no reconnect, the call ends rather
- * than sitting there dead.
+ * The bounded reconnect both engines run. The offerer restarts ICE, the answerer asks it to;
+ * every attempt refreshes TURN credentials, and the call ends after the cap.
  */
 
 import { fetchIceServersForRecovery } from "../api/calls";
@@ -50,13 +45,7 @@ export class IceRecovery {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private recovering = false;
   private attempts = 0;
-  /**
-   * Which recovery run is current. Moved on by every start and stop, and checked by a step after
-   * each await: `recovering` alone could not tell runs apart. A stop and a new start during one
-   * step's credential fetch set it back to true, the stale step read that as its own, and two
-   * loops ran side by side — double restarts, the cap reached early, and an orphaned retry
-   * timer that stop could no longer clear.
-   */
+  /** The current run; a step from an older run, woken by an await, stands down. */
   private run = 0;
 
   constructor(host: RecoveryHost) {

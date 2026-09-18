@@ -66,9 +66,7 @@ export function useCallKit(): void {
       handles.push(
         await P2PCall.addListener("voipToken", ({ token: t }) => void syncVoipToken(t)),
       );
-      // Coming back to the foreground is the one moment we can repair a registration that
-      // failed while the app was away — the token lives in a native singleton, so reading it
-      // again costs nothing and syncVoipToken skips the request when it is already on file.
+      // Foregrounding repairs a registration that failed while away; a recent one is skipped.
       handles.push(
         await App.addListener("appStateChange", ({ isActive }) => {
           if (!isActive) return;
@@ -161,9 +159,7 @@ export function useCallKit(): void {
       lastCallId = currentId;
     });
 
-    // The system call screen has its own mute button. A toggle made in the app has to reach it,
-    // or the two show different states. The native side ignores a call CallKit is not showing
-    // and skips a state it already has, so a toggle that came from CallKit is not sent back.
+    // Mirror in-app mutes to the CallKit screen; native skips a call it is not showing and repeats.
     const unsubscribeMute = useP2PCallStore.subscribe((state, prev) => {
       if (state.isMuted === prev.isMuted || !state.activeCall) return;
       void P2PCall.setMuted({ call_id: state.activeCall.id, muted: state.isMuted }).catch((err) =>

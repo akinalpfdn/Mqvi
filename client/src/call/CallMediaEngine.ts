@@ -1,14 +1,6 @@
 /**
- * CallMediaEngine — the media half of a p2p call, behind one interface.
- *
- * The store owns the call state machine (ringing, accepted, ended) and the signalling
- * transport; the engine owns the peer connection, the microphone, the camera and the
- * recovery loop. Two implementations: the WebView one (RTCPeerConnection, every platform
- * today) and the iOS one (native WebRTC), which exists because WKWebView cannot capture
- * audio while CallKit owns the audio session.
- *
- * Media stays peer to peer in both. The engine never talks to the server: it hands SDP and
- * ICE to the store, which signals them over the WebSocket the call already uses.
+ * The media half of a p2p call. The store keeps the call state and signalling; media stays
+ * peer to peer. Web runs RTCPeerConnection; iOS runs native WebRTC for CallKit's sake.
  */
 
 import type { P2PCallType } from "../types";
@@ -46,10 +38,7 @@ export type CallEngineStart = {
 };
 
 export interface CallMediaEngine {
-  /**
-   * True when the engine draws the video itself, outside the page. The call screen then keeps
-   * its media area transparent and reports where the feeds belong instead of rendering them.
-   */
+  /** The engine draws the video itself; the call screen only reports where the boxes are. */
   readonly rendersVideoNatively: boolean;
 
   /** Caller: acquires media and offers. Receiver: prepares, then waits for the offer. */
@@ -64,10 +53,7 @@ export interface CallMediaEngine {
   setRemoteVolume(percent: number): void;
   /** Returns the camera state actually reached, so the store never claims more than happened. */
   setVideoEnabled(enabled: boolean): Promise<boolean>;
-  /**
-   * Flips between front and back camera. Returns where it ended up, or null when there is
-   * nothing to flip — a desktop with one camera, or a call with the camera off.
-   */
+  /** Returns where it ended up, or null when there is nothing to flip to. */
   switchCamera(): Promise<CameraFacing | null>;
   startScreenShare(): Promise<boolean>;
   stopScreenShare(): void;

@@ -134,11 +134,7 @@ type pushService struct {
 	// device never rang, and CallManager cannot ignore a VoIP push — iOS kills the app unless
 	// it reports a call to CallKit first, so the cancel would flash a phantom call on screen.
 	suppressedCalls map[string]time.Time
-	// ringGates holds, per call, a channel closed once its ring push has been decided — sent or
-	// withheld. The ring and the cancel run on separate goroutines, and a caller who hangs up at
-	// once could have the cancel go ahead before the ring had even looked the recipient up:
-	// a cancel for a ring that was about to be withheld flashed a phantom call on iOS, and one
-	// that overtook a ring that did go out left the device ringing for a call already over.
+	// ringGates closes per call once its ring is decided, so the cancel never overtakes the ring.
 	ringGates map[string]*ringGate
 }
 
@@ -285,9 +281,7 @@ func (s *pushService) openRingGate(callID string) func() {
 	return func() { once.Do(func() { close(gate.decided) }) }
 }
 
-// cancelRing tells a ring that has not gone out yet that its call is over, and returns what the
-// cancel waits on before it looks at whether the ring was withheld — nil when there is no ring to
-// wait for.
+// cancelRing stops a ring that has not gone out and returns what the cancel waits on (nil: none).
 func (s *pushService) cancelRing(callID string) <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -674,11 +668,7 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 			// iOS FCM tokens are skipped for calls — the VoIP token (CallKit) is the iOS path.
 		}
 
-		// The ring may have waited a long time — for a pool slot, for the lookups above — and the
-		// caller may have hung up meanwhile. A ring sent now would reach a device after its cancel,
-		// or a cancel would reach a device that never rang: iOS has to show every VoIP push as a
-		// call, so either way the user sees a call that does not exist. Withheld, the pending
-		// cancel sees that and stays quiet too.
+		// Cancelled while waiting (pool, lookups): withhold, or iOS shows a call that does not exist.
 		if s.ringCancelled(callID) {
 			s.markCallSuppressed(callID)
 			s.suppressed(receiverID, "call", reasonCancelledFirst)
@@ -803,12 +793,8 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 		})
 	}
 
-	// The cancel is only right once the ring has been decided — whether it was withheld is what
-	// this cancel asks first — and marking the ring cancelled lets one still waiting withhold
-	// itself. The wait happens outside the pool: a cancel holding a slot while its ring waited for
-	// one could fill the pool and starve the very rings it waits on. It has no deadline of its own
-	// on purpose — a timeout would let the cancel go first when the pool is busiest. It always
-	// ends: every ring's dispatch runs, and closes `decided` on every way out.
+	// Wait for the ring's decision outside the pool, so waiting cancels cannot starve the rings.
+	// No deadline on purpose: every ring closes `decided`, and a timeout would let the cancel go first.
 	decided := s.cancelRing(callID)
 	if decided == nil {
 		send()

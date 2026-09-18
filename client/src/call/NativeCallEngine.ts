@@ -1,12 +1,6 @@
 /**
- * NativeCallEngine — the iOS media engine. Same contract as the WebView one, but the peer
- * connection, the microphone and the audio output all live in the native plugin.
- *
- * Why it exists: measured on device, a call answered from the CallKit screen shows the green
- * system call indicator and no orange microphone indicator — WKWebView never gets the mic
- * while CallKit owns the audio session, so the call connects and stays silent both ways.
- *
- * Carries audio and video; the video is drawn natively over the web view.
+ * The iOS engine: peer connection, microphone, camera and audio output live in the native
+ * plugin, because WKWebView never gets the microphone while CallKit owns the audio session.
  */
 
 import { fetchIceServers } from "../api/calls";
@@ -60,9 +54,7 @@ export class NativeCallEngine implements CallMediaEngine {
       isCaller: () => this.isCaller,
       isAlive: () => !this.closed && this.started,
       isConnected: () => this.state === "connected",
-      // The native side does not surface the signalling state, so every disconnect gets the
-      // shorter window. A renegotiation in flight is the rarer case and it still recovers,
-      // just one attempt sooner.
+      // No signalling state from native, so every disconnect gets the shorter window.
       gracePeriodMs: () => DISCONNECT_GRACE_MS,
       applyIceServers: async (servers) => {
         await NativeP2PCall.setIceServers({
@@ -83,22 +75,13 @@ export class NativeCallEngine implements CallMediaEngine {
     });
   }
 
-  /**
-   * Idempotent: the store can reach this twice when an offer beats the accept handler. A
-   * second begin would attach every listener again — each candidate sent twice — and ask the
-   * plugin for a second connection.
-   */
+  /** Idempotent: an offer beating the accept handler starts it twice. */
   start(opts: CallEngineStart): Promise<void> {
     this.ready ??= this.begin(opts);
     return this.ready;
   }
 
-  /**
-   * Signalling that arrives while start() is still running waits for it instead of being
-   * dropped. start() sits on the microphone and camera prompts, and on a fresh install that
-   * is exactly when the caller's offer lands. An offer is never re-sent, so dropping one
-   * leaves the call connected and blank in both directions for its whole duration.
-   */
+  /** Waits for start instead of dropping: an offer landing behind a permission prompt is never re-sent. */
   private async waitUntilStarted(): Promise<boolean> {
     if (!this.ready) return false;
     try {
@@ -259,11 +242,7 @@ export class NativeCallEngine implements CallMediaEngine {
 
   // ─── internals ───
 
-  /**
-   * Keeps a listener only while the engine is open. begin() awaits each registration, and a
-   * close() landing between them used to leave the later ones attached with nothing to remove
-   * them.
-   */
+  /** Removes a listener that finished attaching after close. */
   private async listen(pending: Promise<PluginListenerHandle>): Promise<void> {
     const handle = await pending;
     if (this.closed) void handle.remove();

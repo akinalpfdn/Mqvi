@@ -1,15 +1,6 @@
 /**
- * Push token registration — the device's message token (FCM on Android, an APNs device
- * token on iOS) and, on iOS, the PushKit VoIP token. Both are mirrored in localStorage so
- * logout can unregister them. Kept separate from the hooks so non-UI code (authStore) can
- * import the unregister helpers without pulling in React or the navigation stores.
- *
- * A token is registered per server: the app can be pointed at a different deployment, and
- * each one keeps its own push_tokens row. Sending it once and hoping is not enough — a
- * single failed request used to leave that server unable to reach the device, silently and
- * until the app was reinstalled. So every send is retried, the result is recorded against
- * the server it was sent to, and an old record is re-asserted so a row the server has since
- * dropped comes back.
+ * Push token registration, per server: retried, recorded against the server it reached, and
+ * re-asserted later, since one failed request used to leave a server unable to reach the device.
  */
 
 import { registerPushToken, unregisterPushToken } from "../api/push";
@@ -63,10 +54,7 @@ function alreadyRegistered(type: TokenType, token: string): boolean {
   );
 }
 
-/**
- * Sends a token to the current server until it sticks. Leaves no record on failure, so the
- * next launch or foreground tries again rather than assuming the server has it.
- */
+/** Records nothing on failure, so the next launch or foreground tries again. */
 async function syncToken(type: TokenType, token: string, platform: "ios" | "android"): Promise<void> {
   if (alreadyRegistered(type, token)) return;
 
@@ -92,11 +80,7 @@ export async function syncPushToken(value: string): Promise<void> {
   await syncToken(platform === "ios" ? "apns" : "fcm", value, platform);
 }
 
-/**
- * Caches and registers the iOS PushKit VoIP token. Calls reach iOS through this token
- * alone — the alert token is skipped for them — so a device missing it rings for nothing
- * while its message notifications keep arriving, which is what hid the failure.
- */
+/** Calls reach iOS through this token alone; message pushes use the other one. */
 export async function syncVoipToken(token: string): Promise<void> {
   if (!token) return;
   localStorage.setItem(VOIP_TOKEN_KEY, token);

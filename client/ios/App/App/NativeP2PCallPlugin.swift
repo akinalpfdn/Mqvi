@@ -3,14 +3,8 @@ import Capacitor
 import Foundation
 import LiveKitWebRTC
 
-/// Native peer connection for p2p calls on iOS.
-///
-/// The media runs here instead of in WKWebView because the WebView cannot capture the
-/// microphone while CallKit owns the audio session: a call answered from the system screen
-/// connected but stayed silent in both directions. The call itself is unchanged — still
-/// peer to peer, still signalled over the app's WebSocket by the JS layer, which owns the
-/// call state machine and hands this plugin only SDP and ICE. Audio and camera both run here;
-/// the video is drawn by NativeCallVideo.
+/// Native media for p2p calls on iOS; the JS layer keeps the call state and signalling.
+/// WKWebView cannot capture the microphone while CallKit owns the audio session.
 @objc(NativeP2PCallPlugin)
 public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "NativeP2PCallPlugin"
@@ -32,8 +26,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "discardOrphanedCall", returnType: CAPPluginReturnPromise)
     ]
 
-    /// One factory for the process: it owns the audio device module, and a second one would
-    /// fight the first over the microphone.
+    /// One factory per process: a second audio device module would fight over the microphone.
     private static let factory: LKRTCPeerConnectionFactory = {
         LKRTCPeerConnectionFactory(
             encoderFactory: LKRTCDefaultVideoEncoderFactory(),
@@ -46,42 +39,26 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private var peerConnection: LKRTCPeerConnection?
     private var audioTrack: LKRTCAudioTrack?
     private var videoTrack: LKRTCVideoTrack?
-    /// The peer's audio, held so the volume can reach it. Remote audio plays natively here, so
-    /// the page's <audio> element — where the web engine applies the volume — never exists.
+    /// Held for the volume: remote audio plays here, not in the page.
     private var remoteAudioTrack: LKRTCAudioTrack?
-    /// Gain for the peer's audio; 1 is unchanged. Kept so a track that arrives later gets it.
     private var remoteGain: Double = 1
-    /// Whether the microphone should send. Kept apart from the track because the call can be
-    /// muted before the track exists — from the CallKit screen, while start still waits on a
-    /// permission prompt — and a mute that found no track used to be lost, leaving the
-    /// microphone live under a screen that said "muted".
+    /// Kept apart from the track: a mute can arrive before the track exists.
     private var micEnabled = true
-    /// Mic changes are applied here, one at a time, each reading the latest wanted state and
-    /// track when it runs: the last change always wins, and no WebRTC call is made under `lock`.
+    /// Last change wins, and no WebRTC call runs under `lock`.
     private let micQueue = DispatchQueue(label: "net.mqvi.call-mic")
-    /// Whether this plugin turned the audio session on. Touched only on `audioQueue`. Teardown
-    /// runs for calls that never got that far, and at launch for a page that may have none; the
-    /// session is not ours to turn off then — a call answered on the lock screen has CallKit's
-    /// session live before any page has loaded, and channel voice shares it too.
+    /// Only an audio session this plugin opened may be closed by it (audioQueue only).
     private var audioOwned = false
     private var camera: NativeCallCamera?
     private var callId: String?
     private var isCaller = false
     /// Renegotiation is the offerer's job; the answerer only ever answers.
     private var makingOffer = false
-    /// Bumped by every start and every teardown. A start waits on permission prompts, and the
-    /// call can end during that wait; whatever it does afterwards checks its generation first,
-    /// so a cancelled start cannot build a connection or switch the microphone on.
+    /// Bumped by start and teardown; work finishing after a prompt checks it first.
     private var generation = 0
-    /// Off until start has sent the one initial offer. Adding the audio track fires
-    /// shouldNegotiate before the camera prompt has been answered, and letting that through
-    /// produced an audio-only offer followed by a second one with video.
+    /// Holds shouldNegotiate back until start sends the single initial offer.
     private var negotiationArmed = false
 
-    /// Serializes audio session hand-offs. The generation check and the switch happen in one
-    /// step here, so a start cancelled mid-way can never turn the session on after its own
-    /// teardown turned it off. Not done under `lock`: WebRTC's delegate callbacks take that lock,
-    /// and holding it across a call into WebRTC risks a deadlock.
+    /// Check-and-switch of the audio session in one step. Not under `lock`: delegates take it.
     private let audioQueue = DispatchQueue(label: "net.mqvi.call-audio")
 
     // MARK: - JS surface
@@ -89,8 +66,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     public override func load() {
         Task { @MainActor in
             NativeCallVideo.shared.onVideoSize = { [weak self] source, size in
-                // Retained: the camera's first frame can land before the call screen has
-                // subscribed, and a shape that never changes again would never be re-sent.
+                // Retained: the first frame can arrive before the call screen subscribes.
                 self?.notifyListeners("videoSize", data: [
                     "source": source,
                     "width": Double(size.width),
@@ -126,14 +102,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
-            // Take the session before the connection exists: when the call came in through
-            // CallKit the system has already activated it, and this is what enables the audio
-            // unit for it.
+            // Before the connection exists: this enables the audio unit for a CallKit session.
             self.beginAudio(for: gen)
 
-            // Blank the surface before this call can put a box on screen. Teardown already does
-            // it when a call ends cleanly, but a call that ended any other way would otherwise
-            // leave its last frame to be shown at the start of this one.
+            // Blank the surface, in case the previous call did not end cleanly.
             Task { @MainActor in
                 if self.isCurrent(gen) { NativeCallVideo.shared.teardown() }
             }
@@ -149,8 +121,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
-            // A video call publishes the camera from the start, both sides. Toggling it later
-            // only flips the track, so a mid-call toggle never has to renegotiate.
+            // Video calls publish the camera from the start, so a toggle never renegotiates.
             if wantsVideo {
                 self.requestCamera { granted in
                     guard self.isCurrent(gen) else {
@@ -163,14 +134,11 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                         print("[p2p-native] camera permission denied; continuing with audio only")
                     }
                     if isCaller { self.sendInitialOffer(on: pc) }
-                    // The button must follow the camera, not the intention: a denied camera
-                    // leaves the call running with video off.
+                    // Report what happened: a denied camera leaves the call on audio.
                     call.resolve(["video": granted])
                 }
                 return
             }
-            // The offerer offers immediately; the answerer waits for the offer, which is what
-            // creates its side of the negotiation.
             if isCaller { self.sendInitialOffer(on: pc) }
             call.resolve(["video": false])
         }
@@ -258,8 +226,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
-    /// The peer's volume as a percentage, 0–200 like the web slider. The audio source takes a
-    /// gain in 0...10, so 100% is 1 and 200% is 2.
+    /// 0–200%, as on the web; the source takes a gain where 1 is unchanged.
     @objc func setRemoteVolume(_ call: CAPPluginCall) {
         let percent = min(max(call.getDouble("volume") ?? 100, 0), 200)
         lock.lock()
@@ -271,8 +238,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
-    /// Fresh TURN credentials mid-call: a relayed reconnect may need a new allocation, and
-    /// the one the call started with can be near expiry.
+    /// Fresh TURN credentials for a relayed reconnect.
     @objc func setIceServers(_ call: CAPPluginCall) {
         guard let pc = currentPeerConnection() else {
             call.resolve()
@@ -321,8 +287,6 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Where the two feeds belong, in web-view points. The call screen owns the layout; this
-    /// only follows it.
     @objc func setVideoLayout(_ call: CAPPluginCall) {
         let clip = Self.rect(from: call.getObject("clip"))
         let remote = Self.rect(from: call.getObject("remote"))
@@ -368,19 +332,12 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
-    /// Called once when a page loads. A reload — the error screen's automatic one, the
-    /// connection banner's refresh, iOS killing the web content process — replaces the page but
-    /// not this plugin: Capacitor only drops its listeners. A call the old page was running kept
-    /// its microphone, camera and video views, with nothing left to end them. Ends that call and
-    /// takes its screen out of CallKit. A launch with no call left over does nothing.
+    /// Called at page load: a reload keeps this plugin, so a call the old page ran is ended here.
     @objc func discardOrphanedCall(_ call: CAPPluginCall) {
         lock.lock()
         let orphan = callId
         lock.unlock()
-        // Unconditionally: a start still waiting on a permission prompt has no callId yet, and
-        // would build its call once the prompt is answered, for a page that no longer exists.
-        // Teardown moves the generation on, which cancels it; on an empty plugin it is harmless,
-        // and it only ends an audio session this plugin opened.
+        // Unconditionally: this also cancels a start still behind a permission prompt.
         teardown()
         guard let orphan else {
             call.resolve(["discarded": false])
@@ -416,13 +373,9 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         if generation == gen { videoTrack = track }
         lock.unlock()
 
-        // The capturer and the views are main-actor bound: they drive UIKit and the capture
-        // session, both of which expect the main thread.
         Task { @MainActor in
             let camera = NativeCallCamera(source: source)
-            // Checked and stored in one step: teardown reads `camera` under the same lock, so
-            // either it sees this one and stops it, or this sees the call is over and never
-            // starts it. A camera started after teardown ran would record with no call.
+            // Checked and stored under the lock teardown reads it with, so a camera never outlives its call.
             self.lock.lock()
             let current = self.generation == gen
             if current { self.camera = camera }
@@ -471,8 +424,6 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let source = Self.factory.audioSource(with: Self.audioConstraints())
         let track = Self.factory.audioTrack(with: source, trackId: "mqvi-audio")
-        // Born in the state the call already asked for; adopt re-applies it in case it changed
-        // while the connection was being built.
         lock.lock()
         let enabled = micEnabled
         lock.unlock()
@@ -481,9 +432,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         return (pc, track)
     }
 
-    /// Makes `pc` this call's connection, unless the call ended while it was being built. Any
-    /// connection still held is closed rather than overwritten: dropping the reference alone
-    /// left it running, holding the microphone and emitting into the next call.
+    /// Adopts `pc` unless the call ended meanwhile; a previous connection is closed, not dropped.
     private func adopt(
         _ pc: LKRTCPeerConnection,
         audio: LKRTCAudioTrack,
@@ -504,13 +453,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         negotiationArmed = false
         lock.unlock()
         previous?.close()
-        // A mute that landed while the track was being built reached micEnabled, not the track.
         applyMic()
         return true
     }
 
-    /// The caller's single initial offer, sent once every track the call starts with is in
-    /// place. Later renegotiations (ICE restart) go through shouldNegotiate, which this arms.
     private func sendInitialOffer(on pc: LKRTCPeerConnection) {
         lock.lock()
         negotiationArmed = true
@@ -524,8 +470,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         return generation == gen
     }
 
-    /// The call a delegate event belongs to, or nil when it comes from a connection this plugin
-    /// has already let go of — those must not reach whichever call is running now.
+    /// Nil for a connection this plugin has let go of.
     private func callId(owning pc: LKRTCPeerConnection) -> String? {
         lock.lock()
         defer { lock.unlock() }
@@ -604,8 +549,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func teardown() {
-        // The generation moves first, so a start still waiting on a permission prompt sees that
-        // its call is over and builds nothing when the prompt is answered.
+        // Generation first, so a start behind a permission prompt builds nothing.
         lock.lock()
         generation += 1
         let pc = peerConnection
@@ -630,10 +574,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         pc?.close()
     }
 
-    /// Call events are never retained. The engine subscribes before it starts the call, so a
-    /// retained event only ever had one audience: the next call's listeners, which Capacitor
-    /// hands everything it held the moment they attach. A stale offer delivered that way was
-    /// forwarded to the new peer and broke the call.
+    /// Never retained: Capacitor would hand a stale event to the next call's listeners.
     private func emitLocalDescription(from pc: LKRTCPeerConnection, type: String, sdp: String) {
         guard let callId = callId(owning: pc) else { return }
         notifyListeners("localDescription", data: ["callId": callId, "type": type, "sdp": sdp])
@@ -679,9 +620,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 // MARK: - LKRTCPeerConnectionDelegate
 
 extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
-    // Every event below is dropped unless it comes from the connection this call owns. A closed
-    // connection can still deliver a few callbacks, and by then the listeners belong to the next
-    // call.
+    // Events from a connection this call no longer owns are dropped.
 
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate) {
         guard let callId = callId(owning: peerConnection) else { return }
@@ -693,15 +632,13 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         ])
     }
 
-    // Spelled out because this one is optional in the protocol: a signature Swift infers
-    // differently compiles fine and is simply never called.
+    // Selector spelled out: an optional method with a mismatched signature is never called.
     @objc(peerConnection:didChangeConnectionState:)
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCPeerConnectionState) {
         guard let callId = callId(owning: peerConnection) else { return }
         notifyListeners("connectionState", data: ["callId": callId, "state": Self.name(for: newState)])
     }
 
-    /// The remote tracks arrive here: audio is kept for the volume, video goes to the surface.
     /// Optional in the protocol, so the selector is spelled out.
     @objc(peerConnection:didAddReceiver:streams:)
     public func peerConnection(
@@ -735,8 +672,7 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
     }
 
     public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection) {
-        // The answerer never offers: doing so mid-call is what produces glare. The caller waits
-        // for start to send its one initial offer; see `negotiationArmed`.
+        // Only the caller offers (no glare), and only after start's initial offer.
         lock.lock()
         let mayOffer = peerConnection === self.peerConnection && isCaller && negotiationArmed
         lock.unlock()

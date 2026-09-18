@@ -1,12 +1,4 @@
-/**
- * Keeps the native video views sitting exactly where the call screen's boxes are.
- *
- * On iOS the two feeds are drawn in native views layered over the web view, so the page cannot
- * contain them — it can only say where they belong. This hook measures the media area and the
- * picture-in-picture box and sends those rectangles down whenever they move: layout changes,
- * rotation, cinema mode, fullscreen, dragging the PiP, switching tabs. Being on top also means
- * the page cannot draw over the video, so a box the page covers is withheld; see `uncovered`.
- */
+/** Keeps the native video views on the call screen's boxes, and off any box the page covers. */
 
 import { useEffect, useRef } from "react";
 import type { PluginListenerHandle } from "@capacitor/core";
@@ -38,15 +30,8 @@ function same(a: Rect, b: Rect): boolean {
 }
 
 /**
- * `rect` if the page leaves it uncovered, otherwise null.
- *
- * A native view draws over everything the page renders, so anything the page puts over a video
- * box — the stream context menu, the incoming-call overlay, a toast, the drawer, a settings or
- * report modal — would sit underneath the video, unseen and unusable. Rather than have every
- * overlay announce itself (and the next one added forget to), this asks the page directly: a
- * 3×3 grid of points inside the box, and at each the topmost element must be one of the video
- * boxes. Anything else on top means the box is covered, and its view stays hidden until it is
- * not. All-or-nothing, since a native view cannot be partially masked by the page.
+ * `rect` unless the page draws something over it, which a native view would hide.
+ * Samples a 3x3 grid instead of every overlay having to announce itself.
  */
 export function uncovered(rect: Rect, clip: Rect, boxes: readonly (HTMLElement | null)[]): Rect {
   if (!rect || !clip) return rect;
@@ -81,9 +66,7 @@ export function useNativeVideoLayout(options: {
   // box changes which feed it holds, and the native side only reports a shape when it changes.
   const shapes = useRef<{ remote: string | null; local: string | null }>({ remote: null, local: null });
 
-  // The page cannot measure a picture it does not hold, so the box that frames a natively drawn
-  // feed gets its aspect ratio from the feed itself. Without it an empty <video> falls back to
-  // the browser's 300x150 default and a portrait camera is framed landscape.
+  // Boxes for native feeds take their aspect ratio from the feed; an empty <video> defaults to 2:1.
   useEffect(() => {
     if (!active) return;
 
@@ -148,10 +131,7 @@ export function useNativeVideoLayout(options: {
       }).catch((err) => console.error("[p2p] native setVideoLayout failed:", err));
     };
 
-    // A rect can move, or be covered, without any event firing — the PiP is dragged with
-    // transforms, cinema mode animates, the keyboard pushes the layout, a modal opens elsewhere
-    // in the app. Polling on animation frames is the only thing that catches all of it: two
-    // getBoundingClientRect calls and at most eighteen hit tests per frame.
+    // Rects move and get covered without events; polling each frame catches all of it.
     const tick = () => {
       publish();
       frame = requestAnimationFrame(tick);

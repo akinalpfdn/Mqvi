@@ -1,11 +1,4 @@
-/**
- * WebCallEngine — the peer connection as RTCPeerConnection inside the page. Used on web,
- * Electron and Android; iOS runs NativeCallEngine.
- *
- * Moved out of p2pCallStore: the candidate queue, the bounded ICE-restart recovery, the
- * degradation preference, the screen-share sender swap. Incoming offers are now applied one at
- * a time (see acceptRemoteOffer), where the store used to abandon a concurrent one.
- */
+/** RTCPeerConnection in the page, for web, Electron and Android. */
 
 import { fetchIceServers } from "../api/calls";
 import type { P2PCallType } from "../types";
@@ -34,6 +27,9 @@ async function getMediaStream(callType: P2PCallType): Promise<MediaStream> {
       : false,
   });
 }
+
+/** How long a screen share waits for the renegotiation that adds its video. */
+const RENEGOTIATION_WAIT_MS = 10_000;
 
 /** "balanced" degradation on video senders — FPS and resolution degrade proportionally. */
 function applyDegradationPreference(pc: RTCPeerConnection): void {
@@ -128,12 +124,7 @@ export class WebCallEngine implements CallMediaEngine {
     applyDegradationPreference(pc);
   }
 
-  /**
-   * Offers are applied one at a time. Two that arrive together — an older native caller sent
-   * an audio-only offer and then one with video — each found no connection, each built one and
-   * each asked for the microphone; the loser was never closed and still sent its answer. In
-   * order, the second offer simply renegotiates the connection the first one built.
-   */
+  /** One offer at a time: two at once each built a connection and opened the microphone. */
   acceptRemoteOffer(sdp: string): Promise<void> {
     const run = this.offerChain.then(() => this.applyRemoteOffer(sdp));
     this.offerChain = run.catch(() => {});
@@ -321,20 +312,10 @@ export class WebCallEngine implements CallMediaEngine {
       // to complete. Two phases — leaving "stable", then returning to it.
       const transceiver = pc.addTransceiver("video", { direction: "sendrecv" });
       videoSender = transceiver.sender;
-      await new Promise<void>((resolve) => {
-        const waitForStart = () => {
-          if (pc.signalingState !== "stable") {
-            const waitForEnd = () => {
-              if (pc.signalingState === "stable") resolve();
-              else setTimeout(waitForEnd, 50);
-            };
-            waitForEnd();
-          } else {
-            setTimeout(waitForStart, 20);
-          }
-        };
-        setTimeout(waitForStart, 20);
-      });
+      if (!(await this.waitForRenegotiation(pc))) {
+        screenTrack.stop();
+        return false;
+      }
     }
 
     if (this.closed || this.pc !== pc) {
@@ -401,11 +382,7 @@ export class WebCallEngine implements CallMediaEngine {
 
   // ─── internals ───
 
-  /**
-   * A peer that turns its camera off stops sending frames, and the element it was drawn in
-   * keeps the last one forever. The track's mute events are the only notice of it: `enabled`
-   * on a remote track is our own setting, not theirs.
-   */
+  /** The mute events say the peer stopped sending; a remote track's `enabled` is ours, not theirs. */
   private watchRemoteVideo(stream: MediaStream): void {
     const track = stream.getVideoTracks()[0];
     if (!track) {
@@ -423,6 +400,26 @@ export class WebCallEngine implements CallMediaEngine {
     track.addEventListener("unmute", report);
     track.addEventListener("ended", report);
     report();
+  }
+
+  /** Waits for the renegotiation a new transceiver triggers; false if the call ends or it stalls. */
+  private waitForRenegotiation(pc: RTCPeerConnection): Promise<boolean> {
+    return new Promise((resolve) => {
+      let left = pc.signalingState !== "stable";
+      const finish = (ok: boolean) => {
+        clearTimeout(timer);
+        pc.removeEventListener("signalingstatechange", onChange);
+        resolve(ok);
+      };
+      const onChange = () => {
+        if (this.closed || this.pc !== pc || pc.signalingState === "closed") finish(false);
+        else if (pc.signalingState !== "stable") left = true;
+        else if (left) finish(true);
+      };
+      // close() does not fire signalingstatechange, so a call ended mid-wait ends here.
+      const timer = setTimeout(() => finish(false), RENEGOTIATION_WAIT_MS);
+      pc.addEventListener("signalingstatechange", onChange);
+    });
   }
 
   private setLocalStream(stream: MediaStream): void {

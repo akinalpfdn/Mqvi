@@ -1,8 +1,4 @@
-/**
- * The receiver's side of the web engine. Offers can arrive back to back, and each one used to
- * build its own connection and ask for the microphone again; the extra connection was never
- * closed. Separately, one candidate the connection rejected aborted the answer entirely.
- */
+/** The web engine as receiver: back-to-back offers and rejected candidates. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { fetchIceServers } = vi.hoisted(() => ({ fetchIceServers: vi.fn() }));
@@ -131,10 +127,7 @@ describe("web engine receiving offers", () => {
   });
 });
 
-/**
- * A mute made before the stream existed never reached it: the stream is born with its tracks on,
- * and the microphone went live under a button that said it was muted.
- */
+/** A mute made before the stream exists reaches it. */
 describe("web engine mute before the microphone is open", () => {
   it("should open the stream with the microphone already muted", async () => {
     const audio = { kind: "audio", enabled: true, stop: () => {} };

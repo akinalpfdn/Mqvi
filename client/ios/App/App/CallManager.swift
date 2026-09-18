@@ -32,9 +32,7 @@ final class CallManager: NSObject {
     private let provider: CXProvider
     private let callController = CXCallController()
     private var calls: [UUID: String] = [:] // CallKit UUID -> our call_id
-    /// Mute as the system call screen shows it. CallKit's own toggle is recorded when it arrives;
-    /// an in-app toggle is sent only when it differs, so the app following a CallKit toggle does
-    /// not echo it back as a second request.
+    /// Mute as CallKit shows it, so the app echoing a CallKit toggle does not send it back.
     private var mutedState: [UUID: Bool] = [:]
 
     private var bufferedToken: String?
@@ -53,10 +51,7 @@ final class CallManager: NSObject {
         provider.setDelegate(self, queue: nil)
     }
 
-    /// Category and mode only — never setActive. For a CallKit call the system activates the
-    /// session and calls didActivate; activating it here (or at launch) leaves the call
-    /// connected with no audio in either direction, because WebKit's WebRTC pipeline is then
-    /// running against a session it does not own.
+    /// Category and mode only: for a CallKit call the system activates the session (didActivate).
     private func configureAudioSessionForCall() {
         let session = AVAudioSession.sharedInstance()
         do {
@@ -90,8 +85,7 @@ final class CallManager: NSObject {
         mutedState.removeValue(forKey: uuid)
     }
 
-    /// The app muted or unmuted a call that CallKit is showing. Without this the system call
-    /// screen kept the old state. A call CallKit does not know about is not ours to update.
+    /// Mirrors an in-app mute onto a call CallKit is showing.
     func setMuted(callId: String, muted: Bool) {
         guard let uuid = UUID(uuidString: callId), calls[uuid] != nil else { return }
         guard mutedState[uuid, default: false] != muted else { return }
@@ -252,8 +246,6 @@ extension CallManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        // The system activated the session for this call. Hand it to the audio owner, which
-        // is what lets the native peer connection start its audio unit at the right moment.
         CallAudioSession.callKitDidActivate(audioSession)
     }
 

@@ -263,10 +263,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
         return null;
       }
 
-      // Only now that the join is sure to go ahead: a denied microphone or a failed token must
-      // not have cost the user their call. Ending it here, before the native connect below,
-      // also orders the teardown ahead of it — Capacitor runs plugin calls one at a time, and
-      // the p2p teardown releases the audio session synchronously.
+      // Only once the join is certain; before the native connect, which the bridge runs after this teardown.
       endP2PCallForVoice();
 
       // isMuted is left untouched — PTT idle (mic off until key press) is

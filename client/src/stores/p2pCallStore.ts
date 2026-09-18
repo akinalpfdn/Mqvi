@@ -48,11 +48,7 @@ type P2PCallStore = {
   engine: CallMediaEngine | null;
   /** The engine draws the video outside the page (iOS); the call screen leaves it a hole. */
   isNativeVideo: boolean;
-  /**
-   * Whether there is a picture from the peer to show. Both engines read it; a remote track's
-   * `enabled` is our own setting, not the peer's, so the stream cannot answer this. Derived
-   * from the two below.
-   */
+  /** A picture from the peer to show; a remote track's `enabled` cannot say. Derived from below. */
   hasRemoteVideo: boolean;
   /** The engine sees a live, flowing remote video track. */
   remoteTrackVideo: boolean;
@@ -66,8 +62,10 @@ type P2PCallStore = {
   isVideoOn: boolean;
   /** Which camera is publishing. Drives the mirror on your own preview. */
   cameraFacing: CameraFacing;
-  /** A camera switch is in flight; a second press waits for it rather than racing it. */
-  _switchingCamera: boolean;
+  /** A camera or screen change is in flight. One at a time: two in parallel raced each other. */
+  _mediaChanging: boolean;
+  /** What we last told the peer about our picture; null means tell it again. */
+  _videoAnnounced: boolean | null;
   isScreenSharing: boolean;
 
   /** Remote audio output volume, 0–200 (100 = normal). Above 100 amplifies via Web Audio. */
@@ -118,14 +116,7 @@ type P2PCallStore = {
   handleSignal: (data: P2PSignalPayload) => void;
 };
 
-/**
- * The engine that runs a call's media.
- *
- * iOS runs natively, audio and video: WKWebView cannot capture the microphone while CallKit
- * owns the audio session, which is why a call answered from the system screen connected and
- * then stayed silent in both directions. The video is drawn by the native layer over the web
- * view, since a native track cannot be handed to a page element.
- */
+/** iOS runs native WebRTC: WKWebView gets no microphone while CallKit owns the session. */
 function createEngine(events: CallEngineEvents): CallMediaEngine {
   if (getCapacitorPlatform() === "ios") {
     return new NativeCallEngine(events);
@@ -134,6 +125,13 @@ function createEngine(events: CallEngineEvents): CallMediaEngine {
 }
 
 // ─── Store ───
+
+/** Media that fails to start ends the call on the server too, or the peer sits in a silent call. */
+function endCallThatFailedToStart(callId: string, err: unknown): void {
+  console.error("[p2p] WebRTC start error:", err);
+  const store = useP2PCallStore.getState();
+  if (store.activeCall?.id === callId) store.endCall();
+}
 
 /** hasRemoteVideo is only ever written through this, so the two inputs cannot drift apart. */
 function remoteVideo(
@@ -158,7 +156,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   isMuted: false,
   isVideoOn: false,
   cameraFacing: "front",
-  _switchingCamera: false,
+  _mediaChanging: false,
+  _videoAnnounced: null,
   isScreenSharing: false,
   remoteVolume: 100,
   callDuration: 0,
@@ -197,6 +196,10 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     if (!_sendWS || !activeCall || activeCall.status !== "active") return;
 
     _sendWS("p2p_call_resume", { call_id: activeCall.id });
+    // Video announcements are not queued while the socket is down: ours may have been dropped on
+    // the way out, and the peer's on the way in. Re-send ours and ask for theirs.
+    _sendWS("p2p_signal", { call_id: activeCall.id, type: "video-query" });
+    set({ _videoAnnounced: null });
   },
 
   acceptCall: (callId) => {
@@ -216,11 +219,9 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
 
   endCall: () => {
     const { _sendWS, activeCall } = get();
-    if (!_sendWS) return;
-
-    // Name the call. A late hang-up — from a sibling device, or from the 30s outgoing timeout —
-    // would otherwise end whatever call the user has started since.
-    _sendWS("p2p_call_end", activeCall ? { call_id: activeCall.id } : undefined);
+    // Name the call: a late hang-up would otherwise end whatever call came after it.
+    _sendWS?.("p2p_call_end", activeCall ? { call_id: activeCall.id } : undefined);
+    // Local teardown even with no socket to tell the server: the microphone stops now.
     get().cleanup();
   },
 
@@ -232,36 +233,50 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   },
 
   toggleVideo: () => {
-    const { engine, isVideoOn } = get();
-    if (!engine) return;
-    // The engine reports the state it actually reached, so a denied camera cannot leave the
-    // button lit.
-    void engine.setVideoEnabled(!isVideoOn).then((enabled) => set({ isVideoOn: enabled }));
+    const { engine, isVideoOn, _mediaChanging } = get();
+    if (!engine || _mediaChanging) return;
+    set({ _mediaChanging: true });
+    // The engine reports the state it reached, so a denied camera cannot leave the button lit.
+    void engine
+      .setVideoEnabled(!isVideoOn)
+      .catch(() => isVideoOn)
+      .then((enabled) => {
+        // A call that ended meanwhile has been reset; this result is not the next call's.
+        if (get().engine !== engine) return;
+        set({ _mediaChanging: false, isVideoOn: enabled });
+      });
   },
 
   switchCamera: () => {
-    const { engine, isVideoOn, _switchingCamera } = get();
-    if (!engine || !isVideoOn || _switchingCamera) return;
-    // Two switches in flight both read the same current camera and both turned to the same
-    // "other" one: the second press never flipped back.
-    set({ _switchingCamera: true });
+    const { engine, isVideoOn, _mediaChanging } = get();
+    if (!engine || !isVideoOn || _mediaChanging) return;
+    set({ _mediaChanging: true });
     // The engine reports where it landed; a phone with one camera stays where it was.
     void engine.switchCamera().catch(() => null).then((facing) => {
       // A call that ended meanwhile has been reset; nothing of this switch belongs to it.
       if (get().engine !== engine) return;
-      set({ _switchingCamera: false, ...(facing ? { cameraFacing: facing } : {}) });
+      set({ _mediaChanging: false, ...(facing ? { cameraFacing: facing } : {}) });
     });
   },
 
   toggleScreenShare: () => {
-    const { engine, isScreenSharing } = get();
+    const { engine, isScreenSharing, _mediaChanging } = get();
     if (!engine) return;
+    // Stopping is immediate and always safe, so it is never held back.
     if (isScreenSharing) {
       engine.stopScreenShare();
       set({ isScreenSharing: false });
       return;
     }
-    void engine.startScreenShare().then((started) => set({ isScreenSharing: started }));
+    if (_mediaChanging) return;
+    set({ _mediaChanging: true });
+    void engine
+      .startScreenShare()
+      .catch(() => false)
+      .then((started) => {
+        if (get().engine !== engine) return;
+        set({ _mediaChanging: false, isScreenSharing: started });
+      });
   },
 
   _ensureEngine: () => {
@@ -314,20 +329,16 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     // accept has come back. That mute lives only in isMuted until now.
     if (get().isMuted) engine.setMicEnabled(false);
 
-    // Tell the peer whenever we start or stop putting a picture on the video track. Driven by
-    // the state rather than by each toggle, so the camera button, the screen share, a camera the
-    // engine reports as denied and anything added later all announce the same way. Lives exactly
-    // as long as this engine — keyed on the call alone, an engine rebuilt for the same call left
-    // two announcers running.
-    let announced: boolean | null = null;
+    // Tell the peer whenever our picture starts or stops, from the state rather than each
+    // toggle. Lives as long as this engine; clearing _videoAnnounced makes it say it again.
     const unsubscribe = api.subscribe((state) => {
       if (!isCurrentCall() || state.engine !== engine) {
         unsubscribe();
         return;
       }
       const sending = state.isVideoOn || state.isScreenSharing;
-      if (sending === announced) return;
-      announced = sending;
+      if (sending === state._videoAnnounced) return;
+      set({ _videoAnnounced: sending });
       signal({ type: sending ? "video-on" : "video-off" });
     });
 
@@ -345,10 +356,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     try {
       await engine.start({ callId, callType: activeCall.call_type, isCaller });
     } catch (err) {
-      console.error("[p2p] WebRTC start error:", err);
-      // Only tear down if still on the same call — a late failure from a call the user has
-      // already left must not clean up the new one.
-      if (get().activeCall?.id === callId) get().cleanup();
+      endCallThatFailedToStart(callId, err);
     }
   },
 
@@ -381,7 +389,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       isMuted: false,
       isVideoOn: false,
       cameraFacing: "front",
-      _switchingCamera: false,
+      _mediaChanging: false,
+  _videoAnnounced: null,
       isScreenSharing: false,
       remoteVolume: 100,
       callDuration: 0,
@@ -416,6 +425,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   handleCallAccept: (data) => {
     const { activeCall, _sessionId } = get();
     if (!activeCall || activeCall.id !== data.call_id) return;
+    // A repeated accept started a second duration timer and leaked the first.
+    if (activeCall.status === "active") return;
 
     const userId = useAuthStore.getState().user?.id;
     const isCaller = activeCall.caller_id === userId;
@@ -512,7 +523,12 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
             // offers from startWebRTC.
             engine = get()._ensureEngine();
             if (!engine) break;
-            await engine.start({ callId, callType: activeCall.call_type, isCaller: false });
+            try {
+              await engine.start({ callId, callType: activeCall.call_type, isCaller: false });
+            } catch (err) {
+              endCallThatFailedToStart(callId, err);
+              break;
+            }
             if (get().activeCall?.id !== callId) break;
           }
           await engine.acceptRemoteOffer(data.sdp);
@@ -532,9 +548,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
         }
 
         case "ice-restart": {
-          // The peer detected a failure and asked us to restart ICE. The offerer restarts; the
-          // answerer runs the same bounded recovery, which on its side means asking the offerer.
-          // Idempotent while a recovery is already running.
+          // The peer asked for an ICE restart; our bounded recovery handles it on either side.
           get().engine?.restartIce();
           break;
         }
@@ -542,6 +556,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
         case "video-on":
         case "video-off": {
           set(remoteVideo(get(), { peerVideoOff: data.type === "video-off" }));
+          break;
+        }
+
+        case "video-query": {
+          set({ _videoAnnounced: null });
           break;
         }
       }
@@ -554,10 +573,5 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
 registerP2PCallControl({
   hasLiveMedia: () => useP2PCallStore.getState().activeCall?.status === "active",
   hasCall: () => useP2PCallStore.getState().activeCall !== null,
-  end: () => {
-    const state = useP2PCallStore.getState();
-    // endCall does nothing without a socket to send on, and would leave the media running.
-    if (state._sendWS) state.endCall();
-    else state.cleanup();
-  },
+  end: () => useP2PCallStore.getState().endCall(),
 });

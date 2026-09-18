@@ -58,10 +58,8 @@ const TYPING_THROTTLE = 3_000;
 /** Call teardown ops held while the socket is down (see sendWS). */
 const QUEUED_CALL_OPS = new Set(["p2p_call_decline", "p2p_call_end"]);
 /**
- * Outlasts both windows in which a queued teardown still means something: the server's ring
- * timeout (35s) and its reconnect grace for an active call (20s by default, but configurable).
- * Past both the call is gone and sending is noise. Erring long costs one rejected op; erring
- * short would drop a hang-up and leave the peer in the call.
+ * Longer than both the ring timeout and the (configurable) reconnect grace: erring long only
+ * costs a rejected op, erring short drops a hang-up.
  */
 const QUEUED_CALL_OP_TTL = 60_000;
 const MAX_QUEUED_CALL_OPS = 8;

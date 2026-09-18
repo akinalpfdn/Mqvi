@@ -2,17 +2,8 @@ import AVFoundation
 import Foundation
 import LiveKitWebRTC
 
-/// Who owns the audio session during a native p2p call.
-///
-/// WebRTC starts and stops its audio unit on its own unless it is told not to. With CallKit
-/// in the picture that race is what silences a call: the system activates the session when
-/// the user answers, WebRTC activates its own, and the microphone ends up belonging to
-/// neither. Manual mode hands the decision to us — the session is enabled once, from whichever
-/// side actually owns the call.
-///
-/// Manual mode is scoped to the call on purpose. The LiveKit SDK that carries channel voice
-/// drives the same shared session without these flags, so leaving them set would put channel
-/// audio behind a switch nothing flips. `begin` turns it on, `end` hands it straight back.
+/// Audio session ownership for a native p2p call. Manual mode stops WebRTC and CallKit both
+/// activating it; it is scoped to the call because channel voice shares the session without it.
 enum CallAudioSession {
     private static let session = LKRTCAudioSession.sharedInstance()
 
@@ -21,8 +12,7 @@ enum CallAudioSession {
         session.useManualAudio = true
 
         if !session.isActive {
-            // No CallKit call: this is an outgoing call, or one answered inside the app, so
-            // nobody else is going to activate the session.
+            // No CallKit call (outgoing, or answered in the app): nobody else will activate it.
             let config = LKRTCAudioSessionConfiguration.webRTC()
             config.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
             session.lockForConfiguration()
@@ -37,7 +27,6 @@ enum CallAudioSession {
         session.isAudioEnabled = true
     }
 
-    /// The call is over. Gives the session model back to whatever runs next.
     static func end() {
         session.isAudioEnabled = false
         session.useManualAudio = false

@@ -326,11 +326,8 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, receiverID string, ca
 	s.ringTimers[call.ID] = time.AfterFunc(ringingTimeout, func() { s.timeoutRinging(call.ID) })
 	s.mu.Unlock()
 
-	// Check the friendship again, now that the call is registered. A block landing between the
-	// first check and the registration found no call to end — EndCallBetween looks the call up —
-	// and the blocked person would have rung. From here on either a block finds this call and
-	// ends it, or this check finds the block. Nothing has been announced yet, so the call is
-	// dropped silently.
+	// A block between the first check and the registration found no call to end; recheck now.
+	// Nothing is announced yet, so the call is dropped silently.
 	if f, err := s.friendChecker.GetByPair(ctx, callerID, receiverID); err != nil || f.Status != models.FriendshipStatusAccepted {
 		s.cleanupCall(call.ID)
 		return fmt.Errorf("%w: not friends", pkg.ErrForbidden)
@@ -378,6 +375,17 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, receiverID string, ca
 	// A foregrounded app rings from the WS event and swallows the push (see PushNotifier).
 	if s.pushNotifier != nil {
 		s.pushNotifier.NotifyCall(receiverID, pushDisplayName(caller), callType, call.ID, callerID)
+	}
+
+	// An end that ran mid-announcement beat the initiate to the clients; repeat it (they ignore extras).
+	s.mu.RLock()
+	_, stillLive := s.activeCalls[call.ID]
+	s.mu.RUnlock()
+	if !stillLive {
+		end := ws.Event{Op: ws.OpP2PCallEnd, Data: map[string]string{"call_id": call.ID}}
+		s.hub.BroadcastToUser(receiverID, end)
+		s.hub.BroadcastToUser(callerID, end)
+		s.cancelReceiverPush(receiverID, call.ID, "")
 	}
 
 	return nil
@@ -563,9 +571,7 @@ func (s *p2pCallService) EndCall(userID, deviceID, wantCallID string) error {
 	return nil
 }
 
-// EndCallBetween ends userID's call if the other party is otherID, exactly as if userID had hung
-// up. Blocking is what calls it: a new call needs a friendship the block deletes, but one already
-// ringing or running would go on — its media is peer to peer and never touches the server again.
+// EndCallBetween ends userID's call with otherID as if userID hung up. P2P media would outlast a block.
 func (s *p2pCallService) EndCallBetween(userID, otherID string) {
 	s.mu.RLock()
 	callID, inCall := s.userCalls[userID]

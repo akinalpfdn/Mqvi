@@ -1,8 +1,4 @@
-/**
- * The bounded ICE-restart recovery, now owned by WebCallEngine. Same contract as when it
- * lived in the store: the offerer restarts ICE itself, the answerer asks the offerer to,
- * credentials are refreshed between attempts, and the call ends once the cap is reached.
- */
+/** The web engine's bounded ICE-restart recovery. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { fetchIceServers, fetchIceServersForRecovery } = vi.hoisted(() => ({

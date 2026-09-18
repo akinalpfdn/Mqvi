@@ -1,8 +1,4 @@
-/**
- * A device that fails to register its VoIP token cannot be called, and nothing about the app
- * looks wrong: messages still arrive, because calls are the only thing that travels on that
- * token. So a failed registration must be retried, and must never be remembered as done.
- */
+/** Token registration retries, and never records a registration that did not happen. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { registerPushToken } = vi.hoisted(() => ({

@@ -444,13 +444,16 @@ export type P2PCall = {
  */
 export type P2PSignalPayload = {
   call_id: string;
-  /**
-   * video-on / video-off: whether the sender is putting a picture on its video track (camera
-   * or screen). The track alone cannot say — a disabled camera still sends black frames — so
-   * without this the peer showed a black box instead of the avatar. The server relays the type
-   * without inspecting it, and a client that never sends these leaves the peer on the track.
-   */
-  type: "offer" | "answer" | "ice-candidate" | "ice-restart" | "video-on" | "video-off";
+  /** video-on/off: the sender's picture state, which its track cannot convey. Relayed opaquely. */
+  type:
+    | "offer"
+    | "answer"
+    | "ice-candidate"
+    | "ice-restart"
+    | "video-on"
+    | "video-off"
+    /** Asks the peer to announce its picture again, after an outage that may have lost it. */
+    | "video-query";
   sdp?: string;
   candidate?: RTCIceCandidateInit;
 };

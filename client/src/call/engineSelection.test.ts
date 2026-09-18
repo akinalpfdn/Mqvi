@@ -1,8 +1,4 @@
-/**
- * Which media engine a call gets. iOS voice runs natively because WKWebView cannot capture
- * while CallKit owns the audio session; everything else, including iOS video until the native
- * render layer exists, stays in the page.
- */
+/** Native engine on iOS, where WKWebView gets no microphone under CallKit; the page elsewhere. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { platform, built } = vi.hoisted(() => ({

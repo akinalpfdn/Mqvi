@@ -1,7 +1,4 @@
-/**
- * The native engine's recovery. Same machine as the web engine, driven by connection-state
- * events from the plugin instead of an RTCPeerConnection.
- */
+/** The native engine: recovery from plugin connection states, signalling order, events, lifecycle. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.hoisted(() => {
@@ -209,11 +206,7 @@ describe("native engine camera", () => {
   });
 });
 
-/**
- * start() sits on the microphone and camera prompts. On a fresh install that is exactly when
- * the caller's offer arrives, and an offer is never re-sent: dropping one leaves the call
- * connected with no media in either direction for its whole duration.
- */
+/** An offer landing while start waits on permission prompts is applied, not dropped. */
 describe("signalling that arrives while start is still waiting on permissions", () => {
   it("should apply an offer that arrives before start finishes, not drop it", async () => {
     let letStartFinish!: () => void;
@@ -260,10 +253,7 @@ describe("signalling that arrives while start is still waiting on permissions", 
   });
 });
 
-/**
- * The plugin's listeners outlive any one call, and a closed connection can still emit. An event
- * from another call that reached this one forwarded a stale offer to the new peer.
- */
+/** Events from another call are dropped: the plugin's listeners outlive any one call. */
 describe("events that belong to another call", () => {
   it("should drop a local description for a different call", async () => {
     const { ev } = await engineFor(true);
@@ -342,11 +332,7 @@ describe("start is idempotent and safe to cancel", () => {
   });
 });
 
-/**
- * Starting a call leaves the voice channel, and LiveKit lets go of the shared audio session only
- * after its disconnect has returned. Taking the session before that let LiveKit reset it under
- * the call that had just started.
- */
+/** The call takes the audio session only after channel voice lets go of it. */
 describe("native engine and channel voice", () => {
   it("should not take the audio session until channel voice has let go of it", async () => {
     let release!: () => void;

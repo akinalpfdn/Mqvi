@@ -1,8 +1,4 @@
-/**
- * Native video draws over the page, so anything the page puts over a video box — a context
- * menu, a modal, the incoming-call overlay — sat underneath the video, unseen. A covered box
- * is withheld from the native layer until it is uncovered again.
- */
+/** A box the page covers is withheld from the native layer, which would hide the cover. */
 import { describe, it, expect, afterEach } from "vitest";
 
 import { uncovered, type Rect } from "./useNativeVideoLayout";

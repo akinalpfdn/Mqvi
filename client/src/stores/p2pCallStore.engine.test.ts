@@ -1,11 +1,11 @@
-/**
- * The seam between the call store and the media engine. The store owns the call and the
- * signalling; the engine owns the media. These tests pin what crosses that line, because the
- * native engine (iOS) will arrive behind the same interface.
- */
+/** What crosses between the call store and the media engine. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { engineInstances, pendingSwitches } = vi.hoisted(() => ({
+const { engineInstances, pendingSwitches, pendingVideo, startFailure } = vi.hoisted(() => ({
+  /** When set, the engine's start rejects with it — a denied microphone, say. */
+  startFailure: { current: null as Error | null },
+  /** Resolvers for camera on/off requests still in flight, oldest first. */
+  pendingVideo: [] as ((enabled: boolean) => void)[],
   engineInstances: [] as { events: Record<string, (arg?: unknown) => void>; calls: string[] }[],
   /** Resolvers for camera switches still in flight, oldest first. */
   pendingSwitches: [] as ((facing: "front" | "back" | null) => void)[],
@@ -21,6 +21,7 @@ vi.mock("../call/WebCallEngine", () => ({
     }
     async start() {
       this.record.calls.push("start");
+      if (startFailure.current) throw startFailure.current;
     }
     async acceptRemoteOffer(sdp: string) {
       this.record.calls.push(`acceptRemoteOffer:${sdp}`);
@@ -37,8 +38,9 @@ vi.mock("../call/WebCallEngine", () => ({
     setRemoteVolume(percent: number) {
       this.record.calls.push(`setRemoteVolume:${percent}`);
     }
-    async setVideoEnabled() {
-      return true;
+    setVideoEnabled() {
+      this.record.calls.push("setVideoEnabled");
+      return new Promise<boolean>((resolve) => pendingVideo.push(resolve));
     }
     switchCamera() {
       this.record.calls.push("switchCamera");
@@ -91,6 +93,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   engineInstances.length = 0;
   pendingSwitches.length = 0;
+  pendingVideo.length = 0;
+  startFailure.current = null;
   useP2PCallStore.setState({
     activeCall: makeCall(),
     incomingCall: null,
@@ -202,11 +206,7 @@ describe("engine → store", () => {
   });
 });
 
-/**
- * Whether the peer's picture is shown. A track cannot answer that on its own: a camera turned
- * off still sends black frames, so the peer showed a black box instead of the avatar. The peer
- * says it explicitly; a peer that never does (an older client) is judged by its track, as before.
- */
+/** The peer's picture: its announcement wins, and a peer that never announces is judged by its track. */
 describe("the peer's picture", () => {
   const videoSignals = () =>
     sendWS.mock.calls
@@ -265,11 +265,7 @@ describe("the peer's picture", () => {
   });
 });
 
-/**
- * The call can be muted before it has an engine — from the CallKit screen, before the accept has
- * come back. The mute used to live only in isMuted: the engine started with the microphone on,
- * and the peer heard the user under a screen that said "muted".
- */
+/** A mute made before the engine exists reaches it. */
 describe("a mute made before the engine exists", () => {
   it("should reach the engine the moment it is created", async () => {
     useP2PCallStore.getState().toggleMute();
@@ -285,13 +281,10 @@ describe("a mute made before the engine exists", () => {
   });
 });
 
-/**
- * Two switches in flight both read the same current camera and turned to the same "other" one,
- * so the second press never flipped back — and on some phones the two requests fight over it.
- */
+/** One camera switch at a time. */
 describe("switching the camera", () => {
   beforeEach(() => {
-    useP2PCallStore.setState({ isVideoOn: true, cameraFacing: "front", _switchingCamera: false });
+    useP2PCallStore.setState({ isVideoOn: true, cameraFacing: "front", _mediaChanging: false });
   });
 
   it("should ignore a second press while the first switch is still in flight", async () => {
@@ -312,16 +305,12 @@ describe("switching the camera", () => {
     await useP2PCallStore.getState().startWebRTC(true);
     useP2PCallStore.getState().switchCamera();
     pendingSwitches[0](null); // a phone with one camera
-    await vi.waitFor(() => expect(useP2PCallStore.getState()._switchingCamera).toBe(false));
+    await vi.waitFor(() => expect(useP2PCallStore.getState()._mediaChanging).toBe(false));
     expect(useP2PCallStore.getState().cameraFacing).toBe("front");
   });
 });
 
-/**
- * A voice channel and a p2p call share the audio session on iOS, and whichever ended last shut it
- * down under the other. Starting a call already left the channel; joining the channel has to end
- * the call. Signing out has to end any call, ringing too — its screen goes with the session.
- */
+/** Voice join ends a live call; sign-out ends any call. */
 describe("ending the call for a voice channel or a sign-out", () => {
   const ended = () => sendWS.mock.calls.filter(([op]) => op === "p2p_call_end").length;
 
@@ -353,5 +342,121 @@ describe("ending the call for a voice channel or a sign-out", () => {
     endP2PCallForLogout();
     expect(engineInstances[0].calls).toContain("close");
     expect(useP2PCallStore.getState().activeCall).toBeNull();
+  });
+});
+
+/** Camera and screen changes: one at a time, and a late result stays with its own call. */
+describe("camera and screen changes", () => {
+  beforeEach(() => {
+    useP2PCallStore.setState({ isVideoOn: false, _mediaChanging: false });
+  });
+
+  it("should not apply a late camera result to the call that came after", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.getState().toggleVideo();
+
+    // That call ends and a video call starts while the camera prompt is still open.
+    useP2PCallStore.getState().cleanup();
+    useP2PCallStore.setState({ activeCall: makeCall(), _sendWS: sendWS, isVideoOn: false });
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.setState({ isVideoOn: true });
+
+    pendingVideo[0](false); // the first call's engine answers at last
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(useP2PCallStore.getState().isVideoOn).toBe(true);
+  });
+
+  it("should start one camera change at a time", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.getState().toggleVideo();
+    useP2PCallStore.getState().toggleVideo();
+    expect(engineInstances[0].calls.filter((c) => c === "setVideoEnabled")).toHaveLength(1);
+
+    pendingVideo[0](true);
+    await vi.waitFor(() => expect(useP2PCallStore.getState()._mediaChanging).toBe(false));
+    expect(useP2PCallStore.getState().isVideoOn).toBe(true);
+  });
+});
+
+/** After a reconnect, re-send our picture and ask for theirs. */
+describe("announcing the picture after a reconnect", () => {
+  const signals = () =>
+    sendWS.mock.calls
+      .filter(([op]) => op === "p2p_signal")
+      .map(([, data]) => (data as { type: string }).type);
+
+  it("should re-send our picture and ask the peer for theirs", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.setState({ isVideoOn: true });
+    sendWS.mockClear();
+
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+    expect(signals()).toEqual(["video-query", "video-on"]);
+  });
+
+  it("should answer the peer's question with our picture", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.setState({ isVideoOn: false });
+    sendWS.mockClear();
+
+    await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "video-query" });
+    expect(signals()).toEqual(["video-off"]);
+  });
+});
+
+/** Media that fails to start ends the call on the server too. */
+describe("a call whose media fails to start", () => {
+  const ends = () => sendWS.mock.calls.filter(([op]) => op === "p2p_call_end");
+
+  it("should end the call for both sides when start fails after accepting", async () => {
+    startFailure.current = new Error("microphone permission denied");
+    await useP2PCallStore.getState().startWebRTC(false);
+
+    expect(ends()).toEqual([["p2p_call_end", { call_id: "c1" }]]);
+    expect(useP2PCallStore.getState().activeCall).toBeNull();
+  });
+
+  it("should end the call when start fails on the path where the offer came first", async () => {
+    startFailure.current = new Error("microphone permission denied");
+    await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "offer", sdp: "o" });
+
+    expect(ends()).toEqual([["p2p_call_end", { call_id: "c1" }]]);
+    expect(engineInstances[0].calls).not.toContain("acceptRemoteOffer:o");
+  });
+
+  it("should not end a newer call when an older call's start fails late", async () => {
+    let fail!: (err: Error) => void;
+    startFailure.current = null;
+    const late = new Promise<void>((_, reject) => {
+      fail = reject;
+    });
+    await useP2PCallStore.getState().startWebRTC(false);
+    const engine = useP2PCallStore.getState().engine as unknown as { start: () => Promise<void> };
+    engine.start = () => late;
+
+    const starting = useP2PCallStore.getState().startWebRTC(false);
+    useP2PCallStore.setState({ activeCall: { ...makeCall(), id: "c2" } });
+    fail(new Error("late"));
+    await starting;
+
+    expect(ends()).toEqual([]);
+    expect(useP2PCallStore.getState().activeCall?.id).toBe("c2");
+  });
+});
+
+describe("a repeated accept", () => {
+  it("should not start a second duration timer", () => {
+    vi.useFakeTimers();
+    try {
+      useP2PCallStore.setState({ activeCall: { ...makeCall(), status: "ringing" }, callDuration: 0 });
+      useP2PCallStore.getState().handleCallAccept({ call_id: "c1" });
+      useP2PCallStore.getState().handleCallAccept({ call_id: "c1" });
+      vi.advanceTimersByTime(3_000);
+      expect(useP2PCallStore.getState().callDuration).toBe(3);
+    } finally {
+      useP2PCallStore.getState().cleanup();
+      vi.useRealTimers();
+    }
   });
 });
