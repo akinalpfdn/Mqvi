@@ -101,6 +101,10 @@ type P2PCallStore = {
    * ringing call on connect, before the queued decline or end reaches it; that must not ring.
    */
   _endedHere: Record<string, EndedHere>;
+  /** Ends for a call a previous page left running, waiting for a socket sender. */
+  _orphanedEnds: string[];
+  /** A call the previous page left running natively; the new page cannot resume it. */
+  endOrphanedCall: (callId: string) => void;
 
   // ─── WS Send ───
 
@@ -210,11 +214,27 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   _durationInterval: null,
   _sessionId: null,
   _endedHere: {},
+  _orphanedEnds: [],
   _sendWS: null,
 
   setSessionId: (id) => set({ _sessionId: id }),
 
-  registerSendWS: (fn) => set({ _sendWS: fn }),
+  registerSendWS: (fn) => {
+    const pending = get()._orphanedEnds;
+    if (!fn || pending.length === 0) {
+      set({ _sendWS: fn });
+      return;
+    }
+    set({ _sendWS: fn, _orphanedEnds: [] });
+    for (const callId of pending) fn("p2p_call_end", { call_id: callId });
+  },
+
+  endOrphanedCall: (callId) => {
+    const { _sendWS, _endedHere, _orphanedEnds } = get();
+    set({ _endedHere: rememberEnded(_endedHere, callId, "p2p_call_end") });
+    if (_sendWS) _sendWS("p2p_call_end", { call_id: callId });
+    else set({ _orphanedEnds: [..._orphanedEnds, callId] });
+  },
 
   setRemoteVolume: (volume) => {
     const remoteVolume = Math.max(0, Math.min(200, volume));
@@ -239,17 +259,24 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   // the call by SESSION, which just changed. Claim it back, or it is hung up under us and the
   // ICE restart that would have recovered the media is rejected as coming from a stranger.
   resumeCallAfterReconnect: () => {
-    const { _sendWS, activeCall, _acceptSentFor } = get();
-    if (!_sendWS || !activeCall) return;
+    const { _sendWS, activeCall, incomingCall, _acceptSentFor } = get();
+    if (!_sendWS) return;
+    // Every call on screen is asked about: the server rebinds it to this socket, or repeats the
+    // end that went to the dead one (a ringing receiver has no timeout of its own).
+    if (incomingCall && incomingCall.id !== activeCall?.id) {
+      _sendWS("p2p_call_resume", { call_id: incomingCall.id });
+    }
+    if (!activeCall) return;
     // Answered, but the confirmation may have died with the old socket. The server takes this as
     // the answer if the call still rings, or hands this connection the call it already accepted.
     if (activeCall.status === "ringing" && _acceptSentFor === activeCall.id) {
       _sendWS("p2p_call_accept", { call_id: activeCall.id });
       return;
     }
-    if (activeCall.status !== "active") return;
 
     _sendWS("p2p_call_resume", { call_id: activeCall.id });
+    if (activeCall.status !== "active") return;
+
     // Video announcements are not queued while the socket is down: ours may have been dropped on
     // the way out, and the peer's on the way in. Re-send ours and ask for theirs.
     _sendWS("p2p_signal", { call_id: activeCall.id, type: "video-query" });

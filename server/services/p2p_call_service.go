@@ -182,6 +182,13 @@ func (s *p2pCallService) stopGraceTimer(callID, userID string) {
 	}
 }
 
+// stopGraceTimers stops both parties' windows when a call ends. Both, not one: the other party
+// may be in grace too — one dropped router takes them both out. Caller MUST hold s.mu.
+func (s *p2pCallService) stopGraceTimers(call *models.P2PCall) {
+	s.stopGraceTimer(call.ID, call.CallerID)
+	s.stopGraceTimer(call.ID, call.ReceiverID)
+}
+
 // removeUserMapping deletes a user's call mapping only if it still points to
 // callID — prevents a stale cleanup from clobbering a mapping that has since
 // moved to a newer call (defends the one-call-per-user invariant). Caller MUST
@@ -216,6 +223,7 @@ func (s *p2pCallService) timeoutRinging(callID string) {
 	s.removeUserMapping(call.CallerID, callID)
 	s.removeUserMapping(call.ReceiverID, callID)
 	delete(s.ringTimers, callID)
+	s.stopGraceTimers(call)
 	s.mu.Unlock()
 
 	log.Printf("[p2p] ringing call timed out: %s", callID)
@@ -328,6 +336,8 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, receiverI
 	// accept/decline/end/disconnect. time.AfterFunc is a one-shot (no lingering
 	// goroutine); on shutdown it's dropped with the rest of the in-memory state.
 	s.ringTimers[call.ID] = time.AfterFunc(ringingTimeout, func() { s.timeoutRinging(call.ID) })
+	// The live call is written under the lock from here on (an accept can land any moment).
+	announced := *call
 	s.mu.Unlock()
 
 	// A block between the first check and the registration found no call to end; recheck now.
@@ -356,7 +366,7 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, receiverI
 		return err
 	}
 
-	broadcast := s.buildBroadcast(call, caller, receiver)
+	broadcast := s.buildBroadcast(&announced, caller, receiver)
 
 	// Every device of the receiver rings; every device of the caller shows the outgoing call.
 	s.hub.BroadcastToUser(receiverID, ws.Event{
@@ -404,6 +414,12 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, instanceID, deviceID, cal
 	call, exists := s.activeCalls[callID]
 	if !exists {
 		s.mu.Unlock()
+		// An accept re-sent after a reconnect, for a call that ended meanwhile: the end went to
+		// the dead socket, so the app is still ringing it.
+		s.hub.BroadcastToUser(userID, ws.Event{
+			Op:   ws.OpP2PCallEnd,
+			Data: map[string]string{"call_id": callID},
+		})
 		return fmt.Errorf("%w: call not found", pkg.ErrNotFound)
 	}
 
@@ -515,6 +531,7 @@ func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
 	s.removeUserMapping(call.CallerID, callID)
 	s.removeUserMapping(call.ReceiverID, callID)
 	s.stopRingTimer(callID)
+	s.stopGraceTimers(call)
 	s.mu.Unlock()
 
 	log.Printf("[p2p] call declined: %s declined call %s", userID, callID)
@@ -581,6 +598,7 @@ func (s *p2pCallService) endCall(userID, deviceID, wantCallID string, writeLog b
 	s.removeUserMapping(call.CallerID, callID)
 	s.removeUserMapping(call.ReceiverID, callID)
 	s.stopRingTimer(callID)
+	s.stopGraceTimers(call)
 	s.mu.Unlock()
 
 	log.Printf("[p2p] call ended: %s ended call %s", userID, callID)
@@ -729,11 +747,11 @@ func (s *p2pCallService) HandleSessionDisconnect(userID, sessionID string) {
 		return // a sibling device dropped; the one in the call is still here
 	}
 
-	// The socket carrying an ACTIVE call died — but WebRTC media is peer-to-peer and is still
-	// flowing. This is a network blip, not a hang-up. Give the owner a window to reconnect and
-	// reclaim the call (p2p_call_resume); tear it down only if nobody does.
-	// A zero window disables this and restores the immediate teardown.
-	if call.Status == models.P2PCallStatusActive && s.graceWindow > 0 {
+	// The socket carrying the call died — but WebRTC media is peer-to-peer and still flowing, and
+	// a call still ringing can still be answered. This is a network blip, not a hang-up. Give the
+	// owner a window to reconnect and reclaim the call (p2p_call_resume); tear it down only if
+	// nobody does. A ringing call's own timer still bounds it. A zero window disables this.
+	if s.graceWindow > 0 {
 		s.stopGraceTimer(callID, userID)
 		s.graceTimers[graceKey(callID, userID)] = time.AfterFunc(s.graceWindow, func() {
 			s.endCallAfterGrace(userID, sessionID, callID)
@@ -778,9 +796,7 @@ func (s *p2pCallService) teardownLocked(userID, callID string, call *models.P2PC
 	s.removeUserMapping(call.CallerID, callID)
 	s.removeUserMapping(call.ReceiverID, callID)
 	s.stopRingTimer(callID)
-	// Both, not one: the other party may be in grace too — one dropped router takes them both out.
-	s.stopGraceTimer(callID, call.CallerID)
-	s.stopGraceTimer(callID, call.ReceiverID)
+	s.stopGraceTimers(call)
 	s.mu.Unlock()
 
 	log.Printf("[p2p] call ended due to disconnect: user=%s, call=%s", userID, callID)
@@ -828,15 +844,21 @@ func (s *p2pCallService) ResumeCall(userID, sessionID, instanceID, callID string
 
 	call, exists := s.activeCalls[callID]
 	if !exists {
+		// It ended while this app was cut off, and the end went to the dead socket. Say it again,
+		// or the app shows a call that is gone (a ringing receiver has no timeout of its own).
+		s.hub.BroadcastToUser(userID, ws.Event{
+			Op:   ws.OpP2PCallEnd,
+			Data: map[string]string{"call_id": callID},
+		})
 		return fmt.Errorf("%w: call not found", pkg.ErrNotFound)
 	}
 	if call.CallerID != userID && call.ReceiverID != userID {
 		return fmt.Errorf("%w: not a participant", pkg.ErrForbidden)
 	}
-	// Only an accepted call has an owning session to rebind. A ringing one is still offered to
-	// every one of the receiver's devices.
-	if call.Status != models.P2PCallStatusActive {
-		return fmt.Errorf("%w: call is not active", pkg.ErrBadRequest)
+	// A receiver's ringing call has no owning session yet — every one of their devices is still
+	// being offered it. It is there, and that is all this app needed to know.
+	if call.ReceiverID == userID && call.Status != models.P2PCallStatusActive {
+		return nil
 	}
 
 	owner := call.ReceiverInstanceID
@@ -905,6 +927,7 @@ func (s *p2pCallService) cleanupCall(callID string) {
 	s.removeUserMapping(call.CallerID, callID)
 	s.removeUserMapping(call.ReceiverID, callID)
 	s.stopRingTimer(callID)
+	s.stopGraceTimers(call)
 }
 
 // PendingIncomingCall re-delivers a ringing incoming call to a receiver who

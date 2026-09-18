@@ -63,7 +63,7 @@ type NativeP2PCallPlugin = {
   resendPendingOffer(): Promise<{ resent: boolean }>;
   closeCall(): Promise<void>;
   /** Ends a call a previous page left running. See discardOrphanedNativeCall. */
-  discardOrphanedCall(): Promise<{ discarded: boolean }>;
+  discardOrphanedCall(): Promise<{ discarded: boolean; callId?: string }>;
 
   // Call events carry their call id; the plugin's listeners outlive any one call.
   addListener(
@@ -100,9 +100,13 @@ export const NativeP2PCall = registerPlugin<NativeP2PCallPlugin>("NativeP2PCall"
  * Run at boot: a reload keeps the native plugin, so a call the old page ran (or was starting)
  * is ended here. Native only closes an audio session it opened itself.
  */
-export function discardOrphanedNativeCall(): void {
-  if (getCapacitorPlatform() !== "ios") return;
-  void NativeP2PCall.discardOrphanedCall().catch((err) =>
-    console.error("[p2p] discarding an orphaned native call failed:", err),
-  );
+export async function discardOrphanedNativeCall(): Promise<string | null> {
+  if (getCapacitorPlatform() !== "ios") return null;
+  try {
+    const { callId } = await NativeP2PCall.discardOrphanedCall();
+    return callId ?? null;
+  } catch (err) {
+    console.error("[p2p] discarding an orphaned native call failed:", err);
+    return null;
+  }
 }

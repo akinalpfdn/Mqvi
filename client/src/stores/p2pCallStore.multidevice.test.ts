@@ -208,14 +208,22 @@ describe("resumeCallAfterReconnect", () => {
     expect(sent).toEqual([]);
   });
 
-  // A ringing call has no owning session yet — every one of the receiver's devices is still being
-  // offered it, and the server rejects a resume for one.
-  it("says nothing for a call that is still ringing", () => {
+  // Its end may have gone to the dead socket; a ringing caller's call must also move to this one.
+  it("asks about a call that is still ringing", () => {
     useP2PCallStore.setState({ activeCall: call({ status: "ringing" }) });
 
     useP2PCallStore.getState().resumeCallAfterReconnect();
 
-    expect(sent).toEqual([]);
+    expect(sent).toEqual([{ op: "p2p_call_resume", data: { call_id: "call-1" } }]);
+  });
+
+  it("asks about an incoming call ringing on top of the current one", () => {
+    useP2PCallStore.setState({ activeCall: call({ id: "call-0", status: "active" }), incomingCall: call() });
+
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+
+    expect(sent[0]).toEqual({ op: "p2p_call_resume", data: { call_id: "call-1" } });
+    expect(sent[1]).toEqual({ op: "p2p_call_resume", data: { call_id: "call-0" } });
   });
 
   // Answered, and the socket died before the confirmation came back: nothing else re-sends it.
@@ -344,5 +352,29 @@ describe("a call ended here before the server heard", () => {
     expect(useP2PCallStore.getState().incomingCall).toBeNull();
     expect(useP2PCallStore.getState().activeCall).toBeNull();
     expect(sent).toEqual([{ op, data: { call_id: "call-1" } }]);
+  });
+});
+
+describe("a call the previous page left running", () => {
+  // The native side ends its media on reload; the server still thinks the call is up.
+  it("is hung up once the socket sender exists, and never rings again", () => {
+    useP2PCallStore.setState({ _sendWS: null, _orphanedEnds: [] });
+    useP2PCallStore.getState().endOrphanedCall("call-1");
+
+    const sent: { op: string; data?: unknown }[] = [];
+    useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
+    expect(sent).toEqual([{ op: "p2p_call_end", data: { call_id: "call-1" } }]);
+
+    useP2PCallStore.getState().handleCallInitiate(call());
+    expect(useP2PCallStore.getState().incomingCall).toBeNull();
+  });
+
+  it("is hung up at once when the sender is already there", () => {
+    const sent: { op: string; data?: unknown }[] = [];
+    useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
+
+    useP2PCallStore.getState().endOrphanedCall("call-1");
+
+    expect(sent).toEqual([{ op: "p2p_call_end", data: { call_id: "call-1" } }]);
   });
 });

@@ -265,3 +265,29 @@ describe("a web receiver whose offer never comes", () => {
     engine.close();
   });
 });
+
+// Both sides renegotiating at once (both turn the camera on). Without a tie-break each rolls back
+// or rejects the other and neither change lands.
+describe("offer collisions", () => {
+  it("the caller keeps its own offer and ignores the peer's", async () => {
+    const { engine } = await harness(true);
+    pc.signalingState = "have-local-offer";
+    pc.setRemoteDescription.mockClear();
+
+    await engine.acceptRemoteOffer("their-offer");
+
+    expect(pc.setRemoteDescription).not.toHaveBeenCalled();
+  });
+
+  it("the receiver drops its own offer and answers the caller's", async () => {
+    const { engine, ev } = await harness(false);
+    pc.signalingState = "have-local-offer";
+    pc.setLocalDescription.mockClear();
+
+    await engine.acceptRemoteOffer("caller-offer");
+
+    expect(pc.setLocalDescription).toHaveBeenNthCalledWith(1, { type: "rollback" });
+    expect(pc.setRemoteDescription).toHaveBeenLastCalledWith({ type: "offer", sdp: "caller-offer" });
+    expect(ev.onLocalDescription).toHaveBeenLastCalledWith({ type: "answer", sdp: "answer-sdp" });
+  });
+});

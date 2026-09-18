@@ -258,3 +258,107 @@ func TestGrace_BothDropAndBothReturn(t *testing.T) {
 		t.Errorf("a call both parties reclaimed still reported %d end events", n)
 	}
 }
+
+// The caller's phone moves from Wi-Fi to cellular while the call rings. The old socket is not
+// noticed dead yet when the receiver answers, so the caller's offer arrives on the new one.
+func TestRingingCaller_ReclaimsTheCallOnANewConnection(t *testing.T) {
+	svc, _ := activeCallService(time.Hour)
+	svc.activeCalls["x"].Status = models.P2PCallStatusRinging
+	svc.activeCalls["x"].CallerInstanceID = "caller-app"
+
+	if err := svc.ResumeCall("caller", "caller-sess-2", "caller-app", "x"); err != nil {
+		t.Fatalf("ResumeCall on a ringing call: %v", err)
+	}
+	if got := svc.activeCalls["x"].CallerSessionID; got != "caller-sess-2" {
+		t.Fatalf("call still bound to %q", got)
+	}
+	if err := svc.AcceptCall("rcv", "rcv-sess", "", "rcv-dev", "x"); err != nil {
+		t.Fatalf("AcceptCall: %v", err)
+	}
+	offer := ws.P2PSignalData{CallID: "x", Type: "offer", SDP: "o"}
+	if err := svc.RelaySignal("caller", "caller-sess-2", "x", offer); err != nil {
+		t.Errorf("the caller's offer from its new connection was refused: %v", err)
+	}
+}
+
+// The other order: the old socket is noticed dead before the new one connects. Ending the call
+// there sent its end to nobody, and the caller watched it ring to a false "no answer".
+func TestRingingCaller_GetsTheGraceWindowToo(t *testing.T) {
+	svc, hub := activeCallService(time.Hour)
+	svc.activeCalls["x"].Status = models.P2PCallStatusRinging
+
+	svc.HandleSessionDisconnect("caller", "caller-sess")
+
+	if !callExists(svc, "x") {
+		t.Fatal("a ringing call was ended the moment the caller's socket dropped")
+	}
+	if n := len(hub.eventsFor("rcv", ws.OpP2PCallEnd)); n != 0 {
+		t.Errorf("the receiver was told the call ended (%d events)", n)
+	}
+	if err := svc.ResumeCall("caller", "caller-sess-2", "", "x"); err != nil {
+		t.Fatalf("ResumeCall: %v", err)
+	}
+	svc.mu.RLock()
+	_, pending := svc.graceTimers[graceKey("x", "caller")]
+	svc.mu.RUnlock()
+	if pending {
+		t.Error("the teardown is still pending after the caller came back")
+	}
+}
+
+// A receiver's ringing call has no owner to rebind; resuming it only confirms it is still there.
+func TestResume_OfAReceiversRingingCallChangesNothing(t *testing.T) {
+	svc, _ := activeCallService(time.Hour)
+	svc.activeCalls["x"].Status = models.P2PCallStatusRinging
+	svc.activeCalls["x"].ReceiverSessionID = ""
+
+	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
+		t.Fatalf("ResumeCall: %v", err)
+	}
+	if got := svc.activeCalls["x"].ReceiverSessionID; got != "" {
+		t.Errorf("a ringing call was bound to %q; the receiver's other devices could no longer answer", got)
+	}
+}
+
+// The call ended while this app was cut off and the end went to the dead socket. Asking about it
+// must bring the end back, or a ringing receiver shows it forever.
+func TestResumeAndAccept_OfACallThatEndedSendTheEndAgain(t *testing.T) {
+	for _, ask := range []func(*p2pCallService) error{
+		func(s *p2pCallService) error { return s.ResumeCall("rcv", "rcv-sess-2", "", "gone") },
+		func(s *p2pCallService) error { return s.AcceptCall("rcv", "rcv-sess-2", "", "rcv-dev", "gone") },
+	} {
+		svc, hub := activeCallService(time.Hour)
+		if err := ask(svc); !errors.Is(err, pkg.ErrNotFound) {
+			t.Fatalf("want not found, got %v", err)
+		}
+		ends := hub.eventsFor("rcv", ws.OpP2PCallEnd)
+		if len(ends) != 1 || ends[0].Data.(map[string]string)["call_id"] != "gone" {
+			t.Errorf("the end was not repeated: %v", ends)
+		}
+	}
+}
+
+// Every way a call ends stops both windows, so no timer outlives the call it was counting for.
+func TestEveryEndStopsBothGraceWindows(t *testing.T) {
+	ends := map[string]func(*p2pCallService){
+		// Errors ignored: the call exists, and only the timers are under test.
+		"end":     func(s *p2pCallService) { _ = s.EndCall("caller", "", "x") },
+		"decline": func(s *p2pCallService) { _ = s.DeclineCall("rcv", "", "x") },
+		"timeout": func(s *p2pCallService) { s.timeoutRinging("x") },
+	}
+	for name, end := range ends {
+		svc, _ := activeCallService(time.Hour)
+		svc.activeCalls["x"].Status = models.P2PCallStatusRinging
+		svc.graceTimers[graceKey("x", "caller")] = time.AfterFunc(time.Hour, func() {})
+		svc.graceTimers[graceKey("x", "rcv")] = time.AfterFunc(time.Hour, func() {})
+
+		end(svc)
+
+		svc.mu.RLock()
+		left := len(svc.graceTimers)
+		svc.mu.RUnlock()
+		if left != 0 {
+			t.Errorf("%s left %d grace timers running", name, left)
+		}
+	}
+}

@@ -159,6 +159,14 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("no active call")
             return
         }
+        // Both sides offered at once: the caller's offer wins, and the peer answers it instead.
+        lock.lock()
+        let offering = makingOffer
+        lock.unlock()
+        if isCallerNow() && (offering || pc.signalingState != .stable) {
+            call.resolve()
+            return
+        }
         let offer = LKRTCSessionDescription(type: .offer, sdp: sdp)
         pc.setRemoteDescription(offer) { [weak self] error in
             guard let self else { return }
@@ -397,7 +405,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         DispatchQueue.main.async {
             CallManager.shared.endCall(callId: orphan, reason: "failed")
-            call.resolve(["discarded": true])
+            call.resolve(["discarded": true, "callId": orphan])
         }
     }
 

@@ -171,6 +171,15 @@ export class WebCallEngine implements CallMediaEngine {
       applyDegradationPreference(pc);
     }
 
+    // Both sides offered at once. The caller's offer wins: it ignores this one, and the receiver
+    // drops its own and answers the caller's; its change is offered again once stable.
+    const collision = this.makingOffer || pc.signalingState !== "stable";
+    if (collision && this.opts.isCaller) return;
+    if (pc.signalingState === "have-local-offer") {
+      await pc.setLocalDescription({ type: "rollback" });
+      if (this.closed || this.pc !== pc) return;
+    }
+
     await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
     if (this.closed || this.pc !== pc) return;
     await this.flushCandidates(pc);

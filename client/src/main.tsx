@@ -8,6 +8,7 @@ import ErrorBoundary from "./components/shared/ErrorBoundary";
 import { isNativeApp } from "./utils/constants";
 import { configureMobileUI, initAppLifecycle } from "./utils/nativePlugins";
 import { discardOrphanedNativeCall } from "./native/nativeP2PCall";
+import { useP2PCallStore } from "./stores/p2pCallStore";
 import { initAppFocus } from "./utils/appFocus";
 
 // Native shells (Electron file://, Capacitor capacitor://) don't support HTML5 History API.
@@ -20,8 +21,11 @@ configureMobileUI();
 // Initialize app lifecycle listeners (background/foreground, back button) — no-op on web/Electron
 initAppLifecycle();
 
-// iOS: a reload leaves the native call plugin running whatever call the old page had — no-op elsewhere
-discardOrphanedNativeCall();
+// iOS: a reload leaves the native call plugin running whatever call the old page had — no-op
+// elsewhere. The new page is a different app instance and cannot resume it, so it is hung up.
+void discardOrphanedNativeCall().then((callId) => {
+  if (callId) useP2PCallStore.getState().endOrphanedCall(callId);
+});
 
 // "Is the user in front of the app?" — every platform. The DM read loop depends on it.
 initAppFocus();
