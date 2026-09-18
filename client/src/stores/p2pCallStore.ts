@@ -25,6 +25,7 @@ import { startVoiceCallService, stopVoiceCallService } from "../utils/nativePlug
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
+import { registerP2PCallControl } from "./shared/p2pCallControl";
 
 // ─── Types ───
 
@@ -65,6 +66,8 @@ type P2PCallStore = {
   isVideoOn: boolean;
   /** Which camera is publishing. Drives the mirror on your own preview. */
   cameraFacing: CameraFacing;
+  /** A camera switch is in flight; a second press waits for it rather than racing it. */
+  _switchingCamera: boolean;
   isScreenSharing: boolean;
 
   /** Remote audio output volume, 0–200 (100 = normal). Above 100 amplifies via Web Audio. */
@@ -155,6 +158,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   isMuted: false,
   isVideoOn: false,
   cameraFacing: "front",
+  _switchingCamera: false,
   isScreenSharing: false,
   remoteVolume: 100,
   callDuration: 0,
@@ -236,11 +240,16 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   },
 
   switchCamera: () => {
-    const { engine, isVideoOn } = get();
-    if (!engine || !isVideoOn) return;
+    const { engine, isVideoOn, _switchingCamera } = get();
+    if (!engine || !isVideoOn || _switchingCamera) return;
+    // Two switches in flight both read the same current camera and both turned to the same
+    // "other" one: the second press never flipped back.
+    set({ _switchingCamera: true });
     // The engine reports where it landed; a phone with one camera stays where it was.
-    void engine.switchCamera().then((facing) => {
-      if (facing) set({ cameraFacing: facing });
+    void engine.switchCamera().catch(() => null).then((facing) => {
+      // A call that ended meanwhile has been reset; nothing of this switch belongs to it.
+      if (get().engine !== engine) return;
+      set({ _switchingCamera: false, ...(facing ? { cameraFacing: facing } : {}) });
     });
   },
 
@@ -300,6 +309,10 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     });
 
     set({ engine, isNativeVideo: engine.rendersVideoNatively });
+
+    // The call can be muted before it has an engine — from the CallKit screen, before the
+    // accept has come back. That mute lives only in isMuted until now.
+    if (get().isMuted) engine.setMicEnabled(false);
 
     // Tell the peer whenever we start or stop putting a picture on the video track. Driven by
     // the state rather than by each toggle, so the camera button, the screen share, a camera the
@@ -368,6 +381,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       isMuted: false,
       isVideoOn: false,
       cameraFacing: "front",
+      _switchingCamera: false,
       isScreenSharing: false,
       remoteVolume: 100,
       callDuration: 0,
@@ -536,3 +550,14 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     }
   },
 }));
+
+registerP2PCallControl({
+  hasLiveMedia: () => useP2PCallStore.getState().activeCall?.status === "active",
+  hasCall: () => useP2PCallStore.getState().activeCall !== null,
+  end: () => {
+    const state = useP2PCallStore.getState();
+    // endCall does nothing without a socket to send on, and would leave the media running.
+    if (state._sendWS) state.endCall();
+    else state.cleanup();
+  },
+});

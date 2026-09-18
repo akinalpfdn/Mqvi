@@ -8,6 +8,8 @@
 
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
+import { getCapacitorPlatform } from "../utils/constants";
+
 export type NativeIceCandidate = {
   candidate: string;
   sdpMid: string;
@@ -60,6 +62,8 @@ type NativeP2PCallPlugin = {
   }): Promise<void>;
   restartIce(): Promise<void>;
   closeCall(): Promise<void>;
+  /** Ends a call a previous page left running. See discardOrphanedNativeCall. */
+  discardOrphanedCall(): Promise<{ discarded: boolean }>;
 
   // Call events name the call they belong to. The native side already drops events from a
   // connection it has let go of; the engine checks the id as well, since the plugin's
@@ -88,3 +92,19 @@ type NativeP2PCallPlugin = {
 };
 
 export const NativeP2PCall = registerPlugin<NativeP2PCallPlugin>("NativeP2PCall");
+
+/**
+ * Run once as the page boots, before any call can start. A reload — the error screen's
+ * automatic one, the connection banner's refresh, iOS killing the web content process — gives
+ * us a fresh page but keeps the native plugin, which Capacitor only strips of its listeners. A
+ * call the old page was running — or was still starting, behind a permission prompt — would go
+ * on holding the microphone, the camera and the video views with nothing left to end it. The
+ * native side ends it either way, and never touches an audio session it did not open: a call
+ * answered on the lock screen has CallKit's session live before the page loads.
+ */
+export function discardOrphanedNativeCall(): void {
+  if (getCapacitorPlatform() !== "ios") return;
+  void NativeP2PCall.discardOrphanedCall().catch((err) =>
+    console.error("[p2p] discarding an orphaned native call failed:", err),
+  );
+}

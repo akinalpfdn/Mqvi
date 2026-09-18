@@ -185,10 +185,28 @@ export async function nativeVoiceConnect(url: string, token: string, isMuted: bo
   return result.connected;
 }
 
+/** The native voice disconnect in flight, if any; settles whether it succeeds or not. */
+let voiceReleased: Promise<void> = Promise.resolve();
+
 /** Disconnect native voice. */
 export async function nativeVoiceDisconnect(): Promise<void> {
   if (!useNativeVoice()) return;
-  await NativeVoice.disconnect();
+  const done = NativeVoice.disconnect();
+  voiceReleased = done.then(
+    () => undefined,
+    () => undefined,
+  );
+  await done;
+}
+
+/**
+ * Resolves once any native voice disconnect in flight has finished. LiveKit lets go of the
+ * shared audio session asynchronously, after its disconnect call has already returned; the
+ * native call engine waits on this before it takes the session, or LiveKit could reset it
+ * under the call that just started and leave it silent.
+ */
+export function nativeVoiceReleased(): Promise<void> {
+  return voiceReleased;
 }
 
 /** Set mic enabled/disabled on native voice. */

@@ -1,11 +1,10 @@
 /**
- * WebCallEngine — the peer connection as it has always run: RTCPeerConnection inside the
- * page. Used on web, Electron and Android, and on iOS until the native engine covers a
- * call type.
+ * WebCallEngine — the peer connection as RTCPeerConnection inside the page. Used on web,
+ * Electron and Android; iOS runs NativeCallEngine.
  *
- * Everything here moved out of p2pCallStore unchanged in behaviour: the glare guard, the
- * candidate queue, the bounded ICE-restart recovery, the degradation preference, the
- * screen-share sender swap.
+ * Moved out of p2pCallStore: the candidate queue, the bounded ICE-restart recovery, the
+ * degradation preference, the screen-share sender swap. Incoming offers are now applied one at
+ * a time (see acceptRemoteOffer), where the store used to abandon a concurrent one.
  */
 
 import { fetchIceServers } from "../api/calls";
@@ -56,6 +55,9 @@ export class WebCallEngine implements CallMediaEngine {
   private pc: RTCPeerConnection | null = null;
   /** Serializes incoming offers; see acceptRemoteOffer. */
   private offerChain: Promise<void> = Promise.resolve();
+  /** Whether the microphone should send. Held here because the call can be muted before the
+   * stream exists, and the stream is born with its tracks enabled. */
+  private micEnabled = true;
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
@@ -209,6 +211,7 @@ export class WebCallEngine implements CallMediaEngine {
   }
 
   setMicEnabled(enabled: boolean): void {
+    this.micEnabled = enabled;
     if (!this.localStream) return;
     for (const track of this.localStream.getAudioTracks()) track.enabled = enabled;
   }
@@ -423,6 +426,9 @@ export class WebCallEngine implements CallMediaEngine {
   }
 
   private setLocalStream(stream: MediaStream): void {
+    // A mute made before the stream existed has to reach it, or the microphone goes live under
+    // a button that says it is muted.
+    for (const track of stream.getAudioTracks()) track.enabled = this.micEnabled;
     this.localStream = stream;
     this.events.onLocalStream(stream);
     this.events.onLocalVideo(stream.getVideoTracks().some((track) => track.enabled));

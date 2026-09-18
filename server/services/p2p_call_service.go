@@ -326,6 +326,16 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, receiverID string, ca
 	s.ringTimers[call.ID] = time.AfterFunc(ringingTimeout, func() { s.timeoutRinging(call.ID) })
 	s.mu.Unlock()
 
+	// Check the friendship again, now that the call is registered. A block landing between the
+	// first check and the registration found no call to end — EndCallBetween looks the call up —
+	// and the blocked person would have rung. From here on either a block finds this call and
+	// ends it, or this check finds the block. Nothing has been announced yet, so the call is
+	// dropped silently.
+	if f, err := s.friendChecker.GetByPair(ctx, callerID, receiverID); err != nil || f.Status != models.FriendshipStatusAccepted {
+		s.cleanupCall(call.ID)
+		return fmt.Errorf("%w: not friends", pkg.ErrForbidden)
+	}
+
 	log.Printf("[p2p] call initiated: %s -> %s (type=%s, id=%s)", callerID, receiverID, callType, call.ID)
 
 	caller, err := s.userGetter.GetByID(ctx, callerID)

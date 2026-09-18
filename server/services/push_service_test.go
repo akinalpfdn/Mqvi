@@ -741,9 +741,11 @@ func TestNotifyCallCancel_WaitsForAWithheldRingStillBeingDecided(t *testing.T) {
 	}
 }
 
-// The same race with a ring that does go out: the cancel overtook it and the device was left
-// ringing for a call that was already over.
-func TestNotifyCallCancel_NeverOvertakesItsRing(t *testing.T) {
+// The same race for a receiver who is online: the caller hangs up while the ring is still being
+// decided. The cancel used to overtake the ring and leave the device ringing for a call already
+// over. Now the ring sees the cancel before it sends, and nothing reaches the device at all. A
+// cancel after a ring that did go out still follows it (TestNotifyCall_RingsAndCancelsForAnOnlineReceiver).
+func TestNotifyCallCancel_StopsARingStillBeingDecided(t *testing.T) {
 	repo := &fakeTokenRepo{tokens: []models.PushToken{
 		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
 	}}
@@ -754,21 +756,71 @@ func TestNotifyCallCancel_NeverOvertakesItsRing(t *testing.T) {
 	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "call4", "alice")
 	s.NotifyCallCancel("rcv", "call4", "")
 
+	close(users.release)
 	select {
 	case kind := <-sink.sent:
-		t.Fatalf("a %s went out before the ring was decided", kind)
-	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("a %s went out for a call hung up before it could ring", kind)
+	case <-time.After(200 * time.Millisecond):
 	}
+}
+
+// callAPNs records each VoIP push as "ring:<call>" or "cancel:<call>".
+type callAPNs struct{ sent chan string }
+
+func (c *callAPNs) Enabled() bool { return true }
+func (c *callAPNs) SendVoIP(_ context.Context, _ string, payload map[string]any) error {
+	kind := "ring"
+	if payload["cancel"] == true {
+		kind = "cancel"
+	}
+	c.sent <- fmt.Sprintf("%s:%v", kind, payload["call_id"])
+	return nil
+}
+func (c *callAPNs) SendAlert(context.Context, string, string, map[string]any) error { return nil }
+func (c *callAPNs) SendBackground(context.Context, string, map[string]any) error    { return nil }
+
+// With the push pool full, a ring can wait for a slot longer than any fixed deadline. The cancel
+// used to give up waiting after one, go first, and leave the ring to follow it: a device ringing
+// for a call that was already over. A ring that was cancelled before it could go out now stays
+// home, and so does its cancel.
+func TestNotifyCall_ARingCancelledWhileQueuedSendsNothing(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	users := heldUsers{release: make(chan struct{}), status: models.UserStatusOnline}
+	sink := &callAPNs{sent: make(chan string, 16)}
+	cfg := testPushConfig(0)
+	s := NewPushService(disabledFCM{}, sink, repo, users, nil, nil, cfg)
+
+	// Fill every slot with rings stuck on their lookups.
+	for i := 0; i < cfg.MaxConcurrent; i++ {
+		s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, fmt.Sprintf("busy%d", i), "alice")
+	}
+	time.Sleep(50 * time.Millisecond) // let them take the slots
+
+	// This ring queues behind them; the caller hangs up before it gets a slot.
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "late", "alice")
+	s.NotifyCallCancel("rcv", "late", "")
 
 	close(users.release)
-	for _, want := range []string{"ring", "cancel"} {
+	deadline := time.After(2 * time.Second)
+	rings := 0
+	for rings < cfg.MaxConcurrent {
 		select {
 		case got := <-sink.sent:
-			if got != want {
-				t.Fatalf("pushed %s, want %s: the cancel overtook its ring", got, want)
+			if strings.HasSuffix(got, ":late") {
+				t.Fatalf("%s went out for a call cancelled before it could ring", got)
 			}
-		case <-time.After(2 * time.Second):
-			t.Fatalf("no %s push", want)
+			rings++
+		case <-deadline:
+			t.Fatalf("only %d of the busy rings went out", rings)
 		}
+	}
+	select {
+	case got := <-sink.sent:
+		if strings.HasSuffix(got, ":late") {
+			t.Fatalf("%s went out for a call cancelled before it could ring", got)
+		}
+	case <-time.After(200 * time.Millisecond):
 	}
 }

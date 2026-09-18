@@ -130,3 +130,25 @@ describe("web engine receiving offers", () => {
     expect(ev.onLocalDescription).toHaveBeenCalledWith({ type: "answer", sdp: "answer-sdp" });
   });
 });
+
+/**
+ * A mute made before the stream existed never reached it: the stream is born with its tracks on,
+ * and the microphone went live under a button that said it was muted.
+ */
+describe("web engine mute before the microphone is open", () => {
+  it("should open the stream with the microphone already muted", async () => {
+    const audio = { kind: "audio", enabled: true, stop: () => {} };
+    const stream = {
+      getTracks: () => [audio],
+      getAudioTracks: () => [audio],
+      getVideoTracks: () => [],
+    } as unknown as MediaStream;
+    getUserMedia.mockResolvedValue(stream);
+
+    const { engine } = await receiver();
+    engine.setMicEnabled(false);
+    await engine.acceptRemoteOffer("offer-1");
+
+    expect(audio.enabled).toBe(false);
+  });
+});

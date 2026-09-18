@@ -167,41 +167,57 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
 
 /// Camera capture for a native call. Front by default; the switch is one call away because the
 /// capturer only needs a different device.
+///
+/// Requests only change what the call wants; `reconcile` moves the capturer there, with at most
+/// one start or stop in flight. Starting on a session that is still running — or still stopping —
+/// leaves the capturer producing nothing, and the other side sits on the last frame it got. Two
+/// quick switches, or a switch landing on top of the app coming forward, did exactly that. Now
+/// whatever arrives while a transition runs is picked up when it finishes, in a single step to
+/// the latest state.
 @MainActor
 final class NativeCallCamera {
     private let capturer: LKRTCCameraVideoCapturer
     private let source: LKRTCVideoSource
-    private(set) var position: AVCaptureDevice.Position = .front
-    private var capturing = false
 
-    /// Whether the call wants the camera on. iOS refuses camera capture in the background, so
-    /// a call answered from the lock screen starts with no picture; this is what says the
-    /// picture is owed once the app comes forward.
+    /// The camera the call wants.
+    private(set) var position: AVCaptureDevice.Position = .front
+    /// Whether the call wants the camera on at all.
     private var wanted = false
+    /// iOS refuses capture in the background, so a call answered from the lock screen starts
+    /// with no picture; the picture is owed once the app comes forward.
+    private var suspended: Bool
+    /// The camera a session is running with, or nil when none is.
+    private var running: AVCaptureDevice.Position?
+    /// A start or stop is in flight.
+    private var busy = false
     private var observers: [NSObjectProtocol] = []
 
     init(source: LKRTCVideoSource) {
         self.source = source
         capturer = LKRTCCameraVideoCapturer(delegate: source)
+        // Set here, not as a default value: those are evaluated off the main actor, and the
+        // application state may only be read on it.
+        suspended = UIApplication.shared.applicationState == .background
 
         let center = NotificationCenter.default
         observers.append(center.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.wanted, !self.capturing else { return }
-                self.start(position: self.position)
+                guard let self else { return }
+                self.suspended = false
+                self.reconcile()
             }
         })
         observers.append(center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.capturing else { return }
+                guard let self else { return }
                 // iOS interrupts the session anyway; stopping cleanly keeps the capturer in a
                 // state it can be restarted from.
-                self.capturer.stopCapture()
-                self.capturing = false
+                self.suspended = true
+                self.reconcile()
             }
         })
     }
@@ -210,43 +226,15 @@ final class NativeCallCamera {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
-    var isFrontFacing: Bool { position == .front }
-
     func start(position: AVCaptureDevice.Position = .front) {
         wanted = true
-        guard UIApplication.shared.applicationState != .background else {
-            // Nothing to do yet: the notification above starts it when the app comes forward.
-            self.position = position
-            return
-        }
-        guard let device = Self.device(for: position),
-              let format = Self.format(for: device),
-              let fps = Self.frameRate(for: format) else { return }
         self.position = position
-
-        // Starting while a session is still running — or still tearing down — leaves the
-        // capturer producing nothing, and the other side sits on the last frame it received.
-        // Always go through a completed stop first.
-        if capturing {
-            capturing = false
-            capturer.stopCapture { [weak self] in
-                Task { @MainActor in
-                    guard let self, self.wanted else { return }
-                    self.capturing = true
-                    self.capturer.startCapture(with: device, format: format, fps: fps)
-                }
-            }
-            return
-        }
-        capturing = true
-        capturer.startCapture(with: device, format: format, fps: fps)
+        reconcile()
     }
 
     func stop() {
         wanted = false
-        guard capturing else { return }
-        capturing = false
-        capturer.stopCapture()
+        reconcile()
     }
 
     /// Turning the camera off and on again: the session is stopped and started cleanly, so the
@@ -263,9 +251,53 @@ final class NativeCallCamera {
             completion(position)
             return
         }
-        // `start` already goes through a completed stop; stopping here as well stopped it twice.
-        start(position: next)
+        position = next
+        reconcile()
         completion(position)
+    }
+
+    /// Moves the capturer one step toward what the call wants. Every finished transition calls
+    /// it again, so a run of requests settles on the last one.
+    private func reconcile() {
+        guard !busy else { return }
+        let target: AVCaptureDevice.Position? = wanted && !suspended ? position : nil
+        guard running != target else { return }
+
+        // Both completions hold the camera strongly on purpose. The call lets go of it as soon as
+        // it asks it to stop, and a stop deferred behind a start still in flight has to outlive
+        // that: with a weak reference it found nothing when it came round, and the session kept
+        // recording with no call. They run once and are released, so nothing is kept for good.
+        if running != nil {
+            busy = true
+            capturer.stopCapture { [self] in
+                Task { @MainActor in
+                    self.busy = false
+                    self.running = nil
+                    self.reconcile()
+                }
+            }
+            return
+        }
+
+        guard let target,
+              let device = Self.device(for: target),
+              let format = Self.format(for: device),
+              let fps = Self.frameRate(for: format) else { return }
+        busy = true
+        running = target
+        capturer.startCapture(with: device, format: format, fps: fps) { [self] error in
+            Task { @MainActor in
+                self.busy = false
+                if let error {
+                    // No retry from here: a camera that failed to start would loop. The next
+                    // request, or the app coming forward, tries again.
+                    print("[p2p-native] camera start failed: \(error.localizedDescription)")
+                    self.running = nil
+                    return
+                }
+                self.reconcile()
+            }
+        }
     }
 
     private static func device(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {

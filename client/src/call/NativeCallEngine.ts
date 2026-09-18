@@ -11,6 +11,7 @@
 
 import { fetchIceServers } from "../api/calls";
 import { NativeP2PCall, type NativeConnectionState } from "../native/nativeP2PCall";
+import { nativeVoiceReleased } from "../utils/nativePlugins";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type {
   CallEngineEvents,
@@ -19,6 +20,20 @@ import type {
   CameraFacing,
 } from "./CallMediaEngine";
 import { DISCONNECT_GRACE_MS, IceRecovery } from "./IceRecovery";
+
+/** Longest the call waits for channel voice to release the audio session. */
+const VOICE_RELEASE_WAIT_MS = 3_000;
+
+/** Waits for `settled`, but no longer than `ms`. */
+function atMost(settled: Promise<void>, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    void settled.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
 
 export class NativeCallEngine implements CallMediaEngine {
   readonly rendersVideoNatively = true;
@@ -127,6 +142,11 @@ export class NativeCallEngine implements CallMediaEngine {
 
     if (this.closed) return;
     const iceServers = await fetchIceServers();
+    if (this.closed) return;
+
+    // Starting the call left the voice channel; LiveKit may still be letting go of the audio
+    // session. Bounded, so a disconnect that never settles cannot keep the call from starting.
+    await atMost(nativeVoiceReleased(), VOICE_RELEASE_WAIT_MS);
     if (this.closed) return;
 
     this.isCaller = opts.isCaller;

@@ -59,8 +59,8 @@ const (
 	maxTrackedSuppressedCalls = 1024
 	suppressedCallTTL         = 5 * time.Minute
 
-	// Rings a cancel may still have to wait for. A ring is decided within pushTimeout, so past
-	// that a gate is a closed channel nobody needs.
+	// Rings a cancel may still have to wait for. A decided gate is kept this long, then swept;
+	// an undecided one is never swept, since a cancel may still depend on it.
 	maxTrackedRingGates = 4096
 	ringGateTTL         = 2 * pushTimeout
 
@@ -75,6 +75,10 @@ const (
 	reasonNoTokens    = "no_tokens"
 	reasonAlreadyRead = "already_read"
 	reasonShed        = "backlog_full"
+	// The call was cancelled before its ring could go out — a hang-up while the ring waited.
+	reasonCancelledFirst = "cancelled_before_ring"
+	// A cancel whose ring never went out, for whichever reason, so no device is ringing.
+	reasonRingWithheld = "ring_withheld"
 )
 
 // PushStats is a snapshot of what push has been doing. Read by /api/health/ready.
@@ -135,12 +139,14 @@ type pushService struct {
 	// once could have the cancel go ahead before the ring had even looked the recipient up:
 	// a cancel for a ring that was about to be withheld flashed a phantom call on iOS, and one
 	// that overtook a ring that did go out left the device ringing for a call already over.
-	ringGates map[string]ringGate
+	ringGates map[string]*ringGate
 }
 
 type ringGate struct {
 	decided chan struct{}
 	opened  time.Time
+	// A cancel arrived before the ring was sent. Guarded by pushService.mu.
+	cancelled bool
 }
 
 func NewPushService(
@@ -169,7 +175,7 @@ func NewPushService(
 		apnsBreaker:     breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
 		outstanding:     make(map[string]struct{}),
 		suppressedCalls: make(map[string]time.Time),
-		ringGates:       make(map[string]ringGate),
+		ringGates:       make(map[string]*ringGate),
 	}
 }
 
@@ -273,29 +279,44 @@ func (s *pushService) openRingGate(callID string) func() {
 		log.Printf("[push] ring-gate table full, cancel for %s will not wait for its ring", callID)
 		return func() {}
 	}
-	gate := ringGate{decided: make(chan struct{}), opened: time.Now()}
+	gate := &ringGate{decided: make(chan struct{}), opened: time.Now()}
 	s.ringGates[callID] = gate
 	var once sync.Once
 	return func() { once.Do(func() { close(gate.decided) }) }
 }
 
-// ringDecided is what a cancel waits on before it asks whether the ring was withheld; nil when
-// there is no ring to wait for.
-func (s *pushService) ringDecided(callID string) <-chan struct{} {
+// cancelRing tells a ring that has not gone out yet that its call is over, and returns what the
+// cancel waits on before it looks at whether the ring was withheld — nil when there is no ring to
+// wait for.
+func (s *pushService) cancelRing(callID string) <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	gate, ok := s.ringGates[callID]
 	if !ok {
 		return nil
 	}
+	gate.cancelled = true
 	return gate.decided
+}
+
+// ringCancelled is the ring's last check before it sends.
+func (s *pushService) ringCancelled(callID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	gate, ok := s.ringGates[callID]
+	return ok && gate.cancelled
 }
 
 func (s *pushService) sweepRingGatesLocked() {
 	cutoff := time.Now().Add(-ringGateTTL)
 	for id, gate := range s.ringGates {
-		if gate.opened.Before(cutoff) {
-			delete(s.ringGates, id)
+		select {
+		case <-gate.decided:
+			if gate.opened.Before(cutoff) {
+				delete(s.ringGates, id)
+			}
+		default:
+			// Still deciding. Sweeping it would let a cancel skip the wait and race the ring.
 		}
 	}
 }
@@ -653,6 +674,17 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 			// iOS FCM tokens are skipped for calls — the VoIP token (CallKit) is the iOS path.
 		}
 
+		// The ring may have waited a long time — for a pool slot, for the lookups above — and the
+		// caller may have hung up meanwhile. A ring sent now would reach a device after its cancel,
+		// or a cancel would reach a device that never rang: iOS has to show every VoIP push as a
+		// call, so either way the user sees a call that does not exist. Withheld, the pending
+		// cancel sees that and stays quiet too.
+		if s.ringCancelled(callID) {
+			s.markCallSuppressed(callID)
+			s.suppressed(receiverID, "call", reasonCancelledFirst)
+			return
+		}
+
 		// Android — high-priority DATA message so the native FirebaseMessagingService
 		// builds a full-screen incoming-call notification even when the app is killed.
 		// The localized title/body travel in the data so the native side stays i18n-free.
@@ -713,7 +745,7 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 			// No ring push went out for this call, so no device is ringing. Sending the cancel
 			// anyway makes iOS report and instantly end a call the user never received.
 			if s.callPushSuppressed(callID) {
-				s.suppressed(receiverID, "call_cancel", reasonDND)
+				s.suppressed(receiverID, "call_cancel", reasonRingWithheld)
 				return
 			}
 
@@ -772,21 +804,18 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 	}
 
 	// The cancel is only right once the ring has been decided — whether it was withheld is what
-	// this cancel asks first. The wait happens outside the pool: a cancel holding a slot while
-	// its ring waited for one could fill the pool and starve the very rings it waits on. Bounded
-	// by pushTimeout, the ring's own deadline, so it always ends.
-	decided := s.ringDecided(callID)
+	// this cancel asks first — and marking the ring cancelled lets one still waiting withhold
+	// itself. The wait happens outside the pool: a cancel holding a slot while its ring waited for
+	// one could fill the pool and starve the very rings it waits on. It has no deadline of its own
+	// on purpose — a timeout would let the cancel go first when the pool is busiest. It always
+	// ends: every ring's dispatch runs, and closes `decided` on every way out.
+	decided := s.cancelRing(callID)
 	if decided == nil {
 		send()
 		return
 	}
 	go func() {
-		timer := time.NewTimer(pushTimeout)
-		defer timer.Stop()
-		select {
-		case <-decided:
-		case <-timer.C:
-		}
+		<-decided
 		send()
 	}()
 }

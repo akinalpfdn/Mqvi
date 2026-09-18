@@ -30,6 +30,10 @@ const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.ho
 });
 
 vi.mock("../native/nativeP2PCall", () => ({ NativeP2PCall: plugin }));
+const { voiceReleased } = vi.hoisted(() => ({
+  voiceReleased: { current: Promise.resolve() as Promise<void> },
+}));
+vi.mock("../utils/nativePlugins", () => ({ nativeVoiceReleased: () => voiceReleased.current }));
 vi.mock("../api/calls", () => ({ fetchIceServers, fetchIceServersForRecovery }));
 
 import { NativeCallEngine } from "./NativeCallEngine";
@@ -68,6 +72,7 @@ beforeEach(() => {
   for (const key of Object.keys(listeners)) delete listeners[key];
   fetchIceServers.mockResolvedValue([]);
   fetchIceServersForRecovery.mockResolvedValue(REFRESHED);
+  voiceReleased.current = Promise.resolve();
 });
 
 afterEach(() => {
@@ -334,5 +339,44 @@ describe("start is idempotent and safe to cancel", () => {
 
     await expect(starting).resolves.toBeUndefined();
     expect(ev.onLocalVideo).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Starting a call leaves the voice channel, and LiveKit lets go of the shared audio session only
+ * after its disconnect has returned. Taking the session before that let LiveKit reset it under
+ * the call that had just started.
+ */
+describe("native engine and channel voice", () => {
+  it("should not take the audio session until channel voice has let go of it", async () => {
+    let release!: () => void;
+    voiceReleased.current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const engine = new NativeCallEngine(events());
+    const starting = engine.start({ callId: "c1", callType: "voice", isCaller: true });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(plugin.start).not.toHaveBeenCalled();
+
+    release();
+    await starting;
+    expect(plugin.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("should start anyway once the wait runs out, rather than never", async () => {
+    voiceReleased.current = new Promise<void>(() => {}); // a disconnect that never settles
+    const engine = new NativeCallEngine(events());
+    const starting = engine.start({ callId: "c1", callType: "voice", isCaller: true });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    await starting;
+    expect(plugin.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("should hand a mute made before start to the plugin, which keeps it for the track", () => {
+    const engine = new NativeCallEngine(events());
+    engine.setMicEnabled(false);
+    expect(plugin.setMicEnabled).toHaveBeenCalledWith({ enabled: false });
   });
 });

@@ -1,10 +1,13 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/ws"
 )
 
@@ -65,4 +68,44 @@ func TestEndCallBetween(t *testing.T) {
 			t.Fatal("a user in no call ended someone else's")
 		}
 	})
+}
+
+// blockedMidway answers the first friendship check as friends and every later one as blocked: the
+// block lands between InitiateCall's first check and the moment the call is registered.
+type blockedMidway struct{ calls int }
+
+func (b *blockedMidway) GetByPair(_ context.Context, _, _ string) (*models.Friendship, error) {
+	b.calls++
+	if b.calls == 1 {
+		return &models.Friendship{Status: models.FriendshipStatusAccepted}, nil
+	}
+	return &models.Friendship{Status: models.FriendshipStatusBlocked}, nil
+}
+
+// A block in that window found no call for EndCallBetween to end, and the blocked person rang.
+// The call is checked again once registered, and dropped before anyone hears of it.
+func TestInitiateCall_DropsACallBlockedBeforeItWasRegistered(t *testing.T) {
+	hub := &recordingHub{}
+	svc := &p2pCallService{
+		friendChecker: &blockedMidway{},
+		userGetter:    fakeUserGetter{},
+		hub:           hub,
+		activeCalls:   map[string]*models.P2PCall{},
+		userCalls:     map[string]string{},
+		ringTimers:    map[string]*time.Timer{},
+	}
+
+	err := svc.InitiateCall("alice", "alice-sess", "bob", models.P2PCallTypeVoice)
+	if !errors.Is(err, pkg.ErrForbidden) {
+		t.Fatalf("want ErrForbidden, got %v", err)
+	}
+	if len(svc.activeCalls) != 0 || len(svc.userCalls) != 0 {
+		t.Fatalf("the call was left registered: calls=%v users=%v", svc.activeCalls, svc.userCalls)
+	}
+	if len(svc.ringTimers) != 0 {
+		t.Error("the ring timer was left running")
+	}
+	if len(hub.eventsFor("bob", ws.OpP2PCallInitiate)) != 0 {
+		t.Error("the blocked user was rung")
+	}
 }

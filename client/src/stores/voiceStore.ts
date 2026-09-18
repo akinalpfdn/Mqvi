@@ -36,6 +36,7 @@ import {
   playDeafenOffSound,
 } from "../utils/sounds";
 import { markVoiceActive, clearVoiceRecoveryMark } from "./shared/voiceRecovery";
+import { endP2PCallForVoice } from "./shared/p2pCallControl";
 import {
   createVoiceSettingsSlice,
   type VoiceSettingsSlice,
@@ -261,6 +262,12 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
         console.error("[voiceStore] Failed to get voice token:", response.error);
         return null;
       }
+
+      // Only now that the join is sure to go ahead: a denied microphone or a failed token must
+      // not have cost the user their call. Ending it here, before the native connect below,
+      // also orders the teardown ahead of it — Capacitor runs plugin calls one at a time, and
+      // the p2p teardown releases the audio session synchronously.
+      endP2PCallForVoice();
 
       // isMuted is left untouched — PTT idle (mic off until key press) is
       // enforced at the track level by VoiceStateManager, not via mute state.
