@@ -9,6 +9,12 @@ import { NativeP2PCall } from "../native/nativeP2PCall";
 const PIP_CORNER_RADIUS = 8;
 /** Keeps the samples off the box's own border, where the hit test can land on a neighbour. */
 const SAMPLE_INSET = 2;
+/** After a change or user input, measure every frame for this long. */
+const BUSY_MS = 500;
+/** Otherwise measure this often: the page still moves or gets covered without input. */
+const IDLE_INTERVAL_MS = 250;
+/** Input that is about to move a box or open something over it. */
+const WAKE_EVENTS = ["pointerdown", "pointermove", "keydown", "wheel", "resize", "orientationchange"];
 
 export type Rect = { x: number; y: number; width: number; height: number } | null;
 
@@ -84,13 +90,22 @@ export function useNativeVideoLayout(options: {
 
     let handle: PluginListenerHandle | null = null;
     let cancelled = false;
-    void NativeP2PCall.addListener("videoSize", (data) => {
-      shapes.current[data.source] = `${data.width} / ${data.height}`;
+    const record = (source: "remote" | "local", width: number, height: number) => {
+      shapes.current[source] = `${width} / ${height}`;
       apply();
-    })
-      .then((listener) => {
-        if (cancelled) void listener.remove();
-        else handle = listener;
+    };
+    void NativeP2PCall.addListener("videoSize", (data) => record(data.source, data.width, data.height))
+      .then(async (listener) => {
+        if (cancelled) {
+          void listener.remove();
+          return;
+        }
+        handle = listener;
+        // Sizes reported before this subscribed; events are not retained.
+        const sizes = await NativeP2PCall.getVideoSizes();
+        if (cancelled) return;
+        if (sizes.remote) record("remote", sizes.remote.width, sizes.remote.height);
+        if (sizes.local) record("local", sizes.local.width, sizes.local.height);
       })
       .catch((err) => console.error("[p2p] native videoSize listener failed:", err));
 
@@ -112,13 +127,16 @@ export function useNativeVideoLayout(options: {
     let lastLocal: Rect = null;
     let first = true;
     let frame = 0;
+    let busyUntil = 0;
+    let lastRun = 0;
 
-    const publish = () => {
+    const publish = (now: number) => {
       const clip = rectOf(clipEl);
       const remote = uncovered(rectOf(remoteEl), clip, boxes);
       const local = uncovered(rectOf(localEl), clip, boxes);
       if (!first && same(clip, lastClip) && same(remote, lastRemote) && same(local, lastLocal)) return;
       first = false;
+      busyUntil = now + BUSY_MS;
       lastClip = clip;
       lastRemote = remote;
       lastLocal = local;
@@ -131,15 +149,27 @@ export function useNativeVideoLayout(options: {
       }).catch((err) => console.error("[p2p] native setVideoLayout failed:", err));
     };
 
-    // Rects move and get covered without events; polling each frame catches all of it.
-    const tick = () => {
-      publish();
+    // Rects move and get covered without events, so this polls: every frame while something is
+    // happening, a few times a second otherwise — a long call would keep the thread busy for nothing.
+    const tick = (now: number) => {
+      if (now < busyUntil || now - lastRun >= IDLE_INTERVAL_MS) {
+        lastRun = now;
+        publish(now);
+      }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
 
+    const wake = () => {
+      busyUntil = performance.now() + BUSY_MS;
+    };
+    for (const type of WAKE_EVENTS) window.addEventListener(type, wake, { capture: true, passive: true });
+    window.visualViewport?.addEventListener("resize", wake);
+
     return () => {
       cancelAnimationFrame(frame);
+      for (const type of WAKE_EVENTS) window.removeEventListener(type, wake, { capture: true });
+      window.visualViewport?.removeEventListener("resize", wake);
       void NativeP2PCall.hideVideo().catch(() => {});
     };
   }, [active, clipEl, remoteEl, localEl, mirrorLocal]);

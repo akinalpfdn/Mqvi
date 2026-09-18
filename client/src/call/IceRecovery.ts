@@ -11,6 +11,8 @@ export const ICE_RESTART_ATTEMPT_MS = 7_000;
 export const DISCONNECT_GRACE_MS = 5_000;
 /** Longer while a negotiation is in flight — the state machine has further to travel. */
 export const DISCONNECT_GRACE_NEGOTIATING_MS = 10_000;
+/** A call that never connects ends after this; it leaves room for the peer's permission prompt. */
+export const FIRST_CONNECT_TIMEOUT_MS = 60_000;
 
 export type RecoveryConnectionState =
   | "new"
@@ -47,6 +49,8 @@ export class IceRecovery {
   private attempts = 0;
   /** The current run; a step from an older run, woken by an await, stands down. */
   private run = 0;
+  private everConnected = false;
+  private firstConnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(host: RecoveryHost) {
     this.host = host;
@@ -57,6 +61,8 @@ export class IceRecovery {
     if (!this.host.isAlive()) return;
     switch (state) {
       case "connected":
+        this.everConnected = true;
+        this.clearFirstConnect();
         this.clearGrace();
         this.stop();
         return;
@@ -94,6 +100,20 @@ export class IceRecovery {
     void this.step(++this.run);
   }
 
+  /**
+   * Arm once the local side is ready. Recovery only reacts to a connection that dropped; one that
+   * never came up (a rejected offer, ICE that never completes) otherwise sat silent forever.
+   */
+  armFirstConnect(): void {
+    if (this.everConnected || this.firstConnectTimer) return;
+    this.firstConnectTimer = setTimeout(() => {
+      this.firstConnectTimer = null;
+      if (this.everConnected || !this.host.isAlive()) return;
+      console.warn("[p2p] call never connected, ending it");
+      this.giveUp();
+    }, FIRST_CONNECT_TIMEOUT_MS);
+  }
+
   stop(): void {
     this.run++;
     this.recovering = false;
@@ -105,11 +125,19 @@ export class IceRecovery {
   }
 
   dispose(): void {
+    this.clearFirstConnect();
     this.clearGrace();
     this.stop();
   }
 
   // ─── internals ───
+
+  private clearFirstConnect(): void {
+    if (this.firstConnectTimer) {
+      clearTimeout(this.firstConnectTimer);
+      this.firstConnectTimer = null;
+    }
+  }
 
   private clearGrace(): void {
     if (this.disconnectedTimer) {

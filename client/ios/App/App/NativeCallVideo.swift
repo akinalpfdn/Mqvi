@@ -11,6 +11,8 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
 
     /// A feed's pixel size, so the page can shape a box it has no element to measure.
     var onVideoSize: ((String, CGSize) -> Void)?
+    /// Latest size per source, for a page that subscribes late. Cleared with each new view.
+    private(set) var sizes: [String: CGSize] = [:]
 
     private let container = UIView()
     // Replaced with each new track; see `swap`.
@@ -70,6 +72,7 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
         remoteTrack?.remove(remoteView)
         remoteTrack = track
         remoteView = swap(remoteView)
+        sizes["remote"] = nil
         track?.add(remoteView)
         remoteView.isHidden = track == nil
     }
@@ -79,6 +82,7 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
         localTrack?.remove(localView)
         localTrack = track
         localView = swap(localView)
+        sizes["local"] = nil
         track?.add(localView)
         localView.isHidden = track == nil
     }
@@ -120,7 +124,13 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
     @objc nonisolated public func videoView(_ videoView: LKRTCVideoRenderer, didChangeVideoSize size: CGSize) {
         Task { @MainActor in
             guard size.width > 0, size.height > 0 else { return }
-            self.onVideoSize?(videoView === self.remoteView ? "remote" : "local", size)
+            // A late callback from a retired view belongs to neither feed.
+            let source: String
+            if videoView === self.remoteView { source = "remote" }
+            else if videoView === self.localView { source = "local" }
+            else { return }
+            self.sizes[source] = size
+            self.onVideoSize?(source, size)
         }
     }
 

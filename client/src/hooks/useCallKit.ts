@@ -40,6 +40,10 @@ export function useCallKit(): void {
     let pendingAccept: string | null = null;
     let pendingTimer: ReturnType<typeof setTimeout> | null = null;
     let lastCallId: string | null = null;
+    // Declined on the CallKit screen before the call reached the store (app launched by the push).
+    const pendingDeclines = new Map<string, ReturnType<typeof setTimeout>>();
+    // The CallKit-rung call once it has shown up as incoming; its flag clears when it leaves.
+    let systemRingSeen: string | null = null;
 
     function clearPending(): void {
       pendingAccept = null;
@@ -47,6 +51,15 @@ export function useCallKit(): void {
         clearTimeout(pendingTimer);
         pendingTimer = null;
       }
+    }
+
+    // Sent now (queued if the socket is down) so the caller stops ringing; a re-delivery of the
+    // call is declined again when it arrives.
+    function declineUnseen(callId: string): void {
+      useP2PCallStore.getState()._sendWS?.("p2p_call_decline", { call_id: callId });
+      const existing = pendingDeclines.get(callId);
+      if (existing) clearTimeout(existing);
+      pendingDeclines.set(callId, setTimeout(() => pendingDeclines.delete(callId), PENDING_ACCEPT_TTL));
     }
 
     function setPending(callId: string): void {
@@ -105,8 +118,12 @@ export function useCallKit(): void {
           reportedCalls.delete(call_id);
           if (pendingAccept === call_id) clearPending();
           const store = useP2PCallStore.getState();
+          if (store.systemRingingCallId === call_id) {
+            useP2PCallStore.setState({ systemRingingCallId: null });
+          }
           if (store.incomingCall?.id === call_id) store.declineCall(call_id);
           else if (store.activeCall?.id === call_id) store.endCall();
+          else declineUnseen(call_id);
         }),
       );
     }
@@ -124,6 +141,13 @@ export function useCallKit(): void {
         state.acceptCall(id);
       }
 
+      if (incomingId && pendingDeclines.has(incomingId)) {
+        clearTimeout(pendingDeclines.get(incomingId));
+        pendingDeclines.delete(incomingId);
+        state.declineCall(incomingId);
+        return;
+      }
+
       // Only a call we are RECEIVING was reported to CallKit. handleCallInitiate mirrors the
       // event into incomingCall for the caller too, so the field alone does not say which side
       // this device is on — dismissing an outgoing call's screen would take down a call the
@@ -133,9 +157,12 @@ export function useCallKit(): void {
         reportedCalls.add(incomingId);
       }
 
-      // The system stops ringing the moment the call is answered or gone; drop the flag with it
-      // so a later call that CallKit never rings is not silenced by a stale id.
-      if (state.systemRingingCallId && state.systemRingingCallId !== incomingId) {
+      // Cleared once the rung call has come and gone. The push can arrive before the WS event,
+      // so an incoming call not there yet must not clear it, or the in-app ring plays over CallKit.
+      const ringing = state.systemRingingCallId;
+      if (ringing && incomingId === ringing) systemRingSeen = ringing;
+      else if (ringing && systemRingSeen === ringing) {
+        systemRingSeen = null;
         useP2PCallStore.setState({ systemRingingCallId: null });
       }
 
@@ -169,6 +196,8 @@ export function useCallKit(): void {
 
     return () => {
       clearPending();
+      pendingDeclines.forEach((timer) => clearTimeout(timer));
+      pendingDeclines.clear();
       handles.forEach((h) => void h.remove());
       unsubscribe();
       unsubscribeMute();

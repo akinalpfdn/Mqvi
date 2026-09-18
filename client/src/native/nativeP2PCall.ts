@@ -51,6 +51,8 @@ type NativeP2PCallPlugin = {
     mirrorLocal: boolean;
   }): Promise<void>;
   hideVideo(): Promise<void>;
+  /** Latest pixel size per feed, for a subscriber that arrives after the first frame. */
+  getVideoSizes(): Promise<Partial<Record<NativeVideoSize["source"], { width: number; height: number }>>>;
   setIceServers(options: {
     iceServers: { urls: string | string[]; username?: string; credential?: string }[];
   }): Promise<void>;

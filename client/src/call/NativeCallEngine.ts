@@ -153,6 +153,7 @@ export class NativeCallEngine implements CallMediaEngine {
     }
     if (this.closed) return;
     this.started = true;
+    this.recovery.armFirstConnect();
     // A video call publishes the camera from the start; the button has to know that, and it
     // has to know when a denied camera means it did not.
     this.events.onLocalVideo(video);

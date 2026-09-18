@@ -366,3 +366,37 @@ describe("native engine and channel voice", () => {
     expect(plugin.setMicEnabled).toHaveBeenCalledWith({ enabled: false });
   });
 });
+
+describe("a call that never connects", () => {
+  it("should end once the first-connect window passes", async () => {
+    const { ev } = await engineFor(true);
+    connectionState("connecting");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ev.onConnectionLost).toHaveBeenCalledTimes(1);
+  });
+
+  it("should leave a call alone once it has connected", async () => {
+    const { ev } = await engineFor(true);
+    connectionState("connected");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ev.onConnectionLost).not.toHaveBeenCalled();
+  });
+
+  it("should not count the time start spends on permission prompts", async () => {
+    let letStartFinish!: () => void;
+    plugin.start.mockImplementationOnce(
+      () =>
+        new Promise<{ video: boolean }>((resolve) => {
+          letStartFinish = () => resolve({ video: false });
+        }),
+    );
+    const ev = events();
+    const engine = new NativeCallEngine(ev);
+    const starting = engine.start({ callId: "c1", callType: "voice", isCaller: false });
+    await vi.advanceTimersByTimeAsync(59_000); // reading the microphone prompt
+    letStartFinish();
+    await starting;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(ev.onConnectionLost).not.toHaveBeenCalled();
+  });
+});

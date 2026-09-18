@@ -169,6 +169,37 @@ describe("useCallKit — dismissing the system call screen", () => {
     expect(setMuted).toHaveBeenLastCalledWith({ call_id: CALL_ID, muted: false });
   });
 
+  it("should keep the CallKit flag when the push beats the WS event", async () => {
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callReported).toBeDefined());
+
+    nativeListeners.callReported({ call_id: CALL_ID }); // app woken by the push, no call yet
+    expect(useP2PCallStore.getState().systemRingingCallId).toBe(CALL_ID);
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall()); // the WS catches up
+    expect(useP2PCallStore.getState().systemRingingCallId).toBe(CALL_ID);
+
+    useP2PCallStore.getState().handleCallAccept({ call_id: CALL_ID, accepted_by: "session-1" });
+    expect(useP2PCallStore.getState().systemRingingCallId).toBeNull();
+  });
+
+  it("should decline a call rejected on CallKit before it reached the app", async () => {
+    const sendWS = vi.fn();
+    useP2PCallStore.setState({ _sendWS: sendWS });
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callEnded).toBeDefined());
+
+    nativeListeners.callEnded({ call_id: CALL_ID }); // "Decline" on the lock screen
+    expect(sendWS).toHaveBeenCalledWith("p2p_call_decline", { call_id: CALL_ID });
+    expect(useP2PCallStore.getState().systemRingingCallId).toBeNull();
+
+    // The server re-delivers it on connect; it must not ring in the app.
+    sendWS.mockClear();
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    expect(useP2PCallStore.getState().incomingCall).toBeNull();
+    expect(sendWS).toHaveBeenCalledWith("p2p_call_decline", { call_id: CALL_ID });
+  });
+
   it("should leave an outgoing call alone", () => {
     renderHook(() => useCallKit());
 

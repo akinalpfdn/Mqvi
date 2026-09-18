@@ -151,3 +151,30 @@ func TestInitiateCall_RepeatsAnEndThatBeatItsAnnouncement(t *testing.T) {
 		}
 	}
 }
+
+// A block-ended call writes no call log: that would post into the conversation just blocked.
+func TestEndCallBetween_WritesNoCallLog(t *testing.T) {
+	logs := &recordingCallLogger{ch: make(chan models.CallMeta, 4)}
+	svc := &p2pCallService{
+		hub:         &recordingHub{},
+		callLogger:  logs,
+		activeCalls: map[string]*models.P2PCall{"x": {ID: "x", CallerID: "alice", ReceiverID: "bob", Status: models.P2PCallStatusActive}},
+		userCalls:   map[string]string{"alice": "x", "bob": "x"},
+		ringTimers:  map[string]*time.Timer{},
+	}
+
+	svc.EndCallBetween("alice", "bob")
+	select {
+	case meta := <-logs.ch:
+		t.Fatalf("a call log was written for a block: %+v", meta)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// A hang-up still logs.
+	svc.activeCalls["y"] = &models.P2PCall{ID: "y", CallerID: "alice", ReceiverID: "bob", Status: models.P2PCallStatusActive}
+	svc.userCalls["alice"], svc.userCalls["bob"] = "y", "y"
+	if err := svc.EndCall("alice", "", "y"); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	waitCallLog(t, logs.ch)
+}

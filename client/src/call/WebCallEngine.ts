@@ -122,6 +122,7 @@ export class WebCallEngine implements CallMediaEngine {
     // createOffer here, or the peer gets two.
     for (const track of stream.getTracks()) pc.addTrack(track, stream);
     applyDegradationPreference(pc);
+    this.recovery.armFirstConnect();
   }
 
   /** One offer at a time: two at once each built a connection and opened the microphone. */
@@ -163,6 +164,7 @@ export class WebCallEngine implements CallMediaEngine {
         for (const track of stream.getTracks()) pc.addTrack(track, stream);
       }
       applyDegradationPreference(pc);
+      this.recovery.armFirstConnect();
     }
 
     await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
@@ -451,8 +453,7 @@ export class WebCallEngine implements CallMediaEngine {
     const pc = new RTCPeerConnection({ iceServers });
     this.pc = pc;
 
-    // Every callback bails once this connection is no longer the engine's — a connection
-    // that lost a concurrent-offer race must not drive the live call.
+    // Every callback bails once this connection is no longer the engine's.
     const isCurrent = () => this.pc === pc && !this.closed;
 
     pc.onicecandidate = (event) => {

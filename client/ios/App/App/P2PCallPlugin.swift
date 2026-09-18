@@ -24,7 +24,10 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
     /// Returns the current VoIP token (JS calls this on mount in case the token event
     /// fired before the listener was added).
     @objc func getVoipToken(_ call: CAPPluginCall) {
-        call.resolve(["token": CallManager.shared.currentVoipToken() ?? ""])
+        // CallManager's state is main-queue only; plugin calls arrive on the bridge queue.
+        DispatchQueue.main.async {
+            call.resolve(["token": CallManager.shared.currentVoipToken() ?? ""])
+        }
     }
 
     /// Dismiss the CallKit call when the call ends/declines in the app.
@@ -33,8 +36,10 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
             call.reject("call_id is required")
             return
         }
-        CallManager.shared.endCall(callId: callId)
-        call.resolve()
+        DispatchQueue.main.async {
+            CallManager.shared.endCall(callId: callId)
+            call.resolve()
+        }
     }
 
     /// Mirror an in-app mute onto the system call screen.
@@ -44,7 +49,6 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
             return
         }
         let muted = call.getBool("muted") ?? false
-        // CallManager's state lives on the main queue, where CallKit delivers its own actions.
         DispatchQueue.main.async {
             CallManager.shared.setMuted(callId: callId, muted: muted)
             call.resolve()

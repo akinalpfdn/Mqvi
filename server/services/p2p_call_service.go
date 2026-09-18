@@ -517,6 +517,12 @@ func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
 // the call the user is actually in — a late "end" from a sibling device, or from the 30s outgoing
 // timeout, would otherwise kill whatever call the user has started since.
 func (s *p2pCallService) EndCall(userID, deviceID, wantCallID string) error {
+	return s.endCall(userID, deviceID, wantCallID, true)
+}
+
+// endCall is EndCall with the call log optional: a call ended by a block must not write a
+// record into the conversation with the person just blocked.
+func (s *p2pCallService) endCall(userID, deviceID, wantCallID string, writeLog bool) error {
 	s.mu.Lock()
 	callID, exists := s.userCalls[userID]
 	if !exists {
@@ -562,6 +568,9 @@ func (s *p2pCallService) EndCall(userID, deviceID, wantCallID string) error {
 			actingReceiverDevice(userID, deviceID, call.ReceiverID))
 	}
 
+	if !writeLog {
+		return nil
+	}
 	if call.Status == models.P2PCallStatusActive {
 		s.logCall(call.CallerID, call.ReceiverID, call.CallType, models.CallOutcomeCompleted, callDurationSec(call.AcceptedAt))
 	} else {
@@ -587,7 +596,7 @@ func (s *p2pCallService) EndCallBetween(userID, otherID string) {
 	}
 	// EndCall re-checks under its own lock that userID is still in this call, so a call that
 	// ended in between is left alone. No device acted, so none is exempt from the cancel push.
-	if err := s.EndCall(userID, "", callID); err != nil {
+	if err := s.endCall(userID, "", callID, false); err != nil {
 		log.Printf("[p2p] end call %s between %s and %s: %v", callID, userID, otherID, err)
 	}
 }

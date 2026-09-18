@@ -20,6 +20,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "switchCamera", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setVideoLayout", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hideVideo", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getVideoSizes", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setIceServers", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "restartIce", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeCall", returnType: CAPPluginReturnPromise),
@@ -66,12 +67,13 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     public override func load() {
         Task { @MainActor in
             NativeCallVideo.shared.onVideoSize = { [weak self] source, size in
-                // Retained: the first frame can arrive before the call screen subscribes.
+                // Not retained: Capacitor would queue every change, a late subscriber pulls
+                // the current sizes with getVideoSizes instead.
                 self?.notifyListeners("videoSize", data: [
                     "source": source,
                     "width": Double(size.width),
                     "height": Double(size.height)
-                ], retainUntilConsumed: true)
+                ])
             }
         }
     }
@@ -305,6 +307,17 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 mirrorLocal: mirror
             )
             call.resolve()
+        }
+    }
+
+    @objc func getVideoSizes(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            var result = JSObject()
+            for (source, size) in NativeCallVideo.shared.sizes {
+                let entry: JSObject = ["width": Double(size.width), "height": Double(size.height)]
+                result[source] = entry
+            }
+            call.resolve(result)
         }
     }
 

@@ -191,3 +191,21 @@ describe("ICE-restart recovery", () => {
     expect(pc.restartIce).not.toHaveBeenCalled();
   });
 });
+
+describe("a web call that never connects", () => {
+  it("should end the call once the first-connect window passes, on either side", async () => {
+    for (const isCaller of [true, false]) {
+      const { ev } = await harness(isCaller);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(ev.spies.onConnectionLost).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("should leave a connected call alone", async () => {
+    const { ev } = await harness(true);
+    pc.connectionState = "connected";
+    pc.onconnectionstatechange?.();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ev.spies.onConnectionLost).not.toHaveBeenCalled();
+  });
+});
