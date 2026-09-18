@@ -60,21 +60,24 @@ type NativeP2PCallPlugin = {
   restartIce(): Promise<void>;
   closeCall(): Promise<void>;
 
+  // Call events name the call they belong to. The native side already drops events from a
+  // connection it has let go of; the engine checks the id as well, since the plugin's
+  // listeners outlive any one call.
   addListener(
     eventName: "localDescription",
-    listener: (data: { type: "offer" | "answer"; sdp: string }) => void,
+    listener: (data: { callId: string; type: "offer" | "answer"; sdp: string }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
     eventName: "iceCandidate",
-    listener: (data: NativeIceCandidate) => void,
+    listener: (data: NativeIceCandidate & { callId: string }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
     eventName: "connectionState",
-    listener: (data: { state: NativeConnectionState }) => void,
+    listener: (data: { callId: string; state: NativeConnectionState }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
     eventName: "remoteVideo",
-    listener: (data: { available: boolean }) => void,
+    listener: (data: { callId: string; available: boolean }) => void,
   ): Promise<PluginListenerHandle>;
   /** A feed's pixel shape, so the page can give a natively drawn box the right aspect ratio. */
   addListener(

@@ -6,8 +6,7 @@
  * system call indicator and no orange microphone indicator — WKWebView never gets the mic
  * while CallKit owns the audio session, so the call connects and stays silent both ways.
  *
- * Audio only for now. A video call still runs on the web engine until the native render
- * layer lands, so this engine is chosen per call type.
+ * Carries audio and video; the video is drawn natively over the web view.
  */
 
 import { fetchIceServers } from "../api/calls";
@@ -31,6 +30,8 @@ export class NativeCallEngine implements CallMediaEngine {
   private closed = false;
   /** Resolves once start() has finished. See waitUntilStarted. */
   private ready: Promise<void> | null = null;
+  /** The call this engine was started for; plugin events naming another call are dropped. */
+  private callId: string | null = null;
   private state: NativeConnectionState = "new";
   private isCaller = false;
   private readonly recovery: IceRecovery;
@@ -67,9 +68,14 @@ export class NativeCallEngine implements CallMediaEngine {
     });
   }
 
-  async start(opts: CallEngineStart): Promise<void> {
-    this.ready = this.begin(opts);
-    await this.ready;
+  /**
+   * Idempotent: the store can reach this twice when an offer beats the accept handler. A
+   * second begin would attach every listener again — each candidate sent twice — and ask the
+   * plugin for a second connection.
+   */
+  start(opts: CallEngineStart): Promise<void> {
+    this.ready ??= this.begin(opts);
+    return this.ready;
   }
 
   /**
@@ -90,15 +96,17 @@ export class NativeCallEngine implements CallMediaEngine {
 
   private async begin(opts: CallEngineStart): Promise<void> {
     if (this.closed) return;
+    this.callId = opts.callId;
+    const mine = (data: { callId: string }) => !this.closed && data.callId === this.callId;
 
-    this.handles.push(
-      await NativeP2PCall.addListener("localDescription", (desc) => {
-        if (!this.closed) this.events.onLocalDescription(desc);
+    await this.listen(
+      NativeP2PCall.addListener("localDescription", (desc) => {
+        if (mine(desc)) this.events.onLocalDescription({ type: desc.type, sdp: desc.sdp });
       }),
     );
-    this.handles.push(
-      await NativeP2PCall.addListener("iceCandidate", (candidate) => {
-        if (this.closed) return;
+    await this.listen(
+      NativeP2PCall.addListener("iceCandidate", (candidate) => {
+        if (!mine(candidate)) return;
         this.events.onIceCandidate({
           candidate: candidate.candidate,
           sdpMid: candidate.sdpMid || null,
@@ -106,14 +114,14 @@ export class NativeCallEngine implements CallMediaEngine {
         });
       }),
     );
-    this.handles.push(
-      await NativeP2PCall.addListener("connectionState", ({ state }) => {
-        this.onConnectionState(state);
+    await this.listen(
+      NativeP2PCall.addListener("connectionState", (data) => {
+        if (mine(data)) this.onConnectionState(data.state);
       }),
     );
-    this.handles.push(
-      await NativeP2PCall.addListener("remoteVideo", ({ available }) => {
-        if (!this.closed) this.events.onRemoteVideo(available);
+    await this.listen(
+      NativeP2PCall.addListener("remoteVideo", (data) => {
+        if (mine(data)) this.events.onRemoteVideo(data.available);
       }),
     );
 
@@ -122,16 +130,25 @@ export class NativeCallEngine implements CallMediaEngine {
     if (this.closed) return;
 
     this.isCaller = opts.isCaller;
-    const { video } = await NativeP2PCall.start({
-      callId: opts.callId,
-      isCaller: opts.isCaller,
-      callType: opts.callType,
-      iceServers: iceServers.map((server) => ({
-        urls: server.urls,
-        username: server.username,
-        credential: typeof server.credential === "string" ? server.credential : undefined,
-      })),
-    });
+    let video: boolean;
+    try {
+      ({ video } = await NativeP2PCall.start({
+        callId: opts.callId,
+        isCaller: opts.isCaller,
+        callType: opts.callType,
+        iceServers: iceServers.map((server) => ({
+          urls: server.urls,
+          username: server.username,
+          credential: typeof server.credential === "string" ? server.credential : undefined,
+        })),
+      }));
+    } catch (err) {
+      // Closed while the plugin sat on a permission prompt: it declines to build the call, and
+      // that is the outcome we asked for, not a failure.
+      if (this.closed) return;
+      throw err;
+    }
+    if (this.closed) return;
     this.started = true;
     // A video call publishes the camera from the start; the button has to know that, and it
     // has to know when a denied camera means it did not.
@@ -214,6 +231,17 @@ export class NativeCallEngine implements CallMediaEngine {
   }
 
   // ─── internals ───
+
+  /**
+   * Keeps a listener only while the engine is open. begin() awaits each registration, and a
+   * close() landing between them used to leave the later ones attached with nothing to remove
+   * them.
+   */
+  private async listen(pending: Promise<PluginListenerHandle>): Promise<void> {
+    const handle = await pending;
+    if (this.closed) void handle.remove();
+    else this.handles.push(handle);
+  }
 
   private async sendCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     if (!candidate.candidate) return;

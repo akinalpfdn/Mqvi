@@ -57,8 +57,8 @@ async function engineFor(isCaller: boolean) {
   return { engine, ev };
 }
 
-function connectionState(state: string) {
-  listeners.connectionState?.({ state } as never);
+function connectionState(state: string, callId = "c1") {
+  listeners.connectionState?.({ callId, state } as never);
 }
 
 beforeEach(() => {
@@ -219,5 +219,87 @@ describe("signalling that arrives while start is still waiting on permissions", 
     await starting;
     await answered;
     expect(plugin.acceptRemoteAnswer).toHaveBeenCalledWith({ sdp: "v=0" });
+  });
+});
+
+/**
+ * The plugin's listeners outlive any one call, and a closed connection can still emit. An event
+ * from another call that reached this one forwarded a stale offer to the new peer.
+ */
+describe("events that belong to another call", () => {
+  it("should drop a local description for a different call", async () => {
+    const { ev } = await engineFor(true);
+    listeners.localDescription?.({ callId: "old-call", type: "offer", sdp: "stale" } as never);
+    expect(ev.onLocalDescription).not.toHaveBeenCalled();
+
+    listeners.localDescription?.({ callId: "c1", type: "offer", sdp: "fresh" } as never);
+    expect(ev.onLocalDescription).toHaveBeenCalledWith({ type: "offer", sdp: "fresh" });
+  });
+
+  it("should drop an ICE candidate for a different call", async () => {
+    const { ev } = await engineFor(true);
+    listeners.iceCandidate?.({ callId: "old-call", candidate: "c", sdpMid: "0", sdpMLineIndex: 0 } as never);
+    expect(ev.onIceCandidate).not.toHaveBeenCalled();
+  });
+
+  it("should not drive recovery from another call's connection state", async () => {
+    await engineFor(true);
+    connectionState("failed", "old-call");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchIceServersForRecovery).not.toHaveBeenCalled();
+  });
+});
+
+describe("start is idempotent and safe to cancel", () => {
+  it("should start the plugin once when start is called twice", async () => {
+    const engine = new NativeCallEngine(events());
+    await Promise.all([
+      engine.start({ callId: "c1", callType: "voice", isCaller: false }),
+      engine.start({ callId: "c1", callType: "voice", isCaller: false }),
+    ]);
+    expect(plugin.start).toHaveBeenCalledTimes(1);
+    // Four events, one listener each — a second begin would have made it eight.
+    expect(plugin.addListener).toHaveBeenCalledTimes(4);
+  });
+
+  it("should remove listeners that finish attaching after close", async () => {
+    const removals: ReturnType<typeof vi.fn>[] = [];
+    plugin.addListener.mockImplementation(async (event: string, cb: (data: never) => void) => {
+      listeners[event] = cb;
+      const remove = vi.fn();
+      removals.push(remove);
+      return { remove };
+    });
+
+    const engine = new NativeCallEngine(events());
+    const starting = engine.start({ callId: "c1", callType: "voice", isCaller: false });
+    engine.close();
+    await starting;
+
+    // Whatever attached, nothing stays attached.
+    for (const remove of removals) expect(remove).toHaveBeenCalled();
+    expect(plugin.start).not.toHaveBeenCalled();
+  });
+
+  it("should treat a plugin start cancelled by close as a clean stop, not a failure", async () => {
+    let failStart!: (err: Error) => void;
+    plugin.start.mockImplementationOnce(
+      () =>
+        new Promise<{ video: boolean }>((_, reject) => {
+          failStart = reject;
+        }),
+    );
+
+    const ev = events();
+    const engine = new NativeCallEngine(ev);
+    const starting = engine.start({ callId: "c1", callType: "video", isCaller: false });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Hung up while the permission prompt was on screen; the plugin declines to build the call.
+    engine.close();
+    failStart(new Error("cancelled"));
+
+    await expect(starting).resolves.toBeUndefined();
+    expect(ev.onLocalVideo).not.toHaveBeenCalled();
   });
 });

@@ -9,10 +9,8 @@ import LiveKitWebRTC
 /// microphone while CallKit owns the audio session: a call answered from the system screen
 /// connected but stayed silent in both directions. The call itself is unchanged — still
 /// peer to peer, still signalled over the app's WebSocket by the JS layer, which owns the
-/// call state machine and hands this plugin only SDP and ICE.
-///
-/// This phase carries audio. Video keeps running in the WebView until the native render
-/// layer lands.
+/// call state machine and hands this plugin only SDP and ICE. Audio and camera both run here;
+/// the video is drawn by NativeCallVideo.
 @objc(NativeP2PCallPlugin)
 public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "NativeP2PCallPlugin"
@@ -51,6 +49,20 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private var isCaller = false
     /// Renegotiation is the offerer's job; the answerer only ever answers.
     private var makingOffer = false
+    /// Bumped by every start and every teardown. A start waits on permission prompts, and the
+    /// call can end during that wait; whatever it does afterwards checks its generation first,
+    /// so a cancelled start cannot build a connection or switch the microphone on.
+    private var generation = 0
+    /// Off until start has sent the one initial offer. Adding the audio track fires
+    /// shouldNegotiate before the camera prompt has been answered, and letting that through
+    /// produced an audio-only offer followed by a second one with video.
+    private var negotiationArmed = false
+
+    /// Serializes audio session hand-offs. The generation check and the switch happen in one
+    /// step here, so a start cancelled mid-way can never turn the session on after its own
+    /// teardown turned it off. Not done under `lock`: WebRTC's delegate callbacks take that lock,
+    /// and holding it across a call into WebRTC risks a deadlock.
+    private let audioQueue = DispatchQueue(label: "net.mqvi.call-audio")
 
     // MARK: - JS surface
 
@@ -77,30 +89,43 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         let wantsVideo = call.getString("callType") == "video"
         let iceServers = Self.parseIceServers(call.getArray("iceServers"))
 
+        lock.lock()
+        generation += 1
+        let gen = generation
+        lock.unlock()
+
         requestMicrophone { [weak self] granted in
             guard let self else { return }
             guard granted else {
                 call.reject("microphone permission denied")
                 return
             }
-            self.lock.lock()
-            self.callId = callId
-            self.isCaller = isCaller
-            self.lock.unlock()
+            // The permission prompt can outlive the call: hung up while it was on screen.
+            guard self.isCurrent(gen) else {
+                call.reject("cancelled")
+                return
+            }
 
             // Take the session before the connection exists: when the call came in through
             // CallKit the system has already activated it, and this is what enables the audio
             // unit for it.
-            CallAudioSession.begin()
+            self.beginAudio(for: gen)
 
             // Blank the surface before this call can put a box on screen. Teardown already does
             // it when a call ends cleanly, but a call that ended any other way would otherwise
             // leave its last frame to be shown at the start of this one.
-            Task { @MainActor in NativeCallVideo.shared.teardown() }
+            Task { @MainActor in
+                if self.isCurrent(gen) { NativeCallVideo.shared.teardown() }
+            }
 
-            guard let pc = self.buildPeerConnection(iceServers: iceServers) else {
-                CallAudioSession.end()
+            guard let built = self.makePeerConnection(iceServers: iceServers) else {
                 call.reject("failed to create peer connection")
+                return
+            }
+            let (pc, audio) = built
+            guard self.adopt(pc, audio: audio, callId: callId, isCaller: isCaller, generation: gen) else {
+                pc.close()
+                call.reject("cancelled")
                 return
             }
 
@@ -108,12 +133,16 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             // only flips the track, so a mid-call toggle never has to renegotiate.
             if wantsVideo {
                 self.requestCamera { granted in
+                    guard self.isCurrent(gen) else {
+                        call.reject("cancelled")
+                        return
+                    }
                     if granted {
-                        self.addVideoTrack(to: pc)
+                        self.addVideoTrack(to: pc, generation: gen)
                     } else {
                         print("[p2p-native] camera permission denied; continuing with audio only")
                     }
-                    if isCaller { self.createOffer(on: pc) }
+                    if isCaller { self.sendInitialOffer(on: pc) }
                     // The button must follow the camera, not the intention: a denied camera
                     // leaves the call running with video off.
                     call.resolve(["video": granted])
@@ -122,9 +151,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             // The offerer offers immediately; the answerer waits for the offer, which is what
             // creates its side of the negotiation.
-            if isCaller {
-                self.createOffer(on: pc)
-            }
+            if isCaller { self.sendInitialOffer(on: pc) }
             call.resolve(["video": false])
         }
     }
@@ -155,7 +182,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                         call.reject("setLocalDescription(answer) failed: \(error.localizedDescription)")
                         return
                     }
-                    self.emitLocalDescription(type: "answer", sdp: answer.sdp)
+                    self.emitLocalDescription(from: pc, type: "answer", sdp: answer.sdp)
                     call.resolve()
                 }
             }
@@ -322,22 +349,27 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func addVideoTrack(to pc: LKRTCPeerConnection) {
+    private func addVideoTrack(to pc: LKRTCPeerConnection, generation gen: Int) {
         let source = Self.factory.videoSource()
         let track = Self.factory.videoTrack(with: source, trackId: "mqvi-video")
         pc.add(track, streamIds: ["mqvi"])
 
         lock.lock()
-        videoTrack = track
+        if generation == gen { videoTrack = track }
         lock.unlock()
 
         // The capturer and the views are main-actor bound: they drive UIKit and the capture
         // session, both of which expect the main thread.
         Task { @MainActor in
             let camera = NativeCallCamera(source: source)
+            // Checked and stored in one step: teardown reads `camera` under the same lock, so
+            // either it sees this one and stops it, or this sees the call is over and never
+            // starts it. A camera started after teardown ran would record with no call.
             self.lock.lock()
-            self.camera = camera
+            let current = self.generation == gen
+            if current { self.camera = camera }
             self.lock.unlock()
+            guard current else { return }
             camera.start()
             NativeCallVideo.shared.setLocalTrack(track)
         }
@@ -366,7 +398,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func buildPeerConnection(iceServers: [LKRTCIceServer]) -> LKRTCPeerConnection? {
+    private func makePeerConnection(iceServers: [LKRTCIceServer]) -> (LKRTCPeerConnection, LKRTCAudioTrack)? {
         let config = LKRTCConfiguration()
         config.iceServers = iceServers
         config.sdpSemantics = .unifiedPlan
@@ -382,12 +414,67 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         let source = Self.factory.audioSource(with: Self.audioConstraints())
         let track = Self.factory.audioTrack(with: source, trackId: "mqvi-audio")
         pc.add(track, streamIds: ["mqvi"])
+        return (pc, track)
+    }
 
+    /// Makes `pc` this call's connection, unless the call ended while it was being built. Any
+    /// connection still held is closed rather than overwritten: dropping the reference alone
+    /// left it running, holding the microphone and emitting into the next call.
+    private func adopt(
+        _ pc: LKRTCPeerConnection,
+        audio: LKRTCAudioTrack,
+        callId: String,
+        isCaller: Bool,
+        generation gen: Int
+    ) -> Bool {
         lock.lock()
+        guard generation == gen else {
+            lock.unlock()
+            return false
+        }
+        let previous = peerConnection
         peerConnection = pc
-        audioTrack = track
+        audioTrack = audio
+        self.callId = callId
+        self.isCaller = isCaller
+        negotiationArmed = false
         lock.unlock()
-        return pc
+        previous?.close()
+        return true
+    }
+
+    /// The caller's single initial offer, sent once every track the call starts with is in
+    /// place. Later renegotiations (ICE restart) go through shouldNegotiate, which this arms.
+    private func sendInitialOffer(on pc: LKRTCPeerConnection) {
+        lock.lock()
+        negotiationArmed = true
+        lock.unlock()
+        createOffer(on: pc)
+    }
+
+    private func isCurrent(_ gen: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation == gen
+    }
+
+    /// The call a delegate event belongs to, or nil when it comes from a connection this plugin
+    /// has already let go of — those must not reach whichever call is running now.
+    private func callId(owning pc: LKRTCPeerConnection) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return pc === peerConnection ? callId : nil
+    }
+
+    private func beginAudio(for gen: Int) {
+        audioQueue.sync {
+            guard self.isCurrent(gen) else { return }
+            CallAudioSession.begin()
+        }
+    }
+
+    private func endAudio() {
+        audioQueue.sync { CallAudioSession.end() }
     }
 
     private func createOffer(on pc: LKRTCPeerConnection) {
@@ -412,7 +499,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                     print("[p2p-native] setLocalDescription(offer): \(error.localizedDescription)")
                     return
                 }
-                self.emitLocalDescription(type: "offer", sdp: offer.sdp)
+                self.emitLocalDescription(from: pc, type: "offer", sdp: offer.sdp)
             }
         }
     }
@@ -436,8 +523,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func teardown() {
-        CallAudioSession.end()
+        // The generation moves first, so a start still waiting on a permission prompt sees that
+        // its call is over and builds nothing when the prompt is answered.
         lock.lock()
+        generation += 1
         let pc = peerConnection
         let camera = self.camera
         peerConnection = nil
@@ -446,8 +535,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         self.camera = nil
         callId = nil
         makingOffer = false
+        negotiationArmed = false
         lock.unlock()
 
+        endAudio()
         Task { @MainActor in
             camera?.stop()
             NativeCallVideo.shared.teardown()
@@ -455,8 +546,13 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         pc?.close()
     }
 
-    private func emitLocalDescription(type: String, sdp: String) {
-        notifyListeners("localDescription", data: ["type": type, "sdp": sdp], retainUntilConsumed: true)
+    /// Call events are never retained. The engine subscribes before it starts the call, so a
+    /// retained event only ever had one audience: the next call's listeners, which Capacitor
+    /// hands everything it held the moment they attach. A stale offer delivered that way was
+    /// forwarded to the new peer and broke the call.
+    private func emitLocalDescription(from pc: LKRTCPeerConnection, type: String, sdp: String) {
+        guard let callId = callId(owning: pc) else { return }
+        notifyListeners("localDescription", data: ["callId": callId, "type": type, "sdp": sdp])
     }
 
     private static func mediaConstraints() -> LKRTCMediaConstraints {
@@ -499,19 +595,26 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 // MARK: - LKRTCPeerConnectionDelegate
 
 extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
+    // Every event below is dropped unless it comes from the connection this call owns. A closed
+    // connection can still deliver a few callbacks, and by then the listeners belong to the next
+    // call.
+
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate) {
+        guard let callId = callId(owning: peerConnection) else { return }
         notifyListeners("iceCandidate", data: [
+            "callId": callId,
             "candidate": candidate.sdp,
             "sdpMid": candidate.sdpMid ?? "",
             "sdpMLineIndex": Int(candidate.sdpMLineIndex)
-        ], retainUntilConsumed: true)
+        ])
     }
 
     // Spelled out because this one is optional in the protocol: a signature Swift infers
     // differently compiles fine and is simply never called.
     @objc(peerConnection:didChangeConnectionState:)
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCPeerConnectionState) {
-        notifyListeners("connectionState", data: ["state": Self.name(for: newState)])
+        guard let callId = callId(owning: peerConnection) else { return }
+        notifyListeners("connectionState", data: ["callId": callId, "state": Self.name(for: newState)])
     }
 
     /// The remote video arrives here; the surface draws it. Optional in the protocol, so the
@@ -522,9 +625,10 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         didAdd rtpReceiver: LKRTCRtpReceiver,
         streams mediaStreams: [LKRTCMediaStream]
     ) {
-        guard let track = rtpReceiver.track as? LKRTCVideoTrack else { return }
+        guard let callId = callId(owning: peerConnection),
+              let track = rtpReceiver.track as? LKRTCVideoTrack else { return }
         Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(track) }
-        notifyListeners("remoteVideo", data: ["available": true])
+        notifyListeners("remoteVideo", data: ["callId": callId, "available": true])
     }
 
     @objc(peerConnection:didRemoveReceiver:)
@@ -532,14 +636,19 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         _ peerConnection: LKRTCPeerConnection,
         didRemove rtpReceiver: LKRTCRtpReceiver
     ) {
-        guard rtpReceiver.track is LKRTCVideoTrack else { return }
+        guard let callId = callId(owning: peerConnection),
+              rtpReceiver.track is LKRTCVideoTrack else { return }
         Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(nil) }
-        notifyListeners("remoteVideo", data: ["available": false])
+        notifyListeners("remoteVideo", data: ["callId": callId, "available": false])
     }
 
     public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection) {
-        // The answerer never offers: doing so mid-call is what produces glare.
-        guard isCallerNow(), peerConnection.signalingState == .stable else { return }
+        // The answerer never offers: doing so mid-call is what produces glare. The caller waits
+        // for start to send its one initial offer; see `negotiationArmed`.
+        lock.lock()
+        let mayOffer = peerConnection === self.peerConnection && isCaller && negotiationArmed
+        lock.unlock()
+        guard mayOffer, peerConnection.signalingState == .stable else { return }
         createOffer(on: peerConnection)
     }
 
