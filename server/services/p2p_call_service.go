@@ -409,6 +409,31 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, deviceID, callID string) 
 		return fmt.Errorf("%w: only receiver can accept", pkg.ErrForbidden)
 	}
 
+	// The device that answered, back on a new connection before its accept was confirmed (a
+	// phone locked mid-answer). Rejecting it would strand the call with nobody able to reach it.
+	if call.Status == models.P2PCallStatusActive && deviceID != "" && call.ReceiverDeviceID == deviceID {
+		if call.ReceiverSessionID == sessionID {
+			s.mu.Unlock()
+			return nil
+		}
+		call.ReceiverSessionID = sessionID
+		s.stopGraceTimer(callID, userID)
+		callerID := call.CallerID
+		s.mu.Unlock()
+
+		log.Printf("[p2p] call %s answer reclaimed by session %s", callID, sessionID)
+		s.hub.BroadcastToUser(userID, ws.Event{
+			Op:   ws.OpP2PCallAccept,
+			Data: map[string]string{"call_id": callID, "accepted_by": sessionID},
+		})
+		// The caller's offer went to the dead connection; have it sent again.
+		s.hub.BroadcastToUser(callerID, ws.Event{
+			Op:   ws.OpP2PSignal,
+			Data: ws.P2PSignalData{CallID: callID, Type: "ice-restart"},
+		})
+		return nil
+	}
+
 	if call.Status != models.P2PCallStatusRinging {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: call is not ringing", pkg.ErrBadRequest)
@@ -427,6 +452,7 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, deviceID, callID string) 
 	// The call now belongs to this connection. Its death — not the user's last disconnect —
 	// is what ends the call (see HandleSessionDisconnect).
 	call.ReceiverSessionID = sessionID
+	call.ReceiverDeviceID = deviceID
 	s.userCalls[userID] = callID
 	s.stopRingTimer(callID)
 	s.mu.Unlock()

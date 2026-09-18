@@ -55,6 +55,8 @@ function reset(sessionId: string | null = THIS_DEVICE) {
     remoteStream: null,
     engine: null,
     _durationInterval: null,
+    _acceptSentFor: null,
+    _localEnd: null,
     _sessionId: sessionId,
   });
 }
@@ -212,6 +214,44 @@ describe("resumeCallAfterReconnect", () => {
     useP2PCallStore.getState().resumeCallAfterReconnect();
 
     expect(sent).toEqual([]);
+  });
+
+  // Answered, and the socket died before the confirmation came back: nothing else re-sends it.
+  it("accepts again a call this device answered that is still ringing here", () => {
+    useP2PCallStore.setState({ activeCall: call(), incomingCall: call(), _acceptSentFor: "call-1" });
+
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+
+    expect(sent).toEqual([{ op: "p2p_call_accept", data: { call_id: "call-1" } }]);
+  });
+});
+
+describe("declineCall — after answering, it is a hang-up", () => {
+  const sent: { op: string; data?: unknown }[] = [];
+
+  beforeEach(() => {
+    sent.length = 0;
+    useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
+    useP2PCallStore.setState({ activeCall: call(), incomingCall: call() });
+  });
+
+  // The server may already hold the call as active, where it refuses a decline and the caller
+  // sits in a silent call.
+  it("ends a call already accepted instead of declining it", () => {
+    useP2PCallStore.getState().acceptCall("call-1");
+    sent.length = 0;
+
+    useP2PCallStore.getState().declineCall("call-1");
+
+    expect(sent).toEqual([{ op: "p2p_call_end", data: { call_id: "call-1" } }]);
+    expect(useP2PCallStore.getState().activeCall).toBeNull();
+    expect(useP2PCallStore.getState().incomingCall).toBeNull();
+  });
+
+  it("declines a call not yet accepted", () => {
+    useP2PCallStore.getState().declineCall("call-1");
+
+    expect(sent).toEqual([{ op: "p2p_call_decline", data: { call_id: "call-1" } }]);
   });
 });
 

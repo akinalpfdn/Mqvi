@@ -92,8 +92,17 @@ export class WebCallEngine implements CallMediaEngine {
         }
       },
       restartIce: () => {
+        const pc = this.pc;
+        if (!pc) return;
+        // An unanswered offer blocks a restart until the answer comes; it may have been lost on
+        // the way, so send it again instead.
+        const pending = pc.signalingState === "have-local-offer" ? pc.localDescription : null;
+        if (pending?.sdp && !this.makingOffer) {
+          this.events.onLocalDescription({ type: "offer", sdp: pending.sdp });
+          return;
+        }
         try {
-          this.pc?.restartIce();
+          pc.restartIce();
         } catch (err) {
           console.error("[p2p] restartIce error:", err);
         }

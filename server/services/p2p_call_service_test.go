@@ -516,6 +516,51 @@ func TestAcceptCallStopsSiblingDevices(t *testing.T) {
 	}
 }
 
+// The phone answered, then lost its socket before the confirmation arrived. Back on a new
+// connection it accepts again; rejecting that stranded the call until both ends timed out.
+func TestAcceptFromTheAnsweringDeviceOnANewConnectionReclaimsTheCall(t *testing.T) {
+	svc, hub, _ := ringingCallService()
+	svc.graceTimers = map[string]*time.Timer{}
+	if err := svc.AcceptCall("rcv", "old-sess", "phone-dev", "x"); err != nil {
+		t.Fatalf("AcceptCall: %v", err)
+	}
+	svc.graceTimers[graceKey("x", "rcv")] = time.AfterFunc(time.Hour, func() {})
+
+	if err := svc.AcceptCall("rcv", "new-sess", "phone-dev", "x"); err != nil {
+		t.Fatalf("re-accept from the same device: %v", err)
+	}
+
+	if got := svc.activeCalls["x"].ReceiverSessionID; got != "new-sess" {
+		t.Errorf("call still owned by %q, want new-sess", got)
+	}
+	if _, pending := svc.graceTimers[graceKey("x", "rcv")]; pending {
+		t.Error("the dead connection's teardown is still pending")
+	}
+	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
+	if data, _ := own[len(own)-1].Data.(map[string]string); data["accepted_by"] != "new-sess" {
+		t.Errorf("new connection not told it holds the call, got %v", own[len(own)-1].Data)
+	}
+	signals := hub.eventsFor("caller", ws.OpP2PSignal)
+	if len(signals) != 1 || signals[0].Data.(ws.P2PSignalData).Type != "ice-restart" {
+		t.Errorf("caller not asked to resend its offer, got %v", signals)
+	}
+}
+
+func TestAcceptOfAnAnsweredCallFromAnotherDeviceIsStillRejected(t *testing.T) {
+	for _, device := range []string{"tablet-dev", ""} {
+		svc, _, _ := ringingCallService()
+		if err := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "x"); err != nil {
+			t.Fatalf("AcceptCall: %v", err)
+		}
+		if err := svc.AcceptCall("rcv", "other-sess", device, "x"); !errors.Is(err, pkg.ErrBadRequest) {
+			t.Errorf("device %q took an answered call: %v", device, err)
+		}
+		if got := svc.activeCalls["x"].ReceiverSessionID; got != "phone-sess" {
+			t.Errorf("device %q moved the call to %q", device, got)
+		}
+	}
+}
+
 // Two devices of the same receiver pressing accept at once: exactly one wins, and the
 // broadcast names it. Without a server-assigned winner both devices would believe they
 // accepted and both would answer the caller's offer.

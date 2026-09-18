@@ -123,26 +123,28 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
-            // Video calls publish the camera from the start, so a toggle never renegotiates.
-            if wantsVideo {
+            // Video calls publish the camera from the start, so a toggle never renegotiates. Only
+            // the capturer needs the permission, so audio never waits on a camera prompt iOS
+            // holds back until the phone is unlocked.
+            let access = AVCaptureDevice.authorizationStatus(for: .video)
+            let video = wantsVideo && (access == .authorized || access == .notDetermined)
+            if wantsVideo && !video {
+                print("[p2p-native] camera permission denied; continuing with audio only")
+            }
+            if video {
+                let (source, track) = self.addVideoTrack(to: pc, generation: gen)
                 self.requestCamera { granted in
-                    guard self.isCurrent(gen) else {
-                        call.reject("cancelled")
-                        return
+                    Task { @MainActor in
+                        if granted {
+                            self.startCamera(source: source, track: track, generation: gen)
+                        } else {
+                            self.cameraFailed(generation: gen)
+                        }
                     }
-                    if granted {
-                        self.addVideoTrack(to: pc, generation: gen)
-                    } else {
-                        print("[p2p-native] camera permission denied; continuing with audio only")
-                    }
-                    if isCaller { self.sendInitialOffer(on: pc) }
-                    // Report what happened: a denied camera leaves the call on audio.
-                    call.resolve(["video": granted])
                 }
-                return
             }
             if isCaller { self.sendInitialOffer(on: pc) }
-            call.resolve(["video": false])
+            call.resolve(["video": video])
         }
     }
 
@@ -336,7 +338,18 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         // Only the offerer can restart; the answerer asks the peer to, in the JS layer.
-        if isCallerNow() {
+        guard isCallerNow() else {
+            call.resolve()
+            return
+        }
+        // An unanswered offer blocks a restart until the answer comes; it may have been lost on
+        // the way, so send it again instead.
+        lock.lock()
+        let offering = makingOffer
+        lock.unlock()
+        if pc.signalingState == .haveLocalOffer, !offering, let offer = pc.localDescription {
+            emitLocalDescription(from: pc, type: "offer", sdp: offer.sdp)
+        } else {
             pc.restartIce()
         }
         call.resolve()
@@ -379,7 +392,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func addVideoTrack(to pc: LKRTCPeerConnection, generation gen: Int) {
+    private func addVideoTrack(to pc: LKRTCPeerConnection, generation gen: Int) -> (LKRTCVideoSource, LKRTCVideoTrack) {
         let source = Self.factory.videoSource()
         let track = Self.factory.videoTrack(with: source, trackId: "mqvi-video")
         pc.add(track, streamIds: ["mqvi"])
@@ -387,19 +400,21 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         lock.lock()
         if generation == gen { videoTrack = track }
         lock.unlock()
+        return (source, track)
+    }
 
-        Task { @MainActor in
-            let camera = NativeCallCamera(source: source)
-            camera.onStartFailed = { [weak self] in self?.cameraFailed(generation: gen) }
-            // Checked and stored under the lock teardown reads it with, so a camera never outlives its call.
-            self.lock.lock()
-            let current = self.generation == gen
-            if current { self.camera = camera }
-            self.lock.unlock()
-            guard current else { return }
-            camera.start()
-            NativeCallVideo.shared.setLocalTrack(track)
-        }
+    @MainActor
+    private func startCamera(source: LKRTCVideoSource, track: LKRTCVideoTrack, generation gen: Int) {
+        let camera = NativeCallCamera(source: source)
+        camera.onStartFailed = { [weak self] in self?.cameraFailed(generation: gen) }
+        // Checked and stored under the lock teardown reads it with, so a camera never outlives its call.
+        lock.lock()
+        let current = generation == gen
+        if current { self.camera = camera }
+        lock.unlock()
+        guard current else { return }
+        camera.start()
+        NativeCallVideo.shared.setLocalTrack(track)
     }
 
     /// Turns the video off and tells the page, so the button and the peer stop showing a picture.

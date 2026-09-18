@@ -150,6 +150,17 @@ describe("ICE-restart recovery", () => {
     expect(pc.restartIce).toHaveBeenCalledTimes(1);
   });
 
+  // The peer came back on a new connection and never got our offer; a restart would wait on it.
+  it("sends an unanswered offer again instead of restarting behind it", async () => {
+    const { engine, ev } = await harness(true);
+    pc.signalingState = "have-local-offer";
+    (pc as { localDescription?: unknown }).localDescription = { type: "offer", sdp: "pending-offer" };
+    engine.restartIce();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.restartIce).not.toHaveBeenCalled();
+    expect(ev.onLocalDescription).toHaveBeenLastCalledWith({ type: "offer", sdp: "pending-offer" });
+  });
+
   it("the same request on the receiver asks the peer rather than restarting", async () => {
     const { engine, ev } = await harness(false);
     engine.restartIce();

@@ -201,8 +201,15 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   // the call by SESSION, which just changed. Claim it back, or it is hung up under us and the
   // ICE restart that would have recovered the media is rejected as coming from a stranger.
   resumeCallAfterReconnect: () => {
-    const { _sendWS, activeCall } = get();
-    if (!_sendWS || !activeCall || activeCall.status !== "active") return;
+    const { _sendWS, activeCall, _acceptSentFor } = get();
+    if (!_sendWS || !activeCall) return;
+    // Answered, but the confirmation may have died with the old socket. The server takes this as
+    // the answer if the call still rings, or hands this connection the call it already accepted.
+    if (activeCall.status === "ringing" && _acceptSentFor === activeCall.id) {
+      _sendWS("p2p_call_accept", { call_id: activeCall.id });
+      return;
+    }
+    if (activeCall.status !== "active") return;
 
     _sendWS("p2p_call_resume", { call_id: activeCall.id });
     // Video announcements are not queued while the socket is down: ours may have been dropped on
@@ -220,7 +227,16 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   },
 
   declineCall: (callId) => {
-    const { _sendWS } = get();
+    const { _sendWS, _acceptSentFor, activeCall } = get();
+    // Already answered: the server may hold the call as active, where a decline is refused and
+    // the caller is left in a silent call. An end works on a ringing and an answered call alike.
+    if (_acceptSentFor === callId) {
+      _sendWS?.("p2p_call_end", { call_id: callId });
+      set({ _localEnd: { callId, how: "declined" } });
+      if (activeCall?.id === callId) get().cleanup();
+      else set({ incomingCall: null, _acceptSentFor: null });
+      return;
+    }
     if (!_sendWS) return;
 
     _sendWS("p2p_call_decline", { call_id: callId });
