@@ -76,6 +76,10 @@ export function useCallKit(): void {
         await App.addListener("appStateChange", ({ isActive }) => {
           if (!isActive) return;
           void P2PCall.getVoipToken().then(({ token: t }) => void syncVoipToken(t));
+          // The page was suspended; the native side may have ended the call meanwhile, and a
+          // short absence brings no reconnect to resync on.
+          const { activeCall, engine } = useP2PCallStore.getState();
+          if (activeCall?.status === "active") engine?.resync();
         }),
       );
       handles.push(

@@ -91,7 +91,7 @@ func TestInitiateCall_DropsACallBlockedBeforeItWasRegistered(t *testing.T) {
 		ringTimers:    map[string]*time.Timer{},
 	}
 
-	err := svc.InitiateCall("alice", "alice-sess", "", "bob", models.P2PCallTypeVoice)
+	err := svc.InitiateCall("alice", "alice-sess", "", "", "bob", models.P2PCallTypeVoice)
 	if !errors.Is(err, pkg.ErrForbidden) {
 		t.Fatalf("want ErrForbidden, got %v", err)
 	}
@@ -135,7 +135,7 @@ func TestInitiateCall_RepeatsAnEndThatBeatItsAnnouncement(t *testing.T) {
 	}
 	svc.userGetter = &endsCallOnLookup{svc: svc}
 
-	if err := svc.InitiateCall("alice", "alice-sess", "", "bob", models.P2PCallTypeVoice); err != nil {
+	if err := svc.InitiateCall("alice", "alice-sess", "", "", "bob", models.P2PCallTypeVoice); err != nil {
 		t.Fatalf("initiate: %v", err)
 	}
 

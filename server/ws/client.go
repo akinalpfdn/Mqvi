@@ -63,6 +63,10 @@ type Client struct {
 	// back on a new socket" from "another tab of the same install". Empty for older clients.
 	instanceID string
 
+	// nativeMedia: an iOS app whose call media runs natively. Its page is suspended in the
+	// background, so this socket dies while the call it carries is still up.
+	nativeMedia bool
+
 	// events is the per-connection inbound queue drained by a single eventPump
 	// goroutine. ReadPump enqueues here (except heartbeat, handled inline) so a
 	// connection's events are processed strictly in arrival order — a voice_join
@@ -504,7 +508,7 @@ func (c *Client) handleP2PCallInitiate(event Event) {
 	}
 
 	if c.hub.onP2PCallInitiate != nil {
-		c.hub.onP2PCallInitiate(c.userID, c.sessionID, c.instanceID, data)
+		c.hub.onP2PCallInitiate(c.userID, c.sessionID, c.instanceID, c.deviceID, data)
 	}
 }
 

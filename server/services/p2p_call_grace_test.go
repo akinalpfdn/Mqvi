@@ -43,7 +43,7 @@ func callExists(s *p2pCallService, callID string) bool {
 func TestActiveCall_SurvivesAReconnectWithinTheGraceWindow(t *testing.T) {
 	svc, hub := activeCallService(time.Hour)
 
-	svc.HandleSessionDisconnect("rcv", "rcv-sess")
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 
 	if !callExists(svc, "x") {
 		t.Fatal("the call was torn down the moment the socket blipped — the media was still flowing")
@@ -66,7 +66,7 @@ func TestActiveCall_SurvivesAReconnectWithinTheGraceWindow(t *testing.T) {
 func TestActiveCall_EndsWhenNobodyReclaimsIt(t *testing.T) {
 	svc, hub := activeCallService(20 * time.Millisecond)
 
-	svc.HandleSessionDisconnect("rcv", "rcv-sess")
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 	if !callExists(svc, "x") {
 		t.Fatal("torn down immediately instead of waiting out the grace window")
 	}
@@ -92,7 +92,7 @@ func TestActiveCall_EndsWhenNobodyReclaimsIt(t *testing.T) {
 func TestResume_CancelsThePendingTeardown(t *testing.T) {
 	svc, hub := activeCallService(30 * time.Millisecond)
 
-	svc.HandleSessionDisconnect("rcv", "rcv-sess")
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestResume_CancelsThePendingTeardown(t *testing.T) {
 func TestGraceTimer_AStaleFiringDoesNotEndAReclaimedCall(t *testing.T) {
 	svc, hub := activeCallService(time.Hour)
 
-	svc.HandleSessionDisconnect("rcv", "rcv-sess")
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestGraceTimer_AStaleFiringDoesNotEndAReclaimedCall(t *testing.T) {
 func TestResume_LetsTheNewSessionSignalAgain(t *testing.T) {
 	svc, _ := activeCallService(time.Hour)
 
-	svc.HandleSessionDisconnect("rcv", "rcv-sess")
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 
 	err := svc.RelaySignal("rcv", "rcv-sess-2", "x", ws.P2PSignalData{Type: "ice-restart"})
 	if !errors.Is(err, pkg.ErrForbidden) && !errors.Is(err, pkg.ErrBadRequest) {
@@ -178,7 +178,7 @@ func TestResume_OnACallThatAlreadyEndedIsNotFound(t *testing.T) {
 func TestSiblingDisconnect_LeavesTheCallAloneAndSchedulesNothing(t *testing.T) {
 	svc, _ := activeCallService(20 * time.Millisecond)
 
-	svc.HandleSessionDisconnect("rcv", "some-other-device")
+	svc.HandleSessionDisconnect("rcv", "some-other-device", false)
 
 	time.Sleep(80 * time.Millisecond)
 
@@ -197,7 +197,7 @@ func TestSiblingDisconnect_LeavesTheCallAloneAndSchedulesNothing(t *testing.T) {
 func TestGrace_OneSideReturningDoesNotSpeakForTheOther(t *testing.T) {
 	svc, _ := activeCallService(30 * time.Millisecond)
 
-	svc.HandleSessionDisconnect("rcv", "rcv-sess") // the receiver is gone
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false) // the receiver is gone
 
 	// The caller reclaims its own connection. The receiver is STILL gone.
 	if err := svc.ResumeCall("caller", "caller-sess-2", "", "x"); err != nil {
@@ -218,8 +218,8 @@ func TestGrace_OneSideReturningDoesNotSpeakForTheOther(t *testing.T) {
 func TestGrace_BothDropAndOnlyOneReturns(t *testing.T) {
 	svc, _ := activeCallService(30 * time.Millisecond)
 
-	svc.HandleSessionDisconnect("rcv", "rcv-sess")
-	svc.HandleSessionDisconnect("caller", "caller-sess")
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
+	svc.HandleSessionDisconnect("caller", "caller-sess", false)
 
 	if err := svc.ResumeCall("caller", "caller-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
@@ -239,8 +239,8 @@ func TestGrace_BothDropAndOnlyOneReturns(t *testing.T) {
 func TestGrace_BothDropAndBothReturn(t *testing.T) {
 	svc, hub := activeCallService(30 * time.Millisecond)
 
-	svc.HandleSessionDisconnect("rcv", "rcv-sess")
-	svc.HandleSessionDisconnect("caller", "caller-sess")
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
+	svc.HandleSessionDisconnect("caller", "caller-sess", false)
 
 	if err := svc.ResumeCall("caller", "caller-sess-2", "", "x"); err != nil {
 		t.Fatalf("caller ResumeCall: %v", err)
@@ -287,7 +287,7 @@ func TestRingingCaller_GetsTheGraceWindowToo(t *testing.T) {
 	svc, hub := activeCallService(time.Hour)
 	svc.activeCalls["x"].Status = models.P2PCallStatusRinging
 
-	svc.HandleSessionDisconnect("caller", "caller-sess")
+	svc.HandleSessionDisconnect("caller", "caller-sess", false)
 
 	if !callExists(svc, "x") {
 		t.Fatal("a ringing call was ended the moment the caller's socket dropped")
@@ -432,7 +432,7 @@ func TestEnd_FromAnAppNotInTheAnsweredCallLeavesItRunning(t *testing.T) {
 func TestEnd_ByAReloadedPageInTheOldPagesNameHangsUp(t *testing.T) {
 	svc, hub := activeCallService(time.Hour)
 	svc.activeCalls["x"].ReceiverInstanceID = "old-page"
-	svc.HandleSessionDisconnect("rcv", "rcv-sess")
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 
 	if err := svc.EndCall("rcv", "old-page", "phone-dev", "x"); err != nil {
 		t.Fatalf("EndCall: %v", err)
@@ -448,5 +448,68 @@ func TestEnd_ByAReloadedPageInTheOldPagesNameHangsUp(t *testing.T) {
 	svc.mu.RUnlock()
 	if left != 0 {
 		t.Errorf("%d grace timers outlived the call", left)
+	}
+}
+
+// An iOS app's page is suspended in the background while its native call media runs on; its
+// socket dying is not the call dying. The 20 s window hung up every call locked for 2 minutes.
+func TestNativeMediaOwner_KeepsTheCallPastTheGraceWindow(t *testing.T) {
+	svc, hub := activeCallService(20 * time.Millisecond)
+	svc.nativeAbsent = map[string]bool{}
+
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", true)
+	time.Sleep(80 * time.Millisecond)
+
+	if !callExists(svc, "x") {
+		t.Fatal("the call was ended while the iPhone's media was still running")
+	}
+	if n := len(hub.eventsFor("caller", ws.OpP2PCallEnd)); n != 0 {
+		t.Errorf("the caller was told the call ended (%d)", n)
+	}
+	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
+		t.Fatalf("ResumeCall: %v", err)
+	}
+	svc.mu.RLock()
+	left := len(svc.graceTimers) + len(svc.nativeAbsent)
+	svc.mu.RUnlock()
+	if left != 0 {
+		t.Errorf("coming back left %d timers or marks", left)
+	}
+}
+
+// The iOS app holding the call was killed and started again: a new instance on the same device.
+// The old one cannot hold the media any more, so the call is released instead of keeping both
+// users busy for hours.
+func TestReleaseReplacedApp(t *testing.T) {
+	cases := []struct {
+		name         string
+		native       bool
+		instance     string
+		device       string
+		wantReleased bool
+	}{
+		{"the killed iOS app starts again", true, "app-2", "phone-dev", true},
+		{"the same app coming back", true, "app-1", "phone-dev", false},
+		{"another device of the user", true, "app-2", "tablet-dev", false},
+		{"a second desktop window while the first is alive", false, "app-2", "phone-dev", false},
+		{"a client with no instance id", true, "", "phone-dev", false},
+	}
+	for _, c := range cases {
+		svc, hub := activeCallService(time.Hour)
+		svc.nativeAbsent = map[string]bool{}
+		svc.activeCalls["x"].ReceiverInstanceID = "app-1"
+		svc.activeCalls["x"].ReceiverDeviceID = "phone-dev"
+		if c.native {
+			svc.HandleSessionDisconnect("rcv", "rcv-sess", true)
+		}
+
+		svc.ReleaseReplacedApp("rcv", c.instance, c.device)
+
+		if released := !callExists(svc, "x"); released != c.wantReleased {
+			t.Errorf("%s: released = %v, want %v", c.name, released, c.wantReleased)
+		}
+		if c.wantReleased && len(hub.eventsFor("caller", ws.OpP2PCallEnd)) != 1 {
+			t.Errorf("%s: the caller was not told", c.name)
+		}
 	}
 }

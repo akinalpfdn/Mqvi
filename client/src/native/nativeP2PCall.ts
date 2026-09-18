@@ -66,6 +66,8 @@ type NativeP2PCallPlugin = {
   closeCall(): Promise<void>;
   /** Ends a call a previous page left running. See discardOrphanedNativeCall. */
   discardOrphanedCall(): Promise<{ discarded: boolean; callId?: string; instanceId?: string }>;
+  /** The call the native side still runs, if any. */
+  currentCall(): Promise<{ callId: string | null }>;
 
   // Call events carry their call id; the plugin's listeners outlive any one call.
   addListener(

@@ -111,12 +111,17 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
             container.layer.mask = mask
         }
 
-        apply(rect: remote?.offsetBy(dx: -clip.minX, dy: -clip.minY), to: remoteView, cornerRadius: 0, mirrored: false)
-        apply(rect: local?.offsetBy(dx: -clip.minX, dy: -clip.minY), to: localView, cornerRadius: cornerRadius, mirrored: mirrorLocal)
-
-        // The later subview draws on top, so the smaller feed is brought forward after a swap.
+        // The rounded corners and the top of the stack belong to the small box, whichever feed a
+        // swap has put in it.
+        var remoteIsSmaller = false
         if let remote, let local {
-            let remoteIsSmaller = remote.width * remote.height <= local.width * local.height
+            remoteIsSmaller = remote.width * remote.height <= local.width * local.height
+        }
+        apply(rect: remote?.offsetBy(dx: -clip.minX, dy: -clip.minY), to: remoteView,
+              cornerRadius: remoteIsSmaller ? cornerRadius : 0, mirrored: false)
+        apply(rect: local?.offsetBy(dx: -clip.minX, dy: -clip.minY), to: localView,
+              cornerRadius: remoteIsSmaller ? 0 : cornerRadius, mirrored: mirrorLocal)
+        if remote != nil, local != nil {
             container.bringSubviewToFront(remoteIsSmaller ? remoteView : localView)
         }
     }

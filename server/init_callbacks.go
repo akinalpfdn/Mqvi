@@ -89,8 +89,8 @@ func registerHubCallbacks(
 	// connection: if the socket carrying it dies while another device of the same user stays
 	// signed in, the last-disconnect hook never fires, and an accepted call has no ring timer to
 	// clean it up — so both parties stay "already in a call" until the server restarts.
-	hub.OnSessionDisconnect(func(userID, sessionID string) {
-		p2pCallService.HandleSessionDisconnect(userID, sessionID)
+	hub.OnSessionDisconnect(func(userID, sessionID string, nativeMedia bool) {
+		p2pCallService.HandleSessionDisconnect(userID, sessionID, nativeMedia)
 	})
 
 	hub.OnPresenceManualUpdate(func(userID string, status string, isAuto bool) {
@@ -185,9 +185,9 @@ func registerHubCallbacks(
 
 	// ─── P2P Call Callbacks ───
 
-	hub.OnP2PCallInitiate(func(callerID, sessionID, instanceID string, data ws.P2PCallInitiateData) {
+	hub.OnP2PCallInitiate(func(callerID, sessionID, instanceID, deviceID string, data ws.P2PCallInitiateData) {
 		callType := models.P2PCallType(data.CallType)
-		if err := p2pCallService.InitiateCall(callerID, sessionID, instanceID, data.ReceiverID, callType); err != nil {
+		if err := p2pCallService.InitiateCall(callerID, sessionID, instanceID, deviceID, data.ReceiverID, callType); err != nil {
 			log.Printf("[p2p] initiate error caller=%s receiver=%s: %v", callerID, data.ReceiverID, err)
 		}
 	})

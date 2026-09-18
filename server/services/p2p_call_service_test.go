@@ -102,7 +102,7 @@ func TestInitiateCallRejectsDuplicateCaller(t *testing.T) {
 		userCalls:     map[string]string{"caller": "existing"},
 	}
 
-	err := svc.InitiateCall("caller", "caller-sess", "", "receiver", models.P2PCallTypeVoice)
+	err := svc.InitiateCall("caller", "caller-sess", "", "", "receiver", models.P2PCallTypeVoice)
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("expected ErrBadRequest when caller already in a call, got %v", err)
 	}
@@ -121,7 +121,7 @@ func TestInitiateCallRejectsBusyReceiver(t *testing.T) {
 		ringTimers:    map[string]*time.Timer{},
 	}
 
-	err := svc.InitiateCall("callerB", "callerB-sess", "", "receiver", models.P2PCallTypeVoice)
+	err := svc.InitiateCall("callerB", "callerB-sess", "", "", "receiver", models.P2PCallTypeVoice)
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("expected busy error when receiver is already reserved, got %v", err)
 	}
@@ -148,7 +148,7 @@ func TestAcceptCallRejectsBusyReceiver(t *testing.T) {
 // before any dependency call, so no fakes needed).
 func TestInitiateCallRejectsInvalidType(t *testing.T) {
 	svc := &p2pCallService{}
-	err := svc.InitiateCall("caller", "caller-sess", "", "receiver", models.P2PCallType("screenshare"))
+	err := svc.InitiateCall("caller", "caller-sess", "", "", "receiver", models.P2PCallType("screenshare"))
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("expected ErrBadRequest for invalid call type, got %v", err)
 	}
@@ -259,7 +259,7 @@ func TestCallLogging(t *testing.T) {
 	t.Run("completed on disconnect during active call", func(t *testing.T) {
 		rec := &recordingCallLogger{ch: make(chan models.CallMeta, 1)}
 		svc := newSvc(rec, map[string]*models.P2PCall{"x": active(3 * time.Second)}, map[string]string{"caller": "x", "rcv": "x"})
-		svc.HandleSessionDisconnect("caller", "caller-sess")
+		svc.HandleSessionDisconnect("caller", "caller-sess", false)
 		if m := waitCallLog(t, rec.ch); m.Outcome != models.CallOutcomeCompleted {
 			t.Errorf("outcome=%q, want completed", m.Outcome)
 		}
@@ -353,7 +353,7 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			userCalls:   map[string]string{"caller": "x", "rcv": "x"},
 			ringTimers:  map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
 		}
-		svc.HandleSessionDisconnect("rcv", "rcv-sess")
+		svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 		if _, ok := svc.activeCalls["x"]; !ok {
 			t.Error("ringing call must survive a receiver disconnect (mobile may answer via push)")
 		}
@@ -372,7 +372,7 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			userCalls:   map[string]string{"caller": "x", "rcv": "x"},
 			ringTimers:  map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
 		}
-		svc.HandleSessionDisconnect("caller", "caller-sess")
+		svc.HandleSessionDisconnect("caller", "caller-sess", false)
 		if _, ok := svc.activeCalls["x"]; ok {
 			t.Error("caller leaving a ringing call must tear it down")
 		}
@@ -385,7 +385,7 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			userCalls:   map[string]string{"caller": "x", "rcv": "x"},
 			ringTimers:  map[string]*time.Timer{},
 		}
-		svc.HandleSessionDisconnect("rcv", "rcv-sess")
+		svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 		if _, ok := svc.activeCalls["x"]; ok {
 			t.Error("an active call must tear down on any party disconnect")
 		}
@@ -808,7 +808,7 @@ func TestInitiateNamesTheCallingSession(t *testing.T) {
 		ringTimers:  map[string]*time.Timer{},
 	}
 
-	if err := svc.InitiateCall("caller", "desktop-sess", "desktop-app", "rcv", models.P2PCallTypeVoice); err != nil {
+	if err := svc.InitiateCall("caller", "desktop-sess", "desktop-app", "", "rcv", models.P2PCallTypeVoice); err != nil {
 		t.Fatalf("InitiateCall: %v", err)
 	}
 
@@ -873,7 +873,7 @@ func TestCallEndsWhenTheSessionCarryingItDies(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		svc.HandleSessionDisconnect("caller", "caller-desktop")
+		svc.HandleSessionDisconnect("caller", "caller-desktop", false)
 
 		if _, alive := svc.activeCalls["x"]; alive {
 			t.Error("the call outlived the connection carrying it — both parties stay busy forever")
@@ -890,7 +890,7 @@ func TestCallEndsWhenTheSessionCarryingItDies(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		svc.HandleSessionDisconnect("caller", "callers-idle-phone")
+		svc.HandleSessionDisconnect("caller", "callers-idle-phone", false)
 
 		if _, alive := svc.activeCalls["x"]; !alive {
 			t.Error("an idle sibling device disconnecting ended a call it was not in")

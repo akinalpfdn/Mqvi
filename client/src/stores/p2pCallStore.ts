@@ -90,18 +90,10 @@ type P2PCallStore = {
   callDuration: number;
   _durationInterval: ReturnType<typeof setInterval> | null;
 
-  /**
-   * This connection's id, from the ready event. p2p_call_accept is broadcast to every
-   * session the receiver has and names the one that won, so each device can tell whether
-   * it is the one joining the call. Assuming "I sent the accept, so I won" would be wrong:
-   * two devices can accept at once and the server picks one.
-   */
+  /** This connection's id; the server names the winning session when two devices accept. */
   _sessionId: string | null;
   setSessionId: (id: string | null) => void;
-  /**
-   * Calls this device ended before the server heard, with what was sent. The server re-sends a
-   * ringing call on connect, before the queued decline or end reaches it; that must not ring.
-   */
+  /** Calls ended here before the server heard; its re-delivery on connect must not ring again. */
   _endedHere: Record<string, EndedHere>;
   /** Ends for a call a previous page left running, waiting for a socket sender. */
   _orphanedEnds: OrphanedEnd[];

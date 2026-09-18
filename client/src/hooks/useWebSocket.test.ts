@@ -26,6 +26,7 @@ vi.mock("../utils/constants", () => ({
   WS_HEARTBEAT_PROBE_INTERVAL: 10_000,
   WS_HEARTBEAT_MAX_MISS: 3,
   WS_MAX_RECONNECT_ATTEMPTS: 7,
+  getCapacitorPlatform: () => "web",
 }));
 vi.mock("./ws/channelEventHandlers", () => ({ handleChannelEvent: async () => false }));
 vi.mock("./ws/dmEventHandlers", () => ({ handleDMEvent: async () => false }));

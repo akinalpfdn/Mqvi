@@ -26,8 +26,16 @@ vi.mock("../native/p2pCall", () => ({
 }));
 vi.mock("../api/push", () => ({ registerPushToken: vi.fn(async () => ({ success: true })) }));
 vi.mock("../utils/pushToken", () => ({ syncVoipToken: vi.fn(async () => {}) }));
+const { appListeners } = vi.hoisted(() => ({
+  appListeners: {} as Record<string, (state: { isActive: boolean }) => void>,
+}));
 vi.mock("@capacitor/app", () => ({
-  App: { addListener: vi.fn(async () => ({ remove: vi.fn() })) },
+  App: {
+    addListener: vi.fn(async (event: string, cb: (state: { isActive: boolean }) => void) => {
+      appListeners[event] = cb;
+      return { remove: vi.fn() };
+    }),
+  },
 }));
 vi.mock("../utils/constants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../utils/constants")>()),
@@ -280,5 +288,20 @@ describe("useCallKit — dismissing the system call screen", () => {
     useP2PCallStore.setState({ activeCall: null, incomingCall: null });
 
     expect(endCall).not.toHaveBeenCalled();
+  });
+});
+
+describe("useCallKit — coming back from the background", () => {
+  // The page was suspended; the native call may have ended meanwhile, with no reconnect to notice.
+  it("should have the engine check the call when the app returns", async () => {
+    const resync = vi.fn();
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(appListeners.appStateChange).toBeDefined());
+    useP2PCallStore.setState({ activeCall: { ...ringingCall(), status: "active" }, engine: { resync } as never });
+
+    appListeners.appStateChange({ isActive: true });
+
+    expect(resync).toHaveBeenCalledTimes(1);
+    useP2PCallStore.setState({ engine: null });
   });
 });

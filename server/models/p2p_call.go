@@ -28,24 +28,19 @@ type P2PCall struct {
 	CreatedAt  time.Time     `json:"created_at"`
 	AcceptedAt time.Time     `json:"accepted_at,omitempty"` // set when answered; basis for call duration
 
-	// A call is owned by two CONNECTIONS, not two users. A user signed in on several devices
-	// sees every event for the call on all of them, so without this the caller's idle phone
-	// also opens its microphone and sends a competing SDP offer, and a dropped socket cannot be
-	// matched to the call it was carrying.
-	//
-	// CallerSessionID is set at initiate. ReceiverSessionID is empty until someone accepts —
-	// the receiver's other devices are still ringing until then.
+	// A call is owned by two connections, not two users. ReceiverSessionID stays empty until an
+	// accept, while every device of the receiver still rings.
 	CallerSessionID   string `json:"-"`
 	ReceiverSessionID string `json:"-"`
 
-	// The running app behind each side (one per page load, kept across reconnects). Only the
-	// same app on a new socket may take its call back; another tab of the same install may not.
-	// Empty for clients that predate it.
+	// The running app behind each side (per page load); only it may take its call back.
 	CallerInstanceID   string `json:"-"`
 	ReceiverInstanceID string `json:"-"`
+	// The installation behind each side, to tell an app this device restarted from a live one.
+	CallerDeviceID   string `json:"-"`
+	ReceiverDeviceID string `json:"-"`
 
-	// The ring push was handed to the push service (under the call service's lock). A cancel
-	// push without it would reach a device that never rang, which iOS shows as a phantom call.
+	// A cancel push for a ring that never went out shows iOS a phantom call.
 	RingPushed bool `json:"-"`
 }
 

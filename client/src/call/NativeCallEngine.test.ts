@@ -18,6 +18,7 @@ const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.ho
       switchCamera: vi.fn(async (): Promise<{ facing: "front" | "back" }> => ({ facing: "front" })),
       restartIce: vi.fn(async () => {}),
       resendPendingOffer: vi.fn(async () => ({ resent: false })),
+      currentCall: vi.fn(async (): Promise<{ callId: string | null }> => ({ callId: "c1" })),
       closeCall: vi.fn(async () => {}),
       addListener: vi.fn(async (event: string, cb: (data: never) => void) => {
         listeners[event] = cb;
@@ -221,6 +222,20 @@ describe("native engine after a socket replacement", () => {
     engine.resync();
     await vi.advanceTimersByTimeAsync(0);
     expect(plugin.restartIce).not.toHaveBeenCalled();
+  });
+
+  // Hung up on the lock screen, or ended natively because the connection died, while the page
+  // was suspended: the page must not wake up to a call that is no longer there.
+  it("should end the call when the native side no longer runs it", async () => {
+    const { engine, ev } = await engineFor(true);
+    connectionState("connected");
+    plugin.currentCall.mockResolvedValueOnce({ callId: null });
+
+    engine.resync();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ev.onConnectionLost).toHaveBeenCalledTimes(1);
+    expect(plugin.resendPendingOffer).not.toHaveBeenCalled();
   });
 });
 

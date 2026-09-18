@@ -248,6 +248,21 @@ export class NativeCallEngine implements CallMediaEngine {
 
   resync(): void {
     if (this.closed || !this.started) return;
+    void NativeP2PCall.currentCall()
+      .then(({ callId }) => {
+        if (this.closed) return;
+        // Ended natively while the page was suspended (hung up on the lock screen, or the
+        // connection died): the call is over here too.
+        if (callId !== this.callId) {
+          this.events.onConnectionLost();
+          return;
+        }
+        this.resendOrRecover();
+      })
+      .catch((err) => console.error("[p2p] native currentCall failed:", err));
+  }
+
+  private resendOrRecover(): void {
     void NativeP2PCall.resendPendingOffer()
       .then(({ resent }) => {
         if (!resent && !this.closed && this.state !== "connected") this.recovery.start();

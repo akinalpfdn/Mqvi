@@ -26,6 +26,7 @@ import {
   WS_HEARTBEAT_PROBE_INTERVAL,
   WS_HEARTBEAT_MAX_MISS,
   WS_MAX_RECONNECT_ATTEMPTS,
+  getCapacitorPlatform,
 } from "../utils/constants";
 import type { WSMessage, UserStatus } from "../types";
 import { handleChannelEvent } from "./ws/channelEventHandlers";
@@ -280,14 +281,8 @@ export function useWebSocket() {
   const pendingCallOpsRef = useRef<{ op: string; data?: unknown; at: number }[]>([]);
 
   /**
-   * sendWS — Generic WS sender, used by P2P call store.
-   * Single function instead of per-event helpers since store knows its own op codes.
-   *
-   * A call torn down from the native call UI usually has no live socket: the app was launched
-   * into the background by the VoIP push and never connected. Dropping that message leaves the
-   * OTHER party ringing until the server's ring timeout, so the two teardown ops are held and
-   * flushed on the next open. Nothing else is queued — a replayed initiate or accept would act
-   * on a call that is long gone.
+   * Sender for the call store. Only call teardowns wait for a socket: a decline from the lock
+   * screen often has none yet, and a replayed initiate or accept would act on a call long gone.
    */
   const sendWS = useCallback((op: string, data?: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -402,7 +397,9 @@ export function useWebSocket() {
         // that just answered a call when it tells the rest to stop ringing. instance_id lets only
         // this app take its call back after a reconnect.
         socket = new WebSocket(
-          `${WS_URL}?token=${token}&device_id=${encodeURIComponent(getDeviceId())}&instance_id=${INSTANCE_ID}`,
+          `${WS_URL}?token=${token}&device_id=${encodeURIComponent(getDeviceId())}&instance_id=${INSTANCE_ID}` +
+            // iOS call media is native and outlives this page's suspension in the background.
+            (getCapacitorPlatform() === "ios" ? "&native_media=1" : ""),
         );
       } catch (err) {
         // A malformed WS_URL throws synchronously. Without this the hook would sit on

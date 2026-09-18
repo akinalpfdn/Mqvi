@@ -2,6 +2,7 @@ import AVFoundation
 import Capacitor
 import Foundation
 import LiveKitWebRTC
+import UIKit
 
 /// Native media for p2p calls on iOS; the JS layer keeps the call state and signalling.
 /// WKWebView cannot capture the microphone while CallKit owns the audio session.
@@ -25,8 +26,12 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "restartIce", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "resendPendingOffer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeCall", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "discardOrphanedCall", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "discardOrphanedCall", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "currentCall", returnType: CAPPluginReturnPromise)
     ]
+
+    /// How long a dead connection is left alone in the background before this side ends it.
+    private static let backgroundDeadCallDelay: TimeInterval = 20
 
     /// One factory per process: a second audio device module would fight over the microphone.
     private static let factory: LKRTCPeerConnectionFactory = {
@@ -57,6 +62,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// start is called (a reload can land on a permission prompt). A reload hangs it up in that
     /// instance's name, the only one the server lets end an answered call.
     private var owner: (callId: String, instanceId: String?)?
+    /// Main queue only. See watchForDeadCall.
+    private var deadCallCheck: DispatchWorkItem?
     private var isCaller = false
     /// Renegotiation is the offerer's job; the answerer only ever answers.
     private var makingOffer = false
@@ -71,6 +78,11 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - JS surface
 
     public override func load() {
+        // Hung up on the system call screen: the page may be suspended and unable to stop the
+        // media, so the microphone is released here; the page ends the call on the server later.
+        CallManager.shared.onEndedBySystem = { [weak self] callId in
+            self?.endIfServing(callId)
+        }
         Task { @MainActor in
             NativeCallVideo.shared.onVideoSize = { [weak self] source, size in
                 // Not retained: Capacitor would queue every change, a late subscriber pulls
@@ -399,6 +411,15 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Called at page load: a reload keeps this plugin, so a call the old page ran is ended here.
+    /// Which call the native side still runs, so a page waking from suspension can tell whether
+    /// the call it remembers ended while it slept.
+    @objc func currentCall(_ call: CAPPluginCall) {
+        lock.lock()
+        let callId = owner?.callId
+        lock.unlock()
+        call.resolve(["callId": callId ?? NSNull()])
+    }
+
     @objc func discardOrphanedCall(_ call: CAPPluginCall) {
         lock.lock()
         let orphan = owner
@@ -642,6 +663,40 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         return isCaller
     }
 
+    private func endIfServing(_ callId: String) {
+        lock.lock()
+        let serving = owner?.callId == callId
+        lock.unlock()
+        if serving { teardown() }
+    }
+
+    /// In the background the page is suspended, so nothing in JS can recover or end a call whose
+    /// connection died (the peer hung up, the network went). If it is still dead after a while,
+    /// this side ends it: media off, CallKit told; the page ends it on the server when it wakes.
+    private func watchForDeadCall(_ pc: LKRTCPeerConnection, callId: String, state: LKRTCPeerConnectionState) {
+        DispatchQueue.main.async {
+            if state == .connected {
+                self.deadCallCheck?.cancel()
+                self.deadCallCheck = nil
+                return
+            }
+            guard state == .failed || state == .disconnected, self.deadCallCheck == nil else { return }
+            let check = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.deadCallCheck = nil
+                guard UIApplication.shared.applicationState == .background,
+                      self.callId(owning: pc) == callId,
+                      pc.connectionState != .connected else { return }
+                print("[p2p-native] connection dead in the background; ending call \(callId)")
+                self.notifyListeners("connectionState", data: ["callId": callId, "state": "closed"])
+                self.teardown()
+                CallManager.shared.endCall(callId: callId, reason: "failed")
+            }
+            self.deadCallCheck = check
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.backgroundDeadCallDelay, execute: check)
+        }
+    }
+
     private func teardown() {
         // Generation first, so a start behind a permission prompt builds nothing.
         lock.lock()
@@ -666,6 +721,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         Task { @MainActor in
             camera?.stop()
             NativeCallVideo.shared.teardown()
+            self.deadCallCheck?.cancel()
+            self.deadCallCheck = nil
         }
         pc?.close()
     }
@@ -733,6 +790,7 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCPeerConnectionState) {
         guard let callId = callId(owning: peerConnection) else { return }
         notifyListeners("connectionState", data: ["callId": callId, "state": Self.name(for: newState)])
+        watchForDeadCall(peerConnection, callId: callId, state: newState)
     }
 
     /// Optional in the protocol, so the selector is spelled out.

@@ -24,6 +24,9 @@ protocol CallManagerListener: AnyObject {
 final class CallManager: NSObject {
     static let shared = CallManager()
 
+    /// A call ended on the system call screen, for the native media to stop without the page.
+    var onEndedBySystem: ((String) -> Void)?
+
     weak var listener: CallManagerListener? {
         didSet { flushBuffer() }
     }
@@ -260,6 +263,7 @@ extension CallManager: CXProviderDelegate {
             calls.removeValue(forKey: action.callUUID)
             mutedState.removeValue(forKey: action.callUUID)
         } else if let callId = calls[action.callUUID] {
+            onEndedBySystem?(callId)
             if let listener = listener {
                 listener.onCallEnded(callId: callId)
             } else {

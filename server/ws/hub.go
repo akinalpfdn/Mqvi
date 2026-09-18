@@ -106,7 +106,7 @@ type UserDisconnectCallback func(userID string, audience []string)
 
 // SessionDisconnectCallback fires on EVERY connection close, with the connection that died.
 // A call is owned by a connection, not a user — see p2pCallService.HandleSessionDisconnect.
-type SessionDisconnectCallback func(userID, sessionID string)
+type SessionDisconnectCallback func(userID, sessionID string, nativeMedia bool)
 
 // ─── Voice Callback Types ───
 
@@ -143,7 +143,7 @@ type VoiceActivityCallback func(userID string)
 
 // ─── P2P Call Callback Types ───
 
-type P2PCallInitiateCallback func(callerID, sessionID, instanceID string, data P2PCallInitiateData)
+type P2PCallInitiateCallback func(callerID, sessionID, instanceID, deviceID string, data P2PCallInitiateData)
 type P2PCallAcceptCallback func(userID, sessionID, instanceID, deviceID string, data P2PCallAcceptData)
 type P2PCallDeclineCallback func(userID, deviceID string, data P2PCallDeclineData)
 type P2PCallEndCallback func(userID, instanceID, deviceID, callID string)
@@ -425,7 +425,7 @@ func (h *Hub) removeClient(client *Client) {
 	// device stays signed in is left in the call forever — and, because an accepted call has no
 	// ring timer, nothing ever cleans it up.
 	if removed && h.onSessionDisconnect != nil {
-		go h.onSessionDisconnect(client.userID, client.sessionID)
+		go h.onSessionDisconnect(client.userID, client.sessionID, client.nativeMedia)
 	}
 
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
