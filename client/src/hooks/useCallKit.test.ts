@@ -24,7 +24,10 @@ vi.mock("../native/p2pCall", () => ({
   dismissIncomingCallUI: vi.fn(),
 }));
 vi.mock("../api/push", () => ({ registerPushToken: vi.fn(async () => ({ success: true })) }));
-vi.mock("../utils/pushToken", () => ({ cacheVoipToken: vi.fn() }));
+vi.mock("../utils/pushToken", () => ({ syncVoipToken: vi.fn(async () => {}) }));
+vi.mock("@capacitor/app", () => ({
+  App: { addListener: vi.fn(async () => ({ remove: vi.fn() })) },
+}));
 vi.mock("../utils/constants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../utils/constants")>()),
   getCapacitorPlatform: () => "ios",

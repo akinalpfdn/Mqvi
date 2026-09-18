@@ -27,10 +27,10 @@
 		F424E60E2F78618B0001B5DF /* VoiceCallPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F424E60C2F78618B0001B5DF /* VoiceCallPlugin.swift */; };
 		F4AB01012FF0A00100AA0001 /* MediaPosterPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AB01002FF0A00100AA0001 /* MediaPosterPlugin.swift */; };
 		F4BE564F2F830F7A001A1477 /* NativeVoicePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4BE564E2F830F7A001A1477 /* NativeVoicePlugin.swift */; };
-		F4FC1F6D2FEC13D8007B44CC /* CallManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FC1F6B2FEC13D8007B44CC /* CallManager.swift */; };
 		F4CAAA01012FEC13D8007B44CC /* NativeP2PCallPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4CAAA01022FEC13D8007B44CC /* NativeP2PCallPlugin.swift */; };
-		F4CAAA03012FEC13D8007B44CC /* NativeCallVideo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4CAAA03022FEC13D8007B44CC /* NativeCallVideo.swift */; };
 		F4CAAA02012FEC13D8007B44CC /* CallAudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4CAAA02022FEC13D8007B44CC /* CallAudioSession.swift */; };
+		F4CAAA03012FEC13D8007B44CC /* NativeCallVideo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4CAAA03022FEC13D8007B44CC /* NativeCallVideo.swift */; };
+		F4FC1F6D2FEC13D8007B44CC /* CallManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FC1F6B2FEC13D8007B44CC /* CallManager.swift */; };
 		F4FC1F6E2FEC13D8007B44CC /* P2PCallPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FC1F6C2FEC13D8007B44CC /* P2PCallPlugin.swift */; };
 /* End PBXBuildFile section */
 
@@ -88,10 +88,10 @@
 		F4AB01002FF0A00100AA0001 /* MediaPosterPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPosterPlugin.swift; sourceTree = "<group>"; };
 		F4BE564D2F830C76001A1477 /* App-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "App-Bridging-Header.h"; sourceTree = "<group>"; };
 		F4BE564E2F830F7A001A1477 /* NativeVoicePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVoicePlugin.swift; sourceTree = "<group>"; };
-		F4FC1F6B2FEC13D8007B44CC /* CallManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallManager.swift; sourceTree = "<group>"; };
 		F4CAAA01022FEC13D8007B44CC /* NativeP2PCallPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeP2PCallPlugin.swift; sourceTree = "<group>"; };
-		F4CAAA03022FEC13D8007B44CC /* NativeCallVideo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCallVideo.swift; sourceTree = "<group>"; };
 		F4CAAA02022FEC13D8007B44CC /* CallAudioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallAudioSession.swift; sourceTree = "<group>"; };
+		F4CAAA03022FEC13D8007B44CC /* NativeCallVideo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCallVideo.swift; sourceTree = "<group>"; };
+		F4FC1F6B2FEC13D8007B44CC /* CallManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallManager.swift; sourceTree = "<group>"; };
 		F4FC1F6C2FEC13D8007B44CC /* P2PCallPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = P2PCallPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -540,7 +540,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = WQ54PPL5VQ;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = mqvi;
@@ -569,7 +569,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = WQ54PPL5VQ;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = mqvi;

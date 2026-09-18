@@ -13,9 +13,10 @@
 import { useEffect } from "react";
 import type { PluginListenerHandle } from "@capacitor/core";
 
+import { App } from "@capacitor/app";
+
 import { getCapacitorPlatform } from "../utils/constants";
-import { registerPushToken } from "../api/push";
-import { cacheVoipToken } from "../utils/pushToken";
+import { syncVoipToken } from "../utils/pushToken";
 import { P2PCall } from "../native/p2pCall";
 import { useP2PCallStore } from "../stores/p2pCallStore";
 import { useAuthStore } from "../stores/authStore";
@@ -57,21 +58,22 @@ export function useCallKit(): void {
       }, PENDING_ACCEPT_TTL);
     }
 
-    function registerVoip(token: string): void {
-      if (!token) return;
-      cacheVoipToken(token);
-      void registerPushToken({ token, platform: "ios", token_type: "apns_voip" }).then((res) => {
-        if (!res.success) console.error("[callkit] voip token register failed:", res.error);
-      });
-    }
-
     async function setup(): Promise<void> {
       // Fetch the current token in case its event fired before this listener attached.
       const { token } = await P2PCall.getVoipToken();
-      registerVoip(token);
+      void syncVoipToken(token);
 
       handles.push(
-        await P2PCall.addListener("voipToken", ({ token: t }) => registerVoip(t)),
+        await P2PCall.addListener("voipToken", ({ token: t }) => void syncVoipToken(t)),
+      );
+      // Coming back to the foreground is the one moment we can repair a registration that
+      // failed while the app was away — the token lives in a native singleton, so reading it
+      // again costs nothing and syncVoipToken skips the request when it is already on file.
+      handles.push(
+        await App.addListener("appStateChange", ({ isActive }) => {
+          if (!isActive) return;
+          void P2PCall.getVoipToken().then(({ token: t }) => void syncVoipToken(t));
+        }),
       );
       handles.push(
         await P2PCall.addListener("callAnswered", ({ call_id }) => {
