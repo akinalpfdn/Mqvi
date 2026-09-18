@@ -29,6 +29,8 @@ export class NativeCallEngine implements CallMediaEngine {
 
   private started = false;
   private closed = false;
+  /** Resolves once start() has finished. See waitUntilStarted. */
+  private ready: Promise<void> | null = null;
   private state: NativeConnectionState = "new";
   private isCaller = false;
   private readonly recovery: IceRecovery;
@@ -66,6 +68,27 @@ export class NativeCallEngine implements CallMediaEngine {
   }
 
   async start(opts: CallEngineStart): Promise<void> {
+    this.ready = this.begin(opts);
+    await this.ready;
+  }
+
+  /**
+   * Signalling that arrives while start() is still running waits for it instead of being
+   * dropped. start() sits on the microphone and camera prompts, and on a fresh install that
+   * is exactly when the caller's offer lands. An offer is never re-sent, so dropping one
+   * leaves the call connected and blank in both directions for its whole duration.
+   */
+  private async waitUntilStarted(): Promise<boolean> {
+    if (!this.ready) return false;
+    try {
+      await this.ready;
+    } catch {
+      return false; // start() failed; the store tears the call down
+    }
+    return !this.closed && this.started;
+  }
+
+  private async begin(opts: CallEngineStart): Promise<void> {
     if (this.closed) return;
 
     this.handles.push(
@@ -116,14 +139,14 @@ export class NativeCallEngine implements CallMediaEngine {
   }
 
   async acceptRemoteOffer(sdp: string): Promise<void> {
-    if (this.closed || !this.started) return;
+    if (!(await this.waitUntilStarted())) return;
     await NativeP2PCall.acceptRemoteOffer({ sdp });
     this.hasRemoteDescription = true;
     await this.flushCandidates();
   }
 
   async acceptRemoteAnswer(sdp: string): Promise<void> {
-    if (this.closed || !this.started) return;
+    if (!(await this.waitUntilStarted())) return;
     await NativeP2PCall.acceptRemoteAnswer({ sdp });
     this.hasRemoteDescription = true;
     await this.flushCandidates();

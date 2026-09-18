@@ -170,3 +170,54 @@ describe("native engine camera", () => {
     expect(plugin.switchCamera).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * start() sits on the microphone and camera prompts. On a fresh install that is exactly when
+ * the caller's offer arrives, and an offer is never re-sent: dropping one leaves the call
+ * connected with no media in either direction for its whole duration.
+ */
+describe("signalling that arrives while start is still waiting on permissions", () => {
+  it("should apply an offer that arrives before start finishes, not drop it", async () => {
+    let letStartFinish!: () => void;
+    plugin.start.mockImplementationOnce(
+      () =>
+        new Promise<{ video: boolean }>((resolve) => {
+          letStartFinish = () => resolve({ video: true });
+        }),
+    );
+
+    const engine = new NativeCallEngine(events());
+    const starting = engine.start({ callId: "c1", callType: "video", isCaller: false });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The offer lands while the permission prompts are still up.
+    const offered = engine.acceptRemoteOffer("v=0");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plugin.acceptRemoteOffer).not.toHaveBeenCalled();
+
+    letStartFinish();
+    await starting;
+    await offered;
+    expect(plugin.acceptRemoteOffer).toHaveBeenCalledWith({ sdp: "v=0" });
+  });
+
+  it("should apply an answer that arrives before start finishes", async () => {
+    let letStartFinish!: () => void;
+    plugin.start.mockImplementationOnce(
+      () =>
+        new Promise<{ video: boolean }>((resolve) => {
+          letStartFinish = () => resolve({ video: true });
+        }),
+    );
+
+    const engine = new NativeCallEngine(events());
+    const starting = engine.start({ callId: "c1", callType: "video", isCaller: true });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const answered = engine.acceptRemoteAnswer("v=0");
+    letStartFinish();
+    await starting;
+    await answered;
+    expect(plugin.acceptRemoteAnswer).toHaveBeenCalledWith({ sdp: "v=0" });
+  });
+});

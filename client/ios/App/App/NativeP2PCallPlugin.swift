@@ -93,6 +93,11 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             // unit for it.
             CallAudioSession.begin()
 
+            // Blank the surface before this call can put a box on screen. Teardown already does
+            // it when a call ends cleanly, but a call that ended any other way would otherwise
+            // leave its last frame to be shown at the start of this one.
+            Task { @MainActor in NativeCallVideo.shared.teardown() }
+
             guard let pc = self.buildPeerConnection(iceServers: iceServers) else {
                 CallAudioSession.end()
                 call.reject("failed to create peer connection")

@@ -47,7 +47,9 @@ function DraggableVideo({
 
   const videoRef = useCallback(
     (node: HTMLVideoElement | null) => {
-      if (node && stream) node.srcObject = stream;
+      // Assigning null matters as much as assigning a stream: an element left holding the old
+      // one keeps showing its last frame after the feed is gone.
+      if (node) node.srcObject = stream ?? null;
     },
     [stream],
   );
@@ -267,7 +269,7 @@ function P2PCallScreen() {
   // audio always comes from the hidden <audio> element).
   const bigVideoRef = useCallback(
     (node: HTMLVideoElement | null) => {
-      if (node && bigStream) node.srcObject = bigStream;
+      if (node) node.srcObject = bigStream ?? null;
     },
     [bigStream],
   );

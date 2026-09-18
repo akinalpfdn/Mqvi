@@ -24,8 +24,9 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
     var onVideoSize: ((String, CGSize) -> Void)?
 
     private let container = UIView()
-    private let remoteView = LKRTCMTLVideoView()
-    private let localView = LKRTCMTLVideoView()
+    // Replaced whenever the track they draw changes — see `swap`. Not constants for that reason.
+    private var remoteView = LKRTCMTLVideoView()
+    private var localView = LKRTCMTLVideoView()
 
     // Strong on purpose. A receiver hands out a fresh Obj-C wrapper for its track every time it
     // is asked, and nothing else keeps that wrapper alive; letting it go deallocates it, and its
@@ -42,14 +43,36 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
         container.isUserInteractionEnabled = false
         container.backgroundColor = .clear
         for view in [remoteView, localView] {
-            // Fit, not fill, to match the web's `object-fit: contain`: the same call must not be
-            // framed one way on the desktop and cropped another way here.
-            view.videoContentMode = .scaleAspectFit
-            view.clipsToBounds = true
-            view.isHidden = true
-            view.delegate = self
+            prepare(view)
             container.addSubview(view)
         }
+    }
+
+    private func prepare(_ view: LKRTCMTLVideoView) {
+        // Fit, not fill, to match the web's `object-fit: contain`: the same call must not be
+        // framed one way on the desktop and cropped another way here.
+        view.videoContentMode = .scaleAspectFit
+        view.clipsToBounds = true
+        view.isHidden = true
+        view.delegate = self
+    }
+
+    /// Retires a view and puts a blank one in its place, keeping its geometry.
+    ///
+    /// A Metal view holds on to the last frame it drew, and hiding it does not erase that. Reusing
+    /// one across calls therefore showed the previous call's final picture the moment the next
+    /// call's box appeared — before any new frame had arrived. So a view never outlives the track
+    /// it drew.
+    private func swap(_ old: LKRTCMTLVideoView) -> LKRTCMTLVideoView {
+        let fresh = LKRTCMTLVideoView()
+        prepare(fresh)
+        fresh.frame = old.frame
+        fresh.transform = old.transform
+        fresh.layer.cornerRadius = old.layer.cornerRadius
+        old.delegate = nil
+        container.insertSubview(fresh, aboveSubview: old)
+        old.removeFromSuperview()
+        return fresh
     }
 
     // MARK: - lifecycle
@@ -64,19 +87,19 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
     }
 
     func setRemoteTrack(_ track: LKRTCVideoTrack?) {
-        if let current = remoteTrack, current !== track {
-            current.remove(remoteView)
-        }
+        guard remoteTrack !== track else { return }
+        remoteTrack?.remove(remoteView)
         remoteTrack = track
+        remoteView = swap(remoteView)
         track?.add(remoteView)
         remoteView.isHidden = track == nil
     }
 
     func setLocalTrack(_ track: LKRTCVideoTrack?) {
-        if let current = localTrack, current !== track {
-            current.remove(localView)
-        }
+        guard localTrack !== track else { return }
+        localTrack?.remove(localView)
         localTrack = track
+        localView = swap(localView)
         track?.add(localView)
         localView.isHidden = track == nil
     }
@@ -112,11 +135,11 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
         localView.isHidden = true
     }
 
+    /// End of call. Detaching the tracks retires both views with them, so the last frame of this
+    /// call is destroyed here rather than waiting to be painted over by the next one.
     func teardown() {
-        remoteTrack?.remove(remoteView)
-        localTrack?.remove(localView)
-        remoteTrack = nil
-        localTrack = nil
+        setRemoteTrack(nil)
+        setLocalTrack(nil)
         hide()
     }
 
