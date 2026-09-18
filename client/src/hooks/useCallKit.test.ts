@@ -222,6 +222,43 @@ describe("useCallKit — dismissing the system call screen", () => {
     expect(sendWS).toHaveBeenCalledWith("p2p_call_decline", { call_id: CALL_ID });
   });
 
+  it("should accept again when the server re-delivers a call whose CallKit answer was lost", async () => {
+    const sendWS = vi.fn();
+    useP2PCallStore.setState({ _sendWS: sendWS });
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callAnswered).toBeDefined());
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    nativeListeners.callAnswered({ call_id: CALL_ID }); // lock screen; the socket under it is dead
+    expect(sendWS).toHaveBeenCalledTimes(1);
+
+    useP2PCallStore.setState({ callDuration: 1 }); // unrelated updates do not resend
+    expect(sendWS).toHaveBeenCalledTimes(1);
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall()); // reconnect re-delivers it
+    expect(sendWS).toHaveBeenCalledTimes(2);
+    expect(sendWS).toHaveBeenLastCalledWith("p2p_call_accept", { call_id: CALL_ID });
+  });
+
+  it("should accept a call answered on CallKit once it reaches the app, and only until it is active", async () => {
+    const sendWS = vi.fn();
+    useP2PCallStore.setState({ _sendWS: sendWS });
+    renderHook(() => useCallKit());
+    await waitFor(() => expect(nativeListeners.callAnswered).toBeDefined());
+
+    nativeListeners.callAnswered({ call_id: CALL_ID }); // cold launch, no call yet
+    expect(sendWS).not.toHaveBeenCalled();
+
+    useP2PCallStore.getState().handleCallInitiate(ringingCall());
+    expect(sendWS).toHaveBeenCalledWith("p2p_call_accept", { call_id: CALL_ID });
+
+    useP2PCallStore.getState().handleCallAccept({ call_id: CALL_ID, accepted_by: "session-1" });
+    useP2PCallStore.getState().endCall();
+    sendWS.mockClear();
+    useP2PCallStore.getState().handleCallInitiate(ringingCall()); // a stale re-delivery
+    expect(sendWS).not.toHaveBeenCalledWith("p2p_call_accept", expect.anything());
+  });
+
   it("should keep a CallKit mute made before the call reached the app", async () => {
     renderHook(() => useCallKit());
     await waitFor(() => expect(nativeListeners.callMuted).toBeDefined());

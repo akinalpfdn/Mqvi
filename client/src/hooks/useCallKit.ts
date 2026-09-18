@@ -4,10 +4,10 @@
  * CallKit when a CallKit-originated call ends in-app. iOS (Capacitor) only; a no-op
  * everywhere else.
  *
- * Cold-launch flow: a VoIP push reports the call to CallKit before the WebView loads.
- * When the user answers in CallKit, "callAnswered" may arrive before the call exists in
- * the store (the WS connect-replay delivers it shortly after) — we stash the id and
- * accept once it appears, with a TTL so a never-arriving call doesn't leave it stuck.
+ * A CallKit answer is held until the call goes active: the accept may be lost on a socket iOS
+ * killed while the phone was locked, and the call may not be in the store yet on a cold launch.
+ * Every delivery of the call (the server re-sends a ringing call on connect) accepts it again.
+ * A TTL keeps a call that never arrives from leaving it stuck.
  */
 
 import { useEffect } from "react";
@@ -91,12 +91,9 @@ export function useCallKit(): void {
       handles.push(
         await P2PCall.addListener("callAnswered", ({ call_id }) => {
           callKitCalls.add(call_id);
+          setPending(call_id);
           const store = useP2PCallStore.getState();
-          if (store.incomingCall?.id === call_id) {
-            store.acceptCall(call_id);
-          } else {
-            setPending(call_id); // call not in state yet — accept on arrival
-          }
+          if (store.incomingCall?.id === call_id) store.acceptCall(call_id);
         }),
       );
       handles.push(
@@ -136,15 +133,17 @@ export function useCallKit(): void {
 
     void setup().catch((err) => console.error("[callkit] setup failed:", err));
 
-    const unsubscribe = useP2PCallStore.subscribe((state) => {
+    const unsubscribe = useP2PCallStore.subscribe((state, prev) => {
       const incomingId = state.incomingCall?.id ?? null;
       const active = state.activeCall;
       const currentId = active?.id ?? incomingId;
 
-      if (pendingAccept && state.incomingCall?.id === pendingAccept) {
-        const id = pendingAccept;
+      if (pendingAccept && active?.id === pendingAccept && active.status === "active") {
         clearPending();
-        state.acceptCall(id);
+      } else if (pendingAccept && lastCallId === pendingAccept && currentId === null) {
+        clearPending();
+      } else if (pendingAccept && state.incomingCall?.id === pendingAccept && state.incomingCall !== prev.incomingCall) {
+        state.acceptCall(pendingAccept);
       }
 
       if (active && pendingMutes.has(active.id)) {
