@@ -23,8 +23,8 @@ initAppLifecycle();
 
 // iOS: a reload leaves the native call plugin running whatever call the old page had — no-op
 // elsewhere. The new page is a different app instance and cannot resume it, so it is hung up.
-void discardOrphanedNativeCall().then((callId) => {
-  if (callId) useP2PCallStore.getState().endOrphanedCall(callId);
+void discardOrphanedNativeCall().then((orphan) => {
+  if (orphan) useP2PCallStore.getState().endOrphanedCall(orphan.callId, orphan.instanceId);
 });
 
 // "Is the user in front of the app?" — every platform. The DM read loop depends on it.

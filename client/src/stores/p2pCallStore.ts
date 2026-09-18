@@ -34,6 +34,8 @@ export type LocalEnd = { callId: string; how: "hungUp" | "declined" | "failed" }
 
 type EndedHere = { op: "p2p_call_decline" | "p2p_call_end"; until: number };
 
+type OrphanedEnd = { call_id: string; instance_id?: string };
+
 /** Past the ring timeout the server no longer re-sends the call. */
 const ENDED_HERE_TTL = 60_000;
 
@@ -102,9 +104,12 @@ type P2PCallStore = {
    */
   _endedHere: Record<string, EndedHere>;
   /** Ends for a call a previous page left running, waiting for a socket sender. */
-  _orphanedEnds: string[];
-  /** A call the previous page left running natively; the new page cannot resume it. */
-  endOrphanedCall: (callId: string) => void;
+  _orphanedEnds: OrphanedEnd[];
+  /**
+   * A call the previous page left running natively. This page cannot resume it; it hangs up in
+   * the name of the page that ran it, the only app the server lets end an answered call.
+   */
+  endOrphanedCall: (callId: string, instanceId?: string) => void;
 
   // ─── WS Send ───
 
@@ -226,14 +231,15 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       return;
     }
     set({ _sendWS: fn, _orphanedEnds: [] });
-    for (const callId of pending) fn("p2p_call_end", { call_id: callId });
+    for (const end of pending) fn("p2p_call_end", end);
   },
 
-  endOrphanedCall: (callId) => {
+  endOrphanedCall: (callId, instanceId) => {
     const { _sendWS, _endedHere, _orphanedEnds } = get();
+    const end: OrphanedEnd = instanceId ? { call_id: callId, instance_id: instanceId } : { call_id: callId };
     set({ _endedHere: rememberEnded(_endedHere, callId, "p2p_call_end") });
-    if (_sendWS) _sendWS("p2p_call_end", { call_id: callId });
-    else set({ _orphanedEnds: [..._orphanedEnds, callId] });
+    if (_sendWS) _sendWS("p2p_call_end", end);
+    else set({ _orphanedEnds: [..._orphanedEnds, end] });
   },
 
   setRemoteVolume: (volume) => {

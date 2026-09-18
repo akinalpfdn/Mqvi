@@ -35,6 +35,7 @@ vi.mock("../utils/nativePlugins", () => ({ nativeVoiceReleased: () => voiceRelea
 vi.mock("../api/calls", () => ({ fetchIceServers, fetchIceServersForRecovery }));
 
 import { NativeCallEngine } from "./NativeCallEngine";
+import { INSTANCE_ID } from "../utils/deviceId";
 import type { CallEngineEvents } from "./CallMediaEngine";
 
 const REFRESHED = [{ urls: "turn:refreshed" }];
@@ -186,6 +187,14 @@ describe("native engine recovery", () => {
       sdpMid: "0",
       sdpMLineIndex: 0,
     });
+  });
+});
+
+describe("native engine start", () => {
+  // A reload hangs the call up in the name of the page that started it.
+  it("should tell the plugin which page instance runs the call", async () => {
+    await engineFor(true);
+    expect(plugin.start).toHaveBeenCalledWith(expect.objectContaining({ instanceId: INSTANCE_ID }));
   });
 });
 

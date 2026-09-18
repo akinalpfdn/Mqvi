@@ -53,6 +53,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private var audioOwned = false
     private var camera: NativeCallCamera?
     private var callId: String?
+    /// The call this plugin is serving and the page instance that started it, from the moment
+    /// start is called (a reload can land on a permission prompt). A reload hangs it up in that
+    /// instance's name, the only one the server lets end an answered call.
+    private var owner: (callId: String, instanceId: String?)?
     private var isCaller = false
     /// Renegotiation is the offerer's job; the answerer only ever answers.
     private var makingOffer = false
@@ -88,10 +92,12 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         let isCaller = call.getBool("isCaller") ?? false
         let wantsVideo = call.getString("callType") == "video"
         let iceServers = Self.parseIceServers(call.getArray("iceServers"))
+        let instanceId = call.getString("instanceId")
 
         lock.lock()
         generation += 1
         let gen = generation
+        owner = (callId, instanceId)
         lock.unlock()
 
         requestMicrophone { [weak self] granted in
@@ -395,7 +401,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Called at page load: a reload keeps this plugin, so a call the old page ran is ended here.
     @objc func discardOrphanedCall(_ call: CAPPluginCall) {
         lock.lock()
-        let orphan = callId
+        let orphan = owner
         lock.unlock()
         // Unconditionally: this also cancels a start still behind a permission prompt.
         teardown()
@@ -404,8 +410,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         DispatchQueue.main.async {
-            CallManager.shared.endCall(callId: orphan, reason: "failed")
-            call.resolve(["discarded": true, "callId": orphan])
+            CallManager.shared.endCall(callId: orphan.callId, reason: "failed")
+            var result: [String: Any] = ["discarded": true, "callId": orphan.callId]
+            if let instanceId = orphan.instanceId { result["instanceId"] = instanceId }
+            call.resolve(result)
         }
     }
 
@@ -649,6 +657,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         micEnabled = true
         self.camera = nil
         callId = nil
+        owner = nil
         makingOffer = false
         negotiationArmed = false
         lock.unlock()

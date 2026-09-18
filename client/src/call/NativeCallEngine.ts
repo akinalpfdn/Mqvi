@@ -6,6 +6,7 @@
 import { fetchIceServers } from "../api/calls";
 import { NativeP2PCall, type NativeConnectionState } from "../native/nativeP2PCall";
 import { nativeVoiceReleased } from "../utils/nativePlugins";
+import { INSTANCE_ID } from "../utils/deviceId";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type {
   CallEngineEvents,
@@ -144,6 +145,7 @@ export class NativeCallEngine implements CallMediaEngine {
     try {
       ({ video } = await NativeP2PCall.start({
         callId: opts.callId,
+        instanceId: INSTANCE_ID,
         isCaller: opts.isCaller,
         callType: opts.callType,
         iceServers: iceServers.map((server) => ({

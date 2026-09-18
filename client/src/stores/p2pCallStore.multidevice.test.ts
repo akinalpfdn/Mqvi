@@ -369,6 +369,16 @@ describe("a call the previous page left running", () => {
     expect(useP2PCallStore.getState().incomingCall).toBeNull();
   });
 
+  // The new page is a different app; only the old one may end an answered call.
+  it("is hung up in the name of the page that ran it", () => {
+    const sent: { op: string; data?: unknown }[] = [];
+    useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
+
+    useP2PCallStore.getState().endOrphanedCall("call-1", "old-page");
+
+    expect(sent).toEqual([{ op: "p2p_call_end", data: { call_id: "call-1", instance_id: "old-page" } }]);
+  });
+
   it("is hung up at once when the sender is already there", () => {
     const sent: { op: string; data?: unknown }[] = [];
     useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));

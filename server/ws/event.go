@@ -347,4 +347,8 @@ type P2PSignalData struct {
 // ends whatever call the user is in (the old behaviour).
 type P2PCallEndData struct {
 	CallID string `json:"call_id,omitempty"`
+
+	// InstanceID is set only by a page hanging up the call the page before it ran (an iOS
+	// reload): that page's instance holds the call. It lets a user end only their own call.
+	InstanceID string `json:"instance_id,omitempty"`
 }

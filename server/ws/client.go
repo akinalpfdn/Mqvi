@@ -561,8 +561,17 @@ func (c *Client) handleP2PCallEnd(event Event) {
 		}
 	}
 	if c.hub.onP2PCallEnd != nil {
-		c.hub.onP2PCallEnd(c.userID, c.instanceID, c.deviceID, data.CallID)
+		c.hub.onP2PCallEnd(c.userID, endingInstance(c.instanceID, data), c.deviceID, data.CallID)
 	}
+}
+
+// endingInstance is the app a hang-up speaks for: this connection's, unless it names the page it
+// replaced.
+func endingInstance(connection string, data P2PCallEndData) string {
+	if data.InstanceID != "" && len(data.InstanceID) <= 64 {
+		return data.InstanceID
+	}
+	return connection
 }
 
 // handleP2PCallResume — this connection replaced the one that was carrying the call.

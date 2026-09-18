@@ -426,3 +426,27 @@ func TestEnd_FromAnAppNotInTheAnsweredCallLeavesItRunning(t *testing.T) {
 		}
 	}
 }
+
+// An iOS reload: the old page's socket is gone and the new page is a different app. It hangs the
+// answered call up in the old page's name; refusing it left the peer in a silent call.
+func TestEnd_ByAReloadedPageInTheOldPagesNameHangsUp(t *testing.T) {
+	svc, hub := activeCallService(time.Hour)
+	svc.activeCalls["x"].ReceiverInstanceID = "old-page"
+	svc.HandleSessionDisconnect("rcv", "rcv-sess")
+
+	if err := svc.EndCall("rcv", "old-page", "phone-dev", "x"); err != nil {
+		t.Fatalf("EndCall: %v", err)
+	}
+	if callExists(svc, "x") {
+		t.Fatal("the call is still up")
+	}
+	if n := len(hub.eventsFor("caller", ws.OpP2PCallEnd)); n != 1 {
+		t.Errorf("the caller was told %d times, want once", n)
+	}
+	svc.mu.RLock()
+	left := len(svc.graceTimers)
+	svc.mu.RUnlock()
+	if left != 0 {
+		t.Errorf("%d grace timers outlived the call", left)
+	}
+}
