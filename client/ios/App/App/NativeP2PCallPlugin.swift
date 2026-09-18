@@ -40,6 +40,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private var peerConnection: LKRTCPeerConnection?
     private var audioTrack: LKRTCAudioTrack?
     private var videoTrack: LKRTCVideoTrack?
+    private var videoSource: LKRTCVideoSource?
     /// Held for the volume: remote audio plays here, not in the page.
     private var remoteAudioTrack: LKRTCAudioTrack?
     private var remoteGain: Double = 1
@@ -132,11 +133,11 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 print("[p2p-native] camera permission denied; continuing with audio only")
             }
             if video {
-                let (source, track) = self.addVideoTrack(to: pc, generation: gen)
+                self.addVideoTrack(to: pc, generation: gen)
                 self.requestCamera { granted in
                     Task { @MainActor in
                         if granted {
-                            self.startCamera(source: source, track: track, generation: gen)
+                            self.startCamera(generation: gen)
                         } else {
                             self.cameraFailed(generation: gen)
                         }
@@ -257,19 +258,29 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func setVideoEnabled(_ call: CAPPluginCall) {
-        let enabled = call.getBool("enabled") ?? true
+        let requested = call.getBool("enabled") ?? true
         lock.lock()
         let track = videoTrack
         let camera = self.camera
+        let gen = generation
         lock.unlock()
 
         guard let track else {
             call.resolve(["enabled": false])
             return
         }
+        // Denied: nothing can capture, so the button must not light. Undecided: the prompt's
+        // answer starts the camera or reports it failed.
+        let access = AVCaptureDevice.authorizationStatus(for: .video)
+        let enabled = requested && (access == .authorized || access == .notDetermined)
         track.isEnabled = enabled
         Task { @MainActor in
-            camera?.setEnabled(enabled)
+            if let camera {
+                camera.setEnabled(enabled)
+            } else if enabled && access == .authorized {
+                // Allowed in Settings after the call started without it.
+                self.startCamera(generation: gen)
+            }
             NativeCallVideo.shared.setLocalTrack(enabled ? track : nil)
             call.resolve(["enabled": enabled])
         }
@@ -392,27 +403,37 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func addVideoTrack(to pc: LKRTCPeerConnection, generation gen: Int) -> (LKRTCVideoSource, LKRTCVideoTrack) {
+    private func addVideoTrack(to pc: LKRTCPeerConnection, generation gen: Int) {
         let source = Self.factory.videoSource()
         let track = Self.factory.videoTrack(with: source, trackId: "mqvi-video")
         pc.add(track, streamIds: ["mqvi"])
 
         lock.lock()
-        if generation == gen { videoTrack = track }
+        if generation == gen {
+            videoTrack = track
+            videoSource = source
+        }
         lock.unlock()
-        return (source, track)
     }
 
+    /// Builds the capturer once the permission is there; it starts only if the video is on.
     @MainActor
-    private func startCamera(source: LKRTCVideoSource, track: LKRTCVideoTrack, generation gen: Int) {
+    private func startCamera(generation gen: Int) {
+        lock.lock()
+        let source = generation == gen && camera == nil ? videoSource : nil
+        lock.unlock()
+        guard let source else { return }
+
         let camera = NativeCallCamera(source: source)
         camera.onStartFailed = { [weak self] in self?.cameraFailed(generation: gen) }
         // Checked and stored under the lock teardown reads it with, so a camera never outlives its call.
         lock.lock()
-        let current = generation == gen
+        let current = generation == gen && self.camera == nil
         if current { self.camera = camera }
+        let track = videoTrack
         lock.unlock()
-        guard current else { return }
+        // Turned off while the permission prompt was up: built, not started.
+        guard current, let track, track.isEnabled else { return }
         camera.start()
         NativeCallVideo.shared.setLocalTrack(track)
     }
@@ -601,6 +622,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         peerConnection = nil
         audioTrack = nil
         videoTrack = nil
+        videoSource = nil
         remoteAudioTrack = nil
         remoteGain = 1
         micEnabled = true

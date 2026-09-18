@@ -55,9 +55,9 @@ const (
 	// Past the cap, records are dropped and retraction becomes unconditional. See saturated.
 	maxTrackedNotifications = 100_000
 
-	// Ring pushes we withheld, remembered just long enough for the matching cancel to arrive.
-	maxTrackedSuppressedCalls = 1024
-	suppressedCallTTL         = 5 * time.Minute
+	// Rings that went out, remembered just long enough for the matching cancel to arrive.
+	maxTrackedRungCalls = 1024
+	rungCallTTL         = 5 * time.Minute
 
 	// Rings a cancel may still have to wait for. A decided gate is kept this long, then swept;
 	// an undecided one is never swept, since a cancel may still depend on it.
@@ -129,11 +129,11 @@ type pushService struct {
 	// most of them, and which is exactly the traffic that overflows FCM's queue for an offline
 	// device and takes the real call notifications down with it.
 	outstanding map[string]struct{}
-	// suppressedCalls holds the ids of calls whose ring push was withheld (DND / invisible),
-	// with the time it happened. The cancel push for such a call must be withheld too: the
-	// device never rang, and CallManager cannot ignore a VoIP push — iOS kills the app unless
-	// it reports a call to CallKit first, so the cancel would flash a phantom call on screen.
-	suppressedCalls map[string]time.Time
+	// rungCalls holds, per call, the tokens its ring push actually reached. The cancel goes to
+	// those alone: a device that never rang must not get one, because CallManager cannot ignore a
+	// VoIP push — iOS kills the app unless it reports a call to CallKit first, so the cancel would
+	// flash a phantom call on screen. Withheld, failed and token-less rings leave no record.
+	rungCalls map[string]*rungCall
 	// ringGates closes per call once its ring is decided, so the cancel never overtakes the ring.
 	ringGates map[string]*ringGate
 }
@@ -164,14 +164,14 @@ func NewPushService(
 	return &pushService{
 		fcm: fcm, apns: apnsSender, tokenRepo: tokenRepo, users: users,
 		presence: presence, reads: reads,
-		dmDelay:         cfg.DMDelay,
-		readRetraction:  cfg.ReadRetraction,
-		sem:             make(chan struct{}, maxConcurrent),
-		fcmBreaker:      breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
-		apnsBreaker:     breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
-		outstanding:     make(map[string]struct{}),
-		suppressedCalls: make(map[string]time.Time),
-		ringGates:       make(map[string]*ringGate),
+		dmDelay:        cfg.DMDelay,
+		readRetraction: cfg.ReadRetraction,
+		sem:            make(chan struct{}, maxConcurrent),
+		fcmBreaker:     breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
+		apnsBreaker:    breaker.New(cfg.CircuitFailureThreshold, cfg.CircuitWindow, cfg.CircuitOpen),
+		outstanding:    make(map[string]struct{}),
+		rungCalls:      make(map[string]*rungCall),
+		ringGates:      make(map[string]*ringGate),
 	}
 }
 
@@ -231,36 +231,50 @@ func (s *pushService) dispatch(userID, kind string, sheddable bool, fn func(cont
 	}()
 }
 
-// markCallSuppressed records that the ring push for this call was withheld.
-func (s *pushService) markCallSuppressed(callID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sweepSuppressedCallsLocked()
-	if len(s.suppressedCalls) >= maxTrackedSuppressedCalls {
-		// Full: the cancel will go out and flash a call screen on a device that never rang.
-		// Noisy but harmless, and unbounded growth here would not be.
-		log.Printf("[push] suppressed-call table full, cancel for %s will be sent", callID)
+type rungCall struct {
+	tokens []models.PushToken
+	at     time.Time
+}
+
+// recordRing remembers which tokens a call's ring reached, for its cancel.
+func (s *pushService) recordRing(callID string, tokens []models.PushToken) {
+	if len(tokens) == 0 {
 		return
 	}
-	s.suppressedCalls[callID] = time.Now()
-}
-
-// callPushSuppressed reports whether this call's ring push was withheld. It peeks rather than
-// consumes: a call can be cancelled twice (declined on another device, then the ring timeout),
-// and the second cancel must stay suppressed as well.
-func (s *pushService) callPushSuppressed(callID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sweepSuppressedCallsLocked()
-	_, ok := s.suppressedCalls[callID]
-	return ok
+	s.sweepRungCallsLocked()
+	if len(s.rungCalls) >= maxTrackedRungCalls {
+		// Full: forget the oldest ring, whose call is the likeliest to be over already.
+		oldest := ""
+		for id, r := range s.rungCalls {
+			if oldest == "" || r.at.Before(s.rungCalls[oldest].at) {
+				oldest = id
+			}
+		}
+		log.Printf("[push] rung-call table full, dropping %s", oldest)
+		delete(s.rungCalls, oldest)
+	}
+	s.rungCalls[callID] = &rungCall{tokens: tokens, at: time.Now()}
 }
 
-func (s *pushService) sweepSuppressedCallsLocked() {
-	cutoff := time.Now().Add(-suppressedCallTTL)
-	for id, at := range s.suppressedCalls {
-		if at.Before(cutoff) {
-			delete(s.suppressedCalls, id)
+// rungTokens returns the tokens a call's ring reached. It peeks rather than consumes: a call can
+// be cancelled twice (declined on another device, then the ring timeout).
+func (s *pushService) rungTokens(callID string) []models.PushToken {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepRungCallsLocked()
+	if r, ok := s.rungCalls[callID]; ok {
+		return r.tokens
+	}
+	return nil
+}
+
+func (s *pushService) sweepRungCallsLocked() {
+	cutoff := time.Now().Add(-rungCallTTL)
+	for id, r := range s.rungCalls {
+		if r.at.Before(cutoff) {
+			delete(s.rungCalls, id)
 		}
 	}
 }
@@ -646,7 +660,6 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 		defer decided()
 		lang, suppress := s.recipientPush(ctx, receiverID)
 		if suppress {
-			s.markCallSuppressed(callID)
 			s.suppressed(receiverID, "call", reasonDND)
 			return
 		}
@@ -659,18 +672,22 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 		}
 
 		var androidFCM, voip []string
+		byToken := make(map[string]models.PushToken, len(tokens))
 		for _, t := range tokens {
 			if t.TokenType == models.PushTokenTypeAPNsVoIP {
 				voip = append(voip, t.Token)
 			} else if t.Platform == "android" {
 				androidFCM = append(androidFCM, t.Token)
+			} else {
+				continue // iOS FCM tokens are skipped for calls — the VoIP token (CallKit) is the iOS path.
 			}
-			// iOS FCM tokens are skipped for calls — the VoIP token (CallKit) is the iOS path.
+			byToken[t.Token] = t
 		}
+		var rang []models.PushToken
+		defer func() { s.recordRing(callID, rang) }()
 
 		// Cancelled while waiting (pool, lookups): withhold, or iOS shows a call that does not exist.
 		if s.ringCancelled(callID) {
-			s.markCallSuppressed(callID)
 			s.suppressed(receiverID, "call", reasonCancelledFirst)
 			return
 		}
@@ -704,6 +721,15 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 				log.Printf("[push] call FCM to %s: %v", receiverID, err)
 			} else {
 				s.sent.Add(1)
+				gone := make(map[string]bool, len(invalid))
+				for _, t := range invalid {
+					gone[t] = true
+				}
+				for _, t := range androidFCM {
+					if !gone[t] {
+						rang = append(rang, byToken[t])
+					}
+				}
 				if len(invalid) > 0 {
 					if delErr := s.tokenRepo.DeleteTokens(ctx, invalid); delErr != nil {
 						log.Printf("[push] prune fcm tokens: %v", delErr)
@@ -720,7 +746,9 @@ func (s *pushService) NotifyCall(receiverID, callerName string, callType models.
 				"caller_name": callerName,
 				"call_type":   string(callType),
 			}
-			s.sendVoIP(ctx, receiverID, voip, payload)
+			for _, t := range s.sendVoIP(ctx, receiverID, voip, payload) {
+				rang = append(rang, byToken[t])
+			}
 		}
 	})
 }
@@ -732,22 +760,16 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 	// Never shed: a device left ringing for a call that is already over is worse than the load.
 	send := func() {
 		s.dispatch(receiverID, "call_cancel", false, func(ctx context.Context) {
-			// No ring push went out for this call, so no device is ringing. Sending the cancel
-			// anyway makes iOS report and instantly end a call the user never received.
-			if s.callPushSuppressed(callID) {
+			// Only the tokens the ring reached. Any other device never rang, and on iOS a cancel
+			// there makes CallKit report and instantly end a call the user never received.
+			rang := s.rungTokens(callID)
+			if len(rang) == 0 {
 				s.suppressed(receiverID, "call_cancel", reasonRingWithheld)
 				return
 			}
 
-			tokens, err := s.tokenRepo.ListByUser(ctx, receiverID)
-			if err != nil {
-				s.failed.Add(1)
-				log.Printf("[push] list tokens for %s: %v", receiverID, err)
-				return
-			}
-
 			var androidFCM, voip []string
-			for _, t := range tokens {
+			for _, t := range rang {
 				// Never tell the device that just acted to stop ringing. On iOS that push would
 				// land on a live call, and the only way to ignore it is to complete the PushKit
 				// handler without reporting a call to CallKit — which Apple punishes by killing
@@ -757,7 +779,7 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 				}
 				if t.TokenType == models.PushTokenTypeAPNsVoIP {
 					voip = append(voip, t.Token)
-				} else if t.Platform == "android" {
+				} else {
 					androidFCM = append(androidFCM, t.Token)
 				}
 			}
@@ -807,14 +829,15 @@ func (s *pushService) NotifyCallCancel(receiverID, callID, excludeDeviceID strin
 }
 
 // sendVoIP delivers a VoIP payload to each of the user's PushKit tokens, pruning the ones APNs
-// reports permanently dead.
-func (s *pushService) sendVoIP(ctx context.Context, userID string, tokens []string, payload map[string]any) {
-	var dead []string
+// reports permanently dead, and returns the ones APNs accepted.
+func (s *pushService) sendVoIP(ctx context.Context, userID string, tokens []string, payload map[string]any) []string {
+	var dead, delivered []string
 	for _, vt := range tokens {
 		err := s.apns.SendVoIP(ctx, vt, payload)
 		if err == nil {
 			s.apnsBreaker.Record(true)
 			s.sent.Add(1)
+			delivered = append(delivered, vt)
 			continue
 		}
 		if errors.Is(err, apns.ErrTokenUnregistered) {
@@ -832,6 +855,7 @@ func (s *pushService) sendVoIP(ctx context.Context, userID string, tokens []stri
 			log.Printf("[push] prune voip tokens: %v", delErr)
 		}
 	}
+	return delivered
 }
 
 // sendFCM delivers a notification message to the user's FCM tokens — excluding VoIP

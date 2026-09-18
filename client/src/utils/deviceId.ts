@@ -13,6 +13,13 @@
 
 const DEVICE_ID_KEY = "mqvi_device_id";
 
+/**
+ * This running app: new on every page load, kept across reconnects, different in every tab and
+ * window. Only it tells the server "the app that answered is back on a new socket" apart from
+ * "another tab of the same install", which shares the device id.
+ */
+export const INSTANCE_ID = crypto.randomUUID();
+
 let cached: string | null = null;
 
 export function getDeviceId(): string {

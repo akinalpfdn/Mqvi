@@ -309,6 +309,10 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	if len(deviceID) > 64 {
 		deviceID = ""
 	}
+	instanceID := r.URL.Query().Get("instance_id")
+	if len(instanceID) > 64 {
+		instanceID = ""
+	}
 
 	client := &Client{
 		hub:           h.hub,
@@ -316,6 +320,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		userID:        claims.UserID,
 		sessionID:     uuid.New().String(),
 		deviceID:      deviceID,
+		instanceID:    instanceID,
 		send:          make(chan []byte, sendBufferSize),
 		events:        make(chan Event, eventQueueSize),
 		done:          make(chan struct{}),

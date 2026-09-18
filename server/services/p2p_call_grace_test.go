@@ -53,7 +53,7 @@ func TestActiveCall_SurvivesAReconnectWithinTheGraceWindow(t *testing.T) {
 	}
 
 	// The reconnected client claims it back.
-	if err := svc.ResumeCall("rcv", "rcv-sess-2", "x"); err != nil {
+	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
 	}
 	if !callExists(svc, "x") {
@@ -93,7 +93,7 @@ func TestResume_CancelsThePendingTeardown(t *testing.T) {
 	svc, hub := activeCallService(30 * time.Millisecond)
 
 	svc.HandleSessionDisconnect("rcv", "rcv-sess")
-	if err := svc.ResumeCall("rcv", "rcv-sess-2", "x"); err != nil {
+	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
 	}
 
@@ -117,7 +117,7 @@ func TestGraceTimer_AStaleFiringDoesNotEndAReclaimedCall(t *testing.T) {
 	svc, hub := activeCallService(time.Hour)
 
 	svc.HandleSessionDisconnect("rcv", "rcv-sess")
-	if err := svc.ResumeCall("rcv", "rcv-sess-2", "x"); err != nil {
+	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
 	}
 
@@ -145,7 +145,7 @@ func TestResume_LetsTheNewSessionSignalAgain(t *testing.T) {
 		t.Fatalf("a signal from an unclaimed session was accepted (err=%v)", err)
 	}
 
-	if err := svc.ResumeCall("rcv", "rcv-sess-2", "x"); err != nil {
+	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
 	}
 
@@ -157,7 +157,7 @@ func TestResume_LetsTheNewSessionSignalAgain(t *testing.T) {
 func TestResume_RejectsAStranger(t *testing.T) {
 	svc, _ := activeCallService(time.Hour)
 
-	err := svc.ResumeCall("mallory", "mallory-sess", "x")
+	err := svc.ResumeCall("mallory", "mallory-sess", "", "x")
 
 	if !errors.Is(err, pkg.ErrForbidden) {
 		t.Fatalf("a non-participant reclaimed someone else's call, got %v", err)
@@ -167,7 +167,7 @@ func TestResume_RejectsAStranger(t *testing.T) {
 func TestResume_OnACallThatAlreadyEndedIsNotFound(t *testing.T) {
 	svc, _ := activeCallService(time.Hour)
 
-	err := svc.ResumeCall("rcv", "rcv-sess-2", "gone")
+	err := svc.ResumeCall("rcv", "rcv-sess-2", "", "gone")
 
 	if !errors.Is(err, pkg.ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
@@ -200,7 +200,7 @@ func TestGrace_OneSideReturningDoesNotSpeakForTheOther(t *testing.T) {
 	svc.HandleSessionDisconnect("rcv", "rcv-sess") // the receiver is gone
 
 	// The caller reclaims its own connection. The receiver is STILL gone.
-	if err := svc.ResumeCall("caller", "caller-sess-2", "x"); err != nil {
+	if err := svc.ResumeCall("caller", "caller-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
 	}
 
@@ -221,7 +221,7 @@ func TestGrace_BothDropAndOnlyOneReturns(t *testing.T) {
 	svc.HandleSessionDisconnect("rcv", "rcv-sess")
 	svc.HandleSessionDisconnect("caller", "caller-sess")
 
-	if err := svc.ResumeCall("caller", "caller-sess-2", "x"); err != nil {
+	if err := svc.ResumeCall("caller", "caller-sess-2", "", "x"); err != nil {
 		t.Fatalf("ResumeCall: %v", err)
 	}
 
@@ -242,10 +242,10 @@ func TestGrace_BothDropAndBothReturn(t *testing.T) {
 	svc.HandleSessionDisconnect("rcv", "rcv-sess")
 	svc.HandleSessionDisconnect("caller", "caller-sess")
 
-	if err := svc.ResumeCall("caller", "caller-sess-2", "x"); err != nil {
+	if err := svc.ResumeCall("caller", "caller-sess-2", "", "x"); err != nil {
 		t.Fatalf("caller ResumeCall: %v", err)
 	}
-	if err := svc.ResumeCall("rcv", "rcv-sess-2", "x"); err != nil {
+	if err := svc.ResumeCall("rcv", "rcv-sess-2", "", "x"); err != nil {
 		t.Fatalf("receiver ResumeCall: %v", err)
 	}
 

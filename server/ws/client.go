@@ -58,6 +58,11 @@ type Client struct {
 	// meant for them. Empty for clients that predate it.
 	deviceID string
 
+	// instanceID identifies the running APP behind this connection: one per page load, kept
+	// across reconnects, different in every tab and window. Only it can tell "the same app came
+	// back on a new socket" from "another tab of the same install". Empty for older clients.
+	instanceID string
+
 	// events is the per-connection inbound queue drained by a single eventPump
 	// goroutine. ReadPump enqueues here (except heartbeat, handled inline) so a
 	// connection's events are processed strictly in arrival order — a voice_join
@@ -499,7 +504,7 @@ func (c *Client) handleP2PCallInitiate(event Event) {
 	}
 
 	if c.hub.onP2PCallInitiate != nil {
-		c.hub.onP2PCallInitiate(c.userID, c.sessionID, data)
+		c.hub.onP2PCallInitiate(c.userID, c.sessionID, c.instanceID, data)
 	}
 }
 
@@ -520,7 +525,7 @@ func (c *Client) handleP2PCallAccept(event Event) {
 	}
 
 	if c.hub.onP2PCallAccept != nil {
-		c.hub.onP2PCallAccept(c.userID, c.sessionID, c.deviceID, data)
+		c.hub.onP2PCallAccept(c.userID, c.sessionID, c.instanceID, c.deviceID, data)
 	}
 }
 
@@ -574,7 +579,7 @@ func (c *Client) handleP2PCallResume(event Event) {
 		return
 	}
 	if c.hub.onP2PCallResume != nil {
-		c.hub.onP2PCallResume(c.userID, c.sessionID, data.CallID)
+		c.hub.onP2PCallResume(c.userID, c.sessionID, c.instanceID, data.CallID)
 	}
 }
 

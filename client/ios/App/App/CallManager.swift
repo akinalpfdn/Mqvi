@@ -34,6 +34,9 @@ final class CallManager: NSObject {
     private var calls: [UUID: String] = [:] // CallKit UUID -> our call_id
     /// Mute as CallKit shows it, so the app echoing a CallKit toggle does not send it back.
     private var mutedState: [UUID: Bool] = [:]
+    /// Mute actions the app requested. Their perform is our own echo, and a stale one would
+    /// briefly undo a newer toggle if it reached the app.
+    private var ownMuteActions: Set<UUID> = []
     /// Calls the app asked CallKit to end, so the end action's echo is not reported back as the user's.
     private var endingInApp: Set<UUID> = []
 
@@ -119,8 +122,10 @@ final class CallManager: NSObject {
         guard mutedState[uuid, default: false] != muted else { return }
         mutedState[uuid] = muted
         let action = CXSetMutedCallAction(call: uuid, muted: muted)
-        callController.request(CXTransaction(action: action)) { error in
+        ownMuteActions.insert(action.uuid)
+        callController.request(CXTransaction(action: action)) { [weak self] error in
             if let error {
+                self?.ownMuteActions.remove(action.uuid)
                 print("[callkit] set muted failed: \(error.localizedDescription)")
             }
         }
@@ -236,6 +241,7 @@ extension CallManager: CXProviderDelegate {
         calls.removeAll()
         mutedState.removeAll()
         endingInApp.removeAll()
+        ownMuteActions.removeAll()
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
@@ -266,6 +272,10 @@ extension CallManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+        if ownMuteActions.remove(action.uuid) != nil {
+            action.fulfill()
+            return
+        }
         mutedState[action.callUUID] = action.isMuted
         if let callId = calls[action.callUUID] {
             if let listener = listener {

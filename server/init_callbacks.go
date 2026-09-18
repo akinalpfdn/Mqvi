@@ -185,14 +185,14 @@ func registerHubCallbacks(
 
 	// ─── P2P Call Callbacks ───
 
-	hub.OnP2PCallInitiate(func(callerID, sessionID string, data ws.P2PCallInitiateData) {
+	hub.OnP2PCallInitiate(func(callerID, sessionID, instanceID string, data ws.P2PCallInitiateData) {
 		callType := models.P2PCallType(data.CallType)
-		if err := p2pCallService.InitiateCall(callerID, sessionID, data.ReceiverID, callType); err != nil {
+		if err := p2pCallService.InitiateCall(callerID, sessionID, instanceID, data.ReceiverID, callType); err != nil {
 			log.Printf("[p2p] initiate error caller=%s receiver=%s: %v", callerID, data.ReceiverID, err)
 		}
 	})
-	hub.OnP2PCallAccept(func(userID, sessionID, deviceID string, data ws.P2PCallAcceptData) {
-		if err := p2pCallService.AcceptCall(userID, sessionID, deviceID, data.CallID); err != nil {
+	hub.OnP2PCallAccept(func(userID, sessionID, instanceID, deviceID string, data ws.P2PCallAcceptData) {
+		if err := p2pCallService.AcceptCall(userID, sessionID, instanceID, deviceID, data.CallID); err != nil {
 			log.Printf("[p2p] accept error user=%s call=%s: %v", userID, data.CallID, err)
 		}
 	})
@@ -206,8 +206,8 @@ func registerHubCallbacks(
 			log.Printf("[p2p] end error user=%s: %v", userID, err)
 		}
 	})
-	hub.OnP2PCallResume(func(userID, sessionID, callID string) {
-		if err := p2pCallService.ResumeCall(userID, sessionID, callID); err != nil {
+	hub.OnP2PCallResume(func(userID, sessionID, instanceID, callID string) {
+		if err := p2pCallService.ResumeCall(userID, sessionID, instanceID, callID); err != nil {
 			log.Printf("[p2p] resume error user=%s call=%s: %v", userID, callID, err)
 		}
 	})

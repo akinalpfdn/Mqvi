@@ -38,9 +38,11 @@ type P2PCall struct {
 	CallerSessionID   string `json:"-"`
 	ReceiverSessionID string `json:"-"`
 
-	// The installation that answered. Its accept on a new connection is that device coming back,
-	// not a sibling racing it.
-	ReceiverDeviceID string `json:"-"`
+	// The running app behind each side (one per page load, kept across reconnects). Only the
+	// same app on a new socket may take its call back; another tab of the same install may not.
+	// Empty for clients that predate it.
+	CallerInstanceID   string `json:"-"`
+	ReceiverInstanceID string `json:"-"`
 
 	// The ring push was handed to the push service (under the call service's lock). A cancel
 	// push without it would reach a device that never rang, which iOS shows as a phantom call.

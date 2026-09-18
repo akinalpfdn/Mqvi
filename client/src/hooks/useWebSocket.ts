@@ -32,7 +32,7 @@ import { handleChannelEvent } from "./ws/channelEventHandlers";
 import { handleDMEvent } from "./ws/dmEventHandlers";
 import { handleVoiceEvent } from "./ws/voiceEventHandlers";
 import { handleSystemEvent } from "./ws/systemEventHandlers";
-import { getDeviceId } from "../utils/deviceId";
+import { getDeviceId, INSTANCE_ID } from "../utils/deviceId";
 import type { WSHandlerContext } from "./ws/types";
 
 /**
@@ -399,9 +399,10 @@ export function useWebSocket() {
       let socket: WebSocket;
       try {
         // device_id lets the server address ONE of the user's devices — so it can skip the one
-        // that just answered a call when it tells the rest to stop ringing.
+        // that just answered a call when it tells the rest to stop ringing. instance_id lets only
+        // this app take its call back after a reconnect.
         socket = new WebSocket(
-          `${WS_URL}?token=${token}&device_id=${encodeURIComponent(getDeviceId())}`,
+          `${WS_URL}?token=${token}&device_id=${encodeURIComponent(getDeviceId())}&instance_id=${INSTANCE_ID}`,
         );
       } catch (err) {
         // A malformed WS_URL throws synchronously. Without this the hook would sit on

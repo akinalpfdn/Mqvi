@@ -64,7 +64,8 @@ func TestNotifyCallCancel_SkipsTheDeviceThatActed(t *testing.T) {
 	}}
 	sink := &capturingAPNs{sent: make(chan string, 4)}
 
-	s := NewPushService(disabledFCM{}, sink, repo, nil, nil, nil, testPushConfig(0))
+	s := NewPushService(disabledFCM{}, sink, repo, fakeUsers{}, nil, nil, testPushConfig(0))
+	ring(t, s, sink, "call1", 2)
 	s.NotifyCallCancel("rcv", "call1", phone)
 
 	got := <-sink.sent
@@ -89,7 +90,8 @@ func TestNotifyCallCancel_StillReachesTokensWithNoDeviceID(t *testing.T) {
 	}}
 	sink := &capturingAPNs{sent: make(chan string, 4)}
 
-	s := NewPushService(disabledFCM{}, sink, repo, nil, nil, nil, testPushConfig(0))
+	s := NewPushService(disabledFCM{}, sink, repo, fakeUsers{}, nil, nil, testPushConfig(0))
+	ring(t, s, sink, "call1", 2)
 	s.NotifyCallCancel("rcv", "call1", phone)
 
 	if got := <-sink.sent; got != "voip-old" {
@@ -98,6 +100,44 @@ func TestNotifyCallCancel_StillReachesTokensWithNoDeviceID(t *testing.T) {
 }
 
 var _ apns.Sender = (*capturingAPNs)(nil)
+
+// ring sends a call's ring push and waits until it reached want tokens.
+func ring(t *testing.T, s PushNotifier, sink *capturingAPNs, callID string, want int) {
+	t.Helper()
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, callID, "alice")
+	for i := 0; i < want; i++ {
+		select {
+		case <-sink.sent:
+		case <-time.After(time.Second):
+			t.Fatalf("ring reached %d tokens, want %d", i, want)
+		}
+	}
+}
+
+// A cancel goes only where the ring went. A token registered after the ring, or one the ring
+// never reached (APNs down, lookup failed), would make CallKit flash a call that never rang.
+func TestNotifyCallCancel_OnlyReachesTheTokensTheRingReached(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	sink := &capturingAPNs{sent: make(chan string, 4)}
+	s := NewPushService(disabledFCM{}, sink, repo, fakeUsers{}, nil, nil, testPushConfig(0))
+	ring(t, s, sink, "call5", 1)
+
+	repo.tokens = append(repo.tokens, models.PushToken{Token: "voip-new", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"})
+	s.NotifyCallCancel("rcv", "call5", "")
+	if got := <-sink.sent; got != "voip-tablet" {
+		t.Fatalf("cancel pushed %q, want voip-tablet", got)
+	}
+
+	// A call that never rang at all gets no cancel.
+	s.NotifyCallCancel("rcv", "never-rang", "")
+	select {
+	case tok := <-sink.sent:
+		t.Fatalf("cancel pushed %q for a call that never rang", tok)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
 
 // ─── FIX-04: the read is PROVED, never claimed ───
 

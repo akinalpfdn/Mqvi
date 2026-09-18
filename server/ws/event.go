@@ -338,7 +338,7 @@ type P2PCallResumeData struct {
 // P2PSignalData carries WebRTC SDP/ICE data. Server relays without inspecting.
 type P2PSignalData struct {
 	CallID    string `json:"call_id"`
-	Type      string `json:"type"`                // "offer", "answer", "ice-candidate", "ice-restart"
+	Type      string `json:"type"`                // "offer", "answer", "ice-candidate", "ice-restart", "video-on", "video-off", "video-query"
 	SDP       string `json:"sdp,omitempty"`
 	Candidate any    `json:"candidate,omitempty"`
 }

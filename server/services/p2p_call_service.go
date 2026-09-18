@@ -43,12 +43,13 @@ type CallLogger interface {
 type P2PCallService interface {
 	// InitiateCall takes the initiating connection's sessionID. The caller may be signed in on
 	// several devices and all of them see the outgoing call — but only this one negotiates it.
-	InitiateCall(callerID, sessionID, receiverID string, callType models.P2PCallType) error
+	InitiateCall(callerID, sessionID, instanceID, receiverID string, callType models.P2PCallType) error
 	// AcceptCall/DeclineCall/EndCall take the acting connection's identity: the sessionID says
 	// which of the user's SOCKETS wins the call, and the deviceID says which INSTALLATION acted
 	// so it can be excluded from the "stop ringing" push. Telling the device that just answered
-	// to stop ringing is what breaks iOS (see PushNotifier.NotifyCallCancel).
-	AcceptCall(userID, sessionID, deviceID, callID string) error
+	// to stop ringing is what breaks iOS (see PushNotifier.NotifyCallCancel). The instanceID says
+	// which running app it is, so that app alone can take its answered call back after a reconnect.
+	AcceptCall(userID, sessionID, instanceID, deviceID, callID string) error
 	DeclineCall(userID, deviceID, callID string) error
 	EndCall(userID, deviceID, wantCallID string) error
 	// RelaySignal takes the sending connection: only the two sessions that own the call may
@@ -60,7 +61,7 @@ type P2PCallService interface {
 	// ResumeCall rebinds a call to the connection that replaced the one it died with, cancelling
 	// the teardown that death scheduled. Media is peer-to-peer, so a WebSocket blip is not a
 	// hang-up — but the new session must be adopted or its signals would be rejected.
-	ResumeCall(userID, sessionID, callID string) error
+	ResumeCall(userID, sessionID, instanceID, callID string) error
 	// EndCallBetween ends userID's call if it is with otherID, as though userID hung up.
 	EndCallBetween(userID, otherID string)
 	GetUserCall(userID string) *models.P2PCall
@@ -257,7 +258,7 @@ func (s *p2pCallService) cancelReceiverPush(call *models.P2PCall, excludeDeviceI
 	}
 }
 
-func (s *p2pCallService) InitiateCall(callerID, sessionID, receiverID string, callType models.P2PCallType) error {
+func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, receiverID string, callType models.P2PCallType) error {
 	if callerID == receiverID {
 		return fmt.Errorf("%w: cannot call yourself", pkg.ErrBadRequest)
 	}
@@ -288,13 +289,14 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, receiverID string, ca
 	}
 
 	call := &models.P2PCall{
-		ID:              uuid.New().String(),
-		CallerID:        callerID,
-		CallerSessionID: sessionID,
-		ReceiverID:      receiverID,
-		CallType:        callType,
-		Status:          models.P2PCallStatusRinging,
-		CreatedAt:       time.Now().UTC(),
+		ID:               uuid.New().String(),
+		CallerID:         callerID,
+		CallerSessionID:  sessionID,
+		CallerInstanceID: instanceID,
+		ReceiverID:       receiverID,
+		CallType:         callType,
+		Status:           models.P2PCallStatusRinging,
+		CreatedAt:        time.Now().UTC(),
 	}
 
 	// Atomic busy-check + reservation under a single write lock. Checking under
@@ -396,7 +398,7 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, receiverID string, ca
 	return nil
 }
 
-func (s *p2pCallService) AcceptCall(userID, sessionID, deviceID, callID string) error {
+func (s *p2pCallService) AcceptCall(userID, sessionID, instanceID, deviceID, callID string) error {
 	s.mu.Lock()
 	call, exists := s.activeCalls[callID]
 	if !exists {
@@ -409,9 +411,10 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, deviceID, callID string) 
 		return fmt.Errorf("%w: only receiver can accept", pkg.ErrForbidden)
 	}
 
-	// The device that answered, back on a new connection before its accept was confirmed (a
-	// phone locked mid-answer). Rejecting it would strand the call with nobody able to reach it.
-	if call.Status == models.P2PCallStatusActive && deviceID != "" && call.ReceiverDeviceID == deviceID {
+	// The app that answered, back on a new connection before its accept was confirmed (a phone
+	// locked mid-answer). Rejecting it would strand the call with nobody able to reach it. Any
+	// other tab or device is rejected below: the call already has a live owner.
+	if call.Status == models.P2PCallStatusActive && sameInstance(call.ReceiverInstanceID, instanceID) {
 		if call.ReceiverSessionID == sessionID {
 			s.mu.Unlock()
 			return nil
@@ -452,7 +455,7 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, deviceID, callID string) 
 	// The call now belongs to this connection. Its death — not the user's last disconnect —
 	// is what ends the call (see HandleSessionDisconnect).
 	call.ReceiverSessionID = sessionID
-	call.ReceiverDeviceID = deviceID
+	call.ReceiverInstanceID = instanceID
 	s.userCalls[userID] = callID
 	s.stopRingTimer(callID)
 	s.mu.Unlock()
@@ -480,6 +483,9 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, deviceID, callID string) 
 
 	return nil
 }
+
+// sameInstance: both known and equal. An unknown one proves nothing about who is asking.
+func sameInstance(owner, asking string) bool { return owner != "" && owner == asking }
 
 // DeclineCall declines an incoming call or cancels an outgoing one.
 func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
@@ -815,7 +821,7 @@ func (s *p2pCallService) teardownLocked(userID, callID string, call *models.P2PC
 // The rebind is not bookkeeping: RelaySignal rejects a signal whose sender session is neither the
 // caller's nor the receiver's, and the session id changes on every reconnect. Without it the ICE
 // restart that recovers the media after a blip would be refused.
-func (s *p2pCallService) ResumeCall(userID, sessionID, callID string) error {
+func (s *p2pCallService) ResumeCall(userID, sessionID, instanceID, callID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -830,6 +836,16 @@ func (s *p2pCallService) ResumeCall(userID, sessionID, callID string) error {
 	// every one of the receiver's devices.
 	if call.Status != models.P2PCallStatusActive {
 		return fmt.Errorf("%w: call is not active", pkg.ErrBadRequest)
+	}
+
+	owner := call.ReceiverInstanceID
+	if call.CallerID == userID {
+		owner = call.CallerInstanceID
+	}
+	// Another tab or device of this user is not in the call. An owner that predates instance ids
+	// cannot be told apart, and keeps the old behaviour.
+	if owner != "" && owner != instanceID {
+		return fmt.Errorf("%w: this app is not in the call", pkg.ErrForbidden)
 	}
 
 	if call.CallerID == userID {
