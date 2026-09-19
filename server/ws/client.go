@@ -170,6 +170,7 @@ func init() {
 		OpP2PCallDecline:        (*Client).handleP2PCallDecline,
 		OpP2PCallEnd:            (*Client).handleP2PCallEnd,
 		OpP2PCallResume:         (*Client).handleP2PCallResume,
+		OpP2PCallAdopt:          (*Client).handleP2PCallAdopt,
 		OpP2PSignal:             (*Client).handleP2PSignal,
 	}
 }
@@ -566,6 +567,20 @@ func (c *Client) handleP2PCallEnd(event Event) {
 	}
 	if c.hub.onP2PCallEnd != nil {
 		c.hub.onP2PCallEnd(c.userID, endingInstance(c.instanceID, data), c.deviceID, data.CallID)
+	}
+}
+
+func (c *Client) handleP2PCallAdopt(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+	var data P2PCallAdoptData
+	if err := json.Unmarshal(dataBytes, &data); err != nil || data.CallID == "" || data.InstanceID == "" || len(data.InstanceID) > 64 {
+		return
+	}
+	if c.hub.onP2PCallAdopt != nil {
+		c.hub.onP2PCallAdopt(c.userID, c.sessionID, c.instanceID, c.deviceID, data)
 	}
 }
 

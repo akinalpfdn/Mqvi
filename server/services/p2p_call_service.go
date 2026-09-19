@@ -59,7 +59,9 @@ type P2PCallService interface {
 	// user's last device goes offline. See the implementation.
 	HandleSessionDisconnect(userID, sessionID string, nativeMedia bool)
 	// ReleaseReplacedApp ends a call held by an app this device has since restarted.
-	ReleaseReplacedApp(userID, instanceID, deviceID string)
+	ReleaseReplacedApp(userID, instanceID, deviceID, heldCallID string)
+	// AdoptCall hands a reloaded page the call its predecessor ran, whose media never stopped.
+	AdoptCall(userID, sessionID, instanceID, deviceID, callID, previousInstanceID string) error
 	// ResumeCall rebinds a call to the connection that replaced the one it died with, cancelling
 	// the teardown that death scheduled. Media is peer-to-peer, so a WebSocket blip is not a
 	// hang-up — but the new session must be adopted or its signals would be rejected.
@@ -515,6 +517,8 @@ func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
 	call, exists := s.activeCalls[callID]
 	if !exists {
 		s.mu.Unlock()
+		// A replay of a decline the app already sent; this settles it.
+		s.sendCallState(userID, callID, nil)
 		return fmt.Errorf("%w: call not found", pkg.ErrNotFound)
 	}
 
@@ -528,7 +532,13 @@ func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
 	// then dismissing the ring still showing on the desktop — destroys the live call and tells
 	// the caller it was declined. AcceptCall has always had this check; Decline did not.
 	if call.Status != models.P2PCallStatusRinging {
+		state := *call
 		s.mu.Unlock()
+		// The caller cancelled as the answer landed: that is a hang-up, not a stray ring.
+		if state.CallerID == userID {
+			return s.endCall(userID, "", deviceID, callID, true)
+		}
+		s.sendCallState(userID, callID, &state)
 		return fmt.Errorf("%w: call is not ringing", pkg.ErrBadRequest)
 	}
 
@@ -584,12 +594,16 @@ func (s *p2pCallService) EndCall(userID, instanceID, deviceID, wantCallID string
 func (s *p2pCallService) endCall(userID, instanceID, deviceID, wantCallID string, writeLog bool) error {
 	s.mu.Lock()
 	callID, exists := s.userCalls[userID]
-	if !exists {
+	if !exists || (wantCallID != "" && wantCallID != callID) {
 		s.mu.Unlock()
-		return fmt.Errorf("%w: not in a call", pkg.ErrBadRequest)
-	}
-	if wantCallID != "" && wantCallID != callID {
-		s.mu.Unlock()
+		// A replay of an end the app already sent, for a call that is over for this user; this
+		// settles it.
+		if wantCallID != "" {
+			s.sendCallState(userID, wantCallID, nil)
+		}
+		if !exists {
+			return fmt.Errorf("%w: not in a call", pkg.ErrBadRequest)
+		}
 		return fmt.Errorf("%w: not the call you are in", pkg.ErrBadRequest)
 	}
 
@@ -798,14 +812,15 @@ func (s *p2pCallService) HandleSessionDisconnect(userID, sessionID string, nativ
 // same device whose native-media socket is already gone, that app was killed or restarted and
 // cannot hold the call's media any more. Only a native-media owner qualifies: iOS runs one app
 // per device, while two windows of one desktop install share the device and can both be alive.
-func (s *p2pCallService) ReleaseReplacedApp(userID, instanceID, deviceID string) {
+func (s *p2pCallService) ReleaseReplacedApp(userID, instanceID, deviceID, heldCallID string) {
 	if instanceID == "" || deviceID == "" {
 		return
 	}
 	s.mu.Lock()
 	callID, exists := s.userCalls[userID]
 	call := s.activeCalls[callID]
-	if !exists || call == nil {
+	// Only the web page died: the native media still runs, and the new page adopts the call.
+	if !exists || call == nil || callID == heldCallID {
 		s.mu.Unlock()
 		return
 	}
@@ -820,6 +835,61 @@ func (s *p2pCallService) ReleaseReplacedApp(userID, instanceID, deviceID string)
 	}
 	log.Printf("[p2p] call %s held by an app this device replaced; ending", callID)
 	s.teardownLocked(userID, callID, call)
+}
+
+// AdoptCall hands a reloaded iOS page the answered call its predecessor ran. WKWebView's page
+// process can be killed in the background while the call's native media runs on; the new page is
+// a new app instance on the same device. Anything else is told where the call stands.
+func (s *p2pCallService) AdoptCall(userID, sessionID, instanceID, deviceID, callID, previousInstanceID string) error {
+	s.mu.Lock()
+	call, exists := s.activeCalls[callID]
+	if !exists {
+		s.mu.Unlock()
+		s.sendCallState(userID, callID, nil)
+		return fmt.Errorf("%w: call not found", pkg.ErrNotFound)
+	}
+	if call.CallerID != userID && call.ReceiverID != userID {
+		s.mu.Unlock()
+		return fmt.Errorf("%w: not a participant", pkg.ErrForbidden)
+	}
+	isCaller := call.CallerID == userID
+	owner, ownerDevice := call.ReceiverInstanceID, call.ReceiverDeviceID
+	if isCaller {
+		owner, ownerDevice = call.CallerInstanceID, call.CallerDeviceID
+	}
+	// A repeat from the page that already adopted it is answered again, in case the answer was lost.
+	adoptable := owner == previousInstanceID || owner == instanceID
+	if call.Status != models.P2PCallStatusActive || instanceID == "" || !adoptable || ownerDevice != deviceID {
+		state := *call
+		s.mu.Unlock()
+		s.sendCallState(userID, callID, &state)
+		return fmt.Errorf("%w: this app cannot take the call", pkg.ErrForbidden)
+	}
+	if isCaller {
+		call.CallerSessionID, call.CallerInstanceID = sessionID, instanceID
+	} else {
+		call.ReceiverSessionID, call.ReceiverInstanceID = sessionID, instanceID
+	}
+	s.stopGraceTimer(callID, userID)
+	state := *call
+	s.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	caller, err := s.userGetter.GetByID(ctx, state.CallerID)
+	if err != nil {
+		return fmt.Errorf("adopt call %s: caller lookup: %w", callID, err)
+	}
+	receiver, err := s.userGetter.GetByID(ctx, state.ReceiverID)
+	if err != nil {
+		return fmt.Errorf("adopt call %s: receiver lookup: %w", callID, err)
+	}
+	bc := s.buildBroadcast(&state, caller, receiver)
+	acceptedAt := state.AcceptedAt
+	bc.AcceptedAt = &acceptedAt
+	log.Printf("[p2p] call %s adopted by user=%s session=%s", callID, userID, sessionID)
+	s.hub.BroadcastToUser(userID, ws.Event{Op: ws.OpP2PCallAdopted, Data: bc})
+	return nil
 }
 
 // endCallAfterGrace fires when this participant never came back. It re-verifies everything under

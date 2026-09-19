@@ -27,7 +27,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "resendPendingOffer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeCall", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "discardOrphanedCall", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "currentCall", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "currentCall", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "adoptableCall", returnType: CAPPluginReturnPromise)
     ]
 
     /// How long a dead connection is left alone in the background before this side ends it.
@@ -420,6 +421,40 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["callId": callId ?? NSNull()])
     }
 
+    /// A call a previous page left running with its media still alive, for the new page to take
+    /// over instead of hanging up (the page died under memory pressure, not the call).
+    @objc func adoptableCall(_ call: CAPPluginCall) {
+        lock.lock()
+        let owner = self.owner
+        let pc = peerConnection
+        let isCaller = self.isCaller
+        let micEnabled = self.micEnabled
+        let videoEnabled = videoTrack?.isEnabled ?? false
+        let volume = remoteGain * 100
+        let camera = self.camera
+        lock.unlock()
+        guard let owner, let pc, pc.connectionState != .failed, pc.connectionState != .closed else {
+            call.resolve(["callId": NSNull()])
+            return
+        }
+        let state = Self.name(for: pc.connectionState)
+        Task { @MainActor in
+            var result: [String: Any] = [
+                "callId": owner.callId,
+                "isCaller": isCaller,
+                "state": state,
+                "micEnabled": micEnabled,
+                "videoEnabled": videoEnabled,
+                "facing": camera?.position == .back ? "back" : "front",
+                "remoteVideo": NativeCallVideo.shared.hasRemoteTrack,
+                "volume": volume,
+                "inCallKit": CallManager.shared.holds(callId: owner.callId)
+            ]
+            if let instanceId = owner.instanceId { result["instanceId"] = instanceId }
+            call.resolve(result)
+        }
+    }
+
     @objc func discardOrphanedCall(_ call: CAPPluginCall) {
         lock.lock()
         let orphan = owner
@@ -681,20 +716,29 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             guard state == .failed || state == .disconnected, self.deadCallCheck == nil else { return }
-            let check = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.deadCallCheck = nil
-                guard UIApplication.shared.applicationState == .background,
-                      self.callId(owning: pc) == callId,
-                      pc.connectionState != .connected else { return }
-                print("[p2p-native] connection dead in the background; ending call \(callId)")
-                self.notifyListeners("connectionState", data: ["callId": callId, "state": "closed"])
-                self.teardown()
-                CallManager.shared.endCall(callId: callId, reason: "failed")
-            }
-            self.deadCallCheck = check
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.backgroundDeadCallDelay, execute: check)
+            self.scheduleDeadCallCheck(pc, callId: callId)
         }
+    }
+
+    /// Main queue. In the foreground the page recovers or ends the call itself, but it can be
+    /// suspended any moment after, so the check keeps coming back until the connection is up or
+    /// the call is gone.
+    private func scheduleDeadCallCheck(_ pc: LKRTCPeerConnection, callId: String) {
+        let check = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.deadCallCheck = nil
+            guard self.callId(owning: pc) == callId, pc.connectionState != .connected else { return }
+            guard UIApplication.shared.applicationState == .background else {
+                self.scheduleDeadCallCheck(pc, callId: callId)
+                return
+            }
+            print("[p2p-native] connection dead in the background; ending call \(callId)")
+            self.notifyListeners("connectionState", data: ["callId": callId, "state": "closed"])
+            self.teardown()
+            CallManager.shared.endCall(callId: callId, reason: "failed")
+        }
+        deadCallCheck = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.backgroundDeadCallDelay, execute: check)
     }
 
     private func teardown() {

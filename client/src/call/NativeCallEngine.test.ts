@@ -199,6 +199,30 @@ describe("native engine start", () => {
   });
 });
 
+describe("native engine taking over a call a previous page ran", () => {
+  // The page died under memory pressure; the call's media never stopped and must not restart.
+  it("should attach to the running call without starting anything", async () => {
+    const ev = events();
+    const engine = new NativeCallEngine(ev);
+
+    await engine.adopt({ callId: "c1", isCaller: true, state: "connected" });
+    listeners.localDescription?.({ callId: "c1", type: "offer", sdp: "o" } as never);
+
+    expect(plugin.start).not.toHaveBeenCalled();
+    expect(ev.onLocalDescription).toHaveBeenCalledWith({ type: "offer", sdp: "o" });
+  });
+
+  it("should recover a taken-over call whose connection is down", async () => {
+    const ev = events();
+    const engine = new NativeCallEngine(ev);
+
+    await engine.adopt({ callId: "c1", isCaller: true, state: "failed" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(plugin.restartIce).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("native engine after a socket replacement", () => {
   it("should re-send an unanswered offer and leave it at that", async () => {
     const { engine } = await engineFor(true);

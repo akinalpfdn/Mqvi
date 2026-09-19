@@ -5,7 +5,7 @@
  * losing device opens a microphone and answers the caller's offer alongside the one that really
  * answered. None of this had a test.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 
 vi.mock("../api/calls", () => ({ fetchIceServers: vi.fn(), fetchIceServersForRecovery: vi.fn() }));
 vi.mock("../i18n", () => ({ default: { t: (k: string) => k } }));
@@ -422,5 +422,79 @@ describe("signing out with a call on screen", () => {
     endP2PCallForLogout();
 
     expect(sent).toEqual([{ op: "p2p_call_end", data: { call_id: "call-1" } }]);
+  });
+});
+
+describe("taking over a call a previous page ran", () => {
+  const sent: { op: string; data?: unknown }[] = [];
+  const candidate = {
+    callId: "call-1",
+    instanceId: "old-page",
+    isCaller: false,
+    state: "connected" as const,
+    micEnabled: false,
+    videoEnabled: true,
+    facing: "back" as const,
+    remoteVideo: true,
+    volume: 150,
+    inCallKit: true,
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    sent.length = 0;
+    useP2PCallStore.setState({ _sessionId: null, _adoptCandidate: null, _adoptTimer: null, _adopted: null });
+    useP2PCallStore.getState().registerSendWS((op, data) => sent.push({ op, data }));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks for the call on connect and rebuilds it as the old page left it", () => {
+    useP2PCallStore.getState().holdAdoptableCall(candidate);
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+    expect(sent).toContainEqual({ op: "p2p_call_adopt", data: { call_id: "call-1", instance_id: "old-page" } });
+
+    const acceptedAt = new Date(Date.now() - 90_000).toISOString();
+    useP2PCallStore.getState().handleCallAdopted({ ...call({ status: "active" }), accepted_at: acceptedAt });
+
+    const s = useP2PCallStore.getState();
+    expect(s.activeCall?.status).toBe("active");
+    expect(s.incomingCall).toBeNull();
+    expect(s.isMuted).toBe(true);
+    expect(s.isVideoOn).toBe(true);
+    expect(s.cameraFacing).toBe("back");
+    expect(s.remoteVolume).toBe(150);
+    expect(s.callDuration).toBeGreaterThanOrEqual(89);
+    expect(s._adopted).toEqual({ callId: "call-1", inCallKit: true });
+    expect(sent).toContainEqual({ op: "p2p_signal", data: { call_id: "call-1", type: "video-query" } });
+  });
+
+  it.each([
+    ["the call ended meanwhile", () => useP2PCallStore.getState().handleCallEnd({ call_id: "call-1" })],
+    ["another app holds it", () =>
+      useP2PCallStore.getState().handleCallAccept({ call_id: "call-1", accepted_by: "x", accepted_by_instance: "tablet" })],
+    ["the server never answers", () => vi.advanceTimersByTime(10_000)],
+  ])("hangs up in the old page's name when %s", (_label, outcome) => {
+    useP2PCallStore.getState().holdAdoptableCall(candidate);
+    useP2PCallStore.getState().resumeCallAfterReconnect();
+    sent.length = 0;
+
+    outcome();
+
+    expect(useP2PCallStore.getState()._adoptCandidate).toBeNull();
+    expect(useP2PCallStore.getState().activeCall).toBeNull();
+    expect(sent).toContainEqual({ op: "p2p_call_end", data: { call_id: "call-1", instance_id: "old-page" } });
+  });
+
+  // This page connected before it knew about the call, so the server has already released it.
+  it("gives the call up at once when the page connected without claiming it", () => {
+    useP2PCallStore.setState({ _sessionId: "already-connected" });
+
+    useP2PCallStore.getState().holdAdoptableCall(candidate);
+
+    expect(useP2PCallStore.getState()._adoptCandidate).toBeNull();
+    expect(sent).toContainEqual({ op: "p2p_call_end", data: { call_id: "call-1", instance_id: "old-page" } });
   });
 });

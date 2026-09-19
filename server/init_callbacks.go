@@ -211,6 +211,11 @@ func registerHubCallbacks(
 			log.Printf("[p2p] resume error user=%s call=%s: %v", userID, callID, err)
 		}
 	})
+	hub.OnP2PCallAdopt(func(userID, sessionID, instanceID, deviceID string, data ws.P2PCallAdoptData) {
+		if err := p2pCallService.AdoptCall(userID, sessionID, instanceID, deviceID, data.CallID, data.InstanceID); err != nil {
+			log.Printf("[p2p] adopt error user=%s call=%s: %v", userID, data.CallID, err)
+		}
+	})
 	hub.OnP2PSignal(func(senderID, senderSessionID string, data ws.P2PSignalData) {
 		if err := p2pCallService.RelaySignal(senderID, senderSessionID, data.CallID, data); err != nil {
 			log.Printf("[p2p] signal relay error sender=%s call=%s: %v", senderID, data.CallID, err)

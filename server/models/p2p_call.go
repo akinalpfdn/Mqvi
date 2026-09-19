@@ -67,6 +67,8 @@ type P2PCallBroadcast struct {
 	// InitiatedByInstance names the running app that dialled. Unlike the session it survives a
 	// reconnect, so the app still recognises its own call if the broadcast lands on a new socket.
 	InitiatedByInstance string `json:"initiated_by_instance,omitempty"`
+	// AcceptedAt is sent only to a page adopting an answered call, to carry its duration on.
+	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
 }
 
 // P2PSignalPayload — WebRTC signaling data (SDP offer/answer or ICE candidate).

@@ -120,6 +120,7 @@ export function useCallKit(): void {
           }
           if (store.incomingCall?.id === call_id) store.declineCall(call_id);
           else if (store.activeCall?.id === call_id) store.endCall();
+          else if (store._adoptCandidate?.callId === call_id) store.abandonAdoption();
           else store.declineUnseenCall(call_id); // app launched by the push, call not here yet
         }),
       );
@@ -146,6 +147,10 @@ export function useCallKit(): void {
         if (state.isMuted !== muted) state.toggleMute();
       }
 
+      // A call taken over from a reloaded page: this page never saw it reach the system screen.
+      if (active && state._adopted?.callId === active.id && state._adopted.inCallKit) {
+        callKitCalls.add(active.id);
+      }
 
       // Only a call we are RECEIVING was reported to CallKit. handleCallInitiate mirrors the
       // event into incomingCall for the caller too, so the field alone does not say which side

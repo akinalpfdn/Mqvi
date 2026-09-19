@@ -94,12 +94,37 @@ export class NativeCallEngine implements CallMediaEngine {
     return !this.closed && this.started;
   }
 
+  /**
+   * Takes over the call a previous page ran, starting nothing: its media never stopped. The
+   * state the page missed while it was gone is read back and fed to recovery.
+   */
+  adopt(call: { callId: string; isCaller: boolean; state: NativeConnectionState }): Promise<void> {
+    this.ready ??= this.attach(call);
+    return this.ready;
+  }
+
+  private async attach(call: { callId: string; isCaller: boolean; state: NativeConnectionState }): Promise<void> {
+    if (this.closed) return;
+    this.callId = call.callId;
+    this.isCaller = call.isCaller;
+    await this.listenForCall();
+    if (this.closed) return;
+    this.started = true;
+    this.hasRemoteDescription = true;
+    if (call.state !== "connected") this.recovery.armFirstConnect();
+    this.onConnectionState(call.state);
+  }
+
   private async begin(opts: CallEngineStart): Promise<void> {
     if (this.closed) return;
     this.recovery.armFirstConnect();
     this.callId = opts.callId;
-    const mine = (data: { callId: string }) => !this.closed && data.callId === this.callId;
+    await this.listenForCall();
+    await this.startCall(opts);
+  }
 
+  private async listenForCall(): Promise<void> {
+    const mine = (data: { callId: string }) => !this.closed && data.callId === this.callId;
     await this.listen(
       NativeP2PCall.addListener("localDescription", (desc) => {
         if (mine(desc)) this.events.onLocalDescription({ type: desc.type, sdp: desc.sdp });
@@ -130,7 +155,9 @@ export class NativeCallEngine implements CallMediaEngine {
         if (mine(data)) this.events.onLocalVideo(data.available);
       }),
     );
+  }
 
+  private async startCall(opts: CallEngineStart): Promise<void> {
     if (this.closed) return;
     const iceServers = await fetchIceServers();
     if (this.closed) return;

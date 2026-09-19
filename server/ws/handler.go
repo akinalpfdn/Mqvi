@@ -37,8 +37,9 @@ type VoiceStatesProvider interface {
 // just tapped a push) still gets the incoming-call overlay.
 type IncomingCallProvider interface {
 	PendingIncomingCall(userID string) *models.P2PCallBroadcast
-	// ReleaseReplacedApp ends a call held by an app this device has since restarted.
-	ReleaseReplacedApp(userID, instanceID, deviceID string)
+	// ReleaseReplacedApp ends a call held by an app this device has since restarted, unless the
+	// new app still holds that call's native media (heldCallID) and is about to adopt it.
+	ReleaseReplacedApp(userID, instanceID, deviceID, heldCallID string)
 }
 
 // UserInfoProvider fetches user profile from DB for Hub cache.
@@ -468,7 +469,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// Re-deliver a ringing incoming call so a receiver who connects after missing the
 	// live event (was offline / tapped a push notification) still sees the overlay.
 	if h.incomingCallProvider != nil {
-		h.incomingCallProvider.ReleaseReplacedApp(claims.UserID, instanceID, deviceID)
+		h.incomingCallProvider.ReleaseReplacedApp(claims.UserID, instanceID, deviceID, r.URL.Query().Get("holds_call"))
 		if bc := h.incomingCallProvider.PendingIncomingCall(claims.UserID); bc != nil {
 			client.sendEvent(Event{Op: OpP2PCallInitiate, Data: bc})
 		}

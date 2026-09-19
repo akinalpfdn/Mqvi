@@ -119,6 +119,11 @@ final class CallManager: NSObject {
         }
     }
 
+    func holds(callId: String) -> Bool {
+        guard let uuid = UUID(uuidString: callId) else { return false }
+        return calls[uuid] != nil
+    }
+
     /// Mirrors an in-app mute onto a call CallKit is showing.
     func setMuted(callId: String, muted: Bool) {
         guard let uuid = UUID(uuidString: callId), calls[uuid] != nil else { return }

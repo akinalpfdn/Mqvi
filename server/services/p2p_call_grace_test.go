@@ -22,10 +22,11 @@ func activeCallService(grace time.Duration) (*p2pCallService, *recordingHub) {
 			CallerSessionID:   "caller-sess",
 			ReceiverSessionID: "rcv-sess",
 		}},
-		userCalls:   map[string]string{"caller": "x", "rcv": "x"},
-		ringTimers:  map[string]*time.Timer{},
-		graceTimers: map[string]*time.Timer{},
-		graceWindow: grace,
+		userCalls:    map[string]string{"caller": "x", "rcv": "x"},
+		ringTimers:   map[string]*time.Timer{},
+		graceTimers:  map[string]*time.Timer{},
+		nativeAbsent: map[string]bool{},
+		graceWindow:  grace,
 	}
 	return svc, hub
 }
@@ -455,7 +456,6 @@ func TestEnd_ByAReloadedPageInTheOldPagesNameHangsUp(t *testing.T) {
 // socket dying is not the call dying. The 20 s window hung up every call locked for 2 minutes.
 func TestNativeMediaOwner_KeepsTheCallPastTheGraceWindow(t *testing.T) {
 	svc, hub := activeCallService(20 * time.Millisecond)
-	svc.nativeAbsent = map[string]bool{}
 
 	svc.HandleSessionDisconnect("rcv", "rcv-sess", true)
 	time.Sleep(80 * time.Millisecond)
@@ -496,20 +496,141 @@ func TestReleaseReplacedApp(t *testing.T) {
 	}
 	for _, c := range cases {
 		svc, hub := activeCallService(time.Hour)
-		svc.nativeAbsent = map[string]bool{}
 		svc.activeCalls["x"].ReceiverInstanceID = "app-1"
 		svc.activeCalls["x"].ReceiverDeviceID = "phone-dev"
 		if c.native {
 			svc.HandleSessionDisconnect("rcv", "rcv-sess", true)
 		}
 
-		svc.ReleaseReplacedApp("rcv", c.instance, c.device)
+		svc.ReleaseReplacedApp("rcv", c.instance, c.device, "")
 
 		if released := !callExists(svc, "x"); released != c.wantReleased {
 			t.Errorf("%s: released = %v, want %v", c.name, released, c.wantReleased)
 		}
 		if c.wantReleased && len(hub.eventsFor("caller", ws.OpP2PCallEnd)) != 1 {
 			t.Errorf("%s: the caller was not told", c.name)
+		}
+	}
+}
+
+// A page back from suspension replays hang-ups it may have written into a dead socket. For a
+// call already over the server answers with its end, so the app can stop replaying.
+func TestReplayedTeardownOfAnEndedCallIsSettled(t *testing.T) {
+	for name, replay := range map[string]func(*p2pCallService) error{
+		"end":     func(s *p2pCallService) error { return s.EndCall("rcv", "", "rcv-dev", "gone") },
+		"decline": func(s *p2pCallService) error { return s.DeclineCall("rcv", "rcv-dev", "gone") },
+	} {
+		svc, hub := activeCallService(time.Hour)
+		if err := replay(svc); err == nil {
+			t.Fatalf("%s: a replay for a call that is over succeeded", name)
+		}
+		if !callExists(svc, "x") {
+			t.Fatalf("%s: the replay ended the call the user is in now", name)
+		}
+		ends := hub.eventsFor("rcv", ws.OpP2PCallEnd)
+		if len(ends) != 1 || ends[0].Data.(map[string]string)["call_id"] != "gone" {
+			t.Errorf("%s: the replay was not settled: %v", name, ends)
+		}
+	}
+}
+
+// The caller cancelled in the instant the answer landed. Refusing the decline left the call up
+// with the caller gone and the receiver waiting on an offer for a minute.
+func TestCallerCancellingAnAnsweredCallHangsUp(t *testing.T) {
+	svc, hub := activeCallService(time.Hour)
+
+	if err := svc.DeclineCall("caller", "caller-dev", "x"); err != nil {
+		t.Fatalf("DeclineCall: %v", err)
+	}
+	if callExists(svc, "x") {
+		t.Fatal("the call is still up")
+	}
+	if n := len(hub.eventsFor("rcv", ws.OpP2PCallEnd)); n != 1 {
+		t.Errorf("the receiver was told %d times, want once", n)
+	}
+}
+
+// Only the web page died (memory pressure in the background); the call's native media runs on
+// and the new page says it holds it. Releasing it would hang up a healthy call.
+func TestReleaseReplacedApp_LeavesACallTheNewPageStillHolds(t *testing.T) {
+	svc, _ := activeCallService(time.Hour)
+	svc.activeCalls["x"].ReceiverInstanceID = "old-page"
+	svc.activeCalls["x"].ReceiverDeviceID = "phone-dev"
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", true)
+
+	svc.ReleaseReplacedApp("rcv", "new-page", "phone-dev", "x")
+
+	if !callExists(svc, "x") {
+		t.Fatal("a call whose media never stopped was released")
+	}
+}
+
+func adoptableCall(t *testing.T) (*p2pCallService, *recordingHub) {
+	t.Helper()
+	svc, hub := activeCallService(time.Hour)
+	svc.userGetter = fakeUserGetter{}
+	svc.urlSigner = fakeURLSigner{}
+	svc.activeCalls["x"].ReceiverInstanceID = "old-page"
+	svc.activeCalls["x"].ReceiverDeviceID = "phone-dev"
+	svc.activeCalls["x"].AcceptedAt = time.Now().Add(-time.Minute)
+	svc.HandleSessionDisconnect("rcv", "rcv-sess", true)
+	return svc, hub
+}
+
+// The reloaded page takes the call over: it becomes the owner, the away timer stops, and it gets
+// what it needs to show the call again.
+func TestAdoptCall_HandsTheReloadedPageTheCall(t *testing.T) {
+	svc, hub := adoptableCall(t)
+
+	if err := svc.AdoptCall("rcv", "new-sess", "new-page", "phone-dev", "x", "old-page"); err != nil {
+		t.Fatalf("AdoptCall: %v", err)
+	}
+	call := svc.activeCalls["x"]
+	if call.ReceiverSessionID != "new-sess" || call.ReceiverInstanceID != "new-page" {
+		t.Errorf("owner is %q/%q, want new-sess/new-page", call.ReceiverSessionID, call.ReceiverInstanceID)
+	}
+	svc.mu.RLock()
+	left := len(svc.graceTimers) + len(svc.nativeAbsent)
+	svc.mu.RUnlock()
+	if left != 0 {
+		t.Errorf("the away timer outlived the adoption (%d)", left)
+	}
+	adopted := hub.eventsFor("rcv", ws.OpP2PCallAdopted)
+	if len(adopted) != 1 {
+		t.Fatalf("got %d adopted events, want 1", len(adopted))
+	}
+	bc := adopted[0].Data.(models.P2PCallBroadcast)
+	if bc.ID != "x" || bc.AcceptedAt == nil || bc.AcceptedAt.IsZero() {
+		t.Errorf("the page cannot rebuild the call from %+v", bc)
+	}
+	// A repeat (its answer was lost) is answered again, not refused.
+	if err := svc.AdoptCall("rcv", "new-sess", "new-page", "phone-dev", "x", "old-page"); err != nil {
+		t.Errorf("repeat AdoptCall: %v", err)
+	}
+}
+
+func TestAdoptCall_RefusesAnythingElseAndSaysWhere(t *testing.T) {
+	cases := []struct {
+		name, call, previous, device string
+		wantEnd                      bool
+	}{
+		{"a call that ended meanwhile", "gone", "old-page", "phone-dev", true},
+		{"a page that did not run it", "x", "someone-else", "phone-dev", false},
+		{"another device", "x", "old-page", "tablet-dev", false},
+	}
+	for _, c := range cases {
+		svc, hub := adoptableCall(t)
+		if err := svc.AdoptCall("rcv", "new-sess", "new-page", c.device, c.call, c.previous); err == nil {
+			t.Errorf("%s: adopted", c.name)
+		}
+		if got := svc.activeCalls["x"].ReceiverInstanceID; got != "old-page" {
+			t.Errorf("%s: owner moved to %q", c.name, got)
+		}
+		if c.wantEnd && len(hub.eventsFor("rcv", ws.OpP2PCallEnd)) != 1 {
+			t.Errorf("%s: the page was not told the call is over", c.name)
+		}
+		if !c.wantEnd && len(hub.eventsFor("rcv", ws.OpP2PCallAccept)) != 1 {
+			t.Errorf("%s: the page was not told who holds the call", c.name)
 		}
 	}
 }

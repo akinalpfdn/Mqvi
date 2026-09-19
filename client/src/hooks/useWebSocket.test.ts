@@ -415,20 +415,74 @@ describe("useWebSocket call teardown queue", () => {
     });
   });
 
-  it("should not replay a teardown older than the ring timeout", async () => {
+  it("should not replay a teardown older than the server keeps an away call", async () => {
     renderHook(() => useWebSocket());
     await advance(0);
 
     act(() => {
       sendWSRef.current?.("p2p_call_end", { call_id: "c1" });
     });
-    await advance(61_000);
+    await advance(4 * 60 * 60 * 1000 + 1_000);
 
     await act(async () => {
       latest().accept();
     });
 
     expect(latest().sent.some((s) => JSON.parse(s).op === "p2p_call_end")).toBe(false);
+  });
+
+  // Back from suspension the socket can read OPEN and be dead: the hang-up written into it is
+  // lost, and the store has nothing left to resume. It goes again on the next connection.
+  it("should replay a teardown sent on a socket that turned out dead", async () => {
+    await connect();
+    act(() => {
+      sendWSRef.current?.("p2p_call_end", { call_id: "c1" });
+    });
+    const dead = latest();
+    expect(dead.sent.map((x) => JSON.parse(x).op)).toContain("p2p_call_end");
+
+    await act(async () => {
+      dead.drop();
+    });
+    await advance(60_000);
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest()).not.toBe(dead);
+    expect(latest().sent.map((x) => JSON.parse(x))).toContainEqual({ op: "p2p_call_end", d: { call_id: "c1" } });
+  });
+
+  it("should stop replaying once the server reports the call over", async () => {
+    await connect();
+    act(() => {
+      sendWSRef.current?.("p2p_call_end", { call_id: "c1" });
+    });
+    await act(async () => {
+      latest().deliver({ op: "p2p_call_end", d: { call_id: "c1" } });
+      latest().drop();
+    });
+    await advance(60_000);
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.some((x) => JSON.parse(x).op === "p2p_call_end")).toBe(false);
+  });
+
+  // Replayed later, an end that names no call would hang up whatever call came after.
+  it("should not keep an end that names no call", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => {
+      sendWSRef.current?.("p2p_call_end");
+    });
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.some((x) => JSON.parse(x).op === "p2p_call_end")).toBe(false);
   });
 
   it("should drop everything else sent with no socket", async () => {

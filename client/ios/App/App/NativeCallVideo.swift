@@ -21,6 +21,7 @@ final class NativeCallVideo: NSObject, LKRTCVideoViewDelegate {
 
     // Strong: a receiver's track wrapper has no other owner, and its dealloc unhooks the renderer.
     private var remoteTrack: LKRTCVideoTrack?
+    var hasRemoteTrack: Bool { remoteTrack != nil }
     private var localTrack: LKRTCVideoTrack?
     private var attached = false
     private weak var hostView: UIView?

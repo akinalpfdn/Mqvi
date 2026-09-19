@@ -309,6 +309,9 @@ export async function handleSystemEvent(
         .getState()
         .handleCallEnd(msg.d as { call_id: string; reason?: string; ended_by?: string });
       return true;
+    case "p2p_call_adopted":
+      useP2PCallStore.getState().handleCallAdopted(msg.d as P2PCall);
+      return true;
     case "p2p_call_busy":
       useP2PCallStore.getState().handleCallBusy(msg.d as { receiver_id: string });
       return true;

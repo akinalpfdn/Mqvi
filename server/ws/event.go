@@ -137,6 +137,10 @@ const (
 	// OpP2PCallResume — the client reconnected and is still in the call. Media is peer-to-peer, so
 	// the socket dying was a blip, not a hang-up. Rebinds the call to the new connection.
 	OpP2PCallResume = "p2p_call_resume"
+	// OpP2PCallAdopt — a reloaded iOS page takes over the call the page before it ran, whose
+	// native media never stopped; OpP2PCallAdopted hands it the call when it may.
+	OpP2PCallAdopt   = "p2p_call_adopt"
+	OpP2PCallAdopted = "p2p_call_adopted"
 )
 
 // E2EE operations
@@ -333,6 +337,12 @@ type P2PCallDeclineData struct {
 
 type P2PCallResumeData struct {
 	CallID string `json:"call_id"`
+}
+
+// P2PCallAdoptData names the call and the page instance that ran it.
+type P2PCallAdoptData struct {
+	CallID     string `json:"call_id"`
+	InstanceID string `json:"instance_id"`
 }
 
 // P2PSignalData carries WebRTC SDP/ICE data. Server relays without inspecting.

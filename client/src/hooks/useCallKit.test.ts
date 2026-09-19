@@ -305,3 +305,19 @@ describe("useCallKit — coming back from the background", () => {
     useP2PCallStore.setState({ engine: null });
   });
 });
+
+describe("useCallKit — a call taken over from a reloaded page", () => {
+  // The new page never saw the call reach the system screen; hanging up here must still clear it.
+  it("should take the system call screen down when the adopted call is hung up in the app", () => {
+    renderHook(() => useCallKit());
+    useP2PCallStore.setState({
+      activeCall: { ...ringingCall(), status: "active" },
+      _adopted: { callId: CALL_ID, inCallKit: true },
+    });
+
+    useP2PCallStore.getState().endCall();
+
+    expect(endCall).toHaveBeenCalledWith({ call_id: CALL_ID, reason: "local" });
+    useP2PCallStore.setState({ _adopted: null });
+  });
+});
