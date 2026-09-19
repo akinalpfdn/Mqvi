@@ -19,8 +19,8 @@ vi.mock("../call/WebCallEngine", () => ({
     private get record() {
       return engineInstances[engineInstances.length - 1];
     }
-    async start() {
-      this.record.calls.push("start");
+    async start(opts: { endKey?: string }) {
+      this.record.calls.push(opts.endKey ? `start:${opts.endKey}` : "start");
       if (startFailure.current) throw startFailure.current;
     }
     async acceptRemoteOffer(sdp: string) {
@@ -485,5 +485,24 @@ describe("an offer on a device that did not take the call", () => {
     useP2PCallStore.getState().acceptCall("c1");
     await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "offer", sdp: "o" });
     expect(engineInstances[0].calls).toContain("acceptRemoteOffer:o");
+  });
+});
+
+describe("the hang-up key and the peer's goodbye", () => {
+  it("should start the engine with this side's key from the accept", async () => {
+    useP2PCallStore.getState().handleCallAccept({ call_id: "c1", end_key: "receiver-key" } as never);
+    await useP2PCallStore.getState().startWebRTC(false);
+
+    expect(engineInstances[0].calls).toContain("start:receiver-key");
+  });
+
+  it("should end the call on the peer's goodbye and tell the server, which may not know yet", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    sendWS.mockClear();
+
+    engineInstances[0].events.onPeerHungUp();
+
+    expect(useP2PCallStore.getState().activeCall).toBeNull();
+    expect(sendWS).toHaveBeenCalledWith("p2p_call_end", { call_id: "c1" });
   });
 });

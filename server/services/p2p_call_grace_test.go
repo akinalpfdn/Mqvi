@@ -344,7 +344,7 @@ func TestEveryEndStopsBothGraceWindows(t *testing.T) {
 	ends := map[string]func(*p2pCallService){
 		// Errors ignored: the call exists, and only the timers are under test.
 		"end":     func(s *p2pCallService) { _ = s.EndCall("caller", "", "", "x") },
-		"decline": func(s *p2pCallService) { _ = s.DeclineCall("rcv", "", "x") },
+		"decline": func(s *p2pCallService) { _ = s.DeclineCall("rcv", "", "", "x") },
 		"timeout": func(s *p2pCallService) { s.timeoutRinging("x") },
 	}
 	for name, end := range ends {
@@ -518,7 +518,7 @@ func TestReleaseReplacedApp(t *testing.T) {
 func TestReplayedTeardownOfAnEndedCallIsSettled(t *testing.T) {
 	for name, replay := range map[string]func(*p2pCallService) error{
 		"end":     func(s *p2pCallService) error { return s.EndCall("rcv", "", "rcv-dev", "gone") },
-		"decline": func(s *p2pCallService) error { return s.DeclineCall("rcv", "rcv-dev", "gone") },
+		"decline": func(s *p2pCallService) error { return s.DeclineCall("rcv", "", "rcv-dev", "gone") },
 	} {
 		svc, hub := activeCallService(time.Hour)
 		if err := replay(svc); err == nil {
@@ -539,7 +539,7 @@ func TestReplayedTeardownOfAnEndedCallIsSettled(t *testing.T) {
 func TestCallerCancellingAnAnsweredCallHangsUp(t *testing.T) {
 	svc, hub := activeCallService(time.Hour)
 
-	if err := svc.DeclineCall("caller", "caller-dev", "x"); err != nil {
+	if err := svc.DeclineCall("caller", "", "caller-dev", "x"); err != nil {
 		t.Fatalf("DeclineCall: %v", err)
 	}
 	if callExists(svc, "x") {
@@ -632,5 +632,68 @@ func TestAdoptCall_RefusesAnythingElseAndSaysWhere(t *testing.T) {
 		if !c.wantEnd && len(hub.eventsFor("rcv", ws.OpP2PCallAccept)) != 1 {
 			t.Errorf("%s: the page was not told who holds the call", c.name)
 		}
+	}
+}
+
+// A suspended iOS page cannot use its socket; its native layer hangs up with the key its side was
+// given. The key speaks for that side only and never for anyone else's call.
+func TestEndCallWithKey(t *testing.T) {
+	svc, hub := activeCallService(time.Hour)
+	svc.activeCalls["x"].CallerEndKey = "caller-key"
+	svc.activeCalls["x"].ReceiverEndKey = "rcv-key"
+	svc.activeCalls["x"].ReceiverInstanceID = "phone-app"
+
+	for _, wrong := range []string{"", "nope", "caller-key "} {
+		if err := svc.EndCallWithKey("x", wrong); err == nil {
+			t.Errorf("key %q ended the call", wrong)
+		}
+	}
+	if err := svc.EndCallWithKey("other", "rcv-key"); err == nil {
+		t.Error("a key ended a call it does not belong to")
+	}
+	if !callExists(svc, "x") {
+		t.Fatal("the call was ended by a bad key")
+	}
+
+	if err := svc.EndCallWithKey("x", "rcv-key"); err != nil {
+		t.Fatalf("EndCallWithKey: %v", err)
+	}
+	if callExists(svc, "x") {
+		t.Fatal("the call is still up; both users would stay busy")
+	}
+	ends := hub.eventsFor("caller", ws.OpP2PCallEnd)
+	if len(ends) != 1 || ends[0].Data.(map[string]string)["ended_by"] != "rcv" {
+		t.Errorf("the caller was not told the receiver hung up: %v", ends)
+	}
+}
+
+// Each side's key reaches only that side: the caller's in its own copy of the call, the
+// receiver's with its own accept, and a state reply carries the asker's key alone.
+func TestEndKeysReachOnlyTheirOwnSide(t *testing.T) {
+	svc, hub, _ := ringingCallService()
+	svc.activeCalls["x"].CallerEndKey = "caller-key"
+
+	if err := svc.AcceptCall("rcv", "phone-sess", "phone-app", "phone-dev", "x"); err != nil {
+		t.Fatalf("AcceptCall: %v", err)
+	}
+	receiverKey := svc.activeCalls["x"].ReceiverEndKey
+	if len(receiverKey) != 64 {
+		t.Fatalf("receiver key %q is not 256 random bits", receiverKey)
+	}
+	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
+	if own[0].Data.(map[string]string)["end_key"] != receiverKey {
+		t.Error("the receiver was not given its key")
+	}
+	for _, e := range hub.eventsFor("caller", ws.OpP2PCallAccept) {
+		if key := e.Data.(map[string]string)["end_key"]; key != "" {
+			t.Errorf("the caller was sent a key: %q", key)
+		}
+	}
+
+	state := *svc.activeCalls["x"]
+	svc.sendCallState("caller", "x", &state)
+	accepts := hub.eventsFor("caller", ws.OpP2PCallAccept)
+	if key := accepts[len(accepts)-1].Data.(map[string]string)["end_key"]; key != "caller-key" {
+		t.Errorf("the caller's state reply carried %q, want its own key", key)
 	}
 }

@@ -438,6 +438,8 @@ export type P2PCall = {
   initiated_by?: string;
   /** The running app that dialled; unlike the session it survives a reconnect. */
   initiated_by_instance?: string;
+  /** In the caller's own copy only: its key to hang up without the socket (native layer). */
+  end_key?: string;
   /** Sent only to a page adopting an answered call, to carry its duration on. */
   accepted_at?: string;
 };

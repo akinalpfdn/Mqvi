@@ -475,7 +475,8 @@ describe("taking over a call a previous page ran", () => {
     ["the call ended meanwhile", () => useP2PCallStore.getState().handleCallEnd({ call_id: "call-1" })],
     ["another app holds it", () =>
       useP2PCallStore.getState().handleCallAccept({ call_id: "call-1", accepted_by: "x", accepted_by_instance: "tablet" })],
-    ["the server never answers", () => vi.advanceTimersByTime(10_000)],
+    ["the server never answers", () => vi.advanceTimersByTime(30_000)],
+    ["the user signs out", () => endP2PCallForLogout()],
   ])("hangs up in the old page's name when %s", (_label, outcome) => {
     useP2PCallStore.getState().holdAdoptableCall(candidate);
     useP2PCallStore.getState().resumeCallAfterReconnect();
@@ -485,6 +486,16 @@ describe("taking over a call a previous page ran", () => {
 
     expect(useP2PCallStore.getState()._adoptCandidate).toBeNull();
     expect(useP2PCallStore.getState().activeCall).toBeNull();
+    expect(sent).toContainEqual({ op: "p2p_call_end", data: { call_id: "call-1", instance_id: "old-page" } });
+  });
+
+  // No connection at all: the call must not run on with no screen to end it from.
+  it("gives the call up even when the page never connects", () => {
+    useP2PCallStore.getState().holdAdoptableCall(candidate);
+
+    vi.advanceTimersByTime(30_000);
+
+    expect(useP2PCallStore.getState()._adoptCandidate).toBeNull();
     expect(sent).toContainEqual({ op: "p2p_call_end", data: { call_id: "call-1", instance_id: "old-page" } });
   });
 

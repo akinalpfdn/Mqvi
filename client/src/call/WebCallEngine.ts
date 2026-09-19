@@ -14,6 +14,11 @@ import {
   IceRecovery,
 } from "./IceRecovery";
 
+/** The call's own control channel, agreed by both engines and the native one. */
+export const CONTROL_CHANNEL = "mqvi-control";
+export const BYE = "bye";
+const BYE_FLUSH_MS = 250;
+
 /** One camera track facing the given way, or null when it will not open. */
 async function openCamera(facing: CameraFacing): Promise<MediaStreamTrack | null> {
   try {
@@ -76,6 +81,8 @@ export class WebCallEngine implements CallMediaEngine {
   private remoteStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
   private screenTrack: MediaStreamTrack | null = null;
+  /** Carries the goodbye, so a hang-up reaches the peer even when the server cannot. */
+  private control: RTCDataChannel | null = null;
   private watchedRemoteTrack: MediaStreamTrack | null = null;
 
   private opts: CallEngineStart | null = null;
@@ -438,6 +445,16 @@ export class WebCallEngine implements CallMediaEngine {
     this.recovery.start();
   }
 
+  private sayBye(): boolean {
+    if (this.control?.readyState !== "open") return false;
+    try {
+      this.control.send(BYE);
+      return true;
+    } catch {
+      return false; // closing under us; the peer learns from the server or the connection
+    }
+  }
+
   resync(): void {
     if (this.closed) return;
     const pc = this.pc;
@@ -464,6 +481,7 @@ export class WebCallEngine implements CallMediaEngine {
     this.recovery.dispose();
 
     const pc = this.pc;
+    const sentBye = this.sayBye();
     if (pc) {
       for (const sender of pc.getSenders()) sender.track?.stop();
       for (const receiver of pc.getReceivers()) receiver.track?.stop();
@@ -473,8 +491,11 @@ export class WebCallEngine implements CallMediaEngine {
     this.screenTrack?.stop();
     this.screenTrack = null;
     this.screenSender = null;
-    pc?.close();
+    // The goodbye needs a moment on the wire; the media above has already stopped.
+    if (sentBye) setTimeout(() => pc?.close(), BYE_FLUSH_MS);
+    else pc?.close();
     this.pc = null;
+    this.control = null;
     this.localStream = null;
     this.remoteStream = null;
     this.pendingCandidates = [];
@@ -553,6 +574,13 @@ export class WebCallEngine implements CallMediaEngine {
 
     // Every callback bails once this connection is no longer the engine's.
     const isCurrent = () => this.pc === pc && !this.closed;
+
+    // Pre-agreed on both sides (id 0), so it needs no announcing; an older peer never opens it.
+    const control = pc.createDataChannel(CONTROL_CHANNEL, { negotiated: true, id: 0 });
+    control.onmessage = (event) => {
+      if (isCurrent() && event.data === BYE) this.events.onPeerHungUp();
+    };
+    this.control = control;
 
     pc.onicecandidate = (event) => {
       if (!isCurrent() || !event.candidate) return;

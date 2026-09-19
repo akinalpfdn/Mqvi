@@ -21,6 +21,7 @@ function fakePC() {
     getConfiguration: () => ({}),
     close: vi.fn(),
     addTrack: vi.fn(),
+    createDataChannel: () => ({ readyState: "connecting", send: vi.fn(), onmessage: null }),
     getSenders: () => [],
     getReceivers: () => [],
     setRemoteDescription: vi.fn(async function (this: { remoteDescription: unknown }, d: unknown) {
@@ -59,6 +60,7 @@ function events() {
     onIceRestartNeeded: vi.fn(),
     onScreenShareEnded: vi.fn(),
     onConnectionLost: vi.fn(),
+    onPeerHungUp: vi.fn(),
   } satisfies CallEngineEvents;
 }
 

@@ -28,8 +28,22 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "closeCall", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "discardOrphanedCall", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "currentCall", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "adoptableCall", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "adoptableCall", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setOwner", returnType: CAPPluginReturnPromise)
     ]
+
+    /// The page running the call, and what the native layer needs to hang up without it.
+    private struct CallOwner {
+        let callId: String
+        var instanceId: String?
+        var endKey: String?
+        var serverUrl: String?
+    }
+
+    private static let controlLabel = "mqvi-control"
+    private static let bye = "bye"
+    /// The goodbye needs a moment on the wire before the connection closes under it.
+    private static let byeFlushDelay: TimeInterval = 0.25
 
     /// How long a dead connection is left alone in the background before this side ends it.
     private static let backgroundDeadCallDelay: TimeInterval = 20
@@ -62,7 +76,9 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// The call this plugin is serving and the page instance that started it, from the moment
     /// start is called (a reload can land on a permission prompt). A reload hangs it up in that
     /// instance's name, the only one the server lets end an answered call.
-    private var owner: (callId: String, instanceId: String?)?
+    private var owner: CallOwner?
+    /// The call's own channel, agreed on both sides; carries the goodbye past a suspended page.
+    private var controlChannel: LKRTCDataChannel?
     /// Main queue only. See watchForDeadCall.
     private var deadCallCheck: DispatchWorkItem?
     private var isCaller = false
@@ -110,7 +126,12 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         lock.lock()
         generation += 1
         let gen = generation
-        owner = (callId, instanceId)
+        owner = CallOwner(
+            callId: callId,
+            instanceId: instanceId,
+            endKey: call.getString("endKey"),
+            serverUrl: call.getString("serverUrl")
+        )
         lock.unlock()
 
         requestMicrophone { [weak self] granted in
@@ -137,8 +158,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("failed to create peer connection")
                 return
             }
-            let (pc, audio) = built
-            guard self.adopt(pc, audio: audio, callId: callId, isCaller: isCaller, generation: gen) else {
+            let (pc, audio, control) = built
+            guard self.adopt(pc, audio: audio, control: control, callId: callId, isCaller: isCaller, generation: gen) else {
                 pc.close()
                 call.reject("cancelled")
                 return
@@ -411,7 +432,6 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
-    /// Called at page load: a reload keeps this plugin, so a call the old page ran is ended here.
     /// Which call the native side still runs, so a page waking from suspension can tell whether
     /// the call it remembers ended while it slept.
     @objc func currentCall(_ call: CAPPluginCall) {
@@ -455,12 +475,24 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func setOwner(_ call: CAPPluginCall) {
+        let instanceId = call.getString("instanceId")
+        let endKey = call.getString("endKey")
+        lock.lock()
+        if let instanceId { owner?.instanceId = instanceId }
+        if let endKey { owner?.endKey = endKey }
+        lock.unlock()
+        call.resolve()
+    }
+
+    /// Called at page load: a reload keeps this plugin, so a call the old page ran is ended here.
     @objc func discardOrphanedCall(_ call: CAPPluginCall) {
         lock.lock()
         let orphan = owner
         lock.unlock()
         // Unconditionally: this also cancels a start still behind a permission prompt.
         teardown()
+        if let orphan { reportHangup(orphan) }
         guard let orphan else {
             call.resolve(["discarded": false])
             return
@@ -559,7 +591,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func makePeerConnection(iceServers: [LKRTCIceServer]) -> (LKRTCPeerConnection, LKRTCAudioTrack)? {
+    private func makePeerConnection(iceServers: [LKRTCIceServer]) -> (LKRTCPeerConnection, LKRTCAudioTrack, LKRTCDataChannel?)? {
         let config = LKRTCConfiguration()
         config.iceServers = iceServers
         config.sdpSemantics = .unifiedPlan
@@ -579,13 +611,21 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         lock.unlock()
         track.isEnabled = enabled
         pc.add(track, streamIds: ["mqvi"])
-        return (pc, track)
+
+        // Pre-agreed id on both sides, so it needs no announcing; an older peer never opens it.
+        let controlConfig = LKRTCDataChannelConfiguration()
+        controlConfig.isNegotiated = true
+        controlConfig.channelId = 0
+        let control = pc.dataChannel(forLabel: Self.controlLabel, configuration: controlConfig)
+        control?.delegate = self
+        return (pc, track, control)
     }
 
     /// Adopts `pc` unless the call ended meanwhile; a previous connection is closed, not dropped.
     private func adopt(
         _ pc: LKRTCPeerConnection,
         audio: LKRTCAudioTrack,
+        control: LKRTCDataChannel?,
         callId: String,
         isCaller: Bool,
         generation gen: Int
@@ -598,6 +638,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         let previous = peerConnection
         peerConnection = pc
         audioTrack = audio
+        controlChannel = control
         self.callId = callId
         self.isCaller = isCaller
         negotiationArmed = false
@@ -700,9 +741,38 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func endIfServing(_ callId: String) {
         lock.lock()
-        let serving = owner?.callId == callId
+        let serving = owner?.callId == callId ? owner : nil
         lock.unlock()
-        if serving { teardown() }
+        guard let serving else { return }
+        teardown()
+        reportHangup(serving)
+    }
+
+    /// The page may be suspended, and its hang-up would not reach the server until it wakes:
+    /// both users would stay "in a call". This side's key lets the native layer say it directly.
+    private func reportHangup(_ owner: CallOwner) {
+        guard let key = owner.endKey, let base = owner.serverUrl,
+              let url = URL(string: "\(base)/api/calls/\(owner.callId)/hangup"),
+              let body = try? JSONSerialization.data(withJSONObject: ["key": key]) // a [String: String] always encodes
+        else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        DispatchQueue.main.async {
+            // Hanging up lets the app be suspended; ask for the moment the request needs.
+            var task = UIBackgroundTaskIdentifier.invalid
+            let finish = {
+                guard task != .invalid else { return }
+                UIApplication.shared.endBackgroundTask(task)
+                task = .invalid
+            }
+            task = UIApplication.shared.beginBackgroundTask(withName: "p2p-hangup", expirationHandler: finish)
+            URLSession.shared.dataTask(with: request) { _, _, error in
+                if let error { print("[p2p-native] hang-up request failed: \(error.localizedDescription)") }
+                DispatchQueue.main.async(execute: finish)
+            }.resume()
+        }
     }
 
     /// In the background the page is suspended, so nothing in JS can recover or end a call whose
@@ -733,9 +803,13 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             print("[p2p-native] connection dead in the background; ending call \(callId)")
+            self.lock.lock()
+            let owner = self.owner
+            self.lock.unlock()
             self.notifyListeners("connectionState", data: ["callId": callId, "state": "closed"])
             self.teardown()
             CallManager.shared.endCall(callId: callId, reason: "failed")
+            if let owner { self.reportHangup(owner) }
         }
         deadCallCheck = check
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.backgroundDeadCallDelay, execute: check)
@@ -747,6 +821,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         generation += 1
         let pc = peerConnection
         let camera = self.camera
+        let control = controlChannel
+        controlChannel = nil
         peerConnection = nil
         audioTrack = nil
         videoTrack = nil
@@ -768,7 +844,13 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             self.deadCallCheck?.cancel()
             self.deadCallCheck = nil
         }
-        pc?.close()
+        // Tell the peer directly: the server cannot reach its page if that page is suspended.
+        if let control, control.readyState == .open,
+           control.sendData(LKRTCDataBuffer(data: Data(Self.bye.utf8), isBinary: false)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.byeFlushDelay) { pc?.close() }
+        } else {
+            pc?.close()
+        }
     }
 
     /// Never retained: Capacitor would hand a stale event to the next call's listeners.
@@ -896,6 +978,28 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         case .failed: return "failed"
         case .closed: return "closed"
         @unknown default: return "unknown"
+        }
+    }
+}
+
+// MARK: - LKRTCDataChannelDelegate
+
+extension NativeP2PCallPlugin: LKRTCDataChannelDelegate {
+    @objc(dataChannelDidChangeState:)
+    public func dataChannelDidChangeState(_ dataChannel: LKRTCDataChannel) {}
+
+    /// The peer hung up. Ended here even while the page is suspended; it learns on waking.
+    @objc(dataChannel:didReceiveMessageWithBuffer:)
+    public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer) {
+        guard !buffer.isBinary, String(data: buffer.data, encoding: .utf8) == Self.bye else { return }
+        lock.lock()
+        let callId = controlChannel === dataChannel ? self.callId : nil
+        lock.unlock()
+        guard let callId else { return }
+        notifyListeners("peerHungUp", data: ["callId": callId])
+        teardown()
+        DispatchQueue.main.async {
+            CallManager.shared.endCall(callId: callId, reason: "remoteEnded")
         }
     }
 }

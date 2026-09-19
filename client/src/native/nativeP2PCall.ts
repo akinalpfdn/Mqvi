@@ -35,7 +35,12 @@ type NativeP2PCallPlugin = {
     isCaller: boolean;
     callType: "voice" | "video";
     iceServers: { urls: string | string[]; username?: string; credential?: string }[];
+    /** Where the native layer hangs up, with endKey, while the page is suspended. */
+    serverUrl: string;
+    endKey?: string;
   }): Promise<{ video: boolean }>;
+  /** The page that now runs the call, and its hang-up key when it arrived after the start. */
+  setOwner(options: { instanceId?: string; endKey?: string }): Promise<void>;
   acceptRemoteOffer(options: { sdp: string }): Promise<void>;
   acceptRemoteAnswer(options: { sdp: string }): Promise<void>;
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;
@@ -87,6 +92,11 @@ type NativeP2PCallPlugin = {
   addListener(
     eventName: "remoteVideo",
     listener: (data: { callId: string; available: boolean }) => void,
+  ): Promise<PluginListenerHandle>;
+  /** The peer said goodbye over the call's own channel. */
+  addListener(
+    eventName: "peerHungUp",
+    listener: (data: { callId: string }) => void,
   ): Promise<PluginListenerHandle>;
   /** Our camera stopped (it failed to start); the call no longer has a picture of ours. */
   addListener(

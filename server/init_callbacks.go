@@ -196,8 +196,8 @@ func registerHubCallbacks(
 			log.Printf("[p2p] accept error user=%s call=%s: %v", userID, data.CallID, err)
 		}
 	})
-	hub.OnP2PCallDecline(func(userID, deviceID string, data ws.P2PCallDeclineData) {
-		if err := p2pCallService.DeclineCall(userID, deviceID, data.CallID); err != nil {
+	hub.OnP2PCallDecline(func(userID, instanceID, deviceID string, data ws.P2PCallDeclineData) {
+		if err := p2pCallService.DeclineCall(userID, instanceID, deviceID, data.CallID); err != nil {
 			log.Printf("[p2p] decline error user=%s call=%s: %v", userID, data.CallID, err)
 		}
 	})

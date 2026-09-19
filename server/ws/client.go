@@ -551,7 +551,7 @@ func (c *Client) handleP2PCallDecline(event Event) {
 	}
 
 	if c.hub.onP2PCallDecline != nil {
-		c.hub.onP2PCallDecline(c.userID, c.deviceID, data)
+		c.hub.onP2PCallDecline(c.userID, c.instanceID, c.deviceID, data)
 	}
 }
 

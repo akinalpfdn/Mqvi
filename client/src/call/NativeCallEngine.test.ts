@@ -19,6 +19,7 @@ const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.ho
       restartIce: vi.fn(async () => {}),
       resendPendingOffer: vi.fn(async () => ({ resent: false })),
       currentCall: vi.fn(async (): Promise<{ callId: string | null }> => ({ callId: "c1" })),
+      setOwner: vi.fn(async () => {}),
       closeCall: vi.fn(async () => {}),
       addListener: vi.fn(async (event: string, cb: (data: never) => void) => {
         listeners[event] = cb;
@@ -52,6 +53,7 @@ function events() {
     onIceRestartNeeded: vi.fn(),
     onScreenShareEnded: vi.fn(),
     onConnectionLost: vi.fn(),
+    onPeerHungUp: vi.fn(),
   } satisfies CallEngineEvents;
 }
 
@@ -223,6 +225,34 @@ describe("native engine taking over a call a previous page ran", () => {
   });
 });
 
+describe("native engine hanging up without the page", () => {
+  it("should give the plugin what it needs to hang up while the page is suspended", async () => {
+    const engine = new NativeCallEngine(events());
+    await engine.start({ callId: "c1", callType: "voice", isCaller: true, endKey: "k1" });
+
+    expect(plugin.start).toHaveBeenCalledWith(expect.objectContaining({ endKey: "k1", serverUrl: expect.any(String) }));
+  });
+
+  // A second reload must take the call over, or hang it up, as the page that runs it now.
+  it("should tell the plugin a taken-over call now belongs to this page", async () => {
+    const engine = new NativeCallEngine(events());
+    await engine.adopt({ callId: "c1", isCaller: false, state: "connected" });
+
+    expect(plugin.setOwner).toHaveBeenCalledWith({ instanceId: INSTANCE_ID });
+  });
+
+  it("should report the peer's goodbye for its own call only", async () => {
+    const ev = events();
+    const engine = new NativeCallEngine(ev);
+    await engine.start({ callId: "c1", callType: "voice", isCaller: true });
+
+    listeners.peerHungUp?.({ callId: "other" } as never);
+    listeners.peerHungUp?.({ callId: "c1" } as never);
+
+    expect(ev.onPeerHungUp).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("native engine after a socket replacement", () => {
   it("should re-send an unanswered offer and leave it at that", async () => {
     const { engine } = await engineFor(true);
@@ -376,7 +406,7 @@ describe("start is idempotent and safe to cancel", () => {
     ]);
     expect(plugin.start).toHaveBeenCalledTimes(1);
     // One listener per event — a second begin would have doubled them.
-    expect(plugin.addListener).toHaveBeenCalledTimes(5);
+    expect(plugin.addListener).toHaveBeenCalledTimes(6);
   });
 
   it("should remove listeners that finish attaching after close", async () => {

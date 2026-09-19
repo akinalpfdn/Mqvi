@@ -145,7 +145,7 @@ type VoiceActivityCallback func(userID string)
 
 type P2PCallInitiateCallback func(callerID, sessionID, instanceID, deviceID string, data P2PCallInitiateData)
 type P2PCallAcceptCallback func(userID, sessionID, instanceID, deviceID string, data P2PCallAcceptData)
-type P2PCallDeclineCallback func(userID, deviceID string, data P2PCallDeclineData)
+type P2PCallDeclineCallback func(userID, instanceID, deviceID string, data P2PCallDeclineData)
 type P2PCallEndCallback func(userID, instanceID, deviceID, callID string)
 type P2PCallResumeCallback func(userID, sessionID, instanceID, callID string)
 type P2PCallAdoptCallback func(userID, sessionID, instanceID, deviceID string, data P2PCallAdoptData)

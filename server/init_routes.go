@@ -231,6 +231,9 @@ func initRoutes(
 	// P2P Calls — ICE servers (STUN + TURN relay fallback). Fetched per call so
 	// the short-lived HMAC TURN credential is always fresh.
 	mux.Handle("GET /api/calls/ice-servers", auth(h.ICEServer.GetICEServers))
+	// No session: sent by the iOS native layer while the page is suspended; the per-call key
+	// authorizes it (see P2PCall.CallerEndKey).
+	mux.HandleFunc("POST /api/calls/{id}/hangup", h.P2PHangup.Hangup)
 
 	// Platform Admin — LiveKit
 	mux.Handle("GET /api/admin/livekit-regions", authAdmin(h.Admin.ListLiveKitRegions))

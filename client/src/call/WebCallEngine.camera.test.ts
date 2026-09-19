@@ -52,6 +52,7 @@ function events() {
     onIceRestartNeeded: vi.fn(),
     onScreenShareEnded: vi.fn(),
     onConnectionLost: vi.fn(),
+    onPeerHungUp: vi.fn(),
   } satisfies CallEngineEvents;
 }
 
@@ -77,6 +78,7 @@ beforeEach(() => {
       }),
       getSenders: () => [sender],
       getReceivers: () => [],
+      createDataChannel: () => ({ readyState: "connecting", send: vi.fn(), onmessage: null }),
     };
   } as unknown as typeof RTCPeerConnection;
 

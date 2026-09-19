@@ -82,8 +82,10 @@ type RateLimiters struct {
 	ResetPwd  *ratelimit.LoginRateLimiter
 	Feedback  *ratelimit.MessageRateLimiter
 	// User + server reports: each one emails every platform admin.
-	Report    *ratelimit.MessageRateLimiter
-	ICE       *ratelimit.MessageRateLimiter
+	Report *ratelimit.MessageRateLimiter
+	ICE    *ratelimit.MessageRateLimiter
+	// Keyed call hang-ups, per IP: the route has no session to limit by.
+	Hangup    *ratelimit.MessageRateLimiter
 	Discovery *ratelimit.MessageRateLimiter
 	// Screen-share token minting. Every call costs either a 4-hour JWT or an app_logs row, and
 	// nothing else bounded it.
@@ -296,6 +298,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                     // 5 reset attempts per 5 min per IP
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
+	hangupLimiter := ratelimit.NewMessageRateLimiter(30, 1*time.Minute, 30*time.Second)    // 30 keyed hang-ups per min per IP
 	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
 	// Reports: 5 per 10 min per user. Cooldown equals the window on purpose — Allow restarts the
 	// window when a cooldown ends, so a shorter cooldown would make the real rate 5 per cooldown.
@@ -375,6 +378,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Feedback:       feedbackLimiter,
 		Report:         reportLimiter,
 		ICE:            iceLimiter,
+		Hangup:         hangupLimiter,
 		Discovery:      discoveryLimiter,
 		ScreenShare:    screenShareLimiter,
 		NoiseReduction: noiseReductionLimiter,

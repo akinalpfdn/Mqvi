@@ -27,6 +27,14 @@ function fakePC() {
     getConfiguration: () => ({}),
     close: vi.fn(),
     addTrack: vi.fn(),
+    control: {
+      readyState: "connecting" as RTCDataChannelState,
+      send: vi.fn(),
+      onmessage: null as ((e: { data: string }) => void) | null,
+    },
+    createDataChannel(this: { control: unknown }) {
+      return this.control;
+    },
     getSenders: () => [],
     getReceivers: () => [],
     setRemoteDescription: vi.fn(async () => {}),
@@ -58,6 +66,7 @@ function events(): CallEngineEvents & { spies: Record<string, ReturnType<typeof 
     onIceRestartNeeded: vi.fn(),
     onScreenShareEnded: vi.fn(),
     onConnectionLost: vi.fn(),
+    onPeerHungUp: vi.fn(),
   };
   return { ...spies, spies } as never;
 }
@@ -291,5 +300,37 @@ describe("offer collisions", () => {
     expect(pc.setLocalDescription).toHaveBeenNthCalledWith(1, { type: "rollback" });
     expect(pc.setRemoteDescription).toHaveBeenLastCalledWith({ type: "offer", sdp: "caller-offer" });
     expect(ev.onLocalDescription).toHaveBeenLastCalledWith({ type: "answer", sdp: "answer-sdp" });
+  });
+});
+
+// The server cannot reach a suspended iOS page; the goodbye goes over the media path instead.
+describe("the goodbye on the call's own channel", () => {
+  it("says goodbye before closing, and closes a moment later so it gets out", async () => {
+    const { engine } = await harness(true);
+    pc.control.readyState = "open";
+
+    engine.close();
+
+    expect(pc.control.send).toHaveBeenCalledWith("bye");
+    expect(pc.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(pc.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes at once when the channel never opened (an older peer)", async () => {
+    const { engine } = await harness(true);
+
+    engine.close();
+
+    expect(pc.control.send).not.toHaveBeenCalled();
+    expect(pc.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports the peer's goodbye", async () => {
+    const { ev } = await harness(true);
+
+    pc.control.onmessage?.({ data: "bye" });
+
+    expect(ev.onPeerHungUp).toHaveBeenCalledTimes(1);
   });
 });

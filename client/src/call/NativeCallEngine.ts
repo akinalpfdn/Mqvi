@@ -7,6 +7,7 @@ import { fetchIceServers } from "../api/calls";
 import { NativeP2PCall, type NativeConnectionState } from "../native/nativeP2PCall";
 import { nativeVoiceReleased } from "../utils/nativePlugins";
 import { INSTANCE_ID } from "../utils/deviceId";
+import { SERVER_URL } from "../utils/constants";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type {
   CallEngineEvents,
@@ -109,6 +110,11 @@ export class NativeCallEngine implements CallMediaEngine {
     this.isCaller = call.isCaller;
     await this.listenForCall();
     if (this.closed) return;
+    // This page runs the call now: a later reload must take it over, or hang it up, as this one.
+    await NativeP2PCall.setOwner({ instanceId: INSTANCE_ID }).catch((err) =>
+      console.error("[p2p] native setOwner failed:", err),
+    );
+    if (this.closed) return;
     this.started = true;
     this.hasRemoteDescription = true;
     if (call.state !== "connected") this.recovery.armFirstConnect();
@@ -155,6 +161,11 @@ export class NativeCallEngine implements CallMediaEngine {
         if (mine(data)) this.events.onLocalVideo(data.available);
       }),
     );
+    await this.listen(
+      NativeP2PCall.addListener("peerHungUp", (data) => {
+        if (mine(data)) this.events.onPeerHungUp();
+      }),
+    );
   }
 
   private async startCall(opts: CallEngineStart): Promise<void> {
@@ -173,6 +184,8 @@ export class NativeCallEngine implements CallMediaEngine {
       ({ video } = await NativeP2PCall.start({
         callId: opts.callId,
         instanceId: INSTANCE_ID,
+        serverUrl: SERVER_URL,
+        endKey: opts.endKey,
         isCaller: opts.isCaller,
         callType: opts.callType,
         iceServers: iceServers.map((server) => ({
@@ -271,6 +284,14 @@ export class NativeCallEngine implements CallMediaEngine {
   restartIce(): void {
     if (this.closed) return;
     this.recovery.start();
+  }
+
+  /** The key arrived after the call started (its accept confirmation came late). */
+  setEndKey(endKey: string): void {
+    if (this.closed) return;
+    void NativeP2PCall.setOwner({ endKey }).catch((err) =>
+      console.error("[p2p] native setOwner failed:", err),
+    );
   }
 
   resync(): void {

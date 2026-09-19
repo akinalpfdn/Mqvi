@@ -28,6 +28,9 @@ export type CallEngineEvents = {
   onScreenShareEnded(): void;
   /** Recovery is exhausted — the call cannot be saved and must end. */
   onConnectionLost(): void;
+  /** The peer said goodbye over the media path; faster than the server, and it works while the
+   * server cannot reach a suspended page. */
+  onPeerHungUp(): void;
 };
 
 export type CallEngineStart = {
@@ -35,6 +38,8 @@ export type CallEngineStart = {
   callType: P2PCallType;
   /** The offerer drives negotiation and owns ICE restarts. */
   isCaller: boolean;
+  /** This side's key to hang up without the socket (the native layer, page suspended). */
+  endKey?: string;
 };
 
 export interface CallMediaEngine {

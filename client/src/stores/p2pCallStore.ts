@@ -38,7 +38,7 @@ type EndedHere = { op: "p2p_call_decline" | "p2p_call_end"; until: number };
 type OrphanedEnd = { call_id: string; instance_id?: string };
 
 /** How long a reloaded page waits for the server to hand it the call its predecessor ran. */
-const ADOPT_WAIT_MS = 10_000;
+const ADOPT_WAIT_MS = 30_000;
 
 /** Past the ring timeout the server no longer re-sends the call. */
 const ENDED_HERE_TTL = 60_000;
@@ -115,6 +115,8 @@ type P2PCallStore = {
   handleCallAdopted: (data: P2PCall) => void;
   /** The take-over failed or the call is gone: stop the native media and hang up. */
   abandonAdoption: () => void;
+  /** The peer said goodbye over the call's own channel. */
+  handlePeerHungUp: (callId: string) => void;
 
   // ─── WS Send ───
 
@@ -143,7 +145,12 @@ type P2PCallStore = {
   // ─── WS Event Handlers ───
 
   handleCallInitiate: (data: P2PCall) => void;
-  handleCallAccept: (data: { call_id: string; accepted_by?: string; accepted_by_instance?: string }) => void;
+  handleCallAccept: (data: {
+    call_id: string;
+    accepted_by?: string;
+    accepted_by_instance?: string;
+    end_key?: string;
+  }) => void;
   handleCallDecline: (data: { call_id: string; reason?: string; declined_by?: string }) => void;
   handleCallEnd: (data: { call_id: string; reason?: string; ended_by?: string }) => void;
   handleCallBusy: (data: { receiver_id: string }) => void;
@@ -250,7 +257,9 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       get().endOrphanedCall(call.callId, call.instanceId);
       return;
     }
-    set({ _adoptCandidate: call });
+    // Counted from now, not from the connection: with no connection at all the call would run on
+    // with no screen to end it from.
+    set({ _adoptCandidate: call, _adoptTimer: setTimeout(() => get().abandonAdoption(), ADOPT_WAIT_MS) });
   },
 
   handleCallAdopted: (data) => {
@@ -280,6 +289,16 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     // What the peer's camera is doing was lost with the old page; ask, and say ours again.
     get()._sendWS?.("p2p_signal", { call_id: data.id, type: "video-query" });
     set({ _videoAnnounced: null });
+  },
+
+  handlePeerHungUp: (callId) => {
+    if (get().activeCall?.id !== callId) return;
+    // The server may not know yet (the peer's page can be suspended); ending it here is safe,
+    // an end that names the call can only end that call.
+    get()._sendWS?.("p2p_call_end", { call_id: callId });
+    set({ _endedHere: rememberEnded(get()._endedHere, callId, "p2p_call_end") });
+    dismissIncomingCallUI(callId, "remoteEnded");
+    get().cleanup();
   },
 
   abandonAdoption: () => {
@@ -322,11 +341,10 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   // the call by SESSION, which just changed. Claim it back, or it is hung up under us and the
   // ICE restart that would have recovered the media is rejected as coming from a stranger.
   resumeCallAfterReconnect: () => {
-    const { _sendWS, activeCall, incomingCall, _acceptSentFor, _adoptCandidate, _adoptTimer } = get();
+    const { _sendWS, activeCall, incomingCall, _acceptSentFor, _adoptCandidate } = get();
     if (!_sendWS) return;
     if (_adoptCandidate) {
       _sendWS("p2p_call_adopt", { call_id: _adoptCandidate.callId, instance_id: _adoptCandidate.instanceId });
-      if (!_adoptTimer) set({ _adoptTimer: setTimeout(() => get().abandonAdoption(), ADOPT_WAIT_MS) });
     }
     // Every call on screen is asked about: the server rebinds it to this socket, or repeats the
     // end that went to the dead one (a ringing receiver has no timeout of its own).
@@ -491,6 +509,9 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       onConnectionLost: () => {
         if (isCurrentCall()) get().endCall("failed");
       },
+      onPeerHungUp: () => {
+        if (isCurrentCall()) get().handlePeerHungUp(callId);
+      },
     });
 
     set({ engine, isNativeVideo: engine.rendersVideoNatively });
@@ -524,7 +545,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     if (!engine) return;
 
     try {
-      await engine.start({ callId, callType: activeCall.call_type, isCaller });
+      await engine.start({ callId, callType: activeCall.call_type, isCaller, endKey: activeCall.end_key });
     } catch (err) {
       endCallThatFailedToStart(callId, err);
     }
@@ -609,7 +630,15 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     }
     if (!activeCall || activeCall.id !== data.call_id) return;
     // A repeated accept started a second duration timer and leaked the first.
-    if (activeCall.status === "active") return;
+    if (activeCall.status === "active") {
+      // Only the key can be new: a state reply after a lost confirmation carries it.
+      if (data.end_key && !activeCall.end_key) {
+        set({ activeCall: { ...activeCall, end_key: data.end_key } });
+        const { engine } = get();
+        if (engine instanceof NativeCallEngine) engine.setEndKey(data.end_key);
+      }
+      return;
+    }
 
     const userId = useAuthStore.getState().user?.id;
     const isCaller = activeCall.caller_id === userId;
@@ -625,7 +654,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     }
 
     set({
-      activeCall: { ...activeCall, status: "active" },
+      activeCall: { ...activeCall, status: "active", end_key: data.end_key ?? activeCall.end_key },
       incomingCall: null,
     });
 
@@ -763,10 +792,16 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
 
 registerP2PCallControl({
   hasLiveMedia: () => useP2PCallStore.getState().activeCall?.status === "active",
-  hasCall: () => useP2PCallStore.getState().activeCall !== null,
+  hasCall: () => {
+    const { activeCall, _adoptCandidate } = useP2PCallStore.getState();
+    return activeCall !== null || _adoptCandidate !== null;
+  },
   end: () => useP2PCallStore.getState().endCall(),
   leave: () => {
-    const { activeCall, _acceptSentFor, endCall, cleanup } = useP2PCallStore.getState();
+    const { activeCall, _acceptSentFor, _adoptCandidate, endCall, cleanup, abandonAdoption } = useP2PCallStore.getState();
+    // A call still being taken over from the previous page has its media running.
+    if (_adoptCandidate) abandonAdoption();
+    if (!activeCall) return;
     // Signing out of one device is not declining: the user's other devices keep ringing.
     const unanswered =
       activeCall?.status === "ringing" &&

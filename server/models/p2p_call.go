@@ -42,6 +42,10 @@ type P2PCall struct {
 
 	// A cancel push for a ring that never went out shows iOS a phantom call.
 	RingPushed bool `json:"-"`
+
+	// Per side, for the app's native layer to hang up over HTTP while its page is suspended.
+	CallerEndKey   string `json:"-"`
+	ReceiverEndKey string `json:"-"`
 }
 
 // P2PCallBroadcast — broadcast payload carrying both caller and receiver info.
@@ -69,6 +73,8 @@ type P2PCallBroadcast struct {
 	InitiatedByInstance string `json:"initiated_by_instance,omitempty"`
 	// AcceptedAt is sent only to a page adopting an answered call, to carry its duration on.
 	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+	// EndKey goes only in the caller's own copy: its key to hang up without the socket.
+	EndKey string `json:"end_key,omitempty"`
 }
 
 // P2PSignalPayload — WebRTC signaling data (SDP offer/answer or ICE candidate).

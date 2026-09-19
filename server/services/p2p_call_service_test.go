@@ -222,7 +222,7 @@ func TestCallLogging(t *testing.T) {
 	t.Run("declined by receiver", func(t *testing.T) {
 		rec := &recordingCallLogger{ch: make(chan models.CallMeta, 1)}
 		svc := newSvc(rec, map[string]*models.P2PCall{"x": ringing(models.P2PCallTypeVideo)}, map[string]string{"caller": "x", "rcv": "x"})
-		if err := svc.DeclineCall("rcv", "phone-dev", "x"); err != nil {
+		if err := svc.DeclineCall("rcv", "", "phone-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 		if m := waitCallLog(t, rec.ch); m.Outcome != models.CallOutcomeDeclined {
@@ -233,7 +233,7 @@ func TestCallLogging(t *testing.T) {
 	t.Run("missed when caller cancels ringing", func(t *testing.T) {
 		rec := &recordingCallLogger{ch: make(chan models.CallMeta, 1)}
 		svc := newSvc(rec, map[string]*models.P2PCall{"x": ringing(models.P2PCallTypeVoice)}, map[string]string{"caller": "x", "rcv": "x"})
-		if err := svc.DeclineCall("caller", "caller-dev", "x"); err != nil {
+		if err := svc.DeclineCall("caller", "", "caller-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 		if m := waitCallLog(t, rec.ch); m.Outcome != models.CallOutcomeMissed {
@@ -650,7 +650,7 @@ func TestConcurrentAcceptHasOneWinner(t *testing.T) {
 func TestDeclineByReceiverStopsSiblingDevices(t *testing.T) {
 	svc, hub, push := ringingCallService()
 
-	if err := svc.DeclineCall("rcv", "phone-dev", "x"); err != nil {
+	if err := svc.DeclineCall("rcv", "", "phone-dev", "x"); err != nil {
 		t.Fatalf("DeclineCall: %v", err)
 	}
 
@@ -742,7 +742,7 @@ func TestAcceptCallExemptsTheAnsweringDevice(t *testing.T) {
 func TestCancelPushExemptsOnlyTheActingReceiverDevice(t *testing.T) {
 	t.Run("receiver declines", func(t *testing.T) {
 		svc, _, push := ringingCallService()
-		if err := svc.DeclineCall("rcv", "phone-dev", "x"); err != nil {
+		if err := svc.DeclineCall("rcv", "", "phone-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 		if len(push.excluded) != 1 || push.excluded[0] != "phone-dev" {
@@ -752,7 +752,7 @@ func TestCancelPushExemptsOnlyTheActingReceiverDevice(t *testing.T) {
 
 	t.Run("caller cancels", func(t *testing.T) {
 		svc, _, push := ringingCallService()
-		if err := svc.DeclineCall("caller", "caller-dev", "x"); err != nil {
+		if err := svc.DeclineCall("caller", "", "caller-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 		if len(push.excluded) != 1 || push.excluded[0] != "" {
@@ -783,7 +783,7 @@ func TestDeclineCannotKillAnAnsweredCall(t *testing.T) {
 		t.Fatalf("AcceptCall: %v", err)
 	}
 
-	err := svc.DeclineCall("rcv", "desktop-dev", "x") // the stale desktop overlay
+	err := svc.DeclineCall("rcv", "", "desktop-dev", "x") // the stale desktop overlay
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("declining an ACTIVE call must be rejected, got %v", err)
 	}

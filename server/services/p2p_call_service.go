@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"sync"
@@ -50,7 +53,9 @@ type P2PCallService interface {
 	// to stop ringing is what breaks iOS (see PushNotifier.NotifyCallCancel). The instanceID says
 	// which running app it is, so that app alone can take its answered call back after a reconnect.
 	AcceptCall(userID, sessionID, instanceID, deviceID, callID string) error
-	DeclineCall(userID, deviceID, callID string) error
+	DeclineCall(userID, instanceID, deviceID, callID string) error
+	// EndCallWithKey hangs up for the side whose end key this is; see P2PCall.CallerEndKey.
+	EndCallWithKey(callID, key string) error
 	EndCall(userID, instanceID, deviceID, wantCallID string) error
 	// RelaySignal takes the sending connection: only the two sessions that own the call may
 	// signal it. A sibling device is not in the call and its SDP would clobber the live session.
@@ -309,6 +314,7 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, deviceID,
 		CallerSessionID:  sessionID,
 		CallerInstanceID: instanceID,
 		CallerDeviceID:   deviceID,
+		CallerEndKey:     newEndKey(),
 		ReceiverID:       receiverID,
 		CallType:         callType,
 		Status:           models.P2PCallStatusRinging,
@@ -389,6 +395,7 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, deviceID,
 	callerCopy := broadcast
 	callerCopy.InitiatedBy = sessionID
 	callerCopy.InitiatedByInstance = instanceID
+	callerCopy.EndKey = announced.CallerEndKey
 	s.hub.BroadcastToUser(callerID, ws.Event{
 		Op:   ws.OpP2PCallInitiate,
 		Data: callerCopy,
@@ -480,6 +487,8 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, instanceID, deviceID, cal
 	call.ReceiverSessionID = sessionID
 	call.ReceiverInstanceID = instanceID
 	call.ReceiverDeviceID = deviceID
+	call.ReceiverEndKey = newEndKey()
+	receiverKey := call.ReceiverEndKey
 	s.userCalls[userID] = callID
 	s.stopRingTimer(callID)
 	s.mu.Unlock()
@@ -497,8 +506,13 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, instanceID, deviceID, cal
 	// but it would still see this broadcast and, if it trusted its own optimism, answer the
 	// caller's offer alongside the winner (signalling is user-wide too).
 	s.hub.BroadcastToUser(userID, ws.Event{
-		Op:   ws.OpP2PCallAccept,
-		Data: map[string]string{"call_id": callID, "accepted_by": sessionID, "accepted_by_instance": instanceID},
+		Op: ws.OpP2PCallAccept,
+		Data: map[string]string{
+			"call_id":              callID,
+			"accepted_by":          sessionID,
+			"accepted_by_instance": instanceID,
+			"end_key":              receiverKey,
+		},
 	})
 
 	// Sibling devices with no live WS are still ringing on the incoming-call push alone.
@@ -512,7 +526,7 @@ func (s *p2pCallService) AcceptCall(userID, sessionID, instanceID, deviceID, cal
 func sameInstance(owner, asking string) bool { return owner != "" && owner == asking }
 
 // DeclineCall declines an incoming call or cancels an outgoing one.
-func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
+func (s *p2pCallService) DeclineCall(userID, instanceID, deviceID, callID string) error {
 	s.mu.Lock()
 	call, exists := s.activeCalls[callID]
 	if !exists {
@@ -536,7 +550,7 @@ func (s *p2pCallService) DeclineCall(userID, deviceID, callID string) error {
 		s.mu.Unlock()
 		// The caller cancelled as the answer landed: that is a hang-up, not a stray ring.
 		if state.CallerID == userID {
-			return s.endCall(userID, "", deviceID, callID, true)
+			return s.endCall(userID, instanceID, deviceID, callID, true)
 		}
 		s.sendCallState(userID, callID, &state)
 		return fmt.Errorf("%w: call is not ringing", pkg.ErrBadRequest)
@@ -1026,15 +1040,57 @@ func (s *p2pCallService) sendCallState(userID, callID string, call *models.P2PCa
 			Data: map[string]string{"call_id": callID},
 		})
 	case call.Status == models.P2PCallStatusActive:
-		s.hub.BroadcastToUser(userID, ws.Event{
-			Op: ws.OpP2PCallAccept,
-			Data: map[string]string{
-				"call_id":              callID,
-				"accepted_by":          call.ReceiverSessionID,
-				"accepted_by_instance": call.ReceiverInstanceID,
-			},
-		})
+		data := map[string]string{
+			"call_id":              callID,
+			"accepted_by":          call.ReceiverSessionID,
+			"accepted_by_instance": call.ReceiverInstanceID,
+		}
+		// The asking user's own key: an app whose confirmation was lost never got it.
+		key := call.ReceiverEndKey
+		if call.CallerID == userID {
+			key = call.CallerEndKey
+		}
+		if key != "" {
+			data["end_key"] = key
+		}
+		s.hub.BroadcastToUser(userID, ws.Event{Op: ws.OpP2PCallAccept, Data: data})
 	}
+}
+
+// newEndKey is 256 random bits; empty only if the system random source fails, which leaves that
+// side without the socketless hang-up rather than with a guessable one.
+func newEndKey() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Printf("[p2p] end key: %v", err)
+		return ""
+	}
+	return hex.EncodeToString(b)
+}
+
+// EndCallWithKey is the hang-up of an app whose page is suspended (iOS in the background): its
+// native layer has no socket, only the key this side was given. It ends the call as that side's
+// owning app would, so another user's call can never be touched.
+func (s *p2pCallService) EndCallWithKey(callID, key string) error {
+	if key == "" {
+		return fmt.Errorf("%w: no key", pkg.ErrUnauthorized)
+	}
+	s.mu.RLock()
+	call, exists := s.activeCalls[callID]
+	var userID, instanceID string
+	if exists {
+		switch {
+		case subtle.ConstantTimeCompare([]byte(call.CallerEndKey), []byte(key)) == 1:
+			userID, instanceID = call.CallerID, call.CallerInstanceID
+		case subtle.ConstantTimeCompare([]byte(call.ReceiverEndKey), []byte(key)) == 1:
+			userID, instanceID = call.ReceiverID, call.ReceiverInstanceID
+		}
+	}
+	s.mu.RUnlock()
+	if userID == "" {
+		return fmt.Errorf("%w: no such call", pkg.ErrNotFound)
+	}
+	return s.endCall(userID, instanceID, "", callID, true)
 }
 
 // GetUserCall returns the user's active call, or nil if not in a call.
