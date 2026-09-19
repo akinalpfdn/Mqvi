@@ -5,8 +5,9 @@ const { ensureFreshToken } = vi.hoisted(() => ({ ensureFreshToken: vi.fn() }));
 
 vi.mock("../api/client", () => ({ ensureFreshToken }));
 vi.mock("../utils/nativePlugins", () => ({ APP_RESUME_EVENT: "mqvi:app-resume" }));
-const { sendWSRef } = vi.hoisted(() => ({
+const { sendWSRef, previousPageCall } = vi.hoisted(() => ({
   sendWSRef: { current: null as null | ((op: string, data?: unknown) => void) },
+  previousPageCall: { checked: Promise.resolve() as Promise<void> },
 }));
 vi.mock("../stores/p2pCallStore", () => ({
   useP2PCallStore: {
@@ -14,6 +15,8 @@ vi.mock("../stores/p2pCallStore", () => ({
       registerSendWS: (fn: (op: string, data?: unknown) => void) => {
         sendWSRef.current = fn;
       },
+      _previousPageCallChecked: previousPageCall.checked,
+      _adoptCandidate: null,
     }),
   },
 }));
@@ -498,5 +501,32 @@ describe("useWebSocket call teardown queue", () => {
     });
 
     expect(latest().sent.some((s) => JSON.parse(s).op === "p2p_call_initiate")).toBe(false);
+  });
+});
+
+// The URL says whether this page holds the call the previous page left running; connecting before
+// that is known would let the server release a call this page is about to take over.
+describe("useWebSocket and a call the previous page left running", () => {
+  afterEach(() => {
+    previousPageCall.checked = Promise.resolve();
+  });
+
+  it("should not connect until the native side has been asked", async () => {
+    let settle: () => void = () => {};
+    previousPageCall.checked = new Promise<void>((resolve) => (settle = resolve));
+    renderHook(() => useWebSocket());
+    await advance(0);
+    expect(sockets()).toHaveLength(0);
+
+    await act(async () => settle());
+    await advance(0);
+    expect(sockets()).toHaveLength(1);
+  });
+
+  it("should connect anyway when the native side never answers", async () => {
+    previousPageCall.checked = new Promise<void>(() => {});
+    renderHook(() => useWebSocket());
+    await advance(2_000);
+    expect(sockets()).toHaveLength(1);
   });
 });

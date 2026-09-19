@@ -207,7 +207,7 @@ describe("native engine taking over a call a previous page ran", () => {
     const ev = events();
     const engine = new NativeCallEngine(ev);
 
-    await engine.adopt({ callId: "c1", isCaller: true, state: "connected" });
+    await engine.takeOver({ callId: "c1", isCaller: true, state: "connected" });
     listeners.localDescription?.({ callId: "c1", type: "offer", sdp: "o" } as never);
 
     expect(plugin.start).not.toHaveBeenCalled();
@@ -218,7 +218,7 @@ describe("native engine taking over a call a previous page ran", () => {
     const ev = events();
     const engine = new NativeCallEngine(ev);
 
-    await engine.adopt({ callId: "c1", isCaller: true, state: "failed" });
+    await engine.takeOver({ callId: "c1", isCaller: true, state: "failed" });
     await vi.advanceTimersByTimeAsync(0);
 
     expect(plugin.restartIce).toHaveBeenCalledTimes(1);
@@ -236,7 +236,7 @@ describe("native engine hanging up without the page", () => {
   // A second reload must take the call over, or hang it up, as the page that runs it now.
   it("should tell the plugin a taken-over call now belongs to this page", async () => {
     const engine = new NativeCallEngine(events());
-    await engine.adopt({ callId: "c1", isCaller: false, state: "connected" });
+    await engine.takeOver({ callId: "c1", isCaller: false, state: "connected" });
 
     expect(plugin.setOwner).toHaveBeenCalledWith({ instanceId: INSTANCE_ID });
   });

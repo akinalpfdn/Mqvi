@@ -26,6 +26,8 @@ final class CallManager: NSObject {
 
     /// A call ended on the system call screen, for the native media to stop without the page.
     var onEndedBySystem: ((String) -> Void)?
+    /// Muted or unmuted on the system call screen: the page may be suspended, the microphone not.
+    var onMutedBySystem: ((String, Bool) -> Void)?
 
     weak var listener: CallManagerListener? {
         didSet { flushBuffer() }
@@ -287,6 +289,7 @@ extension CallManager: CXProviderDelegate {
         }
         mutedState[action.callUUID] = action.isMuted
         if let callId = calls[action.callUUID] {
+            onMutedBySystem?(callId, action.isMuted)
             if let listener = listener {
                 listener.onCallMuted(callId: callId, muted: action.isMuted)
             } else {

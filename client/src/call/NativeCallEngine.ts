@@ -14,6 +14,7 @@ import type {
   CallEngineStart,
   CallMediaEngine,
   CameraFacing,
+  TakeOverCall,
 } from "./CallMediaEngine";
 import { DISCONNECT_GRACE_MS, IceRecovery } from "./IceRecovery";
 
@@ -95,16 +96,14 @@ export class NativeCallEngine implements CallMediaEngine {
     return !this.closed && this.started;
   }
 
-  /**
-   * Takes over the call a previous page ran, starting nothing: its media never stopped. The
-   * state the page missed while it was gone is read back and fed to recovery.
-   */
-  adopt(call: { callId: string; isCaller: boolean; state: NativeConnectionState }): Promise<void> {
+  /** The state the page missed while it was gone is read back and fed to recovery. */
+  async takeOver(call: TakeOverCall): Promise<boolean> {
     this.ready ??= this.attach(call);
-    return this.ready;
+    await this.ready;
+    return !this.closed && this.started;
   }
 
-  private async attach(call: { callId: string; isCaller: boolean; state: NativeConnectionState }): Promise<void> {
+  private async attach(call: TakeOverCall): Promise<void> {
     if (this.closed) return;
     this.callId = call.callId;
     this.isCaller = call.isCaller;

@@ -35,6 +35,12 @@ vi.mock("../call/WebCallEngine", () => ({
     setMicEnabled(enabled: boolean) {
       this.record.calls.push(`setMicEnabled:${enabled}`);
     }
+    setEndKey(key: string) {
+      this.record.calls.push(`setEndKey:${key}`);
+    }
+    async takeOver() {
+      return false;
+    }
     setRemoteVolume(percent: number) {
       this.record.calls.push(`setRemoteVolume:${percent}`);
     }
@@ -505,4 +511,14 @@ describe("the hang-up key and the peer's goodbye", () => {
     expect(useP2PCallStore.getState().activeCall).toBeNull();
     expect(sendWS).toHaveBeenCalledWith("p2p_call_end", { call_id: "c1" });
   });
+});
+
+// The offer beat the accept: the engine started before this side had its key.
+it("should hand the engine the key that arrives with a late accept", async () => {
+  useP2PCallStore.setState({ activeCall: { ...makeCall(), status: "ringing" }, _acceptSentFor: "c1" });
+  await useP2PCallStore.getState().handleSignal({ call_id: "c1", type: "offer", sdp: "o" });
+
+  useP2PCallStore.getState().handleCallAccept({ call_id: "c1", end_key: "late-key" } as never);
+
+  expect(engineInstances[0].calls).toContain("setEndKey:late-key");
 });

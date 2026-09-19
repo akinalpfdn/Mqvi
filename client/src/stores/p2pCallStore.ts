@@ -21,13 +21,15 @@ import { NativeCallEngine } from "../call/NativeCallEngine";
 import { WebCallEngine } from "../call/WebCallEngine";
 import { getCapacitorPlatform } from "../utils/constants";
 import { dismissIncomingCallUI } from "../native/p2pCall";
-import { NativeP2PCall, type AdoptableCall } from "../native/nativeP2PCall";
+import type { AdoptableCall } from "../native/nativeP2PCall";
 import { INSTANCE_ID } from "../utils/deviceId";
 import { startVoiceCallService, stopVoiceCallService } from "../utils/nativePlugins";
 import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
 import { registerP2PCallControl } from "./shared/p2pCallControl";
+import { remoteVideo } from "./shared/p2pRemoteVideo";
+import { createAdoptionSlice } from "./p2pCallAdoption";
 
 // ─── Types ───
 
@@ -37,13 +39,10 @@ type EndedHere = { op: "p2p_call_decline" | "p2p_call_end"; until: number };
 
 type OrphanedEnd = { call_id: string; instance_id?: string };
 
-/** How long a reloaded page waits for the server to hand it the call its predecessor ran. */
-const ADOPT_WAIT_MS = 30_000;
-
 /** Past the ring timeout the server no longer re-sends the call. */
 const ENDED_HERE_TTL = 60_000;
 
-type P2PCallStore = {
+export type P2PCallStore = {
   /** Active call (ringing or active) — null means not in a call */
   activeCall: P2PCall | null;
 
@@ -111,6 +110,11 @@ type P2PCallStore = {
   _adoptTimer: ReturnType<typeof setTimeout> | null;
   /** The adopted call, for useCallKit: it cannot know the call was on the system screen. */
   _adopted: { callId: string; inCallKit: boolean } | null;
+  /**
+   * Settles once boot has asked the native side about a call the previous page left running. The
+   * socket waits for it: connecting first would let the server release a call this page takes over.
+   */
+  _previousPageCallChecked: Promise<void>;
   holdAdoptableCall: (call: AdoptableCall) => void;
   handleCallAdopted: (data: P2PCall) => void;
   /** The take-over failed or the call is gone: stop the native media and hang up. */
@@ -198,14 +202,6 @@ function endCallThatFailedToStart(callId: string, err: unknown): void {
   if (store.activeCall?.id === callId) store.endCall("failed");
 }
 
-/** hasRemoteVideo is only ever written through this, so the two inputs cannot drift apart. */
-function remoteVideo(
-  current: Pick<P2PCallStore, "remoteTrackVideo" | "peerVideoOff">,
-  patch: Partial<Pick<P2PCallStore, "remoteTrackVideo" | "peerVideoOff">>,
-): Pick<P2PCallStore, "remoteTrackVideo" | "peerVideoOff" | "hasRemoteVideo"> {
-  const next = { ...current, ...patch };
-  return { ...next, hasRemoteVideo: next.remoteTrackVideo && !next.peerVideoOff };
-}
 
 export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   activeCall: null,
@@ -232,9 +228,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   _sessionId: null,
   _endedHere: {},
   _orphanedEnds: [],
-  _adoptCandidate: null,
-  _adoptTimer: null,
-  _adopted: null,
+  ...createAdoptionSlice(set, get),
+  _previousPageCallChecked: Promise.resolve(),
   _sendWS: null,
 
   setSessionId: (id) => set({ _sessionId: id }),
@@ -249,48 +244,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     for (const end of pending) fn("p2p_call_end", end);
   },
 
-  holdAdoptableCall: (call) => {
-    // Without the old page's instance the server cannot hand the call over; and once this page
-    // has connected without claiming it, the server has already released it.
-    if (!call.instanceId || get()._sessionId) {
-      void NativeP2PCall.discardOrphanedCall().catch(() => {});
-      get().endOrphanedCall(call.callId, call.instanceId);
-      return;
-    }
-    // Counted from now, not from the connection: with no connection at all the call would run on
-    // with no screen to end it from.
-    set({ _adoptCandidate: call, _adoptTimer: setTimeout(() => get().abandonAdoption(), ADOPT_WAIT_MS) });
-  },
-
-  handleCallAdopted: (data) => {
-    const { _adoptCandidate: candidate, _adoptTimer } = get();
-    if (!candidate || candidate.callId !== data.id) return;
-    if (_adoptTimer) clearTimeout(_adoptTimer);
-    const acceptedAt = data.accepted_at ? Date.parse(data.accepted_at) : NaN;
-    set({
-      _adoptCandidate: null,
-      _adoptTimer: null,
-      _adopted: { callId: data.id, inCallKit: candidate.inCallKit },
-      activeCall: { ...data, status: "active" },
-      incomingCall: null,
-      isMuted: !candidate.micEnabled,
-      isVideoOn: candidate.videoEnabled,
-      cameraFacing: candidate.facing,
-      remoteVolume: candidate.volume,
-      callDuration: Number.isFinite(acceptedAt) ? Math.max(0, Math.floor((Date.now() - acceptedAt) / 1000)) : 0,
-      _durationInterval: setInterval(() => set((state) => ({ callDuration: state.callDuration + 1 })), 1000),
-    });
-    set(remoteVideo(get(), { remoteTrackVideo: candidate.remoteVideo }));
-
-    const engine = get()._ensureEngine();
-    if (engine instanceof NativeCallEngine) {
-      void engine.adopt(candidate).then(() => engine.resync());
-    }
-    // What the peer's camera is doing was lost with the old page; ask, and say ours again.
-    get()._sendWS?.("p2p_signal", { call_id: data.id, type: "video-query" });
-    set({ _videoAnnounced: null });
-  },
-
   handlePeerHungUp: (callId) => {
     if (get().activeCall?.id !== callId) return;
     // The server may not know yet (the peer's page can be suspended); ending it here is safe,
@@ -299,15 +252,6 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     set({ _endedHere: rememberEnded(get()._endedHere, callId, "p2p_call_end") });
     dismissIncomingCallUI(callId, "remoteEnded");
     get().cleanup();
-  },
-
-  abandonAdoption: () => {
-    const { _adoptCandidate: candidate, _adoptTimer } = get();
-    if (_adoptTimer) clearTimeout(_adoptTimer);
-    set({ _adoptCandidate: null, _adoptTimer: null });
-    if (!candidate) return;
-    void NativeP2PCall.discardOrphanedCall().catch(() => {});
-    get().endOrphanedCall(candidate.callId, candidate.instanceId);
   },
 
   endOrphanedCall: (callId, instanceId) => {
@@ -634,8 +578,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       // Only the key can be new: a state reply after a lost confirmation carries it.
       if (data.end_key && !activeCall.end_key) {
         set({ activeCall: { ...activeCall, end_key: data.end_key } });
-        const { engine } = get();
-        if (engine instanceof NativeCallEngine) engine.setEndKey(data.end_key);
+        get().engine?.setEndKey(data.end_key);
       }
       return;
     }
@@ -657,6 +600,8 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       activeCall: { ...activeCall, status: "active", end_key: data.end_key ?? activeCall.end_key },
       incomingCall: null,
     });
+    // An offer that beat this accept already started the engine, without the key.
+    if (data.end_key) get().engine?.setEndKey(data.end_key);
 
     // Start duration timer
     const interval = setInterval(() => {

@@ -4,6 +4,7 @@
  */
 
 import type { P2PCallType } from "../types";
+import type { RecoveryConnectionState } from "./IceRecovery";
 
 export type CallDescription = { type: "offer" | "answer"; sdp: string };
 
@@ -42,6 +43,8 @@ export type CallEngineStart = {
   endKey?: string;
 };
 
+export type TakeOverCall = { callId: string; isCaller: boolean; state: RecoveryConnectionState };
+
 export interface CallMediaEngine {
   /** The engine draws the video itself; the call screen only reports where the boxes are. */
   readonly rendersVideoNatively: boolean;
@@ -64,6 +67,13 @@ export interface CallMediaEngine {
   stopScreenShare(): void;
   /** Offerer-side ICE restart, triggered by the peer's request. */
   restartIce(): void;
+  /** This side's socketless hang-up key, when it arrives after the start. Unused on the web. */
+  setEndKey(endKey: string): void;
+  /**
+   * Takes over a call a previous page ran, starting nothing: its media never stopped. Resolves
+   * false where there is no such call to take (the web engine's media dies with its page).
+   */
+  takeOver(call: TakeOverCall): Promise<boolean>;
   /**
    * The socket was replaced, and whatever negotiation was in flight may have died with the old
    * one. Re-sends an unanswered offer, asks for an offer that never came, or recovers ICE.

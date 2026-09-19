@@ -64,6 +64,7 @@ const QUEUED_CALL_OPS = new Set(["p2p_call_decline", "p2p_call_end"]);
  */
 const QUEUED_CALL_OP_TTL = 4 * 60 * 60 * 1000;
 const MAX_QUEUED_CALL_OPS = 8;
+const PREVIOUS_CALL_CHECK_WAIT_MS = 2_000;
 
 type QueuedCallOp = { op: string; data: { call_id: string }; at: number };
 
@@ -408,6 +409,14 @@ export function useWebSocket() {
         scheduleReconnect();
         return;
       }
+
+      // The URL says whether this page holds the previous page's call, so that must be known.
+      // Bounded: a native call that never answers must not keep the app offline.
+      await Promise.race([
+        useP2PCallStore.getState()._previousPageCallChecked.catch(() => {}),
+        new Promise<void>((resolve) => setTimeout(resolve, PREVIOUS_CALL_CHECK_WAIT_MS)),
+      ]);
+      if (activeConnectionIdRef.current !== myId) return;
 
       cleanupTimers();
       if (wsRef.current) {

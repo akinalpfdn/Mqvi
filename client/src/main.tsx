@@ -24,15 +24,17 @@ initAppLifecycle();
 // iOS: a reload leaves the native call plugin running whatever call the old page had — no-op
 // elsewhere. A call whose media is still alive (the page died, not the call) is taken over;
 // anything else is hung up.
-void (async () => {
-  const adoptable = await findAdoptableNativeCall();
-  if (adoptable) {
-    useP2PCallStore.getState().holdAdoptableCall(adoptable);
-    return;
-  }
-  const orphan = await discardOrphanedNativeCall();
-  if (orphan) useP2PCallStore.getState().endOrphanedCall(orphan.callId, orphan.instanceId);
-})();
+useP2PCallStore.setState({
+  _previousPageCallChecked: (async () => {
+    const adoptable = await findAdoptableNativeCall();
+    if (adoptable) {
+      useP2PCallStore.getState().holdAdoptableCall(adoptable);
+      return;
+    }
+    const orphan = await discardOrphanedNativeCall();
+    if (orphan) useP2PCallStore.getState().endOrphanedCall(orphan.callId, orphan.instanceId);
+  })(),
+});
 
 // "Is the user in front of the app?" — every platform. The DM read loop depends on it.
 initAppFocus();

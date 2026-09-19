@@ -445,6 +445,12 @@ export class WebCallEngine implements CallMediaEngine {
     this.recovery.start();
   }
 
+  setEndKey(): void {}
+
+  async takeOver(): Promise<boolean> {
+    return false;
+  }
+
   private sayBye(): boolean {
     if (this.control?.readyState !== "open") return false;
     try {

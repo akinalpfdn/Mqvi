@@ -47,6 +47,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// How long a dead connection is left alone in the background before this side ends it.
     private static let backgroundDeadCallDelay: TimeInterval = 20
+    /// A call that has not connected by now is given up, as the page's first-connect window does.
+    private static let firstConnectDelay: TimeInterval = 60
 
     /// One factory per process: a second audio device module would fight over the microphone.
     private static let factory: LKRTCPeerConnectionFactory = {
@@ -99,6 +101,9 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         // media, so the microphone is released here; the page ends the call on the server later.
         CallManager.shared.onEndedBySystem = { [weak self] callId in
             self?.endIfServing(callId)
+        }
+        CallManager.shared.onMutedBySystem = { [weak self] callId, muted in
+            self?.muteIfServing(callId, muted: muted)
         }
         Task { @MainActor in
             NativeCallVideo.shared.onVideoSize = { [weak self] source, size in
@@ -163,6 +168,11 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 pc.close()
                 call.reject("cancelled")
                 return
+            }
+            // A call that never connects (its offer never came) changes no state to watch for.
+            DispatchQueue.main.async {
+                self.deadCallCheck?.cancel()
+                self.scheduleDeadCallCheck(pc, callId: callId, after: Self.firstConnectDelay)
             }
 
             // Video calls publish the camera from the start, so a toggle never renegotiates. Only
@@ -739,6 +749,14 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         return isCaller
     }
 
+    private func muteIfServing(_ callId: String, muted: Bool) {
+        lock.lock()
+        let serving = owner?.callId == callId
+        if serving { micEnabled = !muted }
+        lock.unlock()
+        if serving { applyMic() }
+    }
+
     private func endIfServing(_ callId: String) {
         lock.lock()
         let serving = owner?.callId == callId ? owner : nil
@@ -786,23 +804,23 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             guard state == .failed || state == .disconnected, self.deadCallCheck == nil else { return }
-            self.scheduleDeadCallCheck(pc, callId: callId)
+            self.scheduleDeadCallCheck(pc, callId: callId, after: Self.backgroundDeadCallDelay)
         }
     }
 
     /// Main queue. In the foreground the page recovers or ends the call itself, but it can be
     /// suspended any moment after, so the check keeps coming back until the connection is up or
     /// the call is gone.
-    private func scheduleDeadCallCheck(_ pc: LKRTCPeerConnection, callId: String) {
+    private func scheduleDeadCallCheck(_ pc: LKRTCPeerConnection, callId: String, after delay: TimeInterval) {
         let check = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.deadCallCheck = nil
             guard self.callId(owning: pc) == callId, pc.connectionState != .connected else { return }
             guard UIApplication.shared.applicationState == .background else {
-                self.scheduleDeadCallCheck(pc, callId: callId)
+                self.scheduleDeadCallCheck(pc, callId: callId, after: Self.backgroundDeadCallDelay)
                 return
             }
-            print("[p2p-native] connection dead in the background; ending call \(callId)")
+            print("[p2p-native] no connection in the background; ending call \(callId)")
             self.lock.lock()
             let owner = self.owner
             self.lock.unlock()
@@ -812,7 +830,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             if let owner { self.reportHangup(owner) }
         }
         deadCallCheck = check
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.backgroundDeadCallDelay, execute: check)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: check)
     }
 
     private func teardown() {
