@@ -72,8 +72,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   for (const key of Object.keys(listeners)) delete listeners[key];
-  fetchIceServers.mockResolvedValue([]);
-  fetchIceServersForRecovery.mockResolvedValue(REFRESHED);
+  fetchIceServers.mockReset().mockResolvedValue([]);
+  fetchIceServersForRecovery.mockReset().mockResolvedValue(REFRESHED);
   voiceReleased.current = Promise.resolve();
 });
 
@@ -82,6 +82,32 @@ afterEach(() => {
 });
 
 describe("native engine recovery", () => {
+  it("should honor the peer's restart while this side is still connected", async () => {
+    const { engine, ev } = await engineFor(true);
+    connectionState("connected");
+    engine.restartIce();
+    engine.restartIce(); // duplicate signals share the in-flight attempt
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plugin.restartIce).toHaveBeenCalledTimes(1);
+    expect(plugin.setIceServers).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(plugin.restartIce).toHaveBeenCalledTimes(1);
+    expect(ev.onConnectionLost).not.toHaveBeenCalled();
+  });
+
+  it("should cancel a peer-requested restart if closed during credential refresh", async () => {
+    let finish!: (servers: RTCIceServer[]) => void;
+    fetchIceServersForRecovery.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const { engine } = await engineFor(true);
+    connectionState("connected");
+    engine.restartIce();
+    engine.close();
+    finish(REFRESHED);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plugin.restartIce).not.toHaveBeenCalled();
+    expect(plugin.setIceServers).not.toHaveBeenCalled();
+  });
+
   it("should refresh credentials and restart ICE when the caller's connection fails", async () => {
     await engineFor(true);
     connectionState("failed");
@@ -202,6 +228,14 @@ describe("native engine start", () => {
 });
 
 describe("native engine taking over a call a previous page ran", () => {
+  it("should decline adoption when the native owner disappeared while attaching", async () => {
+    plugin.setOwner.mockRejectedValueOnce(new Error("call no longer active"));
+    const engine = new NativeCallEngine(events());
+    expect(await engine.takeOver({ callId: "c1", isCaller: true, state: "connected" })).toBe(false);
+    expect(plugin.start).not.toHaveBeenCalled();
+    expect(plugin.restartIce).not.toHaveBeenCalled();
+  });
+
   // The page died under memory pressure; the call's media never stopped and must not restart.
   it("should attach to the running call without starting anything", async () => {
     const ev = events();
@@ -226,6 +260,37 @@ describe("native engine taking over a call a previous page ran", () => {
 });
 
 describe("native engine hanging up without the page", () => {
+  it("should retain a late accept key while ICE credentials are still loading", async () => {
+    let finish!: (servers: RTCIceServer[]) => void;
+    fetchIceServers.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const engine = new NativeCallEngine(events());
+    const starting = engine.start({ callId: "c1", callType: "voice", isCaller: false });
+    await vi.advanceTimersByTimeAsync(0);
+    engine.setEndKey("late-key");
+    expect(plugin.setOwner).not.toHaveBeenCalled(); // native has no owner yet
+    finish([]);
+    await starting;
+    expect(plugin.start).toHaveBeenCalledWith(expect.objectContaining({ endKey: "late-key" }));
+  });
+
+  it("should update the owner during a permission prompt and never touch a replacement after close", async () => {
+    let finish!: () => void;
+    plugin.start.mockImplementationOnce(() => new Promise((resolve) => {
+      finish = () => resolve({ video: false });
+    }));
+    const engine = new NativeCallEngine(events());
+    const starting = engine.start({ callId: "c1", callType: "voice", isCaller: false });
+    await vi.advanceTimersByTimeAsync(0);
+    engine.setEndKey("late-key");
+    expect(plugin.setOwner).toHaveBeenCalledWith({ callId: "c1", endKey: "late-key" });
+    engine.close();
+    plugin.setOwner.mockClear();
+    finish();
+    await starting;
+    engine.setEndKey("stale-key");
+    expect(plugin.setOwner).not.toHaveBeenCalled();
+  });
+
   it("should give the plugin what it needs to hang up while the page is suspended", async () => {
     const engine = new NativeCallEngine(events());
     await engine.start({ callId: "c1", callType: "voice", isCaller: true, endKey: "k1" });
@@ -238,7 +303,7 @@ describe("native engine hanging up without the page", () => {
     const engine = new NativeCallEngine(events());
     await engine.takeOver({ callId: "c1", isCaller: false, state: "connected" });
 
-    expect(plugin.setOwner).toHaveBeenCalledWith({ instanceId: INSTANCE_ID });
+    expect(plugin.setOwner).toHaveBeenCalledWith({ callId: "c1", instanceId: INSTANCE_ID });
   });
 
   it("should report the peer's goodbye for its own call only", async () => {

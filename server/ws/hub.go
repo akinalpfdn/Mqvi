@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"sync"
@@ -427,7 +428,14 @@ func (h *Hub) removeClient(client *Client) {
 	// device stays signed in is left in the call forever — and, because an accepted call has no
 	// ring timer, nothing ever cleans it up.
 	if removed && h.onSessionDisconnect != nil {
-		go h.onSessionDisconnect(client.userID, client.sessionID, client.nativeMedia)
+		go func() {
+			// Outside the hub lock and event loop; use a fresh, bounded context because the
+			// handshake request is already over. Revoked registrations also take effect here.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			nativeMedia := nativeMediaClaim(ctx, client.nativeMedia, client.userID, client.deviceID, client.nativeDevices)
+			h.onSessionDisconnect(client.userID, client.sessionID, nativeMedia)
+		}()
 	}
 
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {

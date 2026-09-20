@@ -442,7 +442,7 @@ export class WebCallEngine implements CallMediaEngine {
   }
 
   restartIce(): void {
-    this.recovery.start();
+    this.recovery.start(true);
   }
 
   setEndKey(): void {}

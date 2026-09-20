@@ -1,8 +1,10 @@
 /** The web engine as receiver: back-to-back offers and rejected candidates. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { fetchIceServers } = vi.hoisted(() => ({ fetchIceServers: vi.fn() }));
-vi.mock("../api/calls", () => ({ fetchIceServers, fetchIceServersForRecovery: vi.fn() }));
+const { fetchIceServers, fetchIceServersForRecovery } = vi.hoisted(() => ({
+  fetchIceServers: vi.fn(), fetchIceServersForRecovery: vi.fn(),
+}));
+vi.mock("../api/calls", () => ({ fetchIceServers, fetchIceServersForRecovery }));
 
 import { WebCallEngine } from "./WebCallEngine";
 import type { CallEngineEvents } from "./CallMediaEngine";
@@ -30,7 +32,7 @@ function fakePC() {
     setLocalDescription: vi.fn(async () => {}),
     createAnswer: vi.fn(async () => ({ type: "answer", sdp: "answer-sdp" })),
     createOffer: vi.fn(async () => ({ type: "offer", sdp: "offer-sdp" })),
-    addIceCandidate: vi.fn(async (_candidate: { candidate: string }) => {}),
+    addIceCandidate: vi.fn<(candidate: { candidate: string }) => Promise<void>>(async () => {}),
   };
 }
 
@@ -67,6 +69,7 @@ function events() {
 beforeEach(() => {
   built = [];
   fetchIceServers.mockReset().mockResolvedValue([]);
+  fetchIceServersForRecovery.mockReset().mockResolvedValue([{ urls: "turn:refreshed" }]);
   globalThis.RTCPeerConnection = function FakeRTCPeerConnection() {
     const pc = fakePC();
     built.push(pc);
@@ -99,6 +102,19 @@ async function receiver() {
 }
 
 describe("web engine receiving offers", () => {
+  it("should restart for a disconnected peer even while locally connected", async () => {
+    const engine = new WebCallEngine(events());
+    try {
+      await engine.start({ callId: "c1", callType: "voice", isCaller: true });
+      built[0].connectionState = "connected";
+      engine.restartIce();
+      await vi.waitFor(() => expect(built[0].restartIce).toHaveBeenCalledTimes(1));
+      expect(built[0].setConfiguration).toHaveBeenCalledWith({ iceServers: [{ urls: "turn:refreshed" }] });
+    } finally {
+      engine.close();
+    }
+  });
+
   it("should build one connection and ask for the microphone once when two offers arrive together", async () => {
     const { engine, ev } = await receiver();
 

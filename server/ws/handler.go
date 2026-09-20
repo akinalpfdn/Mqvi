@@ -340,12 +340,6 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		instanceID = ""
 	}
 
-	// Only an app that registered a VoIP token for this device gets the long away-window its
-	// suspended page needs (see HandleSessionDisconnect).
-	nativeMedia := nativeMediaClaim(
-		r.Context(), r.URL.Query().Get("native_media") == "1", claims.UserID, deviceID, h.nativeDevices,
-	)
-
 	client := &Client{
 		hub:           h.hub,
 		conn:          conn,
@@ -353,7 +347,8 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		sessionID:     uuid.New().String(),
 		deviceID:      deviceID,
 		instanceID:    instanceID,
-		nativeMedia:   nativeMedia,
+		nativeMedia:   r.URL.Query().Get("native_media") == "1",
+		nativeDevices: h.nativeDevices,
 		send:          make(chan []byte, sendBufferSize),
 		events:        make(chan Event, eventQueueSize),
 		done:          make(chan struct{}),

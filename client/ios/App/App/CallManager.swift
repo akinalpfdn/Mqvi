@@ -26,6 +26,8 @@ final class CallManager: NSObject {
 
     /// A call ended on the system call screen, for the native media to stop without the page.
     var onEndedBySystem: ((String) -> Void)?
+    /// A provider reset also ends native calls not represented by an incoming CallKit entry.
+    var onProviderReset: (() -> Void)?
     /// Muted or unmuted on the system call screen: the page may be suspended, the microphone not.
     var onMutedBySystem: ((String, Bool) -> Void)?
 
@@ -100,8 +102,10 @@ final class CallManager: NSObject {
         callController.request(CXTransaction(action: CXEndCallAction(call: uuid))) { [weak self] error in
             guard let self, let error else { return }
             print("[callkit] end call failed: \(error.localizedDescription)")
-            self.endingInApp.remove(uuid)
-            self.report(uuid, endedWith: .remoteEnded)
+            DispatchQueue.main.async {
+                guard self.endingInApp.remove(uuid) != nil else { return }
+                self.report(uuid, endedWith: .remoteEnded)
+            }
         }
     }
 
@@ -135,7 +139,7 @@ final class CallManager: NSObject {
         ownMuteActions.insert(action.uuid)
         callController.request(CXTransaction(action: action)) { [weak self] error in
             if let error {
-                self?.ownMuteActions.remove(action.uuid)
+                DispatchQueue.main.async { self?.ownMuteActions.remove(action.uuid) }
                 print("[callkit] set muted failed: \(error.localizedDescription)")
             }
         }
@@ -156,12 +160,16 @@ final class CallManager: NSObject {
         update.supportsUngrouping = false
         update.supportsDTMF = false
         provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
-            if let error = error {
-                print("[callkit] reportNewIncomingCall failed: \(error.localizedDescription)")
-            } else {
-                self?.notifyReported(callId: callId)
+            DispatchQueue.main.async {
+                defer { completion() }
+                // The provider may have reset while reporting. Do not resurrect its JS state.
+                guard let self, self.calls[uuid] == callId else { return }
+                if let error {
+                    print("[callkit] reportNewIncomingCall failed: \(error.localizedDescription)")
+                } else {
+                    self.notifyReported(callId: callId)
+                }
             }
-            completion()
         }
     }
 
@@ -234,10 +242,13 @@ extension CallManager: PKPushRegistryDelegate {
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: "")
         provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] _ in
-            self?.provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
-            self?.calls.removeValue(forKey: uuid)
-            self?.mutedState.removeValue(forKey: uuid)
-            completion()
+            DispatchQueue.main.async {
+                defer { completion() }
+                guard let self, self.calls[uuid] == callId else { return }
+                self.provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
+                self.calls.removeValue(forKey: uuid)
+                self.mutedState.removeValue(forKey: uuid)
+            }
         }
     }
 
@@ -248,10 +259,24 @@ extension CallManager: PKPushRegistryDelegate {
 
 extension CallManager: CXProviderDelegate {
     func providerDidReset(_ provider: CXProvider) {
+        let ended = Set(calls.values)
         calls.removeAll()
         mutedState.removeAll()
         endingInApp.removeAll()
         ownMuteActions.removeAll()
+        // A cold-launch answer buffered before the reset must never start media afterwards.
+        bufferedAnswered.removeAll()
+        bufferedMuted.removeAll()
+        bufferedReported.removeAll()
+        onProviderReset?()
+        for callId in ended {
+            onEndedBySystem?(callId)
+            if let listener {
+                listener.onCallEnded(callId: callId)
+            } else {
+                bufferedEnded.append(callId)
+            }
+        }
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {

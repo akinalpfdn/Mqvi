@@ -63,9 +63,10 @@ type Client struct {
 	// back on a new socket" from "another tab of the same install". Empty for older clients.
 	instanceID string
 
-	// nativeMedia: an iOS app whose call media runs natively. Its page is suspended in the
-	// background, so this socket dies while the call it carries is still up.
-	nativeMedia bool
+	// The claim is immutable, but registration is checked at disconnect: VoIP token sync can
+	// finish after the handshake. Freezing the verdict there cuts off healthy background calls.
+	nativeMedia   bool
+	nativeDevices NativeDeviceChecker
 
 	// events is the per-connection inbound queue drained by a single eventPump
 	// goroutine. ReadPump enqueues here (except heartbeat, handled inline) so a
@@ -103,7 +104,6 @@ type Client struct {
 	// to determine the user's visible status (highest priority wins).
 	// Accessed under Hub.mu.
 	status string
-
 }
 
 // ReadPump reads messages from the WebSocket and dispatches events.

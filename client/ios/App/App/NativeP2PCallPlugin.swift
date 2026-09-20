@@ -58,7 +58,8 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         )
     }()
 
-    /// Everything below is touched from JS calls and from WebRTC's own delegate queue.
+    /// Lifecycle changes (start/adopt/teardown) run on main, as do video effects. The lock
+    /// protects snapshots and signalling fields also read by the bridge/WebRTC queues.
     private let lock = NSLock()
     private var peerConnection: LKRTCPeerConnection?
     private var audioTrack: LKRTCAudioTrack?
@@ -105,6 +106,16 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CallManager.shared.onMutedBySystem = { [weak self] callId, muted in
             self?.muteIfServing(callId, muted: muted)
         }
+        CallManager.shared.onProviderReset = { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            let callId = self.owner?.callId
+            self.lock.unlock()
+            guard let callId else { return }
+            // Outgoing native calls need cleanup too, even when CallKit has no incoming entry.
+            self.endIfServing(callId)
+            self.notifyListeners("connectionState", data: ["callId": callId, "state": "closed"])
+        }
         Self.deliverPendingHangups()
         NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -125,6 +136,11 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func start(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.startOnMain(call) }
+    }
+
+    private func startOnMain(_ call: CAPPluginCall) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard let callId = call.getString("callId") else {
             call.reject("callId is required")
             return
@@ -177,6 +193,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             // A call that never connects (its offer never came) changes no state to watch for.
             DispatchQueue.main.async {
+                guard self.callId(owning: pc) == callId else { return }
                 self.deadCallCheck?.cancel()
                 self.scheduleDeadCallCheck(pc, callId: callId, after: Self.firstConnectDelay)
             }
@@ -338,8 +355,12 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         // answer starts the camera or reports it failed.
         let access = AVCaptureDevice.authorizationStatus(for: .video)
         let enabled = requested && (access == .authorized || access == .notDetermined)
-        track.isEnabled = enabled
         Task { @MainActor in
+            guard self.isCurrent(gen) else {
+                call.resolve(["enabled": false])
+                return
+            }
+            track.isEnabled = enabled
             if let camera {
                 camera.setEnabled(enabled)
             } else if enabled && access == .authorized {
@@ -354,6 +375,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func switchCamera(_ call: CAPPluginCall) {
         lock.lock()
         let camera = self.camera
+        let gen = generation
         lock.unlock()
 
         guard let camera else {
@@ -361,6 +383,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         Task { @MainActor in
+            guard self.isCurrent(gen) else {
+                call.reject("call no longer active")
+                return
+            }
             camera.flip { position in
                 call.resolve(["facing": position == .front ? "front" : "back"])
             }
@@ -444,8 +470,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func closeCall(_ call: CAPPluginCall) {
-        teardown()
-        call.resolve()
+        DispatchQueue.main.async {
+            self.teardown()
+            call.resolve()
+        }
     }
 
     /// Which call the native side still runs, so a page waking from suspension can tell whether
@@ -475,6 +503,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         let state = Self.name(for: pc.connectionState)
         Task { @MainActor in
+            guard self.callId(owning: pc) == owner.callId else {
+                call.resolve(["callId": NSNull()])
+                return
+            }
             var result: [String: Any] = [
                 "callId": owner.callId,
                 "isCaller": isCaller,
@@ -492,17 +524,32 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func setOwner(_ call: CAPPluginCall) {
+        guard let callId = call.getString("callId") else {
+            call.reject("callId is required")
+            return
+        }
         let instanceId = call.getString("instanceId")
         let endKey = call.getString("endKey")
-        lock.lock()
-        if let instanceId { owner?.instanceId = instanceId }
-        if let endKey { owner?.endKey = endKey }
-        lock.unlock()
-        call.resolve()
+        DispatchQueue.main.async {
+            self.lock.lock()
+            guard self.owner?.callId == callId else {
+                self.lock.unlock()
+                call.reject("call no longer active")
+                return
+            }
+            if let instanceId { self.owner?.instanceId = instanceId }
+            if let endKey { self.owner?.endKey = endKey }
+            self.lock.unlock()
+            call.resolve()
+        }
     }
 
     /// Called at page load: a reload keeps this plugin, so a call the old page ran is ended here.
     @objc func discardOrphanedCall(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.discardOrphanOnMain(call) }
+    }
+
+    private func discardOrphanOnMain(_ call: CAPPluginCall) {
         lock.lock()
         let orphan = owner
         lock.unlock()
@@ -657,6 +704,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         controlChannel = control
         self.callId = callId
         self.isCaller = isCaller
+        makingOffer = false
         negotiationArmed = false
         lock.unlock()
         previous?.close()
@@ -666,6 +714,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func sendInitialOffer(on pc: LKRTCPeerConnection) {
         lock.lock()
+        guard pc === peerConnection else {
+            lock.unlock()
+            return
+        }
         negotiationArmed = true
         lock.unlock()
         createOffer(on: pc)
@@ -712,7 +764,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func createOffer(on pc: LKRTCPeerConnection) {
         lock.lock()
-        if makingOffer {
+        if pc !== peerConnection || makingOffer {
             lock.unlock()
             return
         }
@@ -722,12 +774,13 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         pc.offer(for: Self.mediaConstraints()) { [weak self] offer, error in
             guard let self else { return }
             guard let offer else {
-                self.finishOffer()
+                self.finishOffer(on: pc)
                 print("[p2p-native] createOffer: \(error?.localizedDescription ?? "unknown")")
                 return
             }
+            guard self.callId(owning: pc) != nil else { return }
             pc.setLocalDescription(offer) { error in
-                self.finishOffer()
+                self.finishOffer(on: pc)
                 if let error {
                     print("[p2p-native] setLocalDescription(offer): \(error.localizedDescription)")
                     return
@@ -737,9 +790,9 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func finishOffer() {
+    private func finishOffer(on pc: LKRTCPeerConnection) {
         lock.lock()
-        makingOffer = false
+        if pc === peerConnection { makingOffer = false }
         lock.unlock()
     }
 
@@ -764,6 +817,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func endIfServing(_ callId: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
         lock.lock()
         let serving = owner?.callId == callId ? owner : nil
         lock.unlock()
@@ -776,52 +830,21 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// both users would stay "in a call". This side's key lets the native layer say it directly.
     private func reportHangup(_ owner: CallOwner) {
         guard let key = owner.endKey, let serverUrl = owner.serverUrl else { return }
-        let pending = PendingHangup(callId: owner.callId, key: key, serverUrl: serverUrl, since: Date())
-        Self.remember(pending)
+        let pending = PendingCallHangup(callId: owner.callId, key: key, serverUrl: serverUrl, since: Date())
+        Self.pendingHangups.remember(pending)
         Self.deliver(pending, attempt: 0)
     }
 
     /// A hang-up the server has not acknowledged yet. Kept on disk: the request often goes out
     /// exactly when there is no network (the connection died), and nothing else frees the call
     /// until the page wakes — which may be hours.
-    private struct PendingHangup: Codable {
-        let callId: String
-        let key: String
-        let serverUrl: String
-        let since: Date
-    }
-
-    private static let pendingHangupsKey = "mqvi.p2p.pendingHangups"
+    private static let pendingHangups = PendingCallHangups()
     private static let hangupRetryDelays: [TimeInterval] = [2, 5]
-    /// Past this the server has given the call up on its own; retrying only wakes the radio.
-    private static let pendingHangupTTL: TimeInterval = 4 * 60 * 60
-
-    private static func remember(_ hangup: PendingHangup) {
-        var kept = storedHangups().filter { $0.callId != hangup.callId }
-        kept.append(hangup)
-        store(kept)
-    }
-
-    private static func forget(_ callId: String) {
-        store(storedHangups().filter { $0.callId != callId })
-    }
-
-    private static func storedHangups() -> [PendingHangup] {
-        guard let data = UserDefaults.standard.data(forKey: pendingHangupsKey),
-              let list = try? JSONDecoder().decode([PendingHangup].self, from: data) // written by this app
-        else { return [] }
-        return list.filter { Date().timeIntervalSince($0.since) < pendingHangupTTL }
-    }
-
-    private static func store(_ list: [PendingHangup]) {
-        guard let data = try? JSONEncoder().encode(list) else { return } // Codable of plain values
-        UserDefaults.standard.set(data, forKey: pendingHangupsKey)
-    }
 
     /// Retries the call's own hang-up a few times, then leaves it on disk for the next launch.
-    private static func deliver(_ hangup: PendingHangup, attempt: Int) {
-        guard Date().timeIntervalSince(hangup.since) < pendingHangupTTL else {
-            forget(hangup.callId)
+    private static func deliver(_ hangup: PendingCallHangup, attempt: Int) {
+        guard Date().timeIntervalSince(hangup.since) < PendingCallHangup.ttl else {
+            pendingHangups.forget(hangup)
             return
         }
         guard let url = URL(string: "\(hangup.serverUrl)/api/calls/\(hangup.callId)/hangup"),
@@ -845,7 +868,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 // The server answers a call it no longer has the same way, so 2xx means done.
                 if (200...299).contains(status) {
-                    forget(hangup.callId)
+                    pendingHangups.forget(hangup)
                     DispatchQueue.main.async(execute: finish)
                     return
                 }
@@ -865,7 +888,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Hang-ups no network would take when they happened; the app is up now, so try again.
     private static func deliverPendingHangups() {
-        for hangup in storedHangups() {
+        for hangup in pendingHangups.snapshot() {
             deliver(hangup, attempt: hangupRetryDelays.count) // no backoff loop: the app is awake
         }
     }
@@ -875,6 +898,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// this side ends it: media off, CallKit told; the page ends it on the server when it wakes.
     private func watchForDeadCall(_ pc: LKRTCPeerConnection, callId: String, state: LKRTCPeerConnectionState) {
         DispatchQueue.main.async {
+            guard self.callId(owning: pc) == callId else { return }
             if state == .connected {
                 self.deadCallCheck?.cancel()
                 self.deadCallCheck = nil
@@ -891,8 +915,9 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private func scheduleDeadCallCheck(_ pc: LKRTCPeerConnection, callId: String, after delay: TimeInterval) {
         let check = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            guard self.callId(owning: pc) == callId else { return }
             self.deadCallCheck = nil
-            guard self.callId(owning: pc) == callId, pc.connectionState != .connected else { return }
+            guard pc.connectionState != .connected else { return }
             guard UIApplication.shared.applicationState == .background else {
                 self.scheduleDeadCallCheck(pc, callId: callId, after: Self.backgroundDeadCallDelay)
                 return
@@ -911,9 +936,11 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func teardown() {
+        dispatchPrecondition(condition: .onQueue(.main))
         // Generation first, so a start behind a permission prompt builds nothing.
         lock.lock()
         generation += 1
+        let gen = generation
         let pc = peerConnection
         let camera = self.camera
         let control = controlChannel
@@ -935,6 +962,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         endAudio()
         Task { @MainActor in
             camera?.stop()
+            guard self.isCurrent(gen) else { return }
             NativeCallVideo.shared.teardown()
             self.deadCallCheck?.cancel()
             self.deadCallCheck = nil
@@ -1024,6 +1052,10 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
         guard let callId = callId(owning: peerConnection) else { return }
         if let audio = rtpReceiver.track as? LKRTCAudioTrack {
             lock.lock()
+            guard peerConnection === self.peerConnection else {
+                lock.unlock()
+                return
+            }
             remoteAudioTrack = audio
             let gain = remoteGain
             lock.unlock()
@@ -1031,8 +1063,11 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
             return
         }
         guard let track = rtpReceiver.track as? LKRTCVideoTrack else { return }
-        Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(track) }
-        notifyListeners("remoteVideo", data: ["callId": callId, "available": true])
+        Task { @MainActor in
+            guard self.callId(owning: peerConnection) == callId else { return }
+            NativeCallVideo.shared.setRemoteTrack(track)
+            self.notifyListeners("remoteVideo", data: ["callId": callId, "available": true])
+        }
     }
 
     @objc(peerConnection:didRemoveReceiver:)
@@ -1042,8 +1077,11 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
     ) {
         guard let callId = callId(owning: peerConnection),
               rtpReceiver.track is LKRTCVideoTrack else { return }
-        Task { @MainActor in NativeCallVideo.shared.setRemoteTrack(nil) }
-        notifyListeners("remoteVideo", data: ["callId": callId, "available": false])
+        Task { @MainActor in
+            guard self.callId(owning: peerConnection) == callId else { return }
+            NativeCallVideo.shared.setRemoteTrack(nil)
+            self.notifyListeners("remoteVideo", data: ["callId": callId, "available": false])
+        }
     }
 
     public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection) {
@@ -1087,13 +1125,13 @@ extension NativeP2PCallPlugin: LKRTCDataChannelDelegate {
     @objc(dataChannel:didReceiveMessageWithBuffer:)
     public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer) {
         guard !buffer.isBinary, String(data: buffer.data, encoding: .utf8) == Self.bye else { return }
-        lock.lock()
-        let callId = controlChannel === dataChannel ? self.callId : nil
-        lock.unlock()
-        guard let callId else { return }
-        notifyListeners("peerHungUp", data: ["callId": callId])
-        teardown()
         DispatchQueue.main.async {
+            self.lock.lock()
+            let callId = self.controlChannel === dataChannel ? self.callId : nil
+            self.lock.unlock()
+            guard let callId else { return }
+            self.notifyListeners("peerHungUp", data: ["callId": callId])
+            self.teardown()
             CallManager.shared.endCall(callId: callId, reason: "remoteEnded")
         }
     }

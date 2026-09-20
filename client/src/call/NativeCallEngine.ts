@@ -44,6 +44,9 @@ export class NativeCallEngine implements CallMediaEngine {
   private ready: Promise<void> | null = null;
   /** The call this engine was started for; plugin events naming another call are dropped. */
   private callId: string | null = null;
+  private endKey: string | undefined;
+  /** Native owns the call from start's invocation, including while permission is pending. */
+  private nativeStartRequested = false;
   private offerChain: Promise<void> = Promise.resolve();
   private state: NativeConnectionState = "new";
   private isCaller = false;
@@ -81,6 +84,7 @@ export class NativeCallEngine implements CallMediaEngine {
 
   /** Idempotent: an offer beating the accept handler starts it twice. */
   start(opts: CallEngineStart): Promise<void> {
+    this.endKey ??= opts.endKey;
     this.ready ??= this.begin(opts);
     return this.ready;
   }
@@ -110,9 +114,12 @@ export class NativeCallEngine implements CallMediaEngine {
     await this.listenForCall();
     if (this.closed) return;
     // This page runs the call now: a later reload must take it over, or hang it up, as this one.
-    await NativeP2PCall.setOwner({ instanceId: INSTANCE_ID }).catch((err) =>
-      console.error("[p2p] native setOwner failed:", err),
-    );
+    try {
+      await NativeP2PCall.setOwner({ callId: call.callId, instanceId: INSTANCE_ID });
+    } catch (err) {
+      console.error("[p2p] native setOwner failed:", err);
+      return; // ended or replaced while the page was attaching
+    }
     if (this.closed) return;
     this.started = true;
     this.hasRemoteDescription = true;
@@ -180,11 +187,12 @@ export class NativeCallEngine implements CallMediaEngine {
     this.isCaller = opts.isCaller;
     let video: boolean;
     try {
+      this.nativeStartRequested = true;
       ({ video } = await NativeP2PCall.start({
         callId: opts.callId,
         instanceId: INSTANCE_ID,
         serverUrl: SERVER_URL,
-        endKey: opts.endKey,
+        endKey: this.endKey,
         isCaller: opts.isCaller,
         callType: opts.callType,
         iceServers: iceServers.map((server) => ({
@@ -201,6 +209,8 @@ export class NativeCallEngine implements CallMediaEngine {
     }
     if (this.closed) return;
     this.started = true;
+    // Covers an accept arriving after start crossed the bridge, including a permission wait.
+    if (this.endKey) this.setEndKey(this.endKey);
     // A video call publishes the camera from the start; the button has to know that, and it
     // has to know when a denied camera means it did not.
     this.events.onLocalVideo(video);
@@ -282,13 +292,15 @@ export class NativeCallEngine implements CallMediaEngine {
   /** The peer asked for a restart; it drives the same bounded loop as our own failures. */
   restartIce(): void {
     if (this.closed) return;
-    this.recovery.start();
+    this.recovery.start(true);
   }
 
   /** The key arrived after the call started (its accept confirmation came late). */
   setEndKey(endKey: string): void {
     if (this.closed) return;
-    void NativeP2PCall.setOwner({ endKey }).catch((err) =>
+    this.endKey = endKey;
+    if ((!this.nativeStartRequested && !this.started) || !this.callId) return;
+    void NativeP2PCall.setOwner({ callId: this.callId, endKey }).catch((err) =>
       console.error("[p2p] native setOwner failed:", err),
     );
   }

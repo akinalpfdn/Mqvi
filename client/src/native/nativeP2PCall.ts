@@ -40,7 +40,7 @@ type NativeP2PCallPlugin = {
     endKey?: string;
   }): Promise<{ video: boolean }>;
   /** The page that now runs the call, and its hang-up key when it arrived after the start. */
-  setOwner(options: { instanceId?: string; endKey?: string }): Promise<void>;
+  setOwner(options: { callId: string; instanceId?: string; endKey?: string }): Promise<void>;
   acceptRemoteOffer(options: { sdp: string }): Promise<void>;
   acceptRemoteAnswer(options: { sdp: string }): Promise<void>;
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;

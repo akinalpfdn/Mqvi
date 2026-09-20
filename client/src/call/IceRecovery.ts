@@ -92,12 +92,12 @@ export class IceRecovery {
     }
   }
 
-  /** Also the entry point for a restart the peer asked for. Idempotent while running. */
-  start(): void {
+  /** A peer can lose its path before our connection state changes. Its first attempt must run. */
+  start(peerRequested = false): void {
     if (!this.host.isAlive() || this.recovering) return;
     this.recovering = true;
     this.attempts = 0;
-    void this.step(++this.run);
+    void this.step(++this.run, peerRequested);
   }
 
   /**
@@ -153,9 +153,9 @@ export class IceRecovery {
     this.host.onGiveUp();
   }
 
-  private async step(run: number): Promise<void> {
+  private async step(run: number, peerRequested = false): Promise<void> {
     if (run !== this.run) return;
-    if (!this.host.isAlive() || this.host.isConnected()) {
+    if (!this.host.isAlive() || (!peerRequested && this.host.isConnected())) {
       this.stop();
       return;
     }
@@ -187,7 +187,7 @@ export class IceRecovery {
 
     // Re-check after the awaits: the call may have ended or recovered on its own.
     if (run !== this.run) return;
-    if (!this.host.isAlive() || this.host.isConnected()) {
+    if (!this.host.isAlive() || (!peerRequested && this.host.isConnected())) {
       this.stop();
       return;
     }
