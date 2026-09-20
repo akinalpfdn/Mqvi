@@ -1,7 +1,7 @@
 // Lets voiceStore and authStore end the p2p call without importing it (that would be a cycle).
 
 type P2PCallControl = {
-  /** A call is up with its media running — the microphone and the audio session are in use. */
+  /** Any call that owns, or is about to own, the microphone and the audio session. */
   hasLiveMedia(): boolean;
   /** Any call at all, ringing included. */
   hasCall(): boolean;
@@ -16,7 +16,10 @@ export function registerP2PCallControl(c: P2PCallControl): void {
   control = c;
 }
 
-/** Channel voice and a p2p call cannot share the audio session. A ringing call has no media yet. */
+/**
+ * Channel voice and a p2p call cannot share the iOS audio session. A ringing call counts too: it
+ * takes the session the moment the other side answers, with nothing left to stop it.
+ */
 export function endP2PCallForVoice(): void {
   if (control?.hasLiveMedia()) control.end();
 }

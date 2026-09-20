@@ -69,6 +69,15 @@ describe("coverings", () => {
     expect(coverings([BOX], CLIP, [surface, pip])).toEqual([{ x: 20, y: 700, width: 200, height: 60 }]);
   });
 
+  // A fixed 5x5 grid sampled a 400x800 box every 75-200px and never saw anything smaller.
+  it("should find a small overlay between the corners of a large feed", () => {
+    const badge = placed(document.createElement("div"), 180, 380, 20, 20);
+    document.body.appendChild(badge);
+    topmostAt((x, y) => (x >= 180 && x <= 200 && y >= 380 && y <= 400 ? badge : surface));
+
+    expect(coverings([BOX], CLIP, [surface, pip])).toEqual([{ x: 180, y: 380, width: 20, height: 20 }]);
+  });
+
   it("should merge overlays that overlap, including ones joined by a merge", () => {
     const a = placed(document.createElement("div"), 0, 0, 100, 100);
     const b = placed(document.createElement("div"), 250, 0, 100, 100);

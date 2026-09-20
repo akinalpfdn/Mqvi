@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -14,6 +15,9 @@ type PushTokenService interface {
 	RegisterToken(ctx context.Context, userID string, req *models.RegisterPushTokenRequest) (*models.PushToken, error)
 	UnregisterToken(ctx context.Context, userID, token string) error
 	ListUserTokens(ctx context.Context, userID string) ([]models.PushToken, error)
+	// HasVoIPToken reports whether this device registered a VoIP (CallKit) token: the only proof
+	// the server has that a connection claiming native call media really is the iOS app.
+	HasVoIPToken(ctx context.Context, userID, deviceID string) bool
 }
 
 type pushTokenService struct {
@@ -72,4 +76,21 @@ func (s *pushTokenService) ListUserTokens(ctx context.Context, userID string) ([
 		tokens = []models.PushToken{}
 	}
 	return tokens, nil
+}
+
+func (s *pushTokenService) HasVoIPToken(ctx context.Context, userID, deviceID string) bool {
+	if deviceID == "" {
+		return false
+	}
+	tokens, err := s.repo.ListByUser(ctx, userID)
+	if err != nil {
+		log.Printf("[push] voip token lookup for %s: %v", userID, err)
+		return false
+	}
+	for _, t := range tokens {
+		if t.TokenType == models.PushTokenTypeAPNsVoIP && t.DeviceID != nil && *t.DeviceID == deviceID {
+			return true
+		}
+	}
+	return false
 }

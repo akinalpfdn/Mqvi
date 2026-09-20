@@ -28,6 +28,7 @@ import type { P2PCall, P2PCallType, P2PSignalPayload } from "../types";
 import { useAuthStore } from "./authStore";
 import { useToastStore } from "./toastStore";
 import { registerP2PCallControl } from "./shared/p2pCallControl";
+import { leaveVoiceForCall } from "./shared/voiceControl";
 import { remoteVideo } from "./shared/p2pRemoteVideo";
 import { createAdoptionSlice } from "./p2pCallAdoption";
 
@@ -485,6 +486,10 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     if (!activeCall || !_sendWS) return;
     const callId = activeCall.id;
 
+    // Channel voice and a call cannot share the audio session, and the native engine waits for
+    // voice to let go of it — so the leaving has to start before the engine does.
+    leaveVoiceForCall();
+
     const engine = get()._ensureEngine();
     if (!engine) return;
 
@@ -736,7 +741,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
 }));
 
 registerP2PCallControl({
-  hasLiveMedia: () => useP2PCallStore.getState().activeCall?.status === "active",
+  hasLiveMedia: () => useP2PCallStore.getState().activeCall !== null,
   hasCall: () => {
     const { activeCall, _adoptCandidate } = useP2PCallStore.getState();
     return activeCall !== null || _adoptCandidate !== null;

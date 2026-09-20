@@ -42,6 +42,13 @@ type IncomingCallProvider interface {
 	ReleaseReplacedApp(userID, instanceID, deviceID, heldCallID string)
 }
 
+// NativeDeviceChecker tells whether a device really is an app whose call media runs natively —
+// it has a VoIP push token registered. Without it, any client could claim `native_media` and hold
+// a call open on the server for hours after closing its socket.
+type NativeDeviceChecker interface {
+	HasVoIPToken(ctx context.Context, userID, deviceID string) bool
+}
+
 // UserInfoProvider fetches user profile from DB for Hub cache.
 // JWT claims only contain userID + username; display_name/avatar_url need DB lookup.
 type UserInfoProvider interface {
@@ -128,6 +135,7 @@ type Handler struct {
 	urlSigner            URLSigner
 	presencePeers        PresencePeerProvider
 	incomingCallProvider IncomingCallProvider
+	nativeDevices        NativeDeviceChecker
 
 	// Handshake rate limit. Nil means unlimited, which is what the tests and any caller that has
 	// not wired it get. The concurrent-socket cap lives on the hub — see SetConnectionLimits.
@@ -165,6 +173,21 @@ func (h *Handler) SetPresencePeerProvider(p PresencePeerProvider) {
 // incoming call on connect. Set post-construction to avoid a ws->services dependency.
 func (h *Handler) SetIncomingCallProvider(p IncomingCallProvider) {
 	h.incomingCallProvider = p
+}
+
+// nativeMediaClaim: the flag is the client's word, and it buys hours of server-side call state.
+// Believed only for a device that registered a VoIP token, unless nothing can check it.
+func nativeMediaClaim(ctx context.Context, claimed bool, userID, deviceID string, checker NativeDeviceChecker) bool {
+	if !claimed || checker == nil {
+		return claimed
+	}
+	return checker.HasVoIPToken(ctx, userID, deviceID)
+}
+
+// SetNativeDeviceChecker wires the check behind the `native_media` claim. Unset, the claim is
+// taken as it comes — a deployment with no push configured has nothing to check it against.
+func (h *Handler) SetNativeDeviceChecker(c NativeDeviceChecker) {
+	h.nativeDevices = c
 }
 
 func NewHandler(
@@ -317,6 +340,12 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		instanceID = ""
 	}
 
+	// Only an app that registered a VoIP token for this device gets the long away-window its
+	// suspended page needs (see HandleSessionDisconnect).
+	nativeMedia := nativeMediaClaim(
+		r.Context(), r.URL.Query().Get("native_media") == "1", claims.UserID, deviceID, h.nativeDevices,
+	)
+
 	client := &Client{
 		hub:           h.hub,
 		conn:          conn,
@@ -324,7 +353,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		sessionID:     uuid.New().String(),
 		deviceID:      deviceID,
 		instanceID:    instanceID,
-		nativeMedia:   r.URL.Query().Get("native_media") == "1",
+		nativeMedia:   nativeMedia,
 		send:          make(chan []byte, sendBufferSize),
 		events:        make(chan Event, eventQueueSize),
 		done:          make(chan struct{}),

@@ -856,3 +856,21 @@ func TestNotifyCall_ARingCancelledWhileQueuedSendsNothing(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// The only proof the server has that a socket claiming native call media is the iOS app.
+func TestHasVoIPToken(t *testing.T) {
+	phone, tablet := "phone-dev", "tablet-dev"
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-phone", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios", DeviceID: &phone},
+		{Token: "fcm-tablet", TokenType: models.PushTokenTypeFCM, Platform: "android", DeviceID: &tablet},
+		{Token: "voip-old", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	s := NewPushTokenService(repo)
+
+	cases := map[string]bool{phone: true, tablet: false, "unknown-dev": false, "": false}
+	for device, want := range cases {
+		if got := s.HasVoIPToken(context.Background(), "u1", device); got != want {
+			t.Errorf("device %q: got %v, want %v", device, got, want)
+		}
+	}
+}

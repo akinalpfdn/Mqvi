@@ -106,6 +106,8 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 	}
 	// Re-deliver a ringing incoming call to a receiver on (re)connect (offline/push tap).
 	h.WS.SetIncomingCallProvider(svcs.P2PCall)
+	// A connection claiming native call media is believed only if this device registered a VoIP token.
+	h.WS.SetNativeDeviceChecker(svcs.PushToken)
 	// Friends and DM partners get presence even with no server in common — see PHASE-56.
 	h.WS.SetPresencePeerProvider(repos.Friendship)
 	// Bound what one account can cost at the WS door: concurrent sockets, and handshake rate.

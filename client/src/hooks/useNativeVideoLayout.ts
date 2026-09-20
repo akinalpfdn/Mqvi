@@ -38,7 +38,13 @@ function same(a: Rect, b: Rect): boolean {
 }
 
 /** Samples per side of each box; denser catches smaller overlays. */
-const GRID = 5;
+/**
+ * Occlusion sampling: a point every SAMPLE_STEP, spread thinner on a big feed so the work per
+ * pass stays bounded. A fixed 5x5 grid sampled a phone-sized feed every 75-200px, and anything
+ * smaller than that fell between the points and was drawn over by the native layer.
+ */
+const SAMPLE_STEP = 24;
+const SAMPLE_BUDGET = 300;
 
 /** The overlay a hit belongs to: its top-most box short of the video, skipping pass-through layers. */
 function overlayRoot(hit: Element, boxes: readonly (HTMLElement | null)[]): Element {
@@ -56,6 +62,15 @@ function overlayRoot(hit: Element, boxes: readonly (HTMLElement | null)[]): Elem
 
 function overlaps(a: NonNullable<Rect>, b: NonNullable<Rect>): boolean {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+function sampleGrid(width: number, height: number): { columns: number; rows: number } {
+  const wanted = (width * height) / (SAMPLE_STEP * SAMPLE_STEP);
+  const step = SAMPLE_STEP * Math.max(1, Math.sqrt(wanted / SAMPLE_BUDGET));
+  return {
+    columns: Math.max(2, Math.ceil(width / step) + 1),
+    rows: Math.max(2, Math.ceil(height / step) + 1),
+  };
 }
 
 function union(a: NonNullable<Rect>, b: NonNullable<Rect>): NonNullable<Rect> {
@@ -88,10 +103,11 @@ export function coverings(
     const right = Math.min(rect.x + rect.width, clip.x + clip.width) - SAMPLE_INSET;
     const bottom = Math.min(rect.y + rect.height, clip.y + clip.height) - SAMPLE_INSET;
     if (right <= left || bottom <= top) continue;
-    for (let i = 0; i < GRID; i++) {
-      for (let j = 0; j < GRID; j++) {
-        const x = left + ((right - left) * i) / (GRID - 1);
-        const y = top + ((bottom - top) * j) / (GRID - 1);
+    const { columns, rows } = sampleGrid(right - left, bottom - top);
+    for (let i = 0; i < columns; i++) {
+      for (let j = 0; j < rows; j++) {
+        const x = columns === 1 ? left : left + ((right - left) * i) / (columns - 1);
+        const y = rows === 1 ? top : top + ((bottom - top) * j) / (rows - 1);
         const hit = document.elementFromPoint(x, y);
         if (!hit || boxes.some((box) => box !== null && (box === hit || box.contains(hit)))) continue;
         found.add(overlayRoot(hit, boxes));

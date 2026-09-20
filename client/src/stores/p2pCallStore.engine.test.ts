@@ -331,11 +331,12 @@ describe("ending the call for a voice channel or a sign-out", () => {
     expect(engineInstances[0].calls).toContain("close");
   });
 
-  it("should leave a ringing call alone for a voice channel — it has no media yet", () => {
+  // A ringing call takes the audio session the moment the other side answers, and by then the
+  // channel is already holding it: on iOS the two cannot share it.
+  it("should end even a ringing call when a voice channel is joined", () => {
     useP2PCallStore.setState({ activeCall: { ...makeCall(), status: "ringing" } });
     endP2PCallForVoice();
-    expect(ended()).toBe(0);
-    expect(useP2PCallStore.getState().activeCall).not.toBeNull();
+    expect(useP2PCallStore.getState().activeCall).toBeNull();
   });
 
   it("should end even a ringing call on sign-out", () => {

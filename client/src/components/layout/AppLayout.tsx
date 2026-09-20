@@ -54,6 +54,7 @@ import { useMemberStore } from "../../stores/memberStore";
 import { useRoleStore } from "../../stores/roleStore";
 import { useUIStore, type TabServerInfo } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { registerVoiceLeave } from "../../stores/shared/voiceControl";
 import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useInviteStore } from "../../stores/inviteStore";
@@ -234,8 +235,13 @@ function AppLayout() {
   // Register leaveVoice so uiStore.closeTab can trigger voice disconnect
   useEffect(() => {
     useVoiceStore.getState().registerOnLeave(leaveVoice);
+    // A starting call needs the audio session channel voice is holding.
+    registerVoiceLeave(() => {
+      if (useVoiceStore.getState().currentVoiceChannelId) leaveVoice();
+    });
     return () => {
       useVoiceStore.getState().registerOnLeave(null);
+      registerVoiceLeave(null);
     };
   }, [leaveVoice]);
 

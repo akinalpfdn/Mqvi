@@ -105,6 +105,12 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CallManager.shared.onMutedBySystem = { [weak self] callId, muted in
             self?.muteIfServing(callId, muted: muted)
         }
+        Self.deliverPendingHangups()
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            Self.deliverPendingHangups()
+        }
         Task { @MainActor in
             NativeCallVideo.shared.onVideoSize = { [weak self] source, size in
                 // Not retained: Capacitor would queue every change, a late subscriber pulls
@@ -769,14 +775,63 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// The page may be suspended, and its hang-up would not reach the server until it wakes:
     /// both users would stay "in a call". This side's key lets the native layer say it directly.
     private func reportHangup(_ owner: CallOwner) {
-        guard let key = owner.endKey, let base = owner.serverUrl,
-              let url = URL(string: "\(base)/api/calls/\(owner.callId)/hangup"),
-              let body = try? JSONSerialization.data(withJSONObject: ["key": key]) // a [String: String] always encodes
+        guard let key = owner.endKey, let serverUrl = owner.serverUrl else { return }
+        let pending = PendingHangup(callId: owner.callId, key: key, serverUrl: serverUrl, since: Date())
+        Self.remember(pending)
+        Self.deliver(pending, attempt: 0)
+    }
+
+    /// A hang-up the server has not acknowledged yet. Kept on disk: the request often goes out
+    /// exactly when there is no network (the connection died), and nothing else frees the call
+    /// until the page wakes — which may be hours.
+    private struct PendingHangup: Codable {
+        let callId: String
+        let key: String
+        let serverUrl: String
+        let since: Date
+    }
+
+    private static let pendingHangupsKey = "mqvi.p2p.pendingHangups"
+    private static let hangupRetryDelays: [TimeInterval] = [2, 5]
+    /// Past this the server has given the call up on its own; retrying only wakes the radio.
+    private static let pendingHangupTTL: TimeInterval = 4 * 60 * 60
+
+    private static func remember(_ hangup: PendingHangup) {
+        var kept = storedHangups().filter { $0.callId != hangup.callId }
+        kept.append(hangup)
+        store(kept)
+    }
+
+    private static func forget(_ callId: String) {
+        store(storedHangups().filter { $0.callId != callId })
+    }
+
+    private static func storedHangups() -> [PendingHangup] {
+        guard let data = UserDefaults.standard.data(forKey: pendingHangupsKey),
+              let list = try? JSONDecoder().decode([PendingHangup].self, from: data) // written by this app
+        else { return [] }
+        return list.filter { Date().timeIntervalSince($0.since) < pendingHangupTTL }
+    }
+
+    private static func store(_ list: [PendingHangup]) {
+        guard let data = try? JSONEncoder().encode(list) else { return } // Codable of plain values
+        UserDefaults.standard.set(data, forKey: pendingHangupsKey)
+    }
+
+    /// Retries the call's own hang-up a few times, then leaves it on disk for the next launch.
+    private static func deliver(_ hangup: PendingHangup, attempt: Int) {
+        guard Date().timeIntervalSince(hangup.since) < pendingHangupTTL else {
+            forget(hangup.callId)
+            return
+        }
+        guard let url = URL(string: "\(hangup.serverUrl)/api/calls/\(hangup.callId)/hangup"),
+              let body = try? JSONSerialization.data(withJSONObject: ["key": hangup.key]) // a [String: String] always encodes
         else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
+
         DispatchQueue.main.async {
             // Hanging up lets the app be suspended; ask for the moment the request needs.
             var task = UIBackgroundTaskIdentifier.invalid
@@ -786,10 +841,32 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 task = .invalid
             }
             task = UIApplication.shared.beginBackgroundTask(withName: "p2p-hangup", expirationHandler: finish)
-            URLSession.shared.dataTask(with: request) { _, _, error in
-                if let error { print("[p2p-native] hang-up request failed: \(error.localizedDescription)") }
-                DispatchQueue.main.async(execute: finish)
+            URLSession.shared.dataTask(with: request) { _, response, error in
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                // The server answers a call it no longer has the same way, so 2xx means done.
+                if (200...299).contains(status) {
+                    forget(hangup.callId)
+                    DispatchQueue.main.async(execute: finish)
+                    return
+                }
+                print("[p2p-native] hang-up not accepted (status \(status)): \(error?.localizedDescription ?? "-")")
+                guard attempt < hangupRetryDelays.count else {
+                    // Left on disk; retried when the app is opened again.
+                    DispatchQueue.main.async(execute: finish)
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + hangupRetryDelays[attempt]) {
+                    finish()
+                    deliver(hangup, attempt: attempt + 1)
+                }
             }.resume()
+        }
+    }
+
+    /// Hang-ups no network would take when they happened; the app is up now, so try again.
+    private static func deliverPendingHangups() {
+        for hangup in storedHangups() {
+            deliver(hangup, attempt: hangupRetryDelays.count) // no backoff loop: the app is awake
         }
     }
 
