@@ -52,6 +52,8 @@ function overlayRoot(hit: Element, boxes: readonly (HTMLElement | null)[]): Elem
   for (let el: Element | null = hit; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
     if (boxes.some((box) => box !== null && el.contains(box))) break;
     chain.push(el);
+    // A fixed overlay can escape an off-video ancestor; that ancestor is not its visible box.
+    if (getComputedStyle(el).position === "fixed") break;
   }
   // A pointer-events:none layer (a toast container, say) spans far more than what it shows.
   for (let i = chain.length - 1; i >= 0; i--) {
@@ -144,17 +146,31 @@ function sameHoles(a: readonly Rect[], b: readonly Rect[]): boolean {
  * other elements may cover them, including portals and children of pass-through containers.
  * Only evaluated after invalidation, never on every idle tick.
  */
-function overlayCandidates(rects: readonly Rect[], clip: Rect, boxes: readonly (HTMLElement | null)[]): Element[] {
-  if (!clip) return [];
+function overlayCandidates(
+  rects: readonly Rect[], clip: Rect, boxes: readonly (HTMLElement | null)[], escaped: ReadonlySet<Element>,
+): Element[] {
+  if (!clip || !rects.some(Boolean)) return [];
   const candidates: Element[] = [];
-  for (const element of document.body.querySelectorAll("*")) {
-    if (boxes.some((box) => box && (box.contains(element) || element.contains(box)))) continue;
+  const visited = new Set<Element>();
+  const visit = (element: Element) => {
+    if (visited.has(element) || boxes.some((box) => box?.contains(element))) return;
+    visited.add(element);
+    const style = getComputedStyle(element);
+    if (style.display === "none") return;
     const r = element.getBoundingClientRect();
     const rect = { x: r.left, y: r.top, width: r.width, height: r.height };
-    if (r.width < 1 || r.height < 1 || !overlaps(rect, clip) || !rects.some((feed) => feed && overlaps(rect, feed))) continue;
-    const style = getComputedStyle(element);
-    if (style.display !== "none" && style.visibility !== "hidden" && style.pointerEvents !== "none") candidates.push(element);
-  }
+    const intersects = r.width >= 1 && r.height >= 1 && overlaps(rect, clip);
+    if (intersects && rects.some((feed) => feed && overlaps(rect, feed)) &&
+        !boxes.some((box) => box && element.contains(box)) &&
+        style.visibility !== "hidden" && style.pointerEvents !== "none") candidates.push(element);
+    // Scrollers outside the clip can contain thousands of messages. Positioned descendants
+    // that escape clipping are visited independently; portals remain separate body roots.
+    const clips = (value: string) => /^(hidden|clip|auto|scroll)$/.test(value);
+    if (!intersects && clips(style.overflowX || style.overflow) && clips(style.overflowY || style.overflow)) return;
+    for (const child of element.children) visit(child);
+  };
+  for (const root of document.body.children) visit(root);
+  for (const element of escaped) if (element.isConnected) visit(element);
   return candidates;
 }
 
@@ -166,7 +182,9 @@ export function useNativeVideoLayout(options: {
   localEl: HTMLElement | null;
   mirrorLocal: boolean;
 }): void {
-  const { active, clipEl, remoteEl, localEl, mirrorLocal } = options;
+  const { clipEl, remoteEl, localEl, mirrorLocal } = options;
+  // Native engines also run audio-only calls; no feeds means no observers or layout work.
+  const active = options.active && !!(remoteEl || localEl);
 
   // Last shape reported for each feed, kept so a swap can re-apply it: the picture-in-picture
   // box changes which feed it holds, and the native side only reports a shape when it changes.
@@ -242,6 +260,20 @@ export function useNativeVideoLayout(options: {
     let occlusionDirty = true;
     const moving = new Map<Element, Set<string>>();
     const observedOverlays = new Set<Element>();
+    // Index out-of-flow descendants once, then only changed subtrees. They can escape an
+    // off-video scroller; measuring that whole scroller on every scroll would defeat pruning.
+    const escaped = new Set<Element>();
+    const indexPositioned = (root: Element) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+      let element: Element | null = root;
+      while (element) {
+        const position = getComputedStyle(element).position;
+        if (position === "fixed" || position === "absolute") escaped.add(element);
+        else escaped.delete(element);
+        element = walker.nextNode() as Element | null;
+      }
+    };
+    indexPositioned(document.body);
     let wasMovingOverVideo = false;
     let holes: NonNullable<Rect>[] = [];
     let lastHoles: NonNullable<Rect>[] = [];
@@ -261,7 +293,7 @@ export function useNativeVideoLayout(options: {
       if (occlusionDirty && now - lastOcclusion >= OCCLUSION_INTERVAL_MS) {
         lastOcclusion = now;
         occlusionDirty = false;
-        const candidates = new Set(overlayCandidates([remote, local], clip, boxes));
+        const candidates = new Set(overlayCandidates([remote, local], clip, boxes, escaped));
         for (const element of observedOverlays) {
           if (!candidates.has(element)) { resize.unobserve(element); observedOverlays.delete(element); }
         }
@@ -314,6 +346,11 @@ export function useNativeVideoLayout(options: {
     // changes and CSS attributes can expose a portal without any user input.
     const mutations = new MutationObserver((records) => {
       for (const element of moving.keys()) if (!element.isConnected) moving.delete(element);
+      for (const element of escaped) if (!element.isConnected) escaped.delete(element);
+      for (const record of records) {
+        if (record.type === "attributes" && record.target instanceof Element) indexPositioned(record.target);
+        for (const node of record.addedNodes) if (node instanceof Element) indexPositioned(node);
+      }
       if (records.some((record) => {
         const target = record.target instanceof Element ? record.target : record.target.parentElement;
         if (!target || boxes.some((box) => box?.contains(target))) return false;

@@ -250,7 +250,7 @@ function P2PCallScreen() {
   // Swapping does not move the tracks, it moves the boxes: the remote feed goes wherever the
   // big box is, which after a swap is the small one.
   useNativeVideoLayout({
-    active: isNativeVideo && !!activeCall && activeCall.status === "active",
+    active: isNativeVideo && !!activeCall && activeCall.status === "active" && !!(bigEl || pipEl),
     // The media area itself, not the surface: the surface comes and goes with the peer's
     // picture, and your own picture-in-picture has to stay bounded while it is gone.
     clipEl: mediaEl,

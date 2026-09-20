@@ -54,6 +54,63 @@ describe("native video occlusion invalidation", () => {
     return { ...hook, surface, pick };
   }
 
+  it("does no DOM measurement or observation for an audio-only call, and resumes when video appears", async () => {
+    vi.useFakeTimers();
+    const clip = placed(document.createElement("div"), 0, 0, 400, 600);
+    document.body.append(clip);
+    const measure = vi.spyOn(clip, "getBoundingClientRect");
+    const props = { active: true, clipEl: clip, remoteEl: null as HTMLElement | null, localEl: null, mirrorLocal: true };
+    const { rerender, unmount } = renderHook((p) => useNativeVideoLayout(p), { initialProps: props });
+    await act(async () => {
+      clip.className = "changed";
+      window.dispatchEvent(new Event("scroll"));
+      window.dispatchEvent(new Event("pointermove"));
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(measure).not.toHaveBeenCalled();
+    expect(ResizeObserverStub.instances).toHaveLength(0);
+    const surface = placed(document.createElement("div"), 0, 0, 400, 600);
+    clip.append(surface);
+    topmostAt(() => surface);
+    rerender({ ...props, remoteEl: surface });
+    await act(() => vi.advanceTimersByTimeAsync(600));
+    expect(setVideoLayout).toHaveBeenLastCalledWith(expect.objectContaining({ remote: { x: 0, y: 0, width: 400, height: 600 } }));
+    rerender(props);
+    measure.mockClear();
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(measure).not.toHaveBeenCalled();
+    expect(hideVideo).toHaveBeenCalled();
+    unmount();
+  });
+
+  it("skips off-video message subtrees on input but still finds an escaping positioned overlay", async () => {
+    const scroller = placed(document.createElement("div"), 600, 0, 300, 600);
+    scroller.style.overflow = "auto";
+    const messages = Array.from({ length: 500 }, () => {
+      const message = placed(document.createElement("div"), 600, 0, 280, 40);
+      scroller.append(message);
+      return vi.spyOn(message, "getBoundingClientRect");
+    });
+    document.body.append(scroller);
+    const { unmount, pick } = await setup();
+    await act(async () => {
+      window.dispatchEvent(new Event("scroll"));
+      window.dispatchEvent(new Event("pointermove"));
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(messages.every((measure) => measure.mock.calls.length === 0)).toBe(true);
+    const overlay = placed(document.createElement("div"), 0, 0, 80, 60);
+    overlay.style.position = "fixed";
+    await act(async () => {
+      pick.mockImplementation(() => overlay);
+      scroller.append(overlay);
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(setVideoLayout).toHaveBeenLastCalledWith(expect.objectContaining({ holes: [{ x: 0, y: 0, width: 80, height: 60 }] }));
+    expect(messages.every((measure) => measure.mock.calls.length === 0)).toBe(true);
+    unmount();
+  });
+
   it("does no grid hit tests on an uncovered video, including after input and clock ticks", async () => {
     const { unmount, pick } = await setup();
     const clock = placed(document.createElement("span"), 0, 650, 100, 20);

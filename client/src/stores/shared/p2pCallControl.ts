@@ -5,7 +5,8 @@ type P2PCallControl = {
   hasLiveMedia(): boolean;
   /** Any call at all, ringing included. */
   hasCall(): boolean;
-  end(): void;
+  ready(): Promise<void>;
+  end(): void | Promise<boolean>;
   /** Hangs up what this app is in; an incoming call it never answered is only dropped here. */
   leave(): void;
 };
@@ -20,8 +21,9 @@ export function registerP2PCallControl(c: P2PCallControl): void {
  * Channel voice and a p2p call cannot share the iOS audio session. A ringing call counts too: it
  * takes the session the moment the other side answers, with nothing left to stop it.
  */
-export function endP2PCallForVoice(): void {
-  if (control?.hasLiveMedia()) control.end();
+export async function endP2PCallForVoice(): Promise<boolean> {
+  await control?.ready();
+  return !control?.hasLiveMedia() || (await control.end()) !== false;
 }
 
 /** Signing out must not leave a call running with no screen to end it from. */

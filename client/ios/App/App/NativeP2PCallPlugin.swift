@@ -822,20 +822,33 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private func reportHangup(_ owner: CallOwner) {
         guard let key = owner.endKey, let serverUrl = owner.serverUrl else { return }
         let pending = PendingCallHangup(callId: owner.callId, key: key, serverUrl: serverUrl, since: Date())
-        Self.pendingHangups.remember(pending)
-        Self.deliver(pending, attempt: 0)
+        // Teardown can remove our background audio entitlement. Keep time for secure storage
+        // before deliver() acquires its own background task for the HTTP request.
+        var storageTask = UIBackgroundTaskIdentifier.invalid
+        let finishStorage = {
+            guard storageTask != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(storageTask)
+            storageTask = .invalid
+        }
+        storageTask = UIApplication.shared.beginBackgroundTask(withName: "p2p-hangup-storage", expirationHandler: finishStorage)
+        Self.hangupStorageQueue.async {
+            Self.pendingHangups.remember(pending)
+            Self.deliver(pending, attempt: 0)
+            DispatchQueue.main.async(execute: finishStorage)
+        }
     }
 
     /// A hang-up the server has not acknowledged yet. Kept on disk: the request often goes out
     /// exactly when there is no network (the connection died), and nothing else frees the call
     /// until the page wakes — which may be hours.
+    private static let hangupStorageQueue = DispatchQueue(label: "net.mqvi.hangup-storage")
     private static let pendingHangups = PendingCallHangups()
     private static let hangupRetryDelays: [TimeInterval] = [2, 5]
 
     /// Retries the call's own hang-up a few times, then leaves it on disk for the next launch.
     private static func deliver(_ hangup: PendingCallHangup, attempt: Int) {
         guard Date().timeIntervalSince(hangup.since) < PendingCallHangup.ttl else {
-            pendingHangups.forget(hangup)
+            hangupStorageQueue.async { pendingHangups.forget(hangup) }
             return
         }
         guard let url = URL(string: "\(hangup.serverUrl)/api/calls/\(hangup.callId)/hangup"),
@@ -859,7 +872,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 // The server answers a call it no longer has the same way, so 2xx means done.
                 if (200...299).contains(status) {
-                    pendingHangups.forget(hangup)
+                    hangupStorageQueue.async { pendingHangups.forget(hangup) }
                     DispatchQueue.main.async(execute: finish)
                     return
                 }
@@ -879,8 +892,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Hang-ups no network would take when they happened; the app is up now, so try again.
     private static func deliverPendingHangups() {
-        for hangup in pendingHangups.snapshot() {
-            deliver(hangup, attempt: hangupRetryDelays.count) // no backoff loop: the app is awake
+        hangupStorageQueue.async {
+            for hangup in pendingHangups.snapshot() {
+                deliver(hangup, attempt: hangupRetryDelays.count) // no backoff loop: the app is awake
+            }
         }
     }
 

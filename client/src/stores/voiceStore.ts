@@ -264,7 +264,9 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       }
 
       // Only once the join is certain; before the native connect, which the bridge runs after this teardown.
-      endP2PCallForVoice();
+      if (!await endP2PCallForVoice()) return null;
+      // A second join/leave can supersede us while native P2P releases its session.
+      if (get()._joinGeneration !== gen) return null;
 
       // isMuted is left untouched — PTT idle (mic off until key press) is
       // enforced at the track level by VoiceStateManager, not via mute state.

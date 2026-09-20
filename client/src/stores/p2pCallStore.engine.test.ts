@@ -325,7 +325,7 @@ describe("ending the call for a voice channel or a sign-out", () => {
 
   it("should end a call whose media is up when a voice channel is joined", async () => {
     await useP2PCallStore.getState().startWebRTC(true);
-    endP2PCallForVoice();
+    await endP2PCallForVoice();
     expect(ended()).toBe(1);
     expect(useP2PCallStore.getState().activeCall).toBeNull();
     expect(engineInstances[0].calls).toContain("close");
@@ -333,9 +333,9 @@ describe("ending the call for a voice channel or a sign-out", () => {
 
   // A ringing call takes the audio session the moment the other side answers, and by then the
   // channel is already holding it: on iOS the two cannot share it.
-  it("should end even a ringing call when a voice channel is joined", () => {
+  it("should end even a ringing call when a voice channel is joined", async () => {
     useP2PCallStore.setState({ activeCall: { ...makeCall(), status: "ringing" } });
-    endP2PCallForVoice();
+    await endP2PCallForVoice();
     expect(useP2PCallStore.getState().activeCall).toBeNull();
   });
 

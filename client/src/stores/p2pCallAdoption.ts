@@ -22,12 +22,15 @@ export function createAdoptionSlice(
   set: StoreApi<P2PCallStore>["setState"],
   get: StoreApi<P2PCallStore>["getState"],
 ): AdoptionSlice {
+  let abandoning = false;
+  let release: Promise<boolean> | null = null;
   return {
     _adoptCandidate: null,
     _adoptTimer: null,
     _adopted: null,
 
     holdAdoptableCall: (call) => {
+      abandoning = false;
       // Without the old page's instance the server cannot hand the call over; and once this page
       // has connected without claiming it, the server has already released it.
       if (!call.instanceId || get()._sessionId) {
@@ -42,7 +45,7 @@ export function createAdoptionSlice(
 
     handleCallAdopted: (data) => {
       const { _adoptCandidate: candidate, _adoptTimer } = get();
-      if (!candidate || candidate.callId !== data.id) return;
+      if (abandoning || !candidate || candidate.callId !== data.id) return;
       if (_adoptTimer) clearTimeout(_adoptTimer);
       const acceptedAt = data.accepted_at ? Date.parse(data.accepted_at) : NaN;
       set({
@@ -71,12 +74,26 @@ export function createAdoptionSlice(
     },
 
     abandonAdoption: () => {
+      if (release) return release;
       const { _adoptCandidate: candidate, _adoptTimer } = get();
       if (_adoptTimer) clearTimeout(_adoptTimer);
-      set({ _adoptCandidate: null, _adoptTimer: null });
-      if (!candidate) return;
-      void NativeP2PCall.discardOrphanedCall().catch(() => {});
+      set({ _adoptTimer: null });
+      if (!candidate) return Promise.resolve(true);
+      // Keep the candidate as an audio owner until native confirms release. Ignore late
+      // adoption replies immediately; a failed bridge call must block channel voice and be retryable.
+      abandoning = true;
       get().endOrphanedCall(candidate.callId, candidate.instanceId);
+      release = NativeP2PCall.discardOrphanedCall()
+        .then(() => {
+          if (get()._adoptCandidate === candidate) set({ _adoptCandidate: null });
+          return true;
+        })
+        .catch((err: unknown) => {
+          console.error("[p2p] abandoning native adoption failed:", err);
+          return false;
+        })
+        .finally(() => { release = null; });
+      return release;
     },
   };
 }

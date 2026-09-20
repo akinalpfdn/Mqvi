@@ -119,7 +119,7 @@ export type P2PCallStore = {
   holdAdoptableCall: (call: AdoptableCall) => void;
   handleCallAdopted: (data: P2PCall) => void;
   /** The take-over failed or the call is gone: stop the native media and hang up. */
-  abandonAdoption: () => void;
+  abandonAdoption: () => Promise<boolean>;
   /** The peer said goodbye over the call's own channel. */
   handlePeerHungUp: (callId: string) => void;
 
@@ -741,12 +741,20 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
 }));
 
 registerP2PCallControl({
-  hasLiveMedia: () => useP2PCallStore.getState().activeCall !== null,
+  hasLiveMedia: () => {
+    const { activeCall, _adoptCandidate } = useP2PCallStore.getState();
+    return activeCall !== null || _adoptCandidate !== null;
+  },
+  ready: () => useP2PCallStore.getState()._previousPageCallChecked,
   hasCall: () => {
     const { activeCall, _adoptCandidate } = useP2PCallStore.getState();
     return activeCall !== null || _adoptCandidate !== null;
   },
-  end: () => useP2PCallStore.getState().endCall(),
+  end: () => {
+    const store = useP2PCallStore.getState();
+    if (store.activeCall) store.endCall();
+    if (store._adoptCandidate) return store.abandonAdoption();
+  },
   leave: () => {
     const { activeCall, _acceptSentFor, _adoptCandidate, endCall, cleanup, abandonAdoption } = useP2PCallStore.getState();
     // A call still being taken over from the previous page has its media running.
