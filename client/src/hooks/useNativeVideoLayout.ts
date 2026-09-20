@@ -16,7 +16,7 @@ const BUSY_MS = 500;
 /** Otherwise measure this often: the page still moves or gets covered without input. */
 const IDLE_INTERVAL_MS = 250;
 /** Input that is about to move a box or open something over it. */
-const WAKE_EVENTS = ["pointerdown", "pointermove", "keydown", "wheel", "resize", "orientationchange"];
+const WAKE_EVENTS = ["pointerdown", "pointermove", "keydown", "wheel", "scroll", "resize", "orientationchange", "load"];
 
 export type Rect = { x: number; y: number; width: number; height: number } | null;
 
@@ -140,6 +140,24 @@ function sameHoles(a: readonly Rect[], b: readonly Rect[]): boolean {
   return a.length === b.length && a.every((hole, i) => same(hole, b[i]));
 }
 
+/** Geometry filter before a grid of hit tests. Ignore the feeds and their ancestors;
+ * other elements may cover them, including portals and children of pass-through containers.
+ * Only evaluated after invalidation, never on every idle tick.
+ */
+function overlayCandidates(rects: readonly Rect[], clip: Rect, boxes: readonly (HTMLElement | null)[]): Element[] {
+  if (!clip) return [];
+  const candidates: Element[] = [];
+  for (const element of document.body.querySelectorAll("*")) {
+    if (boxes.some((box) => box && (box.contains(element) || element.contains(box)))) continue;
+    const r = element.getBoundingClientRect();
+    const rect = { x: r.left, y: r.top, width: r.width, height: r.height };
+    if (r.width < 1 || r.height < 1 || !overlaps(rect, clip) || !rects.some((feed) => feed && overlaps(rect, feed))) continue;
+    const style = getComputedStyle(element);
+    if (style.display !== "none" && style.visibility !== "hidden" && style.pointerEvents !== "none") candidates.push(element);
+  }
+  return candidates;
+}
+
 export function useNativeVideoLayout(options: {
   active: boolean;
   /** The call area the feeds are confined to — the box the page clips them against. */
@@ -221,6 +239,10 @@ export function useNativeVideoLayout(options: {
     let busyUntil = 0;
     let lastRun = 0;
     let lastOcclusion = -Infinity;
+    let occlusionDirty = true;
+    const moving = new Map<Element, Set<string>>();
+    const observedOverlays = new Set<Element>();
+    let wasMovingOverVideo = false;
     let holes: NonNullable<Rect>[] = [];
     let lastHoles: NonNullable<Rect>[] = [];
 
@@ -228,9 +250,25 @@ export function useNativeVideoLayout(options: {
       const clip = rectOf(clipEl);
       const remote = rectOf(remoteEl);
       const local = rectOf(localEl);
-      if (now - lastOcclusion >= OCCLUSION_INTERVAL_MS) {
+      const layoutChanged = !same(clip, lastClip) || !same(remote, lastRemote) || !same(local, lastLocal);
+      const movingOverVideo = [...moving.keys()].some((element) => {
+        const r = element.getBoundingClientRect();
+        const rect = { x: r.left, y: r.top, width: r.width, height: r.height };
+        return clip && overlaps(rect, clip) && [remote, local].some((feed) => feed && overlaps(rect, feed));
+      });
+      occlusionDirty ||= layoutChanged || movingOverVideo || wasMovingOverVideo;
+      wasMovingOverVideo = movingOverVideo;
+      if (occlusionDirty && now - lastOcclusion >= OCCLUSION_INTERVAL_MS) {
         lastOcclusion = now;
-        holes = coverings([remote, local], clip, boxes);
+        occlusionDirty = false;
+        const candidates = new Set(overlayCandidates([remote, local], clip, boxes));
+        for (const element of observedOverlays) {
+          if (!candidates.has(element)) { resize.unobserve(element); observedOverlays.delete(element); }
+        }
+        for (const element of candidates) {
+          if (!observedOverlays.has(element)) { resize.observe(element); observedOverlays.add(element); }
+        }
+        holes = candidates.size ? coverings([remote, local], clip, boxes) : [];
       }
       if (
         !first &&
@@ -270,12 +308,54 @@ export function useNativeVideoLayout(options: {
 
     const wake = () => {
       busyUntil = performance.now() + BUSY_MS;
+      occlusionDirty = true;
     };
+    // Text clocks and video-internal updates do not invalidate unrelated overlays. Structural
+    // changes and CSS attributes can expose a portal without any user input.
+    const mutations = new MutationObserver((records) => {
+      for (const element of moving.keys()) if (!element.isConnected) moving.delete(element);
+      if (records.some((record) => {
+        const target = record.target instanceof Element ? record.target : record.target.parentElement;
+        if (!target || boxes.some((box) => box?.contains(target))) return false;
+        if (record.type === "childList" && [...record.addedNodes, ...record.removedNodes].some((node) => node instanceof Element)) return true;
+        if (record.type === "attributes") return true;
+        const r = target.getBoundingClientRect();
+        return lastClip !== null && overlaps({ x: r.left, y: r.top, width: r.width, height: r.height }, lastClip);
+      })) wake();
+    });
+    mutations.observe(document.body, {
+      subtree: true, childList: true, characterData: true, attributes: true,
+      attributeFilter: ["class", "style", "hidden", "open"],
+    });
+    const resize = new ResizeObserver(wake);
+    resize.observe(document.body);
+    for (const element of [clipEl, remoteEl, localEl]) if (element) resize.observe(element);
+
+    // CSS motion changes neither DOM attributes nor ResizeObserver dimensions (transforms).
+    const motion = (event: Event) => {
+      const element = event.target;
+      if (!(element instanceof Element) || boxes.some((box) => box?.contains(element))) return;
+      const key = "animationName" in event ? `a:${event.animationName}` : "propertyName" in event ? `t:${event.propertyName}` : event.type;
+      if (event.type === "animationstart" || event.type === "transitionrun") {
+        const names = moving.get(element) ?? new Set<string>();
+        names.add(key);
+        moving.set(element, names);
+      } else {
+        moving.get(element)?.delete(key);
+        if (moving.get(element)?.size === 0) moving.delete(element);
+      }
+      wake();
+    };
+    const motionEvents = ["animationstart", "animationend", "animationcancel", "transitionrun", "transitionend", "transitioncancel"];
+    for (const type of motionEvents) window.addEventListener(type, motion, true);
     for (const type of WAKE_EVENTS) window.addEventListener(type, wake, { capture: true, passive: true });
     window.visualViewport?.addEventListener("resize", wake);
 
     return () => {
       cancelAnimationFrame(frame);
+      mutations.disconnect();
+      resize.disconnect();
+      for (const type of motionEvents) window.removeEventListener(type, motion, true);
       for (const type of WAKE_EVENTS) window.removeEventListener(type, wake, { capture: true });
       window.visualViewport?.removeEventListener("resize", wake);
     };

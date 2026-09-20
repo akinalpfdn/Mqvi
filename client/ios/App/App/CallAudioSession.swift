@@ -2,55 +2,63 @@ import AVFoundation
 import Foundation
 import LiveKitWebRTC
 
-/// Audio session ownership for a native p2p call. Manual mode stops WebRTC and CallKit both
-/// activating it; it is scoped to the call because channel voice shares the session without it.
-enum CallAudioSession {
-    private static let session = LKRTCAudioSession.sharedInstance()
+/// SDK adapter. Only CallAudioOwnership's serial executor calls these setters.
+private final class WebRTCCallAudioDriver: CallAudioDriver {
+    private let session = LKRTCAudioSession.sharedInstance()
 
-    /// A native call is starting. Safe to call when CallKit has already activated the session.
-    static func begin() {
-        session.useManualAudio = true
-
-        if !session.isActive {
-            // No CallKit call (outgoing, or answered in the app): nobody else will activate it.
-            let config = LKRTCAudioSessionConfiguration.webRTC()
-            config.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
-            session.lockForConfiguration()
-            do {
-                try session.setConfiguration(config, active: true)
-            } catch {
-                print("[call-audio] activate failed: \(error.localizedDescription)")
-            }
-            session.unlockForConfiguration()
-        }
-
-        session.isAudioEnabled = true
+    var manualAudio: Bool {
+        get { session.useManualAudio }
+        set { session.useManualAudio = newValue }
+    }
+    var audioEnabled: Bool {
+        get { session.isAudioEnabled }
+        set { session.isAudioEnabled = newValue }
     }
 
-    static func end() {
-        session.isAudioEnabled = false
-        session.useManualAudio = false
-
-        guard session.isActive else { return }
+    func activate() throws {
+        let config = LKRTCAudioSessionConfiguration.webRTC()
+        config.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
         session.lockForConfiguration()
+        defer { session.unlockForConfiguration() }
+        // Even if already active, acquire our own reference; never borrow CallKit's count.
+        try session.setConfiguration(config, active: true)
+    }
+
+    func deactivate() {
+        session.lockForConfiguration()
+        defer { session.unlockForConfiguration() }
         do {
             try session.setActive(false)
         } catch {
-            // CallKit deactivates its own session; an error here usually means it already did.
-            print("[call-audio] deactivate: \(error.localizedDescription)")
+            print("[call-audio] deactivate failed: \(error.localizedDescription)")
         }
-        session.unlockForConfiguration()
+    }
+}
+
+/// CallKit callbacks have no call ID. Keep their SDK accounting intact, then let the current
+/// media owner decide whether to wait for CallKit or restore its independently activated audio.
+enum CallAudioSession {
+    private static let ownership = CallAudioOwnership(driver: WebRTCCallAudioDriver())
+    /// Installed/read on main only; a failed restoration ends the matching native call.
+    static var onFailure: ((String) -> Void)?
+
+    static func begin(callId: String) throws { try ownership.begin(callId: callId) }
+    static func end(callId: String) { ownership.end(callId: callId) }
+    static func expectCallKit(callId: String) { ownership.expectCallKit(callId: callId) }
+
+    static func callKitCallEnded(callId: String) {
+        if let failed = ownership.callKitCallEnded(callId: callId) { onFailure?(failed) }
     }
 
-    /// CallKit activated the session for an answered call.
     static func callKitDidActivate(_ audioSession: AVAudioSession) {
-        session.audioSessionDidActivate(audioSession)
-        session.isAudioEnabled = true
+        ownership.didActivate { LKRTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession) }
     }
 
-    /// CallKit released the session at the end of a call.
     static func callKitDidDeactivate(_ audioSession: AVAudioSession) {
-        session.audioSessionDidDeactivate(audioSession)
-        session.isAudioEnabled = false
+        if let failed = ownership.didDeactivate(notifySDK: {
+            LKRTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)
+        }) {
+            onFailure?(failed)
+        }
     }
 }

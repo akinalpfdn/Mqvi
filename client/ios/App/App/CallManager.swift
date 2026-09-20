@@ -111,8 +111,13 @@ final class CallManager: NSObject {
 
     private func report(_ uuid: UUID, endedWith reason: CXCallEndedReason) {
         provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
-        calls.removeValue(forKey: uuid)
+        forgetCall(uuid)
+    }
+
+    private func forgetCall(_ uuid: UUID) {
+        let callId = calls.removeValue(forKey: uuid)
         mutedState.removeValue(forKey: uuid)
+        if let callId { CallAudioSession.callKitCallEnded(callId: callId) }
     }
 
     private static func endedReason(_ reason: String) -> CXCallEndedReason {
@@ -233,8 +238,7 @@ extension CallManager: PKPushRegistryDelegate {
         let uuid = UUID(uuidString: callId) ?? UUID()
         if calls[uuid] != nil {
             provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
-            calls.removeValue(forKey: uuid)
-            mutedState.removeValue(forKey: uuid)
+            forgetCall(uuid)
             completion()
             return
         }
@@ -246,8 +250,7 @@ extension CallManager: PKPushRegistryDelegate {
                 defer { completion() }
                 guard let self, self.calls[uuid] == callId else { return }
                 self.provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
-                self.calls.removeValue(forKey: uuid)
-                self.mutedState.removeValue(forKey: uuid)
+                self.forgetCall(uuid)
             }
         }
     }
@@ -271,6 +274,7 @@ extension CallManager: CXProviderDelegate {
         onProviderReset?()
         for callId in ended {
             onEndedBySystem?(callId)
+            CallAudioSession.callKitCallEnded(callId: callId)
             if let listener {
                 listener.onCallEnded(callId: callId)
             } else {
@@ -281,6 +285,7 @@ extension CallManager: CXProviderDelegate {
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         if let callId = calls[action.callUUID] {
+            CallAudioSession.expectCallKit(callId: callId)
             if let listener = listener {
                 listener.onCallAnswered(callId: callId)
             } else {
@@ -292,8 +297,7 @@ extension CallManager: CXProviderDelegate {
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         if endingInApp.remove(action.callUUID) != nil {
-            calls.removeValue(forKey: action.callUUID)
-            mutedState.removeValue(forKey: action.callUUID)
+            forgetCall(action.callUUID)
         } else if let callId = calls[action.callUUID] {
             onEndedBySystem?(callId)
             if let listener = listener {
@@ -301,8 +305,7 @@ extension CallManager: CXProviderDelegate {
             } else {
                 bufferedEnded.append(callId)
             }
-            calls.removeValue(forKey: action.callUUID)
-            mutedState.removeValue(forKey: action.callUUID)
+            forgetCall(action.callUUID)
         }
         action.fulfill()
     }

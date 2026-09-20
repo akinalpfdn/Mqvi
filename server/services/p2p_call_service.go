@@ -73,7 +73,6 @@ type P2PCallService interface {
 	ResumeCall(userID, sessionID, instanceID, callID string) error
 	// EndCallBetween ends userID's call if it is with otherID, as though userID hung up.
 	EndCallBetween(userID, otherID string)
-	GetUserCall(userID string) *models.P2PCall
 	// PendingIncomingCall returns the broadcast for a user's active RINGING incoming
 	// call (they are the receiver), or nil — used to re-deliver it on (re)connect.
 	PendingIncomingCall(userID string) *models.P2PCallBroadcast
@@ -1091,19 +1090,6 @@ func (s *p2pCallService) EndCallWithKey(callID, key string) error {
 		return fmt.Errorf("%w: no such call", pkg.ErrNotFound)
 	}
 	return s.endCall(userID, instanceID, "", callID, true)
-}
-
-// GetUserCall returns the user's active call, or nil if not in a call.
-func (s *p2pCallService) GetUserCall(userID string) *models.P2PCall {
-	s.mu.RLock()
-	callID, exists := s.userCalls[userID]
-	if !exists {
-		s.mu.RUnlock()
-		return nil
-	}
-	call := s.activeCalls[callID]
-	s.mu.RUnlock()
-	return call
 }
 
 // HasActiveCall reports whether the user is in an accepted (active) call.

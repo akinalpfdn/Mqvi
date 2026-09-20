@@ -1,12 +1,13 @@
 /** What the page draws over the native video is cut out of it, overlay by overlay. */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
+import { ResizeObserverStub } from "../test/resizeObserverStub";
 
-const { hideVideo } = vi.hoisted(() => ({ hideVideo: vi.fn(async () => {}) }));
+const { hideVideo, setVideoLayout } = vi.hoisted(() => ({ hideVideo: vi.fn(async () => {}), setVideoLayout: vi.fn(async () => {}) }));
 vi.mock("../native/nativeP2PCall", () => ({
   NativeP2PCall: {
     hideVideo,
-    setVideoLayout: vi.fn(async () => {}),
+    setVideoLayout,
     getVideoSizes: vi.fn(async () => ({})),
     addListener: vi.fn(async () => ({ remove: vi.fn() })),
   },
@@ -29,8 +30,120 @@ function placed<T extends HTMLElement>(el: T, x: number, y: number, width: numbe
 }
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  ResizeObserverStub.reset();
   delete (document as { elementFromPoint?: unknown }).elementFromPoint;
   document.body.innerHTML = "";
+});
+
+describe("native video occlusion invalidation", () => {
+  async function setup() {
+    vi.useFakeTimers();
+    setVideoLayout.mockClear();
+    const clip = placed(document.createElement("div"), 0, 0, 400, 600);
+    const surface = placed(document.createElement("div"), 0, 0, 400, 600);
+    clip.append(surface);
+    document.body.append(clip);
+    const pick = vi.fn((): Element => surface);
+    topmostAt(pick);
+    const hook = renderHook(() => useNativeVideoLayout({
+      active: true, clipEl: clip, remoteEl: surface, localEl: null, mirrorLocal: true,
+    }));
+    await act(() => vi.advanceTimersByTimeAsync(600));
+    return { ...hook, surface, pick };
+  }
+
+  it("does no grid hit tests on an uncovered video, including after input and clock ticks", async () => {
+    const { unmount, pick } = await setup();
+    const clock = placed(document.createElement("span"), 0, 650, 100, 20);
+    document.body.append(clock);
+    await act(async () => {
+      window.dispatchEvent(new Event("pointermove"));
+      clock.textContent = "00:02";
+      await vi.advanceTimersByTimeAsync(2000);
+      clock.textContent = "00:03";
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(pick).not.toHaveBeenCalled();
+    expect(setVideoLayout).toHaveBeenCalledWith(expect.objectContaining({ holes: [] }));
+    unmount();
+  });
+
+  it("detects a portal without input, caches a static overlay, and clears its hole on removal", async () => {
+    const { unmount, surface, pick } = await setup();
+    const overlay = placed(document.createElement("div"), 0, 0, 100, 80);
+    await act(async () => {
+      pick.mockImplementation(() => overlay);
+      document.body.append(overlay);
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(setVideoLayout).toHaveBeenLastCalledWith(expect.objectContaining({ holes: [{ x: 0, y: 0, width: 100, height: 80 }] }));
+    pick.mockClear();
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(pick).not.toHaveBeenCalled();
+    await act(async () => {
+      pick.mockImplementation(() => surface);
+      overlay.remove();
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(setVideoLayout).toHaveBeenLastCalledWith(expect.objectContaining({ holes: [] }));
+    unmount();
+  });
+
+  it("updates a resized overlay and stops observing when unmounted", async () => {
+    const { unmount, pick } = await setup();
+    const overlay = placed(document.createElement("div"), 0, 0, 100, 80);
+    await act(async () => {
+      pick.mockImplementation(() => overlay);
+      document.body.append(overlay);
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    await act(async () => {
+      placed(overlay, 0, 0, 150, 90);
+      ResizeObserverStub.flush();
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(setVideoLayout).toHaveBeenLastCalledWith(expect.objectContaining({ holes: [{ x: 0, y: 0, width: 150, height: 90 }] }));
+    unmount();
+    pick.mockClear();
+    setVideoLayout.mockClear();
+    await act(async () => {
+      overlay.style.display = "none";
+      ResizeObserverStub.flush();
+      window.dispatchEvent(new Event("pointerdown"));
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(pick).not.toHaveBeenCalled();
+    expect(setVideoLayout).not.toHaveBeenCalled();
+  });
+
+  it("tracks CSS motion beyond the input window and returns to cached sampling afterwards", async () => {
+    const { unmount, pick } = await setup();
+    const overlay = placed(document.createElement("div"), 0, 0, 100, 80);
+    const motionEvent = (type: string) => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, "animationName", { value: "slide" });
+      overlay.dispatchEvent(event);
+    };
+    await act(async () => {
+      pick.mockImplementation(() => overlay);
+      document.body.append(overlay);
+      motionEvent("animationstart");
+      await vi.advanceTimersByTimeAsync(800);
+      placed(overlay, 80, 0, 100, 80);
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(setVideoLayout).toHaveBeenLastCalledWith(expect.objectContaining({ holes: [{ x: 80, y: 0, width: 100, height: 80 }] }));
+    await act(async () => {
+      motionEvent("animationend");
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    pick.mockClear();
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(pick).not.toHaveBeenCalled();
+    unmount();
+  });
 });
 
 describe("coverings", () => {

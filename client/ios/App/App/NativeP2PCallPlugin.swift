@@ -72,8 +72,6 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     private var micEnabled = true
     /// Last change wins, and no WebRTC call runs under `lock`.
     private let micQueue = DispatchQueue(label: "net.mqvi.call-mic")
-    /// Only an audio session this plugin opened may be closed by it (audioQueue only).
-    private var audioOwned = false
     private var camera: NativeCallCamera?
     private var callId: String?
     /// The call this plugin is serving and the page instance that started it, from the moment
@@ -92,12 +90,15 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Holds shouldNegotiate back until start sends the single initial offer.
     private var negotiationArmed = false
 
-    /// Check-and-switch of the audio session in one step. Not under `lock`: delegates take it.
-    private let audioQueue = DispatchQueue(label: "net.mqvi.call-audio")
-
     // MARK: - JS surface
 
     public override func load() {
+        CallAudioSession.onFailure = { [weak self] callId in
+            guard let self else { return }
+            self.endIfServing(callId)
+            self.notifyListeners("connectionState", data: ["callId": callId, "state": "closed"])
+            CallManager.shared.endCall(callId: callId, reason: "failed")
+        }
         // Hung up on the system call screen: the page may be suspended and unable to stop the
         // media, so the microphone is released here; the page ends the call on the server later.
         CallManager.shared.onEndedBySystem = { [weak self] callId in
@@ -174,7 +175,13 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             }
 
             // Before the connection exists: this enables the audio unit for a CallKit session.
-            self.beginAudio(for: gen)
+            do {
+                try CallAudioSession.begin(callId: callId)
+            } catch {
+                self.endIfServing(callId)
+                call.reject("audio session activation failed: \(error.localizedDescription)")
+                return
+            }
 
             // Blank the surface, in case the previous call did not end cleanly.
             Task { @MainActor in
@@ -736,22 +743,6 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         return pc === peerConnection ? callId : nil
     }
 
-    private func beginAudio(for gen: Int) {
-        audioQueue.sync {
-            guard self.isCurrent(gen) else { return }
-            CallAudioSession.begin()
-            self.audioOwned = true
-        }
-    }
-
-    private func endAudio() {
-        audioQueue.sync {
-            guard self.audioOwned else { return }
-            self.audioOwned = false
-            CallAudioSession.end()
-        }
-    }
-
     private func applyMic() {
         micQueue.async {
             self.lock.lock()
@@ -941,6 +932,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         lock.lock()
         generation += 1
         let gen = generation
+        let audioCallId = owner?.callId
         let pc = peerConnection
         let camera = self.camera
         let control = controlChannel
@@ -959,7 +951,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         negotiationArmed = false
         lock.unlock()
 
-        endAudio()
+        if let audioCallId { CallAudioSession.end(callId: audioCallId) }
         Task { @MainActor in
             camera?.stop()
             guard self.isCurrent(gen) else { return }
